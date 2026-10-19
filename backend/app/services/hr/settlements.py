@@ -74,6 +74,7 @@ from app.services.hr.settlements_rules import (
     parse_since,
     payout_date,
     problems_of,
+    seller_problem,
     settled_in_nexus,
 )
 from app.services.hr_settlement_schema import (
@@ -224,6 +225,16 @@ def gross_issue_of(
     )
 
 
+def seller_issue_of(
+    invoices: list[PayrollInvoice], billing: Optional[EmployeeBillingDetails]
+) -> bool:
+    """Faktura od innego NIP-u niż w danych do rozliczeń (``seller_problem``)."""
+
+    return seller_problem(
+        (i.seller_nip for i in invoices), billing.nip if billing is not None else None
+    )
+
+
 async def problems_now(
     db: AsyncSession, settlement: PayrollSettlement
 ) -> tuple[str, ...]:
@@ -236,6 +247,7 @@ async def problems_now(
         discrepancy=settlement.discrepancy_amount,
         account_source=billing.account_source if billing is not None else None,
         gross_issue=gross_issue_of(invoices, billing),
+        seller_issue=seller_issue_of(invoices, billing),
     )
 
 
@@ -342,7 +354,10 @@ async def recompute(
             discrepancy=discrepancy,
             account_source=billing.account_source if billing is not None else None,
             gross_issue=gross_issue_of(invoices, billing),
+            seller_issue=seller_issue_of(invoices, billing),
         )
+        # Uznanie nie obejmuje ``seller`` (faktura innego wystawcy) — po zmianie
+        # NIP-u w danych stara faktura daje rozbieżność, nie „Do zapłaty”.
         confirmed = settlement.override_confirmed_by is not None and override_covers(
             settlement.override_kind, problems
         )
@@ -857,4 +872,5 @@ __all__ = [
     "queue_link",
     "received_on",
     "recompute",
+    "seller_issue_of",
 ]

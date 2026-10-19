@@ -14,7 +14,8 @@ Czyste funkcje (testy bez bazy w ``tests/test_hr_settlements_rules.py``):
   (R4: NEXUS nie liczy podatków ani składek),
 * **co blokuje zatwierdzenie** (R7, R10) — różnica netto choćby o grosz,
   brutto, które nie wynika z netto i VAT (płacimy brutto, porównujemy netto),
-  i rachunek spoza białej listy VAT,
+  rachunek spoza białej listy VAT i faktura od innego NIP-u niż w danych do
+  rozliczeń (``seller``, audyt A2 19.10.2026),
 * **od którego miesiąca** — ``settlements_since`` („RRRR-MM”) w ustawieniach
   płatności: wcześniejsze miesiące płac to archiwum sprzed NEXUSA (wypłacone
   w Compassie). Ich zamknięcie nie zakłada rozliczeń, a premia z nich jest
@@ -171,19 +172,40 @@ def gross_problem(
     return vat_sum > ceiling
 
 
+def _digits(value: Optional[str]) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
+def seller_problem(seller_nips: Iterable[str], billing_nip: Optional[str]) -> bool:
+    """Któraś dopasowana faktura jest od innego NIP-u niż w danych do rozliczeń.
+
+    Porównujemy same cyfry. Brak NIP-u w danych przy fakturze z NIP-em to też
+    problem: jedna osoba z Płac zmienia NIP w danych, wybiera rachunek z białej
+    listy dla nowego NIP-u, a faktura od starego wystawcy zostaje przy
+    rozliczeniu — pieniądze poszłyby na rachunek innej firmy bez drugiej
+    osoby (audyt A2, 19.10.2026).
+    """
+
+    own = _digits(billing_nip)
+    return any(_digits(nip) != own for nip in seller_nips if _digits(nip))
+
+
 def problems_of(
     *,
     employment_type: str,
     discrepancy: Optional[Decimal],
     account_source: Optional[str],
     gross_issue: bool = False,
+    seller_issue: bool = False,
 ) -> tuple[str, ...]:
     """Co nie pozwala zatwierdzić faktury bez drugiej osoby (R7, R10).
 
     ``amount`` — netto faktury różni się od kwoty z NEXUSA choćby o grosz,
     ``gross`` — brutto (to, co płacimy) nie wynika z netto i VAT
     (``gross_problem``), ``white_list`` — rachunek do przelewu nie pochodzi
-    z wykazu VAT (albo go nie ma). Zlecenie i UoP nie mają faktury — nic tu
+    z wykazu VAT (albo go nie ma), ``seller`` — faktura od innego NIP-u niż
+    w danych do rozliczeń (``seller_problem``; tego nie uznaje się jako
+    różnicy — ``override_covers``). Zlecenie i UoP nie mają faktury — nic tu
     nie zgłaszają.
     """
 
@@ -196,6 +218,8 @@ def problems_of(
         found.append("gross")
     if account_source != "white_list":
         found.append("white_list")
+    if seller_issue:
+        found.append("seller")
     return tuple(found)
 
 
@@ -207,8 +231,15 @@ def override_covers(kind: Optional[str], problems: tuple[str, ...]) -> bool:
     problemu z kwotą, który pojawił się później (np. VAT u osoby, która
     w wykazie jest teraz zwolniona). Nowy dokument i zmiana odbiorcy kasują
     uznanie osobno.
+
+    Żadne uznanie nie obejmuje ``seller`` (faktura od innego NIP-u niż
+    w danych do rozliczeń): to nie różnica do uznania przez dwie osoby, tylko
+    zła faktura albo złe dane — rozwiązaniem jest właściwa faktura („Pomiń”,
+    „Przenieś”) albo poprawka NIP-u w danych do rozliczeń.
     """
 
+    if "seller" in problems:
+        return False
     if kind == "amount":
         return True
     if kind == "white_list":
@@ -220,9 +251,12 @@ def override_kind_for(problems: tuple[str, ...]) -> Optional[str]:
     """Rodzaj uznania: różnica kwoty (netto albo brutto) przed rachunkiem.
 
     Uznanie obejmuje WSZYSTKIE problemy widoczne w chwili wniosku (lista idzie
-    do śladu); nowy dokument albo zmiana rachunku je kasuje.
+    do śladu); nowy dokument albo zmiana rachunku je kasuje. Przy ``seller``
+    nie ma czego uznawać (``override_covers``) — ``None``.
     """
 
+    if "seller" in problems:
+        return None
     if "amount" in problems or "gross" in problems:
         return "amount"
     if "white_list" in problems:
@@ -248,5 +282,6 @@ __all__ = [
     "override_kind_for",
     "payout_date",
     "problems_of",
+    "seller_problem",
     "status_label",
 ]

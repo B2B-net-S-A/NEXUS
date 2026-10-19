@@ -160,6 +160,10 @@ export function documentCell(row: SettlementRow): string {
 
 /** Stan w kolejce — z różnicą przy rozbieżności: „rozbieżność +120,00”. */
 export function queueStatus(row: SettlementRow): string {
+  // Faktura od innego NIP-u niż w danych do rozliczeń — nie różnica do uznania.
+  if (row.status === "mismatch" && row.problems.includes("seller")) {
+    return "NIP wystawcy faktury inny niż w danych do rozliczeń";
+  }
   if (row.status === "mismatch" && row.discrepancy && Number(row.discrepancy) !== 0) {
     const value = Number(row.discrepancy);
     return `${row.status_label.toLowerCase()} ${value > 0 ? "+" : "−"}${formatMoney(Math.abs(value), row.currency).replace(/\s?zł$/, "")}`;

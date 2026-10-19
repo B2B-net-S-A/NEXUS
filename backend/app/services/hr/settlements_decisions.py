@@ -201,6 +201,11 @@ async def request_override(
     if settlement.override_requested_by is not None:
         raise PayrollConflict("Uznanie różnicy już czeka na drugą osobę.")
     problems = await current_problems(db, settlement)
+    if "seller" in problems:
+        raise PayrollConflict(
+            "NIP wystawcy faktury jest inny niż w danych do rozliczeń — tego nie "
+            "uznaje się jako różnicy. Odepnij fakturę albo popraw NIP w danych."
+        )
     kind = override_kind_for(problems)
     if kind is None:
         raise PayrollConflict("Tu nie ma różnicy do uznania — przelicz rozliczenie.")

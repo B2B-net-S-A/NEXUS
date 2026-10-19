@@ -300,3 +300,41 @@ def test_settled_in_nexus_from_since_month() -> None:
     assert rules.settled_in_nexus(2027, 1, since)
     assert not rules.settled_in_nexus(2025, 12, since)
     assert rules.settled_in_nexus(2020, 1, None)
+
+
+# ── Audyt A2 (19.10.2026): NIP wystawcy faktury ≠ NIP z danych do rozliczeń ───
+
+
+def test_nip_wystawcy_inny_niz_w_danych_to_problem_seller() -> None:
+    assert not rules.seller_problem(["1234563218"], "1234563218")
+    assert not rules.seller_problem(["123-456-32-18"], "1234563218")
+    assert rules.seller_problem(["1234563218", "5260250274"], "1234563218")
+    # Faktura z NIP-em, a w danych NIP-u nie ma — też do wyjaśnienia.
+    assert rules.seller_problem(["1234563218"], None)
+    assert rules.seller_problem(["1234563218"], "")
+    # Bez faktur nie ma czego porównać.
+    assert not rules.seller_problem([], None)
+    assert rules.problems_of(
+        employment_type="b2b",
+        discrepancy=Decimal("0.00"),
+        account_source="white_list",
+        seller_issue=True,
+    ) == ("seller",)
+    assert (
+        rules.problems_of(
+            employment_type="uop",
+            discrepancy=None,
+            account_source=None,
+            seller_issue=True,
+        )
+        == ()
+    )
+
+
+def test_uznanie_nie_obejmuje_zlej_faktury_ani_zlych_danych() -> None:
+    # Inny wystawca to nie różnica do uznania: ani uznanie kwoty, ani rachunku.
+    assert not rules.override_covers("amount", ("amount", "seller"))
+    assert not rules.override_covers("amount", ("seller",))
+    assert not rules.override_covers("white_list", ("seller", "white_list"))
+    assert rules.override_kind_for(("seller",)) is None
+    assert rules.override_kind_for(("amount", "seller")) is None

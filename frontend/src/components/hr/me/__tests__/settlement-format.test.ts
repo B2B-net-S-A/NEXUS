@@ -124,6 +124,10 @@ describe("settlement-format", () => {
     expect(queueStatus({ ...base, discrepancy: "0.00", problems: ["gross", "white_list"] })).toBe(
       "brutto albo VAT do sprawdzenia",
     );
+    // Inny wystawca faktury wygrywa z różnicą kwoty — to nie różnica do uznania.
+    expect(queueStatus({ ...base, problems: ["amount", "seller"] })).toBe(
+      "NIP wystawcy faktury inny niż w danych do rozliczeń",
+    );
     expect(
       queueStatus({
         ...base,

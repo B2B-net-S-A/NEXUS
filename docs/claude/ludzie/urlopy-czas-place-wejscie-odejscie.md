@@ -474,6 +474,11 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   statusie VAT ≠ `active`, VAT > 23% netto; faktur z KSeF nie odrzucamy, ręczny PDF tak.
   Faktura z KSeF łączy się z wcześniej dopiętym PDF-em (ten sam NIP, numer, waluta) zamiast
   liczyć się drugi raz; dopasowaną, nieopłaconą Płace mogą odpiąć („Pomiń”, „Przenieś”).
+  Problem `seller` (19.10.2026): dopasowana faktura od innego NIP-u niż w danych do
+  rozliczeń (same cyfry; brak NIP-u w danych przy fakturze z NIP-em też) = `mismatch`.
+  Żadne uznanie go nie obejmuje i „Uznaj różnicę” odmawia (409) — to zła faktura albo złe
+  dane, nie różnica: odpiąć fakturę albo poprawić NIP. Bo zmiana NIP-u + rachunek z wykazu
+  dla nowego NIP-u przepuszczały starą fakturę jako „Do zapłaty” bez drugiej osoby.
   Dzwonki rozliczeń idą bez numeru encji (dzienny odsiew powiadomień nie zna jej rodzaju).
 - **Dane do rozliczeń** (`employee_billing_details`): osoba (odczyt), Kadry, Płace, admin;
   przełożony i zespół — 404. Rachunek szyfrowany (`TokenCipher`), na zewnątrz tylko 4 cyfry;
@@ -498,6 +503,11 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   `white_list.check` jest zablokowana do decyzji Finansów. Wiersz paczki pamięta skrót HMAC
   pełnego rachunku (klucz wyprowadzony z `M365_TOKEN_ENCRYPTION_KEY`) — podmiana rachunku po
   utworzeniu paczki = 409 `batch_account_changed` przy pobraniu pliku.
+  Wyciągi (19.10.2026): plik z kilkoma wyciągami — waluta operacji z jej wyciągu (MT940:
+  `:60F:` przy `:61:`, CAMT: `Amt/@Ccy`, bez niego `Acct/Ccy` tego `Stmt`). Storno: kierunek
+  = `CdtDbtInd` wpisu (CRDT + `RvslInd` = wpływ, np. zwrot nieudanej wypłaty — nie opłaca
+  rozliczenia), jak `RC`/`RD` w MT940; kontrahent = strona pierwotnej operacji. CAMT
+  z `Ntry/Sts` ≠ `BOOK` (`PDNG`, `INFO`) pomijany; brak `Sts` = zaksięgowany.
 - **Symfonia** (`symfonia_export.py`): ZIP z ekranu miesiąca Płac — `zdarzenia_RRRR-MM.xml`
   (windows-1250; L4 tylko, gdy Płace nie pobierają e-ZLA), XLSX premii, XLSX rozliczeń zleceń,
   PDF zestawienia z listą rzeczy do zrobienia ręcznie. Kwoty w paczce tylko dla Płac, plik
