@@ -375,6 +375,18 @@ z odnośnikiem `hr_documents.leave_request_id`.
   dopiero, gdy widz może o premii zdecydować; obcy dostaje 404 bez zapisu. Logi
   automatu premii niosą klasę wyjątku, nie treść (DETAIL Postgresa pokazuje kwoty
   wiersza) (19.10.2026).
+- **Własnej stawki nie ustawia ani nie usuwa osoba z Płac** (decyzja Artura
+  19.10.2026, `payroll_rates.ensure_not_own_rate`): 403 „Własnej stawki nie
+  ustawiasz / nie usuwasz — zrobi to druga osoba z Płac albo administrator.”;
+  administrator może (ślad w audycie jak zawsze). Na własnej kartotece
+  `can_edit_rates = false`.
+- **Premia ręczna od przełożonego to propozycja** (decyzja Artura 19.10.2026,
+  `payroll_bonuses.approval_refusal`): powstaje jako `proposed` (bez `assigned_by`,
+  ślad `bonus_proposed`, bez dzwonka osobie); zatwierdzają ją tylko Płace, nigdy jej
+  autor (403), dzwonek „Masz nową premię” idzie przy zatwierdzeniu. Autor może ją
+  zmienić albo wycofać. Płace przyznają od razu jak dotąd. Listy premii niosą
+  `can_approve` — front pokazuje „Zatwierdź” tylko wtedy, a po dodaniu przełożony
+  widzi „Premia czeka na zatwierdzenie Płac”. Zamknięcie miesiąca i tak wymaga decyzji.
 - Trwałe usunięcie kontraktu anuluje jego propozycje premii automatu
   (`cancel_reason='contract_deleted'`, automat ich nie przywraca); przyznane zostają.
 - Premie: `source` manual / contract_placement / league / compass_import,

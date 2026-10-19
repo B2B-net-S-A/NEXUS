@@ -60,7 +60,7 @@ DEFAULT_RETENTION_YEARS: dict[str, int] = {
     "absence_proof": 10,
     "other": 10,
 }
-RETENTION_MIN_YEARS = 1
+RETENTION_MIN_YEARS = 10  # decyzja Artura 19.10.2026: e-teczka co najmniej 10 lat
 RETENTION_MAX_YEARS = 50
 
 

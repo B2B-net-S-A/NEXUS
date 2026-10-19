@@ -273,6 +273,8 @@ async def _bonus_list(
             **payroll_bonuses.bonus_payload(
                 bonus, names, with_snapshot=viewer.payroll, today=today
             ),
+            # Propozycję ręczną przełożonego zatwierdzają tylko Płace (19.10.2026).
+            "can_approve": payroll_bonuses.can_approve(viewer, bonus),
             "contract_ended_early": bonus.id in ended_early,
         }
         for bonus in bonuses
@@ -606,7 +608,9 @@ async def person_payroll(
     payload: dict[str, Any] = {
         "user_id": user_id,
         "scope": "full" if viewer.sees_rates_of(user_id) else "team",
-        "can_edit_rates": viewer.payroll,
+        # Własną stawkę zmienia druga osoba z Płac albo admin (19.10.2026).
+        "can_edit_rates": viewer.payroll
+        and (user_id != viewer.user_id or viewer.admin),
         "can_add_bonus": viewer.manages_bonuses_of(user_id),
         "bonuses": await _bonus_list(db, bonuses, viewer, today=today),
     }
@@ -637,6 +641,7 @@ async def set_rate(
             reason=payload.reason,
             actor_id=current_user.id,
             today=business_today(),
+            actor_is_admin=current_user.has_role(UserRole.admin),
         )
         # Zlecenie bez minimum dla roku albo w innej walucie — zapis z ostrzeżeniem.
         warning = await payroll_rates.mandate_minimum_check(
@@ -654,7 +659,12 @@ async def delete_rate(
     rate_id: int, current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
 ) -> Response:
     with _http_errors():
-        await payroll_rates.delete_rate(db, rate_id=rate_id, actor_id=current_user.id)
+        await payroll_rates.delete_rate(
+            db,
+            rate_id=rate_id,
+            actor_id=current_user.id,
+            actor_is_admin=current_user.has_role(UserRole.admin),
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -682,10 +692,8 @@ async def list_bonuses(
 async def _bonus_response(
     db: AsyncSession, bonus: HrBonus, viewer: PayrollViewer
 ) -> dict[str, Any]:
-    names = await payroll_bonuses.names_for(db, [bonus])
-    return payroll_bonuses.bonus_payload(
-        bonus, names, with_snapshot=viewer.payroll, today=business_today()
-    )
+    (payload,) = await _bonus_list(db, [bonus], viewer, today=business_today())
+    return payload
 
 
 @router.post("/bonuses", status_code=status.HTTP_201_CREATED)

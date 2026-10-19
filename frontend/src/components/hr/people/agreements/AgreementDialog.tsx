@@ -344,7 +344,7 @@ export function AgreementDialog({
       <div className="mt-4 rounded-lg border border-border bg-muted/40 p-3 text-sm">
         <p className="font-medium text-foreground">Po podpisaniu NEXUS sam:</p>
         <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
-          {afterSigning(context, form.startDate).map((step) => (
+          {afterSigning(context, form.startDate, { appliesRate: overview.applies_rate }).map((step) => (
             <li key={step}>{step}</li>
           ))}
         </ul>

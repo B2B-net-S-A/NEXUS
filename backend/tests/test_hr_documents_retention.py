@@ -2,8 +2,9 @@
 
 Ścieżki odmowy: osoba pracująca i osoba, której okres jeszcze trwa, nie są na
 liście; usunięcie bez potwierdzenia = 422; pozycja, która przestała być po
-terminie (osoba wróciła), jest pomijana z powodem; okresy spoza 1–50 lat
-i nieznany rodzaj = 422; tylko Kadry. Dane fikcyjne.
+terminie (osoba wróciła), jest pomijana z powodem; okresy spoza 10–50 lat
+(minimum 10 lat — decyzja Artura 19.10.2026) i nieznany rodzaj = 422; tylko
+Kadry. Dane fikcyjne.
 """
 
 from __future__ import annotations
@@ -164,7 +165,9 @@ async def test_longer_retention_takes_document_off_the_list(
     assert doc_id not in {row["id"] for row in after.json()["items"]}
 
 
-@pytest.mark.parametrize("years", [{"other": 0}, {"other": 51}, {"nda": 5}])
+@pytest.mark.parametrize(
+    "years", [{"other": 0}, {"other": 9}, {"contract": 9}, {"other": 51}, {"nda": 5}]
+)
 async def test_retention_settings_refuse_bad_values(
     app_client: AsyncClient, years
 ) -> None:

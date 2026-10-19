@@ -358,6 +358,71 @@ async def test_rate_change_notifies_without_amount_and_audits_as_payroll(
     assert with_amount and all(e.sensitivity == "payroll" for e in with_amount)
 
 
+@pytest.mark.asyncio
+async def test_payroll_cannot_set_or_delete_own_rate_but_admin_can(
+    app_client, payroll_on
+) -> None:
+    """Decyzja Artura 19.10.2026: własną stawkę zmienia druga osoba z Płac albo admin."""
+
+    async with AsyncSessionLocal() as db:
+        finance = await _user(db, "recruiter", profile=True, employment_type="b2b")
+        await _grant(db, finance, "payroll")
+        colleague = await _user(db, "recruiter")
+        await _grant(db, colleague, "payroll")
+        admin = await _user(db, "admin", profile=True, employment_type="b2b")
+        await db.commit()
+    y, m = _months_ago(1)
+    body = {"hourly_rate": "101.00", "effective_from": f"{y}-{m:02d}-01"}
+
+    own = await app_client.post(
+        f"/api/hr/payroll/people/{finance.id}/rates",
+        json=body,
+        headers=_headers(finance),
+    )
+    assert own.status_code == 403
+    assert own.json()["detail"] == (
+        "Własnej stawki nie ustawiasz — zrobi to druga osoba z Płac albo administrator."
+    )
+    by_colleague = await app_client.post(
+        f"/api/hr/payroll/people/{finance.id}/rates",
+        json=body,
+        headers=_headers(colleague),
+    )
+    assert by_colleague.status_code == 201, by_colleague.text
+    own_delete = await app_client.delete(
+        f"/api/hr/payroll/rates/{by_colleague.json()['id']}", headers=_headers(finance)
+    )
+    assert own_delete.status_code == 403
+    assert own_delete.json()["detail"].startswith("Własnej stawki nie usuwasz")
+    own_page = await app_client.get(
+        f"/api/hr/payroll/people/{finance.id}", headers=_headers(finance)
+    )
+    assert own_page.status_code == 200
+    assert own_page.json()["can_edit_rates"] is False
+
+    admin_own = await app_client.post(
+        f"/api/hr/payroll/people/{admin.id}/rates", json=body, headers=_headers(admin)
+    )
+    assert admin_own.status_code == 201, admin_own.text
+    async with AsyncSessionLocal() as db:
+        rates = list(
+            await db.scalars(
+                select(EmployeeRate.user_id).where(
+                    EmployeeRate.user_id.in_([finance.id, admin.id])
+                )
+            )
+        )
+        trail = await db.scalar(
+            select(HrAuditEvent.id).where(
+                HrAuditEvent.subject_user_id == admin.id,
+                HrAuditEvent.actor_user_id == admin.id,
+                HrAuditEvent.action == "rate_set",
+            )
+        )
+    assert sorted(rates) == sorted([finance.id, admin.id])
+    assert trail is not None
+
+
 # ── Zakres widoczności (D2) ───────────────────────────────────────────────────
 
 
@@ -387,6 +452,12 @@ async def test_manager_sees_team_hours_and_bonuses_but_not_rates(
         headers=_headers(boss),
     )
     assert bonus.status_code == 201, bonus.text
+    # Premia od przełożonego to propozycja — liczy się po zatwierdzeniu Płac.
+    approved = await app_client.post(
+        f"/api/hr/payroll/bonuses/{bonus.json()['id']}/approve",
+        headers=_headers(finance),
+    )
+    assert approved.status_code == 200, approved.text
 
     month = await app_client.get(
         f"/api/hr/payroll/months/{y}/{m}", headers=_headers(boss)
@@ -491,7 +562,8 @@ async def test_manual_bonus_scope_self_and_soft_cancel(app_client, payroll_on) -
         headers=_headers(boss),
     )
     assert given.status_code == 201, given.text
-    assert given.json()["status"] == "assigned"
+    # Od przełożonego — propozycja dla Płac (19.10.2026); autor ją wycofuje.
+    assert given.json()["status"] == "proposed"
     bonus_id = given.json()["id"]
 
     by_finance = await app_client.post(
@@ -587,6 +659,94 @@ async def test_proposal_waits_for_deadline_and_nobody_approves_own(
     )
     assert approved.status_code == 200
     assert approved.json()["status"] == "assigned"
+
+
+@pytest.mark.asyncio
+async def test_manual_bonus_from_manager_waits_for_payroll(
+    app_client, payroll_on
+) -> None:
+    """Decyzja Artura 19.10.2026: premia ręczna przełożonego = propozycja dla Płac."""
+
+    finance, boss, worker, _other = await _payroll_team()
+    y, m = _months_ago(0)
+    proposed = await app_client.post(
+        "/api/hr/payroll/bonuses",
+        json={
+            "recipient_user_id": worker.id,
+            "amount": "250",
+            "category": "custom",
+            "period_year": y,
+            "period_month": m,
+            "description": "Za pomoc przy wdrożeniu",
+        },
+        headers=_headers(boss),
+    )
+    assert proposed.status_code == 201, proposed.text
+    body = proposed.json()
+    assert body["status"] == "proposed" and body["source"] == "manual"
+    assert body["assigned_by"] is None and body["assigned_at"] is None
+    assert body["can_approve"] is False
+    bonus_id = body["id"]
+
+    async def worker_bells() -> int:
+        async with AsyncSessionLocal() as db:
+            return len(
+                list(
+                    await db.scalars(
+                        select(Notification.id).where(
+                            Notification.user_id == worker.id,
+                            Notification.related_entity_id == bonus_id,
+                            Notification.notification_type
+                            == NotificationType.hr_bonus_assigned,
+                        )
+                    )
+                )
+            )
+
+    assert await worker_bells() == 0
+
+    # Lista „Do decyzji”: przełożony nie ma „Zatwierdź”, Płace mają.
+    listed = await app_client.get(
+        "/api/hr/payroll/bonuses", params={"user_id": worker.id}, headers=_headers(boss)
+    )
+    row = next(item for item in listed.json()["items"] if item["id"] == bonus_id)
+    assert row["can_approve"] is False
+    listed = await app_client.get(
+        "/api/hr/payroll/bonuses",
+        params={"user_id": worker.id},
+        headers=_headers(finance),
+    )
+    row = next(item for item in listed.json()["items"] if item["id"] == bonus_id)
+    assert row["can_approve"] is True
+
+    own = await app_client.post(
+        f"/api/hr/payroll/bonuses/{bonus_id}/approve", headers=_headers(boss)
+    )
+    assert own.status_code == 403
+    assert "Płace" in own.json()["detail"]
+
+    approved = await app_client.post(
+        f"/api/hr/payroll/bonuses/{bonus_id}/approve", headers=_headers(finance)
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "assigned"
+    assert approved.json()["assigned_by"] == finance.id
+    assert await worker_bells() == 1
+
+    # Płace przyznają od razu, jak dotąd.
+    direct = await app_client.post(
+        "/api/hr/payroll/bonuses",
+        json={
+            "recipient_user_id": worker.id,
+            "amount": "90",
+            "period_year": y,
+            "period_month": m,
+        },
+        headers=_headers(finance),
+    )
+    assert direct.status_code == 201
+    assert direct.json()["status"] == "assigned"
+    assert direct.json()["assigned_by"] == finance.id
 
 
 # ── Zamknięcie miesiąca ───────────────────────────────────────────────────────

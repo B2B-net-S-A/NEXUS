@@ -12,6 +12,8 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useCancelAgreement, useMarkSigned, type Agreement } from "@/lib/api/hr-agreements";
 import { warsawToday } from "@/lib/warsaw-date";
 
+import { RATE_BY_PAYROLL } from "./agreement-format";
+
 const SCAN_MAX_BYTES = 20 * 1024 * 1024;
 const SCAN_TYPES = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
 
@@ -26,9 +28,18 @@ export function scanProblem(file: File | null): string | null {
 /**
  * „Oznacz jako podpisaną” — druga ścieżka, gdy Autenti nie jest ustawione albo
  * osoba podpisała na papierze. Skan, data podpisu i powód idą do śladu;
- * podpis i przepisanie do kartoteki dzieją się razem albo wcale.
+ * podpis i przepisanie do kartoteki dzieją się razem albo wcale. Bez Płac
+ * (`appliesRate: false`) podpis nie zapisuje stawki — przepisuje ją osoba z Płac.
  */
-export function MarkSignedDialog({ agreement, onClose }: { agreement: Agreement; onClose: () => void }) {
+export function MarkSignedDialog({
+  agreement,
+  appliesRate,
+  onClose,
+}: {
+  agreement: Agreement;
+  appliesRate: boolean;
+  onClose: () => void;
+}) {
   const { showToast } = useToast();
   const mark = useMarkSigned();
   const today = warsawToday();
@@ -52,7 +63,12 @@ export function MarkSignedDialog({ agreement, onClose }: { agreement: Agreement;
       { id: agreement.id, file, signedOn, reason: reason.trim() },
       {
         onSuccess: () => {
-          showToast("Umowa podpisana — stawka, forma i dokument są w kartotece", "success");
+          showToast(
+            appliesRate
+              ? "Umowa podpisana — stawka, forma i dokument są w kartotece"
+              : `Umowa podpisana — forma i dokument są w kartotece. ${RATE_BY_PAYROLL}.`,
+            "success",
+          );
           onClose();
         },
         onError: (err) => setError(apiErrorMessage(err, "Nie udało się oznaczyć podpisu.")),
@@ -67,7 +83,9 @@ export function MarkSignedDialog({ agreement, onClose }: { agreement: Agreement;
         if (!next) onClose();
       }}
       title="Oznacz jako podpisaną"
-      description={`${agreement.title}. Skan trafi do dokumentów osoby, a dane umowy do kartoteki.`}
+      description={`${agreement.title}. Skan trafi do dokumentów osoby, a dane umowy do kartoteki.${
+        appliesRate ? "" : ` ${RATE_BY_PAYROLL}.`
+      }`}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
