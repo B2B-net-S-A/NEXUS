@@ -345,6 +345,23 @@ export function aiScreeningBadge(
   };
 }
 
+/**
+ * Etap 2 linków (19.10.2026): osoba zgłosiła się z linku rekrutacji — karta
+ * mówi napisem, czyj to link (plakietka źródła jest ikoną z dymkiem).
+ */
+function linkOwnerBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
+  if (item.entry_source !== "application" || item.entry_link_owner_id == null) return null;
+  const own = item.entry_link_owner_id === ctx.viewerId;
+  return {
+    key: "link",
+    label: own ? "Z Twojego linku" : `Z linku: ${firstName(item.entry_link_owner_name)}`,
+    tone: "neutral",
+    title: own
+      ? "Osoba zgłosiła się z Twojego linku do tej rekrutacji."
+      : `Osoba zgłosiła się z linku, który udostępnił(a) ${item.entry_link_owner_name ?? "ktoś z zespołu"}.`,
+  };
+}
+
 function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
   switch (item.entry_source) {
     case "added_manual": {
@@ -360,8 +377,10 @@ function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null 
     }
     case "application": {
       const ai = aiScreeningBadge(item.entry_ai_screening);
-      return ai
-        ? { key: "source", label: ai.label, tone: ai.tone, title: ai.title }
+      if (ai) return { key: "source", label: ai.label, tone: ai.tone, title: ai.title };
+      // Zgłoszenie z linku bez przeglądu AI: źródło mówi plakietka linku.
+      return item.entry_link_owner_id != null
+        ? null
         : { key: "source", label: "Z ogłoszenia", tone: "neutral" };
     }
     case "proposal":
@@ -470,6 +489,8 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
     });
   }
   if (column === "new" || column === "screening") {
+    const link = linkOwnerBadge(item, ctx);
+    if (link) out.push(link);
     const source = sourceBadge(item, ctx);
     const duplicatesStage = ctx.stageBadge === "posting" && item.entry_source === "application";
     if (source && !duplicatesStage) out.push(source);

@@ -620,11 +620,21 @@ class AvailabilityFromNotes(BaseModel):
     basis: Optional[str] = None
 
 
+class CandidateLocationDistance(BaseModel):
+    place: str
+    km: int
+    center: str
+
+
 class CandidateResponse(BaseModel):
     # Lista, `semantics_version=2`: które AKTYWNE filtry („location",
     # „experience", „rate") ta osoba przeszła wyłącznie dlatego, że nie mamy
     # o niej danych. Poza listą zawsze puste.
     unknown_fields: list[str] = Field(default_factory=list)
+    # Lista z promieniem (D6, 19.10.2026): „Pruszków · 16 km od Warszawy” —
+    # najbliższy środek, w którego promieniu leży miejscowość osoby. `None`
+    # poza promieniem, w samym środku albo gdy miejscowości nie ma w spisie.
+    location_distance: Optional[CandidateLocationDistance] = None
     id: int
     name: str
     lastname: str
@@ -991,6 +1001,11 @@ class CandidateList(BaseModel):
     # awaria Voyage/Qdranta, przełącznik OFF) lista wraca do "newest" — front
     # mówi wtedy, że kolejność według dopasowania jest chwilowo niedostępna.
     sort_applied: Optional[str] = None
+    # D5 (19.10.2026): ile z `total` spełnia aktywne filtry stawki /
+    # lokalizacji / stażu Z DANYMI (bez plakietki „brak …”). `None` = żaden
+    # z tych filtrów nie działa albo osoby bez danych są ukryte — wtedy
+    # `total` to same trafienia.
+    known_match_count: Optional[int] = None
 
 
 class CandidateFromCVDuplicate(BaseModel):

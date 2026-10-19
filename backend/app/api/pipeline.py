@@ -32,6 +32,7 @@ from app.models.notification import Notification, NotificationType
 from app.services import board_tasks as board_tasks_svc
 from app.services import candidate_audit, candidate_claim, pipeline_move_rules
 from app.services.process_entry_meta import (
+    application_link_owner_id,
     application_screening_badge,
     auto_match_badge,
 )
@@ -3022,6 +3023,14 @@ async def build_kanban_view(
         for p in v4_processes.values()
         if p.claimed_by_user_id is not None
     }
+    # Etap 2 linków (19.10.2026): plakietka „Z Twojego linku” / „Z linku …”.
+    link_owner_by_candidate = {
+        cid: owner
+        for cid, p in v4_processes.items()
+        if p.entry_source == candidate_claim.ENTRY_APPLICATION
+        and (owner := application_link_owner_id(p.entry_meta)) is not None
+    }
+    owner_ids |= set(link_owner_by_candidate.values())
     inactive_claimers = await candidate_claim.inactive_holders(
         db, v4_processes.values()
     )
@@ -3371,6 +3380,10 @@ async def build_kanban_view(
             payload["entry_source"] = v4.entry_source
             payload["entry_auto_match"] = auto_match_badge(v4.entry_meta)
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
+            link_owner = link_owner_by_candidate.get(e.candidate_id)
+            if link_owner is not None:
+                payload["entry_link_owner_id"] = link_owner
+                payload["entry_link_owner_name"] = user_name_by_id.get(link_owner)
             payload["reassign_from_job_id"] = v4.reassign_from_job_id
             if v4.reassign_from_job_id is not None:
                 payload["reassign_from_title"] = reassign_titles.get(
@@ -4242,10 +4255,12 @@ async def claim_candidate(
 ):
     """„Biorę" / „Przejmij" — osoba w „Nowych" na 12 h dla klikającego (0352).
 
-    Wolną osobę (z ogłoszenia, propozycji, po upływie blokady) bierze każdy
-    z zespołu rekrutacji. Cudzą, wciąż aktywną blokadę przejmuje wyłącznie
-    admin, Delivery Lead albo Head of Recruitment — poprzedni rekruter dostaje
-    dzwonek.
+    Wolną osobę (z propozycji, z ogłoszenia bez właściciela linku, po upływie
+    blokady) bierze każdy z zespołu rekrutacji. Osoba, która zgłosiła się
+    z linku rekrutacji, ma od wejścia do „Nowi” blokadę właściciela linku
+    (etap 2 linków, 19.10.2026) — jak osoba dodana ręcznie. Cudzą, wciąż
+    aktywną blokadę przejmuje wyłącznie admin, Delivery Lead albo Head of
+    Recruitment — poprzedni rekruter dostaje dzwonek.
     """
     job = await db.scalar(select(Job).where(Job.id == data.job_id))
     if job is None:

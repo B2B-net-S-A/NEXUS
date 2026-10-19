@@ -114,6 +114,10 @@ class CandidateSearchRequest(BaseModel):
     # Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji / stażu / stawki.
     # Domyślnie (v2) takie osoby ZOSTAJĄ i są oznaczane w `unknown_fields`.
     hide_unknown: Optional[bool] = None
+    # D5 (19.10.2026): to samo tylko dla stawki / tylko dla miasta (`true`
+    # ukrywa, brak = jak bez przełącznika) — te same pola co na liście.
+    hide_unknown_rate: Optional[bool] = None
+    hide_unknown_location: Optional[bool] = None
     # Wersja semantyki filtrów. Brak pola (v1) = DOKŁADNIE dotychczasowe wyniki
     # tego endpointu — zapisane wyszukiwania nie zmieniają się bez zgody
     # właściciela. `2` = jedna semantyka wspólna z `GET /api/candidates`

@@ -20,7 +20,10 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
   `POST /api/pipeline/claim` = „Biorę” (wolna) / „Przejmij” (cudza aktywna —
   tylko DL/HoR/admin, dzwonek `candidate_claim_taken`). Wyjście poza Nowych
   czyści blokadę; wygaśnięcie liczy się przy odczycie. Automat
-  (`auto_match`) nikogo nie blokuje.
+  (`auto_match`) nikogo nie blokuje. **Od 19.10.2026 także zgłoszenie z linku
+  rekrutacji** zakłada blokadę — dla właściciela linku, nie dla klikającego
+  ani recenzenta (szczegóły w
+  `rekrutacja-tworzenie/zgloszenia-z-linku-rekrutacji-przeglada-ai-przed.md`).
 - **Źródło wejścia** `recruitment_processes.entry_source`
   (added_manual|application|proposal|reassign|auto_match|import; NULL = proces
   sprzed 0352). Otwarta propozycja przepięcia (`JobProposal source=reassign`)

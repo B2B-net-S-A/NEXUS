@@ -105,6 +105,14 @@ import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProces
 import { AvailabilityPill } from "@/components/ds/AvailabilityPill";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
 import { BlacklistBadge } from "@/components/v2/candidate-profile/BlacklistDialogs";
+import { UnknownFieldBadges } from "@/components/v2/candidates/UnknownFieldBadges";
+import {
+  dividerIndex,
+  dividerTitle,
+  hideUnknownPatch,
+  knownSplitLabel,
+  unknownFieldsBelow,
+} from "@/lib/unknown-divider";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import { hidesAvailabilityStatus } from "@/lib/contract-availability";
 import type { EmployedPerson } from "@/components/v2/employment/EmploymentNotice";
@@ -222,6 +230,8 @@ const LIST_COLUMN_IDS: ReadonlySet<string> = new Set(["process"]);
 const ROW_HEIGHT = 64;
 /** Wysokość nagłówka kolumn (`h-10`) — przesunięcie wierszy w kontenerze przewijania. */
 const LIST_HEADER_HEIGHT = 40;
+// Kreska „Bez stawki albo miasta w profilu · N” nad osobami bez danych (D5).
+const UNKNOWN_DIVIDER_HEIGHT = 36;
 
 const SORT_LABELS: Record<CandidateFilters["sort"], string> = {
   relevance: "Trafność",
@@ -337,6 +347,8 @@ interface Candidate {
   contact_case?: CandidateContactSummary | null;
   /** Semantyka v2: filtry przejście wyłącznie przez brak danych. */
   unknown_fields?: string[];
+  /** D6: „Pruszków · 16 km (Warszawa)” — osoba przeszła przez promień. */
+  location_distance?: { place: string; km: number; center: string } | null;
 }
 
 interface CandidateListResponse {
@@ -356,6 +368,9 @@ interface CandidateListResponse {
   /** Tekst wyglądający na osobę: „exact” = jest ktoś o tym nazwisku,
    *  „similar” = nie ma nikogo takiego, pokazujemy podobne nazwiska. */
   text_match?: "exact" | "similar" | null;
+  /** D5: ile z `total` spełnia filtr stawki/miasta/stażu Z DANYMI;
+   *  `null` = żaden z tych filtrów nie zostawia osób bez danych. */
+  known_match_count?: number | null;
 }
 
 /**
@@ -1394,6 +1409,22 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  if (fields > 0) return 11 + 18 * Math.min(fields, MAX_FIELD_SNIPPETS);
  return c?.match_snippet ? SNIPPET_AREA : 0;
  };
+ // D5 (19.10.2026): kreska „Bez stawki albo miasta w profilu” nad pierwszą
+ // osobą, która przeszła filtr na brak danych — tylko przy układzie „z danymi,
+ // potem bez” (`lib/unknown-divider.ts`). Wiersz pod kreską rośnie o jej wysokość.
+ const knownCount = data?.known_match_count ?? null;
+ const unknownDividerAt = dividerIndex(items, {
+ offset: (resultsPage - 1) * pageSize,
+ knownCount,
+ });
+ const unknownBelow =
+ unknownDividerAt === null ? [] : unknownFieldsBelow(items, unknownDividerAt);
+ const unknownBelowCount =
+ unknownDividerAt === null
+ ? 0
+ : knownCount !== null
+ ? Math.max(0, total - knownCount)
+ : items.length - unknownDividerAt;
  const virtualizer = useVirtualizer({
  count: items.length,
  getScrollElement: () => parentRef.current,
@@ -1402,7 +1433,11 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  scrollMargin: LIST_HEADER_HEIGHT,
  estimateSize: (index) => {
  const c = items[index];
- return rowHeight + (hasSearchTerms ? snippetAreaFor(c) : 0);
+ return (
+ rowHeight +
+ (hasSearchTerms ? snippetAreaFor(c) : 0) +
+ (index === unknownDividerAt ? UNKNOWN_DIVIDER_HEIGHT : 0)
+ );
  },
  overscan: 10,
  });
@@ -1724,6 +1759,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  languages.length +
  (traffitExtras.locationRadiusKm !== null && locationFilter ? 1 : 0) +
  traffitExtras.voivodeships.length +
+ traffitExtras.locationPlaces.length +
  (traffitExtras.contacted ? 1 : 0) +
  (traffitExtras.contacted ? traffitExtras.contactedByIds.length : 0);
 
@@ -2260,7 +2296,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                 ? "Ładowanie…"
                 : isError && items.length === 0
                   ? "Nie udało się pobrać danych"
-                  : candidatesCountLabel(total)}
+                  : (knownSplitLabel(total, data?.known_match_count) ??
+                    candidatesCountLabel(total))}
             </span>
             {isFetching && !isLoading && (
               <span className="text-xs text-muted-foreground">aktualizuję…</span>
@@ -2467,7 +2504,54 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                     const availabilitySecond = availabilityCellSecondLine(candidate);
                     const rate = rateCellText(candidate);
                     const rateSecond = rateCellSecondLine(candidate);
+                    const divider = virtualRow.index === unknownDividerAt ? UNKNOWN_DIVIDER_HEIGHT : 0;
+                    const distance = candidate.location_distance;
+                    const locationText =
+                      location && distance
+                        ? `${location} · ${distance.km} km (${distance.center})`
+                        : location;
+                    const locationTitle =
+                      location && distance
+                        ? `${location} — ${distance.km} km od miejscowości ${distance.center}`
+                        : location ?? undefined;
+                    const noLocationBadge = candidate.unknown_fields?.includes("location") ?? false;
                     return (
+                      <Fragment key={candidate.id}>
+                      {divider > 0 && (
+                        <div
+                          data-testid="unknown-divider"
+                          role="group"
+                          aria-label="Osoby bez danych"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            height: `${divider}px`,
+                            transform: `translateY(${virtualRow.start - LIST_HEADER_HEIGHT}px)`,
+                          }}
+                          className="flex items-center gap-2 border-b border-t border-dashed border-border bg-muted/50 px-4 text-xs text-muted-foreground"
+                        >
+                          <span className="min-w-0 truncate">
+                            <span className="font-medium text-foreground">{dividerTitle(unknownBelow)}</span>
+                            {" · "}
+                            {unknownBelowCount.toLocaleString("pl-PL")}
+                            {" · mogą pasować, zapytaj w rozmowie"}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="ml-auto h-7 shrink-0 px-2 text-xs"
+                            onClick={() => {
+                              applyFiltersPatch({ ...hideUnknownPatch(unknownBelow), page: 1 });
+                              requestApply();
+                            }}
+                          >
+                            Ukryj
+                          </Button>
+                        </div>
+                      )}
                       <div
                         key={candidate.id}
                         data-testid={candidateRowTestId(candidate.id)}
@@ -2488,8 +2572,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                           top: 0,
                           left: 0,
                           width: "100%",
-                          height: `${virtualRow.size}px`,
-                          transform: `translateY(${virtualRow.start - LIST_HEADER_HEIGHT}px)`,
+                          height: `${virtualRow.size - divider}px`,
+                          transform: `translateY(${virtualRow.start - LIST_HEADER_HEIGHT + divider}px)`,
                         }}
                         className={cn(
                           // `overflow-clip`, nie `hidden`: `hidden` robi z wiersza
@@ -2575,9 +2659,14 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                 {candidate.employment_marker ? (
                                   <EmploymentPill marker={candidate.employment_marker} appearance="text" />
                                 ) : null}
-                                <span className="min-w-0 shrink-[100] truncate" title={location ?? undefined}>
-                                  {location ?? "brak lokalizacji"}
-                                </span>
+                                {/* D5: „brak stawki / lokalizacji / stażu” — osoba
+                                    przeszła filtr tylko dlatego, że nie mamy danych. */}
+                                <UnknownFieldBadges fields={candidate.unknown_fields} className="shrink-0 flex-nowrap" />
+                                {noLocationBadge && !location ? null : (
+                                  <span className="min-w-0 shrink-[100] truncate" title={locationTitle}>
+                                    {locationText ?? "brak lokalizacji"}
+                                  </span>
+                                )}
                               </p>
                             </div>
                           </div>
@@ -2735,8 +2824,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   );
                                 case "location":
                                   return (
-<div className="min-w-0 truncate text-sm text-foreground" title={location ?? undefined}>
-                            {location ?? <Missing />}
+<div className="min-w-0 truncate text-sm text-foreground" title={locationTitle}>
+                            {locationText ?? <Missing />}
                           </div>
                                   );
                                 case "experience":
@@ -2782,6 +2871,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                           </button>
                         ) : null}
                       </div>
+                      </Fragment>
                     );
                   })}
                 </div>

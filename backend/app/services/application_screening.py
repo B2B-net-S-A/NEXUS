@@ -463,6 +463,73 @@ async def pair_in_job(db: AsyncSession, *, candidate_id: int, job_id: int) -> bo
     ) is not None
 
 
+@dataclass(frozen=True)
+class ExistingCard:
+    """Karta osoby, która już jest w tej rekrutacji — do dzwonka po
+    ponownym zgłoszeniu z linku (etap 2 linków, 19.10.2026)."""
+
+    lead_id: Optional[int]
+    lead_name: Optional[str]
+    stage_label: Optional[str]
+    is_open: bool
+
+
+async def existing_card(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> Optional[ExistingCard]:
+    """Kto prowadzi osobę w tej rekrutacji i na jakim etapie; ``None`` = brak karty.
+
+    Prowadzący = aktywna blokada 12 h, a bez niej właściciel otwartego
+    procesu. Konto nieaktywne nikogo nie prowadzi.
+    """
+    from app.models.pipeline_template import PipelineStageDef
+    from app.models.recruitment_process import ProcessStatus
+    from app.models.user import User
+    from app.services import candidate_claim
+    from app.services.candidate_job_cards import stage_display_label
+
+    latest = (
+        await db.execute(
+            select(CandidateStage.stage, PipelineStageDef.name)
+            .outerjoin(
+                PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id
+            )
+            .where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
+    ).first()
+    if latest is None:
+        return None
+    process = await candidate_claim.load_process(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    is_open = process is not None and process.status == ProcessStatus.open
+    lead: Optional[User] = None
+    if is_open:
+        claim = candidate_claim.claim_state(
+            process, await candidate_claim.inactive_holders(db, [process])
+        )
+        for user_id in (
+            claim.user_id if claim.active(candidate_claim.utcnow()) else None,
+            process.owner_user_id,
+        ):
+            user = await db.get(User, user_id) if user_id is not None else None
+            if user is not None and user.is_active:
+                lead = user
+                break
+    stage_value = getattr(latest.stage, "value", latest.stage)
+    return ExistingCard(
+        lead_id=lead.id if lead is not None else None,
+        lead_name=((lead.name or "").strip() or lead.email) if lead else None,
+        stage_label=stage_display_label(latest.name, stage_value),
+        is_open=is_open,
+    )
+
+
 async def open_in_new(
     db: AsyncSession,
     *,
@@ -471,12 +538,25 @@ async def open_in_new(
     meta: dict,
     notes: str,
 ) -> CandidateStage:
-    """Proces w „Nowi” — te same kroki co dawniej w requeście zgłoszenia."""
+    """Proces w „Nowi” — te same kroki co dawniej w requeście zgłoszenia.
+
+    Etap 2 linków (19.10.2026): karta jest właściciela linku — blokada 12 h
+    od tej chwili (po przeglądzie AI) i właściciel procesu, także gdy
+    „Dodaj mimo to” kliknął ktoś inny (``actor_user_id`` zostaje autorem
+    ruchu).
+    """
+    from app.services.candidate_claim import link_claim_kwargs
     from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
     from app.services.candidate_stage_cv_service import create_original_cv_snapshot
+    from app.services.process_entry_meta import LINK_OWNER_KEY
     from app.services.recruitment_process_commands import open_process
 
     context = row.context if isinstance(row.context, dict) else {}
+    link_owner_id = context.get("link_owner_id")
+    if not isinstance(link_owner_id, int) or isinstance(link_owner_id, bool):
+        link_owner_id = None
+    if link_owner_id is not None:
+        meta = {**meta, LINK_OWNER_KEY: link_owner_id}
     stage = await open_process(
         db,
         candidate_id=row.candidate_id,
@@ -489,6 +569,7 @@ async def open_in_new(
         entry_source="application",
         entry_meta=meta,
         notes=notes,
+        **await link_claim_kwargs(db, link_owner_id),
     )
     await db.flush()
     await create_original_cv_snapshot(db, stage)
@@ -521,6 +602,7 @@ async def _notify(
     context: dict,
     blocked_reason: Optional[str] = None,
     extra: Optional[str] = None,
+    in_job: Optional[ExistingCard] = None,
 ) -> None:
     """Dzwonek ``new_application`` po decyzji — ta sama treść co dawniej."""
     from app.services import public_apply
@@ -543,6 +625,7 @@ async def _notify(
             duplicate=False,
             blocked_reason=blocked_reason,
             extra=extra,
+            in_job=in_job,
         )
 
 
@@ -587,6 +670,24 @@ async def _finish(
     )
 
 
+async def _already_in_job(
+    db: AsyncSession,
+    row: ApplicationScreening,
+    *,
+    result: Optional[ScreeningResult],
+    context: dict,
+) -> None:
+    """Osoba jest już w tej rekrutacji: karta bez zmian, dzwonek do właściciela
+    linku („prowadzi X, etap Y”) i do prowadzącego (etap 2 linków, 19.10.2026)."""
+    card = await existing_card(db, candidate_id=row.candidate_id, job_id=row.job_id)
+    job_id, candidate_id = row.job_id, row.candidate_id
+    await _finish(db, row, result=result, outcome="already_in_job")
+    await db.commit()
+    await _notify(
+        job_id=job_id, candidate_id=candidate_id, context=context, in_job=card
+    )
+
+
 async def process_one(screening_id: int) -> Optional[str]:
     """Oceń jedno zgłoszenie i zdecyduj. Zwraca wynik (``outcome``) albo ``None``."""
     from app.api.application_submissions import submission_block_reason
@@ -608,8 +709,7 @@ async def process_one(screening_id: int) -> Optional[str]:
         # Wynik `job_closed` gubił ją: bez procesu, dzwonka i wpisu na liście.
         job_open = jpp.job_is_open(job)
         if await pair_in_job(db, candidate_id=row.candidate_id, job_id=row.job_id):
-            await _finish(db, row, result=None, outcome="already_in_job")
-            await db.commit()
+            await _already_in_job(db, row, result=None, context=context)
             return "already_in_job"
         blocked = await submission_block_reason(
             db, job_id=row.job_id, candidate_id=row.candidate_id
@@ -654,8 +754,7 @@ async def process_one(screening_id: int) -> Optional[str]:
         if await pair_in_job(
             db, candidate_id=locked.candidate_id, job_id=locked.job_id
         ):
-            await _finish(db, locked, result=result, outcome="already_in_job")
-            await db.commit()
+            await _already_in_job(db, locked, result=result, context=context)
             return "already_in_job"
         await open_in_new(
             db,
