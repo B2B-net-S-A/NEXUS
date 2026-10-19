@@ -1,6 +1,6 @@
 # Audyt 25.09.2026 — reguły po naprawie
 
-<!-- indeks: rundy 1–13: poczta zamówień, zamówienia MD, kontrakty, rekrutacja, wyszukiwanie, bezpieczeństwo i logi, integracje, usuwanie kandydata, konkursy, get_db, tokeny -->
+<!-- indeks: rundy 1–13: poczta zamówień, MD, kontrakty, rekrutacja, bezpieczeństwo, integracje, tokeny -->
 
 Raport: https://claude.ai/artifact/BtnT7zb5kwPk5gNLvg56x6 (commit `eed680914`). Reguły,
 które łatwo cofnąć „przy okazji”:

@@ -1,6 +1,6 @@
 # Lista rekrutacji pamięta ostatnie filtry (13.10.2026)
 
-<!-- indeks: goły `/jobs` otwiera ostatni widok osoby, link z parametrami wygrywa i nie nadpisuje pamięci, „Rekrutacje” w menu nie resetuje, wpis per osoba przeżywa wylogowanie, `keepScope`, zapisy adresu niewidoczne dla routera -->
+<!-- indeks: goły `/jobs` = ostatni widok osoby, link z parametrami wygrywa, `keepScope` -->
 
 Zgłoszenie Artura 13.10.2026: po wyjściu z listy i powrocie filtry trzeba było
 ustawiać od nowa. Filtry żyły wyłącznie w adresie, a menu „Rekrutacje”,

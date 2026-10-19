@@ -1,6 +1,6 @@
 # Historia notatek osoby w panelu rekrutacji (12.10.2026)
 
-<!-- indeks: „Wcześniej u nas” w zakładce „Notatki i historia” i w wąskim doku, jedno zapytanie o notatki osoby, wynik rekrutacji z historii, prawdziwe ruchy pary, licznik notatek ludzi -->
+<!-- indeks: „Wcześniej u nas” w „Notatki i historia”, jedno zapytanie o notatki osoby -->
 
 Zgłoszenie Artura 12.10.2026: „historyczne notatki się nie wyświetlają”. Panel osoby w rekrutacji pytał wyłącznie
 o notatki z `job_id` bieżącej rekrutacji, więc osoba z bogatą historią wyglądała jak ktoś, o kim nic nie wiemy.

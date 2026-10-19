@@ -1,6 +1,6 @@
 # Integralność i uprawnienia — reguły po audytach Codexa 13–14.09.2026 (PR 1 i PR 2)
 
-<!-- indeks: feedback z rozmowy, blokady wiersza kontraktu, bramka sekcji tras, CV nie są kasowane, kursor M365, statystyki liczą osoby, „obecny” kontrakt, wersja procesu przy ruchu -->
+<!-- indeks: blokady wiersza kontraktu, bramka sekcji tras, CV nie są kasowane, kursor M365 -->
 
 Plan i status: `docs/uat/08-audyty-codex-2026-09-14.md`. Reguły, które łatwo
 cofnąć „przy okazji”:

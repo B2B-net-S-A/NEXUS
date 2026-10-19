@@ -1,5 +1,5 @@
 # Licznik celów w górnym pasku (13.10.2026)
-<!-- indeks: podpisane segmenty zamiast „znak + liczba”, panel po kliknięciu, ile segmentów mieści pasek, reguła „poniżej tempa”, cel Delivery Leada z 30% hit ratio, wycofany cel nowych kandydatów -->
+<!-- indeks: podpisane segmenty, panel po kliknięciu, „poniżej tempa”, cel DL z 30% hit ratio -->
 
 Do 13.10.2026 licznik w górnym pasku pokazywał trzy pary „znak + wynik/cel”
 bez nazw (`🎯 1/4 ↓ 0/5 → 3/15`), kolejność wyznaczał alfabet po id, a szczegóły

@@ -1,5 +1,5 @@
 # Liga Mistrzów w górnym pasku (13.10.2026)
-<!-- indeks: przycisk ligi przed licznikiem celów (miejsce i punkty rekrutera, placementy DL, lider u osób, które nie grają), `/api/competitions/my-league` z cache paska 5 min, jedna forma przycisku, stany (bez miejsca, poza ligą, remis, awans), menu „Wygląd” zamiast trzech przełączników -->
+<!-- indeks: przycisk ligi przed licznikiem celów, `/api/competitions/my-league`, stany przycisku, menu „Wygląd” -->
 
 Artur 13.10.2026: „na górze na tych statach pokazuj też punkty, jakie się liczą
 do Ligi Mistrzów, żeby każdy widział, ile ma punktów i na jakim miejscu jest”.

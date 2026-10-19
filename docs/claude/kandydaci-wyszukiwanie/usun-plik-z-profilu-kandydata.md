@@ -1,5 +1,5 @@
 # „Usuń z profilu” przy pliku kandydata (0435, 13.10.2026)
-<!-- indeks: kto usuwa plik z profilu (admin, Head of Recruitment), co znika, a co zostaje w magazynie, główne CV i wskaźnik CV na kandydacie, synchronizacja poczty, jak przywrócić -->
+<!-- indeks: kto usuwa (admin, Head of Recruitment), co zostaje w magazynie, jak przywrócić -->
 
 Zgłoszenie Artura z 13.10.2026: profil kandydata dało się usunąć w całości,
 a pojedynczego CV z profilu już nie — menu „⋯” pliku miało tylko „Oznacz jako
