@@ -46,7 +46,9 @@ exit 0
 """
 
 
-def _run_set_env(key: str, value: str) -> subprocess.CompletedProcess:
+def _run_set_env(
+    key: str, value: str, *, secret_name: str = "", secret_value: str = ""
+) -> subprocess.CompletedProcess:
     step = _step(_load("coolify-set-env.yml")["jobs"]["set-env"], _SET_ENV_STEP)
     with tempfile.TemporaryDirectory() as tmp:
         curl = Path(tmp) / "curl"
@@ -61,8 +63,8 @@ def _run_set_env(key: str, value: str) -> subprocess.CompletedProcess:
             "COOLIFY_TOKEN": "t",
             "COOLIFY_APP_UUID": "app",
             "KEY": key,
-            "VALUE_FROM_SECRET": "",
-            "VALUE_SECRET": "",
+            "VALUE_FROM_SECRET": secret_name,
+            "VALUE_SECRET": secret_value,
             "IS_BUILDTIME": "false",
         }
         for name, raw in (step.get("env") or {}).items():
@@ -81,7 +83,9 @@ def _run_set_env(key: str, value: str) -> subprocess.CompletedProcess:
 def test_set_env_masks_the_plain_value_before_printing_anything():
     value = "wartosc-jawna-123\ndruga-linia"
     result = _run_set_env("SOME_FLAG", value)
-    assert result.returncode == 0, result.stderr
+    # Wielolinijkowej wartości workflow nie zapisuje (test niżej), ale maska
+    # musi zadziałać, zanim cokolwiek trafi do logu.
+    assert result.returncode == 1, result.stderr
     lines = result.stdout.splitlines()
     assert lines[:2] == [
         "::add-mask::wartosc-jawna-123",
@@ -89,6 +93,40 @@ def test_set_env_masks_the_plain_value_before_printing_anything():
     ], lines[:3]
     visible = [line for line in lines if not line.startswith("::add-mask::")]
     assert not any("wartosc-jawna" in line or "druga-linia" in line for line in visible)
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_refuses_a_multiline_value_without_printing_it():
+    """19.10.2026: tekst maila zamiast klucza w JJIT_STATIC_ACCESS_TOKEN —
+    Coolify wkleił go do `.env` i `docker compose` odrzucił cały plik, więc
+    Deploy padał dla wszystkich. Nowa linia z inputu albo z sekretu (także
+    sama na końcu, także CR) jest odrzucana przed zapisem do Coolify."""
+    mail = "Dzien dobry,\nklucz: abc.def.ghi\nPozdrawiam, zespol"
+    cases = (
+        _run_set_env("SOME_FLAG", "pierwsza\ndruga"),
+        _run_set_env("SOME_FLAG", "jedna\r"),
+        _run_set_env(
+            "JJIT_STATIC_ACCESS_TOKEN", "", secret_name="JJIT", secret_value=mail
+        ),
+        _run_set_env(
+            "JJIT_STATIC_ACCESS_TOKEN",
+            "",
+            secret_name="JJIT",
+            secret_value="abc.def.ghi\n",
+        ),
+    )
+    for result in cases:
+        assert result.returncode == 1, result.stdout
+        assert "znak nowej linii" in result.stderr
+        assert "Nic nie zapisano" in result.stderr
+        assert "env write HTTP" not in result.stdout, "Wartość poszła do Coolify."
+        for leaked in ("pierwsza", "druga", "jedna", "Dzien dobry", "abc.def"):
+            assert leaked not in result.stderr, result.stderr
+    ok = _run_set_env(
+        "JJIT_STATIC_ACCESS_TOKEN", "", secret_name="JJIT", secret_value="abc.def.ghi"
+    )
+    assert ok.returncode == 0, ok.stderr
+    assert "env write HTTP 200" in ok.stdout
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")

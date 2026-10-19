@@ -139,6 +139,19 @@ jobs:
           done <<< "${VALUE}"
           echo "długość wartości: ${#VALUE} zn."
 
+          # Wartość z nową linią (także na końcu) Coolify wkleja do `.env`
+          # aplikacji compose bez cudzysłowów, a `docker compose` odrzuca wtedy
+          # CAŁY plik — jedna zmienna zatrzymuje każde wdrożenie (19.10.2026:
+          # tekst maila zamiast klucza w JJIT_STATIC_ACCESS_TOKEN, Deploy padł
+          # na „line 179: unexpected character”). Żadna zmienna NEXUSA nie
+          # potrzebuje wielu linii. Komunikat bez treści wartości.
+          case "${VALUE}" in
+            *$'\n'*|*$'\r'*)
+              echo "Wartość '${KEY}' zawiera znak nowej linii (${#VALUE} zn.) — Coolify zapisze ją do .env w surowej postaci i każdy deploy padnie. Wklej sam klucz w jednej linii, bez entera na końcu. Nic nie zapisano." >&2
+              exit 1
+              ;;
+          esac
+
           base="${COOLIFY_URL%/}"
           auth=(-H "Authorization: Bearer ${COOLIFY_TOKEN}" -H "Accept: application/json")
 

@@ -15,3 +15,15 @@
 - inne per feature
 
 **Walka z surprise:** compose `env_file: .env` — wszystkie sekrety w jednym pliku na serwerze (Coolify env vault).
+
+**Wartość zmiennej w jednej linii (19.10.2026):** workflow „Coolify set env” odrzuca
+wartość ze znakiem nowej linii (`\n` albo `\r`, także sam enter na końcu), z inputu
+i z `value_from_secret`, zanim cokolwiek zapisze w Coolify. Bo Coolify wkleja wartość
+do `.env` aplikacji compose bez cudzysłowów, a `docker compose` odrzuca wtedy cały
+plik i żaden deploy nie przechodzi. 19.10.2026 do sekretu `JJIT_STATIC_ACCESS_TOKEN`
+trafił tekst maila zamiast samego klucza; Deploy padł na
+`.env: line 179: unexpected character ","`, dopóki zmiennej nie wyczyszczono ręcznie.
+Żadna zmienna NEXUSA nie potrzebuje wielu linii, więc wyjątku (`allow_multiline`) nie ma.
+Gdy kiedyś dojdzie klucz PEM albo podobny, zapisz go w jednej linii (base64 albo `\n`
+jako dwa znaki) i rozkoduj w `config.py`, zamiast otwierać bramkę. Test:
+`test_set_env_refuses_a_multiline_value_without_printing_it`.
