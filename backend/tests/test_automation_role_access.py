@@ -86,6 +86,19 @@ CLOSED_MODULES = (
     "event_history",
 )
 
+# Opieka nad konsultantami i sprzęt konsultanta: rozmowy o ludziach,
+# zadowolenie, sygnały odejścia, numery seryjne — nie dane do integracji
+# (decyzja Artura 19.10.2026, audyt A4/A3).
+CLOSED_CARE_MODULES = (
+    "contract_care",
+    "care_consultants",
+    "care_skills",
+    "care_structure",
+    "care_announcements",
+    "care_atlas",
+)
+CLOSED_EQUIPMENT_ROUTES = ("GET /api/equipment/contracts/{contract_id}",)
+
 # Ekrany, dla których rola powstała — muszą się otworzyć.
 REQUIRED_READS = (
     "GET /api/candidates",
@@ -171,6 +184,21 @@ def test_automation_never_reaches_money(module: str) -> None:
         if verdicts[AUTOMATION] in PASSES
     )
     assert opened == []
+
+
+@pytest.mark.parametrize("module", CLOSED_CARE_MODULES)
+def test_automation_never_reaches_consultant_care(module: str) -> None:
+    opened = sorted(
+        route
+        for route, verdicts in _module_routes(module).items()
+        if verdicts[AUTOMATION] in PASSES
+    )
+    assert opened == []
+
+
+@pytest.mark.parametrize("route", CLOSED_EQUIPMENT_ROUTES)
+def test_automation_does_not_read_consultant_equipment(route: str) -> None:
+    assert _matrix()[route][AUTOMATION] not in PASSES
 
 
 @pytest.mark.parametrize("route", REQUIRED_READS)

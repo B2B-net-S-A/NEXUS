@@ -27,14 +27,14 @@
   "recruiter+cases"
  ],
  "routes": {
-  "GET /api/care/assignment": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/care/consultants": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/assignment": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PUT /api/care/assignment/pool": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PUT /api/care/assignment/threshold": "BBBBBBBDBBBBBBBBBBBBBBBBB"
+  "GET /api/care/assignment": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "GET /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "GET /api/care/consultants": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "GET /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/assignment": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "PUT /api/care/assignment/pool": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "PUT /api/care/assignment/threshold": "BBBBBBBDBBBBBBBBBBBDBBBBB"
  }
 }

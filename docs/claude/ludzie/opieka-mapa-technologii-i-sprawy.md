@@ -4,6 +4,8 @@
 
 - Zakres klientów = zakres Delivery (`access_scope.resolve_delivery_lead_client_ids`):
   DL u swoich klientów, admin, Finanse i TCM u wszystkich. Cudzy klient → 403.
+  Rola „Automatyzacje” (0446) ma podgląd Delivery, ale opieki nie widzi wcale
+  (`care_gates.refuse_automation`, decyzja Artura 19.10.2026).
 - Opiekun kontraktu: pole kontraktu, gdy puste — domyślny opiekun klienta,
   gdy i tego brak — Delivery Lead kontraktu.
 - Plan kontaktów od startu kontraktu (etap 3, 17.10.2026): kamienie — dzień 7

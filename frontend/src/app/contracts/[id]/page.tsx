@@ -93,7 +93,7 @@ import {
   ContractStatusControl,
   SELECTABLE_CONTRACT_STATUSES,
 } from "@/components/contracts/ContractStatusControl";
-import { useAuthStore } from "@/store/auth";
+import { getUserRoles, useAuthStore } from "@/store/auth";
 import { contractAccess } from "@/lib/contract-access";
 import { permissionLabel } from "@/lib/permissions";
 import {
@@ -556,8 +556,11 @@ export default function ContractDetailPage() {
         contractDetailTabHref(window.location.pathname, window.location.search, tab),
       ),
   );
-  // „Opieka” tylko przy włączonym module opieki (admin widzi zawsze).
-  const careOpen = useHrConfig().data?.open_modules.care === true;
+  // „Opieka” tylko przy włączonym module opieki (admin widzi zawsze). Rola
+  // „Automatyzacje” opieki nie widzi (decyzja Artura 19.10.2026 — API odmawia).
+  const careOpen =
+    useHrConfig().data?.open_modules.care === true &&
+    !getUserRoles(user).includes("automation");
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
   const [error, setError] = useState("");

@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.care_gates import refuse_automation
 from app.api.deps import require_onboarded_user
 from app.api.hr_gates import ensure_module
 from app.core.database import get_db
@@ -36,6 +37,7 @@ def require_hr_announcements_user():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
+        refuse_automation(current_user)
         await ensure_module(db, current_user, HrModule.care)
         is_head = (await service.back_office_head_id(db)) == current_user.id
         if not service.may_author(current_user, is_head=is_head):
