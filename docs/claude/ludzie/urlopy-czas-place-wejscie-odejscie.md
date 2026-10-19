@@ -510,12 +510,28 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   inny z Płac/Finansów/admin; nowy dokument albo zmiana rachunku kasują uznanie. Nikt nie
   zatwierdza ani nie oznacza zapłaty własnego rozliczenia. R11: przy włączonym module premia
   „wypłacona” dopiero z opłaconym rozliczeniem (`payroll_bonuses.paid_flags`).
+  Własne rozliczenie także z wyciągu i paczki (19.10.2026): wiersz wyciągu dopasowany do
+  rozliczenia importującego zostaje `unmatched` (powód `own_settlement`, przypisuje inna
+  osoba), „Bank wykonał” z własnym nieopłaconym rozliczeniem w paczce = 409
+  `own_settlement_in_batch` dla całej paczki (bez opłacania w połowie).
+  Ręczne „opłacono” i „Przypisz” z wyciągu (decyzja Artura 19.10.2026, „Ogranicz”):
+  rozliczenie czekające na dokument albo z problemem bez potwierdzonego uznania
+  (`payment_state_refusal`) = 409 `settlement_not_payable` — najpierw „Uznaj różnicę” drugą
+  osobą albo właściwy dokument; B2B z kwotą ≠ brutto faktur (pierwotna + korekty) o więcej
+  niż 0,01 = 422 `paid_amount_differs` z obiema kwotami. Zlecenie i UoP bez zmian (kwota na
+  rękę z Symfonii). `can_mark_paid` w kolejce idzie za tą regułą. Automatyczne dopasowanie
+  z importu wyciągu tej reguły nie ma (osobna decyzja).
 - **Zmiana odbiorcy** (rachunek albo NIP) cofa zatwierdzenie i kasuje uznanie KAŻDEGO rodzaju;
   sama zmiana terminu nie. Uznanie rachunku nie obejmuje późniejszego problemu z kwotą.
   Problem `gross` (jak różnica kwoty, druga osoba): brutto ≠ netto + VAT (> 0,01), VAT > 0 przy
   statusie VAT ≠ `active`, VAT > 23% netto; faktur z KSeF nie odrzucamy, ręczny PDF tak.
   Faktura z KSeF łączy się z wcześniej dopiętym PDF-em (ten sam NIP, numer, waluta) zamiast
   liczyć się drugi raz; dopasowaną, nieopłaconą Płace mogą odpiąć („Pomiń”, „Przenieś”).
+  Problem `seller` (19.10.2026): dopasowana faktura od innego NIP-u niż w danych do
+  rozliczeń (same cyfry; brak NIP-u w danych przy fakturze z NIP-em też) = `mismatch`.
+  Żadne uznanie go nie obejmuje i „Uznaj różnicę” odmawia (409) — to zła faktura albo złe
+  dane, nie różnica: odpiąć fakturę albo poprawić NIP. Bo zmiana NIP-u + rachunek z wykazu
+  dla nowego NIP-u przepuszczały starą fakturę jako „Do zapłaty” bez drugiej osoby.
   Dzwonki rozliczeń idą bez numeru encji (dzienny odsiew powiadomień nie zna jej rodzaju).
 - **Dane do rozliczeń** (`employee_billing_details`): osoba (odczyt), Kadry, Płace, admin;
   przełożony i zespół — 404. Rachunek szyfrowany (`TokenCipher`), na zewnątrz tylko 4 cyfry;
@@ -540,6 +556,11 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   `white_list.check` jest zablokowana do decyzji Finansów. Wiersz paczki pamięta skrót HMAC
   pełnego rachunku (klucz wyprowadzony z `M365_TOKEN_ENCRYPTION_KEY`) — podmiana rachunku po
   utworzeniu paczki = 409 `batch_account_changed` przy pobraniu pliku.
+  Wyciągi (19.10.2026): plik z kilkoma wyciągami — waluta operacji z jej wyciągu (MT940:
+  `:60F:` przy `:61:`, CAMT: `Amt/@Ccy`, bez niego `Acct/Ccy` tego `Stmt`). Storno: kierunek
+  = `CdtDbtInd` wpisu (CRDT + `RvslInd` = wpływ, np. zwrot nieudanej wypłaty — nie opłaca
+  rozliczenia), jak `RC`/`RD` w MT940; kontrahent = strona pierwotnej operacji. CAMT
+  z `Ntry/Sts` ≠ `BOOK` (`PDNG`, `INFO`) pomijany; brak `Sts` = zaksięgowany.
 - **Symfonia** (`symfonia_export.py`): ZIP z ekranu miesiąca Płac — `zdarzenia_RRRR-MM.xml`
   (windows-1250; L4 tylko, gdy Płace nie pobierają e-ZLA), XLSX premii, XLSX rozliczeń zleceń,
   PDF zestawienia z listą rzeczy do zrobienia ręcznie. Kwoty w paczce tylko dla Płac, plik

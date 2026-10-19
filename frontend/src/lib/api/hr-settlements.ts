@@ -23,7 +23,7 @@ export type SettlementStatus =
 export type AmountBasis = "net" | "gross";
 export type AccountSource = "white_list" | "manual";
 /** `gross` — brutto do zapłaty nie wynika z netto i VAT (wymaga drugiej osoby). */
-export type SettlementProblem = "amount" | "gross" | "white_list";
+export type SettlementProblem = "amount" | "gross" | "white_list" | "seller";
 export type StepState = "done" | "current" | "todo" | "warn";
 
 export interface SettlementItem {
