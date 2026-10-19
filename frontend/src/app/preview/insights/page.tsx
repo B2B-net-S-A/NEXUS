@@ -58,6 +58,8 @@ const PEOPLE = [
   { id: 17, name: "Tomek R.", v: 48, r: 6, i: 2, p: 0, prev: 2, prec: 38 },
   { id: 18, name: "Bartek N.", v: 34, r: 7, i: 3, p: 1, prev: 1, prec: null },
 ];
+// Konto wyłączone — w „Zespół → Ludzie” trafia do wiersza „Byli pracownicy”.
+const FORMER_PEOPLE = [{ id: 19, name: "Monika B.", v: 12, r: 5, i: 2, p: 1, prev: 2, prec: 70 }];
 
 function funnel(counts: Record<string, number>) {
   const stages = ["verified", "cv_sent", "client_interview", "hired"].map((stage) => ({
@@ -299,7 +301,7 @@ function seeded(): QueryClient {
   });
   qc.setQueryData(insightsTeamSignalsQueryKeys.people(ZESPOL_DEFAULT_PERIOD), {
     period: monthFunnel.period, workdays: 17, precision_target_pct: 75, low_precision_pct: 50,
-    rows: PEOPLE.map((p) => ({ user_id: p.id, name: p.name, role: "recruiter", is_active: true, verifications: p.v, recommendations: p.r, interviews: p.i, placements: p.p, previous_placements: p.prev, verifications_per_workday: +(p.v / 17).toFixed(1), precision_pct: p.prec })),
+    rows: [...PEOPLE.map((p) => ({ ...p, active: true })), ...FORMER_PEOPLE.map((p) => ({ ...p, active: false }))].map((p) => ({ user_id: p.id, name: p.name, role: "recruiter", is_active: p.active, verifications: p.v, recommendations: p.r, interviews: p.i, placements: p.p, previous_placements: p.prev, verifications_per_workday: +(p.v / 17).toFixed(1), precision_pct: p.prec })),
     totals: { verifications: 518, recommendations: 90, interviews: 42, placements: 14, precision_pct: 63, people: 8, unattributed: 3 },
     previous_totals: { verifications: 500, recommendations: 95, interviews: 40, placements: 15 },
     outside_scope: { label: "Konta administracyjne", people: 1, verifications: 0, recommendations: 4, interviews: 2, placements: 5, previous_placements: 3 },
@@ -317,6 +319,7 @@ function seeded(): QueryClient {
     leads: [
       { dl_id: 31, dl_name: "Paweł G.", is_active: true, requests: 35, vacancies: 40, placements: 12, hit_ratio: 34, fill_rate: 30, open_requests: 14, target_achieved: true, clients: [] },
       { dl_id: 32, dl_name: "Kasia B.", is_active: true, requests: 31, vacancies: 33, placements: 9, hit_ratio: 29, fill_rate: 27, open_requests: 11, target_achieved: false, clients: [] },
+      { dl_id: 35, dl_name: "Diana K.", is_active: false, requests: 18, vacancies: 20, placements: 4, hit_ratio: 22, fill_rate: 20, open_requests: 0, target_achieved: false, clients: [] },
     ],
   });
 
