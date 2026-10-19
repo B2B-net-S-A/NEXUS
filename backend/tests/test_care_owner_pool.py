@@ -290,6 +290,14 @@ async def test_pool_member_from_finance_writes_care_and_outsider_does_not(
     )
     assert allowed.status_code == 201, allowed.text
     assert allowed.json()["can_edit"] is True
+    # D11: opinię klienta zapisuje tylko krąg, który ją czyta (DL, TCM, HoR,
+    # admin) — osoba z puli z Finansów prowadzi opiekę, ale opinii nie.
+    feedback = await app_client.post(
+        f"/api/care/clients/{client_id}/feedback",
+        headers=headers(first),
+        json={"contact_id": 1, "held_on": business_today().isoformat()},
+    )
+    assert feedback.status_code == 403, feedback.text
 
 
 @pytest.mark.usefixtures("care_on", "divisions_reset", "pool_reset")
@@ -409,3 +417,60 @@ async def test_daily_sweep_takes_only_fresh_contracts(monkeypatch) -> None:
     monkeypatch.setattr(auto_assign, "assign_new", assign_new)
     assert await auto_assign.sweep(None, today=today) == 1
     assert seen == [[1]]
+
+
+async def test_pool_member_with_view_only_delivery_is_not_a_writer(
+    monkeypatch,
+) -> None:
+    # Bramka CareWriter wymaga zapisu w sekcji Delivery; flagi can_edit nie
+    # mogą obiecać zapisu osobie z puli, która ma tylko podgląd.
+    from types import SimpleNamespace
+
+    from app.services import section_permissions
+    from app.services.care import access, owner_pool
+
+    async def fake_writers(db):
+        return frozenset({7})
+
+    granted = {"value": section_permissions.SectionAccess.read}
+    monkeypatch.setattr(owner_pool, "writer_ids", fake_writers)
+    monkeypatch.setattr(
+        section_permissions,
+        "section_access_for_user",
+        lambda user, section: granted["value"],
+    )
+    member = SimpleNamespace(id=7, has_any_role=lambda *roles: False)
+
+    assert await access.is_care_writer(None, member) is False
+    granted["value"] = section_permissions.SectionAccess.write
+    assert await access.is_care_writer(None, member) is True
+
+
+def test_recruitment_lead_outside_portfolio_is_not_the_owner() -> None:
+    # Rekrutacje widać w całej firmie: DL rekrutacji u cudzego klienta nie
+    # zostaje opiekunem z łańcucha (dzwonek prowadziłby na 403).
+    from app.services.care import access
+
+    contract = access.CareContract(
+        id=1,
+        client_id=5,
+        client_name="Klient",
+        candidate_id=1,
+        candidate_name="Osoba",
+        job_id=1,
+        job_title=None,
+        job_delivery_lead_id=7,
+        status="active",
+        start_date=None,
+        contract_end_date=None,
+        order_end_date=None,
+        explicit_owner_id=None,
+        client_default_owner_id=None,
+    )
+    assert access._named_owner(contract, {7}, {7: frozenset({9})}) is None
+    assert access._named_owner(contract, {7}, {7: frozenset({5})}) == (
+        access.OwnerChoice(7, "delivery_lead")
+    )
+    assert access._named_owner(contract, {7}, {7: None}) == (
+        access.OwnerChoice(7, "delivery_lead")
+    )

@@ -428,21 +428,28 @@ async def send(
         raise EquipmentError(
             draft.blocking.message if draft.blocking else "Brak adresu e-mail."
         )
+    # Ślad trafia do bazy PRZED wysyłką (stan „uncertain”): awaria po wysłaniu
+    # (zadanie z listy, audyt, commit trasy) nie może go cofnąć, bo kolejne
+    # „Wyślij” poszłoby drugi raz do konsultanta (audyt 19.10.2026; tak samo
+    # kolejka komunikatów). Mail na pewno niewysłany = ślad usunięty.
     row = ConsultantWelcomeMail(
         contract_id=contract_id,
         recipient_email=draft.recipient_email,
         subject=clean_subject,
         body=clean_body,
         sent_by=actor.id,
+        delivery="uncertain",
     )
     db.add(row)
-    await db.flush()
+    await db.commit()
     outcome = await sender.send(
         to=draft.recipient_email, subject=clean_subject, text=clean_body
     )
     status = getattr(outcome, "status", None)
     if status not in ("accepted", "uncertain"):
-        # Odłożona albo odrzucona: mail na pewno nie wyszedł — rollback, można ponowić.
+        # Odłożona albo odrzucona: mail na pewno nie wyszedł — można ponowić.
+        await db.delete(row)
+        await db.commit()
         logger.warning(
             "welcome_mail: send not accepted",
             extra={
@@ -455,6 +462,8 @@ async def send(
         row.delivery = "uncertain"
     elif getattr(outcome, "simulated", False):
         row.delivery = "simulated"
+    else:
+        row.delivery = "sent"
     from app.services.hr.lifecycle_service import complete_task_by_key
 
     checked = await complete_task_by_key(
