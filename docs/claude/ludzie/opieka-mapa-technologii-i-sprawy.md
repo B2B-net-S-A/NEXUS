@@ -68,6 +68,20 @@ prowadzą tam samo).
   menedżera, liczona na dziś), w `mine` jak `GET /feedback-requests`.
   Finanse widzą tydzień bez próśb i oś bez opinii (D11).
 - **Licznik zaległych** przy zakładce = zaległe rozmowy + zaległe prośby.
+- **Plan dni (makieta 19.10.2026, `week/WeekBoard.tsx`)**: kolumny „Zaległe ·
+  pn … pt” liczy `weekColumns` (bez Reacta, z testami). Zaległa rozmowa
+  (termin przed dziś) stoi w „Zaległe”, nawet gdy termin wypadł w tym
+  tygodniu; dzień, który minął, jest pusty („—”), przyszły — „wolne”, dziś
+  wyróżnione. W tygodniu z przyszłości bez zaległych pierwsza kolumna to
+  „Wcześniej”. Karta: klient · dział menedżera (bez niego rola), powód jako
+  pigułka („3 dni po · dzień 30” — czerwona, umówiony kontakt — niebieska),
+  sygnały „Do przepięcia” i front office jako pigułki bez powtórzeń, notatka
+  z ostatniej rozmowy w cudzysłowie, ostatnia ocena kropkami. Pod planem pas
+  „Opinie od menedżerów u klientów” z terminem („czeka od” / „do”).
+- **Pasek tygodnia** = `counts.done / (done + contacts)`: `done` to kontrakty
+  z zakresu z rozmową zapisaną od poniedziałku do piątku (jedna osoba = jedna
+  pozycja). Zapisana rozmowa zamyka punkt planu i znika z `contacts`, więc
+  postęp nie może liczyć samych otwartych pozycji.
 - **Oś konsultanta** (`GET /api/care/contracts/{id}/timeline`, panel boczny,
   `/care?contract=<id>`): rekrutacja z `contracts.job_id`, start, rozmowy
   (z zamkniętym punktem planu), karty, opinie klienta, zamówienia (tytuł,
@@ -475,12 +489,26 @@ zapełnić.
   predykat co filtr umiejętności listy (`skill_match`, v2), jedno przejście
   po tabeli z limitem 3 s, cache `care:techbase:` na godzinę; awaria = „—”.
   Link prowadzi do `/candidates?skills_q=…`.
+- **Mapa cieplna (makieta 19.10.2026, `TechHeatmap.tsx`)** zastąpiła tabelę
+  działów i listę technologii z filtrem działu. Serwer daje całą macierz
+  w `heatmap` tej samej odpowiedzi (`tech_map.heatmap`, czysta funkcja
+  z testem): 40 najmocniejszych technologii (ekran pokazuje 12, reszta pod
+  „Pokaż wszystkie”) × działy w kolejności `departments`. Komórka = źródła
+  technologii w dziale; siła koloru = liczba RODZAJÓW źródeł (1, 2, 3+),
+  obramowanie = otwarta rekrutacja działu, która jej wymaga („musi” albo
+  „mile widziane”). „Bez działu” = źródła spoza działów (notatki, karty bez
+  obszaru, rekrutacje bez HM z działu) — kolumna tylko, gdy coś w niej jest.
+  Dymek komórki rozpisuje liczby źródeł. Nagłówek działu: menedżer, „nasi /
+  w bazie”, ostrzeżenie „brak źródła 18 mies.”. Otwarte rekrutacje niosą
+  dział (`open_jobs[].area`, dział hiring managera).
 - **Luki do dopytania**: dział bez źródła z 18 miesięcy (konsultant
   w projekcie liczy się jako świeże źródło), menedżer naszych konsultantów
   bez „podlega pod”, technologia z jednego źródła (świeża, nie z samych CV
   naszych — CV opisuje człowieka, nie stack; najwyżej 6). Te same pytania
   są w oknie zapisu rozmowy opieki (sekcja zwijana „Do dopytania u
-  klienta”, mapa wczytuje się po rozwinięciu, nic się nie zapisuje).
+  klienta”, mapa wczytuje się po rozwinięciu, nic się nie zapisuje). Na
+  zakładce luka ma akcję: „komu podlega” → „Struktura u klienta”, reszta →
+  „Dopisz notatkę o stacku” (tylko z prawem zapisu).
 - `clients.default_care_owner_user_id` i `clients.equipment_provider` stoją
   w bocznym panelu zakładki.
 

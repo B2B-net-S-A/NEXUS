@@ -5,11 +5,20 @@ import {
   conversationSignals,
   sourceSummary,
   splitNames,
-  technologiesInArea,
+  cellLetters,
+  cellTitle,
+  heatLevel,
 } from "@/components/care/care-format";
 import { buildCardPayload, initialCardForm } from "@/components/care/TechCardDialog";
 import { careTabFrom } from "@/components/care/CareScreen";
-import { monthEnd, monthOf, type CareConversation, type MapTechnology, type TechCard } from "@/lib/api/care";
+import {
+  monthEnd,
+  monthOf,
+  type CareConversation,
+  type HeatCell,
+  type MapTechnology,
+  type TechCard,
+} from "@/lib/api/care";
 
 function conversation(id: number, date: string, extra: Partial<CareConversation> = {}): CareConversation {
   return {
@@ -97,10 +106,27 @@ describe("oś opieki", () => {
 });
 
 describe("mapa technologii", () => {
-  it("filtruje po obszarze, pusty filtr zostawia wszystko", () => {
-    const list = [tech("Java", ["Płatności"]), tech("Kafka", ["Data"])];
-    expect(technologiesInArea(list, null)).toHaveLength(2);
-    expect(technologiesInArea(list, "Data").map((t) => t.name)).toEqual(["Kafka"]);
+  it("komórka mapy cieplnej: siła = liczba rodzajów źródeł, litery i dymek", () => {
+    const cell = (counts: Partial<HeatCell["counts"]>, openJobs = 0): HeatCell => {
+      const full = { cards: 0, jobs: 0, consultants: 0, notes: 0, ...counts };
+      return {
+        counts: full,
+        source_count: Object.values(full).filter(Boolean).length,
+        open_jobs: openJobs,
+      };
+    };
+    expect(heatLevel(null)).toBe(0);
+    expect(heatLevel(cell({ jobs: 4 }))).toBe(1);
+    expect(heatLevel(cell({ cards: 1, jobs: 2 }))).toBe(2);
+    expect(heatLevel(cell({ cards: 1, jobs: 1, consultants: 1, notes: 1 }))).toBe(3);
+    // Sama otwarta rekrutacja bez źródła (nie powinna się zdarzyć) — bez koloru.
+    expect(heatLevel(cell({}, 1))).toBe(0);
+    expect(cellLetters(cell({ notes: 1, cards: 2 }))).toEqual(["T", "N"]);
+    expect(cellLetters(null)).toEqual([]);
+    expect(cellTitle("Płatności", "Java 17", cell({ cards: 3, jobs: 4 }, 1))).toBe(
+      "Płatności · Java 17: 3 karty, 4 rekrutacje · 1 otwarta rekrutacja",
+    );
+    expect(cellTitle("Data", "Kafka", null)).toBe("Data · Kafka: brak źródeł");
   });
 
   it("opisuje źródła po polsku", () => {

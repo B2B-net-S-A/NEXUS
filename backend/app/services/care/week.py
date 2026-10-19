@@ -18,6 +18,11 @@ kontaktu tego samego klienta, z działem), ostatnia rozmowa i aktywne sygnały
 „Do przepięcia”, a przy kończących projekt — czy można przekazać do front
 office i kiedy przekazano (``front_office``).
 
+Pasek tygodnia (19.10.2026): ``counts.done`` = kontrakty z zakresu, z którymi
+rozmowę zapisano w tym tygodniu (poniedziałek–piątek). Zapisana rozmowa
+zamyka punkt planu, więc znika z ``contacts`` — postęp to
+``done / (done + contacts)``.
+
 Zakres jak lista opieki: ``mine`` = kontrakty, których czytający jest
 opiekunem; ``all`` = wszystkie w zakresie (DL — swoi klienci). Prośby
 o opinię w ``mine`` jak ``GET /feedback-requests``: opiekun swoje, Delivery
@@ -31,7 +36,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.contact import Contact
@@ -285,6 +290,20 @@ async def week_queue(
         ).all():
             open_items[item.contract_id].append(item)
     latest = await care_plan.latest_conversations(db, ids)
+    done = (
+        int(
+            await db.scalar(
+                select(func.count(func.distinct(CareConversation.contract_id))).where(
+                    CareConversation.contract_id.in_(ids),
+                    CareConversation.occurred_on >= monday,
+                    CareConversation.occurred_on <= friday,
+                )
+            )
+            or 0
+        )
+        if ids
+        else 0
+    )
 
     due: list[tuple[CareContract, list[Reason]]] = []
     for contract in contracts:
@@ -379,6 +398,7 @@ async def week_queue(
         "feedback_visible": include_feedback,
         "counts": {
             "contacts": len(contacts),
+            "done": done,
             "overdue": overdue,
             "feedback": len(feedback),
             "front_office": sum(

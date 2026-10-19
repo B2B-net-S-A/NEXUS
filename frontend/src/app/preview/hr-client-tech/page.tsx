@@ -12,11 +12,13 @@
  * Stan „links”: nad mapą „Karty z Compassa do połączenia” (import 18.10.2026)
  * — karta z dwiema propozycjami i karta bez kontraktu z tym nazwiskiem.
  *
- * Stan „map”: mapa z czterech źródeł (T rozmowy, R rekrutacje, K nasi
- * konsultanci, N notatki) — 7 technologii w trzech obszarach, „Klient zatrudnia”
- * z karty technologicznej, „Do przepięcia” = 2, trzy otwarte rekrutacje,
- * dostawcy i domyślny opiekun. Filtr obszaru działa w przeglądarce, „Dodaj
- * notatkę o stacku” otwiera okno bez zapytań, lista opiekunów jest zasiana.
+ * Stan „map”: mapa cieplna technologia × dział z czterech źródeł (T rozmowy,
+ * R rekrutacje, K nasi konsultanci, N notatki; makieta 19.10.2026) — 7
+ * technologii, cztery działy (jeden bez źródła), obramowane komórki
+ * z otwartą rekrutacją, kolumna „bez działu”, luki do dopytania z akcją,
+ * „Klient zatrudnia”, „Do przepięcia” = 2, trzy otwarte rekrutacje z działem,
+ * dostawcy i domyślny opiekun. „Dodaj notatkę o stacku” otwiera okno bez
+ * zapytań, lista opiekunów jest zasiana.
  */
 
 import { ClientTechnologiesTab } from "@/components/care/ClientTechnologiesTab";

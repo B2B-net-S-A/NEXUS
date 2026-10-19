@@ -104,12 +104,16 @@ describe("/preview/hr-care", () => {
     expect(tab).toHaveTextContent("3");
     expect(screen.getByText("Katarzyna Kierownicza")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Zapisz opinię" })).toHaveLength(2);
-    const table = screen.getByRole("table", { name: "Rozmowy z konsultantami" });
-    const karolina = within(table).getByRole("row", { name: /Karolina Przykładowa/ });
-    expect(within(karolina).getByText(/^zaległy 3 dni · dzień 30$/)).toBeInTheDocument();
+    const board = screen.getByRole("group", { name: "Rozmowy z konsultantami w tym tygodniu" });
+    const late = within(board).getByRole("region", { name: "Zaległe" });
+    const karolina = within(late).getByText("Karolina Przykładowa").closest("li") as HTMLElement;
+    expect(within(karolina).getByText(/^3 dni po · dzień 30$/)).toBeInTheDocument();
     expect(within(karolina).getByText(/menedżer: Katarzyna Kierownicza/)).toBeInTheDocument();
-    const michal = within(table).getByRole("row", { name: /Michał Konsultantowy/ });
+    expect(within(karolina).getByRole("img", { name: "ocena 5 z 5" })).toBeInTheDocument();
+    const michal = within(board).getByText("Michał Konsultantowy").closest("li") as HTMLElement;
     expect(within(michal).getByText(/umówiony kontakt z/)).toBeInTheDocument();
+    expect(within(michal).getByText("„Zapytać o certyfikat Azure.”")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Zapisane rozmowy: 2 z 5" })).toBeInTheDocument();
     expect(screen.queryByText("Anna Kontraktorska")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Oś konsultanta: Paweł Makietowy" }));

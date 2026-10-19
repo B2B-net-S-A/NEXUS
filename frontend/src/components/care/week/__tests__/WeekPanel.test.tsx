@@ -4,7 +4,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -162,12 +162,34 @@ describe("WeekPanel", () => {
       }),
     });
     renderPanel();
-    expect(await screen.findByText("zaległy 3 dni · dzień 30")).toBeInTheDocument();
-    expect(screen.getByText("Firma Testowa · Data · menedżer: Piotr Wzorcowy")).toBeInTheDocument();
-    expect(screen.getByText("do front office: kończy projekt")).toBeInTheDocument();
-    expect(screen.getByText("bez rozmów")).toBeInTheDocument();
+    expect(await screen.findByText("3 dni po · dzień 30")).toBeInTheDocument();
+    // Zaległa rozmowa stoi w kolumnie „Zaległe”, nie w dniu terminu.
+    const late = screen.getByRole("region", { name: "Zaległe" });
+    expect(within(late).getByText("Ewa Przykładowa")).toBeInTheDocument();
+    expect(within(late).getByText("Firma Testowa · Data")).toBeInTheDocument();
+    expect(within(late).getByText("menedżer: Piotr Wzorcowy")).toBeInTheDocument();
+    expect(within(late).getByText("kończy projekt")).toBeInTheDocument();
+    expect(within(late).getByText("bez rozmów")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "wt 20 (dziś)" })).toHaveTextContent("wolne");
+    expect(screen.getByRole("region", { name: "pn 19" })).toHaveTextContent("—");
     // Bez prawa zapisu nie ma „Zapisz rozmowę”; bez D11 nie ma liczby opinii.
     expect(screen.queryByRole("button", { name: "Zapisz rozmowę" })).toBeNull();
-    expect(screen.queryByText("opinie od menedżerów")).toBeNull();
+    expect(screen.queryByText(/opinie ·/)).toBeNull();
+  });
+
+  it("pasek tygodnia liczy zapisane rozmowy z zaplanowanych", async () => {
+    mocks.get.mockResolvedValue({
+      data: week({
+        feedback: [],
+        contacts: [],
+        counts: { contacts: 0, done: 2, overdue: 0, feedback: 0, front_office: 0 },
+      }),
+    });
+    renderPanel();
+    // Pusta kolejka to wciąż stan pusty, ale tylko wtedy, gdy nie ma ani rozmów, ani opinii.
+    expect(
+      await screen.findByText("W tym tygodniu nie ma zaplanowanych kontaktów"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Zapisane rozmowy: 2 z 2" })).toBeInTheDocument();
   });
 });

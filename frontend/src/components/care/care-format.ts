@@ -2,6 +2,7 @@
 
 import type {
   CareConversation,
+  HeatCell,
   MapTechnology,
   RedeployReason,
   TechCard,
@@ -60,17 +61,8 @@ export const REDEPLOY_ORDER: RedeployReason[] = [
   "wants_change",
 ];
 
-/** Technologie widoczne w filtrze obszaru (pusty filtr = wszystkie). */
-export function technologiesInArea(
-  technologies: MapTechnology[],
-  area: string | null,
-): MapTechnology[] {
-  if (!area) return technologies;
-  return technologies.filter((tech) => tech.areas.includes(area));
-}
-
 /** Krótki opis liczb źródeł do dymka („2 karty, 1 rekrutacja…”). */
-export function sourceSummary(tech: MapTechnology): string {
+export function sourceSummary(tech: Pick<MapTechnology, "counts">): string {
   const parts: string[] = [];
   const { cards, jobs, consultants, notes } = tech.counts;
   if (cards) parts.push(countPl(cards, "karta", "karty", "kart"));
@@ -86,4 +78,33 @@ export function splitNames(raw: string): string[] {
     .split(/[,;\n]+/)
     .map((part) => part.trim())
     .filter(Boolean);
+}
+
+/** Litery źródeł w komórce mapy cieplnej, w stałej kolejności T · R · K · N. */
+const SOURCE_LETTERS: [keyof HeatCell["counts"], string][] = [
+  ["cards", "T"],
+  ["jobs", "R"],
+  ["consultants", "K"],
+  ["notes", "N"],
+];
+
+export function cellLetters(cell: HeatCell | null): string[] {
+  if (!cell) return [];
+  return SOURCE_LETTERS.filter(([key]) => cell.counts[key] > 0).map(([, letter]) => letter);
+}
+
+/** Siła koloru komórki: 0 — brak, 1–3 — liczba rodzajów źródeł (cztery = 3). */
+export function heatLevel(cell: HeatCell | null): 0 | 1 | 2 | 3 {
+  const n = cell?.source_count ?? 0;
+  return n <= 0 ? 0 : n >= 3 ? 3 : (n as 1 | 2);
+}
+
+/** Dymek komórki: „Płatności · Java 17: 3 karty, 4 rekrutacje · 1 otwarta rekrutacja”. */
+export function cellTitle(area: string, tech: string, cell: HeatCell | null): string {
+  if (!cell) return `${area} · ${tech}: brak źródeł`;
+  const parts = [sourceSummary(cell)].filter(Boolean);
+  if (cell.open_jobs) {
+    parts.push(countPl(cell.open_jobs, "otwarta rekrutacja", "otwarte rekrutacje", "otwartych rekrutacji"));
+  }
+  return `${area} · ${tech}: ${parts.join(" · ")}`;
 }

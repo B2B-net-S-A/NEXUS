@@ -29,6 +29,14 @@ predykat co filtr umiejętności na liście kandydatów, z osobnym cache
 technologia znana z jednego źródła (poza samymi CV naszych konsultantów —
 CV opisuje człowieka, nie stack klienta) i menedżer naszych konsultantów
 bez „podlega pod”.
+
+**Mapa cieplna (19.10.2026)** — ``heatmap``: najmocniejsze technologie klienta
+(kolejność jak lista) × działy w kolejności ``departments``. Komórka = źródła
+tej technologii w dziale (liczba rodzajów źródeł to siła koloru na ekranie)
+i liczba OTWARTYCH rekrutacji działu, które jej wymagają („musi” albo „mile
+widziane” — obramowanie). ``unassigned`` = źródła spoza działów (notatki,
+karty bez obszaru, rekrutacje bez hiring managera z działu). Ekran nie liczy
+nic sam — jedno zapytanie daje całą macierz.
 """
 
 from __future__ import annotations
@@ -86,6 +94,8 @@ BASE_COUNT_FAILED_TTL_SECONDS = 600
 _BASE_FAILED = -1
 #: Luki „znane z jednego źródła” — najwyżej tyle, najsłabiej udokumentowane.
 SINGLE_SOURCE_GAPS = 6
+#: Wiersze mapy cieplnej (najmocniejsze technologie; reszta w liście pod mapą).
+HEATMAP_ROWS = 40
 
 _contacts_org = CONTACTS_ORG.alias("contacts_org")
 
@@ -117,6 +127,8 @@ class _Tech:
     raw_forms: list[str] = field(default_factory=list)
     consultant_months: int = 0
     must_jobs: set[int] = field(default_factory=set)
+    #: Otwarte rekrutacje, które wymagają tej technologii (mapa cieplna).
+    open_jobs: set[int] = field(default_factory=set)
 
     def seen(self, source: str, ref: int, when: Optional[date]) -> None:
         self.refs[source].add(ref)
@@ -268,6 +280,63 @@ def _dept_tech(entry: _Tech, name: str, stale_before: date) -> dict[str, Any]:
         "stale": counts["consultants"] == 0
         and (entry.last_seen is None or entry.last_seen < stale_before),
     }
+
+
+def _heat_cell(entry: Optional[_Tech]) -> Optional[dict[str, Any]]:
+    if entry is None:
+        return None
+    counts = {source: len(entry.refs[source]) for source in SOURCES}
+    source_count = sum(1 for value in counts.values() if value)
+    if not source_count and not entry.open_jobs:
+        return None
+    return {
+        "counts": counts,
+        "source_count": source_count,
+        "open_jobs": len(entry.open_jobs),
+    }
+
+
+def heatmap(
+    technologies: Sequence[dict[str, Any]],
+    techs: dict[int, _Tech],
+    depts: Sequence[_Dept],
+    *,
+    limit: int = HEATMAP_ROWS,
+) -> dict[str, Any]:
+    """Technologia × dział (czysta funkcja — testowalna bez bazy).
+
+    ``technologies`` w kolejności listy, ``depts`` w kolejności kolumn.
+    Komórka ``None`` = dział nic o tej technologii nie mówi.
+    """
+
+    rows = []
+    for item in technologies[:limit]:
+        skill_id = item["skill_id"]
+        entry = techs.get(skill_id) or _Tech(skill_id=skill_id)
+        in_depts = [dept.techs.get(skill_id) for dept in depts]
+        rest = _Tech(skill_id=skill_id)
+        for source in SOURCES:
+            assigned: set[int] = set()
+            for cell in in_depts:
+                if cell is not None:
+                    assigned |= cell.refs[source]
+            rest.refs[source] = entry.refs[source] - assigned
+        rest.open_jobs = entry.open_jobs - {
+            job for cell in in_depts if cell is not None for job in cell.open_jobs
+        }
+        rows.append(
+            {
+                "skill_id": skill_id,
+                "name": item["name"],
+                "must_jobs": item["must_jobs"],
+                "consultants": item["counts"]["consultants"],
+                "last_seen": item["last_seen"],
+                "stale": item["stale"],
+                "cells": [_heat_cell(cell) for cell in in_depts],
+                "unassigned": _heat_cell(rest),
+            }
+        )
+    return {"rows": rows, "rows_total": len(technologies)}
 
 
 def gaps_for(
@@ -439,10 +508,18 @@ async def compute(db: AsyncSession, client_id: int, *, today: date) -> dict[str,
     open_jobs = []
     for job_id, title, job_status, must, nice, opened_at, hm_id in jobs:
         when = _local_date(opened_at)
-        if job_status != JobStatus.closed:
-            open_jobs.append({"id": job_id, "title": title, "opened_on": when})
+        is_open = job_status != JobStatus.closed
         # Dział rekrutacji = dział jej hiring managera.
         area_id = contact_area.get(hm_id) if hm_id is not None else None
+        if is_open:
+            open_jobs.append(
+                {
+                    "id": job_id,
+                    "title": title,
+                    "opened_on": when,
+                    "area": area_names.get(area_id) if area_id is not None else None,
+                }
+            )
         dept = depts.get(area_id) if area_id is not None else None
         if dept is not None:
             dept.touch(when)
@@ -456,8 +533,13 @@ async def compute(db: AsyncSession, client_id: int, *, today: date) -> dict[str,
                 entry.raw_forms.append(name)
                 if is_must:
                     entry.must_jobs.add(job_id)
+                if is_open:
+                    entry.open_jobs.add(job_id)
                 if dept is not None:
-                    dept.tech(skill_id).seen("jobs", job_id, when)
+                    dept_entry = dept.tech(skill_id)
+                    dept_entry.seen("jobs", job_id, when)
+                    if is_open:
+                        dept_entry.open_jobs.add(job_id)
                     entry.areas.add(area_names[area_id])
 
     # 3. Nasi konsultanci (aktywne kontrakty).
@@ -742,6 +824,7 @@ async def compute(db: AsyncSession, client_id: int, *, today: date) -> dict[str,
         "notes_count": len(notes),
         "redeploy_active": int(redeploy_active or 0),
         "departments": departments,
+        "heatmap": heatmap(technologies, techs, [depts[area.id] for area in areas]),
         "gaps": gaps,
         "generated_at": local_now().isoformat(),
     }
