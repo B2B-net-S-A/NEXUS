@@ -10,11 +10,14 @@
  * (uprawnienie „Sprawy”), więc widzi „Moje / Wszystkie” i „Nowa sprawa”.
  *
  * Stany (`?state=`):
- * - `board` (domyślnie) — tablica: Nowa 3 (onboarding konsultantki z maila
- *   spięty z kontraktem, faktura z maila, offboarding z odejścia), W toku 2,
- *   Czeka na kogoś 1, Zrobione (41 w miesiącu); zasiane są „Moje”, każdy
- *   obszar i „Pokaż zamknięte” — przełączenie filtra nie wysyła zapytania
- *   (wyszukiwarka tekstem już tak, bo każdy znak to inny klucz);
+ * - `board` (domyślnie) — tablica z makiety 19.10.2026: Nowa 3 (onboarding
+ *   konsultantki z maila spięty z kontraktem, faktura z maila i offboarding
+ *   z odejścia — oba bez osoby, z „Weź”), W toku 2, Czeka na kogoś 1, wąska
+ *   kolumna „Zrobione” (41 w miesiącu); termin w kolorze, ikona źródła,
+ *   kropka priorytetu, pasek listy kontrolnej; zasiane są „Moje”, każdy
+ *   obszar, „Na ten tydzień”, „Bez osoby” i „Pokaż zamknięte” — przełączenie
+ *   filtra nie wysyła zapytania (wyszukiwarka tekstem już tak, bo każdy znak
+ *   to inny klucz; „Weź” to zapis, który harness blokuje);
  * - `detail` — szczegół sprawy onboardingu: opis, mail od klienta
  *   z załącznikiem, komentarz, checklista 1/4, powiązany kontrakt; okno
  *   „Edytuj” ma zasianą listę osób.
@@ -61,9 +64,20 @@ function prepare(params: URLSearchParams) {
   for (const mine of [false, true]) {
     for (const area of BOARD_AREAS) {
       for (const includeClosed of [false, true]) {
-        // TEN SAM kształt filtrów co w `CasesBoard` — inaczej klucz listy się nie zgodzi.
-        const filters: CaseListFilters = { mine, area, q: "", include_closed: includeClosed };
-        client.setQueryData(caseKeys.list(filters), caseList(today, filters));
+        for (const week of [false, true]) {
+          for (const unassigned of [false, true]) {
+            // TEN SAM kształt filtrów co w `CasesBoard` — inaczej klucz listy się nie zgodzi.
+            const filters: CaseListFilters = {
+              mine,
+              area,
+              q: "",
+              include_closed: includeClosed,
+              week,
+              unassigned,
+            };
+            client.setQueryData(caseKeys.list(filters), caseList(today, filters));
+          }
+        }
       }
     }
   }

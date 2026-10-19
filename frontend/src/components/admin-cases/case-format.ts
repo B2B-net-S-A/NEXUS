@@ -4,12 +4,11 @@ import type {
   CaseCard,
   CaseChecklistItem,
   CasePriority,
+  CaseSource,
   CaseStatus,
 } from "@/lib/api/admin-cases";
 import { formatDayMonthPl } from "@/lib/date-pl";
-
-/** Kolumny tablicy; zamknięte tylko po zaznaczeniu „Pokaż zamknięte”. */
-export const BOARD_COLUMNS: readonly CaseStatus[] = ["new", "in_progress", "waiting", "done"];
+import { countPl } from "@/lib/plural-pl";
 
 export const PRIORITY_BADGE: Record<CasePriority, NonNullable<BadgeProps["variant"]>> = {
   P1: "danger",
@@ -35,6 +34,56 @@ export function dueLabel(card: Pick<CaseCard, "due_on" | "overdue" | "status">):
     ? { text: `po terminie · ${formatDayMonthPl(card.due_on)}`, overdue: true }
     : { text: `do ${formatDayMonthPl(card.due_on)}`, overdue: false };
 }
+
+export type DueTone = "overdue" | "week" | "later" | "none";
+
+const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})/;
+
+function dayNumber(iso: string): number {
+  const m = ISO_DAY.exec(iso);
+  return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86_400_000 : 0;
+}
+
+/**
+ * Termin w kolorze (makieta 19.10.2026): po terminie — czerwony (liczy
+ * serwer), do piątku tego tygodnia — żółty z „dziś” / „jutro” / „za N dni”,
+ * później — szary, bez terminu — wyciszony tekst. Zrobiona sprawa bez terminu.
+ * Bez `today` (starsza odpowiedź) — jak dotąd „do 21.10”.
+ */
+export function dueBadge(
+  card: Pick<CaseCard, "due_on" | "overdue" | "status">,
+  today: string | undefined,
+  weekEnd: string | undefined,
+): { text: string; tone: DueTone } | null {
+  if (card.status === "done" || card.status === "closed") return null;
+  if (!card.due_on) return { text: "bez terminu", tone: "none" };
+  const date = formatDayMonthPl(card.due_on);
+  if (card.overdue) return { text: `po terminie · ${date}`, tone: "overdue" };
+  if (!today || !weekEnd) return { text: `do ${date}`, tone: "later" };
+  if (card.due_on <= weekEnd) {
+    const days = dayNumber(card.due_on) - dayNumber(today);
+    const when =
+      days <= 0 ? "dziś" : days === 1 ? "jutro" : `za ${countPl(days, "dzień", "dni", "dni")}`;
+    return { text: `${when} · ${date}`, tone: "week" };
+  }
+  return { text: date, tone: "later" };
+}
+
+/** Ikona źródła sprawy: skąd się wzięła. */
+export const SOURCE_ICON: Record<CaseSource, "mail" | "contract" | "exit" | "manual" | "import"> = {
+  mail: "mail",
+  contract: "contract",
+  lifecycle: "exit",
+  manual: "manual",
+  compass_import: "import",
+};
+
+/** Kropka priorytetu (P1 czerwona, P2 żółta, P3 szara) — etykieta w `title` i dla czytnika. */
+export const PRIORITY_DOT: Record<CasePriority, string> = {
+  P1: "bg-destructive",
+  P2: "bg-warning",
+  P3: "bg-muted-foreground/40",
+};
 
 /** Karty w kolumnach tablicy, w kolejności z serwera (priorytet, termin). */
 export function groupByStatus(

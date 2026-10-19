@@ -18,8 +18,9 @@
  * - `techcard` — otwarte okno karty technologicznej z 31. dnia (prawdziwy
  *   `TechCardDialog`, ten sam, który otwiera „Edytuj” na osi — zakładka nie
  *   umie otworzyć go bez kliknięcia); obszary klienta są zasiane;
- * - `list` — ekran `/care`: domyślnie „Ten tydzień” (makieta 7 etapu 2 —
- *   prośby o opinię od menedżerów, rozmowy z powodem, licznik zaległych),
+ * - `list` — ekran `/care`: domyślnie „Ten tydzień” (plan dni „Zaległe ·
+ *   pn … pt” z kartami rozmów, pasek tygodnia i pas opinii od menedżerów —
+ *   makieta 19.10.2026),
  *   dalej „Konsultanci” (etap 3, M1 — rytm przy każdej osobie, sygnały),
  *   „Przydział” (M3 — obciążenie opiekunów z rytmów, próg, bez opiekuna;
  *   nad nimi pula opiekunów z „nie przypisuj” i „Przypisz wg obłożenia”),

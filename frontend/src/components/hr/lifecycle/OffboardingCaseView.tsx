@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { personInitials } from "@/components/hr/people/hr-format";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -24,6 +26,7 @@ import {
   useUpdateCase,
   type LifecycleCase,
 } from "@/lib/api/hr-lifecycle";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { warsawToday } from "@/lib/warsaw-date";
 import { formatWeekdayDayPl, formatIsoDatePl } from "@/lib/date-pl";
@@ -33,8 +36,10 @@ import {
   CASE_STATUS_TONE,
   ACCOUNT_RESULT_LABELS,
   canDeactivateNow,
+  daysFromToday,
   formatMoment,
   isLiveStatus,
+  offboardingMilestones,
 } from "./lifecycle-format";
 import { ReportsNote, WorkTable } from "./OffboardingWorkTable";
 
@@ -50,40 +55,64 @@ export function BackLink({ userId, name }: { userId: number; name: string }) {
   );
 }
 
-function Timeline({ data }: { data: LifecycleCase }) {
+/** Data albo chwila kamienia: „30.11, 18:00” dla chwili, „pon 30.11” dla dnia. */
+function milestoneWhen(on: string | null): string | null {
+  if (!on) return null;
+  return on.length > 10 ? formatMoment(on) : formatWeekdayDayPl(on);
+}
+
+/**
+ * Oś odejścia (makieta 19.10.2026): zgłoszone → rozmowa wyjściowa →
+ * przekazanie pracy → konto wyłączone → sprzęt zwrócony. Zrobione z „✓”,
+ * bieżący krok obwiedziony.
+ */
+function Milestones({ data }: { data: LifecycleCase }) {
+  const steps = offboardingMilestones(data);
+  const done = steps.filter((step) => step.state === "done").length;
+  const fill = steps.length > 1 ? Math.min(done, steps.length - 1) / (steps.length - 1) : 0;
   return (
-    <Card className="space-y-3 p-4">
-      <h2 className="text-sm font-semibold text-foreground">Kiedy co się stanie</h2>
-      <div className="flex items-start gap-3 text-sm">
-        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums">
-          {formatMoment(data.handover_at)}
+    <Card className="px-5 py-4">
+      <ol className="relative flex flex-wrap gap-2" aria-label="Kiedy co się stanie">
+        <span
+          aria-hidden
+          className="absolute left-[10%] right-[10%] top-3.5 hidden h-0.5 bg-border sm:block"
+        >
+          <span className="block h-full bg-primary" style={{ width: `${fill * 100}%` }} />
         </span>
-        <div>
-          <p className="font-medium text-foreground">
-            {data.handover_executed_at ? "Praca przekazana" : "Przekazanie pracy"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {data.handover_executed_at
-              ? `Wykonane ${formatMoment(data.handover_executed_at)}.`
-              : "Do tej chwili osoba pracuje normalnie."}
-          </p>
-        </div>
-      </div>
-      <div className="flex items-start gap-3 text-sm">
-        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums">
-          {formatWeekdayDayPl(data.deactivate_on)}
-        </span>
-        <div>
-          <p className="font-medium text-foreground">
-            {data.account_close_result
-              ? ACCOUNT_RESULT_LABELS[data.account_close_result]
-              : "Konto wyłączone"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Także dostęp do Akademii w Compassie (lista osób z NEXUSA).
-          </p>
-        </div>
-      </div>
+        {steps.map((step, index) => {
+          const when = milestoneWhen(step.on);
+          return (
+            <li
+              key={step.key}
+              aria-current={step.state === "current" ? "step" : undefined}
+              className="relative flex min-w-28 flex-1 flex-col items-center gap-1 text-center"
+            >
+              <span
+                className={cn(
+                  "grid h-7 w-7 place-items-center rounded-full text-xs font-semibold",
+                  step.state === "done"
+                    ? "bg-primary text-primary-foreground"
+                    : step.state === "current"
+                      ? "border-2 border-primary bg-card text-primary"
+                      : "bg-muted text-muted-foreground",
+                )}
+              >
+                {step.state === "done" ? <Check className="h-3.5 w-3.5" aria-label="zrobione" /> : index + 1}
+              </span>
+              <span className="text-[13px] font-semibold">{step.label}</span>
+              <span className="text-xs text-muted-foreground">
+                {[step.who, when].filter(Boolean).join(" · ") || "—"}
+                {step.key === "account" && !data.account_closed_at ? " · też Akademia" : ""}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      {data.account_close_result && data.account_close_result !== "deactivated" ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {ACCOUNT_RESULT_LABELS[data.account_close_result]}
+        </p>
+      ) : null}
     </Card>
   );
 }
@@ -175,6 +204,7 @@ export function OffboardingCase({ caseId }: { caseId: number }) {
   }
   const data = query.data;
   const live = isLiveStatus(data.status);
+  const lastDayIn = live ? daysFromToday(data.last_working_day, warsawToday()) : null;
   const run = (kind: "start" | "cancel" | "complete", done: string) =>
     action.mutate(kind, {
       onSuccess: () => showToast(done, "success"),
@@ -234,14 +264,19 @@ export function OffboardingCase({ caseId }: { caseId: number }) {
   return (
     <div className="space-y-4">
       {data.user_id ? <BackLink userId={data.user_id} name={data.person_name} /> : null}
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs text-muted-foreground">Ludzie · {data.person_name}</p>
-          <h1 className="flex flex-wrap items-center gap-3 text-xl font-semibold text-foreground">
-            Odejście · ostatni dzień {formatWeekdayDayPl(data.last_working_day)}
-            <StatusDot tone={CASE_STATUS_TONE[data.status]}>{CASE_STATUS_LABELS[data.status]}</StatusDot>
-          </h1>
-          {data.exit_initiator || data.exit_reason ? (
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary/10 text-base font-semibold text-primary"
+          >
+            {personInitials(data.person_name)}
+          </span>
+          <div>
+            <h1 className="flex flex-wrap items-center gap-3 text-xl font-semibold text-foreground">
+              Odejście · {data.person_name}
+              <StatusDot tone={CASE_STATUS_TONE[data.status]}>{CASE_STATUS_LABELS[data.status]}</StatusDot>
+            </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
               {[
                 data.exit_initiator ? EXIT_INITIATOR_LABELS[data.exit_initiator] : null,
@@ -249,9 +284,15 @@ export function OffboardingCase({ caseId }: { caseId: number }) {
               ]
                 .filter(Boolean)
                 .join(" · ")}
+              {data.exit_initiator || data.exit_reason ? " · " : ""}
+              ostatni dzień{" "}
+              <span className="font-semibold text-foreground">
+                {formatWeekdayDayPl(data.last_working_day)}
+              </span>
+              {lastDayIn ? ` (${lastDayIn})` : ""}
               {data.exit_note ? ` — ${data.exit_note}` : ""}
             </p>
-          ) : null}
+          </div>
         </div>
         {data.can_manage ? (
           <div className="flex flex-wrap gap-2">
@@ -298,15 +339,24 @@ export function OffboardingCase({ caseId }: { caseId: number }) {
           Odejście cofnięte {formatIsoDatePl(data.cancelled_at)}.
         </p>
       ) : null}
+      <Milestones data={data} />
       <ReportsNote data={data} />
-      <WorkTable data={data} />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Timeline data={data} />
-        <Card className="space-y-2 p-4">
-          <h2 className="text-sm font-semibold text-foreground">
-            Zadania · {data.progress.done}/{data.progress.total}
-          </h2>
-          <LifecycleTaskList tasks={data.tasks} editable={data.status === "active"} />
+      <div className="flex flex-wrap items-start gap-4">
+        <WorkTable data={data} />
+        <Card className="flex-[1_1_360px] space-y-2 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-foreground">Zadania</h2>
+            <span className="text-sm">
+              <span className="font-bold">{data.progress.done}</span>{" "}
+              <span className="text-muted-foreground">z {data.progress.total}</span>
+            </span>
+          </div>
+          <Progress
+            value={data.progress.total ? (data.progress.done / data.progress.total) * 100 : 0}
+            aria-label={`Zadania: ${data.progress.done} z ${data.progress.total}`}
+            className="h-1.5 bg-border"
+          />
+          <LifecycleTaskList tasks={data.tasks} editable={data.status === "active"} grouped />
         </Card>
       </div>
       {changingDay ? (

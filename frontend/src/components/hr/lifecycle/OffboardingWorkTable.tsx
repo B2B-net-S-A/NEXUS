@@ -1,47 +1,78 @@
 "use client";
 
+import { personInitials } from "@/components/hr/people/hr-format";
+import { Badge } from "@/components/ui/badge";
 import {
   HANDOVER_ERROR_LABELS,
   type LifecycleCase,
   type TransferKind,
   type WorkRow,
 } from "@/lib/api/hr-lifecycle";
-import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { CALM_SUBLINE } from "@/lib/calm-table";
 
-import { isLiveStatus, reportsSummary } from "./lifecycle-format";
+import {
+  goesWithRecruitments,
+  isLiveStatus,
+  reportsSummary,
+  workLayout,
+} from "./lifecycle-format";
 import { ReceiverSelect } from "./ReceiverSelect";
 
+/**
+ * „Komu przekazać” (makieta 19.10.2026): wiersz na rodzaj pracy z liczbą
+ * i przejmującym (awatar), praca idąca z rekrutacjami jako podpis pod nimi,
+ * rodzaje z zerem zwinięte do jednej linijki pigułek.
+ */
 export function WorkTable({ data }: { data: LifecycleCase }) {
-  const rows = data.work ?? [];
+  const layout = workLayout(data.work ?? []);
   const editable = data.can_manage && isLiveStatus(data.status) && !data.handover_executed_at;
+  const along = layout.withRecruitments
+    .map((row) => `${row.label.toLowerCase()} ${row.count}`)
+    .join(", ");
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
-      <table className="w-full min-w-[640px] text-sm">
-        <thead>
-          <tr className={CALM_ROW}>
-            <th className={`${CALM_HEAD} px-3 py-2 text-left`}>Co {data.person_name} ma w NEXUSIE</th>
-            <th className={`${CALM_HEAD} px-3 py-2 text-right`}>Ile</th>
-            <th className={`${CALM_HEAD} px-3 py-2 text-left`}>Przekaż do</th>
-            <th className={`${CALM_HEAD} px-3 py-2 text-left`}>Uwagi</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.kind} className={CALM_ROW}>
-              <td className="px-3 py-2 font-medium text-foreground">{row.label}</td>
-              <td className={`${CALM_AMOUNT} px-3 py-2`}>{row.count ?? "—"}</td>
-              <td className="px-3 py-2">
-                <ReceiverCell caseId={data.id} row={row} editable={editable} />
-              </td>
-              <td className="px-3 py-2 text-muted-foreground">
-                {row.note}
-                <HandoverOutcome row={row} />
-              </td>
-            </tr>
+    <section
+      className="min-w-0 flex-[999_1_640px] overflow-hidden rounded-lg border border-border bg-card"
+      aria-labelledby="off-work"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+        <h2 id="off-work" className="text-sm font-semibold">
+          Komu przekazać
+        </h2>
+        <span className="text-xs text-muted-foreground">
+          Co {data.person_name} ma w NEXUSIE · zmiana działa w dniu przekazania
+        </span>
+      </div>
+      <ul>
+        {layout.rows.map((row) => (
+          <li
+            key={row.kind}
+            className="grid grid-cols-[minmax(0,1fr)_56px] items-center gap-x-3 gap-y-2 border-t border-border/60 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_56px_minmax(200px,240px)]"
+          >
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">{row.label}</p>
+              <p className="text-xs text-muted-foreground">
+                {row.kind === "recruitments" && along ? `z nimi idą: ${along}` : row.note}
+              </p>
+              <HandoverOutcome row={row} />
+            </div>
+            <span className="text-center text-lg font-bold tabular-nums">{row.count ?? "—"}</span>
+            <div className="col-span-2 sm:col-span-1">
+              <ReceiverCell caseId={data.id} row={row} editable={editable} />
+            </div>
+          </li>
+        ))}
+      </ul>
+      {layout.empty.length ? (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 bg-muted/40 px-4 py-2.5">
+          <span className="text-xs text-muted-foreground">Nic do przekazania:</span>
+          {layout.empty.map((row) => (
+            <Badge key={row.kind} variant="neutral" size="sm" className="h-auto py-0.5">
+              {row.label.toLowerCase()} · 0
+            </Badge>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -56,6 +87,17 @@ export function ReportsNote({ data }: { data: LifecycleCase }) {
   );
 }
 
+function Avatar({ name }: { name: string }) {
+  return (
+    <span
+      aria-hidden
+      className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary"
+    >
+      {personInitials(name)}
+    </span>
+  );
+}
+
 function ReceiverCell({
   caseId,
   row,
@@ -66,20 +108,35 @@ function ReceiverCell({
   editable: boolean;
 }) {
   if (!row.transferable) {
-    return <span className="text-muted-foreground">idzie z rekrutacjami</span>;
+    // Zastępstwa zmienia osoba na urlopie albo Kadry we wniosku (uwaga w wierszu).
+    return (
+      <span className="text-sm text-muted-foreground">
+        {goesWithRecruitments(row.kind) ? "idzie z rekrutacjami" : "poza przekazaniem"}
+      </span>
+    );
   }
   if (editable && row.status !== "done") {
     return (
-      <ReceiverSelect
-        caseId={caseId}
-        kind={row.kind as TransferKind}
-        receiverId={row.receiver_user_id}
-        receiverName={row.receiver_name}
-        label={row.label}
-      />
+      <div className="flex items-center gap-2">
+        {row.receiver_name ? <Avatar name={row.receiver_name} /> : null}
+        <ReceiverSelect
+          caseId={caseId}
+          kind={row.kind as TransferKind}
+          receiverId={row.receiver_user_id}
+          receiverName={row.receiver_name}
+          label={row.label}
+        />
+      </div>
     );
   }
-  return <span>{row.receiver_name ?? "—"}</span>;
+  return row.receiver_name ? (
+    <span className="flex items-center gap-2 text-sm">
+      <Avatar name={row.receiver_name} />
+      {row.receiver_name}
+    </span>
+  ) : (
+    <span className="text-sm text-muted-foreground">—</span>
+  );
 }
 
 function HandoverOutcome({ row }: { row: WorkRow }) {

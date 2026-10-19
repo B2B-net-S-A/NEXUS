@@ -48,3 +48,44 @@ def test_legacy_text_still_matches_the_rows_from_2026_09_26():
         hashlib.sha256(legacy.encode("utf-8")).hexdigest()
         == "110fca06cd3204e3a7a8ff0efcfe0bc8dbd60611415ccc27b6bbe06397aca5da"
     )
+
+
+# ── Która zgoda jest obowiązkowa (decyzja Artura 19.10.2026) ────────────────
+
+
+def test_job_link_requires_this_recruitment_and_records_future_only_when_ticked():
+    assert career_consent.consent_kinds("job", consent_future=False) == [
+        "recruitment_current"
+    ]
+    assert career_consent.consent_kinds("job", consent_future=True) == [
+        "recruitment_current",
+        "recruitment_future",
+    ]
+
+
+def test_recruiter_link_requires_the_future_consent_only():
+    """Stały link rekrutera („Dołącz do bazy”) nie dotyczy żadnej rekrutacji —
+    osoba zostawia CV po to, żeby dostawać propozycje, więc obowiązkowa jest
+    zgoda na przyszłe procesy, a zgody „na tę rekrutację” nie ma."""
+    for ticked in (False, True):
+        assert career_consent.consent_kinds("recruiter", consent_future=ticked) == [
+            "recruitment_future"
+        ]
+
+
+def test_required_consent_text_follows_the_link_kind():
+    assert (
+        career_consent.required_consent_text("recruiter")
+        == career_consent.CONSENT_FUTURE_TEXT
+    )
+    assert (
+        career_consent.required_consent_text("job")
+        == career_consent.CONSENT_CURRENT_TEXT
+    )
+
+
+def test_consent_kind_mirror_matches_the_model():
+    from app.models.candidate_consent import CONSENT_KIND_CURRENT, CONSENT_KIND_FUTURE
+
+    assert career_consent._KIND_CURRENT == CONSENT_KIND_CURRENT
+    assert career_consent._KIND_FUTURE == CONSENT_KIND_FUTURE

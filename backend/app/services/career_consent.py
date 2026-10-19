@@ -13,6 +13,9 @@ Od 2026-10-19 (decyzja D Artura) formularz ma DWIE zgody:
   (``kind = recruitment_future``); wiersz powstaje tylko, gdy kandydat ją
   zaznaczył.
 
+Stały link rekrutera („Dołącz do bazy”) ma jedną, obowiązkową zgodę: na
+przyszłe procesy (``consent_kinds``, decyzja Artura 19.10.2026).
+
 Wiersze sprzed tej zmiany mają ``kind = recruitment_current_future`` (jedna
 zgoda na oba cele, treść ``LEGACY_CONSENT_TEXT_2026_09_26``) i zostają, jak
 były — taka zgoda obejmuje także przyszłe rekrutacje.
@@ -64,3 +67,27 @@ _TRUTHY = frozenset({"true", "1", "on", "yes", "tak"})
 
 def consent_given(value: str | None) -> bool:
     return (value or "").strip().lower() in _TRUTHY
+
+
+# Lustro ``CONSENT_KIND_*`` z ``models/candidate_consent.py`` (bez importu
+# modelu, żeby ten moduł zostawał czystymi stałymi).
+_KIND_CURRENT = "recruitment_current"
+_KIND_FUTURE = "recruitment_future"
+
+
+def required_consent_text(link_kind: str) -> str:
+    """Treść obowiązkowej zgody (pole ``consent``) dla rodzaju linku.
+
+    Stały link rekrutera („Dołącz do bazy”, bez rekrutacji): zgoda na przyszłe
+    procesy, bo po to osoba zostawia CV (decyzja Artura 19.10.2026). Link
+    rekrutacji: zgoda na tę rekrutację.
+    """
+    return CONSENT_FUTURE_TEXT if link_kind == "recruiter" else CONSENT_CURRENT_TEXT
+
+
+def consent_kinds(link_kind: str, *, consent_future: bool) -> list[str]:
+    """Rodzaje zgód do zapisu: obowiązkowa i — na linku rekrutacji — dobrowolna
+    na przyszłe, gdy zaznaczona. Na linku rekrutera dobrowolnej nie ma."""
+    if link_kind == "recruiter":
+        return [_KIND_FUTURE]
+    return [_KIND_CURRENT, *([_KIND_FUTURE] if consent_future else [])]

@@ -5,11 +5,14 @@ import { handoffToast } from "@/components/care/week/FrontOfficeSection";
 import { contractParam } from "@/components/care/week/WeekPanel";
 import {
   daysBetween,
+  feedbackDueText,
   frontOfficeText,
-  lastContactText,
-  reasonText,
+  reasonPill,
   shiftIso,
   shortNames,
+  signalPills,
+  weekColumns,
+  weekProgress,
   weekRangeLabel,
 } from "@/components/care/week/week-format";
 import type { WeekContact, WeekReason } from "@/lib/api/care";
@@ -64,46 +67,48 @@ describe("tydzień", () => {
 describe("powód kontaktu", () => {
   const today = "2026-10-14";
 
-  it("zaległy, dziś, w tym tygodniu, umówiony i przed końcem", () => {
-    expect(reasonText(reason({ due_on: "2026-10-11", overdue: true }), today)).toBe(
-      "zaległy 3 dni · dzień 30",
+  it("pigułka: zaległy z liczbą dni, umówiony niebieski, data tylko poza kolumną dnia", () => {
+    expect(reasonPill(reason({ due_on: "2026-10-11", overdue: true }), today)).toEqual({
+      text: "3 dni po · dzień 30",
+      tone: "danger",
+    });
+    expect(reasonPill(reason({ due_on: "2026-10-13", overdue: true }), today).text).toBe(
+      "1 dzień po · dzień 30",
     );
-    expect(reasonText(reason({ due_on: "2026-10-13", overdue: true }), today)).toBe(
-      "zaległy 1 dzień · dzień 30",
-    );
-    expect(reasonText(reason({ due_on: today }), today)).toBe("dziś · dzień 30");
+    const followUp = reason({
+      kind: "follow_up",
+      label: "Umówiony kontakt",
+      due_on: "2026-10-16",
+      plan_item_id: null,
+      from_conversation_on: "2026-10-01",
+    });
+    expect(reasonPill(followUp, today)).toEqual({
+      text: "umówiony kontakt z 01.10",
+      tone: "info",
+    });
+    expect(reasonPill(followUp, today, true).text).toBe("16.10 · umówiony kontakt z 01.10");
+    expect(reasonPill(reason({ due_on: today }), today, true).text).toBe("dziś · dzień 30");
     expect(
-      reasonText(
-        reason({
-          kind: "follow_up",
-          label: "Umówiony kontakt",
-          due_on: "2026-10-16",
-          plan_item_id: null,
-          from_conversation_on: "2026-10-01",
-        }),
-        today,
-      ),
-    ).toBe("16.10 · umówiony kontakt z 01.10");
-    expect(
-      reasonText(reason({ kind: "pre_end", label: "Przed końcem zamówienia", due_on: "2026-10-15" }), today),
-    ).toBe("15.10 · 30 dni przed końcem zamówienia");
+      reasonPill(reason({ kind: "pre_end", label: "Przed końcem zamówienia", due_on: "2026-10-15" }), today),
+    ).toEqual({ text: "30 dni przed końcem zamówienia", tone: "neutral" });
   });
 
-  it("„Ostatnio”: sygnał z kolejki przepięć wygrywa z notatką", () => {
-    const talked = {
-      id: 1,
-      occurred_on: "2026-10-01",
-      satisfaction: 4,
-      note_excerpt: "Dobrze, chce więcej pracy z Kafką.",
-      signals: [],
-    };
-    expect(lastContactText(row({ last_conversation: talked }))).toBe(
-      "Dobrze, chce więcej pracy z Kafką.",
-    );
-    expect(lastContactText(row({ last_conversation: talked, signals: ["wants_change"] }))).toBe(
-      "sygnał: chce zmiany projektu",
-    );
-    expect(lastContactText(row({}))).toBeNull();
+  it("sygnały: kolejka przepięć i front office bez powtórzeń", () => {
+    expect(
+      signalPills(
+        row({
+          signals: ["project_end", "attrition_risk"],
+          front_office: { reasons: ["project_end", "wants_change"], handed_off_on: null },
+        }),
+      ),
+    ).toEqual(["kończy projekt", "ryzyko odejścia", "chce zmiany projektu"]);
+    expect(signalPills(row({}))).toEqual([]);
+  });
+
+  it("termin opinii: czeka od (minął albo dziś) albo „do”", () => {
+    expect(feedbackDueText("2026-10-10", today)).toEqual({ text: "czeka od 10.10", overdue: true });
+    expect(feedbackDueText(today, today)).toEqual({ text: "czeka od 14.10", overdue: false });
+    expect(feedbackDueText("2026-10-16", today)).toEqual({ text: "do 16.10", overdue: false });
   });
 
   it("front office i skrócone nazwiska w prośbie o opinię", () => {
@@ -113,6 +118,47 @@ describe("powód kontaktu", () => {
     expect(shortNames(["Jan Kowalski-Przykładowy", "Ewa Lis", null])).toBe(
       "Jan K., Ewa L., konsultant",
     );
+  });
+});
+
+describe("plan dni", () => {
+  const week = { from: "2026-10-19", to: "2026-10-23", today: "2026-10-21", is_current: true };
+
+  it("zaległe w pierwszej kolumnie, reszta w dniu terminu, dziś wyróżnione", () => {
+    const late = row({ contract_id: 1, due_on: "2026-10-20", overdue: true });
+    const older = row({ contract_id: 2, due_on: "2026-10-02", overdue: true });
+    const today = row({ contract_id: 3, due_on: "2026-10-21" });
+    const friday = row({ contract_id: 4, due_on: "2026-10-23" });
+    const stray = row({ contract_id: 5, due_on: "2026-10-27" });
+    const columns = weekColumns([late, older, today, friday, stray], week);
+    expect(columns.map((c) => c.label)).toEqual(["Zaległe", "pn 19", "wt 20", "śr 21", "cz 22", "pt 23"]);
+    expect(columns[0].items.map((r) => r.contract_id)).toEqual([1, 2]);
+    // Wtorek minął — zaległy z wtorku stoi w „Zaległe”, nie we wtorku.
+    expect(columns[2]).toMatchObject({ isPast: true, items: [] });
+    expect(columns[3]).toMatchObject({ isToday: true, isPast: false });
+    expect(columns[3].items.map((r) => r.contract_id)).toEqual([3]);
+    // Termin po piątku (serwer go nie zwraca) nie znika — stoi w piątku.
+    expect(columns[5].items.map((r) => r.contract_id)).toEqual([4, 5]);
+  });
+
+  it("tydzień z przyszłości bez zaległych zaczyna się od „Wcześniej”", () => {
+    const next = { from: "2026-10-26", to: "2026-10-30", today: "2026-10-21", is_current: false };
+    const thursday = row({ contract_id: 7, due_on: "2026-10-22" });
+    const columns = weekColumns([thursday], next);
+    expect(columns[0].label).toBe("Wcześniej");
+    expect(columns[0].items).toHaveLength(1);
+    expect(columns.some((c) => c.isToday)).toBe(false);
+    expect(weekColumns([row({ due_on: "2026-10-20", overdue: true })], next)[0].label).toBe("Zaległe");
+  });
+
+  it("pasek: zapisane z zaplanowanych, bez dzielenia przez zero", () => {
+    const counts = { contacts: 3, done: 1, overdue: 1, feedback: 0, front_office: 0 };
+    expect(weekProgress(counts)).toEqual({ done: 1, total: 4, percent: 25 });
+    expect(weekProgress({ ...counts, contacts: 0, done: undefined })).toEqual({
+      done: 0,
+      total: 0,
+      percent: 0,
+    });
   });
 });
 

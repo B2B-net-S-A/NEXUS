@@ -702,6 +702,27 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   `compass_lifecycle` (NEXUS ciągnął roster Compassa) zwraca
   `superseded_by_hr_lifecycle`.
 
+### Ekrany wejścia i odejścia (makiety 19.10.2026)
+
+- **Kreator wejścia** (`OnboardingWizard`): kroki z opisem; ścieżka kartami
+  („Dobierz do formy i działu” + aktywne ścieżki zespołu; „Konsultant u
+  klienta” to karta-informacja — wejście konsultanta zakłada kontrakt);
+  konto wybiera się wyszukiwaniem z awatarami (`matchAccounts`): najpierw
+  konta bez kartoteki, osoby z kartoteką tylko po wpisaniu i bez wyboru.
+- **„Co powstanie”** liczy istniejąca trasa podglądu bez zapisu
+  (`POST /api/hr/lifecycle/preview`) od pierwszego kroku — bez daty startu
+  od dziś, wtedy panel nie pokazuje dat. Zadania pogrupowane wg wykonawcy
+  (`previewByOwner`: przełożony, Kadry, recepcja, IT, administracja, osoba…).
+- **Odejście** (`OffboardingCaseView`): oś czasu `offboardingMilestones` —
+  zgłoszone → rozmowa wyjściowa (zadanie kategorii „Rozmowa”) → przekazanie
+  pracy (18:00 ostatniego dnia) → konto wyłączone → sprzęt zwrócony
+  (zadania kategorii „Sprzęt”); bez takich zadań kroku nie ma, bieżący =
+  pierwszy niezrobiony. „Komu przekazać” (`workLayout`): karty, rozmowy
+  u klienta i umówione kontakty idą z rekrutacjami (podpis pod wierszem
+  rekrutacji), rodzaje z zerem zwinięte do pigułek, wiersz z wynikiem
+  przekazania zostaje zawsze. Zadania pogrupowane wg wykonawcy
+  (`groupTasksByOwner`), zrobione na końcu, pasek postępu.
+
 ### Ścieżki i wejście konsultanta (etap 3, O1, O4–O6, O11, 17.10.2026)
 
 - **Ścieżki zamiast list** (O1): szablon ma odbiorców (`audience`: `team` —

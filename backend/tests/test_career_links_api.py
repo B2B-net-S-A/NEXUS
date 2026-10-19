@@ -804,16 +804,20 @@ async def test_duplicate_email_links_submission_with_consent(api, link_kind):
                 )
             )
         ).all()
-        # Zaznaczona zgoda na przyszłe = drugi wiersz z własnym skrótem treści.
-        assert {c.kind: c.text_sha256 for c in consents} == {
-            "recruitment_current": CONSENT_CURRENT_TEXT_SHA256,
-            "recruitment_future": CONSENT_FUTURE_TEXT_SHA256,
-        }
+        # Link rekrutacji: zaznaczona zgoda na przyszłe = drugi wiersz z własnym
+        # skrótem treści. Stały link rekrutera („Dołącz do bazy”, decyzja Artura
+        # 19.10.2026): jedyna, obowiązkowa zgoda to zgoda na przyszłe procesy.
+        expected = (
+            {
+                "recruitment_current": CONSENT_CURRENT_TEXT_SHA256,
+                "recruitment_future": CONSENT_FUTURE_TEXT_SHA256,
+            }
+            if link_kind == "job"
+            else {"recruitment_future": CONSENT_FUTURE_TEXT_SHA256}
+        )
+        assert {c.kind: c.text_sha256 for c in consents} == expected
         assert all(c.candidate_id is None for c in consents)
-        assert sub.raw_payload["consent"]["kinds"] == [
-            "recruitment_current",
-            "recruitment_future",
-        ]
+        assert sub.raw_payload["consent"]["kinds"] == list(expected)
         assert sub.status == "linked"
         notif = await db.scalar(
             select(Notification).where(
