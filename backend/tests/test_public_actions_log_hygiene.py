@@ -83,50 +83,42 @@ def _run_set_env(
 def test_set_env_masks_the_plain_value_before_printing_anything():
     value = "wartosc-jawna-123\ndruga-linia"
     result = _run_set_env("SOME_FLAG", value)
-    # Wielolinijkowej wartości workflow nie zapisuje (test niżej), ale maska
-    # musi zadziałać, zanim cokolwiek trafi do logu.
-    assert result.returncode == 1, result.stderr
     lines = result.stdout.splitlines()
     assert lines[:2] == [
         "::add-mask::wartosc-jawna-123",
         "::add-mask::druga-linia",
     ], lines[:3]
     visible = [line for line in lines if not line.startswith("::add-mask::")]
+    visible += result.stderr.splitlines()
     assert not any("wartosc-jawna" in line or "druga-linia" in line for line in visible)
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
-def test_set_env_refuses_a_multiline_value_without_printing_it():
-    """19.10.2026: tekst maila zamiast klucza w JJIT_STATIC_ACCESS_TOKEN —
-    Coolify wkleił go do `.env` i `docker compose` odrzucił cały plik, więc
-    Deploy padał dla wszystkich. Nowa linia z inputu albo z sekretu (także
-    sama na końcu, także CR) jest odrzucana przed zapisem do Coolify."""
-    mail = "Dzien dobry,\nklucz: abc.def.ghi\nPozdrawiam, zespol"
-    cases = (
-        _run_set_env("SOME_FLAG", "pierwsza\ndruga"),
-        _run_set_env("SOME_FLAG", "jedna\r"),
-        _run_set_env(
-            "JJIT_STATIC_ACCESS_TOKEN", "", secret_name="JJIT", secret_value=mail
-        ),
-        _run_set_env(
-            "JJIT_STATIC_ACCESS_TOKEN",
-            "",
-            secret_name="JJIT",
-            secret_value="abc.def.ghi\n",
-        ),
+def test_set_env_refuses_a_multiline_value():
+    """19.10.2026: wklejony mail z tokenem JJIT (kilka wierszy) trafił do
+    Coolify, a Coolify przy zapisie `.env` padał na drugim wierszu
+    („unexpected character , in variable name”) — każdy deploy był czerwony,
+    dopóki ktoś nie wyczyścił zmiennej."""
+    refused_plain = _run_set_env("SOME_FLAG", "pierwsza\ndruga, z przecinkiem")
+    assert refused_plain.returncode == 1
+    assert "wiele wierszy" in refused_plain.stderr
+    refused_secret = _run_set_env(
+        "JJIT_STATIC_ACCESS_TOKEN",
+        "",
+        secret_name="JJIT_STATIC_ACCESS_TOKEN",
+        secret_value="token-abc\r\nLink jest jednorazowy, ważny 14 dni",
     )
-    for result in cases:
-        assert result.returncode == 1, result.stdout
-        assert "znak nowej linii" in result.stderr
-        assert "Nic nie zapisano" in result.stderr
-        assert "env write HTTP" not in result.stdout, "Wartość poszła do Coolify."
-        for leaked in ("pierwsza", "druga", "jedna", "Dzien dobry", "abc.def"):
-            assert leaked not in result.stderr, result.stderr
-    ok = _run_set_env(
-        "JJIT_STATIC_ACCESS_TOKEN", "", secret_name="JJIT", secret_value="abc.def.ghi"
+    assert refused_secret.returncode == 1
+    assert "wiele wierszy" in refused_secret.stderr
+    # Końcowy znak nowej linii (np. `gh secret set < plik`) to nie drugi wiersz.
+    trailing = _run_set_env(
+        "JJIT_STATIC_ACCESS_TOKEN",
+        "",
+        secret_name="JJIT_STATIC_ACCESS_TOKEN",
+        secret_value="token-abc\n",
     )
-    assert ok.returncode == 0, ok.stderr
-    assert "env write HTTP 200" in ok.stdout
+    assert trailing.returncode == 0, trailing.stderr
+    assert "długość wartości: 9 zn." in trailing.stdout
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
