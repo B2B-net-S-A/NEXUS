@@ -239,3 +239,20 @@ widać stawkę względem budżetu rekrutacji**.
   stawki w wierszu nie ma. Podgląd osoby („Stawka od”) i panel propozycji bez zmian.
 - Harness `/preview/job-detail?sources=base|search` (budżet 95): w budżecie,
   równo budżet, +7%, +25%, bez stawki.
+
+## „Propozycje z bazy” domyślnie według dopasowania (D4, 19.10.2026)
+
+Zgłoszenie rekrutera „najpierw najbardziej dopasowani”. Do 19.10 okno startowało
+z „Najpierw byli u tego klienta” (osoby z historią u klienta na górze bez względu
+na wynik), a osoby z podobnych rekrutacji i rekomendacji bez zapisanego wyniku
+stały na końcu, choć po przeliczeniu bywały wyżej.
+
+- Domyślny tryb „Dopasowanie” (`ProposalSortMode = "match"`,
+  `proposal-facts.sortByShownScore`): malejąco po pokazanym % — zapisany wynik
+  propozycji albo policzony na ekranie (`useVisibleMatchScores`); bez wyniku na
+  końcu, remisy stabilnie. „Najpierw byli u tego klienta” zostaje drugą opcją
+  przełącznika (gdy ktoś na liście ma historię u klienta); dawny tryb „Kolejność
+  propozycji” (przepięcia i praktykant na górze, punkty historii) zniknął
+  z przełącznika — `compareProposals` dalej układa listę wejściową.
+- W trybie „Dopasowanie” okno zgłasza do liczenia od razu do 100 osób bez wyniku
+  (`MATCH_SORT_PRESCORE_MAX`, paczki po 20), nie dopiero po przewinięciu.
