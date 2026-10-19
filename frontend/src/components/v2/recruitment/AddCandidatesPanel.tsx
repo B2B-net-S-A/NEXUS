@@ -83,6 +83,7 @@ import {
   proposalFactsLine,
   cvYearBadge,
   sortByClientHistory,
+  sortByShownScore,
   type ProposalSortMode,
 } from "@/lib/proposal-facts";
 import { markerCoversEligibility } from "@/lib/employment-marker";
@@ -238,6 +239,9 @@ function proposalRow(
     rateBadge,
   };
 }
+
+/** Ile osób bez zapisanego wyniku liczymy od razu przy „Dopasowaniu” (paczki po 20). */
+const MATCH_SORT_PRESCORE_MAX = 100;
 
 const TAB_LABEL: Record<CandidateWindowTab, string> = {
   similar: "Podobne rekrutacje",
@@ -454,13 +458,13 @@ function AddCandidatesPanelOpen({
     () => new Map((factsQuery.data ?? []).map((f) => [f.candidate_id, f] as const)),
     [factsQuery.data],
   );
-  const [sortMode, setSortMode] = useState<ProposalSortMode>("client_first");
+  const [sortMode, setSortMode] = useState<ProposalSortMode>("match");
   const anyClientHistory = useMemo(
     () => (factsQuery.data ?? []).some((f) => f.client_history != null),
     [factsQuery.data],
   );
-  const listRows = useMemo(() => {
-    const rows = listEntries.map((e): PickRow => {
+  const unsortedRows = useMemo(() => {
+    return listEntries.map((e): PickRow => {
       const id = e.row.candidateId;
       return {
         ...proposalRow(e, factsById.get(id) ?? null, budgetHourly, askLabels),
@@ -475,11 +479,9 @@ function AddCandidatesPanelOpen({
         alsoFits: alsoFitsSlot(alsoFits, id, e.row.fullName, readOnly),
       };
     });
-    return sortMode === "client_first" ? sortByClientHistory(rows, factsById) : rows;
   }, [
     listEntries,
     factsById,
-    sortMode,
     budgetHourly,
     askLabels,
     undoing,
@@ -525,6 +527,25 @@ function AddCandidatesPanelOpen({
     },
     [unscoredNow, reportScoreRow],
   );
+  // „Dopasowanie” (19.10.2026): osoby bez zapisanego wyniku (podobne
+  // rekrutacje, rekomendacje) liczymy od razu po otwarciu, nie dopiero po
+  // przewinięciu do nich — inaczej stałyby na końcu listy, choć bywają wyżej.
+  useEffect(() => {
+    if (sortMode !== "match" || listTab === null) return;
+    let n = 0;
+    for (const id of unscoredNow) {
+      if (n++ >= MATCH_SORT_PRESCORE_MAX) break;
+      reportScoreRow(id);
+    }
+  }, [sortMode, listTab, unscoredNow, reportScoreRow]);
+  const listRows = useMemo(() => {
+    if (sortMode === "client_first") return sortByClientHistory(unsortedRows, factsById);
+    return sortByShownScore(unsortedRows, (row) => {
+      if (row.fitScore != null) return row.fitScore;
+      const score = matchScores.scores[String(row.candidateId)];
+      return typeof score === "number" ? score : null;
+    });
+  }, [sortMode, unsortedRows, factsById, matchScores.scores]);
   const renderProposalScore = (row: PickRow): ReactNode => {
     if (row.fitScore != null) return <ScoreBadge score={row.fitScore} />;
     const key = String(row.candidateId);
@@ -801,8 +822,8 @@ function AddCandidatesPanelOpen({
               <div role="group" aria-label="Kolejność propozycji" className="ml-auto flex gap-1">
                 {(
                   [
+                    ["match", "Dopasowanie"],
                     ["client_first", "Najpierw byli u tego klienta"],
-                    ["proposals", "Kolejność propozycji"],
                   ] as const
                 ).map(([mode, text]) => (
                   <button

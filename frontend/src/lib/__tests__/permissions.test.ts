@@ -49,7 +49,8 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
     // „Ludzie w NEXUSIE”: skrzynka administracja@.
     "cases",
   ],
-  recruiter: [],
+  // 19.10.2026: podpis umowy i dokumentów — autor albo zespół rekrutacji.
+  recruiter: ["b2b_signature_confirmation"],
   user: [],
   trainee: [],
   // 0446: „Automatyzacje” — sam podgląd Delivery, bez kwot.

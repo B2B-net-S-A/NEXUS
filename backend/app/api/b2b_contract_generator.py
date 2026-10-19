@@ -829,6 +829,7 @@ def _may_confirm_row_signature(
     created_by: int | None,
     job_id: int | None,
     team_job_ids: set[int],
+    open_without_job: bool = True,
 ) -> bool:
     """Czy posiadacz uprawnienia podpisu oznacza TEN wiersz (decyzja 19.10.2026).
 
@@ -837,14 +838,18 @@ def _may_confirm_row_signature(
     współpracownik z kategorii od 04.10 nie liczy się do zespołu). Zespół
     rekrutacji (``_jobs_run_by``) zostaje drugą drogą, żeby nikt nie stracił
     tego, co mógł. Wiersz bez rekrutacji rozstrzyga endpoint, gdy człowiek ją
-    wskaże.
+    wskaże; tam, gdzie nikt jej nie wskazuje (dokumenty do umowy,
+    wypowiedzenie Partnera), ``open_without_job=False`` zostawia wtedy tylko
+    autora i role z ``_SIGNS_EVERY_CONTRACT_ROLES``.
     """
 
     if user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES):
         return True
     if created_by is not None and created_by == user.id:
         return True
-    return job_id is None or job_id in team_job_ids
+    if job_id is None:
+        return open_without_job
+    return job_id in team_job_ids
 
 
 async def _require_signature_row_scope(

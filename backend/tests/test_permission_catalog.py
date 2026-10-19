@@ -50,7 +50,8 @@ EXPECTED_DEFAULTS: dict[str, set[str]] = {
         # „Ludzie w NEXUSIE”: skrzynka administracja@ (odpowiednik Compassa).
         "cases",
     },
-    "recruiter": set(),
+    # 19.10.2026: podpis umowy i dokumentów — autor albo zespół rekrutacji.
+    "recruiter": {"b2b_signature_confirmation"},
     "user": set(),
     "trainee": set(),
     # 0446: „Automatyzacje” — sam podgląd Delivery, bez kwot.

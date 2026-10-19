@@ -76,31 +76,32 @@ describe("podpis B2B: action-access zgadza się z lib/permissions", () => {
     return held;
   };
 
-  it("domyślnie: admin, Delivery Lead i TCM", () => {
+  it("domyślnie: admin, Delivery Lead, TCM i rekruter (od 19.10.2026)", () => {
     expect(ROLES.filter((role) => agree({ role })).sort()).toEqual(
-      ["admin", "delivery_lead", "talent_community_manager"].sort(),
+      ["admin", "delivery_lead", "talent_community_manager", "recruiter"].sort(),
     );
     expect(ROLES.filter((role) => agree(accessSnapshot(role))).sort()).toEqual(
-      ["admin", "delivery_lead", "talent_community_manager"].sort(),
+      ["admin", "delivery_lead", "talent_community_manager", "recruiter"].sort(),
     );
   });
 
-  it("profil sprzed 0410 z „manage” u rekrutera (dawnego TAC-a) nie daje podpisu w żadnym z modułów", () => {
+  it("profil sprzed 0410 nie decyduje o podpisie w żadnym z modułów — liczą się domyślne uprawnienia roli", () => {
     // Stary komplet niósł TAC-owi podpis, którego zakres klienta i tak nigdy
     // nie przepuszczał; rola TAC jest dziś rekruterem (02.10.2026). Bez klucza
     // `delivery_view` profil jest nieaktualny, więc liczą się domyślne
-    // uprawnienia roli.
-    const staleTac = {
-      role: "recruiter" as const,
-      roles: ["recruiter" as const],
+    // uprawnienia roli — rekruter ma podpis z roli od 19.10.2026, HoR nie.
+    const stale = (role: "recruiter" | "head_of_recruitment", signature: "manage" | "none") => ({
+      role,
+      roles: [role],
       effective_action_access: {
         b2b_contract_generator: "manage" as const,
-        b2b_signature_confirmation: "manage" as const,
+        b2b_signature_confirmation: signature,
       },
-    };
-    expect(agree(staleTac)).toBe(false);
+    });
+    expect(agree(stale("recruiter", "none"))).toBe(true);
+    expect(agree(stale("head_of_recruitment", "manage"))).toBe(false);
     // Generator czyta ten sam stary komplet jak dotąd.
-    expect(actionAccessForUser(staleTac, ACTION)).toBe("manage");
+    expect(actionAccessForUser(stale("recruiter", "none"), ACTION)).toBe("manage");
   });
 
   it("nadane rekruterowi i wyłączone Delivery Leadowi — oba moduły widzą to samo", () => {

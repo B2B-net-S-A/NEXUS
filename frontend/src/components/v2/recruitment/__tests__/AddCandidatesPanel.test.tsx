@@ -550,11 +550,13 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     const cvBadges = within(list).getAllByTestId("cv-year-badge");
     expect(cvBadges).toHaveLength(1);
     expect(cvBadges[0]).toHaveTextContent("CV z 2019");
-    // Domyślnie na górze osoba z historią u klienta.
+    // Domyślnie „Dopasowanie” (19.10.2026) — bez wyników zostaje kolejność wejścia;
+    // „Najpierw byli u tego klienta” wynosi osobę z historią u klienta.
     const names = () => within(list).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"));
-    expect(names()).toEqual(["Zaznacz Bartek Drugi", "Zaznacz Anna Pierwsza"]);
-    await userEvent.click(screen.getByRole("button", { name: "Kolejność propozycji" }));
+    expect(screen.getByRole("button", { name: "Dopasowanie" })).toHaveAttribute("aria-pressed", "true");
     expect(names()).toEqual(["Zaznacz Anna Pierwsza", "Zaznacz Bartek Drugi"]);
+    await userEvent.click(screen.getByRole("button", { name: "Najpierw byli u tego klienta" }));
+    expect(names()).toEqual(["Zaznacz Bartek Drugi", "Zaznacz Anna Pierwsza"]);
     expect(factsApi).toHaveBeenCalledWith(5, [1, 2], expect.anything());
   });
 
@@ -579,6 +581,30 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     // Jedno zapytanie (paczka do 20) i tylko o osoby bez wyniku.
     expect(matchScores).toHaveBeenCalledTimes(1);
     expect([...matchScores.mock.calls[0][1]].sort()).toEqual([1, 2]);
+  });
+
+  it("domyślnie „Dopasowanie”: najwyższy % na górze, także policzony na ekranie; bez wyniku na końcu (19.10.2026)", async () => {
+    proposalsState.entries = [
+      entry(1, "Anna Pierwsza", ["inbox"], { fitScore: 70 }),
+      entry(2, "Bartek Drugi", ["similar"], { fitScore: null }),
+      entry(3, "Cezary Trzeci", ["inbox"], { fitScore: 81 }),
+      entry(4, "Dorota Czwarta", ["similar"], { fitScore: null }),
+    ];
+    matchScores.mockResolvedValue({
+      scores: { "2": 88 },
+      breakdowns: { "4": { total: null, measurement: "missing_index" } },
+      profile_key: "p:1",
+    });
+    renderPanel();
+    const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    await within(list).findByText("88%");
+    const names = within(list).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"));
+    expect(names).toEqual([
+      "Zaznacz Bartek Drugi",
+      "Zaznacz Cezary Trzeci",
+      "Zaznacz Anna Pierwsza",
+      "Zaznacz Dorota Czwarta",
+    ]);
   });
 
   it("po dodaniu osoby policzone wyniki pozostałych zostają (nie wracają do „liczę…”)", async () => {

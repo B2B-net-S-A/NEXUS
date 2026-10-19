@@ -379,6 +379,24 @@ async def ids_in_job(db: AsyncSession, job_id: int) -> set[int]:
     return {int(row[0]) for row in rows}
 
 
+def effective_prefix(prefix: Sequence[Any], context: Optional[Any]) -> tuple[Any, Any]:
+    """Grupy kolejności dla tej listy: („Mile widziane”, braki danych).
+
+    W rekrutacji (jest kontekst „Dop.”) od 19.10.2026 bez grup „Mile widziane”
+    — zgłoszenie rekrutera: osoba z 61% stała nad osobą z 88%, bo trafiła
+    więcej wierszy „Mile widziane”. Te sygnały liczą się w samej ocenie
+    (umiejętności, lokalizacja). Braki danych zostają grupą: osoby, które
+    przeszły filtr stawki/miasta tylko na brak danych, idą na koniec.
+    ``CANDIDATE_MATCH_JOB_PREFERRED_GROUPS`` przywraca kolejność sprzed zmiany.
+    """
+    from app.core.config import settings
+
+    preferred_expr, unknown_expr = prefix
+    if context is not None and not settings.CANDIDATE_MATCH_JOB_PREFERRED_GROUPS:
+        return None, unknown_expr
+    return preferred_expr, unknown_expr
+
+
 @dataclass(frozen=True)
 class OrderResult:
     """Kolejność do pokazania + to, czego potrzebuje układ dalszych stron."""
@@ -412,6 +430,7 @@ async def ordered_result(
         return None
     context = match_vector.context if match_vector.kind == "job" else None
     rerank_top = int(settings.CANDIDATE_MATCH_RERANK_TOP or 0) if context else 0
+    prefix = effective_prefix(prefix, context)
     key = await _cache_key(
         db,
         filters,
@@ -480,7 +499,7 @@ async def rerank_page(
     tail = [cid for cid in page if cid not in result.head]
     if len(tail) < 2:
         return page
-    preferred_expr, unknown_expr = prefix
+    preferred_expr, unknown_expr = effective_prefix(prefix, result.context)
     try:
         async with db.begin_nested():
             fits = await _fit_scores(db, result.context, tail)

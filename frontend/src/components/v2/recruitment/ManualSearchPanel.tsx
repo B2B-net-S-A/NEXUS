@@ -135,6 +135,7 @@ export function ManualSearchPanel({
           readOnly,
           onAdded,
           undone,
+          mustRows: split.must,
           keywordsNote: hasRows
             ? `Wymagania z rekrutacji. ${mandatorySourceNote(split)} Zmiany tutaj nie zmieniają rekrutacji.`
             : undefined,
