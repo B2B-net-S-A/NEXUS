@@ -210,3 +210,47 @@ async def test_paid_half_day_of_b2b_pool_leaves_four_hours_to_fill(app_client) -
             "leave_paid",
             "template",
         ]
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_role_default_patch_with_nulls_and_retired_role(app_client) -> None:
+    # Audyt 19.10.2026: jawny `null` w `sort_order` dawał 500, a w `is_active`
+    # po cichu wyłączał opis; rola `user` (wycofana) przechodziła.
+    async with AsyncSessionLocal() as db:
+        admin = await make_user(db, "admin")
+        await db.commit()
+    h = headers(admin)
+    retired = await app_client.post(
+        "/api/hr/time/role-defaults",
+        json={
+            "label": "Stara rola",
+            "applies_to_role": "user",
+            "default_description": "Opis",
+        },
+        headers=h,
+    )
+    assert retired.status_code == 422
+    created = await app_client.post(
+        "/api/hr/time/role-defaults",
+        json={
+            "label": "Rekruter (test audytu)",
+            "applies_to_role": "recruiter",
+            "default_description": "Rozmowy z kandydatami",
+            "sort_order": 3,
+        },
+        headers=h,
+    )
+    assert created.status_code == 201, created.text
+    patched = await app_client.patch(
+        f"/api/hr/time/role-defaults/{created.json()['id']}",
+        json={"sort_order": None, "is_active": None},
+        headers=h,
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["sort_order"] == 0
+    assert patched.json()["is_active"] is True
+    removed = await app_client.delete(
+        f"/api/hr/time/role-defaults/{created.json()['id']}", headers=h
+    )
+    assert removed.status_code == 204
