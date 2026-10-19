@@ -141,6 +141,14 @@ async def test_pool_member_without_care_role_sees_link_button(monkeypatch) -> No
     monkeypatch.setattr(access, "load_client", fake_client)
     monkeypatch.setattr(card_inbox, "unlinked_cards", fake_cards)
     monkeypatch.setattr(owner_pool, "writer_ids", fake_writers)
+    # Osoba z puli pisze z zapisem w sekcji Delivery (is_care_writer).
+    from app.services import section_permissions
+
+    monkeypatch.setattr(
+        section_permissions,
+        "section_access_for_user",
+        lambda user, section: section_permissions.SectionAccess.write,
+    )
     member = SimpleNamespace(id=7, has_any_role=lambda *roles: False)
     outsider = SimpleNamespace(id=8, has_any_role=lambda *roles: False)
 

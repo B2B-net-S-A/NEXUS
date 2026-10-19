@@ -61,11 +61,25 @@ def is_care_worker(user: User) -> bool:
 
 
 async def is_care_writer(db: AsyncSession, user: User) -> bool:
-    """Prowadzi opiekę: rola DL, TCM, admin albo osoba z puli opiekunów (18.10.2026)."""
+    """Prowadzi opiekę: rola DL, TCM, admin albo osoba z puli opiekunów (18.10.2026).
+
+    Osoba z puli pisze tylko z zapisem w sekcji Delivery — bez niego bramka
+    ``CareWriter`` i tak odmawia (zapis = POST/PUT/PATCH w sekcji), a flagi
+    ``can_edit`` pokazywałyby przyciski kończące się 403 (audyt 19.10.2026).
+    """
 
     from app.services.care import owner_pool  # noqa: PLC0415
+    from app.services.section_permissions import (  # noqa: PLC0415
+        ProductSection,
+        SectionAccess,
+        section_access_for_user,
+    )
 
-    return is_care_worker(user) or user.id in await owner_pool.writer_ids(db)
+    if is_care_worker(user):
+        return True
+    if section_access_for_user(user, ProductSection.delivery) < SectionAccess.write:
+        return False
+    return user.id in await owner_pool.writer_ids(db)
 
 
 def full_name(first: Optional[str], last: Optional[str]) -> Optional[str]:
@@ -286,17 +300,45 @@ async def _active_user_ids(db: AsyncSession, user_ids: Iterable[int]) -> set[int
     return set(rows.all())
 
 
-def _named_owner(contract: CareContract, active: set[int]) -> Optional[OwnerChoice]:
-    """Pierwsze aktywne ogniwo: kontrakt → domyślny opiekun klienta → DL rekrutacji."""
+def _named_owner(
+    contract: CareContract,
+    active: set[int],
+    lead_scopes: Optional[dict[int, Optional[frozenset[int]]]] = None,
+) -> Optional[OwnerChoice]:
+    """Pierwsze aktywne ogniwo: kontrakt → domyślny opiekun klienta → DL rekrutacji.
 
+    DL rekrutacji tylko wtedy, gdy klient kontraktu jest w jego portfelu:
+    rekrutacje widać w całej firmie, więc DL bywa prowadzącym u cudzego
+    klienta — jako opiekun dostawałby dzwonki z linkiem kończącym się 403
+    (audyt 19.10.2026). Ręczny przydział sprawdza to samo (``owner_problem``).
+    """
+
+    scopes = lead_scopes or {}
     for user_id, source in (
         (contract.explicit_owner_id, "contract"),
         (contract.client_default_owner_id, "client"),
         (contract.job_delivery_lead_id, "delivery_lead"),
     ):
-        if user_id is not None and user_id in active:
-            return OwnerChoice(user_id, source)
+        if user_id is None or user_id not in active:
+            continue
+        if source == "delivery_lead" and user_id in scopes:
+            scope = scopes[user_id]
+            if scope is not None and contract.client_id not in scope:
+                continue
+        return OwnerChoice(user_id, source)
     return None
+
+
+async def _lead_scopes(
+    db: AsyncSession, user_ids: Iterable[int]
+) -> dict[int, Optional[frozenset[int]]]:
+    """Portfel (``allowed_client_ids``) każdego DL rekrutacji z łańcucha."""
+
+    ids = sorted(set(user_ids))
+    if not ids:
+        return {}
+    users = (await db.scalars(select(User).where(User.id.in_(ids)))).all()
+    return {user.id: await allowed_client_ids(user, db) for user in users}
 
 
 async def effective_owners(
@@ -315,7 +357,17 @@ async def effective_owners(
             if user_id is not None
         ),
     )
-    named = {contract.id: _named_owner(contract, active) for contract in contracts}
+    scopes = await _lead_scopes(
+        db,
+        (
+            c.job_delivery_lead_id
+            for c in contracts
+            if c.job_delivery_lead_id is not None and c.job_delivery_lead_id in active
+        ),
+    )
+    named = {
+        contract.id: _named_owner(contract, active, scopes) for contract in contracts
+    }
     heads = await _client_head_leads(
         db, (c.client_id for c in contracts if named[c.id] is None)
     )

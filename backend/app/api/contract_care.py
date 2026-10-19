@@ -45,6 +45,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.care_gates import (
+    PEOPLE_DENIED,
     CareReader,
     CareWriter,
     OrgEditor,
@@ -648,6 +649,10 @@ async def add_client_feedback(
     current_user: User = Depends(CareWriter),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    # D11: opinie klienta zapisuje ten sam krąg, który je czyta — osoba z puli
+    # opiekunów bez roli (np. Finanse) prowadzi opiekę, ale opinii nie widzi.
+    if not reads_client_people(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, PEOPLE_DENIED)
     client = await care_access.load_client(db, client_id, current_user)
     session = await client_feedback.save_feedback(
         db,

@@ -292,6 +292,36 @@ async def test_failed_send_saves_nothing_and_can_be_retried(
     assert retried.status_code == 201
 
 
+async def test_failure_after_sending_keeps_the_trace_and_blocks_resend(
+    app_client, modules_on, mail_switch, mailbox, fake_sender, monkeypatch
+) -> None:
+    """Mail wyszedł, a potem coś padło (zadanie z listy, audyt, commit) — ślad
+    zostaje, więc drugie „Wyślij” nie wysyła konsultantowi drugiego maila."""
+
+    from app.services.hr import lifecycle_service
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("awaria po wysyłce")
+
+    monkeypatch.setattr(lifecycle_service, "complete_task_by_key", broken)
+    await mail_switch(True)
+    dl = await make_user(UserRole.delivery_lead)
+    contract_id = await make_contract(await make_client(dl=dl))
+    body = {"subject": "Temat", "body": "Treść"}
+    try:
+        first = await app_client.post(_url(contract_id), json=body, headers=headers(dl))
+        assert first.status_code >= 500
+    except RuntimeError:
+        pass
+    assert len(fake_sender.sent) == 1
+    async with AsyncSessionLocal() as db:
+        trace = await welcome_mail.sent_for(db, contract_id)
+        assert trace is not None and trace.delivery == "uncertain"
+    again = await app_client.post(_url(contract_id), json=body, headers=headers(dl))
+    assert again.status_code == 409 and "wysłano już" in again.json()["detail"]
+    assert len(fake_sender.sent) == 1
+
+
 async def test_missing_mailbox_or_email_blocks_sending(
     app_client, modules_on, mail_switch, monkeypatch, fake_sender
 ) -> None:

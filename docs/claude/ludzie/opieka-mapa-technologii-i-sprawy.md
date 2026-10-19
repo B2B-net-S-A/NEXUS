@@ -173,6 +173,12 @@ back office, admin). Karta „Pula opiekunów” na górze zakładki „Przydzia
   (np. Finanse). Bramki sekcji zostają: kto nie ma sekcji i podglądu Delivery
   (np. Head of Recruitment), jest w puli z dopiskiem „nie widzi Opieki”
   i nie zostaje opiekunem ani automatem, ani ręcznie (`owner_pool.eligible_ids`). Opinie klienta (D11) dalej tylko DL, TCM, HoR, admin.
+  Audyt 19.10.2026: osoba z puli pisze tylko z ZAPISEM w sekcji Delivery
+  (`is_care_writer` — sam podgląd daje flagi `can_edit: false`, bo bramka
+  `CareWriter` i tak odmawia), a `POST /clients/{id}/feedback` sprawdza
+  dodatkowo krąg D11 (`reads_client_people`, inaczej 403). DL rekrutacji
+  jest opiekunem z łańcucha tylko u klienta z własnego portfela
+  (`care_access._named_owner`), jak przy ręcznym przydziale.
 - **Automat**: kontrakty aktywne i kończące się BEZ opiekuna wpisanego na
   kontrakcie (także te z opiekunem z łańcucha — domyślnym klienta albo DL) →
   osoba z puli z najmniejszą liczbą aktywnych podopiecznych (faktyczny
@@ -617,7 +623,10 @@ wysyłka do ludzi spoza firmy.
   `HR_M365_MODE`: `off` = 409, `simulate` = nic nie wychodzi i ślad to mówi).
   Odłożona albo odrzucona wysyłka nic nie zapisuje (502, można ponowić),
   niepewna zostaje zapisana bez ponowienia. Wysłanie odhacza pozycję ścieżki
-  `welcome_mail` (`lifecycle_service.complete_task_by_key`).
+  `welcome_mail` (`lifecycle_service.complete_task_by_key`). Ślad jest
+  zapisywany (commit, stan `uncertain`) PRZED wysyłką i usuwany tylko przy
+  pewnej odmowie — awaria po wysłaniu nie otwiera drugiego „Wyślij”
+  (audyt 19.10.2026, jak kolejka komunikatów).
 - **Przełącznik** `app_settings['consultant_welcome_mail']` jest domyślnie
   WYŁĄCZONY (brak wiersza = wyłączony): podgląd działa, wysyłka 409. Włącza go
   admin (karta maila, potwierdzenie) — pierwszą wysyłkę uruchamia Artur.
