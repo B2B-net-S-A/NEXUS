@@ -35,6 +35,21 @@ interface ActiveFilterChipsProps {
  clientsById?: Map<number, string>;
  /** Pomija chipy, których wartość ekran pokazuje gdzie indziej (np. na pasku filtrów). */
  omitKey?: (key: string) => boolean;
+ /**
+  * Wiersze „musi mieć” Championa spoza krytycznych (okno „Szukaj ręcznie”,
+  * `splitByCritical().must`). Serwer dostaje je razem z „Mile widziane”
+  * (podnoszą w kolejności, nie wycinają), ale chip mówi, skąd są —
+  * zgłoszenie 19.10.2026: rekruter widział swoje must-have jako „Mile widziane”.
+  */
+ mustRows?: readonly (readonly string[])[];
+}
+
+/** Klucz wiersza słów bez wielkości liter i kolejności wariantów. */
+function rowKey(row: readonly string[]): string {
+ return row
+ .map((w) => w.trim().toLocaleLowerCase("pl"))
+ .sort()
+ .join("|");
 }
 
 const REMOTE_LABELS: Record<string, string> = {
@@ -100,6 +115,7 @@ function collectChips(
  ccById?: Map<number, string>,
  recruitmentsById?: Map<number, string>,
  recruitmentClientsById?: Map<number, string>,
+ mustKeys?: ReadonlySet<string>,
 ): Chip[] {
  const chips: Chip[] = [];
 
@@ -376,9 +392,10 @@ function collectChips(
  });
  });
  (filters.qPreferred ?? []).forEach((row, i) => {
+ const must = mustKeys?.has(rowKey(row)) ?? false;
  chips.push({
  key: `q-pref:${row.join("|")}:${i}`,
- label: `Mile widziane: ${row.join(" lub ")}`,
+ label: `${must ? "Musi mieć (nie wycina)" : "Mile widziane"}: ${row.join(" lub ")}`,
  clear: () =>
  onUpdate({
  qPreferred: filters.qPreferred.filter((_, idx) => idx !== i),
@@ -627,6 +644,7 @@ export function ActiveFilterChips({
  usersById,
  clientsById,
  omitKey,
+ mustRows,
 }: ActiveFilterChipsProps) {
  // Hit the same React Query cache key as <TalentPoolMultiSelect> (staleTime
  // 60s) — gdy filter dropdown był otwarty w tej sesji, to read jest cache-hit
@@ -710,6 +728,10 @@ export function ActiveFilterChips({
  return new Map(recruitmentLabels.clients.map((c) => [c.id, c.name] as const));
  }, [recruitmentLabels]);
 
+ const mustKeys = useMemo(
+ () => (mustRows?.length ? new Set(mustRows.map(rowKey)) : undefined),
+ [mustRows],
+ );
  const chips = collectChips(
  filters,
  onUpdate,
@@ -719,6 +741,7 @@ export function ActiveFilterChips({
  resolvedCcs,
  resolvedRecruitments,
  resolvedRecruitmentClients,
+ mustKeys,
  ).filter((chip) => !omitKey?.(chip.key));
  if (chips.length === 0) return null;
 
@@ -797,7 +820,7 @@ export function ActiveFilterChips({
  <button
  onClick={chip.require}
  className="px-1.5 py-0.5 text-xs rounded-full text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
- aria-label={`Wymagaj: ${chip.label.replace(/^Mile widziane: /, "")}`}
+ aria-label={`Wymagaj: ${chip.label.replace(/^(Mile widziane|Musi mieć \(nie wycina\)): /, "")}`}
  title="Zamień na filtr — pokaż tylko pasujących"
  >
  Wymagaj

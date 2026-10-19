@@ -39,6 +39,7 @@ function renderChips(
   patch: Partial<CandidateFilters>,
   onUpdate = vi.fn(),
   omitKey?: (key: string) => boolean,
+  mustRows?: string[][],
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -47,6 +48,7 @@ function renderChips(
         filters={{ ...DEFAULT_FILTERS, ...patch }}
         onUpdate={onUpdate}
         omitKey={omitKey}
+        mustRows={mustRows}
       />
     </QueryClientProvider>,
   );
@@ -152,6 +154,36 @@ describe("ActiveFilterChips — etykiety etapów", () => {
     expect(onUpdate).toHaveBeenLastCalledWith(
       expect.objectContaining({ locationPreferred: ["Gdańsk"] }),
     );
+  });
+
+  it("wiersz „musi mieć” spoza krytycznych ma własną etykietę, „Wymagaj” bez zmian (19.10.2026)", async () => {
+    const onUpdate = renderChips(
+      {
+        qAny: [["SoapUI", "soap ui"]],
+        qPreferred: [["Jira", "Xray"], ["ISTQB"], ["kategoria testów"]],
+      },
+      vi.fn(),
+      undefined,
+      // Kolejność wariantów i wielkość liter nie mają znaczenia.
+      [["xray", "JIRA"], ["ISTQB"]],
+    );
+    expect(screen.getByText("Musi mieć (nie wycina): Jira lub Xray")).toBeInTheDocument();
+    expect(screen.getByText("Musi mieć (nie wycina): ISTQB")).toBeInTheDocument();
+    expect(screen.getByText("Mile widziane: kategoria testów")).toBeInTheDocument();
+    expect(screen.queryByText("Mile widziane: ISTQB")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Wymagaj: ISTQB" }));
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        qAny: [["SoapUI", "soap ui"], ["ISTQB"]],
+        qPreferred: [["Jira", "Xray"], ["kategoria testów"]],
+      }),
+    );
+  });
+
+  it("bez wierszy „musi mieć” (lista poza rekrutacją) wszystko zostaje „Mile widziane”", () => {
+    renderChips({ qPreferred: [["ISTQB"]] });
+    expect(screen.getByText("Mile widziane: ISTQB")).toBeInTheDocument();
   });
 
   it("„Mile widziane” kategoria: „Wymagaj” dokłada filtr kategorii", async () => {
