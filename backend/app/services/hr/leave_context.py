@@ -47,8 +47,13 @@ async def busy_user_ids(
     end: date,
     *,
     exclude_request_id: object | None = None,
+    approved_only: bool = False,
 ) -> dict[int, tuple[date, date]]:
-    """Osoby z aktywną nieobecnością w okresie → zakres jej dni w tym okresie."""
+    """Osoby z aktywną nieobecnością w okresie → zakres jej dni w tym okresie.
+
+    ``approved_only`` — tylko zatwierdzone (podgląd własnego wniosku: oczekujące
+    cudze wnioski widzi tylko krąg D6, jak w kalendarzu zespołu).
+    """
 
     statement = (
         select(
@@ -67,16 +72,26 @@ async def busy_user_ids(
         statement = statement.where(
             LeaveRequestDay.leave_request_id != exclude_request_id
         )
+    if approved_only:
+        statement = statement.join(
+            LeaveRequest, LeaveRequest.id == LeaveRequestDay.leave_request_id
+        ).where(LeaveRequest.status == "approved")
     rows = (await db.execute(statement)).all()
     return {user_id: (first, last) for user_id, first, last in rows}
 
 
 async def department_absences(
-    db: AsyncSession, *, user_id: int, department: Optional[str], start: date, end: date
+    db: AsyncSession,
+    *,
+    user_id: int,
+    department: Optional[str],
+    start: date,
+    end: date,
+    approved_only: bool = False,
 ) -> list[dict[str, Any]]:
     if not department:
         return []
-    busy = await busy_user_ids(db, start, end)
+    busy = await busy_user_ids(db, start, end, approved_only=approved_only)
     busy.pop(user_id, None)
     if not busy:
         return []

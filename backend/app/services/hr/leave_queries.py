@@ -545,12 +545,17 @@ async def on_behalf_people(db: AsyncSession, *, actor: User) -> list[dict[str, A
             return []
         statement = statement.where(User.id.in_(scope))
     rows = (await db.execute(statement)).all()
+    sees_everyone = actor_of(actor).sees_everyone
     return [
         {
             "user_id": user.id,
             "name": user.name,
             "employment_type": profile.employment_type,
             "department": profile.department,
+            # D5: za osobę na B2B/zleceniu wpisują tylko Kadry i admin
+            # (``leave_service.subject_for_on_behalf``); lista służy też
+            # filtrowi historii, więc osoba zostaje, tylko bez wpisu.
+            "can_enter": sees_everyone or not reports_absence(profile.employment_type),
         }
         for user, profile in rows
     ]

@@ -43,6 +43,13 @@ export function PersonEquipmentPanel({ userId }: PersonEquipmentPanelProps) {
 
   return (
     <section aria-label="Sprzęt" className="space-y-2 text-sm">
+      {/* W kartotece osoby panel stoi między sekcjami z nagłówkami; „Mój
+          sprzęt” ma tytuł z karty, w której siedzi. */}
+      {userId !== "mine" ? (
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+          Sprzęt
+        </h2>
+      ) : null}
       {state === "empty" ? (
         <p className="text-muted-foreground">Brak wydanego sprzętu w ewidencji.</p>
       ) : (

@@ -126,7 +126,7 @@ describe("/preview/hr-person", () => {
 
     expect(await heading()).toBeInTheDocument();
     expect(
-      screen.getByText("Pełną kartotekę widzą ta osoba, jej przełożony i Kadry."),
+      screen.getByText("Pełną kartotekę widzą ta osoba, jej przełożony, Kadry i Finanse."),
     ).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Płace" })).toBeNull();
     expect(screen.queryByText("Wejście i odejście")).toBeNull();

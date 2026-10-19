@@ -229,6 +229,16 @@ class DayLeave:
         return STANDARD * self.leave.fraction if self.paid_work else Decimal("0")
 
 
+def employed_on(subject: EmployeeProfile, day: date) -> bool:
+    """Dzień mieści się w zatrudnieniu z kartoteki (brak daty = bez granicy)."""
+
+    if subject.work_start_date is not None and day < subject.work_start_date:
+        return False
+    if subject.last_working_day is not None and day > subject.last_working_day:
+        return False
+    return True
+
+
 async def leave_map(
     db: AsyncSession,
     *,
@@ -487,24 +497,35 @@ async def update_entry(
         end=max(work_date, old_date),
     )
     occupied = _assert_day_open(leaves.get(work_date), work_date)
-    other = await _day_hours(db, timesheet.id, work_date, exclude_id=entry.id)
-    decision = _decide_overtime(
-        actor=actor,
-        other_hours=other,
-        hours=hours,
-        occupied=occupied,
-        reason=changes.get("overtime_reason", entry.overtime_reason),
-        work_date=work_date,
+    # Sam opis albo projekt nie zmienia sumy dnia — nadgodziny zostają, jak
+    # były (bez tego poprawka literówki w dniu z nadgodzinami dawała 422,
+    # a u przełożonego bez prawa do nadgodzin 403; audyt 19.10.2026).
+    reason_changed = "overtime_reason" in changes and (
+        changes["overtime_reason"] or None
+    ) != (entry.overtime_reason or None)
+    text_only = (
+        work_date == old_date and hours == Decimal(entry.hours) and not reason_changed
     )
+    if not text_only:
+        other = await _day_hours(db, timesheet.id, work_date, exclude_id=entry.id)
+        decision = _decide_overtime(
+            actor=actor,
+            other_hours=other,
+            hours=hours,
+            occupied=occupied,
+            reason=changes.get("overtime_reason", entry.overtime_reason),
+            work_date=work_date,
+        )
     entry.work_date = work_date
     entry.hours = hours
     if "project" in changes:
         entry.project = changes["project"]
     if "description" in changes:
         entry.description = changes["description"]
-    entry.is_overtime = decision.is_overtime
-    entry.overtime_reason = decision.reason
-    entry.overtime_by = actor.user_id if decision.is_overtime else None
+    if not text_only:
+        entry.is_overtime = decision.is_overtime
+        entry.overtime_reason = decision.reason
+        entry.overtime_by = actor.user_id if decision.is_overtime else None
     if entry.source == "template":
         entry.source = "manual"
     await db.flush()
@@ -650,6 +671,10 @@ async def sync_leave_paid(
         )
         changes += 1
     if changes:
+        # Jak ``delete_entry``: zmiana auto-wpisów to zmiana w NEXUSIE —
+        # ponowny import z Compassa nie przywróci godzin odwołanego urlopu
+        # (audyt 19.10.2026).
+        timesheet.updated_at = func.now()
         await db.flush()
         await recompute_hash_if_set(db, timesheet)
     return changes

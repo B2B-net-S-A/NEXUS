@@ -919,3 +919,58 @@ async def test_uznanie_rachunku_nie_obejmuje_nowego_problemu_z_kwota() -> None:
         await settlements.billing_changed(db, team.b2b.id, payee_changed=False)
         await db.commit()
     assert (await _settlement(team.b2b.id, period_id)).status == "mismatch"
+
+
+# ── Audyt A2 (19.10.2026): faktura od innego NIP-u niż w danych do rozliczeń ──
+
+
+@pytest.mark.usefixtures("settlements_on")
+@pytest.mark.asyncio
+async def test_nowy_nip_i_rachunek_z_wykazu_nie_przepuszczaja_starej_faktury() -> None:
+    """Jedna osoba z Płac: nowy NIP + rachunek z wykazu dla niego ≠ „Do zapłaty”."""
+
+    from app.core.encryption import get_token_cipher
+    from app.services.hr import settlements_decisions
+    from app.services.hr.payroll_errors import PayrollConflict
+
+    team = await make_team()
+    year, month, period_id, nip = await _b2b_month(team)
+    await _match(invoice(nip=nip, net="15200.00", year=year, month=month))
+    assert (await _settlement(team.b2b.id, period_id)).status == "ready"
+
+    await _change_billing(team, {"nip": fake_nip()})
+    # Ten sam stan zostawia wybór rachunku z białej listy dla NOWEGO NIP-u
+    # (``billing_details.select_white_list_account``).
+    account = fake_account()
+    async with AsyncSessionLocal() as db:
+        details = await settlements.billing_of(db, team.b2b.id)
+        details.account_encrypted = get_token_cipher().encrypt(account)
+        details.account_last4 = account[-4:]
+        details.account_source = "white_list"
+        details.account_check_request_id = "Ab12-fikcyjne-sprawdzenie"
+        details.vat_status = "active"
+        await db.flush()
+        await settlements.billing_changed(db, team.b2b.id, payee_changed=True)
+        await db.commit()
+
+    row = await _settlement(team.b2b.id, period_id)
+    assert row.status == "mismatch"
+    async with AsyncSessionLocal() as db:
+        locked = await settlements.lock_settlement(db, row.id)
+        assert await settlements.problems_now(db, locked) == ("seller",)
+        with pytest.raises(PayrollConflict):
+            await settlements_decisions.approve(
+                db, actor=team.finance, settlement_id=row.id
+            )
+        with pytest.raises(PayrollConflict) as refused:
+            await settlements_decisions.request_override(
+                db, actor=team.finance, settlement_id=row.id, reason="To ta sama firma"
+            )
+        assert "NIP wystawcy" in refused.value.message
+        # Nawet potwierdzone uznanie kwoty nie przepuszcza innego wystawcy.
+        locked.override_kind = "amount"
+        locked.override_reason = "Próba obejścia"
+        locked.override_requested_by = team.finance.id
+        locked.override_confirmed_by = team.finance2.id
+        assert await settlements.recompute(db, locked, notify=False) == "mismatch"
+        await db.rollback()

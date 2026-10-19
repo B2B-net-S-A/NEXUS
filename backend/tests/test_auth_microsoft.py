@@ -49,6 +49,7 @@ from app.core.security import (
 )
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
+from app.models.hr_profile import EmployeeProfile
 from app.models.user import User, UserRole
 
 
@@ -118,6 +119,10 @@ async def cleanup_sso_users():
                 delete(AuthExchangeCode).where(AuthExchangeCode.user_id.in_(ids))
             )
             await db.execute(delete(Activity).where(Activity.user_id.in_(ids)))
+            # Logowanie SSO zakłada kartotekę (19.10.2026) — FK RESTRICT.
+            await db.execute(
+                delete(EmployeeProfile).where(EmployeeProfile.user_id.in_(ids))
+            )
         await db.execute(delete(User).where(User.email.in_(created_emails)))
         await db.commit()
 
@@ -279,6 +284,11 @@ async def test_callback_creates_new_sso_user_as_employee(
         assert u.oauth_provider == "microsoft"
         assert u.azure_oid == f"azure-oid-{unique}"
         assert u.microsoft_upn == email
+        # „Ludzie w NEXUSIE”: aktywne konto pracownicze ma kartotekę (19.10.2026).
+        profile = await db.scalar(
+            select(EmployeeProfile).where(EmployeeProfile.user_id == u.id)
+        )
+        assert profile is not None and profile.employment_type_pending is True
 
         # Exchange code persisted, not yet consumed.
         ex = await db.scalar(

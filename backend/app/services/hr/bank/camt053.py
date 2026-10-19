@@ -6,6 +6,25 @@ księgowanie zbiorcze) — każda jest osobnym wierszem z własną kwotą; bez
 ``TxDtls`` wierszem jest sama pozycja. Kontrahent obciążenia to wierzyciel
 (``Cdtr``/``CdtrAcct``), uznania — dłużnik (``Dbtr``/``DbtrAcct``).
 
+Audyt A2 (19.10.2026):
+
+* **storno** — wg ISO 20022 ``CdtDbtInd`` opisuje kierunek samego wpisu;
+  ``RvslInd=true`` mówi tylko, że wpis odwraca operację o kierunku
+  przeciwnym (CRDT + storno = wpływ, np. zwrot naszego nieudanego przelewu).
+  Kierunku nie odwracamy drugi raz — inaczej zwrot wypłaty wyglądał jak
+  przelew do osoby i oznaczał jej rozliczenie jako opłacone. Tak samo MT940:
+  ``RC`` to obciążenie, ``RD`` uznanie. Strony (``RltdPties``) w stornie
+  zostają jak w operacji pierwotnej, więc kontrahentem jest strona
+  pierwotnej operacji: przy zwrocie naszego przelewu — jego odbiorca
+  (``Cdtr``), nie my (``Dbtr``),
+* **status** — liczą się tylko operacje zaksięgowane: ``Ntry/Sts`` równe
+  ``BOOK`` (tekst w 001.02–001.07, ``Sts/Cd`` od 001.08); ``PDNG``
+  i ``INFO`` pomijamy, brak ``Sts`` = zaksięgowana (jak dotąd),
+* **waluta** — z ``Amt/@Ccy`` wpisu, bez niego z ``Acct/Ccy`` wyciągu
+  (``Stmt``), który niesie operację; plik z kilkoma rachunkami nie bierze
+  waluty pierwszego. ``ParsedStatement.currency`` to waluta pierwszego
+  wyciągu (tylko informacja).
+
 Plik od użytkownika: parser bez DTD, encji i sieci (lxml ``resolve_entities``
 wyłączone, ``<!DOCTYPE`` odrzucany), bez ogromnych drzew.
 """
@@ -64,14 +83,23 @@ def _date(node: etree._Element, path: str) -> Optional[date]:
         raise StatementError("Wyciąg CAMT.053 ma niepoprawną datę.") from exc
 
 
-def _amount(node: Optional[etree._Element]) -> Optional[tuple[Decimal, str]]:
+def _amount(
+    node: Optional[etree._Element], default_currency: str
+) -> Optional[tuple[Decimal, str]]:
     if node is None or not (node.text or "").strip():
         return None
     try:
         value = Decimal(node.text.strip())
     except InvalidOperation as exc:
         raise StatementError("Wyciąg CAMT.053 ma niepoprawną kwotę.") from exc
-    return abs(value), (node.get("Ccy") or "PLN").upper()
+    return abs(value), (node.get("Ccy") or default_currency).upper()
+
+
+def _booked(entry: etree._Element) -> bool:
+    """Operacja zaksięgowana: ``Sts`` = ``BOOK`` (tekst albo ``Sts/Cd``) albo brak."""
+
+    status = _text(entry, "{*}Sts/{*}Cd") or _text(entry, "{*}Sts")
+    return not status or status.upper() == "BOOK"
 
 
 def _account(node: Optional[etree._Element], party: str) -> Optional[str]:
@@ -136,27 +164,31 @@ def parse(raw: bytes) -> ParsedStatement:
                 account = normalize_nrb(iban)
             except AccountError:
                 account = None
-        currency = currency or _text(statement, "{*}Acct/{*}Ccy") or None
+        statement_currency = (_text(statement, "{*}Acct/{*}Ccy") or "PLN").upper()
+        currency = currency or statement_currency
         for entry in statement.findall("{*}Ntry"):
             indicator = _text(entry, "{*}CdtDbtInd")
-            if indicator not in ("DBIT", "CRDT"):
+            if indicator not in ("DBIT", "CRDT") or not _booked(entry):
                 continue
-            # Storno odwraca kierunek (zwrot naszego przelewu to uznanie).
+            # Kierunek wpisu = CdtDbtInd, także w stornie (docstring modułu).
+            direction = "debit" if indicator == "DBIT" else "credit"
             reversed_ = _text(entry, "{*}RvslInd").lower() == "true"
-            debit = (indicator == "DBIT") != reversed_
-            direction = "debit" if debit else "credit"
             booked = _date(entry, "{*}BookgDt") or _date(entry, "{*}ValDt")
             if booked is None:
                 raise StatementError("Wyciąg CAMT.053: operacja bez daty księgowania.")
-            entry_amount = _amount(entry.find("{*}Amt"))
+            entry_amount = _amount(entry.find("{*}Amt"), statement_currency)
             entry_ref = _text(entry, "{*}AcctSvcrRef") or _text(entry, "{*}NtryRef")
-            party = "Cdtr" if indicator == "DBIT" else "Dbtr"
+            # Kontrahent pierwotnej operacji: storno uznania (DBIT) to zwrot
+            # pieniędzy płacącemu (Dbtr), storno obciążenia (CRDT) — zwrot od
+            # odbiorcy naszego przelewu (Cdtr).
+            original_debit = (indicator == "DBIT") != reversed_
+            party = "Cdtr" if original_debit else "Dbtr"
             details = entry.findall("{*}NtryDtls/{*}TxDtls")
             for tx in details or [None]:
                 amount = None
                 if tx is not None:
-                    amount = _amount(tx.find("{*}Amt")) or _amount(
-                        tx.find("{*}AmtDtls/{*}TxAmt/{*}Amt")
+                    amount = _amount(tx.find("{*}Amt"), statement_currency) or _amount(
+                        tx.find("{*}AmtDtls/{*}TxAmt/{*}Amt"), statement_currency
                     )
                 if amount is None or len(details) <= 1:
                     amount = entry_amount or amount

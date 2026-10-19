@@ -47,7 +47,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -70,6 +70,7 @@ from app.services.hr import audit
 from app.services.hr import modules as hr_modules
 from app.services.hr.bonus_rules import (
     BonusRules,
+    automation_floor_for,
     dl_bonus,
     eligible_date,
     extra_dl_recipient,
@@ -358,7 +359,7 @@ async def load_verifiers(
 def automation_floor(rules: BonusRules, today: date) -> date:
     """Najwcześniejszy start kontraktu, dla którego automat zakłada propozycje."""
 
-    return rules.automation_since or (today - timedelta(days=rules.lookback_days))
+    return automation_floor_for(rules, today)
 
 
 @dataclass(frozen=True)
@@ -712,9 +713,12 @@ async def sync_placements(
                 counts = await reconcile_contract(
                     db, contract_id, today=today, rules=rules, calendar=calendar
                 )
-        except Exception:  # noqa: BLE001 — jeden kontrakt nie zatrzymuje reszty
-            logger.exception(
-                "[payroll] propozycje premii: błąd kontraktu %s", contract_id
+        except Exception as exc:  # noqa: BLE001 — jeden kontrakt nie zatrzymuje reszty
+            # Klasa wyjątku, nie treść — DETAIL Postgresa niesie kwoty wiersza.
+            logger.error(
+                "[payroll] propozycje premii: błąd kontraktu %s (%s)",
+                contract_id,
+                type(exc).__name__,
             )
             totals["errors"] += 1
             continue
@@ -739,8 +743,12 @@ async def _hook(db: AsyncSession, contract: Contract, event: str) -> dict[str, A
         async with db.begin_nested():
             return await reconcile_contract(db, contract.id)
     except Exception as exc:  # noqa: BLE001 — patrz docstring
-        logger.exception(
-            "[payroll] hak %s kontraktu %s nie przeszedł", event, contract.id
+        # Klasa wyjątku, nie treść — DETAIL Postgresa niesie kwoty wiersza.
+        logger.error(
+            "[payroll] hak %s kontraktu %s nie przeszedł (%s)",
+            event,
+            contract.id,
+            type(exc).__name__,
         )
         return {"error": type(exc).__name__}
 

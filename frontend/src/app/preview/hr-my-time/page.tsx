@@ -175,6 +175,8 @@ function prepare(params: URLSearchParams) {
   // Premie
   client.setQueryData(payrollKeys.me, olaPayroll(current, today));
   client.setQueryData(payrollKeys.settlement(year), olaSettlement(current));
+  // W styczniu „Premie i stawka” pyta też o poprzedni rok — harness bez żądań.
+  client.setQueryData(payrollKeys.settlement(year - 1), { year: year - 1, months: [], bonuses_paid: {} });
 
   return { user: viewer, client, value: { state, config, form } };
 }

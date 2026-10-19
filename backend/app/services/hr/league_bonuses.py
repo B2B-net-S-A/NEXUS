@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -30,7 +30,7 @@ from app.models.competition_period_closure import (
 )
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.hr_payroll import HrBonus
-from app.services.hr.bonus_rules import BonusRules, load_rules
+from app.services.hr.bonus_rules import BonusRules, automation_floor_for, load_rules
 from app.services.hr.payroll_periods import (
     add_months,
     first_open_month_locked,
@@ -77,7 +77,7 @@ async def sync_league(
     counts = {"created": 0, "existing": 0, "skipped_period": 0}
     if not rules.league_types:
         return counts
-    floor = rules.automation_since or (today - timedelta(days=rules.lookback_days))
+    floor = automation_floor_for(rules, today)
     closures = list(
         await db.execute(
             select(

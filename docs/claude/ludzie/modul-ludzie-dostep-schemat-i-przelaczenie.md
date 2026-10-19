@@ -68,6 +68,11 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   „nieobecny”. Każde nowe miejsce, które pokazuje nieobecność, bierze dane
   z `app/services/hr/absence.py` (odczyty bez rodzaju), a nie z `leave_requests`.
 - **Przełożony nie widzi stawek ani kwot** (D2) — godziny i premie zespołu tak.
+- **„Nie sobie” w kartotece** (decyzja Artura 19.10.2026, audyt A4): Kadry i Finanse
+  nie zmieniają własnej kartoteki ani puli urlopowej — `refuse_self_edit` w
+  `hr_gates.py` na trasach kartoteki, puli, „składa raport godzin”, „Struktury”
+  (przełożony, pion) i formy umowy; 403 z prośbą o inną osobę z Kadr albo admina.
+  Admin przechodzi. Ten sam guard co przy premiach, umowach i rozliczeniach.
 - Ślad wrażliwych zapisów: `app/services/hr/audit.record(...)` z `sensitivity`
   `health` (L4) albo `payroll` (kwoty). Kwot nie ma w `critical_events` ani logach.
 
@@ -77,6 +82,7 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   (wydania i zwroty, bez wartości i numerów S/N/IMEI). Trasy `/api/integrations/v1/absences`
   (zakres dat ≤ 93 dni) i `/api/integrations/v1/equipment/assignments/{id}`; wyłączony moduł = 404.
 - Zdarzenia `leave.approved` / `leave.cancelled` powstają ze śladu `hr_audit_events`
+  (`leave.approved` także po edycji zatwierdzonego i po zgłoszeniu z Outlooka — upsert po `leave_request_id`)
   (decyzje o wniosku idą warunkowym `UPDATE`, którego listener ORM nie widzi) —
   zmiana kształtu `leave_service._audit` wywraca zdarzenia. `equipment.issued` /
   `equipment.returned` tylko dla wydań z protokołem (import arkusza = stan początkowy).
@@ -143,7 +149,8 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
 - **Koordynator czy przełożony**: przy B2B i zleceniu ekrany mówią
   „koordynator”, przy UoP „przełożony” (`managerWords` w `lib/api/hr-structure.ts`) —
   tylko etykieta, pole to dalej `manager_user_id`. Przy osobie forma (UoP /
-  B2B / Zlecenie).
+  B2B / Zlecenie) — tylko dla admina i Finansów (19.10.2026, niżej); Kadry bez
+  Płac widzą Strukturę bez formy i mówią oba słowa.
 - **„Ludzie → Mój zespół”** (`/people/team`, `api/hr_team.py`,
   `services/hr/team.py`, bramka `require_hr_team_reader`: moduł „Ludzie” +
   podwładni z kartoteką albo Kadry/admin). Wiersz na bezpośredniego
@@ -307,6 +314,12 @@ reszty (`tasks/notification_email_outbox.py`, 17.10.2026).
   w odpowiedzi na sucho. Ślad w `hr_audit_events` (`compass_import_dry_run`,
   `compass_import_apply`). Wygasłe paczki sprząta kolejny przebieg na sucho
   (`purge_expired_uploads`).
+- **NEXUS wygrywa z paczką** (audyt A4, 19.10.2026, #2347): od 18.10 kartoteki,
+  płace i czas prowadzi NEXUS, a Compass jest tylko do odczytu. Wiersz z mapy id
+  zmieniony w NEXUSIE po zapisie partii (`changed_in_nexus`) dostaje „conflict”
+  bez zapisu — także kartoteka (przełożeni przepięci w „Strukturze”), stawka
+  i premia; wiersz usunięty w NEXUSIE (obecność, opis roli, fragment) — „skip”.
+  Kartoteki z Compassa nie odświeżamy (decyzja 18.10).
 - Błędy Compassa naprawiamy, nie przenosimy — każdy ma test w module
   (pula urlopu przez Nowy Rok, pula B2B liczona dniami płatnymi, samozatwierdzanie,
   placement poza zakresem managera, wektory `pdf_hash` z kodu Compassa).
@@ -335,10 +348,17 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
   (powtórne wołanie nie dubluje); ręcznie się go nie usuwa (409).
 - Oświadczenie studenta (`purpose=student_status`, wymaga „ważny do”) na zleceniu wpisuje datę
   w `contribution_exempt_until`; przypomnienie dla Płac daje istniejąca pętla `student_reminders`.
-- Retencja: lata na rodzaj w `app_settings['hr_document_retention']` (domyślnie 10, „inne” 5 —
-  do potwierdzenia z Kadrami), liczone od końca roku ostatniego dnia pracy. Nic nie kasuje się
-  samo: lista w Ustawienia → Kadry, usunięcie z zaznaczeniem i potwierdzeniem; plik znika,
-  wiersz zostaje jako ślad. PESEL-u i numeru dowodu nie ma w żadnym polu.
+  Usunięcie oświadczenia jako pomyłki (19.10.2026, `documents_student.unsync`) cofa datę, którą
+  ono wpisało: wraca data najnowszego pozostałego ważnego oświadczenia, a bez niego zwolnienie
+  znika; data wpisana ręcznie zostaje. Usunięcie po retencji kartoteki nie rusza.
+- Pobranie i podgląd pliku dokumentu zostawia ślad `document_downloaded` w `hr_audit_events`
+  (19.10.2026; przy potwierdzeniu nieobecności `sensitivity='health'`). Plik zapisany przed
+  wierszem znika z dysku, gdy zapis wiersza albo kartoteki się wycofa.
+- Retencja: lata na rodzaj w `app_settings['hr_document_retention']` (domyślnie 10 lat dla
+  każdego rodzaju, także „inne” — decyzja Artura 19.10.2026), liczone od końca roku ostatniego
+  dnia pracy. Nic nie kasuje się samo: lista w Ustawienia → Kadry, usunięcie z zaznaczeniem
+  i potwierdzeniem; plik znika, wiersz zostaje jako ślad. PESEL-u i numeru dowodu nie ma
+  w żadnym polu.
   Okres co najmniej 10 lat, najwyżej 50 (decyzja Artura 19.10.2026,
   `RETENTION_MIN_YEARS`; serwer i karta w Ustawieniach odmawiają krótszego).
 
@@ -378,3 +398,59 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
 - Pełna ścieżka (wzór, odmowa poniżej 31,40 zł, szkic, PDF, podpis ze skanem → stawka i forma
   w kartotece, oświadczenie studenta → zwolnienie ze składek, krąg widzących) przeklikana na
   lokalnym stosie nexus-hr z kodem 071549443; na produkcji żadnych danych testowych.
+
+## Forma umowy i kartoteka za kontem (decyzje Artura 19.10.2026)
+
+**Forma umowy (UoP / B2B / zlecenie): „Przełożony, admin, Finanse, sama osoba”.**
+
+- Jedna reguła na serwerze: `people.form_viewer` + `people.form_payload`. Forma i pola,
+  z których da się ją odczytać (`people.FORM_FIELDS`: znacznik studenta, koniec zwolnienia
+  ze składek, „składki od”, staż do urlopu, zaświadczenie ZUS, podpowiedź 20/26), idą tylko do:
+  samej osoby, jej bezpośredniego żywego przełożonego (`direct_report_ids`), admina i Finansów
+  (uprawnienie „Płace” — `people.sees_every_form`). Przełożony dostaje formę i znacznik
+  studenta, bez dat (przegląd 17.10). Zastępca przełożonego nie ma pełnej kartoteki, więc i formy.
+- Kadry bez Płac: pełna kartoteka z `employment_type: null` i bez kluczy `FORM_FIELDS` —
+  w katalogu, kartotece, Strukturze, cudzym „Moim zespole” i w odpowiedzi na własny zapis.
+  Finanse dostały pełną kartotekę (`viewer_scope`). Podpowiedź 20/26 w odpowiedzi „Zmień
+  pulę” idzie przez tę samą regułę. Były przełożony osoby, która odeszła (`exited`), widzi
+  już tylko wizytówkę — jak `direct_report_ids` (audyt A4). Jarvis nie ma osobnego narzędzia o ludziach
+  — czyta te same trasy. Lista dla Compassa (`roster_export`) formy nie miała i nie ma.
+- **Zmiana formy: admin, Finanse i Kadry** (Kadry zapisują bez podglądu: w „Edytuj kartotekę”
+  pole „Bez zmian (forma ukryta)”, zapis bez wybranej formy jej nie wysyła; pól zależnych
+  od formy Kadry bez Płac nie widzą). Finanse zmieniają formę osobną trasą
+  `PATCH /api/hr/people/{id}/employment-type` (bramka `require_hr_people_records`: Kadry albo
+  Płace) — okno „Zmień formę” na kartotece.
+- **Moduły procesowe zostają** (decyzja „zostają jak są”): umowy z ludźmi, wejście konsultanta,
+  urlopy (zgłoszenie vs wniosek, okno „wniosek za kogoś” potrzebuje formy do typów nieobecności),
+  czas i Płace dalej czytają formę, bo od niej zależy działanie. Pole `employment_type` w listach
+  urlopów zostało — usunięcie go z samej listy nic nie ukrywa, skoro okno wniosku za kogoś je ma.
+
+**Katalog = konta NEXUSA: „Konto decyduje + lista rozjazdów”** (`services/hr/account_profiles.py`).
+
+- Aktywne konto pracownicze (`people.is_staff_account`: bez „Automatyzacji”, starego podglądu
+  `user` i niepotwierdzonej rejestracji; klucze API to `service_accounts`, nie `users`) ma
+  kartotekę. Brakującą zakłada `ensure_profile` przy założeniu konta przez admina i przy każdym
+  logowaniu SSO (w savepoincie — kartoteka nie blokuje logowania; tylko przy włączonym
+  programie) oraz „Wyrównaj wg konta”: „Aktywny”, forma B2B tylko jako wartość domyślna
+  z `employment_type_pending` (ekrany: „do uzupełnienia”; znacznik gaśnie przy pierwszym zapisie
+  formy, także tej samej), `created_from_account` bez przełożonego = przełożony do uzupełnienia.
+  Migracja `0476_hr_profile_follows_account`, SQL w `hr_account_profile_schema.py`.
+- **Status idzie za kontem**: listener `after_flush` na `users.is_active` (wszystkie ścieżki —
+  Osoby i role, usunięcie konta, SSO bez roli, synchronizacja grup AAD, sprawa odejścia).
+  Wyłączenie → `exited`, `exited_at`, ostatni dzień = dzień wyłączenia albo wcześniejsza data
+  z kartoteki; odejście w toku też. Włączenie → `active`, ostatni dzień i `exited_at` znikają.
+  Ślad `hr_audit_events` `profile_follows_account` (`source: account` / `align`), w tej samej
+  transakcji co zmiana konta. Zapis surowym SQL-em listener omija — łapie go lista rozjazdów.
+- **Lista rozjazdów** w „Ludzie → Katalog” (admin, Finanse, Kadry; `GET /api/hr/people/
+  account-mismatches`): konto wyłączone przy otwartej kartotece, konto włączone przy zamkniętej,
+  konto bez kartoteki, plus liczniki „do uzupełnienia”. „Wyrównaj wg konta” (`POST …/align`)
+  z potwierdzeniem; dzień wyłączenia z `activities` (`user_deactivated`, `sso_aad_role_denied`…),
+  potem `tokens_valid_after`, potem dziś.
+- Skutki zamkniętej kartoteki (sprawdzone 19.10): sprawy odejścia dla niej się nie zakłada
+  (`lifecycle_service.create_offboarding`) — **decyzja Artura: blokada zostaje**, lista
+  rozjazdów i Struktura („przełożony nieaktywny”) mówią, ilu ludzi przepiąć. Akceptacje
+  podwładnych przechodzą na heada pionu albo Kadry (`recipients.supervisor_of`), opieka
+  kontraktu na DL (`care/access.py`), M365 pomija odeszłych (#2338), płace liczą osobę do
+  miesiąca ostatniego dnia (`payroll_report.employed_in_month`). Wnioski urlopowe osoby
+  zostają (przełożony ich nie widzi, Kadry tak); propozycje premii z lig i placementów nie
+  patrzą na status — bez zmian.

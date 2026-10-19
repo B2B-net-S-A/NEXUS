@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -66,6 +66,7 @@ from app.services.hr_payroll_schema import (
 )
 
 BONUS_PERIOD_MAX_MONTHS_BACK = 12
+BONUS_MIN = Decimal("0.01")
 BONUS_MAX = Decimal("1000000")
 #: Powody anulowania nadawane przez automaty (automat może je cofnąć).
 AUTO_CANCEL_REASONS: frozenset[str] = frozenset(
@@ -93,9 +94,19 @@ class BonusInput:
 
 
 def clean_amount(amount: Decimal) -> Decimal:
+    """Kwota premii zaokrąglona HALF_UP (jak raport płac), zakres na wyniku.
+
+    Zakres sprawdzany po zaokrągleniu: 0,004 zaokrągla się do 0,00 i bez tego
+    przechodziło do bazy, gdzie CHECK kwoty dawał 500 (audyt A2, 19.10.2026).
+    Wstępne sprawdzenie chroni ``quantize`` przed liczbą spoza precyzji.
+    """
+
     if not amount.is_finite() or amount <= 0 or amount > BONUS_MAX:
         raise PayrollError("Kwota premii: od 0,01 do 1 000 000.")
-    return amount.quantize(Decimal("0.01"))
+    value = amount.quantize(BONUS_MIN, rounding=ROUND_HALF_UP)
+    if value < BONUS_MIN:
+        raise PayrollError("Kwota premii: od 0,01 do 1 000 000.")
+    return value
 
 
 def clean_currency(currency: str) -> str:

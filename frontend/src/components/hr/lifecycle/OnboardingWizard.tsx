@@ -49,7 +49,8 @@ type PersonMode = "account" | "new";
 export function onboardingProfile(form: ProfileFormState): OnboardingProfileValues {
   const text = (value: string) => (value.trim() ? value.trim() : null);
   return {
-    employment_type: form.employment_type,
+    // Kreator zawsze ma wybraną formę (start z `EMPTY_PROFILE_FORM`, bez pustej opcji).
+    employment_type: form.employment_type || "b2b",
     default_location: form.default_location,
     timesheet_required: form.timesheet_required,
     can_log_overtime: form.can_log_overtime,
@@ -107,7 +108,7 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
     kind: "onboarding",
     anchor: form.work_start_date,
     template_id: templateId === AUTO ? null : Number(templateId),
-    employment_type: form.employment_type,
+    employment_type: form.employment_type || "b2b",
     department: form.department.trim() || null,
     enabled: canManage && step >= 2,
   });
@@ -366,7 +367,7 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
             </div>
             <div>
               <dt className="text-muted-foreground">Forma</dt>
-              <dd className="font-medium">{EMPLOYMENT_TYPE_LABELS[form.employment_type]}</dd>
+              <dd className="font-medium">{EMPLOYMENT_TYPE_LABELS[form.employment_type || "b2b"]}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Przełożony</dt>
