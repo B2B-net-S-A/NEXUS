@@ -784,7 +784,7 @@
       },
       {
         "q": "Jak wpisać komuś nieobecność, np. L4?",
-        "a": "Kliknij „Wpisz nieobecność za pracownika”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Zgody na przekierowanie poczty nie dasz za tę osobę — włącza je tylko ona sama.",
+        "a": "Kliknij „Wpisz nieobecność za pracownika”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Za osoby na B2B i zleceniu wpisują tylko Kadry — one zgłaszają nieobecność same. Zgody na przekierowanie poczty nie dasz za tę osobę.",
         "anchor": "hr.approvals.on_behalf"
       }
     ],

@@ -443,7 +443,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
                   <TableCell className="whitespace-nowrap">
                     {formatRange(row.start_date, row.end_date)}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">
+                  <TableCell className="whitespace-nowrap text-right tabular-nums">
                     {daysLabel(row.days_total)}
                   </TableCell>
                   <TableCell>
