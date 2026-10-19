@@ -23,6 +23,9 @@ const ACTIVITY_COLUMNS = [
   { key: "interviews", label: "Rozmowy u klienta", heat: "bg-purple-500" },
   { key: "placements", label: "Placementy", heat: "bg-green-500" },
   { key: "calls", label: "Telefony", heat: "bg-orange-500" },
+  // Etap 4 linków (19.10.2026): osoby ze zgłoszeń przez linki tej osoby —
+  // nowe i już w bazie. Poza kolumną „Razem”.
+  { key: "link_candidates", label: "Z linków", heat: "bg-primary" },
 ] as const;
 
 /**

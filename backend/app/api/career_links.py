@@ -38,6 +38,9 @@ from app.schemas.invite_link import (
     CareerLinkBrief,
     CareerLinkJob,
     CareerLinkResponse,
+    CareerLinkResultCounts,
+    CareerLinkResultRow,
+    CareerLinkResults,
     CareerLinkStats,
     CareerLinkUpdate,
     PublicProfileDraft,
@@ -199,6 +202,78 @@ async def get_my_career_link(
     current_user: RecruiterPlus, db: AsyncSession = Depends(get_db)
 ) -> CareerLinkResponse:
     return await _career_link_response(db, current_user)
+
+
+@router.get("/me/career-link/results", response_model=CareerLinkResults)
+async def get_my_link_results(
+    current_user: RecruiterPlus,
+    days: int = Query(30, ge=0, le=3650),
+    db: AsyncSession = Depends(get_db),
+) -> CareerLinkResults:
+    """Lejek każdego linku osoby (etap 4 linków, 19.10.2026). ``days=0`` = od początku.
+
+    Wycofane, wygasłe i zamknięte linki bez zgłoszeń w oknie nie są pokazywane.
+    """
+    from app.services import career_link_results as clr
+    from app.services.career_slugs import job_link_url
+
+    since = None if days == 0 else _now() - timedelta(days=days)
+    results = await clr.link_results(db, current_user.id, since)
+    job_ids = {r.job_id for r in results if r.job_id is not None}
+    jobs = (
+        {
+            j.id: j
+            for j in (
+                await db.execute(select(Job).where(Job.id.in_(job_ids)))
+            ).scalars()
+        }
+        if job_ids
+        else {}
+    )
+    names_cache: dict[Optional[int], list[str]] = {}
+    rows: list[CareerLinkResultRow] = []
+    for item in results:
+        job = jobs.get(item.job_id) if item.job_id is not None else None
+        if item.revoked:
+            state = "revoked"
+        elif item.expires_at is not None and item.expires_at < _now():
+            state = "expired"
+        elif item.kind == "job" and not jpp.job_is_open(job):
+            state = "closed"
+        elif item.kind == "job":
+            profile = await db.get(JobPublicProfile, item.job_id)
+            version = await jpp.published_version(
+                db, job, profile, names_cache=names_cache
+            )
+            state = "live" if version is not None else "not_live"
+        else:
+            state = "live"
+        if state in ("revoked", "expired", "closed") and item.applications == 0:
+            continue
+        if not item.slug:
+            public_url = None
+        elif item.kind == "job":
+            public_url = job_link_url(item.slug)
+        else:
+            public_url = recruiter_link_url(item.slug)
+        rows.append(
+            CareerLinkResultRow(
+                **clr.as_dict(item),
+                public_url=public_url,
+                job_title=(job.working_title or job.title) if job else None,
+                state=state,
+            )
+        )
+    rows.sort(key=lambda r: (r.kind != "job", -r.applications, r.job_title or ""))
+    # Suma widocznych wierszy — kafel liczony z innego zbioru niż lista pod
+    # nim nie daje się sprawdzić wzrokiem.
+    totals = {
+        key: sum(getattr(r, key) for r in rows)
+        for key in CareerLinkResultCounts.model_fields
+    }
+    return CareerLinkResults(
+        days=days or None, totals=CareerLinkResultCounts(**totals), links=rows
+    )
 
 
 @router.get("/me/career-link/slug-available", response_model=SlugAvailability)

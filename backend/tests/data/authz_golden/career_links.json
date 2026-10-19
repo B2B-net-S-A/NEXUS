@@ -31,6 +31,7 @@
   "GET /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPPDPPPP",
   "GET /api/jobs/{job_id}/public-profile/poster.pdf": "PPPPPPDDPPPPPPPPPPPPDPPPP",
   "GET /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/me/career-link/results": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "GET /api/me/career-link/slug-available": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPDDPPPPPPPPPPPDDPPPP",

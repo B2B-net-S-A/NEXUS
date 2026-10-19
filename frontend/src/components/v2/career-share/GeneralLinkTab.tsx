@@ -308,7 +308,8 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
                 Ostatnie {data?.stats?.days ?? 30} dni
               </h3>
               <div className="grid grid-cols-3 gap-2">
-                <Stat label="Wejścia" value={link?.visit_count} />
+                {/* Licznik wejść jest od początku istnienia linku — dat wejść nie zapisujemy. */}
+                <Stat label="Wejścia od początku" value={link?.visit_count} />
                 <Stat label="Zgłoszenia" value={data?.stats?.applications} />
                 <Stat label="Nowi w bazie" value={data?.stats?.new_candidates} />
               </div>

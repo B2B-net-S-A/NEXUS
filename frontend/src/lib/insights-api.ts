@@ -121,6 +121,8 @@ export interface TeamActivityEntry {
   interviews: number;
   placements: number;
   calls: number;
+  /** Osoby ze zgłoszeń przez linki tej osoby (starszy backend: brak pola). */
+  link_candidates?: number;
   total_actions: number;
   /** `null` = pusty ranking, czyli brak skali paska. Nigdy nie mylić z 0. */
   share_pct: number | null;
