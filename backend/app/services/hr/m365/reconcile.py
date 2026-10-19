@@ -146,7 +146,7 @@ async def _latest_ops(
 
 async def _last_oof_writes(
     db: AsyncSession, user_ids: Collection[int], executed: tuple[str, ...]
-) -> dict[int, int]:
+) -> dict[int, HrM365Operation]:
     """Id ostatniej naszej operacji, która zapisała autoodpowiedź, per osoba.
 
     ``set_oof`` wykonane zawsze pisze; ``clear_oof`` wykonane — tylko gdy
@@ -157,8 +157,8 @@ async def _last_oof_writes(
 
     if not user_ids:
         return {}
-    rows = await db.execute(
-        select(HrM365Operation.user_id, HrM365Operation.id)
+    rows = await db.scalars(
+        select(HrM365Operation)
         .where(
             HrM365Operation.user_id.in_(list(user_ids)),
             HrM365Operation.kind.in_(("set_oof", "clear_oof")),
@@ -171,7 +171,7 @@ async def _last_oof_writes(
             HrM365Operation.id.desc(),
         )
     )
-    return {user_id: op_id for user_id, op_id in rows.all()}
+    return {op.user_id: op for op in rows.all()}
 
 
 async def _simulated_calendar(
@@ -250,7 +250,7 @@ def _needs_oof(
     now: datetime,
     *,
     executed: tuple[str, ...],
-    last_write_id: Optional[int],
+    last_write: Optional[HrM365Operation],
 ) -> bool:
     if oof_state.matches_leave(current, leave.start_date, leave.end_date):
         return False
@@ -258,17 +258,39 @@ def _needs_oof(
         return False
     if oof_state.user_custom_active(current, now):
         return False
-    if (
-        latest is not None
-        and latest.status in executed
-        and oof_state.is_disabled(current)
-        and (last_write_id is None or last_write_id == latest.id)
+    if latest is None or latest.status not in executed:
+        return True
+    if oof_state.is_disabled(current) and (
+        last_write is None or last_write.id == latest.id
     ):
         # Nasza autoodpowiedź weszła jako ostatni nasz zapis, a osoba ją
         # wyłączyła — nie włączamy na nowo. Późniejszy nasz zapis (inny urlop
         # albo zdjęcie przy anulowaniu) znaczy, że wyłączyliśmy ją my.
         return False
+    if _later_leave_took_over(leave, latest, last_write):
+        # Po naszej autoodpowiedzi tego urlopu weszła autoodpowiedź urlopu,
+        # który zaczyna się nie wcześniej. Wykonawca pisze taką tylko do
+        # skrzynki bez naszej trwającej (``blocking_until``) — czyli osoba
+        # wyłączyła tę (np. wróciła wcześniej). Nie odbieramy późniejszemu.
+        return False
     return True
+
+
+def _later_leave_took_over(
+    leave: LeaveRequest,
+    latest: HrM365Operation,
+    last_write: Optional[HrM365Operation],
+) -> bool:
+    if last_write is None or last_write.id == latest.id:
+        return False
+    if last_write.kind != "set_oof" or last_write.leave_request_id == leave.id:
+        return False
+    raw = (last_write.payload or {}).get("start")
+    try:
+        other_start = date.fromisoformat(str(raw))
+    except ValueError:
+        return False
+    return other_start >= leave.start_date
 
 
 def _forward_open_pending(
@@ -350,7 +372,7 @@ async def _reconcile(
                     latest_oof.get(leave.id),
                     now,
                     executed=executed,
-                    last_write_id=last_writes.get(user.id),
+                    last_write=last_writes.get(user.id),
                 ):
                     continue
                 payload = await set_oof_payload(db, leave, total)

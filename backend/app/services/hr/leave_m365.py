@@ -179,7 +179,13 @@ def plan_edit(
         ops.append(replace(op, dedupe_key=f"{op.dedupe_key}{suffix}"))
     if "calendar_event_upsert" in approved:
         op = approved["calendar_event_upsert"]
-        ops.append(replace(op, dedupe_key=f"{op.dedupe_key}{suffix}"))
+        payload = dict(op.payload)
+        if window_moved:
+            # Wykonawca szuka wydarzenia także w starym oknie — wydarzenie
+            # Compassa urlopu z importu (``leave-{id}``) nie zostaje w starych datach.
+            payload["previous_start"] = before.start.isoformat()
+            payload["previous_end"] = before.end.isoformat()
+        ops.append(replace(op, dedupe_key=f"{op.dedupe_key}{suffix}", payload=payload))
     elif after.end < today and before.end >= today:
         ops.append(
             PlannedOperation(
