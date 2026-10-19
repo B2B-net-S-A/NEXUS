@@ -57,9 +57,10 @@ Runs = list[tuple[str, bool]]
 
 _COMPANY_LABELS = tuple(t["company_name"] for t in TRANSLATIONS.values())
 _POSITION_LABELS = tuple(t["position"] for t in TRANSLATIONS.values())
-_EDUCATION_HEADERS = {
-    (_norm_title(t["dates"]), _norm_title(t["education_header"]))
+_EDUCATION_LABELS = {
+    _norm_title(t[key]).replace(" ", "")
     for t in TRANSLATIONS.values()
+    for key in ("dates", "education_header")
 }
 _TITLES_BY_LANGUAGE = {
     language: {
@@ -99,6 +100,7 @@ class _Line:
     kind: str  # "p" | "li" | "row"
     runs: Runs
     heading: bool = False
+    cells: tuple[str, ...] = ()  # tekst niepustych komórek wiersza tabeli
 
     @property
     def text(self) -> str:
@@ -244,10 +246,13 @@ def _cells(row: Any) -> list[Any]:
 
 def _row_line(row: Any) -> Optional[_Line]:
     runs: Runs = []
+    cells: list[str] = []
     for cell in _cells(row):
         part = _cell_runs(cell)
-        if not "".join(t for t, _ in part).strip():
+        text = "".join(t for t, _ in part).strip()
+        if not text:
             continue
+        cells.append(text)
         if runs:
             runs.append((" ", False))
         runs.extend(part)
@@ -260,7 +265,7 @@ def _row_line(row: Any) -> Optional[_Line]:
             if index:
                 flat.append((_ROW_SEPARATOR, False))
             flat.append((piece, bold))
-    line = _Line(kind="row", runs=_merge(flat))
+    line = _Line(kind="row", runs=_merge(flat), cells=tuple(cells))
     return line if line.text else None
 
 
@@ -522,5 +527,10 @@ def docx_to_editor_html(data: bytes) -> ImportedCv:
 
 
 def _education_header(line: _Line) -> bool:
-    text = _norm_title(line.text)
-    return any(text == f"{dates} {header}" for dates, header in _EDUCATION_HEADERS)
+    """Wiersz z samych etykiet nagłówka tabeli edukacji („Daty”, „Nazwa
+    uczelni/kierunek”). Plik poprawiony w Wordzie bywa bez jednej z nich
+    albo z innymi odstępami (19.10.2026: bez „Daty” nagłówek wchodził do CV
+    jako uczelnia)."""
+    return bool(line.cells) and all(
+        _norm_title(cell).replace(" ", "") in _EDUCATION_LABELS for cell in line.cells
+    )
