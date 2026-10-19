@@ -152,6 +152,8 @@ async def list_cases(
     priority: Optional[Priority] = None,
     q: Optional[str] = Query(default=None, max_length=200),
     include_closed: bool = False,
+    week: bool = False,
+    unassigned: bool = False,
 ) -> dict:
     return await queries.list_cases(
         db,
@@ -163,6 +165,8 @@ async def list_cases(
             priority=priority,
             q=q,
             include_closed=include_closed,
+            week=week,
+            unassigned=unassigned,
         ),
     )
 

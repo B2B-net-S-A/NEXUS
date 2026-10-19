@@ -180,18 +180,50 @@ function allCards(today: string): CaseCard[] {
   ];
 }
 
+const OPEN = new Set(["new", "in_progress", "waiting"]);
+
+/** Piątek tygodnia `today` (jak serwer: w weekend — piątek, który minął). */
+export function weekEnd(today: string): string {
+  const [y, m, d] = today.split("-").map(Number);
+  const weekday = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; // pon = 0
+  return shiftDay(today, 4 - weekday);
+}
+
 /** Odpowiedź `GET /api/cases` dla filtrów tablicy (kolejność serwera: priorytet, termin). */
 export function caseList(today: string, filters: CaseListFilters): CaseList {
-  const items = allCards(today)
-    .filter((item) => !filters.mine || item.assignee?.id === zofia.id)
+  const friday = weekEnd(today);
+  const scoped = allCards(today).filter(
+    (item) => !filters.mine || item.assignee?.id === zofia.id,
+  );
+  const open = scoped.filter((item) => OPEN.has(item.status));
+  const areas: CaseList["counts"] = { areas: {}, week: 0, unassigned: 0 };
+  for (const item of open) {
+    areas.areas[item.area] = (areas.areas[item.area] ?? 0) + 1;
+    if (item.due_on && item.due_on <= friday) areas.week += 1;
+    if (!item.assignee) areas.unassigned += 1;
+  }
+  const items = scoped
     .filter((item) => !filters.area || item.area === filters.area)
     .filter((item) => filters.include_closed || item.status !== "closed")
+    .filter(
+      (item) => !filters.week || (OPEN.has(item.status) && !!item.due_on && item.due_on <= friday),
+    )
+    .filter((item) => !filters.unassigned || (OPEN.has(item.status) && !item.assignee))
     .sort(
       (a, b) =>
         PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] ||
         (a.due_on ?? "9999").localeCompare(b.due_on ?? "9999"),
     );
-  return { items, total: items.length, truncated: false, done_this_month: 41, can_manage: true };
+  return {
+    items,
+    total: items.length,
+    truncated: false,
+    done_this_month: 41,
+    counts: areas,
+    today,
+    week_end: friday,
+    can_manage: true,
+  };
 }
 
 /** Obszary filtra tablicy (`null` = wszystkie). */

@@ -9,11 +9,13 @@
  * dnia roboczego przyszłego miesiąca.
  *
  * Stany (`?state=`):
- * - `wizard` (domyślnie) — kreator od kroku 1 „Osoba i konto” (kreator nie
- *   ma wejścia na krok z adresu). Zasiane: konta bez kartoteki, katalog
- *   przełożonych, listy zadań i podgląd zadań dla daty startu ze sceny
- *   (każda forma, dział pusty albo „Rekrutacja IT”) — przejście do kroku
- *   „Zadania” z tą datą nie wysyła zapytania;
+ * - `wizard` (domyślnie) — kreator od kroku 1 „Osoba i konto” (makieta
+ *   19.10.2026: kroki z opisem, ścieżka kartami, wyszukiwanie konta
+ *   z awatarami — najpierw konta bez kartoteki — i panel „Co powstanie”;
+ *   kreator nie ma wejścia na krok z adresu). Zasiane: konta bez kartoteki,
+ *   katalog przełożonych, listy zadań i podgląd zadań dla dziś (zanim padnie
+ *   data startu) i dla daty startu ze sceny (każda forma, dział pusty albo
+ *   „Rekrutacja IT”) — kreator nie wysyła zapytania;
  * - `case` — sprawa w toku: zatrudnienie, zadania recepcji, IT i przełożonej
  *   (1 z 8 zrobione), „Zakończ wejście”;
  * - `draft` — szkic osoby bez konta: informacja o koncie z adresem
@@ -79,7 +81,10 @@ function prepare(params: URLSearchParams) {
   client.setQueryData(hrKeys.people, harnessDirectory());
   client.setQueryData(hrKeys.withoutProfile, ACCOUNTS_WITHOUT_PROFILE);
   client.setQueryData(lifecycleKeys.templates("onboarding"), ONBOARDING_TEMPLATES);
-  for (const seed of previewSeeds(scene.start)) client.setQueryData(seed.key, seed.data);
+  // „Co powstanie” liczy od kroku 1: bez daty startu od dziś, potem od startu ze sceny.
+  for (const anchor of [scene.today, scene.start]) {
+    for (const seed of previewSeeds(anchor)) client.setQueryData(seed.key, seed.data);
+  }
   client.setQueryData(lifecycleKeys.case(ONBOARDING_CASE_ID), onboardingCase(scene, "active"));
   client.setQueryData(lifecycleKeys.case(ONBOARDING_DRAFT_ID), onboardingCase(scene, "draft"));
   client.setQueryData(lifecycleKeys.contractEntry(ENTRY_CONTRACT_ID), consultantEntry(scene));

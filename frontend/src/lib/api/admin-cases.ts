@@ -91,11 +91,23 @@ export interface CaseDetail extends CaseCard {
   can_comment: boolean;
 }
 
+/** Liczniki chipów: otwarte sprawy w zakresie i wyszukiwaniu, bez filtrów chipów. */
+export interface CaseChipCounts {
+  areas: Partial<Record<CaseArea, number>>;
+  week: number;
+  unassigned: number;
+}
+
 export interface CaseList {
   items: CaseCard[];
   total: number;
   truncated: boolean;
   done_this_month: number;
+  /** Od 19.10.2026 (chipy tablicy); starsza odpowiedź ich nie ma. */
+  counts?: CaseChipCounts;
+  /** Dziś i piątek tego tygodnia w kalendarzu firmy (kolor terminu). */
+  today?: string;
+  week_end?: string;
   can_manage: boolean;
 }
 
@@ -106,6 +118,10 @@ export interface CaseListFilters {
   priority?: CasePriority | null;
   q?: string;
   include_closed?: boolean;
+  /** „Na ten tydzień”: otwarte z terminem do piątku (też po terminie). */
+  week?: boolean;
+  /** „Bez osoby”: otwarte bez przypisanej osoby. */
+  unassigned?: boolean;
 }
 
 export interface CaseCreateInput {
@@ -178,6 +194,8 @@ function listParams(filters: CaseListFilters): Record<string, string> {
   if (filters.priority) params.priority = filters.priority;
   if (filters.q?.trim()) params.q = filters.q.trim();
   if (filters.include_closed) params.include_closed = "true";
+  if (filters.week) params.week = "true";
+  if (filters.unassigned) params.unassigned = "true";
   return params;
 }
 
@@ -246,6 +264,25 @@ export function useUpdateCase(id: number) {
     mutationFn: async (payload: CaseUpdateInput) =>
       (await api.patch<CaseDetail>(`/api/cases/${id}`, payload)).data,
     onSuccess: invalidate,
+  });
+}
+
+/**
+ * „Weź” na sprawie bez osoby — przypisanie do siebie zwykłą zmianą sprawy
+ * z wersją karty: ktoś wziął ją w międzyczasie = 409, nie ciche nadpisanie.
+ */
+export function useTakeCase() {
+  const invalidate = useInvalidateCases();
+  return useMutation({
+    mutationKey: CASE_COUNTS_MUTATION_KEY,
+    mutationFn: async (input: { id: number; userId: number; expectedUpdatedAt: string }) =>
+      (
+        await api.patch<CaseDetail>(`/api/cases/${input.id}`, {
+          assignee_user_id: input.userId,
+          expected_updated_at: input.expectedUpdatedAt,
+        })
+      ).data,
+    onSettled: invalidate,
   });
 }
 
