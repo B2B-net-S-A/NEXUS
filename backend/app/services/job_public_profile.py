@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -26,7 +27,11 @@ from app.models.job import Job, JobStatus
 from app.models.job_public_profile import DEFAULT_PUBLIC_SECTIONS, JobPublicProfile
 from app.models.user import User
 from app.services import champion_view
-from app.services.public_profile_lint import Finding, lint_public_texts
+from app.services.public_profile_lint import (
+    Finding,
+    lint_internal_codes,
+    lint_public_texts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,9 +121,31 @@ def job_is_open(job: Optional[Job]) -> bool:
 # ── Tytuł publiczny ─────────────────────────────────────────────────────────
 
 _SEPARATORS = r":\-\u2013\u2014|"
-_TRAILING_PAREN_CODE = re.compile(r"\s*[\(\[][^()\[\]]*\d[^()\[\]]*[\)\]]\s*$")
-_TRAILING_TICKET = re.compile(r"[\s,;:\-\u2013\u2014|/]*\b(?:RITM|REQ)\d+\s*$", re.I)
+# \u201e\u2026 (42835)\u201d, \u201e\u2026 (ZOB-3003)\u201d: sam numer albo kod z 3\u20136 liter i co najmniej
+# 4 cyframi \u2014 jak nag\u0142\u00f3wek CV (``cv_role_title``). \u201e(K8s)\u201d, \u201e(PL-300)\u201d
+# i \u201e(ISO 27001)\u201d to cz\u0119\u015b\u0107 roli i zostaj\u0105 (19.10.2026; wcze\u015bniej znika\u0142 ka\u017cdy
+# nawias z cyfr\u0105).
+_TRAILING_PAREN_CODE = re.compile(
+    # „(42928, 42927)” (jedna rekrutacja na kilka zapytań), „(nr 42835)”,
+    # „(ID 4521)” też — numer pozwala zgadnąć klienta.
+    r"\s*[\(\[]\s*(?:(?:(?i:nr|no|id)\.?\s*)?\d{3,}(?:\s*[,;/]\s*\d{3,})*"
+    r"|(?!ISO\b)[A-Z]{3,6}[-_]\d{4,})\s*[\)\]]\s*$"
+)
+# Resztka po wycięciu numeru u klienta: „IT Analyst (42928, 42927)” → „(,)”.
+_EMPTY_BRACKETS = re.compile(r"\s*[\(\[][\s,;/]*[\)\]]")
+# \u201e\u2026_RITM0866775\u201d (BNP): podkre\u015blnik to znak s\u0142owa, wi\u0119c ``\b`` przed kodem
+# go nie \u0142apa\u0142 i numer szed\u0142 na stron\u0119, do grafiki OG i do adresu linku.
+_TRAILING_TICKET = re.compile(
+    r"[\s,;:\-\u2013\u2014|/_]*(?<![A-Za-z0-9])(?:RITM|REQ)\d+\s*$", re.I
+)
+# \u201e\u2026Power BI_PKN500023226\u201d, \u201e\u2026NIS2_EITERFP2026016\u201d (Orlen, Energa).
+_TRAILING_CLIENT_CODE = re.compile(r"[_\s]+[A-Z]{2,}[A-Z0-9]*\d{5,}\s*$")
 _TRAILING_PEP = re.compile(r"[\s,;]*\bPep\s*:?\s*\d+\s*$", re.I)
+# Regu\u0142y sprzed 19.10.2026 \u2014 tylko do rozpoznania opis\u00f3w zatwierdzonych z tym
+# tytu\u0142em domy\u015blnym (``published_version``): zmiana regu\u0142 nie mo\u017ce zdj\u0105\u0107
+# opublikowanej strony.
+_LEGACY_PAREN_CODE = re.compile(r"\s*[\(\[][^()\[\]]*\d[^()\[\]]*[\)\]]\s*$")
+_LEGACY_TICKET = re.compile(r"[\s,;:\-\u2013\u2014|/]*\b(?:RITM|REQ)\d+\s*$", re.I)
 _EDGE_JUNK = re.compile(r"^[\s,;:\-\u2013\u2014|/]+|[\s,;:\-\u2013\u2014|/]+$")
 _WHITESPACE = re.compile(r"\s+")
 
@@ -151,25 +178,53 @@ def _strip_client_prefix(title: str, client_names: list[str]) -> str:
     return title
 
 
-def default_public_title(title: Optional[str], client_names: list[str]) -> str:
-    """Tytuł na stronę kariery bez nazwy klienta i kodów zleceń.
-
-    Usuwa prefiks klienta (nazwa albo alias, także pierwsze słowo nazwy
-    z co najmniej 4 literami — „Nordea" z „Nordea Bank Abp") zakończony
-    separatorem, końcowe kody w nawiasie zawierające cyfrę, ``RITM…``/
-    ``REQ…``, ``, Pep: 1234`` i nadmiarowe separatory. Nigdy nie zwraca
-    pustego napisu — w ostateczności surowy tytuł.
-    """
-    original = _collapse(title or "")
+def _strip_codes(original: str, client_names: list[str], patterns: tuple) -> str:
     text = _strip_client_prefix(original, client_names)
     while True:
         before = text
-        for pattern in (_TRAILING_PAREN_CODE, _TRAILING_TICKET, _TRAILING_PEP):
+        for pattern in patterns:
             text = pattern.sub("", text)
         text = _EDGE_JUNK.sub("", text)
         if text == before:
             break
-    text = _collapse(text)
+    return _collapse(text)
+
+
+def default_public_title(
+    title: Optional[str],
+    client_names: list[str],
+    client_reference: Optional[str] = None,
+) -> str:
+    """Tytuł na stronę kariery bez nazwy klienta i kodów zleceń.
+
+    Usuwa numer u klienta (``client_reference``, gdziekolwiek stoi), prefiks
+    klienta (nazwa albo alias, także pierwsze słowo nazwy z co najmniej
+    4 literami — „Nordea" z „Nordea Bank Abp") zakończony separatorem,
+    końcowe kody w nawiasie, ``RITM…``/``REQ…`` (także po „_”), kody
+    ``_PKN…``/``_EITE…``, ``, Pep: 1234`` i nadmiarowe separatory. Nigdy nie
+    zwraca pustego napisu — w ostateczności surowy tytuł.
+    """
+    original = _collapse(title or "")
+    base = original
+    if client_reference and original:
+        from app.services.job_working_title import _strip_reference
+
+        base = _collapse(_strip_reference(original, client_reference)) or original
+        base = _collapse(_EMPTY_BRACKETS.sub("", base)) or original
+    text = _strip_codes(
+        base,
+        client_names,
+        (_TRAILING_PAREN_CODE, _TRAILING_TICKET, _TRAILING_CLIENT_CODE, _TRAILING_PEP),
+    )
+    return text or original
+
+
+def legacy_default_public_title(title: Optional[str], client_names: list[str]) -> str:
+    """Tytuł domyślny według reguł sprzed 19.10.2026 (patrz ``_LEGACY_*``)."""
+    original = _collapse(title or "")
+    text = _strip_codes(
+        original, client_names, (_LEGACY_PAREN_CODE, _LEGACY_TICKET, _TRAILING_PEP)
+    )
     return text or original
 
 
@@ -194,7 +249,9 @@ async def public_titles(
         names = await _client_names(db, job.client_id)
         if names_cache is not None:
             names_cache[job.client_id] = names
-    default = default_public_title(job.title, names)
+    default = default_public_title(
+        job.title, names, getattr(job, "client_reference", None)
+    )
     return default, effective_public_title(profile, default)
 
 
@@ -316,7 +373,157 @@ def approved_content(
         "nice": list(payload.get("nice") or []),
         **{key: params.get(key) for key in _SNAPSHOT_PARAMS},
         APPROVED_CLIENT_KEY: client_id,
+        APPROVED_TEXT_KEY: approved_text(
+            payload.get("title"),
+            payload.get("subtitle"),
+            payload.get("about"),
+            payload.get("show"),
+        ),
     }
+
+
+# Tekst zatwierdzonej wersji (tytuł efektywny, podtytuł, opis, przełączniki)
+# w migawce zatwierdzenia (19.10.2026). Do tej daty każda zmiana opisu po
+# zatwierdzeniu zdejmowała stronę (404) aż do ponownego zatwierdzenia —
+# kandydaci z rozesłanego linku trafiali na błąd. Teraz strona pokazuje
+# ostatnią zatwierdzoną wersję, a edytor mówi, że czekają zmiany.
+APPROVED_TEXT_KEY = "text"
+
+
+def approved_text(
+    title: Optional[str], subtitle: Optional[str], about: Optional[str], show: Any
+) -> dict[str, Any]:
+    return {
+        "title": (title or "").strip(),
+        "subtitle": (subtitle or "").strip() or None,
+        "about": (about or "").strip() or None,
+        "show": normalize_sections(show),
+    }
+
+
+@dataclass(frozen=True)
+class PublishedVersion:
+    """To, co dziś widzi kandydat pod linkiem rekrutacji."""
+
+    title: str
+    subtitle: Optional[str]
+    about: Optional[str]
+    # Przełączniki + migawka zatwierdzenia — wejście ``public_job_payload``.
+    sections: dict[str, Any]
+    # Opis w edytorze różni się od opublikowanego (szkic czeka na zatwierdzenie).
+    pending_changes: bool
+
+
+def published_from(
+    job: Job,
+    profile: Optional[JobPublicProfile],
+    *,
+    status: str,
+    effective_title: str,
+    legacy_title: Optional[str] = None,
+) -> Optional[PublishedVersion]:
+    """Opublikowana wersja opisu albo ``None`` (strona daje 404).
+
+    Zatwierdzony opis = bieżące pola. Szkic po zatwierdzeniu = tekst z migawki,
+    o ile jego skrót nadal równa się zatwierdzonemu (migawka niezmieniona od
+    zatwierdzenia). Opisy zatwierdzone przed 19.10.2026 nie mają tekstu
+    w migawce — dla nich bieżące pola z tytułem według dawnych reguł
+    (``legacy_title``), gdy to on był zatwierdzony.
+
+    Zmiana klienta rekrutacji zawsze zdejmuje stronę (R8-N4-4): tekst
+    sprawdzono pod kątem nazwy poprzedniego klienta.
+    """
+    if profile is None:
+        return None
+    if status == STATUS_APPROVED:
+        return PublishedVersion(
+            title=effective_title,
+            subtitle=profile.subtitle,
+            about=profile.about,
+            sections=profile.sections,
+            pending_changes=False,
+        )
+    if (
+        profile.approved_at is None
+        or not profile.approved_hash
+        or approved_for_other_client(job, profile.sections)
+    ):
+        return None
+    snapshot = stored_approved_content(profile.sections) or {}
+    text = snapshot.get(APPROVED_TEXT_KEY)
+    if isinstance(text, dict) and isinstance(text.get("title"), str):
+        show = normalize_sections(text.get("show"))
+        if profile.approved_hash == content_hash(
+            text.get("subtitle"), text.get("about"), show, text["title"]
+        ):
+            return PublishedVersion(
+                title=text["title"],
+                subtitle=text.get("subtitle"),
+                about=text.get("about"),
+                sections=sections_with_approved_content(show, snapshot),
+                pending_changes=True,
+            )
+    if (
+        legacy_title
+        and not (profile.public_title or "").strip()
+        and profile.approved_hash
+        == content_hash(profile.subtitle, profile.about, profile.sections, legacy_title)
+    ):
+        # Tytuł domyślny zmienił się tylko przez nowe reguły czyszczenia —
+        # treść jest ta zatwierdzona, więc strona zostaje z dawnym tytułem.
+        return PublishedVersion(
+            title=legacy_title,
+            subtitle=profile.subtitle,
+            about=profile.about,
+            sections=profile.sections,
+            pending_changes=True,
+        )
+    return None
+
+
+async def published_version(
+    db: AsyncSession,
+    job: Job,
+    profile: Optional[JobPublicProfile],
+    *,
+    names_cache: Optional[dict[Optional[int], list[str]]] = None,
+) -> Optional[PublishedVersion]:
+    """Jedna reguła „co widzi kandydat” dla strony, formularzy i maili."""
+    if profile is None:
+        return None
+    status, _default, effective = await resolve_status(
+        db, job, profile, names_cache=names_cache
+    )
+    legacy: Optional[str] = None
+    if status != STATUS_APPROVED:
+        if names_cache is not None and job.client_id in names_cache:
+            names = names_cache[job.client_id]
+        else:
+            names = await _client_names(db, job.client_id)
+        legacy = legacy_default_public_title(job.title, names)
+    return published_from(
+        job, profile, status=status, effective_title=effective, legacy_title=legacy
+    )
+
+
+def with_published_text(sections: Any, version: PublishedVersion) -> dict[str, Any]:
+    """Przełączniki z migawką uzupełnioną o tekst opublikowanej wersji.
+
+    Opisy zatwierdzone przed 19.10.2026 nie mają tekstu w migawce. Pierwszy
+    zapis zmian dopisuje go, póki bieżące pola są jeszcze tą wersją — inaczej
+    zmiana zdjęłaby stronę. Opis bez migawki (zatwierdzony przed 25.09.2026)
+    zostaje bez zmian: migawka z samym tekstem wyzerowałaby must/nice."""
+    stored = stored_approved_content(version.sections)
+    if stored is None:
+        return sections_with_approved_content(sections, None)
+    snapshot = dict(stored)
+    snapshot[APPROVED_TEXT_KEY] = approved_text(
+        version.title,
+        version.subtitle,
+        version.about,
+        normalize_sections(version.sections),
+    )
+    return sections_with_approved_content(sections, snapshot)
 
 
 def approved_for_other_client(job: Job, sections: Any) -> bool:
@@ -574,11 +781,17 @@ person_names = _person_names
 async def lint_payload(
     db: AsyncSession, job: Job, payload: dict[str, Any]
 ) -> list[Finding]:
-    return lint_public_texts(
-        _payload_texts(payload),
-        client_names=await _client_names(db, job.client_id),
-        person_names=await _person_names(db, job),
-    )
+    texts = _payload_texts(payload)
+    return [
+        *lint_public_texts(
+            texts,
+            client_names=await _client_names(db, job.client_id),
+            person_names=await _person_names(db, job),
+        ),
+        *lint_internal_codes(
+            texts, client_reference=getattr(job, "client_reference", None)
+        ),
+    ]
 
 
 # ── Slug linku rekrutacji ───────────────────────────────────────────────────

@@ -53,7 +53,7 @@ export function GenerateInviteLinkV2({ open, onOpenChange, defaultJobId }: Props
     tab === "general"
       ? "Twój stały link do bazy — do profilu LinkedIn, stopki i postów."
       : jobTitle
-        ? `${jobTitle} — nazwa klienta i stawki nie trafią na stronę.`
+        ? `${jobTitle} — nazwa klienta, numery zgłoszeń i stawki nie trafią na stronę.`
         : "Opis publiczny i link dla kandydatów — bez nazwy klienta i bez stawek.";
 
   return (

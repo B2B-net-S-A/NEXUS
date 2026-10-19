@@ -124,7 +124,7 @@ async def public_job_title(db: AsyncSession, job_id: Optional[int]) -> Optional[
 
     from app.models.job import Job
     from app.models.job_public_profile import JobPublicProfile
-    from app.services.job_public_profile import STATUS_APPROVED, resolve_status
+    from app.services.job_public_profile import published_version
 
     job = await db.get(Job, job_id)
     if job is None:
@@ -134,8 +134,9 @@ async def public_job_title(db: AsyncSession, job_id: Optional[int]) -> Optional[
     )
     if profile is None:
         return None
-    status, _default, effective = await resolve_status(db, job, profile)
-    return effective if status == STATUS_APPROVED else None
+    # Ten tytuł kandydat widział na stronie, z której aplikował.
+    version = await published_version(db, job, profile)
+    return version.title if version is not None else None
 
 
 async def claim_send(db: AsyncSession, *, email: str, link_key: str) -> bool:

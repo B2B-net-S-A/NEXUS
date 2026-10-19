@@ -10,12 +10,14 @@ import {
   activeLinkForJob,
   approveBlockedReason,
   careerPreviewHost,
+  categoryOf,
   displayUrl,
   effectivePublicTitle,
   hostFromUrl,
   recruiterLinkPrefix,
   isSlugFormatValid,
   liveFindings,
+  pageState,
   paramsTagline,
   removeExcerpt,
 } from "../share-utils";
@@ -45,13 +47,39 @@ describe("share-utils", () => {
     expect(removeExcerpt("bez zmian", "nie ma")).toBe("bez zmian");
   });
 
-  it("znalezisko znika, gdy fragmentu nie ma już w tekście", () => {
+  it("znalezisko znika, gdy fragment usunięto z pól okna", () => {
+    const saved = "Budżet: stawka 180 zł/h.";
     const f = [
       { code: "money", message: "m", excerpt: "180 zł/h" },
       { code: "contact", message: "c", excerpt: null },
     ];
-    expect(liveFindings(f, "bez kwoty")).toEqual([f[1]]);
-    expect(liveFindings(f, "stawka 180 ZŁ/H")).toHaveLength(2);
+    expect(liveFindings(f, "bez kwoty", saved)).toEqual([f[1]]);
+    expect(liveFindings(f, "stawka 180 ZŁ/H", saved)).toHaveLength(2);
+  });
+
+  it("znalezisko spoza pól okna zostaje — wymagania, tytuł domyślny, zdanie skrócone", () => {
+    const saved = "Opis zespołu. Długie zdanie o projekcie dla Nordea i jego historii.";
+    const fromMust = { code: "client_name", message: "m", excerpt: "Znajomość systemów Nordea" };
+    const cut = { code: "client_name", message: "m", excerpt: "…projekcie dla Nordea…" };
+    expect(liveFindings([fromMust], saved, saved)).toEqual([fromMust]);
+    expect(liveFindings([fromMust], "zupełnie inny tekst", saved)).toEqual([fromMust]);
+    // Zdanie skrócone wielokropkiem rozpoznajemy po środku fragmentu.
+    expect(liveFindings([cut], saved, saved)).toEqual([cut]);
+    expect(liveFindings([cut], "Opis zespołu.", saved)).toEqual([]);
+  });
+
+  it("stan strony z pola `live`", () => {
+    expect(pageState(null)).toBe("not_live");
+    expect(pageState({ live: null })).toBe("not_live");
+    expect(pageState({ live: { pending_changes: false } })).toBe("live");
+    expect(pageState({ live: { pending_changes: true } })).toBe("live_pending");
+  });
+
+  it("kody wewnętrzne mają własną kategorię kontroli", () => {
+    expect(categoryOf("internal_code").key).toBe("internal");
+    expect(approveBlockedReason([{ code: "internal_code", message: "", excerpt: null }])).toBe(
+      "Usuń numer zgłoszenia klienta z opisu, aby zatwierdzić.",
+    );
   });
 
   it("powód blokady nazywa kategorię", () => {

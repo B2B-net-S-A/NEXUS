@@ -51,7 +51,12 @@ describe("JobShareTab — defaultJobId spoza pierwszej strony (FE-13)", () => {
     routeGet({ id: 555, title: "Rekrutacja z drugiej setki", status: "published" });
     renderTab();
     await waitFor(() => expect(get).toHaveBeenCalledWith("/api/jobs/555"));
-    expect(await screen.findByText("Rekrutacja z drugiej setki")).toBeInTheDocument();
+    // Tytuł stoi też w podglądzie posta — sprawdzamy pole wyboru rekrutacji.
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Rekrutacja" })).toHaveTextContent(
+        "Rekrutacja z drugiej setki",
+      ),
+    );
     expect(screen.queryByText(CLOSED_MSG)).toBeNull();
   });
 
