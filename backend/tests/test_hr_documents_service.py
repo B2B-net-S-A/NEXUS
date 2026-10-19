@@ -131,8 +131,8 @@ def test_retention_settings_refuse_bad_values(raw) -> None:
 
 
 def test_retention_settings_keep_defaults_for_missing_kinds() -> None:
-    years = documents_rules.parse_retention({"other": 7})
-    assert years["other"] == 7
+    years = documents_rules.parse_retention({"other": 12})
+    assert years["other"] == 12
     assert years["contract"] == documents_rules.DEFAULT_RETENTION_YEARS["contract"]
 
 
