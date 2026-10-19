@@ -115,6 +115,18 @@ describe("ConsultantsPanel", () => {
     expect(await screen.findByText("Nie opiekujesz się żadnym konsultantem")).toBeInTheDocument();
   });
 
+  it("pusty „Moi” prowadzi do wszystkich w zakresie, jak w „Ten tydzień”", async () => {
+    // Testy produkcji 19.10.2026: admin bez podopiecznych widział pustkę,
+    // a „Wszyscy w moim zakresie” miało 501 osób.
+    mocks.get.mockResolvedValue({ data: payload([row({ is_mine: false })]) });
+    renderPanel();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Pokaż wszystkich w moim zakresie" }),
+    );
+    expect(screen.queryByText("Nie opiekujesz się żadnym konsultantem")).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Wszyscy w moim zakresie/ })).toBeChecked();
+  });
+
   it("rytm z podpisem, zaległość przy rozmowie, sygnał z podpowiedzią i filtry z licznikami", async () => {
     const user = userEvent.setup();
     mocks.get.mockResolvedValue({
