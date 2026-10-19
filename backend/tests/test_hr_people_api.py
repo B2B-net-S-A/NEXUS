@@ -395,3 +395,173 @@ async def test_employee_role_sees_no_candidates(app_client, modules_on) -> None:
         )
         assert found.status_code == 200
         assert marker not in _results(found), path
+
+
+@pytest.mark.asyncio
+async def test_directory_today_column_without_leave_type(
+    app_client, modules_on
+) -> None:
+    """Kolumna „Dziś” (makieta 19.10.2026): nieobecność bez rodzaju (D6),
+    praca zdalna i delegacja z `attendance_days`, bez notatek."""
+
+    from app.core.scheduling import business_today
+    from app.models.hr_leave import LeaveRequest
+    from app.models.hr_time import AttendanceDay
+
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        colleague = await _user(db, "recruiter", profile=True)
+        sick = await _user(db, "employee", profile=True, employment_type="uop")
+        remote = await _user(db, "employee", profile=True)
+        trip = await _user(db, "employee", profile=True)
+        present = await _user(db, "employee", profile=True)
+        db.add(
+            LeaveRequest(
+                user_id=sick.id,
+                leave_type="sick_leave",
+                status="approved",
+                start_date=today,
+                end_date=today,
+                note="sekretny powód",
+            )
+        )
+        db.add(
+            AttendanceDay(
+                user_id=remote.id,
+                day=today,
+                status="active",
+                location="remote",
+                note="z domu, hydraulik",
+            )
+        )
+        db.add(AttendanceDay(user_id=trip.id, day=today, status="business_trip"))
+        await db.commit()
+
+    listing = await app_client.get("/api/hr/people", headers=_headers(colleague))
+    assert listing.status_code == 200
+    by_id = {item["user_id"]: item for item in listing.json()["items"]}
+    assert by_id[sick.id]["scope"] == "card"
+    assert by_id[sick.id]["today"]["absent_until"] == today.isoformat()
+    assert by_id[sick.id]["today"]["presence"] is None
+    assert by_id[remote.id]["today"] == {
+        "absent_until": None,
+        "half_day": None,
+        "substitute_name": None,
+        "presence": "remote",
+    }
+    assert by_id[trip.id]["today"]["presence"] == "business_trip"
+    assert by_id[present.id]["today"] is None
+    text = listing.text
+    assert "sick_leave" not in text
+    assert "leave_type" not in text
+    assert "sekretny" not in text
+    assert "hydraulik" not in text
+
+
+@pytest.mark.asyncio
+async def test_directory_today_column_follows_open_modules(app_client) -> None:
+    """Zamknięty moduł urlopów i czasu = katalog bez nieobecności i bez Z/D."""
+
+    from app.core.scheduling import business_today
+    from app.models.hr_leave import LeaveRequest
+    from app.models.hr_time import AttendanceDay
+
+    async with AsyncSessionLocal() as db:
+        previous = await db.scalar(
+            select(AppSetting.value).where(AppSetting.key == HR_MODULES_SETTING)
+        )
+    await _set_modules(
+        {key: key == "people" for key in HR_MODULE_KEYS},
+    )
+    try:
+        today = business_today()
+        async with AsyncSessionLocal() as db:
+            colleague = await _user(db, "recruiter", profile=True)
+            absent = await _user(db, "employee", profile=True)
+            remote = await _user(db, "employee", profile=True)
+            db.add(
+                LeaveRequest(
+                    user_id=absent.id,
+                    leave_type="vacation",
+                    status="approved",
+                    start_date=today,
+                    end_date=today,
+                )
+            )
+            db.add(
+                AttendanceDay(
+                    user_id=remote.id, day=today, status="active", location="remote"
+                )
+            )
+            await db.commit()
+
+        listing = await app_client.get("/api/hr/people", headers=_headers(colleague))
+        assert listing.status_code == 200
+        by_id = {item["user_id"]: item for item in listing.json()["items"]}
+        assert by_id[absent.id]["today"] is None
+        assert by_id[remote.id]["today"] is None
+    finally:
+        await _set_modules(previous or {key: False for key in HR_MODULE_KEYS})
+
+
+@pytest.mark.asyncio
+async def test_profile_leave_ring_only_in_full_scope_without_type_counters(
+    app_client, modules_on
+) -> None:
+    """Pierścień dni przerwy w kartotece (makieta 19.10.2026): saldo z puli
+    tylko w pełnym zakresie, bez liczników rodzajów; zlecenie bez puli."""
+
+    from decimal import Decimal
+
+    from app.core.scheduling import business_today
+    from app.models.hr_profile import LeaveEntitlement
+
+    year = business_today().year
+    async with AsyncSessionLocal() as db:
+        boss = await _user(db, "recruiter", profile=True)
+        report = await _user(
+            db, "employee", profile=True, manager_user_id=boss.id, employment_type="uop"
+        )
+        contractor = await _user(
+            db,
+            "employee",
+            profile=True,
+            manager_user_id=boss.id,
+            employment_type="zlecenie",
+        )
+        colleague = await _user(db, "recruiter", profile=True)
+        db.add(
+            LeaveEntitlement(
+                user_id=report.id, year=year, entitlement_days=Decimal("26")
+            )
+        )
+        await db.commit()
+
+    as_boss = await app_client.get(
+        f"/api/hr/people/{report.id}", headers=_headers(boss)
+    )
+    assert as_boss.status_code == 200
+    ring = as_boss.json()["leave_balance"]
+    assert ring["year"] == year
+    assert ring["has_paid_pool"] is True
+    assert float(ring["remaining_days"]) == 26.0
+    assert set(ring) == {
+        "year",
+        "has_paid_pool",
+        "entitlement_days",
+        "carried_over_days",
+        "used_days",
+        "planned_days",
+        "remaining_days",
+    }
+
+    no_pool = await app_client.get(
+        f"/api/hr/people/{contractor.id}", headers=_headers(boss)
+    )
+    assert no_pool.json()["leave_balance"] is None
+
+    as_colleague = await app_client.get(
+        f"/api/hr/people/{report.id}", headers=_headers(colleague)
+    )
+    assert as_colleague.json()["scope"] == "card"
+    assert "leave_balance" not in as_colleague.json()

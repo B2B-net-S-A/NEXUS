@@ -6,13 +6,18 @@
  * mają wyłączoną wysyłkę (`preview.disableSubmit`), więc klik „wyślij" niczego
  * nie wysyła. Stany obok siebie: rekrutacja otwarta, formularz z błędami,
  * podziękowanie, rekrutacja zamknięta, stały link rekrutera.
+ *
+ * `?szablon=<id>` (0478) — rekrutacja otwarta i zamknięta w szablonie
+ * graficznym (`components/career/themes.ts`).
  */
 import type { Metadata } from "next";
+import { use } from "react";
 
 import { CareerApplyForm } from "@/components/career/CareerApplyForm";
 import { CareerJobView } from "@/components/career/CareerJobView";
 import { CareerRecruiterView } from "@/components/career/CareerRecruiterView";
 import { CareerTheme } from "@/components/career/CareerTheme";
+import { CAREER_THEME_IDS, CAREER_THEMES, isCareerThemeId } from "@/components/career/themes";
 import { TerminalChrome } from "@/components/career/TerminalChrome";
 import { ThanksLog } from "@/components/career/ThanksLog";
 import type { CareerJobResponse, CareerRecruiterResponse } from "@/lib/career/api";
@@ -120,7 +125,14 @@ function State({ id, label, children }: { id: string; label: string; children: R
   );
 }
 
-export default function CareerPreviewPage() {
+export default function CareerPreviewPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ szablon?: string }>;
+}) {
+  // `use` wolno wołać warunkowo; test renderuje stronę bez parametrów.
+  const { szablon } = searchParams ? use(searchParams) : {};
+  const theme = isCareerThemeId(szablon) ? szablon : undefined;
   return (
     <div style={{ background: "#000" }}>
       <nav
@@ -133,9 +145,29 @@ export default function CareerPreviewPage() {
           </a>
         ))}
       </nav>
+      <nav
+        aria-label="Szablony"
+        style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "0 16px 16px", fontFamily: "monospace", fontSize: 12 }}
+      >
+        {CAREER_THEME_IDS.map((id) => (
+          <a
+            key={id}
+            href={`?szablon=${id}#otwarta`}
+            style={{ color: id === (theme ?? "terminal") ? "#F5F5F5" : "#8B8B8B" }}
+            aria-current={id === (theme ?? "terminal") ? "page" : undefined}
+          >
+            {CAREER_THEMES[id].label}
+          </a>
+        ))}
+      </nav>
 
       <State id="otwarta" label="rekrutacja otwarta">
-        <CareerJobView data={OPEN_JOB} base={BASE} host={HOST} formPreview={{ disableSubmit: true }} />
+        <CareerJobView
+          data={{ ...OPEN_JOB, theme }}
+          base={BASE}
+          host={HOST}
+          formPreview={{ disableSubmit: true }}
+        />
       </State>
 
       <State id="bledy" label="formularz z błędami">
@@ -180,7 +212,7 @@ export default function CareerPreviewPage() {
       </State>
 
       <State id="zamknieta" label="rekrutacja zamknięta">
-        <CareerJobView data={CLOSED_JOB} base={BASE} host={HOST} />
+        <CareerJobView data={{ ...CLOSED_JOB, theme }} base={BASE} host={HOST} />
       </State>
 
       <State id="zamknieta-bez-linku" label="zamknięta, bez stałego linku">

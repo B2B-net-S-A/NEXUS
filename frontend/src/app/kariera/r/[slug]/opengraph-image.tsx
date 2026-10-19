@@ -1,7 +1,8 @@
 import { headers } from "next/headers";
 import { ImageResponse } from "next/og";
 
-import { OG_COLORS, OG_SIZE, OgFrame, ogFontsOrDefault } from "@/components/career/og";
+import { OG_SIZE, OgFrame, ogFontsOrDefault } from "@/components/career/og";
+import { ogColors } from "@/components/career/themes";
 import { fetchCareerJob } from "@/lib/career/server";
 import { jobHandle, paramsSummary, splitTitle } from "@/lib/career/format";
 import { requestDisplayHost } from "@/lib/career/host";
@@ -21,6 +22,8 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   const closed = result.ok && result.data.status === "closed";
   const title = splitTitle(job.title);
   const summary = result.ok ? paramsSummary(result.data.job.params) : "";
+  // Szablon rekrutacji (0478) — ta sama paleta co strona i plakat.
+  const colors = ogColors(result.ok ? result.data.theme : null);
   return new ImageResponse(
     (
       <OgFrame
@@ -28,7 +31,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
         rightLabel={closed ? "REKRUTACJA ZAMKNIĘTA" : "REKRUTACJA OTWARTA"}
         command={
           <>
-            <span style={{ color: OG_COLORS.red, marginRight: 16 }}>$</span>
+            <span style={{ color: colors.red, marginRight: 16 }}>$</span>
             cat /rekrutacje/{jobHandle(job)}
           </>
         }
@@ -36,6 +39,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
         titleSecond={title.second}
         footLeft={summary ? `[${summary}]` : "[rekrutacja it]"}
         host={host}
+        colors={colors}
       />
     ),
     { ...OG_SIZE, fonts: await ogFontsOrDefault() },

@@ -108,3 +108,85 @@ export function flatten(nodes: readonly TreeNode[], depth = 0): { node: TreeNode
 export function leavingManagers(data: HrStructure): StructurePerson[] {
   return data.people.filter((person) => person.leaving && person.reports > 0).sort(byName);
 }
+
+/** Kogo nie da się zrobić przełożonym `userId`: on sam i całe jego poddrzewo (pętla). */
+export function blockedManagers(data: HrStructure, userId: number): Set<number> {
+  const children = new Map<number, number[]>();
+  for (const person of data.people) {
+    if (person.manager_user_id === null) continue;
+    const list = children.get(person.manager_user_id) ?? [];
+    list.push(person.user_id);
+    children.set(person.manager_user_id, list);
+  }
+  const blocked = new Set<number>([userId]);
+  const queue = [userId];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const child of children.get(current) ?? []) {
+      if (!blocked.has(child)) {
+        blocked.add(child);
+        queue.push(child);
+      }
+    }
+  }
+  return blocked;
+}
+
+/**
+ * Upuszczenie karty `draggedId` na kartę `targetId` w schemacie = zmiana
+ * przełożonego. Serwer i tak pilnuje reguł (`people.validate_managers`);
+ * tu odcinamy oczywiste: samego siebie, własne poddrzewo i obecnego przełożonego.
+ */
+export function canDropOn(data: HrStructure, draggedId: number, targetId: number): boolean {
+  const dragged = data.people.find((person) => person.user_id === draggedId);
+  if (!dragged || dragged.manager_user_id === targetId) return false;
+  return !blockedManagers(data, draggedId).has(targetId);
+}
+
+export type TodoItem =
+  | { kind: "leaving"; person: StructurePerson }
+  | { kind: "manager_gone"; person: StructurePerson }
+  | { kind: "m365"; person: StructurePerson }
+  | { kind: "suggestion"; person: StructurePerson }
+  | { kind: "no_manager"; person: StructurePerson }
+  | { kind: "no_division"; person: StructurePerson };
+
+const TODO_ORDER: TodoItem["kind"][] = [
+  "leaving",
+  "manager_gone",
+  "m365",
+  "suggestion",
+  "no_manager",
+  "no_division",
+];
+
+/**
+ * Panel „Do uporządkowania” (makieta 19.10.2026): odejście przełożonego
+ * z podwładnymi, przełożony, który odszedł, rozjazd z Microsoft 365,
+ * podpowiedź „head pionu”, bez przełożonego (bez podpowiedzi) i bez pionu.
+ * Jedna pozycja na osobę i powód, kolejność od najpilniejszego.
+ */
+export function todoItems(data: HrStructure): TodoItem[] {
+  const items: TodoItem[] = [];
+  const headIds = new Set(
+    data.divisions.map((division) => division.head_user_id).filter((id): id is number => !!id),
+  );
+  for (const person of data.people) {
+    if (person.leaving && person.reports > 0) items.push({ kind: "leaving", person });
+    if (person.manager_state === "inactive") items.push({ kind: "manager_gone", person });
+    if (person.m365_hint) items.push({ kind: "m365", person });
+    if (person.suggested_manager) items.push({ kind: "suggestion", person });
+    else if (
+      person.manager_state === "none" &&
+      person.reports === 0 &&
+      !headIds.has(person.user_id)
+    ) {
+      items.push({ kind: "no_manager", person });
+    }
+    if (!person.division) items.push({ kind: "no_division", person });
+  }
+  return items.sort(
+    (a, b) =>
+      TODO_ORDER.indexOf(a.kind) - TODO_ORDER.indexOf(b.kind) || byName(a.person, b.person),
+  );
+}

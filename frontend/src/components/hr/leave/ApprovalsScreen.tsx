@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CalendarPlus } from "lucide-react";
+import { CalendarPlus, ChevronDown, ChevronRight } from "lucide-react";
 
 import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/table";
 import { yearMonthFromParams } from "@/components/hr/MyTimeScreen";
 import { TimesheetApprovalsSection } from "@/components/hr/time/TimesheetApprovalsSection";
+import { defaultQueueMonth } from "@/components/hr/time/time-format";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { HrConfig } from "@/lib/api/hr";
@@ -40,14 +41,29 @@ import {
   useReportedLeave,
   type LeaveRequestRow,
   type LeaveStatus,
-  type PendingLeaveRow,
 } from "@/lib/api/hr-leave";
 import { forwardStillAhead } from "@/lib/api/hr-m365";
-import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { useTeamQueue, type QueueStatus } from "@/lib/api/hr-time";
+import { CALM_EMPTY, CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { countPl } from "@/lib/plural-pl";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
-import { formatWeekdayDayPl } from "@/lib/date-pl";
+import { formatWeekdayDayPl, monthTitlePl, type YearMonth } from "@/lib/date-pl";
+import { warsawToday } from "@/lib/warsaw-date";
 
+import { personInitials } from "../people/hr-format";
+import {
+  inboxItems,
+  substituteAbsent,
+  termDays,
+  termRows,
+  timesheetSummary,
+  timesheetSummaryText,
+  workSummary,
+  dayMonthRange,
+  type ChipTone,
+  type InboxItem,
+} from "./approvals-inbox";
 import { EditLeaveDialog } from "./EditLeaveDialog";
 import { ForwardOffDialog } from "./ForwardOffDialog";
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
@@ -66,7 +82,6 @@ import {
   sourceBadge,
   statusFilterLabel,
   statusLabel,
-  pendingDetails,
 } from "./leave-format";
 
 /** Plakietka źródła wniosku („Z Outlooka”, „Wpis za pracownika”, „Import z Compassa”). */
@@ -80,27 +95,95 @@ function SourceBadge({ row }: { row: LeaveRequestRow }) {
   );
 }
 
-interface ApprovalSection {
-  key: string;
-  title: string;
-  /** Sekcja rysuje własny nagłówek (np. timesheety z wyborem miesiąca). */
-  ownHeader?: boolean;
-  render: () => ReactNode;
+const LABEL = "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
+
+const CHIP: Record<ChipTone, string> = {
+  warning: "bg-warning-muted text-warning-muted-foreground",
+  neutral: "bg-muted text-foreground",
+  danger: "bg-destructive/10 text-destructive",
+  info: "bg-info-muted text-info-muted-foreground",
+};
+
+function Avatar({ name, large = false }: { name: string; large?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "grid shrink-0 place-items-center rounded-full bg-primary/10 font-semibold text-primary",
+        large ? "h-11 w-11 text-sm" : "h-8 w-8 text-[11px]",
+      )}
+    >
+      {personInitials(name)}
+    </span>
+  );
 }
 
-function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
+function InboxRow({
+  item,
+  active,
+  onSelect,
+}: {
+  item: InboxItem;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const name = item.row.user_name ?? "Osoba";
+  return (
+    <li>
+      <button
+        type="button"
+        aria-current={active ? "true" : undefined}
+        aria-label={`${name}: ${item.line}`}
+        onClick={onSelect}
+        className={cn(
+          "flex w-full items-start gap-2.5 border-t border-border/60 px-3.5 py-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          active && "bg-primary/5 shadow-[inset_3px_0_0_hsl(var(--primary))]",
+        )}
+      >
+        <Avatar name={name} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline justify-between gap-2">
+            <span className="truncate font-semibold text-foreground">{name}</span>
+            {item.waited ? (
+              <span className="shrink-0 text-xs text-muted-foreground">{item.waited}</span>
+            ) : null}
+          </span>
+          <span className="block text-[13px] text-foreground">{item.line}</span>
+          {item.chips.length > 0 ? (
+            <span className="mt-1 flex flex-wrap gap-1">
+              {item.chips.map((chip) => (
+                <span
+                  key={chip.text}
+                  className={cn("rounded-full px-2 py-px text-xs font-medium", CHIP[chip.tone])}
+                >
+                  {chip.text}
+                </span>
+              ))}
+            </span>
+          ) : null}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+/**
+ * Skrzynka (makieta 19.10.2026): lista spraw po lewej — „Do decyzji” (wnioski
+ * z umowy o pracę) i „Do wiadomości · B2B i zlecenie” (zgłoszenia, D5) —
+ * i szczegół po prawej. Jedno zapytanie (`GET /approvals/pending`).
+ */
+function LeaveInbox({ viewerIsHr }: { viewerIsHr: boolean }) {
   const pending = usePendingLeave();
-  const decide = useDecideLeave();
-  const { showToast } = useToast();
-  const [rejecting, setRejecting] = useState<LeaveRequestRow | null>(null);
-  const [editing, setEditing] = useState<LeaveRequestRow | null>(null);
-  const rows = pending.data ?? [];
+  const reported = useReportedLeave();
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const today = warsawToday();
+  const { decide, info } = inboxItems(pending.data ?? [], reported.data ?? [], today);
   const state = resolveViewState({
     isLoading: pending.isLoading,
     isError: pending.isError,
     error: pending.error,
     isSuccess: pending.isSuccess,
-    isEmpty: rows.length === 0,
+    isEmpty: decide.length === 0 && info.length === 0,
   });
 
   if (state === "loading") {
@@ -119,13 +202,90 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
   }
   if (state === "empty") {
     return (
-      <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        Nic nie czeka na Twoją decyzję.
+      <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+        Nic nie czeka na Twoją decyzję. Nikt z zespołu na B2B ani na zleceniu nie ma zgłoszonej
+        przerwy.
       </p>
     );
   }
 
-  const approve = (row: PendingLeaveRow) =>
+  const all = [...decide, ...info];
+  const current = all.find((item) => item.key === selectedKey) ?? all[0];
+  return (
+    <div className="flex flex-wrap overflow-hidden rounded-xl border border-border bg-card">
+      <div className="min-w-0 flex-[1_1_340px] border-b border-border/60 md:border-b-0 md:border-r">
+        <div data-help="hr.approvals.pending">
+          <div className="flex items-center justify-between px-3.5 py-2.5">
+            <h2 className={LABEL}>Do decyzji</h2>
+            <span
+              className={cn(
+                "rounded-full px-2 py-px text-[11px] font-semibold",
+                decide.length > 0 ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+              )}
+            >
+              {decide.length}
+            </span>
+          </div>
+          {decide.length === 0 ? (
+            <p className="border-t border-border/60 px-3.5 py-3 text-sm text-muted-foreground">
+              Nic nie czeka na Twoją decyzję.
+            </p>
+          ) : (
+            <ul aria-label="Wnioski do decyzji (umowa o pracę)">
+              {decide.map((item) => (
+                <InboxRow
+                  key={item.key}
+                  item={item}
+                  active={item.key === current.key}
+                  onSelect={() => setSelectedKey(item.key)}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+        <div data-help="hr.approvals.reported">
+          <div className="flex items-center justify-between border-t border-border/60 bg-muted/40 px-3.5 py-2.5">
+            <h2 className={LABEL}>Do wiadomości · B2B i zlecenie</h2>
+            <span className="rounded-full bg-muted px-2 py-px text-[11px] font-semibold text-foreground">
+              {info.length}
+            </span>
+          </div>
+          {info.length === 0 ? (
+            <p className="border-t border-border/60 px-3.5 py-3 text-sm text-muted-foreground">
+              Nikt z zespołu na B2B ani na zleceniu nie ma zgłoszonej przerwy.
+            </p>
+          ) : (
+            <ul aria-label="Zgłoszone przerwy i nieobecności (B2B, zlecenie) — do wiadomości">
+              {info.map((item) => (
+                <InboxRow
+                  key={item.key}
+                  item={item}
+                  active={item.key === current.key}
+                  onSelect={() => setSelectedKey(item.key)}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+      <LeaveDetail key={current.key} item={current} viewerIsHr={viewerIsHr} />
+    </div>
+  );
+}
+
+/** Szczegół sprawy: przyciski, kafle „Zastępca / Wypada / Też nieobecni” i mini-kalendarz. */
+function LeaveDetail({ item, viewerIsHr }: { item: InboxItem; viewerIsHr: boolean }) {
+  const { row } = item;
+  const decide = useDecideLeave();
+  const { showToast } = useToast();
+  const [rejecting, setRejecting] = useState<LeaveRequestRow | null>(null);
+  const [editing, setEditing] = useState<LeaveRequestRow | null>(null);
+  const [conflicting, setConflicting] = useState<LeaveRequestRow | null>(null);
+  const name = row.user_name ?? "Osoba";
+  const work = workSummary(row);
+  const subAbsent = substituteAbsent(row);
+
+  const approve = () =>
     decide.mutate(
       { id: row.id, decision: "approve" },
       {
@@ -134,68 +294,200 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
       },
     );
 
+  const actions =
+    item.kind === "decide" ? (
+      row.can_decide === false ? (
+        <span className="text-sm text-muted-foreground">do wiadomości — decydują Kadry</span>
+      ) : (
+        <>
+          {/* Zastępca przełożonego tylko decyduje — zmienia przełożony albo Kadry. */}
+          {row.as_substitute_for ? null : (
+            <Button variant="ghost" onClick={() => setEditing(row)}>
+              Edytuj
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => setRejecting(row)}>
+            Odrzuć
+          </Button>
+          <Button disabled={decide.isPending} onClick={approve}>
+            Akceptuj
+          </Button>
+        </>
+      )
+    ) : (
+      <>
+        {/* Zgłoszenie z B2B/zlecenia zmieniają tylko Kadry (D5). */}
+        {canEditRow(row, viewerIsHr) ? (
+          <Button variant="ghost" onClick={() => setEditing(row)}>
+            Edytuj
+          </Button>
+        ) : null}
+        {row.can_report_conflict ? (
+          <Button variant="outline" onClick={() => setConflicting(row)}>
+            Zgłoś kolizję
+          </Button>
+        ) : (
+          <span className="text-sm text-muted-foreground">do wiadomości</span>
+        )}
+      </>
+    );
+
+  const days = termDays(row.start_date, row.end_date);
+  const rows = termRows(row, days);
   return (
-    <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
-      <Table density="compact" className="min-w-[820px]">
-        <TableHeader>
-          <TableRow>
-            <TableHead className={CALM_HEAD}>Kto</TableHead>
-            <TableHead className={CALM_HEAD}>Termin</TableHead>
-            <TableHead className={CALM_HEAD}>Szczegóły</TableHead>
-            <TableHead className={CALM_HEAD}>
-              <span className="sr-only">Decyzja</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.id} className={CALM_ROW}>
-              <TableCell className="py-2 align-top">
-                <span className="font-medium text-foreground">{row.user_name}</span>
-                <SourceBadge row={row} />
-                {row.department ? <span className={CALM_SUBLINE}>{row.department}</span> : null}
-                {row.as_substitute_for ? (
-                  <span className={CALM_SUBLINE}>w zastępstwie za {row.as_substitute_for}</span>
-                ) : null}
-              </TableCell>
-              <TableCell className="py-2 align-top whitespace-nowrap">
-                {formatRange(row.start_date, row.end_date)} · {daysLabel(row.days_total)}
-                <span className={CALM_SUBLINE}>
-                  {row.leave_type_label}
-                  {row.half_day ? `, ${HALF_DAY_LABELS[row.half_day]}` : ""}
-                </span>
-              </TableCell>
-              <TableCell className="py-2 align-top">
-                <span className="text-sm text-foreground">
-                  {pendingDetails(row, viewerIsHr).join(" · ")}
-                </span>
-                {row.note ? <span className={CALM_SUBLINE}>„{row.note}”</span> : null}
-                <ApproverProofNote row={row} />
-              </TableCell>
-              <TableCell className="py-2 align-top text-right">
-                {row.can_decide === false ? (
-                  <span className={CALM_SUBLINE}>do wiadomości — decydują Kadry</span>
-                ) : (
-                  <div className="flex justify-end gap-1.5">
-                    {/* Zastępca przełożonego tylko decyduje — zmienia przełożony albo Kadry. */}
-                    {row.as_substitute_for ? null : (
-                      <Button size="sm" variant="quiet" onClick={() => setEditing(row)}>
-                        Edytuj
-                      </Button>
-                    )}
-                    <Button size="sm" variant="quiet" onClick={() => setRejecting(row)}>
-                      Odrzuć
-                    </Button>
-                    <Button size="sm" disabled={decide.isPending} onClick={() => approve(row)}>
-                      Akceptuj
-                    </Button>
-                  </div>
+    <section
+      aria-label={`Szczegóły: ${name}`}
+      className="flex min-w-0 flex-[999_1_520px] flex-col gap-4 p-4 md:p-5"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar name={name} large />
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold text-foreground">
+              {row.leave_type_label} · {formatRange(row.start_date, row.end_date)}
+              <SourceBadge row={row} />
+            </h3>
+            <p className="text-[13px] text-muted-foreground">
+              {[
+                name,
+                row.department,
+                daysLabel(row.days_total),
+                row.half_day ? HALF_DAY_LABELS[row.half_day] : null,
+                viewerIsHr && row.manager_name ? `przełożony: ${row.manager_name}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            {row.as_substitute_for ? (
+              <p className="text-[13px] text-muted-foreground">
+                w zastępstwie za {row.as_substitute_for}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">{actions}</div>
+      </div>
+
+      {row.note ? <p className="text-sm text-foreground">„{row.note}”</p> : null}
+      <ApproverProofNote row={row} />
+      {row.conflict ? (
+        <p className="text-sm text-warning-muted-foreground">
+          Kolizja zgłoszona{row.conflict.by_name ? ` · ${row.conflict.by_name}` : ""}:{" "}
+          {row.conflict.note}
+        </p>
+      ) : null}
+
+      <div className="grid gap-2.5 sm:grid-cols-3">
+        <div className="rounded-lg bg-muted/50 p-3">
+          <div className={LABEL}>Zastępca</div>
+          {row.substitute_name ? (
+            <>
+              <div className="mt-1.5 font-medium text-foreground">{row.substitute_name}</div>
+              <div
+                className={cn(
+                  "mt-1 text-xs",
+                  subAbsent ? "text-warning-muted-foreground" : "text-muted-foreground",
                 )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+              >
+                {subAbsent ? "też nieobecny w tym czasie" : "zastępuje w tym terminie"}
+              </div>
+            </>
+          ) : (
+            <div className="mt-1.5 text-sm text-muted-foreground">bez zastępcy</div>
+          )}
+        </div>
+        <div className="rounded-lg bg-muted/50 p-3">
+          <div className={LABEL}>Wypada w tym czasie</div>
+          <div className="mt-1.5 text-[13px] text-foreground">
+            {work ?? <span className="text-muted-foreground">nic z kalendarza pracy</span>}
+          </div>
+        </div>
+        <div
+          className={cn(
+            "rounded-lg p-3",
+            row.department_absent.length > 0 ? "bg-warning-muted/60" : "bg-muted/50",
+          )}
+        >
+          <div
+            className={cn(
+              LABEL,
+              row.department_absent.length > 0 && "text-warning-muted-foreground",
+            )}
+          >
+            Też nieobecni
+          </div>
+          {row.department_absent.length > 0 ? (
+            <ul className="mt-1.5 space-y-0.5 text-[13px] text-foreground">
+              {row.department_absent.map((other) => (
+                <li key={`${other.user_id}-${other.start_date}`}>
+                  <b className="font-semibold">{other.name}</b>{" "}
+                  {dayMonthRange(other.start_date, other.end_date)}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-1.5 text-[13px] text-muted-foreground">nikt z działu</div>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className={cn(LABEL, "mb-1.5")}>Zespół w tym terminie</div>
+        <div className="relative overflow-x-auto rounded-lg border border-border/60 px-2.5 py-2">
+          <div
+            role="table"
+            aria-label="Zespół w tym terminie"
+            className="min-w-[480px] text-xs"
+          >
+            <div
+              role="row"
+              className="grid items-center text-center text-[11px] text-muted-foreground"
+              style={{ gridTemplateColumns: `150px repeat(${days.length}, minmax(0, 1fr))` }}
+            >
+              <span role="columnheader">
+                <span className="sr-only">Osoba</span>
+              </span>
+              {days.map((day) => (
+                <span key={day} role="columnheader">
+                  {formatWeekdayDayPl(day).slice(0, -3)}
+                </span>
+              ))}
+            </div>
+            {rows.map((line) => (
+              <div
+                key={line.key}
+                role="row"
+                className="grid items-center"
+                style={{ gridTemplateColumns: `150px repeat(${days.length}, minmax(0, 1fr))` }}
+              >
+                <span
+                  role="rowheader"
+                  className={cn("truncate text-[13px] text-foreground", line.self && "font-semibold")}
+                >
+                  {line.name}
+                </span>
+                {line.cells.map((cell, index) => (
+                  <span
+                    key={days[index]}
+                    role="cell"
+                    aria-label={
+                      cell === "none"
+                        ? undefined
+                        : `${line.name}: ${cell === "pending" ? "wniosek czeka" : "nieobecność"} ${formatWeekdayDayPl(days[index])}`
+                    }
+                    className={cn(
+                      "m-0.5 h-[22px] rounded-[5px]",
+                      cell === "absent" && "bg-primary/25",
+                      cell === "pending" && "border-[1.5px] border-dashed border-primary/60 bg-card",
+                    )}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <RejectLeaveDialog
         request={rejecting}
         onClose={(rejected) => {
@@ -203,113 +495,6 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
           if (rejected) showToast("Wniosek odrzucony", "success");
         }}
       />
-      <EditLeaveDialog
-        request={editing}
-        onClose={(saved) => {
-          setEditing(null);
-          if (saved) showToast(...leaveToast("Wniosek zmieniony", saved));
-        }}
-      />
-    </div>
-  );
-}
-
-/**
- * Zgłoszenia z B2B i zlecenia „do wiadomości” (D5): termin już jest
- * w kalendarzu, koordynator nie akceptuje i nie odrzuca — może zgłosić kolizję.
- * Nie liczą się do „Akceptacji”.
- */
-function ReportedLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
-  const reported = useReportedLeave();
-  const { showToast } = useToast();
-  const [conflicting, setConflicting] = useState<LeaveRequestRow | null>(null);
-  const [editing, setEditing] = useState<LeaveRequestRow | null>(null);
-  const rows = reported.data ?? [];
-  const state = resolveViewState({
-    isLoading: reported.isLoading,
-    isError: reported.isError,
-    error: reported.error,
-    isSuccess: reported.isSuccess,
-    isEmpty: rows.length === 0,
-  });
-
-  if (state === "loading") {
-    return <p className="py-4 text-sm text-muted-foreground">Wczytywanie zgłoszeń…</p>;
-  }
-  if (state === "forbidden" || state === "not_found" || state === "error") {
-    return <QueryStateNotice state={state} onRetry={() => reported.refetch()} />;
-  }
-  if (state === "empty") {
-    return (
-      <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        Nikt z zespołu na B2B ani na zleceniu nie ma zgłoszonej przerwy.
-      </p>
-    );
-  }
-
-  return (
-    <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
-      <Table density="compact" className="min-w-[820px]">
-        <TableHeader>
-          <TableRow>
-            <TableHead className={CALM_HEAD}>Kto</TableHead>
-            <TableHead className={CALM_HEAD}>Termin</TableHead>
-            <TableHead className={CALM_HEAD}>Co wypada w tym czasie</TableHead>
-            <TableHead className={CALM_HEAD}>
-              <span className="sr-only">Kolizja</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.id} className={CALM_ROW}>
-              <TableCell className="py-2 align-top">
-                <span className="font-medium text-foreground">{row.user_name}</span>
-                <SourceBadge row={row} />
-                {row.department ? <span className={CALM_SUBLINE}>{row.department}</span> : null}
-                {row.as_substitute_for ? (
-                  <span className={CALM_SUBLINE}>w zastępstwie za {row.as_substitute_for}</span>
-                ) : null}
-              </TableCell>
-              <TableCell className="py-2 align-top whitespace-nowrap">
-                {formatRange(row.start_date, row.end_date)} · {daysLabel(row.days_total)}
-                <span className={CALM_SUBLINE}>
-                  {row.leave_type_label}
-                  {row.half_day ? `, ${HALF_DAY_LABELS[row.half_day]}` : ""}
-                </span>
-              </TableCell>
-              <TableCell className="py-2 align-top">
-                <span className="text-sm text-foreground">
-                  {pendingDetails(row, viewerIsHr).join(" · ")}
-                </span>
-                {row.conflict ? (
-                  <span className={`${CALM_SUBLINE} text-warning-muted-foreground`}>
-                    kolizja zgłoszona{row.conflict.by_name ? ` · ${row.conflict.by_name}` : ""}:{" "}
-                    {row.conflict.note}
-                  </span>
-                ) : null}
-              </TableCell>
-              <TableCell className="py-2 align-top text-right">
-                <div className="flex justify-end gap-1.5">
-                  {/* Zgłoszenie z B2B/zlecenia zmieniają tylko Kadry (D5). */}
-                  {canEditRow(row, viewerIsHr) ? (
-                    <Button size="sm" variant="quiet" onClick={() => setEditing(row)}>
-                      Edytuj
-                    </Button>
-                  ) : null}
-                  {row.can_report_conflict ? (
-                    <Button size="sm" variant="quiet" onClick={() => setConflicting(row)}>
-                      Zgłoś kolizję
-                    </Button>
-                  ) : (
-                    <span className={CALM_SUBLINE}>do wiadomości</span>
-                  )}
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
       <ReportConflictDialog
         request={conflicting}
         onClose={(done) => {
@@ -321,9 +506,74 @@ function ReportedLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
         request={editing}
         onClose={(saved) => {
           setEditing(null);
-          if (saved) showToast(...leaveToast("Zgłoszenie zmienione", saved));
+          if (saved) showToast(...leaveToast(item.kind === "info" ? "Zgłoszenie zmienione" : "Wniosek zmieniony", saved));
         }}
       />
+    </section>
+  );
+}
+
+const SLICE: Record<QueueStatus, string> = {
+  draft: "bg-muted-foreground/40",
+  missing: "bg-warning",
+  submitted: "bg-info",
+  approved: "bg-success",
+};
+
+/**
+ * Podsumowanie statusów timesheetów (pasek złożony + liczby) za miesiąc, od
+ * którego otwiera się sekcja „Timesheety” — ta sama kolejka i ten sam klucz
+ * zapytania, więc bez drugiego żądania.
+ */
+function TimesheetSummary({ config, period }: { config: HrConfig; period: YearMonth }) {
+  const canApprove =
+    config.me.is_admin ||
+    config.me.people_admin ||
+    config.me.is_manager ||
+    (config.me.covering?.length ?? 0) > 0;
+  const queue = useTeamQueue(period.year, period.month, config.open_modules.time && canApprove);
+  if (!queue.isSuccess) return null;
+  const slices = timesheetSummary(queue.data.items);
+  if (slices.length === 0) return null;
+  const total = slices.reduce((sum, slice) => sum + slice.count, 0);
+  const text = timesheetSummaryText(slices);
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-xs" data-testid="timesheet-summary">
+      <span className="font-medium text-foreground">{monthTitlePl(period)}:</span>
+      <div
+        role="img"
+        aria-label={`Timesheety, ${monthTitlePl(period).toLowerCase()}: ${text}`}
+        className="flex h-2 w-[220px] overflow-hidden rounded-full bg-muted"
+      >
+        {slices.map((slice) => (
+          <span
+            key={slice.status}
+            className={SLICE[slice.status]}
+            style={{ width: `${(slice.count / total) * 100}%` }}
+          />
+        ))}
+      </div>
+      <span className="text-muted-foreground">{text}</span>
+    </div>
+  );
+}
+
+/** „Historia wniosków” zwinięta do linku — filtry i akcje dopiero po rozwinięciu. */
+function HistoryToggle({ viewerIsHr }: { viewerIsHr: boolean }) {
+  const [open, setOpen] = useState(false);
+  const Icon = open ? ChevronDown : ChevronRight;
+  return (
+    <div className="space-y-2" data-help="hr.approvals.history">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+      >
+        Historia wniosków
+        <Icon className="h-4 w-4" aria-hidden />
+      </button>
+      {open ? <LeaveHistory viewerIsHr={viewerIsHr} /> : null}
     </div>
   );
 }
@@ -375,7 +625,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
   };
 
   return (
-    <div className="space-y-2" data-help="hr.approvals.history">
+    <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold text-foreground">Wszystkie wnioski</h2>
         <div className="ml-auto flex flex-wrap gap-2">
@@ -515,8 +765,9 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
 }
 
 /**
- * „Ludzie → Akceptacje”: kolejka decyzji przełożonego i Kadr. Sekcje kolejki
- * to lista — timesheety (moduł `time`, etap E2) dopiszą tu własną sekcję.
+ * „Ludzie → Akceptacje” (makieta 19.10.2026): skrzynka wniosków i zgłoszeń
+ * (lista + szczegół), timesheety z podsumowaniem statusów, „Historia
+ * wniosków” zwinięta do linku i wpis nieobecności za pracownika.
  */
 export function ApprovalsScreen({ config }: { config: HrConfig }) {
   const params = useSearchParams();
@@ -525,56 +776,41 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
   const [entering, setEntering] = useState(false);
   const viewerIsHr = config.me.people_admin || config.me.is_admin;
 
-  const sections: ApprovalSection[] = [];
-  if (config.open_modules.leave) {
-    sections.push({
-      key: "leave",
-      title: "Wnioski do decyzji (umowa o pracę)",
-      render: () => (
-        <div data-help="hr.approvals.pending">
-          <PendingLeaveList viewerIsHr={viewerIsHr} />
-        </div>
-      ),
-    });
-    sections.push({
-      key: "reported",
-      title: "Zgłoszone przerwy i nieobecności (B2B, zlecenie) — do wiadomości",
-      render: () => (
-        <div data-help="hr.approvals.reported">
-          <ReportedLeaveList viewerIsHr={viewerIsHr} />
-        </div>
-      ),
-    });
-  }
   const timesheetViewer =
     config.me.is_manager ||
     (config.me.covering?.length ?? 0) > 0 ||
     config.me.people_admin ||
     config.me.payroll ||
     config.me.is_admin;
-  if (config.open_modules.time && timesheetViewer) {
-    const focusUser = Number(params.get("user"));
-    const timesheets: ApprovalSection = {
-      key: "timesheets",
-      title: "Timesheety",
-      // Sekcja ma własny nagłówek z wyborem miesiąca.
-      ownHeader: true,
-      render: () => (
-        <TimesheetApprovalsSection
-          config={config}
-          initialMonth={yearMonthFromParams(params)}
-          focusUserId={Number.isInteger(focusUser) && focusUser > 0 ? focusUser : null}
-        />
-      ),
-    };
-    // Link z powiadomienia o timesheecie otwiera kolejkę od timesheetów.
-    if (params.get("kind") === "timesheet") sections.unshift(timesheets);
-    else sections.push(timesheets);
-  }
+  const showTimesheets = config.open_modules.time && timesheetViewer;
+  const focusUser = Number(params.get("user"));
+  const initialMonth = yearMonthFromParams(params);
+  const timesheets = showTimesheets ? (
+    <section
+      key="timesheets"
+      aria-label="Timesheety"
+      className="space-y-3 rounded-xl border border-border bg-card p-4"
+    >
+      <TimesheetSummary config={config} period={initialMonth ?? defaultQueueMonth()} />
+      <TimesheetApprovalsSection
+        config={config}
+        initialMonth={initialMonth}
+        focusUserId={Number.isInteger(focusUser) && focusUser > 0 ? focusUser : null}
+      />
+    </section>
+  ) : null;
+  const inbox = config.open_modules.leave ? (
+    <section key="leave" aria-label="Wnioski i zgłoszenia" className="space-y-2">
+      <LeaveInbox viewerIsHr={viewerIsHr} />
+    </section>
+  ) : null;
+  // Link z powiadomienia o timesheecie otwiera kolejkę od timesheetów.
+  const sections =
+    params.get("kind") === "timesheet" ? [timesheets, inbox] : [inbox, timesheets];
 
   const waiting = pending.data?.length ?? null;
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <InlineStats
           stats={[
@@ -597,7 +833,7 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
         {config.open_modules.leave ? (
           <Button
             className="ml-auto"
-            variant="secondary"
+            variant="outline"
             data-help="hr.approvals.on_behalf"
             onClick={() => setEntering(true)}
           >
@@ -616,22 +852,15 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
         </p>
       ) : null}
 
-      {sections.length === 0 ? (
+      {!inbox && !timesheets ? (
         <p className="text-sm text-muted-foreground">
           Akceptacje ruszą po włączeniu modułu urlopów albo czasu pracy.
         </p>
       ) : (
-        sections.map((section) => (
-          <section key={section.key} className="space-y-2" aria-label={section.title}>
-            {section.ownHeader ? null : (
-              <h2 className="text-sm font-semibold text-foreground">{section.title}</h2>
-            )}
-            {section.render()}
-          </section>
-        ))
+        sections
       )}
 
-      {config.open_modules.leave ? <LeaveHistory viewerIsHr={viewerIsHr} /> : null}
+      {config.open_modules.leave ? <HistoryToggle viewerIsHr={viewerIsHr} /> : null}
 
       <LeaveRequestDialog open={entering} onOpenChange={setEntering} mode="on_behalf" />
     </div>

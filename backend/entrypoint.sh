@@ -5790,6 +5790,10 @@ END $$""",
     # domyślny bez nazwy klienta i kodów). Lustro 1:1 z migracją.
     "ALTER TABLE job_public_profiles "
     "ADD COLUMN IF NOT EXISTS public_title VARCHAR(200) NULL",
+    # 0478: szablon graficzny strony kariery (NULL = domyślny według roli).
+    # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
+    "ALTER TABLE job_public_profiles "
+    "ADD COLUMN IF NOT EXISTS theme VARCHAR(32) NULL",
     # 0341: „Mamy championa" (Delivery Lead zatrzymuje szukanie) i podobne
     # rekrutacje, z których osoby wysłane do klienta przepinają się same.
     # Lustro 1:1 z migracją — pilnuje `test_job_similar_links.py`.

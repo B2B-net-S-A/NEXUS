@@ -42,7 +42,7 @@ export async function ogFonts(): Promise<OgFont[]> {
   return fonts;
 }
 
-const C = OG_COLORS;
+type OgColors = Record<keyof typeof OG_COLORS, string>;
 
 /** Kadr 1200×630 z makiet OgImage/OgGeneral. */
 export function OgFrame({
@@ -54,6 +54,7 @@ export function OgFrame({
   footLeft,
   footLeftItalic = false,
   host,
+  colors = OG_COLORS,
 }: {
   path: string;
   rightLabel: string;
@@ -63,7 +64,10 @@ export function OgFrame({
   footLeft: string;
   footLeftItalic?: boolean;
   host: string;
+  /** Kolory szablonu rekrutacji (0478, `themes.ogColors`); domyślnie Terminal. */
+  colors?: OgColors;
 }) {
+  const C = colors;
   const titleSize = titleFirst.length + titleSecond.length > 30 ? 80 : 100;
   return (
     <div

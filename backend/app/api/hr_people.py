@@ -2,7 +2,8 @@
 
 * ``GET /api/hr/config`` — przełączniki modułów i prawa zalogowanej osoby
   (front decyduje, co pokazać w menu; serwer i tak sprawdza każdą trasę),
-* ``GET /api/hr/people`` — katalog: wizytówki osób zatrudnionych,
+* ``GET /api/hr/people`` — katalog: wizytówki osób zatrudnionych z kolumną
+  „Dziś” (nieobecność bez rodzaju, praca zdalna i delegacja),
 * ``GET /api/hr/people/{user_id}`` — kartoteka w zakresie czytającego
   (sama osoba, przełożony, Kadry i Finanse widzą całość; reszta wizytówkę;
   formę umowy tylko osoba, przełożony, admin i Finanse — ``people.form_viewer``),
@@ -31,6 +32,10 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
 from app.services.hr import account_profiles, leave_substitute, people
+from app.services.hr.absence import absences_on
+from app.services.hr.leave_balance import balance_payload
+from app.services.hr.leave_calendar import presence_between
+from app.services.hr.modules import HrModule
 from app.services.hr.lifecycle_templates import is_back_office_head
 from app.services.hr.program import program_enabled
 from app.services.hr_foundation_schema import EmploymentStatus, EmploymentType
@@ -110,12 +115,51 @@ async def list_people(
     # reguła co „Mój zespół”: kto odszedł, nie ma podwładnych).
     everyone = people.is_people_admin(current_user) or form.everyone
     items = []
+    today = await _today_by_user(db, current_user, [row.user.id for row in rows])
     for row in rows:
         if everyone or form.sees(row.user.id):
-            items.append({**people.full_payload(row, form=form), "scope": "full"})
+            item = {**people.full_payload(row, form=form), "scope": "full"}
         else:
-            items.append({**people.card_payload(row), "scope": "card"})
+            item = {**people.card_payload(row), "scope": "card"}
+        items.append({**item, "today": today.get(row.user.id)})
     return {"items": items, "total": len(items)}
+
+
+async def _today_by_user(db: AsyncSession, viewer, user_ids: list[int]) -> dict:
+    """Kolumna „Dziś” katalogu (makieta 19.10.2026).
+
+    Nieobecność bez rodzaju (D6 — katalog widzi cała firma, jak plakietka
+    ``/api/hr/leave/absence``), tylko przy module urlopów otwartym dla
+    patrzącego. Praca zdalna i delegacja z ``attendance_days`` — tylko przy
+    module czasu otwartym dla patrzącego, jak w kalendarzu zespołu. Osoba bez
+    wpisu = ``None`` (front mówi „w pracy”, gdy działa któryś z modułów).
+    """
+
+    loaded = await hr_modules.load_modules(db)
+    day = business_today()
+    absent = (
+        await absences_on(db, user_ids, day)
+        if hr_modules.module_open_for(viewer, loaded, HrModule.leave)
+        else {}
+    )
+    presence = (
+        await presence_between(db, user_ids, day, day)
+        if hr_modules.module_open_for(viewer, loaded, HrModule.time)
+        else {}
+    )
+    out: dict[int, dict] = {}
+    for user_id in user_ids:
+        absence = absent.get(user_id)
+        kind = next((p["kind"] for p in presence.get(user_id, [])), None)
+        if absence is None and kind is None:
+            continue
+        out[user_id] = {
+            "absent_until": absence.until.isoformat() if absence else None,
+            "half_day": absence.half_day if absence else None,
+            "substitute_name": absence.substitute_name if absence else None,
+            "presence": None if absence else kind,
+        }
+    return out
 
 
 class AlignIn(BaseModel):
@@ -212,9 +256,44 @@ async def get_person(
             }
             for e in await people.entitlements_of(db, user_id)
         ]
+        payload["leave_balance"] = await _leave_ring(db, current_user, row.profile)
     else:
         payload = people.card_payload(row)
     return {**payload, "scope": scope}
+
+
+#: Pola salda do pierścienia w kartotece (makieta 19.10.2026). Bez liczników
+#: rodzajów (na żądanie, opieka nad dzieckiem, bezpłatne) i bez listy typów —
+#: kartotekę czytają też Finanse spoza kręgu D6, a typy zdradzają formę.
+LEAVE_RING_FIELDS = (
+    "year",
+    "has_paid_pool",
+    "entitlement_days",
+    "carried_over_days",
+    "used_days",
+    "planned_days",
+    "remaining_days",
+)
+
+
+async def _leave_ring(db: AsyncSession, viewer, profile) -> Optional[dict]:
+    """Saldo płatnych dni do kartoteki — tylko przy module urlopów otwartym dla
+    patrzącego i puli w umowie (zlecenie bez puli = ``None``)."""
+
+    loaded = await hr_modules.load_modules(db)
+    if not hr_modules.module_open_for(viewer, loaded, HrModule.leave):
+        return None
+    today = business_today()
+    balance = await balance_payload(
+        db,
+        user_id=profile.user_id,
+        year=today.year,
+        employment_type=profile.employment_type,
+        today=today,
+    )
+    if not balance.get("has_paid_pool"):
+        return None
+    return {key: balance.get(key) for key in LEAVE_RING_FIELDS}
 
 
 @router.get("/me")

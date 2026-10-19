@@ -13,6 +13,7 @@ import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
 import { CareerFooter } from "./CareerFooter";
 import { CareerHero, Cmd } from "./CareerHero";
 import { CareerSubmitGate } from "./CareerSubmitGate";
+import { CareerThemeScope } from "./CareerThemeScope";
 import { ClosedNotice } from "./ClosedNotice";
 import { ParamsPanel } from "./ParamsPanel";
 import { ProcessSteps } from "./ProcessSteps";
@@ -48,7 +49,7 @@ export function CareerJobView({
 
   if (data.status === "closed") {
     return (
-      <>
+      <CareerThemeScope theme={data.theme}>
         <ClosedNotice
           jobHandle={handle}
           recruiterFirstName={recruiter.first_name}
@@ -58,7 +59,7 @@ export function CareerJobView({
           jobHref={(slug) => careerHref(base, { to: "job", slug })}
         />
         <CareerFooter rodoHref={rodoHref} hostLabel={visibleUrl} />
-      </>
+      </CareerThemeScope>
     );
   }
 
@@ -68,90 +69,92 @@ export function CareerJobView({
   const chromePath = `~/b2bnetwork/kariera — zsh — ${handle}`;
 
   return (
-    <CareerSubmitGate
-      thanks={{
-        variant: "job",
-        recruiterFirstName: recruiter.first_name,
-        jobHandle: handle,
-        chromePath,
-        recruiterPageHref: recruiterHref,
-        recruiterPageSlug: recruiter.slug,
-      }}
-    >
-      <TerminalChrome path={chromePath} />
-      <section className="kr-top" aria-label="Rekrutacja">
-        <CareerHero
-          login={recruiterLogin(recruiter.first_name)}
-          whoamiNote="zaprasza Cię do rekrutacji"
-          catPath={`/rekrutacje/${handle}`}
-          title={splitTitle(job.title)}
-        >
-          {job.subtitle ? <span className="kr-c">{"// "}{job.subtitle}</span> : null}
-        </CareerHero>
-        <div className="kr-side">
-          <ParamsPanel rows={rows} />
-          <div style={{ padding: "0 16px 16px" }} className="kr-cta-wrap">
-            <a href="#aplikuj" className="kr-cta-mobile">
-              $ ./aplikuj — 2 min
-            </a>
+    <CareerThemeScope theme={data.theme}>
+      <CareerSubmitGate
+        thanks={{
+          variant: "job",
+          recruiterFirstName: recruiter.first_name,
+          jobHandle: handle,
+          chromePath,
+          recruiterPageHref: recruiterHref,
+          recruiterPageSlug: recruiter.slug,
+        }}
+      >
+        <TerminalChrome path={chromePath} />
+        <section className="kr-top" aria-label="Rekrutacja">
+          <CareerHero
+            login={recruiterLogin(recruiter.first_name)}
+            whoamiNote="zaprasza Cię do rekrutacji"
+            catPath={`/rekrutacje/${handle}`}
+            title={splitTitle(job.title)}
+          >
+            {job.subtitle ? <span className="kr-c">{"// "}{job.subtitle}</span> : null}
+          </CareerHero>
+          <div className="kr-side">
+            <ParamsPanel rows={rows} />
+            <div style={{ padding: "0 16px 16px" }} className="kr-cta-wrap">
+              <a href="#aplikuj" className="kr-cta-mobile">
+                $ ./aplikuj — 2 min
+              </a>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <main className="kr-main">
-        <div className="kr-col">
-          {paragraphs.length > 0 ? (
-            <section aria-label="O projekcie">
-              <Cmd>cat o_projekcie.md</Cmd>
-              {paragraphs.map((p, i) => (
-                <p className="kr-para" key={i}>
-                  {p}
-                </p>
-              ))}
-            </section>
-          ) : null}
-          <RequirementsCheck
-            must={show.must ? job.must : []}
-            nice={show.nice ? job.nice : []}
-          />
-          {/* Kroki także na telefonie (etap 5). */}
-          {show.process ? (
-            <ProcessSteps
-              recruiterFirstName={recruiter.first_name}
-              contract={job.params?.contract ?? null}
+        <main className="kr-main">
+          <div className="kr-col">
+            {paragraphs.length > 0 ? (
+              <section aria-label="O projekcie">
+                <Cmd>cat o_projekcie.md</Cmd>
+                {paragraphs.map((p, i) => (
+                  <p className="kr-para" key={i}>
+                    {p}
+                  </p>
+                ))}
+              </section>
+            ) : null}
+            <RequirementsCheck
+              must={show.must ? job.must : []}
+              nice={show.nice ? job.nice : []}
             />
-          ) : null}
-        </div>
-
-        <aside id="aplikuj" className="kr-form-box" aria-label="Aplikuj">
-          <div className="kr-form-bar">
-            <span>
-              <span className="kr-r" aria-hidden="true">
-                ${" "}
-              </span>
-              ./aplikuj.sh
-            </span>
-            <span className="kr-g">~2 min</span>
+            {/* Kroki także na telefonie (etap 5). */}
+            {show.process ? (
+              <ProcessSteps
+                recruiterFirstName={recruiter.first_name}
+                contract={job.params?.contract ?? null}
+              />
+            ) : null}
           </div>
-          <CareerApplyForm
-            linkSlug={job.slug}
-            variant="job"
-            rodoHref={rodoHref}
-            preview={formPreview}
-            secondaryLink={
-              recruiterHref && recruiter.slug
-                ? {
-                    href: recruiterHref,
-                    label: `$ cd ~/${recruiter.slug}`,
-                    note: `// nie ten projekt? zostaw CV u ${genitiveName(recruiter.first_name)}`,
-                  }
-                : null
-            }
-          />
-        </aside>
-      </main>
 
-      <CareerFooter rodoHref={rodoHref} hostLabel={visibleUrl} />
-    </CareerSubmitGate>
+          <aside id="aplikuj" className="kr-form-box" aria-label="Aplikuj">
+            <div className="kr-form-bar">
+              <span>
+                <span className="kr-r" aria-hidden="true">
+                  ${" "}
+                </span>
+                ./aplikuj.sh
+              </span>
+              <span className="kr-g">~2 min</span>
+            </div>
+            <CareerApplyForm
+              linkSlug={job.slug}
+              variant="job"
+              rodoHref={rodoHref}
+              preview={formPreview}
+              secondaryLink={
+                recruiterHref && recruiter.slug
+                  ? {
+                      href: recruiterHref,
+                      label: `$ cd ~/${recruiter.slug}`,
+                      note: `// nie ten projekt? zostaw CV u ${genitiveName(recruiter.first_name)}`,
+                    }
+                  : null
+              }
+            />
+          </aside>
+        </main>
+
+        <CareerFooter rodoHref={rodoHref} hostLabel={visibleUrl} />
+      </CareerSubmitGate>
+    </CareerThemeScope>
   );
 }

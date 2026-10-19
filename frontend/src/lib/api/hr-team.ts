@@ -63,6 +63,8 @@ export interface TeamLeaveDecision {
   half_day: string | null;
   leave_type_label: string;
   days_total: string;
+  /** Chwila złożenia (do „czeka N dni”); starszy serwer jej nie wysyła. */
+  created_at?: string | null;
 }
 
 export interface TeamTimesheetDecision {
@@ -70,6 +72,19 @@ export interface TeamTimesheetDecision {
   year: number;
   month: number;
   link: string;
+  submitted_at?: string | null;
+}
+
+/**
+ * Stan dnia w mini-tygodniu (pn–pt, 19.10.2026) — bez rodzaju nieobecności (D6).
+ * `pending` = wniosek czeka (tylko krąg D6), `off` = święto albo dzień wolny firmy.
+ */
+export type TeamWeekState = "work" | "off" | "absent" | "pending" | "business_trip" | "remote";
+
+export interface TeamWeekDay {
+  date: string;
+  state: TeamWeekState;
+  half_day: string | null;
 }
 
 export interface TeamPerson {
@@ -85,6 +100,8 @@ export interface TeamPerson {
   last_working_day: string | null;
   today: TeamToday | null;
   covering_for: string[];
+  /** Pn–pt bieżącego tygodnia; `null` — urlopy i czas zamknięte. */
+  week?: TeamWeekDay[] | null;
   leave: TeamLeave | null;
   month: TeamMonthRow | null;
   timesheet_required: boolean;
@@ -102,6 +119,8 @@ export interface MyTeam {
   modules: { leave: boolean; time: boolean; payroll: boolean };
   sees_bonuses: boolean;
   month: { year: number; month: number; norm_hours: number; deadline: string } | null;
+  /** Dni mini-tygodnia (pn–pt) z rodzajem dnia w kalendarzu firmy. */
+  week?: { days: { date: string; kind: "work" | "weekend" | "holiday" | "company" }[] } | null;
   people: TeamPerson[];
   stats: {
     people: number;

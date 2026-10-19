@@ -170,6 +170,14 @@ Reguły, które łatwo cofnąć:
   znaczyć: po zamknięciu procesu osoba nie trafia do wyszukiwania ani
   propozycji — to osobne zadanie (przy duplikacie e-maila zgoda wisi na
   `application_submissions`, nie na kandydacie).
+- **Stały link rekrutera `/p/<slug>` ma JEDNĄ zgodę (decyzja Artura
+  19.10.2026, wieczór):** „Dołącz do bazy” nie dotyczy żadnej rekrutacji, więc
+  obowiązkowe pole `consent` niesie tam treść `CONSENT_FUTURE_TEXT` i zapisuje
+  wiersz `recruitment_future`; zgody „na tę rekrutację” ani pola
+  `consent_future` tam nie ma. Reguła w jednym miejscu:
+  `career_consent.consent_kinds(link.kind, …)` (backend) i `variant="general"`
+  w `CareerApplyForm` (front). Treść zgód bez zmian; klauzula `/rodo` ma o tym
+  jedno zdanie w pkt 3.
 - **Strona kandydata (etap 5, 19.10.2026):** kroki procesu widoczne na każdej
   szerokości (poniżej 1024 px zwarta lista; manifest dalej tylko od 1024 px).
   Kolory w jednym miejscu: `components/career/palette.ts` (`OG_COLORS`) dla
@@ -180,6 +188,23 @@ Reguły, które łatwo cofnąć:
   zamkniętej rekrutacji dostaje z API `other_jobs` (ta sama reguła co stały
   link: opublikowany opis + „pokazuj na mojej stronie”) — bez listy i bez
   stałego linku prosi o kontakt z osobą od linku, nie odsyła na LinkedIna.
+- **Szablony graficzne (0478, decyzje Artura 19.10.2026, makiety
+  https://claude.ai/artifact/TFqDt54DUg4qRdyJXnu6wm):** 12 szablonów pod
+  najczęściej rekrutowane role (zestawienie 12 mies.: testerzy, analityk
+  systemowy, data, architekt, PM, Java, DevOps, analityk biznesowy, frontend,
+  security, administrator). Wybór rekrutera w `job_public_profiles.theme`
+  (NULL = domyślny), zapis samym `PUT …/public-profile {theme}` — **poza
+  skrótem treści**, więc zmiana wyglądu nie cofa zatwierdzenia. Domyślny:
+  rola z TYTUŁU (`services/career_theme.role_theme`), potem kategoria
+  kompetencji, potem Terminal — sama kategoria nie wystarcza, bo analitycy
+  i testerzy siedzą też w Infra i Management. Stare linki bez wyboru od razu
+  dostają szablon swojej roli. Jedno źródło kolorów strony, grafiki OG
+  i podglądu posta: `components/career/themes.ts` (lista id = `THEME_LABELS`
+  w backendzie, pilnuje `themes.test.ts`); plakat: `career_theme.POSTER_COLORS`.
+  Terminal nie dostaje owijki — dzisiejszy wygląd bez zmian. Kolory w
+  `career.css` tylko przez `--kr-*` (test). Wynik interakcji „x z 5” (kolejne
+  PR-y) zostaje w przeglądarce kandydata — nic nie wysyłamy (decyzja).
+  Harness: `/preview/kariera?szablon=<id>`.
 - **Jedna ścieżka zapisu zgłoszenia:** `services/public_apply.submit_application`
   (stary i nowy endpoint). Duplikat e-maila (od 22.09.2026, decyzja Artura —
   kolejka `/applications` przez całe życie nie dostała ani jednego wpisu) NIE

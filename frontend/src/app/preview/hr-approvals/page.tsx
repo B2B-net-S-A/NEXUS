@@ -109,7 +109,8 @@ function leaveRow(
     decided_at: null,
     decision_note: null,
     source: "self",
-    created_at: `${shiftDay(start, -20)}T09:00:00+02:00`,
+    // Złożony kilka dni temu („czeka N dni” w skrzynce).
+    created_at: `${shiftDay(warsawToday(), -2)}T09:00:00+02:00`,
     can_cancel: false,
     department: person.department,
     manager_name: marta.name,

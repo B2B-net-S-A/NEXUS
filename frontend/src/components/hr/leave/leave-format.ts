@@ -22,7 +22,6 @@ import type {
   LeaveStatus,
   LeaveStatusCounts,
   LeaveType,
-  PendingLeaveRow,
   PersonAbsence,
   TeamCalendarPerson,
 } from "@/lib/api/hr-leave";
@@ -288,23 +287,6 @@ export function absentRowText(row: AbsentTodayRow, today: string): string {
   if (row.i_substitute) return `${until} · zastępujesz Ty`;
   if (row.substitute_name) return `${until} · zastępuje ${row.substitute_name}`;
   return `${until} · bez zastępcy`;
-}
-
-/** Zdania pod wnioskiem w kolejce — co akceptujący powinien wiedzieć. */
-export function pendingDetails(row: PendingLeaveRow, viewerIsHr: boolean): string[] {
-  const lines: string[] = [];
-  lines.push(row.substitute_name ? `zastępca ${row.substitute_name}` : "bez zastępcy");
-  for (const kind of row.work_by_kind) {
-    lines.push(`${kind.label}: ${kind.count}`);
-  }
-  if (row.department_absent.length > 0) {
-    const names = row.department_absent
-      .map((other) => `${other.name} (${formatDayMonthPl(other.start_date)}–${formatDayMonthPl(other.end_date)})`)
-      .join(", ");
-    lines.push(`w tym czasie nieobecni też: ${names}`);
-  }
-  if (viewerIsHr && row.manager_name) lines.push(`przełożony: ${row.manager_name}`);
-  return lines;
 }
 
 /**

@@ -754,6 +754,14 @@ async def test_tech_map_combines_four_sources(app_client, care_on) -> None:
     assert first.json()["open_jobs_count"] == 1
     assert first.json()["consultants_count"] == 1
     assert first.json()["signals"][0]["roles"] == ["Analityk"]
+    # Mapa cieplna: karta w dziale „Data”, otwarta rekrutacja bez działu.
+    heat = {row["skill_id"]: row for row in first.json()["heatmap"]["rows"]}
+    assert [d["area"]["name"] for d in first.json()["departments"]] == ["Data"]
+    assert heat[card_skill]["cells"][0]["counts"]["cards"] == 1
+    assert heat[card_skill]["cells"][0]["open_jobs"] == 0
+    assert heat[card_skill]["unassigned"]["counts"]["jobs"] == 1
+    assert heat[card_skill]["unassigned"]["open_jobs"] == 1
+    assert first.json()["open_jobs"][0]["area"] is None
 
     note = await app_client.post(
         f"/api/care/clients/{client_id}/stack-notes",

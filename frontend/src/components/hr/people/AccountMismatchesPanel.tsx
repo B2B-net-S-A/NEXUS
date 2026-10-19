@@ -47,13 +47,27 @@ export function mismatchOutcome(item: AccountMismatch): string {
   return status;
 }
 
+/** Kartoteka „do uzupełnienia” z katalogu: kto i czego brakuje („forma i przełożony”). */
+export interface PendingPerson {
+  user_id: number;
+  name: string;
+  what: string;
+}
+
+/** Ile pozycji pokazujemy z imienia w pasku (reszta w „+N”). */
+const NAMED_LIMIT = 4;
+
 /**
  * Kartoteka a konto NEXUSA (decyzja Artura 19.10.2026: „Konto decyduje + lista
  * rozjazdów”) — dla admina, Finansów i Kadr. Nowe rozjazdy nie powinny
  * powstawać (status idzie za kontem sam), lista zbiera stan sprzed zmiany
  * i to, co ominęło zwykłe ścieżki.
  */
-export function AccountMismatchesPanel() {
+export function AccountMismatchesPanel({
+  pendingPeople = [],
+}: {
+  pendingPeople?: readonly PendingPerson[];
+}) {
   const mismatches = useAccountMismatches(true);
   const align = useAlignWithAccounts();
   const { askConfirm, confirmDialog } = useConfirmV2();
@@ -69,7 +83,12 @@ export function AccountMismatchesPanel() {
     );
   }
   const { items, pending } = mismatches.data;
-  if (items.length === 0 && pending.employment_type === 0 && pending.manager === 0) {
+  if (
+    items.length === 0 &&
+    pendingPeople.length === 0 &&
+    pending.employment_type === 0 &&
+    pending.manager === 0
+  ) {
     return null;
   }
 
@@ -95,47 +114,87 @@ export function AccountMismatchesPanel() {
     );
   };
 
+  const total = items.length + pendingPeople.length;
+  const named = [
+    ...items.map((item) => ({
+      key: `m-${item.user_id}`,
+      href: item.kind === "missing" ? null : `/people/${item.user_id}`,
+      text: `${item.name}: ${KIND_LABELS[item.kind].toLowerCase()}${
+        item.reports > 0 ? ` · ${countPl(item.reports, "osoba", "osoby", "osób")} pod sobą` : ""
+      }`,
+    })),
+    ...pendingPeople.map((person) => ({
+      key: `p-${person.user_id}`,
+      href: `/people/${person.user_id}`,
+      text: `${person.name}: ${person.what}`,
+    })),
+  ];
+  const extra = named.length - NAMED_LIMIT;
+
   return (
     <section
       aria-label="Kartoteki a konta NEXUSA"
-      className="rounded-lg border border-warning/40 bg-warning-muted/40 px-3 py-2 text-sm"
+      className="rounded-xl border border-warning/40 bg-warning-muted/40 px-4 py-3 text-sm"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {items.length > 0 ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 font-medium text-foreground"
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            {open ? (
-              <ChevronDown className="h-4 w-4" aria-hidden />
-            ) : (
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            )}
-            Rozjazdy z kontami NEXUSA: {items.length}
-          </button>
-        ) : null}
-        {pending.employment_type > 0 ? (
-          <span className="text-warning-muted-foreground">
-            Forma do uzupełnienia: {pending.employment_type}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex min-w-[200px] flex-col">
+          <span className="font-semibold text-warning-muted-foreground">
+            Do wyrównania · {total > 0 ? total : pending.employment_type + pending.manager}
           </span>
-        ) : null}
-        {pending.manager > 0 ? (
-          <span className="text-warning-muted-foreground">
-            Przełożony do uzupełnienia: {pending.manager}
+          <span className="text-xs text-warning-muted-foreground">
+            kartoteka idzie za kontem NEXUSA
           </span>
-        ) : null}
+        </div>
+        <ul aria-label="Do wyrównania" className="flex flex-1 flex-wrap gap-1.5">
+          {named.slice(0, NAMED_LIMIT).map((entry) => (
+            <li key={entry.key}>
+              {entry.href ? (
+                <Link
+                  href={entry.href}
+                  className="inline-flex rounded-full border border-warning/40 bg-card px-2 py-0.5 text-xs font-medium text-foreground hover:underline"
+                >
+                  {entry.text}
+                </Link>
+              ) : (
+                <span className="inline-flex rounded-full border border-warning/40 bg-card px-2 py-0.5 text-xs font-medium text-foreground">
+                  {entry.text}
+                </span>
+              )}
+            </li>
+          ))}
+          {extra > 0 ? (
+            <li className="px-1 py-0.5 text-xs text-warning-muted-foreground">+{extra}</li>
+          ) : null}
+          {pendingPeople.length === 0 && pending.employment_type > 0 ? (
+            <li className="text-xs text-warning-muted-foreground">
+              Forma do uzupełnienia: {pending.employment_type}
+            </li>
+          ) : null}
+          {pendingPeople.length === 0 && pending.manager > 0 ? (
+            <li className="text-xs text-warning-muted-foreground">
+              Przełożony do uzupełnienia: {pending.manager}
+            </li>
+          ) : null}
+        </ul>
         {items.length > 0 ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="ml-auto"
-            disabled={align.isPending}
-            onClick={alignAll}
-          >
-            {align.isPending ? "Wyrównywanie…" : "Wyrównaj wg konta"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              aria-expanded={open}
+              onClick={() => setOpen((value) => !value)}
+            >
+              {open ? (
+                <ChevronDown className="h-4 w-4" aria-hidden />
+              ) : (
+                <ChevronRight className="h-4 w-4" aria-hidden />
+              )}
+              {open ? "Zwiń" : "Przejrzyj po kolei"}
+            </Button>
+            <Button size="sm" variant="outline" disabled={align.isPending} onClick={alignAll}>
+              {align.isPending ? "Wyrównywanie…" : "Wyrównaj wg konta"}
+            </Button>
+          </div>
         ) : null}
       </div>
       {open && items.length > 0 ? (

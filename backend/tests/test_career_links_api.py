@@ -274,7 +274,9 @@ async def test_public_page_never_leaks_client_or_rate(api):
     body = resp.json()
     assert body["status"] == "open"
     # Kształt odpowiedzi jest zamknięty — nowe pole = świadoma decyzja.
-    assert set(body) == {"status", "recruiter", "job"}
+    # „theme” (0478): sam identyfikator szablonu graficznego.
+    assert set(body) == {"status", "recruiter", "theme", "job"}
+    assert body["theme"] == "terminal"  # „Senior Java Developer” → Terminal
     assert set(body["recruiter"]) == {"first_name", "slug"}
     assert set(body["job"]) == {
         "slug",
@@ -524,6 +526,45 @@ async def test_closed_job_shows_the_closed_page_even_with_pending_changes(api):
     page = await api.get(f"/api/public/career/r/{link['slug']}")
     assert page.status_code == 200
     assert page.json()["status"] == "closed"
+
+
+async def test_theme_change_keeps_the_approved_page(api):
+    """0478: szablon graficzny działa od razu i nie cofa opisu do szkicu."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    url = f"/api/jobs/{job_id}/public-profile"
+
+    before = (await api.get(url, headers=headers)).json()
+    assert before["theme"] is None
+    assert before["theme_default"] == "terminal"
+
+    resp = await api.put(url, json={"theme": "radar"}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "approved"
+    assert resp.json()["theme"] == "radar"
+    page = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert page.json()["theme"] == "radar"
+
+    reset = await api.put(url, json={"theme": None}, headers=headers)
+    assert reset.json()["theme"] is None and reset.json()["status"] == "approved"
+    page = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert page.json()["theme"] == "terminal"
+
+    bad = await api.put(url, json={"theme": "nie-ma-takiego"}, headers=headers)
+    assert bad.status_code == 422
+
+
+async def test_default_theme_follows_the_role_in_the_title(api):
+    uid, email, password = await _seed_user()
+    headers = await _login(api, email, password)
+    job_id = await _seed_job(uid, title="Analityk systemowy")
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    profile = (await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)).json()
+    assert profile["theme_default"] == "sekwencja"
+    page = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert page.json()["theme"] == "sekwencja"
 
 
 async def test_poster_needs_a_live_page_and_returns_a_pdf(api):
@@ -804,16 +845,20 @@ async def test_duplicate_email_links_submission_with_consent(api, link_kind):
                 )
             )
         ).all()
-        # Zaznaczona zgoda na przyszłe = drugi wiersz z własnym skrótem treści.
-        assert {c.kind: c.text_sha256 for c in consents} == {
-            "recruitment_current": CONSENT_CURRENT_TEXT_SHA256,
-            "recruitment_future": CONSENT_FUTURE_TEXT_SHA256,
-        }
+        # Link rekrutacji: zaznaczona zgoda na przyszłe = drugi wiersz z własnym
+        # skrótem treści. Stały link rekrutera („Dołącz do bazy”, decyzja Artura
+        # 19.10.2026): jedyna, obowiązkowa zgoda to zgoda na przyszłe procesy.
+        expected = (
+            {
+                "recruitment_current": CONSENT_CURRENT_TEXT_SHA256,
+                "recruitment_future": CONSENT_FUTURE_TEXT_SHA256,
+            }
+            if link_kind == "job"
+            else {"recruitment_future": CONSENT_FUTURE_TEXT_SHA256}
+        )
+        assert {c.kind: c.text_sha256 for c in consents} == expected
         assert all(c.candidate_id is None for c in consents)
-        assert sub.raw_payload["consent"]["kinds"] == [
-            "recruitment_current",
-            "recruitment_future",
-        ]
+        assert sub.raw_payload["consent"]["kinds"] == list(expected)
         assert sub.status == "linked"
         notif = await db.scalar(
             select(Notification).where(

@@ -33,6 +33,10 @@ class JobPublicProfile(Base):
     # 0340: tytuł na stronie ustawiony przez rekrutera; NULL = tytuł domyślny
     # (``job_public_profile.default_public_title``).
     public_title: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    # 0478: szablon graficzny strony, grafiki OG i plakatu (19.10.2026). NULL =
+    # domyślny według roli z tytułu, potem kategorii (``services/career_theme``).
+    # Poza skrótem treści — zmiana wyglądu nie cofa opisu do szkicu.
+    theme: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     subtitle: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     about: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sections: Mapped[dict] = mapped_column(

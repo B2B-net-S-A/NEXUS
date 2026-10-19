@@ -3,7 +3,7 @@
  * wejścia i sprawa wejścia na danych fikcyjnych, ZERO prób żądania — także po
  * przejściu kreatora do kroku „Zadania” z datą startu ze sceny.
  */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Axios } from "axios";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -45,8 +45,24 @@ describe("/preview/hr-onboarding", () => {
     render(<HrOnboardingPreviewPage />);
 
     expect(await screen.findByRole("heading", { name: "Nowa osoba" })).toBeInTheDocument();
-    expect(screen.getByText("1 · Osoba i konto")).toHaveAttribute("aria-current", "step");
+    expect(screen.getByText("Osoba i konto").closest("li")).toHaveAttribute("aria-current", "step");
+    expect(screen.getByText("kto wchodzi i jaką ścieżką")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Ma konto w NEXUSIE" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /^Dobierz do formy i działu/ })).toBeChecked();
+
+    // Wyszukiwanie konta: najpierw konta bez kartoteki, osoby z kartoteką wyszarzone.
+    await user.type(screen.getByRole("searchbox", { name: /Szukaj konta/ }), "kacper");
+    const option = screen.getByRole("option", { name: /Kacper Nowicjusz/ });
+    expect(option).toHaveTextContent("bez kartoteki");
+    await user.click(option);
+    expect(option).toHaveAttribute("aria-selected", "true");
+
+    // „Co powstanie” od pierwszego kroku: kartoteka i zadania wg wykonawcy.
+    const what = screen.getByRole("region", { name: "Co powstanie" });
+    expect(within(what).getByText("start nieustalony")).toBeInTheDocument();
+    expect(within(what).getByText("Kartoteka")).toBeInTheDocument();
+    expect(within(what).getByText("Recepcja")).toBeInTheDocument();
+    expect(within(what).getByText(/Listę zadań bierzemy ze ścieżki/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("radio", { name: "Nowa osoba bez konta" }));
     await user.type(screen.getByLabelText(/Imię i nazwisko/), kacper.name);
@@ -59,8 +75,11 @@ describe("/preview/hr-onboarding", () => {
     });
     await user.click(screen.getByRole("button", { name: "Dalej: zadania" }));
 
-    expect(await screen.findByText(/Wydaj zestaw biura z ewidencji/)).toBeInTheDocument();
-    expect(screen.getByText("Check-in z przełożoną — dzień 30")).toBeInTheDocument();
+    expect((await screen.findAllByText(/Wydaj zestaw biura z ewidencji/)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Check-in z przełożoną — dzień 30").length).toBeGreaterThan(0);
+    expect(
+      within(screen.getByRole("region", { name: "Co powstanie" })).queryByText("start nieustalony"),
+    ).toBeNull();
     expect(
       screen.getByRole("heading", { name: /Kacper Nowicjusz · Rekruter · start/ }),
     ).toBeInTheDocument();

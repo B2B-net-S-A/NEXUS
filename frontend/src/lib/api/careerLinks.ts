@@ -111,6 +111,10 @@ export interface JobPublicProfile {
    * `pending_changes` mówi, że czekają na zatwierdzenie.
    */
   live: PublicProfileLive | null;
+  /** Szablon graficzny wybrany przez rekrutera (0478); `null` = domyślny. */
+  theme: string | null;
+  /** Domyślny szablon według roli z tytułu, potem kategorii (liczy backend). */
+  theme_default: string;
 }
 
 export interface PublicProfileLive {
@@ -264,6 +268,9 @@ export function normalizePublicProfile(
     findings: Array.isArray(r.findings) ? r.findings : [],
     preview: r.preview ?? null,
     live: normalizeLive(r.live),
+    theme: typeof r.theme === "string" && r.theme ? r.theme : null,
+    theme_default:
+      typeof r.theme_default === "string" && r.theme_default ? r.theme_default : "terminal",
   };
 }
 
@@ -367,6 +374,17 @@ export const careerLinksApi = {
     input: JobPublicProfileInput,
   ): Promise<JobPublicProfile> => {
     const res = await api.put(`/api/jobs/${jobId}/public-profile`, input);
+    return normalizePublicProfile(jobId, res.data);
+  },
+  /**
+   * Sam szablon graficzny (0478) — bez pól treści, więc nie zapisuje szkicu
+   * z formularza i nie cofa zatwierdzenia. `null` = wróć do domyślnego.
+   */
+  savePublicProfileTheme: async (
+    jobId: number,
+    theme: string | null,
+  ): Promise<JobPublicProfile> => {
+    const res = await api.put(`/api/jobs/${jobId}/public-profile`, { theme });
     return normalizePublicProfile(jobId, res.data);
   },
   draftPublicProfile: async (jobId: number): Promise<PublicProfileDraft> => {

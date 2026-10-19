@@ -62,6 +62,13 @@ export interface HrConfig {
   };
 }
 
+export interface PersonToday {
+  absent_until: string | null;
+  half_day: "morning" | "afternoon" | null;
+  substitute_name: string | null;
+  presence: "remote" | "business_trip" | null;
+}
+
 export interface PersonCard {
   user_id: number;
   name: string;
@@ -74,6 +81,12 @@ export interface PersonCard {
   manager_user_id: number | null;
   manager_name: string | null;
   scope: "card" | "full";
+  /**
+   * Kolumna „Dziś” katalogu (`GET /api/hr/people`, 19.10.2026): nieobecność
+   * bez rodzaju (D6), praca zdalna i delegacja. `null` = nic szczególnego;
+   * brak klucza = trasa bez kolumny (kartoteka pojedynczej osoby).
+   */
+  today?: PersonToday | null;
 }
 
 export interface LeaveEntitlementRow {
@@ -83,6 +96,16 @@ export interface LeaveEntitlementRow {
   used_initial_days: string;
   /** Odpowiedź zapisu: podpowiedź wymiaru 20/26 z kartoteki (D9). */
   suggested_entitlement_days?: number | null;
+}
+
+export interface LeaveRing {
+  year: number;
+  has_paid_pool: boolean;
+  entitlement_days: string | null;
+  carried_over_days: string | null;
+  used_days: string | null;
+  planned_days: string | null;
+  remaining_days: string | null;
 }
 
 export interface PersonFull extends PersonCard {
@@ -119,6 +142,12 @@ export interface PersonFull extends PersonCard {
   suggested_entitlement_days?: number | null;
   roles: string[];
   entitlements?: LeaveEntitlementRow[];
+  /**
+   * Saldo płatnych dni do pierścienia w kartotece (`GET /api/hr/people/{id}`,
+   * 19.10.2026): bez liczników rodzajów; `null` = bez puli albo moduł urlopów
+   * zamknięty dla patrzącego; brak klucza = katalog.
+   */
+  leave_balance?: LeaveRing | null;
 }
 
 export type Person = PersonCard | PersonFull;

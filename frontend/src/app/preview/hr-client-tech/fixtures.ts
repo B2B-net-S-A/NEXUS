@@ -8,6 +8,8 @@
 import type {
   ClientTechMap,
   DepartmentTechnology,
+  HeatCell,
+  HeatRow,
   MapDepartment,
   MapTechnology,
   PersonRef,
@@ -149,13 +151,48 @@ function gaps(today: string): TechGap[] {
   ];
 }
 
+/** Otwarte rekrutacje działu z technologią (obramowanie komórki): dział → umiejętności. */
+const OPEN_IN_DEPT: Record<number, number[]> = { 301: [801, 804], 302: [807] };
+
+function cell(counts: Record<TechSource, number>, openJobs: number): HeatCell | null {
+  const sourceCount = Object.values(counts).filter(Boolean).length;
+  return sourceCount || openJobs ? { counts, source_count: sourceCount, open_jobs: openJobs } : null;
+}
+
+/** Mapa cieplna jak z serwera: komórka = źródła działu, reszta w „bez działu”. */
+function heatmap(technologies: MapTechnology[], depts: MapDepartment[]): ClientTechMap["heatmap"] {
+  const rows: HeatRow[] = technologies.map((item) => {
+    const inDepts = depts.map((dept) => dept.technologies.find((t) => t.skill_id === item.skill_id));
+    const rest = { ...item.counts };
+    for (const found of inDepts) {
+      if (!found) continue;
+      for (const key of Object.keys(rest) as TechSource[]) {
+        rest[key] = Math.max(0, rest[key] - found.counts[key]);
+      }
+    }
+    return {
+      skill_id: item.skill_id,
+      name: item.name,
+      must_jobs: item.must_jobs,
+      consultants: item.counts.consultants,
+      last_seen: item.last_seen,
+      stale: item.stale,
+      cells: depts.map((dept, index) => {
+        const found = inDepts[index];
+        const open = (OPEN_IN_DEPT[dept.area.id] ?? []).includes(item.skill_id) ? 1 : 0;
+        return found ? cell(found.counts, open) : null;
+      }),
+      unassigned: cell(rest, 0),
+    };
+  });
+  return { rows, rows_total: rows.length };
+}
+
 /** Mapa technologii Banku Przykładowego oglądana przez Delivery Leada klienta. */
 export function clientTechMap(today: string): ClientTechMap {
   const lastCard = shiftDay(today, -13);
-  return {
-    client_id: MAP_CLIENT.id,
-    client_name: MAP_CLIENT.name,
-    technologies: [
+  const depts = departments(today);
+  const technologies = [
       tech(801, "Java 17", ["Płatności", "Kredyty"], [4, 6, 5, 1], lastCard, 3),
       tech(803, "Kafka", ["Płatności"], [3, 2, 2, 0], lastCard, 1),
       tech(802, "Spring Boot", ["Płatności", "Kredyty"], [4, 5, 5, 0], lastCard, 2),
@@ -163,7 +200,11 @@ export function clientTechMap(today: string): ClientTechMap {
       tech(806, "PostgreSQL", ["Płatności"], [2, 1, 0, 0], lastCard),
       tech(807, "Angular", ["Kredyty"], [0, 2, 1, 0], shiftDay(today, -62), 1),
       tech(808, "Azure Data Factory", ["Data"], [1, 0, 0, 0], shiftDay(today, -55)),
-    ],
+  ];
+  return {
+    client_id: MAP_CLIENT.id,
+    client_name: MAP_CLIENT.name,
+    technologies,
     areas: [
       { id: 304, name: "CI/CD i chmura", cards: 0 },
       { id: 303, name: "Data", cards: 1 },
@@ -188,9 +229,9 @@ export function clientTechMap(today: string): ClientTechMap {
       },
     ],
     open_jobs: [
-      { id: 5201, title: "Java Developer (Płatności)", opened_on: shiftDay(today, -9) },
-      { id: 5202, title: "DevOps Engineer (OpenShift)", opened_on: shiftDay(today, -21) },
-      { id: 5203, title: "Angular Developer (Kredyty)", opened_on: shiftDay(today, -34) },
+      { id: 5201, title: "Java Developer", opened_on: shiftDay(today, -9), area: "Płatności" },
+      { id: 5202, title: "DevOps Engineer (OpenShift)", opened_on: shiftDay(today, -21), area: "Płatności" },
+      { id: 5203, title: "Angular Developer", opened_on: shiftDay(today, -34), area: "Kredyty" },
     ],
     open_jobs_count: 3,
     consultants_count: 6,
@@ -204,7 +245,8 @@ export function clientTechMap(today: string): ClientTechMap {
     ],
     notes_count: 1,
     redeploy_active: 2,
-    departments: departments(today),
+    departments: depts,
+    heatmap: heatmap(technologies, depts),
     gaps: gaps(today),
     default_owner: ref(HR_CAST.natalia),
     can_edit: true,

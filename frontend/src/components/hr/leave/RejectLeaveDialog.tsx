@@ -11,8 +11,11 @@ import { useDecideLeave, type LeaveRequestRow } from "@/lib/api/hr-leave";
 
 import { formatRange } from "./leave-format";
 
+/** Wystarczą pola z nagłówka okna — „Mój zespół” podaje wiersz z `to_decide`. */
+export type RejectTarget = Pick<LeaveRequestRow, "id" | "user_name" | "start_date" | "end_date">;
+
 interface RejectLeaveDialogProps {
-  request: LeaveRequestRow | null;
+  request: RejectTarget | null;
   onClose: (rejected: boolean) => void;
 }
 

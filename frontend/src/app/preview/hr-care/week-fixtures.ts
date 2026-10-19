@@ -254,6 +254,8 @@ export function careWeek(today: string, scope: "mine" | "all"): CareWeek {
     feedback_visible: true,
     counts: {
       contacts: all.length,
+      // Rozmowy zapisane od poniedziałku (pasek tygodnia).
+      done: scope === "mine" ? 2 : 4,
       overdue: 1 + feedback.filter((item) => item.overdue).length,
       feedback: feedback.length,
       front_office: 2,
