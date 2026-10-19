@@ -194,6 +194,11 @@ export interface KanbanItem {
   */
  entry_link_owner_id?: number | null;
  entry_link_owner_name?: string | null;
+ /**
+  * …i właściciele innych linków, z których osoba zgłosiła się ponownie, gdy
+  * już była w rekrutacji — „Zgłosił się też z Twojego linku”.
+  */
+ reapplied_via_links?: { owner_id: number; owner_name?: string | null }[];
  reassign_from_job_id?: number | null;
  reassign_from_title?: string | null;
  /** Numer rekrutacji źródłowej („ZOB-1725”) — odznaka „↻ z …”. */

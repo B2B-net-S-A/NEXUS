@@ -362,6 +362,30 @@ function linkOwnerBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | nu
   };
 }
 
+/**
+ * Osoba była już w rekrutacji i zgłosiła się ponownie z czyjegoś linku —
+ * karta i blokada prowadzącego bez zmian, ślad zostaje na karcie (makieta 2a,
+ * 19.10.2026). Własny link wygrywa w napisie, reszta jest w podpowiedzi.
+ */
+function reappliedViaLinkBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
+  const owners = item.reapplied_via_links ?? [];
+  if (owners.length === 0) return null;
+  const own = owners.some((o) => o.owner_id === ctx.viewerId);
+  const others = owners.filter((o) => o.owner_id !== ctx.viewerId);
+  const sources = [
+    ...(own ? ["z Twojego linku"] : []),
+    ...others.map((o) => `z linku, który udostępnił(a) ${o.owner_name ?? "ktoś z zespołu"}`),
+  ].join(" i ");
+  return {
+    key: "link_reapplied",
+    label: own
+      ? "Zgłosił się też z Twojego linku"
+      : `Zgłosił się też z linku: ${others.map((o) => firstName(o.owner_name)).join(", ")}`,
+    tone: "neutral",
+    title: `Osoba była już w tej rekrutacji i zgłosiła się ponownie ${sources}. Karta bez zmian, nowe CV jest w profilu.`,
+  };
+}
+
 function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
   switch (item.entry_source) {
     case "added_manual": {
@@ -491,6 +515,8 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   if (column === "new" || column === "screening") {
     const link = linkOwnerBadge(item, ctx);
     if (link) out.push(link);
+    const reapplied = reappliedViaLinkBadge(item, ctx);
+    if (reapplied) out.push(reapplied);
     const source = sourceBadge(item, ctx);
     const duplicatesStage = ctx.stageBadge === "posting" && item.entry_source === "application";
     if (source && !duplicatesStage) out.push(source);

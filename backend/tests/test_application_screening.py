@@ -827,3 +827,106 @@ async def test_board_card_names_the_link_owner(api):
     assert card["entry_link_owner_id"] == uid
     assert card["entry_link_owner_name"].startswith("Marta Rekruterska")
     assert card["claim_user_id"] == uid
+
+
+# ── Ślad ponownego zgłoszenia na karcie (etap 2 linków, 19.10.2026) ─────────
+
+
+async def _board_card(api, headers, job_id: int, cand_id: int) -> dict:
+    board = await api.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert board.status_code == 200, board.text
+    return next(
+        item
+        for col in board.json()["columns"]
+        for item in col.get("items", [])
+        if item.get("candidate_id") == cand_id
+    )
+
+
+def test_reapplied_link_owners_skip_the_entry_and_the_card_link_owner():
+    from types import SimpleNamespace
+
+    from app.api.pipeline import _reapplied_link_owners
+
+    opened = datetime(2026, 10, 19, 10, 0, tzinfo=timezone.utc)
+    processes = {
+        1: SimpleNamespace(opened_at=opened, created_at=opened),
+        2: SimpleNamespace(opened_at=None, created_at=opened),
+    }
+    later = opened + timedelta(hours=2)
+    reapplications = [
+        # Zgłoszenie, które kartę otworzyło (ta sama transakcja) — nie ślad.
+        (1, 30, opened),
+        (1, 30, opened - timedelta(minutes=5)),
+        # Link, który kartę przyprowadził — mówi o nim „Z Twojego linku”.
+        (1, 7, later),
+        (1, 8, later + timedelta(hours=1)),
+        (1, 9, later),
+        (1, 8, later),  # dwa zgłoszenia z jednego linku = jeden wpis
+        (2, 9, later),
+        (3, 9, later),  # bez procesu = bez karty
+    ]
+    assert _reapplied_link_owners(reapplications, processes, {1: 7}) == {
+        1: [8, 9],
+        2: [9],
+    }
+
+
+async def test_board_card_shows_reapplication_without_screening(api):
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    cand_id, lead_id, _, email = await _candidate_led_by_someone_else(job_id)
+    card = await _board_card(api, headers, job_id, cand_id)
+    assert card["reapplied_via_links"] == []
+    resp = await api.post(
+        "/api/public/career/apply", data=_form(link["slug"], email), files=_cv()
+    )
+    assert resp.status_code == 201, resp.text
+    card = await _board_card(api, headers, job_id, cand_id)
+    assert [r["owner_id"] for r in card["reapplied_via_links"]] == [uid]
+    assert card["reapplied_via_links"][0]["owner_name"].startswith("Marta Rekruterska")
+    # Karta i blokada prowadzącego bez zmian.
+    assert card["entry_link_owner_id"] is None
+    assert card["claim_user_id"] == lead_id
+
+
+async def test_board_card_shows_reapplication_with_screening(
+    api, screening_on, monkeypatch
+):
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    cand_id, lead_id, _, email = await _candidate_led_by_someone_else(job_id)
+    resp = await api.post(
+        "/api/public/career/apply", data=_form(link["slug"], email), files=_cv()
+    )
+    assert resp.status_code == 201, resp.text
+    row = await _row_for(job_id)
+    monkeypatch.setattr(svc, "_call_model", _luna({"verdict": "fits"}))
+    assert await svc.process_one(row.id) == "already_in_job"
+    card = await _board_card(api, headers, job_id, cand_id)
+    # Zgłoszenie i przegląd to jedno ponowne zgłoszenie — jeden wpis.
+    assert [r["owner_id"] for r in card["reapplied_via_links"]] == [uid]
+    assert card["claim_user_id"] == lead_id
+
+
+async def test_card_from_link_has_no_reapplication_trace(api):
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    email = f"scr-again-{uuid.uuid4().hex[:6]}@example.com"
+    async with AsyncSessionLocal() as db:
+        existing = Candidate(name="Stary", lastname="Profil", email=email)
+        db.add(existing)
+        await db.commit()
+        existing_id = existing.id
+    for _ in range(2):
+        resp = await api.post(
+            "/api/public/career/apply", data=_form(link["slug"], email), files=_cv()
+        )
+        assert resp.status_code == 201, resp.text
+    card = await _board_card(api, headers, job_id, existing_id)
+    assert card["entry_link_owner_id"] == uid
+    # Ponowne zgłoszenie z tego samego linku mówi „Z Twojego linku” — bez drugiej plakietki.
+    assert card["reapplied_via_links"] == []

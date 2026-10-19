@@ -99,3 +99,73 @@ describe("plakietka linku rekrutacji (etap 2 linków, 19.10.2026)", () => {
     expect(badges.map((b) => b.key)).not.toContain("link");
   });
 });
+
+describe("ponowne zgłoszenie z linku (makieta 2a, 19.10.2026)", () => {
+  const ledByOther = (links: KanbanItem["reapplied_via_links"]) =>
+    item({
+      entry_source: "added_manual",
+      claim_user_id: 9,
+      reapplied_via_links: links,
+    });
+
+  it("właściciel linku widzi „Zgłosił się też z Twojego linku”", () => {
+    const badges = cardBadges(
+      ledByOther([{ owner_id: 7, owner_name: "Marta Nowak" }]),
+      ctx(),
+    );
+    const badge = badges.find((b) => b.key === "link_reapplied");
+    expect(badge).toMatchObject({
+      label: "Zgłosił się też z Twojego linku",
+      tone: "neutral",
+    });
+    expect(badge?.title).toContain("z Twojego linku");
+  });
+
+  it("inni widzą imię właściciela linku", () => {
+    const badges = cardBadges(
+      ledByOther([
+        { owner_id: 8, owner_name: "Marta Nowak" },
+        { owner_id: 10, owner_name: "Ola Lis" },
+      ]),
+      ctx(),
+    );
+    const badge = badges.find((b) => b.key === "link_reapplied");
+    expect(badge?.label).toBe("Zgłosił się też z linku: Marta, Ola");
+    expect(badge?.title).toContain("Marta Nowak");
+  });
+
+  it("stoi obok plakietki linku, który kartę przyprowadził", () => {
+    const badges = cardBadges(
+      item({
+        entry_source: "application",
+        entry_link_owner_id: 8,
+        entry_link_owner_name: "Tomasz Kowal",
+        reapplied_via_links: [{ owner_id: 7, owner_name: "Marta Nowak" }],
+      }),
+      ctx(),
+    );
+    expect(badges.slice(0, 2).map((b) => b.label)).toEqual([
+      "Z linku: Tomasz",
+      "Zgłosił się też z Twojego linku",
+    ]);
+  });
+
+  it("bez ponownych zgłoszeń i poza „Nowi”/„Screening” nie ma plakietki", () => {
+    expect(cardBadges(ledByOther([]), ctx()).map((b) => b.key)).not.toContain(
+      "link_reapplied",
+    );
+    expect(
+      cardBadges(item({ entry_source: "added_manual" }), ctx()).map(
+        (b) => b.key,
+      ),
+    ).not.toContain("link_reapplied");
+    const atClient = cardBadges(
+      ledByOther([{ owner_id: 7, owner_name: "Marta Nowak" }]),
+      {
+        ...ctx(),
+        column: "cv_sent",
+      } as CardBadgeContext,
+    );
+    expect(atClient.map((b) => b.key)).not.toContain("link_reapplied");
+  });
+});
