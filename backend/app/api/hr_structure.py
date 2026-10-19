@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.hr_gates import HrPeopleAdmin, require_hr_people_admin
+from app.api.hr_gates import HrPeopleAdmin, refuse_self_edit, require_hr_people_admin
 from app.core.database import get_db
 from app.services.hr import people
 from app.services.hr import structure as service
@@ -68,6 +68,7 @@ async def reassign(
     current_user: HrPeopleAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    refuse_self_edit(current_user, payload.user_ids)
     try:
         result = await service.reassign(
             db,
@@ -89,6 +90,7 @@ async def set_division(
     current_user: HrPeopleAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    refuse_self_edit(current_user, payload.user_ids)
     try:
         result = await service.set_division(
             db,

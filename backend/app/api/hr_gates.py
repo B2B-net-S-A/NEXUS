@@ -16,6 +16,7 @@ Nazwy fabryk zaczynają się od ``require_hr_`` — test kontraktu tras
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -29,6 +30,10 @@ from app.services.hr import modules as hr_modules
 from app.services.hr import people
 
 MODULE_DISABLED_DETAIL = "Ten moduł nie jest jeszcze włączony."
+SELF_EDIT_DETAIL = (
+    "Swojej kartoteki i puli urlopowej nie zmieniasz sam — poproś inną osobę "
+    "z Kadr albo admina."
+)
 NO_PROFILE_DETAIL = (
     "Nie masz kartoteki pracownika w NEXUSIE — poproś Kadry o jej założenie."
 )
@@ -137,3 +142,18 @@ def require_hr_people_records():
 
 
 HrPeopleRecords = Annotated[User, Depends(require_hr_people_records())]
+
+
+def refuse_self_edit(actor: User, user_ids: Iterable[int]) -> None:
+    """„Nie sobie” dla kartoteki i puli urlopowej (decyzja Artura 19.10.2026).
+
+    Ten sam guard co przy premiach, umowach i rozliczeniach: Kadry (i Finanse
+    przy formie umowy) nie zmieniają własnej kartoteki — przełożonego, formy,
+    statusu, puli, „składa raport godzin”. Admin przechodzi (zarząd prowadzi
+    też własną kartotekę); ślad i tak zostaje w ``hr_audit_events``.
+    """
+
+    if actor.has_role(UserRole.admin):
+        return
+    if actor.id in set(user_ids):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, SELF_EDIT_DETAIL)

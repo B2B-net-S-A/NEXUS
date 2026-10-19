@@ -68,6 +68,11 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   „nieobecny”. Każde nowe miejsce, które pokazuje nieobecność, bierze dane
   z `app/services/hr/absence.py` (odczyty bez rodzaju), a nie z `leave_requests`.
 - **Przełożony nie widzi stawek ani kwot** (D2) — godziny i premie zespołu tak.
+- **„Nie sobie” w kartotece** (decyzja Artura 19.10.2026, audyt A4): Kadry i Finanse
+  nie zmieniają własnej kartoteki ani puli urlopowej — `refuse_self_edit` w
+  `hr_gates.py` na trasach kartoteki, puli, „składa raport godzin”, „Struktury”
+  (przełożony, pion) i formy umowy; 403 z prośbą o inną osobę z Kadr albo admina.
+  Admin przechodzi. Ten sam guard co przy premiach, umowach i rozliczeniach.
 - Ślad wrażliwych zapisów: `app/services/hr/audit.record(...)` z `sensitivity`
   `health` (L4) albo `payroll` (kwoty). Kwot nie ma w `critical_events` ani logach.
 
@@ -309,6 +314,12 @@ reszty (`tasks/notification_email_outbox.py`, 17.10.2026).
   w odpowiedzi na sucho. Ślad w `hr_audit_events` (`compass_import_dry_run`,
   `compass_import_apply`). Wygasłe paczki sprząta kolejny przebieg na sucho
   (`purge_expired_uploads`).
+- **NEXUS wygrywa z paczką** (audyt A4, 19.10.2026, #2347): od 18.10 kartoteki,
+  płace i czas prowadzi NEXUS, a Compass jest tylko do odczytu. Wiersz z mapy id
+  zmieniony w NEXUSIE po zapisie partii (`changed_in_nexus`) dostaje „conflict”
+  bez zapisu — także kartoteka (przełożeni przepięci w „Strukturze”), stawka
+  i premia; wiersz usunięty w NEXUSIE (obecność, opis roli, fragment) — „skip”.
+  Kartoteki z Compassa nie odświeżamy (decyzja 18.10).
 - Błędy Compassa naprawiamy, nie przenosimy — każdy ma test w module
   (pula urlopu przez Nowy Rok, pula B2B liczona dniami płatnymi, samozatwierdzanie,
   placement poza zakresem managera, wektory `pdf_hash` z kodu Compassa).
