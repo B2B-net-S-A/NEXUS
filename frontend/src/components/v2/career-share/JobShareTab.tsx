@@ -59,6 +59,7 @@ import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { resolveViewState } from "@/lib/view-state";
 
 import { LinkedInPreviewCard } from "./LinkedInPreviewCard";
+import { ThemePicker } from "./ThemePicker";
 import {
   EXPIRY_OPTIONS,
   FINDING_CATEGORIES,
@@ -254,6 +255,23 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
         apiErrorMessage(err, "Nie udało się przygotować szkicu AI. Spróbuj ponownie."),
       ),
   });
+
+  // Szablon graficzny (0478) — osobny zapis samego `theme`: nie rusza
+  // niezapisanych pól formularza i nie cofa zatwierdzenia opisu.
+  const [themeBusy, setThemeBusy] = useState(false);
+  const handleTheme = async (next: string | null) => {
+    if (jobId == null) return;
+    setThemeBusy(true);
+    try {
+      const saved = await careerLinksApi.savePublicProfileTheme(jobId, next);
+      qc.setQueryData(jobPublicProfileQueryKey(saved.job_id), saved);
+      showSuccess(next ? "Zmieniono szablon strony." : "Przywrócono szablon domyślny.");
+    } catch (err) {
+      showError(apiErrorMessage(err, "Nie udało się zmienić szablonu."));
+    } finally {
+      setThemeBusy(false);
+    }
+  };
 
   const saveProfile = async (): Promise<JobPublicProfile | null> => {
     if (!form || jobId == null) return null;
@@ -745,8 +763,18 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                   tagline={paramsTagline(profile?.preview?.params)}
                   cardTitle={previewTitle}
                   host={host}
+                  theme={profile ? profile.theme ?? profile.theme_default : null}
                 />
               </div>
+
+              {profile ? (
+                <ThemePicker
+                  value={profile.theme}
+                  defaultTheme={profile.theme_default}
+                  onChange={handleTheme}
+                  busy={themeBusy}
+                />
+              ) : null}
 
               <section className="space-y-3" aria-labelledby="job-link-heading">
                 <h3 id="job-link-heading" className="text-sm font-semibold text-foreground">

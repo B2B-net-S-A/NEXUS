@@ -41,6 +41,7 @@ from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
 from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User
+from app.services import career_theme as ct
 from app.services import job_public_profile as jpp
 from app.services.career_slugs import first_name
 
@@ -166,9 +167,13 @@ async def get_career_job(
         # Zamknięta rekrutacja, której opis był kiedyś zatwierdzony, zawsze
         # pokazuje „proces zakończony” — także gdy po zamknięciu ktoś zaczął
         # poprawiać opis. Tytuł tylko z opublikowanej wersji.
+        closed_title = version.title if version else _CLOSED_TITLE
         return {
             "status": "closed",
             "recruiter": recruiter,
+            "theme": ct.resolve_theme(
+                profile.theme, closed_title, await ct.job_category_slug(db, job)
+            ),
             "job": jpp.closed_job_payload(
                 version.title if version else _CLOSED_TITLE, link.slug
             ),
@@ -187,8 +192,11 @@ async def get_career_job(
         about=version.about,
         sections=version.sections,
     )
+    theme = ct.resolve_theme(
+        profile.theme, version.title, await ct.job_category_slug(db, job)
+    )
     await _bump_visits(db, link, request)
-    return {"status": "open", "recruiter": recruiter, "job": payload}
+    return {"status": "open", "recruiter": recruiter, "theme": theme, "job": payload}
 
 
 async def _recruiter_open_jobs(

@@ -1,4 +1,4 @@
-import { OG_COLORS as C } from "@/components/career/palette";
+import { ogColors } from "@/components/career/themes";
 import { splitTitle } from "@/lib/career/format";
 
 /**
@@ -7,7 +7,7 @@ import { splitTitle } from "@/lib/career/format";
  * WYJĄTEK OD ZASADY TOKEN-FIRST: górna część karty odwzorowuje ZEWNĘTRZNY
  * obraz (grafikę OG strony kariery). Ma wyglądać tak samo w każdym motywie
  * NEXUSA, bo tak zobaczy go LinkedIn — dlatego kolory idą z palety grafiki OG
- * (`OG_COLORS` z `components/career/palette.ts`), nie z tokenów. Podpis pod
+ * (`ogColors` z `components/career/themes.ts`, według szablonu rekrutacji), nie z tokenów. Podpis pod
  * obrazem (tytuł + domena) to już NEXUS: tokeny.
  */
 
@@ -22,6 +22,8 @@ export interface LinkedInPreviewCardProps {
   cardTitle: string;
   /** Domena pod tytułem. */
   host: string;
+  /** Szablon graficzny rekrutacji (0478) — kolory jak w grafice OG. */
+  theme?: string | null;
 }
 
 
@@ -31,7 +33,9 @@ export function LinkedInPreviewCard({
   tagline,
   cardTitle,
   host,
+  theme,
 }: LinkedInPreviewCardProps) {
+  const C = ogColors(theme);
   // Ta sama reguła co na stronie i grafice OG — podgląd ma wyglądać jak post.
   const { first: lead, second: last } = splitTitle(headline);
   return (

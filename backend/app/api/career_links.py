@@ -34,6 +34,7 @@ from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
 from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User
+from app.services import career_theme as ct
 from app.schemas.invite_link import (
     CareerLinkBrief,
     CareerLinkJob,
@@ -432,8 +433,13 @@ async def _profile_response(
         if version is not None
         else None
     )
+    theme_default = ct.default_theme(
+        effective_title, await ct.job_category_slug(db, job)
+    )
     return PublicProfileResponse(
         live=live,
+        theme=profile.theme if profile else None,
+        theme_default=theme_default,
         job_id=job.id,
         status=status_value,
         public_title=profile.public_title if profile else None,
@@ -498,7 +504,10 @@ async def get_public_profile_poster(
         about=version.about,
         sections=version.sections,
     )
-    pdf = render_poster_pdf(payload, job_link_url(slug))
+    theme = ct.resolve_theme(
+        profile.theme, version.title, await ct.job_category_slug(db, job)
+    )
+    pdf = render_poster_pdf(payload, job_link_url(slug), theme=theme)
     return Response(
         content=pdf,
         media_type="application/pdf",
@@ -556,6 +565,9 @@ async def put_public_profile(
         profile.sections = jpp.normalize_sections(None)
     if "show_on_recruiter_page" in fields and data.show_on_recruiter_page is not None:
         profile.show_on_recruiter_page = data.show_on_recruiter_page
+    if "theme" in fields:
+        # Wygląd nie wchodzi do skrótu treści — zatwierdzony opis zostaje.
+        profile.theme = data.theme
     profile.updated_by = current_user.id
     await db.commit()
     await db.refresh(profile)

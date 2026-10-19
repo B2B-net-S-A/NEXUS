@@ -42,6 +42,8 @@ export interface CareerJobResponse {
   status: "open" | "closed";
   recruiter: CareerRecruiter;
   job: CareerJob;
+  /** Szablon graficzny (0478): wybór rekrutera albo domyślny według roli. */
+  theme?: string;
   /** Tylko przy `closed` (etap 5): inne otwarte rekrutacje tej osoby. */
   other_jobs?: CareerRecruiterJob[];
 }
