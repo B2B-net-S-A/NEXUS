@@ -17,7 +17,7 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from openpyxl import load_workbook
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, select, text
 
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today, local_now
@@ -747,6 +747,99 @@ async def test_manual_bonus_from_manager_waits_for_payroll(
     assert direct.status_code == 201
     assert direct.json()["status"] == "assigned"
     assert direct.json()["assigned_by"] == finance.id
+
+
+@pytest.mark.asyncio
+async def test_batch_approve_is_all_or_nothing_and_payroll_only(
+    app_client, payroll_on
+) -> None:
+    """„Zatwierdź zaznaczone” (19.10.2026): jedna transakcja, tylko Płace."""
+
+    finance, boss, worker, other = await _payroll_team()
+    today = business_today()
+    y, m = today.year, today.month
+
+    def proposal(recipient: int, amount: str, **extra) -> HrBonus:
+        return HrBonus(
+            recipient_user_id=recipient,
+            amount=Decimal(amount),
+            category="recruiter",
+            period_year=y,
+            period_month=m,
+            status="proposed",
+            source="contract_placement",
+            source_key=f"contract:test-{uuid.uuid4().hex}:recruiter",
+            **extra,
+        )
+
+    async with AsyncSessionLocal() as db:
+        first = proposal(worker.id, "1000", eligible_on=today)
+        second = proposal(other.id, "529.20", eligible_on=today)
+        early = proposal(other.id, "300", eligible_on=today + timedelta(days=5))
+        db.add_all([first, second, early])
+        await db.commit()
+
+    # Przełożony (bez Płac) — odmowa bramki, nawet dla swojego człowieka.
+    denied = await app_client.post(
+        "/api/hr/payroll/bonuses/approve-batch",
+        json={"ids": [first.id]},
+        headers=_headers(boss),
+    )
+    assert denied.status_code == 403
+
+    # Jedna premia przed terminem — nic nie wchodzi, komunikat mówi przy kim.
+    refused = await app_client.post(
+        "/api/hr/payroll/bonuses/approve-batch",
+        json={"ids": [first.id, second.id, early.id]},
+        headers=_headers(finance),
+    )
+    assert refused.status_code == 409
+    assert refused.json()["detail"].startswith("Nic nie zatwierdzono")
+    assert other.name in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        states = dict(
+            (
+                await db.execute(
+                    select(HrBonus.id, HrBonus.status).where(
+                        HrBonus.id.in_([first.id, second.id, early.id])
+                    )
+                )
+            ).all()
+        )
+        bells = await db.scalar(
+            select(func.count(Notification.id)).where(
+                Notification.notification_type == NotificationType.hr_bonus_assigned,
+                Notification.related_entity_id.in_([first.id, second.id]),
+            )
+        )
+    assert set(states.values()) == {"proposed"}
+    assert bells == 0
+
+    approved = await app_client.post(
+        "/api/hr/payroll/bonuses/approve-batch",
+        json={"ids": [second.id, first.id, first.id]},
+        headers=_headers(finance),
+    )
+    assert approved.status_code == 200, approved.text
+    body = approved.json()
+    assert body["approved"] == 2
+    assert {item["id"] for item in body["items"]} == {first.id, second.id}
+    assert {item["status"] for item in body["items"]} == {"assigned"}
+
+    # Drugi raz te same — już nie czekają (409, bez zmian).
+    again = await app_client.post(
+        "/api/hr/payroll/bonuses/approve-batch",
+        json={"ids": [first.id]},
+        headers=_headers(finance),
+    )
+    assert again.status_code == 409
+
+    empty = await app_client.post(
+        "/api/hr/payroll/bonuses/approve-batch",
+        json={"ids": []},
+        headers=_headers(finance),
+    )
+    assert empty.status_code == 422
 
 
 # ── Zamknięcie miesiąca ───────────────────────────────────────────────────────

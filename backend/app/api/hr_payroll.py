@@ -173,6 +173,10 @@ class BonusPatch(BaseModel):
     description: Optional[str] = Field(default=None, max_length=1000)
 
 
+class BonusBatchIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=100)
+
+
 class PayrollCancelIn(BaseModel):
     note: Optional[str] = Field(default=None, max_length=1000)
 
@@ -751,6 +755,51 @@ async def approve_bonus(
             db, viewer, bonus_id, today=business_today()
         )
     return await _bonus_response(db, bonus, viewer)
+
+
+@router.post("/bonuses/approve-batch")
+async def approve_bonuses(
+    payload: BonusBatchIn,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Zatwierdź zaznaczone” (Płace): wszystko albo nic.
+
+    Każda premia przechodzi tę samą ścieżkę co pojedyncze „Zatwierdź”
+    (``payroll_bonuses.approve_bonus``: zakres, autor propozycji, termin,
+    otwarty miesiąc, dzwonek osobie) w jednej transakcji żądania. Pierwsza
+    odmowa cofa całość i mówi, przy czyjej premii — nikt nie dostaje dzwonka
+    o premii, która nie weszła. Uzgodnienie kontraktów biegnie wcześniej
+    i zostaje (jak przy pojedynczym zatwierdzeniu). Kolejność id rosnąca —
+    blokady wierszy zawsze w tym samym porządku.
+    """
+
+    viewer = await load_viewer(db, current_user)
+    ids = sorted(set(payload.ids))
+    for bonus_id in ids:
+        await _reconcile_before_approval(db, viewer, bonus_id)
+    today = business_today()
+    approved: list[HrBonus] = []
+    for bonus_id in ids:
+        try:
+            approved.append(
+                await payroll_bonuses.approve_bonus(db, viewer, bonus_id, today=today)
+            )
+        except PayrollError as exc:
+            await db.rollback()
+            who = await db.scalar(
+                select(User.name)
+                .join(HrBonus, HrBonus.recipient_user_id == User.id)
+                .where(HrBonus.id == bonus_id)
+            )
+            prefix = (
+                f"Nic nie zatwierdzono — premia: {who}. "
+                if who
+                else ("Nic nie zatwierdzono. ")
+            )
+            raise HTTPException(exc.status_code, prefix + exc.message) from exc
+    items = [await _bonus_response(db, bonus, viewer) for bonus in approved]
+    return {"approved": len(items), "items": items}
 
 
 async def _reconcile_before_approval(

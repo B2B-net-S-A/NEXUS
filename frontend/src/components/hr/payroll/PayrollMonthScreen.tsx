@@ -3,7 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { FileArchive, FileSpreadsheet, Lock, LockOpen, Plus } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FileArchive,
+  FileSpreadsheet,
+  Lock,
+  LockOpen,
+  Plus,
+} from "lucide-react";
 
 import { InlineStats } from "@/components/ds/InlineStats";
 import { PageHeader } from "@/components/ds/PageHeader";
@@ -23,21 +31,37 @@ import {
   useCloseMonth,
   usePayrollMonth,
   type BonusRow,
+  type PayrollPerson,
 } from "@/lib/api/hr-payroll";
-import { timePaths } from "@/lib/api/hr-time";
+import {
+  reminderToast,
+  timePaths,
+  useRemindTimesheet,
+  type TimesheetReminderResult,
+} from "@/lib/api/hr-time";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 import { formatMoney } from "@/lib/money";
-import { formatIsoDatePl } from "@/lib/date-pl";
+import { formatIsoDatePl, shiftMonth } from "@/lib/date-pl";
 import { capitalize } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
 
 import { BonusDialog } from "./BonusDialog";
 import { BonusTable } from "./BonusTable";
+import { CloseStepper, DecisionPanel, PayoutCard, PlacementsStrip } from "./PayrollCloseParts";
 import { PayrollPeopleTable } from "./PayrollPeopleTable";
 import { SymfoniaExportButton } from "./payments/SymfoniaExportButton";
 import { ReopenMonthDialog } from "./ReopenMonthDialog";
-import { bonusDecision, monthStats, splitBonuses, ymSegment } from "./payroll-format";
+import {
+  bonusDecision,
+  closeSteps,
+  decidableBonuses,
+  monthStats,
+  reminderAction,
+  splitBonuses,
+  warsawMonth,
+  ymSegment,
+} from "./payroll-format";
 import { MONTH_VIEW, PAYROLL_MONTH_TABS, payrollMonthTabs } from "./payroll-month-tabs";
 
 /**
@@ -65,6 +89,10 @@ export function PayrollMonthScreen({
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [downloading, setDownloading] = useState<"xlsx" | "zip" | null>(null);
+  // Krok „Kontrola”: ostrzeżenia potwierdzone na ekranie (zamknięcie idzie z `acknowledge_warnings`).
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [assignedOpen, setAssignedOpen] = useState(false);
+  const remind = useRemindTimesheet();
   const params = useSearchParams();
   const [view, setView] = useUrlSyncedState<string>(params.get("view"), MONTH_VIEW);
 
@@ -94,19 +122,21 @@ export function PayrollMonthScreen({
   const closeMonth = async () => {
     const ok = await askConfirm({
       title: `Zamknąć ${data?.label ?? "miesiąc"}?`,
-      description:
-        "Kwoty zostaną zamrożone, a timesheety tego miesiąca zablokowane. Ponownie otworzyć miesiąc może tylko administrator.",
+      description: `Kwoty zostaną zamrożone, a timesheety tego miesiąca zablokowane.${
+        acknowledged ? " Ostrzeżenia z kroku „Kontrola” są potwierdzone." : ""
+      } Ponownie otworzyć miesiąc może tylko administrator.`,
       confirmLabel: "Zamknij miesiąc",
       cancelLabel: "Wróć",
       variant: "destructive",
     });
     if (!ok) return;
     try {
-      await close.mutateAsync(false);
+      await close.mutateAsync(acknowledged);
       showToast("Miesiąc zamknięty", "success");
     } catch (err) {
       const conflict = closeConflict(err);
       if (conflict?.code === "close_warnings") {
+        // Nowe ostrzeżenie od ostatniego odczytu — pokazujemy je jeszcze raz.
         const again = await askConfirm({
           title: "Zamknąć mimo ostrzeżeń?",
           description: conflict.warnings.map((w) => w.message).join(" "),
@@ -126,6 +156,16 @@ export function PayrollMonthScreen({
       showToast(apiErrorMessage(err, "Nie udało się zamknąć miesiąca."), "error");
     }
   };
+
+  const remindPerson = (person: PayrollPerson) =>
+    remind.mutate(
+      { userId: person.user_id, year, month },
+      {
+        onSuccess: (result: TimesheetReminderResult) =>
+          showToast(reminderToast(result, person.name), result.already_today ? "info" : "success"),
+        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się wysłać przypomnienia."), "error"),
+      },
+    );
 
   const approveRow = (row: BonusRow) =>
     approve.mutate(row.id, {
@@ -183,8 +223,12 @@ export function PayrollMonthScreen({
 
   const payroll = data.scope === "payroll";
   const open = data.status === "open";
-  const { toDecide, assigned, cancelled } = splitBonuses(data.bonuses);
-  const decidable = toDecide.filter((b) => b.eligible !== false);
+  const { assigned, cancelled } = splitBonuses(data.bonuses);
+  const decidable = decidableBonuses(data.bonuses);
+  const steps = closeSteps(data, acknowledged);
+  const prev = shiftMonth({ year, month }, -1);
+  const next = shiftMonth({ year, month }, 1);
+  const hasNext = ymSegment(next.year, next.month) <= warsawMonth();
   const people = data.people.map((p) => ({ user_id: p.user_id, name: p.name }));
   const tabs = payrollMonthTabs(config, payroll);
   const activeView = tabs.some((tab) => tab.value === view) ? view : MONTH_VIEW;
@@ -236,8 +280,13 @@ export function PayrollMonthScreen({
               {config.open_modules.settlements ? (
                 <SymfoniaExportButton year={year} month={month} closed={data.status === "closed"} />
               ) : null}
-              {data.can_close ? (
-                <Button size="sm" onClick={closeMonth} disabled={close.isPending}>
+              {open ? (
+                <Button
+                  size="sm"
+                  onClick={closeMonth}
+                  disabled={!steps.ready || close.isPending}
+                  title={steps.ready ? undefined : `Zamknięcie ${steps.steps[3].detail}.`}
+                >
                   <Lock className="h-4 w-4" aria-hidden />
                   {close.isPending ? "Zamykanie…" : "Zamknij miesiąc"}
                 </Button>
@@ -267,14 +316,63 @@ export function PayrollMonthScreen({
         moduleTab.render({ config, year, month })
       ) : (
         <>
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <InlineStats id="payroll-month-stats" stats={monthStats(data)} />
-            <div className="flex items-center gap-3">
-              {payroll ? (
-                <Link href="/people/payroll" className="text-sm text-primary hover:underline">
-                  Wszystkie miesiące
-                </Link>
+          <nav aria-label="Miesiące płac" className="flex flex-wrap items-center gap-3 text-sm">
+            <Link
+              href={`/people/payroll/${ymSegment(prev.year, prev.month)}`}
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+              Poprzedni miesiąc
+            </Link>
+            {hasNext ? (
+              <Link
+                href={`/people/payroll/${ymSegment(next.year, next.month)}`}
+                className="inline-flex items-center gap-1 text-primary hover:underline"
+              >
+                Następny miesiąc
+                <ChevronRight className="h-4 w-4" aria-hidden />
+              </Link>
+            ) : null}
+            {payroll ? (
+              <Link href="/people/payroll" className="text-primary hover:underline">
+                Wszystkie miesiące
+              </Link>
+            ) : null}
+          </nav>
+
+          {payroll ? (
+            <>
+              <CloseStepper steps={steps.steps} />
+              {open && (data.warnings ?? []).length > 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
+                  <span>Przed zamknięciem: {(data.warnings ?? []).map((w) => w.message).join(" ")}</span>
+                  {steps.needsAcknowledge ? (
+                    <Button size="sm" variant="outline" onClick={() => setAcknowledged(true)}>
+                      Potwierdzam ostrzeżenia
+                    </Button>
+                  ) : (
+                    <span className="font-medium text-foreground">Potwierdzone</span>
+                  )}
+                </div>
               ) : null}
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                <PayoutCard people={data.people} />
+                <DecisionPanel
+                  rows={decidable}
+                  meId={me?.id}
+                  open={open}
+                  canCreate={open && people.length > 0}
+                  onCreate={() => setBonusOpen(true)}
+                  onApprove={approveRow}
+                  onEdit={setEditing}
+                  onCancel={(row) => void cancelRow(row)}
+                  approving={approve.isPending}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <InlineStats id="payroll-month-stats" stats={monthStats(data)} />
               {open && people.length > 0 ? (
                 <Button size="sm" variant="secondary" onClick={() => setBonusOpen(true)}>
                   <Plus className="h-4 w-4" aria-hidden />
@@ -282,13 +380,7 @@ export function PayrollMonthScreen({
                 </Button>
               ) : null}
             </div>
-          </div>
-
-          {payroll && open && (data.warnings ?? []).length > 0 ? (
-            <div className="rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
-              Przed zamknięciem: {(data.warnings ?? []).map((w) => w.message).join(" ")}
-            </div>
-          ) : null}
+          )}
 
           {data.people.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -297,10 +389,29 @@ export function PayrollMonthScreen({
                 : "Nikt z Twojego zespołu nie ma w tym miesiącu godzin ani premii."}
             </div>
           ) : (
-            <PayrollPeopleTable people={data.people} scope={data.scope} />
+            <PayrollPeopleTable
+              people={data.people}
+              scope={data.scope}
+              renderTimesheetAction={(person) => {
+                const label = open ? reminderAction(person, data.scope) : null;
+                if (!label) return null;
+                const busy = remind.isPending && remind.variables?.userId === person.user_id;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => remindPerson(person)}
+                    disabled={busy}
+                    aria-label={`${label}: ${person.name}`}
+                    className="text-xs font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                  >
+                    {busy ? "Wysyłanie…" : label}
+                  </button>
+                );
+              }}
+            />
           )}
 
-          {decidable.length > 0 ? (
+          {!payroll && decidable.length > 0 ? (
             <section className="space-y-2">
               <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
                 Premie do decyzji
@@ -317,11 +428,6 @@ export function PayrollMonthScreen({
                           Zatwierdź
                         </Button>
                       ) : null}
-                      {payroll ? (
-                        <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
-                          Zmień
-                        </Button>
-                      ) : null}
                       <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
                         {decision.rejectLabel}
                       </Button>
@@ -332,44 +438,44 @@ export function PayrollMonthScreen({
             </section>
           ) : null}
 
-          {data.in_progress.length > 0 ? (
-            <section className="space-y-2">
+          <PlacementsStrip
+            rows={data.in_progress}
+            assignedCount={assigned.length}
+            assignedOpen={assignedOpen}
+            onToggleAssigned={() => setAssignedOpen((value) => !value)}
+          />
+
+          {assignedOpen ? (
+            <section className="space-y-2" aria-label="Premie przyznane w tym miesiącu">
               <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                Placementy — premie liczą się
+                Premie przyznane w tym miesiącu
+                {cancelled > 0 ? (
+                  <span className="ml-2 font-normal normal-case tracking-normal">
+                    · anulowane: {cancelled}
+                  </span>
+                ) : null}
               </h2>
-              <BonusTable rows={data.in_progress} showProgress />
+              {assigned.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Brak przyznanych premii.</p>
+              ) : (
+                <BonusTable
+                  rows={assigned}
+                  renderActions={(row) =>
+                    canEdit(row) ? (
+                      <div className="flex justify-end gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
+                          Zmień
+                        </Button>
+                        <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
+                          Anuluj
+                        </Button>
+                      </div>
+                    ) : null
+                  }
+                />
+              )}
             </section>
           ) : null}
-
-          <section className="space-y-2">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-              Premie przyznane w tym miesiącu
-              {cancelled > 0 ? (
-                <span className="ml-2 font-normal normal-case tracking-normal">
-                  · anulowane: {cancelled}
-                </span>
-              ) : null}
-            </h2>
-            {assigned.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Brak przyznanych premii.</p>
-            ) : (
-              <BonusTable
-                rows={assigned}
-                renderActions={(row) =>
-                  canEdit(row) ? (
-                    <div className="flex justify-end gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
-                        Zmień
-                      </Button>
-                      <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
-                        Anuluj
-                      </Button>
-                    </div>
-                  ) : null
-                }
-              />
-            )}
-          </section>
         </>
       )}
 

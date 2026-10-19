@@ -547,3 +547,37 @@ export function useDecideTimesheet() {
     onSuccess: invalidate,
   });
 }
+
+/** Wynik „Przypomnij” (`POST /api/hr/time/remind/{osoba}/{rok}/{miesiąc}`). */
+export interface TimesheetReminderResult {
+  /** `person` — szkic albo brak raportu; `approver` — raport czeka na akceptację. */
+  target: "person" | "approver";
+  status: "missing" | "draft" | "submitted";
+  sent: boolean;
+  /** Ten sam adresat dostał już dziś przypomnienie — nic nie wyszło drugi raz. */
+  already_today: boolean;
+}
+
+/**
+ * „Przypomnij” o timesheecie osoby za miesiąc: osobie (szkic, brak) albo
+ * akceptującym (wysłany). Płace, Kadry, admin i akceptujący tej osoby; raz
+ * dziennie na adresata. Używają go Płace i „Akceptacje”.
+ */
+export function useRemindTimesheet() {
+  return useMutation({
+    mutationFn: async ({ userId, year, month }: { userId: number; year: number; month: number }) =>
+      (
+        await api.post<TimesheetReminderResult>(
+          `/api/hr/time/remind/${userId}/${year}/${month}`,
+        )
+      ).data,
+  });
+}
+
+/** Komunikat po „Przypomnij” (czysta funkcja — test bez renderu). */
+export function reminderToast(result: TimesheetReminderResult, name: string): string {
+  if (result.already_today) return `${name}: przypomnienie poszło już dziś.`;
+  return result.target === "approver"
+    ? `Przypomnienie poszło do akceptującego — ${name}.`
+    : `Przypomnienie poszło do: ${name}.`;
+}

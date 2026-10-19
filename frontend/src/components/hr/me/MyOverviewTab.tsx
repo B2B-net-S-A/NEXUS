@@ -3,19 +3,19 @@
 import { useState } from "react";
 import { CalendarPlus, Clock } from "lucide-react";
 
-import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPanel";
 import { Button } from "@/components/ui/button";
 import type { HrConfig, OwnProfile } from "@/lib/api/hr";
 import { useLeaveBalance } from "@/lib/api/hr-leave";
 import type { YearMonth } from "@/lib/date-pl";
+import { cn } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
 
 import { LeaveRequestDialog } from "../leave/LeaveRequestDialog";
 import { AbsenceCard } from "./cards/AbsenceCard";
 import { BonusCard } from "./cards/BonusCard";
+import { EquipmentCard } from "./cards/EquipmentCard";
 import { ManagerCard } from "./cards/ManagerCard";
 import { MonthCard } from "./cards/MonthCard";
-import { OverviewCard } from "./cards/OverviewCard";
 import { TodoCard } from "./cards/TodoCard";
 import { absenceActionLabel } from "./overview-format";
 
@@ -49,7 +49,7 @@ export function MyOverviewTab({ config, person, onOpenTab }: MyOverviewTabProps)
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">Dzień dobry, {firstName}</p>
+        <p className="text-base font-semibold text-foreground">Dzień dobry, {firstName}</p>
         <div className="flex flex-wrap gap-2">
           {timesheets ? (
             <Button variant="outline" size="sm" onClick={() => onOpenTab("month")}>
@@ -65,24 +65,33 @@ export function MyOverviewTab({ config, person, onOpenTab }: MyOverviewTabProps)
           ) : null}
         </div>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {open.leave ? <AbsenceCard form={form} year={year} today={today} /> : null}
-        {open.time ? (
-          <MonthCard
-            form={form}
-            today={today}
-            timesheetRequired={person.timesheet_required}
-            onOpenTab={onOpenTab}
-          />
-        ) : null}
-        {open.payroll ? <BonusCard today={today} onOpenTab={onOpenTab} /> : null}
-        <ManagerCard person={person} leaveOpen={open.leave} />
-        {open.equipment ? (
-          <OverviewCard title="Mój sprzęt">
-            <PersonEquipmentPanel userId="mine" />
-          </OverviewCard>
-        ) : null}
+      {/* Górny rząd: ile mam przerwy, co z miesiącem, ile i kiedy dostanę. */}
+      {open.leave || open.time || open.payroll ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {open.leave ? <AbsenceCard form={form} year={year} today={today} /> : null}
+          {open.time ? (
+            <MonthCard
+              form={form}
+              today={today}
+              timesheetRequired={person.timesheet_required}
+              onOpenTab={onOpenTab}
+            />
+          ) : null}
+          {open.payroll ? <BonusCard today={today} onOpenTab={onOpenTab} /> : null}
+        </div>
+      ) : null}
+      {/* Dolny rząd: moje sprawy (szerzej), sprzęt i koordynator. */}
+      <div
+        className={cn(
+          "grid gap-3 md:grid-cols-2",
+          open.equipment
+            ? "xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)]"
+            : "xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]",
+        )}
+      >
         <TodoCard config={config} person={person} onOpenTab={onOpenTab} />
+        {open.equipment ? <EquipmentCard /> : null}
+        <ManagerCard person={person} leaveOpen={open.leave} />
       </div>
       {open.leave ? (
         <LeaveRequestDialog

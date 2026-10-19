@@ -39,6 +39,7 @@
   "GET /api/hr/payroll/settings/minimum-rates": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PATCH /api/hr/payroll/bonuses/{bonus_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/payroll/bonuses/approve-batch": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses/{bonus_id}/approve": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses/{bonus_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/months/{year}/{month}/close": "BBBBBBBDBBBBBBBBBBBBBBBBB",

@@ -53,6 +53,7 @@
   "POST /api/hr/time/me/{year}/{month}/entries": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/time/me/{year}/{month}/fill": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/time/me/{year}/{month}/submit": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/time/remind/{user_id}/{year}/{month}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/time/role-defaults": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/time/team/{user_id}/{year}/{month}/entries": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/time/timesheets/{timesheet_id}/approve": "BBBBBBBDBBBBBBBBBBBBBBBBB",

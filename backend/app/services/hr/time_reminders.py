@@ -11,6 +11,13 @@ pracy nie przed jego początkiem), bez wysłanego timesheetu. Naprawy Compassa:
 przypomnienie dostawały tylko role ``internal`` i ``admin`` (przełożeni,
 Finanse i TCM, którzy też prowadzą timesheet, nie), a osoby, które odeszły,
 nie były wykluczane.
+
+„Przypomnij” z ekranu (``remind_one``, 19.10.2026): Płace, Kadry, admin albo
+akceptujący tej osoby wysyłają jedno przypomnienie o timesheecie wskazanego
+miesiąca — osobie, gdy raport jest szkicem albo go nie ma, a akceptującym
+(``approval_recipients``), gdy czeka na akceptację. Raz dziennie na osobę,
+miesiąc i adresata: rezerwacja ``hr_job_runs`` (``JOB_KIND_MANUAL``), drugi
+klik tego dnia nic nie wysyła i odpowiada ``already_today``.
 """
 
 from __future__ import annotations
@@ -28,22 +35,32 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.hr_time import Timesheet
 from app.models.notification import NotificationType
 from app.models.user import User
-from app.services.hr import job_runs
+from app.services.hr import audit, job_runs, people
 from app.services.hr.employment_terms import terms
 from app.services.hr.modules import HrModule
 from app.services.hr.notify import notify_each
+from app.services.hr.time_access import Actor, approval_recipients
 from app.services.hr.time_calendar import (
     DEADLINE_DAY,
     month_range,
     previous_month,
     submission_deadline,
 )
-from app.services.hr.time_flow import month_label, my_month_link
+from app.services.hr.time_entries import (
+    TimeConflict,
+    TimeForbidden,
+    TimeNotFound,
+    find_timesheet,
+    validate_period,
+)
+from app.services.hr.time_flow import approvals_link, month_label, my_month_link
 from app.services.hr.time_month import TIMESHEET_EMPLOYMENT_STATUSES
 
 logger = logging.getLogger(__name__)
 
 JOB_KIND = "hr_timesheet_reminder"
+#: „Przypomnij” z ekranu — osobna rezerwacja, bo dzienna, nie miesięczna.
+JOB_KIND_MANUAL = "hr_timesheet_manual_reminder"
 #: Dzwonek w godzinach pracy, nie o północy pierwszego dnia miesiąca.
 SEND_FROM_HOUR = 8
 
@@ -142,3 +159,110 @@ async def run_once(db: AsyncSession, *, today: Optional[date] = None) -> dict[st
     await db.commit()
     logger.info("[hr_time] przypomnienia %s-%02d: %s", year, month, counts)
     return {"status": "ok", "period": f"{year}-{month:02d}", **counts}
+
+
+# ── „Przypomnij” z ekranu (Płace, Akceptacje) ─────────────────────────────────
+
+
+def manual_key(year: int, month: int, user_id: int, target: str, day: date) -> str:
+    return f"{year}-{month:02d}:u{user_id}:{target}:{day.isoformat()}"
+
+
+async def remind_one(
+    db: AsyncSession,
+    *,
+    actor: Actor,
+    user_id: int,
+    year: int,
+    month: int,
+    today: date,
+) -> dict[str, Any]:
+    """Jedno przypomnienie o timesheecie osoby za miesiąc (bez commitu).
+
+    Szkic albo brak timesheetu → osoba („wyślij”); wysłany → akceptujący
+    („czeka na akceptację”). Przyjęty, zamknięty w płacach albo osoba bez
+    obowiązku raportu = 409. Osoba spoza zakresu = 404 (bez zdradzania, że jest).
+    """
+
+    validate_period(year, month)
+    if user_id == actor.user_id:
+        raise TimeForbidden("Sobie nie przypominasz — raport wysyłasz w „Moim czasie”.")
+    profile = await people.profile_of(db, user_id)
+    if profile is None or not (
+        actor.payroll or actor.approves_everyone or actor.can_approve(profile)
+    ):
+        raise TimeNotFound("Nie ma takiej osoby w Twoim zakresie.")
+    words = terms(profile.employment_type)
+    if not profile.timesheet_required:
+        raise TimeConflict(
+            f"Ta osoba nie składa {words['timesheet_genitive']} — nie ma o czym przypominać."
+        )
+    person = await db.get(User, user_id)
+    if person is None or not person.is_active:
+        raise TimeConflict("Konto tej osoby jest wyłączone.")
+    timesheet = await find_timesheet(db, user_id, year, month)
+    if timesheet is not None and timesheet.payroll_locked:
+        raise TimeConflict(
+            "Miesiąc jest zamknięty w płacach — raport jest już rozliczony."
+        )
+    status = timesheet.status if timesheet is not None else "draft"
+    if status == "approved":
+        raise TimeConflict(
+            f"{words['timesheet']} za {month_label(year, month)} jest już przyjęty."
+        )
+    label = month_label(year, month)
+    if status == "draft":
+        target = "person"
+        recipients = [user_id]
+        deadline = submission_deadline(year, month)
+        title = f"Przypomnienie: wyślij {words['timesheet_accusative']}"
+        message = (
+            f"{words['timesheet']} za {label} czeka na wysłanie — "
+            f"termin {deadline.day}.{deadline.month:02d}."
+        )
+        ntype = NotificationType.hr_timesheet_reminder
+        link = my_month_link(year, month)
+    else:
+        target = "approver"
+        approvers = await approval_recipients(db, user_id)
+        recipients = [uid for uid in approvers if uid != actor.user_id]
+        if not recipients:
+            raise TimeConflict(
+                f"{words['timesheet']} czeka na Twoją decyzję — otwórz „Akceptacje”."
+            )
+        title = f"Przypomnienie — {words['timesheet_submitted_title']}"
+        message = f"{person.name}: {label} czeka na {words['review_noun']}."
+        ntype = NotificationType.hr_timesheet_submitted
+        link = approvals_link(year, month, user_id)
+
+    result: dict[str, Any] = {
+        "target": target,
+        "status": status if timesheet is not None else "missing",
+        "sent": False,
+        "already_today": False,
+    }
+    key = manual_key(year, month, user_id, target, today)
+    if not await job_runs.mark_once(db, JOB_KIND_MANUAL, key, status="done"):
+        result["already_today"] = True
+        return result
+    notified = await notify_each(
+        db,
+        recipients,
+        title=title,
+        message=message,
+        ntype=ntype,
+        link=link,
+        related_entity_type="timesheet",
+        log_tag="hr_time",
+    )
+    audit.record(
+        db,
+        actor_user_id=actor.user_id,
+        subject_user_id=user_id,
+        entity_type="timesheet",
+        entity_id=timesheet.id if timesheet is not None else None,
+        action="timesheet_reminder_sent",
+        details={"year": year, "month": month, "target": target, "notified": notified},
+    )
+    result["sent"] = notified > 0
+    return result

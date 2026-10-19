@@ -386,6 +386,25 @@ export function useApproveBonus() {
   });
 }
 
+/**
+ * „Zatwierdź zaznaczone” (tylko Płace): wszystko albo nic — pierwsza odmowa
+ * cofa całość, a komunikat mówi, przy czyjej premii
+ * (`POST /api/hr/payroll/bonuses/approve-batch`).
+ */
+export function useApproveBonuses() {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async (ids: number[]) =>
+      (
+        await api.post<{ approved: number; items: BonusRow[] }>(
+          "/api/hr/payroll/bonuses/approve-batch",
+          { ids },
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
 export function useCancelBonus() {
   const invalidate = useInvalidatePayroll();
   return useMutation({

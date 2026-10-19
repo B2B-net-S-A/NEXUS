@@ -6,6 +6,7 @@ import { AbsenceBadge } from "@/components/hr/AbsenceBadge";
 import type { OwnProfile } from "@/lib/api/hr";
 import { useAbsences } from "@/lib/api/hr-leave";
 import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
+import { cn } from "@/lib/utils";
 
 import { OverviewCard } from "./OverviewCard";
 
@@ -30,7 +31,15 @@ export function ManagerCard({ person, leaveOpen }: { person: OwnProfile; leaveOp
         <div className="flex items-center gap-3">
           <span
             aria-hidden
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground"
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary",
+              // Pierścień „w pracy” tylko, gdy wiemy (moduł nieobecności otwarty i odpowiedź jest).
+              leaveOpen && absences.isSuccess
+                ? absence
+                  ? "ring-2 ring-warning ring-offset-2 ring-offset-card"
+                  : "ring-2 ring-success ring-offset-2 ring-offset-card"
+                : null,
+            )}
           >
             {initials(person.manager_name)}
           </span>

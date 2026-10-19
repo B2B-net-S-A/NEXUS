@@ -15,10 +15,14 @@ import {
   inTransitLabel,
   inTransitSummary,
   missingDaysUntil,
+  missingLine,
+  monthCalendar,
+  monthHoursPercent,
   myBonusItems,
   nextAbsence,
   placementLabel,
   poolSegments,
+  ringArcs,
   timesheetAccusative,
   timesheetCardTitle,
   todoItems,
@@ -180,6 +184,9 @@ describe("premie z etapami", () => {
     expect(item.estimate).toBe(true);
     expect(item.when).toBe("~ od 01.12 (start 02.11)");
     expect(item.title).toBe("Placement: Jan Przykładowy (Bank Fikcyjny)");
+    // Oś w „Przeglądzie”: pusty pasek i data startu.
+    expect(item.progress).toBe(0);
+    expect(item.timeline).toBe("umowa podpisana · start 02.11 · liczy się do ~01.12");
   });
 
   it("propozycja w trakcie 21 dni i po terminie czekająca na decyzję Płac", () => {
@@ -187,8 +194,12 @@ describe("premie z etapami", () => {
     expect(counting.stages.map((s) => s.label)).toEqual(["umowa", "14 z 21 dni", "decyzja Płac", "wypłata"]);
     expect(counting.stages.find((s) => s.state === "current")?.label).toBe("14 z 21 dni");
     expect(counting.when).toBe("od 05.11");
+    expect(counting.progress).toBe(67);
+    expect(counting.timeline).toBe("14 z 21 dni · liczy się do 05.11");
     const waiting = bonusItemFromRow(bonus({ eligible: true }), "2026-11-10");
     expect(waiting.stages.find((s) => s.state === "current")?.label).toBe("decyzja Płac");
+    expect(waiting.progress).toBe(100);
+    expect(waiting.timeline).toBe("czeka na decyzję Płac");
   });
 
   it("przyznana: kto i kiedy; po zamknięciu miesiąca — rozliczona", () => {
@@ -319,10 +330,11 @@ describe("„Do zrobienia”", () => {
         timesheets: { history: [history({}), history({ id: 2, month: 8, status: "approved" })], month: undefined },
       }),
     );
-    expect(items.map((item) => [item.title, item.detail])).toEqual([
-      ["Przygotuj laptop", "Anna Przykładowa · do 05.10"],
-      ["Podpisz protokół P/1/2026", "Recepcja · link w mailu · z 02.10"],
-      [`Wyślij ${timesheetAccusative("uop")} za wrzesień 2026`, "termin minął"],
+    // Termin osobno (pigułka) i jedna akcja; protokół podpisuje się linkiem z maila.
+    expect(items.map((item) => [item.title, item.detail, item.due, item.action])).toEqual([
+      ["Przygotuj laptop", "Anna Przykładowa", "do 05.10", "Otwórz"],
+      ["Podpisz protokół P/1/2026", "Recepcja · link w mailu", "z 02.10", undefined],
+      [`Wyślij ${timesheetAccusative("uop")} za wrzesień 2026`, "", "termin minął", "Wyślij"],
     ]);
     expect(items[0]).toMatchObject({ href: "/people/new/2", overdue: true });
     expect(items[2]).toMatchObject({ tab: "month", overdue: true });
@@ -334,13 +346,25 @@ describe("„Do zrobienia”", () => {
     expect(current(month(null))[0]).toMatchObject({
       key: "ts-current",
       title: `Wyślij ${timesheetAccusative("uop")} za październik`,
-      detail: "do 05.11",
+      detail: "",
+      due: "do 05.11",
+      action: "Wyślij",
       tab: "month",
     });
     expect(current(month({ return_note: "brak godzin 3.10" }))[0]).toMatchObject({
       title: `Popraw ${timesheetAccusative("uop")} za październik`,
-      detail: "zwrócono do poprawy · do 05.11",
+      detail: "zwrócono do poprawy",
+      due: "do 05.11",
+      action: "Popraw",
     });
+    // Kto przyjmuje raport — słowo formy (B2B „potwierdza”) i skrót imienia.
+    const b2b = todoItems(
+      sources({
+        employmentType: "b2b",
+        timesheets: { history: [], month: { ...month(null), approver_name: "Marta Fikcyjna" } },
+      }),
+    );
+    expect(b2b[0].detail).toBe("potwierdza Marta F.");
     expect(current(month({ status: "submitted" }))).toEqual([]);
   });
 
@@ -405,5 +429,94 @@ describe("premia wypłacona z rozliczeniem (R11, etap 4)", () => {
   it("bez pola `paid` (moduł rozliczeń wyłączony) — stara reguła zamkniętego miesiąca", () => {
     expect(bonusSettled({ ...assigned(), period_closed: true })).toBe(true);
     expect(bonusSettled({ ...assigned(), period_closed: false })).toBe(false);
+  });
+});
+
+
+describe("pierścień puli", () => {
+  it("łuki idą jeden za drugim, reszta obwodu to „zostało”", () => {
+    const parts = poolSegments(balance({ used_days: "12.0", planned_days: "2.5", pending_days: "1.5", remaining_days: "10.0" }))!;
+    const arcs = ringArcs(parts);
+    expect(arcs.map((arc) => arc.key)).toEqual(["used", "planned", "pending"]);
+    expect(arcs[0]).toMatchObject({ start: 0 });
+    expect(arcs[0].percent).toBeCloseTo((12 / 26) * 100);
+    expect(arcs[1].start).toBeCloseTo(arcs[0].percent);
+    expect(arcs[2].start).toBeCloseTo(arcs[0].percent + arcs[1].percent);
+    expect(arcs.reduce((sum, arc) => sum + arc.percent, 0)).toBeCloseTo((16 / 26) * 100);
+  });
+
+  it("pusta pula — łuki zerowe, bez dzielenia przez zero", () => {
+    const arcs = ringArcs({ used: 0, planned: 0, pending: 0, remaining: 0, total: 0 });
+    expect(arcs.every((arc) => arc.percent === 0 && arc.start === 0)).toBe(true);
+  });
+});
+
+describe("mini-kalendarz miesiąca", () => {
+  const day = (date: string, weekday: number, over: Partial<MonthDay> = {}) =>
+    ({
+      date,
+      weekday,
+      working_day: weekday <= 5,
+      holiday: null,
+      day_off: null,
+      location: "onsite",
+      entries: [],
+      leave: null,
+      ...over,
+    }) as MonthDay;
+  const entry = [{ id: 1 } as MonthDay["entries"][number]];
+  // Październik 2026 zaczyna się w czwartek.
+  const days = [
+    day("2026-10-01", 4, { entries: entry }),
+    day("2026-10-02", 5, { entries: entry, location: "remote" }),
+    day("2026-10-03", 6),
+    day("2026-10-05", 1, {
+      leave: { status: "approved", fraction: 1, full: true, paid_work: false, paid_hours: 0, label: "Przerwa" },
+    }),
+    day("2026-10-06", 1, {
+      leave: { status: "approved", fraction: 1, full: false, paid_work: true, paid_hours: 8, label: "Przerwa" },
+    }),
+    day("2026-10-07", 3, { working_day: false, day_off: "Dzień firmy" }),
+    day("2026-10-19", 1),
+    day("2026-10-20", 2),
+  ];
+
+  it("rodzaj dnia: uzupełniony, zdalnie, nieobecność, wolny, brakujący do dziś, przyszły", () => {
+    const calendar = monthCalendar({ days }, "2026-10-19", true);
+    expect(calendar.offset).toBe(3);
+    expect(calendar.days.map((d) => [d.day, d.kind])).toEqual([
+      [1, "filled"],
+      [2, "remote"],
+      [3, "off"],
+      [5, "leave"],
+      [6, "leave"],
+      [7, "off"],
+      [19, "missing"],
+      [20, "future"],
+    ]);
+    expect(calendar.days[5].label).toBe("07.10: dzień wolny (Dzień firmy)");
+    expect(calendar.days[6].label).toBe("19.10: brak wpisu — uzupełnij");
+  });
+
+  it("bez obowiązku raportu dzień bez wpisu nie jest „do uzupełnienia”", () => {
+    const calendar = monthCalendar({ days }, "2026-10-19", false);
+    expect(calendar.days.find((d) => d.day === 19)?.kind).toBe("empty");
+    expect(calendar.days.some((d) => d.kind === "missing")).toBe(false);
+  });
+
+  it("pusty miesiąc i linia braków", () => {
+    expect(monthCalendar({ days: [] }, "2026-10-19", true)).toEqual({ offset: 0, days: [] });
+    expect(missingLine([], "2026-10-19")).toBeNull();
+    expect(missingLine(["2026-10-19"], "2026-10-19")).toBe("Brakuje dziś (19.10)");
+    expect(missingLine(["2026-10-16"], "2026-10-19")).toBe("Brakuje 16.10");
+    expect(missingLine(["2026-10-15", "2026-10-16", "2026-10-19"], "2026-10-19")).toBe(
+      "Brakuje 3 dni: 15, 16, 19.10",
+    );
+  });
+
+  it("pasek godzin: praca i płatna nieobecność wobec normy, najwyżej 100", () => {
+    expect(monthHoursPercent({ work_hours: 80, leave_paid_hours: 8, norm_hours: 176 })).toBe(50);
+    expect(monthHoursPercent({ work_hours: 200, leave_paid_hours: 0, norm_hours: 176 })).toBe(100);
+    expect(monthHoursPercent({ work_hours: 0, leave_paid_hours: 0, norm_hours: 0 })).toBe(0);
   });
 });

@@ -11,7 +11,9 @@ przełącznik modułu w ``app_settings['hr_modules']``.
 * ``/export/{rok}/{miesiąc}/zip`` i ``…/csv`` — Płace, Kadry, admin,
 * ``/me/export.csv`` i ``/people/{id}/export.csv`` — godziny w CSV za zakres
   miesięcy: własne i osoby w zakresie czytającego (jak PDF),
-* ``/role-defaults`` — domyślne opisy (Kadry, admin).
+* ``/role-defaults`` — domyślne opisy (Kadry, admin),
+* ``/remind/{osoba}/{rok}/{miesiąc}`` — „Przypomnij” o timesheecie (Płace,
+  Kadry, admin, akceptujący tej osoby; raz dziennie na adresata).
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from app.api.hr_gates import (
     require_hr_self_service,
 )
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.hr_profile import EmployeeProfile
 from app.models.hr_time import Timesheet, TimesheetEntry
 from app.models.user import User, UserRole
@@ -47,6 +50,7 @@ from app.services.hr import (
     time_month,
     time_export,
     time_pdf,
+    time_reminders,
     time_retention,
     time_suggest,
 )
@@ -77,6 +81,10 @@ MODULE = HrModule.time
 NOT_APPROVER_DETAIL = "Timesheety akceptuje przełożony, Kadry albo administrator."
 NOT_PAYROLL_DETAIL = "Godziny całego miesiąca (paczkę i CSV) pobierają Płace i Kadry."
 NOT_ADMIN_DETAIL = "Domyślne opisy ustawiają Kadry."
+NOT_REMINDER_DETAIL = (
+    "O raporcie godzin przypominają Płace, Kadry, administrator "
+    "albo osoba, która go akceptuje."
+)
 
 
 # ── Bramki ────────────────────────────────────────────────────────────────────
@@ -148,11 +156,32 @@ def require_hr_time_admin():
     return _check
 
 
+def require_hr_time_reminder():
+    """„Przypomnij”: Płace, Kadry, admin albo akceptujący (zakres w serwisie)."""
+
+    async def _check(
+        current_user: User = Depends(require_onboarded_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        await ensure_module(db, current_user, MODULE)
+        if current_user.has_role(UserRole.admin) or any(
+            has_permission(current_user, p)
+            for p in (ProductAction.people_admin, ProductAction.payroll)
+        ):
+            return current_user
+        if await is_time_approver(db, current_user):
+            return current_user
+        raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_REMINDER_DETAIL)
+
+    return _check
+
+
 SelfUser = Annotated[User, Depends(require_hr_self_service(MODULE))]
 ApproverUser = Annotated[User, Depends(require_hr_time_approver())]
 ReaderUser = Annotated[User, Depends(require_hr_time_reader())]
 PayrollUser = Annotated[User, Depends(require_hr_time_payroll())]
 TimeAdminUser = Annotated[User, Depends(require_hr_time_admin())]
+ReminderUser = Annotated[User, Depends(require_hr_time_reminder())]
 
 
 @contextmanager
@@ -961,6 +990,35 @@ async def revoke_timesheet(
         await _visible_timesheet(db, actor, timesheet_id)
         timesheet = await time_flow.revoke(db, timesheet_id=timesheet_id, actor=actor)
     return time_month.timesheet_payload(timesheet)
+
+
+@router.post("/remind/{user_id}/{year}/{month}")
+async def remind_timesheet(
+    user_id: int,
+    year: int,
+    month: int,
+    current_user: ReminderUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Przypomnij” o timesheecie osoby za miesiąc.
+
+    Szkic albo brak raportu → powiadomienie do osoby; wysłany → do
+    akceptujących (przełożony według ``supervisor_of`` i jego zastępca).
+    Drugi klik tego samego dnia nic nie wysyła (``already_today: true``).
+    Przyjęty, zamknięty w płacach, bez obowiązku raportu = 409; osoba spoza
+    zakresu = 404; sobie = 403.
+    """
+
+    with _http_errors():
+        actor = await _approver(db, current_user)
+        return await time_reminders.remind_one(
+            db,
+            actor=actor,
+            user_id=user_id,
+            year=year,
+            month=month,
+            today=business_today(),
+        )
 
 
 # ── Domyślne opisy (Kadry) ────────────────────────────────────────────────────

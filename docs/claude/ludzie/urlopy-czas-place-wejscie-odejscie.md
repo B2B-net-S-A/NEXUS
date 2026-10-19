@@ -446,6 +446,48 @@ z odnośnikiem `hr_documents.leave_request_id`.
   opisu, domyślnych opisów ról i wpisów timesheetu; timesheet zablokowany płacami
   jest nietykalny.
 
+- **Ekran zamknięcia miesiąca (makieta „Płace — zamknięcie miesiąca”, 19.10.2026,
+  `PayrollCloseParts.tsx`, czyste funkcje w `payroll-format.ts`).** Stepper
+  Godziny → Premie → Kontrola → Zamknij (`closeSteps`) blokuje tylko to, co blokuje
+  serwer: każda propozycja premii z okresu (także „liczy się”, `stats.proposals`)
+  i niepotwierdzone ostrzeżenia. Godziny bez akceptacji to krok żółty (ostrzeżenie
+  `unapproved_timesheets`), potwierdza się je w „Kontroli” („Potwierdzam
+  ostrzeżenia”), a zamknięcie idzie wtedy od razu z `acknowledge_warnings`.
+  „Zamknij miesiąc” jest widoczne w otwartym miesiącu i nieaktywne do końca kroków
+  (podpowiedź mówi, czego brakuje). „Razem do wypłaty” liczy z linii osób
+  (`payoutBreakdown`: godziny i premie per waluta, per forma) — te same kwoty co
+  raport płac, nic nowego po stronie serwera. Osoba „do wyjaśnienia”
+  (`needsAttention`) = raport bez akceptacji (gdy go składa) albo godziny bez
+  stawki; wiersz podświetlony, filtr „Do wyjaśnienia N”. Przełożony widzi dawny
+  układ (liczby, tabela bez stawek, decyzje wiersz po wierszu) — D2 bez zmian.
+- **„Zatwierdź zaznaczone”** (`POST /api/hr/payroll/bonuses/approve-batch`,
+  `{ids: [1..100]}`, bramka `require_hr_payroll_admin` — tylko uprawnienie „Płace”,
+  przełożony 403). Wszystko albo nic w jednej transakcji żądania: każda premia
+  przechodzi `payroll_bonuses.approve_bonus` (zakres, autor propozycji ręcznej,
+  termin, otwarty okres, dzwonek osobie); pierwsza odmowa cofa całość (także
+  dzwonki) i odpowiada jej kodem z „Nic nie zatwierdzono — premia: <osoba>. …”.
+  Uzgodnienie kontraktów biegnie wcześniej i zostaje (jak przy pojedynczym).
+  Id sortowane rosnąco (stała kolejność blokad wierszy), duplikaty łączone. Na
+  ekranie domyślnie zaznaczone wszystko, co da się zatwierdzić
+  (`batchSelectable`: po terminie, `can_approve`, nie własna), z sumą per waluta
+  i oknem potwierdzenia przed wysłaniem.
+- **„Przypomnij” o raporcie godzin** (`POST /api/hr/time/remind/{user_id}/{rok}/{miesiąc}`,
+  `time_reminders.remind_one`, bramka `require_hr_time_reminder`: Płace, Kadry,
+  admin albo akceptujący — przełożony, zastępca, head pionu). Szkic albo brak
+  raportu → osoba (`hr_timesheet_reminder`, słowa formy, termin wysłania); raport
+  wysłany → akceptujący z `approval_recipients` bez wołającego
+  (`hr_timesheet_submitted`, link do „Akceptacji”). Raz dziennie na osobę, miesiąc
+  i adresata (`hr_job_runs` `hr_timesheet_manual_reminder`,
+  `RRRR-MM:u<id>:<person|approver>:<dzień>`) — drugi klik odpowiada 200
+  `already_today: true` i nic nie wysyła. Odmowy: sobie 403; osoba spoza zakresu
+  404; przyjęty raport, miesiąc zamknięty w płacach, osoba bez obowiązku raportu,
+  wyłączone konto i „czeka na Twoją decyzję” (wołający jest jedynym
+  akceptującym) — 409. Ślad `timesheet_reminder_sent` w `hr_audit_events`.
+  Odpowiedź: `{target, status, sent, already_today}`; front: `useRemindTimesheet`
+  + `reminderToast` w `lib/api/hr-time.ts` (z nich korzystają też „Akceptacje”).
+  W Płacach „Przypomnij” przy szkicu i braku, „Ponagl przełożonego/koordynatora”
+  przy raporcie do akceptacji (tylko Płace — przełożony sam akceptuje).
+
 ## „Mój czas” — przegląd, saldo, premie w drodze, rozliczenie (etap 2, 17.10.2026)
 
 - **„Przegląd” jest pierwszą i domyślną zakładką** „Mojego czasu” (`?tab=overview`,
@@ -510,6 +552,20 @@ z odnośnikiem `hr_documents.leave_request_id`.
 - **Archiwum timesheetów** w „Moim miesiącu” (`TimesheetArchive`): ostatnie
   12 miesięcy ze statusem, sumą godzin i PDF zaakceptowanego
   (`GET /api/hr/time/me/history`), pobierane dopiero po rozwinięciu.
+- **Układ „Przeglądu” po makiecie (19.10.2026).** Górny rząd: pierścień
+  nieobecności (`ringArcs`: wykorzystane → zaplanowane → czeka, w środku
+  „zostało”; bez płatnej puli — liczby bez pierścienia), miesiąc z paskiem godzin
+  (`monthHoursPercent`: praca + płatna nieobecność wobec normy) i mini-kalendarzem
+  (`monthCalendar`: uzupełniony, zdalnie, nieobecność, brakujący do dziś jako
+  przycisk otwierający „Mój miesiąc”, przyszły, wolny; osoba bez obowiązku raportu
+  nie ma dni „do uzupełnienia”), premie jako oś (`MyBonusItem.progress` i
+  `timeline`: „14 z 21 dni · liczy się do 28.10”, prognoza „umowa podpisana ·
+  start … · liczy się do ~…”). „Liczy się do” to termin decyzji Płac, nie dzień
+  wypłaty — nie pisz „wpadnie”. Dolny rząd: „Do zrobienia” (termin jako pigułka
+  `due`, jedna akcja `action`; protokół sprzętu bez przycisku — podpis idzie
+  linkiem z maila), „Mój sprzęt” (`EquipmentCard`, własna karta z ikoną rodzaju;
+  404/403 chowa kartę) i koordynator z pierścieniem „w pracy / nieobecny” tylko
+  przy otwartym module nieobecności.
 - Harness `/preview/hr-my-time`: domyślnie „Przegląd” osoby B2B z umowną pulą,
   `?form=uop`, `?form=zlecenie`; zero żądań pilnuje
   `app/preview/__tests__/hr-my-time-harness.test.tsx`.
