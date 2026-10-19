@@ -101,7 +101,14 @@ def _audit(action: str, **details) -> HrAuditEvent:
 
 class TestLeaveEventsFromAudit:
     @pytest.mark.parametrize(
-        "action", ["leave_approved", "absence_reported", "leave_entered_on_behalf"]
+        "action",
+        [
+            "leave_approved",
+            "absence_reported",
+            "leave_entered_on_behalf",
+            "leave_detected_from_outlook",
+            "leave_edited",
+        ],
     )
     def test_approval_paths_give_leave_approved_without_the_type(
         self, action: str
@@ -131,6 +138,8 @@ class TestLeaveEventsFromAudit:
         "action,details",
         [
             ("leave_requested", {"status": "pending"}),
+            ("leave_edited", {"status": "pending"}),
+            ("leave_detected_from_outlook", {"status": "pending"}),
             ("leave_rejected", {"status": "rejected"}),
             # Oczekujący wniosek nie był nieobecnością — jego anulowanie też nie.
             (

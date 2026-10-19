@@ -260,9 +260,18 @@ def _created_events(obj: Any, table: str) -> list[dict[str, Any]]:
 
 
 #: Wpisy śladu, po których wniosek jest zatwierdzony: akceptacja, nieobecność
-#: zatwierdzona od razu (``absence_reported``) i wpis za pracownika.
+#: zatwierdzona od razu (``absence_reported``), wpis za pracownika, zgłoszenie
+#: wykryte z autoodpowiedzi Outlooka (B2B/zlecenie) i zmiana zatwierdzonego
+#: wniosku — wtedy to samo ``leave_request_id`` z nowymi datami (audyt
+#: 19.10.2026: odbiorca trzymał stare daty po edycji).
 _LEAVE_APPROVED_ACTIONS = frozenset(
-    {"leave_approved", "absence_reported", "leave_entered_on_behalf"}
+    {
+        "leave_approved",
+        "absence_reported",
+        "leave_entered_on_behalf",
+        "leave_detected_from_outlook",
+        "leave_edited",
+    }
 )
 _APPROVED = "approved"
 
