@@ -1,6 +1,6 @@
 # Mail odrzucenia: treść domyślna i podgląd w oknie odrzucenia (13.10.2026)
 
-<!-- indeks: treść domyślna w kodzie bez „Pozdrawiam”, podgląd adresata/tematu/treści przed potwierdzeniem, poprawka przy jednej osobie, kilka osób tylko do odczytu, powód braku wysyłki od razu, szablony odrzucenia z Ustawień nieużywane, powód „tryb pracy” → profil -->
+<!-- indeks: treść domyślna w kodzie, podgląd przed potwierdzeniem, szablony z Ustawień nieużywane -->
 
 Decyzje Artura D1–D6 z 13.10.2026 (makiety:
 https://claude.ai/artifact/2YZDg3zkKYxayvWayRiZxs). Pierwszy mail odrzucenia

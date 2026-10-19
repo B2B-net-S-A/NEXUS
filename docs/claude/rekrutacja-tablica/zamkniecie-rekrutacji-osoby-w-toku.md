@@ -1,6 +1,6 @@
 # Zamknięcie rekrutacji ostrzega o osobach w toku (13.10.2026)
 
-<!-- indeks: 409 `active_cards_warning` z `POST /api/jobs/{id}/close` i z `PATCH` statusem, potwierdzenie `acknowledge_active_cards`, trzy okna zamykania, czego ostrzeżenie nie robi -->
+<!-- indeks: 409 `active_cards_warning`, `acknowledge_active_cards`, trzy okna zamykania -->
 
 12.10.2026 Delivery Lead zamknął duplikat requestu z pięcioma kartami, na
 których rekruterka pracowała kwadrans wcześniej. Zamknięcie zmienia status

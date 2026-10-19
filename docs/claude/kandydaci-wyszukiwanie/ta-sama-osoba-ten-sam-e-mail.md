@@ -1,5 +1,5 @@
 # Ta sama osoba = ten sam e-mail; nowe CV czytane od razu (12.10.2026)
-<!-- indeks: reguła duplikatów kandydata w oknach, /from-cv, poczcie M365 i imporcie; LinkedIn tylko z adresu profilu; główne CV = odczyt AI; blokady ręcznych poprawek -->
+<!-- indeks: duplikaty w oknach, /from-cv, poczcie i imporcie; LinkedIn z adresu profilu -->
 
 Zgłoszenie z 12.10.2026: okno „Dodaj kandydata” pokazało „Znaleziono 34 podobnego
 kandydata”, a kandydata nie było w bazie. Pomiar na produkcji (tylko odczyt):

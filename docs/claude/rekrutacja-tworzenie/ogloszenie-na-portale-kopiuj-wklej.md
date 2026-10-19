@@ -1,6 +1,6 @@
 # Ogłoszenie na portale — treść do wklejenia w Pracuj.pl i JustJoin.IT (0430 i 0432, 12–13.10.2026)
 
-<!-- indeks: okno „Ogłoszenie na portale”, jedna treść w dwóch formatach, kontrola przed skopiowaniem, stałe części firmy, awaria modelu nie nadpisuje treści, „Oznacz jako opublikowane” i kolumna „Ogłoszenia”, relacja do publikacji przez API -->
+<!-- indeks: jedna treść w dwóch formatach, kontrola przed skopiowaniem, „Oznacz jako opublikowane” -->
 
 Decyzje Artura 12.10.2026 (makiety https://claude.ai/artifact/NK7tLYnrh1mNgH7MQ8MhtX).
 Pomiar naszych publicznych ogłoszeń tego dnia (50 na JustJoin.IT, 15 na

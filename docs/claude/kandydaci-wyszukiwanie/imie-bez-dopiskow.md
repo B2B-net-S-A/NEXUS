@@ -1,5 +1,5 @@
 # Imię i nazwisko bez dopisków (D6, 13.10.2026)
-<!-- indeks: dopiski z Traffita („[ACTIVE]”, „(zaakceptowany)”, „(czarna lista)”) w imieniu, jedna reguła `candidate_name_rules`, odmowa 422 przy ręcznym wpisie, ciche zdejmowanie na ścieżkach automatycznych, migracja 0436 i faza startu, czarna lista → status, „active” → dostępność -->
+<!-- indeks: dopiski z Traffita w imieniu, `candidate_name_rules`, 422 przy ręcznym wpisie, migracja 0436 -->
 
 Traffit nie miał pól „zatrudniony”, „czarna lista” ani „szuka aktywnie”, więc
 rekruterzy wklejali je w imię: „[ACTIVE] Jan”, „Nowak (zaakceptowany)”,

@@ -1,6 +1,6 @@
 # Traffit daily sync (scheduled import)
 
-<!-- indeks: wyłączony na stałe 14.10.2026 (strażnik `traffit_retired.py`, 410, pętle nie startują) — co stoi, co zostało tylko w Traffit -->
+<!-- indeks: wyłączony na stałe 14.10.2026 (`traffit_retired.py`, 410) — co zostało tylko w Traffit -->
 
 ## Stan od 14.10.2026: Traffit wyłączony na stałe w kodzie
 

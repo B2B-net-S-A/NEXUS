@@ -1,6 +1,6 @@
 # Pełne scalenie klienta-duplikatu: BNP Paribas Cardif (52) → Cardif Assurances (38335) (13.10.2026)
 
-<!-- indeks: jednorazowa korekta `cardif_client_merge_repair`, kolejność „najpierw dane, potem flaga scalenia”, co zostaje na duplikacie, umowa 1520/2026 powiązana z kontraktem bez zmiany treści dokumentu, wzór na kolejne duplikaty z Traffita -->
+<!-- indeks: `cardif_client_merge_repair`, najpierw dane, potem flaga scalenia, wzór na kolejne duplikaty -->
 
 Rekord 52 powstał z mapowania w Traffit i trzy razy ściągnął na siebie dane
 właściwego klienta (dwa zgłoszenia z sierpnia → migracja 0244, potem umowa

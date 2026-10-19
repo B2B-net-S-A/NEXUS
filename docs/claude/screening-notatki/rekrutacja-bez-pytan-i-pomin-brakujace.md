@@ -1,5 +1,5 @@
 # Rekrutacja bez pytań screeningowych i „Pomiń brakujące” poza przepięciem (12.10.2026)
-<!-- indeks: bramka „Zweryfikowany” w rekrutacji bez Profilu Championa (wystarcza „Dlaczego ten kandydat”), kto może pominąć pytania bez odpowiedzi: przepięcie, wcześniejszy screening, osoba zatrudniona przez nas -->
+<!-- indeks: „Zweryfikowany” bez Profilu Championa, kto pomija pytania bez odpowiedzi -->
 
 Zgłoszenie z 12.10.2026 (kilka osób): po przepięciu kandydata do innej rekrutacji ruch na
 „Zweryfikowany” kończył się komunikatem „uzupełnij: arkusz screeningu”, którego nie dało się

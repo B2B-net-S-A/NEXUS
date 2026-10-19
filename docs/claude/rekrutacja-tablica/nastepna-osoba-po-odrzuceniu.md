@@ -1,6 +1,6 @@
 # Po odrzuceniu z panelu osoby — od razu następna osoba (13.10.2026)
 
-<!-- indeks: które przyciski przenoszą, kolejka „‹ ›” = kolumna osoby + filtr „Kto dodał” (14.10), po odpowiedzi serwera, pasek „Odrzucono · Pokaż”, „Wróć do kolejki”, ostatnia osoba, okno odrzucenia -->
+<!-- indeks: kolejka „‹ ›” = kolumna + filtr „Kto dodał”, pasek „Odrzucono · Pokaż”, „Wróć do kolejki” -->
 
 Prośba rekrutera, decyzje Artura D1–D4 z 13.10.2026 (makiety:
 https://claude.ai/artifact/JMfDAZdjFJtGjFxwHNyta6). Do tej daty po „Potwierdź”

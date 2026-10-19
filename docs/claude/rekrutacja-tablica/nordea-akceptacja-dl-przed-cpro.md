@@ -1,5 +1,5 @@
 # Nordea: do kolejki Cpro dopiero po akceptacji Delivery Leada (13.10.2026)
-<!-- indeks: „QC CV” u Nordei to przegląd DL, „Akceptuj — do Cpro” ze stawką do Cpro, rekruter nie wkłada osoby do kolejki (bramka serwera), dzwonek osoby od Cpro dopiero po akceptacji i gaśnie po wyjściu karty z kolejki, „Bez akceptacji DL” w kolejce -->
+<!-- indeks: „Akceptuj — do Cpro” ze stawką, bramka serwera dla rekrutera, dzwonek od Cpro po akceptacji -->
 
 Zgłoszenie Artura z 13.10.2026: osoba od Cpro dostawała „Do wrzucenia do
 Cpro”, gdy rekruter kończył QC, zanim Delivery Lead Nordei zaakceptował

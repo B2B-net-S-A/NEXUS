@@ -1,6 +1,6 @@
 # „W bazie od” — kiedy osoba trafiła do bazy (13.10.2026)
 
-<!-- indeks: data wejścia do bazy w panelu osoby, na Tablicy, w profilu przed telefonem i na liście; source_created_at z Traffita (0437) i naprawa dat; „Nowy w bazie” do 14 dni; data niedokładna = „przed …” -->
+<!-- indeks: data wejścia do bazy na ekranach, `source_created_at` (0437), „Nowy w bazie” do 14 dni -->
 
 Prośba rekrutera: świeże osoby są najlepsze, więc przy osobie ma być od razu widać, od kiedy jest w bazie
 (jak „Dodano” w Traffit). Makiety: https://claude.ai/artifact/8BSoHNnWMcWv6nJEK6aufP. Decyzje Artura 13.10.2026:
