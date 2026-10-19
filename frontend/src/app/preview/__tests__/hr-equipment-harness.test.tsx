@@ -47,7 +47,7 @@ function bodyRows(table: HTMLElement): HTMLElement[] {
 }
 
 describe("/preview/hr-equipment", () => {
-  it("ewidencja: kafle stanu, chipy, akcje wiersza; pozycja i jej protokół bez zapytań", async () => {
+  it("ewidencja: kafle stanu, chipy i akcje wiersza z makiety", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-equipment");
     render(<HrEquipmentPreviewPage />);
@@ -78,6 +78,15 @@ describe("/preview/hr-equipment", () => {
     expect(within(service).getByText("W serwisie")).toBeInTheDocument();
     expect(within(service).getByRole("button", { name: "Wróciło" })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /^Karta dostępu ogólny \+ biuro, pon–pt 7–19\s+K-1588/ })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("ewidencja: „Wyślij link” pyta, szczegół pozycji i jej protokół bez zapytań", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-equipment");
+    render(<HrEquipmentPreviewPage />);
+    const issued = await screen.findByRole("row", { name: /^Laptop Dell Vostro 3530, 16 GB\s+221/ });
 
     // „Wyślij link” pyta, bo nowy link unieważnia poprzedni — „Anuluj” niczego nie wysyła.
     await user.click(within(issued).getByRole("button", { name: "Wyślij link" }));
