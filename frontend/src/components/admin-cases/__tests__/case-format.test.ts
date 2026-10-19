@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { CaseCard } from "@/lib/api/admin-cases";
 
 import {
-  BOARD_COLUMNS,
   addChecklistItem,
   caseSubline,
+  dueBadge,
   dueLabel,
   fileSize,
   groupByStatus,
@@ -48,6 +48,44 @@ describe("daty spraw", () => {
   });
 });
 
+describe("termin w kolorze (makieta 19.10.2026)", () => {
+  const today = "2026-10-20"; // wtorek
+  const friday = "2026-10-23";
+
+  it("po terminie, dziś, jutro, za N dni do piątku, później i bez terminu", () => {
+    expect(dueBadge(card({ due_on: "2026-10-17", overdue: true }), today, friday)).toEqual({
+      text: "po terminie · 17.10",
+      tone: "overdue",
+    });
+    expect(dueBadge(card({ due_on: today }), today, friday)).toEqual({
+      text: "dziś · 20.10",
+      tone: "week",
+    });
+    expect(dueBadge(card({ due_on: "2026-10-21" }), today, friday)?.text).toBe("jutro · 21.10");
+    expect(dueBadge(card({ due_on: friday }), today, friday)).toEqual({
+      text: "za 3 dni · 23.10",
+      tone: "week",
+    });
+    expect(dueBadge(card({ due_on: "2026-10-29" }), today, friday)).toEqual({
+      text: "29.10",
+      tone: "later",
+    });
+    expect(dueBadge(card({ due_on: null }), today, friday)).toEqual({
+      text: "bez terminu",
+      tone: "none",
+    });
+  });
+
+  it("zrobiona sprawa bez terminu; starsza odpowiedź bez „dziś” — jak dotąd", () => {
+    expect(dueBadge(card({ status: "done" }), today, friday)).toBeNull();
+    expect(dueBadge(card({ status: "closed", due_on: null }), today, friday)).toBeNull();
+    expect(dueBadge(card({ due_on: "2026-10-21" }), undefined, undefined)).toEqual({
+      text: "do 21.10",
+      tone: "later",
+    });
+  });
+});
+
 describe("tablica", () => {
   it("rozkłada karty po kolumnach i pomija zamknięte bez kolumny", () => {
     const grouped = groupByStatus(
@@ -57,7 +95,7 @@ describe("tablica", () => {
         card({ id: 3, status: "closed" }),
         card({ id: 4, status: "new" }),
       ],
-      BOARD_COLUMNS,
+      ["new", "in_progress", "waiting", "done"],
     );
     expect(grouped.new.map((c) => c.id)).toEqual([1, 4]);
     expect(grouped.waiting.map((c) => c.id)).toEqual([2]);

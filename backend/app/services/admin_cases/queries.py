@@ -3,6 +3,12 @@
 Zakres listy liczy ``service.is_handler``: obsługa widzi wszystkie sprawy,
 osoba przypisana bez uprawnienia — tylko swoje. Kontrakt pokazujemy jako
 osobę i klienta, bez kwot.
+
+Chipy tablicy (makieta 19.10.2026): „Na ten tydzień” = otwarta sprawa
+z terminem najpóźniej w piątek tego tygodnia (też po terminie), „Bez osoby”
+= otwarta bez przypisanej osoby. Filtrują po stronie serwera (lista ma
+limit), a liczniki ``counts`` liczy jedno zapytanie z grupowaniem po
+obszarze — w zakresie czytającego i wyszukiwania, bez filtrów chipów.
 """
 
 from __future__ import annotations
@@ -39,6 +45,19 @@ class ListFilters:
     priority: Optional[str] = None
     q: Optional[str] = None
     include_closed: bool = False
+    #: Otwarte z terminem do piątku tego tygodnia (także po terminie).
+    week: bool = False
+    #: Otwarte bez przypisanej osoby.
+    unassigned: bool = False
+
+
+OPEN_STATUSES = ("new", "in_progress", "waiting")
+
+
+def week_end(today: date) -> date:
+    """Piątek tygodnia ``today`` (w weekend — piątek, który minął)."""
+
+    return today + timedelta(days=4 - today.weekday())
 
 
 def _like(term: str) -> str:
@@ -122,12 +141,59 @@ def _card(
     }
 
 
+def _search(term: str):
+    pattern = _like(term)
+    return or_(
+        AdminCase.title.ilike(pattern, escape="\\"),
+        AdminCase.description.ilike(pattern, escape="\\"),
+    )
+
+
+async def _chip_counts(
+    db: AsyncSession, scope: list, *, friday: date
+) -> dict[str, Any]:
+    """Liczniki chipów: otwarte sprawy po obszarze, „na ten tydzień”, „bez osoby”."""
+
+    rows = (
+        await db.execute(
+            select(
+                AdminCase.area,
+                func.count(AdminCase.id),
+                func.count(AdminCase.id).filter(AdminCase.due_on <= friday),
+                func.count(AdminCase.id).filter(AdminCase.assignee_user_id.is_(None)),
+            )
+            .where(AdminCase.status.in_(OPEN_STATUSES), *scope)
+            .group_by(AdminCase.area)
+        )
+    ).all()
+    return {
+        "areas": {area: int(total) for area, total, _w, _u in rows},
+        "week": sum(int(w) for _a, _t, w, _u in rows),
+        "unassigned": sum(int(u) for _a, _t, _w, u in rows),
+    }
+
+
 async def list_cases(
     db: AsyncSession, viewer: User, filters: ListFilters
 ) -> dict[str, Any]:
+    today = business_today()
+    friday = week_end(today)
     stmt = select(AdminCase)
+    scope = []
     if filters.mine or not is_handler(viewer):
-        stmt = stmt.where(AdminCase.assignee_user_id == viewer.id)
+        scope.append(AdminCase.assignee_user_id == viewer.id)
+    term = (filters.q or "").replace("\x00", "").strip()
+    if term:
+        scope.append(_search(term))
+    stmt = stmt.where(*scope)
+    if filters.week:
+        stmt = stmt.where(
+            AdminCase.status.in_(OPEN_STATUSES), AdminCase.due_on <= friday
+        )
+    if filters.unassigned:
+        stmt = stmt.where(
+            AdminCase.status.in_(OPEN_STATUSES), AdminCase.assignee_user_id.is_(None)
+        )
     if filters.area:
         stmt = stmt.where(AdminCase.area == filters.area)
     if filters.priority:
@@ -144,15 +210,6 @@ async def list_cases(
         if filters.include_closed:
             visible = or_(visible, AdminCase.status == "closed")
         stmt = stmt.where(visible)
-    term = (filters.q or "").replace("\x00", "").strip()
-    if term:
-        pattern = _like(term)
-        stmt = stmt.where(
-            or_(
-                AdminCase.title.ilike(pattern, escape="\\"),
-                AdminCase.description.ilike(pattern, escape="\\"),
-            )
-        )
     stmt = stmt.order_by(
         AdminCase.priority.asc(),
         AdminCase.due_on.asc().nulls_last(),
@@ -172,7 +229,6 @@ async def list_cases(
     contracts = await _contract_labels(
         db, {case.contract_id for case in cases if case.contract_id}
     )
-    today = business_today()
     month_start = local_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     done_this_month = await db.scalar(
         select(func.count(AdminCase.id)).where(
@@ -192,6 +248,9 @@ async def list_cases(
         "total": len(cases),
         "truncated": truncated,
         "done_this_month": int(done_this_month or 0),
+        "counts": await _chip_counts(db, scope, friday=friday),
+        "today": today,
+        "week_end": friday,
         "can_manage": is_handler(viewer),
     }
 

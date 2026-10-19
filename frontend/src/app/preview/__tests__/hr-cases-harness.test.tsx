@@ -52,21 +52,33 @@ describe("/preview/hr-cases", () => {
     expect(columnCount("Nowa")).toBe("3");
     expect(columnCount("W toku")).toBe("2");
     expect(columnCount("Czeka na kogoś")).toBe("1");
-    expect(columnCount("Zrobione")).toBe("1");
+    // Wąska kolumna „Zrobione”: liczba z miesiąca, jedna sprawa z 30 dni na liście.
+    expect(columnCount("Zrobione")).toBe("41");
     expect(screen.getByText(/^41 w tym miesiącu/)).toBeInTheDocument();
-    const onboarding = screen.getByRole("button", { name: "Sprawa: Onboarding: Anna Kontraktorska" });
+    const onboarding = screen.getByRole("listitem", { name: "Onboarding: Anna Kontraktorska" });
     expect(within(onboarding).getByText("z maila")).toBeInTheDocument();
     expect(within(onboarding).getByText("P1")).toBeInTheDocument();
     expect(within(onboarding).getByText(/kontrakt w NEXUSIE/)).toBeInTheDocument();
-    const offboarding = screen.getByRole("button", { name: "Sprawa: Offboarding: Tomasz Podglądowy" });
+    expect(within(onboarding).getByRole("progressbar", { name: "Lista kontrolna: 1 z 4" })).toBeInTheDocument();
+    expect(within(onboarding).getByText(/^za 2 dni · |^jutro · |^dziś · |^\d{2}\.\d{2}$/)).toBeInTheDocument();
+    const offboarding = screen.getByRole("listitem", { name: "Offboarding: Tomasz Podglądowy" });
     expect(within(offboarding).getByText("z odejścia")).toBeInTheDocument();
+    expect(within(offboarding).getByRole("button", { name: /^Weź sprawę/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Nowa sprawa" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Onboarding 1$/ })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /^Bez osoby/ }));
+    expect(tiles().map((tile) => tile.getAttribute("aria-label"))).toEqual([
+      "Sprawa: Offboarding: Tomasz Podglądowy",
+      "Sprawa: Faktura za szkolenie BHP",
+    ]);
+    await user.click(screen.getByRole("button", { name: /^Bez osoby/ }));
 
     await user.click(screen.getByRole("radio", { name: "Moje" }));
     expect(tiles()).toHaveLength(2);
     await user.click(screen.getByRole("radio", { name: "Wszystkie" }));
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "Pokaż zamknięte" }));
     expect(await screen.findByRole("heading", { name: "Zamknięta", level: 3 })).toBeInTheDocument();
     expect(tiles()).toHaveLength(8);
 

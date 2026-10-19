@@ -536,6 +536,24 @@ zapełnić.
   usunięcie kontraktu zamyka jego sprawę wejścia (savepoint — awaria spraw nie
   blokuje usunięcia).
 - Zakładkę „Sprawy” widzi uprawnienie „Sprawy”, admin i osoba przypisana do sprawy.
+- **Tablica (makieta 19.10.2026, `CasesBoard.tsx`)**: chipy obszarów
+  z liczbą, „Na ten tydzień” i „Bez osoby” to filtry SERWERA
+  (`GET /api/cases?week=true|unassigned=true` — lista ma limit 500, więc
+  filtr w przeglądarce gubiłby sprawy). „Na ten tydzień” = otwarta sprawa
+  z terminem najpóźniej w piątek tego tygodnia kalendarza firmy (też po
+  terminie; w weekend — piątek, który minął), „Bez osoby” = otwarta bez
+  przypisanej osoby. Liczniki `counts` liczy jedno zapytanie z grupowaniem
+  po obszarze, w zakresie czytającego i wyszukiwania, bez filtrów chipów.
+  Odpowiedź niesie `today` i `week_end`, z których ekran koloruje termin:
+  po terminie (czerwony, liczy serwer), do piątku („dziś”, „jutro”, „za N
+  dni” — żółty), później (szary), „bez terminu”. Karta: ikona źródła,
+  kropka priorytetu, pasek listy kontrolnej, awatar osoby. „Zrobione” to
+  wąska kolumna z liczbą z miesiąca, „Pokaż zamknięte” w niej.
+- **„Weź”** na sprawie bez osoby (tylko obsługa skrzynki) to zwykłe
+  `PATCH /api/cases/{id}` z `assignee_user_id` = czytający
+  i `expected_updated_at` karty — ktoś wziął ją w międzyczasie = 409, nie
+  ciche nadpisanie. Osobnej trasy nie ma; dzwonka do siebie też nie
+  (`notify_assignee` pomija autora).
 - Przypisanie sprawy innej osobie (`admin_case_assigned`) to dymek i mail „Czas
   i ludzie” z linkiem `/people/cases/{id}`. Tytuł sprawy (temat cudzego maila)
   do maila nie idzie — mail mówi tylko, że sprawa czeka. Zakładka „Sprawy” ma

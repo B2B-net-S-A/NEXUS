@@ -11,18 +11,22 @@ spraw i kont założonych w danym teście. Dane fikcyjne (repo jest publiczne).
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.core.security import create_access_token
+from app.models.admin_case import AdminCase
 from app.models.app_setting import AppSetting
 from app.models.hr_ops import HrAuditEvent
 from app.models.notification import Notification, NotificationType
 from app.models.section_permission import UserActionOverride
 from app.models.user import User, UserRole
+from app.services.admin_cases.queries import week_end
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 
 
@@ -413,6 +417,113 @@ async def test_list_filters_mine_area_and_search(app_client, modules_on, team) -
 
     wildcard = await app_client.get("/api/cases", params={"q": "%"}, headers=headers)
     assert all("%" in item["title"] for item in wildcard.json()["items"])
+
+
+@pytest.mark.asyncio
+async def test_chips_week_and_unassigned_filter_on_server_with_counts(
+    app_client, modules_on, team
+) -> None:
+    """Chipy „Na ten tydzień” i „Bez osoby” (makieta 19.10.2026) i ich liczniki."""
+
+    marker = uuid.uuid4().hex[:8]
+    today = business_today()
+    friday = week_end(today)
+    late = await _create(
+        app_client,
+        team["granted"],
+        title=f"Po terminie {marker}",
+        area="onboarding",
+        due_on=(today - timedelta(days=3)).isoformat(),
+    )
+    this_week = await _create(
+        app_client,
+        team["granted"],
+        title=f"Do piątku {marker}",
+        area="onboarding",
+        due_on=friday.isoformat(),
+        assignee_user_id=team["granted"].id,
+    )
+    later = await _create(
+        app_client,
+        team["granted"],
+        title=f"Później {marker}",
+        area="marketing",
+        due_on=(friday + timedelta(days=7)).isoformat(),
+    )
+    headers = _headers(team["granted"])
+
+    week = await app_client.get(
+        "/api/cases", params={"week": "true", "q": marker}, headers=headers
+    )
+    assert week.status_code == 200, week.text
+    assert {item["id"] for item in week.json()["items"]} == {
+        late["id"],
+        this_week["id"],
+    }
+    assert week.json()["week_end"] == friday.isoformat()
+    assert week.json()["today"] == today.isoformat()
+
+    nobody = await app_client.get(
+        "/api/cases", params={"unassigned": "true", "q": marker}, headers=headers
+    )
+    assert {item["id"] for item in nobody.json()["items"]} == {late["id"], later["id"]}
+
+    # Liczniki nie zależą od włączonych chipów ani obszaru — tylko zakres i szukanie.
+    counts = (
+        await app_client.get(
+            "/api/cases",
+            params={"q": marker, "area": "marketing", "week": "true"},
+            headers=headers,
+        )
+    ).json()["counts"]
+    assert counts == {
+        "areas": {"onboarding": 2, "marketing": 1},
+        "week": 2,
+        "unassigned": 2,
+    }
+
+    # Zrobiona sprawa nie wisi w „Na ten tydzień”.
+    done = await app_client.patch(
+        f"/api/cases/{late['id']}", json={"status": "done"}, headers=headers
+    )
+    assert done.status_code == 200, done.text
+    week = await app_client.get(
+        "/api/cases", params={"week": "true", "q": marker}, headers=headers
+    )
+    assert [item["id"] for item in week.json()["items"]] == [this_week["id"]]
+
+    # „Weź” = przypisanie do siebie istniejącą zmianą sprawy; cudza wersja → 409.
+    stale = later["updated_at"]
+    taken = await app_client.patch(
+        f"/api/cases/{later['id']}",
+        json={"assignee_user_id": team["tcm"].id, "expected_updated_at": stale},
+        headers=_headers(team["tcm"]),
+    )
+    assert taken.status_code == 200, taken.text
+    assert taken.json()["assignee"]["id"] == team["tcm"].id
+    again = await app_client.patch(
+        f"/api/cases/{later['id']}",
+        json={"assignee_user_id": team["granted"].id, "expected_updated_at": stale},
+        headers=headers,
+    )
+    assert again.status_code == 409, again.text
+
+    # Osoba bez uprawnienia nie widzi spraw bez osoby, nawet z chipem.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(AdminCase)
+            .where(AdminCase.id == this_week["id"])
+            .values(assignee_user_id=team["plain"].id)
+        )
+        await db.commit()
+    plain = await app_client.get(
+        "/api/cases",
+        params={"unassigned": "true", "q": marker},
+        headers=_headers(team["plain"]),
+    )
+    assert plain.status_code == 200, plain.text
+    assert plain.json()["items"] == []
+    assert plain.json()["counts"]["unassigned"] == 0
 
 
 @pytest.mark.asyncio
