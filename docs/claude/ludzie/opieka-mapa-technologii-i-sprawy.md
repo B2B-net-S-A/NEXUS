@@ -19,6 +19,16 @@
   (punkt planu albo follow-up z rozmowy) → `care_contact_due` (sekcja Delivery) do
   opiekuna, najwyżej raz na 7 dni na kontrakt; koniec projektu < 60 dni → wpis
   „Do przepięcia”.
+- **Zbiorczy dzwonek opiekuna** (decyzja Artura 19.10.2026 po pierwszym
+  przebiegu 18.10: 472 dzwonki, jednemu DL 290 — bez zapisanego przydziału
+  opiekunem jest DL z łańcucha). Jeden kontrakt do kontaktu = dzwonek jak
+  wyżej (link do kontraktu). Kilka = JEDEN dzwonek „Kontakt z konsultantami”
+  (`related_entity_type = care_owner_digest`, id opiekuna, link `/care` =
+  „Ten tydzień”): liczba, trzy pierwsze osoby po terminie, najstarszy termin.
+  Najwyżej raz na 7 dni na opiekuna, wcześniej tylko, gdy któryś kontakt
+  wypada dziś. Kontrakty z dzwonkiem pojedynczym w ostatnich 7 dniach się nie
+  liczą (`skipped`). Licznik przebiegu `digests`. 472 dzwonki z 18.10
+  oznaczone jako przeczytane (ślad w raporcie audytu A3).
 - **„Następny kontakt” liczy jedna funkcja** `care/plan.next_contact` (karta
   kontraktu, „Konsultanci”, dzwonek opiekuna): najwcześniejszy otwarty
   punkt planu albo umówiony kontakt z OSTATNIEJ rozmowy, nie starszy niż
