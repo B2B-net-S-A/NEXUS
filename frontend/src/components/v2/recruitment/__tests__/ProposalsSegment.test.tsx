@@ -172,10 +172,9 @@ describe("ProposalsSegment — stany", () => {
     mocks.state.current = s;
     render(<ProposalsSegment {...props} />);
     expect(screen.getByRole("heading", { name: "Anna Nowak1" })).toBeInTheDocument();
-    const footer = within(screen.getByTestId("footer"));
-    expect(footer.getByRole("button", { name: "Dodaj do rekrutacji" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
-    fireEvent.click(footer.getByRole("button", { name: "Pomiń" }));
+    const bar = within(screen.getByTestId("proposals-bulk-bar"));
+    fireEvent.click(bar.getByRole("button", { name: "Pomiń" }));
     // „Pomiń" pyta o powód (0405) — bez wyboru nic nie wychodzi.
     const dialog = within(screen.getByRole("dialog"));
     expect(dialog.getByText("Pomiń 2 osoby — dlaczego?")).toBeInTheDocument();
@@ -184,16 +183,28 @@ describe("ProposalsSegment — stany", () => {
     fireEvent.click(dialog.getByRole("button", { name: "Pomiń" }));
     expect(s.dismiss).toHaveBeenCalledWith([1, 2], { reason: "missing_critical" });
     fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
-    fireEvent.click(footer.getByRole("button", { name: "Porównaj" }));
+    fireEvent.click(within(screen.getByTestId("proposals-bulk-bar")).getByRole("button", { name: "Porównaj" }));
     expect(mocks.push).toHaveBeenCalledWith("/candidates/compare?ids=1%2C2&job=42");
   });
 
-  it("tabela ma własny przewijany obszar, więc pasek „Dodaj do rekrutacji” nie ucieka pod 200 wierszy", () => {
-    mocks.state.current = state({ entries: entriesOf([1, 2]) });
+  it("akcje zbiorcze pływają przy dolnej krawędzi ekranu dopiero po zaznaczeniu", () => {
+    const s = state({ entries: entriesOf([1, 2]) });
+    mocks.state.current = s;
     render(<ProposalsSegment {...props} />);
-    // Bez ograniczonej wysokości VirtualTable rośnie do pełnej listy, a stopka
-    // z akcjami zbiorczymi ląduje pod ostatnim wierszem (zgłoszenie 19.10.2026).
-    expect(screen.getByTestId("people-table").className).toMatch(/max-h-\[\d+dvh\]/);
+    // W stopce tabeli lądowały pod ostatnim z 200+ wierszy (zgłoszenie 19.10.2026).
+    expect(screen.queryByTestId("proposals-bulk-bar")).toBeNull();
+    expect(within(screen.getByTestId("footer")).queryByRole("button", { name: "Dodaj do rekrutacji" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
+    const bar = screen.getByTestId("proposals-bulk-bar");
+    expect(bar.className).toMatch(/\bsticky\b/);
+    expect(bar.className).toMatch(/\bbottom-/);
+    expect(bar).toHaveTextContent("Zaznaczono 2");
+    fireEvent.click(within(bar).getByRole("button", { name: "Dodaj do rekrutacji" }));
+    expect(s.addToJob).toHaveBeenCalledWith([1, 2]);
+    expect(screen.queryByTestId("proposals-bulk-bar")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
+    fireEvent.click(within(screen.getByTestId("proposals-bulk-bar")).getByRole("button", { name: "Odznacz" }));
+    expect(screen.queryByTestId("proposals-bulk-bar")).toBeNull();
   });
 
   it("skróty D / P działają na aktywnej osobie, ale nie w polu tekstowym", () => {
