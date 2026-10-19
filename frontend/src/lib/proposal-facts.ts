@@ -108,7 +108,34 @@ export function clientHistoryLine(history: ProposalClientHistory | null | undefi
   return `Był(a) u tego klienta: ${where} — doszedł(a) do etapu „${history.furthest_stage_label}”${suffix}`;
 }
 
-export type ProposalSortMode = "client_first" | "proposals";
+/**
+ * „match” = według pokazanego dopasowania (domyślnie od 19.10.2026, zgłoszenie
+ * „najpierw najbardziej dopasowani”); „client_first” = najpierw byli u klienta.
+ */
+export type ProposalSortMode = "match" | "client_first";
+
+/**
+ * Według pokazanego dopasowania malejąco; osoby bez wyniku na końcu w dotychczasowej
+ * kolejności. Stabilne — remisy zostają tam, gdzie były.
+ */
+export function sortByShownScore<T extends { candidateId: number }>(
+  rows: readonly T[],
+  scoreOf: (row: T) => number | null | undefined,
+): T[] {
+  return rows
+    .map((row, index) => ({ row, index, score: scoreOf(row) }))
+    .sort((a, b) => {
+      const sa = typeof a.score === "number" ? a.score : null;
+      const sb = typeof b.score === "number" ? b.score : null;
+      if (sa !== sb) {
+        if (sa === null) return 1;
+        if (sb === null) return -1;
+        return sb - sa;
+      }
+      return a.index - b.index;
+    })
+    .map((x) => x.row);
+}
 
 /**
  * „Najpierw byli u tego klienta” — osoby z historią u klienta na górę

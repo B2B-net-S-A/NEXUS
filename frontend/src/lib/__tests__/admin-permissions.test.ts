@@ -262,7 +262,10 @@ describe("dodatkowe uprawnienia osoby", () => {
       "delivery_view",
     ]);
     expect(permissionsOfRoles(snapshot, ["recruiter", "finance"]).has("finance_module")).toBe(true);
-    expect(permissionsOfRoles(snapshot, ["recruiter"]).size).toBe(0);
+    // 19.10.2026: rekruter ma z roli tylko podpis umowy (autor albo zespół).
+    expect([...permissionsOfRoles(snapshot, ["recruiter"])]).toEqual([
+      "b2b_signature_confirmation",
+    ]);
   });
 
   it("lista pokazuje wyłącznie to, czego role nie dają", () => {
