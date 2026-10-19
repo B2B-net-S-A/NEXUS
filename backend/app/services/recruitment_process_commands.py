@@ -598,9 +598,17 @@ async def _create_process(
     origin_kind: PriorityOriginKind,
     source_authority: str,
     semantics: _StageSemantics,
+    owner_user_id: Optional[int] = None,
 ) -> RecruitmentProcess:
     opened_at = stage.moved_at or datetime.now(timezone.utc)
     terminal = semantics.is_terminal
+    # Jawny właściciel (zgłoszenie z linku rekrutacji, 19.10.2026) wygrywa
+    # z właścicielem z planu priorytetów; kredyt KPI zostaje przy weryfikacji.
+    owner_actor_id = (
+        owner_user_id
+        if owner_user_id is not None
+        else decision.assignment_owner_user_id
+    )
     process = RecruitmentProcess(
         candidate_id=stage.candidate_id,
         job_id=stage.job_id,
@@ -616,11 +624,11 @@ async def _create_process(
         owner_user_id=(
             await nominal_task_owner(
                 db,
-                actor_id=decision.assignment_owner_user_id,
+                actor_id=owner_actor_id,
                 job_id=job.id,
                 candidate_id=stage.candidate_id,
             )
-            if decision.assignment_owner_user_id is not None
+            if owner_actor_id is not None
             else None
         ),
         source_authority=source_authority,
@@ -933,6 +941,7 @@ async def transition_process(
     expected_state_version: Optional[int] = None,
     entry_source: Optional[str] = None,
     claim_for_user_id: Optional[int] = None,
+    process_owner_user_id: Optional[int] = None,
     reassign_from_job_id: Optional[int] = None,
     entry_meta: Optional[dict] = None,
     _strict_open: bool = False,
@@ -943,7 +952,9 @@ async def transition_process(
     Pipeline v4 (0352): ``entry_source``/``reassign_from_job_id`` stemplują
     NOWY proces (skąd osoba weszła), ``claim_for_user_id`` zakłada blokadę
     12 h, gdy nowy proces zaczyna się w kolumnie „Nowi". Ruch poza „Nowych"
-    zdejmuje blokadę (``candidate_claim``).
+    zdejmuje blokadę (``candidate_claim``). ``process_owner_user_id`` ustawia
+    właściciela NOWEGO procesu wprost (zgłoszenie z linku rekrutacji =
+    właściciel linku, 19.10.2026) — bez wpływu na ``kpi_eligible`` i kredyt.
 
     ``require_existing`` is used by signing/contract automation: such hooks may
     advance carry-over, but may never manufacture a fresh recruitment.
@@ -1094,6 +1105,7 @@ async def transition_process(
             origin_kind=origin_kind,
             source_authority=source_authority,
             semantics=semantics,
+            owner_user_id=process_owner_user_id,
         )
         if (
             entry_source in _REASSIGN_DETECTABLE_SOURCES

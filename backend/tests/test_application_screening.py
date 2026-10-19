@@ -574,3 +574,256 @@ async def test_new_candidate_waits_for_cv_before_claim(api, screening_on):
         )
         await db.commit()
     assert row.id in await svc.claim_batch(limit=100)
+
+
+# ── Etap 2 linków (19.10.2026): karta z linku jest właściciela linku ────────
+
+
+async def _process(candidate_id: int, job_id: int) -> RecruitmentProcess:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(RecruitmentProcess)
+            .where(
+                RecruitmentProcess.candidate_id == candidate_id,
+                RecruitmentProcess.job_id == job_id,
+            )
+            .order_by(RecruitmentProcess.id.desc())
+            .limit(1)
+        )
+
+
+async def _bells(user_id: int, candidate_id: int) -> list[str]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Notification.message).where(
+                        Notification.user_id == user_id,
+                        Notification.related_entity_id == candidate_id,
+                    )
+                )
+            ).all()
+        )
+
+
+def _assert_claimed_for(process: RecruitmentProcess, owner_id: int) -> None:
+    from app.services.process_entry_meta import application_link_owner_id
+
+    now = datetime.now(timezone.utc)
+    assert process.claimed_by_user_id == owner_id
+    # 12 h od wejścia karty do „Nowi” (decyzja A), nie od wysłania formularza.
+    assert now + timedelta(hours=11, minutes=55) < process.claimed_until
+    assert process.claimed_until <= now + timedelta(hours=12)
+    assert process.owner_user_id == owner_id
+    # Decyzja B: Liga i Cele bez zmian — kredyt KPI dalej przy weryfikacji.
+    assert process.kpi_eligible is None and process.credit_user_id is None
+    assert application_link_owner_id(process.entry_meta) == owner_id
+
+
+def test_link_owner_reads_only_application_entries():
+    from app.services.process_entry_meta import (
+        application_link_entry_meta,
+        application_link_owner_id,
+        application_screening_entry_meta,
+    )
+
+    assert application_link_owner_id(application_link_entry_meta(7)) == 7
+    screened = application_screening_entry_meta(
+        verdict="fits", assessed=True, must_found=1, must_total=1, link_owner_id=9
+    )
+    assert application_link_owner_id(screened) == 9
+    assert application_screening_badge(screened)["verdict"] == "fits"
+    assert application_link_owner_id({"kind": "auto_match", "link_owner_id": 7}) is None
+    assert application_link_owner_id({"kind": "application_link"}) is None
+    assert (
+        application_link_owner_id({"kind": "application_link", "link_owner_id": True})
+        is None
+    )
+    assert application_link_owner_id(None) is None
+
+
+async def test_flag_off_new_application_is_claimed_for_link_owner(api):
+    uid, _, job_id, email = await _apply(api)
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(select(Candidate).where(Candidate.email == email))
+    _assert_claimed_for(await _process(cand.id, job_id), uid)
+    assert any("jest Twoja do" in m for m in await _bells(uid, cand.id))
+
+
+async def test_flag_off_existing_candidate_is_claimed_for_link_owner(api):
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    email = f"scr-own-{uuid.uuid4().hex[:6]}@example.com"
+    async with AsyncSessionLocal() as db:
+        existing = Candidate(name="Stary", lastname="Profil", email=email)
+        db.add(existing)
+        await db.commit()
+        existing_id = existing.id
+    resp = await api.post(
+        "/api/public/career/apply", data=_form(link["slug"], email), files=_cv()
+    )
+    assert resp.status_code == 201, resp.text
+    _assert_claimed_for(await _process(existing_id, job_id), uid)
+    assert any("jest Twoja do" in m for m in await _bells(uid, existing_id))
+
+
+async def test_screened_application_is_claimed_from_entry_to_new(
+    api, screening_on, monkeypatch
+):
+    uid, _, job_id, _ = await _apply(api)
+    row = await _row_for(job_id)
+    # Przegląd trwał 3 h — blokada i tak liczy 12 h od wejścia do „Nowi”.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ApplicationScreening)
+            .where(ApplicationScreening.id == row.id)
+            .values(created_at=datetime.now(timezone.utc) - timedelta(hours=3))
+        )
+        await db.commit()
+    await _set_cv(row.id, JAVA_CV)
+    monkeypatch.setattr(svc, "_call_model", _luna({"verdict": "fits"}))
+    assert await svc.process_one(row.id) == "added"
+    _assert_claimed_for(await _process(row.candidate_id, job_id), uid)
+    assert any("jest Twoja do" in m for m in await _bells(uid, row.candidate_id))
+
+
+async def test_add_despite_claims_for_link_owner_not_for_clicker(
+    api, screening_on, monkeypatch
+):
+    from tests.test_career_links_api import _seed_user
+
+    uid, _, job_id, _ = await _apply(api)
+    clicker_id, _, _ = await _seed_user("clicker")
+    row = await _row_for(job_id)
+    await _set_cv(row.id, CV_TEXT)
+    monkeypatch.setattr(
+        svc,
+        "_call_model",
+        _luna(
+            {
+                "verdict": "not_fit",
+                "reasons": [
+                    {"text": "Inna dziedzina.", "quote": "Samodzielna księgowa"}
+                ],
+            }
+        ),
+    )
+    assert await svc.process_one(row.id) == "screened_out"
+    async with AsyncSessionLocal() as db:
+        await svc.add_despite(
+            db, job_id=job_id, screening_id=row.id, user_id=clicker_id
+        )
+        await db.commit()
+        assert (await db.get(ApplicationScreening, row.id)).overridden_by == clicker_id
+    process = await _process(row.candidate_id, job_id)
+    _assert_claimed_for(process, uid)
+    assert application_screening_badge(process.entry_meta)["overridden"] is True
+
+
+async def test_inactive_link_owner_gets_no_claim(api, screening_on, monkeypatch):
+    from app.models.user import User
+
+    uid, _, job_id, _ = await _apply(api)
+    row = await _row_for(job_id)
+    async with AsyncSessionLocal() as db:
+        await db.execute(update(User).where(User.id == uid).values(is_active=False))
+        await db.commit()
+    monkeypatch.setattr(svc, "_call_model", _luna({"verdict": "fits"}))
+    assert await svc.process_one(row.id) == "added"
+    process = await _process(row.candidate_id, job_id)
+    assert process.claimed_by_user_id is None and process.claimed_until is None
+    assert process.owner_user_id != uid
+
+
+async def _candidate_led_by_someone_else(job_id: int) -> tuple[int, int, str, str]:
+    """Osoba już w rekrutacji, prowadzi ją inny rekruter (blokada 12 h)."""
+    from app.models.recruitment_pipeline import PipelineStage
+    from app.models.user import User
+    from app.services import candidate_claim
+    from app.services.recruitment_process_commands import open_process
+    from tests.test_career_links_api import _seed_user
+
+    lead_id, _, _ = await _seed_user("lead")
+    email = f"scr-led-{uuid.uuid4().hex[:6]}@example.com"
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(name="Jan", lastname="Prowadzony", email=email)
+        db.add(cand)
+        await db.flush()
+        await open_process(
+            db,
+            candidate_id=cand.id,
+            job_id=job_id,
+            stage=PipelineStage.new,
+            actor_user_id=lead_id,
+            entry_source=candidate_claim.ENTRY_ADDED_MANUAL,
+            claim_for_user_id=lead_id,
+        )
+        lead_name = (await db.get(User, lead_id)).name
+        await db.commit()
+        return cand.id, lead_id, lead_name, email
+
+
+async def _assert_two_bells(
+    owner_id: int, lead_id: int, cand_id: int, lead_name: str, job_id: int
+) -> None:
+    owner_bells = await _bells(owner_id, cand_id)
+    assert any(
+        "jest już w tej rekrutacji" in m
+        and f"prowadzi {lead_name}" in m
+        and "etap" in m
+        for m in owner_bells
+    ), owner_bells
+    lead_bells = await _bells(lead_id, cand_id)
+    assert any("zgłosił(a) się ponownie przez link" in m for m in lead_bells), (
+        lead_bells
+    )
+    # Karta i blokada prowadzącego bez zmian.
+    assert (await _process(cand_id, job_id)).claimed_by_user_id == lead_id
+
+
+async def test_already_in_job_rings_link_owner_and_lead_with_screening(
+    api, screening_on, monkeypatch
+):
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    cand_id, lead_id, lead_name, email = await _candidate_led_by_someone_else(job_id)
+    resp = await api.post(
+        "/api/public/career/apply", data=_form(link["slug"], email), files=_cv()
+    )
+    assert resp.status_code == 201, resp.text
+    row = await _row_for(job_id)
+    monkeypatch.setattr(svc, "_call_model", _luna({"verdict": "fits"}))
+    assert await svc.process_one(row.id) == "already_in_job"
+    await _assert_two_bells(uid, lead_id, cand_id, lead_name, job_id)
+
+
+async def test_already_in_job_rings_link_owner_and_lead_without_screening(api):
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    cand_id, lead_id, lead_name, email = await _candidate_led_by_someone_else(job_id)
+    resp = await api.post(
+        "/api/public/career/apply", data=_form(link["slug"], email), files=_cv()
+    )
+    assert resp.status_code == 201, resp.text
+    await _assert_two_bells(uid, lead_id, cand_id, lead_name, job_id)
+
+
+async def test_board_card_names_the_link_owner(api):
+    uid, headers, job_id, email = await _apply(api)
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(select(Candidate).where(Candidate.email == email))
+    board = await api.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert board.status_code == 200, board.text
+    card = next(
+        item
+        for col in board.json()["columns"]
+        for item in col.get("items", [])
+        if item.get("candidate_id") == cand.id
+    )
+    assert card["entry_source"] == "application"
+    assert card["entry_link_owner_id"] == uid
+    assert card["entry_link_owner_name"].startswith("Marta Rekruterska")
+    assert card["claim_user_id"] == uid

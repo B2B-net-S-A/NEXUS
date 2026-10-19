@@ -3,7 +3,8 @@ Artura 23.09.2026; Screening od 24.09.2026).
 
 Osoba, którą rekruter sam dodał do rekrutacji (albo wziął z propozycji
 przyciskiem „Biorę"), jest przez ``CLAIM_HOURS`` na jego wyłączność W TEJ
-rekrutacji. Chodzi o chaos: dwóch rekruterów dzwoniących do tej samej osoby
+rekrutacji. Od 19.10.2026 także osoba, która zgłosiła się z jego linku do
+rekrutacji (``link_claim_kwargs``). Chodzi o chaos: dwóch rekruterów dzwoniących do tej samej osoby
 w sprawie tej samej rekrutacji. Po upływie blokady każdy z zespołu może osobę
 przejąć; wcześniej — wyłącznie admin, Delivery Lead albo Head of Recruitment.
 
@@ -134,6 +135,26 @@ async def inactive_holders(
         .scalars()
         .all()
     )
+
+
+async def link_claim_kwargs(
+    db: AsyncSession, link_owner_id: Optional[int]
+) -> dict[str, Optional[int]]:
+    """Blokada 12 h i właściciel procesu dla karty ze zgłoszenia z linku
+    rekrutacji (etap 2 linków, decyzja Artura 19.10.2026).
+
+    Osoba z linku jest właściciela linku tak samo jak osoba, którą sam dodał.
+    12 h liczy się od otwarcia karty w „Nowi” (po przeglądzie AI), nie od
+    wysłania formularza. Nieaktywne konto = bez blokady i bez właściciela
+    z linku (tak jak ``claim_state`` ignoruje blokady nieaktywnych kont).
+    Argumenty dla ``open_process``.
+    """
+    owner_id = None
+    if link_owner_id is not None:
+        owner_id = await db.scalar(
+            select(User.id).where(User.id == link_owner_id, User.is_active.is_(True))
+        )
+    return {"claim_for_user_id": owner_id, "process_owner_user_id": owner_id}
 
 
 def can_override(user: User) -> bool:

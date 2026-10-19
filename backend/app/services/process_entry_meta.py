@@ -66,6 +66,7 @@ def application_screening_entry_meta(
     must_total: int,
     overridden: bool = False,
     deal_breaker: Optional[str] = None,
+    link_owner_id: Optional[int] = None,
 ) -> dict:
     """Kształt ``entry_meta`` dla wejścia po przeglądzie zgłoszenia.
 
@@ -84,6 +85,8 @@ def application_screening_entry_meta(
     if deal_breaker:
         meta["deal_breaker_hit"] = True
         meta["deal_breaker"] = str(deal_breaker)[:300]
+    if link_owner_id is not None:
+        meta[LINK_OWNER_KEY] = int(link_owner_id)
     return meta
 
 
@@ -111,3 +114,27 @@ def application_screening_badge(meta: Any) -> Optional[dict]:
             else None
         ),
     }
+
+
+# Etap 2 linków rekrutacji (19.10.2026): czyj link przyprowadził osobę.
+# Stempel zostaje przy procesie także wtedy, gdy blokada wygaśnie, karta
+# zmieni właściciela albo konto właściciela linku stanie się nieaktywne —
+# plakietka „Z linku …” na Tablicy i atrybucja statystyk „Pozyskani z linków”.
+APPLICATION_LINK_KIND = "application_link"
+LINK_OWNER_KEY = "link_owner_id"
+_LINK_OWNER_KINDS = (APPLICATION_LINK_KIND, APPLICATION_SCREENING_KIND)
+
+
+def application_link_entry_meta(link_owner_id: int) -> dict:
+    """Kształt ``entry_meta`` zgłoszenia z linku bez przeglądu AI."""
+    return {"kind": APPLICATION_LINK_KIND, LINK_OWNER_KEY: int(link_owner_id)}
+
+
+def application_link_owner_id(meta: Any) -> Optional[int]:
+    """Właściciel linku, z którego przyszło zgłoszenie; ``None`` = nie z linku."""
+    if not isinstance(meta, dict) or meta.get("kind") not in _LINK_OWNER_KINDS:
+        return None
+    owner = meta.get(LINK_OWNER_KEY)
+    if not isinstance(owner, int) or isinstance(owner, bool):
+        return None
+    return owner

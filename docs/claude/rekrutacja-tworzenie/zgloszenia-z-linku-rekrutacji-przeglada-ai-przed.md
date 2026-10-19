@@ -38,3 +38,39 @@ harness `/preview/job-board-screening`.
   `not_fit` z grupy `posting` (aplikujący z ogłoszeń Traffita) przegląda
   człowiek. Historycznych zgłoszeń z linków prawie nie ma (1 do 29.09.2026),
   stąd te dwie grupy. Zmiana promptu albo progu = ponowny pomiar.
+
+## Osoba z linku jest właściciela linku (etap 2 linków, 19.10.2026)
+
+Decyzje Artura A i B z 19.10.2026, makiety
+https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h (plansze 2a i 2b).
+
+- **Blokada 12 h i właściciel procesu = właściciel linku**
+  (`candidate_claim.link_claim_kwargs` → `open_process(claim_for_user_id=…,
+  process_owner_user_id=…)`) we wszystkich trzech miejscach, które otwierają
+  kartę ze zgłoszenia: nowy e-mail bez przeglądu AI (`public_apply`), osoba
+  już w bazie (`_ensure_submission_process(link_owner_id=…)`) i decyzja pętli
+  (`open_in_new`). „Dodaj mimo to” też zakłada blokadę dla właściciela linku
+  z `context["link_owner_id"]` — klikający zostaje autorem ruchu
+  i `overridden_by`. Ręczne rozstrzygnięcie zgłoszenia przez recenzenta
+  (`resolve_application_submission`) bez blokady, jak dotąd.
+- **12 h liczy się od wejścia karty do „Nowi”** (po przeglądzie AI), nie od
+  wysłania formularza. Nieaktywne konto właściciela linku = bez blokady i bez
+  właściciela z linku. Admin, DL i HoR przejmują jak przy ręcznym dodaniu.
+- **Kredyt KPI bez zmian (decyzja B):** `kpi_eligible=None`,
+  `credit_user_id` dopiero przy pierwszej weryfikacji. Liga i Cele liczą jak
+  dotąd; właściciel procesu to pole operacyjne.
+- **Atrybucja:** `entry_meta.link_owner_id` (kind `application_link` bez
+  przeglądu AI, `application_screening` z przeglądem;
+  `process_entry_meta.application_link_owner_id`). Stempel zostaje, gdy
+  blokada wygaśnie albo karta zmieni właściciela — na nim stoi plakietka
+  „Z Twojego linku” / „Z linku: Marta” na Tablicy (`entry_link_owner_id`,
+  `entry_link_owner_name`) i etap 4 (statystyki „Pozyskani z linków”).
+- **Dzwonki** (`public_apply._notify_owner`, oba tryby przeglądu): nowa
+  karta dopisuje „Jest w „Nowi” i jest Twoja do HH:MM”. Osoba już w tej
+  rekrutacji (wynik `already_in_job` albo karta sprzed zgłoszenia przy
+  wyłączonym przeglądzie): karta i blokada prowadzącego bez zmian, właściciel
+  linku dostaje „jest już w tej rekrutacji — prowadzi X, etap Y”, a
+  prowadzący (aktywna blokada, inaczej właściciel otwartego procesu), gdy to
+  ktoś inny, dzwonek „Twoja osoba zgłosiła się ponownie”
+  (`application_screening.existing_card`).
+

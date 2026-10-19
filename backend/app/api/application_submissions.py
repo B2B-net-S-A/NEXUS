@@ -40,6 +40,7 @@ from app.api.recruitment_access import (
 )
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.services.candidate_claim import link_claim_kwargs
 from app.services.candidate_name_rules import without_name_markers
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
@@ -52,6 +53,7 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_priority import PriorityOriginKind
+from app.services.process_entry_meta import application_link_entry_meta
 from app.services.recruitment_process_commands import open_process
 from app.services.write_author import WriteAuthor
 
@@ -250,6 +252,7 @@ async def _ensure_submission_process(
     submission: ApplicationSubmission,
     candidate_id: int,
     actor_user_id: int,
+    link_owner_id: Optional[int] = None,
 ) -> Optional[CandidateStage]:
     """Route a resolved job application into the canonical pipeline once.
 
@@ -257,6 +260,11 @@ async def _ensure_submission_process(
     kandydata do rekrutacji, więc przechodzi tę samą twardą bramkę co
     przypisanie — weto hiring managera albo globalna czarna lista = 409
     (cała operacja się wycofuje, nic nie zostaje zapisane).
+
+    ``link_owner_id`` (etap 2 linków, 19.10.2026): zgłoszenie prosto
+    z formularza linku — karta jest właściciela linku (blokada 12 h,
+    właściciel procesu, stempel atrybucji). ``None`` = ręczne rozstrzygnięcie
+    przez recenzenta — bez blokady, jak dotąd.
     """
     if submission.job_id is None:
         return None
@@ -284,6 +292,14 @@ async def _ensure_submission_process(
         frozen_priority_compliant=_priority_compliant_at_create(submission),
         notes="Rozstrzygnięto aplikację (application submission)",
         entry_source="application",
+        **(
+            {
+                "entry_meta": application_link_entry_meta(link_owner_id),
+                **await link_claim_kwargs(db, link_owner_id),
+            }
+            if link_owner_id is not None
+            else {}
+        ),
     )
     return stage
 
