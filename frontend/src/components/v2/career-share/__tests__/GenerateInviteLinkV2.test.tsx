@@ -43,6 +43,30 @@ function profile(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const LIVE = {
+  title: "Senior Java Developer",
+  subtitle: "rozwój platformy płatności",
+  about: "Zespół przebudowuje platformę płatności.",
+  sections: { must: true, nice: true, params: true, process: true },
+  pending_changes: false,
+};
+
+const CREATED_LINK = {
+  token: "t1",
+  url: "https://kariera.dynaminds.pl/r/senior-java-7kq2",
+  public_url: "https://kariera.dynaminds.pl/r/senior-java-7kq2",
+  kind: "job",
+  slug: "senior-java-7kq2",
+  job: { id: 101, title: JOB.title },
+  label: null,
+  expires_at: null,
+  revoked: false,
+  use_count: 0,
+  last_used_at: null,
+  created_at: "2026-09-21T10:00:00Z",
+  status: "active",
+};
+
 type Routes = Record<string, unknown | (() => unknown)>;
 
 function routeGet(routes: Routes) {
@@ -166,7 +190,13 @@ describe("GenerateInviteLinkV2 — Udostępnij rekrutację", () => {
 
   it("utworzenie linku kopiuje go, a toast pojawia się tylko przy udanym kopiowaniu", async () => {
     const user = userEvent.setup();
-    routeGet(baseRoutes);
+    routeGet({
+      ...baseRoutes,
+      "/api/jobs/101/public-profile": profile({
+        status: "approved",
+        live: LIVE,
+      }),
+    });
     const created = {
       token: "t1",
       url: "https://kariera.dynaminds.pl/r/senior-java-7kq2",
@@ -193,14 +223,132 @@ describe("GenerateInviteLinkV2 — Udostępnij rekrutację", () => {
       label: undefined,
       expires_in_days: null,
     });
-    expect(await screen.findByDisplayValue(created.public_url)).toBeInTheDocument();
+    expect(await screen.findByTestId("job-link-url")).toHaveTextContent(created.public_url);
     expect(copyTextToClipboard).toHaveBeenCalledWith(created.public_url);
     expect(await screen.findByText(/Nie udało się skopiować/)).toBeInTheDocument();
     expect(screen.queryByText("Skopiowano link.")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Otwórz stronę/ })).toHaveAttribute(
+      "href",
+      created.public_url,
+    );
 
     vi.mocked(copyTextToClipboard).mockResolvedValueOnce(true);
     await user.click(screen.getByRole("button", { name: "Kopiuj" }));
     expect(await screen.findByText("Skopiowano link.")).toBeInTheDocument();
+  });
+
+  it("przed zatwierdzeniem opisu link powstaje, ale nie da się go skopiować ani otworzyć", async () => {
+    const user = userEvent.setup();
+    routeGet(baseRoutes);
+    vi.mocked(api.post).mockResolvedValue({ data: CREATED_LINK });
+    renderDialog();
+
+    expect(await screen.findByTestId("career-page-state")).toHaveTextContent(
+      "Strona jeszcze nie działa",
+    );
+    await user.click(await screen.findByRole("button", { name: "Wygeneruj link" }));
+
+    expect(await screen.findByTestId("job-link-url")).toHaveTextContent(CREATED_LINK.public_url);
+    expect(copyTextToClipboard).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Kopiuj" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: /Otwórz stronę/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId("link-not-live")).toHaveTextContent(
+      "Link zadziała po zatwierdzeniu opisu",
+    );
+  });
+
+  it("zatwierdzony i niezmieniony opis: przycisk tylko kopiuje link, bez ponownego zatwierdzenia", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/invite-links": [CREATED_LINK],
+      "/api/jobs/101/public-profile": profile({
+        status: "approved",
+        about: "Zespół przebudowuje platformę płatności.",
+        live: LIVE,
+      }),
+    });
+    vi.mocked(copyTextToClipboard).mockResolvedValue(true);
+    renderDialog();
+
+    await user.click(await screen.findByRole("button", { name: "Skopiuj link" }));
+    await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith(CREATED_LINK.public_url));
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.getByTestId("career-page-state")).toHaveTextContent("Strona działa");
+  });
+
+  it("zmiany po zatwierdzeniu: strona działa na starej wersji, „Odrzuć zmiany” ją przywraca", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/invite-links": [CREATED_LINK],
+      "/api/jobs/101/public-profile": profile({
+        status: "draft",
+        about: "Poprawiony opis.",
+        approved_at: "2026-10-18T12:20:00Z",
+        default_title: "Senior Java Developer",
+        effective_title: "Senior Java Developer",
+        live: { ...LIVE, pending_changes: true },
+      }),
+    });
+    vi.mocked(api.put).mockResolvedValue({
+      data: profile({ status: "approved", about: LIVE.about, live: LIVE }),
+    });
+    renderDialog();
+
+    const state = await screen.findByTestId("career-page-state");
+    expect(state).toHaveTextContent("Strona działa · są zmiany");
+    expect(state).toHaveTextContent("Zmiany czekają na zatwierdzenie");
+    // Link działa — kopiowanie i „Otwórz stronę” dostępne mimo szkicu.
+    expect(screen.getByRole("button", { name: "Kopiuj" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Zatwierdź zmiany" })).toBeInTheDocument();
+
+    await user.click(within(state).getByRole("button", { name: "Odrzuć zmiany" }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith(
+        "/api/jobs/101/public-profile",
+        expect.objectContaining({
+          public_title: null,
+          subtitle: LIVE.subtitle,
+          about: LIVE.about,
+          sections: LIVE.sections,
+        }),
+      ),
+    );
+  });
+
+  it("kontrola nie świeci na zielono, gdy opis jest pusty albo niezapisany", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/jobs/101/public-profile": profile({ status: "none", subtitle: null, about: null }),
+    });
+    renderDialog();
+    await screen.findByLabelText("O projekcie");
+    const list = screen.getByTestId("public-profile-findings");
+    expect(within(list).getAllByTestId("finding-unchecked")).toHaveLength(4);
+    expect(list).toHaveTextContent("sprawdzę po zapisaniu");
+    await user.type(screen.getByLabelText("O projekcie"), "Zespół płatności.");
+    expect(within(list).getAllByTestId("finding-unchecked")).toHaveLength(4);
+  });
+
+  it("znalezisko spoza pól okna (np. z wymagań) nie znika z listy kontroli", async () => {
+    routeGet({
+      ...baseRoutes,
+      "/api/jobs/101/public-profile": profile({
+        about: "Zespół przebudowuje platformę płatności.",
+        findings: [
+          {
+            code: "client_name",
+            message: "Wykryto nazwę klienta: „Znajomość systemów Nordea”.",
+            excerpt: "Znajomość systemów Nordea",
+          },
+        ],
+      }),
+    });
+    renderDialog();
+    expect(await screen.findByText(/Wykryto nazwę klienta/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zatwierdź i skopiuj link" })).toBeDisabled();
   });
 
   it("„Tytuł na stronie”: placeholder = tytuł domyślny, wpis idzie w PUT i do podglądu posta", async () => {
@@ -236,13 +384,15 @@ describe("GenerateInviteLinkV2 — Udostępnij rekrutację", () => {
     expect(title).toHaveAttribute("placeholder", "Senior Java Developer");
     const preview = screen.getByTestId("linkedin-preview");
     // Podgląd bierze tytuł domyślny, nie surowy tytuł z nazwą klienta.
-    expect(preview).toHaveTextContent("Senior Java Developer — Dynaminds");
+    // Podgląd = prawdziwy post: LinkedIn bierze `og:title` bez dopisku marki.
+    expect(preview).toHaveTextContent("Senior Java Developer");
+    expect(preview).not.toHaveTextContent("Dynaminds");
     expect(preview).not.toHaveTextContent("Nordea");
     await waitFor(() => expect(preview).toHaveTextContent("nexus.dynaminds.pl"));
 
     await user.type(title, "Java Developer w bankowości");
     expect(screen.getByText(/niezapisane zmiany/)).toBeInTheDocument();
-    expect(preview).toHaveTextContent("Java Developer w bankowości — Dynaminds");
+    expect(preview).toHaveTextContent("Java Developer w bankowości");
 
     await user.click(screen.getByRole("button", { name: "Zapisz szkic" }));
     await waitFor(() =>

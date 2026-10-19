@@ -41,6 +41,7 @@ from app.schemas.invite_link import (
     CareerLinkStats,
     CareerLinkUpdate,
     PublicProfileDraft,
+    PublicProfileLive,
     PublicProfileResponse,
     PublicProfileUpdate,
     PublicProfileVisibility,
@@ -344,7 +345,20 @@ async def _profile_response(
         approved_by_name = await db.scalar(
             select(User.name).where(User.id == profile.approved_by)
         )
+    version = await jpp.published_version(db, job, profile)
+    live = (
+        PublicProfileLive(
+            title=version.title,
+            subtitle=version.subtitle,
+            about=version.about,
+            sections=PublicSections(**jpp.normalize_sections(version.sections)),
+            pending_changes=version.pending_changes,
+        )
+        if version is not None
+        else None
+    )
     return PublicProfileResponse(
+        live=live,
         job_id=job.id,
         status=status_value,
         public_title=profile.public_title if profile else None,
@@ -386,13 +400,22 @@ async def put_public_profile(
     """Zapis szkicu. Zmiana treści po zatwierdzeniu = status ``draft``.
 
     Nie trzeba niczego odznaczać: status wynika ze skrótu treści, a skrót
-    zatwierdzonej wersji przestaje pasować przy pierwszej zmianie.
+    zatwierdzonej wersji przestaje pasować przy pierwszej zmianie. Strona
+    zostaje na wersji zatwierdzonej (``jpp.published_version``).
     """
     job = await _load_job(db, current_user, job_id)
     profile = await db.get(JobPublicProfile, job_id)
     if profile is None:
         profile = JobPublicProfile(job_id=job_id)
         db.add(profile)
+    else:
+        # Opis zatwierdzony przed 19.10.2026 nie ma tekstu w migawce — dopisz
+        # go, póki pola są jeszcze opublikowaną wersją, inaczej ta zmiana
+        # zdjęłaby stronę.
+        version = await jpp.published_version(db, job, profile)
+        snapshot = jpp.stored_approved_content(profile.sections) or {}
+        if version is not None and jpp.APPROVED_TEXT_KEY not in snapshot:
+            profile.sections = jpp.with_published_text(profile.sections, version)
     fields = data.model_fields_set
     # Znaki formatujące (kategoria Cf) wycinamy jak w ogłoszeniu na portale:
     # „\u202ełz 081\u202c” przeglądarka pokazuje jako „180 zł”, a kontrola

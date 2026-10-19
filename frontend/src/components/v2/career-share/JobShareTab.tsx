@@ -7,7 +7,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   Copy,
+  ExternalLink,
   Loader2,
+  MinusCircle,
   Sparkles,
 } from "lucide-react";
 
@@ -58,6 +60,7 @@ import { LinkedInPreviewCard } from "./LinkedInPreviewCard";
 import {
   EXPIRY_OPTIONS,
   FINDING_CATEGORIES,
+  PAGE_STATE_LABEL,
   PROFILE_STATUS_LABEL,
   PROFILE_STATUS_VARIANT,
   activeLinkForJob,
@@ -68,6 +71,7 @@ import {
   formatDate,
   linkUrl,
   liveFindings,
+  pageState,
   paramsTagline,
   removeExcerpt,
   slugifyTitle,
@@ -198,7 +202,31 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
 
   // Tytuł na stronie też jest publiczny — znaleziska (np. nazwa klienta) go obejmują.
   const text = form ? `${form.public_title}\n${form.subtitle}\n${form.about}` : "";
-  const shownFindings = liveFindings(blockedFindings ?? profile?.findings ?? [], text);
+  const savedText = profile
+    ? `${profile.public_title ?? ""}\n${profile.subtitle ?? ""}\n${profile.about ?? ""}`
+    : text;
+  const shownFindings = liveFindings(
+    blockedFindings ?? profile?.findings ?? [],
+    text,
+    savedText,
+  );
+  // Co dziś widzi kandydat: 404, wersję zatwierdzoną albo zatwierdzoną z czekającymi zmianami.
+  const page = pageState(profile);
+  const isLive = page !== "not_live";
+  // Zielone „OK” tylko dla treści, którą serwer naprawdę sprawdził.
+  const contentChecked =
+    !dirty &&
+    profile != null &&
+    profile.status !== "none" &&
+    Boolean(form && (form.about.trim() || form.subtitle.trim()));
+  // Zatwierdzony, niezmieniony i aktualny — przycisk tylko kopiuje link.
+  const copyOnly =
+    profile?.status === "approved" && !dirty && !profile.approved_content_stale;
+  const approveLabel = copyOnly
+    ? "Skopiuj link"
+    : isLive
+      ? "Zatwierdź zmiany"
+      : "Zatwierdź i skopiuj link";
 
   const update = (patch: Partial<FormState>) => {
     setForm((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -275,7 +303,36 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
     setBusy(true);
     const link = await createLink();
     setBusy(false);
-    if (link) await copyLink(link);
+    // Przed zatwierdzeniem opisu link daje kandydatowi 404, a LinkedIn
+    // zapamiętuje pusty podgląd — do schowka trafia dopiero działający adres.
+    if (link && isLive) await copyLink(link);
+  };
+
+  /** „Odrzuć zmiany”: szkic wraca do wersji, którą widzi kandydat. */
+  const handleDiscard = async () => {
+    const live = profile?.live;
+    if (jobId == null || !form || !live) return;
+    setBusy(true);
+    setFormError(null);
+    try {
+      const restored = await careerLinksApi.savePublicProfile(jobId, {
+        public_title:
+          live.title === (profile?.default_title ?? profile?.effective_title)
+            ? null
+            : live.title,
+        subtitle: live.subtitle,
+        about: live.about,
+        sections: live.sections,
+        show_on_recruiter_page: form.show_on_recruiter_page,
+      });
+      applyServerProfile(restored);
+      setBlockedFindings(null);
+      showSuccess("Przywrócono opublikowaną wersję opisu.");
+    } catch (err) {
+      setFormError(apiErrorMessage(err, "Nie udało się przywrócić opublikowanej wersji."));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleApproveAndCopy = async () => {
@@ -283,6 +340,13 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
     setBusy(true);
     setFormError(null);
     try {
+      if (copyOnly) {
+        // Zatwierdzony i niezmieniony — ponowne zatwierdzenie niczego nie
+        // publikuje, a wysyłało aktualizację na portale.
+        const link = existingLink ?? (await createLink());
+        if (link) await copyLink(link);
+        return;
+      }
       if (dirty || profile?.status === "none") {
         const saved = await saveProfile();
         if (!saved) return;
@@ -291,6 +355,10 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
         const approved = await careerLinksApi.approvePublicProfile(jobId);
         applyServerProfile(approved);
         setBlockedFindings(null);
+        // Zatwierdzenie potrafi wymienić adres linku z nazwą klienta (stary
+        // daje 404) — kopiujemy adres odświeżony z serwera, nie ten z pamięci.
+        setFreshLink(null);
+        await qc.invalidateQueries({ queryKey: inviteLinksQueryKey() });
       } catch (err) {
         const findings = findingsFromApproveError(err);
         if (findings) {
@@ -301,7 +369,16 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
         }
         return;
       }
-      const link = existingLink ?? (await createLink());
+      if (isLive) {
+        // Link już krąży — zatwierdzenie zmian tylko podmienia treść strony.
+        showSuccess("Zmiany opublikowane — strona pokazuje nową wersję.");
+        return;
+      }
+      const refreshed = activeLinkForJob(
+        qc.getQueryData<InviteLink[]>(inviteLinksQueryKey()) ?? [],
+        jobId,
+      );
+      const link = refreshed ?? (await createLink());
       if (!link) return;
       await copyLink(link);
     } finally {
@@ -313,6 +390,7 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
   let approveDisabledReason: string | null = null;
   if (jobId == null) approveDisabledReason = "Wybierz rekrutację.";
   else if (!form) approveDisabledReason = "Wczytuję opis publiczny…";
+  else if (copyOnly) approveDisabledReason = null;
   else if (!form.about.trim()) approveDisabledReason = "Uzupełnij opis „O projekcie”.";
   else if (shownFindings.length > 0) approveDisabledReason = approveBlockedReason(shownFindings);
 
@@ -411,6 +489,34 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
             </p>
           ) : null}
         </FormField>
+
+        {jobId != null && profile ? (
+          <div
+            role="status"
+            data-testid="career-page-state"
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
+          >
+            <Badge size="sm" variant={isLive ? "success" : "neutral"}>
+              {PAGE_STATE_LABEL[page]}
+            </Badge>
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              {page === "not_live"
+                ? "Kandydat zobaczy stronę po zatwierdzeniu opisu."
+                : page === "live_pending"
+                  ? `Kandydaci widzą wersję zatwierdzoną${
+                      profile.approved_at ? ` ${formatDate(profile.approved_at)}` : ""
+                    }. Zmiany czekają na zatwierdzenie.`
+                  : `Zatwierdzona${profile.approved_at ? ` ${formatDate(profile.approved_at)}` : ""}${
+                      profile.approved_by_name ? ` · ${profile.approved_by_name}` : ""
+                    }.`}
+            </span>
+            {page === "live_pending" ? (
+              <Button size="sm" variant="outline" onClick={handleDiscard} disabled={busy}>
+                Odrzuć zmiany
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
 
         {jobId == null ? (
           <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
@@ -552,10 +658,21 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                     {FINDING_CATEGORIES.map((cat) => {
                       const hits = shownFindings.filter((f) => cat.codes.includes(f.code));
                       if (hits.length === 0) {
-                        return (
+                        // Zielone tylko dla treści sprawdzonej przez serwer — puste
+                        // pole albo niezapisana zmiana to „jeszcze nie sprawdzono”.
+                        return contentChecked ? (
                           <li key={cat.key} className="flex items-start gap-2 text-sm text-foreground">
                             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
                             {cat.okLabel}
+                          </li>
+                        ) : (
+                          <li
+                            key={cat.key}
+                            className="flex items-start gap-2 text-sm text-muted-foreground"
+                            data-testid="finding-unchecked"
+                          >
+                            <MinusCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                            {cat.okLabel} — sprawdzę po zapisaniu
                           </li>
                         );
                       }
@@ -595,11 +712,6 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                       ));
                     })}
                   </ul>
-                  {dirty ? (
-                    <p className="text-xs text-muted-foreground">
-                      Treść zmieniona — pełną kontrolę serwer zrobi przy zapisie i zatwierdzeniu.
-                    </p>
-                  ) : null}
                 </section>
               ) : null}
             </div>
@@ -612,7 +724,7 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                   command={`cat /rekrutacje/${slugifyTitle(previewTitle)}`}
                   headline={previewTitle}
                   tagline={paramsTagline(profile?.preview?.params)}
-                  cardTitle={`${previewTitle} — Dynaminds`}
+                  cardTitle={previewTitle}
                   host={host}
                 />
               </div>
@@ -632,26 +744,51 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                     onRetry={() => linksQuery.refetch()}
                   />
                 ) : existingLink ? (
-                  <div className="space-y-1.5">
-                    <div className="flex gap-2">
-                      <Input
-                        readOnly
-                        value={linkUrl(existingLink)}
-                        aria-label="Adres linku"
-                        className="font-mono text-xs"
-                        onFocus={(e) => e.currentTarget.select()}
-                      />
-                      <Button variant="outline" onClick={() => copyLink(existingLink)}>
+                  <div className="space-y-2">
+                    {/* Cały adres, z łamaniem — w polu tekstowym slug znikał za krawędzią. */}
+                    <p
+                      data-testid="job-link-url"
+                      aria-label="Adres linku"
+                      className={
+                        isLive
+                          ? "select-all break-all rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-foreground"
+                          : "break-all rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground"
+                      }
+                    >
+                      {linkUrl(existingLink)}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => copyLink(existingLink)}
+                        disabled={!isLive}
+                      >
                         <Copy className="h-3.5 w-3.5" aria-hidden="true" />
                         Kopiuj
                       </Button>
+                      {isLive ? (
+                        <Button variant="outline" size="sm" asChild>
+                          <a href={linkUrl(existingLink)} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                            Otwórz stronę
+                          </a>
+                        </Button>
+                      ) : null}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {existingLink.label ? `${existingLink.label} · ` : ""}
-                      {existingLink.expires_at
-                        ? `ważny do ${formatDate(existingLink.expires_at)}`
-                        : "ważny do zamknięcia rekrutacji"}
-                    </p>
+                    {isLive ? (
+                      <p className="text-xs text-muted-foreground">
+                        {existingLink.label ? `${existingLink.label} · ` : ""}
+                        {existingLink.expires_at
+                          ? `ważny do ${formatDate(existingLink.expires_at)}`
+                          : "ważny do zamknięcia rekrutacji"}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-warning-muted-foreground" data-testid="link-not-live">
+                        Link zadziała po zatwierdzeniu opisu. Wcześniej kandydat zobaczyłby błąd,
+                        a LinkedIn zapamiętałby pusty podgląd.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -695,8 +832,8 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                   </p>
                 ) : null}
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  Link działa, dopóki rekrutacja jest otwarta. Po zamknięciu kandydat zobaczy
-                  zaproszenie do Twojej bazy. Kandydaci trafiają na etap „Nowy”, a Ty dostajesz
+                  Link działa, dopóki rekrutacja jest otwarta; potem pokazuje „proces
+                  zakończony”. Zgłoszenie trafia do „Nowi” tej rekrutacji, a Ty dostajesz
                   powiadomienie.
                 </p>
               </section>
@@ -723,14 +860,14 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
             onClick={handleSaveDraft}
             disabled={!form || !dirty || busy}
           >
-            Zapisz szkic
+            {isLive ? "Zapisz zmiany" : "Zapisz szkic"}
           </Button>
           <Button
             onClick={handleApproveAndCopy}
             disabled={approveDisabledReason != null || busy}
             loading={busy}
           >
-            Zatwierdź i skopiuj link
+            {approveLabel}
           </Button>
         </div>
       </DialogFooter>

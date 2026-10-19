@@ -433,6 +433,80 @@ async def test_edit_after_approval_returns_to_draft_and_visibility_does_not(api)
     assert edited.json()["status"] == "draft"
 
 
+async def test_edit_after_approval_keeps_the_page_on_the_approved_version(api):
+    """19.10.2026: poprawka opisu nie zdejmuje strony — kandydat widzi wersję
+    zatwierdzoną, formularz działa, a edytor pokazuje czekające zmiany.
+    „Odrzuć zmiany” = zapis szkicu z wartościami z ``live``."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    approved = await _approve(api, headers, job_id)
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["live"]["pending_changes"] is False
+
+    edited = await api.put(
+        f"/api/jobs/{job_id}/public-profile",
+        json={"about": "Poprawiony opis, jeszcze bez zatwierdzenia."},
+        headers=headers,
+    )
+    body = edited.json()
+    assert body["status"] == "draft"
+    assert body["live"]["pending_changes"] is True
+    assert body["live"]["about"].startswith("Budujemy nowy system rozliczeń.")
+
+    page = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert page.status_code == 200, page.text
+    assert page.json()["job"]["about"].startswith("Budujemy nowy system rozliczeń.")
+    assert "Poprawiony" not in page.text
+    apply = await api.post(
+        "/api/public/career/apply",
+        data=_form(link["slug"], f"live-{uuid.uuid4().hex[:6]}@example.com"),
+        files=_cv(),
+    )
+    assert apply.status_code == 201, apply.text
+
+    live = body["live"]
+    reverted = await api.put(
+        f"/api/jobs/{job_id}/public-profile",
+        json={
+            "subtitle": live["subtitle"],
+            "about": live["about"],
+            "sections": live["sections"],
+            "public_title": "",
+        },
+        headers=headers,
+    )
+    assert reverted.json()["status"] == "approved"
+    assert reverted.json()["live"]["pending_changes"] is False
+
+
+async def test_closed_job_shows_the_closed_page_even_with_pending_changes(api):
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    await api.put(
+        f"/api/jobs/{job_id}/public-profile",
+        json={"about": "Zmiana po zamknięciu."},
+        headers=headers,
+    )
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.status = JobStatus.closed
+        await db.commit()
+    page = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert page.status_code == 200
+    assert page.json()["status"] == "closed"
+
+
+async def test_approve_refuses_internal_codes(api):
+    _, headers, job_id = await _owner_with_job(api)
+    resp = await _approve(
+        api, headers, job_id, about="Zgłoszenie RITM0866775 dotyczy zespołu płatności."
+    )
+    assert resp.status_code == 422, resp.text
+    codes = {f["code"] for f in resp.json()["detail"]["findings"]}
+    assert codes == {"internal_code"}
+
+
 async def test_public_profile_is_open_to_recruiters_outside_the_team(api):
     """Od 23.09.2026 opis publiczny czyta i poprawia każdy rekruter, także
     spoza zespołu rekrutacji („nie musisz być przypisany")."""
@@ -856,7 +930,8 @@ async def test_public_title_strips_client_and_codes_and_drives_the_slug(api):
     assert page.json()["job"]["title"] == "Data Engineer Platformy"
     assert "Kwarcowy" not in page.text
 
-    # Własny tytuł = zmiana treści publicznej → powrót do szkicu.
+    # Własny tytuł = zmiana treści publicznej → powrót do szkicu. Od 19.10.2026
+    # strona zostaje na zatwierdzonym tytule, dopóki nikt nie zatwierdzi nowego.
     put = await api.put(
         f"/api/jobs/{job_id}/public-profile",
         json={"public_title": "  Data Engineer   (Azure) "},
@@ -866,7 +941,11 @@ async def test_public_title_strips_client_and_codes_and_drives_the_slug(api):
     assert put.json()["public_title"] == "Data Engineer (Azure)"
     assert put.json()["effective_title"] == "Data Engineer (Azure)"
     assert put.json()["status"] == "draft"
-    assert (await api.get(f"/api/public/career/r/{link['slug']}")).status_code == 404
+    assert put.json()["live"]["title"] == "Data Engineer Platformy"
+    assert put.json()["live"]["pending_changes"] is True
+    page = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert page.status_code == 200
+    assert page.json()["job"]["title"] == "Data Engineer Platformy"
 
     # Pusty tytuł własny = powrót do domyślnego.
     clear = await api.put(
