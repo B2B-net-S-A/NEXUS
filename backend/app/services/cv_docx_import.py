@@ -100,7 +100,7 @@ class _Line:
     kind: str  # "p" | "li" | "row"
     runs: Runs
     heading: bool = False
-    cells: tuple[str, ...] = ()  # tekst niepustych komórek wiersza tabeli
+    cell_texts: tuple[str, ...] = ()  # tekst niepustych komórek wiersza tabeli
 
     @property
     def text(self) -> str:
@@ -265,7 +265,7 @@ def _row_line(row: Any) -> Optional[_Line]:
             if index:
                 flat.append((_ROW_SEPARATOR, False))
             flat.append((piece, bold))
-    line = _Line(kind="row", runs=_merge(flat), cells=tuple(cells))
+    line = _Line(kind="row", runs=_merge(flat), cell_texts=tuple(cells))
     return line if line.text else None
 
 
@@ -531,6 +531,7 @@ def _education_header(line: _Line) -> bool:
     uczelni/kierunek”). Plik poprawiony w Wordzie bywa bez jednej z nich
     albo z innymi odstępami (19.10.2026: bez „Daty” nagłówek wchodził do CV
     jako uczelnia)."""
-    return bool(line.cells) and all(
-        _norm_title(cell).replace(" ", "") in _EDUCATION_LABELS for cell in line.cells
+    return bool(line.cell_texts) and all(
+        _norm_title(cell).replace(" ", "") in _EDUCATION_LABELS
+        for cell in line.cell_texts
     )
