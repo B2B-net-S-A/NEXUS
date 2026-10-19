@@ -35,10 +35,35 @@ afterEach(() => {
 });
 
 describe("/preview/hr-structure", () => {
-  it("Kadry: piony, odchodząca z podwładnymi, podpowiedzi i okna bez zapytań", async () => {
+  it("Schemat (domyślnie): drzewo kart, „Do uporządkowania” i menu karty bez zapytań", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-structure");
     render(<HrStructurePreviewPage />);
+
+    expect(await screen.findByRole("button", { name: "Schemat" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId(`org-card-${105}`)).toHaveTextContent("Marta Fikcyjna");
+    expect(screen.getAllByText("head: Kamil Testowy").length).toBeGreaterThan(0);
+    const todo = screen.getByLabelText("Do uporządkowania");
+    expect(within(todo).getByText(/kończy pracę/)).toBeInTheDocument();
+    expect(within(todo).getByRole("button", { name: "Przyjmij z M365" })).toBeInTheDocument();
+    expect(within(todo).getByRole("button", { name: "Przyjmij: Kamil T." })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Więcej: Ewa Makietowa" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Zmień koordynatora…" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Zmień koordynatora (1)" }),
+    ).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("Lista: piony, odchodząca z podwładnymi, podpowiedzi i okna bez zapytań", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-structure");
+    render(<HrStructurePreviewPage />);
+    await user.click(await screen.findByRole("button", { name: "Lista" }));
 
     expect(await screen.findByRole("heading", { name: /^Front office/ })).toHaveTextContent(
       "head: Kamil Testowy",
@@ -75,8 +100,11 @@ describe("/preview/hr-structure", () => {
   });
 
   it("Kadry bez Płac: drzewo bez formy umowy, kartoteka z konta „do uzupełnienia”", async () => {
+    const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-structure?state=hr-only");
     render(<HrStructurePreviewPage />);
+    expect(screen.queryByText(/Zlecenie/)).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Lista" }));
     expect(await screen.findByRole("heading", { name: /^Front office/ })).toBeInTheDocument();
     expect(screen.queryByText(/Zlecenie · student/)).not.toBeInTheDocument();
     expect(screen.queryByText(/składki od/)).not.toBeInTheDocument();

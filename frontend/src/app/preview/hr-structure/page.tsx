@@ -17,6 +17,11 @@
  * - `empty` — nikt nie ma jeszcze kartoteki.
  * Zaznaczenie osób i okna „Zmień koordynatora”, „Ustaw pion”, „Headowie
  * pionów” otwierają się bez zapytań; zapisy blokuje harness.
+ *
+ * Makieta 19.10.2026: domyślnie „Schemat” — drzewo kart per pion (przeciągnięcie
+ * karty na inną = zmiana przełożonego z potwierdzeniem, menu ⋯ karty), „Lista”
+ * to dotychczasowy widok z zaznaczaniem; panel „Do uporządkowania” zbiera
+ * odejście Marty, rozjazd M365, podpowiedź dla Kacpra i osoby bez pionu.
  */
 
 import { PageHeader } from "@/components/ds/PageHeader";

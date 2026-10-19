@@ -14,7 +14,7 @@ export default function PeoplePage() {
         <div className="space-y-4">
           <PageHeader
             title="Ludzie"
-            description="Kto u nas pracuje, komu podlega i gdzie domyślnie pracuje."
+            description="Kto u nas pracuje, komu podlega i czy jest dziś w pracy."
             density="compact"
           />
           <PeopleSectionNav config={config} active="directory" />

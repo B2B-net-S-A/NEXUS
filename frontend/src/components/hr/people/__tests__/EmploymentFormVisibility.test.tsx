@@ -69,6 +69,8 @@ function client() {
 
 function renderProfile(person: PersonFull, me: Parameters<typeof hrConfig>[0]) {
   mocks.person = person;
+  // Pola zatrudnienia i pula stoją w zakładce „Czas i przerwy” (makieta 19.10.2026).
+  window.history.replaceState(null, "", "#czas");
   render(
     <QueryClientProvider client={client()}>
       <PersonProfile userId={101} config={hrConfig(me)} />
@@ -93,7 +95,8 @@ describe("Forma umowy na kartotece", () => {
 
   it("Finanse: forma widoczna i „Zmień formę” zamiast edycji kartoteki", async () => {
     await renderProfile(olaFull("b2b"), { payroll: true });
-    expect(screen.getByText("Forma")).toBeInTheDocument();
+    // Wiersz w „Zatrudnieniu” i fakt pod wizytówką.
+    expect(screen.getAllByText("Forma")).toHaveLength(2);
     expect(screen.getByRole("button", { name: /Zmień formę/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Edytuj kartotekę/ })).not.toBeInTheDocument();
   });
@@ -175,9 +178,12 @@ describe("Rozjazdy kartoteka ↔ konto", () => {
         <AccountMismatchesPanel />
       </QueryClientProvider>,
     );
-    await user.click(await screen.findByRole("button", { name: /Rozjazdy z kontami NEXUSA: 2/ }));
+    // Pasek nazywa pozycje od razu; tabela po „Przejrzyj po kolei”.
+    expect(await screen.findByText(/Do wyrównania · 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Igor Bezkartoteczny: konto bez kartoteki/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Przejrzyj po kolei/ }));
     expect(screen.getByText("Konto wyłączone")).toBeInTheDocument();
-    expect(screen.getByText(/2 osoby pod sobą/)).toBeInTheDocument();
+    expect(screen.getAllByText(/2 osoby pod sobą/).length).toBeGreaterThan(0);
     expect(screen.getByText("Forma do uzupełnienia: 1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Wyrównaj wg konta" }));
