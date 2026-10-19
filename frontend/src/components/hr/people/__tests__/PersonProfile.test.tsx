@@ -67,6 +67,8 @@ function forManager(person: PersonFull): PersonFull {
 
 function renderProfile(person: PersonFull, asHr: boolean) {
   mocks.person = person;
+  // Pola zatrudnienia stoją w zakładce „Czas i przerwy” (makieta 19.10.2026).
+  window.history.replaceState(null, "", "#czas");
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -130,7 +132,7 @@ describe("PersonProfile — pola Kadr", () => {
 
   it("przełożony, umowa o pracę: bez wierszy stażu i zaświadczenia ZUS", async () => {
     await renderProfile(forManager(olaFull("uop")), false);
-    expect(screen.getByText("Forma")).toBeInTheDocument();
+    expect(screen.getAllByText("Forma").length).toBeGreaterThan(0);
     expect(screen.queryByText("Staż do urlopu")).toBeNull();
     expect(screen.queryByText("Zaświadczenie z ZUS")).toBeNull();
     expect(screen.queryByText(/Wymiar według stażu/)).toBeNull();

@@ -34,19 +34,23 @@ afterEach(() => {
 });
 
 describe("/preview/hr-people", () => {
-  it("Kadry: rozjazdy z kontami, liczniki i potwierdzenie bez zapytań", async () => {
+  it("Kadry: pasek „Do wyrównania” z nazwanymi pozycjami i potwierdzenie bez zapytań", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-people");
     render(<HrPeoplePreviewPage />);
 
-    await user.click(
-      await screen.findByRole("button", { name: "Rozjazdy z kontami NEXUSA: 3" }),
-    );
+    expect(await screen.findByText(/Do wyrównania · 4/)).toBeInTheDocument();
+    expect(screen.getByText(/Marta Fikcyjna: konto wyłączone · 2 osoby pod sobą/)).toBeInTheDocument();
+    expect(screen.getByText("Kacper Nowicjusz: forma i przełożony")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Przejrzyj po kolei/ }));
     expect(screen.getByText("Konto wyłączone")).toBeInTheDocument();
     expect(screen.getByText("Konto bez kartoteki")).toBeInTheDocument();
-    expect(screen.getByText(/2 osoby pod sobą/)).toBeInTheDocument();
-    expect(screen.getByText("Forma do uzupełnienia: 1")).toBeInTheDocument();
-    expect(screen.getAllByText("do uzupełnienia").length).toBeGreaterThan(0);
+    // Kadry bez Płac: formy nie widać (19.10.2026) — w kolumnie tylko „uzupełnij”
+    // przy kartotece z konta, bez chipów formy.
+    expect(screen.getByText("uzupełnij")).toBeInTheDocument();
+    expect(screen.queryByText("B2B")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^UoP/ })).toBeNull();
+    expect(screen.getByText("przełożony do uzupełnienia")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Wyrównaj wg konta" }));
     expect(
@@ -55,11 +59,27 @@ describe("/preview/hr-people", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("rekruterka: wizytówki, bez listy rozjazdów", async () => {
+  it("Finanse: forma jako pigułka i chipy formy, kolumna „Dziś”", async () => {
+    window.history.replaceState({}, "", "/preview/hr-people?as=finance");
+    render(<HrPeoplePreviewPage />);
+    expect(await screen.findByRole("columnheader", { name: "Forma" })).toBeInTheDocument();
+    expect(screen.getAllByText("Zlecenie · student").length).toBe(2);
+    expect(screen.getByRole("button", { name: /^UoP/ })).toBeInTheDocument();
+    expect(screen.getAllByText(/^przerwa do .* · zastępuje Ola P\.$/).length).toBe(2);
+    expect(screen.getByText("delegacja")).toBeInTheDocument();
+    expect(screen.getByText("odchodzi 30.11")).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("rekruterka: wizytówki bez formy i bez listy rozjazdów", async () => {
     window.history.replaceState({}, "", "/preview/hr-people?as=colleague");
     render(<HrPeoplePreviewPage />);
     expect(await screen.findByText("Ola Przykładowa")).toBeInTheDocument();
-    expect(screen.queryByText(/Rozjazdy z kontami NEXUSA/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Do wyrównania/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Forma" })).toBeNull();
+    // Bez widocznej formy: „nieobecność”, nie „przerwa” (słowo zdradzałoby formę).
+    expect(screen.getAllByText(/^nieobecność do /).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^przerwa do /)).toBeNull();
     expect(attempted()).toEqual([]);
   });
 });

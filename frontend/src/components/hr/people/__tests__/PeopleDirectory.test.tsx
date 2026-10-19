@@ -107,8 +107,8 @@ describe("PeopleDirectory — „Składa raport godzin”", () => {
     renderDirectory();
     const row = (await screen.findByText("Jan Testowy")).closest("tr");
     expect(row).not.toBeNull();
-    expect(within(row as HTMLElement).getByText("nie składa")).toBeInTheDocument();
-    expect(screen.getByText("bez raportu godzin")).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText("nie składa raportu godzin")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Bez raportu godzin/ })).toHaveTextContent("1");
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz: Anna Przykładowa" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz: Ewa Fikcyjna" }));
@@ -145,6 +145,73 @@ describe("PeopleDirectory — „Składa raport godzin”", () => {
     renderDirectory(false);
     await screen.findByText("Jan Testowy");
     expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByText("Raport godzin")).toBeNull();
+    expect(screen.queryByText("nie składa raportu godzin")).toBeNull();
+  });
+});
+
+describe("PeopleDirectory — makieta 19.10.2026", () => {
+  const GROUPED: Person[] = [
+    { ...person(1, "Ola Przykładowa", true), department: "Rekrutacja IT" },
+    {
+      ...person(2, "Ewa Makietowa", true),
+      department: "Rekrutacja IT",
+      manager_user_id: 1,
+      manager_name: "Ola Przykładowa",
+      today: { absent_until: "2099-10-21", half_day: null, substitute_name: null, presence: null },
+    },
+    {
+      ...person(3, "Kamil Testowy", true),
+      department: "Delivery",
+      employment_type: "uop",
+      today: { absent_until: null, half_day: null, substitute_name: null, presence: "business_trip" },
+    },
+    {
+      ...person(4, "Adam Wzorcowy", true),
+      department: null,
+      scope: "card",
+    } as Person,
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url === "/api/hr/people") return { data: { items: GROUPED, total: GROUPED.length } };
+      throw new Error(`nieoczekiwane ${url}`);
+    });
+  });
+
+  it("grupy po dziale, chipy z licznikami i kolumna „Dziś”", async () => {
+    renderDirectory(false);
+    await screen.findByText("Ewa Makietowa");
+    const filters = screen.getByRole("group", { name: "Filtry katalogu" });
+    expect(within(filters).getByRole("button", { name: /Rekrutacja IT/ })).toHaveTextContent("2");
+    expect(within(filters).getByRole("button", { name: /Delivery/ })).toHaveTextContent("1");
+    expect(within(filters).getByRole("button", { name: /Bez działu/ })).toHaveTextContent("1");
+    // Forma tylko z pełnej kartoteki (wizytówka bez pigułki).
+    expect(within(filters).getByRole("button", { name: /B2B/ })).toHaveTextContent("2");
+    expect(within(filters).getByRole("button", { name: /UoP/ })).toHaveTextContent("1");
+
+    const ewa = screen.getByText("Ewa Makietowa").closest("tr") as HTMLElement;
+    expect(within(ewa).getByText(/^przerwa do/)).toBeInTheDocument();
+    expect(within(ewa).getByText("Ola P.")).toBeInTheDocument();
+    const kamil = screen.getByText("Kamil Testowy").closest("tr") as HTMLElement;
+    expect(within(kamil).getByText("delegacja")).toBeInTheDocument();
+    // Moduł czasu otwarty w konfiguracji testu → reszta „w pracy”.
+    const ola = screen.getByText("Ola Przykładowa", { selector: "span" }).closest("tr") as HTMLElement;
+    expect(within(ola).getByText("w pracy")).toBeInTheDocument();
+  });
+
+  it("chip działu i „Dziś nieobecni” filtrują listę", async () => {
+    renderDirectory(false);
+    await screen.findByText("Ewa Makietowa");
+    const filters = screen.getByRole("group", { name: "Filtry katalogu" });
+    fireEvent.click(within(filters).getByRole("button", { name: /Delivery/ }));
+    expect(screen.queryByText("Ewa Makietowa")).toBeNull();
+    expect(screen.getByText("Kamil Testowy")).toBeInTheDocument();
+    fireEvent.click(within(filters).getByRole("button", { name: /Wszyscy/ }));
+    fireEvent.click(within(filters).getByRole("button", { name: /Dziś nieobecni/ }));
+    expect(screen.getByText("Ewa Makietowa")).toBeInTheDocument();
+    expect(screen.getByText("Kamil Testowy")).toBeInTheDocument();
+    expect(screen.queryByText("Adam Wzorcowy")).toBeNull();
   });
 });

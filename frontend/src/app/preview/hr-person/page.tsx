@@ -27,10 +27,16 @@
  * `uop` (staż do urlopu 12 lat, zaświadczenie ZUS, podpowiedź wymiaru 26 dni).
  * Okna „Edytuj kartotekę”, „Zmień pulę”, „Nowa stawka od…” i „Nowa premia”
  * otwierają się bez zapytań; zapisy blokuje harness.
+ *
+ * Makieta 19.10.2026: wizytówka z rzędem faktów (staż, forma, stawka — tylko
+ * Płace, dni przerwy, premie, sprzęt), zakładki Przegląd · Czas i przerwy ·
+ * Płace i premie · Dokumenty · Umowy · Sprzęt · Historia, pierścień dni
+ * przerwy (`leave_balance`), oś „Ostatnio”, puste sekcje jako jedna linia
+ * z akcją i „Rozpocznij odejście” w menu ⋯. `#place` otwiera „Płace i premie”.
  */
 
 import { PersonProfile } from "@/components/hr/people/PersonProfile";
-import { hrKeys, type EmploymentType, type HrConfig } from "@/lib/api/hr";
+import { hrKeys, isFullPerson, type EmploymentType, type HrConfig } from "@/lib/api/hr";
 import { equipmentKeys } from "@/lib/api/equipment";
 import { payrollKeys, type PersonPayroll } from "@/lib/api/hr-payroll";
 import { lifecycleKeys } from "@/lib/api/hr-lifecycle";
@@ -51,6 +57,7 @@ import {
   OLA_EQUIPMENT,
   OLA_RATES,
   harnessDirectory,
+  harnessLeaveYear,
   olaFromAccount,
   olaFull,
   olaWithoutForm,
@@ -134,10 +141,28 @@ function prepare(params: URLSearchParams) {
         : as === "account"
           ? olaFromAccount()
           : olaFull(form);
+  // Saldo do pierścienia (B2B i UoP z pulą 26 + 2; zlecenie bez puli).
+  const withRing =
+    isFullPerson(shown) && shown.employment_type !== "zlecenie" && as !== "account"
+      ? {
+          ...shown,
+          leave_balance: {
+            year: harnessLeaveYear(),
+            has_paid_pool: true,
+            entitlement_days: "26.0",
+            carried_over_days: "2.0",
+            used_days: "16.5",
+            planned_days: "3.0",
+            remaining_days: "11.5",
+          },
+        }
+      : isFullPerson(shown)
+        ? { ...shown, leave_balance: null }
+        : shown;
   const client = harnessQueryClient();
   client.setQueryData(hrKeys.config, config);
   client.setQueryData(hrKeys.people, harnessDirectory());
-  client.setQueryData(hrKeys.person(ola.id), shown);
+  client.setQueryData(hrKeys.person(ola.id), withRing);
   // E-teczka i umowy (etap 5) — puste, ten harness pokazuje kartotekę.
   client.setQueryData(documentKeys.person(ola.id), {
     user_id: ola.id,

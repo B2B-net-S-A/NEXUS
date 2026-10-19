@@ -454,3 +454,45 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
   miesiąca ostatniego dnia (`payroll_report.employed_in_month`). Wnioski urlopowe osoby
   zostają (przełożony ich nie widzi, Kadry tak); propozycje premii z lig i placementów nie
   patrzą na status — bez zmian.
+
+## Katalog, kartoteka i Struktura wg makiet (19.10.2026)
+
+Artur przyjął makiety kanwy „Ludzie i Sprzęt” (strona „Ludzie”, karteczki n_pe1–n_pe3)
+razem z dodatkami. Logika i krąg widzących bez zmian — zmienił się układ.
+
+- **Katalog** (`PeopleDirectory`, logika w `components/hr/people/directory-view.ts`):
+  chipy działów z licznikami (grupy po dziale, „Bez działu” na końcu), chipy formy
+  tylko z wierszy, w których serwer zwrócił `employment_type` (admin, Finanse,
+  przełożony swoich), „Dziś nieobecni”, „Odchodzą”, dla Kadr „Bez raportu godzin”
+  (dawna kolumna „Raport godzin” = ostrzeżenie przy osobie). Kolumna **„Dziś”**
+  zamiast „Domyślnie”: `GET /api/hr/people` niesie `today` per osoba
+  (`hr_people._today_by_user`) — nieobecność z `absence.absences_on` **bez rodzaju**
+  (D6; katalog widzi cała firma), praca zdalna i delegacja z `attendance_days`
+  (`leave_calendar.presence_between`, bez notatek); nieobecność tylko przy module
+  urlopów, Z/D tylko przy module czasu otwartym dla patrzącego. Słowo nieobecności
+  z formy („przerwa”, „urlop”) tylko, gdy patrzący widzi formę — inaczej „nieobecność”
+  (słowo zdradza formę). „W pracy” pada tylko, gdy patrzący ma urlopy albo czas.
+  Pasek rozjazdów nazywa pozycje (konto + kartoteki „do uzupełnienia” z katalogu)
+  i ma „Przejrzyj po kolei” (rozwija tabelę) i „Wyrównaj wg konta”.
+- **Kartoteka** (`PersonProfile`, `person-view.ts`): wizytówka z rzędem faktów — staż,
+  forma (gdy widoczna), stawka (tylko `scope: "full"` Płac; przełożony jej nie
+  dostaje, D2), dni przerwy, premie roku, sprzęt; zakładki Przegląd · Czas i przerwy ·
+  Płace i premie · Dokumenty · Umowy · Sprzęt · Historia, każda tylko dla tych, którym
+  dotąd montowała się sekcja. Kotwice: `#place` (dzwonek Płac) otwiera „Płace i
+  premie”, `#dokumenty`, `#umowy`, `#sprzet`, `#czas`, `#historia`. Pierścień czyta
+  `leave_balance` z `GET /api/hr/people/{id}` (pełny zakres, moduł urlopów otwarty,
+  pula w umowie) — tylko `hr_people.LEAVE_RING_FIELDS`, bez liczników „na żądanie”,
+  opieki i bezpłatnych (kartotekę czytają też Finanse spoza kręgu D6). Tytuł puli bez
+  widocznej formy: „Pula płatnych dni”. „Rozpocznij odejście” i „Otwórz sprawę” są
+  w menu ⋯ (ta sama reguła `can_manage` co dawna sekcja „Wejście i odejście”, która
+  jest teraz linią w Przeglądzie). Oś „Ostatnio” składa się z danych, które patrzący
+  już dostał (stawki, premie, wydania sprzętu, start, ostatni dzień).
+- **Struktura** (`StructureScreen`, `structure-tree.ts`): przełącznik Lista | Schemat
+  (domyślnie Schemat — drzewo kart per pion; Lista = dotychczasowy widok z
+  zaznaczaniem i zmianą hurtową). **Przeciągnięcie karty na inną = zmiana przełożonego**
+  tą samą trasą `POST /api/hr/structure/reassign`, po potwierdzeniu `useConfirmV2`;
+  front odcina siebie, własne poddrzewo i obecnego przełożonego (`canDropOn`), serwer
+  i tak pilnuje `people.validate_managers`. To samo z menu ⋯ karty („Zmień
+  przełożonego…”, „Ustaw pion…”). Panel **„Do uporządkowania”** (`todoItems`): odejście
+  przełożonego z podwładnymi, przełożony, który odszedł, rozjazd z M365 („Przyjmij
+  z M365”), podpowiedź „head pionu” („Przyjmij”), bez przełożonego, bez pionu.

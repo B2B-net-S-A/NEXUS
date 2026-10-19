@@ -1,12 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, UserPlus, UserRoundPlus } from "lucide-react";
+import { AlertTriangle, Search, UserPlus, UserRoundPlus } from "lucide-react";
 
-import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -21,10 +19,9 @@ import {
 } from "@/components/ui/table";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
-  EMPLOYMENT_STATUS_LABELS,
-  LOCATION_LABELS,
   isFullPerson,
   usePeople,
+  type EmploymentType,
   type HrConfig,
   type Person,
 } from "@/lib/api/hr";
@@ -32,13 +29,23 @@ import { useSetTimesheetRequired } from "@/lib/api/hr-people";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { countPl } from "@/lib/plural-pl";
 import { resolveViewState } from "@/lib/view-state";
+import { warsawToday } from "@/lib/warsaw-date";
+import { shortName } from "@/components/hr/leave/leave-format";
 
-import { AbsenceBadge } from "@/components/hr/AbsenceBadge";
-import { useAbsences } from "@/lib/api/hr-leave";
-
-import { AccountMismatchesPanel } from "./AccountMismatchesPanel";
+import { AccountMismatchesPanel, type PendingPerson } from "./AccountMismatchesPanel";
 import { AddPersonDialog } from "./AddPersonDialog";
-import { STATUS_TONE, personInitials } from "./hr-format";
+import {
+  FORM_SHORT,
+  NO_DEPARTMENT,
+  departmentDot,
+  formLabel,
+  groupByDepartment,
+  isAwayToday,
+  tenureLabel,
+  todayChips,
+} from "./directory-view";
+import { PersonAvatar } from "./PersonAvatar";
+import { FilterChip, TonePill } from "./people-ui";
 
 const MODULE_OFF_NOTICE =
   "Moduł „Ludzie” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Kadry.";
@@ -53,10 +60,33 @@ export function needsCompletion(person: Person): boolean {
   return isFullPerson(person) && (person.employment_type_pending || Boolean(person.manager_pending));
 }
 
-/** Katalog ludzi: wizytówki osób zatrudnionych (pełne dane w zakresie czytającego). */
+type StatusFilter = "away" | "leaving" | "no_report" | null;
+
+const FORMS: EmploymentType[] = ["b2b", "uop", "zlecenie"];
+
+/** Kto ma kartotekę „do uzupełnienia” — do paska rozjazdów (bez zdradzania formy). */
+export function pendingPeople(rows: readonly Person[]): PendingPerson[] {
+  return rows.filter(needsCompletion).map((row) => {
+    const full = isFullPerson(row) ? row : null;
+    const what = [
+      full?.employment_type_pending ? "forma" : null,
+      full?.manager_pending ? "przełożony" : null,
+    ].filter(Boolean);
+    return { user_id: row.user_id, name: row.name, what: what.join(" i ") };
+  });
+}
+
+/**
+ * Katalog ludzi (makieta 19.10.2026): chipy działów i formy, grupy po dziale,
+ * kolumna „Dziś” (nieobecność bez rodzaju, delegacja, odejście) i staż.
+ * Zakres danych (wizytówka / pełna kartoteka, forma) wyznacza serwer.
+ */
 export function PeopleDirectory({ config }: { config: HrConfig }) {
   const people = usePeople();
   const [query, setQuery] = useState("");
+  const [department, setDepartment] = useState<string | null>(null);
+  const [form, setForm] = useState<EmploymentType | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(null);
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const { showToast } = useToast();
@@ -66,13 +96,12 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
   const canBulk = canAdd;
   // Rozjazdy kartoteka ↔ konto: admin, Finanse i Kadry (19.10.2026).
   const seesAccounts = config.me.people_admin || config.me.payroll || config.me.is_admin;
-  const absences = useAbsences(
-    (people.data?.items ?? []).map((row) => row.user_id),
-    { enabled: config.open_modules.leave },
-  );
+  // „W pracy” wiemy tylko z urlopów albo czasu otwartych dla patrzącego.
+  const todayKnown = config.open_modules.leave || config.open_modules.time;
+  const today = warsawToday();
 
   const rows = useMemo(() => people.data?.items ?? [], [people.data]);
-  const filtered = useMemo(() => {
+  const searched = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("pl-PL");
     if (!needle) return rows;
     return rows.filter((row) =>
@@ -81,6 +110,20 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
         .some((value) => String(value).toLocaleLowerCase("pl-PL").includes(needle)),
     );
   }, [rows, query]);
+  const filtered = useMemo(
+    () =>
+      searched.filter((row) => {
+        if (department && (row.department?.trim() || NO_DEPARTMENT) !== department) return false;
+        if (form && !(isFullPerson(row) && row.employment_type === form)) return false;
+        if (statusFilter === "away" && !isAwayToday(row)) return false;
+        if (statusFilter === "leaving" && row.employment_status !== "offboarding") return false;
+        if (statusFilter === "no_report" && timesheetRequired(row) !== false) return false;
+        return true;
+      }),
+    [searched, department, form, statusFilter],
+  );
+  const groups = useMemo(() => groupByDepartment(filtered), [filtered]);
+  const departments = useMemo(() => groupByDepartment(rows).map((g) => g.department), [rows]);
   const managers = useMemo(
     () => rows.map((row) => ({ user_id: row.user_id, name: row.name })),
     [rows],
@@ -114,9 +157,17 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
     );
   }
 
-  const remote = rows.filter((row) => row.default_location === "remote").length;
-  const leaving = rows.filter((row) => row.employment_status === "offboarding").length;
-  const withoutReport = rows.filter((row) => timesheetRequired(row) === false).length;
+  const deptCounts = groupByDepartment(searched);
+  const formCounts = FORMS.map((value) => ({
+    value,
+    count: searched.filter((row) => isFullPerson(row) && row.employment_type === value).length,
+  })).filter((item) => item.count > 0);
+  const awayCount = searched.filter(isAwayToday).length;
+  const leavingCount = searched.filter((row) => row.employment_status === "offboarding").length;
+  const noReportCount = searched.filter((row) => timesheetRequired(row) === false).length;
+  const showForm = rows.some((row) => formLabel(row) != null);
+  const grouped = departments.length > 1;
+  const columns = 5 + (showForm ? 1 : 0) + (canBulk ? 1 : 0);
 
   const visibleSelected = filtered.filter((row) => selected.has(row.user_id)).length;
   const allVisible = filtered.length > 0 && visibleSelected === filtered.length;
@@ -155,53 +206,113 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
       },
     );
   };
+  const toggleStatus = (value: Exclude<StatusFilter, null>) =>
+    setStatusFilter((current) => (current === value ? null : value));
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full max-w-sm">
+      {canAdd ? (
+        <div className="flex flex-wrap justify-end gap-2">
+          {/* Wejście nowej osoby = kreator z zadaniami (moduł wejścia/odejścia). */}
+          {config.open_modules.lifecycle ? (
+            <Button variant="outline" asChild>
+              <Link href="/people/new">
+                <UserRoundPlus className="h-4 w-4" aria-hidden />
+                Wejście nowej osoby
+              </Link>
+            </Button>
+          ) : null}
+          <Button onClick={() => setAdding(true)}>
+            <UserPlus className="h-4 w-4" aria-hidden />
+            Dodaj osobę
+          </Button>
+        </div>
+      ) : null}
+
+      {seesAccounts ? <AccountMismatchesPanel pendingPeople={pendingPeople(rows)} /> : null}
+
+      <div className="flex flex-wrap items-center gap-2.5">
+        <div className="relative w-full max-w-[300px]">
           <Search
             aria-hidden
             className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
           />
           <Input
             aria-label="Szukaj osoby"
-            placeholder="Imię, stanowisko, dział, przełożony…"
+            placeholder="Imię, stanowisko, przełożony"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             className="pl-8"
           />
         </div>
-        <InlineStats
-          stats={[
-            { id: "people", label: "osób", value: rows.length },
-            { id: "remote", label: "domyślnie zdalnie", value: remote },
-            { id: "leaving", label: "w trakcie odejścia", value: leaving },
-            ...(canBulk
-              ? [{ id: "no-report", label: "bez raportu godzin", value: withoutReport }]
-              : []),
-          ]}
-        />
-        {canAdd ? (
-          <div className="ml-auto flex flex-wrap gap-2">
-            {/* Wejście nowej osoby = kreator z zadaniami (moduł wejścia/odejścia). */}
-            {config.open_modules.lifecycle ? (
-              <Button variant="outline" asChild>
-                <Link href="/people/new">
-                  <UserRoundPlus className="h-4 w-4" aria-hidden />
-                  Wejście nowej osoby
-                </Link>
-              </Button>
-            ) : null}
-            <Button onClick={() => setAdding(true)}>
-              <UserPlus className="h-4 w-4" aria-hidden />
-              Dodaj osobę
-            </Button>
-          </div>
-        ) : null}
+        <div role="group" aria-label="Filtry katalogu" className="flex flex-1 flex-wrap items-center gap-1.5">
+          <FilterChip
+            active={department === null}
+            count={searched.length}
+            onClick={() => setDepartment(null)}
+          >
+            Wszyscy
+          </FilterChip>
+          {grouped
+            ? deptCounts.map((group) => (
+                <FilterChip
+                  key={group.department}
+                  active={department === group.department}
+                  count={group.rows.length}
+                  dotClass={departmentDot(group.department, departments)}
+                  onClick={() =>
+                    setDepartment((current) =>
+                      current === group.department ? null : group.department,
+                    )
+                  }
+                >
+                  {group.department}
+                </FilterChip>
+              ))
+            : null}
+          {formCounts.length > 0 ? (
+            <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+          ) : null}
+          {formCounts.map((item) => (
+            <FilterChip
+              key={item.value}
+              active={form === item.value}
+              count={item.count}
+              onClick={() => setForm((current) => (current === item.value ? null : item.value))}
+            >
+              {FORM_SHORT[item.value]}
+            </FilterChip>
+          ))}
+          <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+          {todayKnown ? (
+            <FilterChip
+              active={statusFilter === "away"}
+              count={awayCount}
+              onClick={() => toggleStatus("away")}
+            >
+              Dziś nieobecni
+            </FilterChip>
+          ) : null}
+          {leavingCount > 0 ? (
+            <FilterChip
+              active={statusFilter === "leaving"}
+              count={leavingCount}
+              onClick={() => toggleStatus("leaving")}
+            >
+              Odchodzą
+            </FilterChip>
+          ) : null}
+          {canBulk && noReportCount > 0 ? (
+            <FilterChip
+              active={statusFilter === "no_report"}
+              count={noReportCount}
+              onClick={() => toggleStatus("no_report")}
+            >
+              Bez raportu godzin
+            </FilterChip>
+          ) : null}
+        </div>
       </div>
-
-      {seesAccounts ? <AccountMismatchesPanel /> : null}
 
       {canBulk && selected.size > 0 ? (
         <div
@@ -248,7 +359,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
-          <Table density="compact" className="min-w-[860px]">
+          <Table density="compact" className="min-w-[960px]">
             <TableHeader>
               <TableRow>
                 {canBulk ? (
@@ -262,85 +373,50 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
                 ) : null}
                 <TableHead className={CALM_HEAD}>Osoba</TableHead>
                 <TableHead className={CALM_HEAD}>Stanowisko</TableHead>
+                {showForm ? <TableHead className={CALM_HEAD}>Forma</TableHead> : null}
                 <TableHead className={CALM_HEAD}>Przełożony</TableHead>
-                <TableHead className={CALM_HEAD}>Domyślnie</TableHead>
-                <TableHead className={CALM_HEAD}>Status</TableHead>
-                {canBulk ? <TableHead className={CALM_HEAD}>Raport godzin</TableHead> : null}
+                <TableHead className={CALM_HEAD}>Dziś</TableHead>
+                <TableHead className={CALM_HEAD}>W firmie</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((row) => (
-                <TableRow key={row.user_id} className={`${CALM_ROW} h-[50px]`}>
-                  {canBulk ? (
-                    <TableCell className="w-9">
-                      <Checkbox
-                        aria-label={`Zaznacz: ${row.name}`}
-                        checked={selected.has(row.user_id)}
-                        onCheckedChange={(checked) => toggleOne(row.user_id, checked === true)}
-                      />
-                    </TableCell>
-                  ) : null}
-                  <TableCell>
-                    <Link
-                      href={`/people/${row.user_id}`}
-                      className="flex min-w-0 items-center gap-2.5 hover:underline"
-                    >
-                      <span
-                        aria-hidden
-                        className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary"
-                      >
-                        {personInitials(row.name)}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium text-foreground">
-                          {row.name}
+              {groups.map((group) => (
+                <Fragment key={group.department}>
+                  {grouped ? (
+                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                      <TableCell colSpan={columns} className="py-1.5">
+                        <span className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                          <span
+                            aria-hidden
+                            className={`h-2 w-2 rounded-full ${departmentDot(group.department, departments)}`}
+                          />
+                          {group.department}
+                          <span className="font-medium text-muted-foreground">
+                            · {group.rows.length}
+                          </span>
                         </span>
-                        <span className={`${CALM_SUBLINE} truncate`}>{row.email}</span>
-                        <AbsenceBadge
-                          absence={absences.byUser.get(row.user_id)}
-                          className="mt-0.5"
-                        />
-                      </span>
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    {row.job_title ?? <span className={CALM_EMPTY}>—</span>}
-                    {row.department ? (
-                      <span className={CALM_SUBLINE}>{row.department}</span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    {row.manager_name ?? <span className={CALM_EMPTY}>—</span>}
-                  </TableCell>
-                  <TableCell>{LOCATION_LABELS[row.default_location]}</TableCell>
-                  <TableCell>
-                    <StatusDot tone={STATUS_TONE[row.employment_status]}>
-                      {EMPLOYMENT_STATUS_LABELS[row.employment_status]}
-                    </StatusDot>
-                    {needsCompletion(row) ? (
-                      <span className={`${CALM_SUBLINE} text-warning-muted-foreground`}>
-                        do uzupełnienia
-                      </span>
-                    ) : null}
-                  </TableCell>
-                  {canBulk ? (
-                    <TableCell>
-                      {timesheetRequired(row) == null ? (
-                        <span className={CALM_EMPTY}>—</span>
-                      ) : timesheetRequired(row) ? (
-                        "tak"
-                      ) : (
-                        <span className="text-muted-foreground">nie składa</span>
-                      )}
-                    </TableCell>
+                      </TableCell>
+                    </TableRow>
                   ) : null}
-                </TableRow>
+                  {group.rows.map((row) => (
+                    <DirectoryRow
+                      key={row.user_id}
+                      row={row}
+                      today={today}
+                      todayKnown={todayKnown}
+                      showForm={showForm}
+                      canBulk={canBulk}
+                      selected={selected.has(row.user_id)}
+                      onSelect={(checked) => toggleOne(row.user_id, checked)}
+                    />
+                  ))}
+                </Fragment>
               ))}
             </TableBody>
           </Table>
           {filtered.length === 0 ? (
             <p className="p-6 text-center text-sm text-muted-foreground">
-              Nikt nie pasuje do „{query}”.
+              {query.trim() ? `Nikt nie pasuje do „${query}”.` : "Nikt nie pasuje do filtrów."}
             </p>
           ) : null}
         </div>
@@ -350,5 +426,107 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
         <AddPersonDialog open={adding} onOpenChange={setAdding} managers={managers} />
       ) : null}
     </div>
+  );
+}
+
+function DirectoryRow({
+  row,
+  today,
+  todayKnown,
+  showForm,
+  canBulk,
+  selected,
+  onSelect,
+}: {
+  row: Person;
+  today: string;
+  todayKnown: boolean;
+  showForm: boolean;
+  canBulk: boolean;
+  selected: boolean;
+  onSelect: (checked: boolean) => void;
+}) {
+  const full = isFullPerson(row) ? row : null;
+  const chips = todayChips(row, today, todayKnown);
+  const formText = formLabel(row);
+  const tenure = full ? tenureLabel(full.work_start_date ?? full.hired_on, today) : null;
+  const noReport = canBulk && timesheetRequired(row) === false;
+  return (
+    <TableRow className={`${CALM_ROW} h-[50px] ${needsCompletion(row) ? "bg-warning-muted/20" : ""}`}>
+      {canBulk ? (
+        <TableCell className="w-9">
+          <Checkbox
+            aria-label={`Zaznacz: ${row.name}`}
+            checked={selected}
+            onCheckedChange={(checked) => onSelect(checked === true)}
+          />
+        </TableCell>
+      ) : null}
+      <TableCell>
+        <Link
+          href={`/people/${row.user_id}`}
+          className="flex min-w-0 items-center gap-2.5 hover:underline"
+        >
+          <PersonAvatar name={row.name} />
+          <span className="min-w-0">
+            <span className="block truncate font-medium text-foreground">{row.name}</span>
+            <span className={`${CALM_SUBLINE} truncate`}>{row.email}</span>
+          </span>
+        </Link>
+        {noReport ? (
+          <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-warning-muted-foreground">
+            <AlertTriangle className="h-3 w-3" aria-hidden />
+            nie składa raportu godzin
+          </span>
+        ) : null}
+      </TableCell>
+      <TableCell>{row.job_title ?? <span className={CALM_EMPTY}>—</span>}</TableCell>
+      {showForm ? (
+        <TableCell>
+          {formText ? (
+            <TonePill tone={formText === "uzupełnij" ? "warning" : "neutral"}>{formText}</TonePill>
+          ) : (
+            <span className={CALM_EMPTY}>—</span>
+          )}
+        </TableCell>
+      ) : null}
+      <TableCell>
+        {row.manager_name && row.manager_user_id ? (
+          <Link
+            href={`/people/${row.manager_user_id}`}
+            className="inline-flex items-center gap-1.5 hover:underline"
+            title={row.manager_name}
+          >
+            <PersonAvatar name={row.manager_name} size="xs" />
+            {shortName(row.manager_name)}
+          </Link>
+        ) : full?.manager_pending ? (
+          <span className="text-xs text-warning-muted-foreground">przełożony do uzupełnienia</span>
+        ) : (
+          <span className={CALM_EMPTY}>—</span>
+        )}
+      </TableCell>
+      <TableCell>
+        {chips.length === 0 ? (
+          <span className={CALM_EMPTY}>—</span>
+        ) : (
+          <span className="flex flex-wrap items-center gap-1.5">
+            {chips.map((chip) =>
+              chip.label === "w pracy" ? (
+                <span key={chip.label} className="inline-flex items-center gap-1.5 text-sm">
+                  <span aria-hidden className="h-2 w-2 rounded-full bg-success" />
+                  w pracy
+                </span>
+              ) : (
+                <TonePill key={chip.label} tone={chip.tone}>
+                  {chip.label}
+                </TonePill>
+              ),
+            )}
+          </span>
+        )}
+      </TableCell>
+      <TableCell className="text-xs text-muted-foreground">{tenure ?? "—"}</TableCell>
+    </TableRow>
   );
 }

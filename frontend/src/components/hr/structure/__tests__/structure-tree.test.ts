@@ -3,7 +3,14 @@ import { describe, expect, it } from "vitest";
 import type { HrStructure, StructurePerson } from "@/lib/api/hr-structure";
 import { managerWords } from "@/lib/api/hr-structure";
 
-import { buildStructure, flatten, leavingManagers } from "../structure-tree";
+import {
+  blockedManagers,
+  buildStructure,
+  canDropOn,
+  flatten,
+  leavingManagers,
+  todoItems,
+} from "../structure-tree";
 
 function person(
   user_id: number,
@@ -124,5 +131,79 @@ describe("przełożony czy koordynator", () => {
     expect(managerWords(["uop"]).ofOne).toBe("przełożonego");
     expect(managerWords(["uop", "b2b"]).one).toBe("przełożony lub koordynator");
     expect(managerWords([]).one).toBe("przełożony lub koordynator");
+  });
+});
+
+
+describe("schemat — przeciąganie karty (makieta 19.10.2026)", () => {
+  const boss = person(1, "Kamil Testowy", { division: "front_office", reports: 1 });
+  const lead = person(2, "Marta Fikcyjna", { division: "front_office", reports: 1, ...under(boss) });
+  const recruiter = person(3, "Ewa Makietowa", { division: "front_office", ...under(lead) });
+  const other = person(4, "Piotr Finansowy", { division: "back_office" });
+  const data = structure([boss, lead, recruiter, other], { front_office: 1 });
+
+  it("nie da się podpiąć pod siebie ani pod własne poddrzewo", () => {
+    expect([...blockedManagers(data, 1)].sort()).toEqual([1, 2, 3]);
+    expect(canDropOn(data, 1, 3)).toBe(false);
+    expect(canDropOn(data, 2, 2)).toBe(false);
+  });
+
+  it("upuszczenie na obecnego przełożonego to nie zmiana", () => {
+    expect(canDropOn(data, 3, 2)).toBe(false);
+  });
+
+  it("inna osoba, także z innego pionu, przyjmuje kartę", () => {
+    expect(canDropOn(data, 3, 1)).toBe(true);
+    expect(canDropOn(data, 3, 4)).toBe(true);
+    expect(canDropOn(data, 99, 1)).toBe(false);
+  });
+});
+
+describe("„Do uporządkowania”", () => {
+  it("zbiera odejście przełożonego, M365, podpowiedzi, brak przełożonego i pionu", () => {
+    const head = person(1, "Kamil Testowy", { division: "front_office", reports: 2 });
+    const leaving = person(2, "Marta Fikcyjna", {
+      division: "front_office",
+      reports: 3,
+      ...under(head),
+      leaving: {
+        case_id: 7,
+        status: "active",
+        last_working_day: "2026-11-30",
+        reports_receiver_user_id: 1,
+        reports_receiver_name: "Kamil Testowy",
+        reports_handover_status: "planned",
+      },
+    });
+    const m365 = person(3, "Ola Przykładowa", {
+      division: "front_office",
+      ...under(leaving),
+      m365_hint: { upn: "kamil@example.com", user_id: 1, name: "Kamil Testowy", can_accept: true },
+    });
+    const suggested = person(4, "Kacper Nowicjusz", {
+      division: "front_office",
+      suggested_manager: { user_id: 1, name: "Kamil Testowy" },
+    });
+    const alone = person(5, "Paulina Kadrowa");
+    const gone = person(6, "Zofia Recepcyjna", {
+      division: "back_office",
+      manager_user_id: 77,
+      manager_name: "Ktoś, kto odszedł",
+      manager_state: "inactive",
+    });
+    const items = todoItems(structure([head, leaving, m365, suggested, alone, gone], { front_office: 1 }));
+    expect(items.map((item) => [item.kind, item.person.user_id])).toEqual([
+      ["leaving", 2],
+      ["manager_gone", 6],
+      ["m365", 3],
+      ["suggestion", 4],
+      ["no_manager", 5],
+      ["no_division", 5],
+    ]);
+  });
+
+  it("head pionu bez przełożonego to nie brak", () => {
+    const head = person(1, "Kamil Testowy", { division: "front_office" });
+    expect(todoItems(structure([head], { front_office: 1 }))).toEqual([]);
   });
 });
