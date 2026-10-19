@@ -178,6 +178,28 @@ describe("AssignmentPanel", () => {
     expect(within(screen.getByRole("table", { name: "Kontrakty do przydziału" })).getByText("Leon Wzorcowy")).toBeInTheDocument();
   });
 
+  it("„Zaznacz wszystkich” bierze najwyżej 500 osób — więcej serwer odrzuca w całości", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const many = Array.from({ length: 501 }, (_, index) =>
+      item({ contract_id: index + 1, candidate_name: `Osoba Testowa ${index + 1}` }),
+    );
+    mocks.get.mockResolvedValue({ data: overview({ items: many }) });
+    mocks.post.mockResolvedValue({ data: { changed: 500, unchanged: 0, owner: kamil } });
+    renderPanel();
+    const table = await screen.findByRole("table", { name: "Kontrakty do przydziału" });
+    await user.click(within(table).getByRole("checkbox", { name: "Zaznacz wszystkich" }));
+    const bar = screen.getByRole("group", { name: "Zmiana opiekuna zaznaczonych" });
+    expect(within(bar).getByText("Zaznaczone: 500")).toBeInTheDocument();
+    expect(within(bar).getByText(/Naraz najwyżej 500/)).toBeInTheDocument();
+    await user.click(within(bar).getByRole("combobox", { name: "Przypisz do" }));
+    await user.click(await screen.findByRole("option", { name: kamil.name }));
+    await user.click(within(bar).getByRole("combobox", { name: "Powód zmiany opiekuna" }));
+    await user.click(await screen.findByRole("option", { name: "Wyrównanie obciążenia" }));
+    await user.click(within(bar).getByRole("button", { name: "Przypisz" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalled());
+    expect(mocks.post.mock.calls[0][1].contract_ids).toHaveLength(500);
+  });
+
   it("bez prawa przydziału: bez zaznaczania i bez progu", async () => {
     mocks.get.mockResolvedValue({
       data: overview({ can_assign: false, can_edit_threshold: false }),

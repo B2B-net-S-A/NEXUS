@@ -990,6 +990,8 @@ export function useSaveOwnerPool() {
     onSuccess: (data) => {
       queryClient.setQueryData(careKeys.autoAssignment, data);
       void queryClient.invalidateQueries({ queryKey: careKeys.assignment, exact: true });
+      // Lista wyboru opiekuna (5 min staleTime) — wykluczony z puli znika od razu.
+      void queryClient.invalidateQueries({ queryKey: careKeys.owners });
     },
   });
 }

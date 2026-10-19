@@ -31,6 +31,8 @@ import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table"
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { hasCapability } from "@/lib/capabilities";
+import { useAuthStore } from "@/store/auth";
 
 function NoteDialog({ row, onClose }: { row: RedeployRow; onClose: () => void }) {
   const { showToast } = useToast();
@@ -104,6 +106,8 @@ export function RedeployPanel() {
     isEmpty: rows.length === 0,
   });
   const canEdit = query.data?.can_edit ?? false;
+  // `/jobs/new` odsyła na listę każdego bez `job.create` (np. TCM).
+  const canCreateJob = useAuthStore((s) => !!s.user && hasCapability(s.user, "job.create"));
 
   const changeStatus = (row: RedeployRow, status: RedeployStatus) =>
     update.mutate(
@@ -216,9 +220,11 @@ export function RedeployPanel() {
                       <Link href="/jobs" className="text-primary hover:underline">
                         Szukaj projektu
                       </Link>
-                      <Link href="/jobs/new" className="text-primary hover:underline">
-                        Nowa rekrutacja
-                      </Link>
+                      {canCreateJob ? (
+                        <Link href="/jobs/new" className="text-primary hover:underline">
+                          Nowa rekrutacja
+                        </Link>
+                      ) : null}
                       {canEdit ? (
                         <button type="button" className="text-primary hover:underline" onClick={() => setNoteFor(row)}>
                           Notatka

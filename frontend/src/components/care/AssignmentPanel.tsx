@@ -48,6 +48,8 @@ import { ClientDefaultOwnersDialog } from "./ClientDefaultOwnersDialog";
 import { OwnerPoolPanel } from "./OwnerPoolPanel";
 
 const REASONS = Object.keys(OWNER_REASON_LABELS) as OwnerReason[];
+/** Limit jednego zapisu (`MAX_BULK` w `care/assignment.py`) — więcej = 422 i nic się nie zapisuje. */
+export const MAX_BULK_ASSIGN = 500;
 
 function shortName(name: string): string {
   const [first, ...rest] = name.trim().split(/\s+/);
@@ -200,9 +202,11 @@ export function AssignmentPanel() {
       else next.add(id);
       return next;
     });
-  const allPicked = rows.length > 0 && rows.every((row) => picked.has(row.contract_id));
+  const pickable = rows.slice(0, MAX_BULK_ASSIGN);
+  const allPicked = pickable.length > 0 && pickable.every((row) => picked.has(row.contract_id));
+  const overLimit = picked.size > MAX_BULK_ASSIGN;
   const submit = () => {
-    if (!ownerId || !reason || !picked.size) return;
+    if (!ownerId || !reason || !picked.size || overLimit) return;
     assign.mutate(
       { contract_ids: [...picked], owner_user_id: Number(ownerId), reason },
       {
@@ -310,6 +314,11 @@ export function AssignmentPanel() {
               aria-label="Zmiana opiekuna zaznaczonych"
             >
               <span className="font-medium">Zaznaczone: {picked.size}</span>
+              {overLimit || (allPicked && rows.length > MAX_BULK_ASSIGN) ? (
+                <span className="text-muted-foreground">
+                  Naraz najwyżej {MAX_BULK_ASSIGN} — resztę przypisz w kolejnym kroku.
+                </span>
+              ) : null}
               <Select value={ownerId} onValueChange={setOwnerId}>
                 <SelectTrigger aria-label="Przypisz do" className="h-8 w-52">
                   <SelectValue placeholder="Przypisz do…" />
@@ -334,7 +343,7 @@ export function AssignmentPanel() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button size="sm" disabled={!ownerId || !reason || assign.isPending} onClick={submit}>
+              <Button size="sm" disabled={!ownerId || !reason || overLimit || assign.isPending} onClick={submit}>
                 {assign.isPending ? "Zapisywanie…" : "Przypisz"}
               </Button>
             </div>
@@ -350,7 +359,7 @@ export function AssignmentPanel() {
                           aria-label="Zaznacz wszystkich"
                           checked={allPicked}
                           onCheckedChange={(value) =>
-                            setPicked(value === true ? new Set(rows.map((row) => row.contract_id)) : new Set())
+                            setPicked(value === true ? new Set(pickable.map((row) => row.contract_id)) : new Set())
                           }
                         />
                       </th>
