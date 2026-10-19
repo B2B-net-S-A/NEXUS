@@ -64,6 +64,7 @@ from app.services.admin_cases import mailbox as admin_mailbox
 from app.services.hr import audit
 from app.services.hr.calendar import load_calendar
 from app.services.hr.leave_m365 import LeaveSnapshot, plan_operations
+from app.services.hr.leave_outlook import SOURCE as OUTLOOK_SOURCE
 from app.services.hr.leave_policy import forward_target_allowed
 from app.services.hr.m365 import (
     calendar_event,
@@ -363,6 +364,9 @@ async def _hand_over_oof(ctx: Context) -> None:
         LeaveRequest.user_id == ctx.op.user_id,
         LeaveRequest.status == "approved",
         LeaveRequest.end_date >= ctx.today,
+        # Wniosek z Outlooka ma autoodpowiedź osoby — nie dostaje naszej
+        # (jak w uzgadnianiu i przy akceptacji).
+        LeaveRequest.source != OUTLOOK_SOURCE,
     )
     if ctx.op.leave_request_id is not None:
         query = query.where(LeaveRequest.id != ctx.op.leave_request_id)
@@ -460,6 +464,18 @@ async def _calendar_upsert(ctx: Context) -> Outcome:
             # Osoba usunęła wydarzenie w Outlooku — zakładamy od nowa.
             ctx.mailbox.events.pop(transaction, None)
             ctx.mailbox.touched = True
+    elif ctx.leave is not None and (
+        ctx.leave.source == "compass_import" or payload.get("previous_start")
+    ):
+        # Tylko tu może czekać wydarzenie bez zapamiętanego id: urlop z importu
+        # (wydarzenie Compassa) albo przesunięty edycją. Zwykły nowy urlop
+        # idzie prosto do POST (bez dodatkowego odczytu kalendarza).
+        adopted = await _replace_compass_event(ctx, payload, start, end, transaction)
+        if adopted is not None:
+            await ctx.ops.update_event(ctx.upn, adopted, patch_body)
+            ctx.mailbox.events[transaction] = adopted
+            ctx.mailbox.touched = True
+            return Outcome("done")
 
     try:
         created = await ctx.ops.create_event(
@@ -483,6 +499,43 @@ async def _calendar_upsert(ctx: Context) -> Outcome:
         ctx.mailbox.events[transaction] = str(event_id)
         ctx.mailbox.touched = True
     return Outcome("done")
+
+
+async def _replace_compass_event(
+    ctx: Context,
+    payload: dict[str, Any],
+    start: date,
+    end: date,
+    transaction: str,
+) -> Optional[str]:
+    """Wydarzenie urlopu bez zapamiętanego id: nasze przejmujemy, Compassa kasujemy.
+
+    Urlop z importu ma w kalendarzu wydarzenie Compassa (``leave-{id}``, w
+    tytule rodzaj nieobecności). Bez tego edycja dat zostawiała je w starym
+    oknie obok naszego „Poza biurem”, a anulowanie szukało już tylko w nowym.
+    Szukamy w oknie urlopu i w poprzednim (``previous_*`` z ``plan_edit``).
+    Zwraca id naszego wydarzenia do przesunięcia albo ``None`` (zakładamy).
+    """
+
+    previous_start = _date(payload.get("previous_start"))
+    previous_end = _date(payload.get("previous_end"))
+    first = min(start, previous_start) if previous_start else start
+    last = max(end, previous_end) if previous_end else end
+    found = await _find_events(
+        ctx, first, last, calendar_event.known_transaction_ids(str(ctx.leave.id))
+    )
+    adopted: Optional[str] = None
+    for event in found:
+        if event.get("transactionId") == transaction:
+            adopted = adopted or str(event["id"])
+            continue
+        try:
+            await ctx.ops.delete_event(ctx.upn, str(event["id"]))
+        except MailboxError as exc:
+            if exc.status != 404:
+                raise
+        ctx.notes["replaced"] = ctx.notes.get("replaced", 0) + 1
+    return adopted
 
 
 async def _calendar_delete(ctx: Context) -> Outcome:

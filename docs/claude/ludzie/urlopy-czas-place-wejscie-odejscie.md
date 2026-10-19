@@ -162,7 +162,9 @@ decyduje o słowach i o przebiegu nieobecności.
   (`hr_leave_requested`); B2B i zlecenie — przyjęte zgłoszenie, informacja do
   koordynatora i Kadr typem `hr_absence_reported` (bez nowego typu). Odcinek
   ponad pulę UoP albo na dni z wysłanego raportu godzin nie powstaje. Wniosek
-  `outlook_oof` odrzucony albo anulowany pokrywa swoje okno na stałe. Bez
+  `outlook_oof` pokrywa na stałe całe okno autoodpowiedzi, z którego powstał
+  (także skrócony edycją, odrzucony albo anulowany), a odrzucony albo
+  anulowany wniosek dowolnego źródła — swoje dni (audyt 19.10.2026). Bez
   autoodpowiedzi i wydarzenia od nas (`_enqueue_m365` i uzgadnianie je
   pomijają; przekierowanie za zgodą osoby zostaje). Autoodpowiedź bez dat →
   bez wniosku, `custom_oof_detected` (lista w karcie). Tylko przy włączonym
@@ -192,7 +194,14 @@ decyduje o słowach i o przebiegu nieobecności.
   (zdjęcie starej autoodpowiedzi, nowa, przesunięcie wydarzenia tym samym
   `transactionId`, zamknięcie + otwarcie reguły; klucze `…:edit{n}`).
   Wykonawca pomija `set_oof` i `calendar_event_upsert`, których okno nie
-  zgadza się już z datami wniosku (`leave_changed`).
+  zgadza się już z datami wniosku (`leave_changed`). Wydarzenie bez
+  zapamiętanego id szukamy w starym i nowym oknie (`previous_*` w ładunku):
+  nasze przesuwamy, wydarzenie Compassa (`leave-{id}`, z rodzajem w tytule)
+  kasujemy (audyt 19.10.2026).
+- Uzgadnianie nie przywraca autoodpowiedzi urlopu, po której weszła nasza
+  autoodpowiedź urlopu zaczynającego się nie wcześniej — wykonawca pisze taką
+  tylko do skrzynki bez naszej trwającej, więc osoba wyłączyła tę pierwszą.
+  Przekazanie autoodpowiedzi po anulowaniu pomija wnioski z Outlooka.
 - **„Wszystkie wnioski”**: `counts` per status w odpowiedzi historii (zakres
   i filtry bez statusu), plakietki źródła „Wpis za pracownika”, „Z Outlooka”,
   „Import z Compassa”.
