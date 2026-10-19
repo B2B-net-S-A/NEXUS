@@ -126,3 +126,26 @@ firmy (bez zawężenia Delivery Leada — jak pozostałe listy wyboru rekrutacji
   przyciskiem zostawało przy 1280 × 720 miejsce na dwa i pół wiersza (150 px),
   obok jest 360 px. Węziej zostaje pod przyciskiem. Okienko „Rekrutacje i historia”
   ma 460 px, żeby cztery opcje stały w jednym rzędzie.
+
+## „Dodany na etap / Dodany przez / Dodany od – do” (19.10.2026)
+
+Prośba rekrutera: sprawdzić, kiedy i przez kogo osoba trafiła na konkretny
+etap (np. QC CV). Panel „Etap w rekrutacji” (`StageFilterPanel`) pokazuje
+etapy jak kolumny Tablicy, nie 14 kodów enuma:
+
+- Parametr listy `stage_column[]` (URL `stage_col`, dopisany na końcu
+  `encodeFilters` — stare adresy kodują się bajt w bajt jak dotąd) z kluczami
+  kolumn Tablicy + `closed`. Backend (`services/candidate_stage_column.py`)
+  zamienia kolumnę na etapy szablonu regułą `board_column_for` (QC CV wynika
+  z NAZWY etapu szablonu, nie z kodu `interview`); wiersze bez etapu szablonu
+  — z samego kodu. Warunek wchodzi w ten sam EXISTS co osoba i daty, więc
+  „QC CV + Jan + 01–15.10” to jedno przejście. Stary `pipeline_stage[]`
+  działa dalej (LUB z kolumną); panel pokazuje go jako „Ze starego linku”.
+- „Dodany przez” = kto przesunął osobę NA ten etap (`moved_by` przejścia),
+  nie kto dodał ją do rekrutacji (decyzja Artura 19.10.2026).
+- Przy włączonym filtrze etapu lista dostaje `stage_match` (najnowsze
+  pasujące przejście: kolumna, kiedy, kto, rekrutacja, klient) — jedno
+  zapytanie tylko dla id ze strony wyniku. Kolumna „Dodany na etap” jest
+  tylko wtedy (nie ma jej w menu „Kolumny”); na laptopie zajmuje miejsce
+  „Ostatniego stanowiska”, żeby „Przypisz” mieścił się w 1280 px.
+- Filtr jest tylko w silniku listy (L) i w `list_only` zapisanych wyszukiwań.

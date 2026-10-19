@@ -3,9 +3,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowDown,
-  ArrowUp,
-  ChevronsUpDown,
   Info,
   Loader2,
   Users,
@@ -17,10 +14,16 @@ import {
   type TeamTableMetricKey,
   type TeamTableRow,
 } from "@/lib/insights-team-api";
+import {
+  nextColumnSort,
+  sortRowsByColumn,
+  type SortDirection,
+  type SortValue,
+} from "@/lib/insights-people-table";
 import { cn } from "@/lib/utils";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { count } from "./InsightsFormat";
-import { SectionError } from "./_shared";
+import { SectionError, SortableHeader } from "./_shared";
 
 interface Props {
   period: InsightsPeriodParams;
@@ -36,7 +39,6 @@ interface Props {
 }
 
 type SortKey = "person" | "role" | TeamTableMetricKey;
-type SortDirection = "asc" | "desc";
 
 const METRIC_KEYS: TeamTableMetricKey[] = [
   "verifications",
@@ -84,24 +86,12 @@ export function initialsOf(name: string | null | undefined): string {
     .join("");
 }
 
-/**
- * Wiersz bez nazwiska przegrywa — to nie jest wartość, tylko jej brak.
- *
- * Wynik jest ZAWSZE liczony w kierunku rosnącym i nie wolno go przepuszczać
- * przez mnożnik kierunku sortowania (patrz `sortRows`).
- */
-function missingNameLast(a: TeamTableRow, b: TeamTableRow): number {
-  return (a.name ? 0 : 1) - (b.name ? 0 : 1);
-}
-
-function compareRows(a: TeamTableRow, b: TeamTableRow, key: SortKey): number {
-  if (key === "person") {
-    return (a.name ?? "").localeCompare(b.name ?? "", "pl");
-  }
-  if (key === "role") {
-    return (a.role_label ?? "").localeCompare(b.role_label ?? "", "pl");
-  }
-  return a[key] - b[key];
+function sortValue(row: TeamTableRow, key: SortKey): SortValue {
+  // Brak nazwiska to brak wartości — `null` stoi na końcu w obu kierunkach,
+  // więc przy „malejąco” wiersz bez nazwiska nie wskakuje na miejsce medalu.
+  if (key === "person") return row.name || null;
+  if (key === "role") return row.role_label ?? "";
+  return row[key];
 }
 
 export function sortRows(
@@ -109,28 +99,14 @@ export function sortRows(
   key: SortKey,
   direction: SortDirection,
 ): TeamTableRow[] {
-  const factor = direction === "asc" ? 1 : -1;
-  return [...rows].sort((a, b) => {
-    if (key === "person") {
-      // Ta reguła MUSI stać PONAD kierunkiem sortowania. Wpuszczona do
-      // `compareRows` i przemnożona przez `factor` odwraca się razem z nim,
-      // więc przy „malejąco" wiersz BEZ nazwiska ląduje na szczycie kolumny
-      // „Osoba" — brak danych wygrywa wtedy sortowanie po danych, i to
-      // dokładnie w miejscu, w którym siada medal.
-      const missing = missingNameLast(a, b);
-      if (missing !== 0) return missing;
-    }
-    const primary = compareRows(a, b, key) * factor;
-    if (primary !== 0) return primary;
-    // Remis zawsze po nazwisku rosnąco — bez tego kolejność osób z równym
-    // wynikiem zmieniałaby się między renderami i tabela „migałaby". Wiersz
-    // bez nazwiska przegrywa remis WPROST, a nie przez sentinel wstawiony do
-    // napisu: porównanie sztucznego znaku regułami ICU dla „pl" nie ma
-    // gwarancji, że wypadnie na końcu.
-    const missingOnTie = missingNameLast(a, b);
-    if (missingOnTie !== 0) return missingOnTie;
-    return (a.name ?? "").localeCompare(b.name ?? "", "pl");
-  });
+  // Remis zawsze po nazwisku rosnąco, wiersz bez nazwiska przegrywa remis —
+  // bez tego kolejność osób z równym wynikiem zmieniałaby się między renderami.
+  return sortRowsByColumn(
+    rows,
+    (row) => sortValue(row, key),
+    direction,
+    (row) => row.name,
+  );
 }
 
 /**
@@ -151,8 +127,12 @@ export function sortRows(
 export const TEAM_TABLE_COLLAPSED_ROWS = 10;
 
 export function InsightsTeamTable({ period, renderFlags }: Props) {
-  const [sortKey, setSortKey] = useState<SortKey>("verifications");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDirection }>({
+    key: "verifications",
+    dir: "desc",
+  });
+  const sortKey = sort.key;
+  const sortDir = sort.dir;
   // Pierwsze wiersze po sortowaniu, reszta pod przyciskiem — 28 osób
   // z plakietkami to ~2400 px i przykrywało resztę rozdziału Wyniki.
   const [expanded, setExpanded] = useState(false);
@@ -176,13 +156,10 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
   });
 
   function toggleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-      return;
-    }
-    setSortKey(key);
     // Metryki otwierają się od najlepszych, kolumny opisowe od A do Z.
-    setSortDir(key === "person" || key === "role" ? "asc" : "desc");
+    setSort((current) =>
+      nextColumnSort(current, key, (k) => k === "person" || k === "role"),
+    );
   }
 
   // Medal należy do RANKINGU, a ranking istnieje tylko przy sortowaniu
@@ -448,56 +425,5 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
         </>
       )}
     </section>
-  );
-}
-
-function SortableHeader({
-  label,
-  columnKey,
-  sortKey,
-  sortDir,
-  onSort,
-  align,
-  className,
-}: {
-  label: string;
-  columnKey: SortKey;
-  sortKey: SortKey;
-  sortDir: SortDirection;
-  onSort: (key: SortKey) => void;
-  align: "left" | "right";
-  className?: string;
-}) {
-  const active = sortKey === columnKey;
-  const Icon = !active
-    ? ChevronsUpDown
-    : sortDir === "asc"
-      ? ArrowUp
-      : ArrowDown;
-  return (
-    <th
-      scope="col"
-      className={cn(
-        "py-2 font-medium",
-        align === "right" ? "px-2 text-right" : "pr-3 text-left",
-        className,
-      )}
-      aria-sort={
-        active ? (sortDir === "asc" ? "ascending" : "descending") : "none"
-      }
-    >
-      <button
-        type="button"
-        onClick={() => onSort(columnKey)}
-        className={cn(
-          "inline-flex items-center gap-1 rounded-sm uppercase hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          align === "right" ? "flex-row-reverse" : "",
-          active ? "text-foreground" : "",
-        )}
-      >
-        {label}
-        <Icon className="h-3 w-3" aria-hidden="true" />
-      </button>
-    </th>
   );
 }

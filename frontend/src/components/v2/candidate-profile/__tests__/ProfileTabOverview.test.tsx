@@ -73,6 +73,9 @@ function renderTab(overrides: Partial<ProfileTabProps> = {}) {
       candidate={{
         id: 42,
         created_at: "2026-05-05T10:00:00Z",
+        added_to_base_at: "2026-05-05T10:00:00Z",
+        added_to_base_exact: true,
+        added_via: "Traffit",
         external_source: "traffit",
         experience: [
           { role: "Analityk systemowy", company: "Bank Północny", start: "2024-03", end: null },
@@ -244,6 +247,57 @@ describe("Przegląd — kim jest", () => {
     const strip = screen.getByLabelText("Z nami");
     expect(within(strip).getByRole("button", { name: "W toku: 1" })).toBeInTheDocument();
     expect(strip).toHaveTextContent("Zakończone: 1");
-    expect(strip).toHaveTextContent("W bazie od 5.05.2026 (Traffit)");
+    expect(strip).toHaveTextContent("W bazie od 05.05.2026");
+    expect(within(strip).getByRole("button", { name: /Skąd: Traffit/ })).toBeInTheDocument();
+  });
+
+  it("data niedokładna z importu mówi „przed …”, a nie dzień importu", () => {
+    renderTab({
+      candidate: {
+        id: 42,
+        created_at: "2026-05-05T10:00:00Z",
+        added_to_base_at: "2026-04-16T00:00:00Z",
+        added_to_base_exact: false,
+        added_via: "Traffit",
+      },
+    });
+    expect(screen.getByLabelText("Z nami")).toHaveTextContent("W bazie od przed 16.04.2026");
+  });
+
+  it("„Skąd” mówi, kto dodał i jak — po kliknięciu szczegóły linku", async () => {
+    const user = userEvent.setup();
+    renderTab({
+      candidate: {
+        id: 42,
+        created_at: "2026-10-18T12:32:00Z",
+        added_to_base_at: "2026-10-18T12:32:00Z",
+        added_to_base_exact: true,
+        added_via: "Formularz aplikacyjny",
+        created_by_user: { id: 7, name: "Jan Kowalski" },
+        invite_source: {
+          label: "Post na LinkedIn",
+          created_by_name: "Jan Kowalski",
+          applied_at: "2026-10-18T12:32:00Z",
+          previous_created_by_name: null,
+          link_kind: "recruiter",
+          utm_source: "linkedin",
+        },
+      },
+    });
+    const strip = screen.getByLabelText("Z nami");
+    const origin = within(strip).getByRole("button", { name: /Skąd: Link rekrutera · Jan Kowalski/ });
+    await user.click(origin);
+    const details = await screen.findByRole("dialog", { name: "Skąd ta osoba jest w bazie" });
+    expect(details).toHaveTextContent("Dodał(a)Jan Kowalski");
+    expect(details).toHaveTextContent("SposóbLink rekrutera — osoba sama wypełniła formularz");
+    expect(details).toHaveTextContent("Nazwa linkuPost na LinkedIn");
+    expect(details).toHaveTextContent("Wejście zLinkedIn");
+  });
+
+  it("bez danych o pochodzeniu nie ma przycisku „Skąd”", () => {
+    renderTab({ candidate: { id: 42, created_at: "2026-05-05T10:00:00Z" } });
+    const strip = screen.getByLabelText("Z nami");
+    expect(strip).toHaveTextContent("W bazie od 05.05.2026");
+    expect(within(strip).queryByRole("button", { name: /Skąd/ })).toBeNull();
   });
 });

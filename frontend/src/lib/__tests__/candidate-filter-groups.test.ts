@@ -9,6 +9,7 @@ import {
 } from "@/lib/candidate-filter-groups";
 
 const NO_STAGE = {
+  columns: [],
   stages: [],
   currentOnly: false,
   clientIds: [],
@@ -137,6 +138,15 @@ describe("filterGroupCounts", () => {
       // nad tabelą (25.09.2026), więc „Więcej filtrów” ich nie liczy
       more: 2,
     });
+  });
+
+  it("„Dodany na etap”: każda kolumna liczy się w „Rekrutacje i historia”", () => {
+    const counts = filterGroupCounts(
+      withFilters({}),
+      { ...NO_STAGE, columns: ["cv_qc", "cv_sent"], movedByIds: [7] },
+      NO_SKILLS,
+    );
+    expect(counts.history).toBe(3);
   });
 
   it("blok „Rekrutacje”: tryb i klienci liczą się w „Rekrutacje i historia”", () => {

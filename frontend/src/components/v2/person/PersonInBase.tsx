@@ -31,6 +31,7 @@ import {
   newInBaseDaysText,
   type AddedToBaseView,
 } from "@/lib/added-to-base";
+import { candidateOrigin, originSummary, type InviteSourceBrief } from "@/lib/candidate-origin";
 import { entrySourceLabel } from "@/lib/recruitment-stage-label";
 
 /** Wycinek `CandidateResponse` z polami „W bazie od”. */
@@ -39,6 +40,8 @@ export interface CandidateInBase {
   added_to_base_exact?: boolean | null;
   added_via?: string | null;
   created_by_user?: { id: number; name?: string | null } | null;
+  /** Tylko w szczegółach osoby: zgłoszenie przez link (rodzaj, właściciel, utm). */
+  invite_source?: InviteSourceBrief | null;
 }
 
 export function useCandidateInBase(candidateId: number) {
@@ -59,10 +62,12 @@ function addedByName(candidate: CandidateInBase | null | undefined): string | nu
   return candidate?.created_by_user?.name?.trim() || null;
 }
 
-/** „CV upload · dodał(a) Anna K.” — człony, których nie znamy, nie wchodzą. */
+/**
+ * „CV upload · dodał(a) Anna K.”, „Link rekrutera · Jan K.” — człony, których
+ * nie znamy, nie wchodzą. Ta sama reguła co „Skąd” w profilu osoby.
+ */
 export function inBaseSourceText(candidate: CandidateInBase | null | undefined): string | null {
-  const by = addedByName(candidate);
-  return [candidate?.added_via?.trim() || null, by ? `dodał(a) ${by}` : null].filter(Boolean).join(" · ") || null;
+  return originSummary(candidateOrigin(candidate));
 }
 
 export function PersonInBase({

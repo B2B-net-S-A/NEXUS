@@ -27,6 +27,7 @@ export function filterGroupCounts(
   skills: SkillBucketsValue,
 ): FilterGroupCounts {
   const stageCount =
+    stage.columns.length +
     stage.stages.length +
     (stage.currentOnly ? 1 : 0) +
     stage.clientIds.length +

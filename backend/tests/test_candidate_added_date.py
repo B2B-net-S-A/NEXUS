@@ -94,6 +94,10 @@ def test_added_via_for_people_added_in_nexus() -> None:
     assert added_via_label(None, "email", "manual") == "E-mail"
     assert added_via_label([], "invite_link:anna-k", "manual") == "Formularz aplikacyjny"
     assert added_via_label([], None, "manual") is None
+    # Wtyczka to rekruter, który sam dodał osobę z LinkedIna — nie „LinkedIn”
+    # jako kanał, z którego osoba przyszła sama (19.10.2026).
+    assert added_via_label([], "linkedin_extension", "manual") == "Wtyczka LinkedIn"
+    assert added_via_label([], "linkedin", "manual") == "LinkedIn"
 
 
 def test_added_via_for_traffit_without_source_tag() -> None:

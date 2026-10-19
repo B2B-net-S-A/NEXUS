@@ -468,3 +468,28 @@ z Tablicy. Granice to fakty biznesowe (`competition_history.DR_HISTORY_START`
     Rady (firma i klienci w miesiącu).
   Narzędzie (`dr_manual_fill_sheet.py`, `import_dr_manual_fill.py`) zostaje na
   wypadek, gdyby ktoś znalazł konkretną pomyłkę w danych DynaReportera.
+
+## Zespół → Ludzie: byli pracownicy i sortowanie (19.10.2026)
+
+Prośba rekrutera: osoby, które już u nas nie pracują, wisiały w tabelach
+„Rekruterzy” i „Delivery Leadzi” (wyniki z okresu, gdy pracowały, w tym DL
+z DynaReportera przez cały rok). Decyzja Artura — wiersz zbiorczy, nie
+usuwanie:
+
+- „Były pracownik” = konto `users.is_active = false` (ten sam sygnał co Liga
+  i cele). Dane już to niosą (`TeamPeopleRow.is_active`,
+  `InsightsDlPortfolioLead.is_active`), podział robi front
+  (`lib/insights-people-table.ts`), bez zmian API.
+- Takie osoby schodzą z listy do jednego wiersza „Byli pracownicy (N)” pod
+  listą osób, z sumami kolumn liczbowych; wskaźniki (weryf./dzień, precyzja,
+  hit ratio) mają tam „—”. Sumy firmy się nie zmieniają — nie wycinaj ich
+  liczb ani w API, ani we froncie.
+- Przełącznik „Pokaż byłych pracowników” (wspólny dla obu zakładek,
+  domyślnie wyłączony) przywraca ich jako zwykłe wiersze z plakietką
+  „były pracownik”.
+- Klik w nagłówek sortuje: liczby najpierw od najwyższej, drugi klik
+  odwraca, nazwisko od A do Z. „—” (`null`) zawsze na końcu w obu
+  kierunkach; remis po nazwisku. „Placementy vs poprzednio” sortuje po
+  różnicy. Wiersze zbiorcze zawsze pod listą osób. Bez kliknięcia — kolejność
+  z API. Ten sam `SortableHeader` (`sections/_shared.tsx`) ma „Performance
+  per osoba”.

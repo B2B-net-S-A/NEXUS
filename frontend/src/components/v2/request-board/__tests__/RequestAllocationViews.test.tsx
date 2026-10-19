@@ -313,6 +313,31 @@ describe("RequestBoardView", () => {
     expect(screen.getByRole("button", { name: "Wyczyść filtry" })).toBeDisabled()
   })
 
+  it("użyty filtr jest podświetlony, ma licznik i własny krzyżyk", async () => {
+    const user = userEvent.setup()
+    render(<Board />)
+    const prio = screen.getByLabelText("Priorytet")
+    const lead = screen.getByLabelText("Delivery Lead")
+    expect(prio).toHaveAttribute("data-active", "false")
+    expect(screen.queryByText(/aktywn/)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Wyczyść filtr: Priorytet" })).not.toBeInTheDocument()
+
+    await user.selectOptions(prio, "p1")
+    await user.selectOptions(lead, "31")
+    expect(prio).toHaveAttribute("data-active", "true")
+    expect(lead).toHaveAttribute("data-active", "true")
+    expect(screen.getByLabelText("Klient")).toHaveAttribute("data-active", "false")
+    expect(screen.getByText("2 filtry aktywne")).toBeInTheDocument()
+
+    // Krzyżyk czyści tylko swój filtr — Delivery Lead zostaje.
+    await user.click(screen.getByRole("button", { name: "Wyczyść filtr: Priorytet" }))
+    expect(screen.getByLabelText("Priorytet")).toHaveValue("")
+    expect(screen.getByLabelText("Priorytet")).toHaveAttribute("data-active", "false")
+    expect(screen.getByLabelText("Delivery Lead")).toHaveValue("31")
+    expect(screen.getByText("1 filtr aktywny")).toBeInTheDocument()
+    expect(screen.getByText("Pokazuję 2 z 4")).toBeInTheDocument()
+  })
+
   it("filtruje po Delivery Leadzie i priorytecie", async () => {
     const user = userEvent.setup()
     render(<Board />)

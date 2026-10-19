@@ -11,6 +11,8 @@
  * życia harnessu interceptor odrzuca KAŻDE żądanie axiosa lokalnie — nic nie
  * wychodzi do sieci ani nie przerzuca na /login.
  *
+ * `?stage_col=cv_qc&stage_by=7` (dowolny filtr etapu) — kolumna „Dodany na etap”
+ * z datą, osobą i rekrutacją przejścia (19.10.2026).
  * `?dialog=1` otwiera od razu okno „Szukaj z requestu" (do zrzutów ekranu).
  * Podpowiedzi słów kluczowych odpowiadają z lokalnego słownika (bez sieci);
  * zmiana filtra pokazuje pasek „czeka na Szukaj”.
@@ -54,6 +56,7 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
 import { cloudTalkStatusQueryKey } from "@/hooks/useCloudTalkEnabled";
 import { DEFAULT_FILTERS, decodeFilters } from "@/lib/url-filters";
+import { hasStageFilter } from "@/lib/stage-filter";
 import {
   KEYWORD_SUGGEST_ENDPOINT,
   foldKeyword,
@@ -492,6 +495,29 @@ function seededClient(): QueryClient {
     qc.setQueryData(candidatesListQueryKey(candidatesListApiParams(fromUrl, 1, 50)), {
       items: CANDIDATES.map((c) => ({ ...c, match_snippets: SNIPPETS[c.id] ?? [] })),
       total: 14071,
+      page: 1,
+      page_size: 50,
+    });
+  } else if (hasStageFilter(fromUrl)) {
+    // `?stage_col=cv_qc&stage_by=7&stage_from=…` — kolumna „Dodany na etap”.
+    qc.setQueryData(candidatesListQueryKey(candidatesListApiParams(fromUrl, 1, 50)), {
+      items: CANDIDATES.map((c, i) => ({
+        ...c,
+        stage_match:
+          i === CANDIDATES.length - 1
+            ? null
+            : {
+                column: fromUrl.stageColumns[0] ?? "cv_qc",
+                moved_at: daysAgo(2 + i),
+                moved_by_name: i % 2 ? null : "Rekruterka Demo",
+                job_id: 12,
+                job_title: "Java Developer (ZOB-2912)",
+                job_working_title: "Java Developer · Spring, Kafka · 5+ lat",
+                job_client_reference: "ZOB-2912",
+                client_name: "Klient Demo",
+              },
+      })),
+      total: 37,
       page: 1,
       page_size: 50,
     });

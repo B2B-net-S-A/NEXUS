@@ -6,6 +6,7 @@ import { X } from"lucide-react";
 import api, { competenceCategoriesApi, type CompetenceCategoryOut } from"@/lib/api";
 import { KEYWORD_SCOPE_OPTIONS, type CandidateFilters } from"@/lib/url-filters";
 import { PIPELINE_STAGE_OPTIONS } from "@/lib/filter-options";
+import { stageColumnLabel, stageDateRangeLabel } from "@/lib/stage-filter";
 import { describeLanguageFilter } from "@/lib/candidate-languages";
 import { describeLocationPlaces } from "@/lib/location-places";
 import { HIDDEN_LOCATION_NOTE, HIDDEN_RATE_NOTE } from "@/lib/candidate-filter-groups";
@@ -188,6 +189,18 @@ function collectChips(
  }),
  });
  });
+ // „Dodany na etap” — kolumna Tablicy (19.10.2026).
+ filters.stageColumns.forEach((c) => {
+ chips.push({
+ key: `stage_col:${c}`,
+ label: `Dodany na etap: ${stageColumnLabel(c)}`,
+ clear: () =>
+ onUpdate({
+ stageColumns: filters.stageColumns.filter((x) => x !== c),
+ page: 1,
+ }),
+ });
+ });
  // Otwartość i zmiana pracy były zagnieżdżone w pętli etapów: bez filtra etapu
  // nie miały chipu, a przy kilku etapach chip powielał się (UAT B-B06).
  filters.openTo.forEach((value) => {
@@ -216,7 +229,7 @@ function collectChips(
  : (usersById?.get(id) ?? `Użytkownik #${id}`);
  chips.push({
  key: `stage_by:${id}`,
- label: `Etap dodał: ${name}`,
+ label: `Dodany przez: ${name}`,
  clear: () =>
  onUpdate({
  stageMovedByIds: filters.stageMovedByIds.filter((x) => x !== id),
@@ -225,12 +238,11 @@ function collectChips(
  });
  });
  // Stage-move "when" — single chip for the (inclusive) date range.
- if (filters.stageMovedAfter || filters.stageMovedBefore) {
- const from = filters.stageMovedAfter ||"…";
- const to = filters.stageMovedBefore ||"…";
+ const stageRange = stageDateRangeLabel(filters.stageMovedAfter, filters.stageMovedBefore);
+ if (stageRange) {
  chips.push({
  key: "stage_date",
- label: `Etap dodany: ${from} – ${to}`,
+ label: `Dodany: ${stageRange}`,
  clear: () =>
  onUpdate({ stageMovedAfter: "", stageMovedBefore: "", page: 1 }),
  });
@@ -264,7 +276,7 @@ function collectChips(
  if (filters.stageCurrentOnly) {
  chips.push({
  key: "stage_current",
- label: "Tylko aktualny etap",
+ label: "Nadal na tym etapie",
  clear: () => onUpdate({ stageCurrentOnly: false, page: 1 }),
  });
  }
@@ -814,6 +826,7 @@ export function ActiveFilterChips({
  stageMovedByIds: [],
  stageMovedAfter: "",
  stageMovedBefore: "",
+ stageColumns: [],
  stageClientIds: [],
  sentToClientFrom: "",
  sentToClientTo: "",

@@ -19,6 +19,12 @@ import {
   PIPELINE_STAGE_OPTIONS,
   type PipelineStageValue,
 } from "@/lib/filter-options";
+import type { BoardColumnKey } from "@/lib/board-stages";
+import {
+  STAGE_COLUMN_OPTIONS,
+  STAGE_COLUMN_VALUES,
+  stageColumnLabel,
+} from "@/lib/stage-filter";
 
 /**
  * All sub-values of the unified "Etap" filter. Mirrors the correlated
@@ -26,7 +32,12 @@ import {
  * the matched move, plus the "Aktualny etap" current-only toggle.
  */
 export interface StageFilterValue {
-  /** Pipeline stage(s) — OR-combined. */
+  /**
+   * „Dodany na etap” — kolumny Tablicy (19.10.2026), LUB-owane. Panel pokazuje
+   * tylko je; `stages` (kody etapu) niosą jeszcze stare linki i zapisy.
+   */
+  columns: BoardColumnKey[];
+  /** Pipeline stage(s) — OR-combined (stare linki; panel ich nie wybiera). */
   stages: PipelineStageValue[];
   /** "Aktualny etap" — force CURRENT-stage matching (else auto/historical). */
   currentOnly: boolean;
@@ -49,6 +60,7 @@ interface StageFilterPanelProps {
 }
 
 const EMPTY: StageFilterValue = {
+  columns: [],
   stages: [],
   currentOnly: false,
   clientIds: [],
@@ -59,6 +71,7 @@ const EMPTY: StageFilterValue = {
 
 function facetCount(v: StageFilterValue): number {
   return (
+    (v.columns.length > 0 ? 1 : 0) +
     (v.stages.length > 0 ? 1 : 0) +
     (v.currentOnly ? 1 : 0) +
     (v.clientIds.length > 0 ? 1 : 0) +
@@ -82,16 +95,22 @@ export function StageFilterPanel({ value, onChange, disabled = false }: StageFil
   const isActive = count > 0;
 
   // Trigger summary: lead with the stage(s) when picked, else the bare label.
+  const legacyStageLabels = value.stages.map(
+    (stage) => PIPELINE_STAGE_OPTIONS.find((o) => o.value === stage)?.label ?? stage,
+  );
+  const pickedLabels = [...value.columns.map(stageColumnLabel), ...legacyStageLabels];
   const triggerText = (() => {
-    if (value.stages.length === 1) {
-      const opt = PIPELINE_STAGE_OPTIONS.find(
-        (o) => o.value === value.stages[0],
-      );
-      return `Etap: ${opt?.label ?? value.stages[0]}`;
-    }
-    if (value.stages.length > 1) return `Etap: ${value.stages.length}`;
+    if (pickedLabels.length === 1) return `Etap: ${pickedLabels[0]}`;
+    if (pickedLabels.length > 1) return `Etap: ${pickedLabels.length}`;
     return "Etap";
   })();
+  // Kolejność jak na Tablicy — ten sam wybór daje ten sam adres.
+  const setColumns = (columns: BoardColumnKey[]) =>
+    onChange({
+      columns: [...columns].sort(
+        (a, b) => STAGE_COLUMN_VALUES.indexOf(a) - STAGE_COLUMN_VALUES.indexOf(b),
+      ),
+    });
 
   const clearAll = () => {
     onChange({ ...EMPTY });
@@ -112,7 +131,7 @@ export function StageFilterPanel({ value, onChange, disabled = false }: StageFil
               "border-violet-400 bg-violet-50 text-violet-700 font-semibold dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-200",
           )}
           aria-expanded={open}
-          title="Filtruj po etapie pipeline'u — etap, klient, kto i kiedy przeniósł kandydata"
+          title="Dodany na etap — na który etap, kto i kiedy przesunął kandydata"
         >
           <span className="flex items-center gap-2 truncate">
             <Layers className="h-4 w-4 shrink-0" />
@@ -129,7 +148,9 @@ export function StageFilterPanel({ value, onChange, disabled = false }: StageFil
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-80 space-y-3 max-h-[80dvh] overflow-y-auto p-3"
+        // Wysokość do krawędzi ekranu: samo `80dvh` nadpisywało limit z `PopoverContent`
+        // i na laptopie (1280 × 720) góra okienka uciekała nad ekran.
+        className="w-80 space-y-3 max-h-[min(80dvh,var(--radix-popover-content-available-height))] overflow-y-auto p-3"
       >
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
@@ -146,81 +167,77 @@ export function StageFilterPanel({ value, onChange, disabled = false }: StageFil
           )}
         </div>
 
-        {/* Aktualny etap — current-only toggle */}
+        {/* Dodany na etap — kolumny Tablicy */}
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">
+            Dodany na etap
+          </h4>
+          <MultiSelectFilter<BoardColumnKey>
+            value={value.columns}
+            onChange={setColumns}
+            options={STAGE_COLUMN_OPTIONS}
+            placeholder="Dowolny etap"
+            searchPlaceholder="Szukaj etapu…"
+            triggerWidthClass="w-full"
+            triggerLabel={(n, selected) =>
+              n === 1 ? stageColumnLabel(selected[0]) : `Etapy: ${n}`
+            }
+          />
+          {legacyStageLabels.length > 0 && (
+            <p className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+              <span className="min-w-0 truncate" title={legacyStageLabels.join(", ")}>
+                Ze starego linku: {legacyStageLabels.join(", ")}
+              </span>
+              <button
+                type="button"
+                onClick={() => onChange({ stages: [] })}
+                className="shrink-0 hover:text-primary"
+              >
+                Usuń
+              </button>
+            </p>
+          )}
+        </div>
+
+        {/* Tylko obecny etap — current-only toggle */}
         <label className="flex items-start justify-between gap-3 rounded-md border border-border bg-card px-2.5 py-2 cursor-pointer">
           <span className="space-y-0.5">
             <span className="block text-sm font-medium text-foreground">
-              Aktualny etap
+              Tylko osoby, które nadal są na tym etapie
             </span>
             <span className="block text-[10px] leading-tight text-muted-foreground">
-              Włączone: tylko kandydaci, których AKTUALNY etap pasuje. Wyłączone:
-              też ci, którzy byli na etapie i poszli dalej (historycznie) — gdy
-              filtrujesz po kliencie / osobie / dacie.
+              Wyłączone przy osobie lub dacie: także ci, którzy z tego etapu poszli
+              dalej.
             </span>
           </span>
           <Switch
             checked={value.currentOnly}
             onCheckedChange={(checked) => onChange({ currentOnly: checked })}
-            aria-label="Aktualny etap"
+            aria-label="Tylko osoby, które nadal są na tym etapie"
           />
         </label>
 
-        {/* Etap */}
+        {/* Dodany przez */}
         <div>
           <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">
-            Etap
-          </h4>
-          <MultiSelectFilter<PipelineStageValue>
-            value={value.stages}
-            onChange={(stages) => onChange({ stages })}
-            options={PIPELINE_STAGE_OPTIONS}
-            placeholder="Dowolny etap"
-            searchPlaceholder="Szukaj etapu…"
-            triggerWidthClass="w-full"
-            triggerLabel={(n) =>
-              n === 1
-                ? (PIPELINE_STAGE_OPTIONS.find((o) => o.value === value.stages[0])
-                    ?.label ?? "Etap")
-                : `Etap: ${n}`
-            }
-          />
-        </div>
-
-        {/* Klient */}
-        <div>
-          <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">
-            Klient
-          </h4>
-          <ClientMultiSelect
-            value={value.clientIds}
-            onChange={(clientIds) => onChange({ clientIds })}
-          />
-          <p className="text-[10px] text-muted-foreground mt-1">
-            Klient rekrutacji, na której nastąpiło przejście na wybrany etap.
-          </p>
-        </div>
-
-        {/* Umieszczony przez użytkownika */}
-        <div>
-          <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">
-            Umieszczony przez użytkownika
+            Dodany przez
           </h4>
           <UserMultiSelect
             value={value.movedByIds}
             onChange={(movedByIds) => onChange({ movedByIds })}
-            placeholder="Dowolny rekruter"
-            searchPlaceholder="Szukaj rekrutera…"
+            placeholder="Dowolna osoba"
+            searchPlaceholder="Szukaj osoby…"
             triggerWidthClass="w-full"
           />
           <p className="text-[10px] text-muted-foreground mt-1">
-            Kto przeniósł kandydata na wybrany etap.
+            Kto przesunął osobę na ten etap.
           </p>
         </div>
 
-        {/* Data umieszczenia od / do */}
+        {/* Dodany od – do */}
         <div>
           <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">
-            Data umieszczenia
+            Dodany od – do
           </h4>
           <div className="flex items-center gap-2">
             <div className="flex-1 space-y-1">
@@ -229,7 +246,7 @@ export function StageFilterPanel({ value, onChange, disabled = false }: StageFil
               </label>
               <Input
                 type="date"
-                aria-label="Data umieszczenia na etap — od"
+                aria-label="Dodany na etap — od"
                 value={value.movedAfter}
                 max={value.movedBefore || undefined}
                 onChange={(e) => onChange({ movedAfter: e.target.value })}
@@ -242,7 +259,7 @@ export function StageFilterPanel({ value, onChange, disabled = false }: StageFil
               </label>
               <Input
                 type="date"
-                aria-label="Data umieszczenia na etap — do"
+                aria-label="Dodany na etap — do"
                 value={value.movedBefore}
                 min={value.movedAfter || undefined}
                 onChange={(e) => onChange({ movedBefore: e.target.value })}
@@ -251,7 +268,21 @@ export function StageFilterPanel({ value, onChange, disabled = false }: StageFil
             </div>
           </div>
           <p className="text-[10px] text-muted-foreground mt-1">
-            Kiedy kandydat trafił na wybrany etap (zakres dat, włącznie).
+            Kiedy osoba trafiła na ten etap (obie daty włącznie).
+          </p>
+        </div>
+
+        {/* Klient */}
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">
+            Klient
+          </h4>
+          <ClientMultiSelect
+            value={value.clientIds}
+            onChange={(clientIds) => onChange({ clientIds })}
+          />
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Klient rekrutacji, w której osoba trafiła na ten etap.
           </p>
         </div>
       </PopoverContent>

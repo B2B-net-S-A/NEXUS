@@ -608,6 +608,88 @@
       }
     },
     {
+      "name": "lista v2: „Dodany na etap” (kolumna, kto, od–do) zostaje w list_only",
+      "filters": {
+        "version": 2,
+        "qs": "stage_by=7&stage_from=2026-10-01&stage_to=2026-10-15&stage_col=cv_qc",
+        "api": {
+          "stage_column": [
+            "cv_qc"
+          ],
+          "stage_moved_by": [
+            7
+          ],
+          "stage_moved_after": "2026-10-01",
+          "stage_moved_before": "2026-10-15",
+          "page": 2
+        }
+      },
+      "format": "candidates_list",
+      "origin": "candidates_list",
+      "request": {
+        "semantics_version": 2,
+        "list_only": {
+          "stage_column": [
+            "cv_qc"
+          ],
+          "stage_moved_by": [
+            7
+          ],
+          "stage_moved_after": "2026-10-01",
+          "stage_moved_before": "2026-10-15"
+        }
+      },
+      "list_params": {
+        "stage_column": [
+          "cv_qc"
+        ],
+        "stage_moved_by": [
+          7
+        ],
+        "stage_moved_after": "2026-10-01",
+        "stage_moved_before": "2026-10-15",
+        "semantics_version": 2
+      },
+      "search_body": {
+        "semantics_version": 2
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "candidates_list",
+        "request": {
+          "semantics_version": 2,
+          "list_only": {
+            "stage_column": [
+              "cv_qc"
+            ],
+            "stage_moved_by": [
+              7
+            ],
+            "stage_moved_after": "2026-10-01",
+            "stage_moved_before": "2026-10-15"
+          }
+        },
+        "qs": "stage_by=7&stage_from=2026-10-01&stage_to=2026-10-15&stage_col=cv_qc&sv=2",
+        "legacy": {
+          "version": 2,
+          "qs": "stage_by=7&stage_from=2026-10-01&stage_to=2026-10-15&stage_col=cv_qc",
+          "api": {
+            "stage_column": [
+              "cv_qc"
+            ],
+            "stage_moved_by": [
+              7
+            ],
+            "stage_moved_after": "2026-10-01",
+            "stage_moved_before": "2026-10-15",
+            "page": 2
+          }
+        }
+      }
+    },
+    {
       "name": "lista: najstarszy format bez api",
       "filters": {
         "qs": "q=python"
