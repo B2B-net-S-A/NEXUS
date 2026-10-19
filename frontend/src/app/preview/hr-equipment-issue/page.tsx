@@ -10,14 +10,17 @@
  * kontraktorki (laptop 221, telefon T-102, SIM w telefonie, słuchawki J-044,
  * karta dostępu K-1611) leży jeszcze na stanie, razem 3 903,73 zł.
  *
- * Kreator nie przyjmuje gotowych pozycji z propsów, więc stan `kit` otwiera go
- * tak jak zakładka „Sprzęt” kontraktu — z osobą z góry, od razu na kroku 2
- * („Pozycje”); pozycje dodaje się klikiem z listy wolnego sprzętu, krok 3
- * („Protokół”) to podgląd protokołu (test harnessu przeklikuje całą drogę).
+ * Stan `kit` otwiera kreator tak jak „Wydaj” z zadania „Przygotuj zestaw
+ * kontraktora” — z osobą z góry i podpowiedzianym „Zestawem kontraktora”, od
+ * razu na kroku 2 („Pozycje”): gotowe zestawy, zakładki kategorii z liczbą
+ * wolnych, lista po modelu z wyborem sztuki i żywy podgląd protokołu; krok 3
+ * („Protokół i podpis”) to podgląd protokołu (test harnessu przeklikuje całą drogę).
  *
  * Stany (`?state=`):
  * - `kit` (domyślnie) — kontraktorka Anna Kontraktorska (Ubezpieczenia
  *   Fikcyjne), krok 2 → 3;
+ * - `model` — „Wydaj” przy modelu w „Ewidencji” (pierwsza wolna Latitude 148
+ *   już w szkicu), krok 1 — wybór osoby;
  * - `person` — „Wydaj sprzęt” z nagłówka: krok 1, wyszukiwarka osób
  *   (zasiane frazy „Anna…”, „Kacper…”, „Michał…”, „Tomasz…”);
  * - `return` — „Przyjmij zwrot” osoby odchodzącej (Tomasz Podglądowy, 4 pozycje).
@@ -31,7 +34,7 @@ import { EquipmentScreen } from "@/components/equipment/EquipmentScreen";
 import { IssueWizard } from "@/components/equipment/IssueWizard";
 import { ReturnWizard } from "@/components/equipment/ReturnWizard";
 import { Button } from "@/components/ui/button";
-import type { EquipmentHolder } from "@/lib/api/equipment";
+import type { EquipmentHolder, EquipmentItem } from "@/lib/api/equipment";
 import { hrKeys, type HrConfig } from "@/lib/api/hr";
 
 import { HR_CAST, hrConfig } from "../hr-fixtures";
@@ -45,17 +48,19 @@ import {
 } from "../hr-harness";
 import { buildEquipmentData, seedEquipment } from "../hr-equipment/fixtures";
 
-const STATE_KEYS = ["kit", "person", "return"] as const;
+const STATE_KEYS = ["kit", "model", "person", "return"] as const;
 type State = (typeof STATE_KEYS)[number];
 
 const STATES = [
   { key: "kit", label: "Zestaw kontraktora (pozycje → protokół)" },
+  { key: "model", label: "„Wydaj” z modelu w Ewidencji" },
   { key: "person", label: "Wybór osoby (krok 1)" },
   { key: "return", label: "Przyjęcie zwrotu (odejście)" },
 ] as const;
 
 const NOTES: Record<State, string> = {
   kit: "Kontraktorka z kontraktu, zestaw kontraktora z listy wolnego sprzętu. Dane fikcyjne, bez zapytań.",
+  model: "Pierwsza wolna sztuka modelu już w szkicu protokołu; wybierz osobę. Dane fikcyjne, bez zapytań.",
   person: "Wpisz „Anna”, wybierz kontraktorkę i przejdź dalej. Dane fikcyjne, bez zapytań.",
   return: "Osoba odchodzi: cztery pozycje ze stanem przy zwrocie. Dane fikcyjne, bez zapytań.",
 };
@@ -65,6 +70,7 @@ interface Value {
   config: HrConfig;
   contractor: EquipmentHolder;
   leaver: EquipmentHolder;
+  firstLatitude: EquipmentItem;
 }
 
 function prepare(params: URLSearchParams): HrHarnessSetup<Value> {
@@ -77,7 +83,13 @@ function prepare(params: URLSearchParams): HrHarnessSetup<Value> {
   return {
     user: { ...HR_CAST.zofia, grants: ["equipment"] },
     client,
-    value: { state, config, contractor: data.holders.anna, leaver: data.holders.tomasz },
+    value: {
+      state,
+      config,
+      contractor: data.holders.anna,
+      leaver: data.holders.tomasz,
+      firstLatitude: data.items.find((item) => item.id === 148) as EquipmentItem,
+    },
   };
 }
 
@@ -111,6 +123,8 @@ function HarnessWizard({ value }: { value: Value }) {
     <IssueWizard
       key={round}
       presetHolder={value.state === "kit" ? value.contractor : null}
+      presetItems={value.state === "model" ? [value.firstLatitude] : []}
+      suggestedKit={value.state === "kit" ? "kontraktor" : null}
       onClose={close}
     />
   );

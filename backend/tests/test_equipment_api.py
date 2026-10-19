@@ -1430,6 +1430,7 @@ async def test_summary_breaks_down_categories_and_unsigned_items(
         if t["protocol"] and t["protocol"]["id"] == protocol["id"]
     )
     assert signature["protocol"]["categories"] == ["monitor"]
+    assert signature["protocol"]["status"] == "oczekuje"
 
     confirmed = await app_client.post(
         f"/api/equipment/protocols/{protocol['id']}/confirm",

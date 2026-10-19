@@ -394,7 +394,12 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
     )
     query = (
         join_academy_holder(
-            select(EquipmentTask, holder_name, EquipmentProtocol.number)
+            select(
+                EquipmentTask,
+                holder_name,
+                EquipmentProtocol.number,
+                EquipmentProtocol.status,
+            )
             .outerjoin(User, User.id == EquipmentTask.user_id)
             .outerjoin(Contract, Contract.id == EquipmentTask.contract_id)
             .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
@@ -411,9 +416,9 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
         query = query.where(EquipmentTask.status == status)
     rows = (await db.execute(query.limit(300))).all()
     today = business_today()
-    holders = {task.id: holder_of(task) or (None, None) for task, _n, _p in rows}
+    holders = {task.id: holder_of(task) or (None, None) for task, *_ in rows}
     # Skład protokołu (kategorie pozycji) — ikony w agendzie „Do zrobienia”.
-    protocol_ids = {task.protocol_id for task, _n, _p in rows if task.protocol_id}
+    protocol_ids = {task.protocol_id for task, *_ in rows if task.protocol_id}
     categories: dict[int, list[str]] = {}
     if protocol_ids:
         for protocol_id, category in (
@@ -449,6 +454,7 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
                 {
                     "id": task.protocol_id,
                     "number": number,
+                    "status": protocol_status,
                     "categories": categories.get(task.protocol_id, []),
                 }
                 if task.protocol_id
@@ -456,7 +462,7 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
             ),
             "details": task.details or {},
         }
-        for task, name, number in rows
+        for task, name, number, protocol_status in rows
     ]
 
 

@@ -1,8 +1,9 @@
 /**
- * `/preview/hr-equipment` (makieta 12 „Ludzi w NEXUSIE”): prawdziwy ekran
- * „Sprzęt” recepcji na danych fikcyjnych, ZERO prób żądania — także po
- * otwarciu pozycji, protokołu, kreatorów z „Do zrobienia” i po przejściu
- * przez wszystkie zakładki (każdy klucz jest zasiany).
+ * `/preview/hr-equipment` (makieta 12 „Ludzi w NEXUSIE”, przebudowa po makiecie
+ * 19.10.2026): prawdziwy ekran „Sprzęt” recepcji na danych fikcyjnych, ZERO
+ * prób żądania — także po kliknięciu kafla, chipa, widoku „Modele”, otwarciu
+ * pozycji, protokołu, kreatorów z „Do zrobienia” i po przejściu przez
+ * wszystkie zakładki (każdy klucz jest zasiany).
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -40,30 +41,48 @@ function stat(label: string): string | null | undefined {
   return screen.getByText(label).parentElement?.querySelector("dd")?.textContent;
 }
 
+/** Wiersze danych tabeli (bez nagłówka). */
+function bodyRows(table: HTMLElement): HTMLElement[] {
+  return within(table).getAllByRole("row").slice(1);
+}
+
 describe("/preview/hr-equipment", () => {
-  it("ewidencja: liczniki z makiety, wydane, wolne i serwis; pozycja i jej protokół bez zapytań", async () => {
+  it("ewidencja: kafle stanu, chipy, akcje wiersza; pozycja i jej protokół bez zapytań", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-equipment");
     render(<HrEquipmentPreviewPage />);
 
     expect(await screen.findByRole("heading", { name: "Sprzęt" })).toBeInTheDocument();
-    expect(stat("wolnych laptopów")).toBe("11");
-    expect(stat("wolnych telefonów")).toBe("14");
-    expect(stat("wolnych monitorów")).toBe("8");
-    expect(stat("czeka na podpis")).toBe("3");
-    expect(stat("do wyjaśnienia (z importu)")).toBe("31");
+    expect(screen.getByRole("button", { name: /^Laptopy\s*11\s*wolnych z 16/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Telefony\s*14\s*wolnych/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Monitory\s*8\s*wolnych/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Czeka na podpis" })).toHaveTextContent(/3\s*najstarszy 3 dni/);
+    expect(screen.getByRole("region", { name: "Z importu" })).toHaveTextContent(/31\s*do wyjaśnienia/);
+    expect(screen.getByRole("button", { name: "Bez podpisu 7" })).toBeInTheDocument();
 
-    const issued = screen.getByRole("row", { name: /^221 Laptop Dell Vostro 3530, 16 GB/ });
+    const issued = screen.getByRole("row", { name: /^Laptop Dell Vostro 3530, 16 GB\s+221/ });
     expect(within(issued).getByText("Anna Kontraktorska")).toBeInTheDocument();
     expect(within(issued).getByText("Kontraktor · Ubezpieczenia Fikcyjne")).toBeInTheDocument();
     expect(within(issued).getByText("Czeka na podpis")).toBeInTheDocument();
+    expect(within(issued).getByRole("button", { name: "Wyślij link" })).toBeInTheDocument();
+    const signed = screen.getByRole("row", { name: /Słuchawki Jabra Evolve2 40 SE\s+J-039/ });
+    expect(within(signed).getByRole("button", { name: "Potwierdź" })).toBeInTheDocument();
     const sim = screen.getByRole("row", { name: /\+48 500 000 077/ });
     expect(within(sim).getByText("Tomasz Podglądowy")).toBeInTheDocument();
-    const free = screen.getByRole("row", { name: /^159 / });
+    expect(within(sim).getByRole("button", { name: "Zwrot" })).toBeInTheDocument();
+    const free = screen.getByRole("row", { name: /Laptop Dell Vostro 3530, 32 GB\s+159/ });
     expect(within(free).getByText("Na stanie")).toBeInTheDocument();
     expect(within(free).getByText("szafka B")).toBeInTheDocument();
-    expect(within(screen.getByRole("row", { name: /^157 / })).getByText("W serwisie")).toBeInTheDocument();
-    expect(screen.getByRole("row", { name: /^K-1588 Karta dostępu/ })).toBeInTheDocument();
+    expect(within(free).getByRole("button", { name: "Wydaj" })).toBeInTheDocument();
+    const service = screen.getByRole("row", { name: /Laptop Dell Vostro 3530, 16 GB\s+157/ });
+    expect(within(service).getByText("W serwisie")).toBeInTheDocument();
+    expect(within(service).getByRole("button", { name: "Wróciło" })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /^Karta dostępu ogólny \+ biuro, pon–pt 7–19\s+K-1588/ })).toBeInTheDocument();
+
+    // „Wyślij link” pyta, bo nowy link unieważnia poprzedni — „Anuluj” niczego nie wysyła.
+    await user.click(within(issued).getByRole("button", { name: "Wyślij link" }));
+    const ask = await screen.findByRole("dialog", { name: /^Wysłać nowy link do PZO\/TEST\/\d{2}\/014\?$/ });
+    await user.click(within(ask).getByRole("button", { name: "Anuluj" }));
 
     await user.click(within(issued).getByRole("button", { name: "Laptop Dell Vostro 3530, 16 GB" }));
     const item = await screen.findByRole("dialog", { name: "Laptop Dell Vostro 3530, 16 GB" });
@@ -77,31 +96,92 @@ describe("/preview/hr-equipment", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Do zrobienia: przygotuj, czeka na podpis, zwroty i po terminie; kreatory bez zapytań", async () => {
+  it("ewidencja: kafel = filtr kategorii, chip „Bez podpisu”, widok Modele i „Wydaj” z modelu", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-equipment");
     render(<HrEquipmentPreviewPage />);
 
-    await user.click(await screen.findByRole("tab", { name: "Do zrobienia" }));
-    const prepare = screen.getByRole("region", { name: "Przygotuj" });
-    expect(within(prepare).getAllByRole("listitem")).toHaveLength(2);
-    expect(within(prepare).getByText("Przygotuj zestaw biura: Kacper Nowicjusz")).toBeInTheDocument();
-    const waiting = screen.getByRole("region", { name: "Czeka na podpis" });
-    expect(within(waiting).getByText(/^Podpis protokołu PZO\/TEST\/\d{2}\/014: Anna Kontraktorska$/)).toBeInTheDocument();
-    const returns = screen.getByRole("region", { name: "Zwroty" });
-    expect(within(returns).getAllByRole("listitem")).toHaveLength(3);
-    expect(within(returns).getByText(/po terminie 6 dni/)).toBeInTheDocument();
+    const laptops = await screen.findByRole("button", { name: /^Laptopy/ });
+    await user.click(laptops);
+    expect(laptops).toHaveAttribute("aria-pressed", "true");
+    const onlyLaptops = bodyRows(screen.getByRole("table"));
+    expect(onlyLaptops).toHaveLength(16);
+    expect(onlyLaptops.every((row) => /^Laptop /.test(row.textContent ?? ""))).toBe(true);
+    await user.click(laptops);
 
-    const leaver = within(returns).getByText("Odbierz sprzęt: Tomasz Podglądowy").closest("li") as HTMLElement;
+    await user.click(screen.getByRole("button", { name: "Bez podpisu 7" }));
+    expect(bodyRows(screen.getByRole("table"))).toHaveLength(7);
+    await user.click(screen.getByRole("button", { name: /^Wszystko/ }));
+
+    await user.click(screen.getByRole("radio", { name: "Modele" }));
+    const stock = screen.getByRole("region", { name: "Na stanie" });
+    expect(within(stock).getByText("52 szt. · 10 modeli")).toBeInTheDocument();
+    const latitude = within(stock).getByRole("row", { name: /^Laptop Dell Latitude 5520, 32 GB/ });
+    expect(latitude).toHaveTextContent(/4\s*szt\./);
+    expect(latitude).toHaveTextContent(/148\s*149\s*150\s*151/);
+    expect(within(stock).getByRole("button", { name: "Pokaż pozostałe modele (5)" })).toBeInTheDocument();
+    const issuedSection = screen.getByRole("region", { name: "Wydane" });
+    expect(bodyRows(within(issuedSection).getByRole("table"))).toHaveLength(5);
+    await user.click(within(issuedSection).getByRole("button", { name: "Pokaż wszystkie wydane (9)" }));
+    expect(bodyRows(within(issuedSection).getByRole("table"))).toHaveLength(14);
+
+    await user.click(
+      within(latitude).getByRole("button", { name: "Wydaj: Dell Latitude 5520, 32 GB (pierwsza wolna 148)" }),
+    );
+    const issue = await screen.findByRole("dialog", { name: "Wydaj sprzęt" });
+    expect(within(issue).getByText(/W protokole: Laptop Dell Latitude 5520, 32 GB \(148\)/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("Do zrobienia: agenda wg terminu, czy starczy, tydzień; kreatory bez zapytań", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-equipment");
+    render(<HrEquipmentPreviewPage />);
+
+    await user.click(await screen.findByRole("tab", { name: /^Do zrobienia/ }));
+    const overdue = screen.getByRole("group", { name: "Po terminie" });
+    expect(within(overdue).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(overdue).getByText("Odbierz sprzęt: Paweł Makietowy")).toBeInTheDocument();
+    expect(within(overdue).getByText("6 dni po")).toBeInTheDocument();
+    expect(within(overdue).getByRole("button", { name: "Przypomnij" })).toBeInTheDocument();
+    const today = screen.getByRole("group", { name: "Dziś" });
+    expect(
+      within(today).getByText(/^Podpis protokołu PZO\/TEST\/\d{2}\/014: Anna Kontraktorska$/),
+    ).toBeInTheDocument();
+    expect(within(today).getByRole("button", { name: "Wyślij link ponownie" })).toBeInTheDocument();
+    expect(within(today).getByRole("img", { name: "W protokole: 5 poz." })).toBeInTheDocument();
+    const later = screen.getByRole("group", { name: "Później" });
+    expect(within(later).getAllByRole("listitem")).toHaveLength(4);
+    expect(
+      within(later).getByRole("img", {
+        name: "Zestaw kontraktora: laptop, telefon, SIM, słuchawki, karta dostępu",
+      }),
+    ).toBeInTheDocument();
+
+    const coverage = screen.getByRole("region", { name: "Czy starczy na wydania?" });
+    const coverageRow = (label: string) => within(coverage).getByText(label).closest("[role='row']");
+    expect(coverageRow("Laptopy")).toHaveTextContent(/^Laptopy\s*2\s*11\s*starczy$/);
+    expect(coverageRow("Karty dostępu")).toHaveTextContent(/^Karty dostępu\s*2\s*4\s*starczy$/);
+    const week = screen.getByRole("region", { name: "Ten tydzień w recepcji" });
+    expect(within(week).getAllByRole("listitem")).toHaveLength(5);
+
+    await user.click(screen.getByRole("button", { name: /^Zwroty 3/ }));
+    const agenda = screen.getByRole("region", { name: "Agenda zadań" });
+    expect(within(agenda).getAllByRole("listitem")).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: /^Wszystko 6/ }));
+
+    const leaver = within(later).getByText("Odbierz sprzęt: Tomasz Podglądowy").closest("li") as HTMLElement;
     await user.click(within(leaver).getByRole("button", { name: "Przyjmij zwrot" }));
     const returnDialog = await screen.findByRole("dialog", { name: "Przyjmij zwrot · Tomasz Podglądowy" });
     expect(within(returnDialog).getAllByRole("checkbox")).toHaveLength(4);
     expect(within(returnDialog).getByRole("button", { name: "Przyjmij zwrot (4)" })).toBeEnabled();
     await user.click(within(returnDialog).getByRole("button", { name: "Anuluj" }));
 
-    const newcomer = within(prepare).getByText("Przygotuj zestaw biura: Kacper Nowicjusz").closest("li") as HTMLElement;
+    const newcomer = within(later).getByText("Przygotuj zestaw biura: Kacper Nowicjusz").closest("li") as HTMLElement;
     await user.click(within(newcomer).getByRole("button", { name: "Wydaj" }));
     const issue = await screen.findByRole("dialog", { name: "Wydaj sprzęt · Kacper Nowicjusz" });
+    expect(within(issue).getByRole("button", { name: "Dodaj zestaw: Zestaw biura" })).toBeInTheDocument();
     expect(within(issue).getByRole("button", { name: "Dodaj: Dell Vostro 3530, 32 GB 159" })).toBeInTheDocument();
     expect(within(issue).queryByRole("alert")).toBeNull();
     expect(attempted()).toEqual([]);
@@ -132,17 +212,20 @@ describe("/preview/hr-equipment", () => {
     expect(screen.getAllByRole("button", { name: "Rozstrzygnij" })).toHaveLength(31);
     expect(screen.getByRole("row", { name: /nieznany/ })).toHaveTextContent(/ThinkPad E14.*098/);
 
-    await user.click(screen.getByRole("tab", { name: "Intune" }));
+    await user.click(screen.getByRole("button", { name: "Więcej" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Intune" }));
     expect(await screen.findByText("Odczyt z Intune: wyłączony")).toBeInTheDocument();
     expect(screen.getByText("Lista pojawi się po pierwszym odczycie urządzeń z Intune.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Cennik" }));
+    await user.click(screen.getByRole("button", { name: "Więcej" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Cennik" }));
     expect(await screen.findByRole("row", { name: /Dell Vostro 3530, 16 GB/ })).toHaveTextContent(
       /2\s589,00\szł/,
     );
     expect(screen.getByText("Dell Vostro 3520, 8 GB (nieużywany)")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Akademia" }));
+    await user.click(screen.getByRole("button", { name: "Więcej" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Akademia" }));
     expect(await screen.findByText(/Brak uczestników po zaliczonym zadaniu/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(attempted()).toEqual([]);

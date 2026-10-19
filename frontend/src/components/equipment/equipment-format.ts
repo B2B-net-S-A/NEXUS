@@ -7,14 +7,16 @@ import type {
   EquipmentHolderKind,
   EquipmentItem,
   EquipmentItemStatus,
+  EquipmentModel,
   EquipmentProvider,
+  EquipmentTask,
   EquipmentTaskKind,
   ImportDecision,
   ProtocolStatus,
   ReturnCondition,
   SignatureMethod,
 } from "@/lib/api/equipment";
-import { formatIsoDatePl } from "@/lib/date-pl";
+import { WEEKDAYS_PL, formatDayMonthPl, formatIsoDatePl, weekdayOfIso } from "@/lib/date-pl";
 import { formatPlnDocument } from "@/lib/money";
 import { countPl } from "@/lib/plural-pl";
 
@@ -159,6 +161,16 @@ type Identified = Pick<
   | "access_card_number"
 >;
 
+/**
+ * Nazwa pozycji na ekranie: laptop, telefon, monitor i karty z nazwą rodzaju
+ * („Laptop Dell Vostro…”), akcesorium i inne samą nazwą modelu („Słuchawki
+ * Jabra…”) — jak w protokole recepcji.
+ */
+export function itemTitle(item: Pick<EquipmentItem, "category" | "model">): string {
+  if (item.category === "akcesorium" || item.category === "inne") return item.model.name;
+  return `${CATEGORY_LABELS[item.category]} ${item.model.name}`;
+}
+
 /** Numer, po którym recepcja zna pozycję (ewidencyjny, potem karta i telefon). */
 export function itemNumber(item: Identified): string {
   return (
@@ -263,6 +275,366 @@ export function signatureMailHref(email: string | null, number: string, url: str
     "Link jest ważny 14 dni i działa jeden raz.",
   ].join("\n");
   return `mailto:${encodeURIComponent(email ?? "")}?subject=${encodeURIComponent(
+    subject,
+  )}&body=${encodeURIComponent(body)}`;
+}
+
+// ── Ekran po makiecie 19.10.2026: kafle, modele, zestawy, agenda ─────────────
+
+/** Liczba mnoga kategorii — kafle stanu i „Czy starczy na wydania?”. */
+export const CATEGORY_PLURAL: Record<EquipmentCategory, string> = {
+  laptop: "Laptopy",
+  telefon: "Telefony",
+  monitor: "Monitory",
+  karta_sim: "Karty SIM",
+  karta_dostepu: "Karty dostępu",
+  akcesorium: "Akcesoria",
+  inne: "Inne",
+};
+
+/** Kategorie z własnym kaflem stanu w „Ewidencji” (reszta pod filtrem „Kategoria”). */
+export const TILE_CATEGORIES: EquipmentCategory[] = ["laptop", "telefon", "monitor", "karta_sim"];
+
+/** Numer ewidencyjny po ludzku: „095” < „148” < „T-062”, potem id. */
+export function compareItemNumber(a: EquipmentItem, b: EquipmentItem): number {
+  return itemNumber(a).localeCompare(itemNumber(b), "pl", { numeric: true }) || a.id - b.id;
+}
+
+export interface ModelGroup {
+  model: EquipmentModel;
+  category: EquipmentCategory;
+  /** Sztuki po numerze ewidencyjnym — pierwsza to ta, którą bierze „Wydaj”. */
+  items: EquipmentItem[];
+  /** Miejsca sztuk od najczęstszego („szafka B”). */
+  locations: string[];
+}
+
+/**
+ * Widok „Modele”: sztuki zwinięte po modelu. Kolejność: kategoria rejestru,
+ * potem model z największą liczbą sztuk, potem nazwa.
+ */
+export function groupByModel(items: readonly EquipmentItem[]): ModelGroup[] {
+  const groups = new Map<number, EquipmentItem[]>();
+  for (const item of items) {
+    groups.set(item.model.id, [...(groups.get(item.model.id) ?? []), item]);
+  }
+  return [...groups.values()]
+    .map((members): ModelGroup => {
+      const counts = new Map<string, number>();
+      for (const member of members) {
+        const place = member.location?.trim();
+        if (place) counts.set(place, (counts.get(place) ?? 0) + 1);
+      }
+      return {
+        model: members[0].model,
+        category: members[0].category,
+        items: [...members].sort(compareItemNumber),
+        locations: [...counts.entries()]
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pl"))
+          .map(([place]) => place),
+      };
+    })
+    .sort(
+      (a, b) =>
+        CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category) ||
+        b.items.length - a.items.length ||
+        a.model.name.localeCompare(b.model.name, "pl"),
+    );
+}
+
+// ── Gotowe zestawy (decyzja Artura 19.10.2026) ────────────────────────────────
+//
+// Skład zestawów żyje w kodzie, bo NEXUS nie ma wzoru zestawu: pakiet klienta
+// wybiera tylko wzór protokołu, a zestaw edycji Akademii recepcja składa z
+// modeli przy każdym wydaniu. Zmiana składu = zmiana tej listy (i reguły
+// `docs/claude/ludzie/sprzet-i-protokoly-recepcji.md`).
+
+export interface KitSlot {
+  category: EquipmentCategory;
+  label: string;
+  /** Akcesorium bierzemy po nazwie modelu (słuchawki, nie kabel). */
+  modelName?: RegExp;
+}
+
+export type IssueKitKey = "kontraktor" | "biuro";
+
+export interface IssueKit {
+  key: IssueKitKey;
+  title: string;
+  slots: KitSlot[];
+}
+
+const HEADSET: KitSlot = { category: "akcesorium", label: "słuchawki", modelName: /słuchawk|headset/i };
+
+export const ISSUE_KITS: IssueKit[] = [
+  {
+    key: "kontraktor",
+    title: "Zestaw kontraktora",
+    slots: [
+      { category: "laptop", label: "laptop" },
+      { category: "telefon", label: "telefon" },
+      { category: "karta_sim", label: "SIM" },
+      HEADSET,
+      { category: "karta_dostepu", label: "karta dostępu" },
+    ],
+  },
+  {
+    key: "biuro",
+    title: "Zestaw biura",
+    slots: [
+      { category: "laptop", label: "laptop" },
+      { category: "monitor", label: "monitor" },
+      HEADSET,
+      { category: "karta_dostepu", label: "karta dostępu" },
+    ],
+  },
+];
+
+export function kitByKey(key: IssueKitKey): IssueKit {
+  return ISSUE_KITS.find((kit) => kit.key === key) as IssueKit;
+}
+
+export function slotMatches(slot: KitSlot, item: Pick<EquipmentItem, "category" | "model">): boolean {
+  return (
+    item.category === slot.category && (!slot.modelName || slot.modelName.test(item.model.name))
+  );
+}
+
+/**
+ * „Dodaj zestaw”: na każde miejsce zestawu pierwsza wolna sztuka (po numerze).
+ * Miejsce już zajęte pozycją z protokołu nie dostaje drugiej sztuki; brak
+ * wolnej sztuki wraca w `missing` (recepcja widzi, czego zabrakło).
+ */
+export function pickKit(
+  kit: IssueKit,
+  free: readonly EquipmentItem[],
+  chosen: readonly EquipmentItem[],
+): { added: EquipmentItem[]; missing: string[] } {
+  const used = new Set<number>();
+  const taken = new Set(chosen.map((item) => item.id));
+  const added: EquipmentItem[] = [];
+  const missing: string[] = [];
+  const pool = [...free].sort(compareItemNumber);
+  for (const slot of kit.slots) {
+    const already = chosen.find((item) => !used.has(item.id) && slotMatches(slot, item));
+    if (already) {
+      used.add(already.id);
+      continue;
+    }
+    const next = pool.find((item) => !taken.has(item.id) && slotMatches(slot, item));
+    if (next) {
+      taken.add(next.id);
+      used.add(next.id);
+      added.push(next);
+    } else {
+      missing.push(slot.label);
+    }
+  }
+  return { added, missing };
+}
+
+/** Zestaw zadania „Przygotuj”: start kontraktu = kontraktor, wejście pracownika = biuro. */
+export function kitForTask(task: Pick<EquipmentTask, "kind" | "details">): IssueKit | null {
+  if (task.kind !== "wydanie") return null;
+  if (task.details.reason === "start_kontraktu") return kitByKey("kontraktor");
+  if (task.details.reason === "wejscie") return kitByKey("biuro");
+  return null;
+}
+
+export interface CoverageRow {
+  category: EquipmentCategory;
+  needed: number;
+  free: number;
+  short: number;
+}
+
+/**
+ * „Czy starczy na wydania?”: kategorie zestawów z otwartych zadań „Przygotuj”
+ * zestawione z wolnymi sztukami na stanie. Słuchawki liczą się jako akcesoria
+ * (licznik stanu nie rozróżnia akcesoriów po nazwie).
+ */
+export function stockCoverage(
+  tasks: readonly Pick<EquipmentTask, "kind" | "status" | "details">[],
+  freeByCategory: Readonly<Record<EquipmentCategory, number>>,
+): CoverageRow[] {
+  const needed = new Map<EquipmentCategory, number>();
+  for (const task of tasks) {
+    if (task.status !== "otwarte") continue;
+    for (const slot of kitForTask(task)?.slots ?? []) {
+      needed.set(slot.category, (needed.get(slot.category) ?? 0) + 1);
+    }
+  }
+  return CATEGORY_ORDER.filter((category) => needed.has(category)).map((category) => {
+    const need = needed.get(category) ?? 0;
+    const free = freeByCategory[category] ?? 0;
+    return { category, needed: need, free, short: Math.max(0, need - free) };
+  });
+}
+
+// ── Agenda „Do zrobienia” ────────────────────────────────────────────────────
+
+export type AgendaBucket = "overdue" | "today" | "later";
+export type AgendaFilter = "all" | "przygotuj" | "podpis" | "zwrot";
+
+export const AGENDA_TITLES: Record<AgendaBucket, string> = {
+  overdue: "Po terminie",
+  today: "Dziś",
+  later: "Później",
+};
+
+const FILTER_KINDS: Record<Exclude<AgendaFilter, "all">, EquipmentTaskKind[]> = {
+  przygotuj: ["wydanie", "zakup"],
+  podpis: ["podpis"],
+  zwrot: ["zwrot"],
+};
+
+export function matchesAgendaFilter(task: Pick<EquipmentTask, "kind">, filter: AgendaFilter): boolean {
+  return filter === "all" || FILTER_KINDS[filter].includes(task.kind);
+}
+
+export function agendaBucket(task: Pick<EquipmentTask, "due_on">, today: string): AgendaBucket {
+  if (!task.due_on || task.due_on > today) return "later";
+  return task.due_on < today ? "overdue" : "today";
+}
+
+/** Grupy agendy w kolejności Po terminie → Dziś → Później, puste pominięte. */
+export function agendaGroups<T extends Pick<EquipmentTask, "due_on" | "id">>(
+  tasks: readonly T[],
+  today: string,
+): { bucket: AgendaBucket; tasks: T[] }[] {
+  const sorted = [...tasks].sort(
+    (a, b) =>
+      (a.due_on ?? "9999-12-31").localeCompare(b.due_on ?? "9999-12-31") || a.id - b.id,
+  );
+  return (["overdue", "today", "later"] as const)
+    .map((bucket) => ({ bucket, tasks: sorted.filter((t) => agendaBucket(t, today) === bucket) }))
+    .filter((group) => group.tasks.length > 0);
+}
+
+/** Termin w wierszu agendy: „6 dni po”, „dziś”, „do 26.10”. */
+export function agendaDue(dueOn: string | null, today: string): string {
+  if (!dueOn) return "bez terminu";
+  if (dueOn === today) return "dziś";
+  if (dueOn < today) {
+    const days = Math.round(
+      (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${dueOn}T00:00:00Z`)) / 86_400_000,
+    );
+    return `${countPl(days, "dzień", "dni", "dni")} po`;
+  }
+  return `do ${formatDayMonthPl(dueOn)}`;
+}
+
+function addDays(iso: string, days: number): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+export interface WeekDay {
+  date: string;
+  label: string;
+  count: number;
+  isToday: boolean;
+}
+
+/**
+ * „Ten tydzień w recepcji”: otwarte zadania na każdy dzień roboczy (pon–pt).
+ * Zaległe liczą się do dziś — dziś trzeba je zrobić. W sobotę i niedzielę
+ * pokazujemy nadchodzący tydzień.
+ */
+export function weekPlan(
+  tasks: readonly Pick<EquipmentTask, "due_on" | "status">[],
+  today: string,
+): { days: WeekDay[]; next: { count: number; first: string | null } } {
+  const weekday = weekdayOfIso(today);
+  const monday = addDays(today, weekday >= 5 ? 7 - weekday : -weekday);
+  const open = tasks.filter((task) => task.status === "otwarte" && task.due_on);
+  const days = [0, 1, 2, 3, 4].map((offset): WeekDay => {
+    const date = addDays(monday, offset);
+    const due = open.filter((task) => task.due_on === date).length;
+    const overdue =
+      date === today ? open.filter((task) => (task.due_on as string) < today).length : 0;
+    return {
+      date,
+      label: WEEKDAYS_PL[offset],
+      count: due + overdue,
+      isToday: date === today,
+    };
+  });
+  const nextMonday = addDays(monday, 7);
+  const nextFriday = addDays(monday, 11);
+  const next = open
+    .map((task) => task.due_on as string)
+    .filter((due) => due >= nextMonday && due <= nextFriday)
+    .sort();
+  return { days, next: { count: next.length, first: next[0] ?? null } };
+}
+
+/** Dni od daty do dziś (0 = dziś) — „najstarszy 3 dni”, „w serwisie od 12 dni”. */
+export function daysSince(iso: string | null | undefined, today: string): number | null {
+  if (!iso) return null;
+  return Math.max(
+    0,
+    Math.round(
+      (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${iso.slice(0, 10)}T00:00:00Z`)) /
+        86_400_000,
+    ),
+  );
+}
+
+/** Inicjały posiadacza do awatara („Anna Kontraktorska” → „AK”). */
+export function holderInitials(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .filter((part) => /\p{L}/u.test(part))
+      .slice(0, 2)
+      .map((part) => part[0].toLocaleUpperCase("pl"))
+      .join("") || "?"
+  );
+}
+
+/** Kontekst zadania pod tytułem: klient, powód i termin źródła, liczba pozycji. */
+export function taskContext(task: Pick<EquipmentTask, "kind" | "details">): string {
+  const d = task.details;
+  const parts: string[] = [];
+  if (typeof d.client_name === "string" && d.client_name) parts.push(d.client_name);
+  const on = (key: string) =>
+    typeof d[key] === "string" ? formatDayMonthPl(d[key] as string) : null;
+  switch (d.reason) {
+    case "start_kontraktu":
+      parts.push(`wejście u klienta${on("start_date") ? ` ${on("start_date")}` : ""}`);
+      break;
+    case "wejscie":
+      parts.push(`start w biurze${on("start_date") ? ` ${on("start_date")}` : ""}`);
+      break;
+    case "koniec_wspolpracy":
+      parts.push(`koniec współpracy${on("end_date") ? ` ${on("end_date")}` : ""}`);
+      break;
+    case "odejscie":
+      parts.push(`odejście${on("last_day") ? ` ${on("last_day")}` : ""}`);
+      break;
+    default:
+      break;
+  }
+  if (task.kind === "zwrot" && typeof d.items === "number" && d.items > 0) {
+    parts.push(`${countPl(d.items, "pozycja", "pozycje", "pozycji")} z ewidencji`);
+  }
+  return parts.join(" · ");
+}
+
+/** Wiadomość z prośbą o zwrot — recepcja wysyła ją ze swojej poczty (osoba bez konta). */
+export function returnReminderMailHref(email: string, dueOn: string | null): string {
+  const subject = "Zwrot sprzętu firmy";
+  const body = [
+    "Dzień dobry,",
+    "",
+    dueOn
+      ? `przypominamy o zwrocie sprzętu firmy — termin minął ${formatIsoDatePl(dueOn)}.`
+      : "przypominamy o zwrocie sprzętu firmy.",
+    "Prosimy o kontakt z recepcją w sprawie terminu oddania.",
+  ].join("\n");
+  return `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(
     subject,
   )}&body=${encodeURIComponent(body)}`;
 }
