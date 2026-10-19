@@ -225,8 +225,11 @@ z odnośnikiem `hr_documents.leave_request_id`.
   Zastępca nieobecnego przełożonego nie dostaje listy, a przy rodzaju ukrytym (L4
   i pokrewne) nawet liczby — zdradzałaby rodzaj.
 - Krąg dokumentu: osoba i Kadry (bez Płac i recepcji); ślad w `hr_audit_events`
-  z `sensitivity='health'`. Osoba usuwa plik, który sama dodała (pomyłka) — plik
-  znika, wiersz zostaje jako ślad „mistake”; plik dodany przez Kadry usuwają Kadry.
+  z `sensitivity='health'`. Od 19.10.2026 pilnuje tego serwer dla każdego potwierdzenia
+  nieobecności w e-teczce: wgranie albo zmiana kręgu z Płacami lub recepcją = 422
+  „Potwierdzenie nieobecności widzą tylko osoba i Kadry.” (`documents.check_audience`).
+  Osoba usuwa plik, który sama dodała (pomyłka) — plik znika, wiersz zostaje jako ślad
+  „mistake”; plik dodany przez Kadry usuwają Kadry.
 - Import z Compassa przenosi tylko informację, że plik był; stare pliki zostają
   w magazynie Compassa.
 
