@@ -144,3 +144,54 @@ osobie z kartoteki i uczestniku Akademii.
   osobno wydanie i zwrot). Protokół kontraktu bierze wzór z pakietu klienta
   kontraktu w chwili sporządzenia; wycofany albo brak = standard. Konto,
   osoba spoza NEXUSA i uczestnik Akademii — zawsze standard.
+
+## Ekrany po makiecie 19.10.2026 (Ewidencja, Do zrobienia, Wydaj sprzęt)
+
+Makieta z kanwy przeglądu „Ludzie i Sprzęt” (decyzja Artura 19.10.2026:
+wdrożyć razem z drobnymi dodatkami; liczby w makiecie były przykładowe,
+logika modułu bez zmian).
+
+- **Ewidencja.** Kafle stanu nad zakładkami (tylko na „Sprzęt”): wolne per
+  kategoria z paskiem wydane / wolne / serwis — klik = filtr kategorii, drugi
+  klik zdejmuje; „Czeka na podpis” (najstarszy protokół w dniach) i „Z importu”
+  prowadzą do zakładek. Liczby z `GET /summary` (`by_category`,
+  `oldest_waiting_on`, `unsigned_items`). Chipy stanu liczą cały rejestr, nie
+  bieżący filtr; „Bez podpisu” = `GET /items?unsigned=true` (wydane, protokół
+  wydania `oczekuje` albo `podpisany`). Widok „Modele” (`?view=modele`): wydane
+  i serwis sztukami, na stanie zwinięte po modelu; „Wydaj” bierze pierwszą wolną
+  sztukę po numerze ewidencyjnym (porównanie liczbowe: 095 < 148), numer zmienia
+  się w oknie wydania. Ekran czyta do 500 pozycji naraz (`limit`), więcej =
+  podpowiedź „zawęź filtrem”. Rzadkie zakładki (Wzory, Cennik, Intune,
+  Akademia) są pod „Więcej”; aktywna rzadka zakładka pokazuje się w pasku.
+- **Akcje wiersza.** Protokół `oczekuje` → „Wyślij link” (pyta: nowy link
+  unieważnia poprzedni, D8), `podpisany` → „Potwierdź” (pyta: podpis potwierdza
+  człowiek, D4), wydany i potwierdzony → „Zwrot”, wolny → „Wydaj”, serwis →
+  „Wróciło” (stan `na_stanie`). Reszta w menu ⋯.
+- **Do zrobienia.** Agenda wg terminu: Po terminie → Dziś → Później (bez
+  terminu na końcu), chipy rodzaju, jedna główna akcja na zadanie, „Zrobione”
+  i „Nie dotyczy” w ⋯. Zadanie podpisu niesie stan i skład protokołu
+  (`protocol.status`, `protocol.categories`): podpisany = „Potwierdź”, inaczej
+  „Wyślij link ponownie”. „Ten tydzień w recepcji” = otwarte zadania pon–pt,
+  zaległe liczone do dziś; w weekend nadchodzący tydzień.
+- **„Przypomnij” o zwrocie** (`POST /tasks/{id}/remind`, uprawnienie „Sprzęt”):
+  tylko otwarte zadanie `zwrot` (inne = 409). Konto NEXUSA dostaje dzwonek
+  i mail „Czas i ludzie” `equipment_return_reminder` (0479) z prośbą i terminem
+  — bez listy sprzętu i kwot, link do „Mój czas → Kartoteka”. Konsultant, osoba
+  spoza NEXUSA i uczestnik Akademii nie mają konta: trasa oddaje adres, recepcja
+  wysyła wiadomość ze swojej poczty (jak link do podpisu); brak adresu = 409.
+  Każde przypomnienie zostaje w `details` zadania (`reminded_on`, `reminders`),
+  wiersz pokazuje „przypomniano dd.mm”. Na wierzchu tylko przy zwrocie po
+  terminie, w terminie — w ⋯.
+- **Gotowe zestawy** są w kodzie (`ISSUE_KITS` w `equipment-format.ts`), bo
+  NEXUS nie ma wzoru zestawu: pakiet klienta wybiera tylko wzór protokołu,
+  a zestaw edycji Akademii recepcja składa z modeli przy wydaniu. Kontraktor =
+  laptop, telefon, SIM, słuchawki, karta dostępu; biuro = laptop, monitor,
+  słuchawki, karta dostępu. Słuchawki to akcesorium po nazwie modelu
+  („słuchawk”/„headset”). „Dodaj zestaw” bierze pierwszą wolną sztukę na każde
+  miejsce, pomija miejsca zajęte już pozycją szkicu i mówi, czego zabrakło.
+  Zadanie z powodem `start_kontraktu` podpowiada zestaw kontraktora, `wejscie`
+  — biura. Zmiana składu = zmiana listy i tej reguły.
+- **„Czy starczy na wydania?”** liczy front (`stockCoverage`): miejsca
+  zestawów z otwartych zadań „Przygotuj” per kategoria kontra
+  `free_by_category`. Słuchawki liczą się jako akcesoria (licznik stanu nie
+  rozróżnia akcesoriów po nazwie). Zakup i zadanie bez powodu — bez zestawu.

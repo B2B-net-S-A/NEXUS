@@ -1266,3 +1266,181 @@ async def test_protocol_texts_refuse_secrets(app_client, modules_on, people) -> 
         headers=headers,
     )
     assert returned.status_code == 422, returned.text
+
+
+# ── Makieta Sprzętu (19.10.2026): przypomnienie, liczniki, „bez podpisu” ───────
+
+
+async def test_remind_holder_rings_the_account_and_records_the_reminder(
+    app_client, modules_on, people
+) -> None:
+    headers = _headers(people["reception"])
+    model = await _model(app_client, headers, "akcesorium", "37.00")
+    item = await _item(app_client, headers, model["id"])
+    issued = await app_client.post(
+        "/api/equipment/issue",
+        json={
+            "holder_kind": "user",
+            "holder_id": people["worker"].id,
+            "lines": [{"item_id": item["id"]}],
+        },
+        headers=headers,
+    )
+    assert issued.status_code == 201, issued.text
+    async with AsyncSessionLocal() as db:
+        task = await equipment_tasks.tasks_for_person_exit(
+            db, people["worker"].id, business_today() - timedelta(days=2)
+        )
+        await db.commit()
+    url = f"/api/equipment/tasks/{task.id}/remind"
+
+    for who in ("hr", "recruiter", "worker"):
+        refused = await app_client.post(url, headers=_headers(people[who]))
+        assert refused.status_code == 403, who
+
+    reminded = await app_client.post(url, headers=headers)
+    assert reminded.status_code == 200, reminded.text
+    body = reminded.json()
+    assert body["channel"] == "powiadomienie" and body["email"] is None
+    assert body["reminded_on"] == business_today().isoformat()
+    async with AsyncSessionLocal() as db:
+        bells = (
+            await db.scalars(
+                select(Notification).where(
+                    Notification.user_id == people["worker"].id,
+                    Notification.notification_type
+                    == NotificationType.equipment_return_reminder,
+                )
+            )
+        ).all()
+        stored = await db.get(EquipmentTask, task.id)
+    assert len(bells) == 1
+    assert bells[0].link == "/my-time?tab=profile"
+    # Bez listy sprzętu i bez kwot — tylko prośba i termin.
+    assert "37" not in bells[0].message and model["name"] not in bells[0].message
+    assert stored.details["reminded_on"] == business_today().isoformat()
+    assert stored.details["reminders"] == 1
+
+    listed = await app_client.get("/api/equipment/tasks", headers=headers)
+    row = next(t for t in listed.json()["items"] if t["id"] == task.id)
+    assert row["details"]["reminded_on"] == business_today().isoformat()
+
+
+async def test_remind_holder_without_account_returns_the_mail_address(
+    app_client, modules_on, people
+) -> None:
+    headers = _headers(people["reception"])
+    ids = await _contract(start=business_today() - timedelta(days=30), end=None)
+    try:
+        model = await _model(app_client, headers, "telefon", "649.00")
+        item = await _item(app_client, headers, model["id"])
+        issued = await app_client.post(
+            "/api/equipment/issue",
+            json={
+                "holder_kind": "contract",
+                "holder_id": ids["id"],
+                "lines": [{"item_id": item["id"]}],
+            },
+            headers=headers,
+        )
+        assert issued.status_code == 201, issued.text
+        async with AsyncSessionLocal() as db:
+            contract = await db.get(Contract, ids["id"])
+            contract.end_date = business_today() - timedelta(days=1)
+            task = await equipment_tasks.tasks_for_contract_end(db, contract)
+            start_task = await equipment_tasks.upsert_task(
+                db,
+                kind="wydanie",
+                source_key=f"test:{_tag()}",
+                title="Przygotuj zestaw (fikcja)",
+                due_on=business_today(),
+                contract_id=ids["id"],
+            )
+            await db.commit()
+        reminded = await app_client.post(
+            f"/api/equipment/tasks/{task.id}/remind", headers=headers
+        )
+        assert reminded.status_code == 200, reminded.text
+        assert reminded.json()["channel"] == "mail"
+        assert reminded.json()["email"].startswith("eqc-")
+        # Przypomnieć można tylko o zwrocie.
+        wrong = await app_client.post(
+            f"/api/equipment/tasks/{start_task.id}/remind", headers=headers
+        )
+        assert wrong.status_code == 409
+        missing = await app_client.post(
+            "/api/equipment/tasks/999999999/remind", headers=headers
+        )
+        assert missing.status_code == 404
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(EquipmentTask).where(EquipmentTask.contract_id == ids["id"])
+            )
+            await db.commit()
+        await _drop_contract(ids)
+
+
+async def test_summary_breaks_down_categories_and_unsigned_items(
+    app_client, modules_on, people
+) -> None:
+    headers = _headers(people["reception"])
+    before = (await app_client.get("/api/equipment/summary", headers=headers)).json()
+    model = await _model(app_client, headers, "monitor", "650.00")
+    first = await _item(app_client, headers, model["id"])
+    await _item(app_client, headers, model["id"])
+    issued = await app_client.post(
+        "/api/equipment/issue",
+        json={
+            "holder_kind": "user",
+            "holder_id": people["worker"].id,
+            "lines": [{"item_id": first["id"]}],
+        },
+        headers=headers,
+    )
+    assert issued.status_code == 201, issued.text
+    protocol = issued.json()["protocol"]
+    after = (await app_client.get("/api/equipment/summary", headers=headers)).json()
+    monitors_before = before["by_category"]["monitor"]
+    monitors = after["by_category"]["monitor"]
+    assert monitors["wydany"] == monitors_before["wydany"] + 1
+    assert monitors["na_stanie"] == monitors_before["na_stanie"] + 1
+    assert after["unsigned_items"] == before["unsigned_items"] + 1
+    assert after["oldest_waiting_on"] is not None
+    assert after["oldest_waiting_on"] <= protocol["protocol_date"]
+
+    unsigned = await app_client.get(
+        "/api/equipment/items",
+        params={"unsigned": "true", "category": "monitor"},
+        headers=headers,
+    )
+    assert unsigned.status_code == 200
+    ids = {row["id"] for row in unsigned.json()["items"]}
+    assert first["id"] in ids
+    assert all(
+        row["issue_protocol"]["status"] in ("oczekuje", "podpisany")
+        for row in unsigned.json()["items"]
+    )
+
+    # Zadanie podpisu niesie skład protokołu (ikony w agendzie).
+    tasks = await app_client.get("/api/equipment/tasks", headers=headers)
+    signature = next(
+        t
+        for t in tasks.json()["items"]
+        if t["protocol"] and t["protocol"]["id"] == protocol["id"]
+    )
+    assert signature["protocol"]["categories"] == ["monitor"]
+    assert signature["protocol"]["status"] == "oczekuje"
+
+    confirmed = await app_client.post(
+        f"/api/equipment/protocols/{protocol['id']}/confirm",
+        json={"method": "papier"},
+        headers=headers,
+    )
+    assert confirmed.status_code == 200
+    unsigned_after = await app_client.get(
+        "/api/equipment/items",
+        params={"unsigned": "true", "category": "monitor"},
+        headers=headers,
+    )
+    assert first["id"] not in {row["id"] for row in unsigned_after.json()["items"]}

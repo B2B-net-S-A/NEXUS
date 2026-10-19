@@ -36,6 +36,9 @@ from app.services.equipment.holders import (
 )
 from app.services.equipment.pricing import model_payload
 
+#: Protokół wydania jeszcze niepotwierdzony: czeka na podpis albo na recepcję.
+UNSIGNED_PROTOCOL_STATUSES = ("oczekuje", "podpisany")
+
 
 def _holder_name_expr():
     """Nazwa posiadacza wydania (konto, konsultant, osoba spoza, uczestnik Akademii).
@@ -148,6 +151,7 @@ async def list_items(
     holder: Optional[str] = None,
     q: Optional[str] = None,
     free_only: bool = False,
+    unsigned: bool = False,
     limit: int = 200,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -174,6 +178,9 @@ async def list_items(
         query = query.where(
             EquipmentItem.status == "na_stanie", EquipmentAssignment.id.is_(None)
         )
+    if unsigned:
+        # „Bez podpisu”: wydane, a protokół wydania czeka na podpis albo potwierdzenie.
+        query = query.where(EquipmentProtocol.status.in_(UNSIGNED_PROTOCOL_STATUSES))
     if holder == "none":
         query = query.where(EquipmentAssignment.id.is_(None))
     elif holder in ("user", "contract", "external", "academy"):
@@ -406,9 +413,35 @@ async def summary(db: AsyncSession) -> dict[str, Any]:
             )
         ).all()
     )
-    waiting = await db.scalar(
-        select(func.count()).where(
-            EquipmentProtocol.status.in_(("oczekuje", "podpisany"))
+    by_category: dict[str, dict[str, int]] = {
+        c: {st: 0 for st in schema.ITEM_STATUSES} for c in schema.CATEGORIES
+    }
+    for category, item_status, count in (
+        await db.execute(
+            select(EquipmentModel.category, EquipmentItem.status, func.count())
+            .select_from(EquipmentItem)
+            .join(EquipmentModel, EquipmentModel.id == EquipmentItem.model_id)
+            .group_by(EquipmentModel.category, EquipmentItem.status)
+        )
+    ).all():
+        by_category[category][item_status] = int(count)
+    waiting, oldest_waiting = (
+        await db.execute(
+            select(func.count(), func.min(EquipmentProtocol.protocol_date)).where(
+                EquipmentProtocol.status.in_(UNSIGNED_PROTOCOL_STATUSES)
+            )
+        )
+    ).one()
+    unsigned_items = await db.scalar(
+        select(func.count())
+        .select_from(EquipmentAssignment)
+        .join(
+            EquipmentProtocol,
+            EquipmentProtocol.id == EquipmentAssignment.issue_protocol_id,
+        )
+        .where(
+            EquipmentAssignment.returned_at.is_(None),
+            EquipmentProtocol.status.in_(UNSIGNED_PROTOCOL_STATUSES),
         )
     )
     unresolved = await db.scalar(
@@ -420,6 +453,9 @@ async def summary(db: AsyncSession) -> dict[str, Any]:
     return {
         "free_by_category": {c: int(free.get(c, 0)) for c in schema.CATEGORIES},
         "by_status": {s: int(by_status.get(s, 0)) for s in schema.ITEM_STATUSES},
+        "by_category": by_category,
         "protocols_waiting": int(waiting or 0),
+        "oldest_waiting_on": oldest_waiting.isoformat() if oldest_waiting else None,
+        "unsigned_items": int(unsigned_items or 0),
         "import_unresolved": int(unresolved or 0),
     }

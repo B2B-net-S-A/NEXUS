@@ -167,14 +167,26 @@ export interface EquipmentTask {
   due_on: string | null;
   overdue_days: number;
   holder: { kind: EquipmentHolderKind | null; id: number | null; name: string | null };
-  protocol: { id: number; number: string } | null;
+  /** `categories` = skład protokołu (ikony w agendzie „Do zrobienia”). */
+  protocol: {
+    id: number;
+    number: string;
+    status?: ProtocolStatus;
+    categories?: EquipmentCategory[];
+  } | null;
   details: Record<string, unknown>;
 }
 
 export interface EquipmentSummary {
   free_by_category: Record<EquipmentCategory, number>;
   by_status: Record<EquipmentItemStatus, number>;
+  /** Stan per kategoria (kafle „Ewidencji”: wydane / wolne / serwis). */
+  by_category?: Record<EquipmentCategory, Record<EquipmentItemStatus, number>>;
   protocols_waiting: number;
+  /** Data najstarszego protokołu, który czeka na podpis albo potwierdzenie. */
+  oldest_waiting_on?: string | null;
+  /** Sztuki wydane z protokołem bez podpisu (chip „Bez podpisu”). */
+  unsigned_items?: number;
   import_unresolved: number;
 }
 
@@ -230,6 +242,10 @@ export interface ItemFilters {
   holder?: "none" | EquipmentHolderKind | "";
   q?: string;
   free?: boolean;
+  /** Wydane z protokołem, który czeka na podpis albo potwierdzenie. */
+  unsigned?: boolean;
+  /** Ile pozycji naraz (serwer: 200 domyślnie, najwyżej 500). */
+  limit?: number;
 }
 
 export interface ItemInput {
@@ -289,6 +305,8 @@ function itemParams(filters: ItemFilters): Record<string, string> {
   if (filters.holder) params.holder = filters.holder;
   if (filters.q?.trim()) params.q = filters.q.trim();
   if (filters.free) params.free = "true";
+  if (filters.unsigned) params.unsigned = "true";
+  if (filters.limit) params.limit = String(filters.limit);
   return params;
 }
 
@@ -596,6 +614,23 @@ export function useSetTaskStatus() {
     mutationFn: async ({ id, status }: { id: number; status: EquipmentTaskStatus }) =>
       (await api.patch<{ id: number; status: EquipmentTaskStatus }>(`${BASE}/tasks/${id}`, { status }))
         .data,
+    onSuccess: invalidate,
+  });
+}
+
+export interface RemindResult {
+  /** Konto NEXUSA dostało dzwonek i mail; osobie bez konta pisze recepcja. */
+  channel: "powiadomienie" | "mail";
+  email: string | null;
+  reminded_on: string;
+}
+
+/** „Przypomnij” przy zwrocie po terminie (`POST /tasks/{id}/remind`). */
+export function useRemindTaskHolder() {
+  const invalidate = useInvalidateEquipment();
+  return useMutation({
+    mutationFn: async (taskId: number) =>
+      (await api.post<RemindResult>(`${BASE}/tasks/${taskId}/remind`)).data,
     onSuccess: invalidate,
   });
 }

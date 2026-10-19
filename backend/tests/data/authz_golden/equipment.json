@@ -69,6 +69,7 @@
   "POST /api/equipment/protocols/{protocol_id}/link": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/equipment/protocols/{protocol_id}/signed-file": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/equipment/return": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/tasks/{task_id}/remind": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PUT /api/equipment/clients/{client_id}/provider": "BBBBBBBDBBBBBBBBBBBBBBBBB"
  }
 }

@@ -39,13 +39,19 @@ from app.models.equipment import (
     EquipmentExternalPerson,
     EquipmentItem,
     EquipmentProtocol,
+    EquipmentProtocolLine,
     EquipmentTask,
 )
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
-from app.services.equipment.errors import EquipmentNotFound
-from app.services.equipment.holders import AcademyCandidate, candidate_name, holder_of
+from app.services.equipment.errors import EquipmentConflict, EquipmentNotFound
+from app.services.equipment.holders import (
+    AcademyCandidate,
+    candidate_name,
+    holder_of,
+    resolve_holder,
+)
 from app.services.equipment.queries import join_academy_holder
 from app.services.equipment.registry import client_provider
 from app.services.hr import job_runs
@@ -388,7 +394,12 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
     )
     query = (
         join_academy_holder(
-            select(EquipmentTask, holder_name, EquipmentProtocol.number)
+            select(
+                EquipmentTask,
+                holder_name,
+                EquipmentProtocol.number,
+                EquipmentProtocol.status,
+            )
             .outerjoin(User, User.id == EquipmentTask.user_id)
             .outerjoin(Contract, Contract.id == EquipmentTask.contract_id)
             .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
@@ -405,7 +416,23 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
         query = query.where(EquipmentTask.status == status)
     rows = (await db.execute(query.limit(300))).all()
     today = business_today()
-    holders = {task.id: holder_of(task) or (None, None) for task, _n, _p in rows}
+    holders = {task.id: holder_of(task) or (None, None) for task, *_ in rows}
+    # Skład protokołu (kategorie pozycji) — ikony w agendzie „Do zrobienia”.
+    protocol_ids = {task.protocol_id for task, *_ in rows if task.protocol_id}
+    categories: dict[int, list[str]] = {}
+    if protocol_ids:
+        for protocol_id, category in (
+            await db.execute(
+                select(
+                    EquipmentProtocolLine.protocol_id, EquipmentProtocolLine.category
+                )
+                .where(EquipmentProtocolLine.protocol_id.in_(protocol_ids))
+                .order_by(
+                    EquipmentProtocolLine.protocol_id, EquipmentProtocolLine.position
+                )
+            )
+        ).all():
+            categories.setdefault(protocol_id, []).append(category)
     return [
         {
             "id": task.id,
@@ -424,11 +451,18 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
                 "name": name,
             },
             "protocol": (
-                {"id": task.protocol_id, "number": number} if task.protocol_id else None
+                {
+                    "id": task.protocol_id,
+                    "number": number,
+                    "status": protocol_status,
+                    "categories": categories.get(task.protocol_id, []),
+                }
+                if task.protocol_id
+                else None
             ),
             "details": task.details or {},
         }
-        for task, name, number in rows
+        for task, name, number, protocol_status in rows
     ]
 
 
@@ -454,6 +488,65 @@ async def set_task_status(
         task.done_by = actor.id
     await db.flush()
     return task
+
+
+# ── „Przypomnij” o zwrocie (makieta Sprzętu, 19.10.2026) ──────────────────────
+
+#: Link w dzwonku osoby: „Mój czas → Kartoteka” pokazuje jej sprzęt.
+RETURN_REMINDER_LINK = "/my-time?tab=profile"
+
+
+async def remind_holder(
+    db: AsyncSession, task_id: int, *, actor: User
+) -> dict[str, Any]:
+    """Przypomnienie posiadaczowi o zwrocie sprzętu z otwartego zadania „zwrot”.
+
+    Konto NEXUSA dostaje dzwonek i mail „Czas i ludzie”
+    (``equipment_return_reminder`` — termin, bez listy sprzętu i kwot).
+    Konsultant, osoba spoza NEXUSA i uczestnik Akademii nie mają konta:
+    recepcja wysyła wiadomość ze swojej poczty (jak link do podpisu, D8),
+    a trasa oddaje adres. Każde przypomnienie zostaje w ``details``.
+    """
+    task = await db.get(EquipmentTask, task_id, with_for_update=True)
+    if task is None:
+        raise EquipmentNotFound("Nie ma takiego zadania.")
+    if task.kind != "zwrot" or task.status != "otwarte":
+        raise EquipmentConflict("Przypomnieć można tylko o otwartym zwrocie sprzętu.")
+    ref = holder_of(task)
+    if ref is None:
+        raise EquipmentConflict("To zadanie nie ma osoby, której można przypomnieć.")
+    holder = await resolve_holder(db, *ref)
+    today = business_today()
+    channel = "powiadomienie" if holder.kind == "user" else "mail"
+    if channel == "powiadomienie":
+        due = f" do {task.due_on:%d.%m.%Y}" if task.due_on else ""
+        await notify_each(
+            db,
+            [holder.id],
+            title="Zwrot sprzętu do recepcji",
+            message=f"Recepcja prosi o zwrot sprzętu firmy{due}.",
+            ntype=NotificationType.equipment_return_reminder,
+            related_entity_type="equipment_task",
+            related_entity_id=task.id,
+            link=RETURN_REMINDER_LINK,
+            log_tag="equipment",
+        )
+    elif not holder.email:
+        raise EquipmentConflict(
+            "Ta osoba nie ma adresu e-mail w NEXUSIE — przypomnij telefonicznie."
+        )
+    task.details = {
+        **(task.details or {}),
+        "reminded_on": today.isoformat(),
+        "reminded_by": actor.id,
+        "reminders": int((task.details or {}).get("reminders") or 0) + 1,
+    }
+    await db.flush()
+    return {
+        "channel": channel,
+        "email": holder.email if channel == "mail" else None,
+        "reminded_on": today.isoformat(),
+    }
 
 
 # ── Przypomnienia ─────────────────────────────────────────────────────────────
@@ -538,6 +631,7 @@ async def run_once(
 
 __all__ = [
     "cancel_contract_start_task",
+    "remind_holder",
     "cancel_person_exit_task",
     "cancel_person_start_task",
     "run_once",

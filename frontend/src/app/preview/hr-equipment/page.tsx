@@ -12,8 +12,10 @@
  * karta dostępu i „Do zrobienia” (przygotuj, czeka na podpis, zwroty, po terminie).
  *
  * Stany to zakładki ekranu (`?tab=`, czyta je sam `EquipmentScreen`):
- * `items` (domyślnie), `tasks`, `protocols`, `prices`, `import`, `intune`
- * (odczyt z Intune jeszcze niepodłączony). Zasiane są też filtry rejestru
+ * `items` (domyślnie; `&view=modele` = wolne zwinięte po modelu), `tasks`
+ * (agenda, „Czy starczy na wydania?”, plan tygodnia), `protocols`, `prices`,
+ * `import`, `intune` (odczyt z Intune jeszcze niepodłączony). Kafle stanu
+ * i chipy (każdy kafel × chip) są zasiane. Zasiane są też filtry rejestru
  * (jeden naraz), szczegół każdej pozycji, szczegół każdego protokołu, kreator
  * wydania i przyjęcia zwrotu z „Do zrobienia”, decyzje partii importu
  * i zakładka „Akademia” — klik nie wysyła zapytania. Dane fikcyjne
@@ -50,7 +52,8 @@ const TABS: readonly EquipmentTab[] = [
 
 const STATES = [
   { key: "items", label: "Ewidencja" },
-  { key: "tasks", label: "Do zrobienia (6)" },
+  { key: "items-models", label: "Ewidencja · Modele", href: "?tab=items&view=modele" },
+  { key: "tasks", label: "Do zrobienia (6, 1 po terminie)" },
   { key: "protocols", label: "Protokoły" },
   { key: "prices", label: "Cennik" },
   { key: "import", label: "Import (31 do wyjaśnienia)" },
@@ -73,13 +76,14 @@ function prepare(): HrHarnessSetup<Value> {
 function EquipmentHarness({ ready }: { ready: HrHarnessReady<Value> }) {
   const params = useSearchParams();
   const tab = pickState(params.get("tab"), TABS, "items");
+  const current = tab === "items" && params.get("view") === "modele" ? "items-models" : tab;
   return (
     <HrHarnessShell
       client={ready.client}
       title="Firma → Sprzęt"
       note="Recepcja z uprawnieniem „Sprzęt”. Dane fikcyjne, bez zapytań; numery seryjne, IMEI i protokoły zmyślone."
       states={STATES}
-      current={tab}
+      current={current}
       param="tab"
     >
       <EquipmentScreen config={ready.value.config} />

@@ -2,17 +2,30 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { PackageMinus, PackagePlus, Plus } from "lucide-react";
+import { ChevronDown, PackageMinus, PackagePlus, Plus } from "lucide-react";
 
 import { EditionLogistics } from "@/components/academy/EditionLogistics";
-import { InlineStats } from "@/components/ds/InlineStats";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { TabbedNav } from "@/components/ds/TabbedNav";
+import { TabbedNav, type TabbedNavItem } from "@/components/ds/TabbedNav";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { HrConfig } from "@/lib/api/hr";
-import { useEquipmentSummary, type EquipmentHolder } from "@/lib/api/equipment";
+import {
+  useEquipmentSummary,
+  useEquipmentTasks,
+  type EquipmentCategory,
+  type EquipmentHolder,
+  type EquipmentItem,
+} from "@/lib/api/equipment";
 import { useUrlSyncedState, useUrlWriter } from "@/lib/url-selection";
+import { warsawToday } from "@/lib/warsaw-date";
 
 import { ImportTab } from "./ImportTab";
 import { IntuneTab } from "./IntuneTab";
@@ -25,7 +38,9 @@ import { ProtocolDialog } from "./ProtocolDialog";
 import { ProtocolTemplatesTab } from "./ProtocolTemplatesTab";
 import { ProtocolsTab } from "./ProtocolsTab";
 import { ReturnWizard } from "./ReturnWizard";
+import { StockTiles } from "./StockTiles";
 import { TasksTab } from "./TasksTab";
+import type { IssueKitKey } from "./equipment-format";
 
 export type EquipmentTab =
   | "items"
@@ -46,6 +61,20 @@ const TABS: EquipmentTab[] = [
   "intune",
   "academy",
 ];
+
+/** Rzadkie zakładki — pod „Więcej” (makieta 19.10.2026). */
+const MORE_TABS: { value: EquipmentTab; label: string }[] = [
+  { value: "templates", label: "Wzory protokołów" },
+  { value: "prices", label: "Cennik" },
+  { value: "intune", label: "Intune" },
+  { value: "academy", label: "Akademia" },
+];
+
+interface IssueRequest {
+  holder: EquipmentHolder | null;
+  items?: EquipmentItem[];
+  kit?: IssueKitKey | null;
+}
 
 function tabFrom(value: string | null): EquipmentTab | null {
   return TABS.includes(value as EquipmentTab) ? (value as EquipmentTab) : null;
@@ -69,11 +98,13 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
   }, [protocolFromUrl]);
   const [itemId, setItemId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
-  const [issuing, setIssuing] = useState<{ holder: EquipmentHolder | null } | null>(null);
+  const [issuing, setIssuing] = useState<IssueRequest | null>(null);
+  const [itemsCategory, setItemsCategory] = useState<EquipmentCategory | "">("");
   const [returning, setReturning] = useState<{ holder: EquipmentHolder | null } | null>(null);
   const allowed = config.me.equipment || config.me.is_admin;
   const moduleOpen = config.open_modules.equipment;
   const summary = useEquipmentSummary(allowed && moduleOpen);
+  const openTasks = useEquipmentTasks("otwarte", allowed && moduleOpen);
 
   if (!moduleOpen) {
     return <QueryStateNotice state="not_found" description={MODULE_OFF} />;
@@ -91,6 +122,31 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
     replaceUrl(`?${params.toString()}`);
   };
   const s = summary.data;
+  const today = warsawToday();
+  const taskCount = openTasks.data?.length;
+  const overdue = (openTasks.data ?? []).filter((task) => task.due_on && task.due_on < today).length;
+  const current = tab ?? "items";
+  const rare = MORE_TABS.find((entry) => entry.value === current);
+  const tabs: TabbedNavItem[] = [
+    { value: "items", label: "Sprzęt" },
+    {
+      value: "tasks",
+      label: overdue ? (
+        <span className="inline-flex items-center gap-1.5">
+          Do zrobienia
+          <Badge size="sm" variant="danger" className="tabular-nums">
+            {overdue} po terminie
+          </Badge>
+        </span>
+      ) : (
+        "Do zrobienia"
+      ),
+      count: taskCount || undefined,
+    },
+    { value: "protocols", label: "Protokoły", count: s?.protocols_waiting || undefined },
+    { value: "import", label: "Import", count: s?.import_unresolved || undefined },
+    ...(rare ? [rare] : []),
+  ];
 
   return (
     <div className="space-y-4">
@@ -115,43 +171,46 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
           </div>
         }
       />
-      {s ? (
-        <InlineStats
-          stats={[
-            { id: "laptops", label: "wolnych laptopów", value: s.free_by_category.laptop },
-            { id: "phones", label: "wolnych telefonów", value: s.free_by_category.telefon },
-            { id: "monitors", label: "wolnych monitorów", value: s.free_by_category.monitor },
-            { id: "sims", label: "wolnych kart SIM", value: s.free_by_category.karta_sim },
-            { id: "service", label: "w serwisie", value: s.by_status.serwis },
-            { id: "waiting", label: "czeka na podpis", value: s.protocols_waiting },
-            {
-              id: "unresolved",
-              label: "do wyjaśnienia (z importu)",
-              value: s.import_unresolved,
-            },
-          ]}
-        />
-      ) : summary.isError ? (
-        <p className="text-xs text-muted-foreground">Liczby chwilowo niedostępne.</p>
+      {current === "items" ? (
+        s ? (
+          <StockTiles
+            summary={s}
+            category={itemsCategory}
+            onCategory={setItemsCategory}
+            onOpenProtocols={() => changeTab("protocols")}
+            onOpenImport={() => changeTab("import")}
+          />
+        ) : summary.isError ? (
+          <p className="text-xs text-muted-foreground">Liczby chwilowo niedostępne.</p>
+        ) : null
       ) : null}
-      <TabbedNav
-        ariaLabel="Sekcje sprzętu"
-        value={tab ?? "items"}
-        onValueChange={changeTab}
-        tabs={[
-          { value: "items", label: "Sprzęt" },
-          { value: "tasks", label: "Do zrobienia" },
-          { value: "protocols", label: "Protokoły", count: s?.protocols_waiting || undefined },
-          { value: "templates", label: "Wzory protokołów" },
-          { value: "prices", label: "Cennik" },
-          { value: "import", label: "Import" },
-          { value: "intune", label: "Intune" },
-          { value: "academy", label: "Akademia" },
-        ]}
-      />
+      <div className="flex items-end gap-1">
+        <TabbedNav
+          ariaLabel="Sekcje sprzętu"
+          value={current}
+          onValueChange={changeTab}
+          className="min-w-0 flex-1"
+          tabs={tabs}
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="mb-0.5 shrink-0 text-muted-foreground">
+              Więcej
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {MORE_TABS.map((entry) => (
+              <DropdownMenuItem key={entry.value} onSelect={() => changeTab(entry.value)}>
+                {entry.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       {tab === "tasks" ? (
         <TasksTab
-          onIssue={(holder) => setIssuing({ holder })}
+          onIssue={(holder, kit) => setIssuing({ holder, kit })}
           onReturn={(holder) => setReturning({ holder })}
           onOpenProtocol={setProtocolId}
         />
@@ -169,7 +228,16 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
         // Recepcja bez dostępu do /academy: edycje wszystkich programów.
         <EditionLogistics />
       ) : (
-        <ItemsTab onOpenItem={setItemId} />
+        <ItemsTab
+          summary={s}
+          category={itemsCategory}
+          onCategoryChange={setItemsCategory}
+          onOpenItem={setItemId}
+          onOpenProtocol={setProtocolId}
+          onIssue={(items) => setIssuing({ holder: null, items })}
+          onReturn={(holder) => setReturning({ holder })}
+          initialView={searchParams.get("view") === "modele" ? "modele" : "sztuki"}
+        />
       )}
 
       {adding ? <ItemFormDialog open onOpenChange={setAdding} /> : null}
@@ -188,7 +256,12 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
         <ProtocolDialog key={protocolId} protocolId={protocolId} onClose={() => setProtocolId(null)} />
       ) : null}
       {issuing ? (
-        <IssueWizard presetHolder={issuing.holder} onClose={() => setIssuing(null)} />
+        <IssueWizard
+          presetHolder={issuing.holder}
+          presetItems={issuing.items}
+          suggestedKit={issuing.kit ?? null}
+          onClose={() => setIssuing(null)}
+        />
       ) : null}
       {returning ? (
         <ReturnWizard presetHolder={returning.holder} onClose={() => setReturning(null)} />

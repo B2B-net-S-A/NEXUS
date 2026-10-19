@@ -16,6 +16,8 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import { CATEGORY_LABELS } from "@/components/equipment/equipment-format";
+import { FREE_ITEMS_FILTERS } from "@/components/equipment/IssueWizard";
+import { itemFilters, type StockChip } from "@/components/equipment/ItemsTab";
 import { editionKeys } from "@/lib/api/academy-edition";
 import {
   equipmentKeys,
@@ -389,6 +391,17 @@ const PAST_ASSIGNMENTS = [
 
 // ── Złożenie danych ─────────────────────────────────────────────────────────
 
+const CATEGORY_KEYS: EquipmentCategory[] = [
+  "laptop",
+  "telefon",
+  "monitor",
+  "karta_sim",
+  "karta_dostepu",
+  "akcesorium",
+  "inne",
+];
+const STATUS_KEYS: EquipmentItemStatus[] = ["na_stanie", "wydany", "serwis", "wycofany", "zgubiony"];
+
 export interface EquipmentHarnessData {
   today: string;
   models: EquipmentModel[];
@@ -667,7 +680,14 @@ export function buildEquipmentData(phase: EquipmentPhase): EquipmentHarnessData 
             shiftDay(protocolDate("P14"), 3),
             holders.anna,
             {},
-            { protocol: { id: PROTOCOLS.P14.id, number: numberOf("P14") } },
+            {
+              protocol: {
+                id: PROTOCOLS.P14.id,
+                number: numberOf("P14"),
+                status: PROTOCOLS.P14.status,
+                categories: PROTOCOLS.P14.items.map((id) => (byId.get(id) as EquipmentItem).category),
+              },
+            },
           ),
         ]
       : []),
@@ -732,6 +752,20 @@ export function buildEquipmentData(phase: EquipmentPhase): EquipmentHarnessData 
     free.filter((item) => item.category === category).length;
   const statusCount = (status: EquipmentItemStatus) =>
     items.filter((item) => item.status === status).length;
+  const waitingProtocols = protocols.filter(
+    (p) => p.status === "oczekuje" || p.status === "podpisany",
+  );
+  const byCategory = Object.fromEntries(
+    CATEGORY_KEYS.map((category) => [
+      category,
+      Object.fromEntries(
+        STATUS_KEYS.map((status) => [
+          status,
+          items.filter((item) => item.category === category && item.status === status).length,
+        ]),
+      ),
+    ]),
+  ) as EquipmentSummary["by_category"];
   const summary: EquipmentSummary = {
     free_by_category: {
       laptop: freeBy("laptop"),
@@ -749,8 +783,15 @@ export function buildEquipmentData(phase: EquipmentPhase): EquipmentHarnessData 
       wycofany: statusCount("wycofany"),
       zgubiony: statusCount("zgubiony"),
     },
-    protocols_waiting: protocols.filter((p) => p.status === "oczekuje" || p.status === "podpisany")
-      .length,
+    by_category: byCategory,
+    protocols_waiting: waitingProtocols.length,
+    oldest_waiting_on:
+      waitingProtocols.map((p) => p.protocol_date).sort()[0] ?? null,
+    unsigned_items: items.filter(
+      (item) =>
+        item.holder != null &&
+        (item.issue_protocol?.status === "oczekuje" || item.issue_protocol?.status === "podpisany"),
+    ).length,
     import_unresolved: batch.summary.counts?.do_wyjasnienia ?? 0,
   };
 
@@ -952,17 +993,16 @@ function importBatch(createdOn: string): { batch: ImportBatch; rows: ImportRow[]
 
 // ── Zasiew cache ────────────────────────────────────────────────────────────
 
-const CATEGORIES: EquipmentCategory[] = [
-  "laptop",
-  "telefon",
-  "monitor",
-  "karta_sim",
-  "karta_dostepu",
-  "akcesorium",
-  "inne",
-];
-const STATUSES: EquipmentItemStatus[] = ["na_stanie", "wydany", "serwis", "wycofany", "zgubiony"];
 const HOLDER_FILTERS: ("none" | EquipmentHolderKind)[] = ["none", "user", "contract", "external", "academy"];
+const STOCK_CHIPS: StockChip[] = [
+  "all",
+  "wydany",
+  "na_stanie",
+  "serwis",
+  "unsigned",
+  "wycofany",
+  "zgubiony",
+];
 const DECISIONS: ImportDecision[] = ["przyjmij", "do_wyjasnienia", "konflikt", "pomin"];
 
 /** Odpowiedź `GET /api/equipment/items` dla filtrów listy (bez szukania tekstem). */
@@ -973,7 +1013,11 @@ function itemsFor(items: EquipmentItem[], filters: ItemFilters) {
       (!filters.status || item.status === filters.status) &&
       (!filters.holder ||
         (filters.holder === "none" ? item.holder == null : item.holder?.kind === filters.holder)) &&
-      (!filters.free || (item.status === "na_stanie" && item.holder == null)),
+      (!filters.free || (item.status === "na_stanie" && item.holder == null)) &&
+      (!filters.unsigned ||
+        (item.holder != null &&
+          (item.issue_protocol?.status === "oczekuje" ||
+            item.issue_protocol?.status === "podpisany"))),
   );
   return { items: rows, total: rows.length };
 }
@@ -998,22 +1042,20 @@ export function seedEquipment(client: QueryClient, data: EquipmentHarnessData): 
   client.setQueryData(equipmentKeys.summary, data.summary);
   client.setQueryData(equipmentKeys.models, data.models);
 
-  const base: ItemFilters = { category: "", status: "", holder: "", q: "" };
-  client.setQueryData(equipmentKeys.items(base), itemsFor(data.items, base));
-  for (const category of CATEGORIES) {
-    const filters = { ...base, category };
-    client.setQueryData(equipmentKeys.items(filters), itemsFor(data.items, filters));
-  }
-  for (const status of STATUSES) {
-    const filters = { ...base, status };
-    client.setQueryData(equipmentKeys.items(filters), itemsFor(data.items, filters));
+  // „Ewidencja”: kafel kategorii × chip stanu (filtry jak `itemFilters` w ItemsTab)
+  // i lista „Posiadacz” bez kategorii.
+  for (const category of ["", ...CATEGORY_KEYS] as (EquipmentCategory | "")[]) {
+    for (const chip of STOCK_CHIPS) {
+      const filters = itemFilters(chip, category, "", "");
+      client.setQueryData(equipmentKeys.items(filters), itemsFor(data.items, filters));
+    }
   }
   for (const holder of HOLDER_FILTERS) {
-    const filters = { ...base, holder };
+    const filters = itemFilters("all", "", holder, "");
     client.setQueryData(equipmentKeys.items(filters), itemsFor(data.items, filters));
   }
-  // Kreator wydania: `useEquipmentItems({ q, free: true })`.
-  client.setQueryData(equipmentKeys.items({ q: "", free: true }), itemsFor(data.items, { free: true }));
+  // Kreator wydania: cały wolny sprzęt jednym zapytaniem.
+  client.setQueryData(equipmentKeys.items(FREE_ITEMS_FILTERS), itemsFor(data.items, { free: true }));
   for (const detail of data.details) client.setQueryData(equipmentKeys.item(detail.id), detail);
 
   for (const { holder, data: equipment } of data.holderEquipment) {
