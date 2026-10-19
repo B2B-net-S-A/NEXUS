@@ -35,6 +35,7 @@ CODE_CLIENT = "client_name"
 CODE_MONEY = "money"
 CODE_CONTACT = "contact"
 CODE_PERSON = "person_name"
+CODE_INTERNAL = "internal_code"
 
 _MIN_NAME_KEY = 3
 _EXCERPT_MAX = 120
@@ -303,4 +304,67 @@ def lint_public_texts(
                         excerpt,
                     )
                     break
+    return findings
+
+
+# Numery zgłoszeń i zamówień klientów: BNP (RITM, REQ, SCTASK), PKO (ZOB),
+# Orlen (PKN), Energa (EITE). Kandydat nie ma z nich pożytku, a numer
+# pozwala zgadnąć klienta.
+_INTERNAL_CODE = re.compile(
+    # „RITM0866775”, „ZOB-3003”, a także „PKN/5/000177/26” (Orlen).
+    r"(?<![A-Za-z0-9])(?:RITM|REQ|SCTASK|ZOB|PKN|EITE)"
+    r"(?:[-_/ ]?\d{4,}|/\d{1,3}/\d{3,})",
+    re.IGNORECASE,
+)
+_MIN_REFERENCE = 4
+
+
+def lint_internal_codes(
+    texts: Iterable[str | None], *, client_reference: str | None = None
+) -> list[Finding]:
+    """Kody wewnętrzne w tekstach strony kariery (19.10.2026).
+
+    Osobno od ``lint_public_texts``: tamtą funkcję czyta też kontrola adresu
+    linku, a znalezisko w adresie wymienia rozesłany link (stary daje 404).
+    Numer w adresie to kosmetyka — nowe linki i tak powstają z tytułu bez kodu.
+    """
+    from app.services.job_working_title import client_reference_parts
+
+    references = [
+        part
+        for part in client_reference_parts(client_reference)
+        if len(part) >= _MIN_REFERENCE
+    ]
+    findings: list[Finding] = []
+    seen: set[str] = set()
+    for text in texts:
+        if not text or not str(text).strip():
+            continue
+        for segment in _segments(for_lint(str(text))):
+            match = _INTERNAL_CODE.search(segment)
+            if match is None:
+                for part in references:
+                    match = re.search(
+                        rf"(?<![A-Za-z0-9]){re.escape(part)}(?![A-Za-z0-9])",
+                        segment,
+                        re.IGNORECASE,
+                    )
+                    if match:
+                        break
+            if match is None:
+                continue
+            excerpt = _excerpt(segment, match.start(), match.end())
+            if excerpt in seen:
+                continue
+            seen.add(excerpt)
+            findings.append(
+                Finding(
+                    code=CODE_INTERNAL,
+                    message=(
+                        f"Wykryto numer zgłoszenia klienta: „{match.group(0)}” — "
+                        "na stronę kariery nie trafiają kody wewnętrzne."
+                    ),
+                    excerpt=excerpt,
+                )
+            )
     return findings

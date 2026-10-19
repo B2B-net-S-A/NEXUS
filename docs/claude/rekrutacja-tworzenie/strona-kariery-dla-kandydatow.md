@@ -16,9 +16,45 @@ Publiczny landing, który rekruterzy wrzucają na LinkedIna. Raport:
 Reguły, które łatwo cofnąć:
 - **Na stronę trafia wyłącznie zatwierdzony opis publiczny**
   (`job_public_profiles`, status liczony z hasha treści — edycja po zatwierdzeniu
-  = szkic). Niezatwierdzony profil = 404. Publiczne GET-y budują odpowiedź z
+  = szkic). Opis nigdy niezatwierdzony = 404. Publiczne GET-y budują odpowiedź z
   białej listy (`services/job_public_profile.py`): **nigdy klient, stawka,
   budżet ani nazwisko rekrutera** (tylko imię). Pilnuje test kształtu odpowiedzi.
+- **Poprawka po zatwierdzeniu nie zdejmuje strony** (etap 1 linków, 19.10.2026,
+  makiety https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h). Kandydat widzi
+  ostatnią zatwierdzoną wersję, dopóki nikt nie zatwierdzi nowej — wcześniej
+  każda zmiana dawała 404 pod rozesłanym linkiem. Jedna reguła „co widzi
+  kandydat” to `jpp.published_version` (strona, lista rekrutera, oba
+  formularze, mail potwierdzenia); nie wracaj do `status == approved` w tych
+  miejscach. Tekst wersji zatwierdzonej leży w migawce zatwierdzenia
+  (`_approved_content.text`), ważny tylko gdy jego skrót równa się
+  `approved_hash`. Opisy sprzed tej daty dostają tekst w migawce przy
+  pierwszym zapisie zmian. Zmiana klienta rekrutacji nadal zdejmuje stronę
+  (R8-N4-4). Zamknięta rekrutacja z opisem kiedyś zatwierdzonym zawsze daje
+  „proces zakończony”. Edytor dostaje `live` (wersja widoczna dla kandydata,
+  `pending_changes`), a „Odrzuć zmiany” zapisuje szkic z wartościami `live`.
+  Portale (`job_portals.build_content`) nadal wymagają opisu zatwierdzonego
+  w całości — ogłoszenia nie dostają wersji z migawki.
+- **Tytuł domyślny bez kodów klienta** (19.10.2026): `default_public_title`
+  zdejmuje `client_reference` w dowolnym miejscu, `RITM…`/`REQ…` także po „_”
+  (BNP „Software Developer_RITM0866775” szło na stronę, do grafiki OG i do
+  adresu linku) i `_PKN…`/`_EITE…`; nawias zdejmuje tylko z numerem albo kodem
+  (`(42835)`, `(ZOB-3003)`), „(K8s)” i „(ISO 27001)” zostają — jak w nagłówku
+  CV. Opis zatwierdzony z tytułem według dawnych reguł zostaje na stronie z tym
+  tytułem (`legacy_default_public_title`), aż ktoś zatwierdzi nowy.
+- **Kontrola kodów wewnętrznych** (`lint_internal_codes`, kod `internal_code`):
+  `RITM|REQ|SCTASK|ZOB|PKN|EITE` z co najmniej 4 cyframi i części
+  `client_reference` (od 4 znaków). Czyta ją tylko `lint_payload` (opis
+  i tytuł), NIE kontrola adresu — znalezisko w adresie wymieniłoby rozesłany
+  link (stary daje 404), a numer w adresie to kosmetyka.
+- **Okno „Udostępnij”**: „Kopiuj” i „Otwórz stronę” dopiero, gdy strona działa
+  (`live`); wcześniej link można wygenerować, ale nie trafia do schowka
+  (kandydat dostałby 404, a LinkedIn zapamiętałby pusty podgląd). Zatwierdzony
+  i niezmieniony opis = przycisk „Skopiuj link” bez ponownego zatwierdzenia.
+  Kontrola świeci na zielono tylko dla treści sprawdzonej przez serwer; puste
+  albo niezapisane pola = szare „sprawdzę po zapisaniu”. Znalezisko serwera
+  znika z listy wyłącznie wtedy, gdy jego fragment usunięto z pól okna
+  (`liveFindings` z `savedText`) — fragment z wymagań, tytułu domyślnego albo
+  zdania skróconego wielokropkiem zostaje.
 - **Kontrola przed publikacją jest deterministyczna**
   (`services/public_profile_lint.py`): nazwa i aliasy klienta, kwoty, kontakty,
   nazwiska. `approve` odmawia 422 `PUBLIC_PROFILE_FINDINGS`. Szkic AI

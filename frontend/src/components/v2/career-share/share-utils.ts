@@ -179,7 +179,7 @@ export function formatDate(iso: string | null): string {
 // ── Kontrola przed publikacją ────────────────────────────────────────────
 
 export interface FindingCategory {
-  key: "client" | "money" | "contact";
+  key: "client" | "internal" | "money" | "contact";
   codes: string[];
   okLabel: string;
   fixHint: string;
@@ -191,6 +191,12 @@ export const FINDING_CATEGORIES: FindingCategory[] = [
     codes: ["client_name"],
     okLabel: "Brak nazwy klienta i jego aliasów",
     fixHint: "nazwę klienta",
+  },
+  {
+    key: "internal",
+    codes: ["internal_code"],
+    okLabel: "Brak kodów wewnętrznych (RITM, numer zgłoszenia)",
+    fixHint: "numer zgłoszenia klienta",
   },
   {
     key: "money",
@@ -209,25 +215,59 @@ export const FINDING_CATEGORIES: FindingCategory[] = [
 export function categoryOf(code: string): FindingCategory {
   return (
     FINDING_CATEGORIES.find((c) => c.codes.includes(code)) ??
-    FINDING_CATEGORIES[2]
+    FINDING_CATEGORIES[FINDING_CATEGORIES.length - 1]
   );
+}
+
+/** Fragment znaleziska bez wielokropka, którym serwer skraca długie zdania. */
+function excerptCore(excerpt: string): string {
+  return excerpt.replace(/^…+|…+$/g, "").trim().toLowerCase();
 }
 
 /**
  * Znaleziska, które nadal dotyczą bieżącej treści. Serwer sprawdza zapisany
- * tekst; gdy rekruter usunie wskazany fragment, wiersz znika od razu (pełną
- * kontrolę i tak robi serwer przy zatwierdzeniu). Znalezisko bez fragmentu
- * zostaje zawsze.
+ * tekst; gdy rekruter usunie wskazany fragment z pól okna, wiersz znika od
+ * razu (pełną kontrolę i tak robi serwer przy zatwierdzeniu).
+ *
+ * Znika WYŁĄCZNIE znalezisko, którego fragment stał w zapisanym tekście pól
+ * (`savedText`) i zniknął z bieżącego. Pozostałe zostają zawsze: fragment
+ * z wymagań, miasta albo tytułu domyślnego (tych pól okno nie edytuje),
+ * zdanie skrócone wielokropkiem, tekst po normalizacji NFKC. Do 19.10.2026
+ * filtr chował je wszystkie — kontrola pokazywała zielone, a zatwierdzenie
+ * kończyło się odmową bez widocznego powodu.
  */
 export function liveFindings(
   findings: PublicProfileFinding[],
   text: string,
+  savedText: string = text,
 ): PublicProfileFinding[] {
-  const haystack = text.toLowerCase();
-  return findings.filter(
-    (f) => !f.excerpt || haystack.includes(f.excerpt.toLowerCase()),
-  );
+  const current = text.toLowerCase();
+  const saved = savedText.toLowerCase();
+  return findings.filter((f) => {
+    if (!f.excerpt) return true;
+    const core = excerptCore(f.excerpt);
+    if (!core || !saved.includes(core)) return true;
+    return current.includes(core);
+  });
 }
+
+// ── Stan strony kandydata ────────────────────────────────────────────────
+
+export type PageState = "not_live" | "live" | "live_pending";
+
+/** Co dziś widzi kandydat pod linkiem: 404, zatwierdzoną wersję, czy zatwierdzoną z czekającymi zmianami. */
+export function pageState(
+  profile: { live?: { pending_changes: boolean } | null } | null | undefined,
+): PageState {
+  if (!profile?.live) return "not_live";
+  return profile.live.pending_changes ? "live_pending" : "live";
+}
+
+export const PAGE_STATE_LABEL: Record<PageState, string> = {
+  not_live: "Strona jeszcze nie działa",
+  live: "Strona działa",
+  live_pending: "Strona działa · są zmiany",
+};
 
 /**
  * Usuwa fragment z tekstu i sprząta miejsce sklejenia (spacje, zdublowaną

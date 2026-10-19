@@ -109,9 +109,23 @@ class PublicSections(BaseModel):
 
 
 class PublicProfileFinding(BaseModel):
-    code: Literal["client_name", "money", "contact", "person_name"]
+    code: Literal["client_name", "money", "contact", "person_name", "internal_code"]
     message: str
     excerpt: str
+
+
+class PublicProfileLive(BaseModel):
+    """Wersja, którą dziś widzi kandydat (19.10.2026).
+
+    ``pending_changes`` = opis w edytorze różni się od opublikowanego; strona
+    pokazuje tę wersję, dopóki nikt nie zatwierdzi nowej. Pola tekstowe służą
+    też do „Odrzuć zmiany” (zapis szkicu z tymi wartościami)."""
+
+    title: str
+    subtitle: Optional[str] = None
+    about: Optional[str] = None
+    sections: PublicSections
+    pending_changes: bool = False
 
 
 class PublicProfileUpdate(BaseModel):
@@ -144,6 +158,9 @@ class PublicProfileResponse(BaseModel):
     approved_content_stale: bool = False
     findings: list[PublicProfileFinding] = Field(default_factory=list)
     preview: dict
+    # ``None`` = strona rekrutacji daje 404 (opis nigdy niezatwierdzony albo
+    # zmienił się klient rekrutacji).
+    live: Optional[PublicProfileLive] = None
 
 
 class PublicProfileDraft(BaseModel):

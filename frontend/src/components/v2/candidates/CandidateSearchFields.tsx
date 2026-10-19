@@ -19,6 +19,18 @@ import {
   type CandidateFilters,
   type KeywordScope,
 } from "@/lib/url-filters";
+import {
+  MAX_LOCATION_PLACES,
+  addLocationPlace,
+  locationPlacesPatch,
+  placeKey,
+  removeLocationPlace,
+  setLocationPlaceRadius,
+  shownLocationPlaces,
+  withPreferredCities,
+  type LocationPlace,
+} from "@/lib/location-places";
+import { HideUnknownChoice } from "@/components/v2/candidates/UnknownFieldBadges";
 
 type Patch = (patch: Partial<CandidateFilters>) => void;
 
@@ -204,49 +216,53 @@ interface PlaceSuggestResponse {
   voivodeships: string[];
 }
 
-/** Klucz nazwy jak na serwerze (`pl_places.place_key`): bez polskich znaków,
- *  małe litery, myślnik = spacja. Tylko do sprawdzenia, czy miasto jest znane. */
-export function placeKey(value: string): string {
-  const fold: Record<string, string> = { ł: "l", Ł: "l" };
-  return value
-    .split(",")[0]
-    .replace(/[łŁ]/g, (c) => fold[c])
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[\s-]+/g, " ")
-    .trim();
-}
+export { placeKey } from "@/lib/location-places";
 
 /**
- * Lokalizacja: miasto z podpowiedziami, promień w km (tylko dla miasta ze
- * spisu miejscowości) i województwa — jak „Miejscowość + KM / Województwo”
- * w Traffit. Kandydaci nie mają współrzędnych: promień liczy serwer ze spisu
- * miejscowości (GeoNames) po nazwie miasta.
+ * Lokalizacja kandydata · którekolwiek (D6, 19.10.2026): do 10 miast
+ * z podpowiedziami, przy każdym własny promień (tylko dla miasta ze spisu
+ * miejscowości), województwa i wybór D5 dla osób bez miasta. Osoba przechodzi,
+ * gdy pasuje do KTÓREGOKOLWIEK miasta, promienia albo województwa. Kandydaci
+ * nie mają współrzędnych: promień liczy serwer ze spisu miejscowości
+ * (GeoNames) po nazwie miasta. Zapis: `locationPlacesPatch` (jedno miasto bez
+ * województw = dawny kształt `loc`/`radius`).
  */
 export function LocationFields({ filters, onPatch }: { filters: CandidateFilters; onPatch: Patch }) {
   const inputId = useId();
   const listId = useId();
   const radiusId = useId();
-  const [local, setLocal] = useState(filters.location);
-  const debounced = useDebouncedValue(local, 300);
+  const places = shownLocationPlaces(filters);
+  const [draft, setDraft] = useState("");
+  const [draftRadius, setDraftRadius] = useState<number | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const debounced = useDebouncedValue(draft, 300);
+
+  const commit = (next: LocationPlace[], voivodeships = filters.voivodeships) =>
+    onPatch(locationPlacesPatch(next, voivodeships));
+  const addDraft = (): boolean => {
+    const city = draft.trim();
+    if (!city) return false;
+    const result = addLocationPlace(places, { city, radiusKm: draftRadius });
+    setNote(result.note);
+    if (result.note) return false;
+    commit(result.places);
+    setDraft("");
+    setDraftRadius(null);
+    return true;
+  };
+  // Pole żyje w okienku, które znika po zamknięciu — miasto wpisane tuż przed
+  // zamknięciem (bez Enter i „Dodaj”) nie może przepaść.
+  const pending = useRef({ draft, draftRadius, places, filters, onPatch });
   useEffect(() => {
-    if (debounced !== filters.location) onPatch({ location: debounced });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced]);
-  useEffect(() => {
-    setLocal(filters.location);
-  }, [filters.location]);
-  // Pole żyje w okienku, które znika po zamknięciu — tekst wpisany tuż przed
-  // zamknięciem (w oknie debounce) nie może przepaść.
-  const pending = useRef({ local, saved: filters.location, onPatch });
-  useEffect(() => {
-    pending.current = { local, saved: filters.location, onPatch };
+    pending.current = { draft, draftRadius, places, filters, onPatch };
   });
   useEffect(
     () => () => {
-      const { local: typed, saved, onPatch: patch } = pending.current;
-      if (typed !== saved) patch({ location: typed });
+      const { draft: typed, draftRadius: radius, places: list, filters: f, onPatch: patch } =
+        pending.current;
+      if (!typed.trim()) return;
+      const result = addLocationPlace(list, { city: typed.trim(), radiusKm: radius });
+      if (!result.note) patch(locationPlacesPatch(result.places, f.voivodeships));
     },
     [],
   );
@@ -262,24 +278,90 @@ export function LocationFields({ filters, onPatch }: { filters: CandidateFilters
   const voivodeships = data?.voivodeships ?? [];
   const known =
     query.length > 0 && items.some((p) => placeKey(p.name) === placeKey(query));
-  const radiusValue = filters.locationRadiusKm === null ? "" : String(filters.locationRadiusKm);
+  const preferred = filters.locationPreferred.filter(
+    (city) => !places.some((p) => placeKey(p.city) === placeKey(city)),
+  );
 
   return (
     <div className="space-y-2">
-      <SectionTitle>Lokalizacja</SectionTitle>
+      <SectionTitle>Lokalizacja kandydata · którekolwiek</SectionTitle>
+      {places.length > 0 && (
+        <ul aria-label="Wybrane miasta" className="max-h-48 space-y-1 overflow-y-auto pr-1">
+          {places.map((place, index) => (
+            <li key={`${place.city}-${index}`} className="flex items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground" title={place.city}>
+                {place.city}
+              </span>
+              <select
+                aria-label={`Promień: ${place.city}`}
+                value={place.radiusKm === null ? "" : String(place.radiusKm)}
+                onChange={(e) =>
+                  commit(
+                    setLocationPlaceRadius(
+                      places,
+                      index,
+                      e.target.value ? Number(e.target.value) : null,
+                    ),
+                  )
+                }
+                className={cn(SELECT_CLASS, "w-32 shrink-0")}
+              >
+                <option value="">Tylko to miasto</option>
+                {RADIUS_OPTIONS_KM.map((km) => (
+                  <option key={km} value={km}>
+                    + {km} km
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                aria-label={`Usuń miasto: ${place.city}`}
+                onClick={() => {
+                  setNote(null);
+                  commit(removeLocationPlace(places, index));
+                }}
+                className="hit-area shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="space-y-1">
         <label htmlFor={inputId} className="sr-only">
           Miasto
         </label>
-        <Input
-          id={inputId}
-          list={listId}
-          leadingIcon={<MapPin className="h-4 w-4" />}
-          placeholder="np. Warszawa"
-          value={local}
-          autoComplete="off"
-          onChange={(e) => setLocal(e.target.value)}
-        />
+        <div className="flex items-center gap-1.5">
+          <Input
+            id={inputId}
+            list={listId}
+            leadingIcon={<MapPin className="h-4 w-4" />}
+            placeholder={places.length ? "Dodaj miasto" : "np. Warszawa"}
+            value={draft}
+            autoComplete="off"
+            disabled={places.length >= MAX_LOCATION_PLACES}
+            onChange={(e) => {
+              setNote(null);
+              setDraft(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && draft.trim()) {
+                e.preventDefault();
+                addDraft();
+              }
+            }}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={addDraft}
+            disabled={!draft.trim()}
+          >
+            Dodaj
+          </Button>
+        </div>
         <datalist id={listId}>
           {items.map((p) => (
             <option key={`${p.name}-${p.voivodeship}`} value={p.name}>
@@ -294,11 +376,9 @@ export function LocationFields({ filters, onPatch }: { filters: CandidateFilters
         </label>
         <select
           id={radiusId}
-          value={radiusValue}
-          disabled={!query}
-          onChange={(e) =>
-            onPatch({ locationRadiusKm: e.target.value ? Number(e.target.value) : null })
-          }
+          value={draftRadius === null ? "" : String(draftRadius)}
+          disabled={!draft.trim()}
+          onChange={(e) => setDraftRadius(e.target.value ? Number(e.target.value) : null)}
           className={cn(SELECT_CLASS, "disabled:opacity-60")}
         >
           <option value="">Tylko to miasto</option>
@@ -308,12 +388,45 @@ export function LocationFields({ filters, onPatch }: { filters: CandidateFilters
             </option>
           ))}
         </select>
-        {filters.locationRadiusKm !== null && query && data && !known && (
+        {draftRadius !== null && query && data && !known && (
           <p role="status" className="text-[11px] text-warning-muted-foreground">
             Nie znam miejscowości „{query}”. Wybierz ją z podpowiedzi, żeby liczyć promień.
           </p>
         )}
+        {places.length >= MAX_LOCATION_PLACES && (
+          <p className="text-[11px] text-muted-foreground">
+            Najwyżej {MAX_LOCATION_PLACES} miast.
+          </p>
+        )}
+        {note && (
+          <p role="status" className="text-[11px] text-warning-muted-foreground">
+            {note}
+          </p>
+        )}
       </div>
+      {preferred.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            const { places: next, skipped } = withPreferredCities(places, preferred);
+            setNote(
+              skipped.length
+                ? `Nie zmieściły się: ${skipped.join(", ")} (najwyżej ${MAX_LOCATION_PLACES} miast).`
+                : null,
+            );
+            onPatch({
+              ...locationPlacesPatch(next, filters.voivodeships),
+              locationPreferred: filters.locationPreferred.filter((city) =>
+                skipped.includes(city),
+              ),
+            });
+          }}
+          className="text-left text-xs font-medium text-primary hover:underline"
+          title="Miasta rekrutacji są teraz „Mile widziane” (tylko kolejność). Wstawione tutaj stają się filtrem."
+        >
+          Wstaw miasta rekrutacji ({preferred.join(", ")})
+        </button>
+      )}
       <div className="space-y-1">
         <span className="block text-[11px] font-medium text-foreground">Województwo</span>
         {filters.voivodeships.length > 0 && (
@@ -328,7 +441,10 @@ export function LocationFields({ filters, onPatch }: { filters: CandidateFilters
                   type="button"
                   aria-label={`Usuń województwo: ${v}`}
                   onClick={() =>
-                    onPatch({ voivodeships: filters.voivodeships.filter((x) => x !== v) })
+                    commit(
+                      places,
+                      filters.voivodeships.filter((x) => x !== v),
+                    )
                   }
                   className="rounded hover:bg-accent"
                 >
@@ -342,8 +458,7 @@ export function LocationFields({ filters, onPatch }: { filters: CandidateFilters
           aria-label="Dodaj województwo"
           value=""
           onChange={(e) =>
-            e.target.value &&
-            onPatch({ voivodeships: [...filters.voivodeships, e.target.value] })
+            e.target.value && commit(places, [...filters.voivodeships, e.target.value])
           }
           className={SELECT_CLASS}
         >
@@ -357,6 +472,12 @@ export function LocationFields({ filters, onPatch }: { filters: CandidateFilters
             ))}
         </select>
       </div>
+      <HideUnknownChoice
+        label="Osoby bez miasta w profilu"
+        hidden={filters.hideUnknownLocation}
+        onChange={(hidden) => onPatch({ hideUnknownLocation: hidden })}
+        className="border-t border-border pt-2"
+      />
     </div>
   );
 }

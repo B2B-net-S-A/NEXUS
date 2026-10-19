@@ -1,6 +1,7 @@
 import type { CandidateFilters, RemoteMode } from "@/lib/url-filters";
 import type { StageFilterValue } from "@/components/v2/filters/StageFilterPanel";
 import type { SkillBucketsValue } from "@/lib/candidate-search-semantics";
+import { describeLocationPlaces, shownLocationPlaces } from "@/lib/location-places";
 
 /**
  * Pasek filtrów listy kandydatów (wariant A, decyzja Artura 23.09.2026):
@@ -50,7 +51,7 @@ export function filterGroupCounts(
     (filters.hideUnknown ? 1 : 0);
   return {
     rate: filters.rateMin !== null || filters.rateMax !== null ? 1 : 0,
-    location: (filters.location.trim() ? 1 : 0) + filters.voivodeships.length,
+    location: shownLocationPlaces(filters).length + filters.voivodeships.length,
     remote: filters.remote.length,
     history:
       filters.recruitmentIds.length +
@@ -66,13 +67,29 @@ export function filterGroupCounts(
   };
 }
 
-/** „120–160 zł/h", „od 120 zł/h", „do 160 zł/h"; `null` = nic nie ustawiono. */
-export function rateSummary(filters: Pick<CandidateFilters, "rateMin" | "rateMax">): string | null {
+/** Dopisek wyboru D5 przy podsumowaniu stawki albo lokalizacji. */
+export const HIDDEN_RATE_NOTE = "bez stawki: ukryte";
+export const HIDDEN_LOCATION_NOTE = "bez miasta: ukryte";
+
+/**
+ * „120–160 zł/h", „od 120 zł/h", „do 160 zł/h"; z „· bez stawki: ukryte”,
+ * gdy osoby bez stawki są ukryte (D5). `null` = nic nie ustawiono.
+ */
+export function rateSummary(
+  filters: Pick<CandidateFilters, "rateMin" | "rateMax"> &
+    Partial<Pick<CandidateFilters, "hideUnknownRate">>,
+): string | null {
   const { rateMin: lo, rateMax: hi } = filters;
-  if (lo !== null && hi !== null) return `${lo}–${hi} zł/h`;
-  if (lo !== null) return `od ${lo} zł/h`;
-  if (hi !== null) return `do ${hi} zł/h`;
-  return null;
+  const range =
+    lo !== null && hi !== null
+      ? `${lo}–${hi} zł/h`
+      : lo !== null
+        ? `od ${lo} zł/h`
+        : hi !== null
+          ? `do ${hi} zł/h`
+          : null;
+  if (range === null) return null;
+  return filters.hideUnknownRate ? `${range} · ${HIDDEN_RATE_NOTE}` : range;
 }
 
 function voivodeshipsLabel(count: number): string {
@@ -84,22 +101,22 @@ function voivodeshipsLabel(count: number): string {
 }
 
 /**
- * „Warszawa +25 km", „Warszawa, mazowieckie", „2 województwa" — na przycisku
- * mieści się jedna krótka fraza; pełne wartości są w okienku.
+ * „Warszawa +25 km", „Warszawa, mazowieckie", „2 województwa",
+ * „Warszawa +30 km, Łódź, Kraków +50 km” (D6); z „· bez miasta: ukryte”,
+ * gdy osoby bez miasta są ukryte (D5).
  */
 export function locationSummary(
-  filters: Pick<CandidateFilters, "location" | "locationRadiusKm" | "voivodeships">,
+  filters: Pick<CandidateFilters, "location" | "locationRadiusKm" | "voivodeships"> &
+    Partial<Pick<CandidateFilters, "locationPlaces" | "hideUnknownLocation">>,
 ): string | null {
-  const city = filters.location.trim();
+  const cityPart = describeLocationPlaces(
+    shownLocationPlaces({ ...filters, locationPlaces: filters.locationPlaces ?? [] }),
+  );
   const woj = filters.voivodeships;
-  const cityPart = city
-    ? filters.locationRadiusKm !== null
-      ? `${city} +${filters.locationRadiusKm} km`
-      : city
-    : "";
   const wojPart = woj.length === 0 ? "" : woj.length === 1 ? woj[0] : voivodeshipsLabel(woj.length);
-  if (cityPart && wojPart) return `${cityPart}, ${wojPart}`;
-  return cityPart || wojPart || null;
+  const summary = cityPart && wojPart ? `${cityPart}, ${wojPart}` : cityPart || wojPart || null;
+  if (summary === null) return null;
+  return filters.hideUnknownLocation ? `${summary} · ${HIDDEN_LOCATION_NOTE}` : summary;
 }
 
 const REMOTE_LABELS: Record<RemoteMode, string> = {

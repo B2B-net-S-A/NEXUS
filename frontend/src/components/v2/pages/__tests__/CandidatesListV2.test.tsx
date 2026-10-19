@@ -537,8 +537,9 @@ describe("CandidatesListV2", () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ location: "Kraków" });
       });
+      // Dodane miasto ma własny promień w wierszu listy (D6, 19.10.2026).
       const again = await openFilter(/^Lokalizacja/);
-      fireEvent.change(within(again).getByLabelText("Promień"), { target: { value: "25" } });
+      fireEvent.change(within(again).getByLabelText("Promień: Kraków"), { target: { value: "25" } });
       fireEvent.keyDown(again, { key: "Escape" });
       search();
       await waitFor(async () => {
@@ -561,6 +562,128 @@ describe("CandidatesListV2", () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ location: "Gdańsk" });
       });
+    });
+
+    it("kilka miast z promieniami: dodaj, usuń i suma w API (D6, 19.10.2026)", async () => {
+      renderList();
+      const popover = await openFilter(/^Lokalizacja/);
+      const add = (city: string, radius?: string) => {
+        fireEvent.change(within(popover).getByLabelText("Miasto"), { target: { value: city } });
+        if (radius) {
+          fireEvent.change(within(popover).getByLabelText("Promień"), {
+            target: { value: radius },
+          });
+        }
+        fireEvent.click(within(popover).getByRole("button", { name: "Dodaj" }));
+      };
+      add("Warszawa", "25");
+      add("Łódź");
+      add("Kraków", "50");
+      add("Gdańsk");
+      const list = within(popover).getByRole("list", { name: "Wybrane miasta" });
+      expect(within(list).getAllByRole("listitem")).toHaveLength(4);
+      fireEvent.click(within(popover).getByRole("button", { name: "Usuń miasto: Gdańsk" }));
+      expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+      fireEvent.click(within(popover).getByRole("radio", { name: "ukryj" }));
+      fireEvent.keyDown(popover, { key: "Escape" });
+      search();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({
+          location_places: ["Warszawa:25", "Łódź", "Kraków:50"],
+          hide_unknown_location: true,
+        });
+        expect(calls.at(-1)?.location).toBeUndefined();
+      });
+      expect(
+        within(bar()).getByRole("button", {
+          name: /^Lokalizacja: Warszawa \+25 km, Łódź, Kraków \+50 km · bez miasta: ukryte/,
+        }),
+      ).toBeTruthy();
+    });
+
+    it("okienko lokalizacji przyjmuje najwyżej 10 miast", async () => {
+      urlParams = new URLSearchParams(
+        `locs=${Array.from({ length: 10 }, (_, i) => `Miasto${i}`).join("|")}`,
+      );
+      renderList();
+      const popover = await openFilter(/^Lokalizacja/);
+      expect(within(popover).getByLabelText("Miasto")).toBeDisabled();
+      expect(within(popover).getByText("Najwyżej 10 miast.")).toBeTruthy();
+    });
+
+    it("licznik rozdziela trafienia od braków, kreska i plakietki w wierszach (D5)", async () => {
+      urlParams = new URLSearchParams("rate_max=55&loc=Warszawa&radius=25&sort=newest");
+      listItems = [
+        {
+          id: 1,
+          name: "Ala",
+          lastname: "Pierwsza",
+          city: "Pruszków",
+          unknown_fields: [],
+          location_distance: { place: "Pruszków", km: 16, center: "Warszawa" },
+        },
+        { id: 2, name: "Ola", lastname: "Druga", city: null, unknown_fields: ["location"] },
+        { id: 3, name: "Ela", lastname: "Trzecia", city: "Warszawa", unknown_fields: ["rate"] },
+      ];
+      listTotal = 25;
+      listExtra = { known_match_count: 2 };
+      renderList();
+      expect(await screen.findByText("2 spełniają filtr · 23 bez danych")).toBeTruthy();
+      const divider = screen.getByTestId("unknown-divider");
+      expect(divider.textContent).toContain("Bez stawki albo miasta w profilu");
+      expect(divider.textContent).toContain("23");
+      // Kreska stoi nad pierwszą osobą bez danych.
+      const rows = screen.getAllByRole("group", { name: /Enter otwiera podgląd/ });
+      expect(
+        divider.compareDocumentPosition(rows[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        divider.compareDocumentPosition(rows[0]) & Node.DOCUMENT_POSITION_PRECEDING,
+      ).toBeTruthy();
+      expect(within(rows[1]).getByTestId("unknown-field-location")).toBeTruthy();
+      expect(within(rows[2]).getByTestId("unknown-field-rate")).toBeTruthy();
+      expect(within(rows[0]).getAllByText("Pruszków · 16 km (Warszawa)").length).toBeGreaterThan(0);
+
+      fireEvent.click(within(divider).getByRole("button", { name: "Ukryj" }));
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({
+          hide_unknown_rate: true,
+          hide_unknown_location: true,
+        });
+      });
+    });
+
+    it("braki w środku listy (Mile widziane) — bez kreski", async () => {
+      urlParams = new URLSearchParams("rate_max=55");
+      listItems = [
+        { id: 1, name: "Ala", lastname: "A", unknown_fields: ["rate"] },
+        { id: 2, name: "Ola", lastname: "B", unknown_fields: [] },
+      ];
+      listTotal = 2;
+      listExtra = { known_match_count: 1 };
+      renderList();
+      expect(await screen.findByText("1 spełnia filtr · 1 bez danych")).toBeTruthy();
+      expect(screen.queryByTestId("unknown-divider")).toBeNull();
+    });
+
+    it("okienko stawki: „Osoby bez stawki: ukryj” idzie do API", async () => {
+      renderList();
+      const popover = await openFilter(/^Stawka/);
+      fireEvent.change(within(popover).getByLabelText("Stawka B2B — do"), {
+        target: { value: "55" },
+      });
+      fireEvent.click(within(popover).getByRole("radio", { name: "ukryj" }));
+      fireEvent.keyDown(popover, { key: "Escape" });
+      search();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ max_rate: 55, hide_unknown_rate: true });
+      });
+      expect(
+        within(bar()).getByRole("button", { name: /^Stawka: do 55 zł\/h · bez stawki: ukryte/ }),
+      ).toBeTruthy();
     });
 
     it("stawka z okienka idzie do API, a ✕ na przycisku ją zdejmuje", async () => {

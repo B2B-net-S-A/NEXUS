@@ -453,6 +453,18 @@ def test_optional_fields_reject_with_field_loc(kwargs, field):
         ("ING: Tester", ["ING Bank Śląski", "ING"], "Tester"),
         ("Tester (m/k)", [], "Tester (m/k)"),
         ("  Java   17   Developer  ", [], "Java 17 Developer"),
+        # 19.10.2026: numer BNP po podkreślniku szedł na stronę i do adresu.
+        ("Software Developer_RITM0866775", [], "Software Developer"),
+        ("Java Developer_REQ0012345", [], "Java Developer"),
+        ("Power BI_PKN500023226", [], "Power BI"),
+        # Nawias z cyfrą bywa częścią roli — zostaje (jak w nagłówku CV).
+        ("DevOps Engineer (K8s)", [], "DevOps Engineer (K8s)"),
+        ("Administrator (ISO 27001)", [], "Administrator (ISO 27001)"),
+        ("Data Engineer (Python 3)", [], "Data Engineer (Python 3)"),
+        # Kilka numerów zapytań i numer z dopiskiem też schodzą (przegląd 19.10).
+        ("IT Analyst (42928, 42927)", [], "IT Analyst"),
+        ("Java (nr 42835)", [], "Java"),
+        ("Java Developer (ID 4521)", [], "Java Developer"),
     ],
 )
 def test_default_public_title(title, clients, expected):
@@ -469,6 +481,86 @@ def test_default_public_title_never_empty():
     assert default_public_title("RITM0857078", []) == "RITM0857078"
     assert default_public_title("", []) == ""
     assert default_public_title(None, []) == ""
+
+
+def test_default_public_title_drops_the_client_reference_anywhere():
+    from app.services.job_public_profile import default_public_title
+
+    assert (
+        default_public_title("Java Developer 42946 Warszawa", [], "42946")
+        == "Java Developer Warszawa"
+    )
+    # Numer „4521” nie wycina kawałka dłuższej liczby.
+    assert default_public_title("Tester 145210", [], "4521") == "Tester 145210"
+    # Kilka numerów w nawiasie: bez resztek „(,)” po wycięciu.
+    assert (
+        default_public_title("IT Analyst (42928, 42927)", [], "42928, 42927")
+        == "IT Analyst"
+    )
+
+
+def test_legacy_default_title_keeps_the_rules_from_before_19_10():
+    from app.services.job_public_profile import legacy_default_public_title
+
+    assert (
+        legacy_default_public_title("Software Developer_RITM0866775", [])
+        == "Software Developer_RITM0866775"
+    )
+    assert legacy_default_public_title("DevOps Engineer (K8s)", []) == (
+        "DevOps Engineer"
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Software Developer_RITM0866775",
+        "Numer zgłoszenia RITM0866775 w opisie.",
+        "Projekt ZOB-3003 trwa rok.",
+        "Wsparcie zespołu (PKN500023226).",
+        "SCTASK0123456",
+        "Tester_PKN/5/000177/26",
+    ],
+)
+def test_internal_codes_are_findings(text):
+    from app.services.public_profile_lint import CODE_INTERNAL, lint_internal_codes
+
+    findings = lint_internal_codes([text])
+    assert [f.code for f in findings] == [CODE_INTERNAL]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Java 17, Spring Boot 3 i Kafka.",
+        "Zespół 8 osób, 2 dni w biurze.",
+        "Certyfikat ISO 27001 mile widziany.",
+        "Wersja REQ bez numeru.",
+    ],
+)
+def test_ordinary_text_has_no_internal_codes(text):
+    from app.services.public_profile_lint import lint_internal_codes
+
+    assert lint_internal_codes([text]) == []
+
+
+def test_client_reference_in_text_is_an_internal_code():
+    from app.services.public_profile_lint import lint_internal_codes
+
+    findings = lint_internal_codes(
+        ["Rekrutacja 42946 dla zespołu płatności."], client_reference="42946, 42947"
+    )
+    assert len(findings) == 1 and "42946" in findings[0].message
+    # Krótkie numery (mniej niż 4 znaki) nie są szukane — za dużo trafień.
+    assert lint_internal_codes(["Zespół 123 osób."], client_reference="123") == []
+
+
+def test_internal_codes_do_not_touch_the_slug_check():
+    """Kontrola adresu (``lint_public_texts``) nie zna kodów: znalezisko
+    w adresie wymieniałoby rozesłany link na nowy, a stary dawałby 404."""
+    from app.services.public_profile_lint import lint_public_texts
+
+    assert lint_public_texts(["software-developer-ritm0866775-ab12"]) == []
 
 
 def test_client_prefix_needs_a_separator_and_whole_words():
@@ -656,3 +748,167 @@ def test_portal_refuses_hidden_must_with_a_clear_reason():
     assert any("ukryta" in p for p in problems), problems
     assert "Szczegóły" not in jjit_payload.build_body(payload)
     assert jjit_payload.validate("rocketjobs", _public(None), options) == []
+
+
+# ── Strona zostaje na zatwierdzonej wersji (19.10.2026) ────────────────────
+
+
+def _approved_profile(**overrides):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from app.services import job_public_profile as jpp
+
+    subtitle, about, title = "podtytuł", "Opis zatwierdzony.", "Software Developer"
+    show = jpp.normalize_sections(None)
+    payload = {
+        "title": title,
+        "subtitle": subtitle,
+        "about": about,
+        "must": [{"name": "Java 17", "note": None}],
+        "nice": ["Kafka"],
+        "params": {"city": "Warszawa", "start": None, "duration": None},
+        "show": show,
+    }
+    profile = SimpleNamespace(
+        subtitle=subtitle,
+        about=about,
+        public_title=None,
+        approved_at=datetime.now(timezone.utc),
+        approved_hash=jpp.content_hash(subtitle, about, show, title),
+        sections=jpp.sections_with_approved_content(
+            show, jpp.approved_content(payload, client_id=7)
+        ),
+    )
+    for key, value in overrides.items():
+        setattr(profile, key, value)
+    return profile
+
+
+def _job(client_id=7):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(client_id=client_id, title="Software Developer")
+
+
+def test_approved_profile_is_published_as_is():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile()
+    version = jpp.published_from(
+        _job(),
+        profile,
+        status=jpp.STATUS_APPROVED,
+        effective_title="Software Developer",
+    )
+    assert version is not None and version.pending_changes is False
+    assert version.about == "Opis zatwierdzony."
+
+
+def test_edit_after_approval_keeps_the_approved_text_live():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile(about="Nowa treść, jeszcze bez kontroli.")
+    version = jpp.published_from(
+        _job(), profile, status=jpp.STATUS_DRAFT, effective_title="Software Developer"
+    )
+    assert version is not None and version.pending_changes is True
+    assert version.about == "Opis zatwierdzony."
+    assert version.title == "Software Developer"
+    # Migawka must/nice jedzie razem z tekstem — strona dostaje pełne sekcje.
+    payload = jpp.public_job_payload(
+        _job_for_payload(),
+        title=version.title,
+        link_slug="x",
+        subtitle=version.subtitle,
+        about=version.about,
+        sections=version.sections,
+    )
+    assert payload["must"] == [{"name": "Java 17", "note": None}]
+
+
+def _job_for_payload():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        client_id=7,
+        title="Software Developer",
+        champion_profile={},
+        must_skills=[],
+        nice_skills=[],
+        location="Kraków",
+        remote_policy=None,
+        onsite_days_per_week=None,
+        onsite_days_per_month=None,
+        seniority=None,
+    )
+
+
+def test_tampered_snapshot_is_not_published():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile(about="Nowa treść.")
+    snapshot = jpp.stored_approved_content(profile.sections)
+    snapshot[jpp.APPROVED_TEXT_KEY]["about"] = "Tekst, którego nikt nie zatwierdził."
+    version = jpp.published_from(
+        _job(), profile, status=jpp.STATUS_DRAFT, effective_title="Software Developer"
+    )
+    assert version is None
+
+
+def test_client_change_still_takes_the_page_down():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile(about="Nowa treść.")
+    version = jpp.published_from(
+        _job(client_id=8),
+        profile,
+        status=jpp.STATUS_DRAFT,
+        effective_title="Software Developer",
+    )
+    assert version is None
+
+
+def test_never_approved_profile_is_not_published():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile(approved_at=None, approved_hash=None)
+    assert (
+        jpp.published_from(
+            _job(), profile, status=jpp.STATUS_DRAFT, effective_title="X"
+        )
+        is None
+    )
+
+
+def test_profile_approved_before_19_10_keeps_its_old_default_title():
+    """Opis bez tekstu w migawce, którego tytuł domyślny zmieniły nowe reguły
+    czyszczenia: strona zostaje z tytułem zatwierdzonym."""
+    from app.services import job_public_profile as jpp
+
+    old_title = "Software Developer_RITM0866775"
+    profile = _approved_profile()
+    profile.approved_hash = jpp.content_hash(
+        profile.subtitle, profile.about, profile.sections, old_title
+    )
+    snapshot = jpp.stored_approved_content(profile.sections)
+    snapshot.pop(jpp.APPROVED_TEXT_KEY)
+    version = jpp.published_from(
+        _job(),
+        profile,
+        status=jpp.STATUS_DRAFT,
+        effective_title="Software Developer",
+        legacy_title=old_title,
+    )
+    assert version is not None and version.title == old_title
+    assert version.pending_changes is True
+    # Pierwszy zapis zmian dopisuje tekst do migawki — kolejne zmiany już
+    # nie zdejmują strony.
+    sections = jpp.with_published_text(profile.sections, version)
+    profile.sections = sections
+    profile.about = "Poprawiony opis."
+    again = jpp.published_from(
+        _job(), profile, status=jpp.STATUS_DRAFT, effective_title="Software Developer"
+    )
+    assert again is not None and again.about == "Opis zatwierdzony."
+    assert again.title == old_title

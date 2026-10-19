@@ -112,6 +112,7 @@ from app.schemas.candidate import (
     CandidateFromLinkedInResponse,
     CandidateLinkedinSyncResponse,
     CandidateList,
+    CandidateLocationDistance,
     CandidateLocationUpdate,
     CandidateQuickViewAvailability,
     CandidateQuickViewCandidate,
@@ -404,6 +405,11 @@ class CandidateFilterSpec(BaseModel):
     text_mode: Optional[Literal["auto", "literal", "semantic"]] = None
     # Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji/stażu/stawki.
     hide_unknown: Optional[bool] = None
+    # D5 (19.10.2026): to samo, ale tylko dla stawki / tylko dla miasta —
+    # wybór „pokaż na końcu / ukryj” w okienku samego filtru. Same nigdy nie
+    # poszerzają wyniku (`candidate_search_predicates.Semantics`).
+    hide_unknown_rate: Optional[bool] = None
+    hide_unknown_location: Optional[bool] = None
     # Brak (v1) = DOKŁADNIE dotychczasowe wyniki listy (na tym stoją alerty
     # zapisanych wyszukiwań). 2 = semantyka wspólna z wyszukiwarką.
     semantics_version: Optional[int] = Field(None, ge=1, le=2)
@@ -442,6 +448,10 @@ class CandidateFilterSpec(BaseModel):
     # Promień w km od miasta z `location` i województwa (`pl_places`).
     location_radius_km: Optional[int] = Field(None, ge=1, le=300)
     voivodeship: Optional[list[str]] = None
+    # D6 (19.10.2026): kilka miast, każde z własnym promieniem
+    # (`"Warszawa:30"`, `"Łódź"`) — SUMA z województwami
+    # (`candidate_search_predicates.location_places_clause`).
+    location_places: Optional[list[str]] = None
     # Kontakt z kandydatem w okresie (notatki, rozmowy, maile z Traffita).
     contacted: Optional[Literal["yes", "no"]] = None
     contacted_from: Optional[FilterDate] = None
@@ -477,6 +487,16 @@ class CandidateFilterSpec(BaseModel):
     @classmethod
     def reject_retired_monthly_rate(cls, value):  # type: ignore[no-untyped-def]
         return reject_retired_candidate_rate(value)
+
+    @field_validator("location_places")
+    @classmethod
+    def location_places_are_valid(cls, value):  # type: ignore[no-untyped-def]
+        """Ten sam kształt co w GET listy (`_reject_invalid_location_places`)
+        — eksport „z filtra” dostaje 422 z walidacji ciała."""
+        from app.services import candidate_search_predicates as predicates
+
+        predicates.parse_location_places(value)
+        return value
 
     @field_validator("remote_policy", mode="before")
     @classmethod
@@ -519,6 +539,19 @@ class CandidateExportRequest(BaseModel):
         if len(unique_ids) > 10_000:
             raise ValueError("candidate_ids may contain at most 10000 unique ids")
         return unique_ids
+
+
+def _reject_invalid_location_places(values: Optional[list[str]]) -> None:
+    """422 po polsku dla złej listy `location_places` (za dużo miast, zły
+    promień) — przed zbudowaniem `CandidateFilterSpec`, jak zakresy wyżej."""
+    from app.services import candidate_search_predicates as predicates  # noqa: PLC0415
+
+    try:
+        predicates.parse_location_places(values)
+    except predicates.InvalidLocationPlaces as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 def _build_response(data: dict) -> dict:
@@ -1392,6 +1425,70 @@ async def _stage_matches(
     return out
 
 
+def _list_semantics(f: CandidateFilterSpec):
+    """Semantyka listy z wersji i trzech przełączników braków danych."""
+    from app.services import candidate_search_predicates as predicates
+
+    return predicates.semantics_for(
+        "list",
+        f.semantics_version,
+        f.hide_unknown,
+        hide_unknown_rate=f.hide_unknown_rate,
+        hide_unknown_location=f.hide_unknown_location,
+    )
+
+
+def _list_location_places(f: CandidateFilterSpec):
+    """Pary miasto–promień z `location_places` plus pojedyncze `location`
+    (z `location_radius_km`) i `location_cities` z tego samego żądania."""
+    from app.services import candidate_search_predicates as predicates
+
+    extra: list[str] = []
+    if f.location:
+        extra.append(
+            f"{f.location}:{f.location_radius_km}"
+            if f.location_radius_km
+            else f.location
+        )
+    extra.extend(c for c in (f.location_cities or []) if c and c.strip())
+    return predicates.parse_location_places([*(f.location_places or []), *extra])
+
+
+def _radius_places(f: CandidateFilterSpec):
+    """Środki promieni do opisu wiersza „16 km od Warszawy” (bez zapytań)."""
+    from app.services import candidate_search_predicates as predicates
+
+    if f.location_places:
+        return [p for p in _list_location_places(f) if p.radius_km]
+    if f.location and f.location_radius_km:
+        return [predicates.LocationPlace(f.location, f.location_radius_km)]
+    return []
+
+
+def _location_filter_active(f: CandidateFilterSpec) -> bool:
+    return bool(f.location or f.location_cities or f.voivodeship or f.location_places)
+
+
+def _unknown_rank_expr(f: CandidateFilterSpec):
+    """Ile aktywnych filtrów stawki/lokalizacji/stażu wiersz przeszedł na
+    brak danych (`unknown_count_rank`) albo ``None``: v1, globalne
+    `hide_unknown` albo żaden z tych filtrów nie działa (braki i tak nie
+    wchodzą wtedy do wyniku)."""
+    from app.services import candidate_search_predicates as predicates
+
+    if f.semantics_version != 2 or f.hide_unknown:
+        return None
+    return predicates.unknown_count_rank(
+        location_active=_location_filter_active(f) and not f.hide_unknown_location,
+        country_active=bool(f.country) and not f.hide_unknown_location,
+        experience_active=(
+            f.min_experience is not None or f.max_experience is not None
+        ),
+        rate_active=(f.min_rate is not None or f.max_rate is not None)
+        and not f.hide_unknown_rate,
+    )
+
+
 async def _build_candidate_filtered_query(
     db: AsyncSession,
     filters: CandidateFilterSpec,
@@ -1425,7 +1522,7 @@ async def _build_candidate_filtered_query(
     # Filtry wspólne z `POST /api/search/candidates` czytamy WYŁĄCZNIE przez
     # `candidate_search_predicates` — lokalna kopia któregokolwiek z nich to
     # powrót do 11 rozjazdów z 07.2026 (`test_search_engines_contract.py`).
-    sem = predicates.semantics_for("list", f.semantics_version, f.hide_unknown)
+    sem = _list_semantics(f)
     status_clause = predicates.status_clause(f.status)
     if status_clause is not None:
         query = query.where(status_clause)
@@ -1464,35 +1561,52 @@ async def _build_candidate_filtered_query(
     # Zapis w formacie wspólnym (v3) przenosi `location` do `location_cities`
     # — przy jednym mieście to ono jest środkiem (inaczej alert zapisu
     # „Kraków + 50 km” zgłaszałby wyłącznie Kraków).
-    radius_center = f.location or (
-        f.location_cities[0]
-        if f.location_radius_km and f.location_cities and len(f.location_cities) == 1
-        else None
-    )
-    radius_active = bool(f.location_radius_km and radius_center)
-    text_cities = (
-        []
-        if radius_active
-        else ([f.location] if f.location else []) + list(f.location_cities or [])
-    )
-    for location_clause in predicates.location_clauses(
-        text_cities,
-        f.country,
-        sem,
-        scope=f.location_scope,
-    ):
-        query = query.where(location_clause)
-    try:
-        geo = predicates.geo_clause(
-            center=radius_center if radius_active else None,
-            radius_km=f.location_radius_km if radius_active else None,
-            voivodeships=f.voivodeship,
-            sem=sem,
+    if f.location_places:
+        # D6 (19.10.2026): lista miast z promieniami = SUMA z województwami.
+        # Pojedyncze `location`/`location_cities` z tego samego żądania
+        # dokładają się do tej samej sumy; kraj zostaje osobnym warunkiem.
+        try:
+            location_union = predicates.location_places_clause(
+                _list_location_places(f), f.voivodeship, sem
+            )
+        except (predicates.UnknownPlace, predicates.InvalidLocationPlaces) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if location_union is not None:
+            query = query.where(location_union)
+        for location_clause in predicates.location_clauses([], f.country, sem):
+            query = query.where(location_clause)
+    else:
+        radius_center = f.location or (
+            f.location_cities[0]
+            if f.location_radius_km
+            and f.location_cities
+            and len(f.location_cities) == 1
+            else None
         )
-    except predicates.UnknownPlace as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if geo is not None:
-        query = query.where(geo)
+        radius_active = bool(f.location_radius_km and radius_center)
+        text_cities = (
+            []
+            if radius_active
+            else ([f.location] if f.location else []) + list(f.location_cities or [])
+        )
+        for location_clause in predicates.location_clauses(
+            text_cities,
+            f.country,
+            sem,
+            scope=f.location_scope,
+        ):
+            query = query.where(location_clause)
+        try:
+            geo = predicates.geo_clause(
+                center=radius_center if radius_active else None,
+                radius_km=f.location_radius_km if radius_active else None,
+                voivodeships=f.voivodeship,
+                sem=sem,
+            )
+        except predicates.UnknownPlace as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if geo is not None:
+            query = query.where(geo)
     contact = predicates.contact_clause(
         mode=f.contacted,
         date_from=f.contacted_from,
@@ -1777,24 +1891,11 @@ def _sort_prefix_exprs(filters: CandidateFilterSpec):
 
     Wspólne dla każdego sortowania i dla kolejności „Dopasowanie”
     (``candidate_match_order``), żeby oba liczyły je tak samo."""
-    from app.services import candidate_search_predicates as predicates
-
     preferred_rank = _preferred_rank(filters)
     # v2: osoby przepuszczone „na brak danych" (plakietka „brak …") idą za
     # osobami z potwierdzonym dopasowaniem — w obrębie tej samej liczby braków
     # obowiązuje żądany `sort`. Przy `hide_unknown` braków nie ma w wyniku.
-    unknown_rank = None
-    if filters.semantics_version == 2 and not filters.hide_unknown:
-        unknown_rank = predicates.unknown_count_rank(
-            location_active=bool(
-                filters.location or filters.location_cities or filters.voivodeship
-            ),
-            country_active=bool(filters.country),
-            experience_active=(
-                filters.min_experience is not None or filters.max_experience is not None
-            ),
-            rate_active=filters.min_rate is not None or filters.max_rate is not None,
-        )
+    unknown_rank = _unknown_rank_expr(filters)
     return preferred_rank, unknown_rank
 
 
@@ -1898,7 +1999,7 @@ async def _list_page_ids_first(
     pool_ids: Optional[list[int]],
     page: int,
     page_size: int,
-) -> tuple[list[Candidate], int, list[list[str]]]:
+) -> tuple[list[Candidate], int, list[list[str]], Optional[int]]:
     """Strona listy: identyfikatory z liczbą w jednym przebiegu, potem pełne wiersze.
 
     Audyt 25.09.2026: ``count(*) OVER()`` na ``select(Candidate)`` przepuszczał
@@ -1907,7 +2008,9 @@ async def _list_page_ids_first(
     na samych identyfikatorach (bez filtra ~50 ms), więc filtr słów kluczowych
     wykonuje się RAZ — osobne ``count(*)`` liczyłoby drogi regex dwa razy.
     Relacje i szerokie kolumny ładują się tylko dla strony. Kolejność, liczba
-    i zachowanie strony poza zakresem — jak dotąd.
+    i zachowanie strony poza zakresem — jak dotąd. Przy aktywnym filtrze
+    stawki/lokalizacji/stażu to samo okno liczy osoby z danymi
+    (``known_count``, D5) — bez dodatkowego zapytania.
     """
     query, q_any_groups = await _build_candidate_filtered_query(
         db, filters, semantic_pool_ids=pool_ids
@@ -1918,7 +2021,7 @@ async def _list_page_ids_first(
     )
     rows = (
         await db.execute(
-            page_query.add_columns(func.count().over().label("total_count"))
+            _with_window_counts(page_query, filters)
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -1935,7 +2038,7 @@ async def _list_page_ids_first(
                 )
                 or 0
             )
-        return [], total, q_any_groups
+        return [], total, q_any_groups, None
     page_ids = [row[0] for row in rows]
     total = int(rows[0].total_count)
     loaded = (
@@ -1946,7 +2049,31 @@ async def _list_page_ids_first(
         )
     ).scalars()
     by_id = {candidate.id: candidate for candidate in loaded}
-    return [by_id[cid] for cid in page_ids if cid in by_id], total, q_any_groups
+    return (
+        [by_id[cid] for cid in page_ids if cid in by_id],
+        total,
+        q_any_groups,
+        _known_count_from_row(rows[0]),
+    )
+
+
+def _with_window_counts(query, filters: CandidateFilterSpec):
+    """``count(*) OVER ()`` jako ``total_count`` i — gdy działa filtr
+    stawki/lokalizacji/stażu z osobami bez danych w wyniku — ``count(*)
+    FILTER (WHERE braków = 0) OVER ()`` jako ``known_count`` w tym samym
+    przebiegu."""
+    query = query.add_columns(func.count().over().label("total_count"))
+    rank = _unknown_rank_expr(filters)
+    if rank is not None:
+        query = query.add_columns(
+            func.count().filter(rank == 0).over().label("known_count")
+        )
+    return query
+
+
+def _known_count_from_row(row) -> Optional[int]:
+    known = getattr(row, "known_count", None)
+    return int(known) if known is not None else None
 
 
 async def _list_page_match(
@@ -1957,7 +2084,7 @@ async def _list_page_match(
     pool_ids: Optional[list[int]],
     page: int,
     page_size: int,
-) -> Optional[tuple[list[Candidate], int, list[list[str]]]]:
+) -> Optional[tuple[list[Candidate], int, list[list[str]], Optional[int]]]:
     """Strona w kolejności „Dopasowanie” albo ``None`` (wołający: „najnowsi”)."""
     from app.services import candidate_match_order
 
@@ -1978,7 +2105,7 @@ async def _list_page_match(
     ordered = result.ids
     page_ids = ordered[(page - 1) * page_size : page * page_size]
     if not page_ids:
-        return [], len(ordered), q_any_groups
+        return [], len(ordered), q_any_groups, None
     page_ids = await candidate_match_order.rerank_page(
         db, result, ids_query, prefix, page_ids
     )
@@ -1994,6 +2121,26 @@ async def _list_page_match(
         [by_id[cid] for cid in page_ids if cid in by_id],
         len(ordered),
         q_any_groups,
+        await _known_count_match(db, filters, pool_ids),
+    )
+
+
+async def _known_count_match(
+    db: AsyncSession, filters: CandidateFilterSpec, pool_ids: Optional[list[int]]
+) -> Optional[int]:
+    """Kolejność „Dopasowanie” trzyma w pamięci same identyfikatory, więc
+    liczba osób z danymi (D5) to jedno ``count`` po tych samych filtrach (z
+    wykluczeniem osób z rekrutacji, jak ``total``) — wyłącznie przy aktywnym
+    filtrze stawki/lokalizacji/stażu."""
+    rank = _unknown_rank_expr(filters)
+    if rank is None:
+        return None
+    query, _ = await _build_candidate_filtered_query(
+        db, filters, semantic_pool_ids=pool_ids
+    )
+    ids_query = query.with_only_columns(Candidate.id).where(rank == 0)
+    return int(
+        await db.scalar(select(func.count()).select_from(ids_query.subquery())) or 0
     )
 
 
@@ -2004,7 +2151,7 @@ async def _list_page_window_count(
     pool_ids: Optional[list[int]],
     page: int,
     page_size: int,
-) -> tuple[list[Candidate], int, list[list[str]]]:
+) -> tuple[list[Candidate], int, list[list[str]], Optional[int]]:
     """Dawna ścieżka (``CANDIDATE_LIST_IDS_FIRST=false``): jedno zapytanie
     z ``count(*) OVER()`` na pełnych wierszach."""
     query, q_any_groups = await _build_candidate_filtered_query(
@@ -2013,9 +2160,7 @@ async def _list_page_window_count(
     filtered_query = query
     query = _apply_candidate_sort(query, filters, q_any_groups, pool_order=pool_ids)
     query = query.offset((page - 1) * page_size).limit(page_size)
-    result = await db.execute(
-        query.add_columns(func.count().over().label("total_count"))
-    )
+    result = await db.execute(_with_window_counts(query, filters))
     rows = result.all()
     items = [row[0] for row in rows]
     total = rows[0].total_count if rows else 0
@@ -2027,7 +2172,12 @@ async def _list_page_window_count(
             await db.scalar(select(func.count()).select_from(filtered_query.subquery()))
             or 0
         )
-    return items, total, q_any_groups
+    return (
+        items,
+        total,
+        q_any_groups,
+        (_known_count_from_row(rows[0]) if rows else None),
+    )
 
 
 @router.get("", response_model=CandidateList)
@@ -2189,6 +2339,21 @@ async def list_candidates(
             "Hide candidates with NO data for the active location / experience / "
             "rate filters. Under `semantics_version=2` they stay by default and "
             "each row lists them in `unknown_fields`."
+        ),
+    ),
+    hide_unknown_rate: Optional[bool] = Query(
+        None,
+        description=(
+            "`true` hides candidates with no (comparable) rate for the active "
+            "rate filter only. Never widens the result: absent/`false` = as "
+            "without the flag (`hide_unknown` and `semantics_version` decide)."
+        ),
+    ),
+    hide_unknown_location: Optional[bool] = Query(
+        None,
+        description=(
+            "`true` hides candidates with no city/location (or country) for the "
+            "active location filters only. Never widens the result."
         ),
     ),
     semantics_version: Optional[int] = Query(
@@ -2483,6 +2648,17 @@ async def list_candidates(
         None,
         description="Polish voivodeships (`mazowieckie`), any of. Repeat the param.",
     ),
+    location_places: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Cities with their own radius — repeat the param: `Warszawa:30` "
+            "(30 km around), `Łódź` (the city itself). At most 10, radius "
+            "1–300 km. A candidate matches ANY city, ANY radius or ANY "
+            "`voivodeship` (union); `location`/`location_cities` in the same "
+            "request join that union. Without this param `location` and "
+            "`voivodeship` keep combining with AND."
+        ),
+    ),
     contacted: Optional[Literal["yes", "no"]] = Query(
         None,
         description=(
@@ -2700,6 +2876,7 @@ async def list_candidates(
         min_experience=min_experience,
         max_experience=max_experience,
     )
+    _reject_invalid_location_places(location_places)
     filters = CandidateFilterSpec(
         status=status,
         location=location,
@@ -2722,6 +2899,8 @@ async def list_candidates(
         location_scope=location_scope,
         text_mode=text_mode,
         hide_unknown=hide_unknown,
+        hide_unknown_rate=hide_unknown_rate,
+        hide_unknown_location=hide_unknown_location,
         semantics_version=semantics_version,
         remote_policy=remote_policy,
         min_rate=min_rate,
@@ -2750,6 +2929,7 @@ async def list_candidates(
         q_scope=q_scope,
         location_radius_km=location_radius_km,
         voivodeship=voivodeship,
+        location_places=location_places,
         contacted=contacted,
         contacted_from=contacted_from,
         contacted_to=contacted_to,
@@ -2772,9 +2952,7 @@ async def list_candidates(
     )
     from app.services import candidate_search_predicates as search_predicates
 
-    list_semantics = search_predicates.semantics_for(
-        "list", semantics_version, hide_unknown
-    )
+    list_semantics = _list_semantics(filters)
     # Tekst `q` w trybie semantycznym — WYŁĄCZNIE v2 z jawnym `text_mode`
     # auto/semantic. v1 i żądania bez `text_mode` (alerty zapisanych wyszukiwań
     # odtwarzają zapisane parametry) zostają przy dopasowaniu dosłownym.
@@ -2802,13 +2980,13 @@ async def list_candidates(
             sort_applied = "newest"
             filters = filters.model_copy(update={"sort": "newest"})
     if match_page is not None:
-        items, total, q_any_groups = match_page
+        items, total, q_any_groups, known_count = match_page
     elif settings.CANDIDATE_LIST_IDS_FIRST:
-        items, total, q_any_groups = await _list_page_ids_first(
+        items, total, q_any_groups, known_count = await _list_page_ids_first(
             db, filters, pool_ids=pool_ids, page=page, page_size=page_size
         )
     else:
-        items, total, q_any_groups = await _list_page_window_count(
+        items, total, q_any_groups, known_count = await _list_page_window_count(
             db, filters, pool_ids=pool_ids, page=page, page_size=page_size
         )
 
@@ -3244,6 +3422,7 @@ async def list_candidates(
         db, await _resolve_stage_filter(db, filters), [c.id for c in items]
     )
     response_items: list[CandidateResponse] = []
+    distance_places = _radius_places(filters)
     for cand in items:
         payload = _candidate_to_response(cand)
         payload = payload.model_copy(
@@ -3316,9 +3495,7 @@ async def list_candidates(
                 update={
                     "unknown_fields": search_predicates.unknown_fields_for(
                         cand,
-                        location_active=bool(
-                            location or location_cities or voivodeship
-                        ),
+                        location_active=_location_filter_active(filters),
                         country_active=bool(country),
                         experience_active=(
                             min_experience is not None or max_experience is not None
@@ -3327,6 +3504,12 @@ async def list_candidates(
                     )
                 }
             )
+        if distance_places:
+            distance = search_predicates.place_distance(cand, distance_places)
+            if distance is not None:
+                payload = payload.model_copy(
+                    update={"location_distance": CandidateLocationDistance(**distance)}
+                )
         response_items.append(payload)
 
     # „Rozumiem to jako…": `text_mode_applied` mówi, co NAPRAWDĘ zrobiono
@@ -3362,6 +3545,7 @@ async def list_candidates(
             semantic_pool is not None and semantic_pool.cap_reached
         ),
         sort_applied=sort_applied,
+        known_match_count=known_count,
     )
 
 

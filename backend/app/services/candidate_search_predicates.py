@@ -109,6 +109,13 @@ class Semantics:
     version: int
     engine: Engine
     hide_unknown: Optional[bool] = None
+    # Węższe przełączniki (D5, 19.10.2026): „Osoby bez stawki / bez miasta
+    # w profilu: ukryj” w okienku samego filtru. ``True`` ukrywa braki TYLKO
+    # tego filtru; ``None``/``False`` = los jak bez przełącznika (globalny
+    # ``hide_unknown`` i wersja). Same nigdy nie poszerzają wyniku, więc v1
+    # i dotychczasowe ``hide_unknown`` dają dokładnie to co przed nimi.
+    hide_unknown_rate: Optional[bool] = None
+    hide_unknown_location: Optional[bool] = None
 
     @property
     def unified(self) -> bool:
@@ -116,7 +123,7 @@ class Semantics:
 
     @property
     def unknown(self) -> UnknownValues:
-        """Los osoby bez danych dla filtrów lokalizacji i stażu."""
+        """Los osoby bez danych dla filtra stażu (i bazowy dla lokalizacji)."""
         if self.hide_unknown is not None:
             return "exclude" if self.hide_unknown else "include"
         if self.unified:
@@ -124,9 +131,19 @@ class Semantics:
         return "exclude" if self.engine == "list" else "include"
 
     @property
+    def location_unknown(self) -> UnknownValues:
+        """Los osoby bez miasta / kraju — ``unknown`` zawężone przełącznikiem
+        ``hide_unknown_location``."""
+        if self.hide_unknown_location:
+            return "exclude"
+        return self.unknown
+
+    @property
     def rate_unknown(self) -> UnknownValues:
         """Los osoby bez (porównywalnej) stawki. Wyszukiwarka zostawiała ją od
         zawsze; lista v1 wycina — na tym stoją dzisiejsze alerty."""
+        if self.hide_unknown_rate:
+            return "exclude"
         if self.hide_unknown is not None:
             return "exclude" if self.hide_unknown else "include"
         if self.unified or self.engine == "search":
@@ -135,12 +152,19 @@ class Semantics:
 
 
 def semantics_for(
-    engine: Engine, version: Optional[int], hide_unknown: Optional[bool] = None
+    engine: Engine,
+    version: Optional[int],
+    hide_unknown: Optional[bool] = None,
+    *,
+    hide_unknown_rate: Optional[bool] = None,
+    hide_unknown_location: Optional[bool] = None,
 ) -> Semantics:
     return Semantics(
         version=SEMANTICS_UNIFIED if (version or 1) >= 2 else SEMANTICS_LEGACY,
         engine=engine,
         hide_unknown=hide_unknown,
+        hide_unknown_rate=hide_unknown_rate,
+        hide_unknown_location=hide_unknown_location,
     )
 
 
@@ -1554,7 +1578,7 @@ def location_clauses(
 ) -> list[ColumnElement]:
     """Miasto (którekolwiek z podanych) i kraj (kod ISO, którykolwiek).
 
-    ``sem.unknown``: los kandydata BEZ lokalizacji / kraju. Znana-i-niepasująca
+    ``sem.location_unknown``: los kandydata BEZ lokalizacji / kraju. Znana-i-niepasująca
     odpada zawsze. v1 listy zostaje przy dotychczasowym ``location ILIKE
     '%fraza%'`` — sama kolumna ``location``, bez foldu polskich znaków i bez
     escapowania (``%``/``_`` działają tam jak wieloznaczniki; poprawka jest w v2).
@@ -1575,13 +1599,13 @@ def location_clauses(
                 for c in wanted_cities
             ]
         )
-        if sem.unknown == "include":
+        if sem.location_unknown == "include":
             clauses.append(or_(Candidate.location.is_(None), matched))
         else:
             clauses.append(matched)
     elif wanted_cities:
         matched = or_(*city_match_clauses(wanted_cities))
-        if sem.unknown == "include":
+        if sem.location_unknown == "include":
             nowhere = and_(Candidate.city.is_(None), Candidate.location.is_(None))
             clauses.append(or_(nowhere, matched))
         else:
@@ -1592,7 +1616,7 @@ def location_clauses(
             in_country = Candidate.country.in_(wanted)
         else:
             in_country = func.upper(Candidate.country).in_(wanted)
-        if sem.unknown == "include":
+        if sem.location_unknown == "include":
             clauses.append(or_(Candidate.country.is_(None), in_country))
         else:
             clauses.append(in_country)
@@ -1743,11 +1767,8 @@ def geo_clause(
     pierwszy człon ``location``) z listą nazw wyliczoną z ``pl_places`` —
     kandydaci nie mają współrzędnych. Kandydat z innym krajem niż PL odpada:
     zagraniczna nazwa bywa równa polskiej wsi. Osoba bez lokalizacji: jak
-    w filtrze miasta (``sem.unknown``).
+    w filtrze miasta (``sem.location_unknown``).
     """
-    from sqlalchemy import Text, any_
-    from sqlalchemy.dialects.postgresql import ARRAY
-
     from app.services import pl_places
 
     key_sets: list[set[str]] = []
@@ -1775,9 +1796,26 @@ def geo_clause(
         return None
     # Promień i województwo naraz = część wspólna (np. „Kraków + 100 km”,
     # ale tylko małopolskie).
-    keys = sorted(set.intersection(*key_sets))
-    arr = literal(keys, type_=ARRAY(Text))
-    matched = and_(
+    matched = _place_keys_match(set.intersection(*key_sets))
+    if sem.location_unknown == "include":
+        nowhere = and_(
+            func.coalesce(Candidate.city, "") == "",
+            func.coalesce(Candidate.location, "") == "",
+        )
+        return or_(nowhere, matched)
+    return matched
+
+
+def _place_keys_match(keys: set[str]) -> ColumnElement:
+    """Miejscowość kandydata (``city`` albo pierwszy człon ``location``) jest
+    na liście kluczy ``pl_places``, a kraj to Polska albo brak kraju."""
+    from sqlalchemy import Text, any_
+    from sqlalchemy.dialects.postgresql import ARRAY
+
+    from app.services import pl_places
+
+    arr = literal(sorted(keys), type_=ARRAY(Text))
+    return and_(
         or_(
             pl_places.place_key_sql(Candidate.city) == any_(arr),
             pl_places.place_key_sql(Candidate.location) == any_(arr),
@@ -1788,13 +1826,156 @@ def geo_clause(
             func.upper(Candidate.country) == "PL",
         ),
     )
-    if sem.unknown == "include":
-        nowhere = and_(
-            func.coalesce(Candidate.city, "") == "",
-            func.coalesce(Candidate.location, "") == "",
+
+
+# ── Kilka miejscowości, każda z własnym promieniem (D6, 19.10.2026) ─────────
+
+MAX_LOCATION_PLACES = 10
+
+
+class InvalidLocationPlaces(ValueError):
+    """Lista ``location_places`` ma zły kształt (za dużo miast, zły promień)."""
+
+
+@dataclass(frozen=True)
+class LocationPlace:
+    """Miasto z okienka „Lokalizacja kandydata” i jego promień (``None`` =
+    samo miasto, dopasowanie tekstu jak w ``location_cities``)."""
+
+    city: str
+    radius_km: Optional[int] = None
+
+
+def parse_location_places(values: Optional[Iterable[str]]) -> list[LocationPlace]:
+    """``["Warszawa:30", "Łódź"]`` → pary miasto–promień.
+
+    Promień to liczba po OSTATNIM dwukropku (nazwy miejscowości dwukropka nie
+    mają); bez niej cała wartość jest miastem. Puste wartości odpadają,
+    powtórzenia (ta sama nazwa bez polskich znaków i ten sam promień) liczą się
+    raz. Więcej niż ``MAX_LOCATION_PLACES`` miast albo promień spoza 1–300 km
+    = ``InvalidLocationPlaces`` (422 z tym zdaniem).
+    """
+    from app.services import pl_places
+
+    out: list[LocationPlace] = []
+    seen: set[tuple[str, Optional[int]]] = set()
+    for raw in values or []:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        city, sep, tail = text.rpartition(":")
+        radius: Optional[int] = None
+        if sep and tail.strip().isdigit() and city.strip():
+            radius = int(tail.strip())
+            if not 1 <= radius <= pl_places.MAX_RADIUS_KM:
+                raise InvalidLocationPlaces(
+                    f"Promień przy „{city.strip()}” musi mieć od 1 do "
+                    f"{pl_places.MAX_RADIUS_KM} km."
+                )
+            text = city.strip()
+        elif sep and not tail.strip() and city.strip():
+            # „Warszawa:” — pusty promień = samo miasto.
+            text = city.strip()
+        key = (pl_places.place_key(text) or text.lower(), radius)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(LocationPlace(city=text, radius_km=radius))
+    if len(out) > MAX_LOCATION_PLACES:
+        raise InvalidLocationPlaces(
+            f"Lokalizacja przyjmuje najwyżej {MAX_LOCATION_PLACES} miast."
         )
+    return out
+
+
+def location_places_clause(
+    places: Sequence[LocationPlace],
+    voivodeships: Optional[Sequence[str]],
+    sem: Semantics,
+) -> Optional[ColumnElement]:
+    """Nowy kształt lokalizacji — SUMA: miasto kandydata pasuje do
+    któregokolwiek miasta bez promienia (``city_match_clauses``), leży
+    w promieniu któregokolwiek środka albo w którymkolwiek z województw.
+
+    Dotychczasowy kształt (jedno ``location`` + ``voivodeship``) łączy miasto
+    i województwo koniunkcją (``location_clauses`` i ``geo_clause`` to dwa
+    osobne warunki) — tamten zostaje bez zmian dla starych adresów i alertów.
+    Osoba bez miasta: ``sem.location_unknown``. Nowe pole, więc bez wariantu
+    v1 — w v1 osoba bez miasta odpada jak w filtrze miasta listy.
+    """
+    from app.services import pl_places
+
+    text_cities = [p.city for p in places if not p.radius_km]
+    keys: set[str] = set()
+    for place in places:
+        if not place.radius_km:
+            continue
+        center = pl_places.resolve(place.city)
+        if center is None:
+            raise UnknownPlace(
+                f"Nie znam miejscowości „{place.city}” — wybierz ją "
+                "z podpowiedzi albo usuń promień."
+            )
+        keys |= set(
+            pl_places.keys_within(center, min(place.radius_km, pl_places.MAX_RADIUS_KM))
+        )
+    wanted_voivodeships = [
+        v.strip().lower() for v in (voivodeships or []) if v and v.strip()
+    ]
+    unknown_voivodeships = sorted(
+        set(wanted_voivodeships) - set(pl_places.VOIVODESHIPS)
+    )
+    if unknown_voivodeships:
+        raise UnknownPlace(f"Nie znam województwa: {', '.join(unknown_voivodeships)}.")
+    if wanted_voivodeships:
+        keys |= set(pl_places.keys_in_voivodeships(wanted_voivodeships))
+    parts: list[ColumnElement] = list(city_match_clauses(text_cities))
+    if keys:
+        parts.append(_place_keys_match(keys))
+    if not parts:
+        return None
+    matched = or_(*parts)
+    if sem.location_unknown == "include":
+        nowhere = and_(Candidate.city.is_(None), Candidate.location.is_(None))
         return or_(nowhere, matched)
     return matched
+
+
+def place_distance(
+    candidate: Any, places: Sequence[LocationPlace]
+) -> Optional[dict[str, Any]]:
+    """„Pruszków · 16 km od Warszawy” dla wiersza listy: najbliższy środek
+    promienia, w którego zasięgu leży miejscowość kandydata. ``None``, gdy
+    miejscowości nie ma w spisie, kandydat mieszka w samym środku albo poza
+    każdym promieniem (przeszedł przez miasto bez promienia / województwo).
+    Liczone w Pythonie dla wierszy jednej strony — bez zapytań."""
+    from app.services import pl_places
+
+    centers = [(p, pl_places.resolve(p.city)) for p in places if p.radius_km]
+    if not centers:
+        return None
+    own = None
+    for value in (
+        getattr(candidate, "city", None),
+        getattr(candidate, "location", None),
+    ):
+        own = pl_places.resolve(value)
+        if own is not None:
+            break
+    if own is None:
+        return None
+    best: Optional[tuple[float, Any]] = None
+    for place, center in centers:
+        if center is None:
+            continue
+        if center.id == own.id:
+            return None
+        km = pl_places.distance_km(center, own)
+        if km <= (place.radius_km or 0) and (best is None or km < best[0]):
+            best = (km, center)
+    if best is None:
+        return None
+    return {"place": own.name, "km": int(round(best[0])), "center": best[1].name}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

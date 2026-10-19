@@ -54,6 +54,8 @@ def request_semantics(req: CandidateSearchRequest) -> predicates.Semantics:
         "search",
         getattr(req, "semantics_version", None),
         getattr(req, "hide_unknown", None),
+        hide_unknown_rate=getattr(req, "hide_unknown_rate", None),
+        hide_unknown_location=getattr(req, "hide_unknown_location", None),
     )
 
 

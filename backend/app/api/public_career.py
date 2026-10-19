@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _NOT_FOUND = "Nie znaleziono strony."
+_CLOSED_TITLE = "Rekrutacja"
 
 
 def _link_active(link: CandidateInviteLink) -> bool:
@@ -141,7 +142,12 @@ async def get_career_job(
     slug: str,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Strona rekrutacji. 404 dla nieznanego sluga i niezatwierdzonego opisu."""
+    """Strona rekrutacji: ostatnia ZATWIERDZONA wersja opisu.
+
+    Poprawki po zatwierdzeniu nie zdejmują strony — kandydat widzi wersję
+    zatwierdzoną, dopóki nikt nie zatwierdzi nowej (19.10.2026). 404 dla
+    nieznanego sluga i opisu, którego nikt nigdy nie zatwierdził.
+    """
     link = await _link_by_slug(db, slug, kind="job")
     if link is None or link.job_id is None:
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
@@ -149,26 +155,32 @@ async def get_career_job(
     job = await db.get(Job, link.job_id)
     if job is None or profile is None:
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
-    status_value, _default, title = await jpp.resolve_status(db, job, profile)
-    if status_value != jpp.STATUS_APPROVED:
+    version = await jpp.published_version(db, job, profile)
+    closed = not (_link_active(link) and jpp.job_is_open(job))
+    if version is None and not (closed and profile.approved_at is not None):
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
 
     recruiter = await _recruiter_brief(db, link.created_by)
     _no_cache(response)
-    if not (_link_active(link) and jpp.job_is_open(job)):
+    if closed:
+        # Zamknięta rekrutacja, której opis był kiedyś zatwierdzony, zawsze
+        # pokazuje „proces zakończony” — także gdy po zamknięciu ktoś zaczął
+        # poprawiać opis. Tytuł tylko z opublikowanej wersji.
         return {
             "status": "closed",
             "recruiter": recruiter,
-            "job": jpp.closed_job_payload(title, link.slug),
+            "job": jpp.closed_job_payload(
+                version.title if version else _CLOSED_TITLE, link.slug
+            ),
         }
 
     payload = jpp.public_job_payload(
         job,
-        title=title,
+        title=version.title,
         link_slug=link.slug,
-        subtitle=profile.subtitle,
-        about=profile.about,
-        sections=profile.sections,
+        subtitle=version.subtitle,
+        about=version.about,
+        sections=version.sections,
     )
     await _bump_visits(db, link, request)
     return {"status": "open", "recruiter": recruiter, "job": payload}
@@ -209,17 +221,15 @@ async def get_career_recruiter(
     for job_link, job, profile in rows:
         if job.id in seen or not _link_active(job_link) or not jpp.job_is_open(job):
             continue
-        status_value, _default, title = await jpp.resolve_status(
-            db, job, profile, names_cache=names_cache
-        )
-        if status_value != jpp.STATUS_APPROVED:
+        version = await jpp.published_version(db, job, profile, names_cache=names_cache)
+        if version is None:
             continue
         seen.add(job.id)
-        params = jpp.visible_params(job, profile.sections if profile else None)
+        params = jpp.visible_params(job, version.sections)
         jobs.append(
             {
                 "slug": job_link.slug,
-                "title": title,
+                "title": version.title,
                 "city": params["city"],
                 "remote_policy": params["remote_policy"],
             }
@@ -243,8 +253,7 @@ async def _apply_link(db: AsyncSession, slug: str) -> CandidateInviteLink:
         if not jpp.job_is_open(job):
             raise HTTPException(status_code=404, detail=_NOT_FOUND)
         profile = await db.get(JobPublicProfile, link.job_id)
-        status_value, _default, _title = await jpp.resolve_status(db, job, profile)
-        if status_value != jpp.STATUS_APPROVED:
+        if await jpp.published_version(db, job, profile) is None:
             raise HTTPException(status_code=404, detail=_NOT_FOUND)
     return link
 

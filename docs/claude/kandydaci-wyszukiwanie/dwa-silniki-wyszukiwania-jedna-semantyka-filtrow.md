@@ -59,6 +59,61 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
   plikach testów. Kanoniczny fit (`canonical_fit`, `scoring_service`) NIE jest
   tą zmianą dotykany.
 
+### Brak danych per filtr i kilka miast z promieniem (D5, D6 — 19.10.2026)
+
+Zgłoszenie: „Stawka do 55 zł/h” + „Warszawa” → „25 kandydatów”, a w wierszach
+„brak stawki” / „brak lokalizacji”. Filtr działał według v2 (osoba bez danych
+zostaje, na końcu listy) — brakowało rozdzielenia na ekranie.
+
+- **`hide_unknown_rate` / `hide_unknown_location`** (L i S, pola obok
+  `hide_unknown`; `Semantics.rate_unknown` / `location_unknown`): `true`
+  ukrywa braki TYLKO swojego filtru (miasto obejmuje też kraj). Brak / `false`
+  = jak bez przełącznika, więc nigdy nie poszerzają wyniku — v1 i stare
+  `hide_unknown` odpowiadają dokładnie jak dotąd (test parametryczny
+  w `test_location_places_and_unknown_flags.py`). Globalne `hide_unknown`
+  (`hu=1`, „Więcej filtrów”) dalej ukrywa wszystko, także staż. Front:
+  wybór „pokaż na końcu listy / ukryj” w okienku Stawki i Lokalizacji,
+  adres `hur=1` / `hul=1`, dopisek „· bez stawki: ukryte” na przycisku i chipie.
+- **`known_match_count`** w odpowiedzi listy = ile z `total` spełnia aktywne
+  filtry stawki / lokalizacji / stażu Z DANYMI (`_unknown_rank_expr == 0`).
+  Tylko v2, bez globalnego `hide_unknown` i gdy któryś z tych filtrów może
+  zostawić braki; inaczej `null`. Ścieżka „najpierw id” i dawna liczą go
+  w TYM SAMYM oknie co `total` (`count(*) FILTER (WHERE …) OVER ()`, zero
+  zapytań więcej); kolejność „Dopasowanie” trzyma w pamięci same id, więc tam
+  to jedno `count` po tych samych filtrach (tylko przy aktywnym filtrze
+  z brakami — kosztu na produkcji nie mierzyłem). Front: „2 spełniają filtr ·
+  23 bez danych” zamiast „25 kandydatów”.
+- **Kreska nad osobami bez danych** (`lib/unknown-divider.ts`): stoi nad
+  pierwszym wierszem z `unknown_fields` TYLKO przy układzie „z danymi, potem
+  bez”. Braki idą na koniec przy każdym sortowaniu (także `match` i
+  `newest`), ale „Mile widziane” (`_preferred_rank`) prowadzi przed nimi —
+  wtedy braki bywają w środku i kreski nie ma (kolejności nie zmieniamy).
+  „Ukryj” na kresce włącza oba wąskie przełączniki (+ globalne, gdy pod kreską
+  są braki stażu). Wiersz listy ma plakietki `UnknownFieldBadges` jak
+  wyszukiwarka.
+- **`location_places`** (powtarzany: `Warszawa:30`, `Łódź`; do 10, promień
+  1–300, nieznana miejscowość z promieniem = 422 jak `UnknownPlace`; zły
+  kształt = 422 `InvalidLocationPlaces` przed zbudowaniem filtrów, w eksporcie
+  z walidacji ciała) = **SUMA**: miasto bez promienia (dopasowanie jak
+  `location_cities`), promień KTÓREGOKOLWIEK środka (suma `keys_within`) albo
+  województwo (`location_places_clause`). Pojedyncze `location`(+`radius`)
+  i `location_cities` z tego samego żądania dokładają się do sumy.
+  **Bez `location_places` nic się nie zmienia:** `location` i `voivodeship`
+  łączą się dalej przez I (promień + województwo = część wspólna), na tym
+  stoją stare adresy i alerty. Front: adres `locs=Warszawa:30|Łódź`; stare
+  `loc`/`radius` czytane jak dotąd, okienko pokazuje je jako listę z jednym
+  miastem, a zapis (`locationPlacesPatch`) zostawia jedno miasto bez
+  województw w starym kształcie (to samo znaczenie). Nowe pola w zapisanych
+  wyszukiwaniach jadą w `qs` i `api`, w formacie v3 w `list_only` (w obie
+  strony, alert je odtwarza).
+- **`location_distance`** w wierszu („Pruszków · 16 km (Warszawa)”):
+  najbliższy środek promienia, w którym leży miejscowość osoby, liczony
+  w Pythonie ze współrzędnych `pl_places` dla wierszy strony (zero zapytań).
+  Nazwa środka w nawiasie, bo „od Warszawy” wymaga odmiany nazw miejscowości.
+- **„Szukaj ręcznie”**: miasta rekrutacji zostają „Mile widziane”; w okienku
+  Lokalizacji jest „Wstaw miasta rekrutacji”, które przenosi je do twardej
+  listy (do limitu 10).
+
 ### Zapisane wyszukiwania: format v3 i migracja na wspólną semantykę
 
 - **Jeden format zapisu** (`version: 3`, `semantics_version: 2`, `origin`,

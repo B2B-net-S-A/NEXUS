@@ -60,7 +60,10 @@ import {
 import { FieldLabel, FilterPill } from "@/components/v2/filters/FilterBarPill";
 import { PillGroup, toggleInList } from "@/components/v2/candidates/filters/FilterPillGroup";
 import { SkillBucketsField } from "@/components/v2/candidates/SkillBucketsField";
-import { HideUnknownToggle } from "@/components/v2/candidates/UnknownFieldBadges";
+import {
+  HideUnknownChoice,
+  HideUnknownToggle,
+} from "@/components/v2/candidates/UnknownFieldBadges";
 import {
   ContactFields,
   KeywordFields,
@@ -398,7 +401,7 @@ export function CandidateFilterBar({
           icon={<Wallet />}
           summary={rateSummary(filters)}
           count={counts.rate}
-          onClear={() => onPatch({ rateMin: null, rateMax: null })}
+          onClear={() => onPatch({ rateMin: null, rateMax: null, hideUnknownRate: false })}
           contentClassName="w-72"
         >
           <RangeInputs
@@ -409,13 +412,28 @@ export function CandidateFilterBar({
             parse={parseRateBound}
             onChange={({ min, max }) => onPatch({ rateMin: min, rateMax: max })}
           />
+          <HideUnknownChoice
+            label="Osoby bez stawki"
+            hidden={filters.hideUnknownRate}
+            onChange={(hidden) => onPatch({ hideUnknownRate: hidden })}
+            className="mt-2 border-t border-border pt-2"
+          />
         </FilterPill>
         <FilterPill
           label="Lokalizacja"
           icon={<MapPin />}
           summary={locationSummary(filters)}
           count={counts.location}
-          onClear={() => onPatch({ location: "", locationRadiusKm: null, voivodeships: [] })}
+          onClear={() =>
+            onPatch({
+              location: "",
+              locationRadiusKm: null,
+              voivodeships: [],
+              locationPlaces: [],
+              hideUnknownLocation: false,
+            })
+          }
+          contentClassName="w-[360px] max-w-[calc(100vw-2rem)]"
         >
           <LocationFields filters={filters} onPatch={onPatch} />
         </FilterPill>

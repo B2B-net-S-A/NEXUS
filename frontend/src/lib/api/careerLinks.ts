@@ -44,7 +44,12 @@ export interface CreateInviteLinkInput {
 
 export type PublicProfileStatus = "none" | "draft" | "approved";
 
-export type FindingCode = "client_name" | "money" | "contact" | "person_name";
+export type FindingCode =
+  | "client_name"
+  | "money"
+  | "contact"
+  | "person_name"
+  | "internal_code";
 
 export interface PublicProfileFinding {
   code: FindingCode | string;
@@ -100,6 +105,20 @@ export interface JobPublicProfile {
   approved_content_stale: boolean;
   findings: PublicProfileFinding[];
   preview: PublicJobPreview | null;
+  /**
+   * Wersja, którą dziś widzi kandydat; `null` = strona daje 404 (opis nigdy
+   * niezatwierdzony). Poprawki po zatwierdzeniu nie zdejmują strony —
+   * `pending_changes` mówi, że czekają na zatwierdzenie.
+   */
+  live: PublicProfileLive | null;
+}
+
+export interface PublicProfileLive {
+  title: string;
+  subtitle: string | null;
+  about: string | null;
+  sections: PublicProfileSections;
+  pending_changes: boolean;
 }
 
 export interface JobPublicProfileInput {
@@ -208,6 +227,20 @@ export function normalizePublicProfile(
     approved_content_stale: r.approved_content_stale === true,
     findings: Array.isArray(r.findings) ? r.findings : [],
     preview: r.preview ?? null,
+    live: normalizeLive(r.live),
+  };
+}
+
+function normalizeLive(raw: unknown): PublicProfileLive | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Partial<PublicProfileLive>;
+  if (typeof r.title !== "string") return null;
+  return {
+    title: r.title,
+    subtitle: typeof r.subtitle === "string" ? r.subtitle : null,
+    about: typeof r.about === "string" ? r.about : null,
+    sections: { ...DEFAULT_SECTIONS, ...(r.sections ?? {}) },
+    pending_changes: r.pending_changes === true,
   };
 }
 

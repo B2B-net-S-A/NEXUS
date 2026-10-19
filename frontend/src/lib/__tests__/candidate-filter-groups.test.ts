@@ -36,6 +36,31 @@ describe("rateSummary", () => {
   });
 });
 
+describe("D5/D6: podsumowania stawki i lokalizacji (19.10.2026)", () => {
+  it("stawka z ukrytymi brakami", () => {
+    expect(rateSummary({ rateMin: null, rateMax: 55, hideUnknownRate: true })).toBe(
+      "do 55 zł/h · bez stawki: ukryte",
+    );
+    // Sam wybór bez progu stawki nic nie znaczy.
+    expect(rateSummary({ rateMin: null, rateMax: null, hideUnknownRate: true })).toBeNull();
+  });
+
+  it("kilka miast z promieniami, województwo i ukryte braki", () => {
+    const filters = withFilters({
+      locationPlaces: [
+        { city: "Warszawa", radiusKm: 30 },
+        { city: "Łódź", radiusKm: null },
+      ],
+      voivodeships: ["pomorskie"],
+      hideUnknownLocation: true,
+    });
+    expect(locationSummary(filters)).toBe(
+      "Warszawa +30 km, Łódź, pomorskie · bez miasta: ukryte",
+    );
+    expect(filterGroupCounts(filters, NO_STAGE, NO_SKILLS).location).toBe(3);
+  });
+});
+
 describe("locationSummary", () => {
   it("miasto, miasto z promieniem i miasto z województwem", () => {
     expect(locationSummary({ location: "Warszawa", locationRadiusKm: null, voivodeships: [] })).toBe(

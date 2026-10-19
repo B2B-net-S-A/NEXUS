@@ -615,8 +615,7 @@ async def _load_valid_link(token: str, db: AsyncSession) -> CandidateInviteLink:
     # opisu publicznego strona pokazywała tytuł i miasto prosto z rekrutacji
     # (nazwa klienta, kody), a formularz przyjmował zgłoszenia.
     profile = await db.get(JobPublicProfile, link.job_id)
-    status_value, _default, _title = await jpp.resolve_status(db, job, profile)
-    if status_value != jpp.STATUS_APPROVED:
+    if await jpp.published_version(db, job, profile) is None:
         raise HTTPException(status_code=404, detail="Invite link not found or revoked")
     return link
 
@@ -647,11 +646,16 @@ async def get_public_apply_meta(
     # Runda 10 (R10-N10-9): parametry z zatwierdzonej migawki i przełączników
     # sekcji, jak na stronie kariery — nie surowe `jobs.location`.
     from app.models.job_public_profile import JobPublicProfile
-    from app.services.job_public_profile import public_titles, visible_params
+    from app.services.job_public_profile import published_version, visible_params
 
+    # 19.10.2026: wersja opublikowana, nie bieżący szkic — poprawki czekające
+    # na zatwierdzenie nie trafiają do kandydata.
     profile = await db.get(JobPublicProfile, job.id)
-    _default_title, public_title = await public_titles(db, job, profile)
-    params = visible_params(job, profile.sections if profile else None)
+    version = await published_version(db, job, profile)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Invite link not found or revoked")
+    public_title = version.title
+    params = visible_params(job, version.sections)
 
     return {
         "recruiter": {"first_name": recruiter_first_name or "Zespół"},

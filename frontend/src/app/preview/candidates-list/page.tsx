@@ -30,6 +30,10 @@
  *  - plik z „anna” w nazwie → odczyt odmawia po e-mailu, z „kopia” → po
  *    identycznym pliku, z „dlugi” → przekroczenie czasu odczytu;
  *  - każdy inny plik → odczyt wypełnia pola, zapis „zakłada” kandydata.
+ * D5/D6 (19.10.2026): `?rate_max=55&locs=Warszawa:25|Łódź|Kraków:50` pokazuje
+ * licznik „2 spełniają filtr · 23 bez danych”, kreskę nad osobami bez stawki
+ * albo miasta, plakietki „brak …” i „Pruszków · 16 km (Warszawa)”; okienko
+ * „Lokalizacja” ma wtedy trzy miasta z promieniami.
  * Dane są fikcyjne — repo jest publiczne.
  */
 
@@ -216,6 +220,37 @@ const CANDIDATES = [
     status: "active",
     active_recruitments: [],
   },
+];
+
+/**
+ * D5/D6: lista przy „Stawka do 55 zł/h” + trzech miastach — dwie osoby
+ * z danymi, potem osoby, które przeszły filtr na brak stawki albo miasta.
+ */
+const UNKNOWN_SPLIT_ITEMS = [
+  {
+    ...CANDIDATES[0],
+    expected_rate_hourly: 50,
+    rate_from_hourly: 50,
+    rate_latest_hourly: 50,
+    unknown_fields: [],
+  },
+  {
+    ...CANDIDATES[1],
+    city: "Pruszków",
+    expected_rate_hourly: 45,
+    rate_from_hourly: 45,
+    rate_latest_hourly: 45,
+    location_distance: { place: "Pruszków", km: 16, center: "Warszawa" },
+    unknown_fields: [],
+  },
+  {
+    ...CANDIDATES[2],
+    city: "Łódź",
+    expected_rate_hourly: null,
+    unknown_fields: ["rate"],
+  },
+  { ...CANDIDATES[3], city: "Kraków", unknown_fields: ["rate"] },
+  { ...CANDIDATES[5], unknown_fields: ["location", "rate"] },
 ];
 
 const QUICK_VIEW = {
@@ -485,6 +520,15 @@ function seededClient(): QueryClient {
       total: 37,
       page: 1,
       page_size: 50,
+    });
+  }
+  if (fromUrl.locationPlaces.length || fromUrl.rateMax !== null) {
+    qc.setQueryData(candidatesListQueryKey(candidatesListApiParams(fromUrl, 1, 50)), {
+      items: UNKNOWN_SPLIT_ITEMS,
+      total: 25,
+      page: 1,
+      page_size: 50,
+      known_match_count: 2,
     });
   }
   qc.setQueryData(["places-suggest", fromUrl.location.trim()], {

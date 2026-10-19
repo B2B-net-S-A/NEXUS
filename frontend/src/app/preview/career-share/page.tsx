@@ -53,9 +53,19 @@ const PROFILE_WITH_FINDING: JobPublicProfile = {
     "Dołączysz do zespołu, który przebudowuje platformę obsługującą płatności kartowe i przelewy natychmiastowe. System przechodzi z monolitu na architekturę mikroserwisów opartą o zdarzenia. Budżet do 180 zł/h.\n\nZespół liczy 8 osób, dwutygodniowe sprinty.",
   sections: { must: true, nice: true, params: true, process: true },
   show_on_recruiter_page: true,
-  approved_at: null,
-  approved_by_name: null,
+  approved_at: "2026-10-18T12:20:00Z",
+  approved_by_name: "Marta Przykładowa",
   approved_content_stale: false,
+  // Opis zatwierdzony 18.10, potem ktoś dopisał kwotę: strona działa na
+  // wersji zatwierdzonej, a okno pokazuje czekające zmiany.
+  live: {
+    title: "Senior Java Developer",
+    subtitle: "rozwój platformy płatności w dużym projekcie z sektora bankowego",
+    about:
+      "Dołączysz do zespołu, który przebudowuje platformę obsługującą płatności kartowe i przelewy natychmiastowe.\n\nZespół liczy 8 osób, dwutygodniowe sprinty.",
+    sections: { must: true, nice: true, params: true, process: true },
+    pending_changes: true,
+  },
   findings: [
     {
       code: "money",
@@ -84,6 +94,22 @@ const PROFILE_WITH_FINDING: JobPublicProfile = {
 };
 
 const INVITE_LINKS: InviteLink[] = [
+  {
+    token: "tok-0",
+    url: "https://kariera.dynaminds.pl/r/senior-java-developer-7kq2",
+    public_url: "https://kariera.dynaminds.pl/r/senior-java-developer-7kq2",
+    kind: "job",
+    slug: "senior-java-developer-7kq2",
+    job: { id: 101, title: "Bank Północny: Senior Java Developer (ZOB-3003)" },
+    label: null,
+    expires_at: null,
+    revoked: false,
+    use_count: 3,
+    visit_count: 41,
+    last_used_at: "2026-10-18T16:40:00Z",
+    created_at: "2026-10-18T12:21:00Z",
+    status: "used",
+  },
   {
     token: "tok-1",
     url: "https://kariera.dynaminds.pl/r/devops-engineer-azure-p3x9",
