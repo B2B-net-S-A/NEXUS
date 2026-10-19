@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -251,7 +251,9 @@ def validate_rate(hourly_rate: Decimal, currency: str) -> tuple[Decimal, str]:
     code = (currency or "").strip().upper()
     if code not in CURRENCIES:
         raise PayrollError("Waluta stawki: PLN, EUR albo USD.")
-    return hourly_rate.quantize(Decimal("0.01")), code
+    # HALF_UP jak raport płac (``payroll_report.money``); RATE_MAX ma dwa miejsca
+    # po przecinku, więc wynik zaokrąglenia nie wyjdzie poza zakres.
+    return hourly_rate.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), code
 
 
 def rate_payload(rate: EmployeeRate) -> dict[str, Any]:
@@ -275,6 +277,27 @@ def rate_on(rates: list[EmployeeRate], day: date) -> Optional[EmployeeRate]:
             rate.effective_to is None or rate.effective_to >= day
         ):
             return rate
+    return None
+
+
+def rate_to_close(
+    earlier: list[EmployeeRate], effective_from: date
+) -> Optional[EmployeeRate]:
+    """Stawka do domknięcia dniem przed nową: tylko ta, która w tym dniu trwa.
+
+    ``earlier`` — kroki sprzed nowej daty, rosnąco. Ostatni z nich, zakończony
+    przed nową datą (luka z importu Compassa: stawka z końcem, bez następnej),
+    zostaje nietknięty — inaczej luka wypełniłaby się starą stawką: miesiące
+    bez stawki liczyłyby się nią zamiast ostrzeżenia ``missing_rates``, a zamknięty
+    miesiąc zmieniałby się bez 409, bo blokada i kontrola zamkniętych miesięcy
+    zaczynają się od nowej daty (audyt A2, 19.10.2026).
+    """
+
+    if not earlier:
+        return None
+    before = earlier[-1]
+    if before.effective_to is None or before.effective_to >= effective_from:
+        return before
     return None
 
 
@@ -366,8 +389,8 @@ async def set_rate(
         same.set_by = actor_id
         rate = same
     else:
-        if earlier:
-            before = earlier[-1]
+        before = rate_to_close(earlier, effective_from)
+        if before is not None:
             previous = {
                 "hourly_rate": str(before.hourly_rate),
                 "currency": before.currency,

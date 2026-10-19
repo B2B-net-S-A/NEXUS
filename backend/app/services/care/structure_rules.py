@@ -232,21 +232,32 @@ class ContactIndex:
 
     def __init__(self, people: Sequence[PersonRow]) -> None:
         self.people = {person.id: person for person in people}
-        self._by_name: dict[frozenset[str], int] = {}
+        self._by_name: dict[frozenset[str], Optional[int]] = {}
         self._by_mail: dict[str, int] = {}
+        self._loose: list[frozenset[str]] = []
+        named: dict[frozenset[str], list[PersonRow]] = {}
         for person in sorted(people, key=lambda p: p.id):
             key = name_key(person.name)
             if len(key) >= 2:
-                self._by_name.setdefault(key, person.id)
+                named.setdefault(key, []).append(person)
+                self._loose.append(_loose_key(person.name))
             mail = text_key(person.email)
             if mail:
                 self._by_mail.setdefault(mail, person.id)
+        for key, rows in named.items():
+            mails = {text_key(row.email) for row in rows}
+            # Ta sama osoba wpisana dwa razy (ten sam e-mail) = najniższe id;
+            # imiennicy (różne albo brak adresów) = nikt, bo „Zatwierdź pewne”
+            # wpisałby hurtem osobę o niższym id (audyt 19.10.2026).
+            same_person = len(rows) == 1 or (len(mails) == 1 and None not in mails)
+            self._by_name[key] = rows[0].id if same_person else None
 
     def by_name(self, text: Optional[str]) -> Optional[int]:
         """Pełne imię i nazwisko (kolejność, wielkość liter i ogonki bez znaczenia).
 
         Samo imię albo skrót („Michał R.”) nie wskazuje nikogo — przypięcie
-        złej osoby zabrałoby opinię innemu menedżerowi.
+        złej osoby zabrałoby opinię innemu menedżerowi. Imiennicy u klienta
+        też nie (``None``).
         """
 
         key = name_key(text)
@@ -254,9 +265,35 @@ class ContactIndex:
             return None
         return self._by_name.get(key)
 
+    def name_known(self, text: Optional[str]) -> bool:
+        """Czy któryś kontakt może być tą osobą — także wpisaną inaczej.
+
+        „Anna Nowak” ~ „Anna Maria Nowak”, „Nowak-Kowalska” ~ „Nowak Kowalska”:
+        jeden zbiór słów zawiera drugi i mają wspólne co najmniej dwa słowa.
+        Imiennicy też się liczą. Wtedy nie podpowiadamy „Dodaj X” — kontakt
+        powstałby drugi raz (``find_or_create_contact`` porównuje dokładnie).
+        """
+
+        key = name_key(text)
+        if len(key) >= 2 and key in self._by_name:
+            return True
+        loose = _loose_key(text)
+        if len(loose) < 2:
+            return False
+        return any(
+            len(loose & other) >= 2 and (loose <= other or other <= loose)
+            for other in self._loose
+        )
+
     def by_email(self, text: Optional[str]) -> Optional[int]:
         mail = text_key(text)
         return self._by_mail.get(mail) if mail else None
+
+
+def _loose_key(value: Optional[str]) -> frozenset[str]:
+    """Klucz imienia i nazwiska z rozbitym nazwiskiem dwuczłonowym."""
+
+    return name_key(re.sub(r"[-‐‑–—]", " ", value or ""))
 
 
 # ── Nowa osoba z tekstu „Line Manager” ─────────────────────────────────────
@@ -294,6 +331,35 @@ _NOT_A_NAME = frozenset(
         "client",
         "wakat",
         "vacat",
+        # Jednostki i firmy, nie osoby (audyt 19.10.2026: „IT Ops”, „Nordea
+        # Bank”, „Tribe Payments”, „Squad Alpha”, „Departament Ryzyka”).
+        "it",
+        "ops",
+        "hr",
+        "bank",
+        "banku",
+        "tribe",
+        "squad",
+        "chapter",
+        "guild",
+        "departament",
+        "department",
+        "dept",
+        "pion",
+        "biuro",
+        "office",
+        "sekcja",
+        "obszar",
+        "area",
+        "unit",
+        "division",
+        "grupa",
+        "group",
+        "projekt",
+        "project",
+        "program",
+        "spółka",
+        "spolka",
     }
 )
 NAME_WORDS_MAX = 4
@@ -343,7 +409,7 @@ def new_person_hint(
         name = person_name_from_text(value)
         if name is None:
             continue
-        if index.by_name(name) is not None:
+        if index.name_known(name):
             return None
         return NewPersonHint(name=name, source=source)
     return None

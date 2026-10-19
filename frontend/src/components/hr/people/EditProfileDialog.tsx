@@ -14,10 +14,16 @@ import {
   type ProfileFormState,
 } from "./ProfileFieldsForm";
 
-function formFrom(person: PersonFull): ProfileFormState {
+export function formFrom(person: PersonFull): ProfileFormState {
+  // Forma ukryta (Kadry bez Płac) — bez pól od niej zależnych: ich wartości też
+  // zdradzałyby formę (19.10.2026). Serwer wysyła wtedy kartotekę bez znacznika
+  // studenta; forma „do uzupełnienia” u Finansów ma go (i `null` w formie).
+  const formVisible = "student_contribution_exempt" in person;
   return {
     manager_user_id: person.manager_user_id ? String(person.manager_user_id) : "",
-    employment_type: person.employment_type,
+    // Forma do uzupełnienia: domyślne B2B nie jest wyborem — trzeba ją wybrać.
+    employment_type: person.employment_type_pending ? "" : (person.employment_type ?? ""),
+    employment_type_blank: person.employment_type_pending ? "pending" : "hidden",
     employment_status: person.employment_status,
     work_start_date: person.work_start_date ?? "",
     last_working_day: person.last_working_day ?? "",
@@ -29,11 +35,15 @@ function formFrom(person: PersonFull): ProfileFormState {
     phone: person.phone ?? "",
     division: person.division ?? "",
     // Pola zależne od formy (D8, D9) — tylko tutaj, w edycji kartoteki.
-    student: Boolean(person.student_contribution_exempt),
-    exempt_until: person.contribution_exempt_until ?? "",
-    seniority:
-      person.leave_seniority_years == null ? "" : String(person.leave_seniority_years),
-    zus_certificate: person.zus_certificate_received_on ?? "",
+    ...(formVisible
+      ? {
+          student: Boolean(person.student_contribution_exempt),
+          exempt_until: person.contribution_exempt_until ?? "",
+          seniority:
+            person.leave_seniority_years == null ? "" : String(person.leave_seniority_years),
+          zus_certificate: person.zus_certificate_received_on ?? "",
+        }
+      : {}),
   };
 }
 

@@ -29,7 +29,7 @@ from typing import Any, Mapping, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.hr_ops import HrImportBatch
+from app.models.hr_ops import HrImportBatch, HrImportIdMap
 from app.models.hr_payroll import EmployeeRate, HrBonus
 from app.services.hr_payroll_schema import (
     BONUS_MAX,
@@ -47,6 +47,7 @@ from .common import (
     decimal,
     join_notes,
     load_people,
+    module_map,
     parse_date,
     parse_datetime,
     parse_uuid,
@@ -54,13 +55,14 @@ from .common import (
     source_id,
     text,
 )
-from .core import ModulePlan, RowPlan, remember
+from .core import ModulePlan, RowPlan, changed_in_nexus, remember
 
 MODULE = "payroll"
 RATES = "user_rates"
 BONUSES = "bonuses"
 
 SELF_PROPOSED = "premia zaproponowana samemu sobie — proponujący pominięty"
+CHANGED_IN_NEXUS = "zmienione w NEXUSIE po imporcie — bez nadpisania"
 CATEGORY_MAP: dict[str, str] = {
     "sales": "sales",
     "delivery_lead": "delivery_lead",
@@ -113,7 +115,11 @@ def _rates_by_user(
 
 
 async def _plan_rates(
-    db: AsyncSession, bundle: Bundle, people: People, result: ImportPlan
+    db: AsyncSession,
+    bundle: Bundle,
+    people: People,
+    mapping: dict[str, HrImportIdMap],
+    result: ImportPlan,
 ) -> None:
     rows = bundle.rows(RATES)
     by_user = _rates_by_user(rows, people)
@@ -183,8 +189,9 @@ async def _plan_rates(
         )
         if existing is not None:
             payload["rate_id"] = existing.id
-            action = "update" if changed_fields(existing, values) else "unchanged"
-            result.rows.append(RowPlan(sid, action, reason, payload))
+            result.rows.append(
+                await _existing_row(db, sid, existing, values, mapping, reason, payload)
+            )
             continue
         if user_id in manual_users:
             result.rows.append(
@@ -225,8 +232,32 @@ def _snapshot(row: Mapping[str, Any]) -> dict[str, Any]:
     return {"compass": snapshot}
 
 
+async def _existing_row(
+    db: AsyncSession,
+    sid: str,
+    existing: EmployeeRate | HrBonus,
+    values: Mapping[str, Any],
+    mapping: dict[str, HrImportIdMap],
+    reason: str,
+    payload: dict[str, Any],
+) -> RowPlan:
+    """Wiersz już w NEXUSIE: zmieniony tu po imporcie (poprawka stawki,
+    przyznanie albo anulowanie premii) wygrywa z paczką — Compass jest od
+    18.10.2026 tylko do odczytu, więc różnica to zmiana NEXUSA."""
+
+    if not changed_fields(existing, values):
+        return RowPlan(sid, "unchanged", reason, payload)
+    if await changed_in_nexus(db, mapping.get(sid), existing.updated_at):
+        return RowPlan(sid, "conflict", CHANGED_IN_NEXUS, payload)
+    return RowPlan(sid, "update", reason, payload)
+
+
 async def _plan_bonuses(
-    db: AsyncSession, bundle: Bundle, people: People, result: ImportPlan
+    db: AsyncSession,
+    bundle: Bundle,
+    people: People,
+    mapping: dict[str, HrImportIdMap],
+    result: ImportPlan,
 ) -> None:
     for row in bundle.rows(BONUSES):
         sid = source_id(BONUSES, row)
@@ -315,15 +346,17 @@ async def _plan_bonuses(
             result.rows.append(RowPlan(sid, "create", reason, payload))
             continue
         payload["bonus_id"] = existing.id
-        action = "update" if changed_fields(existing, values) else "unchanged"
-        result.rows.append(RowPlan(sid, action, reason, payload))
+        result.rows.append(
+            await _existing_row(db, sid, existing, values, mapping, reason, payload)
+        )
 
 
 async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
     result = ImportPlan(module=MODULE)
     people = await load_people(db, bundle)
-    await _plan_rates(db, bundle, people, result)
-    await _plan_bonuses(db, bundle, people, result)
+    mapping = await module_map(db, MODULE)
+    await _plan_rates(db, bundle, people, mapping, result)
+    await _plan_bonuses(db, bundle, people, mapping, result)
     # Suma kontrolna dla porównania z Compassem: wiersze per waluta, bez kwot.
     for table, key in (
         (RATES, "rate_rows_per_currency"),

@@ -31,8 +31,10 @@ import {
   copyItemsText,
   documentTitle,
   formNote,
+  mergeSettlementYears,
   nextStepText,
   previousMonthLine,
+  settlementLayout,
   stepDetail,
   stepLabel,
 } from "./settlement-format";
@@ -175,10 +177,14 @@ function CurrentMonth({ month }: { month: MySettlementMonth }) {
         <SettlementSteps steps={month.steps} />
       </Card>
       <div className={cn("grid gap-3", b2b && month.invoice ? "lg:grid-cols-[3fr_2fr]" : "")}>
-        <Card size="sm" className="space-y-2" aria-labelledby={`month-${month.year}-${month.month}`}>
+        <Card
+          size="sm"
+          className="space-y-2"
+          aria-labelledby={`month-${month.year}-${month.month}-${month.currency}`}
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2
-              id={`month-${month.year}-${month.month}`}
+              id={`month-${month.year}-${month.month}-${month.currency}`}
               className="text-sm font-semibold text-foreground"
             >
               {capitalize(month.label)} · {documentTitle(month)}
@@ -245,7 +251,11 @@ function PreviousMonths({ months }: { months: readonly MySettlementMonth[] }) {
   );
 }
 
-/** Treść zakładki dla danych (bez zapytań) — także w harnessie i testach. */
+/**
+ * Treść zakładki dla danych (bez zapytań) — także w harnessie i testach.
+ * Na górze miesiące, w których osoba ma coś do zrobienia, potem najnowszy;
+ * waluty miesiąca razem (`settlementLayout`).
+ */
 export function MySettlementView({ data }: { data: MySettlements }) {
   if (data.months.length === 0) {
     return (
@@ -255,10 +265,12 @@ export function MySettlementView({ data }: { data: MySettlements }) {
       </Card>
     );
   }
-  const [current, ...previous] = data.months;
+  const { featured, previous } = settlementLayout(data.months);
   return (
     <div className="space-y-4">
-      <CurrentMonth month={current} />
+      {featured.flat().map((month) => (
+        <CurrentMonth key={`${month.year}-${month.month}-${month.currency}`} month={month} />
+      ))}
       <PreviousMonths months={previous} />
       {data.employment_type === "b2b" ? (
         <p className="text-xs text-muted-foreground">
@@ -274,15 +286,19 @@ export function MySettlementView({ data }: { data: MySettlements }) {
  * „Mój czas → Rozliczenie” (etap 4): dokument miesiąca według formy — B2B
  * „Do faktury” z pozycjami i fakturą z KSeF, zlecenie — rozliczenie
  * z potwierdzenia godzin z PDF-em, UoP — dane do listy płac. Tylko o sobie.
+ * Bieżący rok i poprzedni (`mergeSettlementYears`) — ekran nie ma wyboru roku.
  */
 export function MySettlementTab() {
-  const year = Number(warsawToday().slice(0, 4));
+  const today = warsawToday();
+  const year = Number(today.slice(0, 4));
   const query = useMySettlements(year);
+  // Poprzedni rok zawsze: grudzień do faktury nie znika 1.01 (audyt A2, 19.10.2026).
+  const lastYear = useMySettlements(year - 1);
   const state = resolveViewState({
-    isLoading: query.isLoading,
-    isError: query.isError,
-    error: query.error,
-    isSuccess: query.isSuccess,
+    isLoading: query.isLoading || lastYear.isLoading,
+    isError: query.isError || lastYear.isError,
+    error: query.error ?? lastYear.error,
+    isSuccess: query.isSuccess && lastYear.isSuccess,
   });
   if (state === "loading") {
     return <p className="text-sm text-muted-foreground">Wczytywanie rozliczenia…</p>;
@@ -298,10 +314,13 @@ export function MySettlementTab() {
               ? "Rozliczenie widzą osoby z kartoteką pracownika."
               : "Nie udało się wczytać rozliczenia."
         }
-        onRetry={() => query.refetch()}
+        onRetry={() => {
+          void query.refetch();
+          void lastYear.refetch();
+        }}
       />
     );
   }
-  return <MySettlementView data={query.data} />;
+  return <MySettlementView data={mergeSettlementYears(query.data, lastYear.data, today)} />;
 }
 

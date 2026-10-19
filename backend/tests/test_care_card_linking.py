@@ -60,6 +60,22 @@ def test_two_contracts_in_period_wait_for_confirmation() -> None:
     assert set(match.suggestions) == {20, 21}
 
 
+def test_namesakes_with_one_contract_in_period_wait_for_confirmation() -> None:
+    # Dwie różne osoby o tym samym nazwisku u klienta: umowa drugiej zaczyna
+    # się w NEXUSIE później niż faktyczna praca, więc w dniu rozmowy „pasuje”
+    # tylko pierwsza. Bez potwierdzenia karta wylądowałaby u obcej osoby.
+    index = ContractIndex.build(
+        [
+            (_row(100, 1, date(2026, 1, 1), None), "Jan Kowalski"),
+            (_row(200, 2, date(2026, 9, 1), None), "Jan Kowalski"),
+        ]
+    )
+    match = index.match(1, "Jan Kowalski", date(2026, 8, 10))
+    assert match.contract_id is None
+    assert match.state == "suggested"
+    assert set(match.suggestions) == {100, 200}
+
+
 def test_contract_outside_period_is_only_a_suggestion_nearest_first() -> None:
     index = ContractIndex.build(
         [
@@ -103,3 +119,32 @@ def test_suggester_proposes_existing_skill_instead_of_a_duplicate() -> None:
     assert suggest("NodeJS") == [3]
     assert suggest("C #") == [4]
     assert suggest("Zupełnie nowa platforma") == []
+
+
+async def test_pool_member_without_care_role_sees_link_button(monkeypatch) -> None:
+    # Trasa „Połącz” wpuszcza osobę z puli opiekunów (CareWriter), więc lista
+    # musi pokazać jej przycisk — wcześniej liczyła samą rolą (False).
+    from types import SimpleNamespace
+
+    from app.api import contract_care
+    from app.services.care import access, card_inbox, owner_pool
+
+    async def fake_client(db, client_id, user):
+        return SimpleNamespace(id=client_id)
+
+    async def fake_cards(db, client_id):
+        return {"items": []}
+
+    async def fake_writers(db):
+        return frozenset({7})
+
+    monkeypatch.setattr(access, "load_client", fake_client)
+    monkeypatch.setattr(card_inbox, "unlinked_cards", fake_cards)
+    monkeypatch.setattr(owner_pool, "writer_ids", fake_writers)
+    member = SimpleNamespace(id=7, has_any_role=lambda *roles: False)
+    outsider = SimpleNamespace(id=8, has_any_role=lambda *roles: False)
+
+    listed = await contract_care.client_unlinked_tech_cards(1, member, None)
+    assert listed["can_link"] is True
+    refused = await contract_care.client_unlinked_tech_cards(1, outsider, None)
+    assert refused["can_link"] is False

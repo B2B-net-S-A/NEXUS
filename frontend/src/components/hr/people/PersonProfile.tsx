@@ -30,6 +30,7 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { BillingDetailsSection } from "./BillingDetailsSection";
 import { EditProfileDialog } from "./EditProfileDialog";
+import { EmploymentTypeDialog } from "./EmploymentTypeDialog";
 import { EntitlementDialog } from "./EntitlementDialog";
 import { poolAllowed } from "./form-rules";
 import { STATUS_TONE, formatDays, personInitials } from "./hr-format";
@@ -77,7 +78,13 @@ function LeavePoolCard({
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between">
-        <CardTitle>{form === "uop" ? `Urlop ${year}` : `Płatne dni przerwy ${year}`}</CardTitle>
+        <CardTitle>
+          {form === "uop"
+            ? `Urlop ${year}`
+            : form
+              ? `Płatne dni przerwy ${year}`
+              : `Pula płatnych dni ${year}`}
+        </CardTitle>
         {canEdit ? (
           <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
             Zmień pulę
@@ -118,7 +125,7 @@ function LeavePoolCard({
           name={person.name}
           year={year}
           current={current}
-          employmentType={form}
+          employmentType={form ?? undefined}
           suggestedDays={person.suggested_entitlement_days ?? null}
           open={editing}
           onOpenChange={setEditing}
@@ -132,6 +139,8 @@ function LeavePoolCard({
 export function PersonProfile({ userId, config }: { userId: number; config: HrConfig }) {
   const person = usePerson(userId);
   const canEdit = config.me.people_admin;
+  // Formę zmieniają też Finanse (19.10.2026) — osobnym oknem, bo kartotekę edytują Kadry.
+  const canChangeForm = !canEdit && (config.me.payroll || config.me.is_admin);
   const viewerId = useAuthStore((state) => state.user?.id);
   // Dane do rozliczeń (M7): osoba, Kadry, Płace, admin — przełożony nie pyta serwera.
   const billingVisible =
@@ -149,6 +158,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
   const agreementsVisible = config.me.people_admin || config.me.payroll || config.me.is_admin;
   const directory = usePeople();
   const [editing, setEditing] = useState(false);
+  const [changingForm, setChangingForm] = useState(false);
   // Pula liczona na rok kalendarzowy osoby czytającej (Europe/Warsaw jak serwer).
   const year = useMemo(
     () =>
@@ -186,8 +196,8 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
 
   const data = person.data;
   const full = isFullPerson(data) ? data : null;
-  // Słowa formy (D4); wizytówka nie zna formy umowy, więc mówi oba słowa.
-  const words = full ? employmentTerms(full.employment_type) : null;
+  // Słowa formy (D4); wizytówka i forma ukryta (Kadry bez Płac) mówią oba słowa.
+  const words = full?.employment_type ? employmentTerms(full.employment_type) : null;
   const managers = (directory.data?.items ?? []).map((row) => ({
     user_id: row.user_id,
     name: row.name,
@@ -238,6 +248,12 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
             Edytuj kartotekę
           </Button>
         ) : null}
+        {canChangeForm && full ? (
+          <Button variant="outline" onClick={() => setChangingForm(true)}>
+            <Pencil className="h-4 w-4" aria-hidden />
+            Zmień formę
+          </Button>
+        ) : null}
       </header>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -253,7 +269,20 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
           <>
             <Card className="p-4">
               <CardTitle>Zatrudnienie</CardTitle>
-              <Fact label="Forma">{EMPLOYMENT_TYPE_LABELS[full.employment_type]}</Fact>
+              {/* Forma: osoba, przełożony, admin, Finanse; Kadry bez Płac — bez wiersza
+                  (19.10.2026). „Do uzupełnienia” nie zdradza formy, widzą go wszyscy. */}
+              {full.employment_type_pending ? (
+                <Fact label="Forma">
+                  <span className="text-warning-muted-foreground">do uzupełnienia</span>
+                </Fact>
+              ) : full.employment_type ? (
+                <Fact label="Forma">{EMPLOYMENT_TYPE_LABELS[full.employment_type]}</Fact>
+              ) : null}
+              {full.manager_pending ? (
+                <Fact label="Przełożony">
+                  <span className="text-warning-muted-foreground">do uzupełnienia</span>
+                </Fact>
+              ) : null}
               <Fact label="Start pracy">{formatIsoDatePl(full.work_start_date)}</Fact>
               <Fact label="Ostatni dzień pracy">
                 {full.last_working_day ? formatIsoDatePl(full.last_working_day) : "—"}
@@ -310,7 +339,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
         ) : (
           <Card className="p-4 lg:col-span-2">
             <p className="text-sm text-muted-foreground">
-              Pełną kartotekę widzą ta osoba, jej przełożony i Kadry.
+              Pełną kartotekę widzą ta osoba, jej przełożony, Kadry i Finanse.
             </p>
           </Card>
         )}
@@ -330,6 +359,9 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
         <PersonEquipmentPanel userId={userId} />
       ) : null}
 
+      {canChangeForm && full && changingForm ? (
+        <EmploymentTypeDialog person={full} open={changingForm} onOpenChange={setChangingForm} />
+      ) : null}
       {canEdit && full && editing ? (
         <EditProfileDialog
           person={full}

@@ -323,3 +323,111 @@ def test_podpola_opisu_sklejaja_sie_liniowo_na_megabajcie():
     large = _best_time("~20A" * 250_000)
     assert large < 2.0
     assert large / max(small, 1e-4) < 8, (small, large)
+
+
+# ── Audyt A2 (19.10.2026): kilka wyciągów w pliku, storno i status w CAMT ─────
+
+
+def test_mt940_kilka_wyciagow_kazda_operacja_ma_walute_swojego_wyciagu():
+    raw = (
+        ":20:W1\r\n:25:/PL72999900010000000000001234\r\n:60F:C261117PLN100,00\r\n"
+        ":61:2611181118DN123,45NTRFNONREF//R-PLN\r\n:86:Przelew PLN\r\n"
+        ":62F:C261118PLN0,00\r\n-\r\n"
+        ":20:W2\r\n:25:/PL72999900010000000000001234\r\n:60F:C261117EUR50,00\r\n"
+        ":61:2611181118DN10,00NTRFNONREF//R-EUR\r\n:86:Przelew EUR\r\n-"
+    ).encode()
+    first, second = mt940.parse(raw).lines
+    # Ostatnia operacja pierwszego wyciągu nie bierze waluty z :60F: następnego.
+    assert first.currency == "PLN" and first.bank_ref == "R-PLN"
+    assert second.currency == "EUR"
+
+
+def _camt(*statements: str) -> bytes:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">'
+        "<BkToCstmrStmt>" + "".join(statements) + "</BkToCstmrStmt></Document>"
+    ).encode()
+
+
+def _stmt(currency: str, *entries: str) -> str:
+    return (
+        f"<Stmt><Acct><Id><IBAN>PL{COMPANY}</IBAN></Id><Ccy>{currency}</Ccy></Acct>"
+        + "".join(entries)
+        + "</Stmt>"
+    )
+
+
+def _ntry(
+    indicator: str,
+    *,
+    amount: str = "1230.00",
+    ccy: str | None = "PLN",
+    reversal: bool = False,
+    status: str | None = None,
+    ref: str = "BR-1",
+) -> str:
+    amt = f'<Amt Ccy="{ccy}">{amount}</Amt>' if ccy else f"<Amt>{amount}</Amt>"
+    return (
+        f"<Ntry>{amt}<CdtDbtInd>{indicator}</CdtDbtInd>"
+        + ("<RvslInd>true</RvslInd>" if reversal else "")
+        + (status or "")
+        + "<BookgDt><Dt>2026-11-20</Dt></BookgDt>"
+        + f"<AcctSvcrRef>{ref}</AcctSvcrRef>"
+        + "<NtryDtls><TxDtls><RltdPties>"
+        + f"<Dbtr><Nm>Spółka Przykładowa</Nm></Dbtr><DbtrAcct><Id><IBAN>PL{COMPANY}"
+        + "</IBAN></Id></DbtrAcct>"
+        + f"<Cdtr><Nm>Ola Nowak</Nm></Cdtr><CdtrAcct><Id><IBAN>PL{OLA}</IBAN></Id>"
+        + "</CdtrAcct></RltdPties>"
+        + "<RmtInf><Ustrd>FV 10/2026</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>"
+    )
+
+
+def test_camt053_storno_kierunek_z_cdtdbtind_a_kontrahent_z_pierwotnej_operacji():
+    # Zwrot nieudanego przelewu do osoby: CRDT + RvslInd = wpływ na rachunek firmy.
+    parsed = camt053.parse(_camt(_stmt("PLN", _ntry("CRDT", reversal=True))))
+    (line,) = parsed.lines
+    assert line.direction == "credit"
+    # Kontrahent to odbiorca pierwotnego przelewu (Cdtr), nie my (Dbtr).
+    assert line.counterparty_account == OLA
+    assert line.counterparty_name == "Ola Nowak"
+    # Zwykłe obciążenie bez storna — bez zmian.
+    (plain,) = camt053.parse(_camt(_stmt("PLN", _ntry("DBIT")))).lines
+    assert plain.direction == "debit" and plain.counterparty_account == OLA
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "<Sts>PDNG</Sts>",
+        "<Sts>INFO</Sts>",
+        "<Sts><Cd>PDNG</Cd></Sts>",
+        "<Sts><Cd>INFO</Cd></Sts>",
+    ],
+)
+def test_camt053_pomija_operacje_niezaksiegowane(status):
+    raw = _camt(
+        _stmt(
+            "PLN",
+            _ntry("DBIT", status=status, ref="BR-WAIT"),
+            _ntry("DBIT", status="<Sts>BOOK</Sts>", ref="BR-BOOK-1"),
+            _ntry("DBIT", status="<Sts><Cd>BOOK</Cd></Sts>", ref="BR-BOOK-2"),
+            _ntry("DBIT", ref="BR-NO-STS"),
+        )
+    )
+    refs = [line.bank_ref for line in camt053.parse(raw).lines]
+    assert refs == ["BR-BOOK-1", "BR-BOOK-2", "BR-NO-STS"]
+
+
+def test_camt053_waluta_z_wyciagu_ktory_niesie_operacje():
+    raw = _camt(
+        _stmt("PLN", _ntry("DBIT", ccy=None, ref="BR-PLN")),
+        _stmt("EUR", _ntry("DBIT", ccy=None, ref="BR-EUR")),
+        _stmt("EUR", _ntry("DBIT", ccy="USD", ref="BR-USD")),
+    )
+    pln, eur, usd = camt053.parse(raw).lines
+    assert pln.currency == "PLN"
+    # Bez Amt/@Ccy waluta z Acct/Ccy TEGO wyciągu, nie pierwszego w pliku.
+    assert eur.currency == "EUR"
+    # Waluta wpisu wygrywa z walutą rachunku.
+    assert usd.currency == "USD"

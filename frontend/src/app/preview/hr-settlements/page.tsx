@@ -75,11 +75,16 @@ function prepare(params: URLSearchParams) {
   const client = harnessQueryClient();
   let user: HarnessUser = HR_CAST.ola;
   let config = settlementsConfig();
-  if (state === "b2b") {
-    client.setQueryData(settlementKeys.me(scene.currentYear), olaSettlements(scene));
-  } else if (state === "mandate") {
-    user = HR_CAST.ewa;
-    client.setQueryData(settlementKeys.me(scene.currentYear), ewaSettlements(scene));
+  if (state === "b2b" || state === "mandate") {
+    const mine = state === "b2b" ? olaSettlements(scene) : ewaSettlements(scene);
+    if (state === "mandate") user = HR_CAST.ewa;
+    client.setQueryData(settlementKeys.me(scene.currentYear), mine);
+    // Zakładka pyta też o poprzedni rok (przełom roku) — harness bez żądań.
+    client.setQueryData(settlementKeys.me(scene.currentYear - 1), {
+      ...mine,
+      year: scene.currentYear - 1,
+      months: [],
+    });
   } else if (state === "queue" || state === "mismatch") {
     user = { ...HR_CAST.piotr, grants: ["payroll"] };
     config = settlementsConfig({ payroll: true });

@@ -61,6 +61,12 @@ CHAIN = (
         "0474_tech_card_person",
         "client_structure_schema",
     ),
+    # Kartoteka idzie za kontem (19.10.2026).
+    (
+        "0476_hr_profile_follows_account",
+        "0475_client_structure_proposals",
+        "hr_account_profile_schema",
+    ),
 )
 
 

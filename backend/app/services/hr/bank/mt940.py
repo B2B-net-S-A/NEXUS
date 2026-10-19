@@ -8,6 +8,17 @@ sklejamy je bez spacji), 27–28 i 32–33 nazwa kontrahenta, 30 + 31 numer bank
 i rachunek, 38 IBAN. Opis bez podpól = cały tekst jest tytułem, a rachunek
 szukamy jako 26 cyfr (z ``PL`` albo bez).
 
+Plik może nieść kilka wyciągów po kolei (``:20:`` … ``-``, np. rachunek PLN
+i EUR). Walutę operacji zapamiętujemy przy jej ``:61:`` — operacja zapisuje się
+dopiero przy następnym ``:61:`` albo na końcu pliku, a do tego czasu ``:60F:``
+kolejnego wyciągu zdążyłby podmienić walutę (audyt A2, 19.10.2026). Rachunek
+``:25:`` nie jest cechą operacji (dopasowanie idzie po rachunku kontrahenta
+z ``:86:``), a ``ParsedStatement.account`` to rachunek ostatniego wyciągu.
+
+Storno: ``RC`` (reversal of credit) to obciążenie, ``RD`` (reversal of debit)
+— uznanie. Znak opisuje więc kierunek samego wpisu, tak jak ``CdtDbtInd``
+w CAMT.053 przy ``RvslInd``.
+
 Kodowanie: UTF-8, a gdy się nie da — windows-1250 (polskie banki). Parser jest
 czysty i nie loguje treści wyciągu.
 """
@@ -164,7 +175,7 @@ def parse(raw: bytes) -> ParsedStatement:
                 booked_on=pending["booked_on"],
                 amount=pending["amount"],
                 direction=pending["direction"],
-                currency=currency or "PLN",
+                currency=pending["currency"],
                 title=title,
                 counterparty_name=name,
                 counterparty_account=counterparty,
@@ -197,7 +208,8 @@ def parse(raw: bytes) -> ParsedStatement:
                 raise StatementError("Wyciąg MT940 ma niepoprawną kwotę.") from exc
             value_date = _date(match.group("value"))
             mark = match.group("mark")
-            # RC/RD to storno: obciążenie zwrócone wraca jak uznanie i odwrotnie.
+            # Storno: RC (zwrot uznania) obciąża rachunek, RD (zwrot obciążenia)
+            # go uznaje — kierunek samego wpisu, jak CdtDbtInd w CAMT.053.
             direction = "debit" if mark in ("D", "RC") else "credit"
             reference = (match.group("bref") or "").strip() or (
                 (match.group("cref") or "").strip()
@@ -209,6 +221,9 @@ def parse(raw: bytes) -> ParsedStatement:
                 "amount": amount,
                 "direction": direction,
                 "bank_ref": reference,
+                # Waluta wyciągu tej operacji — :60F: następnego wyciągu
+                # przyjdzie przed zapisem operacji (flush przy kolejnym :61:).
+                "currency": currency or "PLN",
             }
         elif tag == "86" and pending is not None:
             pending["details"] = body

@@ -193,7 +193,9 @@ function TeamTable({ data }: { data: MyTeam }) {
                   <span className={CALM_SUBLINE}>
                     {[
                       person.job_title,
-                      EMPLOYMENT_TYPE_SHORT[person.employment_type],
+                      person.employment_type
+                        ? EMPLOYMENT_TYPE_SHORT[person.employment_type]
+                        : null,
                       person.student ? "student" : null,
                       person.employment_status === "offboarding" ? "odchodzi" : null,
                     ]
@@ -205,7 +207,7 @@ function TeamTable({ data }: { data: MyTeam }) {
                   <CellView cell={todayCell(person.today, person.covering_for)} />
                 </TableCell>
                 <TableCell>
-                  <CellView cell={leaveCell(person.leave, person.employment_type)} />
+                  <CellView cell={leaveCell(person.leave, person.employment_type ?? undefined)} />
                 </TableCell>
                 <TableCell>
                   <CellView cell={monthCell(person, data)} />

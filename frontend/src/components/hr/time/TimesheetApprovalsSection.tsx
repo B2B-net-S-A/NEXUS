@@ -317,6 +317,7 @@ export function TimesheetApprovalsSection({
           onOpenChange={(open) => {
             if (!open) {
               setReturning(null);
+              setNote("");
               setNoteError(null);
             }
           }}
@@ -324,7 +325,14 @@ export function TimesheetApprovalsSection({
           description="Osoba dostanie powiadomienie z tą notatką, poprawi wpisy i wyśle ponownie."
           footer={
             <>
-              <Button variant="ghost" onClick={() => setReturning(null)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setReturning(null);
+                  setNote("");
+                  setNoteError(null);
+                }}
+              >
                 Anuluj
               </Button>
               <Button onClick={sendBack} disabled={decide.isPending}>

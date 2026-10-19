@@ -282,6 +282,18 @@ async def document_file(
     with _http_errors():
         document = await documents.readable_document(db, document_id, viewer)
         path = documents.file_of(document)
+    # Kto otworzył plik e-teczki (także podgląd) — ślad w ``hr_audit_events``;
+    # zapisuje go commit sesji żądania (``get_db``) przed wysłaniem pliku.
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=document.user_id,
+        entity_type="hr_document",
+        entity_id=document.id,
+        action="document_downloaded",
+        details={"kind": document.kind},
+        sensitivity="health" if document.kind == documents.ABSENCE_PROOF else "general",
+    )
     return FileResponse(
         path,
         media_type=document.mime,

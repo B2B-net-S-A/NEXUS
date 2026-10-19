@@ -7,6 +7,7 @@ import type { StatusDotTone } from "@/components/ds/StatusDot";
 import type { EmploymentType } from "@/lib/api/hr";
 import type {
   MySettlementMonth,
+  MySettlements,
   SettlementRow,
   SettlementStatus,
   SettlementStep,
@@ -108,6 +109,71 @@ export function nextStepText(month: MySettlementMonth): string {
   }
 }
 
+/**
+ * Miesiąc, w którym osoba ma coś do zrobienia: B2B wystawia fakturę albo
+ * korektę, o którą poprosiły Płace. Taki miesiąc idzie na górę zakładki,
+ * z pozycjami do skopiowania (audyt A2, 19.10.2026).
+ */
+export function needsMyAction(month: Pick<MySettlementMonth, "status" | "correction_requested_at">): boolean {
+  return (
+    month.status === "awaiting_document" ||
+    (month.status === "mismatch" && Boolean(month.correction_requested_at))
+  );
+}
+
+/**
+ * Styczeń: grudzień jeszcze się rozlicza (faktura, przelew), więc zakładki
+ * pokazują też poprzedni rok — inaczej 1.01 osoba traci miesiąc do faktury.
+ */
+export function showsPreviousYear(today: string): boolean {
+  return today.slice(5, 7) === "01";
+}
+
+/**
+ * Bieżący rok + poprzedni: w styczniu cały poprzedni rok, potem tylko jego
+ * miesiące, w których osoba ma coś do zrobienia (np. grudzień bez faktury w lutym).
+ */
+export function mergeSettlementYears(
+  current: MySettlements,
+  previous: MySettlements | undefined,
+  today: string,
+): MySettlements {
+  if (!previous) return current;
+  const all = showsPreviousYear(today);
+  const extra = previous.months.filter((month) => all || needsMyAction(month));
+  return extra.length ? { ...current, months: [...current.months, ...extra] } : current;
+}
+
+export interface SettlementLayout {
+  /** Karty z pozycjami: miesiące do działania osoby (od najnowszego), potem najnowszy. */
+  featured: MySettlementMonth[][];
+  /** Reszta jako „Poprzednie miesiące” — wiersz na walutę. */
+  previous: MySettlementMonth[];
+}
+
+/**
+ * Układ zakładki: serwer zwraca wiersz na miesiąc × walutę (waluty alfabetycznie),
+ * więc grupujemy po miesiącu — wszystkie waluty miesiąca są razem. Na górze
+ * miesiące, w których osoba ma coś do zrobienia, potem najnowszy (bieżący szacunek).
+ */
+export function settlementLayout(months: readonly MySettlementMonth[]): SettlementLayout {
+  const groups = new Map<number, MySettlementMonth[]>();
+  for (const month of months) {
+    const key = month.year * 12 + month.month;
+    const group = groups.get(key);
+    if (group) group.push(month);
+    else groups.set(key, [month]);
+  }
+  const ordered = [...groups.entries()].sort(([a], [b]) => b - a).map(([, group]) => group);
+  if (ordered.length === 0) return { featured: [], previous: [] };
+  const featured = ordered.filter((group) => group.some(needsMyAction));
+  if (!featured.includes(ordered[0])) featured.push(ordered[0]);
+  return {
+    featured,
+    previous: ordered.filter((group) => !featured.includes(group)).flat(),
+  };
+}
+
 /** Jedna linia poprzedniego miesiąca: „FV 9/2026 · 16 400,00 zł netto · opłacono 15.10”. */
 export function previousMonthLine(month: MySettlementMonth): string {
   const parts: string[] = [];
@@ -160,6 +226,10 @@ export function documentCell(row: SettlementRow): string {
 
 /** Stan w kolejce — z różnicą przy rozbieżności: „rozbieżność +120,00”. */
 export function queueStatus(row: SettlementRow): string {
+  // Faktura od innego NIP-u niż w danych do rozliczeń — nie różnica do uznania.
+  if (row.status === "mismatch" && row.problems.includes("seller")) {
+    return "NIP wystawcy faktury inny niż w danych do rozliczeń";
+  }
   if (row.status === "mismatch" && row.discrepancy && Number(row.discrepancy) !== 0) {
     const value = Number(row.discrepancy);
     return `${row.status_label.toLowerCase()} ${value > 0 ? "+" : "−"}${formatMoney(Math.abs(value), row.currency).replace(/\s?zł$/, "")}`;

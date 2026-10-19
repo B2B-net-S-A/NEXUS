@@ -242,6 +242,59 @@ async def test_partly_covered_window_gets_only_the_missing_days(leave_on) -> Non
     ]
 
 
+async def test_shortened_outlook_request_does_not_grow_back(leave_on) -> None:
+    # Audyt 19.10.2026: przełożony skrócił wniosek z Outlooka (16–20.11 →
+    # 16–18.11), autoodpowiedź osoby dalej obejmuje cały tydzień. Nazajutrz
+    # uzgadnianie nie zakłada wniosku na 19–20.11 — o tych dniach zdecydowano.
+    fake = FakeMailboxOps()
+    async with AsyncSessionLocal() as db:
+        manager = await make_user(db)
+        person = await _person(db, form="uop", manager=manager)
+        await db.commit()
+        fake.set_oof(person.email, _own_oof(MON, FRI))
+
+        await _run(db, fake, [person.id])
+        (request,) = await _requests(db, person.id)
+        await db.execute(
+            update(LeaveRequest)
+            .where(LeaveRequest.id == request.id)
+            .values(end_date=D(2026, 11, 18))
+        )
+        await db.execute(
+            LeaveRequestDay.__table__.delete().where(
+                LeaveRequestDay.leave_request_id == request.id,
+                LeaveRequestDay.day > D(2026, 11, 18),
+            )
+        )
+        await db.commit()
+        again = await _run(db, fake, [person.id], day=D(2026, 11, 17))
+        rows = await _requests(db, person.id)
+
+    assert again.get("oof_request_created", 0) == 0
+    assert [(r.start_date, r.end_date) for r in rows] == [(MON, D(2026, 11, 18))]
+
+
+async def test_cancelled_regular_report_is_not_recreated_from_outlook(
+    leave_on,
+) -> None:
+    # Audyt 19.10.2026: osoba na B2B anulowała zgłoszenie z NEXUSA, a
+    # autoodpowiedź w Outlooku została. Bez reguły powstawało nazajutrz
+    # przyjęte zgłoszenie z Outlooka (i zdejmowało godziny z raportu).
+    fake = FakeMailboxOps()
+    async with AsyncSessionLocal() as db:
+        person = await _person(db, form="b2b")
+        await make_leave(db, person, MON, FRI, status="cancelled")
+        await db.commit()
+        fake.set_oof(person.email, _own_oof(MON, FRI))
+
+        counts = await _run(db, fake, [person.id])
+        rows = await _requests(db, person.id)
+
+    assert counts.get("oof_request_created", 0) == 0
+    assert counts["custom_oof_covered"] == 1
+    assert [(r.source, r.status) for r in rows] == [("self", "cancelled")]
+
+
 async def test_oof_without_dates_and_closed_module_create_nothing(leave_on) -> None:
     fake = FakeMailboxOps()
     async with AsyncSessionLocal() as db:

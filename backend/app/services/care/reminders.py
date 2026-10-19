@@ -10,7 +10,10 @@ powtarza. Dla każdego aktywnego kontraktu:
    Compassa (``plan.close_covered``),
 2. zaległy albo dzisiejszy kontakt (punkt planu albo follow-up z ostatniej
    rozmowy) → dzwonek ``care_contact_due`` do opiekuna, najwyżej raz na
-   7 dni na kontrakt,
+   7 dni na kontrakt. Opiekun z kilkoma takimi kontraktami dostaje JEDEN
+   zbiorczy dzwonek z linkiem do „Opieka → Ten tydzień” (decyzja Artura
+   19.10.2026: pierwszy przebieg dał 472 dzwonki, jednemu DL 290), najwyżej
+   raz na 7 dni — wcześniej tylko, gdy któryś kontakt wypada dziś,
 3. koniec projektu < 60 dni z karty albo rozmowy → wpis „Do przepięcia”,
 4. klient z konsultantami bez menedżera u klienta → dzwonek
    ``care_client_structure`` „uzupełnij strukturę klienta X” do jego Delivery
@@ -55,8 +58,50 @@ JOB_KIND = "care_reminders"
 REMINDER_EVERY_DAYS = 7
 
 
+#: Zbiorczy dzwonek opiekuna (``related_entity_id`` = id opiekuna).
+DIGEST_ENTITY = "care_owner_digest"
+DIGEST_LINK = "/care"
+DIGEST_NAMES = 3
+
+
 def contract_link(contract_id: int) -> str:
     return f"/contracts/{contract_id}?tab=care"
+
+
+async def _recent_digests(
+    db: AsyncSession, owner_ids: list[int], now: datetime
+) -> set[int]:
+    if not owner_ids:
+        return set()
+    rows = await db.scalars(
+        select(Notification.related_entity_id).where(
+            Notification.notification_type == NotificationType.care_contact_due,
+            Notification.related_entity_type == DIGEST_ENTITY,
+            Notification.related_entity_id.in_(owner_ids),
+            Notification.created_at >= now - timedelta(days=REMINDER_EVERY_DAYS),
+        )
+    )
+    return {int(value) for value in rows.all() if value is not None}
+
+
+def digest_message(
+    contracts: list[care_access.CareContract],
+    contacts: dict[int, care_plan.NextContact],
+    today: date,
+) -> str:
+    """„Do zrobienia: N — A, B, C i 4 inne; najstarszy termin 01.10.”"""
+
+    ordered = sorted(contracts, key=lambda c: (contacts[c.id].due_on, c.id))
+    names = ", ".join(contract.label for contract in ordered[:DIGEST_NAMES])
+    rest = len(ordered) - DIGEST_NAMES
+    if rest > 0:
+        names += f" i {rest} {'inny' if rest == 1 else 'inne'}"
+    oldest = contacts[ordered[0].id].due_on
+    when = "dziś" if oldest == today else oldest.strftime("%d.%m")
+    return (
+        f"Do zrobienia: {len(ordered)} — {names}. Najstarszy termin: {when}. "
+        "Lista w „Opieka → Ten tydzień”."
+    )
 
 
 async def _recently_reminded(
@@ -136,7 +181,8 @@ async def remind(
     candidates = [c for c in contracts if c.id in upcoming]
     recent = await _recently_reminded(db, [c.id for c in candidates], now)
     owners = await care_access.effective_owners(db, candidates)
-    sent = skipped = no_owner = 0
+    skipped = no_owner = 0
+    by_owner: dict[int, list[care_access.CareContract]] = {}
     for contract in candidates:
         if contract.id in recent:
             skipped += 1
@@ -145,26 +191,52 @@ async def remind(
         if owner is None:
             no_owner += 1
             continue
-        created = await notify_each(
-            db,
-            [owner],
-            title="Kontakt z konsultantem",
-            message=reminder_message(contract, upcoming[contract.id], today),
-            ntype=NotificationType.care_contact_due,
-            related_entity_type="contract",
-            related_entity_id=contract.id,
-            link=contract_link(contract.id),
-            log_tag="care",
-        )
-        if created:
-            sent += 1
+        by_owner.setdefault(owner, []).append(contract)
+    digested = await _recent_digests(
+        db, [owner for owner, items in by_owner.items() if len(items) > 1], now
+    )
+    sent = digests = 0
+    for owner, items in by_owner.items():
+        if len(items) == 1:
+            contract = items[0]
+            created = await notify_each(
+                db,
+                [owner],
+                title="Kontakt z konsultantem",
+                message=reminder_message(contract, upcoming[contract.id], today),
+                ntype=NotificationType.care_contact_due,
+                related_entity_type="contract",
+                related_entity_id=contract.id,
+                link=contract_link(contract.id),
+                log_tag="care",
+            )
+        elif owner in digested and not any(
+            upcoming[contract.id].due_on == today for contract in items
+        ):
+            created = 0
         else:
-            skipped += 1
+            created = await notify_each(
+                db,
+                [owner],
+                title="Kontakt z konsultantami",
+                message=digest_message(items, upcoming, today),
+                ntype=NotificationType.care_contact_due,
+                related_entity_type=DIGEST_ENTITY,
+                related_entity_id=owner,
+                link=DIGEST_LINK,
+                log_tag="care",
+            )
+            digests += int(bool(created))
+        if created:
+            sent += len(items)
+        else:
+            skipped += len(items)
     return {
         "due": len(candidates),
         "sent": sent,
         "skipped": skipped,
         "no_owner": no_owner,
+        "digests": digests,
     }
 
 

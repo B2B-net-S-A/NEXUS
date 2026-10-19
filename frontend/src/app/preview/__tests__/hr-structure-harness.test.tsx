@@ -74,6 +74,18 @@ describe("/preview/hr-structure", () => {
     expect(attempted()).toEqual([]);
   });
 
+  it("Kadry bez Płac: drzewo bez formy umowy, kartoteka z konta „do uzupełnienia”", async () => {
+    window.history.replaceState({}, "", "/preview/hr-structure?state=hr-only");
+    render(<HrStructurePreviewPage />);
+    expect(await screen.findByRole("heading", { name: /^Front office/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Zlecenie · student/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/składki od/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/forma do uzupełnienia · przełożony do uzupełnienia/),
+    ).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
   it("bez kartotek: spokojny pusty stan", async () => {
     window.history.replaceState({}, "", "/preview/hr-structure?state=empty");
     render(<HrStructurePreviewPage />);

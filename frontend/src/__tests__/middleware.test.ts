@@ -243,6 +243,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/hr-settlements",
     "/preview/hr-documents",
     "/preview/hr-agreements",
+    "/preview/hr-people",
     "/preview/client-invoicing",
     "/preview/job-portals",
     "/preview/request-allocation",

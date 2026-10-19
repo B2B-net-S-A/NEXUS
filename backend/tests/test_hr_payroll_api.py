@@ -20,7 +20,7 @@ from openpyxl import load_workbook
 from sqlalchemy import delete, select, text
 
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_now
 from app.core.security import create_access_token
 from app.models.app_setting import AppSetting
 from app.models.hr_ops import HrAuditEvent, HrJobRun
@@ -285,6 +285,44 @@ async def test_new_rate_starts_on_first_day_and_closes_previous(
         headers=_headers(finance),
     )
     assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_new_rate_after_gap_keeps_gap_open(app_client, payroll_on) -> None:
+    """Luka z importu (stawka z końcem, bez następnej) zostaje luką (A2, 19.10)."""
+
+    finance, _boss, worker, _other = await _payroll_team()
+    (ya, ma), (ye, me), (yn, mn) = _months_ago(6), _months_ago(4), _months_ago(1)
+    gap_end = date(*add_months(ye, me, 1), 1) - timedelta(days=1)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            EmployeeRate(
+                user_id=worker.id,
+                hourly_rate=Decimal("100.00"),
+                currency="PLN",
+                effective_from=date(ya, ma, 1),
+                effective_to=gap_end,
+                set_by=finance.id,
+            )
+        )
+        await db.commit()
+
+    response = await app_client.post(
+        f"/api/hr/payroll/people/{worker.id}/rates",
+        json={"hourly_rate": "120", "effective_from": f"{yn}-{mn:02d}-01"},
+        headers=_headers(finance),
+    )
+    assert response.status_code == 201, response.text
+
+    async with AsyncSessionLocal() as db:
+        rows = list(
+            await db.scalars(
+                select(EmployeeRate)
+                .where(EmployeeRate.user_id == worker.id)
+                .order_by(EmployeeRate.effective_from)
+            )
+        )
+    assert [r.effective_to for r in rows] == [gap_end, None]
 
 
 @pytest.mark.asyncio
@@ -779,6 +817,61 @@ async def test_bonus_rules_are_settings_of_payroll(app_client, payroll_on) -> No
     assert (
         await app_client.get("/api/hr/payroll/rules", headers=_headers(boss))
     ).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_automation_since_cannot_be_cleared_over_compass_imports(
+    app_client, payroll_on
+) -> None:
+    # Audyt 19.10.2026: pusta albo wcześniejsza data startu automatu dałaby
+    # drugie propozycje za placementy, których premie przyszły z Compassa.
+    finance, boss, worker, _other = await _payroll_team()
+    y, m = _months_ago(1)
+    first = await app_client.put(
+        "/api/hr/payroll/rules",
+        json={"automation_since": "2026-10-01"},
+        headers=_headers(finance),
+    )
+    assert first.status_code == 200, first.text
+    async with AsyncSessionLocal() as db:
+        db.add(
+            HrBonus(
+                recipient_user_id=worker.id,
+                proposed_by=boss.id,
+                amount=Decimal("100.00"),
+                currency="PLN",
+                category="recruiter",
+                period_year=y,
+                period_month=m,
+                status="assigned",
+                source="compass_import",
+                source_key=f"compass:{uuid.uuid4()}",
+                compass_id=uuid.uuid4(),
+                assigned_by=boss.id,
+                assigned_at=local_now(),
+            )
+        )
+        await db.commit()
+    for since in (None, "2026-09-01"):
+        refused = await app_client.put(
+            "/api/hr/payroll/rules",
+            json={"automation_since": since},
+            headers=_headers(finance),
+        )
+        assert refused.status_code == 422, refused.text
+        assert "Compass" in refused.json()["detail"]
+    later = await app_client.put(
+        "/api/hr/payroll/rules",
+        json={"automation_since": "2026-11-01"},
+        headers=_headers(finance),
+    )
+    assert later.status_code == 200, later.text
+    assert later.json()["automation_since"] == "2026-11-01"
+    untouched = await app_client.put(
+        "/api/hr/payroll/rules", json={"dl_percent": "10"}, headers=_headers(finance)
+    )
+    assert untouched.status_code == 200
+    assert untouched.json()["automation_since"] == "2026-11-01"
 
 
 @pytest.mark.asyncio

@@ -364,10 +364,14 @@ async def create_external_person(
         raise EquipmentError(
             "Podaj e-mail służbowy — prywatnych adresów NEXUS nie przechowuje."
         )
+    from app.services.equipment.registry import clean_notes  # noqa: PLC0415
+
     person = EquipmentExternalPerson(
         full_name=name,
         work_email=email,
-        note=(values.get("note") or None),
+        # D10 jak w notatce egzemplarza: klucz BitLocker (55 znaków) mieści się
+        # w 200 znakach uwagi o osobie spoza NEXUSA (audyt 19.10.2026).
+        note=clean_notes(values.get("note") or None, label="Uwaga"),
         created_by=actor.id,
     )
     db.add(person)

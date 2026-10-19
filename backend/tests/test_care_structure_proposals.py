@@ -390,6 +390,27 @@ async def test_reminder_goes_to_client_delivery_lead_once_a_week(care_module) ->
     assert await sent_to_dl() == 1
 
 
+async def test_reminder_reaches_lead_of_a_merged_duplicate(care_module) -> None:
+    """DL przypisany tylko do scalonego duplikatu widzi klienta kanonicznego,
+    więc dostaje też dzwonek o jego strukturze (audyt 19.10.2026)."""
+
+    from app.models.client import Client
+
+    dl = await make_user(UserRole.delivery_lead)
+    canonical_id = await make_client()
+    duplicate_id = await make_client(dl=dl)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Client)
+            .where(Client.id == duplicate_id)
+            .values(merged_into_client_id=canonical_id)
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        leads = await structure_proposals._client_leads(db, [canonical_id])
+    assert leads == {canonical_id: [dl.id]}
+
+
 async def test_line_manager_text_without_contact_offers_one_new_person(
     app_client, care_module
 ) -> None:

@@ -54,6 +54,7 @@ export function tomaszProfile(scene: OffboardingScene | null): PersonFull {
     ...personCard(tomasz, scene ? "offboarding" : "active"),
     scope: "full",
     employment_type: "b2b",
+    employment_type_pending: false,
     hired_on: "2024-06-03",
     work_start_date: "2024-06-03",
     last_working_day: scene?.lastDay ?? null,

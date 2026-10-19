@@ -7,7 +7,7 @@
  */
 
 import { LEAVE_TYPE_LABELS } from "@/components/hr/leave/leave-format";
-import type { EmploymentType, PersonFull } from "@/lib/api/hr";
+import type { EmploymentType, OwnProfile } from "@/lib/api/hr";
 import type { HolderEquipment } from "@/lib/api/equipment";
 import type {
   LeaveBalance,
@@ -46,7 +46,7 @@ export function myProfile(
   person: HarnessPerson,
   year: number,
   form: EmploymentType = "b2b",
-): { has_profile: true } & PersonFull {
+): { has_profile: true } & OwnProfile {
   return {
     has_profile: true,
     user_id: person.id,
@@ -61,6 +61,7 @@ export function myProfile(
     manager_name: marta.name,
     scope: "full",
     employment_type: form,
+    employment_type_pending: false,
     hired_on: "2025-03-03",
     work_start_date: "2025-03-03",
     last_working_day: null,

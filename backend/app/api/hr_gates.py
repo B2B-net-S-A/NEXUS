@@ -112,3 +112,28 @@ def require_hr_people_admin():
 
 
 HrPeopleAdmin = Annotated[User, Depends(require_hr_people_admin())]
+
+
+def require_hr_people_records():
+    """Kadry albo Finanse (Płace); admin ma oba (19.10.2026).
+
+    Lista rozjazdów konto ↔ kartoteka z „Wyrównaj wg konta” i zapis formy
+    umowy — formę zmieniają admin, Finanse i Kadry (Kadry bez Płac jej nie
+    widzą). Bez czekania na przełącznik modułu, jak trasy Kadr.
+    """
+
+    async def _check(current_user: User = Depends(require_onboarded_user)) -> User:
+        if current_user.has_role(UserRole.admin) or any(
+            has_permission(current_user, permission)
+            for permission in (ProductAction.people_admin, ProductAction.payroll)
+        ):
+            return current_user
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Kartoteki zmieniają Kadry i Finanse.",
+        )
+
+    return _check
+
+
+HrPeopleRecords = Annotated[User, Depends(require_hr_people_records())]
