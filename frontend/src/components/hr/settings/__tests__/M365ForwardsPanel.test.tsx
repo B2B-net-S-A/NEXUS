@@ -127,6 +127,33 @@ describe("M365ForwardsPanel", () => {
     expect(within(left).getByRole("button", { name: "Zamknij regułę" })).toBeInTheDocument();
   });
 
+  it("offers closing the rule, not turning consent off, after the leave ended", async () => {
+    // Audyt 19.10.2026: po końcu urlopu „Wyłącz przekierowanie” niczego nie
+    // zamykało (kolejka pomija zakończone), a „Zamknij regułę” było ukryte.
+    get.mockImplementation((url: string) =>
+      url === "/api/hr/admin/m365/forwards"
+        ? Promise.resolve({
+            data: {
+              mode: "live",
+              today: "2026-10-20",
+              items: [
+                saved({
+                  user_name: "Olga Po Urlopie",
+                  start_date: "2000-01-03",
+                  end_date: "2000-01-07",
+                  health: "orphan",
+                }),
+              ],
+            },
+          })
+        : Promise.reject(new Error(`nieoczekiwany GET ${url}`)),
+    );
+    renderPanel();
+    const row = (await screen.findByText("Olga Po Urlopie")).closest("tr") as HTMLElement;
+    expect(within(row).queryByRole("button", { name: "Wyłącz przekierowanie" })).toBeNull();
+    expect(within(row).getByRole("button", { name: "Zamknij regułę" })).toBeInTheDocument();
+  });
+
   it("closes a stray rule through the queue only after confirmation", async () => {
     mockApi();
     post.mockResolvedValue({ data: { queued: true, leave_request_id: LEAVE_OLD, known: true } });

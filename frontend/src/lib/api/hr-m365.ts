@@ -9,6 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { warsawToday } from "@/lib/warsaw-date";
 
 export type M365Mode = "off" | "simulate" | "live";
 export type M365OperationStatus =
@@ -350,6 +351,15 @@ export const M365_FORWARD_HEALTH: Record<M365ForwardHealth, M365View> = {
 /** Czy z wiersza można zamknąć regułę przez kolejkę (nie trwający urlop ze zgodą). */
 export function canCloseRule(row: { health: M365ForwardHealth }): boolean {
   return row.health === "orphan" || row.health === "unknown";
+}
+
+/**
+ * Wyłączenie przekierowania we wniosku ma sens tylko do końca urlopu: po nim
+ * kolejka nie zamyka już reguły (`plan_operations` pomija zakończone), więc
+ * zostaje „Zamknij regułę” (audyt 19.10.2026).
+ */
+export function forwardStillAhead(endDate: string, today: string = warsawToday()): boolean {
+  return endDate >= today;
 }
 
 /** Krótkie podsumowanie przebiegu „Uzgodnij teraz” dla komunikatu. */
