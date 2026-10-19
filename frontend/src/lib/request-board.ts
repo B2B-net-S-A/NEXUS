@@ -121,6 +121,11 @@ export function hasActiveFilters(filters: BoardFilters): boolean {
   return Object.values(filters).some(Boolean)
 }
 
+/** Ile filtrów ma wartość inną niż domyślna (pusta) — licznik przy „Pokazuję”. */
+export function activeFilterCount(filters: BoardFilters): number {
+  return Object.values(filters).filter(Boolean).length
+}
+
 /** Czy adres niesie własne filtry pulpitu — wtedy wygrywają z zakresem kafelka. */
 export function hasUrlFilters(params: URLSearchParams): boolean {
   return Object.values(URL_KEYS).some((key) => Boolean(params.get(key)))
