@@ -505,6 +505,13 @@ zapełnić.
   wątkiem jest pomijana (to nie zgłoszenie). Tak do Spraw trafia odpowiedź
   wysłana z home.pl, gdy ma administracja@ w kopii (UDW) — sama kopia z home.pl
   niesie tylko pocztę przychodzącą.
+- **Autoodpowiedź** (`mail_ingest._is_auto_reply`: `Auto-Submitted` ≠ `no`,
+  `X-Autoreply`/`X-Autorespond`, `Precedence: auto_reply|junk`, temat
+  „Automatic reply:”, „Odpowiedź automatyczna:”, „Out of Office:”) traktowana
+  jak wiadomość od administracji: w wątku dołącza bez otwierania, poza wątkiem
+  pominięta — komunikat do kilkuset konsultantów nie zakłada fali spraw
+  „jestem na urlopie” (audyt 19.10.2026). Zwrotki serwera poczty (postmaster,
+  mailer-daemon) się nie liczą — zakładają sprawę przypiętą do komunikatu.
 - Czytnik skrzynki: app-only Graph (wzorzec `order_mail_ingest`), wyłączony, gdy
   nie ma skrzynki M365 (obie zmienne puste), `ADMIN_CASES_MAIL_INGEST_ENABLED ≠ true`
   albo moduł `cases` wyłączony. Potrzebuje tokenu rejestracji HR — rejestracja zamówień ma
