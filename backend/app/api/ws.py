@@ -575,11 +575,17 @@ async def ws_notifications(
     """
     raw_token, accepted_subprotocol = _extract_ws_token(websocket, token)
     if not raw_token:
-        await websocket.close(code=4001, reason="Unauthorized")
+        try:
+            await websocket.close(code=4001, reason="Unauthorized")
+        except (WebSocketDisconnect, ClientDisconnected):
+            pass
         return
     user = await _authenticate_ws_token(raw_token)
     if not user:
-        await websocket.close(code=4001, reason="Unauthorized")
+        try:
+            await websocket.close(code=4001, reason="Unauthorized")
+        except (WebSocketDisconnect, ClientDisconnected):
+            pass
         return
 
     try:
