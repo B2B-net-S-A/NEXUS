@@ -29,7 +29,7 @@ export function ClosedNotice({
   const hasJobs = otherJobs.length > 0;
   return (
     <>
-      <TerminalChrome path={`~/dynaminds/kariera — zsh — ${closedHandle}`} state="closed" />
+      <TerminalChrome path={`~/b2bnetwork/kariera — zsh — ${closedHandle}`} state="closed" />
       <main className="kr-log">
         <span>
           <span className="kr-r" aria-hidden="true">

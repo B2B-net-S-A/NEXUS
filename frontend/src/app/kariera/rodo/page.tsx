@@ -21,9 +21,9 @@ export default async function CareerRodoPage() {
   const { base, host } = await careerRequestContext();
   return (
     <>
-      <TerminalChrome path="~/dynaminds/kariera — zsh — klauzula_rodo" />
+      <TerminalChrome path="~/b2bnetwork/kariera — zsh — klauzula_rodo" />
       <main className="kr-doc">
-        <span className="kr-c">{"// cat /etc/dynaminds/klauzula_rodo.md"}</span>
+        <span className="kr-c">{"// cat /etc/b2bnetwork/klauzula_rodo.md"}</span>
         <h1>Klauzula informacyjna dla kandydatów</h1>
 
         <h2>1. Administrator danych</h2>

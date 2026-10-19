@@ -5,13 +5,13 @@ import { TwoToneTitle } from "@/components/career/CareerHero";
 export default function CareerNotFound() {
   return (
     <>
-      <TerminalChrome path="~/dynaminds/kariera — zsh" />
+      <TerminalChrome path="~/b2bnetwork/kariera — zsh" />
       <main className="kr-log">
         <span>
           <span className="kr-r" aria-hidden="true">
             ${" "}
           </span>
-          cd ~/dynaminds/kariera
+          cd ~/b2bnetwork/kariera
         </span>
         <span>
           <span className="kr-r">[err]</span> <span className="kr-g">404</span>{" "}

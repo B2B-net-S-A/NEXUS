@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 };
 
 // Harness działa na hoście aplikacji (BASE `/kariera`), więc i stopka pokazuje taki adres.
-const HOST = "nexus.dynaminds.pl";
+const HOST = "nexus.b2bnetwork.pl";
 const BASE = "/kariera" as const;
 
 const OPEN_JOB: CareerJobResponse = {
@@ -139,7 +139,7 @@ export default function CareerPreviewPage() {
       </State>
 
       <State id="bledy" label="formularz z błędami">
-        <TerminalChrome path="~/dynaminds/kariera — zsh" />
+        <TerminalChrome path="~/b2bnetwork/kariera — zsh" />
         <div style={{ padding: "20px 0", maxWidth: 520 }}>
           <div className="kr-form-box">
             <div className="kr-form-bar">
@@ -173,7 +173,7 @@ export default function CareerPreviewPage() {
           email="jan@example.com"
           recruiterFirstName="Marta"
           jobHandle="senior-java-developer"
-          chromePath="~/dynaminds/kariera — zsh — senior-java-developer"
+          chromePath="~/b2bnetwork/kariera — zsh — senior-java-developer"
           recruiterPageHref={`${BASE}/p/marta-n`}
           recruiterPageSlug="marta-n"
         />

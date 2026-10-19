@@ -1,5 +1,5 @@
 /*
- * Motyw terminala strony kariery (kariera.dynaminds.pl).
+ * Motyw terminala strony kariery (kariera.b2bnetwork.pl).
  *
  * Wszystko pod `.kr-root` — plik ładuje layout `/kariera` i harness
  * `/preview/kariera`, a w App Routerze CSS z layoutu zostaje w dokumencie po
@@ -323,14 +323,6 @@ html:has(.kr-root[data-kr-page]) body {
 .kr-step:last-child { border-bottom: 0; }
 .kr-step > :nth-child(n + 2) { grid-column: 2; }
 .kr-step .kr-c { font-size: 13px; }
-.kr-manifesto {
-  margin: 0 0 10px;
-  font-family: var(--font-kr-display), system-ui, sans-serif;
-  font-size: 32px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-}
-.kr-desktop-only { display: none; }
 /* Tablet pionowo (640–1023 px): bez ograniczenia akapity mono miały ~90
    znaków w linii, a formularz rozciągał się na całą szerokość. */
 @media (min-width: 640px) and (max-width: 1023px) {
@@ -358,8 +350,6 @@ html:has(.kr-root[data-kr-page]) body {
   .kr-cmd { margin-bottom: 14px; font-size: 16px; }
   .kr-para { font-size: 16px; line-height: 1.8; }
   .kr-ok { font-size: 17px; }
-  .kr-manifesto { font-size: 40px; }
-  .kr-desktop-only { display: block; }
   .kr-steps {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

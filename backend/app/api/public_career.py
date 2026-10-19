@@ -1,4 +1,4 @@
-"""Publiczne endpointy strony kariery (kariera.dynaminds.pl), bez logowania.
+"""Publiczne endpointy strony kariery (kariera.b2bnetwork.pl), bez logowania.
 
 Prefiks ``/api/public/career``:
 

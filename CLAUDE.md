@@ -167,7 +167,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 - `przekazanie-propozycje-i-champion-po-audycie-06-10.md` — Przekazanie, propozycje i Champion po audycie 06.10.2026
 - `publikacja-na-rocketjobs-i-justjoin-it.md` — Publikacja na RocketJobs i JustJoin.IT (0381, 25.09.2026)
 - `rekrutacja-bez-szkicow.md` — Rekrutacja bez szkiców (0415–0416, 04.10.2026)
-- `strona-kariery-dla-kandydatow.md` — Strona kariery dla kandydatów (kariera.dynaminds.pl, 0339, 22.09.2026)
+- `strona-kariery-dla-kandydatow.md` — Strona kariery dla kandydatów (kariera.b2bnetwork.pl, 0339, 22.09.2026)
 - `trzy-nazwy-rekrutacji.md` — Trzy nazwy rekrutacji (0380, 25.09.2026)
 - `umiejetnosci-krytyczne-i-bramka-v9.md` — Umiejętności krytyczne i bramka v9 (0405, 30.09.2026)
 - `zgloszenia-z-linku-rekrutacji-przeglada-ai-przed.md` — Zgłoszenia z linku rekrutacji przegląda AI przed „Nowi” (0404, 29.09.2026)

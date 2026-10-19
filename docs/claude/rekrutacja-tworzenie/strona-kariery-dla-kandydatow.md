@@ -1,4 +1,4 @@
-# Strona kariery dla kandydatów (kariera.dynaminds.pl, 0339, 22.09.2026)
+# Strona kariery dla kandydatów (kariera.b2bnetwork.pl, 0339, 22.09.2026)
 
 Publiczny landing, który rekruterzy wrzucają na LinkedIna. Raport:
 `docs/career-landing-completion-report.md`. Dwa rodzaje linku w
@@ -205,6 +205,22 @@ Reguły, które łatwo cofnąć:
   `outputFileTracingIncludes` w `next.config.ts` (obraz standalone).
 - Klauzula `/kariera/rodo`: kontakt rodo@b2bnetwork.pl, okres przechowywania
   3 lata od zgłoszenia lub do cofnięcia zgody (decyzja Artura 27.09.2026, F16).
-- Aktywacja domeny: rekord DNS `kariera` w Cloudflare → serwer NEXUSA, domena
-  w Coolify dla serwisu frontend, env `NEXT_PUBLIC_CAREER_HOST` (build arg),
-  `CAREER_PUBLIC_BASE_URL` i `CORS_ORIGINS` + `https://kariera.dynaminds.pl`.
+- **Marka i domena (decyzje C i marka, 19.10.2026):** strona mówi „B2B Network”
+  (`~/b2bnetwork/kariera`, `marta@b2bnetwork`, karta „… — B2B Network”), bez
+  haseł Dynaminds („Architects of the unseen”, manifest „Define tomorrow”).
+  Docelowa domena `kariera.b2bnetwork.pl`; slug `b2bnetwork` zarezerwowany.
+  Gdy `NEXT_PUBLIC_CAREER_HOST` jest ustawiony, middleware przekierowuje stare
+  adresy z hosta aplikacji (`/kariera`, `/kariera/rodo`, `/kariera/r/<slug>`,
+  `/kariera/p/<slug>`) na domenę kariery — 307, z query (UTM); grafiki OG
+  i `/kariera/nie-znaleziono` zostają (`legacyCareerRedirectPath`).
+- Aktywacja domeny (kolejność ma znaczenie — przekierowanie działa od buildu
+  z `NEXT_PUBLIC_CAREER_HOST`, więc domena musi odpowiadać wcześniej):
+  1. rekord DNS `kariera.b2bnetwork.pl` → serwer NEXUSA (gdzie stoi strefa
+     `b2bnetwork.pl`, tam rekord);
+  2. domena `https://kariera.b2bnetwork.pl` w Coolify dla serwisu frontend
+     (obok obecnej), certyfikat LE — sprawdź `curl -I`;
+  3. workflow „Coolify set env”: `CORS_ORIGINS` + `https://kariera.b2bnetwork.pl`,
+     `CAREER_PUBLIC_BASE_URL=https://kariera.b2bnetwork.pl`,
+     `NEXT_PUBLIC_CAREER_HOST=kariera.b2bnetwork.pl` (`is_buildtime=true`);
+  4. deploy w oknie 19:00–07:00, potem `/r/<slug>` na nowej domenie, stary
+     `nexus…/kariera/r/<slug>` → 307, formularz wysyła (CORS).

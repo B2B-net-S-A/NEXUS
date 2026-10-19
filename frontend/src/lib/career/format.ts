@@ -148,7 +148,7 @@ export function genitiveName(firstName: string): string {
   return `${name}a`; // Tomasz → Tomasza
 }
 
-/** Login w stylu `marta@dynaminds`. */
+/** Login w stylu `marta@b2bnetwork`. */
 export function recruiterLogin(firstName: string): string {
   const base = firstName
     .trim()
@@ -157,5 +157,5 @@ export function recruiterLogin(firstName: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/ł/g, "l")
     .replace(/[^a-z0-9]+/g, "");
-  return `${base || "rekrutacja"}@dynaminds`;
+  return `${base || "rekrutacja"}@b2bnetwork`;
 }

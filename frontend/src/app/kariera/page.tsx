@@ -17,20 +17,20 @@ export default async function CareerHome() {
   const { base, host } = await careerRequestContext();
   return (
     <>
-      <TerminalChrome path="~/dynaminds/kariera — zsh" />
+      <TerminalChrome path="~/b2bnetwork/kariera — zsh" />
       <main className="kr-log">
         <span>
           <span className="kr-r" aria-hidden="true">
             ${" "}
           </span>
-          cat ~/dynaminds/kariera/README
+          cat ~/b2bnetwork/kariera/README
         </span>
-        <TwoToneTitle className="kr-log-title" first="Architects of" second="the unseen." />
+        <TwoToneTitle className="kr-log-title" first="Rekrutacje IT" second="B2B Network." />
         <span className="kr-log-text">
           Tu trafiają kandydaci z linków naszych rekruterów. Otwarte rekrutacje znajdziesz
-          w postach zespołu Dynaminds na LinkedInie.
+          w postach zespołu B2B Network na LinkedInie.
         </span>
-        <span className="kr-c">{"// zajrzyj na LinkedIn rekruterów Dynaminds"}</span>
+        <span className="kr-c">{"// zajrzyj na LinkedIn rekruterów B2B Network"}</span>
       </main>
       <CareerFooter rodoHref={careerHref(base, { to: "rodo" })} hostLabel={host} />
     </>

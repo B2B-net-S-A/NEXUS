@@ -324,7 +324,7 @@ describe("CareerApplyForm — wysyłka", () => {
           variant: "job",
           recruiterFirstName: "Marta",
           jobHandle: "senior-java-developer",
-          chromePath: "~/dynaminds/kariera",
+          chromePath: "~/b2bnetwork/kariera",
           recruiterPageHref: "/marta-n",
           recruiterPageSlug: "marta-n",
         }}

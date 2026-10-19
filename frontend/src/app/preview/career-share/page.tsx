@@ -112,7 +112,7 @@ const LINK_RESULTS: LinkResults = {
     {
       kind: "job",
       slug: "senior-java-developer-7kq2",
-      public_url: "https://kariera.dynaminds.pl/r/senior-java-developer-7kq2",
+      public_url: "https://kariera.b2bnetwork.pl/r/senior-java-developer-7kq2",
       job_id: 101,
       job_title: "Senior Java Developer · Spring, Kafka · 6+ lat",
       state: "live",
@@ -128,7 +128,7 @@ const LINK_RESULTS: LinkResults = {
     {
       kind: "job",
       slug: "analityk-biznesowy-q8m1",
-      public_url: "https://kariera.dynaminds.pl/r/analityk-biznesowy-q8m1",
+      public_url: "https://kariera.b2bnetwork.pl/r/analityk-biznesowy-q8m1",
       job_id: 103,
       job_title: "Analityk biznesowy",
       state: "not_live",
@@ -144,7 +144,7 @@ const LINK_RESULTS: LinkResults = {
     {
       kind: "recruiter",
       slug: "marta-n",
-      public_url: "https://kariera.dynaminds.pl/marta-n",
+      public_url: "https://kariera.b2bnetwork.pl/marta-n",
       job_id: null,
       job_title: null,
       state: "live",
@@ -163,8 +163,8 @@ const LINK_RESULTS: LinkResults = {
 const INVITE_LINKS: InviteLink[] = [
   {
     token: "tok-0",
-    url: "https://kariera.dynaminds.pl/r/senior-java-developer-7kq2",
-    public_url: "https://kariera.dynaminds.pl/r/senior-java-developer-7kq2",
+    url: "https://kariera.b2bnetwork.pl/r/senior-java-developer-7kq2",
+    public_url: "https://kariera.b2bnetwork.pl/r/senior-java-developer-7kq2",
     kind: "job",
     slug: "senior-java-developer-7kq2",
     job: { id: 101, title: "Bank Północny: Senior Java Developer (ZOB-3003)" },
@@ -179,8 +179,8 @@ const INVITE_LINKS: InviteLink[] = [
   },
   {
     token: "tok-1",
-    url: "https://kariera.dynaminds.pl/r/devops-engineer-azure-p3x9",
-    public_url: "https://kariera.dynaminds.pl/r/devops-engineer-azure-p3x9",
+    url: "https://kariera.b2bnetwork.pl/r/devops-engineer-azure-p3x9",
+    public_url: "https://kariera.b2bnetwork.pl/r/devops-engineer-azure-p3x9",
     kind: "job",
     slug: "devops-engineer-azure-p3x9",
     job: { id: 102, title: "DevOps Engineer (Azure)" },
@@ -213,14 +213,14 @@ const INVITE_LINKS: InviteLink[] = [
 const CAREER_LINK: CareerLinkState = {
   link: {
     slug: "marta-n",
-    public_url: "https://kariera.dynaminds.pl/marta-n",
+    public_url: "https://kariera.b2bnetwork.pl/marta-n",
     created_at: "2026-09-01T10:00:00Z",
     visit_count: 112,
   },
   stats: { days: 30, applications: 9, new_candidates: 6 },
   suggested_slug: "marta-n",
-  base_url: "https://kariera.dynaminds.pl",
-  recruiter_base_url: "https://kariera.dynaminds.pl/",
+  base_url: "https://kariera.b2bnetwork.pl",
+  recruiter_base_url: "https://kariera.b2bnetwork.pl/",
   jobs: [
     { job_id: 101, title: "Senior Java Developer", profile_status: "draft", show_on_recruiter_page: true, has_link: false },
     { job_id: 102, title: "DevOps Engineer (Azure)", profile_status: "approved", show_on_recruiter_page: true, has_link: true },

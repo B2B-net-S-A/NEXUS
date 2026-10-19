@@ -22,7 +22,7 @@ export function CareerRecruiterView({
 }) {
   const { recruiter, jobs } = data;
   const rodoHref = careerHref(base, { to: "rodo" });
-  const chromePath = `~/dynaminds/kariera/${recruiter.slug} — zsh`;
+  const chromePath = `~/b2bnetwork/kariera/${recruiter.slug} — zsh`;
 
   return (
     <CareerSubmitGate

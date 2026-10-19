@@ -14,7 +14,6 @@ import { CareerFooter } from "./CareerFooter";
 import { CareerHero, Cmd } from "./CareerHero";
 import { CareerSubmitGate } from "./CareerSubmitGate";
 import { ClosedNotice } from "./ClosedNotice";
-import { ManifestoBlock } from "./ManifestoBlock";
 import { ParamsPanel } from "./ParamsPanel";
 import { ProcessSteps } from "./ProcessSteps";
 import { RequirementsCheck } from "./RequirementsCheck";
@@ -66,7 +65,7 @@ export function CareerJobView({
   const show = job.show ?? { must: true, nice: true, params: true, process: true };
   const rows = show.params ? paramRows(job.params) : [];
   const paragraphs = aboutParagraphs(job.about);
-  const chromePath = `~/dynaminds/kariera — zsh — ${handle}`;
+  const chromePath = `~/b2bnetwork/kariera — zsh — ${handle}`;
 
   return (
     <CareerSubmitGate
@@ -115,16 +114,13 @@ export function CareerJobView({
             must={show.must ? job.must : []}
             nice={show.nice ? job.nice : []}
           />
-          {/* Kroki także na telefonie (etap 5); manifest zostaje od 1024 px. */}
+          {/* Kroki także na telefonie (etap 5). */}
           {show.process ? (
             <ProcessSteps
               recruiterFirstName={recruiter.first_name}
               contract={job.params?.contract ?? null}
             />
           ) : null}
-          <div className="kr-desktop-only">
-            <ManifestoBlock />
-          </div>
         </div>
 
         <aside id="aplikuj" className="kr-form-box" aria-label="Aplikuj">

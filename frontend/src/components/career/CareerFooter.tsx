@@ -7,7 +7,7 @@ export function CareerFooter({
   hostLabel,
 }: {
   rodoHref: string;
-  /** Np. „kariera.dynaminds.pl/marta-n". */
+  /** Np. „kariera.b2bnetwork.pl/marta-n". */
   hostLabel: string;
 }) {
   return (
