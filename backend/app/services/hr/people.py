@@ -156,9 +156,12 @@ async def viewer_scope(
         or sees_every_form(viewer)
     ):
         return "full"
+    # Ta sama reguła co ``direct_report_ids``: osoba, która odeszła, nie jest
+    # już „podwładnym” — były przełożony widzi jej wizytówkę (audyt A4, 19.10.2026).
     if (
         subject.manager_user_id is not None
         and subject.manager_user_id == viewer.id
+        and subject.employment_status != EmploymentStatus.exited
         and await can_supervise(db, viewer.id)
     ):
         return "full"

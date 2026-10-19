@@ -402,7 +402,9 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
   studenta, bez dat (przegląd 17.10). Zastępca przełożonego nie ma pełnej kartoteki, więc i formy.
 - Kadry bez Płac: pełna kartoteka z `employment_type: null` i bez kluczy `FORM_FIELDS` —
   w katalogu, kartotece, Strukturze, cudzym „Moim zespole” i w odpowiedzi na własny zapis.
-  Finanse dostały pełną kartotekę (`viewer_scope`). Jarvis nie ma osobnego narzędzia o ludziach
+  Finanse dostały pełną kartotekę (`viewer_scope`). Podpowiedź 20/26 w odpowiedzi „Zmień
+  pulę” idzie przez tę samą regułę. Były przełożony osoby, która odeszła (`exited`), widzi
+  już tylko wizytówkę — jak `direct_report_ids` (audyt A4). Jarvis nie ma osobnego narzędzia o ludziach
   — czyta te same trasy. Lista dla Compassa (`roster_export`) formy nie miała i nie ma.
 - **Zmiana formy: admin, Finanse i Kadry** (Kadry zapisują bez podglądu: w „Edytuj kartotekę”
   pole „Bez zmian (forma ukryta)”, zapis bez wybranej formy jej nie wysyła; pól zależnych
