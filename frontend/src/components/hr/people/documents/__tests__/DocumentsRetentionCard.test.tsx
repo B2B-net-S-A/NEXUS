@@ -75,13 +75,16 @@ describe("DocumentsRetentionCard", () => {
     );
   });
 
-  it("okresy: wysyła tylko zmienione, odrzuca spoza 1–50 lat", () => {
+  it("okresy: wysyła tylko zmienione, odrzuca spoza 10–50 lat", () => {
     const { retention } = retentionDue();
     expect(retentionChanges(retention, { other: "5", contract: "12" })).toEqual({
       years: { contract: 12 },
       error: null,
     });
-    expect(retentionChanges(retention, { other: "0" }).error).toMatch(/od 1 do 50/);
+    expect(retentionChanges(retention, { other: "0" }).error).toMatch(/od 10 do 50/);
+    // Co najmniej 10 lat (decyzja Artura 19.10.2026).
+    expect(retentionChanges(retention, { contract: "9" }).error).toMatch(/od 10 do 50/);
+    expect(retentionChanges(retention, { other: "10" })).toEqual({ years: { other: 10 }, error: null });
     expect(retentionChanges(retention, { other: "2,5" }).error).toMatch(/pełne lata/);
   });
 });

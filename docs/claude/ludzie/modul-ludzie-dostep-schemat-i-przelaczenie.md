@@ -339,6 +339,8 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
   do potwierdzenia z Kadrami), liczone od końca roku ostatniego dnia pracy. Nic nie kasuje się
   samo: lista w Ustawienia → Kadry, usunięcie z zaznaczeniem i potwierdzeniem; plik znika,
   wiersz zostaje jako ślad. PESEL-u i numeru dowodu nie ma w żadnym polu.
+  Okres co najmniej 10 lat, najwyżej 50 (decyzja Artura 19.10.2026,
+  `RETENTION_MIN_YEARS`; serwer i karta w Ustawieniach odmawiają krótszego).
 
 ## Umowy z ludźmi (etap 5, E5, 18.10.2026)
 
