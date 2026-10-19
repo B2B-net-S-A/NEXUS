@@ -149,6 +149,31 @@ def test_firm_layout_comes_back_in_the_generator_shape():
     assert imported.stats["roles"] == 2 and imported.stats["sections"] == 5
 
 
+@pytest.mark.parametrize(
+    "header",
+    [
+        ("", "Nazwa uczelni/kierunek"),
+        ("Daty", ""),
+        ("Daty", "Nazwa uczelni / kierunek"),
+        ("Nazwa uczelni/kierunek", "Daty"),
+    ],
+)
+def test_education_header_edited_in_word_does_not_become_a_row(header):
+    """Zgłoszenie 19.10.2026: plik pobrany z NEXUSA, poprawiony w Wordzie
+    i wgrany przez „Użyj innego CV” miał w tabeli edukacji wiersz
+    „Nazwa uczelni/kierunek”, bo nagłówek bez „Daty” nie był rozpoznany."""
+    doc = Document(BytesIO(_firm_docx()))
+    cells = doc.tables[0].rows[0].cells
+    for cell, text in zip(cells, header):
+        cell.text = text
+    html = docx_to_editor_html(_save(doc)).html
+    assert "uczelni" not in html and "Daty" not in html
+    assert (
+        "<p>2015 - 2019 <strong>Politechnika Testowa</strong> — Informatyka · "
+        "Wrocław</p>"
+    ) in html
+
+
 def test_consent_clause_is_read_from_the_pinned_text_box_once():
     imported = docx_to_editor_html(_firm_docx())
     assert imported.html.count('class="rodo"') == 1

@@ -53,6 +53,11 @@ Word „B2B”; PDF-y poza zakresem. Raport: `docs/screening-cv-pick-completion-
   ponownym renderze do Worda), sekcje rozpoznane w 198, role w 182.
   Zmieniasz import albo renderer — sprawdź obieg w `test_cv_docx_import.py`
   i powtórz pomiar na prawdziwych plikach (same liczby, bez treści).
+  Nagłówek tabeli edukacji to wiersz, którego KAŻDA niepusta komórka jest
+  etykietą („Daty”, „Nazwa uczelni/kierunek”, angielskie odpowiedniki; bez
+  odstępów) — nie dokładna para. 19.10.2026 plik pobrany z NEXUSA i poprawiony
+  w Wordzie miał nagłówek bez „Daty” i „Nazwa uczelni/kierunek” wchodziło do
+  CV jako pierwsza uczelnia.
 - **`CVBrandedResponse.source`** (`generator` | `document` | `legacy`) —
   `stageCvStatus` traktuje `document` jak zwykły szkic, nie stary szablon.
 - **Auto-CV po „Zweryfikowany” pomija parę, która ma już CV firmowe**
