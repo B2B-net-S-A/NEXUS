@@ -17,6 +17,18 @@ import {
   performanceFlagsQueryKey,
 } from "@/lib/insights-flags-api";
 import { buildFunnelCsvExport } from "@/lib/insights-csv";
+import {
+  dlLeadSortValue,
+  isNameColumn,
+  nextColumnSort,
+  sortRowsByColumn,
+  splitFormerEmployees,
+  summarizeFormerEmployees,
+  teamPeopleSortValue,
+  type ColumnSort,
+  type DlLeadSortKey,
+  type TeamPeopleSortKey,
+} from "@/lib/insights-people-table";
 import { reportHref, type ReportId } from "@/lib/insights-reports";
 import {
   insightsTeamSignalsApi,
@@ -42,7 +54,11 @@ import {
   InsightsPerformanceFlags,
   PerformanceFlagsLoadNotice,
 } from "@/components/insights/sections/InsightsPerformanceFlag";
-import { SectionError } from "@/components/insights/sections/_shared";
+import {
+  SectionError,
+  SortableHeader,
+} from "@/components/insights/sections/_shared";
+import { Switch } from "@/components/ui/switch";
 import {
   TeamWhoCountsPanel,
   type TeamWhoCountsSubject,
@@ -316,43 +332,63 @@ function PeoplePanel({
       ? "delivery"
       : "recruiters",
   );
+  // Konta wyłączone stoją jednym wierszem pod listą (prośba z zespołu,
+  // 19.10.2026); przełącznik wspólny dla obu zakładek, domyślnie zwinięte.
+  const [showFormer, setShowFormer] = useState(false);
 
   return (
     <section id="ludzie" className="scroll-mt-24 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-base font-semibold text-foreground">Ludzie</h3>
-        <div
-          role="group"
-          aria-label="Kogo pokazać"
-          className="inline-flex gap-0.5 rounded-lg bg-muted p-1"
-        >
-          {(
-            [
-              ["recruiters", "Rekruterzy"],
-              ["delivery", "Delivery Leadzi"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={scope === value}
-              onClick={() => setScope(value)}
-              className={cn(
-                "min-h-9 rounded-md px-3 text-sm font-semibold transition-colors",
-                scope === value
-                  ? "bg-card text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <label
+            htmlFor="zespol-show-former"
+            className="inline-flex min-h-9 cursor-pointer items-center gap-2 text-sm text-muted-foreground"
+          >
+            <Switch
+              id="zespol-show-former"
+              checked={showFormer}
+              onCheckedChange={setShowFormer}
+            />
+            Pokaż byłych pracowników
+          </label>
+          <div
+            role="group"
+            aria-label="Kogo pokazać"
+            className="inline-flex gap-0.5 rounded-lg bg-muted p-1"
+          >
+            {(
+              [
+                ["recruiters", "Rekruterzy"],
+                ["delivery", "Delivery Leadzi"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={scope === value}
+                onClick={() => setScope(value)}
+                className={cn(
+                  "min-h-9 rounded-md px-3 text-sm font-semibold transition-colors",
+                  scope === value
+                    ? "bg-card text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {scope === "recruiters" ? (
-        <RecruiterTable period={period} previousLabel={previousLabel} />
+        <RecruiterTable
+          period={period}
+          previousLabel={previousLabel}
+          showFormer={showFormer}
+        />
       ) : (
-        <DeliveryTable />
+        <DeliveryTable showFormer={showFormer} />
       )}
     </section>
   );
@@ -361,9 +397,11 @@ function PeoplePanel({
 function RecruiterTable({
   period,
   previousLabel,
+  showFormer,
 }: {
   period: InsightsPeriodParams;
   previousLabel: string | null;
+  showFormer: boolean;
 }) {
   const peopleQuery = useQuery({
     queryKey: insightsTeamSignalsQueryKeys.people(period),
@@ -373,9 +411,27 @@ function RecruiterTable({
     queryKey: performanceFlagsQueryKey,
     queryFn: () => insightsFlagsApi.list(),
   });
+  // Bez kliknięcia nagłówka — kolejność z API.
+  const [sort, setSort] = useState<ColumnSort<TeamPeopleSortKey> | null>(null);
   const data = peopleQuery.data;
-  const rows = (data?.rows ?? []).filter(isPeopleRowWorthShowing);
-  const quiet = (data?.rows.length ?? 0) - rows.length;
+  const worthShowing = (data?.rows ?? []).filter(isPeopleRowWorthShowing);
+  const quiet = (data?.rows.length ?? 0) - worthShowing.length;
+  const { people, former } = splitFormerEmployees(worthShowing, showFormer);
+  const rows = sort
+    ? sortRowsByColumn(
+        people,
+        (row) => teamPeopleSortValue(row, sort.key),
+        sort.dir,
+        (row) => row.name,
+      )
+    : people;
+  const formerSummary = summarizeFormerEmployees(former, (row) => row.name, {
+    recommendations: (row) => row.recommendations,
+    interviews: (row) => row.interviews,
+    placements: (row) => row.placements,
+  });
+  const onSort = (key: TeamPeopleSortKey) =>
+    setSort((current) => nextColumnSort(current, key, isNameColumn));
   const outside = data?.outside_scope;
   // Lista „Kto się liczy” osoby z tabeli (17.10.2026): `?kto=…&osoba=<id>`
   // albo `osoba=bez-zaslugi`. W adresie, więc „Wstecz” ją zamyka.
@@ -443,21 +499,42 @@ function RecruiterTable({
         <table className="w-full min-w-[46rem] text-sm">
           <thead>
             <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="sticky left-0 bg-card px-4 py-2.5 text-left font-semibold">
-                Osoba
-              </th>
-              <th className="px-3 py-2.5 text-right font-semibold">Weryf. / dzień</th>
-              <th className="px-3 py-2.5 text-right font-semibold">CV wysłane</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Rozmowy u klienta</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Placementy</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Precyzja 30 dni</th>
-              <th className="px-4 py-2.5 text-right font-semibold">
-                {previousLabel ? "Placementy vs poprzednio" : "Zmiana"}
-              </th>
+              {(
+                [
+                  ["name", "Osoba"],
+                  ["verifications_per_workday", "Weryf. / dzień"],
+                  ["recommendations", "CV wysłane"],
+                  ["interviews", "Rozmowy u klienta"],
+                  ["placements", "Placementy"],
+                  ["precision_pct", "Precyzja 30 dni"],
+                  [
+                    "placements_delta",
+                    previousLabel ? "Placementy vs poprzednio" : "Zmiana",
+                  ],
+                ] as const
+              ).map(([key, label]) => (
+                <SortableHeader
+                  key={key}
+                  label={label}
+                  columnKey={key}
+                  sortKey={sort?.key ?? null}
+                  sortDir={sort?.dir ?? "desc"}
+                  onSort={onSort}
+                  align={key === "name" ? "left" : "right"}
+                  className={cn(
+                    "py-2.5 font-semibold",
+                    key === "name"
+                      ? "sticky left-0 bg-card px-4"
+                      : key === "placements_delta"
+                        ? "px-4"
+                        : "px-3",
+                  )}
+                />
+              ))}
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {worthShowing.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
                   Nikt nie ruszył jeszcze kandydata w tym okresie.
@@ -480,6 +557,28 @@ function RecruiterTable({
                 />
               ))
             )}
+            {formerSummary ? (
+              <tr className="border-t border-border text-muted-foreground">
+                <td className="sticky left-0 bg-card px-4 py-2.5 text-xs">
+                  <FormerEmployeesLabel
+                    count={formerSummary.count}
+                    names={formerSummary.names}
+                  />
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {formerSummary.sums.recommendations}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {formerSummary.sums.interviews}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {formerSummary.sums.placements}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
+                <td className="px-4 py-2.5 text-right text-xs">—</td>
+              </tr>
+            ) : null}
             {outside && outside.people > 0 ? (
               <tr className="border-t border-border text-muted-foreground">
                 <td className="sticky left-0 bg-card px-4 py-2.5 text-xs">
@@ -541,13 +640,31 @@ function RecruiterTable({
         liczy się osoba, która przesunęła etap). Precyzja: z osób
         zweryfikowanych w ostatnich 30 dniach — ilu wysłano CV do klienta; „—” =
         mniej niż 5 weryfikacji. Konta administracyjne stoją jednym wierszem
-        pod tabelą, jak w Hall of Fame.
+        pod tabelą, jak w Hall of Fame. Byli pracownicy (konto wyłączone) też
+        stoją jednym wierszem — ich liczby zostają w sumach; „Pokaż byłych
+        pracowników” rozwija ich z powrotem. Klik w nagłówek sortuje kolumnę.
       </p>
     </div>
   );
 }
 
 const UNATTRIBUTED_SLUG = "bez-zaslugi";
+
+/** Etykieta wiersza „Byli pracownicy (N)”: nazwiska w jednej linii. */
+function FormerEmployeesLabel({
+  count,
+  names,
+}: {
+  count: number;
+  names: readonly string[];
+}) {
+  return (
+    <>
+      Byli pracownicy ({count}):{" "}
+      <span className="text-foreground/80">{names.join(", ")}</span>
+    </>
+  );
+}
 
 /**
  * Kamienie bez osoby z zasługą, których nie ma w wierszu „Bez osoby z zasługą”
@@ -703,12 +820,14 @@ function PersonRow({
   );
 }
 
-function DeliveryTable() {
+function DeliveryTable({ showFormer }: { showFormer: boolean }) {
   const period = ZESPOL_DL_PERIOD;
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: insightsQueryKeys.dlPortfolio(period),
     queryFn: () => insightsBoardApi.dlPortfolio(period),
   });
+  // Bez kliknięcia nagłówka — kolejność z API.
+  const [sort, setSort] = useState<ColumnSort<DlLeadSortKey> | null>(null);
   if (isPending) return <PanelLoading />;
   if (isError || !data) {
     return (
@@ -719,19 +838,55 @@ function DeliveryTable() {
       />
     );
   }
+  const { people, former } = splitFormerEmployees(data.leads, showFormer);
+  const leads = sort
+    ? sortRowsByColumn(
+        people,
+        (lead) => dlLeadSortValue(lead, sort.key),
+        sort.dir,
+        (lead) => lead.dl_name,
+      )
+    : people;
+  const formerSummary = summarizeFormerEmployees(former, (lead) => lead.dl_name, {
+    requests: (lead) => lead.requests,
+    open_requests: (lead) => lead.open_requests,
+    placements: (lead) => lead.placements,
+  });
+  const onSort = (key: DlLeadSortKey) =>
+    setSort((current) => nextColumnSort(current, key, isNameColumn));
   return (
     <div className="space-y-2">
       <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-xs">
         <table className="w-full min-w-[40rem] text-sm">
           <thead>
             <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="sticky left-0 bg-card px-4 py-2.5 text-left font-semibold">
-                Delivery Lead
-              </th>
-              <th className="px-3 py-2.5 text-right font-semibold">Rekrutacje</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Otwarte</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Placementy</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Hit ratio</th>
+              {(
+                [
+                  ["name", "Delivery Lead"],
+                  ["requests", "Rekrutacje"],
+                  ["open_requests", "Otwarte"],
+                  ["placements", "Placementy"],
+                  ["hit_ratio", "Hit ratio"],
+                ] as const
+              ).map(([key, label]) => (
+                <SortableHeader
+                  key={key}
+                  label={label}
+                  columnKey={key}
+                  sortKey={sort?.key ?? null}
+                  sortDir={sort?.dir ?? "desc"}
+                  onSort={onSort}
+                  align={key === "name" ? "left" : "right"}
+                  className={cn(
+                    "py-2.5 font-semibold",
+                    key === "name"
+                      ? "sticky left-0 bg-card px-4"
+                      : key === "hit_ratio"
+                        ? "px-4"
+                        : "px-3",
+                  )}
+                />
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -742,10 +897,17 @@ function DeliveryTable() {
                 </td>
               </tr>
             ) : (
-              data.leads.map((lead) => (
+              leads.map((lead) => (
                 <tr key={lead.dl_id} className="border-b border-border/60 last:border-b-0">
-                  <td className="sticky left-0 bg-card px-4 py-2.5 font-medium text-foreground">
-                    {lead.dl_name}
+                  <td className="sticky left-0 bg-card px-4 py-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-foreground">{lead.dl_name}</span>
+                      {!lead.is_active ? (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                          były pracownik
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{lead.requests}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
@@ -765,6 +927,26 @@ function DeliveryTable() {
                 </tr>
               ))
             )}
+            {formerSummary ? (
+              <tr className="border-t border-border text-muted-foreground">
+                <td className="sticky left-0 bg-card px-4 py-2.5 text-xs">
+                  <FormerEmployeesLabel
+                    count={formerSummary.count}
+                    names={formerSummary.names}
+                  />
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {formerSummary.sums.requests}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {formerSummary.sums.open_requests}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {formerSummary.sums.placements}
+                </td>
+                <td className="px-4 py-2.5 text-right text-xs">—</td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>
@@ -776,7 +958,8 @@ function DeliveryTable() {
         <Link href={reportHref("portfele-dl", period)} className="font-semibold text-primary hover:underline">
           raport Portfele Delivery Leadów
         </Link>
-        .
+        . Byli pracownicy (konto wyłączone) stoją jednym wierszem pod listą —
+        ich liczby zostają w sumach. Klik w nagłówek sortuje kolumnę.
       </p>
     </div>
   );
