@@ -51,9 +51,11 @@ export const ROLE_ACTION_ACCESS: Record<
     b2b_contract_generator: "manage",
     b2b_signature_confirmation: "manage",
   },
+  // 19.10.2026: podpis umowy i dokumentów do niej — autor albo zespół
+  // rekrutacji umowy (reguła serwera w generatorze umów B2B).
   recruiter: {
     b2b_contract_generator: "manage",
-    b2b_signature_confirmation: "none",
+    b2b_signature_confirmation: "manage",
   },
   user: { b2b_contract_generator: "view", b2b_signature_confirmation: "none" },
   // Praktykant (0374) nie ma dostępu do generatorów — jeden ekran telefonów.

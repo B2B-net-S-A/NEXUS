@@ -83,9 +83,11 @@ import {
   proposalFactsLine,
   cvYearBadge,
   sortByClientHistory,
+  sortByShownScore,
   type ProposalSortMode,
 } from "@/lib/proposal-facts";
 import { markerCoversEligibility } from "@/lib/employment-marker";
+import { rateBudgetBadge } from "@/lib/rate-budget-badge";
 import { useSimilarJobs } from "@/lib/similar-jobs-api";
 import { similarPeopleTotal } from "@/lib/similar-reassign";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -183,6 +185,15 @@ function proposalRow(
 ): PickRow {
   const { row, detail } = entry;
   const source = row.sources.includes("reassign") ? "reassign" : row.sources[0];
+  // D3 (19.10.2026): stawka względem budżetu — ta sama plakietka co „Szukaj
+  // w bazie”. Fakty niosą „Stawkę od” dla każdego źródła, wiersz — gdy faktów
+  // jeszcze nie ma.
+  const factsRate = facts?.expected_rate_hourly ?? null;
+  const rateBadge = rateBudgetBadge({
+    rateHourly: factsRate ?? detail.rateHourly,
+    currency: factsRate != null ? facts?.expected_rate_currency : "PLN",
+    budgetHourly,
+  });
   const warnings: PickRow["warnings"] = [];
   // Skrzynka niesie znacznik od razu; fakty doczytują go dla pozostałych źródeł.
   const employment = detail.employment ?? facts?.employment_marker ?? null;
@@ -193,7 +204,9 @@ function proposalRow(
   }
   for (const code of row.warnings) {
     if (code === "over_budget") {
-      warnings.push(overBudgetWarning(detail.rateHourly, budgetHourly));
+      // Plakietka stawki mówi już, o ile ponad; „Ponad budżet” zostaje tylko
+      // wtedy, gdy serwer wie, a liczby stawki w wierszu nie ma.
+      if (!rateBadge) warnings.push(overBudgetWarning(detail.rateHourly, budgetHourly));
       continue;
     }
     if (
@@ -212,7 +225,8 @@ function proposalRow(
     candidateId: row.candidateId,
     fullName: row.fullName,
     fitScore: row.fitScore,
-    rateLabel: row.rateLabel,
+    // Kwota stoi w plakietce stawki — w linii faktów byłaby drugi raz.
+    rateLabel: rateBadge ? null : row.rateLabel,
     availabilityLabel: row.availabilityLabel,
     // Historia u TEGO klienta mówi więcej niż „był w podobnym projekcie”.
     note: clientHistoryLine(facts?.client_history) ?? row.reason ?? (facts ? null : detail.title),
@@ -222,8 +236,12 @@ function proposalRow(
     employment,
     warnings,
     chips: proposalReasonChips(detail.requirements, askLabels),
+    rateBadge,
   };
 }
+
+/** Ile osób bez zapisanego wyniku liczymy od razu przy „Dopasowaniu” (paczki po 20). */
+const MATCH_SORT_PRESCORE_MAX = 100;
 
 const TAB_LABEL: Record<CandidateWindowTab, string> = {
   similar: "Podobne rekrutacje",
@@ -359,6 +377,7 @@ function AddCandidatesPanelOpen({
     seed: searchSeed,
     talkChecks,
     talkChecksError: counts.isError ? apiErrorMessage(counts.error, "błąd serwera") : null,
+    budgetHourly,
     askLabels,
     initialAddedIds,
     readOnly,
@@ -439,13 +458,13 @@ function AddCandidatesPanelOpen({
     () => new Map((factsQuery.data ?? []).map((f) => [f.candidate_id, f] as const)),
     [factsQuery.data],
   );
-  const [sortMode, setSortMode] = useState<ProposalSortMode>("client_first");
+  const [sortMode, setSortMode] = useState<ProposalSortMode>("match");
   const anyClientHistory = useMemo(
     () => (factsQuery.data ?? []).some((f) => f.client_history != null),
     [factsQuery.data],
   );
-  const listRows = useMemo(() => {
-    const rows = listEntries.map((e): PickRow => {
+  const unsortedRows = useMemo(() => {
+    return listEntries.map((e): PickRow => {
       const id = e.row.candidateId;
       return {
         ...proposalRow(e, factsById.get(id) ?? null, budgetHourly, askLabels),
@@ -460,11 +479,9 @@ function AddCandidatesPanelOpen({
         alsoFits: alsoFitsSlot(alsoFits, id, e.row.fullName, readOnly),
       };
     });
-    return sortMode === "client_first" ? sortByClientHistory(rows, factsById) : rows;
   }, [
     listEntries,
     factsById,
-    sortMode,
     budgetHourly,
     askLabels,
     undoing,
@@ -510,6 +527,25 @@ function AddCandidatesPanelOpen({
     },
     [unscoredNow, reportScoreRow],
   );
+  // „Dopasowanie” (19.10.2026): osoby bez zapisanego wyniku (podobne
+  // rekrutacje, rekomendacje) liczymy od razu po otwarciu, nie dopiero po
+  // przewinięciu do nich — inaczej stałyby na końcu listy, choć bywają wyżej.
+  useEffect(() => {
+    if (sortMode !== "match" || listTab === null) return;
+    let n = 0;
+    for (const id of unscoredNow) {
+      if (n++ >= MATCH_SORT_PRESCORE_MAX) break;
+      reportScoreRow(id);
+    }
+  }, [sortMode, listTab, unscoredNow, reportScoreRow]);
+  const listRows = useMemo(() => {
+    if (sortMode === "client_first") return sortByClientHistory(unsortedRows, factsById);
+    return sortByShownScore(unsortedRows, (row) => {
+      if (row.fitScore != null) return row.fitScore;
+      const score = matchScores.scores[String(row.candidateId)];
+      return typeof score === "number" ? score : null;
+    });
+  }, [sortMode, unsortedRows, factsById, matchScores.scores]);
   const renderProposalScore = (row: PickRow): ReactNode => {
     if (row.fitScore != null) return <ScoreBadge score={row.fitScore} />;
     const key = String(row.candidateId);
@@ -786,8 +822,8 @@ function AddCandidatesPanelOpen({
               <div role="group" aria-label="Kolejność propozycji" className="ml-auto flex gap-1">
                 {(
                   [
+                    ["match", "Dopasowanie"],
                     ["client_first", "Najpierw byli u tego klienta"],
-                    ["proposals", "Kolejność propozycji"],
                   ] as const
                 ).map(([mode, text]) => (
                   <button

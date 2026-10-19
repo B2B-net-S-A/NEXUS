@@ -308,7 +308,8 @@ def test_static_fallback_agrees_with_the_default_matrix() -> None:
     )
 
     plain = _user(UserRole.recruiter)
-    assert named_permissions_of(plain) == frozenset()
+    # 19.10.2026: podpis umowy i dokumentów z reguły „autor albo zespół”.
+    assert named_permissions_of(plain) == frozenset({"b2b_signature_confirmation"})
     assert section_access_for_user(plain, ProductSection.delivery) is (
         SectionAccess.none
     )

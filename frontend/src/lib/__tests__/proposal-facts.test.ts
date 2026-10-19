@@ -6,6 +6,7 @@ import {
   factsRateLabel,
   proposalFactsLine,
   sortByClientHistory,
+  sortByShownScore,
   workModeLabel,
   yearsLabel,
 } from "@/lib/proposal-facts";
@@ -49,7 +50,8 @@ describe("proposal-facts", () => {
         }),
         NOW,
       ),
-    ).toBe("Java Developer @ Firma · 5 lat dośw. · Gdańsk · do 2 dni w biurze · od razu · 160 zł/h");
+      // D3 (19.10.2026): stawka stoi w plakietce względem budżetu, nie w linii faktów.
+    ).toBe("Java Developer @ Firma · 5 lat dośw. · Gdańsk · do 2 dni w biurze · od razu");
   });
 
   it("staż, tryb pracy i stawka po polsku", () => {
@@ -92,5 +94,26 @@ describe("proposal-facts", () => {
       [4, facts({ candidate_id: 4, client_history: { job_id: 2, title: "B", furthest_stage: "cv_sent", furthest_stage_label: "CV Wysłane", outcome: "rejected", last_moved_at: null } })],
     ]);
     expect(sortByClientHistory(rows, byId).map((r) => r.candidateId)).toEqual([4, 3, 1, 2]);
+  });
+});
+
+describe("sortByShownScore (19.10.2026)", () => {
+  it("malejąco po wyniku, bez wyniku na końcu w dotychczasowej kolejności, remisy stabilnie", () => {
+    const rows = [
+      { candidateId: 1, s: null },
+      { candidateId: 2, s: 70 },
+      { candidateId: 3, s: undefined },
+      { candidateId: 4, s: 88 },
+      { candidateId: 5, s: 70 },
+    ];
+    expect(sortByShownScore(rows, (r) => r.s).map((r) => r.candidateId)).toEqual([4, 2, 5, 1, 3]);
+  });
+
+  it("zero to wynik, nie brak wyniku", () => {
+    const rows = [
+      { candidateId: 1, s: null },
+      { candidateId: 2, s: 0 },
+    ];
+    expect(sortByShownScore(rows, (r) => r.s).map((r) => r.candidateId)).toEqual([2, 1]);
   });
 });

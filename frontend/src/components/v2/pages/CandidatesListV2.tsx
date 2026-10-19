@@ -575,6 +575,8 @@ export interface CandidatesListEmbed {
   onAdded?: (added: CandidatesListAddedPerson[]) => void;
   /** Zdanie nad słowami kluczowymi, gdy wiersze przyszły z rekrutacji. */
   keywordsNote?: string;
+  /** Wiersze „musi mieć” spoza krytycznych — chip „Musi mieć (nie wycina)”. */
+  mustRows?: readonly (readonly string[])[];
   /**
    * Osoby, którym „Cofnij” w „Dodani teraz” zdjęło dodanie — wiersz znów
    * dostaje „Dodaj” zamiast „Dodano” (15.10.2026).
@@ -2282,6 +2284,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
               filters={filtersSnapshot}
               onUpdate={applyFiltersPatch}
               omitKey={isChipShownOnFilterBar}
+              mustRows={embed?.mustRows}
             />
             <div className="ml-auto flex flex-wrap items-center gap-2" data-help="candidates.list.saved">
               <RecentSearchesMenu

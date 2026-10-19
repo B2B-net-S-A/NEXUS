@@ -20,7 +20,9 @@
  * otwarte od razu na tej zakładce (14.10.2026: dopasowanie liczone bez
  * przycisku — `/api/search/candidates/scores` odpowiada lokalnie z zasiewu,
  * „+ Dodaj” w wierszach, po jednej osobie w stanie „Dodano · Cofnij” na
- * „Propozycjach z bazy” i w „Szukaj w bazie”, „Szukaj ręcznie” jako zakładka),
+ * „Propozycjach z bazy” i w „Szukaj w bazie”, „Szukaj ręcznie” jako zakładka;
+ * 19.10.2026: plakietka stawki względem budżetu 95 zł/h — w budżecie, równo
+ * budżet, +7%, +25% i osoba bez stawki w `base` i `search`),
  * `?closed=1` — rekrutacja zamknięta („Otwórz ponownie…” w menu „⋯”),
  * `?reopen=1` — zamknięta z otwartym oknem „Otwórz ponownie” i fikcyjnymi
  * brakami (04.10.2026),
@@ -573,7 +575,8 @@ const BASE: PersonSeed[] = [
     id: 512,
     first: "Oskar",
     last: "Wzorcowy",
-    facts: { title: "Frontend Developer", years_experience: 6, city: "Gdańsk", expected_rate_hourly: 110, max_onsite_days_per_week: 0 },
+    // D3 (19.10.2026): plakietka stawki przy budżecie 95 — +25% ponad budżet.
+    facts: { title: "Frontend Developer", years_experience: 6, city: "Gdańsk", expected_rate_hourly: 119, max_onsite_days_per_week: 0 },
     score: 79,
     breakdown: measured(79, ["Angular", "TypeScript"]),
   },
@@ -581,7 +584,8 @@ const BASE: PersonSeed[] = [
     id: 513,
     first: "Agata",
     last: "Szablonowa",
-    facts: { title: "Angular Developer", years_experience: 5, city: "Poznań", expected_rate_hourly: 90, cv_uploaded_on: "2022-03-14" },
+    // +7% ponad budżet (ton ostrzeżenia).
+    facts: { title: "Angular Developer", years_experience: 5, city: "Poznań", expected_rate_hourly: 102, cv_uploaded_on: "2022-03-14" },
     score: 76,
     breakdown: measured(76, ["Angular"], ["TypeScript"]),
   },
@@ -597,6 +601,7 @@ const BASE: PersonSeed[] = [
     id: 515,
     first: "Iga",
     last: "Próbna",
+    // Równo górna granica budżetu — „w budżecie”.
     facts: { title: "Fullstack Developer", years_experience: 8, city: "Wrocław", expected_rate_hourly: 95 },
     score: 72,
     breakdown: measured(72, ["TypeScript"], ["Angular"]),
@@ -624,7 +629,8 @@ const SEARCH: PersonSeed[] = [
     id: 522,
     first: "Hubert",
     last: "Przykładowy",
-    facts: { title: "Frontend Engineer", years_experience: 6, city: "Katowice", expected_rate_hourly: 88 },
+    // D3: +7% ponad budżet 95 (osoba „dodana w tym oknie” — plakietka zostaje).
+    facts: { title: "Frontend Engineer", years_experience: 6, city: "Katowice", expected_rate_hourly: 102 },
     score: 77,
     breakdown: measured(77, ["Angular", "TypeScript"]),
   },
@@ -635,6 +641,15 @@ const SEARCH: PersonSeed[] = [
     facts: { title: "Programistka Angular", years_experience: 5, city: "Lublin" },
     score: 69,
     breakdown: measured(69, ["Angular"], ["TypeScript"]),
+  },
+  {
+    id: 524,
+    first: "Wiktor",
+    last: "Atrapowy",
+    // D3: +25% ponad budżet — ton „destructive-muted”.
+    facts: { title: "Senior Frontend Developer", years_experience: 12, city: "Warszawa", expected_rate_hourly: 119 },
+    score: 75,
+    breakdown: measured(75, ["Angular", "TypeScript"]),
   },
 ];
 
@@ -1227,6 +1242,8 @@ function seededClient(championMode: HarnessChampionMode = "none"): QueryClient {
           city: p.facts.city ?? null,
           expected_rate_hourly: p.facts.expected_rate_hourly ?? null,
           expected_rate_currency: "PLN",
+          // „Stawka od” — tę czyta plakietka stawki względem budżetu (D3).
+          rate_from_hourly: p.facts.expected_rate_hourly ?? null,
           match_snippets: hit(
             index === 0
               ? "Aplikacje Angular dla bankowości detalicznej, TypeScript, NgRx"

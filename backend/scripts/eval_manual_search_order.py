@@ -124,13 +124,120 @@ def _report(name: str, rows: list[tuple[int, list[int]]]) -> None:
 async def _rerank_by_fit(
     db, context, ordered: list[int], top: int, *, reviewed: bool = False
 ) -> list[int]:
+    head = ordered[:top]
+    if not head:
+        return ordered
+    score = await _fit_scores(db, context, head, reviewed=reviewed)
+    position = {cid: i for i, cid in enumerate(head)}
+    reranked = sorted(head, key=lambda cid: (-score.get(cid, -1.0), position[cid]))
+    return reranked + ordered[top:]
+
+
+_CITY_SPLIT = re.compile(r"[/,;|\n]+|\s+(?:lub|albo|or|i|and)\s+", re.IGNORECASE)
+_NOT_CITY = {
+    "zdalnie",
+    "zdalna",
+    "remote",
+    "hybryda",
+    "hybrydowo",
+    "hybrid",
+    "stacjonarnie",
+    "onsite",
+    "on-site",
+    "biuro",
+    "polska",
+    "poland",
+    "pl",
+    "cała polska",
+}
+
+
+def _job_cities(location: str | None) -> list[str]:
+    """Uproszczone lustro ``parseJobLocationCities`` (front) — miasta rekrutacji,
+    które „Szukaj w bazie” wysyła jako „Mile widziane”."""
+    if not location:
+        return []
+    cities: list[str] = []
+    for part in _CITY_SPLIT.split(re.sub(r"\([^)]*\)", " ", location)):
+        city = part.strip()
+        if not city or city.lower() in _NOT_CITY or any(ch.isdigit() for ch in city):
+            continue
+        if city.lower() not in {c.lower() for c in cities}:
+            cities.append(city)
+        if len(cities) >= 5:
+            break
+    return cities
+
+
+async def _preferred_points(db, job, ids: list[int], must_words) -> tuple[dict, dict]:
+    """Punkty grup „Mile widziane” jak w ``api.candidates._preferred_rank``:
+    +1 za każde słowo must spoza wycinających, +1 za którekolwiek miasto
+    rekrutacji, +1 za kategorię. Zwraca (dziś: must+miasto+kategoria, B: must)."""
+    from sqlalchemy import case, cast, func, literal, literal_column, or_
+    from sqlalchemy.dialects.postgresql import TSQUERY
+
+    from app.models.candidate import Candidate
+    from app.services import candidate_search_predicates as predicates
+
+    must_parts = []
+    for query, variants in must_words:
+        tsq = func.to_tsquery("simple", query)
+        if variants:
+            tsq = tsq.op("||")(cast(literal(variants), TSQUERY))
+        must_parts.append(
+            case((literal_column("candidates.keyword_fts").op("@@")(tsq), 1), else_=0)
+        )
+    place_parts = []
+    cities = _job_cities(job.location)
+    if cities:
+        place_parts.append(
+            case((or_(*predicates.city_match_clauses(cities)), 1), else_=0)
+        )
+    if job.competence_category_id:
+        clause = predicates.competence_category_clause(
+            [job.competence_category_id], predicates.semantics_for("list", 2, False)
+        )
+        if clause is not None:
+            place_parts.append(case((clause, 1), else_=0))
+    zero = literal(0)
+    must_sum = sum(must_parts[1:], must_parts[0]) if must_parts else zero
+    place_sum = sum(place_parts[1:], place_parts[0]) if place_parts else zero
+    today: dict[int, int] = {}
+    must_only: dict[int, int] = {}
+    for start in range(0, len(ids), 5000):
+        chunk = ids[start : start + 5000]
+        rows = (
+            await db.execute(
+                select(Candidate.id, must_sum, place_sum).where(Candidate.id.in_(chunk))
+            )
+        ).all()
+        for cid, m, p in rows:
+            must_only[int(cid)] = int(m or 0)
+            today[int(cid)] = int(m or 0) + int(p or 0)
+    return today, must_only
+
+
+async def _grouped_then_fit(
+    db, context, vector_order: list[int], groups: dict, top: int, *, reviewed: bool
+) -> list[int]:
+    """Kolejność produkcji „Szukaj w bazie”: grupy malejąco (stabilnie po
+    wektorze — jak ``order_rows``), potem ``rerank_within_groups`` pełnym „Dop.”."""
+    from app.services.candidate_match_order import rerank_within_groups
+
+    ordered = sorted(vector_order, key=lambda cid: -groups.get(cid, 0))
+    fits = await _fit_scores(db, context, ordered[:top], reviewed=reviewed)
+    return rerank_within_groups(ordered, groups, fits, top)
+
+
+async def _fit_scores(
+    db, context, head: list[int], *, reviewed: bool = False
+) -> dict[int, float]:
     from app.models.candidate import Candidate
     from app.services import requirement_verification as rv
     from app.services.canonical_fit import score_candidates
 
-    head = ordered[:top]
     if not head:
-        return ordered
+        return {}
     candidates = list(
         (await db.execute(select(Candidate).where(Candidate.id.in_(head))))
         .scalars()
@@ -147,18 +254,19 @@ async def _rerank_by_fit(
         fits = await score_candidates(db, context, candidates)
     finally:
         rv.load_verified_requirements = original
-    score = {
+    return {
         int(f.breakdown.candidate_id): f.fit_score
         for f in fits
         if f.fit_score is not None
     }
-    position = {cid: i for i, cid in enumerate(head)}
-    reranked = sorted(head, key=lambda cid: (-score.get(cid, -1.0), position[cid]))
-    return reranked + ordered[top:]
 
 
 async def main(
-    max_jobs: int, rerank_top: int = 0, reviewed: bool = False, ai_top: int = 0
+    max_jobs: int,
+    rerank_top: int = 0,
+    reviewed: bool = False,
+    ai_top: int = 0,
+    groups: bool = False,
 ) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job
@@ -183,6 +291,14 @@ async def main(
     if ai_top:
         orders.append(ai_name)
     manual_best = orders[5] if rerank_top else orders[2]
+    # 19.10.2026 (zgłoszenie „najpierw najbardziej dopasowani”): dzisiejsze
+    # grupy „Mile widziane” przed „Dop.” vs grupy tylko po must vs sam „Dop.”
+    # (= orders[5]). Wycinają dwa pierwsze must (jak krytyczne), reszta must
+    # to wiersze „Mile widziane”.
+    groups_today = f"dziś: grupy must+miasto+kategoria → top {rerank_top} wg Dop."
+    groups_must = f"B: grupy must → top {rerank_top} wg Dop."
+    if groups and rerank_top:
+        orders += [groups_today, groups_must]
     overlap = {"tylko ręczne": 0, "tylko AI": 0, "oba": 0, "żadne": 0}
     results: dict[str, list[tuple[int, list[int]]]] = {k: [] for k in orders}
     started = time.time()
@@ -219,10 +335,11 @@ async def main(
                 parsed = _fts(name)
                 if parsed:
                     words.append(parsed)
-                if len(words) == 2:
+                if len(words) == 10:
                     break
             if len(words) < 2:
                 continue
+            words, extra_must = words[:2], words[2:]
             parts, params = [], {"t0": t0, "jid": job_id}
             for i, (query, variants) in enumerate(words):
                 params[f"q{i}"] = query
@@ -293,6 +410,24 @@ async def main(
                 ranked[orders[5]] = await _rerank_by_fit(
                     db, context, ranked[orders[2]], rerank_top, reviewed=reviewed
                 )
+            if groups and rerank_top:
+                today_pts, must_pts = await _preferred_points(db, job, ids, extra_must)
+                ranked[groups_today] = await _grouped_then_fit(
+                    db,
+                    context,
+                    ranked[orders[2]],
+                    today_pts,
+                    rerank_top,
+                    reviewed=reviewed,
+                )
+                ranked[groups_must] = await _grouped_then_fit(
+                    db,
+                    context,
+                    ranked[orders[2]],
+                    must_pts,
+                    rerank_top,
+                    reviewed=reviewed,
+                )
             or_ids = list(
                 (
                     await db.execute(
@@ -360,7 +495,18 @@ if __name__ == "__main__":
     parser.add_argument("--rerank-top", type=int, default=0)
     parser.add_argument("--include-reviewed-evidence", action="store_true")
     parser.add_argument("--ai-top", type=int, default=0)
+    parser.add_argument(
+        "--groups",
+        action="store_true",
+        help="dziś (grupy „Mile widziane”) i B (grupy must) obok samego „Dop.” — wymaga --rerank-top",
+    )
     args = parser.parse_args()
     asyncio.run(
-        main(args.jobs, args.rerank_top, args.include_reviewed_evidence, args.ai_top)
+        main(
+            args.jobs,
+            args.rerank_top,
+            args.include_reviewed_evidence,
+            args.ai_top,
+            args.groups,
+        )
     )
