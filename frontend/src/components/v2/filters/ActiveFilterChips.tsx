@@ -7,6 +7,8 @@ import api, { competenceCategoriesApi, type CompetenceCategoryOut } from"@/lib/a
 import { KEYWORD_SCOPE_OPTIONS, type CandidateFilters } from"@/lib/url-filters";
 import { PIPELINE_STAGE_OPTIONS } from "@/lib/filter-options";
 import { describeLanguageFilter } from "@/lib/candidate-languages";
+import { describeLocationPlaces } from "@/lib/location-places";
+import { HIDDEN_LOCATION_NOTE, HIDDEN_RATE_NOTE } from "@/lib/candidate-filter-groups";
 import {
   patchForRemovedRecruitment,
   patchForRemovedRecruitmentClient,
@@ -246,12 +248,33 @@ function collectChips(
  clear: () => onUpdate({ stageCurrentOnly: false, page: 1 }),
  });
  }
- if (filters.location) {
+ // D5: wybór „bez miasta: ukryte” jedzie w etykiecie chipu lokalizacji.
+ const hiddenLocation = filters.hideUnknownLocation ? ` · ${HIDDEN_LOCATION_NOTE}` : "";
+ const places = filters.locationPlaces ?? [];
+ if (places.length > 0) {
+ // D6: kilka miast z promieniami — jeden chip, „którekolwiek”.
+ const extra = filters.location
+ ? [{ city: filters.location, radiusKm: filters.locationRadiusKm }]
+ : [];
+ chips.push({
+ key: "loc",
+ label: `Lokalizacja: ${describeLocationPlaces([...extra, ...places])}${hiddenLocation}`,
+ clear: () =>
+ onUpdate({
+ location: "",
+ locationRadiusKm: null,
+ locationPlaces: [],
+ hideUnknownLocation: false,
+ page: 1,
+ }),
+ });
+ } else if (filters.location) {
  const radius = filters.locationRadiusKm;
  chips.push({
  key: "loc",
- label: radius ? `📍 ${filters.location} + ${radius} km` : `📍 ${filters.location}`,
- clear: () => onUpdate({ location: "", locationRadiusKm: null, page: 1 }),
+ label: `${radius ? `📍 ${filters.location} + ${radius} km` : `📍 ${filters.location}`}${hiddenLocation}`,
+ clear: () =>
+ onUpdate({ location: "", locationRadiusKm: null, hideUnknownLocation: false, page: 1 }),
  });
  }
  (filters.voivodeships ?? []).forEach((v) => {
@@ -554,8 +577,9 @@ function collectChips(
  : `Stawka: do ${hi} PLN/h`;
  chips.push({
  key: "rate",
- label,
- clear: () => onUpdate({ rateMin: null, rateMax: null, page: 1 }),
+ label: filters.hideUnknownRate ? `${label} · ${HIDDEN_RATE_NOTE}` : label,
+ clear: () =>
+ onUpdate({ rateMin: null, rateMax: null, hideUnknownRate: false, page: 1 }),
  });
  }
  filters.languages.forEach((lang) => {
@@ -740,6 +764,8 @@ export function ActiveFilterChips({
  competenceCategoryPreferred: [],
  qPreferred: [],
  hideUnknown: false,
+ hideUnknownRate: false,
+ hideUnknownLocation: false,
  poolIds: [],
  addedByIds: [],
  currentCompany: [],
@@ -769,6 +795,7 @@ export function ActiveFilterChips({
  qScope: "all",
  locationRadiusKm: null,
  voivodeships: [],
+ locationPlaces: [],
  contacted: null,
  contactedFrom: "",
  contactedTo: "",
@@ -786,7 +813,7 @@ export function ActiveFilterChips({
  className="group inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
  aria-label={`Usuń filtr: ${chip.label}`}
  >
- <span className="truncate max-w-[180px]">{chip.label}</span>
+ <span className="truncate max-w-[180px]" title={chip.label}>{chip.label}</span>
  <X className="h-3 w-3 opacity-70 group-hover:opacity-100" />
  </button>
  );
