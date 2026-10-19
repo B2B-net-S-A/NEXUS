@@ -58,6 +58,11 @@ export default async function CareerRodoPage() {
           <em>„{CONSENT_FUTURE_TEXT}”</em>
         </p>
         <p>Brak drugiej zgody nie wpływa na udział w tej rekrutacji.</p>
+        <p>
+          Jeśli zostawiasz CV na stałej stronie rekrutera („Dołącz do bazy”), zgłoszenie
+          nie dotyczy konkretnej rekrutacji — prosimy wtedy tylko o zgodę na przyszłe procesy
+          rekrutacyjne i jest ona obowiązkowa.
+        </p>
 
         <h2>4. Zakres danych</h2>
         <p>

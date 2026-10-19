@@ -523,18 +523,24 @@ export function CareerApplyForm({
             aria-describedby={errId("consent")}
           />
           <span className="kr-consent-text">
-            * {CONSENT_CURRENT_TEXT} <a href={rodoHref}>Klauzula informacyjna</a>
+            {/* Stały link rekrutera („Dołącz do bazy”) nie dotyczy żadnej
+                rekrutacji — obowiązkowa jest tam zgoda na przyszłe procesy
+                (decyzja Artura 19.10.2026, `career_consent.consent_kinds`). */}
+            * {variant === "general" ? CONSENT_FUTURE_TEXT : CONSENT_CURRENT_TEXT}{" "}
+            <a href={rodoHref}>Klauzula informacyjna</a>
           </span>
         </label>
         {fieldError("consent")}
       </div>
 
-      <label className="kr-consent">
-        <input type="checkbox" name="consent_future" value="true" disabled={busy} />
-        <span className="kr-consent-text">
-          <span className="kr-c">(nieobowiązkowe)</span> {CONSENT_FUTURE_TEXT}
-        </span>
-      </label>
+      {variant === "general" ? null : (
+        <label className="kr-consent">
+          <input type="checkbox" name="consent_future" value="true" disabled={busy} />
+          <span className="kr-consent-text">
+            <span className="kr-c">(nieobowiązkowe)</span> {CONSENT_FUTURE_TEXT}
+          </span>
+        </label>
+      )}
 
       <button type="submit" className="kr-submit" disabled={busy}>
         {/* Plakietka klawisza nie ma sensu na telefonie — chowamy poniżej `sm`. */}

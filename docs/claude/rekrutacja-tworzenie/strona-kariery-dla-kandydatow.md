@@ -170,6 +170,14 @@ Reguły, które łatwo cofnąć:
   znaczyć: po zamknięciu procesu osoba nie trafia do wyszukiwania ani
   propozycji — to osobne zadanie (przy duplikacie e-maila zgoda wisi na
   `application_submissions`, nie na kandydacie).
+- **Stały link rekrutera `/p/<slug>` ma JEDNĄ zgodę (decyzja Artura
+  19.10.2026, wieczór):** „Dołącz do bazy” nie dotyczy żadnej rekrutacji, więc
+  obowiązkowe pole `consent` niesie tam treść `CONSENT_FUTURE_TEXT` i zapisuje
+  wiersz `recruitment_future`; zgody „na tę rekrutację” ani pola
+  `consent_future` tam nie ma. Reguła w jednym miejscu:
+  `career_consent.consent_kinds(link.kind, …)` (backend) i `variant="general"`
+  w `CareerApplyForm` (front). Treść zgód bez zmian; klauzula `/rodo` ma o tym
+  jedno zdanie w pkt 3.
 - **Strona kandydata (etap 5, 19.10.2026):** kroki procesu widoczne na każdej
   szerokości (poniżej 1024 px zwarta lista; manifest dalej tylko od 1024 px).
   Kolory w jednym miejscu: `components/career/palette.ts` (`OG_COLORS`) dla
