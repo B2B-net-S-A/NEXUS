@@ -19,11 +19,12 @@ const mocks = vi.hoisted(() => ({
   attach: vi.fn(),
   preview: vi.fn(),
   blockingReason: null as string | null,
+  people: null as null | { data?: unknown; isSuccess?: boolean; isError?: boolean; error?: unknown },
 }));
 
 vi.mock("@/lib/api/hr-leave", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/hr-leave")>()),
-  useOnBehalfPeople: () => ({ data: PEOPLE }),
+  useOnBehalfPeople: () => mocks.people ?? { data: PEOPLE, isSuccess: true },
   useSubstitutes: () => ({ data: SUBSTITUTES }),
   useSubmitLeave: () => ({ mutate: mocks.submitOwn, isPending: false }),
   useEnterOnBehalf: () => ({ mutate: mocks.submitFor, isPending: false }),
@@ -146,6 +147,7 @@ function setDate(dialog: HTMLElement, label: "Od" | "Do", value: string) {
 const SETTLE = { timeout: 3000 };
 
 beforeEach(() => {
+  mocks.people = null;
   mocks.submitOwn.mockReset();
   mocks.submitFor.mockReset();
   mocks.attach.mockReset();
@@ -322,5 +324,24 @@ describe("LeaveRequestDialog — załącznik do własnego wniosku", () => {
   it("wpis za pracownika nie ma pola załącznika", () => {
     const dialog = open("on_behalf");
     expect(within(dialog).queryByLabelText("Załącznik (opcjonalnie)")).toBeNull();
+  });
+});
+
+describe("wpis za pracownika — lista osób (audyt 19.10.2026)", () => {
+  it("koordynator samych kontraktorów widzi wyjaśnienie zamiast pustej listy", () => {
+    mocks.people = {
+      data: [{ user_id: 9, name: "Ola B2B", employment_type: "b2b", department: null, can_enter: false }],
+      isSuccess: true,
+    };
+    const dialog = open("on_behalf");
+    expect(
+      within(dialog).getByText(/Osoby na B2B i zleceniu zgłaszają nieobecność same/),
+    ).toBeInTheDocument();
+  });
+
+  it("awaria listy osób to komunikat, nie pusta lista", () => {
+    mocks.people = { data: undefined, isError: true, error: new Error("500") };
+    const dialog = open("on_behalf");
+    expect(within(dialog).getByText("Nie udało się wczytać listy osób.")).toBeInTheDocument();
   });
 });
