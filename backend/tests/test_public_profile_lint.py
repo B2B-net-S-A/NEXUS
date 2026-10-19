@@ -461,6 +461,10 @@ def test_optional_fields_reject_with_field_loc(kwargs, field):
         ("DevOps Engineer (K8s)", [], "DevOps Engineer (K8s)"),
         ("Administrator (ISO 27001)", [], "Administrator (ISO 27001)"),
         ("Data Engineer (Python 3)", [], "Data Engineer (Python 3)"),
+        # Kilka numerów zapytań i numer z dopiskiem też schodzą (przegląd 19.10).
+        ("IT Analyst (42928, 42927)", [], "IT Analyst"),
+        ("Java (nr 42835)", [], "Java"),
+        ("Java Developer (ID 4521)", [], "Java Developer"),
     ],
 )
 def test_default_public_title(title, clients, expected):
@@ -488,6 +492,11 @@ def test_default_public_title_drops_the_client_reference_anywhere():
     )
     # Numer „4521” nie wycina kawałka dłuższej liczby.
     assert default_public_title("Tester 145210", [], "4521") == "Tester 145210"
+    # Kilka numerów w nawiasie: bez resztek „(,)” po wycięciu.
+    assert (
+        default_public_title("IT Analyst (42928, 42927)", [], "42928, 42927")
+        == "IT Analyst"
+    )
 
 
 def test_legacy_default_title_keeps_the_rules_from_before_19_10():
@@ -510,6 +519,7 @@ def test_legacy_default_title_keeps_the_rules_from_before_19_10():
         "Projekt ZOB-3003 trwa rok.",
         "Wsparcie zespołu (PKN500023226).",
         "SCTASK0123456",
+        "Tester_PKN/5/000177/26",
     ],
 )
 def test_internal_codes_are_findings(text):

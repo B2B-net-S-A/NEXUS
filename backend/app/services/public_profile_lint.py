@@ -311,7 +311,10 @@ def lint_public_texts(
 # Orlen (PKN), Energa (EITE). Kandydat nie ma z nich pożytku, a numer
 # pozwala zgadnąć klienta.
 _INTERNAL_CODE = re.compile(
-    r"(?<![A-Za-z0-9])(?:RITM|REQ|SCTASK|ZOB|PKN|EITE)[-_/ ]?\d{4,}", re.IGNORECASE
+    # „RITM0866775”, „ZOB-3003”, a także „PKN/5/000177/26” (Orlen).
+    r"(?<![A-Za-z0-9])(?:RITM|REQ|SCTASK|ZOB|PKN|EITE)"
+    r"(?:[-_/ ]?\d{4,}|/\d{1,3}/\d{3,})",
+    re.IGNORECASE,
 )
 _MIN_REFERENCE = 4
 

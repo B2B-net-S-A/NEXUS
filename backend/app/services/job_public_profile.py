@@ -126,8 +126,13 @@ _SEPARATORS = r":\-\u2013\u2014|"
 # i \u201e(ISO 27001)\u201d to cz\u0119\u015b\u0107 roli i zostaj\u0105 (19.10.2026; wcze\u015bniej znika\u0142 ka\u017cdy
 # nawias z cyfr\u0105).
 _TRAILING_PAREN_CODE = re.compile(
-    r"\s*[\(\[]\s*(?:\d{3,}|(?!ISO\b)[A-Z]{3,6}[-_]\d{4,})\s*[\)\]]\s*$"
+    # „(42928, 42927)” (jedna rekrutacja na kilka zapytań), „(nr 42835)”,
+    # „(ID 4521)” też — numer pozwala zgadnąć klienta.
+    r"\s*[\(\[]\s*(?:(?:(?i:nr|no|id)\.?\s*)?\d{3,}(?:\s*[,;/]\s*\d{3,})*"
+    r"|(?!ISO\b)[A-Z]{3,6}[-_]\d{4,})\s*[\)\]]\s*$"
 )
+# Resztka po wycięciu numeru u klienta: „IT Analyst (42928, 42927)” → „(,)”.
+_EMPTY_BRACKETS = re.compile(r"\s*[\(\[][\s,;/]*[\)\]]")
 # \u201e\u2026_RITM0866775\u201d (BNP): podkre\u015blnik to znak s\u0142owa, wi\u0119c ``\b`` przed kodem
 # go nie \u0142apa\u0142 i numer szed\u0142 na stron\u0119, do grafiki OG i do adresu linku.
 _TRAILING_TICKET = re.compile(
@@ -205,6 +210,7 @@ def default_public_title(
         from app.services.job_working_title import _strip_reference
 
         base = _collapse(_strip_reference(original, client_reference)) or original
+        base = _collapse(_EMPTY_BRACKETS.sub("", base)) or original
     text = _strip_codes(
         base,
         client_names,
