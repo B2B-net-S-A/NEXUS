@@ -383,7 +383,11 @@ zapełnić.
   parowanie”, reguły w `care/card_linking.py`: nazwisko bez wielkości liter,
   polskich znaków, kolejności słów i dopisków Traffita; klient po scaleniu;
   umowa bez anulowanych i szkiców. DOKŁADNIE jeden kontrakt z dniem rozmowy
-  w okresie umowy = połączenie automatyczne. Kilka albo tylko poza okresem =
+  w okresie umowy = połączenie automatyczne, ale tylko gdy pod tym nazwiskiem
+  u klienta jest jedna osoba (jeden kandydat). Imiennicy (różni kandydaci,
+  audyt 19.10.2026) = zawsze propozycje, bo umowa w NEXUSIE bywa późniejsza
+  niż praca i „jedyny w okresie” trafiał na obcą osobę; bliźniak z Traffita
+  (dwa rekordy tej samej osoby) też czeka. Kilka albo tylko poza okresem =
   propozycje, brak = bez propozycji — karta czeka przy kliencie z pustym
   `contract_id` i z nazwiskiem z Compassa (`tech_cards.compass_person_name`,
   migracja 0474). Mapa liczy ją od razu (źródło T nie wymaga kontraktu).
@@ -404,7 +408,9 @@ zapełnić.
   `care.tech_card_linked` (kontrakt i czy był propozycją). Raz połączonej
   karty ta trasa nie przepina.
 - Ponowny import łączy kartę, gdy w NEXUSIE pojawi się pewny kontrakt, i nie
-  odpina kontraktu wybranego przez DL.
+  odpina ani nie przepina kontraktu, który karta już ma (wybór DL wygrywa
+  z późniejszym „pewnym”, audyt 19.10.2026). Przycisk „Połącz” widzi każdy,
+  kogo wpuszcza trasa (`can_link` = `is_care_writer`, także osoba z puli).
 - **Rozmowy opiekunów z Compassa** (`contractor_conversations`, decyzja Artura
   z 18.10.2026 „jak karty”): kotwica, gdy jest, ma pierwszeństwo; bez niej
   rozmowa łączy się po kliencie z `client_snapshot` (pusty = `contractors.

@@ -401,8 +401,8 @@ async def test_card_without_anchor_links_by_client_name_and_date() -> None:
             dup_contract = await _contract(db, at_dup, dup_b, date(2026, 1, 1))
             sure_contract = await _contract(db, sure, client, date(2026, 1, 1))
             sure_contract.end_date = date(2026, 12, 31)
-            await _contract(db, twice, client, date(2026, 1, 1))
-            await _contract(db, twice, client, date(2026, 3, 1))
+            twice_first = await _contract(db, twice, client, date(2026, 1, 1))
+            twice_second = await _contract(db, twice, client, date(2026, 3, 1))
             later_contract = await _contract(db, later, client, date(2026, 9, 1))
             await _contract(db, elsewhere, other, date(2026, 1, 1))
             await db.flush()
@@ -495,6 +495,32 @@ async def test_card_without_anchor_links_by_client_name_and_date() -> None:
             )
             await db.refresh(stored[cards[2]["id"]])
             assert stored[cards[2]["id"]].contract_id == later_contract.id
+
+            # Delivery Lead wybrał drugi kontrakt z propozycji; potem jego
+            # okres się zmienia i „pewny” po dacie staje się pierwszy. Ponowny
+            # import nie przepina wyboru człowieka.
+            stored[cards[1]["id"]].contract_id = twice_second.id
+            twice_second.start_date = date(2026, 9, 1)
+            await db.flush()
+            batch3, plan3 = await compass_import.dry_run(
+                db,
+                module="care",
+                bundle=bundle,
+                planner=importer.plan,
+                actor_user_id=None,
+            )
+            assert not plan3.counts().get("update")
+            await compass_import.apply(
+                db,
+                batch=batch3,
+                bundle=bundle,
+                planner=importer.plan,
+                applier=importer.apply,
+                actor_user_id=None,
+            )
+            await db.refresh(stored[cards[1]["id"]])
+            assert stored[cards[1]["id"]].contract_id == twice_second.id
+            assert twice_first.id != twice_second.id
         finally:
             await db.rollback()
 

@@ -408,7 +408,8 @@ async def client_unlinked_tech_cards(
 
     client = await care_access.load_client(db, client_id, current_user)
     result = await card_inbox.unlinked_cards(db, client.id)
-    return {**result, "can_link": care_access.is_care_worker(current_user)}
+    can_link = await care_access.is_care_writer(db, current_user)
+    return {**result, "can_link": can_link}
 
 
 class LinkCardBody(BaseModel):

@@ -677,8 +677,9 @@ async def _plan_cards(
             result.rows.append(RowPlan(sid, action, reason, payload))
             continue
         payload["card_id"] = existing.id
-        if existing.contract_id is not None and contract_id is None:
-            # Kontrakt dopięty w NEXUSIE zostaje (import go nie odpina).
+        if existing.contract_id is not None:
+            # Kontrakt dopięty w NEXUSIE zostaje: import go nie odpina ani nie
+            # przepina (wybór Delivery Leada wygrywa z późniejszym „pewnym”).
             values["contract_id"] = existing.contract_id
         changed = changed_fields(existing, values)
         same_relations = await _same_relations(db, existing, payload)
