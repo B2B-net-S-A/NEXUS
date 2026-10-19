@@ -338,6 +338,16 @@ z odnośnikiem `hr_documents.leave_request_id`.
 - Stawki z historią, obowiązują od 1. dnia miesiąca. Automat premii (placementy,
   Liga) i zmiana albo usunięcie stawki blokują okres płac współdzielonie przed
   własnymi wierszami (trwające zamknięcie miesiąca czeka albo daje 409).
+- Nowa stawka domyka dniem przed sobą tylko stawkę, która w jej dniu trwa
+  (`rate_to_close`); stawka zakończona wcześniej (luka z importu Compassa) zostaje,
+  a luka daje ostrzeżenie `missing_rates` (19.10.2026).
+- Kwoty premii i stawek zaokrąglane HALF_UP jak raport płac; zakres premii
+  (0,01–1 000 000) sprawdzany na kwocie po zaokrągleniu — 0,004 to 422, nie 500
+  (19.10.2026).
+- Zatwierdzenie propozycji z placementu: uzgodnienie kontraktu (z commitem) biegnie
+  dopiero, gdy widz może o premii zdecydować; obcy dostaje 404 bez zapisu. Logi
+  automatu premii niosą klasę wyjątku, nie treść (DETAIL Postgresa pokazuje kwoty
+  wiersza) (19.10.2026).
 - Trwałe usunięcie kontraktu anuluje jego propozycje premii automatu
   (`cancel_reason='contract_deleted'`, automat ich nie przywraca); przyznane zostają.
 - Premie: `source` manual / contract_placement / league / compass_import,

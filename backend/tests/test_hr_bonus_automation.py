@@ -573,3 +573,32 @@ async def test_approval_rechecks_contract_ended_since_last_run(
     assert "przed terminem" in response.json()["detail"]
     after = (await _bonuses(world["contract"]))["dl"]
     assert after.status == "cancelled" and after.cancel_reason == "contract_ended"
+
+
+@pytest.mark.asyncio
+async def test_approval_out_of_scope_is_404_without_reconciling(
+    app_client, payroll_on
+) -> None:
+    """Obcy dostaje 404, a uzgodnienie kontraktu nie biegnie (A2, 19.10.2026)."""
+
+    world = await _placement(started_days_ago=40)
+    await _reconcile(world["contract"])
+    proposal = (await _bonuses(world["contract"]))["dl"]
+    start = business_today() - timedelta(days=40)
+    await _update_contract(
+        world["contract"],
+        status=ContractStatus.ended,
+        end_date=start + timedelta(days=7),
+    )
+    async with AsyncSessionLocal() as db:
+        outsider = await _person(db, "recruiter")
+        await db.commit()
+    token = create_access_token(subject=outsider.id, role="recruiter")
+    response = await app_client.post(
+        f"/api/hr/payroll/bonuses/{proposal.id}/approve",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 404
+    after = (await _bonuses(world["contract"]))["dl"]
+    # Przed poprawką uzgodnienie z commitem anulowało propozycję mimo 404.
+    assert after.status == "proposed" and after.cancel_reason is None
