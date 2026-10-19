@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/Toast";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import api from "@/lib/api";
+import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -23,6 +24,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 vi.mock("@/lib/clipboard", () => ({ copyTextToClipboard: vi.fn() }));
+vi.mock("@/lib/authenticated-files", () => ({ downloadAuthenticatedFile: vi.fn() }));
 
 const JOB = { id: 101, title: "Senior Java Developer", status: "published" };
 
@@ -252,6 +254,7 @@ describe("GenerateInviteLinkV2 — Udostępnij rekrutację", () => {
     expect(copyTextToClipboard).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Kopiuj" })).toBeDisabled();
     expect(screen.queryByRole("link", { name: /Otwórz stronę/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plakat z QR" })).not.toBeInTheDocument();
     expect(screen.getByTestId("link-not-live")).toHaveTextContent(
       "Link zadziała po zatwierdzeniu opisu",
     );
@@ -275,6 +278,15 @@ describe("GenerateInviteLinkV2 — Udostępnij rekrutację", () => {
     await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith(CREATED_LINK.public_url));
     expect(api.post).not.toHaveBeenCalled();
     expect(screen.getByTestId("career-page-state")).toHaveTextContent("Strona działa");
+
+    // Plakat z QR — ten sam link, PDF z opublikowanej wersji opisu.
+    await user.click(screen.getByRole("button", { name: "Plakat z QR" }));
+    await waitFor(() =>
+      expect(downloadAuthenticatedFile).toHaveBeenCalledWith(
+        "/api/jobs/101/public-profile/poster.pdf",
+        "plakat-senior-java-7kq2.pdf",
+      ),
+    );
   });
 
   it("zmiany po zatwierdzeniu: strona działa na starej wersji, „Odrzuć zmiany” ją przywraca", async () => {

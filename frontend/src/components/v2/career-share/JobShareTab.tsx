@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Loader2,
   MinusCircle,
+  QrCode,
   Sparkles,
 } from "lucide-react";
 
@@ -54,6 +55,7 @@ import {
 } from "@/lib/api/careerLinks";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { resolveViewState } from "@/lib/view-state";
 
 import { LinkedInPreviewCard } from "./LinkedInPreviewCard";
@@ -306,6 +308,23 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
     // Przed zatwierdzeniem opisu link daje kandydatowi 404, a LinkedIn
     // zapamiętuje pusty podgląd — do schowka trafia dopiero działający adres.
     if (link && isLive) await copyLink(link);
+  };
+
+  /** Plakat A4 z kodem QR (etap 3) — z opublikowanej wersji opisu, ten sam link. */
+  const [posterBusy, setPosterBusy] = useState(false);
+  const handlePoster = async (link: InviteLink) => {
+    if (jobId == null) return;
+    setPosterBusy(true);
+    try {
+      await downloadAuthenticatedFile(
+        `/api/jobs/${jobId}/public-profile/poster.pdf`,
+        `plakat-${link.slug ?? jobId}.pdf`,
+      );
+    } catch (err) {
+      showError(apiErrorMessage(err, "Nie udało się przygotować plakatu."));
+    } finally {
+      setPosterBusy(false);
+    }
   };
 
   /** „Odrzuć zmiany”: szkic wraca do wersji, którą widzi kandydat. */
@@ -773,6 +792,18 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                             <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                             Otwórz stronę
                           </a>
+                        </Button>
+                      ) : null}
+                      {isLive ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePoster(existingLink)}
+                          loading={posterBusy}
+                          disabled={posterBusy}
+                        >
+                          <QrCode className="h-3.5 w-3.5" aria-hidden="true" />
+                          Plakat z QR
                         </Button>
                       ) : null}
                     </div>
