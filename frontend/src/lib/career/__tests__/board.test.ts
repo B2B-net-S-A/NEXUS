@@ -42,6 +42,16 @@ describe("filterBoard", () => {
     expect(slugs(filterBoard(JOBS, { ...NO_FILTERS, query: "java, kafka" }))).toEqual([]);
   });
 
+  it("szuka też po wymaganiach z karty (etap 7), a karta bez nich nie psuje szukania", () => {
+    const withSkills = [
+      job({ slug: "k", title: "Backend Developer", must: ["Kafka", "Spring Boot"], nice: ["Kubernetes"] }),
+      job({ slug: "n", title: "Backend Developer" }),
+    ];
+    expect(slugs(filterBoard(withSkills, { ...NO_FILTERS, query: "kafka" }))).toEqual(["k"]);
+    expect(slugs(filterBoard(withSkills, { ...NO_FILTERS, query: "kubernetes backend" }))).toEqual(["k"]);
+    expect(slugs(filterBoard(withSkills, { ...NO_FILTERS, query: "backend" }))).toEqual(["k", "n"]);
+  });
+
   it("tryb pracy: kilka naraz to „lub”, rekrutacja bez trybu wypada przy filtrze", () => {
     expect(slugs(filterBoard(JOBS, { ...NO_FILTERS, modes: ["remote", "onsite"] }))).toEqual(["b", "c"]);
   });

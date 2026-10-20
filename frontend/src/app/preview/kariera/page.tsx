@@ -137,6 +137,22 @@ const RECRUITER_EMPTY: CareerRecruiterResponse = {
 };
 
 // Tablica (etap 6): 14 kart, każda scena co najmniej raz, „pokaż kolejne” po 12.
+/** Wymagania kart tablicy (podgląd sceny i szukanie, etap 7) — fikcyjne. */
+const BOARD_SKILLS: Record<string, { must: string[]; nice: string[] }> = {
+  "senior-java-developer-7kq2": { must: ["Java Spring Boot", "Kafka", "PostgreSQL", "English"], nice: ["Kubernetes"] },
+  "analityk-systemowy-k2p8": { must: ["UML i BPMN", "REST i SOAP", "SQL"], nice: ["Jira"] },
+  "tester-automatyzujacy-r4t1": { must: ["Playwright", "TypeScript", "CI w GitLabie"], nice: ["Appium"] },
+  "data-engineer-m3n6": { must: ["Python", "Spark", "Airflow", "dbt"], nice: ["Snowflake"] },
+  "architekt-rozwiazan-c4x2": { must: ["Azure", "C4 i ADR", "Mikroserwisy"], nice: ["TOGAF"] },
+  "devops-engineer-azure-p3x9": { must: ["Kubernetes", "Terraform", "Azure", "Helm"], nice: ["ArgoCD"] },
+  "analityk-biznesowy-q8m1": { must: ["Warsztaty", "User stories", "Jira"], nice: ["Bankowość"] },
+  "project-manager-h5j3": { must: ["Prince2 albo PMP", "Budżet projektu", "English C1"], nice: ["CRM"] },
+  "tester-manualny-w9e4": { must: ["Przypadki testowe", "Jira i Xray", "SQL"], nice: [] },
+  "security-engineer-s7d2": { must: ["SIEM", "Splunk", "Linux"], nice: ["Reagowanie na incydenty"] },
+  "frontend-developer-f6g8": { must: ["React", "TypeScript", "Testy komponentów"], nice: ["Dostępność"] },
+  "administrator-linux-a1b5": { must: ["Linux", "Ansible", "Bash", "Sieci"], nice: [] },
+};
+
 const BOARD_JOB = (
   slug: string,
   title: string,
@@ -146,7 +162,17 @@ const BOARD_JOB = (
   category: CareerBoardJob["category"],
   theme: string,
   recruiter_first_name: string,
-): CareerBoardJob => ({ slug, title, subtitle, city, remote_policy, category, theme, recruiter_first_name });
+): CareerBoardJob => ({
+  slug,
+  title,
+  subtitle,
+  city,
+  remote_policy,
+  category,
+  theme,
+  recruiter_first_name,
+  ...(BOARD_SKILLS[slug] ?? { must: [], nice: [] }),
+});
 
 const BOARD: CareerBoardResponse = {
   cv: { slug: "olga-r", first_name: "Olga" },

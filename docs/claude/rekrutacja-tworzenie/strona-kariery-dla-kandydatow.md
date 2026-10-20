@@ -377,3 +377,16 @@ Reguły, które łatwo cofnąć:
   ScrollTrigger, Lenis) są na planszach 7a–7c kanwy
   https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h i w prototypie
   https://claude.ai/artifact/TsUgULCMSSjVTiYWvoGN3b.
+- **Tablica jako lista z żywym podglądem (etap 7, D2 = A, 21.10.2026):**
+  karty zastąpiła lista wierszy (znak szablonu, tytuł, podtytuł, „miejsce ·
+  kategoria · rekruter”, „Zobacz”). Od 1024 px obok listy stoi przyklejony
+  podgląd (`BoardPreview.tsx`): najechanie albo fokus na wierszu buduje scenę
+  rekrutacji z jej wymagań w kolorach szablonu (sześć układów dla 12 scen).
+  Podgląd jest dodatkiem dla myszy (`aria-hidden`, `tabIndex=-1`); klawiatura
+  i czytnik idą wierszami. Karta tablicy niesie `must`/`nice` (najwyżej po 5,
+  z tej samej projekcji co strona rekrutacji — ukryta sekcja daje pustą listę;
+  klucz cache `career_board:v2`), a szukanie obejmuje też wymagania. Filtr
+  przestawia wiersze przez GSAP Flip, licznik „x z N” stoi w polu szukania.
+  Ruch tylko od 1024 px i bez „ograniczonego ruchu” (`gsap.matchMedia`); bez
+  `matchMedia` (jsdom) scena stoi. GSAP 3.13.0 i `@gsap/react` 2.1.2 ładuje
+  wyłącznie strona kariery.

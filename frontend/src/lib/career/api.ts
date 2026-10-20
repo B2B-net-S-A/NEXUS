@@ -81,6 +81,10 @@ export interface CareerBoardJob {
   category: CareerBoardCategory | null;
   theme: string;
   recruiter_first_name: string;
+  /** Wymagania do podglądu sceny i szukania (etap 7, najwyżej 5 każdych).
+   *  Puste, gdy sekcja jest ukryta przełącznikiem „pokaż”. */
+  must?: string[];
+  nice?: string[];
 }
 
 export interface CareerBoardResponse {

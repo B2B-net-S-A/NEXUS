@@ -1192,6 +1192,14 @@ async def test_hidden_sections_vanish_from_every_public_surface(api):
     for leaked in ("Java 17", "Kafka", "Warszawa", "10.2026", "12+ mies."):
         assert leaked not in serialized, leaked
 
+    from app.core.cache import cache_invalidate
+
+    await cache_invalidate("career_board")
+    board = (await api.get("/api/public/career/jobs")).json()["jobs"]
+    card = next(j for j in board if j["slug"] == link["slug"])
+    assert card["must"] == [] and card["nice"] == []
+    assert card["city"] is None and card["remote_policy"] is None
+
     slug = f"hid-{uuid.uuid4().hex[:6]}"
     await api.put("/api/me/career-link", json={"slug": slug}, headers=headers)
     listed = (await api.get(f"/api/public/career/p/{slug}")).json()["jobs"]
@@ -1534,7 +1542,12 @@ async def test_board_lists_open_approved_jobs_without_client_or_rate(api, board)
         "category",
         "theme",
         "recruiter_first_name",
+        "must",
+        "nice",
     }
+    # Etap 7 (21.10.2026): podgląd sceny na tablicy buduje się z wymagań.
+    assert card["must"] == ["Java 17"]
+    assert card["nice"] == ["Kafka"]
     assert card["title"].startswith("Senior Java Developer")
     assert card["subtitle"] == "Rozwój platformy płatności dla sektora finansowego"
     assert card["remote_policy"] == "hybrid"

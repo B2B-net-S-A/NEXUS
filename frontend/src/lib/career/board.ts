@@ -60,7 +60,11 @@ function terms(query: string): string[] {
 
 function matchesText(job: CareerBoardJob, words: string[]): boolean {
   if (words.length === 0) return true;
-  const haystack = fold([job.title, job.subtitle, job.city].filter(Boolean).join(" "));
+  const haystack = fold(
+    [job.title, job.subtitle, job.city, ...(job.must ?? []), ...(job.nice ?? [])]
+      .filter(Boolean)
+      .join(" "),
+  );
   return words.every((w) => haystack.includes(w));
 }
 

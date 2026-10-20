@@ -296,7 +296,7 @@ async def get_career_recruiter(
 
 # Tablica liczy opublikowany opis KAŻDEJ otwartej rekrutacji — 60/min na adres
 # to za mało, żeby chronić bazę przed wieloma odwiedzającymi naraz.
-_BOARD_CACHE_KEY = "career_board:v1"
+_BOARD_CACHE_KEY = "career_board:v2"  # v2: karta niesie must/nice (etap 7)
 _BOARD_TTL_SECONDS = 60
 
 
