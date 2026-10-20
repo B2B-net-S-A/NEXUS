@@ -214,3 +214,40 @@ async def test_manual_reminder_refusals(app_client) -> None:
     ok = await app_client.post(_remind_url(person.id, 2035, 6), headers=headers(boss))
     assert ok.status_code == 200
     assert ok.json()["target"] == "person"
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_manual_reminder_refuses_closed_payroll_month_without_timesheet(
+    app_client,
+) -> None:
+    """Audyt 21.10.2026: brak timesheetu w miesiącu zamkniętym w płacach to też
+    409 — założonego tam raportu i tak nie da się wypełnić (``payroll_locked``)."""
+
+    from sqlalchemy import delete
+
+    from app.core.scheduling import local_now
+    from app.models.hr_payroll import PayrollPeriod
+
+    async with AsyncSessionLocal() as db:
+        boss = await make_user(db, "recruiter")
+        person = await make_user(db, "employee", manager_user_id=boss.id)
+        db.add(
+            PayrollPeriod(year=2035, month=7, status="closed", closed_at=local_now())
+        )
+        await db.commit()
+    try:
+        closed = await app_client.post(
+            _remind_url(person.id, 2035, 7), headers=headers(boss)
+        )
+        assert closed.status_code == 409, closed.text
+        assert "zamknięty w płacach" in closed.json()["detail"]
+        assert await notifications_of(person.id, "hr_timesheet_reminder") == []
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(PayrollPeriod).where(
+                    PayrollPeriod.year == 2035, PayrollPeriod.month == 7
+                )
+            )
+            await db.commit()
