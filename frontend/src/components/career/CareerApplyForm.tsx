@@ -361,10 +361,10 @@ export function CareerApplyForm({
       )}
 
       <div className="kr-grid2">
-        {textInput("first_name", "imię *", { autoComplete: "given-name", required: true })}
-        {textInput("last_name", "nazwisko *", { autoComplete: "family-name", required: true })}
+        {textInput("first_name", "Imię *", { autoComplete: "given-name", required: true })}
+        {textInput("last_name", "Nazwisko *", { autoComplete: "family-name", required: true })}
       </div>
-      {textInput("email", "e-mail *", {
+      {textInput("email", "E-mail *", {
         type: "email",
         autoComplete: "email",
         inputMode: "email",
@@ -373,7 +373,7 @@ export function CareerApplyForm({
 
       <div>
         <span className="kr-label" id={id("cv-label")}>
-          cv *
+          CV *
         </span>
         <label
           className={dragging ? "kr-file kr-file-drag" : "kr-file"}
@@ -440,7 +440,7 @@ export function CareerApplyForm({
       >
         <div>
           <label className="kr-label" htmlFor={id("expected_rate_hourly")}>
-            stawka zł/h netto
+            Stawka zł/h netto
           </label>
           <input
             id={id("expected_rate_hourly")}
@@ -461,7 +461,7 @@ export function CareerApplyForm({
         </div>
         <div>
           <label className="kr-label" htmlFor={id("availability_date")}>
-            dostępny od
+            Dostępny od
           </label>
           <input
             id={id("availability_date")}
@@ -475,10 +475,10 @@ export function CareerApplyForm({
           />
           {fieldError("availability_date")}
         </div>
-        {textInput("city", "miasto", { autoComplete: "address-level2", maxLength: 120 })}
+        {textInput("city", "Miasto", { autoComplete: "address-level2", maxLength: 120 })}
         <div>
           <label className="kr-label" htmlFor={id("work_mode")}>
-            tryb pracy
+            Tryb pracy
           </label>
           <select
             id={id("work_mode")}

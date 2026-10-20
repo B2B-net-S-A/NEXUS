@@ -23,7 +23,7 @@ describe("scena Tablica warsztatowa", () => {
     expect(s.full().getByText("DO OMÓWIENIA · 4")).toBeInTheDocument();
     expect(s.score().getByText("W „Mam to”")).toBeInTheDocument();
     fireEvent.click(s.full().getByRole("button", { name: "Kubernetes (mile widziane)" }));
-    expect(s.full().getByRole("button", { name: "Kubernetes (mile widziane)" })).toHaveTextContent(/^Kubernetes ?MAM$/);
+    expect(s.full().getByRole("button", { name: "Kubernetes (mile widziane)" })).toHaveTextContent(/^Kubernetes · mile widziane ?MAM$/);
     fireEvent.click(note);
     expect(note.style.left).toBe("16px");
     expect(s.score().getByText("1/5")).toBeInTheDocument();

@@ -3,7 +3,7 @@
 import { useState, type KeyboardEvent } from "react";
 
 import { useScene } from "./SceneContext";
-import { itemAria, SceneFrame, SceneList } from "./SceneParts";
+import { ItemName, itemAria, SceneFrame, SceneList } from "./SceneParts";
 
 /**
  * Terminal (programista): działający terminal. `cat wymagania` daje listę
@@ -127,7 +127,7 @@ export function TerminalScene() {
                       onClick={() => toggle(i)}
                     >
                       <span className={on ? "kr-r" : "kr-dim"}>{on ? "[x]" : "[ ]"}</span>{" "}
-                      <span className="kr-w">{item.name}</span>
+                      <span className="kr-w"><ItemName item={item} /></span>
                       {item.note ? <span className="kr-dim"> {"// "}{item.note}</span> : null}
                     </button>
                   );

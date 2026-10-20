@@ -1,7 +1,7 @@
 "use client";
 
 import { useScene } from "./SceneContext";
-import { itemAria, SceneFrame, SceneList } from "./SceneParts";
+import { ItemName, itemAria, SceneFrame, SceneList } from "./SceneParts";
 
 /**
  * Konstelacja (data / AI): gwiazdy = wymagania. Klikane po kolei łączą się
@@ -90,7 +90,7 @@ export function ConstellationScene() {
             >
               <span className="kr-const-core" />
               {on ? <span className="kr-const-num">{order.indexOf(i) + 1}</span> : null}
-              <span className="kr-const-lab">{item.name}</span>
+              <span className="kr-const-lab"><ItemName item={item} /></span>
             </button>
           );
         })}

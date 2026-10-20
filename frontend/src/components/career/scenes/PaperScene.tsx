@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { useScene } from "./SceneContext";
-import { itemAria, SceneFrame, SceneList } from "./SceneParts";
+import { ItemName, itemAria, SceneFrame, SceneList } from "./SceneParts";
 
 /**
  * Papier (tester manualny): ekran logowania z czterema błędami do zakreślenia
@@ -110,7 +110,7 @@ export function PaperScene() {
                   {on ? "✓" : ""}
                 </span>
                 <span>
-                  {item.name}
+                  <ItemName item={item} />
                   {item.note ? <span className="kr-paper-note"> — {item.note}</span> : null}
                 </span>
                 <span className="kr-paper-res">{on ? "PASS" : "DO SPR."}</span>

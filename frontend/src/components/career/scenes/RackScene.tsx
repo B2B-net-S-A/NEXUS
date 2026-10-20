@@ -1,7 +1,7 @@
 "use client";
 
 import { useScene } from "./SceneContext";
-import { itemAria, SceneFrame, SceneList } from "./SceneParts";
+import { ItemName, itemAria, SceneFrame, SceneList } from "./SceneParts";
 
 /**
  * Szafa serwerowa (administrator): moduły = wymagania. Kliknięty moduł startuje
@@ -59,7 +59,7 @@ export function RackScene() {
                 <span className="kr-rack-vent" aria-hidden="true" />
                 <span className="kr-rack-body">
                   <span className="kr-rack-n">
-                    {unitHost(i)} · {item.name}
+                    {unitHost(i)} · <ItemName item={item} />
                   </span>
                   {item.note ? <span className="kr-rack-d">{item.note}</span> : null}
                   {on ? <span className="kr-rack-boot" aria-hidden="true" /> : null}

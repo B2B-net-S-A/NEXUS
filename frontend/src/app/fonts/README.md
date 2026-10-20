@@ -23,6 +23,7 @@ przeglądarkę użytkownika.
 | `Inter-Cyrillic.woff2`   | Inter   | zmienna `100 900`   | **tylko cyrylica**, za `unicode-range` |
 | `Poppins-{400..800}.woff2` | Poppins | 400/500/600/700/800 | statyczne (Poppins nie ma VF)     |
 | `Baloo2-Variable.woff2`  | Baloo 2 | zmienna `400..800`  | oś `wght` (jedyna); tryb „kids"   |
+| `Geist-{400,500,700,800}.woff2` | Geist | 400/500/700/800 | strona kariery (`components/career/fonts.ts`); 400/500 z `Geist[wght].ttf` (google/fonts, OFL) przez `fonttools varLib.instancer` + `pyftsubset` na tym samym zestawie znaków co 700 |
 
 Pliki łacińskie zawierają **latin + latin-ext w jednym woff2** (Google serwuje
 to jako dwa osobne pliki z `unicode-range`; rozbijanie tego u nas nic nie da,

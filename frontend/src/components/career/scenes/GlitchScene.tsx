@@ -71,6 +71,7 @@ export function GlitchScene() {
               <span className="kr-gl-ic">{on ? "✓" : "○"}</span>
               <span>
                 <span className="kr-w">test(&apos;{item.name}&apos;)</span>
+                {item.kind === "nice" ? <span className="kr-nice-mark"> · mile widziane</span> : null}
                 {item.note ? (
                   <>
                     <br />

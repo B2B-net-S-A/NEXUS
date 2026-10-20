@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 
 import { useScene } from "./SceneContext";
-import { itemAria, SceneFrame, SceneList } from "./SceneParts";
+import { ItemName, itemAria, SceneFrame, SceneList } from "./SceneParts";
 
 /**
  * Radar (security): cele = wymagania. Klik namierza cel (ramka namiaru),
@@ -100,7 +100,7 @@ export function RadarScene() {
                   <span className="kr-radar-halo" />
                 )}
                 <span className="kr-radar-dot" />
-                <span className="kr-radar-tag">{item.name}</span>
+                <span className="kr-radar-tag"><ItemName item={item} /></span>
               </button>
             );
           })}
