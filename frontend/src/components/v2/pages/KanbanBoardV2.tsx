@@ -146,6 +146,7 @@ import {
  type CardNextStep,
  type QcChipTone,
  compactCardBadge,
+ cardOwner,
  cardShortName,
  criticalGapBadge,
  cvStateBadge,
@@ -950,25 +951,33 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const detailsId = `kanban-candidate-details-${item.id}`;
  const hasAddedByName = Boolean(item.added_to_job_by_name?.trim());
  const addedByDisplayName = item.added_to_job_by_name?.trim() || "brak danych";
- const addedByShortName = cardShortName(item.added_to_job_by_name) ?? "Brak danych";
+ // Od „Zweryfikowanego” karta pokazuje osobę, która zweryfikowała (20.10.2026).
+ const owner = cardOwner(item, boardKey);
+ const hasOwnerName = owner.name != null;
+ const ownerShortName = cardShortName(owner.name) ?? "Brak danych";
  // Awatar WŁAŚCICIELA karty, nie kandydata — makieta kroku 04 pyta „czyja to
  // karta", a nazwisko kandydata i tak stoi wiersz wyżej.
- const ownerInitials = item.added_to_job_by_name?.trim()
- ? item.added_to_job_by_name
- .trim()
+ const ownerInitials = owner.name
+ ? owner.name
  .split(/\s+/)
  .map((w) => w[0])
  .slice(0, 2)
  .join("")
  .toUpperCase()
  : "?";
- const addedAttribution = hasAddedByName
+ const addedLine = hasAddedByName
  ? `Dodano do rekrutacji przez: ${addedByDisplayName}${
  item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` : ""
  }`
  : `Brak danych o osobie dodającej${
  item.added_to_job_at ? ` · dodano ${formatDate(item.added_to_job_at)}` : ""
  }`;
+ const addedAttribution =
+ owner.role === "verified"
+ ? `Zweryfikował(a): ${owner.name}${
+ item.verified_at ? ` · ${formatDate(item.verified_at)}` : ""
+ }\n${addedLine}`
+ : addedLine;
  // Konflikty z klientem i czarna lista: serwer niesie je w `warnings`,
  // a karta do 12.10.2026 rysowała tylko weto HM i „ponad budżet”.
  const warningBadges = eligibilityWarningBadges(item.warnings, item.employment_marker);
@@ -1005,7 +1014,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item.days_in_stage != null
  ? `W etapie od ${item.days_in_stage} dni.`
  : null,
- `${addedAttribution}.`,
+ `${addedAttribution.replace("\n", ". ")}.`,
  closedSummary ? `${closedSummary}.` : null,
  item.hm_veto ? "Ostrzeżenie: weto hiring managera." : null,
  ...warningBadges.map((w) => `Ostrzeżenie: ${w.label}.`),
@@ -1195,7 +1204,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span
  className={cn(
  "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-semibold",
- hasAddedByName
+ hasOwnerName
  ? "bg-primary/10 text-primary"
  : "bg-warning/15 text-warning",
  desktopOverview && "xl:pointer-fine:hidden"
@@ -1207,16 +1216,16 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span
  className={cn(
  "min-w-0 truncate",
- !hasAddedByName && "text-warning",
+ !hasOwnerName && "text-warning",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  aria-hidden="true"
  >
- {addedByShortName}
+ {ownerShortName}
  </span>
  {desktopOverview && (
  <span className="hidden truncate xl:pointer-fine:inline" aria-hidden="true">
- R: {addedByShortName}
+ R: {ownerShortName}
  </span>
  )}
  {item.rating != null && item.rating > 0 && (
@@ -1424,9 +1433,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  step={nextStep}
  days={item.days_in_stage ?? null}
  hidden={desktopOverview}
- // Ta sama osoba dodała kartę i ma ruch — jej imię stoi wiersz wyżej
+ // Osoba z karty (dodała albo zweryfikowała) ma ruch — jej imię stoi wiersz wyżej
  // (dawniej „Integracje:” dwa razy na jednej karcie, 04.10.2026).
- hideWho={Boolean(nextStep && !nextStep.mine && hasAddedByName && nextStep.who === addedByShortName)}
+ hideWho={Boolean(nextStep && !nextStep.mine && hasOwnerName && nextStep.who === ownerShortName)}
  advance={
  nextColumnLabel && v5 && !reviewSend ? (
  <button

@@ -717,6 +717,9 @@ def _stage_response(
     added_to_job_by_name: Optional[str] = None,
     added_to_job_by_id: Optional[int] = None,
     added_to_job_at: Optional[datetime] = None,
+    verified_by_name: Optional[str] = None,
+    verified_by_id: Optional[int] = None,
+    verified_at: Optional[datetime] = None,
     candidate_expected_rate_hourly: Optional[Decimal] = None,
     # Bez wartości domyślnej: każdy wołający decyduje jawnie
     # (`user_can_view_client_rate`) — zapomniany argument nie może odsłonić
@@ -732,6 +735,10 @@ def _stage_response(
     describe WHO assigned the candidate to the recruitment and WHEN — i.e. the
     mover on the *earliest* stage of this candidate/job pair, not the
     current-stage mover. Also populated by the Kanban endpoint (NULL elsewhere).
+
+    ``verified_by_name`` / ``verified_by_id`` / ``verified_at`` — the mover on
+    the NEWEST „Zweryfikowany” row of the pair (the same rule as the DL review,
+    `board_tasks`). Kanban only.
     """
     return {
         "id": stage.id,
@@ -776,6 +783,11 @@ def _stage_response(
         # po imieniu myliłby imienników.
         "added_to_job_by_id": added_to_job_by_id,
         "added_to_job_at": added_to_job_at,
+        # Karta od „Zweryfikowanego” pokazuje osobę, która zweryfikowała, nie
+        # tę, która dodała (decyzja Artura 20.10.2026).
+        "verified_by_name": verified_by_name,
+        "verified_by_id": verified_by_id,
+        "verified_at": verified_at,
         # Odznaki karty (17.09.2026) — patrz `CandidateStageResponse`.
         # Arkusz z odpowiedzią — jak bramka „Zweryfikowany” (14.10.2026).
         "screening_done": move_requirements.sheet_answered(stage.screening_answers),
@@ -2975,6 +2987,8 @@ async def build_kanban_view(
     # (wiersze sprzed 0451 też nie — wtedy najnowszy wiersz akceptacji).
     latest_acceptance: dict[int, CandidateStage] = {}
     latest_any_acceptance: dict[int, CandidateStage] = {}
+    # Kto zweryfikował (20.10.2026): najnowszy wiersz „Zweryfikowany” pary.
+    latest_verified: dict[int, CandidateStage] = {}
     for s in all_stages:
         if s.candidate_id not in seen:
             seen[s.candidate_id] = s
@@ -2987,6 +3001,8 @@ async def build_kanban_view(
             carried_expected_rate.setdefault(s.candidate_id, s)
         if s.client_rate_value is not None:
             carried_client_rate.setdefault(s.candidate_id, s)
+        if s.stage == PipelineStage.verified:
+            latest_verified.setdefault(s.candidate_id, s)
         if s.stage == PipelineStage.acceptance:
             latest_any_acceptance.setdefault(s.candidate_id, s)
             if s.client_accepted_on is not None:
@@ -3068,11 +3084,15 @@ async def build_kanban_view(
 
     # Bulk-load names of the recruiters who first assigned each candidate to the
     # job (mover on the earliest stage). One query, no per-card N+1.
-    added_by_user_ids = {
-        e.moved_by for e in earliest.values() if e.moved_by is not None
-    } | {
-        creator for _, _, creator in added_to_base_by_id.values() if creator is not None
-    }
+    added_by_user_ids = (
+        {e.moved_by for e in earliest.values() if e.moved_by is not None}
+        | {v.moved_by for v in latest_verified.values() if v.moved_by is not None}
+        | {
+            creator
+            for _, _, creator in added_to_base_by_id.values()
+            if creator is not None
+        }
+    )
     user_name_by_id: dict[int, Optional[str]] = {}
     if added_by_user_ids:
         urows = await db.execute(
@@ -3379,6 +3399,7 @@ async def build_kanban_view(
             else None
         )
         added_at = first.moved_at if first is not None else None
+        verified = latest_verified.get(e.candidate_id)
         payload = _stage_response(
             e,
             show_client_rate=show_client_rate,
@@ -3387,6 +3408,13 @@ async def build_kanban_view(
             added_to_job_by_name=added_by_name,
             added_to_job_by_id=first.moved_by if first is not None else None,
             added_to_job_at=added_at,
+            verified_by_name=(
+                user_name_by_id.get(verified.moved_by)
+                if verified is not None and verified.moved_by is not None
+                else None
+            ),
+            verified_by_id=verified.moved_by if verified is not None else None,
+            verified_at=verified.moved_at if verified is not None else None,
             candidate_expected_rate_hourly=profile_rate_by_id.get(e.candidate_id),
         )
         # Rekrutacja bez pytań: karta mówi o „Dlaczego ten kandydat”, nie

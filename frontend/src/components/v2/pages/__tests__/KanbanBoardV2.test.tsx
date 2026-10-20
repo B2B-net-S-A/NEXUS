@@ -1867,6 +1867,32 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(mine).toHaveLength(3);
   });
 
+  it("od „Zweryfikowanego” karta pokazuje osobę, która zweryfikowała, a nie dodającą (20.10.2026)", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    const verifiedBy = { verified_by_name: "Malwina Jobda", verified_by_id: 81, verified_at: "2026-10-20T09:00:00Z" };
+    // Screening: weryfikacja zapisana wcześniej (karta wróciła) — dalej dodający.
+    columns[1] = {
+      ...columns[1],
+      items: [{ id: 7101, candidate_id: 8101, stage: "screening", name: "Jan", lastname: "Wrócił", days_in_stage: 1, added_to_job_by_name: "Marek Gajewski", ...verifiedBy }],
+    };
+    columns[2] = {
+      ...columns[2],
+      count: 1,
+      items: [{ id: 7201, candidate_id: 8201, stage: "verified", name: "Wiktor", lastname: "Worona", days_in_stage: 1, added_to_job_by_name: "Marek Gajewski", added_to_job_at: "2026-08-17T09:00:00Z", ...verifiedBy }],
+    };
+    renderBoard(columns as never);
+    await screen.findByTestId("pipeline-board");
+
+    const verifiedRow = screen.getByTitle(/^Zweryfikował\(a\): Malwina Jobda/);
+    expect(verifiedRow.title).toContain("Dodano do rekrutacji przez: Marek Gajewski");
+    expect(within(verifiedRow).getByText("MJ")).toBeInTheDocument();
+    expect(within(verifiedRow).getByText("Malwina")).toBeInTheDocument();
+
+    const screeningCard = screen.getByText("Jan Wrócił").closest("[data-kanban-card]") as HTMLElement;
+    expect(within(screeningCard).getByText("Marek")).toBeInTheDocument();
+    expect(within(screeningCard).queryByText("Malwina")).toBeNull();
+  });
+
   it("nawigator doku idzie po kolumnie otwartej osoby, karty od góry — także z etapów złożonych w kolumnę", async () => {
     // Audyt 24.09.2026: pierwsza karta w „Nowi” miała „12 z 35”, a „←” prowadziło
     // do ostatniej karty kolumny — dok liczył kolejność z surowych etapów
