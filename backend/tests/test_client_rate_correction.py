@@ -101,6 +101,22 @@ def test_note_without_own_words_shows_nothing_extra() -> None:
     assert out["changes"][0]["note"] is None
 
 
+def test_rate_change_note_stays_hidden_after_an_edit() -> None:
+    """Edycja notatki liczy rodzaj od nowa — pochodzenie trzyma `dl_rate`."""
+    from app.services import note_kinds
+    from app.services.client_rate_correction import NOTE_SOURCE
+
+    for reason in ("client_negotiated", "send_mistake", "other"):
+        for words in (None, "klient zszedł po drugiej rozmowie"):
+            content = note_content(R150, R145, reason, words)
+            assert (
+                note_kinds.classify(
+                    content, note_type="general", external_source=NOTE_SOURCE
+                )
+                == note_kinds.DL_RATE
+            )
+
+
 # ── Ścieżka HTTP ────────────────────────────────────────────────────────────
 
 
@@ -265,7 +281,8 @@ async def test_order_locks_the_rate_in_the_recruitment(app_client: AsyncClient) 
     assert history.status_code == 200, history.text
     body = history.json()
     assert body["order_lock"]["title"] == "Zamówienie Crc"
-    assert body["order_lock"]["rate_client"] == 190.0
+    # Bez kwot zamówienia — DL spoza portfela klienta ich nie widzi.
+    assert "rate_client" not in body["order_lock"]
     assert body["can_write"] is False
 
     resp = await app_client.patch(

@@ -117,9 +117,6 @@ describe("ClientRateChangeDialog", () => {
           order_id: 3,
           contract_id: 77,
           title: "Zamówienie X",
-          rate_client: 150,
-          rate_unit: "hourly",
-          currency: "PLN",
         },
       },
     });

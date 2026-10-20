@@ -36,7 +36,7 @@ REASONS: dict[str, str] = {
     "other": "Inny powód",
 }
 NOTE_MAX = 500
-NOTE_SOURCE = "client_rate_change"
+NOTE_SOURCE = note_kinds.CLIENT_RATE_CHANGE_SOURCE
 
 _UNIT_SUFFIX = {"hourly": "zł/h", "daily": "zł/dzień", "monthly": "zł/mies."}
 
@@ -128,14 +128,7 @@ async def order_lock(
 
     row = (
         await db.execute(
-            select(
-                ClientOrder.id,
-                ClientOrder.contract_id,
-                ClientOrder.title,
-                ClientOrder.rate_client,
-                ClientOrder.rate_unit,
-                ClientOrder.rate_client_currency,
-            )
+            select(ClientOrder.id, ClientOrder.contract_id, ClientOrder.title)
             .join(Contract, Contract.id == ClientOrder.contract_id)
             .where(
                 Contract.candidate_id == candidate_id,
@@ -151,15 +144,10 @@ async def order_lock(
     ).first()
     if row is None:
         return None
-    order_id, contract_id, title, rate_client, rate_unit, currency = row
-    return {
-        "order_id": order_id,
-        "contract_id": contract_id,
-        "title": title,
-        "rate_client": float(rate_client) if rate_client is not None else None,
-        "rate_unit": getattr(rate_unit, "value", rate_unit),
-        "currency": currency or "PLN",
-    }
+    # Bez kwot zamówienia: historię czyta każda rola ze stawką do klienta,
+    # a kwoty zamówień Delivery Lead widzi tylko w swoim portfelu.
+    order_id, contract_id, title = row
+    return {"order_id": order_id, "contract_id": contract_id, "title": title}
 
 
 def order_lock_message(lock: dict[str, Any]) -> str:

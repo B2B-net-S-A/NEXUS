@@ -21,11 +21,18 @@ zamówieniu, zapis jak dotąd. Kod: `services/client_rate_correction.py`,
   zamówienie pary bez anulowanych — `client_orders.job_id` tej rekrutacji albo,
   przy starym zamówieniu bez `job_id`, kontrakt z `contracts.job_id`. `PATCH`
   zwraca 409, okno i profil odsyłają do kontraktu z zamówieniem. Dotyczy też
-  zwykłego „Edytuj” w profilu.
+  zwykłego „Edytuj” w profilu i decyzji „Podnoszę” w sprawie zmiany stawki
+  kandydata (`candidate_rate_change.decide`). Nowe miejsce zapisu stawki do
+  klienta po wysyłce = ta sama blokada. `order_lock` nie niesie kwot
+  zamówienia: historię czyta każda rola ze stawką do klienta, a kwoty zamówień
+  Delivery Lead widzi tylko w swoim portfelu.
 - **Bez nowej tabeli.** Powód to kod w audycie `client_rate_changed`
   (`details.reason`), słowa DL-a — notatka `dl_rate` (`external_source =
   client_rate_change`, `details.note_id`), więc rekruter widzi zdanie
-  zastępcze. Audyt nie niesie wolnego tekstu (zasada `candidate_audit`).
+  zastępcze. Rodzaj trzyma pochodzenie (`note_kinds.CLIENT_RATE_CHANGE_SOURCE`
+  w `_classify`), bo edycja notatki liczy rodzaj od nowa, a treść „150 zł/h →
+  145 zł/h” reguła treści czyta jako zwykłą notatkę. Audyt nie niesie wolnego
+  tekstu (zasada `candidate_audit`).
 - **„Stara” kwota w audycie to stawka PARY sprzed zmiany**, nie wiersza:
   ruch na kolejny etap zaczyna wiersz bez stawki, więc po „Rozmowie” stara
   kwota z samego wiersza byłaby pusta.

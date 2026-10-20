@@ -32,13 +32,11 @@ export interface ClientRateChange {
   note: string | null;
 }
 
+/** Bez kwot zamówienia — DL spoza portfela klienta ich nie widzi. */
 export interface ClientRateOrderLock {
   order_id: number;
   contract_id: number;
   title: string;
-  rate_client: number | null;
-  rate_unit: RateUnit | null;
-  currency: string;
 }
 
 export interface ClientRateHistory {
