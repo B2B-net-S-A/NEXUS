@@ -114,9 +114,11 @@ export function AgreementSignatureAction({
         {lastRequest ? "Przypomnij o podpisie" : "Poproś o potwierdzenie podpisu"}
       </Button>
       <p className="text-[11px] text-muted-foreground">
+        {/* 20.10.2026: „potwierdza Delivery Lead” czytało się jak „zatrudnia
+            tylko DL” — mówimy, że chodzi o podpis z Generatora. */}
         {lastRequest
-          ? `Prośba wysłana ${formatIsoDatePl(lastRequest.slice(0, 10))} — potwierdza Delivery Lead.`
-          : "Podpis potwierdza Delivery Lead — dostanie prośbę i sprawę na pulpicie."}
+          ? `Prośba wysłana ${formatIsoDatePl(lastRequest.slice(0, 10))} — podpis potwierdzi Delivery Lead klienta.`
+          : "Podpis tej umowy potwierdza osoba z uprawnieniem „Podpis B2B” — Delivery Lead klienta dostanie prośbę i sprawę na pulpicie."}
       </p>
     </div>
   );

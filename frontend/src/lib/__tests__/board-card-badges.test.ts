@@ -157,9 +157,11 @@ describe("odznaki karty — Pipeline v4", () => {
     // (produkcja 24.09.2026 — karta w „Umowie” wyglądała na załatwioną).
     expect(labels(iv, ctx({ column: "contract" }))).toContain("Zadzwoń · 18 min po rozmowie");
     expect(labels(iv, ctx({ column: "cv_sent" }))).toContain("Zadzwoń · 18 min po rozmowie");
-    expect(labels(item({ order_status: "missing" }), ctx({ column: "hired" }))).toEqual([
-      "Brak zamówienia",
-    ]);
+    // 20.10.2026: brak zamówienia to cudzy krok po zatrudnieniu — neutralnie.
+    const missingOrder = cardBadges(item({ order_status: "missing" }), ctx({ column: "hired" }));
+    expect(missingOrder.map((b) => b.label)).toEqual(["Zamówienie: u Delivery Leada"]);
+    expect(missingOrder[0]).toMatchObject({ key: "order", tone: "neutral" });
+    expect(missingOrder[0].title).toContain("nie jest warunkiem zatrudnienia");
     expect(labels(item({ order_status: "complete" }), ctx({ column: "hired" }))).toEqual([
       "Zamówienie ✓",
     ]);
@@ -168,7 +170,10 @@ describe("odznaki karty — Pipeline v4", () => {
   it("„Zatrudniony” bez umowy w Kontraktach: odznaka przed zamówieniem, tylko w tej kolumnie (17.10.2026)", () => {
     const noContract = item({ missing_contract: true, order_status: "missing" });
     const badges = cardBadges(noContract, ctx({ column: "hired" }));
-    expect(badges.map((b) => b.label)).toEqual(["Brak umowy w Kontraktach", "Brak zamówienia"]);
+    expect(badges.map((b) => b.label)).toEqual([
+      "Brak umowy w Kontraktach",
+      "Zamówienie: u Delivery Leada",
+    ]);
     expect(badges[0]).toMatchObject({ key: "contract", tone: "wait" });
     expect(badges[0].title).toContain("„Pracuje u nas” pojawi się po wpisaniu umowy");
     // Inna kolumna (karta cofnięta z „Zatrudniony”) i karta z umową — bez odznaki.

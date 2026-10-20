@@ -142,7 +142,57 @@ describe("DockContractSteps", () => {
   it("tylko do odczytu: stan bez przycisków", async () => {
     generated.mockResolvedValue([]);
     renderSteps({ readOnly: true });
-    await screen.findByText("Umowa wygenerowana");
+    await screen.findByText("Umowa B2B z Generatora");
     expect(screen.queryByRole("link", { name: "Otwórz Generator umów" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Przesuń na „Zatrudniony”…" })).toBeNull();
+  });
+
+  // 20.10.2026: „czy zatrudnia tylko DL” i „czy bez zamówienia się da”.
+  describe("przed zatrudnieniem — kto i co jest potrzebne", () => {
+    it("mówi, że przesuwa każdy z zespołu, a zamówienie jest krokiem po zatrudnieniu", async () => {
+      generated.mockResolvedValue([ROW]);
+      renderSteps();
+      expect(await screen.findByText("Do „Zatrudnionego”")).toBeInTheDocument();
+      expect(screen.getByTestId("dock-hire-who")).toHaveTextContent(
+        "Przesuwa każdy z zespołu rekrutacji. Zamówienie od klienta nie jest potrzebne.",
+      );
+      const after = screen.getByTestId("dock-after-hire");
+      expect(after).toHaveTextContent("Po zatrudnieniu — nie blokuje ruchu");
+      expect(after).toHaveTextContent("Zamówienie od klienta — po zatrudnieniu");
+      expect(after).toHaveTextContent("Szkic powstanie sam przy zatrudnieniu");
+    });
+
+    it("prośba o podpis nie mówi, że zatrudnia tylko Delivery Lead", async () => {
+      generated.mockResolvedValue([ROW]);
+      renderSteps();
+      expect(
+        await screen.findByText(/Podpis tej umowy potwierdza osoba z uprawnieniem „Podpis B2B”/),
+      ).toBeInTheDocument();
+    });
+
+    it("umowa poza Generatorem: „Przesuń na Zatrudniony…” woła ruch", async () => {
+      generated.mockResolvedValue([]);
+      const onMarkHired = vi.fn();
+      renderSteps({ onMarkHired });
+      fireEvent.click(await screen.findByRole("button", { name: "Przesuń na „Zatrudniony”…" }));
+      expect(onMarkHired).toHaveBeenCalledTimes(1);
+    });
+
+    it("bez kolumny „Zatrudniony” do wyboru — bez przycisku", async () => {
+      generated.mockResolvedValue([]);
+      renderSteps();
+      await screen.findByText("Umowa B2B z Generatora");
+      expect(screen.queryByTestId("dock-hire-offline")).toBeNull();
+    });
+  });
+
+  it("zatrudniony bez umowy z Generatora (np. umowa o pracę): bez „Wygeneruj umowę”", async () => {
+    generated.mockResolvedValue([]);
+    renderSteps({ orderStatus: "missing", onGenerate: vi.fn(), onMarkHired: vi.fn() });
+    expect(await screen.findByRole("link", { name: "Zamówienia klienta" })).toBeInTheDocument();
+    expect(screen.getByText("Umowa")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Umowa B2B z Generatora")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Wygeneruj umowę" })).toBeNull();
+    expect(screen.queryByTestId("dock-hire-offline")).toBeNull();
   });
 });

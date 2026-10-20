@@ -963,6 +963,14 @@ describe("usePipelineMove — ruch zbiorczy", () => {
     React.act(() => controls.requestMove(item, b.fresh, hired));
     const confirmButton = await screen.findByRole("button", { name: "Potwierdź zatrudnienie" });
     expect(confirmButton).toBeDisabled();
+    // 20.10.2026: okno najpierw mówi „możesz sam” i że zamówienie nie jest potrzebne.
+    expect(screen.getByTestId("hired-can-save")).toHaveTextContent(
+      "Możesz to zapisać sam. Zamówienie od klienta nie jest potrzebne",
+    );
+    expect(screen.getByTestId("hired-what-happens")).toHaveTextContent(
+      "Delivery Lead i Finanse dostaną sprawę „uzupełnij zamówienie”",
+    );
+    expect(screen.queryByText(/System spróbuje założyć/)).toBeNull();
     // 17.10.2026: „Pracuje u nas” tylko z umowy w Kontraktach — okno to mówi.
     expect(screen.getByTestId("hired-contract-marker-note")).toHaveTextContent(
       "„Pracuje u nas” pojawi się, gdy umowa trafi do Kontraktów. Delivery Lead klienta dostanie przypomnienie, żeby ją wpisać.",

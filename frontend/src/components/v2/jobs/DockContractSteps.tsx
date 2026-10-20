@@ -15,6 +15,13 @@
  * potwierdza się tu — oknem z rejestru („Podpis B2B”) albo prośbą do
  * Delivery Leada (`AgreementSignatureAction`). Sekcja stoi w każdej kolumnie,
  * w której para ma umowę, nie tylko na „Umowie” i „Zatrudnionym”.
+ *
+ * 20.10.2026 (pytania zespołu „czy zatrudnia tylko DL” i „czy bez zamówienia
+ * się da”): przed zatrudnieniem sekcja nazywa się „Do „Zatrudnionego””, mówi,
+ * że przesuwa każdy z zespołu, i ma drugą drogę — umowę spoza Generatora
+ * (`onMarkHired`). Zamówienie stoi osobno, „Po zatrudnieniu — nie blokuje
+ * ruchu”, z przerywanym kółkiem zamiast pustego „do zrobienia”. Makiety:
+ * https://claude.ai/artifact/2m4b7dEXVnogXkcQymPiAA
  */
 
 import Link from "next/link";
@@ -37,7 +44,8 @@ export const CONTRACT_PANEL_STAGES: ReadonlySet<string> = new Set([
   "onboarding",
 ]);
 
-type StepState = "done" | "todo" | "loading";
+/** `later` — krok po zatrudnieniu, cudzy (przerywane kółko, nie „do zrobienia”). */
+type StepState = "done" | "todo" | "loading" | "later";
 
 function Step({
   state,
@@ -56,13 +64,21 @@ function Step({
         <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" aria-hidden />
       ) : state === "done" ? (
         <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden />
+      ) : state === "later" ? (
+        <Circle
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+          strokeDasharray="3 3"
+          aria-hidden
+        />
       ) : (
         <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
       )}
       <div className="min-w-0 flex-1">
         <span className={cn("text-foreground", state === "done" && "text-muted-foreground")}>
           {title}
-          <span className="sr-only">{state === "done" ? " — zrobione" : " — do zrobienia"}</span>
+          <span className="sr-only">
+            {state === "done" ? " — zrobione" : state === "later" ? " — po zatrudnieniu" : " — do zrobienia"}
+          </span>
         </span>
         {detail ? <span className="block text-[11px] text-muted-foreground">{detail}</span> : null}
         {action ? <div className="mt-1">{action}</div> : null}
@@ -79,6 +95,7 @@ export function DockContractSteps({
   readOnly,
   agreement = null,
   onGenerate,
+  onMarkHired,
 }: {
   candidateId: number;
   jobId: number;
@@ -90,6 +107,9 @@ export function DockContractSteps({
   agreement?: CardAgreement | null;
   /** Rozwija panel na zakładce „Umowa” z formularzem Generatora. */
   onGenerate?: () => void;
+  /** Ruch na „Zatrudniony” (okno „Jak podpisano umowę?”) — umowa spoza
+   *  Generatora. Brak = kolumna „Zatrudniony” niedostępna dla tej pary. */
+  onMarkHired?: () => void;
 }) {
   // Ten sam klucz co warsztat „Umowa” (`JobContractTab`) — jedno zapytanie.
   const contracts = useQuery<B2BGeneratedContractRow[]>({
@@ -111,13 +131,21 @@ export function DockContractSteps({
 
   const waitingDays = row && !signed ? daysSince(row.created_at, new Date()) : null;
 
+  // `orderStatus` niesie tylko karta „Zatrudniony” — po nim poznajemy etap.
+  const hired = orderStatus != null;
+  // Zatrudnienie bez Generatora (umowa o pracę, B2B poza Generatorem) nie ma
+  // umowy w rejestrze — „Wygeneruj umowę” po fakcie tylko by myliło.
+  const showGeneratorSteps = !hired || loading || row != null;
+
   return (
     <div
       className="space-y-2 rounded-lg border border-border p-3 text-xs"
       data-testid="dock-contract-steps"
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-semibold text-foreground">Umowa</span>
+        <span className="text-sm font-semibold text-foreground">
+          {hired ? "Umowa" : "Do „Zatrudnionego”"}
+        </span>
         {row ? (
           <Link
             href={registerSearchHref(row.contract_number, row.contract_status)}
@@ -127,6 +155,11 @@ export function DockContractSteps({
           </Link>
         ) : null}
       </div>
+      {hired ? null : (
+        <p className="text-[11px] text-muted-foreground" data-testid="dock-hire-who">
+          Przesuwa każdy z zespołu rekrutacji. Zamówienie od klienta nie jest potrzebne.
+        </p>
+      )}
       {contracts.isError ? (
         <p role="alert" className="text-destructive">
           Nie udało się sprawdzić umowy.{" "}
@@ -136,66 +169,87 @@ export function DockContractSteps({
         </p>
       ) : (
         <ul className="space-y-2">
-          <Step
-            state={loading ? "loading" : row ? "done" : "todo"}
-            title="Umowa wygenerowana"
-            detail={row ? `Nr ${row.contract_number}` : null}
-            action={
-              !loading && !row && !readOnly ? (
-                onGenerate ? (
-                  <Button size="sm" variant="outline" onClick={onGenerate}>
-                    <FileSignature className="h-3.5 w-3.5" aria-hidden />
-                    Wygeneruj umowę
-                  </Button>
-                ) : (
-                  <Link href={generatorPrefillHref(candidateId, jobId)} className={linkClass}>
-                    Otwórz Generator umów
-                  </Link>
-                )
-              ) : null
-            }
-          />
-          <Step
-            state={loading ? "loading" : signed ? "done" : "todo"}
-            title="Podpisana obustronnie"
-            detail={
-              row && !signed && row.contract_status === "in_progress"
-                ? `Czeka na podpis${
-                    waitingDays ? ` od ${countPl(waitingDays, "dnia", "dni", "dni")}` : ""
-                  }. Potwierdzenie zakłada kontrakt i zamówienie i przesuwa na „Zatrudniony”.`
-                : null
-            }
-            action={
-              row && !signed ? (
-                <AgreementSignatureAction
-                  row={row}
-                  jobId={jobId}
-                  requestedAt={agreement?.signature_requested_at ?? null}
-                  readOnly={readOnly}
-                />
-              ) : null
-            }
-          />
-          {orderStatus ? (
-            <Step
-              state={orderStatus === "complete" ? "done" : "todo"}
-              title="Zamówienie od klienta"
-              detail={
-                orderStatus === "missing"
-                  ? "Brak uzupełnionego zamówienia — Delivery Lead i Finanse mają jedną sprawę „uzupełnij zamówienie”."
-                  : null
-              }
-              action={
-                orderStatus === "missing" && clientId ? (
-                  <Link href={`/clients/${clientId}?tab=zamowienia`} className={linkClass}>
-                    Zamówienia klienta
-                  </Link>
-                ) : null
-              }
-            />
+          {showGeneratorSteps ? (
+            <>
+              <Step
+                state={loading ? "loading" : row ? "done" : "todo"}
+                title="Umowa B2B z Generatora"
+                detail={row ? `Nr ${row.contract_number}` : null}
+                action={
+                  !loading && !row && !readOnly ? (
+                    onGenerate ? (
+                      <Button size="sm" variant="outline" onClick={onGenerate}>
+                        <FileSignature className="h-3.5 w-3.5" aria-hidden />
+                        Wygeneruj umowę
+                      </Button>
+                    ) : (
+                      <Link href={generatorPrefillHref(candidateId, jobId)} className={linkClass}>
+                        Otwórz Generator umów
+                      </Link>
+                    )
+                  ) : null
+                }
+              />
+              <Step
+                state={loading ? "loading" : signed ? "done" : "todo"}
+                title="Podpisana obustronnie"
+                detail={
+                  row && !signed && row.contract_status === "in_progress"
+                    ? `Czeka na podpis${
+                        waitingDays ? ` od ${countPl(waitingDays, "dnia", "dni", "dni")}` : ""
+                      }. Potwierdzenie podpisu przesuwa na „Zatrudniony” i zakłada kontrakt.`
+                    : null
+                }
+                action={
+                  row && !signed ? (
+                    <AgreementSignatureAction
+                      row={row}
+                      jobId={jobId}
+                      requestedAt={agreement?.signature_requested_at ?? null}
+                      readOnly={readOnly}
+                    />
+                  ) : null
+                }
+              />
+            </>
+          ) : null}
+          {!hired && onMarkHired && !readOnly ? (
+            <li className="space-y-1 rounded-md bg-muted/40 px-2 py-1.5" data-testid="dock-hire-offline">
+              <span className="block text-foreground">
+                Umowa podpisana poza Generatorem? (B2B, umowa o pracę, zlecenie)
+              </span>
+              <Button size="sm" variant="outline" onClick={onMarkHired}>
+                Przesuń na „Zatrudniony”…
+              </Button>
+            </li>
           ) : null}
         </ul>
       )}
+      <div className="space-y-1.5 border-t border-border pt-2" data-testid="dock-after-hire">
+        <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Po zatrudnieniu — nie blokuje ruchu
+        </span>
+        <ul className="space-y-2">
+          <Step
+            state={orderStatus === "complete" ? "done" : "later"}
+            title="Zamówienie od klienta"
+            detail={
+              orderStatus === "complete"
+                ? null
+                : orderStatus === "missing"
+                  ? "Szkic jest — uzupełnia Delivery Lead i Finanse (mają jedną sprawę „uzupełnij zamówienie”)."
+                  : "Szkic powstanie sam przy zatrudnieniu; uzupełnia go Delivery Lead i Finanse."
+            }
+            action={
+              orderStatus === "missing" && clientId ? (
+                <Link href={`/clients/${clientId}?tab=zamowienia`} className={linkClass}>
+                  Zamówienia klienta
+                </Link>
+              ) : null
+            }
+          />
+        </ul>
+      </div>
     </div>
   );
 }

@@ -1824,12 +1824,19 @@ export function usePipelineMove({
               <DialogDescription>
                 {`${hiredConfirm.item.name ?? ""} ${hiredConfirm.item.lastname ?? ""}`.trim() ||
                   "Kandydat"}{" "}
-                trafi na etap „Zatrudniony”. System spróbuje założyć szkic kontraktu
-                i zamówienia; jeśli się nie uda, zatrudnienie i tak zostanie zapisane,
-                a Delivery dostanie powiadomienie z powodem.
+                trafi na etap „Zatrudniony”.
               </DialogDescription>
             </DialogHeader>
             <DialogBody className="space-y-3 text-sm">
+              {/* 20.10.2026: zespół pytał, czy zatrudnia tylko Delivery Lead
+                  i czy bez zamówienia się da — okno odpowiada na to pierwsze. */}
+              <p
+                data-testid="hired-can-save"
+                className="rounded-md border border-success/30 bg-success-muted px-3 py-2 text-success-muted-foreground"
+              >
+                Możesz to zapisać sam. Zamówienie od klienta nie jest potrzebne —
+                przyjdzie później.
+              </p>
               {hiredElsewhere ? (
                 <div className="space-y-2 rounded-lg border border-warning/25 bg-warning-muted/50 p-3">
                   <EmploymentNotice
@@ -1869,18 +1876,6 @@ export function usePipelineMove({
                   )}
                 </div>
               ) : null}
-              {hiredAgreement ? null : (
-                <p className="rounded-md bg-muted px-3 py-2 text-muted-foreground">
-                  Umowa B2B z Generatora? Użyj „Oznacz jako podpisaną” —{" "}
-                  <a
-                    className="font-medium text-primary underline-offset-2 hover:underline"
-                    href={generatorPrefillHref(hiredConfirm.item.candidate_id, jobId)}
-                  >
-                    otwórz Generator
-                  </a>
-                  . Karta przejdzie na „Zatrudniony” sama i powstanie zamówienie.
-                </p>
-              )}
               <fieldset className="space-y-1.5">
                 <legend className="mb-1 font-medium">Jak podpisano umowę?</legend>
                 {hiredAgreement ? (
@@ -1923,16 +1918,36 @@ export function usePipelineMove({
                   </label>
                 ))}
               </fieldset>
-              {/* 17.10.2026: „Pracuje u nas” daje wyłącznie umowa w Kontraktach —
-                  sam etap „Zatrudniony” już go nie zapala. */}
-              {hiredFromGenerator ? null : (
-                <p
-                  data-testid="hired-contract-marker-note"
-                  className="rounded-md border border-info/30 bg-info-muted px-3 py-2 text-xs text-info-muted-foreground"
-                >
-                  „Pracuje u nas” pojawi się, gdy umowa trafi do Kontraktów. Delivery Lead
-                  klienta dostanie przypomnienie, żeby ją wpisać.
+              {hiredAgreement ? null : (
+                <p className="text-xs text-muted-foreground">
+                  Umowa B2B z Generatora? Potwierdź ją przyciskiem „Oznacz jako
+                  podpisaną” —{" "}
+                  <a
+                    className="font-medium text-primary underline-offset-2 hover:underline"
+                    href={generatorPrefillHref(hiredConfirm.item.candidate_id, jobId)}
+                  >
+                    otwórz Generator
+                  </a>
+                  . Bez uprawnienia „Podpis B2B” poprosisz o to Delivery Leada klienta.
                 </p>
+              )}
+              {hiredFromGenerator ? null : (
+                <div
+                  data-testid="hired-what-happens"
+                  className="space-y-1 rounded-md border border-border px-3 py-2 text-xs"
+                >
+                  <p className="font-medium text-foreground">Co stanie się samo po zapisie</p>
+                  <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
+                    <li>Powstanie szkic kontraktu i zamówienia (jeśli się nie uda, zatrudnienie i tak zostanie zapisane).</li>
+                    <li>Delivery Lead i Finanse dostaną sprawę „uzupełnij zamówienie” — to ich krok.</li>
+                    {/* 17.10.2026: „Pracuje u nas” daje wyłącznie umowa w Kontraktach —
+                        sam etap „Zatrudniony” już go nie zapala. */}
+                    <li data-testid="hired-contract-marker-note">
+                      „Pracuje u nas” pojawi się, gdy umowa trafi do Kontraktów. Delivery Lead
+                      klienta dostanie przypomnienie, żeby ją wpisać.
+                    </li>
+                  </ul>
+                </div>
               )}
               {hiredAgreement && !hiredFromGenerator && hiredVia !== null ? (
                 <label className="flex items-center gap-2">

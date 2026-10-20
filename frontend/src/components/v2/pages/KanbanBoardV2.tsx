@@ -133,6 +133,7 @@ import {
  type StageBadgeKey,
 } from "@/lib/board-stages";
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
+import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
 import { hasPermission } from "@/lib/permissions";
 import { hasRole, useAuthStore } from "@/store/auth";
 import {
@@ -4225,6 +4226,8 @@ headerAction={
  >
  Porównaj ({totalCountByColId.get(entry.key) ?? entry.col.count})
  </Button>
+ ) : boardKeyByColId.get(entry.key) === "hired" ? (
+ <HiredColumnHelp />
  ) : null
  }
  // „Przejrzyj po kolei (N)” w miejscu tekstu „co tu robisz” — tylko
