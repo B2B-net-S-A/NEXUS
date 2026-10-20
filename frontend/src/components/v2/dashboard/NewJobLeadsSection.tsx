@@ -10,10 +10,17 @@
  * zmienić osobę tam, gdzie Head of Recruitment się nie zgadza. Dlatego nie
  * liczy się do „Czeka na Ciebie” i nie ma licznika w tonie zadania.
  *
- * Lista ma koniec (decyzja Artura 07.10.2026): „Potwierdź” albo „Zmień”
- * zdejmuje rekrutację z listy — serwer pamięta potwierdzoną osobę i pokaże
- * wiersz znowu tylko wtedy, gdy prowadzący zmieni się później; wtedy wiersz
- * mówi, kto był wcześniej (`returned_from_name`).
+ * Lista ma koniec (decyzja Artura 07.10.2026): „Potwierdź” zdejmuje
+ * rekrutację z listy — serwer pamięta potwierdzoną osobę i pokaże wiersz
+ * znowu tylko wtedy, gdy prowadzący zmieni się później; wtedy wiersz mówi,
+ * kto był wcześniej (`returned_from_name`).
+ *
+ * Od 20.10.2026 (prośba Head of Recruitment) „Zmień” niczego nie zapisuje:
+ * zaznacza jedną albo kilka osób w szkicu wiersza, a zapis idzie dopiero po
+ * „Potwierdź” (`leadDraftTeam`). Prowadzi obecny prowadzący, jeśli zostaje
+ * zaznaczony, inaczej pierwsza zaznaczona osoba; pozostałe dochodzą jako
+ * rekruterzy. Każda trasa zmiany zespołu zapisuje decyzję Head of Recruitment
+ * po stronie serwera, więc szkic nie może iść na serwer przed „Potwierdź”.
  *
  * Od 14.10.2026 (uwagi Head of Recruitment, decyzje Artura D1–D3) lista jest
  * tylko dla P1 bez championa, a zespół ustawiony przez Head of Recruitment albo
@@ -40,7 +47,7 @@
 import Link from "next/link";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -79,7 +86,7 @@ import { shortDate } from "@/lib/candidate-followup";
 import { transitAgo } from "@/lib/cv-in-transit";
 import { formatTime } from "@/lib/interview-cycle";
 import { formatDeadlineShort, shortenPersonName } from "@/lib/job-header-subtitle";
-import { addRecruiter } from "@/lib/job-team";
+import { addRecruiter, joinNames } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import { countPl } from "@/lib/plural-pl";
 import { p1LoadLabel } from "@/lib/request-board";
@@ -170,16 +177,53 @@ export function leadState(row: NewJobLeadRow): LeadState {
   return { name, note: null, warning: false };
 }
 
+/** Osoba w szkicu zespołu wiersza. */
+export interface DraftPerson {
+  user_id: number;
+  name: string;
+}
+
+export interface LeadDraftTeam {
+  /** Kto będzie prowadził po „Potwierdź”; `null` = nikt nie jest zaznaczony. */
+  lead: DraftPerson | null;
+  /** Osoby dopisywane jako rekruterzy obok prowadzącego. */
+  others: DraftPerson[];
+  /** Szkic różni się od tego, co jest na serwerze. */
+  dirty: boolean;
+}
+
+/** Zaznaczenie bez szkicu: sam obecny prowadzący (albo nikt). */
+export function initialSelection(row: NewJobLeadRow): DraftPerson[] {
+  if (row.lead_user_id == null) return [];
+  return [{ user_id: row.lead_user_id, name: leadState(row).name ?? `#${row.lead_user_id}` }];
+}
+
+/**
+ * Zespół, który zapisze „Potwierdź”. Obecny prowadzący zostaje prowadzącym,
+ * dopóki jest zaznaczony; odznaczony — prowadzi pierwsza zaznaczona osoba.
+ */
+export function leadDraftTeam(
+  row: NewJobLeadRow,
+  draft: readonly DraftPerson[] | undefined,
+): LeadDraftTeam {
+  const selected = draft ?? initialSelection(row);
+  const lead =
+    selected.find((person) => person.user_id === row.lead_user_id) ?? selected[0] ?? null;
+  const others = selected.filter((person) => person.user_id !== lead?.user_id);
+  const dirty = (lead?.user_id ?? null) !== row.lead_user_id || others.length > 0;
+  return { lead, others, dirty };
+}
+
 function LeadPicker({
   row,
+  selected,
   disabled,
-  busy,
-  onPick,
+  onToggle,
 }: {
   row: NewJobLeadRow;
+  selected: readonly DraftPerson[];
   disabled: boolean;
-  busy: boolean;
-  onPick: (person: LoadPerson) => void;
+  onToggle: (person: LoadPerson) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -191,7 +235,8 @@ function LeadPicker({
     () => replacementOptions(board.data?.load ?? [], currentId, query),
     [board.data, currentId, query],
   );
-  const hasLead = row.lead_user_id != null;
+  const hasLead = row.lead_user_id != null || selected.length > 0;
+  const selectedIds = new Set(selected.map((person) => person.user_id));
 
   return (
     <Popover
@@ -207,7 +252,6 @@ function LeadPicker({
           size="sm"
           variant="outline"
           disabled={disabled}
-          loading={busy}
           aria-label={`${hasLead ? "Zmień" : "Wybierz"} prowadzącego: ${row.title}`}
         >
           {hasLead ? "Zmień" : "Wybierz"}
@@ -232,21 +276,25 @@ function LeadPicker({
             <CommandGroup>
               {people.map((person) => {
                 const current = person.user_id === row.lead_user_id;
+                const checked = selectedIds.has(person.user_id);
                 return (
                   <CommandItem
                     key={person.user_id}
                     value={String(person.user_id)}
-                    disabled={current}
-                    onSelect={() => {
-                      setOpen(false);
-                      setQuery("");
-                      onPick(person);
-                    }}
+                    // Lista zostaje otwarta: zaznacza się kilka osób naraz.
+                    onSelect={() => onToggle(person)}
+                    // `aria-selected` należy do cmdk (podświetlenie klawiaturą).
+                    data-checked={checked || undefined}
                     className="justify-between gap-3"
                   >
-                    <span className="min-w-0">
+                    <Check
+                      className={cn("h-4 w-4 shrink-0", checked ? "opacity-100" : "opacity-0")}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1">
                       <span className={cn("block truncate", current && "font-medium")}>
                         {person.name}
+                        {checked ? <span className="sr-only"> (zaznaczona)</span> : null}
                       </span>
                       {(current || person.leave_until) && (
                         <span className="block truncate text-xs text-muted-foreground">
@@ -271,7 +319,7 @@ function LeadPicker({
           </CommandList>
         </Command>
         <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-          Wybrana osoba zostaje rekruterem prowadzącym od razu.
+          Zaznacz jedną albo kilka osób. Zapiszą się dopiero po „Potwierdź”.
         </p>
       </PopoverContent>
     </Popover>
@@ -295,6 +343,8 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
   // odmową, więc przycisków nie ma.
   const canAct = useCapability("job.recruiter.assign");
   const [pending, setPending] = useState<Record<number, true>>({});
+  // Szkic zespołu per rekrutacja — tylko w przeglądarce, do „Potwierdź”.
+  const [drafts, setDrafts] = useState<Record<number, DraftPerson[]>>({});
   const [expanded, setExpanded] = useState(false);
   const filter = useLeadFilters(rows, "new-job-leads", NEW_JOB_LEADS_ROWS);
   const { filtered, filtering } = filter;
@@ -320,37 +370,51 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
       return next;
     });
 
-  const confirmLead = async (row: NewJobLeadRow, leadUserId: number) => {
-    markPending(row.job_id, true);
-    try {
-      await confirmJobLead(row.job_id, leadUserId);
-      dropRow(row.job_id);
-      showSuccess(`Potwierdzono: ${leadState(row).name ?? "prowadzący"} prowadzi „${row.title}”.`);
-    } catch (error) {
-      showError(apiErrorMessage(error, "Nie udało się potwierdzić rekrutera prowadzącego."));
-    } finally {
-      markPending(row.job_id, false);
-      invalidateJobTeam(queryClient, row.job_id);
-    }
-  };
+  const clearDraft = (jobId: number) =>
+    setDrafts((current) => {
+      const next = { ...current };
+      delete next[jobId];
+      return next;
+    });
 
-  const assign = async (row: NewJobLeadRow, person: LoadPerson) => {
+  const toggle = (row: NewJobLeadRow, person: LoadPerson) =>
+    setDrafts((current) => {
+      const selected = current[row.job_id] ?? initialSelection(row);
+      const next = selected.some((item) => item.user_id === person.user_id)
+        ? selected.filter((item) => item.user_id !== person.user_id)
+        : [...selected, { user_id: person.user_id, name: person.name }];
+      return { ...current, [row.job_id]: next };
+    });
+
+  const confirm = async (row: NewJobLeadRow) => {
+    const { lead, others, dirty } = leadDraftTeam(row, drafts[row.job_id]);
+    if (!lead) return;
     markPending(row.job_id, true);
+    const saved: string[] = [];
     try {
-      // Zmiana prowadzącego i wskazanie pierwszego to to samo żądanie
-      // (`POST /api/jobs/{id}/owner`): serwer w jednej transakcji zdejmuje
-      // poprzednią osobę i przypisuje nową.
-      await addRecruiter(row.job_id, person.user_id, {
-        hasWorkingOwner: false,
-        canStaff: true,
-      });
-      // Wybór osoby to też decyzja o prowadzącym — wiersz schodzi z listy.
+      if (lead.user_id !== row.lead_user_id) {
+        // `POST /api/jobs/{id}/owner`: serwer w jednej transakcji zdejmuje
+        // poprzedniego prowadzącego i przypisuje nowego.
+        await addRecruiter(row.job_id, lead.user_id, { hasWorkingOwner: false, canStaff: true });
+        saved.push(`${lead.name} prowadzi`);
+      }
+      for (const person of others) {
+        // Obok prowadzącego — `POST /api/jobs/{id}/collaborators`.
+        await addRecruiter(row.job_id, person.user_id, { hasWorkingOwner: true, canStaff: true });
+        saved.push(`dołącza ${person.name}`);
+      }
+      // Trasy zespołu same zapisują decyzję; bez zmian zostaje samo „zgadzam się”.
+      if (!dirty) await confirmJobLead(row.job_id, lead.user_id);
       dropRow(row.job_id);
-      showSuccess(`${person.name} prowadzi „${row.title}”.`);
+      const joined = others.length > 0 ? `, dołącza ${joinNames(others.map((p) => p.name))}` : "";
+      showSuccess(`Potwierdzono: ${lead.name} prowadzi „${row.title}”${joined}.`);
     } catch (error) {
-      showError(apiErrorMessage(error, "Nie udało się zmienić rekrutera prowadzącego."));
+      const message = apiErrorMessage(error, "Nie udało się zapisać rekrutera prowadzącego.");
+      showError(saved.length > 0 ? `Zapisano: ${saved.join(", ")}. Reszta nie: ${message}` : message);
     } finally {
       markPending(row.job_id, false);
+      // Po błędzie wiersz pokazuje stan z serwera, nie szkic.
+      clearDraft(row.job_id);
       // Odświeża też „Czeka na Ciebie” i pulpit „Requesty i obłożenie” —
       // także po błędzie, bo odmowa znaczy, że lista pokazuje stary stan.
       invalidateJobTeam(queryClient, row.job_id);
@@ -408,7 +472,8 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
             });
           }
           const roleLabel = row.lead_role ? (ROLE_LABEL[row.lead_role] ?? row.lead_role) : null;
-          const leadUserId = row.lead_user_id;
+          const draft = drafts[row.job_id];
+          const team = leadDraftTeam(row, draft);
 
           return (
             <li
@@ -460,7 +525,35 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
                 )}
               </p>
               <div className="min-w-0" data-testid="lead-person">
-                {lead.name ? (
+                {team.dirty ? (
+                  <>
+                    <p className="truncate text-sm">
+                      {team.lead ? (
+                        <span className="font-medium">{team.lead.name}</span>
+                      ) : (
+                        <span className="text-muted-foreground">Nikt nie zaznaczony</span>
+                      )}
+                      {team.others.length > 0 ? (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          + {joinNames(team.others.map((person) => person.name))}
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      niezapisane — zapisze „Potwierdź”
+                      {" · "}
+                      <button
+                        type="button"
+                        onClick={() => clearDraft(row.job_id)}
+                        className="font-medium text-primary hover:underline"
+                        aria-label={`Cofnij zmiany: ${row.title}`}
+                      >
+                        Cofnij
+                      </button>
+                    </p>
+                  </>
+                ) : lead.name ? (
                   <p className="truncate text-sm">
                     <span className="font-medium">{lead.name}</span>
                     {roleLabel ? (
@@ -471,7 +564,7 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
                     ) : null}
                   </p>
                 ) : null}
-                {lead.note ? (
+                {!team.dirty && lead.note ? (
                   <p
                     className={cn(
                       "text-xs",
@@ -495,13 +588,14 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
                 </div>
               ) : canAct && !row.proposed ? (
                 <div className="flex items-center gap-2 @min-[780px]/leads:justify-end">
-                  {leadUserId != null ? (
+                  {team.lead ? (
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
+                      variant={team.dirty ? "primary" : "outline"}
                       disabled={busy}
-                      onClick={() => void confirmLead(row, leadUserId)}
+                      loading={busy}
+                      onClick={() => void confirm(row)}
                       aria-label={`Potwierdź prowadzącego: ${row.title}`}
                     >
                       Potwierdź
@@ -509,9 +603,9 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
                   ) : null}
                   <LeadPicker
                     row={row}
+                    selected={draft ?? initialSelection(row)}
                     disabled={busy}
-                    busy={busy}
-                    onPick={(person) => void assign(row, person)}
+                    onToggle={(person) => toggle(row, person)}
                   />
                 </div>
               ) : null}

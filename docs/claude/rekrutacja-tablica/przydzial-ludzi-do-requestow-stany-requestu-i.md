@@ -165,6 +165,25 @@ Artur zatwierdził D1–D7 z makiet (https://claude.ai/artifact/5rs8RXokY7n8kKzQ
   onboardingu Delivery Leada; wpis `updated` niesie tylko nowe wartości, a okno
   edycji odsyła priorytet przy każdym zapisie.
 
+### „Zmień” zaznacza, zapisuje dopiero „Potwierdź” (20.10.2026)
+
+Prośba Head of Recruitment: wybór innej osoby w „Zmień” zapisywał ją od razu
+i zdejmował wiersz, a nie dało się dać kilku osób.
+
+- „Zmień” / „Wybierz” w `NewJobLeadsSection` to lista wielokrotnego wyboru
+  (zostaje otwarta). Zaznaczenie to **szkic w przeglądarce** — nic nie idzie
+  na serwer, wiersz mówi „niezapisane — zapisze „Potwierdź”” i ma „Cofnij”.
+- Zespół ze szkicu (`leadDraftTeam`): obecny prowadzący prowadzi dalej, jeśli
+  zostaje zaznaczony; odznaczony — prowadzi pierwsza zaznaczona osoba
+  (`POST /api/jobs/{id}/owner`). Pozostali dochodzą jako rekruterzy
+  (`POST /api/jobs/{id}/collaborators`).
+- **Szkic nie może iść na serwer przed „Potwierdź”**: każda trasa zmiany
+  zespołu woła `record_team_decision` (D1), więc pierwszy zapis zdejmuje
+  wiersz. Bez zmian „Potwierdź” woła samo `lead-confirmation`.
+- Zapis to kilka żądań po kolei; przy błędzie komunikat mówi, co weszło
+  („Zapisano: … Reszta nie: …”), a szkic znika, bo wiersz ma pokazać stan
+  z serwera.
+
 ### Obłożenie P1 (D4–D7)
 
 - `GET /api/request-board` → `load[].count`/`proposed`/`requests` = tylko
