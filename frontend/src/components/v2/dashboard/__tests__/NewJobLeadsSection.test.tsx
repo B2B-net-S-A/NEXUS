@@ -469,9 +469,9 @@ describe("NewJobLeadsSection — „Nowe rekrutacje P1 — kto prowadzi”", () 
     });
   });
 
-  it("„Zmień”: osoby wczytane dopiero po otwarciu; wybór zapisuje prowadzącego przez /owner", async () => {
+  it("„Zmień”: osoby wczytane dopiero po otwarciu; zaznaczenie niczego nie zapisuje", async () => {
     const user = userEvent.setup();
-    const { client, invalidated } = renderSection([lead()]);
+    const { client } = renderSection([lead()]);
     // Pulpitu nie czytamy, dopóki nikt nie otworzy listy.
     expect(get).not.toHaveBeenCalled();
 
@@ -481,24 +481,51 @@ describe("NewJobLeadsSection — „Nowe rekrutacje P1 — kto prowadzi”", () 
     expect(get).toHaveBeenCalledWith("/api/request-board");
     const options = await screen.findAllByRole("option");
     expect(options.map((o) => o.textContent)).toEqual([
-      "Marek Dąbprowadzi teraz2 P1",
+      "Marek Dąb (zaznaczona)prowadzi teraz2 P1",
       "Maja Cis0 P1",
       "Kinga Olcha4 P1",
       "Julia Sosnaurlop do 09.100 P1",
     ]);
-    // Obecnego prowadzącego nie da się „zmienić na niego samego”.
-    expect(options[0]).toHaveAttribute("aria-disabled", "true");
     expect(
-      screen.getByText("Wybrana osoba zostaje rekruterem prowadzącym od razu."),
+      screen.getByText("Zaznacz jedną albo kilka osób. Zapiszą się dopiero po „Potwierdź”."),
     ).toBeInTheDocument();
 
+    // Dwie osoby naraz — lista zostaje otwarta, nic nie idzie na serwer.
     await user.click(screen.getByRole("option", { name: /Maja Cis/ }));
-    await waitFor(() => expect(post).toHaveBeenCalledWith("/api/jobs/11/owner", { user_id: 22 }));
-    await waitFor(() =>
-      expect(showSuccess).toHaveBeenCalledWith("Maja Cis prowadzi „Full Stack Java Developer”."),
+    await user.click(screen.getByRole("option", { name: /Kinga Olcha/ }));
+    expect(screen.getAllByRole("option")).toHaveLength(4);
+    expect(post).not.toHaveBeenCalled();
+    const cached = client.getQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY);
+    expect(cached?.new_job_leads).toHaveLength(1);
+
+    await user.keyboard("{Escape}");
+    const person = within(rowOf("Full Stack Java Developer")).getByTestId("lead-person");
+    expect(person).toHaveTextContent("Marek Dąb + Maja Cis i Kinga Olcha");
+    expect(person).toHaveTextContent("niezapisane — zapisze „Potwierdź”");
+  });
+
+  it("„Potwierdź” po dopisaniu osób: prowadzący zostaje, reszta dochodzi, wiersz schodzi", async () => {
+    const user = userEvent.setup();
+    const { client, invalidated } = renderSection([lead()]);
+    await user.click(
+      screen.getByRole("button", { name: "Zmień prowadzącego: Full Stack Java Developer" }),
     );
-    expect(screen.queryByRole("option")).not.toBeInTheDocument();
-    // Wybór osoby to decyzja — wiersz schodzi z listy od razu.
+    await user.click(await screen.findByRole("option", { name: /Maja Cis/ }));
+    await user.click(screen.getByRole("option", { name: /Kinga Olcha/ }));
+    await user.keyboard("{Escape}");
+    await user.click(
+      screen.getByRole("button", { name: "Potwierdź prowadzącego: Full Stack Java Developer" }),
+    );
+
+    await waitFor(() =>
+      expect(showSuccess).toHaveBeenCalledWith(
+        "Potwierdzono: Marek Dąb prowadzi „Full Stack Java Developer”, dołącza Maja Cis i Kinga Olcha.",
+      ),
+    );
+    expect(post.mock.calls).toEqual([
+      ["/api/jobs/11/collaborators", { user_id: 22 }],
+      ["/api/jobs/11/collaborators", { user_id: 21 }],
+    ]);
     const cached = client.getQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY);
     expect(cached?.new_job_leads).toEqual([]);
     // „Czeka na Ciebie”, pulpit „Requesty i obłożenie” i rekrutacja.
@@ -509,6 +536,62 @@ describe("NewJobLeadsSection — „Nowe rekrutacje P1 — kto prowadzi”", () 
         JSON.stringify(["job", 11]),
       ]),
     );
+  });
+
+  it("odznaczony prowadzący: prowadzi pierwsza zaznaczona osoba, zapis dopiero po „Potwierdź”", async () => {
+    const user = userEvent.setup();
+    renderSection([lead()]);
+    await user.click(
+      screen.getByRole("button", { name: "Zmień prowadzącego: Full Stack Java Developer" }),
+    );
+    await user.click(await screen.findByRole("option", { name: /Marek Dąb/ }));
+    await user.click(screen.getByRole("option", { name: /Maja Cis/ }));
+    await user.click(screen.getByRole("option", { name: /Kinga Olcha/ }));
+    await user.keyboard("{Escape}");
+    expect(post).not.toHaveBeenCalled();
+    expect(
+      within(rowOf("Full Stack Java Developer")).getByTestId("lead-person"),
+    ).toHaveTextContent("Maja Cis + Kinga Olcha");
+
+    await user.click(
+      screen.getByRole("button", { name: "Potwierdź prowadzącego: Full Stack Java Developer" }),
+    );
+    await waitFor(() =>
+      expect(post.mock.calls).toEqual([
+        ["/api/jobs/11/owner", { user_id: 22 }],
+        ["/api/jobs/11/collaborators", { user_id: 21 }],
+      ]),
+    );
+    // Trasy zespołu same zapisują decyzję — bez osobnego potwierdzenia.
+    expect(post).not.toHaveBeenCalledWith(
+      "/api/request-board/jobs/11/lead-confirmation",
+      expect.anything(),
+    );
+  });
+
+  it("„Cofnij” wraca do prowadzącego z serwera; odznaczenie wszystkich chowa „Potwierdź”", async () => {
+    const user = userEvent.setup();
+    renderSection([lead()]);
+    await user.click(
+      screen.getByRole("button", { name: "Zmień prowadzącego: Full Stack Java Developer" }),
+    );
+    await user.click(await screen.findByRole("option", { name: /Marek Dąb/ }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: /^Potwierdź/ })).toBeNull();
+    expect(
+      within(rowOf("Full Stack Java Developer")).getByTestId("lead-person"),
+    ).toHaveTextContent("Nikt nie zaznaczony");
+
+    await user.click(
+      screen.getByRole("button", { name: "Cofnij zmiany: Full Stack Java Developer" }),
+    );
+    const person = within(rowOf("Full Stack Java Developer")).getByTestId("lead-person");
+    expect(person).toHaveTextContent("Marek Dąb");
+    expect(person).toHaveTextContent("automat");
+    expect(
+      screen.getByRole("button", { name: "Potwierdź prowadzącego: Full Stack Java Developer" }),
+    ).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
   });
 
   it("„Potwierdź” zapisuje zgodę na prowadzącego i zdejmuje wiersz z listy", async () => {
@@ -541,7 +624,7 @@ describe("NewJobLeadsSection — „Nowe rekrutacje P1 — kto prowadzi”", () 
     expect(screen.queryByRole("button", { name: /^Potwierdź/ })).toBeNull();
   });
 
-  it("„Wybierz” przy rekrutacji bez prowadzącego woła ten sam endpoint", async () => {
+  it("„Wybierz” przy rekrutacji bez prowadzącego: zaznaczenie, potem „Potwierdź” przez /owner", async () => {
     const user = userEvent.setup();
     renderSection([
       lead({ lead_user_id: null, lead_name: null, lead_role: null, lead_source: null, pending_reason: "none" }),
@@ -550,13 +633,18 @@ describe("NewJobLeadsSection — „Nowe rekrutacje P1 — kto prowadzi”", () 
       screen.getByRole("button", { name: "Wybierz prowadzącego: Full Stack Java Developer" }),
     );
     const options = await screen.findAllByRole("option");
-    // Nikt nie prowadzi — żadna osoba nie jest wyróżniona ani zablokowana.
-    expect(options.map((o) => o.getAttribute("aria-disabled"))).not.toContain("true");
+    // Nikt nie prowadzi — żadna osoba nie jest zaznaczona.
+    expect(options.map((o) => o.textContent)).not.toContain(expect.stringContaining("zaznaczona"));
     await user.click(screen.getByRole("option", { name: /Kinga Olcha/ }));
+    await user.keyboard("{Escape}");
+    expect(post).not.toHaveBeenCalled();
+    await user.click(
+      screen.getByRole("button", { name: "Potwierdź prowadzącego: Full Stack Java Developer" }),
+    );
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/jobs/11/owner", { user_id: 21 }));
   });
 
-  it("odmowa zapisu: komunikat serwera, bez sukcesu, lista i tak się odświeża", async () => {
+  it("odmowa zapisu: komunikat serwera, bez sukcesu, szkic znika, lista i tak się odświeża", async () => {
     const user = userEvent.setup();
     post.mockRejectedValue({
       response: { status: 409, data: { detail: "Rekrutacja jest zamknięta." } },
@@ -566,9 +654,38 @@ describe("NewJobLeadsSection — „Nowe rekrutacje P1 — kto prowadzi”", () 
       screen.getByRole("button", { name: "Zmień prowadzącego: Full Stack Java Developer" }),
     );
     await user.click(await screen.findByRole("option", { name: /Maja Cis/ }));
+    await user.keyboard("{Escape}");
+    await user.click(
+      screen.getByRole("button", { name: "Potwierdź prowadzącego: Full Stack Java Developer" }),
+    );
     await waitFor(() => expect(showError).toHaveBeenCalledWith("Rekrutacja jest zamknięta."));
     expect(showSuccess).not.toHaveBeenCalled();
     expect(invalidated()).toContain(JSON.stringify(BOARD_TASKS_QUERY_KEY));
+    expect(
+      within(rowOf("Full Stack Java Developer")).getByTestId("lead-person"),
+    ).not.toHaveTextContent("niezapisane");
+  });
+
+  it("częściowy zapis: komunikat mówi, co weszło, a co nie", async () => {
+    const user = userEvent.setup();
+    post
+      .mockResolvedValueOnce({ data: {} })
+      .mockRejectedValueOnce({ response: { status: 409, data: { detail: "Osoba jest nieaktywna." } } });
+    renderSection([lead()]);
+    await user.click(
+      screen.getByRole("button", { name: "Zmień prowadzącego: Full Stack Java Developer" }),
+    );
+    await user.click(await screen.findByRole("option", { name: /Maja Cis/ }));
+    await user.click(screen.getByRole("option", { name: /Kinga Olcha/ }));
+    await user.keyboard("{Escape}");
+    await user.click(
+      screen.getByRole("button", { name: "Potwierdź prowadzącego: Full Stack Java Developer" }),
+    );
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith(
+        "Zapisano: dołącza Maja Cis. Reszta nie: Osoba jest nieaktywna.",
+      ),
+    );
   });
 
   it("awaria odczytu osób to komunikat z „Ponów”, a nie „Brak osób”", async () => {

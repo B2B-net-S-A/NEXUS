@@ -643,7 +643,7 @@ describe("BoardTasksPanel — „Nowe rekrutacje P1 — kto prowadzi”", () => 
     expect(within(sent).getByText("1")).toHaveClass("text-primary");
   });
 
-  it("„Zmień” z pulpitu zapisuje prowadzącego przez /owner", async () => {
+  it("„Zmień” z pulpitu: zaznaczenie, a zapis prowadzącego przez /owner dopiero po „Potwierdź”", async () => {
     get.mockImplementation((url: string) => {
       if (url === "/api/board-tasks")
         return Promise.resolve({
@@ -670,10 +670,18 @@ describe("BoardTasksPanel — „Nowe rekrutacje P1 — kto prowadzi”", () => 
     await userEvent.click(
       within(section).getByRole("button", { name: "Zmień prowadzącego: Analityk biznesowy" }),
     );
-    await userEvent.click(await screen.findByRole("option", { name: /Ewa Kalina/ }));
+    await userEvent.click(await screen.findByRole("option", { name: /Marek Dąb/ }));
+    await userEvent.click(screen.getByRole("option", { name: /Ewa Kalina/ }));
+    await userEvent.keyboard("{Escape}");
+    expect(post).not.toHaveBeenCalled();
+    await userEvent.click(
+      within(section).getByRole("button", { name: "Potwierdź prowadzącego: Analityk biznesowy" }),
+    );
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/jobs/51/owner", { user_id: 9 }));
     await waitFor(() =>
-      expect(showSuccess).toHaveBeenCalledWith("Ewa Kalina prowadzi „Analityk biznesowy”."),
+      expect(showSuccess).toHaveBeenCalledWith(
+        "Potwierdzono: Ewa Kalina prowadzi „Analityk biznesowy”.",
+      ),
     );
   });
 
