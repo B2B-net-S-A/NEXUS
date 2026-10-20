@@ -386,7 +386,7 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
       return { ...current, [row.job_id]: next };
     });
 
-  const confirm = async (row: NewJobLeadRow) => {
+  const confirmTeam = async (row: NewJobLeadRow) => {
     const { lead, others, dirty } = leadDraftTeam(row, drafts[row.job_id]);
     if (!lead) return;
     markPending(row.job_id, true);
@@ -595,7 +595,7 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
                       variant={team.dirty ? "primary" : "outline"}
                       disabled={busy}
                       loading={busy}
-                      onClick={() => void confirm(row)}
+                      onClick={() => void confirmTeam(row)}
                       aria-label={`Potwierdź prowadzącego: ${row.title}`}
                     >
                       Potwierdź
