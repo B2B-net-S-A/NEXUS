@@ -11695,6 +11695,41 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Kartoteki kont integracji OAuth (decyzja Artura 20.10.2026) — jednorazowo:
+# konto, w którego imieniu działają scrapery (`oauth_clients.acting_user_id`),
+# dostało 19.10 kartotekę z „Kartoteka idzie za kontem” i stało w kolejce
+# timesheetów. Usuwana jest tylko kartoteka założona z konta i bez danych
+# kadrowych. Logika w `app/services/hr/integration_profile_cleanup.py`;
+# paragon w `app_settings` + advisory lock. Log: wyłącznie liczby.
+startup_phase "cleanup-integration-profiles"
+echo "Data: remove HR profiles of OAuth integration accounts (one-shot)..."
+python - <<'PY' || echo "integration profile cleanup skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.hr.integration_profile_cleanup import (
+    run_integration_profile_cleanup,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_integration_profile_cleanup(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — log bez treści wierszy
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"integration profile cleanup failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"integration profile cleanup: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Reset any m365_connections stuck in 'running' from a killed sync task.
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of

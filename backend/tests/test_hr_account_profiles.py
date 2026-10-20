@@ -12,6 +12,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.hr_ops import HrAuditEvent
 from app.models.hr_profile import EmployeeProfile
+from app.models.oauth_client import OAuthClient
 from app.models.user import User, UserRole
 from app.services.hr import account_profiles, people
 from tests.test_hr_time_support import (  # noqa: F401 — fikstury
@@ -122,6 +123,43 @@ async def test_ensure_profile_only_for_active_staff_accounts() -> None:
     assert created.manager_user_id is None
 
 
+async def _integration_account(db) -> User:
+    """Konto, w którego imieniu działa klient OAuth (scrapery) — rola rekrutacji."""
+
+    user = await make_user(db, "talent_community_manager", profile=False)
+    marker = uuid.uuid4().hex[:10]
+    db.add(
+        OAuthClient(
+            name=f"Integracje {marker}",
+            client_id=f"integracje-{marker}",
+            secret_hash="!test-no-secret!",
+            scopes=["candidate:write"],
+            enabled=True,
+            acting_user_id=user.id,
+        )
+    )
+    await db.flush()
+    return user
+
+
+@pytest.mark.asyncio
+async def test_integration_account_is_not_staff() -> None:
+    # 20.10.2026: konto scraperów (acting user klienta OAuth, rola TCM) dostało
+    # kartotekę i stało w kolejce timesheetów jako „Nie założony”.
+    async with AsyncSessionLocal() as db:
+        robot = await _integration_account(db)
+        assert not await account_profiles.ensure_profile(
+            db, robot, actor_id=None, source="test"
+        )
+        assert robot.id not in {
+            item["user_id"] for item in await people.users_without_profile(db)
+        }
+        assert robot.id not in {
+            item.user_id for item in await account_profiles.mismatches(db)
+        }
+        await db.rollback()
+
+
 @pytest.mark.asyncio
 async def test_admin_created_account_gets_a_profile(
     app_client, app_auth_headers, monkeypatch
@@ -212,8 +250,79 @@ def test_staff_account_rule() -> None:
             email_verified=verified,
         )
 
-    assert people.is_staff_account(account(UserRole.recruiter))
-    assert people.is_staff_account(account(UserRole.talent_community_manager))
-    assert not people.is_staff_account(account(UserRole.automation))
-    assert not people.is_staff_account(account(UserRole.user))
-    assert not people.is_staff_account(account(UserRole.recruiter, verified=False))
+    def staff(user: User, integration_ids: frozenset[int] = frozenset()) -> bool:
+        return people.is_staff_account(user, integration_ids=integration_ids)
+
+    assert staff(account(UserRole.recruiter))
+    assert staff(account(UserRole.talent_community_manager))
+    assert not staff(account(UserRole.automation))
+    assert not staff(account(UserRole.user))
+    assert not staff(account(UserRole.recruiter, verified=False))
+    robot = account(UserRole.talent_community_manager)
+    robot.id = 244
+    assert not staff(robot, frozenset({244}))
+
+
+@pytest.mark.asyncio
+async def test_integration_profile_cleanup_removes_only_bare_profiles() -> None:
+    from app.models.app_setting import AppSetting
+    from app.services.hr import integration_profile_cleanup as cleanup
+
+    async with AsyncSessionLocal() as db:
+        bare = await _integration_account(db)
+        db.add(EmployeeProfile(user_id=bare.id, created_from_account=True))
+        boss = await _integration_account(db)
+        db.add(EmployeeProfile(user_id=boss.id, created_from_account=True))
+        await make_user(db, "recruiter", manager_user_id=boss.id)
+        manual = await _integration_account(db)
+        db.add(EmployeeProfile(user_id=manual.id, created_from_account=False))
+        staff = await make_user(db, "recruiter", created_from_account=True)
+        await db.commit()
+    ids = {bare.id, boss.id, manual.id, staff.id}
+    marker = f"pytest_integration_profiles_{uuid.uuid4().hex[:8]}"
+
+    async with AsyncSessionLocal() as db:
+        summary = await cleanup.run_integration_profile_cleanup(
+            db, marker=marker, only_user_ids=ids
+        )
+        await db.commit()
+    bare_id = summary["deleted_profiles"][0]
+    assert len(summary["deleted_profiles"]) == 1
+    assert sorted(summary["skipped"].values()) == [
+        "has_hr_data",
+        "not_created_from_account",
+    ]
+    assert await _profile(bare.id) is None
+    for kept in (boss, manual, staff):
+        assert await _profile(kept.id) is not None
+
+    async with AsyncSessionLocal() as db:
+        trail = await db.scalar(
+            select(HrAuditEvent).where(
+                HrAuditEvent.subject_user_id == bare.id,
+                HrAuditEvent.action == cleanup.REMOVED_ACTION,
+            )
+        )
+        assert trail is not None and trail.entity_id == str(bare_id)
+        assert (await db.get(AppSetting, marker)).value["deleted_profiles"] == [bare_id]
+        # Drugi start nic nie robi.
+        assert (
+            await cleanup.run_integration_profile_cleanup(
+                db, marker=marker, only_user_ids=ids
+            )
+            is None
+        )
+        await db.delete(await db.get(AppSetting, marker))
+        await db.commit()
+
+
+def test_integration_profile_cleanup_runs_at_startup() -> None:
+    from pathlib import Path
+
+    entrypoint = (Path(__file__).resolve().parents[1] / "entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
+    phase = entrypoint.index('startup_phase "cleanup-integration-profiles"')
+    assert entrypoint.index("run_integration_profile_cleanup(db)", phase) < (
+        entrypoint.index("startup_phase", phase + 1)
+    )
