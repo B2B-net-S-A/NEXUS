@@ -1,6 +1,7 @@
 # Moje powiadomienia — kategorie i wyciszenia per osoba (0349, 22.09.2026)
 
-Każdy sam wybiera w **Ustawienia → Moje konto → Moje powiadomienia** (albo ikoną
+Każdy sam wybiera w **Ustawienia → Moje konto** (od 20.10.2026 jeden ekran ze
+skrzynką Microsoft 365, `?item=my-notifications`; albo ikoną
 dzwonka z kreską prosto w dzwonku), które KATEGORIE powiadomień do niego trafiają.
 
 - **Kategorie zna wyłącznie backend** (`services/notification_categories.py`):

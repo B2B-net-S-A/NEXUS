@@ -98,8 +98,11 @@ describe("settings-registry — widoczność jak przed przebudową", () => {
         .sort();
     // „Płace” (17.10.2026) — Finanse mają to uprawnienie z roli (D2), ale tylko
     // przy włączonym programie „Ludzie w NEXUSIE” (18.10.2026).
-    expect(listed(false)).toEqual(["assign", "contracts", "history", "my-notifications", "outlook", "rates"]);
-    expect(listed(true)).toEqual(["assign", "contracts", "history", "my-notifications", "outlook", "payroll", "rates"]);
+    // Outlook jest od 20.10.2026 częścią ekranu „Moje konto” (`my-notifications`),
+    // a pod adresem `?item=outlook` dalej otwiera się Finansom.
+    expect(listed(false)).toEqual(["assign", "contracts", "history", "my-notifications", "rates"]);
+    expect(listed(true)).toEqual(["assign", "contracts", "history", "my-notifications", "payroll", "rates"]);
+    expect(canSeeSettingsItem(f as never, findSettingsItem("outlook")!)).toBe(true);
   });
 
   it("Szablony maili: każdy z capability candidate.write, nie tylko admin (U10)", () => {

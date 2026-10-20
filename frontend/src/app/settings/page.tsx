@@ -36,6 +36,7 @@ import { SettingsSideNav } from "@/components/settings/SettingsSideNav";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import { TeamsPrepStatusCard } from "@/components/settings/TeamsPrepStatusCard";
 import { NotificationsSettings } from "@/components/settings/NotificationsSettings";
+import { NotificationPreferencesPanel } from "@/components/settings/NotificationPreferencesPanel";
 import { USER_PREFERENCES_QUERY_KEY, type UserPreferences } from "@/lib/api/userPreferences";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
@@ -378,8 +379,21 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       return <NotificationsSettings defaultTab="role" />;
     case "outlook":
       return <Microsoft365Card />;
+    // Ekran osobisty bez zakładek administratora (Kto co dostaje, Maile,
+    // Reguły etapów) — te są w System › Powiadomienia (20.10.2026).
     case "my-notifications":
-      return <NotificationsSettings defaultTab="moje" />;
+      return (
+        <div className="space-y-6">
+          {/* Karta ma własny tytuł „Microsoft 365”. */}
+          <Microsoft365Card />
+          <section aria-labelledby="my-notifications" className="space-y-2">
+            <h2 id="my-notifications" className="text-base font-semibold text-foreground">
+              Moje powiadomienia
+            </h2>
+            <NotificationPreferencesPanel />
+          </section>
+        </div>
+      );
     case "people":
       return <AdminUsersTab embedded />;
     case "stages":

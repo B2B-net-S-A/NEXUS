@@ -34,6 +34,9 @@ vi.mock("@/components/settings/NotificationsSettings", () => ({
     <div>Ekran powiadomień, zakładka startowa: {defaultTab}</div>
   ),
 }));
+vi.mock("@/components/settings/NotificationPreferencesPanel", () => ({
+  NotificationPreferencesPanel: () => <div>Panel moich powiadomień</div>,
+}));
 vi.mock("@/lib/jarvis/bubble-budget", () => ({
   resetScreenSeen: vi.fn(),
 }));
@@ -141,12 +144,23 @@ describe("SettingsPage — obszar i pozycja", () => {
     expect(screen.getByText("Ekran powiadomień, zakładka startowa: role")).toBeInTheDocument();
   });
 
-  it("stary link z dzwonka (`item=my-notifications`) otwiera ten sam ekran na „Moje” — także rekruterowi", () => {
-    mocks.user = { role: "recruiter", roles: ["recruiter"], effective_section_access: { pipeline: "write" } };
+  it("link z dzwonka (`item=my-notifications`) otwiera „Moje konto”: Microsoft 365 i moje powiadomienia, bez zakładek admina", () => {
+    mocks.user = ADMIN;
     renderSettings("item=my-notifications");
-    expect(screen.getByRole("heading", { level: 1, name: "Moje powiadomienia" })).toBeInTheDocument();
-    expect(within(crumbs()).getByRole("link", { name: "Moje konto" })).toHaveAttribute("href", "/settings?area=me");
-    expect(screen.getByText("Ekran powiadomień, zakładka startowa: moje")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Moje konto" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Moje powiadomienia" })).toBeInTheDocument();
+    expect(screen.getByText("Panel moich powiadomień")).toBeInTheDocument();
+    // Macierz ról i maile firmy zostają w System › Powiadomienia.
+    expect(screen.queryByText(/Ekran powiadomień, zakładka startowa/)).not.toBeInTheDocument();
+    // Pozycja nazywa się jak obszar — ścieżka ma jeden człon „Moje konto”.
+    expect(within(crumbs()).getByText("Moje konto")).toHaveAttribute("aria-current", "page");
+  });
+
+  it("Outlook nie jest już osobną pozycją w menu, ale stary adres dalej działa", () => {
+    mocks.user = ADMIN;
+    renderSettings("area=me");
+    expect(screen.queryByRole("link", { name: /Outlook i kalendarz/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /Moje konto/ }).length).toBeGreaterThan(0);
   });
   it("obszar pokazuje listę pozycji i ścieżkę", () => {
     mocks.user = ADMIN;
@@ -211,7 +225,13 @@ describe("SettingsPage — lewa kolumna (20.10.2026)", () => {
     mocks.user = { role: "recruiter", roles: ["recruiter"], effective_section_access: { pipeline: "write" } };
     renderSettings("item=my-notifications");
     const nav = within(sideNav());
-    expect(nav.getByRole("link", { name: "Moje konto" })).toBeInTheDocument();
+    // Jedna pozycja o nazwie obszaru = jeden link prosto do ekranu.
+    expect(nav.getAllByRole("link", { name: "Moje konto" })).toHaveLength(1);
+    expect(nav.getByRole("link", { name: "Moje konto" })).toHaveAttribute(
+      "href",
+      "/settings?item=my-notifications",
+    );
+    expect(nav.getByRole("link", { name: "Moje konto" })).toHaveAttribute("aria-current", "page");
     expect(nav.queryByRole("link", { name: "System" })).not.toBeInTheDocument();
     expect(nav.queryByRole("link", { name: "Rekrutacja" })).not.toBeInTheDocument();
   });

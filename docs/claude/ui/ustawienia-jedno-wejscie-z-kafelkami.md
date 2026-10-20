@@ -38,3 +38,10 @@ z numerami problemów). Strona startowa z kafelkami zostaje bez zmian.
 - Tytuł ekranu = `title` z rejestru, jedna nazwa w menu, ścieżce, górnym pasku
   (`BreadcrumbV2`) i nagłówku strony. Karta pod nagłówkiem nie powtarza tytułu —
   zaczyna się od opisu.
+- **„Moje konto” = jeden ekran (20.10.2026):** pozycja `my-notifications` ma
+  tytuł „Moje konto” i pokazuje kartę Microsoft 365 + `NotificationPreferencesPanel`,
+  bez zakładek administratora (Kto co dostaje, Maile, Reguły etapów — te są
+  tylko w System › Powiadomienia). `outlook` jest ukryte, `?item=outlook`
+  działa. Pozycja o nazwie obszaru: ścieżka ma jeden człon, a lewa kolumna jeden
+  link prosto do ekranu. Grupowanie kategorii powiadomień wymaga pola grupy
+  z API — kategorie zna tylko backend.
