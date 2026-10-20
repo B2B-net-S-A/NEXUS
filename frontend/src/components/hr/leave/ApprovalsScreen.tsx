@@ -288,13 +288,14 @@ function LeaveDetail({ item, viewerIsHr }: { item: InboxItem; viewerIsHr: boolea
   const work = workSummary(row);
   const subAbsent = substituteAbsent(row);
 
+  // `mutateAsync`, nie callbacki `mutate()`: po akceptacji lista odświeża się
+  // bez tej sprawy i szczegół (z `key` sprawy) się odmontowuje, a callbacki
+  // `mutate()` TanStack Query wtedy pomija — toast „Wniosek zaakceptowany”
+  // znikał (20.10.2026, e2e flow-hr-leave).
   const approve = () =>
-    decide.mutate(
-      { id: row.id, decision: "approve" },
-      {
-        onSuccess: (saved) => showToast(...leaveToast("Wniosek zaakceptowany", saved)),
-        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zaakceptować."), "error"),
-      },
+    decide.mutateAsync({ id: row.id, decision: "approve" }).then(
+      (saved) => showToast(...leaveToast("Wniosek zaakceptowany", saved)),
+      (err) => showToast(apiErrorMessage(err, "Nie udało się zaakceptować."), "error"),
     );
 
   const actions =
