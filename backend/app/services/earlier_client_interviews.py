@@ -12,7 +12,9 @@ rekrutacji w innym procesie, i nie miał jak tego wskazać. Przegląd DL
 „Rozmowa” = wiersz etapu w kolumnie Tablicy „Rozmowa u klienta” albo dalej
 przed zatrudnieniem („Umowa”). Kolumnę liczy ``board_column_for`` — etapy
 Nordei rozpoznawane po nazwie mają kod ``interview``, więc sam kod etapu by
-ich nie złapał. Zatrudnienie się nie liczy: to współpraca, nie rozmowa.
+ich nie złapał. Zatrudnienie się nie liczy: to współpraca, nie rozmowa. Prep
+(„Interview - Prep”, „Preparation Meeting”) też nie — leży w kolumnie rozmowy,
+ale to przygotowanie z nami, manager osoby jeszcze nie widział.
 
 Tylko odczyt; tytuły innych rekrutacji klienta widzi każdy z dostępem do
 przeglądu (jak „Poprzednie wysyłki”).
@@ -30,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
-from app.services.board_stage_badges import board_column_for
+from app.services.board_stage_badges import board_column_for, stage_badge_kind
 
 MET_COLUMNS: frozenset[str] = frozenset({"client_interview", "contract"})
 LIMIT = 10
@@ -115,7 +117,8 @@ async def load(
             category=_value(row.category),
             terminal_type=_value(row.terminal_type),
         )
-        if column in MET_COLUMNS and row.job_id not in met_at:
+        met = column in MET_COLUMNS and stage_badge_kind(row.def_name) != "prep"
+        if met and row.job_id not in met_at:
             met_at[row.job_id] = row.moved_at
         latest[row.job_id] = row.def_name or stage_labels.get(stage or "", stage)
         meta[row.job_id] = (

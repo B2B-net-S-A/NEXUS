@@ -21,7 +21,8 @@ bez powodu ze słownika, więc w historii zostawało samo „Inne”.
   `earlier_interviews` w `GET /api/dl-review/context`) to procesy osoby
   w innych rekrutacjach rodziny klienta, w których doszła do kolumny
   „Rozmowa u klienta” albo „Umowa”. Kolumnę liczy `board_column_for`, bo etapy
-  Nordei są rozpoznawane po nazwie. Zatrudnienie się nie liczy.
+  Nordei są rozpoznawane po nazwie. Nie liczy się zatrudnienie ani prep
+  („Interview - Prep”), bo w prepie osoba jest z nami, a manager jej jeszcze nie widział.
 - **Panel DL, powód „Już po rozmowie…”:** DL wybiera rozmowę z listy albo
   „Poza NEXUSEM”. Notatka ma postać „Tytuł · rozmowa DD.MM.RRRR — dopisek”.
   Przy „Poza NEXUSEM” albo pustej liście opis jest obowiązkowy.

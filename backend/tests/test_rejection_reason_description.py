@@ -17,7 +17,12 @@ from sqlalchemy import delete, select
 from app.core.database import AsyncSessionLocal
 from app.models.contact import Contact
 from app.models.job import Job, JobStatus, RemotePolicy
-from app.models.pipeline_template import PipelineStageDef, RejectionReason, TerminalType
+from app.models.pipeline_template import (
+    PipelineStageDef,
+    RejectionReason,
+    StageCategoryEnum,
+    TerminalType,
+)
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import UserRole
 from app.services import dl_review, earlier_client_interviews
@@ -128,12 +133,21 @@ async def test_earlier_interviews_at_the_client_mark_the_same_hiring_manager() -
                 hiring_manager_contact_id=contact_id,
             )
 
+        prep_def = PipelineStageDef(
+            template_id=world["template_id"],
+            name="Interview - Prep",
+            order=50,
+            category=StageCategoryEnum.internal,
+            legacy_enum_value="interview",
+        )
+        db.add(prep_def)
         same = _job("Rating & Limit", manager.id)
         different = _job("SD Collateral", other_manager.id)
         only_cv = _job("ICART", manager.id)
-        db.add_all([same, different, only_cv])
+        only_prep = _job("Prep only", manager.id)
+        db.add_all([same, different, only_cv, only_prep])
         await db.flush()
-        extra_jobs = [same.id, different.id, only_cv.id]
+        extra_jobs = [same.id, different.id, only_cv.id, only_prep.id]
 
         def _row(job_id: int, stage: PipelineStage, days_ago: int) -> CandidateStage:
             return CandidateStage(
@@ -152,6 +166,14 @@ async def test_earlier_interviews_at_the_client_mark_the_same_hiring_manager() -
                 _row(different.id, PipelineStage.client_interview, 45),
                 # Samo CV u managera to nie rozmowa.
                 _row(only_cv.id, PipelineStage.cv_sent, 10),
+                # Prep leży w kolumnie rozmowy, ale manager osoby nie widział.
+                CandidateStage(
+                    candidate_id=cid,
+                    job_id=only_prep.id,
+                    stage=PipelineStage.interview,
+                    stage_def_id=prep_def.id,
+                    moved_at=now - timedelta(days=5),
+                ),
                 # Ta sama rekrutacja nigdy nie jest „wcześniejszą”.
                 _row(world["job_id"], PipelineStage.client_interview, 1),
             ]
