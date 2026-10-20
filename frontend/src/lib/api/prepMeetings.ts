@@ -6,6 +6,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { Prep2Skip, Prep2SkipReason } from "@/lib/interview-cycle";
 import type { PrepInvitation } from "@/lib/prep-invitation";
 
 export interface PrepPerson {
@@ -166,6 +167,25 @@ export const prepMeetingsApi = {
   transcript: (eventId: number) =>
     api
       .get<PrepTranscript>(`/api/interview-cycle/preps/${eventId}/transcript`)
+      .then((r) => r.data),
+};
+
+/** Rozmowa bez Prepu 2 (0480): powód i telefon do kandydata przed rozmową. */
+export interface Prep2SkipCreateInput {
+  candidate_id: number;
+  job_id: number;
+  reason: Prep2SkipReason;
+  reason_note: string | null;
+  /** ISO — kiedy rekruter zadzwoni do kandydata (przed rozmową). */
+  call_at: string;
+}
+
+export const prep2SkipApi = {
+  create: (body: Prep2SkipCreateInput) =>
+    api.post<Prep2Skip>("/api/interview-cycle/prep2-skip", body).then((r) => r.data),
+  callDone: (skipId: number, note: string | null) =>
+    api
+      .post<Prep2Skip>(`/api/interview-cycle/prep2-skip/${skipId}/call-done`, { note })
       .then((r) => r.data),
 };
 

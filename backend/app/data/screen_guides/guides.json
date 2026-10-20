@@ -442,6 +442,11 @@
         "anchor": "calendar.board"
       },
       {
+        "q": "Kandydat nie zdąży na Prep 2 — co wtedy?",
+        "a": "Prep 2 jest obowiązkowy. Wyjątek: rozmowa u klienta jest dziś albo w najbliższy dzień roboczy, a Prep 1 już się odbył i nie był słaby ani bez nagrania. Wtedy w panelu kandydata pod krokami jest „Rozmowa bez Prepu 2…”: wybierz powód i zaplanuj krótki telefon do kandydata przed rozmową. Delivery Lead dostaje informację, telefon trafia do „Do zrobienia”, a pominięcia liczy raport „Jakość prepów”.",
+        "anchor": "calendar.person"
+      },
+      {
         "q": "Jak zobaczyć cały zespół albo zwykły kalendarz?",
         "a": "Nad Tablicą jest przełącznik „Tydzień / Tablica” i lista „Pokaż” (Moi kandydaci, Moje rekrutacje, Cały zespół). „Moje rekrutacje” pokazują też Twoich kandydatów z cudzych rekrutacji. W Tygodniu zwykłe spotkania z Outlooka są schowane — włącza je pole „Pozostałe spotkania z Outlooka”.",
         "anchor": "calendar.views"

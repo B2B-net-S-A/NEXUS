@@ -764,6 +764,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_changed_yours'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_no_response'",
+    # 0480: rozmowa u klienta bez Prepu 2 (do DL) i próg pominięć (do HoR).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skipped'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skip_threshold'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -6126,6 +6129,28 @@ END $$""",
     "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS proposed_start TIMESTAMPTZ NULL",
     "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS proposed_end TIMESTAMPTZ NULL",
     "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS outlook_checked_at TIMESTAMPTZ NULL",
+    # 0480: rozmowa u klienta bez Prepu 2 — powód i telefon przed rozmową
+    # (20.10.2026). Lustro 1:1 z migracją — pilnuje `test_prep2_skip_migration.py`.
+    """CREATE TABLE IF NOT EXISTS prep2_skips (
+    id BIGSERIAL PRIMARY KEY,
+    interview_event_id INTEGER NOT NULL UNIQUE
+        REFERENCES calendar_events(id) ON DELETE CASCADE,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    reason VARCHAR(20) NOT NULL,
+    reason_note TEXT NULL,
+    call_at TIMESTAMPTZ NOT NULL,
+    call_done_at TIMESTAMPTZ NULL,
+    call_done_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    call_note TEXT NULL,
+    created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_prep2_skips_reason
+        CHECK (reason IN ('no_slot','short_notice','prep1_covered','other')),
+    CONSTRAINT ck_prep2_skips_other_note
+        CHECK (reason <> 'other' OR reason_note IS NOT NULL)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_prep2_skips_pair ON prep2_skips (candidate_id, job_id)",
     # 0382: pozycja faktury Nordei zapisana przy zamówieniu
     # (`nordea_invoice_lines.py`). Pilnuje `test_nordea_invoice_lines.py`.
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS invoice_lines JSONB NULL",

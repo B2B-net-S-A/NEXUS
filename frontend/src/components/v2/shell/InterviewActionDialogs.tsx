@@ -2,6 +2,7 @@
 
 import { DebriefModal } from "@/components/calendar/cycle/DebriefModal";
 import { PlanPrepDialog } from "@/components/calendar/cycle/PlanPrepDialog";
+import { PrecallDoneDialog } from "@/components/calendar/cycle/Prep2Skip";
 import { PrepReviewDialog } from "@/components/calendar/cycle/PrepReviewDialog";
 import { ReschedulePrepDialog } from "@/components/calendar/cycle/ReschedulePrepDialog";
 import { SlotDecisionDialog, SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
@@ -85,6 +86,15 @@ export default function InterviewActionDialogs({
       );
     case "add_slots":
       return <SlotRequestDialog open onOpenChange={onOpenChange} pair={action.pair} />;
+    case "precall_done":
+      return (
+        <PrecallDoneDialog
+          open
+          onOpenChange={onOpenChange}
+          pair={action.pair}
+          skip={action.skip}
+        />
+      );
     default:
       return null;
   }

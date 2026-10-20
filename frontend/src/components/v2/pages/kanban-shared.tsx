@@ -23,7 +23,14 @@ import { cn } from "@/lib/utils";
 import type { RateUnit } from "@/lib/api";
 import type { FollowupCardBadge } from "@/lib/api/candidateFollowups";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
-import type { DebriefSummary, SlotRequest, StepKey, StepState } from "@/lib/interview-cycle";
+import type {
+ DebriefSummary,
+ Prep2Skip,
+ Prep2SkipStatus,
+ SlotRequest,
+ StepKey,
+ StepState,
+} from "@/lib/interview-cycle";
 import type { InterviewPhase } from "@/lib/pipeline-next-action";
 import type { RateChangeBadge } from "@/lib/rate-change";
 
@@ -244,6 +251,10 @@ export interface KanbanItem {
   phase?: InterviewPhase | null;
   /** Dzień rozmowy (RRRR-MM-DD, strefa firmy) — tylko przy fazie `scheduled`. */
   interview_date?: string | null;
+  /** 0480: rozmowa bez Prepu 2 — przycisk, zapisany powód i telefon w doku. */
+  prep2_skip_status?: Prep2SkipStatus;
+  prep2_skip?: Prep2Skip | null;
+  prep1_remaining?: string[];
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;
@@ -295,6 +306,8 @@ export type InterviewBadgeKind =
  | "prep_missing"
  // 0453: kandydat odrzucił prep albo proponuje inny termin.
  | "prep_refused"
+ // 0480: rozmowa bez Prepu 2 (z powodem) — telefon przed rozmową.
+ | "prep2_skipped"
  | "prep2"
  | "prep_done"
  | "slot"

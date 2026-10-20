@@ -126,7 +126,8 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   w Prepie 1 = `covered_in_prep1` poza mianownikiem. **Awaria modelu = `level
   NULL`, nigdy „słaby”.** Pomiar Luny: `scripts/eval_prep_review.py`.
 - **Bramki MIĘKKIE** (nic nie blokuje): Prep 2 wymagany zawsze, gdy rozmowa
-  u klienta jest w przyszłości (`PREP2_HINT_DAYS` usunięte); todo
+  u klienta jest w przyszłości (`PREP2_HINT_DAYS` usunięte); jedyny wyjątek
+  z powodem i telefonem przed rozmową — `rozmowa-bez-prepu-2.md` (0480); todo
   `prep_weak`/`prep_unrecorded`, `urgent` <24 h; plakietki kanbana
   `prep_weak`/`prep_missing`; kolejka „Czeka na Ciebie” (`prep_attention`,
   `services/prep_attention.py` — organizator + HoR/admin) i dzwonek

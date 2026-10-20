@@ -48,6 +48,8 @@ const PREP_BADGE_TITLE: Partial<Record<string, string>> = {
     "Przed rozmową u klienta brakuje prepu z kandydatem (Prep 1 — Delivery Lead, Prep 2 — rekruter). Umów go w kalendarzu „Rozmowy u klienta”.",
   prep_weak:
     "Prep odbył się, ale wypadł słabo (transkrypt z Teams). Warto umówić jeszcze jedną rozmowę przed spotkaniem u klienta.",
+  prep2_skipped:
+    "Rozmowa odbędzie się bez Prepu 2 — powód zapisał rekruter. Zamiast prepu jest krótki telefon do kandydata przed rozmową.",
   prep_refused:
     "Kandydat odrzucił zaproszenie na prep albo zaproponował inny termin. Przyjmij jego termin albo przełóż prep w panelu osoby.",
 };

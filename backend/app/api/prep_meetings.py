@@ -12,7 +12,11 @@
 * ``GET  /api/interview-cycle/preps/{event_id}/transcript`` — pełny transkrypt
   (zespół rekrutacji, jak każdy odczyt rekrutacji).
 * ``GET  /api/interview-cycle/prep-quality`` — raport jakości prepów per
-  organizator (admin i Head of Recruitment).
+  organizator (admin i Head of Recruitment) i rozmowy bez Prepu 2 per osoba.
+* ``POST /api/interview-cycle/prep2-skip`` — rozmowa bez Prepu 2: powód
+  i telefon do kandydata przed rozmową (0480, wyjątek tuż przed rozmową).
+* ``POST /api/interview-cycle/prep2-skip/{skip_id}/call-done`` — telefon
+  przed rozmową odbyty.
 
 Sekcja Pipeline + role zapisu kalendarza + członkostwo w rekrutacji — te same
 bramki co pozostałe trasy „Rozmów u klienta”. Zmianę i odwołanie prepu
@@ -52,10 +56,16 @@ from app.models.calendar_event import CalendarEvent, EventStatus
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job
-from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
+from app.models.prep_meeting import (
+    Prep2Skip,
+    PrepMeeting,
+    PrepReview,
+    PrepTranscript,
+)
 from app.models.user import User
 from app.services import (
     interview_slots,
+    prep2_skips,
     prep_invitation,
     prep_meetings,
     prep_notifications,
@@ -422,6 +432,9 @@ async def create_prep(
         event=created.event,
         kind="scheduled",
     )
+    if body.prep_no == 2:
+        # 0480: Prep 2 jednak jest — zapisane „bez Prepu 2” przestaje obowiązywać.
+        await prep2_skips.clear_upcoming(db, candidate_id=candidate.id, job_id=job.id)
     await db.commit()
     return await _prep_out(db, created.prep, created.event, current_user)
 
@@ -750,11 +763,27 @@ class PrepQualityRow(BaseModel):
     avg_talk_share: Optional[float] = None
 
 
+class Prep2SkipRow(BaseModel):
+    """Rozmowy u klienta osoby (właściciel rozmowy) bez Prepu 2 (0480)."""
+
+    person: PersonOut
+    interviews: int
+    with_reason: int
+    silent: int
+    share: float
+    over_threshold: bool
+    reasons: dict[str, int] = {}
+
+
 class PrepQualityOut(BaseModel):
     days: int
     rows: list[PrepQualityRow]
     interviews: int
     interviews_with_two_preps: int
+    # 0480: rozmowy bez Prepu 2 w ostatnich ``skip_days`` dniach per osoba.
+    skip_days: int = prep2_skips.STATS_WINDOW_DAYS
+    skip_threshold: float = prep2_skips.THRESHOLD_SHARE
+    skip_rows: list[Prep2SkipRow] = []
 
 
 @router.get("/interview-cycle/prep-quality", response_model=PrepQualityOut)
@@ -868,4 +897,162 @@ async def prep_quality_report(
         ),
         interviews=len(interviews),
         interviews_with_two_preps=preps_before,
+        skip_rows=await _skip_rows(db, now),
     )
+
+
+async def _skip_rows(db: AsyncSession, now: datetime) -> list[Prep2SkipRow]:
+    from datetime import timedelta
+
+    stats = await prep2_skips.skip_stats(
+        db,
+        since=now - timedelta(days=prep2_skips.STATS_WINDOW_DAYS),
+        until=now,
+        now=now,
+    )
+    people = await _people(db, list(stats))
+    rows = [
+        Prep2SkipRow(
+            person=people.get(uid) or PersonOut(id=uid, name=f"#{uid}"),
+            interviews=stat.interviews,
+            with_reason=stat.with_reason,
+            silent=stat.silent,
+            share=round(stat.share, 3),
+            over_threshold=stat.over_threshold,
+            reasons=stat.reasons,
+        )
+        for uid, stat in stats.items()
+    ]
+    return sorted(
+        rows, key=lambda r: (not r.over_threshold, -r.share, r.person.name.lower())
+    )
+
+
+# ── Rozmowa bez Prepu 2 (0480, 20.10.2026) ───────────────────────────────────
+
+
+class Prep2SkipCreate(BaseModel):
+    candidate_id: int
+    job_id: int
+    reason: Literal["no_slot", "short_notice", "prep1_covered", "other"]
+    reason_note: Optional[str] = Field(default=None, max_length=500)
+    call_at: datetime
+
+    @model_validator(mode="after")
+    def _other_needs_note(self) -> "Prep2SkipCreate":
+        note = (self.reason_note or "").strip()
+        self.reason_note = note or None
+        if self.reason == "other" and not note:
+            raise ValueError("Opisz powód — „Inny powód” wymaga kilku słów.")
+        return self
+
+
+class Prep2CallDone(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class Prep2SkipOut(BaseModel):
+    id: int
+    interview_event_id: int
+    candidate_id: int
+    job_id: int
+    reason: str
+    reason_note: Optional[str] = None
+    call_at: datetime
+    call_done_at: Optional[datetime] = None
+    call_note: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: datetime
+
+
+def _skip_out(row: Prep2Skip) -> Prep2SkipOut:
+    return Prep2SkipOut(
+        id=row.id,
+        interview_event_id=row.interview_event_id,
+        candidate_id=row.candidate_id,
+        job_id=row.job_id,
+        reason=row.reason,
+        reason_note=row.reason_note,
+        call_at=_aware(row.call_at),
+        call_done_at=_aware(row.call_done_at),
+        call_note=row.call_note,
+        created_by=row.created_by,
+        created_at=_aware(row.created_at) or datetime.now(timezone.utc),
+    )
+
+
+@router.post(
+    "/interview-cycle/prep2-skip",
+    response_model=Prep2SkipOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_prep2_skip(
+    body: Prep2SkipCreate,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> Prep2SkipOut:
+    """Rozmowa bez Prepu 2 — tylko tuż przed rozmową, po odbytym Prepie 1.
+
+    Te same bramki co planowanie prepu: kto może założyć Prep 2, ten może
+    zapisać, że go nie będzie — z powodem i telefonem przed rozmową.
+    """
+    await ensure_job_membership(db, current_user, body.job_id)
+    if not await interview_slots.pair_in_pipeline(
+        db, candidate_id=body.candidate_id, job_id=body.job_id
+    ):
+        raise HTTPException(
+            status_code=422, detail="Kandydat nie jest w pipeline tej rekrutacji."
+        )
+    now = datetime.now(timezone.utc)
+    row = await prep2_skips.create_skip(
+        db,
+        actor=current_user,
+        candidate_id=body.candidate_id,
+        job_id=body.job_id,
+        reason=body.reason,
+        reason_note=body.reason_note,
+        call_at=body.call_at,
+        now=now,
+    )
+    interview = await db.get(CalendarEvent, row.interview_event_id)
+    interview_start = _aware(interview.start_time) if interview else now
+    await prep2_skips.notify_skip(
+        db, actor=current_user, skip=row, interview_start=interview_start
+    )
+    owner_id = (
+        (interview.operational_owner_id or interview.created_by) if interview else None
+    )
+    if owner_id:
+        await prep2_skips.notify_threshold(
+            db, owner_id=owner_id, until=max(interview_start, now), now=now
+        )
+    await db.commit()
+    await db.refresh(row)
+    logger.info(
+        "prep2 skip: candidate=%s job=%s reason=%s user=%s",
+        row.candidate_id,
+        row.job_id,
+        row.reason,
+        current_user.id,
+    )
+    return _skip_out(row)
+
+
+@router.post(
+    "/interview-cycle/prep2-skip/{skip_id}/call-done", response_model=Prep2SkipOut
+)
+async def prep2_call_done(
+    skip_id: int,
+    body: Prep2CallDone,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> Prep2SkipOut:
+    row = await db.get(Prep2Skip, skip_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Nie znaleziono wpisu.")
+    await ensure_job_membership(db, current_user, row.job_id)
+    note = (body.note or "").strip() or None
+    await prep2_skips.mark_call_done(db, actor=current_user, skip=row, note=note)
+    await db.commit()
+    await db.refresh(row)
+    return _skip_out(row)

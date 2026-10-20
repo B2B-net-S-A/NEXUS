@@ -144,6 +144,10 @@ async def load_prep_attention(
                 reason: Optional[Reason] = "late"
                 performer = workforce.performer(ev.owner_id)
                 owner = performer if (performer, jid) in active_owners else fallback
+            elif ev is None and n == 2 and snap.prep2_skip() is not None:
+                # 0480: rozmowa bez Prepu 2 z zapisanym powodem — nie „brak”.
+                reason = None
+                owner = None
             elif ev is None:
                 reason = "missing"
                 # Ta sama podpowiedź co w oknie „Zaplanuj prep” — tylko osoby

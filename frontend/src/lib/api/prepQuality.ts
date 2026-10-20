@@ -20,6 +20,24 @@ export interface PrepQualityRow {
   avg_talk_share: number | null;
 }
 
+/**
+ * 0480: rozmowy u klienta osoby (właściciel rozmowy = rekruter) bez Prepu 2
+ * w ostatnich `skip_days` dniach.
+ */
+export interface Prep2SkipRow {
+  person: { id: number; name: string };
+  interviews: number;
+  /** Bez Prepu 2 z zapisanym powodem i telefonem przed rozmową. */
+  with_reason: number;
+  /** Rozmowa się odbyła, prepów było mniej niż dwa, a powodu nikt nie zapisał. */
+  silent: number;
+  /** `with_reason / interviews` (0..1). */
+  share: number;
+  /** Ponad próg i co najmniej dwie rozmowy — Head of Recruitment dostał dzwonek. */
+  over_threshold: boolean;
+  reasons: Record<string, number>;
+}
+
 export interface PrepQualityResponse {
   days: number;
   rows: PrepQualityRow[];
@@ -27,6 +45,10 @@ export interface PrepQualityResponse {
   interviews: number;
   /** …z których przed rozmową odbyły się oba prepy. */
   interviews_with_two_preps: number;
+  /** 0480; starszy serwer = brak. */
+  skip_days?: number;
+  skip_threshold?: number;
+  skip_rows?: Prep2SkipRow[];
 }
 
 export const PREP_QUALITY_DEFAULT_DAYS = 90;

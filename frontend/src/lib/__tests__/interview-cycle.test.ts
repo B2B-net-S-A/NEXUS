@@ -7,11 +7,14 @@ import {
   countdownLabel,
   debriefAvailable,
   debriefAvailableFromLabel,
+  defaultPrecallAt,
   formatDayLabel,
   pairAgenda,
   parseCycleParam,
   parseScope,
   parseView,
+  prep2SkipHint,
+  prep2SkipReasonText,
   prepQualityTone,
   upcomingAgenda,
   type AgendaEntry,
@@ -255,5 +258,51 @@ describe("interview-cycle — prepy w Teams (0370)", () => {
     expect(prepQualityTone("unrecorded")).toBe("warn");
     expect(prepQualityTone("good")).toBe("done");
     expect(prepQualityTone("pending")).toBe("muted");
+  });
+});
+
+describe("interview-cycle — rozmowa bez Prepu 2 (0480)", () => {
+  const SKIP = {
+    id: 5,
+    interview_event_id: 9,
+    reason: "no_slot" as const,
+    reason_note: null,
+    call_at: "2031-06-10T16:00:00.000Z",
+    call_done_at: null,
+    call_note: null,
+    created_by: 7,
+    created_by_name: "Anna Rekruterka",
+    created_at: "2031-06-10T12:00:00.000Z",
+  };
+
+  it("telefon przed rozmową odhacza się z zadania", () => {
+    const todo: TodoEntry = { ...PAIR, kind: "precall_due", priority: 4, due: SKIP.call_at, event_id: 9, slot_request_id: null };
+    expect(actionForTodo(todo, [item({ prep2_skip: SKIP })])).toEqual(
+      expect.objectContaining({ type: "precall_done", skip: SKIP }),
+    );
+    // Bez wpisu (starszy serwer, para spoza listy) — zadanie tylko informuje.
+    expect(actionForTodo(todo, [])).toBeNull();
+  });
+
+  it("podpowiedź mówi, dlaczego przycisku nie ma", () => {
+    expect(prep2SkipHint("allowed")).toMatch(/mniej niż dzień roboczy/);
+    expect(prep2SkipHint("too_early")).toMatch(/jest czas na Prep 2/);
+    expect(prep2SkipHint("prep1_weak")).toMatch(/obowiązkowy/);
+    expect(prep2SkipHint("not_needed")).toBeNull();
+    expect(prep2SkipHint(undefined)).toBeNull();
+  });
+
+  it("powód „inny” pokazuje opis rekrutera", () => {
+    expect(prep2SkipReasonText(SKIP)).toBe("kandydat nie miał wolnego terminu");
+    expect(prep2SkipReasonText({ reason: "other", reason_note: "kandydat w delegacji" })).toBe(
+      "kandydat w delegacji",
+    );
+  });
+
+  it("telefon podpowiada się za godzinę, ale zawsze przed rozmową", () => {
+    const now = new Date(2031, 5, 10, 14, 7);
+    expect(defaultPrecallAt(null, now)).toBe("2031-06-10T15:15");
+    const soon = new Date(2031, 5, 10, 15, 0).toISOString();
+    expect(defaultPrecallAt(soon, now)).toBe("2031-06-10T14:15");
   });
 });

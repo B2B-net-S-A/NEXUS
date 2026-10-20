@@ -205,6 +205,12 @@ class NotificationType(str, enum.Enum):
     prep_changed = "prep_changed"
     prep_changed_yours = "prep_changed_yours"
     prep_no_response = "prep_no_response"
+    # 0480 (20.10.2026): rozmowa u klienta bez Prepu 2 — do Delivery Leada
+    # rekrutacji (licznik), related_entity=(prep2_skip, id); przekroczony próg
+    # pominięć w 30 dniach — do Head of Recruitment, related_entity=(user, id),
+    # raz na 30 dni na osobę.
+    prep2_skipped = "prep2_skipped"
+    prep2_skip_threshold = "prep2_skip_threshold"
     # 0371: automat przydziału requestów — rano JEDEN wpis na osobę („Od dziś:
     # X. Zwolnione: Y (champion)”); related_entity=(user, id), dedup dobowy.
     # Od 02.10.2026 także od razu po akceptacji propozycji: „Nowy request do

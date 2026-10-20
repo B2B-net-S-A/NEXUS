@@ -157,6 +157,96 @@ export interface CycleItem extends PairInfo {
   tentative_interview_at?: string | null;
   interview_event_id: number | null;
   debrief: DebriefSummary | null;
+  /** 0480: czy rozmowę da się zapisać jako „bez Prepu 2”; starszy serwer = brak. */
+  prep2_skip_status?: Prep2SkipStatus;
+  prep2_skip?: Prep2Skip | null;
+  /** Punkty klienta, których Prep 1 nie omówił — do telefonu przed rozmową. */
+  prep1_remaining?: string[];
+}
+
+/**
+ * Rozmowa bez Prepu 2 (0480, decyzja Artura 20.10.2026) — wyjątek, nie wybór.
+ * Lustro `prep2_skip_status` w `backend/app/services/interview_cycle.py`.
+ */
+export type Prep2SkipStatus =
+  | "allowed"
+  | "skipped"
+  | "not_needed"
+  | "prep1_missing"
+  | "prep1_weak"
+  | "too_early";
+
+export type Prep2SkipReason = "no_slot" | "short_notice" | "prep1_covered" | "other";
+
+export interface Prep2Skip {
+  id: number;
+  interview_event_id: number;
+  reason: Prep2SkipReason;
+  reason_note: string | null;
+  /** Telefon do kandydata przed rozmową (zamiast Prepu 2). */
+  call_at: string;
+  call_done_at: string | null;
+  call_note: string | null;
+  created_by: number | null;
+  created_by_name: string | null;
+  created_at: string;
+}
+
+/** Wybór w oknie „Rozmowa bez Prepu 2”. */
+export const PREP2_SKIP_REASON_OPTIONS: Record<Prep2SkipReason, string> = {
+  no_slot: "Kandydat nie ma wolnego terminu przed rozmową",
+  short_notice: "Klient wyznaczył rozmowę z dnia na dzień",
+  prep1_covered: "Prep 1 był niedawno i omówił całą listę klienta",
+  other: "Inny powód (opisz)",
+};
+
+/** Powód w zdaniu — lustro `PREP2_SKIP_REASON_LABELS` z serwera. */
+export const PREP2_SKIP_REASON_LABELS: Record<Prep2SkipReason, string> = {
+  no_slot: "kandydat nie miał wolnego terminu",
+  short_notice: "rozmowa umówiona z dnia na dzień",
+  prep1_covered: "Prep 1 omówił całą listę klienta",
+  other: "inny powód",
+};
+
+export function prep2SkipReasonText(skip: Pick<Prep2Skip, "reason" | "reason_note">): string {
+  if (skip.reason === "other" && skip.reason_note) return skip.reason_note;
+  return PREP2_SKIP_REASON_LABELS[skip.reason] ?? skip.reason;
+}
+
+/** Podpowiedź pod krokiem Prep 2 — dlaczego przycisk jest albo go nie ma. */
+export function prep2SkipHint(status: Prep2SkipStatus | undefined): string | null {
+  switch (status) {
+    case "allowed":
+      return "Do rozmowy został mniej niż dzień roboczy. Jeśli kandydat nie znajdzie czasu na Prep 2, zapisz powód i zadzwoń do niego przed rozmową.";
+    case "too_early":
+      return "Do rozmowy jest więcej niż dzień roboczy — jest czas na Prep 2.";
+    case "prep1_weak":
+      return "Prep 1 był słaby albo bez nagrania — przed tą rozmową Prep 2 jest obowiązkowy.";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Podpowiedź terminu telefonu przed rozmową (pole `datetime-local`): za godzinę,
+ * a gdy rozmowa jest bliżej — najbliższy kwadrans, zawsze przed rozmową.
+ */
+export function defaultPrecallAt(interviewAt: string | null, now: Date = new Date()): string {
+  const quarter = (d: Date) => {
+    const out = new Date(d);
+    const rest = out.getMinutes() % 15;
+    if (rest || out.getSeconds() || out.getMilliseconds()) {
+      out.setMinutes(out.getMinutes() + (15 - rest), 0, 0);
+    }
+    return out;
+  };
+  let at = quarter(new Date(now.getTime() + 60 * 60_000));
+  if (interviewAt) {
+    const latest = new Date(new Date(interviewAt).getTime() - 15 * 60_000);
+    if (at > latest) at = quarter(now) <= latest ? quarter(now) : now;
+  }
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
 
 /**
@@ -205,7 +295,9 @@ export type TodoKind =
   | "prep_late"
   | "prep_weak"
   | "prep_unrecorded"
-  | "slots_missing";
+  | "slots_missing"
+  /** 0480: rozmowa bez Prepu 2 — telefon do kandydata przed rozmową. */
+  | "precall_due";
 
 export interface TodoEntry extends PairInfo {
   kind: TodoKind;
@@ -404,6 +496,7 @@ export const TODO_LABELS: Record<TodoKind, string> = {
   prep_weak: "Prep słaby — popraw przed rozmową",
   prep_unrecorded: "Prep bez nagrania",
   slots_missing: "Brak terminów od klienta",
+  precall_due: "Telefon przed rozmową (bez Prepu 2)",
 };
 
 export const TODO_ACTIONS: Record<TodoKind, string> = {
@@ -417,6 +510,7 @@ export const TODO_ACTIONS: Record<TodoKind, string> = {
   prep_weak: "Zobacz ocenę",
   prep_unrecorded: "Szczegóły",
   slots_missing: "Dodaj terminy",
+  precall_due: "Zrobione",
 };
 
 export const PREP_QUALITY_LABELS: Record<PrepQuality, string> = {
@@ -692,7 +786,9 @@ export type CycleAction =
       /** Brak = „late” (prep po rozmowie u klienta); „edit”/„cancel” z wiersza prepu (17.10.2026). */
       mode?: "late" | "edit" | "cancel";
     }
-  | { type: "open_event"; eventId: number };
+  | { type: "open_event"; eventId: number }
+  /** 0480: telefon przed rozmową bez Prepu 2 odbyty. */
+  | { type: "precall_done"; pair: PairInfo; skip: Prep2Skip };
 
 function pairOf(p: PairInfo): PairInfo {
   return {
@@ -740,6 +836,8 @@ export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction 
       return todo.event_id != null ? { type: "prep_review", pair, eventId: todo.event_id } : null;
     case "slots_missing":
       return { type: "add_slots", pair };
+    case "precall_due":
+      return item?.prep2_skip ? { type: "precall_done", pair, skip: item.prep2_skip } : null;
     default:
       return null;
   }

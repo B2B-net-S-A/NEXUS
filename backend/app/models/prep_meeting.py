@@ -218,3 +218,58 @@ class PrepReview(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+# Dlaczego rozmowa u klienta odbywa się bez Prepu 2 (0480, 20.10.2026).
+PREP2_SKIP_REASONS = ("no_slot", "short_notice", "prep1_covered", "other")
+
+
+class Prep2Skip(Base):
+    """Rozmowa u klienta bez Prepu 2 — wyjątek z powodem (0480, 20.10.2026).
+
+    Decyzja Artura: Prep 2 da się pominąć tylko tuż przed rozmową, po
+    odbytym Prepie 1, z powodem i z krótkim telefonem do kandydata przed
+    rozmową (``call_at``). Jeden wpis na rozmowę; wpis bez telefonu
+    (``call_done_at``) zostaje zadaniem „Telefon przed rozmową”.
+    """
+
+    __tablename__ = "prep2_skips"
+    __table_args__ = (
+        CheckConstraint(
+            "reason IN ('no_slot','short_notice','prep1_covered','other')",
+            name="ck_prep2_skips_reason",
+        ),
+        CheckConstraint(
+            "reason <> 'other' OR reason_note IS NOT NULL",
+            name="ck_prep2_skips_other_note",
+        ),
+        Index("ix_prep2_skips_pair", "candidate_id", "job_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    interview_event_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("calendar_events.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    candidate_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False
+    )
+    job_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    reason: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason_note: Mapped[Optional[str]] = mapped_column(Text)
+    call_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    call_done_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    call_done_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    call_note: Mapped[Optional[str]] = mapped_column(Text)
+    created_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

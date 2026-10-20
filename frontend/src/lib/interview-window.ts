@@ -117,6 +117,7 @@ const TODO_ICONS: Partial<Record<TodoKind, WindowIcon>> = {
   prep_late: "video",
   prep_weak: "alert",
   prep_unrecorded: "alert",
+  precall_due: "phone",
 };
 
 /** Zadania, których okienko nie bierze z serwera: telefon po rozmowie liczymy
