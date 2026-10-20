@@ -16,9 +16,9 @@ Trzy wejścia, jeden przebieg (``_Run``):
 Do ``payroll_invoices`` zapisujemy wyłącznie faktury od NIP-ów
 z ``employee_billing_details``. Pozostałe (dostawcy firmy) przy włączonym
 module „Zgody” stają się dokumentami wydatków z samych metadanych
-(``approvals/cost_invoices.py``, licznik ``costs``, bez pobierania XML-a);
-przy wyłączonym to tylko licznik ``skipped`` — bez numeru, NIP-u i kwot
-w bazie i w logach. Faktura od znanego NIP-u: XML z KSeF → ``fa``
+(``approvals/cost_invoices.py``, licznik ``costs`` obok ``skipped``, bez
+pobierania XML-a); przy wyłączonym to tylko licznik ``skipped`` — bez numeru,
+NIP-u i kwot w bazie i w logach. Faktura od znanego NIP-u: XML z KSeF → ``fa``
 → wiersz ``payroll_invoices`` (unikalny numer KSeF, skrót SHA-256 XML-a;
 samego XML-a nie trzymamy). Ta sama faktura dopięta wcześniej przez Płace
 jako PDF (ten sam NIP sprzedawcy, numer i waluta) nie dostaje drugiego
@@ -519,11 +519,12 @@ async def _consider(run: _Run, item: dict[str, Any]) -> None:
     run.counts["listed"] += 1
     seller = (item.get("seller") or {}).get("nip") or numbers.seller_nip(ksef_number)
     if seller not in run.known:
+        # Dostawca firmy — poza rozliczeniami ludzi (licznik ``skipped``). Przy
+        # włączonym module „Zgody” zapisujemy go jako fakturę kosztową (``costs``),
+        # inaczej bez śladu w bazie i logach.
+        run.counts["skipped"] += 1
         if run.store_costs:
             await _store_cost(run, item, ksef_number)
-            return
-        # Dostawca firmy — tylko licznik, bez śladu w bazie i logach.
-        run.counts["skipped"] += 1
         return
     if await _exists(run.db, ksef_number):
         run.counts["duplicates"] += 1

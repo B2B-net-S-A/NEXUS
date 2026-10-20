@@ -20,6 +20,7 @@ from sqlalchemy import delete, select
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
+from app.models.hr_approval import ApprovalDocument
 from app.models.hr_ops import HrJobRun
 from app.models.hr_payroll import PayrollPeriod
 from app.models.hr_profile import EmployeeProfile
@@ -88,6 +89,12 @@ async def _wipe(user_ids: list[int]) -> None:
     async with AsyncSessionLocal() as db:
         await db.execute(
             delete(PayrollInvoice).where(PayrollInvoice.seller_nip.in_(FIXTURE_NIPS))
+        )
+        # Zgody, etap 3 (0486): faktura dostawcy firmy to dokument wydatku.
+        await db.execute(
+            delete(ApprovalDocument).where(
+                ApprovalDocument.seller_nip.in_(FIXTURE_NIPS)
+            )
         )
         if user_ids:
             await db.execute(
@@ -185,6 +192,18 @@ async def test_tylko_faktury_od_nipow_z_danych_do_rozliczen(env, caplog):
     assert SUPPLIER_NIP not in caplog.text
     assert SUPPLIER_INVOICE not in caplog.text
     assert env.fake.count("GET", f"/invoices/ksef/{SUPPLIER_INVOICE}") == 0
+
+    # Moduł „Zgody” włączony: dostawca firmy to faktura kosztowa z samych
+    # metadanych (bez pobrania XML-a) w kolejce „Faktury bez zgody”.
+    assert result["costs"] == 1
+    async with AsyncSessionLocal() as db:
+        cost = await db.scalar(
+            select(ApprovalDocument).where(
+                ApprovalDocument.ksef_number == SUPPLIER_INVOICE
+            )
+        )
+    assert cost is not None and cost.status == "unmatched"
+    assert cost.seller_nip == SUPPLIER_NIP and cost.gross_amount is not None
 
     ola = next(row for row in rows if row.ksef_number == OLA_INVOICE)
     assert ola.source == "ksef"
@@ -428,6 +447,23 @@ async def test_okno_najwyzej_100_dni(env):
 
 
 # ── Wyłączenia ───────────────────────────────────────────────────────────────
+
+
+async def test_bez_modulu_zgod_faktura_dostawcy_tylko_pominieta(env):
+    await _set_setting(
+        HR_MODULES_SETTING,
+        {key: key != "approvals" for key in HR_MODULE_KEYS},
+    )
+    result = await env.run()
+    assert result["skipped"] == 1
+    assert "costs" not in result
+    async with AsyncSessionLocal() as db:
+        cost = await db.scalar(
+            select(ApprovalDocument.id).where(
+                ApprovalDocument.ksef_number == SUPPLIER_INVOICE
+            )
+        )
+    assert cost is None
 
 
 async def test_tryb_off_brak_tokenu_i_modul_wylaczony(env, monkeypatch):
