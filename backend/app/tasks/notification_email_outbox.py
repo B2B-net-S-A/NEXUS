@@ -41,6 +41,7 @@ from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services import loop_heartbeat
 from app.services.email import email_channel_enabled, render_notification_email
+from app.services.hr.approvals import mail as approval_mail
 from app.services.hr.hr_mail import mail_text
 from app.services.m365.system_mail import DELIVERY_UNCERTAIN, app_mail_send_outcome
 from app.services.notification_access import user_can_receive_notification
@@ -248,16 +249,25 @@ async def _deliver(
         await _set(db, notif.id, email_send_started_at=None)
         return None
 
-    title, message = notif.title, notif.message
-    if kind == HR_MAIL_KIND:
-        # Mail wychodzi poza aplikację: bez rodzaju nieobecności i kwot (D6).
-        title, message = mail_text(notif.notification_type, title, message)
-    subject, text_body, html_body = render_notification_email(
-        recipient_name=user.name or user.email,
-        title=title,
-        message=message,
-        deep_link_path=notif.link or "/dashboard",
-    )
+    if notif.notification_type == NotificationType.hr_approval_requested:
+        # Zgoda do decyzji: kwota i „po co” tylko decydującemu (20.10.2026).
+        # Zgoda już rozpatrzona albo u kogoś innego — bez maila.
+        rendered = await approval_mail.render(db, notif, user)
+        if rendered is None:
+            await _set(db, notif.id, email_send_started_at=None)
+            return None
+        subject, text_body, html_body = rendered
+    else:
+        title, message = notif.title, notif.message
+        if kind == HR_MAIL_KIND:
+            # Mail wychodzi poza aplikację: bez rodzaju nieobecności i kwot (D6).
+            title, message = mail_text(notif.notification_type, title, message)
+        subject, text_body, html_body = render_notification_email(
+            recipient_name=user.name or user.email,
+            title=title,
+            message=message,
+            deep_link_path=notif.link or "/dashboard",
+        )
     to_addr = user.email
     created_at = notif.created_at
 

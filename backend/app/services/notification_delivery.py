@@ -128,13 +128,16 @@ CATALOG = (
         "zgłoszona przez koordynatora), zastępstwo, raport godzin wysłany do "
         "akceptacji, zaakceptowany, zwrócony albo niewysłany w terminie, przekazana praca, zadania wejścia "
         "i odejścia, sprawa administracja@, zadania sprzętu, podpisany protokół "
-        "i konsultant przekazany z opieki do front office.",
+        "i konsultant przekazany z opieki do front office, zgoda na wydatek albo premię "
+        "poza umową do decyzji i decyzja o niej.",
         recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (przełożony "
         "albo Kadry), koordynator osoby na B2B i zleceniu, wnioskodawca, zastępca, "
         "przejmujący pracę, wykonawca zadania, "
         "przypisany do sprawy, osoby z uprawnieniem „Sprzęt”, a przy przekazaniu do "
         "front office: head pionu front office, Head of Recruitment i Delivery "
-        "Leadzi. W mailu nie ma rodzaju nieobecności ani kwot.",
+        "Leadzi, przy zgodzie — przełożony autora albo zatwierdzający z Ustawień. W mailu "
+        "nie ma rodzaju nieobecności ani kwot — poza mailem do decydującego o zgodzie "
+        "(kwota i „po co”, decyzja Artura 20.10.2026).",
     ),
     # Poranny skrót (07.10.2026) — `tasks/daily_digest_email.py`.
     dict(
@@ -272,6 +275,10 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "hr_settlement_correction",
     "hr_settlement_review",
     "hr_agreement_update",
+    # Zgody (0483): do decydującego — mail z kwotą i przyciskami
+    # (`services/hr/approvals/mail.py`), decyzja do autora — bez wolnego tekstu.
+    "hr_approval_requested",
+    "hr_approval_decided",
 )
 
 

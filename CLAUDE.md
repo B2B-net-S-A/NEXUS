@@ -208,6 +208,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `rekrutacja-wersja-3-jedna-tabela-panel-osoby.md` — Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 - `role-przy-rekrutacji-delivery-lead-rekruter.md` — Role przy rekrutacji: Delivery Lead · Rekruter · Kategoria; propozycje automatu akceptuje Head of Recruitment (0409, 02.10.2026)
 - `sciezka-kandydata-przekazania-zweryfikowany-jeden.md` — Ścieżka kandydata: przekazania, „Zweryfikowany”, jeden panel osoby (04.10.2026)
+- `stawka-do-klienta-po-wysylce.md` — Zmiana stawki do klienta po wysyłce CV (20.10.2026)
 - `twoje-cv-w-drodze-na-pulpicie-domyslnie-u-kazdego-z.md` — „Twoje CV w drodze” na pulpicie — domyślnie u każdego, z „Usuń z pulpitu” (02.10.2026)
 - `zamkniecie-rekrutacji-osoby-w-toku.md` — Zamknięcie rekrutacji ostrzega o osobach w toku (13.10.2026) · 409 `active_cards_warning`, `acknowledge_active_cards`, trzy okna zamykania
 - `zatrudniony-kto-i-co-jest-potrzebne.md` — „Zatrudniony”: kto przesuwa i co jest potrzebne (20.10.2026)
@@ -383,6 +384,7 @@ Moduły przeniesione z Compassa (bez Akademii) i sprzęt recepcji.
 - `runbook-przelaczenia-z-compassa.md` — Runbook przełączenia z Compassa na „Ludzi w NEXUSIE” (17.10.2026)
 - `sprzet-i-protokoly-recepcji.md` — Sprzęt i protokoły recepcji (D2–D10, 16.10.2026)
 - `urlopy-czas-place-wejscie-odejscie.md` — Urlopy i M365, „Mój miesiąc”, płace, wejście i odejście (16.10.2026)
+- `zgody-wydatki-i-premie-poza-umowa.md` — Zgody na wydatki i premie poza umową (0483, 20.10.2026)
 
 ### Programy — `docs/claude/programy/`
 
