@@ -149,6 +149,14 @@ class HandoffRemarkOut(BaseModel):
     created_at: datetime
 
 
+class EarlierInterviewOut(BaseModel):
+    job_id: int
+    job_title: str
+    interview_at: datetime
+    latest_stage: Optional[str] = None
+    same_hiring_manager: bool
+
+
 class DlReviewContext(BaseModel):
     candidate_id: int
     candidate_name: str
@@ -180,6 +188,10 @@ class DlReviewContext(BaseModel):
     fix_options: list[FixOptionOut]
     # Rekruter dopisał zdanie przy przekazaniu — DL czyta je na górze przeglądu.
     recruiter_handoff_remark: Optional[HandoffRemarkOut] = None
+    # 20.10.2026 (`services/earlier_client_interviews.py`): rozmowy osoby
+    # w innych rekrutacjach klienta; `same_hiring_manager` = ostrzeżenie.
+    hiring_manager_name: Optional[str] = None
+    earlier_interviews: list[EarlierInterviewOut] = []
 
 
 class DlReviewQueueItem(BaseModel):

@@ -479,6 +479,14 @@
    "v3_home": "usePipelineMove"
   },
   {
+   "id": "panel.client-rate-change",
+   "area": "panel",
+   "opis": "Zmiana stawki do klienta po wysyłce CV (powód, historia, blokada po zamówieniu)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-client-rate-change",
+   "v3_home": "panel → Do klienta → Zmień"
+  },
+  {
    "id": "move.eligibility",
    "area": "ruch",
    "opis": "Ostrzeżenie „Przenieś mimo to”",

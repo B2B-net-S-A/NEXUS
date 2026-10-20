@@ -166,7 +166,11 @@ class CardMoveIn(_StrictIn):
         None,
         min_length=1,
         max_length=500,
-        description="Opis powodu odrzucenia, gdy nie ma go w słowniku.",
+        description=(
+            "Opis powodu odrzucenia: zamiast powodu ze słownika albo obok niego. "
+            "Przy powodach „Inne” i „Już po rozmowie u tego hiring managera” "
+            "opis jest wymagany (bez niego 422)."
+        ),
     )
     acknowledge_eligibility: bool = Field(
         False,

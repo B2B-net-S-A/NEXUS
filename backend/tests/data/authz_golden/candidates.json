@@ -48,6 +48,7 @@
   "GET /api/candidates/{candidate_id}/hiring-manager-vetoes": "PPPPPPDDPPPPPPPPPPPPDPPPP",
   "GET /api/candidates/{candidate_id}/history": "PPPPPPDDPPPPPPPPPPPPDPPPP",
   "GET /api/candidates/{candidate_id}/quick-view": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/candidates/{candidate_id}/recruitments/{job_id}/client-rate/history": "PPPPPPDDPPPPPPPPPPPPDPPPP",
   "GET /api/candidates/{candidate_id}/risk": "PPPPPPDDPPPPPPPPPPPPDPPPP",
   "GET /api/candidates/{candidate_id}/suggested-pools": "PPPPPPDDPPPPPPPPPPPPDPPPP",
   "GET /api/candidates/{candidate_id}/timeline": "PPPPPPDDPPPPPPPPPPPPDPPPP",

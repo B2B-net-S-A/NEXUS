@@ -173,3 +173,116 @@ async def test_soft_deleted_document_does_not_block_reinsert():
         )
         await db.execute(text("DELETE FROM candidates WHERE id = :i"), {"i": cand_id})
         await db.commit()
+
+
+# 20.10.2026: identyfikator załącznika M365 ma 176–180 znaków, a kolumna
+# `candidate_documents.external_id` 100. Ucinanie do 100 znaków zostawiało
+# wspólny początek skrzynki — na produkcji 3 964 załączniki dawały 13 kluczy.
+# CV z nowego maila „znajdowało” cudzy dokument i przepinało go na swojego
+# kandydata razem z cudzym plikiem (kandydat 6673 dostał CV kandydata 26224).
+
+_SHARED_PREFIX = "AAMkSyntheticMailboxPrefix" + "x" * 94
+
+
+def test_document_key_keeps_attachments_with_a_shared_prefix_apart():
+    from app.services.m365.attachment_handler import m365_document_external_id
+
+    first = m365_document_external_id(_SHARED_PREFIX + "AAABEgAQAOne")
+    second = m365_document_external_id(_SHARED_PREFIX + "AAABEgAQATwo")
+
+    assert first != second
+    assert first == m365_document_external_id(_SHARED_PREFIX + "AAABEgAQAOne")
+    assert len(first) <= 100 and len(second) <= 100
+    assert first != (_SHARED_PREFIX + "AAABEgAQAOne")[:100]
+
+
+def test_document_key_is_empty_without_an_attachment_id():
+    from app.services.m365.attachment_handler import m365_document_external_id
+
+    assert m365_document_external_id(None) is None
+    assert m365_document_external_id("") is None
+
+
+@pytest.mark.asyncio
+async def test_cv_from_another_mail_does_not_take_over_a_document(
+    monkeypatch, tmp_path
+):
+    """Dwa różne załączniki o wspólnym początku id → dwa dokumenty."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.candidate_document import CandidateDocument
+    from app.services import (
+        candidate_identity_quarantine,
+        cv_ingest_service,
+        cv_parser,
+        cv_text_extractor,
+    )
+    from app.services.m365 import attachment_handler
+
+    now = datetime.now(timezone.utc)
+    prefix = _SHARED_PREFIX[:-12] + uuid.uuid4().hex[:12]
+    monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)
+    monkeypatch.setattr(cv_text_extractor, "extract_text", lambda *_: "Synthetic CV")
+    monkeypatch.setattr(
+        cv_parser,
+        "parse_cv",
+        AsyncMock(return_value={"first_name": "Alex", "last_name": "Example"}),
+    )
+    monkeypatch.setattr(cv_ingest_service, "finish_cv_ingest", AsyncMock())
+    monkeypatch.setattr(
+        candidate_identity_quarantine,
+        "record_detected_identity",
+        AsyncMock(return_value=SimpleNamespace(is_quarantined=False)),
+    )
+
+    async with AsyncSessionLocal() as db:
+        first_person = Candidate(name="Alex", lastname="Example")
+        second_person = Candidate(name="Sam", lastname="Example")
+        db.add_all([first_person, second_person])
+        await db.flush()
+
+        for index, (person, content) in enumerate(
+            [
+                (first_person, b"First synthetic CV"),
+                (second_person, b"Second synthetic CV"),
+            ]
+        ):
+            filename = f"synthetic-{index}.pdf"
+            (tmp_path / filename).write_bytes(content)
+            attachment = SimpleNamespace(
+                id=index + 1,
+                is_cv_candidate=True,
+                storage_path=filename,
+                filename=filename,
+                content_type="application/pdf",
+                sha256=None,
+                m365_attachment_id=f"{prefix}ATTACHMENT{index}",
+                parsed_candidate_id=None,
+                parse_error=None,
+            )
+            email = SimpleNamespace(
+                candidate_id=person.id, received_at=now - timedelta(days=1)
+            )
+            await attachment_handler.try_parse_cv(db, attachment, email)
+            await db.flush()
+
+        async def m365_files(person: Candidate) -> list[bytes]:
+            # `file_content` jest odroczone — pytamy o kolumnę wprost, po
+            # OBU mailach, bo błąd przepinał dokument dopiero przy drugim.
+            return list(
+                await db.scalars(
+                    select(CandidateDocument.file_content).where(
+                        CandidateDocument.candidate_id == person.id,
+                        CandidateDocument.external_source == "m365",
+                    )
+                )
+            )
+
+        assert await m365_files(first_person) == [b"First synthetic CV"]
+        assert await m365_files(second_person) == [b"Second synthetic CV"]
+        # Wszystko syntetyczne i niezatwierdzone: zamknięcie sesji to cofa.

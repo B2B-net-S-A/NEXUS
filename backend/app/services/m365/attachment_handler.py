@@ -273,6 +273,20 @@ def _persist_bytes(email_row: Email, filename: str, content: bytes) -> str:
     return str(target_path.relative_to(STORAGE_ROOT))
 
 
+def m365_document_external_id(m365_attachment_id: Optional[str]) -> Optional[str]:
+    """Klucz dokumentu z maila w `candidate_documents.external_id` (100 znaków).
+
+    Id załącznika z Graph ma 176–180 znaków, a pierwsze 100 to wspólny
+    początek skrzynki. Do 20.10.2026 klucz był ucinany do 100 znaków: na
+    produkcji 3 964 załączniki dawały 13 kluczy, więc CV z nowego maila
+    znajdowało cudzy dokument i przepinało go na swojego kandydata razem
+    z cudzym plikiem. Skrót całego id jest krótki i rozróżnia załączniki.
+    """
+    if not m365_attachment_id:
+        return None
+    return "m365:" + hashlib.sha256(m365_attachment_id.encode("utf-8")).hexdigest()
+
+
 async def try_parse_cv(
     db: AsyncSession,
     attachment: EmailAttachment,
@@ -357,7 +371,7 @@ async def try_parse_cv(
 
     content = await asyncio.to_thread(abs_path.read_bytes)
     content_hash = attachment.sha256 or hashlib.sha256(content).hexdigest()
-    external_id = (attachment.m365_attachment_id or "")[:100] or None
+    external_id = m365_document_external_id(attachment.m365_attachment_id)
 
     # Szukamy po TYM SAMYM kluczu, na którym stoi UNIQUE
     # (`ux_candidate_documents_external_source_id` = external_source + external_id,

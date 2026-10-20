@@ -40,6 +40,11 @@ CARD_ASSIST_SOURCE = "card_note_import"
 # ją jako źródło obok oryginalnego CV, więc dopisana kwota nie może zrobić
 # z niej wpisu o stawce do klienta (zakrytego i pomijanego przez AI).
 QC_CONFIRM_SOURCE = "qc_confirmation"
+# Zmiana stawki do klienta po wysyłce CV (`client_rate_correction`,
+# 20.10.2026). Treść „Stawka do klienta zmieniona: 150 zł/h → 145 zł/h…”
+# reguła treści czyta jako zwykłą notatkę, a edycja liczy rodzaj od nowa —
+# bez tego poprawiona literówka odsłaniałaby rekruterowi cenę dla klienta.
+CLIENT_RATE_CHANGE_SOURCE = "client_rate_change"
 
 AUTOMATCH = "automatch"
 APPLICATION_FORM = "application_form"
@@ -326,6 +331,8 @@ def _classify(
 ) -> str:
     if external_source == REMARK_SOURCE:
         return DL_REVIEW
+    if external_source == CLIENT_RATE_CHANGE_SOURCE:
+        return DL_RATE
     if external_source in (CARD_ASSIST_SOURCE, QC_CONFIRM_SOURCE):
         return HUMAN
     text = plain_text(content)

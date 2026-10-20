@@ -423,6 +423,7 @@ async def _job_with_candidate(*, recruiter_id: int, dl_id: int) -> tuple[int, in
             name="Anna",
             lastname=f"Cykl-{tag}",
             email=f"cycle-cand-{tag}@example.com",
+            phone="+48 500 000 000",
             status=CandidateStatus.active,
         )
         db.add_all([job, cand])
@@ -540,6 +541,9 @@ async def test_full_slot_flow_creates_client_interview_for_recruiter(
     assert states["interview"] == "scheduled"
     assert states["choice"] == "done"
     assert item["candidate_name"].startswith("Anna Cykl-")
+    # Numer i e-mail w nagłówku panelu rozmowy — do umawiania terminu.
+    assert item["candidate_phone"] == "+48 500 000 000"
+    assert item["candidate_email"].startswith("cycle-cand-")
     agenda_kinds = {
         a["kind"] for a in overview.json()["agenda"] if a["candidate_id"] == cand_id
     }

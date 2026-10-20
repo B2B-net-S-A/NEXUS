@@ -42,6 +42,7 @@ import {
 } from "@/lib/interview-cycle";
 import { cn } from "@/lib/utils";
 
+import { CandidateContactLine } from "./CandidateContactLine";
 import { ClientQuestions } from "./ClientQuestions";
 import { CycleStepper } from "./CycleStepper";
 import { Prep2SkipControls } from "./Prep2Skip";
@@ -90,6 +91,7 @@ export function CycleCandidateSheet({
         <SheetContent side="right" size="md">
           <SheetHeader>
             <SheetTitle>{candidateLabel(item)}</SheetTitle>
+            <CandidateContactLine phone={item.candidate_phone} email={item.candidate_email} />
             <SheetDescription className="sr-only">
               Kroki rozmowy u klienta, prepy i pytania klienta — {pairContext(item)}
             </SheetDescription>
