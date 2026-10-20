@@ -129,6 +129,11 @@ describe("/preview/hr-equipment", () => {
     expect(latitude).toHaveTextContent(/4\s*szt\./);
     expect(latitude).toHaveTextContent(/148\s*149\s*150\s*151/);
     expect(within(stock).getByRole("button", { name: "Pokaż pozostałe modele (5)" })).toBeInTheDocument();
+    // „Dell P2422H” i „DELL P2422H” (import Exceli) to jeden model z 8 sztukami.
+    await user.click(within(stock).getByRole("button", { name: "Pokaż pozostałe modele (5)" }));
+    const monitors = within(stock).getAllByRole("row", { name: /P2422H/i });
+    expect(monitors).toHaveLength(1);
+    expect(monitors[0]).toHaveTextContent(/^Monitor Dell P2422H, 24 cale.*8\s*szt\./);
     const issuedSection = screen.getByRole("region", { name: "Wydane" });
     expect(bodyRows(within(issuedSection).getByRole("table"))).toHaveLength(5);
     await user.click(within(issuedSection).getByRole("button", { name: "Pokaż wszystkie wydane (9)" }));
@@ -155,8 +160,10 @@ describe("/preview/hr-equipment", () => {
     expect(within(overdue).getByText("6 dni po")).toBeInTheDocument();
     expect(within(overdue).getByRole("button", { name: "Przypomnij" })).toBeInTheDocument();
     const today = screen.getByRole("group", { name: "Dziś" });
+    // Osoba w tytule, numer · klient · dzień linku w drugiej linii (prod 20.10: numer ucinał nazwisko).
+    expect(within(today).getByText("Podpis protokołu: Anna Kontraktorska")).toBeInTheDocument();
     expect(
-      within(today).getByText(/^Podpis protokołu PZO\/TEST\/\d{2}\/014: Anna Kontraktorska$/),
+      within(today).getByText(/^PZO\/TEST\/\d{2}\/014 · Ubezpieczenia Fikcyjne · wysłany \d{2}\.\d{2}$/),
     ).toBeInTheDocument();
     expect(within(today).getByRole("button", { name: "Wyślij link ponownie" })).toBeInTheDocument();
     expect(within(today).getByRole("img", { name: "W protokole: 5 poz." })).toBeInTheDocument();
