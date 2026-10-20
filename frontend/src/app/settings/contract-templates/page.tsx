@@ -162,7 +162,7 @@ export default function ContractTemplatesPage() {
     queryFn: () => api.get("/api/contract-templates").then((r) => r.data),
   });
 
-  // Jeden domyślny na typ i język — poprzedni znacznik zdejmuje serwer (20.10.2026).
+  // Jeden domyślny na typ umowy — poprzedni znacznik zdejmuje serwer (20.10.2026).
   const defaultMutation = useMutation({
     mutationFn: (id: number) => api.patch(`/api/contract-templates/${id}`, { is_default: true }),
     onSuccess: () =>
@@ -193,7 +193,7 @@ export default function ContractTemplatesPage() {
 
         <p className="text-sm text-muted-foreground">
           Treść umów, z których korzysta generator. Domyślny wzór podpowiada się
-          przy nowym kontrakcie — jeden na typ umowy i język.
+          przy nowym kontrakcie — jeden na typ umowy.
         </p>
 
         {canEdit && editing && (

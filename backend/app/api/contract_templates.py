@@ -272,13 +272,14 @@ def _contract_vars(contract: Contract, language: Optional[str] = None) -> dict:
 
 
 async def _clear_other_defaults(db: AsyncSession, tpl: ContractTemplate) -> None:
-    """Jeden domyślny wzór na typ i język (20.10.2026).
+    """Jeden domyślny wzór na typ umowy (20.10.2026).
 
-    Lista wzorów przy kontrakcie stawia domyślny na górze
-    (`contracts._list_templates_for_contract_type`), a do 20.10 zaznaczenie
-    „Domyślny” na drugim wzorze zostawiało dwa — na produkcji domyślny był
-    wzór z testu smoke. Język jest częścią klucza, bo Generator Umów B2B
-    wybiera wzór po typie i języku.
+    Szkic umowy przy kontrakcie bierze pierwszy domyślny wzór typu
+    (`contracts._list_templates_for_contract_type`), bez patrzenia na język,
+    a do 20.10 zaznaczenie „Domyślny” na drugim wzorze zostawiało dwa — na
+    produkcji domyślny był wzór z testu smoke. Język NIE jest częścią klucza:
+    Generator Umów B2B wybiera wzór po języku i `is_default` nie czyta, a dwa
+    domyślne w różnych językach dawały szkic po cichu z pierwszego po nazwie.
     """
     if not tpl.is_default:
         return
@@ -287,7 +288,6 @@ async def _clear_other_defaults(db: AsyncSession, tpl: ContractTemplate) -> None
         .where(
             ContractTemplate.id != tpl.id,
             ContractTemplate.contract_type == tpl.contract_type,
-            ContractTemplate.language.is_not_distinct_from(tpl.language),
             ContractTemplate.is_default.is_(True),
         )
         .values(is_default=False)
