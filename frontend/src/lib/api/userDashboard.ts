@@ -21,6 +21,7 @@ export const TILE_TYPES = [
   "my_kpis_today",
   "my_onboarding",
   "my_recruitments",
+  "closing_candidates",
   "recruitment_activity",
   "recruitment_competence",
   "team_workload",
