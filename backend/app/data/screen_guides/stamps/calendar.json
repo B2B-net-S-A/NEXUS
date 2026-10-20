@@ -1,5 +1,5 @@
 {
-  "entry": "88418647d886cde224093b3ffd4a4715c3f1f427fec1b747e0505de0424ac839",
+  "entry": "5eea26f773ca5e4fe7f6ee3ac06321608688e7d77922dac1d025c194a6639d0c",
   "guide": "calendar",
   "sources": {
     "frontend/src/components/calendar/cycle/CalendarCycleScreen.tsx": "da3d7c72cd1830f4190eb657cadf34b64ec90c04e8ba2112e4314aaa813b0856",

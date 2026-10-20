@@ -437,14 +437,9 @@
         "anchor": "calendar.board"
       },
       {
-        "q": "Jak zaplanować, zmienić albo odwołać prep?",
-        "a": "Przed rozmową u klienta są dwa prepy: Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. Kliknij nazwisko na karcie i przy kroku Prep „Zaplanuj”: prowadzący, termin i kogo zaprosić — każdego z NEXUSA albo adres e-mail. Zaplanowany prep zmienisz albo odwołasz w panelu kandydata („Zmień”, „Odwołaj”). Po spotkaniu pojawi się „Ocena prepu”.",
+        "q": "Jak zaplanować prep i co, gdy kandydat nie zdąży na Prep 2?",
+        "a": "Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. Kliknij nazwisko na karcie i przy kroku Prep „Zaplanuj”; „Zmień” i „Odwołaj” są w panelu kandydata. Bez Prepu 2 tylko, gdy rozmowa jest dziś albo w najbliższy dzień roboczy, a Prep 1 nie był słaby: „Rozmowa bez Prepu 2…”, powód i telefon do kandydata przed rozmową.",
         "anchor": "calendar.board"
-      },
-      {
-        "q": "Kandydat nie zdąży na Prep 2 — co wtedy?",
-        "a": "Prep 2 jest obowiązkowy. Wyjątek: rozmowa u klienta jest dziś albo w najbliższy dzień roboczy, a Prep 1 już się odbył i nie był słaby ani bez nagrania. Wtedy w panelu kandydata pod krokami jest „Rozmowa bez Prepu 2…”: wybierz powód i zaplanuj krótki telefon do kandydata przed rozmową. Delivery Lead dostaje informację, telefon trafia do „Do zrobienia”, a pominięcia liczy raport „Jakość prepów”.",
-        "anchor": "calendar.person"
       },
       {
         "q": "Jak zobaczyć cały zespół albo zwykły kalendarz?",

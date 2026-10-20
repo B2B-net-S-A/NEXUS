@@ -193,11 +193,13 @@ async def test_other_reason_needs_words_and_call_must_be_before_interview(
         )
 
 
-async def test_outsider_cannot_skip(app_client: AsyncClient):
+async def test_role_without_candidate_access_cannot_skip(app_client: AsyncClient):
+    # Te same bramki co planowanie prepu (`POST /preps`): rekrutacje widzą
+    # wszyscy z zespołu rekrutacji (23.09.2026), Finanse — nie.
     _rec_h, _dl_id, _dl_h, job_id, cand_id, _iv = await _pair_with_prep1(
         interview_in=timedelta(hours=3)
     )
-    _other_id, other_h = await _user(UserRole.recruiter)
+    _other_id, other_h = await _user(UserRole.finance)
     resp = await app_client.post(
         "/api/interview-cycle/prep2-skip",
         headers=other_h,
