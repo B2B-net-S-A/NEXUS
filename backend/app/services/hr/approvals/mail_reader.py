@@ -224,9 +224,10 @@ async def _notice(
 ) -> None:
     """Dzwonek i krótki mail do decydującego: odpowiedź nie została zapisana.
 
-    Osobny rodzaj encji (``mail_reply.NOTICE_ENTITY``) — dzienny dedup
-    ``emit`` nie połknie go razem z dzwonkiem „zgoda do decyzji”. Bez treści
-    odpowiedzi i bez kwot.
+    Bez ``related_entity_id``: dzienny dedup ``emit`` (``ix_notif_dedup_daily``
+    = osoba, typ, id encji, dzień — bez rodzaju encji) połknąłby go razem
+    z dzwonkiem „zgoda do decyzji” tej zgody. Powtórek pilnuje zbiór
+    przetworzonych wiadomości. Bez treści odpowiedzi i bez kwot.
     """
 
     await notify_each(
@@ -237,7 +238,7 @@ async def _notice(
         ntype=NotificationType.hr_approval_requested,
         link=service.request_link(request.id),
         related_entity_type=mail_reply.NOTICE_ENTITY,
-        related_entity_id=request.id,
+        related_entity_id=None,
         log_tag="approvals",
     )
 

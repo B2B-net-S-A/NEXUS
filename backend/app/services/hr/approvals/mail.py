@@ -52,7 +52,7 @@ def _notice(notif: Notification, user: User) -> tuple[str, str, str]:
     Treść to stałe zdanie z czytnika — bez kwoty i bez treści odpowiedzi.
     """
 
-    link = absolute_link(request_link(notif.related_entity_id))
+    link = absolute_link(notif.link or "/people/approvals?tab=consents")
     name = user.name or user.email
     subject = "[Nexus] Odpowiedź w sprawie zgody nie została zapisana"
     text_body = "\n".join(
@@ -82,10 +82,7 @@ async def render(
 ) -> Optional[tuple[str, str, str]]:
     """(temat, tekst, HTML) albo ``None``, gdy mail nie ma już sensu."""
 
-    if (
-        notif.related_entity_type == mail_reply.NOTICE_ENTITY
-        and notif.related_entity_id is not None
-    ):
+    if notif.related_entity_type == mail_reply.NOTICE_ENTITY:
         return _notice(notif, user)
     if (
         notif.related_entity_type != "approval_request"

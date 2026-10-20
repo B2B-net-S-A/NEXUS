@@ -123,9 +123,11 @@ w `tasks/hr_loops.py` co 2 minuty.
   na wersję sprzed poprawki, odmowa serwisu (np. zamknięty miesiąc wypłaty
   premii), zgoda już u autora, odrzucona albo wycofana — daje mu dzwonek
   i krótki mail „Odpowiedź w sprawie zgody nie została zapisana”
-  (`hr_approval_requested` z encją `approval_mail_reply`, osobno od dzwonka
-  „zgoda do decyzji”, więc dzienny dedup `emit` go nie połyka). Bez kwoty
-  i bez treści odpowiedzi, bez Reply-To. Obcym adresom nic nie wysyłamy.
+  (`hr_approval_requested`, `related_entity_type='approval_mail_reply'`,
+  BEZ `related_entity_id` — dzienny dedup `ix_notif_dedup_daily` liczy
+  osobę, typ i id encji, bez rodzaju, więc z id zgody połknąłby go razem
+  z dzwonkiem „zgoda do decyzji”). Bez kwoty i bez treści odpowiedzi, bez
+  Reply-To. Obcym adresom nic nie wysyłamy.
 - **Stan czytnika** bez adresów i treści: `mail_reader.read_status`
   (liczniki `approved`, `endorsed`, `returned`, `stale`, `unauthenticated`,
   `refused`, `foreign_sender`,
