@@ -9,7 +9,7 @@ backward-compatible), and that the `needs_sourcing`, `active_in_search` and
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -96,6 +96,7 @@ async def _seed_job(
     needs_sourcing: bool = False,
     deadline: date | None = None,
     client_id: int | None = None,
+    opened_at: datetime | None = None,
 ) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job, JobStatus
@@ -113,6 +114,7 @@ async def _seed_job(
             needs_sourcing=needs_sourcing,
             deadline=deadline,
             client_id=client_id,
+            opened_at=opened_at,
         )
         db.add(j)
         await db.commit()
@@ -300,6 +302,40 @@ async def test_jobs_sort_newest_oldest_and_default(
         assert order3.index(j_new) < order3.index(j_old)
     finally:
         await _cleanup(job_ids=[j_old, j_new], user_ids=[])
+
+
+@pytest.mark.asyncio
+async def test_jobs_sort_newest_uses_opening_date_not_import_time(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """„Od najnowszej” = data otwarcia (20.10.2026). Rekrutacja z Traffita ma
+    `created_at` z chwili importu, a prawdziwą datę w `opened_at`; założona
+    w NEXUSIE ma `opened_at` puste i liczy się jej `created_at`."""
+    c = await _seed_client()
+    # Założona w NEXUSIE (bez `opened_at`) — dziś.
+    j_nexus = await _seed_job(client_id=c)
+    # Zaimportowana PÓŹNIEJ, ale otwarta u klienta rok temu.
+    j_imported_old = await _seed_job(
+        client_id=c,
+        opened_at=datetime.now(timezone.utc) - timedelta(days=365),
+    )
+    try:
+        r = await app_client.get(
+            f"/api/jobs?client_id={c}&sort=newest&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        order = [item["id"] for item in r.json()["items"]]
+        assert order.index(j_nexus) < order.index(j_imported_old)
+
+        r2 = await app_client.get(
+            f"/api/jobs?client_id={c}&sort=oldest&page_size=100",
+            headers=app_auth_headers,
+        )
+        order2 = [item["id"] for item in r2.json()["items"]]
+        assert order2.index(j_imported_old) < order2.index(j_nexus)
+    finally:
+        await _cleanup(job_ids=[j_nexus, j_imported_old], user_ids=[])
 
 
 @pytest.mark.asyncio

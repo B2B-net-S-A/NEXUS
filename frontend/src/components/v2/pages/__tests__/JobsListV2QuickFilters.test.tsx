@@ -664,6 +664,18 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
     expect(window.location.search).toBe("");
   });
 
+  it("sortowanie mówi „Sortuj:” i „Od najnowszej” wysyła sort=newest", async () => {
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+
+    await user.click(screen.getByRole("combobox", { name: /Sortuj:\s*Wymaga uwagi/ }));
+    await user.click(await screen.findByRole("option", { name: "Od najnowszej" }));
+
+    await waitFor(() => expect(latestParams()).toMatchObject({ sort: "newest" }));
+    expect(screen.getByRole("combobox", { name: /Sortuj:\s*Od najnowszej/ })).toBeInTheDocument();
+  });
+
   it("segment „Moje | Otwarte | Wszystkie” pokazuje liczniki z quick-counts", async () => {
     renderJobs();
     const scope = within(
