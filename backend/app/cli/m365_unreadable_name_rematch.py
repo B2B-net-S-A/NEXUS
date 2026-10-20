@@ -190,7 +190,7 @@ async def plan_and_stage(db, *, now: Optional[datetime] = None) -> Plan:
                 match_confidence=None,
                 matched_at=None,
             )
-            .execution_options(synchronize_session=False)
+            .execution_options(synchronize_session="evaluate")
         )
     await db.flush()
 
@@ -228,7 +228,7 @@ async def plan_and_stage(db, *, now: Optional[datetime] = None) -> Plan:
                 match_confidence=result.confidence,
                 matched_at=now,
             )
-            .execution_options(synchronize_session=False)
+            .execution_options(synchronize_session="evaluate")
         )
 
     attachment_rows = []
@@ -262,7 +262,7 @@ async def plan_and_stage(db, *, now: Optional[datetime] = None) -> Plan:
             .values(
                 parsed_candidate_id=None, cv_parse_attempted_at=None, parse_error=None
             )
-            .execution_options(synchronize_session=False)
+            .execution_options(synchronize_session="evaluate")
         )
 
     for victim in items.victims:
