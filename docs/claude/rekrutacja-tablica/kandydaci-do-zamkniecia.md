@@ -26,3 +26,14 @@ Kod: `services/closing_candidates.py`, `GET /api/board-tasks/closing`
   waluta albo brak stawki kandydata = napis, nigdy zmyślona liczba.
 - **Rekruter pary** z `interview_slots.default_recruiter_ids` (właściciel
   procesu → weryfikujący → Rekruter rekrutacji), DL z `jobs.delivery_lead_id`.
+- **Wariant A z makiet** (https://claude.ai/artifact/2nspRc3M1ZisM2esdJkppd,
+  decyzja Artura 20.10.2026: podsumowanie, filtr kroków, „Następny krok”):
+  nad tabelą liczba osób i suma marży miesięcznej (`closingMarginSum`,
+  168 h, strata odejmuje; tylko z prawem do stawki do klienta, z pokazanych
+  wierszy — przy ucięciu zdanie mówi „spośród N pokazanych”), filtr kroków
+  z licznikami serwera (`step_counts` liczy WSZYSTKICH, nie tylko 50 wierszy).
+- **„Następny krok” to link, nie ruch** (`closingNextStep`): Zaakceptowany →
+  „Generuj umowę” (`generatorPrefillHref`), Umowa wysłana → „Sprawdź podpis”,
+  Podpisana → „Przesuń na „Zatrudniony”” — obie do panelu osoby, bo podpis
+  („Podpis B2B”) i ruch (debrief, „Jak podpisano umowę?”) mają tam warunki,
+  których kafelek nie dubluje. Nie dokładaj tu własnego `POST /api/pipeline/move`.

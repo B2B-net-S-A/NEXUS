@@ -499,6 +499,7 @@ const recruitmentRow = (over: Partial<MyRecruitmentRow>): MyRecruitmentRow => ({
 // w MD, brak stawki kandydata — trzy sposoby liczenia marży.
 const CLOSING_CANDIDATES: ClosingCandidatesResponse = {
   total: 3,
+  step_counts: { accepted: 1, sent: 1, signed: 1 },
   show_client_rate: true,
   rows: [
     {

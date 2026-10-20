@@ -18,6 +18,7 @@ import {
   useCareerLink,
   useSlugAvailability,
 } from "@/lib/api/careerLinks";
+import { recruiterLogin } from "@/lib/career/format";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
@@ -346,10 +347,10 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
             <div className="space-y-1.5">
               <span className="text-sm font-medium text-foreground">Podgląd posta na LinkedInie</span>
               <LinkedInPreviewCard
-                command={`whoami — ${firstName.toLowerCase()}@dynaminds`}
+                command={`whoami — ${recruiterLogin(firstName)}`}
                 headline="Szukasz kolejnego projektu IT?"
                 tagline="[zostaw CV · odezwę się z konkretem]"
-                cardTitle={`${firstName} — rekrutacja IT · Dynaminds`}
+                cardTitle={`${firstName} — rekrutacje IT`}
                 host={host}
               />
             </div>

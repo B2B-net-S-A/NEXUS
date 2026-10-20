@@ -10,6 +10,7 @@
  */
 
 import type { RateUnit } from "@/lib/api";
+import { generatorPrefillHref } from "@/lib/b2b-generator-register";
 import { computeMargin, type MarginResult } from "@/lib/dl-review-margin";
 import { rateToHourly } from "@/lib/rate-to-hourly";
 
@@ -37,6 +38,8 @@ export interface ClosingCandidateRow {
 export interface ClosingCandidatesResponse {
   rows: ClosingCandidateRow[];
   total: number;
+  /** Ile osób na każdym kroku — ze wszystkich, także spoza `rows`. */
+  step_counts: Record<ClosingStep, number>;
   show_client_rate: boolean;
 }
 
@@ -83,4 +86,54 @@ export function closingMargin(row: ClosingCandidateRow): MarginResult {
     candidateUnit: row.candidate_rate_unit,
     candidateCurrency: row.candidate_rate_currency,
   });
+}
+
+export const CLOSING_STEPS: readonly ClosingStep[] = ["accepted", "sent", "signed"];
+
+export type ClosingFilter = ClosingStep | "all";
+
+/** Etykiety filtra kroków — liczba mnoga, bo to grupy osób. */
+export const CLOSING_FILTER_LABEL: Record<ClosingFilter, string> = {
+  all: "Wszyscy",
+  accepted: "Zaakceptowani",
+  sent: "Umowa wysłana",
+  signed: "Podpisana",
+};
+
+export interface ClosingMarginSum {
+  /** Suma marży miesięcznej (zł/mc) osób z porównywalnymi stawkami; strata odejmuje. */
+  monthly: number;
+  /** Ile osób weszło do sumy. */
+  counted: number;
+}
+
+export function closingMarginSum(rows: readonly ClosingCandidateRow[]): ClosingMarginSum {
+  let monthly = 0;
+  let counted = 0;
+  for (const row of rows) {
+    const margin = closingMargin(row);
+    if (margin.kind !== "ok") continue;
+    monthly += margin.monthly;
+    counted += 1;
+  }
+  return { monthly, counted };
+}
+
+export interface ClosingNextStep {
+  label: string;
+  href: string;
+}
+
+/**
+ * Przycisk „Następny krok” prowadzi do ISTNIEJĄCEGO ekranu, nie robi ruchu
+ * sam: podpis i „Zatrudniony” mają w panelu osoby własne warunki (uprawnienie
+ * „Podpis B2B”, debrief, „Jak podpisano umowę?”), których kafelek nie dubluje.
+ */
+export function closingNextStep(row: ClosingCandidateRow): ClosingNextStep {
+  const panel = `/jobs/${row.job_id}?candidate=${row.candidate_id}`;
+  if (row.step === "accepted") {
+    return { label: "Generuj umowę", href: generatorPrefillHref(row.candidate_id, row.job_id) };
+  }
+  if (row.step === "sent") return { label: "Sprawdź podpis", href: panel };
+  return { label: "Przesuń na „Zatrudniony”", href: panel };
 }

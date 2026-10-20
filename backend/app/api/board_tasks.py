@@ -988,6 +988,8 @@ class ClosingCandidateRow(BaseModel):
 class ClosingCandidatesResponse(BaseModel):
     rows: list[ClosingCandidateRow]
     total: int
+    # Liczniki filtra kroków — ze wszystkich osób, także spoza `rows`.
+    step_counts: dict[Literal["accepted", "sent", "signed"], int]
     # Bez prawa do stawki do klienta kafelek nie pokazuje przychodu ani marży.
     show_client_rate: bool
 
@@ -1022,6 +1024,7 @@ async def get_closing_candidates(
             for row in result.rows
         ],
         total=result.total,
+        step_counts=result.step_counts,
         show_client_rate=show_client_rate,
     )
 

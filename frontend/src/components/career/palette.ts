@@ -9,7 +9,8 @@
  *
  * Kontrast na czarnym tle (WCAG): `bordo` ≈ 2,5:1 — tylko tło pod białym
  * tekstem i ozdobniki; `title` ≈ 7:1 — czerwony w tekście tytułów (etap 5,
- * makieta 5a); `red` ≈ 4,9:1 — drobny tekst akcentu.
+ * makieta 5a); `red` ≈ 4,9:1 — drobny tekst akcentu; `comment` ≈ 4,8:1 (4,7:1 na
+ * tle formularza) — komentarze `// …` i stopka, ciemniejsze od `gray`.
  */
 export const OG_COLORS = {
   bg: "#000000",
@@ -18,7 +19,7 @@ export const OG_COLORS = {
   text: "#F5F5F5",
   white: "#FFFFFF",
   gray: "#8B8B8B",
-  comment: "#737373",
+  comment: "#787878",
   dim: "#5C5C5C",
   bordo: "#9A142D",
   red: "#D14A5F",
