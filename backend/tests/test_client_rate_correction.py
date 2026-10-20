@@ -304,3 +304,84 @@ async def test_recruiter_does_not_read_the_rate_history(
         headers=headers,
     )
     assert resp.status_code == 403, resp.text
+
+
+# ── Ruch karty z kwotą (audyt 21.10.2026) ───────────────────────────────────
+
+
+async def test_moving_the_card_with_a_rate_respects_the_order_lock(
+    app_client: AsyncClient,
+) -> None:
+    """Powrót na „CV wysłane” z kwotą to też zapis stawki — po zamówieniu 409."""
+
+    headers = await _login(app_client, UserRole.delivery_lead)
+    job_id, cand_id = await _seed(with_order=True)
+
+    moved = await app_client.post(
+        "/api/pipeline/move",
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "stage": "cv_sent",
+            "client_rate_value": "999",
+            "client_rate_unit": "hourly",
+        },
+        headers=headers,
+    )
+    assert moved.status_code == 409, moved.text
+    assert "zmień w zamówieniu" in moved.json()["detail"]
+
+    bulk = await app_client.post(
+        "/api/pipeline/bulk-move",
+        json={
+            "job_id": job_id,
+            "candidate_ids": [cand_id],
+            "stage": "cv_sent",
+            "client_rate_value": "999",
+        },
+        headers=headers,
+    )
+    assert bulk.status_code == 409, bulk.text
+    assert "zmień w zamówieniu" in bulk.json()["detail"]
+
+    history = await app_client.get(
+        f"/api/candidates/{cand_id}/recruitments/{job_id}/client-rate/history",
+        headers=headers,
+    )
+    assert history.status_code == 200, history.text
+    assert history.json()["current_label"] == "190 zł/h"
+
+
+async def test_sending_again_keeps_the_sent_rate_in_the_history(
+    app_client: AsyncClient,
+) -> None:
+    """Audyt ruchu niesie stawkę pary sprzed ruchu, nie „brak stawki”."""
+
+    headers = await _login(app_client, UserRole.delivery_lead)
+    job_id, cand_id = await _seed()
+
+    moved = await app_client.post(
+        "/api/pipeline/move",
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "stage": "cv_sent",
+            "client_rate_value": "200",
+            "client_rate_unit": "hourly",
+        },
+        headers=headers,
+    )
+    assert moved.status_code == 200, moved.text
+
+    history = await app_client.get(
+        f"/api/candidates/{cand_id}/recruitments/{job_id}/client-rate/history",
+        headers=headers,
+    )
+    assert history.status_code == 200, history.text
+    body = history.json()
+    assert body["current_label"] == "200 zł/h"
+    # CV poszło za 190 zł/h — ponowna wysyłka nie gubi tej kwoty.
+    assert body["sent"]["label"] == "190 zł/h"
+    [change] = body["changes"]
+    assert change["old_label"] == "190 zł/h"
+    assert change["new_label"] == "200 zł/h"
