@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AISettingsPage from "./page";
@@ -135,8 +136,12 @@ describe("Panel Ustawienia → AI", () => {
   });
 
   it("odróżnia zmierzone tokeny od braku pomiaru", async () => {
+    const user = userEvent.setup();
     renderPage();
     await screen.findByText("Generator CV B2B");
+    // Szczegóły są pod rozwiniętym wierszem (20.10.2026).
+    await user.click(screen.getByRole("button", { name: "Generator CV B2B" }));
+    await user.click(screen.getByRole("button", { name: "Tworzenie kandydata z CV" }));
     const tokenLines = screen.getAllByTestId("feature-tokens");
     // Tylko cv_generator ma niezerowe tokeny; cv_parser (0/0) nie renderuje linii.
     expect(tokenLines).toHaveLength(2);
@@ -154,9 +159,35 @@ describe("Panel Ustawienia → AI", () => {
   });
 
   it("pokazuje dziennik automatycznych dopasowań i tryb próbny", async () => {
+    const user = userEvent.setup();
     renderPage();
+    await user.click(await screen.findByRole("tab", { name: "Automatyczne dopasowania" }));
     expect(await screen.findByText("Python Developer")).toBeInTheDocument();
     expect(screen.getByTestId("auto-match-state").textContent).toContain("Tryb próbny");
     expect(screen.getByText("tryb próbny (bez dodania)")).toBeInTheDocument();
+  });
+
+  it("koszty to tabela od najdroższej funkcji, szczegóły po rozwinięciu", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const table = await screen.findByRole("table", { name: /według kosztu/ });
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows[0]).toHaveTextContent("Generator CV B2B");
+    expect(rows[0]).toHaveTextContent("1.25 USD");
+    expect(rows[1]).toHaveTextContent("Tworzenie kandydata z CV");
+    expect(screen.queryByText("Dane wysyłane do AI")).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: "Generator CV B2B" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Dane wysyłane do AI")).toBeInTheDocument();
+    expect(screen.getByText(/Okres 01\.09\.2026–30\.09\.2026/)).toBeInTheDocument();
+  });
+
+  it("dziennik dopasowań nie ładuje się, dopóki nie otworzysz jego zakładki", async () => {
+    renderPage();
+    await screen.findByText("Generator CV B2B");
+    expect(mocks.autoMatch).not.toHaveBeenCalled();
   });
 });
