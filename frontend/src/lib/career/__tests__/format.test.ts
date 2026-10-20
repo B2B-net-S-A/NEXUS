@@ -100,6 +100,9 @@ describe("teksty", () => {
     expect(genitiveName("Olga")).toBe("Olgi");
     expect(genitiveName("Kasia")).toBe("Kasi");
     expect(genitiveName("Maja")).toBe("Mai");
+    // „Zostaw CV u Oli” (strona rekrutera, etap 6): po „l” końcówka „-i”.
+    expect(genitiveName("Ola")).toBe("Oli");
+    expect(genitiveName("Ela")).toBe("Eli");
     expect(genitiveName("Tomasz")).toBe("Tomasza");
     expect(recruiterLogin("Łucja")).toBe("lucja@b2bnetwork");
   });

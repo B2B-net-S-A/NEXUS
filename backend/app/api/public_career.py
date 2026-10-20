@@ -217,6 +217,8 @@ async def _recruiter_open_jobs(
 ) -> list[dict]:
     """Otwarte rekrutacje osoby z opublikowanym opisem i „pokazuj na mojej
     stronie” — lista na stałym linku i na ekranie zamkniętej rekrutacji."""
+    from app.services.career_board import public_category
+
     rows = (
         await db.execute(
             select(CandidateInviteLink, Job, JobPublicProfile)
@@ -235,6 +237,7 @@ async def _recruiter_open_jobs(
     jobs: list[dict] = []
     seen: set[int] = set()
     names_cache: dict[Optional[int], list[str]] = {}
+    categories: dict[Optional[int], Optional[str]] = {None: None}
     for job_link, job, profile in rows:
         if (
             job.id in seen
@@ -248,12 +251,19 @@ async def _recruiter_open_jobs(
             continue
         seen.add(job.id)
         params = jpp.visible_params(job, version.sections)
+        if job.competence_category_id not in categories:
+            categories[job.competence_category_id] = await ct.job_category_slug(db, job)
+        category = categories[job.competence_category_id]
         jobs.append(
             {
                 "slug": job_link.slug,
                 "title": version.title,
                 "city": params["city"],
                 "remote_policy": params["remote_policy"],
+                # Etap 6 (makieta 6d): nazwa sceny przy rekrutacji i plakietki
+                # kategorii — ten sam klucz kategorii co na tablicy.
+                "theme": ct.resolve_theme(profile.theme, version.title, category),
+                "category": public_category(category),
             }
         )
     return jobs
@@ -267,14 +277,18 @@ async def get_career_recruiter(
     slug: str,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Stały link rekrutera i jego otwarte, zatwierdzone rekrutacje."""
+    """Stały link rekrutera, jego „O mnie” i otwarte, zatwierdzone rekrutacje.
+
+    „O mnie” przeszło kontrolę przy zapisie (``api/career_links.py``) — na
+    stronie nie ma nazwiska, kontaktu, klienta ani kwot.
+    """
     link = await _link_by_slug(db, slug, kind="recruiter")
     if link is None or not _link_active(link) or not await _owner_active(db, link):
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
     owner_id = link.created_by
 
     jobs = await _recruiter_open_jobs(db, owner_id)
-    recruiter = await _recruiter_brief(db, owner_id)
+    recruiter = {**await _recruiter_brief(db, owner_id), "about": link.about or None}
     await _bump_visits(db, link, request)
     _no_cache(response)
     return {"recruiter": recruiter, "jobs": jobs}

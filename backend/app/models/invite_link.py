@@ -101,6 +101,9 @@ class CandidateInviteLink(Base):
     visit_count: Mapped[int] = mapped_column(
         Integer, server_default="0", nullable=False, default=0
     )
+    # 0489: „O mnie” na stronie stałego linku (tylko ``kind='recruiter'``),
+    # najwyżej 280 znaków po kontroli strony kariery (``api/career_links.py``).
+    about: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

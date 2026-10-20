@@ -65,6 +65,8 @@ class CareerLinkBrief(BaseModel):
     public_url: str
     created_at: datetime
     visit_count: int = 0
+    # 0489: „O mnie” na stronie rekrutera (``None`` = nie wpisane).
+    about: Optional[str] = None
 
 
 class CareerLinkStats(BaseModel):
@@ -124,6 +126,9 @@ class CareerLinkResults(BaseModel):
 
 class CareerLinkUpdate(BaseModel):
     slug: str = Field(..., min_length=1, max_length=64)
+    # 0489: pole pominięte = bez zmiany, pusty napis = usuń. Limit 280 znaków
+    # sprawdza trasa po wycięciu znaków formatujących i zbędnych spacji.
+    about: Optional[str] = Field(None, max_length=2000)
 
 
 class SlugAvailability(BaseModel):

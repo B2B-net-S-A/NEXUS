@@ -143,6 +143,7 @@ export function genitiveName(firstName: string): string {
   if (/[kg]a$/i.test(name)) return `${name.slice(0, -1)}i`; // Olga → Olgi
   if (/ia$/i.test(name)) return `${name.slice(0, -1)}`; // Kasia → Kasi
   if (/ja$/i.test(name)) return `${name.slice(0, -2)}i`; // Maja → Mai
+  if (/la$/i.test(name)) return `${name.slice(0, -1)}i`; // Ola → Oli
   if (/a$/i.test(name)) return `${name.slice(0, -1)}y`; // Marta → Marty
   if (/ek$/i.test(name)) return `${name.slice(0, -2)}ka`; // Marek → Marka
   return `${name}a`; // Tomasz → Tomasza

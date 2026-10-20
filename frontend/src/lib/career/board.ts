@@ -25,6 +25,16 @@ export function categoryLabel(id: CareerBoardCategory | null | undefined): strin
   return BOARD_CATEGORIES.find((c) => c.id === id)?.label ?? null;
 }
 
+/** Plakietki kategorii na stronie rekrutera (makieta 6d) — bez powtórzeń, w kolejności listy. */
+export function categoryChips(jobs: readonly { category?: CareerBoardCategory | null }[]): string[] {
+  const out: string[] = [];
+  for (const job of jobs) {
+    const label = categoryLabel(job.category);
+    if (label && !out.includes(label)) out.push(label);
+  }
+  return out;
+}
+
 export interface BoardFilters {
   category: CareerBoardCategory | null;
   query: string;

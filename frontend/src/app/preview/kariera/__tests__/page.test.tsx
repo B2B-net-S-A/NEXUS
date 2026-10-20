@@ -40,6 +40,7 @@ describe("/preview/kariera", () => {
       "rekrutacja zamknięta",
       "zamknięta, bez stałego linku",
       "stały link rekrutera",
+      "rekruter bez opisu i rekrutacji",
     ]) {
       expect(screen.getByRole("region", { name })).toBeInTheDocument();
     }
@@ -135,9 +136,46 @@ describe("/preview/kariera", () => {
   it("stały link rekrutera linkuje do rekrutacji", () => {
     render(<CareerPreviewPage />);
     const general = screen.getByRole("region", { name: "stały link rekrutera" });
-    expect(within(general).getByRole("link", { name: /devops-engineer-azure/ })).toHaveAttribute(
+    expect(within(general).getByRole("link", { name: /DevOps Engineer Azure/ })).toHaveAttribute(
       "href",
       "/kariera/r/devops-engineer-azure-p3x9",
+    );
+  });
+
+  it("strona rekrutera (makieta 6d): imię bez nazwiska, „O mnie”, sceny, kategorie, tablica", () => {
+    render(<CareerPreviewPage />);
+    const page = screen.getByRole("region", { name: "stały link rekrutera" });
+    expect(within(page).getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Marta.Rekrutuję w IT.",
+    );
+    expect(within(page).getByText(/Szukam ludzi do projektów w bankowości/)).toBeInTheDocument();
+    const chips = within(page).getByRole("list", { name: "Rekrutuję w obszarach" });
+    expect(within(chips).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "development",
+      "infra & data",
+      "management & delivery",
+    ]);
+    const job = within(page).getByRole("link", { name: /DevOps Engineer Azure/ });
+    expect(job).toHaveTextContent("scena: topologia sieci");
+    expect(within(page).getByRole("heading", { level: 2 })).toHaveTextContent(
+      "Nic nie pasuje? Zostaw CV u Marty.",
+    );
+    expect(within(page).getByRole("link", { name: "cd ~/rekrutacje" })).toHaveAttribute(
+      "href",
+      "/kariera",
+    );
+    // Formularz do bazy: jedna obowiązkowa zgoda na przyszłe procesy (bez zmian reguł).
+    expect(page.querySelector('input[name="consent"]')).not.toBeNull();
+    expect(page.querySelector('input[name="consent_future"]')).toBeNull();
+  });
+
+  it("strona rekrutera bez opisu i rekrutacji: zdanie zamiast pustej listy", () => {
+    render(<CareerPreviewPage />);
+    const page = screen.getByRole("region", { name: "rekruter bez opisu i rekrutacji" });
+    expect(within(page).getByText(/teraz nie mam otwartych rekrutacji/)).toBeInTheDocument();
+    expect(within(page).queryByRole("list", { name: "Rekrutuję w obszarach" })).toBeNull();
+    expect(within(page).getByRole("heading", { level: 2 })).toHaveTextContent(
+      "Zostaw CV u Oli.",
     );
   });
 

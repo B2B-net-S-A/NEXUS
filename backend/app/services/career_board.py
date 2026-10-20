@@ -60,6 +60,11 @@ _CATEGORY_KEYS = {
 }
 
 
+def public_category(category_slug: Optional[str]) -> Optional[str]:
+    """Klucz kategorii na stronach kariery (tablica i strona rekrutera)."""
+    return _CATEGORY_KEYS.get(category_slug or "")
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -265,7 +270,7 @@ async def board_jobs(db: AsyncSession) -> list[dict[str, Any]]:
                 "subtitle": version.subtitle,
                 "city": params["city"],
                 "remote_policy": params["remote_policy"],
-                "category": _CATEGORY_KEYS.get(category_slug or ""),
+                "category": public_category(category_slug),
                 "theme": ct.resolve_theme(profile.theme, version.title, category_slug),
                 "recruiter_first_name": first_name(owner.name if owner else None)
                 or "Zespół",
