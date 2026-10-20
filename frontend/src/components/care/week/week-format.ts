@@ -89,7 +89,10 @@ export interface WeekColumn {
  */
 export function weekColumns(contacts: WeekContact[], week: CareWeek["week"]): WeekColumn[] {
   const days = WEEKDAY_SHORT.map((_, index) => shiftIso(week.from, index));
-  const before = contacts.filter((row) => row.overdue || row.due_on < week.from);
+  // Najdłużej po terminie na górze — pod limitem kolumny zostają najstarsze.
+  const before = contacts
+    .filter((row) => row.overdue || row.due_on < week.from)
+    .sort((a, b) => a.due_on.localeCompare(b.due_on));
   const rest = contacts.filter((row) => !before.includes(row));
   const columns: WeekColumn[] = [
     {
@@ -113,6 +116,25 @@ export function weekColumns(contacts: WeekContact[], week: CareWeek["week"]): We
     });
   });
   return columns;
+}
+
+/**
+ * Kart widocznych w kolumnie od razu; reszta pod „Pokaż wszystkie (N)”.
+ * Prod 20.10.2026: „Wszyscy w moim zakresie” miało 482 zaległe karty w jednej
+ * kolumnie (decyzja Artura 20.10.2026: pierwsze 8 najdłużej zaległych).
+ */
+export const COLUMN_VISIBLE = 8;
+
+/** Karty kolumny do pokazania i ile schowano. Wybrana karta spoza limitu rozwija kolumnę. */
+export function visibleCards(
+  items: WeekContact[],
+  expanded: boolean,
+  selectedId: number | null = null,
+  limit = COLUMN_VISIBLE,
+): { shown: WeekContact[]; hidden: number } {
+  const selectedAt = items.findIndex((row) => row.contract_id === selectedId);
+  if (expanded || items.length <= limit || selectedAt >= limit) return { shown: items, hidden: 0 };
+  return { shown: items.slice(0, limit), hidden: items.length - limit };
 }
 
 /** Pasek tygodnia: zapisane rozmowy z wszystkich zaplanowanych (zapisane + otwarte). */

@@ -78,7 +78,46 @@ function contact(
   };
 }
 
-export function careWeek(today: string, scope: "mine" | "all"): CareWeek {
+const BULK_FIRST = ["Adam", "Beata", "Cezary", "Dorota", "Emil", "Fiona", "Gustaw", "Halina"];
+const BULK_LAST = ["Przykładowy", "Testowa", "Makietowy", "Fikcyjna", "Wzorcowy"];
+const BULK_OWNERS: PersonRef[] = [
+  natalia,
+  { id: 9301, name: "Opiekun Drugi" },
+  { id: 9302, name: "Opiekunka Trzecia" },
+];
+
+/**
+ * Jak prod 20.10.2026: setki zaległych rozmów w „Wszyscy w moim zakresie”
+ * (`?state=list&big=1`). Terminy od wczoraj do ~90 dni wstecz, trzech opiekunów.
+ */
+function bulkOverdue(today: string, count: number): WeekContact[] {
+  return Array.from({ length: count }, (_, i) => {
+    const days = 1 + ((i * 37) % 90);
+    const dueOn = shiftDay(today, -days);
+    return contact({
+      contract_id: 20_000 + i,
+      candidate_id: 30_000 + i,
+      candidate_name: `${BULK_FIRST[i % BULK_FIRST.length]} ${BULK_LAST[i % BULK_LAST.length]} ${i + 1}`,
+      job_title: "Developer",
+      owner: BULK_OWNERS[i % BULK_OWNERS.length],
+      reasons: [
+        {
+          kind: "cadence",
+          label: "Rozmowa według rytmu",
+          due_on: dueOn,
+          overdue: true,
+          plan_item_id: null,
+          from_conversation_on: null,
+        },
+      ],
+      due_on: dueOn,
+      overdue: true,
+      overdue_days: days,
+    });
+  });
+}
+
+export function careWeek(today: string, scope: "mine" | "all", bulk = 0): CareWeek {
   const { from, to } = weekBounds(today);
   const karolinaStart = shiftDay(today, -33);
   const karolinaEnd = shiftDay(today, 25);
@@ -246,17 +285,18 @@ export function careWeek(today: string, scope: "mine" | "all"): CareWeek {
             plan_item_id: 904,
           }),
         ];
+  const bulkRows = scope === "all" ? bulkOverdue(today, bulk) : [];
   return {
     week: { from, to, today, is_current: true },
     scope,
-    contacts: all,
+    contacts: [...all, ...bulkRows],
     feedback,
     feedback_visible: true,
     counts: {
-      contacts: all.length,
+      contacts: all.length + bulkRows.length,
       // Rozmowy zapisane od poniedziałku (pasek tygodnia).
       done: scope === "mine" ? 2 : 4,
-      overdue: 1 + feedback.filter((item) => item.overdue).length,
+      overdue: 1 + bulkRows.length + feedback.filter((item) => item.overdue).length,
       feedback: feedback.length,
       front_office: 2,
     },

@@ -4,7 +4,7 @@
  * z menedżerem, „Nasi / w bazie”, „Luki do dopytania” — ZERO prób żądania,
  * także po filtrze działu i otwarciu okna „Dodaj notatkę o stacku”.
  */
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Axios } from "axios";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -78,6 +78,9 @@ describe("/preview/hr-client-tech", () => {
     render(<HrClientTechPreviewPage />);
 
     const table = await screen.findByRole("table", { name: "Technologie klienta po działach" });
+    // CI/CD nie ma żadnego źródła — schowany, dopóki ktoś nie pokaże wszystkich (20.10.2026).
+    expect(within(table).queryByText("CI/CD i chmura")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż wszystkie działy (4)" }));
     const heads = within(table).getAllByRole("columnheader");
     const [cicd, data, credits, payments] = heads.slice(1, 5);
     expect(cicd).toHaveTextContent("CI/CD i chmura");

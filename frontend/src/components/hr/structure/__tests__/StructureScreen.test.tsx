@@ -156,4 +156,28 @@ describe("StructureScreen — schemat", () => {
     expect(screen.getByRole("checkbox", { name: "Zaznacz: Ewa Makietowa" })).toBeInTheDocument();
     expect(screen.queryByTestId("org-card-1")).toBeNull();
   });
+
+  it("duży zespół bez własnych ludzi stoi w kolumnie pod przełożonym, karty dalej przyjmują przeciąganie", async () => {
+    // Prod 20.10.2026: kilkadziesiąt osób pod jedną — rząd miał 5384 px szerokości.
+    const team = Array.from({ length: 12 }, (_, i) =>
+      person(50 + i, `Członek ${String(i).padStart(2, "0")}`, {
+        division: null,
+        manager_user_id: 40,
+        manager_name: "Lider Zespołu",
+        manager_state: "ok",
+      }),
+    );
+    const lead = person(40, "Lider Zespołu", { division: null, reports: 12 });
+    mocks.get.mockImplementation(async () => ({
+      data: { ...DATA, people: [...DATA.people, lead, ...team], total: 17 },
+    }));
+    renderScreen();
+    const column = await screen.findByRole("list", { name: "Pod osobą Lider Zespołu: 12 osób" });
+    expect(within(column).getAllByTestId(/^org-card-/)).toHaveLength(12);
+    const transfer = dataTransfer();
+    fireEvent.dragStart(screen.getByTestId("org-card-51"), { dataTransfer: transfer });
+    fireEvent.dragOver(screen.getByTestId("org-card-1"), { dataTransfer: transfer });
+    fireEvent.drop(screen.getByTestId("org-card-1"), { dataTransfer: transfer });
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Członek 01");
+  });
 });

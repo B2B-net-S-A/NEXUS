@@ -14,7 +14,10 @@
  *   pionu” — jego kartotekę założył automat z konta (forma i przełożony „do
  *   uzupełnienia”); Back office (head Piotr); Paulina bez pionu;
  * - `hr-only` — to samo drzewo oczami Kadr bez Płac: bez formy umowy;
- * - `empty` — nikt nie ma jeszcze kartoteki.
+ * - `empty` — nikt nie ma jeszcze kartoteki;
+ * - `big` — jak prod 20.10.2026: piony puste, 44 osoby „Bez pionu” (szef →
+ *   dwie osoby → po ~20 osób bez własnych ludzi); podwładni stoją w kolumnie
+ *   pod przełożonym, schemat otwiera się na korzeniu.
  * Zaznaczenie osób i okna „Zmień koordynatora”, „Ustaw pion”, „Headowie
  * pionów” otwierają się bez zapytań; zapisy blokuje harness.
  *
@@ -45,12 +48,13 @@ import {
   useHrHarness,
 } from "../hr-harness";
 
-const STATE_KEYS = ["tree", "hr-only", "empty"] as const;
+const STATE_KEYS = ["tree", "hr-only", "empty", "big"] as const;
 
 const STATES = [
   { key: "tree", label: "Drzewo z pionami" },
   { key: "hr-only", label: "Kadry bez Płac (bez formy)" },
   { key: "empty", label: "Bez kartotek" },
+  { key: "big", label: "44 osoby bez pionu" },
 ] as const;
 
 const { kamil, marta, ola, ewa, tomasz, julia, adam, kacper, piotr, natalia, zofia, paulina } =
@@ -137,11 +141,50 @@ function harnessStructure(): HrStructure {
   };
 }
 
+const FIRST = ["Anna", "Bartosz", "Celina", "Dawid", "Ewelina", "Filip", "Grażyna", "Hubert", "Iga", "Jan", "Kinga"];
+const LAST = ["Przykładowa", "Testowy", "Makietowa", "Fikcyjny"];
+
+/** Prod 20.10.2026 w fikcyjnych danych: 44 osoby bez pionu, drzewo płaskie. */
+function bigStructure(): HrStructure {
+  const base = (id: number, name: string, extra: Partial<StructurePerson> = {}): StructurePerson => ({
+    ...row({ ...kamil, id, name, email: `osoba${id}@example.com`, jobTitle: "Konsultant" }, null, null),
+    ...extra,
+  });
+  const boss = base(900, "Szef Przykładowy", { reports: 2, job_title: "Prezes" });
+  const leads = [
+    base(901, "Lidia Prowadząca", { reports: 21, job_title: "Head of Recruitment" }),
+    base(902, "Oskar Prowadzący", { reports: 18, job_title: "Head of Delivery" }),
+  ].map((lead) => ({ ...lead, manager_user_id: boss.user_id, manager_name: boss.name, manager_state: "ok" as const }));
+  const team = Array.from({ length: 39 }, (_, i) => {
+    const lead = i < 21 ? leads[0] : leads[1];
+    return base(1000 + i, `${FIRST[i % FIRST.length]} ${LAST[Math.floor(i / FIRST.length)]}`, {
+      manager_user_id: lead.user_id,
+      manager_name: lead.name,
+      manager_state: "ok",
+      employment_type: i % 3 ? "b2b" : "uop",
+    });
+  });
+  const loose = [0, 1].map((i) => base(1100 + i, `Bez Koordynatora ${i + 1}`));
+  const people = [boss, ...leads, ...team, ...loose];
+  return {
+    people,
+    outside_managers: [],
+    divisions: [
+      { key: "front_office", label: "Front office", head_user_id: null, head_name: null, head_active: false },
+      { key: "back_office", label: "Back office", head_user_id: null, head_name: null, head_active: false },
+    ],
+    total: people.length,
+    without_manager: loose.length,
+    inactive_manager: 0,
+    m365_mismatches: 0,
+  };
+}
+
 function prepare(params: URLSearchParams) {
   const state = pickState(params.get("state"), STATE_KEYS, "tree");
   const hrOnly = state === "hr-only";
   const config: HrConfig = hrConfig({ people_admin: true, payroll: !hrOnly, has_profile: true });
-  const tree = harnessStructure();
+  const tree = state === "big" ? bigStructure() : harnessStructure();
   // Kadry bez Płac: serwer nie przysyła formy ani pól od niej zależnych.
   const shown: HrStructure = hrOnly
     ? {

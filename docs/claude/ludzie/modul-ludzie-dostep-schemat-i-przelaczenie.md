@@ -524,3 +524,10 @@ razem z dodatkami. Logika i krąg widzących bez zmian — zmienił się układ.
   przełożonego…”, „Ustaw pion…”). Panel **„Do uporządkowania”** (`todoItems`): odejście
   przełożonego z podwładnymi, przełożony, który odszedł, rozjazd z M365 („Przyjmij
   z M365”), podpowiedź „head pionu” („Przyjmij”), bez przełożonego, bez pionu.
+  **Duże zespoły (decyzja Artura 20.10.2026):** przełożony z więcej niż czterema
+  podwładnymi stawia tych bez własnych ludzi w pionowej kolumnie pod sobą
+  (`childLayout`, `ROW_MAX`); podwładni z ludźmi zostają w rzędzie gałęzi.
+  Schemat otwiera się na pierwszym korzeniu (`centeredScrollLeft`), raz — zapis
+  po przeciągnięciu nie przesuwa widoku. Powód: prod 20.10 — 44 osoby „Bez
+  pionu” pod dwiema osobami dawały rząd 5384 px przy 623 px okna i otwarcie
+  na pustym polu. Harness `/preview/hr-structure?state=big`.

@@ -49,6 +49,11 @@ serwis `care/week.py`); dawne listy „Moi konsultanci” i „Wszystkie kontrak
 to od etapu 3 „Konsultanci” (`?tab=consultants`; `?tab=contracts` i `?tab=mine`
 prowadzą tam samo).
 
+- **Kolumna dnia pokazuje 8 kart** (`COLUMN_VISIBLE`, `visibleCards`, decyzja
+  Artura 20.10.2026): „Zaległe” od najstarszego terminu, pod kartami „Pokaż
+  wszystkie (N)”; licznik w nagłówku liczy wszystkie. Otwarta oś osoby spoza
+  pierwszych 8 rozwija kolumnę. Powód: prod 20.10 — „Wszyscy w moim zakresie”
+  rysowało 482 zaległe karty. Harness `/preview/hr-care?state=list&big=1`.
 - **Tydzień** = poniedziałek–piątek kalendarza firmy; w weekend „Ten tydzień”
   to tydzień, który się zaczyna. `?from=` przesuwa tydzień, zakres `mine|all`
   jak lista opieki (DL — swój portfel).
@@ -501,6 +506,15 @@ zapełnić.
   Dymek komórki rozpisuje liczby źródeł. Nagłówek działu: menedżer, „nasi /
   w bazie”, ostrzeżenie „brak źródła 18 mies.”. Otwarte rekrutacje niosą
   dział (`open_jobs[].area`, dział hiring managera).
+- **Działy bez sygnału schowane (decyzja Artura 20.10.2026,
+  `heatmap-columns.ts`):** domyślnie tylko działy z komórką o źródle albo
+  otwartej rekrutacji, albo z naszymi konsultantami; „Pokaż wszystkie działy
+  (N)” odsłania resztę. „Bez działu” stoi zaraz po technologii, gdy ma więcej
+  komórek z sygnałem niż wszystkie działy razem (remis = na końcu). Liczone
+  z całej macierzy, nie z 12 widocznych wierszy. Powód: Nordea na prodzie —
+  67 pustych działów i cały sygnał w „bez działu” na końcu tabeli 6350 px.
+  Luka „dział bez źródła” dalej stoi w „Luki do dopytania”. Serwer bez zmian.
+  Harness `/preview/hr-client-tech?state=many`.
 - **Luki do dopytania**: dział bez źródła z 18 miesięcy (konsultant
   w projekcie liczy się jako świeże źródło), menedżer naszych konsultantów
   bez „podlega pod”, technologia z jednego źródła (świeża, nie z samych CV

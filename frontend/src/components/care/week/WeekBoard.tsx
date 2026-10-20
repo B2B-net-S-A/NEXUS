@@ -1,12 +1,20 @@
 "use client";
 
+import { useState } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { CareWeek, WeekContact } from "@/lib/api/care";
 import { formatDayMonthPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
-import { reasonPill, signalPills, weekColumns, type WeekColumn } from "./week-format";
+import {
+  reasonPill,
+  signalPills,
+  visibleCards,
+  weekColumns,
+  type WeekColumn,
+} from "./week-format";
 
 /** Ostatnia ocena zadowolenia (1–5) kropkami — kolor wzmacnia liczbę w etykiecie. */
 export function SatisfactionDots({ value }: { value: number }) {
@@ -157,35 +165,62 @@ export function WeekBoard({ data, showOwner, selectedId, onOpen, onTalk }: Board
       aria-label="Rozmowy z konsultantami w tym tygodniu"
     >
       {columns.map((column) => (
-        <section
+        <DayColumn
           key={column.key}
-          className="flex min-w-0 flex-col gap-2"
-          aria-label={column.isToday ? `${column.label} (dziś)` : column.label}
-        >
-          <ColumnHead column={column} />
-          {column.items.length ? (
-            <ul className="flex flex-col gap-2">
-              {column.items.map((row) => (
-                <ContactCard
-                  key={row.contract_id}
-                  row={row}
-                  inBefore={column.key === "before"}
-                  today={data.week.today}
-                  canEdit={data.can_edit}
-                  showOwner={showOwner}
-                  selected={selectedId === row.contract_id}
-                  onOpen={onOpen}
-                  onTalk={onTalk}
-                />
-              ))}
-            </ul>
-          ) : (
-            <p className="rounded-lg border border-dashed border-border px-2 py-3 text-center text-xs text-muted-foreground">
-              {column.key === "before" ? "nic zaległego" : column.isPast ? "—" : "wolne"}
-            </p>
-          )}
-        </section>
+          column={column}
+          data={data}
+          showOwner={showOwner}
+          selectedId={selectedId}
+          onOpen={onOpen}
+          onTalk={onTalk}
+        />
       ))}
     </div>
+  );
+}
+
+function DayColumn({
+  column,
+  data,
+  showOwner,
+  selectedId,
+  onOpen,
+  onTalk,
+}: { column: WeekColumn } & BoardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const { shown, hidden } = visibleCards(column.items, expanded, selectedId);
+  return (
+    <section
+      className="flex min-w-0 flex-col gap-2"
+      aria-label={column.isToday ? `${column.label} (dziś)` : column.label}
+    >
+      <ColumnHead column={column} />
+      {column.items.length ? (
+        <ul className="flex flex-col gap-2">
+          {shown.map((row) => (
+            <ContactCard
+              key={row.contract_id}
+              row={row}
+              inBefore={column.key === "before"}
+              today={data.week.today}
+              canEdit={data.can_edit}
+              showOwner={showOwner}
+              selected={selectedId === row.contract_id}
+              onOpen={onOpen}
+              onTalk={onTalk}
+            />
+          ))}
+        </ul>
+      ) : (
+        <p className="rounded-lg border border-dashed border-border px-2 py-3 text-center text-xs text-muted-foreground">
+          {column.key === "before" ? "nic zaległego" : column.isPast ? "—" : "wolne"}
+        </p>
+      )}
+      {hidden > 0 || expanded ? (
+        <Button size="sm" variant="ghost" className="w-full" onClick={() => setExpanded((v) => !v)}>
+          {hidden > 0 ? `Pokaż wszystkie (${column.items.length})` : "Pokaż mniej"}
+        </Button>
+      ) : null}
+    </section>
   );
 }

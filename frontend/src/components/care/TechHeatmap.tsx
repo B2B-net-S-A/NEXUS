@@ -6,9 +6,11 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import type { HeatCell, HeatRow, MapDepartment } from "@/lib/api/care";
 import { formatDayMonthPl } from "@/lib/date-pl";
+import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 
 import { cellLetters, cellTitle, heatLevel } from "./care-format";
+import { heatColumns } from "./heatmap-columns";
 import { candidatesHref } from "./tech-gaps";
 
 /** Wierszy widocznych od razu; reszta pod „Pokaż wszystkie”. */
@@ -116,9 +118,21 @@ interface TechHeatmapProps {
  */
 export function TechHeatmap({ departments, rows, rowsTotal }: TechHeatmapProps) {
   const [all, setAll] = useState(false);
+  const [allDepts, setAllDepts] = useState(false);
   const visible = all ? rows : rows.slice(0, HEATMAP_VISIBLE);
   const unassigned = rows.some((row) => row.unassigned);
   const hidden = rowsTotal - rows.length;
+  const columns = heatColumns(departments, rows, allDepts);
+  const shownDepts = columns.shown.map((index) => departments[index]);
+  const unassignedHead = unassigned ? (
+    <th scope="col" className="w-20 px-2 pb-1.5 text-left align-bottom text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      bez działu
+    </th>
+  ) : null;
+  const unassignedCell = (row: HeatRow) =>
+    unassigned ? (
+      <Cell cell={row.unassigned} title={cellTitle("Bez działu", row.name, row.unassigned)} />
+    ) : null;
   return (
     <section className="space-y-2.5 rounded-lg border border-border bg-card p-4" aria-labelledby="care-heatmap">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -127,10 +141,22 @@ export function TechHeatmap({ departments, rows, rowsTotal }: TechHeatmapProps) 
         </h3>
         <Legend />
       </div>
+      {columns.hidden > 0 || allDepts ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          {columns.hidden > 0 ? (
+            <span>
+              {countPl(columns.hidden, "dział bez sygnału ukryty", "działy bez sygnału ukryte", "działów bez sygnału ukrytych")}
+            </span>
+          ) : null}
+          <Button size="sm" variant="ghost" onClick={() => setAllDepts((v) => !v)}>
+            {allDepts ? "Tylko działy z sygnałem" : `Pokaż wszystkie działy (${departments.length})`}
+          </Button>
+        </div>
+      ) : null}
       <div className="relative overflow-x-auto">
         <table
           className="w-full table-fixed border-separate border-spacing-0.5 text-sm"
-          style={{ minWidth: 300 + departments.length * 110 }}
+          style={{ minWidth: 300 + shownDepts.length * 110 }}
           aria-label="Technologie klienta po działach"
         >
           <thead>
@@ -138,14 +164,11 @@ export function TechHeatmap({ departments, rows, rowsTotal }: TechHeatmapProps) 
               <th scope="col" className="w-40 text-left">
                 <span className="sr-only">Technologia</span>
               </th>
-              {departments.map((dept) => (
+              {columns.unassignedFirst ? unassignedHead : null}
+              {shownDepts.map((dept) => (
                 <DepartmentHead key={dept.area.id} dept={dept} />
               ))}
-              {unassigned ? (
-                <th scope="col" className="w-20 px-2 pb-1.5 text-left align-bottom text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  bez działu
-                </th>
-              ) : null}
+              {columns.unassignedFirst ? null : unassignedHead}
               <th scope="col" className="w-12 px-1 pb-1.5 text-right align-bottom text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 nasi
               </th>
@@ -165,16 +188,15 @@ export function TechHeatmap({ departments, rows, rowsTotal }: TechHeatmapProps) 
                     </span>
                   ) : null}
                 </th>
-                {row.cells.map((cell, index) => (
+                {columns.unassignedFirst ? unassignedCell(row) : null}
+                {columns.shown.map((index) => (
                   <Cell
                     key={departments[index]?.area.id ?? index}
-                    cell={cell}
-                    title={cellTitle(departments[index]?.area.name ?? "Dział", row.name, cell)}
+                    cell={row.cells[index] ?? null}
+                    title={cellTitle(departments[index]?.area.name ?? "Dział", row.name, row.cells[index] ?? null)}
                   />
                 ))}
-                {unassigned ? (
-                  <Cell cell={row.unassigned} title={cellTitle("Bez działu", row.name, row.unassigned)} />
-                ) : null}
+                {columns.unassignedFirst ? null : unassignedCell(row)}
                 <td className="px-1 text-right font-semibold tabular-nums">
                   {row.consultants || <span className="font-normal text-muted-foreground">—</span>}
                 </td>

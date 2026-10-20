@@ -11,6 +11,7 @@ import {
   shiftIso,
   shortNames,
   signalPills,
+  visibleCards,
   weekColumns,
   weekProgress,
   weekRangeLabel,
@@ -132,13 +133,39 @@ describe("plan dni", () => {
     const stray = row({ contract_id: 5, due_on: "2026-10-27" });
     const columns = weekColumns([late, older, today, friday, stray], week);
     expect(columns.map((c) => c.label)).toEqual(["Zaległe", "pn 19", "wt 20", "śr 21", "cz 22", "pt 23"]);
-    expect(columns[0].items.map((r) => r.contract_id)).toEqual([1, 2]);
+    // Najdłużej po terminie na górze (limit kolumny, 20.10.2026).
+    expect(columns[0].items.map((r) => r.contract_id)).toEqual([2, 1]);
     // Wtorek minął — zaległy z wtorku stoi w „Zaległe”, nie we wtorku.
     expect(columns[2]).toMatchObject({ isPast: true, items: [] });
     expect(columns[3]).toMatchObject({ isToday: true, isPast: false });
     expect(columns[3].items.map((r) => r.contract_id)).toEqual([3]);
     // Termin po piątku (serwer go nie zwraca) nie znika — stoi w piątku.
     expect(columns[5].items.map((r) => r.contract_id)).toEqual([4, 5]);
+  });
+
+  it("kolumna pokazuje 8 najdłużej zaległych, reszta pod „Pokaż wszystkie”", () => {
+    // Prod 20.10.2026: 482 zaległe w jednej kolumnie.
+    const many = Array.from({ length: 482 }, (_, i) =>
+      row({ contract_id: 10_000 + i, due_on: shiftIso("2026-10-18", -(i % 90)), overdue: true }),
+    );
+    const [before] = weekColumns(many, week);
+    expect(before.items).toHaveLength(482);
+    const dues = before.items.map((r) => r.due_on);
+    expect(dues).toEqual([...dues].sort());
+    const { shown, hidden } = visibleCards(before.items, false);
+    expect(shown).toHaveLength(8);
+    expect(hidden).toBe(474);
+    expect(shown).toEqual(before.items.slice(0, 8));
+    expect(shown[0].due_on).toBe(shiftIso("2026-10-18", -89));
+    expect(visibleCards(before.items, true)).toEqual({ shown: before.items, hidden: 0 });
+  });
+
+  it("do 8 kart bez przycisku; wybrana karta spoza limitu rozwija kolumnę", () => {
+    const few = [1, 2, 3].map((id) => row({ contract_id: id }));
+    expect(visibleCards(few, false)).toEqual({ shown: few, hidden: 0 });
+    const ten = Array.from({ length: 10 }, (_, i) => row({ contract_id: i + 1 }));
+    expect(visibleCards(ten, false, 3).hidden).toBe(2);
+    expect(visibleCards(ten, false, 10)).toEqual({ shown: ten, hidden: 0 });
   });
 
   it("tydzień z przyszłości bez zaległych zaczyna się od „Wcześniej”", () => {
