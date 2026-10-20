@@ -974,3 +974,75 @@ async def test_sent_counts_people_at_the_client_now_like_the_board(
     ).json()
     rows = {r["job_id"]: r for r in board["requests"]}
     assert rows[job_id]["sent"] == 2
+
+
+async def test_sent_reads_the_board_column_from_the_stage_name(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """„Wysłani” bierze kolumnę z nazwy etapu szablonu, jak Tablica (21.10.2026).
+
+    „Po Interview” z kodem ``interview`` stoi na Tablicy w „Rozmowie u klienta”,
+    a „Rezerwa” z kodem ``cv_sent`` — w zamkniętych. Licznik po samym kodzie
+    pomijał pierwszego i liczył drugiego.
+    """
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.pipeline_template import (
+        PipelineStageDef,
+        PipelineTemplate,
+        StageCategoryEnum,
+    )
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from tests._jarvis_helpers import make_candidate
+
+    interview_job = await _seed_job(work_state="searching")
+    reserve_job = await _seed_job(work_state="searching")
+    after_interview, reserve = [await make_candidate("Wyslana") for _ in range(2)]
+    async with AsyncSessionLocal() as db:
+        template = PipelineTemplate(name=f"Wysłani {uuid.uuid4().hex[:8]}")
+        db.add(template)
+        await db.flush()
+        po_interview = PipelineStageDef(
+            template_id=template.id,
+            name="Po Interview",
+            order=1,
+            category=StageCategoryEnum.external,
+            legacy_enum_value="interview",
+        )
+        rezerwa = PipelineStageDef(
+            template_id=template.id,
+            name="Rezerwa",
+            order=2,
+            category=StageCategoryEnum.external,
+            legacy_enum_value="cv_sent",
+        )
+        db.add_all([po_interview, rezerwa])
+        await db.flush()
+        moved_at = datetime(2026, 10, 7, 9, 0, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                CandidateStage(
+                    candidate_id=after_interview,
+                    job_id=interview_job,
+                    stage=PipelineStage.interview,
+                    stage_def_id=po_interview.id,
+                    moved_at=moved_at,
+                ),
+                CandidateStage(
+                    candidate_id=reserve,
+                    job_id=reserve_job,
+                    stage=PipelineStage.cv_sent,
+                    stage_def_id=rezerwa.id,
+                    moved_at=moved_at,
+                ),
+            ]
+        )
+        await db.commit()
+
+    board = (
+        await app_client.get("/api/request-board", headers=app_auth_headers)
+    ).json()
+    rows = {r["job_id"]: r for r in board["requests"]}
+    assert rows[interview_job]["sent"] == 1
+    assert rows[reserve_job]["sent"] == 0

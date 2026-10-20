@@ -106,6 +106,13 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   albo później obowiązuje bez okna. Poranny skrót pomija request, o którym
   osoba dostała już dzwonek przy akceptacji (para osoba × rekrutacja
   z ostatniej doby).
+- **„Wysłani” = osoby, których karta stoi dziś u klienta, jak na Tablicy**
+  (`job_similarity.at_client_counts`): najnowszy wiersz pary w kolumnach
+  `cv_sent`, `client_interview`, `contract`, `hired` przez
+  `candidate_stage_column.column_rule` (nazwa etapu szablonu + kod wiersza,
+  `board_column_for`). Do 21.10.2026 licznik czytał sam kod etapu, więc
+  „Po Interview” (kod `interview`) nie był liczony, a „Rezerwa” (kod
+  `cv_sent`) była.
 
 ## „Nowe rekrutacje P1 — kto prowadzi” i obłożenie P1 (D1–D7, 14.10.2026)
 
