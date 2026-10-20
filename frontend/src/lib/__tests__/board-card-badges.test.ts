@@ -734,23 +734,23 @@ describe("„brak: …” — krytyczne bez śladu u osoby (16.10.2026)", () => 
 });
 
 describe("cardOwner — czyja karta (20.10.2026)", () => {
-  const added = { added_to_job_by_name: "Marek Gajewski", verified_by_name: "Malwina Jobda" };
+  const added = { added_to_job_by_name: "Piotr Szkicowy", verified_by_name: "Olga Weryfikująca" };
 
   it("od „Zweryfikowanego” w prawo pokazuje osobę, która zweryfikowała", () => {
     for (const column of ["verified", "cv_qc", "cv_sent", "client_interview", "contract", "hired", "closed"] as const) {
-      expect(cardOwner(item(added), column)).toEqual({ name: "Malwina Jobda", role: "verified" });
+      expect(cardOwner(item(added), column)).toEqual({ name: "Olga Weryfikująca", role: "verified" });
     }
   });
 
   it("w „Nowych” i „Screeningu” zostaje osoba, która dodała", () => {
-    expect(cardOwner(item(added), "new")).toEqual({ name: "Marek Gajewski", role: "added" });
-    expect(cardOwner(item(added), "screening")).toEqual({ name: "Marek Gajewski", role: "added" });
+    expect(cardOwner(item(added), "new")).toEqual({ name: "Piotr Szkicowy", role: "added" });
+    expect(cardOwner(item(added), "screening")).toEqual({ name: "Piotr Szkicowy", role: "added" });
   });
 
   it("bez zapisanej weryfikacji albo bez kolumny — dodający, a bez niego brak danych", () => {
-    expect(cardOwner(item({ added_to_job_by_name: "Marek Gajewski", verified_by_name: "  " }), "cv_qc"))
-      .toEqual({ name: "Marek Gajewski", role: "added" });
-    expect(cardOwner(item(added), null)).toEqual({ name: "Marek Gajewski", role: "added" });
+    expect(cardOwner(item({ added_to_job_by_name: "Piotr Szkicowy", verified_by_name: "  " }), "cv_qc"))
+      .toEqual({ name: "Piotr Szkicowy", role: "added" });
+    expect(cardOwner(item(added), null)).toEqual({ name: "Piotr Szkicowy", role: "added" });
     expect(cardOwner(item({ added_to_job_by_name: null }), "cv_qc")).toEqual({ name: null, role: "added" });
   });
 });

@@ -1869,28 +1869,28 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
 
   it("od „Zweryfikowanego” karta pokazuje osobę, która zweryfikowała, a nie dodającą (20.10.2026)", async () => {
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
-    const verifiedBy = { verified_by_name: "Malwina Jobda", verified_by_id: 81, verified_at: "2026-10-20T09:00:00Z" };
+    const verifiedBy = { verified_by_name: "Olga Weryfikująca", verified_by_id: 81, verified_at: "2026-10-20T09:00:00Z" };
     // Screening: weryfikacja zapisana wcześniej (karta wróciła) — dalej dodający.
     columns[1] = {
       ...columns[1],
-      items: [{ id: 7101, candidate_id: 8101, stage: "screening", name: "Jan", lastname: "Wrócił", days_in_stage: 1, added_to_job_by_name: "Marek Gajewski", ...verifiedBy }],
+      items: [{ id: 7101, candidate_id: 8101, stage: "screening", name: "Jan", lastname: "Wrócił", days_in_stage: 1, added_to_job_by_name: "Piotr Szkicowy", ...verifiedBy }],
     };
     columns[2] = {
       ...columns[2],
       count: 1,
-      items: [{ id: 7201, candidate_id: 8201, stage: "verified", name: "Wiktor", lastname: "Worona", days_in_stage: 1, added_to_job_by_name: "Marek Gajewski", added_to_job_at: "2026-08-17T09:00:00Z", ...verifiedBy }],
+      items: [{ id: 7201, candidate_id: 8201, stage: "verified", name: "Kamil", lastname: "Przykładowy", days_in_stage: 1, added_to_job_by_name: "Piotr Szkicowy", added_to_job_at: "2026-08-17T09:00:00Z", ...verifiedBy }],
     };
     renderBoard(columns as never);
     await screen.findByTestId("pipeline-board");
 
-    const verifiedRow = screen.getByTitle(/^Zweryfikował\(a\): Malwina Jobda/);
-    expect(verifiedRow.title).toContain("Dodano do rekrutacji przez: Marek Gajewski");
-    expect(within(verifiedRow).getByText("MJ")).toBeInTheDocument();
-    expect(within(verifiedRow).getByText("Malwina")).toBeInTheDocument();
+    const verifiedRow = screen.getByTitle(/^Zweryfikował\(a\): Olga Weryfikująca/);
+    expect(verifiedRow.title).toContain("Dodano do rekrutacji przez: Piotr Szkicowy");
+    expect(within(verifiedRow).getByText("OW")).toBeInTheDocument();
+    expect(within(verifiedRow).getByText("Olga")).toBeInTheDocument();
 
     const screeningCard = screen.getByText("Jan Wrócił").closest("[data-kanban-card]") as HTMLElement;
-    expect(within(screeningCard).getByText("Marek")).toBeInTheDocument();
-    expect(within(screeningCard).queryByText("Malwina")).toBeNull();
+    expect(within(screeningCard).getByText("Piotr")).toBeInTheDocument();
+    expect(within(screeningCard).queryByText("Olga")).toBeNull();
   });
 
   it("nawigator doku idzie po kolumnie otwartej osoby, karty od góry — także z etapów złożonych w kolumnę", async () => {
