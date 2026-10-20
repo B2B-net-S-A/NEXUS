@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from app.api import hr_approvals
+from app.api import hr_approvals, hr_people
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.core.security import create_access_token
@@ -119,6 +119,8 @@ async def team():
 async def client():
     app = FastAPI()
     app.include_router(hr_approvals.router, prefix=BASE)
+    # `/api/hr/config` — źródło `open_modules` dla menu i ekranów.
+    app.include_router(hr_people.router, prefix="/api/hr")
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as c:
