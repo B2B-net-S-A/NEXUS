@@ -25,7 +25,7 @@ samą regułą co przegląd Delivery Leada.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
@@ -49,6 +49,7 @@ MAX_ROWS = 50
 CONTRACT_COLUMN = "contract"
 
 Step = Literal["accepted", "sent", "signed"]
+STEPS: tuple[Step, ...] = ("accepted", "sent", "signed")
 
 _ALL_JOBS_ROLES = (UserRole.admin, UserRole.head_of_recruitment, UserRole.finance)
 _RECRUITING_ROLES = (UserRole.recruiter, UserRole.talent_community_manager)
@@ -73,6 +74,8 @@ class ClosingRow:
 class ClosingList:
     rows: list[ClosingRow]
     total: int
+    # Ile osób na każdym kroku — ze WSZYSTKICH, nie tylko pokazanych wierszy.
+    step_counts: dict[str, int] = field(default_factory=dict)
 
 
 def step_of(badge: Optional[str]) -> Step:
@@ -133,7 +136,7 @@ async def load(db: AsyncSession, user: User) -> ClosingList:
 
     job_ids = await scope_job_ids(db, user)
     if not job_ids:
-        return ClosingList(rows=[], total=0)
+        return ClosingList(rows=[], total=0, step_counts={s: 0 for s in STEPS})
     catalog = await _catalog(db)
     placed: list[tuple[_Placed, Step]] = []
     for p in await _latest_rows(db, catalog, job_ids):
@@ -184,7 +187,10 @@ async def load(db: AsyncSession, user: User) -> ClosingList:
                 rate=rates.get(pair),
             )
         )
-    return ClosingList(rows=rows, total=len(placed))
+    counts = {step: 0 for step in STEPS}
+    for _p, step in placed:
+        counts[step] += 1
+    return ClosingList(rows=rows, total=len(placed), step_counts=counts)
 
 
 def rate_fields(

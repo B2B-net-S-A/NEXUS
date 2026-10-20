@@ -251,6 +251,10 @@ async def test_lists_contract_column_with_steps_rates_and_people() -> None:
             assert first.rate.client_rate_value == Decimal("150")
             assert first.rate.candidate_rate_value == Decimal("120")
             assert rows[1].rate is None
+            # Liczniki kroków liczą wszystkich, nie tylko pokazane wiersze.
+            assert result.step_counts["accepted"] >= 1
+            assert result.step_counts["sent"] >= 1
+            assert result.step_counts["signed"] >= 1
     finally:
         await _cleanup([world], candidates, [hor_id, rec_id, dl_id])
 
@@ -294,5 +298,6 @@ async def test_scope_follows_role() -> None:
                 assert not _for_job(result.rows, foreign["job_id"])
             empty = await closing_candidates.load(db, await db.get(User, ids[4]))
             assert empty.rows == [] and empty.total == 0
+            assert empty.step_counts == {"accepted": 0, "sent": 0, "signed": 0}
     finally:
         await _cleanup([mine, foreign], candidates, ids)
