@@ -11552,6 +11552,49 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Rekordy testowe z ręcznego audytu UI 26–27.09.2026 (decyzja Artura
+# 20.10.2026) — jednorazowo: szkice zamówień i kontrakty klienta testowego
+# → void, spotkania z Outlooka podpięte do osoby testowej po adresie
+# pracownika wracają bez niej, cztery osoby testowe usuwane ścieżką przycisku
+# „Usuń”. Logika w `app/services/prod_test_records_cleanup.py`, przypięta do
+# id i odcisków; paragon w `app_settings` + advisory lock; porażka nie
+# zapisuje niczego. Log: wyłącznie liczby.
+startup_phase "cleanup-prod-test-records"
+echo "Data: remove UI audit test records (one-shot)..."
+python - <<'PY' || echo "prod test records cleanup skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.candidate_hard_delete import finish_after_commit
+from app.services.prod_test_records_cleanup import (
+    run_prod_test_records_cleanup,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await run_prod_test_records_cleanup(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane osób
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"prod test records cleanup failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+        summary, outcomes = result if result is not None else (None, [])
+        for outcome in outcomes:
+            try:
+                await finish_after_commit(db, outcome, actor_id=None)
+            except Exception as exc:  # noqa: BLE001 — wektor ma trwały retry w outboxie
+                print(f"prod test records cleanup: after-commit step {type(exc).__name__}")
+    print(f"prod test records cleanup: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Reset any m365_connections stuck in 'running' from a killed sync task.
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of
