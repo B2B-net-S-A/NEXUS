@@ -160,25 +160,3 @@ export function recruiterLogin(firstName: string): string {
     .replace(/[^a-z0-9]+/g, "");
   return `${base || "rekrutacja"}@b2bnetwork`;
 }
-
-/**
- * Plakietki kategorii na stronie rekrutera (etap 6, makieta 6d) — nazwy dla
- * kandydata, nie nazwy z NEXUSA. `data_ai` od 0371 jest częścią infra.
- */
-const CATEGORY_CHIPS: Record<string, string> = {
-  software_development: "development",
-  infrastructure_operations: "infra & data",
-  data_ai: "infra & data",
-  security_quality: "testy & qa",
-  management_delivery: "pm & analiza",
-};
-
-/** Plakietki kategorii z rekrutacji osoby — bez powtórzeń, w kolejności listy. */
-export function categoryChips(jobs: { category?: string | null }[]): string[] {
-  const out: string[] = [];
-  for (const job of jobs) {
-    const label = job.category ? CATEGORY_CHIPS[job.category] : undefined;
-    if (label && !out.includes(label)) out.push(label);
-  }
-  return out;
-}

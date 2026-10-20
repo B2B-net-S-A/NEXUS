@@ -4,6 +4,8 @@ Prefiks ``/api/public/career``:
 
 * ``GET /r/{slug}`` — strona rekrutacji (tylko ZATWIERDZONY opis publiczny);
 * ``GET /p/{slug}`` — stały link rekrutera i jego otwarte rekrutacje;
+* ``GET /jobs`` — tablica wszystkich otwartych rekrutacji (strona główna,
+  etap 6) i link „Zostaw CV”;
 * ``POST /apply`` — formularz (multipart), link po slugu.
 
 Nigdy nie zwracamy nazwy klienta, stawek, budżetu, nazwiska ani kontaktu
@@ -196,7 +198,18 @@ async def get_career_job(
         profile.theme, version.title, await ct.job_category_slug(db, job)
     )
     await _bump_visits(db, link, request)
-    return {"status": "open", "recruiter": recruiter, "theme": theme, "job": payload}
+    # Data zatwierdzenia opisu, bez godziny: „datePosted” danych JobPosting
+    # (etap 6 linków, decyzja D3 Artura 20.10.2026 — oferty widoczne w Google).
+    published_at = (
+        profile.approved_at.date().isoformat() if profile.approved_at else None
+    )
+    return {
+        "status": "open",
+        "recruiter": recruiter,
+        "theme": theme,
+        "published_at": published_at,
+        "job": payload,
+    }
 
 
 async def _recruiter_open_jobs(
@@ -204,6 +217,8 @@ async def _recruiter_open_jobs(
 ) -> list[dict]:
     """Otwarte rekrutacje osoby z opublikowanym opisem i „pokazuj na mojej
     stronie” — lista na stałym linku i na ekranie zamkniętej rekrutacji."""
+    from app.services.career_board import public_category
+
     rows = (
         await db.execute(
             select(CandidateInviteLink, Job, JobPublicProfile)
@@ -246,9 +261,9 @@ async def _recruiter_open_jobs(
                 "city": params["city"],
                 "remote_policy": params["remote_policy"],
                 # Etap 6 (makieta 6d): nazwa sceny przy rekrutacji i plakietki
-                # kategorii na stronie rekrutera — sam identyfikator i slug.
+                # kategorii — ten sam klucz kategorii co na tablicy.
                 "theme": ct.resolve_theme(profile.theme, version.title, category),
-                "category": category,
+                "category": public_category(category),
             }
         )
     return jobs
@@ -277,6 +292,39 @@ async def get_career_recruiter(
     await _bump_visits(db, link, request)
     _no_cache(response)
     return {"recruiter": recruiter, "jobs": jobs}
+
+
+# Tablica liczy opublikowany opis KAŻDEJ otwartej rekrutacji — 60/min na adres
+# to za mało, żeby chronić bazę przed wieloma odwiedzającymi naraz.
+_BOARD_CACHE_KEY = "career_board:v1"
+_BOARD_TTL_SECONDS = 60
+
+
+@router.get("/jobs")
+@limiter.limit("60/minute")
+async def get_career_board(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Tablica otwartych rekrutacji: karty z linkiem prowadzącego (D2) i stały
+    link Head of Recruitment dla „Zostaw CV” (``cv: None`` = bez CTA)."""
+    from app.core.cache import cache_get, cache_set, cache_single_flight
+    from app.services import career_board
+
+    _no_cache(response)
+    async with cache_single_flight(_BOARD_CACHE_KEY, db=db):
+        cached = await cache_get(_BOARD_CACHE_KEY)
+        if cached is not None:
+            return cached
+        payload = {
+            "jobs": await career_board.board_jobs(db),
+            "cv": await career_board.board_cv_link(db),
+        }
+        await cache_set(
+            _BOARD_CACHE_KEY, payload, _BOARD_TTL_SECONDS, jitter_seconds=10
+        )
+        return payload
 
 
 async def _apply_link(db: AsyncSession, slug: str) -> CandidateInviteLink:

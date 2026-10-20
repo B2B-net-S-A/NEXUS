@@ -27,6 +27,7 @@
   "recruiter+cases"
  ],
  "routes": {
+  "GET /api/public/career/jobs": "PPPPPPPPPPPPPPPPPPPPPPPPP",
   "GET /api/public/career/p/{slug}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
   "GET /api/public/career/r/{slug}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
   "POST /api/public/career/apply": "PPPPPPPPPPPPPPPPPPPPPPPPP"

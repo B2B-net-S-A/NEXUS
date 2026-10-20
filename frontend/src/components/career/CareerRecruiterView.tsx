@@ -1,10 +1,6 @@
 import type { CareerRecruiterResponse } from "@/lib/career/api";
-import {
-  categoryChips,
-  genitiveName,
-  jobLocationLabel,
-  recruiterLogin,
-} from "@/lib/career/format";
+import { categoryChips } from "@/lib/career/board";
+import { genitiveName, jobLocationLabel, recruiterLogin } from "@/lib/career/format";
 import { careerHref, careerVisibleUrl, type CareerBase } from "@/lib/career/host";
 
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";

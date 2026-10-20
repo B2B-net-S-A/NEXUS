@@ -21,8 +21,9 @@ Reguły, które łatwo cofnąć:
   rekrutacji z nazwą sceny, formularz „Zostaw CV u <imię>” (ta sama ścieżka
   `submit_application`, jedna zgoda — niżej) i odesłanie do tablicy `/`.
   `GET /api/public/career/p/{slug}` zwraca `recruiter.about`, a każda
-  rekrutacja `theme` (szablon, jak na `/r/`) i `category` (slug kategorii;
-  nazwy dla kandydata w `lib/career/format.ts`, `categoryChips`). Kształt
+  rekrutacja `theme` (szablon, jak na `/r/`) i `category` — ten sam klucz co
+  tablica (`career_board.public_category`: development / infra / qa /
+  management; nazwy w `lib/career/board.ts`, `categoryChips`). Kształt
   pilnuje `_RECRUITER_JOB_KEYS` w `test_career_links_api.py`.
 - **„O mnie” = `candidate_invite_links.about` (0489)**, najwyżej 280 znaków,
   zapis `PUT /api/me/career-link` z `about` (pominięte = bez zmian, pusty
@@ -66,6 +67,28 @@ Reguły, które łatwo cofnąć:
   `client_reference` (od 4 znaków). Czyta ją tylko `lint_payload` (opis
   i tytuł), NIE kontrola adresu — znalezisko w adresie wymieniłoby rozesłany
   link (stary daje 404), a numer w adresie to kosmetyka.
+- **Strony kariery są w Google** (etap 6, decyzja D3 Artura 20.10.2026, makiety
+  plansze 6a–6e na https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h):
+  - layout kariery ma `index, follow`; zamknięta rekrutacja sama ustawia
+    `noindex` (`r/[slug]`), `/rodo` zostaje `noindex`, a nieznany slug dostaje
+    stronę 404 z `noindex` od Next.js;
+  - **kod HTTP nieznanego adresu to nadal 200**: `app/loading.tsx` wysyła
+    odpowiedź, zanim strona zdąży wywołać `notFound()` — także z metadanych.
+    Prawdziwe 404 wymaga przebudowy granic ładowania całej aplikacji; Google
+    i tak nie indeksuje takiej strony (`noindex`);
+  - `app/robots.ts` jest zależny od hosta: domena kariery `Allow: /` (także
+    `/kariera/*` z grafikami OG — LinkedIn czyta robots), host aplikacji
+    `Disallow: /`. Middleware pomija ścieżki z kropką, więc przepisanie
+    `/robots.txt` w `resolveCareerRoute` by nie zadziałało;
+  - strona otwartej rekrutacji niesie dane JobPosting (`lib/career/jobPosting.ts`):
+    tytuł, opis z opublikowanej wersji, `datePosted` = `published_at` z API
+    (data zatwierdzenia, bez godziny), `CONTRACTOR`, B2B Network, miejsce albo
+    praca zdalna z Polski. Bez klienta i bez stawek; adres kanoniczny na
+    domenie kariery;
+  - mapa strony (`sitemap.xml`) przyjdzie razem z tablicą ofert — potrzebuje
+    listy wszystkich otwartych rekrutacji;
+  - ikona segmentu kariery (`app/kariera/icon.svg`) zamiast fioletowego logo
+    NEXUSA; grafika OG strony głównej (`app/kariera/opengraph-image.tsx`).
 - **Plakat z kodem QR** (etap 3, 19.10.2026): `GET /api/jobs/{id}/public-profile/poster.pdf`
   (`services/career_poster.py`, kod QR z `segno` jako `data:` SVG, PDF przez
   WeasyPrint z blokadą zasobów spoza `data:`). Treść wyłącznie z
@@ -246,6 +269,52 @@ Reguły, które łatwo cofnąć:
   pudełko 448 × 520 px — przy zmianie rozmiaru popraw stałe pozycji
   w plikach scen, nie skaluj CSS-em. Pozycja, która znika po kliknięciu, to
   błąd: element zostaje przyciskiem z `aria-pressed`, żeby nie zgubić fokusu.
+- **Strona główna = tablica otwartych rekrutacji (etap 6, decyzje Artura
+  D1 = A i D2 = A, 20.10.2026, makiety 8aVZkzVxkVnkVVNBUDgL4h, plansze 6b,
+  6c, 6e).** `GET /api/public/career/jobs` (publiczna, 60/min, cache 60 s
+  z single-flight, `services/career_board.py`) zwraca karty z białej listy:
+  tytuł i podtytuł z wersji opublikowanej, miasto i tryb jak `/r` (migawka
+  + przełącznik „parametry”), klucz kategorii (`development`, `infra` —
+  także `data_ai`, `qa`, `management`), scena (`resolve_theme`) i imię
+  właściciela linku karty. Nigdy klient, stawki, budżet ani kody — test
+  kształtu karty w `test_career_links_api.py`.
+  - **Co jest na tablicy:** KAŻDA rekrutacja `published` z
+    `jpp.published_version` (nie `status == approved`, nie przełącznik
+    „pokazuj na mojej stronie” — ten dotyczy tylko `/p/<slug>`). Zamknięcie
+    rekrutacji zdejmuje kartę (najpóźniej po 60 s cache).
+  - **Czyj link wskazuje karta (D2):** prowadzący (`working_owner_id`:
+    `jobs.recruiter_id`, aktywne konto, nie „poprzedni rekruter”) z aktywnym
+    linkiem `job` → ten link; prowadzący, który NIGDY nie miał linku do tej
+    rekrutacji → tablica zakłada mu go przy pierwszym zbudowaniu (etykieta
+    „Tablica kariery”, przypisanie priorytetowe jak `POST /api/invite-links`,
+    blokada doradcza `career_board_links` przeciw dublom). Nie przy
+    zatwierdzeniu opisu, bo prowadzący zmienia się później — tablica sama
+    dobiera link nowej osoby. Prowadzący, który swój link wyłączył (albo mu
+    wygasł), nowego nie dostaje — karta bierze najnowszy aktywny link innej
+    osoby; bez prowadzącego tak samo; rekrutacja bez żadnego aktywnego linku
+    nie trafia na tablicę. Zgłoszenie z karty idzie zwykłym `/apply` linku,
+    więc blokada 12 h, „Z linków” i dzwonek należą do właściciela linku.
+  - **„Zostaw CV” (bez rekrutacji):** stały link Head of Recruitment
+    (`board_cv_link`, w odpowiedzi `cv: {slug, first_name}`), formularz
+    `variant="general"` z jedną zgodą na przyszłe procesy — osoba ląduje
+    w bazie, w „Moich ludziach” HoR, dzwonek `new_application` do HoR.
+    Kilku HoR: pierwszy (najniższe id) z aktywnym stałym linkiem; gdy żaden
+    go nie ma — pierwszy, który nigdy go nie miał, dostaje link teraz (adres
+    z imienia jak podpowiedź w „Mój link”). HoR, który wyłączył stały link,
+    nie dostaje nowego. Zero HoR albo wszyscy wyłączyli → `cv: null`,
+    tablica bez „Zostaw CV” (ostrzeżenie w logu).
+  - **Front** (`components/career/CareerBoardView.tsx`, logika filtrów
+    `lib/career/board.ts`): kategorie z licznikami (liczone po szukaniu
+    i trybie, bez samej kategorii; puste kategorie schowane), szukanie bez
+    polskich znaków (każde słowo w tytule, podtytule albo mieście), tryb
+    pracy (kilka = „lub”), 12 kart i „pokaż kolejne”, karty w barwach sceny
+    (`BoardBand.tsx`, rysunek `aria-hidden`), na telefonie kategorie w jednym
+    przewijanym rzędzie i przyklejone „Zostaw CV”, znikające, gdy sekcja jest
+    na ekranie. „Brak otwartych rekrutacji” tylko przy udanym odczycie;
+    awaria API = komunikat „Chwilowa przerwa”, nigdy pusta lista. Kontrast
+    tekstu kart i etykiet scen ≥ 4,5:1 pilnuje `CareerBoardView.test.tsx`.
+    Harness: `/preview/kariera#tablica` (plus `#tablica-pusta`,
+    `#tablica-awaria`).
 - **Jedna ścieżka zapisu zgłoszenia:** `services/public_apply.submit_application`
   (stary i nowy endpoint). Duplikat e-maila (od 22.09.2026, decyzja Artura —
   kolejka `/applications` przez całe życie nie dostała ani jednego wpisu) NIE

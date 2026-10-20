@@ -31,6 +31,9 @@ describe("/preview/kariera", () => {
   it("renderuje wszystkie stany bez żadnego zapytania — także po kliknięciu „wyślij”", () => {
     render(<CareerPreviewPage />);
     for (const name of [
+      "tablica otwartych rekrutacji",
+      "tablica bez rekrutacji",
+      "tablica — awaria API",
       "rekrutacja otwarta",
       "formularz z błędami",
       "podziękowanie",
@@ -46,6 +49,20 @@ describe("/preview/kariera", () => {
     }
     expect(fetchMock).not.toHaveBeenCalled();
   }, 20_000);
+
+  it("tablica: karty na /kariera/r/<slug>, pusty stan i awaria osobno", () => {
+    render(<CareerPreviewPage />);
+    const board = screen.getByRole("region", { name: "tablica otwartych rekrutacji" });
+    expect(within(board).getAllByRole("link", { name: /aplikuj/ })[0]).toHaveAttribute(
+      "href",
+      "/kariera/r/senior-java-developer-7kq2",
+    );
+    const empty = screen.getByRole("region", { name: "tablica bez rekrutacji" });
+    expect(within(empty).getByText("Brak otwartych rekrutacji.")).toBeInTheDocument();
+    const down = screen.getByRole("region", { name: "tablica — awaria API" });
+    expect(within(down).getByRole("alert")).toBeInTheDocument();
+    expect(within(down).queryByText("Brak otwartych rekrutacji.")).toBeNull();
+  });
 
   it("strona rekrutacji: tytuł, parametry, wymagania, proces, bez klienta i stawki", () => {
     render(<CareerPreviewPage />);
@@ -136,7 +153,7 @@ describe("/preview/kariera", () => {
     expect(within(chips).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "development",
       "infra & data",
-      "pm & analiza",
+      "management & delivery",
     ]);
     const job = within(page).getByRole("link", { name: /DevOps Engineer Azure/ });
     expect(job).toHaveTextContent("scena: topologia sieci");

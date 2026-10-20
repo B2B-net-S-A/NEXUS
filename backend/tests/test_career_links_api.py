@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import uuid
 
 import pytest
@@ -279,8 +280,11 @@ async def test_public_page_never_leaks_client_or_rate(api):
     assert body["status"] == "open"
     # Kształt odpowiedzi jest zamknięty — nowe pole = świadoma decyzja.
     # „theme” (0478): sam identyfikator szablonu graficznego.
-    assert set(body) == {"status", "recruiter", "theme", "job"}
+    assert set(body) == {"status", "recruiter", "theme", "published_at", "job"}
     assert body["theme"] == "terminal"  # „Senior Java Developer” → Terminal
+    # Data zatwierdzenia (bez godziny) — „datePosted” w danych JobPosting dla
+    # Google (etap 6, decyzja D3 Artura 20.10.2026).
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", body["published_at"])
     assert set(body["recruiter"]) == {"first_name", "slug"}
     assert set(body["job"]) == {
         "slug",
@@ -565,7 +569,9 @@ async def test_default_theme_follows_the_role_in_the_title(api):
     job_id = await _seed_job(uid, title="Analityk systemowy")
     link = await _create_job_link(api, headers, job_id)
     assert (await _approve(api, headers, job_id)).status_code == 200
-    profile = (await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)).json()
+    profile = (
+        await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
+    ).json()
     assert profile["theme_default"] == "sekwencja"
     page = await api.get(f"/api/public/career/r/{link['slug']}")
     assert page.json()["theme"] == "sekwencja"
@@ -1492,3 +1498,301 @@ async def test_about_longer_than_two_sentences_limit_is_refused(api):
     )
     assert resp.status_code == 422
     assert "280" in resp.json()["detail"]
+
+
+# ── Tablica otwartych rekrutacji (etap 6, 20.10.2026) ──────────────────────
+
+
+@pytest_asyncio.fixture
+async def board(api):
+    """Tablica bez cache: każdy odczyt liczy od nowa (TTL 60 s w produkcji)."""
+    from app.core.cache import cache_invalidate
+
+    async def _get() -> dict:
+        await cache_invalidate("career_board")
+        resp = await api.get("/api/public/career/jobs")
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    return _get
+
+
+async def test_board_lists_open_approved_jobs_without_client_or_rate(api, board):
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    body = await board()
+    assert set(body) == {"jobs", "cv"}
+    card = next(j for j in body["jobs"] if j["slug"] == link["slug"])
+    # Kształt karty jest zamknięty — nowe pole = świadoma decyzja.
+    assert set(card) == {
+        "slug",
+        "title",
+        "subtitle",
+        "city",
+        "remote_policy",
+        "category",
+        "theme",
+        "recruiter_first_name",
+    }
+    assert card["title"].startswith("Senior Java Developer")
+    assert card["subtitle"] == "Rozwój platformy płatności dla sektora finansowego"
+    assert card["remote_policy"] == "hybrid"
+    assert card["theme"] == "terminal"
+    assert card["recruiter_first_name"] == "Marta"
+
+    serialized = json.dumps(card, ensure_ascii=False)
+    for forbidden in (_CLIENT_NAME_BASE, "175", "180", "zł", "sekretny", "Rekruterska"):
+        assert forbidden not in serialized, forbidden
+    # Odczyt tablicy nie jest wejściem na stronę rekrutacji.
+    assert await _visits(link["slug"]) == 0
+
+
+async def test_board_skips_unapproved_and_closed_jobs(api, board):
+    uid, headers, job_id = await _owner_with_job(api)
+    draft_job = await _seed_job(uid)
+    await api.put(
+        f"/api/jobs/{draft_job}/public-profile",
+        json={"subtitle": "Szkic", "about": "Jeszcze nie"},
+        headers=headers,
+    )
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.status = JobStatus.closed
+        await db.commit()
+
+    body = await board()
+    async with AsyncSessionLocal() as db:
+        slugs = set(
+            (
+                await db.scalars(
+                    select(CandidateInviteLink.slug).where(
+                        CandidateInviteLink.job_id.in_([job_id, draft_job])
+                    )
+                )
+            ).all()
+        )
+    assert not slugs & {j["slug"] for j in body["jobs"]}
+
+
+async def test_board_creates_the_lead_link_once(api, board):
+    uid, headers, job_id = await _owner_with_job(api)
+    assert (await _approve(api, headers, job_id)).status_code == 200  # bez linku
+
+    first = await board()
+    second = await board()
+    async with AsyncSessionLocal() as db:
+        links = (
+            await db.scalars(
+                select(CandidateInviteLink).where(CandidateInviteLink.job_id == job_id)
+            )
+        ).all()
+    assert len(links) == 1
+    created = links[0]
+    assert created.created_by == uid
+    assert created.kind == "job"
+    assert created.expires_at is None
+    assert created.label == "Tablica kariery"
+    from app.models.recruitment_priority import RecruitmentPriorityAuditEvent
+
+    async with AsyncSessionLocal() as db:
+        audit = (
+            await db.scalars(
+                select(RecruitmentPriorityAuditEvent).where(
+                    RecruitmentPriorityAuditEvent.event_type == "invite_link_created",
+                    RecruitmentPriorityAuditEvent.job_id == job_id,
+                )
+            )
+        ).all()
+    assert [a.payload["via"] for a in audit] == ["career_board"]
+    for body in (first, second):
+        assert created.slug in {j["slug"] for j in body["jobs"]}
+
+    # Zgłoszenie z karty = link prowadzącego (blokada 12 h, „Z linków”, dzwonek).
+    resp = await api.post(
+        "/api/public/career/apply",
+        data=_form(created.slug, f"tablica-{uuid.uuid4().hex[:8]}@example.com"),
+        files=_cv(),
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_board_follows_a_new_lead_and_respects_a_revoked_link(api, board):
+    uid, headers, job_id = await _owner_with_job(api)
+    old_link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    new_lead, _, _ = await _seed_user("lead2")
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.recruiter_id = new_lead
+        await db.commit()
+
+    body = await board()
+    async with AsyncSessionLocal() as db:
+        lead_link = await db.scalar(
+            select(CandidateInviteLink).where(
+                CandidateInviteLink.job_id == job_id,
+                CandidateInviteLink.created_by == new_lead,
+            )
+        )
+    assert lead_link is not None
+    slugs = {j["slug"] for j in body["jobs"]}
+    assert lead_link.slug in slugs and old_link["slug"] not in slugs
+
+    # Prowadzący wyłączył swój link: nowego nie dostaje, karta bierze link
+    # innej osoby, a bez żadnego aktywnego linku rekrutacji nie ma na tablicy.
+    async with AsyncSessionLocal() as db:
+        row = await db.get(CandidateInviteLink, lead_link.token)
+        row.revoked = True
+        await db.commit()
+    slugs = {j["slug"] for j in (await board())["jobs"]}
+    assert old_link["slug"] in slugs and lead_link.slug not in slugs
+
+    async with AsyncSessionLocal() as db:
+        for row in (
+            await db.scalars(
+                select(CandidateInviteLink).where(CandidateInviteLink.job_id == job_id)
+            )
+        ).all():
+            row.revoked = True
+        await db.commit()
+    body = await board()
+    async with AsyncSessionLocal() as db:
+        count = len(
+            (
+                await db.scalars(
+                    select(CandidateInviteLink).where(
+                        CandidateInviteLink.job_id == job_id
+                    )
+                )
+            ).all()
+        )
+    assert count == 2
+    assert not {old_link["slug"], lead_link.slug} & {j["slug"] for j in body["jobs"]}
+
+
+async def test_board_skips_a_broken_job_instead_of_failing(api, board, monkeypatch):
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    from app.services import job_public_profile as jpp
+
+    real = jpp.visible_params
+
+    def broken(job, sections):
+        if job.id == job_id:
+            raise ValueError("popsuta migawka")
+        return real(job, sections)
+
+    monkeypatch.setattr(jpp, "visible_params", broken)
+    body = await board()
+    assert link["slug"] not in {j["slug"] for j in body["jobs"]}
+
+
+async def test_board_without_lead_takes_the_newest_active_link(api, board):
+    uid, headers, job_id = await _owner_with_job(api)
+    older = await _create_job_link(api, headers, job_id)
+    newer = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.recruiter_id = None
+        await db.commit()
+
+    slugs = {j["slug"] for j in (await board())["jobs"]}
+    assert newer["slug"] in slugs and older["slug"] not in slugs
+
+
+async def test_board_cv_link_belongs_to_head_of_recruitment(api, board):
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=f"career-hor-{uuid.uuid4().hex[:8]}@example.com",
+                password_hash=hash_password("T3st_hor!Car"),
+                name="Olga Rekrutacyjna",
+                role=UserRole.head_of_recruitment,
+                is_active=True,
+            )
+        )
+        await db.commit()
+
+    cv = (await board())["cv"]
+    assert set(cv) == {"slug", "first_name"}
+    slug = cv["slug"]
+    async with AsyncSessionLocal() as db:
+        link = await db.scalar(
+            select(CandidateInviteLink).where(CandidateInviteLink.slug == slug)
+        )
+        owner = await db.get(User, link.created_by)
+    assert link.kind == "recruiter" and not link.revoked
+    assert owner.is_active and owner.has_role(UserRole.head_of_recruitment)
+    assert cv["first_name"] == owner.name.split(" ")[0]
+
+    email = f"zostaw-cv-{uuid.uuid4().hex[:8]}@example.com"
+    resp = await api.post(
+        "/api/public/career/apply", data=_form(slug, email), files=_cv()
+    )
+    assert resp.status_code == 201, resp.text
+    async with AsyncSessionLocal() as db:
+        candidate = await db.scalar(select(Candidate).where(Candidate.email == email))
+        assert candidate is not None
+        assert candidate.created_by == owner.id
+        stages = (
+            await db.scalars(
+                select(CandidateStage).where(
+                    CandidateStage.candidate_id == candidate.id
+                )
+            )
+        ).all()
+        assert stages == []
+
+
+async def test_pick_cv_owner_rules():
+    from datetime import datetime, timezone
+
+    from app.services.career_board import pick_cv_owner
+
+    now = datetime.now(timezone.utc)
+
+    def link(owner: int, slug: str, *, revoked: bool = False) -> CandidateInviteLink:
+        return CandidateInviteLink(
+            token=slug, created_by=owner, kind="recruiter", slug=slug, revoked=revoked
+        )
+
+    # Pierwszy HoR z aktywnym linkiem wygrywa, nawet gdy nie ma najniższego id.
+    assert pick_cv_owner([1, 2], [link(2, "b")], now) == ("b", None)
+    # Nikt nie ma linku — zakładamy go pierwszemu.
+    assert pick_cv_owner([3, 4], [], now) == (None, 3)
+    # Wyłączony link to decyzja osoby: następny HoR bez linku, a gdy go nie ma — nic.
+    assert pick_cv_owner([5, 6], [link(5, "e", revoked=True)], now) == (None, 6)
+    assert pick_cv_owner([7], [link(7, "g", revoked=True)], now) == (None, None)
+    assert pick_cv_owner([], [], now) == (None, None)
+
+
+async def test_pick_board_link_rules():
+    from datetime import datetime, timedelta, timezone
+
+    from app.services.career_board import _pick_link
+
+    now = datetime.now(timezone.utc)
+
+    def link(owner: int, slug: str, *, revoked=False, expired=False):
+        return CandidateInviteLink(
+            token=slug,
+            created_by=owner,
+            kind="job",
+            slug=slug,
+            job_id=1,
+            revoked=revoked,
+            expires_at=now - timedelta(days=1) if expired else None,
+        )
+
+    other_new, lead_old = link(2, "other-new"), link(1, "lead-old")
+    assert _pick_link([other_new, lead_old], 1, now) == (lead_old, False)
+    assert _pick_link([other_new], 1, now) == (None, True)
+    lead_off = link(1, "lead-off", revoked=True)
+    assert _pick_link([lead_off, other_new], 1, now) == (other_new, False)
+    assert _pick_link([link(1, "x", expired=True)], 1, now) == (None, False)
+    assert _pick_link([other_new, lead_old], None, now) == (other_new, False)
+    assert _pick_link([], None, now) == (None, False)
