@@ -38,3 +38,8 @@ z numerami problemów). Strona startowa z kafelkami zostaje bez zmian.
 - Tytuł ekranu = `title` z rejestru, jedna nazwa w menu, ścieżce, górnym pasku
   (`BreadcrumbV2`) i nagłówku strony. Karta pod nagłówkiem nie powtarza tytułu —
   zaczyna się od opisu.
+- **„Importy” w Systemie (20.10.2026, decyzja Artura):** pozycja `imports`
+  (admin) z zakładkami Rejestr umów z Excela · Dokumenty z SharePointa · Traffit
+  (archiwum), zakładka w adresie `?zakladka=`. `register-import`,
+  `contract-docs-sharepoint` i `traffit` ukryte; stare trasy przekierowują.
+  Import z Compassa zostaje w Zespole i dostępie (widzą go Kadry).

@@ -4,7 +4,8 @@ Folder „Umowy pracowników” (podfolder „Nazwisko Imię” na osobę) ↔ z
 Dokumenty kontraktu. Kod: `services/contract_folder_docs/` (klasyfikator,
 matcher, plan, zapis, przebiegi, synchronizacja), `services/m365/sharepoint_docs.py`,
 `api/contract_folder_docs.py`, pętla `tasks/contract_docs_sharepoint.py`, panel
-Ustawienia → Umowy i stawki (`ContractDocsSharePointPanel`, harness
+Ustawienia → System → Importy, zakładka „Dokumenty z SharePointa” (od 20.10.2026;
+stary `/settings/contract-docs-sharepoint` przekierowuje; `ContractDocsSharePointPanel`, harness
 `/preview/contract-docs-sharepoint`). Konfiguracja: `docs/contract-docs-sharepoint-setup.md`.
 
 - **Osobna rejestracja „NEXUS Contract Documents” z `Sites.Selected`** na jedną

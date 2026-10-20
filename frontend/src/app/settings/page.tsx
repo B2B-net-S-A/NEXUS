@@ -109,6 +109,14 @@ const PlacementExclusionsTab = dynamic(
   }
 );
 
+const ImportsSettings = dynamic(
+  () => import("@/components/settings/ImportsSettings"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
+
 const ConflictsRegistryTab = dynamic(
   () => import("@/components/settings/ConflictsRegistryTab"),
   {
@@ -412,6 +420,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       return <EventHistoryTab />;
     case "placements":
       return <PlacementExclusionsTab />;
+    case "imports":
+      return <ImportsSettings />;
     case "teams":
       return <TeamsNotificationsCard />;
     case "coaching":
