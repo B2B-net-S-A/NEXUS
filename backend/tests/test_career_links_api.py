@@ -1498,6 +1498,18 @@ async def test_board_creates_the_lead_link_once(api, board):
     assert created.kind == "job"
     assert created.expires_at is None
     assert created.label == "Tablica kariery"
+    from app.models.recruitment_priority import RecruitmentPriorityAuditEvent
+
+    async with AsyncSessionLocal() as db:
+        audit = (
+            await db.scalars(
+                select(RecruitmentPriorityAuditEvent).where(
+                    RecruitmentPriorityAuditEvent.event_type == "invite_link_created",
+                    RecruitmentPriorityAuditEvent.job_id == job_id,
+                )
+            )
+        ).all()
+    assert [a.payload["via"] for a in audit] == ["career_board"]
     for body in (first, second):
         assert created.slug in {j["slug"] for j in body["jobs"]}
 
@@ -1562,6 +1574,24 @@ async def test_board_follows_a_new_lead_and_respects_a_revoked_link(api, board):
         )
     assert count == 2
     assert not {old_link["slug"], lead_link.slug} & {j["slug"] for j in body["jobs"]}
+
+
+async def test_board_skips_a_broken_job_instead_of_failing(api, board, monkeypatch):
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    from app.services import job_public_profile as jpp
+
+    real = jpp.visible_params
+
+    def broken(job, sections):
+        if job.id == job_id:
+            raise ValueError("popsuta migawka")
+        return real(job, sections)
+
+    monkeypatch.setattr(jpp, "visible_params", broken)
+    body = await board()
+    assert link["slug"] not in {j["slug"] for j in body["jobs"]}
 
 
 async def test_board_without_lead_takes_the_newest_active_link(api, board):

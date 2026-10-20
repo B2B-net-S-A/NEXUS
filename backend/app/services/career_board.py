@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import or_, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.competence_category import CompetenceCategory
@@ -123,6 +124,17 @@ async def _new_job_link(
     )
     db.add(link)
     await db.flush()
+    from app.services.priority_work_service import audit_event
+
+    # Ten sam ślad co `POST /api/invite-links`, bez aktora — założyła tablica.
+    audit_event(
+        db,
+        "invite_link_created",
+        job_id=job.id,
+        subject_user_id=owner_id,
+        assignment_id=origin_assignment_id,
+        payload={"slug": link.slug, "via": "career_board"},
+    )
     logger.info(
         "career_board: utworzono link rekrutacji %s dla prowadzącego %s",
         job.id,
@@ -199,8 +211,20 @@ async def board_jobs(db: AsyncSession) -> list[dict[str, Any]]:
     locked = False
     cards: list[dict[str, Any]] = []
     for job, profile in rows:
-        version = await jpp.published_version(db, job, profile, names_cache=names_cache)
-        if version is None:
+        # Jedna rekrutacja z popsutym opisem (sekcje, migawka) nie może zdjąć
+        # całej strony głównej — znika tylko jej karta. Błąd bazy idzie dalej:
+        # transakcja i tak jest wtedy do wyrzucenia.
+        try:
+            version = await jpp.published_version(
+                db, job, profile, names_cache=names_cache
+            )
+            params = jpp.visible_params(job, version.sections) if version else None
+        except SQLAlchemyError:
+            raise
+        except Exception:
+            logger.exception("career_board: pomijam rekrutację %s", job.id)
+            continue
+        if version is None or params is None:
             continue
         links = links_by_job.get(job.id, [])
         lead_id = await _lead_id(db, job, users)
@@ -233,7 +257,6 @@ async def board_jobs(db: AsyncSession) -> list[dict[str, Any]]:
         owner = users.get(link.created_by) or await db.get(User, link.created_by)
         if owner is not None:
             users[link.created_by] = owner
-        params = jpp.visible_params(job, version.sections)
         category_slug = category_slugs.get(job.competence_category_id)
         cards.append(
             {
