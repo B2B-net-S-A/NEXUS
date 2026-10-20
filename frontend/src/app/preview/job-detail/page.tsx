@@ -346,6 +346,10 @@ function columns(): KanbanColumn[] {
       card("Bartek", "Testowy", {
         candidate_id: RATE_CASE_CANDIDATE_ID,
         claim_until: null,
+        // 20.10.2026: od „Zweryfikowanego” karta pokazuje weryfikującą osobę.
+        verified_by_id: 14,
+        verified_by_name: "Olga Weryfikująca",
+        verified_at: "2026-10-20T09:00:00Z",
         expected_rate_value: 125,
         expected_rate_unit: "hourly",
         expected_rate_currency: "PLN",

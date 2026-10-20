@@ -105,6 +105,15 @@ wszystkie D1–D5, wdrażaj”.
   `GET /api/pipeline/kanban/{job_id}` (obok `added_to_job_by_name`), ta sama,
   którą karta pokazuje inicjałami. Porównanie po numerze, nie po imieniu
   (imiennicy). Nie rezerwacja „Biorę” i nie `recruiter_id` (właściciel procesu).
+- **Osoba na karcie od „Zweryfikowanego” (20.10.2026).** Rekruterka
+  zweryfikowała osobę, którą dwa miesiące wcześniej dodał ktoś inny, a karta
+  w „CV w Cpro” dalej pokazywała dodającego. Decyzja Artura: w „Nowych”
+  i „Screeningu” karta pokazuje, kto dodał. Od „Zweryfikowanego” w prawo
+  (i w „Zamkniętych”) pokazuje, kto zweryfikował: osobę z NAJNOWSZEGO wpisu
+  „Zweryfikowany” pary (`verified_by_*` w kanbanie, ta sama reguła co
+  przegląd DL w `board_tasks`). Dymek pokazuje obie osoby z datami. Wyborem
+  osoby rządzi `cardOwner` w `lib/board-card-badges.ts`. Filtr „Kto dodał”
+  i kolejka panelu dalej liczą po dodającym (D5).
 - **Przeciąganie i zaznaczanie przy filtrze.** Filtr jest nakładany na kolumny
   do renderu PRZED przeciąganiem, a karta przy upuszczeniu jest szukana po
   `draggableId`, nie po `source.index`. Zaznaczone osoby, które filtr schował,

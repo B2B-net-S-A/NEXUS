@@ -54,6 +54,11 @@ export interface KanbanItem {
  /** Numer tej osoby — filtr „Kto dodał” na Tablicy (14.10.2026). */
  added_to_job_by_id?: number | null;
  added_to_job_at?: string | null;
+ /** Kto zweryfikował (najnowszy wpis „Zweryfikowany” pary) — od tej kolumny
+  *  karta pokazuje tę osobę zamiast dodającej (20.10.2026). */
+ verified_by_name?: string | null;
+ verified_by_id?: number | null;
+ verified_at?: string | null;
  /** Komentarz z okna ruchu (przy odrzuceniu — wpisany w oknie powodu). */
  notes?: string | null;
  // Karty w „Odrzuconych” i „Rezygnacjach” (19.10.2026): etykieta powodu

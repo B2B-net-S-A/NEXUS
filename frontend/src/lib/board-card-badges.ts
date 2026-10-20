@@ -812,6 +812,33 @@ function firstNameOrNull(full: string | null | undefined): string | null {
   return cardShortName(full);
 }
 
+/** Kolumny, w których nikt jeszcze nie zweryfikował osoby. */
+const BEFORE_VERIFIED_COLUMNS: ReadonlySet<BoardColumnKey> = new Set(["new", "screening"]);
+
+export interface CardOwner {
+  /** Pełne imię i nazwisko; `null` = brak zapisanej osoby. */
+  name: string | null;
+  role: "verified" | "added";
+}
+
+/**
+ * Czyja jest karta na Tablicy (decyzja Artura 20.10.2026): w „Nowych”
+ * i „Screeningu” osoba, która dodała do rekrutacji; od „Zweryfikowanego”
+ * w prawo (i w „Zamkniętych”) osoba, która zweryfikowała. Rekruterka
+ * weryfikowała osobę dodaną przez kogoś innego, a karta dalej pokazywała
+ * dodającego. Filtr „Kto dodał” i kolejka panelu liczą po dodającym (D5).
+ */
+export function cardOwner(
+  item: Pick<KanbanItem, "added_to_job_by_name" | "verified_by_name">,
+  column: BoardColumnKey | null
+): CardOwner {
+  const verifier = item.verified_by_name?.trim();
+  if (verifier && column != null && !BEFORE_VERIFIED_COLUMNS.has(column)) {
+    return { name: verifier, role: "verified" };
+  }
+  return { name: item.added_to_job_by_name?.trim() || null, role: "added" };
+}
+
 /**
  * Krótka nazwa osoby na karcie: pierwsze słowo, bez dwukropka na końcu.
  * Konta integracji nazywają się „Integracje: JJIT” — karta pokazywała
