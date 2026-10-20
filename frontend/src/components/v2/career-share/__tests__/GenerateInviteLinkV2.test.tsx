@@ -8,6 +8,7 @@ import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV
 import api from "@/lib/api";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { useAuthStore } from "@/store/auth";
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -500,6 +501,19 @@ describe("GenerateInviteLinkV2 — Mój link ogólny", () => {
     expect(screen.getByRole("switch", { name: `Pokaż na stronie: ${JOB.title}` })).toBeEnabled();
     expect(screen.getByRole("switch", { name: "Pokaż na stronie: Analityk biznesowy" })).toBeDisabled();
     expect(screen.getByText("Najpierw zatwierdź opis publiczny tej rekrutacji.")).toBeInTheDocument();
+  });
+
+  it("podgląd posta mówi tym samym językiem co strona: login @b2bnetwork i `og:title` bez marki", async () => {
+    useAuthStore.setState({ user: { name: "Łucja Nowak" } } as never);
+    try {
+      await openGeneral({ "/api/me/career-link": careerLink });
+      const preview = await screen.findByTestId("linkedin-preview");
+      expect(preview).toHaveTextContent("whoami — lucja@b2bnetwork");
+      expect(preview).toHaveTextContent("Łucja — rekrutacje IT");
+      expect(preview).not.toHaveTextContent(/dynaminds\b(?!\.pl)/i);
+    } finally {
+      useAuthStore.setState({ user: null } as never);
+    }
   });
 
   it("prefiks adresu idzie z `recruiter_base_url` (bez protokołu), nie ze stałej domeny", async () => {
