@@ -635,8 +635,11 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   token KSeF spółki (`KSEF_TOKEN`, uprawnienie `InvoiceRead`) + `KSEF_CONTEXT_NIP`; brak =
   wyłączone. Pobieranie przyrostowe od znacznika HWM (`app_settings['hr_ksef_sync']` per
   środowisko i NIP), co godzinę (`hr_job_runs`), najwyżej 8 zapytań o metadane i 40 pobrań na
-  przebieg, „Pobierz teraz” co 5 minut. **Zapisujemy wyłącznie faktury od NIP-ów z danych do
-  rozliczeń** — reszta to licznik „pominięte”; po dopisaniu NIP-u „Pobierz ponownie okres”.
+  przebieg, „Pobierz teraz” co 5 minut. **Do rozliczeń zapisujemy wyłącznie faktury od NIP-ów
+  z danych do rozliczeń** — reszta to licznik „pominięte”; po dopisaniu NIP-u „Pobierz ponownie
+  okres”. Przy włączonym module „Zgody” reszta to faktury kosztowe spółki, zapisywane z samych
+  metadanych do „Wydatków ze zgodą” (licznik `costs`, bez pobrania XML-a; 0485,
+  `ludzie/zgody-wydatki-i-premie-poza-umowa.md`).
   Samego XML-a nie trzymamy, tylko skrót. Klient obsługuje Subject1 i Subject2 (etap 5).
 - **Biała lista** (`white_list.py`, `WHITE_LIST_MODE=off|test|live`, lokalnie `simulate`):
   `search`/`check` z pamięcią wyników na dzień i limitem 100 zapytań; brak odpowiedzi =

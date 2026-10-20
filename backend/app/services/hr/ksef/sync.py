@@ -13,9 +13,12 @@ Trzy wejścia, jeden przebieg (``_Run``):
   okno od początku miesiąca do dziś (np. po dopisaniu NIP-u osobie), bez
   przesuwania znacznika.
 
-Zapisujemy wyłącznie faktury od NIP-ów z ``employee_billing_details``;
-pozostałe (dostawcy firmy) to tylko licznik ``skipped`` — bez numeru, NIP-u
-i kwot w bazie i w logach. Faktura od znanego NIP-u: XML z KSeF → ``fa``
+Do ``payroll_invoices`` zapisujemy wyłącznie faktury od NIP-ów
+z ``employee_billing_details``. Pozostałe (dostawcy firmy) przy włączonym
+module „Zgody” stają się dokumentami wydatków z samych metadanych
+(``approvals/cost_invoices.py``, licznik ``costs``, bez pobierania XML-a);
+przy wyłączonym to tylko licznik ``skipped`` — bez numeru, NIP-u i kwot
+w bazie i w logach. Faktura od znanego NIP-u: XML z KSeF → ``fa``
 → wiersz ``payroll_invoices`` (unikalny numer KSeF, skrót SHA-256 XML-a;
 samego XML-a nie trzymamy). Ta sama faktura dopięta wcześniej przez Płace
 jako PDF (ten sam NIP sprzedawcy, numer i waluta) nie dostaje drugiego
@@ -123,6 +126,8 @@ class _Run:
     downloads_left: int = MAX_DOWNLOADS
     #: ``permanentStorageDate`` ostatniego przetworzonego rekordu bieżącego okna.
     progress: Optional[str] = None
+    #: Moduł „Zgody” włączony: faktury kosztowe spółki zapisujemy z metadanych.
+    store_costs: bool = False
 
 
 class _BudgetSpent(Exception):
@@ -514,6 +519,9 @@ async def _consider(run: _Run, item: dict[str, Any]) -> None:
     run.counts["listed"] += 1
     seller = (item.get("seller") or {}).get("nip") or numbers.seller_nip(ksef_number)
     if seller not in run.known:
+        if run.store_costs:
+            await _store_cost(run, item, ksef_number)
+            return
         # Dostawca firmy — tylko licznik, bez śladu w bazie i logach.
         run.counts["skipped"] += 1
         return
@@ -525,6 +533,34 @@ async def _consider(run: _Run, item: dict[str, Any]) -> None:
     await _download_and_store(
         run, ksef_number, acquired if isinstance(acquired, str) else None
     )
+
+
+async def _store_cost(run: _Run, item: dict[str, Any], ksef_number: str) -> None:
+    """Faktura kosztowa spółki z samych metadanych → dokument wydatku (Zgody, 0485).
+
+    Bez pobierania XML-a (budżet pobrań zostaje dla faktur kontraktorów).
+    Awaria zapisu nie zatrzymuje przebiegu — faktura wróci przy „Pobierz
+    ponownie okres”.
+    """
+
+    from app.services.hr.approvals import cost_invoices  # noqa: PLC0415
+
+    try:
+        async with run.db.begin_nested():
+            state = await cost_invoices.store(
+                run.db, item, ksef_number=ksef_number, now=run.now
+            )
+    except Exception:  # noqa: BLE001 — pobieranie idzie dalej
+        logger.exception("ksef: zapis faktury kosztowej nieudany")
+        run.counts["costs_failed"] += 1
+        return
+    await run.db.commit()
+    if state is None:
+        run.counts["costs_duplicates"] += 1
+        return
+    run.counts["costs"] += 1
+    if state == "pinned":
+        run.counts["costs_pinned"] += 1
 
 
 async def _retry_pending(run: _Run) -> None:
@@ -675,6 +711,7 @@ async def _execute(
         problems=list(state.get("problems") or []),
         requests_left=MAX_METADATA_REQUESTS,
         downloads_left=MAX_DOWNLOADS,
+        store_costs=bool((await load_modules(db)).get(HrModule.approvals)),
     )
     error: Optional[KsefApiError] = None
     partial = False

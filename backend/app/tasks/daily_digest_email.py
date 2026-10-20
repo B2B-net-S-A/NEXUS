@@ -145,6 +145,24 @@ async def _deadlines(db: AsyncSession, user_id: int, today) -> tuple:
     return tuple((job_id, title, day) for job_id, title, day in rows.all())
 
 
+async def _renewals(db: AsyncSession, user: User, today) -> tuple:
+    """Roczne odnowienia subskrypcji (Zgody, 0485) — zatwierdzający i Finanse,
+    tylko przy włączonym module „Zgody”."""
+    from app.services.hr.approvals import rules as approval_rules
+    from app.services.hr.approvals import settlement
+    from app.services.hr.modules import HrModule, load_modules
+
+    if not (await load_modules(db)).get(HrModule.approvals):
+        return ()
+    finals = await approval_rules.final_approver_ids(
+        db, await approval_rules.load_rules(db)
+    )
+    if user.id not in finals and not settlement.is_finance(user):
+        return ()
+    rows = await settlement.upcoming_renewals(db, today)
+    return tuple((row.title, row.renews_on) for row in rows)
+
+
 async def _mail_for(db: AsyncSession, user: User, today) -> Optional[reports._Mail]:
     from app.api.board_tasks import build_board_tasks
 
@@ -154,6 +172,7 @@ async def _mail_for(db: AsyncSession, user: User, today) -> Optional[reports._Ma
         tasks,
         open_client_cases=await _open_client_cases(db, user.id) if is_dl else 0,
         deadlines=await _deadlines(db, user.id, today),
+        renewals=await _renewals(db, user, today),
     )
     if not sections:
         return None

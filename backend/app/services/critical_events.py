@@ -77,6 +77,8 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "invoice.create": "Wystawienie faktury (integracja)",
     "invoice.update": "Zmiana faktury (integracja)",
     "invoice.cancel": "Anulowanie faktury (integracja)",
+    # 0485: zatwierdzona zgoda na prezent dla klienta (Zgody, etap 3).
+    "client.gift": "Prezent dla klienta (zgoda)",
 }
 
 OUTCOME_LABELS: dict[str, str] = {

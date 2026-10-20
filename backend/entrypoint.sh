@@ -193,6 +193,9 @@ _ENUM_STATEMENTS = [
     # 0483: zgody na wydatki i premie poza umową (`hr_approvals_schema`).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_decided'",
+    # 0485: rozliczenie zgód w Finansach (`hr_approval_settlement_schema`).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_topup_requested'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_subscription_renewal'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_feedback_eobd'",
@@ -315,6 +318,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_selection_edit'",
     # 0434: polecenie własnymi słowami dla całego CV w edytorze (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_editor_command'",
+    # 0485: odczyt kwoty i sprzedawcy z faktury albo paragonu do zgody.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'expense_document_read'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -7234,6 +7239,11 @@ _DATA_STATEMENTS = [
     "SELECT 'cv_editor_command', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'cv_editor_command')",
+    # 0485: seed klucza AI odczytu faktury albo paragonu do zgody.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'expense_document_read', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'expense_document_read')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

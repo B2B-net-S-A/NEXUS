@@ -396,6 +396,12 @@ async def lifecycle_job(db: AsyncSession) -> dict[str, Any] | None:
     students = await student_contribution_reminders(db)
     if students.get("sent"):
         result = {**(result or {}), "student_contribution_reminders": students["sent"]}
+    # Zgody, etap 3 (0485): raz dziennie od 8:00 — zgody bez faktury po 30 dniach
+    # wygasają, opiekun subskrypcji rocznej dostaje pytanie 30 dni przed odnowieniem.
+    from app.services.hr.approvals.settlement import daily_job as approvals_daily
+
+    if approvals := await approvals_daily(db):
+        result = {**(result or {}), "approval_settlement": approvals}
     return result
 
 

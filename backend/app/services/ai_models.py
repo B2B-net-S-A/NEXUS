@@ -52,6 +52,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F29 | screening_answer_phrasing        | gpt-6-luna (z Sonnet 5)  |
 | F30 | cv_selection_edit                | claude-sonnet-5 (z Haiku)|
 | F31 | cv_editor_command                | claude-sonnet-5 (z Haiku)|
+| F32 | expense_document_read            | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -381,6 +382,16 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "z polecenia rekrutera — ten sam autor co F30, bo redaguje ten sam tekst. Model "
         "zwraca listę operacji na wierszach, kod sprawdza każdą (nowy fakt, układ szablonu), "
         "a zastosowanie zatwierdza człowiek operacja po operacji.",
+    ),
+    AIFeatureKey.expense_document_read: ModelChoice(
+        default=SONNET_5,
+        env_vars=("EXPENSE_DOCUMENT_READ_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F32 (decyzja 20.10.2026, POZA badaniem 16.09). Odczyt kwoty, waluty, "
+        "NIP-u i nazwy sprzedawcy z faktury albo paragonu do zgody (Zgody, etap 3). "
+        "Paragon bywa zdjęciem, więc model musi czytać obraz — Sonnet 5 jak odczyt PDF "
+        "zamówień (F7). Wynik to podpowiedź: osoba widzi pola i je poprawia, kwotę do "
+        "rozliczenia zatwierdzają Finanse.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=GPT_LUNA,

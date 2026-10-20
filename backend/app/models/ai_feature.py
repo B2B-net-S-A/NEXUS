@@ -162,6 +162,10 @@ class AIFeatureKey(str, enum.Enum):
     # zwraca plan operacji na wierszach; kod sprawdza każdą (bez nowych faktów,
     # bez ruszania układu szablonu), a rekruter wybiera, które zastosować.
     cv_editor_command = "cv_editor_command"
+    # Zgody, etap 3 (0485): odczyt kwoty i sprzedawcy z faktury albo paragonu
+    # dołączonego do zgody. Wynik to podpowiedź — osoba poprawia pola sama,
+    # a dokument zostaje przy zgodzie także bez odczytu.
+    expense_document_read = "expense_document_read"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -198,6 +202,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.screening_answer_phrasing: "„Ułóż w zdanie” — odpowiedzi i pola opisowe screeningu",
     AIFeatureKey.cv_selection_edit: "Edytor CV — AI na zaznaczonym fragmencie",
     AIFeatureKey.cv_editor_command: "Edytor CV — polecenie dla całego CV (plan zmian)",
+    AIFeatureKey.expense_document_read: "Zgody — odczyt kwoty i sprzedawcy z faktury albo paragonu",
 }
 
 
@@ -348,6 +353,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.cv_editor_command: [
         "Treść CV dla klienta wiersz po wierszu (bez klauzuli zgody) i polecenie rekrutera",
         "Nazwy wymagań rekrutacji (bez nazwy klienta, stawek i notatek)",
+    ],
+    AIFeatureKey.expense_document_read: [
+        "Faktura albo paragon dołączony do zgody (tekst PDF-u albo zdjęcie)",
+        "(bez danych osoby, która prosiła o zgodę)",
     ],
 }
 

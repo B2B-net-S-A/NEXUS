@@ -35,6 +35,7 @@ PROGRAM_API_MODULES = {
     "app.api.hr_documents",
     "app.api.hr_agreements",
     "app.api.client_sales_invoices",
+    "app.api.hr_approval_finance",
     "app.api.hr_lifecycle",
     "app.api.contract_care",
     "app.api.care_skills",

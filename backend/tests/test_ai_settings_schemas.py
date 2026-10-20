@@ -98,6 +98,8 @@ class TestFeatureKeyEnum:
             "cv_selection_edit",
             # 0434: polecenie własnymi słowami dla całego CV w edytorze.
             "cv_editor_command",
+            # 0485: odczyt faktury albo paragonu do zgody (Zgody, etap 3).
+            "expense_document_read",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

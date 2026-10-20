@@ -279,6 +279,10 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     # (`services/hr/approvals/mail.py`), decyzja do autora — bez wolnego tekstu.
     "hr_approval_requested",
     "hr_approval_decided",
+    # Rozliczenie zgód (0485): dopłata do zatwierdzającego, odnowienie
+    # subskrypcji do opiekuna — bez kwot i wolnego tekstu w mailu.
+    "hr_approval_topup_requested",
+    "hr_subscription_renewal",
 )
 
 

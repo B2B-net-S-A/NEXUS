@@ -27,14 +27,22 @@
   "recruiter+cases"
  ],
  "routes": {
+  "DELETE /api/hr/approval-requests/{request_id}/documents/{document_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/approval-requests": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/approval-requests/beneficiaries": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/approval-requests/count": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/approval-requests/rules": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/approval-requests/topups": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/approval-requests/{request_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/approval-requests/{request_id}/documents/{document_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "PATCH /api/hr/approval-requests/{request_id}/documents/{document_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/approval-requests": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/approval-requests/preview": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/approval-requests/{request_id}/decide": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/approval-requests/{request_id}/documents": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/approval-requests/{request_id}/documents/{document_id}/topup": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/approval-requests/{request_id}/documents/{document_id}/topup/decide": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/approval-requests/{request_id}/renewal": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/approval-requests/{request_id}/withdraw": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PUT /api/hr/approval-requests/rules": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PUT /api/hr/approval-requests/{request_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB"

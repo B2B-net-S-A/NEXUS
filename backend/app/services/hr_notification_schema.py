@@ -17,6 +17,9 @@ from app.services.client_structure_schema import (
     NOTIFICATION_TYPES as CLIENT_STRUCTURE_TYPES,
 )
 from app.services.hr_agreements_schema import NOTIFICATION_TYPES as AGREEMENT_TYPES
+from app.services.hr_approval_settlement_schema import (
+    NOTIFICATION_TYPES as APPROVAL_SETTLEMENT_TYPES,
+)
 from app.services.hr_approvals_schema import NOTIFICATION_TYPES as APPROVAL_TYPES
 from app.services.hr_settlement_schema import NOTIFICATION_TYPES as SETTLEMENT_TYPES
 
@@ -50,6 +53,8 @@ PERSONAL_TYPES: tuple[str, ...] = (
     *AGREEMENT_TYPES,
     # Zgody na wydatki i premie poza umową — do decydującego i do autora (0483).
     *APPROVAL_TYPES,
+    # Rozliczenie zgód — dopłata do zatwierdzającego, odnowienie subskrypcji (0485).
+    *APPROVAL_SETTLEMENT_TYPES,
 )
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery; struktura
