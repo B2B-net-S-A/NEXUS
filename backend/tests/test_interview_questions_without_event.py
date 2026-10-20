@@ -450,13 +450,15 @@ async def test_pair_debrief_refuses_before_the_planned_interview(
     assert await _interview_count(cand_id, job_id) == 1
 
 
-async def test_pair_debrief_outsider_is_refused(app_client: AsyncClient):
-    rec_id, _ = await _user(UserRole.recruiter)
-    _other, other_h = await _user(UserRole.recruiter)
-    job_id, cand_id, _ = await _stage_pair(recruiter_id=rec_id)
+async def test_pair_debrief_needs_the_pair_in_pipeline(app_client: AsyncClient):
+    # Rekrutacje widzą i prowadzą wszystkie role wewnętrzne (23.09.2026),
+    # więc granicą jest para w procesie tej rekrutacji, nie zespół.
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    job_id, _cand, _ = await _stage_pair(recruiter_id=rec_id)
+    _job2, other_cand, _ = await _stage_pair(recruiter_id=rec_id)
     res = await app_client.put(
-        f"/api/interview-cycle/pairs/{cand_id}/{job_id}/debrief",
-        headers=other_h,
+        f"/api/interview-cycle/pairs/{other_cand}/{job_id}/debrief",
+        headers=rec_h,
         json={
             "outcome": "good",
             "offer_acceptance": "yes",
@@ -464,8 +466,8 @@ async def test_pair_debrief_outsider_is_refused(app_client: AsyncClient):
             "held_on": datetime.now(WARSAW).date().isoformat(),
         },
     )
-    assert res.status_code in (403, 404), res.text
-    assert await _interview_count(cand_id, job_id) == 0
+    assert res.status_code == 404, res.text
+    assert await _interview_count(other_cand, job_id) == 0
 
 
 async def test_overview_shows_questions_missing_to_the_recruiter(
