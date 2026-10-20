@@ -246,7 +246,6 @@ async def test_cv_from_another_mail_does_not_take_over_a_document(
         db.add_all([first_person, second_person])
         await db.flush()
 
-        documents = {}
         for index, (person, content) in enumerate(
             [
                 (first_person, b"First synthetic CV"),
@@ -271,19 +270,19 @@ async def test_cv_from_another_mail_does_not_take_over_a_document(
             )
             await attachment_handler.try_parse_cv(db, attachment, email)
             await db.flush()
-            documents[person.id] = list(
+
+        async def m365_files(person: Candidate) -> list[bytes]:
+            # `file_content` jest odroczone — pytamy o kolumnę wprost, po
+            # OBU mailach, bo błąd przepinał dokument dopiero przy drugim.
+            return list(
                 await db.scalars(
-                    select(CandidateDocument).where(
+                    select(CandidateDocument.file_content).where(
                         CandidateDocument.candidate_id == person.id,
                         CandidateDocument.external_source == "m365",
                     )
                 )
             )
 
-        assert [d.file_content for d in documents[first_person.id]] == [
-            b"First synthetic CV"
-        ]
-        assert [d.file_content for d in documents[second_person.id]] == [
-            b"Second synthetic CV"
-        ]
+        assert await m365_files(first_person) == [b"First synthetic CV"]
+        assert await m365_files(second_person) == [b"Second synthetic CV"]
         # Wszystko syntetyczne i niezatwierdzone: zamknięcie sesji to cofa.
