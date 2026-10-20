@@ -84,7 +84,7 @@ test.describe("Phase 9 — matching UX", () => {
   test("/settings/scoring lists profiles + shows Nowy profil CTA", async ({ page }) => {
     await page.goto("/settings/scoring");
     await expect(
-      page.getByRole("heading", { name: /Profile wag scoringu/i })
+      page.getByRole("heading", { name: /Ranking kandydatów/i })
     ).toBeVisible();
     await expect(page.getByRole("button", { name: /Nowy profil/i })).toBeVisible();
   });

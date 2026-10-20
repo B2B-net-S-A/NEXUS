@@ -22,3 +22,19 @@ Widok wynika wyłącznie z adresu (`?area=`, `?item=`); stare `?tab=` mapuje
 - Nowa pozycja = wpis w rejestrze z bramką (`gate`) lustrzaną do backendu
   i `case` w `SettingsItemBody` (albo `route` dla osobnej strony).
 - `ownHeader` = komponent ma własny nagłówek; strona rysuje wtedy tylko ścieżkę.
+
+## Lewa kolumna i grupy (20.10.2026)
+
+Makiety „dziś i propozycja”: kanwa `SryGf5pM2ajFtRBst7HzL7` (22 plansze, notatki
+z numerami problemów). Strona startowa z kafelkami zostaje bez zmian.
+
+- Po wejściu w obszar albo pozycję (także podstronę z własną trasą, przez
+  `app/settings/layout.tsx`) z lewej jest `SettingsSideNav`: wszystkie obszary,
+  otwarty rozwinięty w grupy. Od `lg` w górę; na wąskim ekranie zostaje ścieżka
+  i lista obszaru.
+- Każda pozycja z menu ma `group` w rejestrze (pilnuje test „każda pozycja
+  z menu ma grupę”). Kolejność grup = kolejność pierwszej pozycji w rejestrze;
+  lista obszaru też jest pogrupowana (`groupedAreaItems`).
+- Tytuł ekranu = `title` z rejestru, jedna nazwa w menu, ścieżce, górnym pasku
+  (`BreadcrumbV2`) i nagłówku strony. Karta pod nagłówkiem nie powtarza tytułu —
+  zaczyna się od opisu.

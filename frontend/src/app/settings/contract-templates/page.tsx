@@ -172,7 +172,7 @@ export default function ContractTemplatesPage() {
       <div className="space-y-4 max-w-5xl">
         {confirmDialog}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold">Szablony kontraktów</h1>
+          <h1 className="text-2xl font-bold">Wzory umów</h1>
           {!editing && canEdit && (
             <button
               onClick={() => setEditing({})}

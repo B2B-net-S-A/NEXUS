@@ -11,7 +11,7 @@
 
 import { useState, type FormEvent } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Loader2, Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { PlainTermsSection } from "@/components/settings/PlainTermsSection";
@@ -340,18 +340,11 @@ export function SkillDictionaryTab() {
 
   return (
     <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
-      <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-          <BookOpen className="h-6 w-6 text-primary" aria-hidden />
-        </div>
-        <div>
-          <h2 className="text-base font-bold text-foreground">Słownik umiejętności</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Nazwy technologii i ich aliasy, po których wyszukiwarka i dopasowanie
-            rozpoznają umiejętności kandydatów. Nowy alias działa od razu.
-          </p>
-        </div>
-      </div>
+      {/* Tytuł ekranu rysuje strona Ustawień — tu tylko opis (20.10.2026). */}
+      <p className="text-sm text-muted-foreground">
+        Nazwy technologii i ich aliasy, po których wyszukiwarka i dopasowanie
+        rozpoznają umiejętności kandydatów. Nowy alias działa od razu.
+      </p>
 
       <CreateSkillForm />
 

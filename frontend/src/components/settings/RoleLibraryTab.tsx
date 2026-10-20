@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Library, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { PlainChangeHistory } from "@/components/settings/PlainChangeHistory";
 import { SourceLinks, WebOriginChip } from "@/components/champion/plain/PlainBits";
@@ -220,18 +220,11 @@ export function RoleLibraryTab() {
 
   return (
     <div className="space-y-5 rounded-2xl border border-border bg-card p-6" data-testid="role-library">
-      <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-          <Library className="h-6 w-6 text-primary" aria-hidden />
-        </div>
-        <div>
-          <h2 className="text-base font-bold text-foreground">Biblioteka ról</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Opisy ról po ludzku. Blok „Po ludzku” w każdej rekrutacji z daną rolą bierze stąd
-            przykład z codzienności, typowe zadania i pytania kandydatów.
-          </p>
-        </div>
-      </div>
+      {/* Tytuł ekranu rysuje strona Ustawień — tu tylko opis (20.10.2026). */}
+      <p className="text-sm text-muted-foreground">
+        Opisy ról po ludzku. Blok „Po ludzku” w każdej rekrutacji z daną rolą bierze stąd
+        przykład z codzienności, typowe zadania i pytania kandydatów.
+      </p>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-2">

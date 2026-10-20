@@ -1,5 +1,5 @@
 # Imię i nazwisko bez dopisków (D6, 13.10.2026)
-<!-- indeks: dopiski z Traffita w imieniu, `candidate_name_rules`, 422 przy ręcznym wpisie, migracja 0436 -->
+<!-- indeks: dopiski z Traffita w imieniu, `candidate_name_rules`, 422 przy ręcznym wpisie, migracje 0436 i 0481 (klamry, nawias bez pary, emoji) -->
 
 Traffit nie miał pól „zatrudniony”, „czarna lista” ani „szuka aktywnie”, więc
 rekruterzy wklejali je w imię: „[ACTIVE] Jan”, „Nowak (zaakceptowany)”,
@@ -79,6 +79,35 @@ z tych informacji ma swoje pole.
   `repair_details_0436_candidate_name_markers` (klucz spoza wzorca paragonów —
   nie trafia do publicznego logu). Kolejkę indeksu zapisuje faza startu,
   także po korekcie wykonanej przez migrację (`reindex_recorded`).
+
+## Druga runda 0481 (20.10.2026)
+
+Przeklikanie Opieki pokazało u konsultantów z umową imiona, których 0436 nie
+znała (Opieka bierze imię z `candidates.name` + `lastname`). Reguła zna od tego
+dnia:
+
+- **klamry** `{...}` jak nawiasy („{ } Jan”);
+- **nawias kwadratowy albo klamrę bez pary** („[Jan”, „Jan]”) — para, która
+  zostaje, nadal jest nazwiskiem („[Inactivewicz] Jan”). **Okrągły bez pary
+  zostaje** — bywa uciętym drugim nazwiskiem albo stanowiskiem i wymaga człowieka;
+- **literówkę „acive”** w rodzinie słów statusu („[acive/ Jan”) — tylko zdjęcie,
+  bez „szuka aktywnie” (osoba z umową);
+- **emoji** (kategoria Unicode `So`, znak łączący ZWJ, selektory wariantu)
+  i „?” po emoji zepsutym przy imporcie („?‍? Jan”) na krawędzi pola. Sam „?”
+  (zastępnik pustego pola) i łączone znaki diakrytyczne („o” + U+0301) zostają.
+
+Czego reguła **nie** zdejmuje (decyzje Artura 20.10.2026): tytułów po przecinku
+(„Kowalski, MBA”, ok. 30 osób) i dwukropka na końcu („Pawe:” to zgadywanie, nie
+dopisek). Ręczny wpis z klamrą albo emoji dostaje 422 tym samym zdaniem.
+
+Korekta danych: migracja `0481_candidate_name_markers_v2` i faza startu
+`repair-candidate-name-markers-0481` — ten sam rdzeń co 0436, własny paragon
+`app_settings['0481_candidate_name_markers_v2']`. Przed regułą biegną trzy
+ręczne poprawki rozjechanych pól (`MANUAL_FIXES_0481`, lista „było → będzie”
+zatwierdzona przez Artura): klucz to ID, ale zapis zależy od kształtu pól
+(`plan_manual_fix`), więc na innej bazie nic się nie dzieje. Na produkcji
+20.10.2026 reguła na całym nadzbiorze wstępnego filtra (150 wierszy) zmieniała
+dokładnie zatwierdzone osoby.
 
 ## Front
 

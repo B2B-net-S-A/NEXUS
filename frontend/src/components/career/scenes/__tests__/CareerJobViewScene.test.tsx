@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { CareerJobResponse } from "@/lib/career/api";
 
 import { CareerJobView } from "../../CareerJobView";
+import { CAREER_THEME_IDS } from "../../themes";
 import { MUST, NICE } from "./sceneTestUtils";
 
 const job = (theme: string | undefined, must = MUST, nice = NICE): CareerJobResponse => ({
@@ -34,8 +35,18 @@ describe("strona rekrutacji ze sceną roli", () => {
     expect(container.querySelector(".kr-cta-mobile")).toBeNull();
   });
 
-  it("szablon bez gotowej sceny i rekrutacja bez wymagań — strona jak dotąd", () => {
-    for (const data of [job("radar"), job("terminal", [], [])]) {
+  it("każdy z 12 szablonów ma scenę; nieznany szablon = Terminal", () => {
+    for (const id of CAREER_THEME_IDS) {
+      const { container, unmount } = view(job(id));
+      expect(container.querySelector(`[data-kr-scene="${id}"]`), id).not.toBeNull();
+      unmount();
+    }
+    const { container } = view(job("nie-ma-takiego"));
+    expect(container.querySelector('[data-kr-scene="terminal"]')).not.toBeNull();
+  });
+
+  it("rekrutacja bez wymagań i mile widzianych — strona jak przed scenami", () => {
+    for (const data of [job("radar", [], []), job("terminal", [], [])]) {
       const { container, unmount } = view(data);
       expect(container.querySelector(".kr-scene")).toBeNull();
       expect(container.querySelector("[data-kr-with-scene]")).toBeNull();

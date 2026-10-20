@@ -100,7 +100,7 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
       {confirmDialog}
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold">Benchmarki stawek</h1>
+          <h1 className="text-xl font-semibold">Stawki rynkowe</h1>
           <p className="text-sm text-muted-foreground">
             Stawki rynkowe z raportów branżowych (Hays, No Fluff Jobs, Just Join
             IT). Używane przez kartę Benchmark na stronie każdego kontraktu.

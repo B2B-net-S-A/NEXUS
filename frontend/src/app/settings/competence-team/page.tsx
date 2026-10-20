@@ -22,7 +22,7 @@ export default function CompetenceTeamPage() {
     <div className="mx-auto max-w-[1400px] space-y-5 p-4 md:p-6">
       <div>
         <h1 className="text-2xl font-bold tracking-[-0.02em] text-foreground">
-          Kategorie kompetencji zespołu
+          Kategorie kompetencji
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Automat przydziela requesty P1 najpierw osobom z 1. priorytetem kategorii, potem z
