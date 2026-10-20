@@ -12,6 +12,7 @@ import type {
   CycleScope,
   Debrief,
   DebriefInput,
+  PairDebriefInput,
   SlotRequest,
   SupersededOutlook,
 } from "@/lib/interview-cycle";
@@ -98,6 +99,24 @@ export const interviewCycleApi = {
   saveDebrief: (eventId: number, body: DebriefInput) =>
     api
       .put<Debrief>(`/api/interview-cycle/events/${eventId}/debrief`, body)
+      .then((r) => r.data),
+  /** Pytania z rozmowy bez wskazania wydarzenia (20.10.2026). */
+  savePairDebrief: (candidateId: number, jobId: number, body: PairDebriefInput) =>
+    api
+      .put<Debrief>(`/api/interview-cycle/pairs/${candidateId}/${jobId}/debrief`, body)
+      .then((r) => r.data),
+  /** Termin rozmowy u klienta z okna przesunięcia karty (20.10.2026). */
+  createClientInterview: (body: {
+    candidate_id: number;
+    job_id: number;
+    start: string;
+    duration_minutes: number;
+  }) =>
+    api
+      .post<{ event_id: number; start: string; end: string | null }>(
+        "/api/interview-cycle/client-interviews",
+        body,
+      )
       .then((r) => r.data),
   clientQuestions: (jobId: number) =>
     api

@@ -16,7 +16,10 @@ Dopisek to:
   „[active / Jan”) — zapis z Traffita z 18.08.2026;
 - ``zatrudnion*`` w dowolnym miejscu (reguła z 0165);
 - słowo statusu bez nawiasu wyłącznie na KRAWĘDZI pola („ACTIVE Jan”,
-  „Kowalski passive”); samo „Active” i „Activision” zostają.
+  „Kowalski passive”); samo „Active” i „Activision” zostają;
+- od 20.10.2026 (0481): klamry ``{...}`` jak nawiasy, nawias kwadratowy albo
+  klamra bez pary („[Jan”), emoji i znak łączący emoji („Jan ☁️”, „?‍? Jan”
+  — emoji zepsute do znaków zapytania przy imporcie).
 
 Z tej samej funkcji korzystają: mapper Traffita (import nie przywróci tego,
 co zdjęła migracja 0436), odmowa 422 przy ręcznym wpisie, zdejmowanie na
@@ -30,6 +33,7 @@ czyta ``:`` w ``(?:`` jako parametr bindowany.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Optional
 
 NAME_MARKER_ERROR_TYPE = "candidate_name_marker"
@@ -76,6 +80,9 @@ _STATUS_WORD_ALTERNATIVES = "|".join(
         r"aktywn[yaei]",
         r"passive",
         r"active",
+        # Literówka z Traffita („[acive/ Jan”, 20.10.2026) — tylko zdjęcie,
+        # bez „szuka aktywnie” (``_ACTIVE_WORD_RE`` jej nie zna).
+        r"acive",
         r"zatrudnion(ego|ej|ych|ymi|[yaieą])?",
         r"zatrunion(ego|ej|ych|ymi|[yaieą])?",
         r"zaakceptowan" + _TAIL,
@@ -128,8 +135,26 @@ _BARE_EDGE_SUFFIX_RE = re.compile(
 )
 
 # Pełna para nawiasów bez zagnieżdżenia; zagnieżdżone schodzą od środka
-# w kolejnych przebiegach `_strip_bracket_segments`.
-_BRACKET_SEGMENT_RE = re.compile(r"\[([^\[\]()]*)\]|\(([^\[\]()]*)\)")
+# w kolejnych przebiegach `_strip_bracket_segments`. Klamry od 0481
+# („{ } Jan” z Traffita, 20.10.2026).
+_BRACKET_SEGMENT_RE = re.compile(
+    r"\[([^\[\]{}()]*)\]|\(([^\[\]{}()]*)\)|\{([^\[\]{}()]*)\}"
+)
+
+# Nawias kwadratowy i klamra nie należą do żadnego imienia, więc zostające po
+# parach („[Jan”, „Jan]”) to resztka dopisku. Okrągły bez pary zostaje — bywa
+# uciętym drugim nazwiskiem albo stanowiskiem i wymaga człowieka.
+_STRAY_BRACKET_RE = re.compile(r"[\[\]{}]")
+
+# Emoji w imieniu („Kowalski ☁️”): symbole (kategoria Unicode ``So``), znak
+# łączący emoji (ZWJ) i selektory wariantu. Łączone znaki diakrytyczne
+# („o” + U+0301) zostają — to litery imienia zapisane w rozkładzie.
+_EMOJI_JOINERS = frozenset("\u200d\ufe0e\ufe0f")
+# Emoji zepsute przy imporcie do „?” („?‍? Jan”): token z samych znaków
+# zapytania na krawędzi pola. Sam „?” (zastępnik pustego pola z 0232/0436)
+# zostaje, bo zdejmujemy go tylko, gdy obok jest realny tekst.
+_QUESTION_TOKEN_PREFIX_RE = re.compile(r"^\s*\?+\s+")
+_QUESTION_TOKEN_SUFFIX_RE = re.compile(r"\s+\?+\s*$")
 
 # Wykrywanie czarnej listy decyduje o `status`, więc ogranicznik jest WYMAGANY
 # dokładnie jak przy zdejmowaniu — bez niego nazwisko „Blacklista” dawało
@@ -194,7 +219,7 @@ def _strip_bracket_segments(value: str, found: list[str]) -> str:
     cleaned = value
 
     def _replace(match: re.Match[str]) -> str:
-        content = match.group(1) if match.group(1) is not None else match.group(2)
+        content = next(group for group in match.groups() if group is not None)
         if _is_marker_content(content):
             found.append(match.group(0).strip())
             return " "
@@ -207,6 +232,42 @@ def _strip_bracket_segments(value: str, found: list[str]) -> str:
         if updated == cleaned:
             break
         cleaned = updated
+    return cleaned
+
+
+def _strip_stray_brackets(value: str, found: list[str]) -> str:
+    """Zdejmij ``[ ] { }`` bez pary; para, która została („[Kowalska]”), zostaje."""
+    paired = _BRACKET_SEGMENT_RE.sub(lambda m: " " * len(m.group(0)), value)
+    stray = [
+        index for index, char in enumerate(paired) if _STRAY_BRACKET_RE.match(char)
+    ]
+    if not stray:
+        return value
+    found.extend(value[index] for index in stray)
+    chars = list(value)
+    for index in stray:
+        chars[index] = " "
+    return "".join(chars)
+
+
+def _strip_emoji(value: str, found: list[str]) -> str:
+    """Zdejmij emoji i znaki łączące; potem „?” po zepsutym emoji na krawędzi."""
+    symbols = {
+        char
+        for char in value
+        if char in _EMOJI_JOINERS or unicodedata.category(char) == "So"
+    }
+    if not symbols:
+        return value
+    # Sam znak łączący bez symbolu też jest śladem emoji — zapisz go wtedy.
+    found.extend(sorted(symbols - _EMOJI_JOINERS) or sorted(symbols))
+    cleaned = "".join(char for char in value if char not in symbols)
+    for pattern in (_QUESTION_TOKEN_PREFIX_RE, _QUESTION_TOKEN_SUFFIX_RE):
+        match = pattern.search(cleaned)
+        candidate = pattern.sub(" ", cleaned, count=1)
+        if match is not None and _has_real_name_text(candidate):
+            found.append(match.group(0).strip())
+            cleaned = candidate
     return cleaned
 
 
@@ -263,19 +324,23 @@ def strip_name_markers(value: Optional[str]) -> tuple[str, list[str]]:
     if len(value) > MAX_SCANNED_NAME_LENGTH:
         return value, []
     found: list[str] = []
+    # 0. Emoji i „?” po zepsutym emoji (0481).
+    cleaned = _strip_emoji(value, found)
     # 1. Pełne pary nawiasów — przed regułami statusu, bo „(zaakceptowany
     #    przez klienta)” musi zniknąć w całości, a nie od „(” do pierwszego słowa.
-    cleaned = _strip_bracket_segments(value, found)
+    cleaned = _strip_bracket_segments(cleaned, found)
     # 2. „zatrudnion*” w dowolnym miejscu (reguła z 0165).
     found += [m.group(0).strip() for m in _EMPLOYMENT_MARKER_RE.finditer(cleaned)]
     cleaned = _EMPLOYMENT_MARKER_RE.sub(" ", cleaned)
     # 3. Słowo statusu przy ograniczniku bez pary.
     found += [m.group(0).strip() for m in _STATUS_MARKER_RE.finditer(cleaned)]
     cleaned = _STATUS_MARKER_RE.sub(" ", cleaned)
+    # 4. Nawias kwadratowy albo klamra bez pary (0481).
+    cleaned = _strip_stray_brackets(cleaned, found)
     found = [marker for marker in found if marker]
     if found:
         cleaned = _normalize_name_marker_spacing(cleaned)
-    # 4. Gołe słowa na krawędzi pola.
+    # 5. Gołe słowa na krawędzi pola.
     cleaned, bare = _strip_bare_edge_markers(cleaned)
     found += bare
     if not found:

@@ -82,7 +82,9 @@ export function ClientAcceptedDialog({
   const [acceptedOn, setAcceptedOn] = useState(() => warsawToday());
   const [plannedStartOn, setPlannedStartOn] = useState("");
   const [clientNote, setClientNote] = useState("");
-  const [debriefEventId, setDebriefEventId] = useState<number | null>(null);
+  // Otwarte okno pytań: `eventId = null` — rozmowy nie ma w kalendarzu
+  // (para bez terminu, 20.10.2026), okno pyta, kiedy była.
+  const [debriefFor, setDebriefFor] = useState<{ eventId: number | null } | null>(null);
   // Pole notatki ruszone ręcznie — werdykt z serwera go już nie nadpisuje.
   const noteTouched = useRef(false);
 
@@ -93,7 +95,7 @@ export function ClientAcceptedDialog({
     setPlannedStartOn("");
     setClientNote(initialNote ?? "");
     noteTouched.current = Boolean(initialNote);
-    setDebriefEventId(null);
+    setDebriefFor(null);
   }, [open, candidateId, initialNote]);
 
   // Zapis akceptacji nadpisuje werdykt klienta tej pary — pole startuje od
@@ -236,8 +238,12 @@ export function ClientAcceptedDialog({
                     {debriefHint} — bez niego akceptacja się nie zapisze.
                   </span>
                 </span>
-                {debriefAction?.kind === "open_debrief" && debriefAction.event_id != null && (
-                  <Button size="sm" variant="outline" onClick={() => setDebriefEventId(debriefAction.event_id ?? null)}>
+                {debriefAction?.kind === "open_debrief" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setDebriefFor({ eventId: debriefAction.event_id ?? null })}
+                  >
                     Uzupełnij debrief
                   </Button>
                 )}
@@ -320,17 +326,18 @@ export function ClientAcceptedDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {debriefEventId != null && (
+      {debriefFor != null && (
         <DebriefRequiredDialog
           open
           onOpenChange={(next) => {
-            if (!next) setDebriefEventId(null);
+            if (!next) setDebriefFor(null);
           }}
-          eventId={debriefEventId}
+          eventId={debriefFor.eventId}
+          candidateId={candidateId}
           candidateName={candidateName}
           jobId={jobId}
           onSaved={() => {
-            setDebriefEventId(null);
+            setDebriefFor(null);
             void requirements.refetch();
           }}
         />

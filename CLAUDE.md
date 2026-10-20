@@ -241,7 +241,7 @@ Lista i profil kandydata, słowa kluczowe, kolejność „Dopasowanie”, Talent
 - `dwa-silniki-wyszukiwania-jedna-semantyka-filtrow.md` — Dwa silniki wyszukiwania — jedna semantyka filtrów (09.2026)
 - `ekran-kandydaci-i-profil-kandydata-uproszczenie.md` — Ekran „Kandydaci” i profil kandydata — uproszczenie (22.09.2026)
 - `filtr-rekrutacje-bral-nie-bral-bez-procesu.md` — Blok „Rekrutacje” w filtrze „Rekrutacje i historia”: brał / nie brał udziału, bez procesu w toku (12.10.2026) · odpowiednik „Nieprzypisany” z Traffita, zakres klienta, cztery pola stanu
-- `imie-bez-dopiskow.md` — Imię i nazwisko bez dopisków (D6, 13.10.2026) · dopiski z Traffita w imieniu, `candidate_name_rules`, 422 przy ręcznym wpisie, migracja 0436
+- `imie-bez-dopiskow.md` — Imię i nazwisko bez dopisków (D6, 13.10.2026) · dopiski z Traffita w imieniu, `candidate_name_rules`, 422 przy ręcznym wpisie, migracje 0436 i 0481 (klamry, nawias bez pary, emoji)
 - `indeks-wektorowy-dryf-degradacja-i-pula-ofert.md` — Indeks wektorowy: dryf, degradacja i pula ofert (18.09.2026)
 - `kolejnosc-dopasowanie-i-gorne-pole-listy.md` — Kolejność „Dopasowanie” i górne pole listy (25.09.2026)
 - `moi-ludzie-lista-rekrutera-dzwonek-przy-nowej.md` — „Moi ludzie" — lista rekrutera, dzwonek przy nowej rekrutacji, postać w rogu (21.09.2026)
@@ -368,6 +368,7 @@ Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archi
 - `kalendarz-rozmowy-u-klienta.md` — Kalendarz = „Rozmowy u klienta” (0338, 22.09.2026)
 - `prepy-w-teams-transkrypt-notatka-i-ocena-prepu.md` — Prepy w Teams → transkrypt, notatka i ocena prepu (0370, 23.09.2026)
 - `przeniesienie-rekrutacji-z-traffita-falami.md` — Przeniesienie rekrutacji z Traffita do NEXUSA falami (11.10.2026) · próba i wykonanie fali, lista osób per stan = źródło prawdy, bliźniaki, duplikaty
+- `pytania-z-rozmowy-bez-terminu.md` — Pytania z rozmowy u klienta także bez terminu w NEXUSIE (20.10.2026) · „Kiedy rozmowa?” przy ruchu, `questions_missing` po 24 h, debrief pary bez wydarzenia, bramka przed „Umową” dla każdej pary z etapem rozmowy, podpowiedź z notatki
 - `traffit-daily-sync-scheduled-import.md` — Traffit daily sync (scheduled import) · wyłączony na stałe 14.10.2026 (`traffit_retired.py`, 410) — co zostało tylko w Traffit
 
 ### Ludzie w NEXUSIE — `docs/claude/ludzie/`

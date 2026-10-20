@@ -71,3 +71,6 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   zostają Outlookowi. Synchronizacja działa tylko dla osób z połączonym M365.
 - Harness `/preview/calendar-cycle` (`?as=dl`) — dane fikcyjne, zero zapytań
   (dane agendy przez `dataOverride`, reszta zasiana w cache).
+- **Od 20.10.2026 rozmowę zakłada też ruch karty („Kiedy rozmowa?”) i zapis
+  pytań bez terminu**, a bramka przed „Umową” obejmuje każdą parę z etapem
+  rozmowy — `pytania-z-rozmowy-bez-terminu.md`.
