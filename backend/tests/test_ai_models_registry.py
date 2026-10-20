@@ -154,6 +154,8 @@ DECISION_2026_09_16 = {
     # F32 — 20.10.2026: terminy rozmowy u klienta z wklejonego maila.
     AIFeatureKey.interview_slots_from_mail: ("F32", "claude-sonnet-5"),
     AIFeatureKey.expense_document_read: ("F33", "claude-sonnet-5"),
+    # F34 — 20.10.2026: „Po rozmowie” — pytania i oferta z notatki z telefonu.
+    AIFeatureKey.debrief_from_text: ("F34", "gpt-6-luna"),
 }
 
 

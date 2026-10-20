@@ -368,7 +368,7 @@ export function PlacementsStrip({
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">Żaden placement nie czeka na termin premii.</p>
       ) : (
-        <ul className="grid gap-3 md:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {rows.map((row) => {
             const percent = progressPercent(row.business_days_elapsed, row.business_days_required);
             return (

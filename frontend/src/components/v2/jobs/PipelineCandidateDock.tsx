@@ -1640,41 +1640,6 @@ export function PipelineCandidateDock({
           </button>
         </div>
 
-        {queueEnd && (queueEnd.onFirst || queueEnd.showAll || queueEnd.next) ? (
-          <div
-            role="status"
-            aria-label="Koniec kolejki"
-            data-testid="dock-queue-end"
-            className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted px-2.5 py-1.5 text-[11.5px] leading-snug text-muted-foreground"
-          >
-            <span className="w-full">
-              {queueEnd.count === 1
-                ? "To jedyna osoba w kolejce."
-                : `To ostatnia z ${queueEnd.count} osób w kolejce.`}
-            </span>
-            {queueEnd.onFirst ? (
-              <button type="button" onClick={queueEnd.onFirst} className={QUEUE_END_ACTION}>
-                Od pierwszej
-              </button>
-            ) : null}
-            {queueEnd.showAll ? (
-              <button type="button" onClick={queueEnd.showAll.onClick} className={QUEUE_END_ACTION}>
-                {queueEnd.showAll.label}
-              </button>
-            ) : null}
-            {queueEnd.next ? (
-              <button
-                type="button"
-                onClick={queueEnd.next.onClick}
-                className={cn(QUEUE_END_ACTION, "inline-flex items-center gap-0.5")}
-              >
-                {queueEnd.next.label}
-                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
         {closedNotice ? (
           <div
             role="status"
@@ -1822,6 +1787,44 @@ export function PipelineCandidateDock({
         )}
         data-testid="dock-actions"
       >
+        {/* Koniec kolejki (D4) stoi tu, nie w pasku osoby: w wąskim doku pasek
+            osoby nie przewija się, a te dwie linie zjadały sekcjom 61 px
+            (1280 × 650, e2e „wąski dok osoby przewija się w całości”). */}
+        {queueEnd && (queueEnd.onFirst || queueEnd.showAll || queueEnd.next) ? (
+          <div
+            role="status"
+            aria-label="Koniec kolejki"
+            data-testid="dock-queue-end"
+            className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted px-2.5 py-1.5 text-[11.5px] leading-snug text-muted-foreground"
+          >
+            <span className="w-full">
+              {queueEnd.count === 1
+                ? "To jedyna osoba w kolejce."
+                : `To ostatnia z ${queueEnd.count} osób w kolejce.`}
+            </span>
+            {queueEnd.onFirst ? (
+              <button type="button" onClick={queueEnd.onFirst} className={QUEUE_END_ACTION}>
+                Od pierwszej
+              </button>
+            ) : null}
+            {queueEnd.showAll ? (
+              <button type="button" onClick={queueEnd.showAll.onClick} className={QUEUE_END_ACTION}>
+                {queueEnd.showAll.label}
+              </button>
+            ) : null}
+            {queueEnd.next ? (
+              <button
+                type="button"
+                onClick={queueEnd.next.onClick}
+                className={cn(QUEUE_END_ACTION, "inline-flex items-center gap-0.5")}
+              >
+                {queueEnd.next.label}
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* 19.10.2026: powód odrzucenia / rezygnacji od razu po otwarciu osoby
             z kolumny zamkniętych — także w widoku „Rozwiń”. */}
         <DockClosedReason item={item} />

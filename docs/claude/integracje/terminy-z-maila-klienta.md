@@ -74,3 +74,44 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
   terminie = 422.
 - Pominięcie Prepu 2 (0482) bez zmian — okno tylko o nim przypomina.
 
+## PR 3 — wybór rekrutera = rozmowa w kalendarzu, DL odpisuje klientowi (0487)
+
+- **`choose` od razu potwierdza** (`interview_slots.confirm`: rozmowa
+  `client_interview` w kalendarzu rekrutera, blokada w jego Outlooku jak przy
+  potwierdzeniu DL-a) i ustawia `client_reply_pending`. Wyłącznik
+  `SLOT_CHOICE_CONFIRMS` (domyślnie włączony; OFF = jak przed 0487).
+- **Wyjątek — możliwe przełożenie:** gdy para ma nieodbytą zaplanowaną
+  rozmowę (`replaceable_interviews`), wybór czeka na DL-a jak dotąd — okno
+  potwierdzenia pyta, czy to przełożenie (reguła 26.09.2026).
+- **Zadanie `slots_reply` „Odpisz klientowi”** dla autora wniosku (DL; w
+  zakresie „jobs” widzi je też DL rekrutacji), do startu rozmowy. Okno
+  `ClientReplyDialog`: gotowy tekst do skopiowania (`lib/client-reply.ts`,
+  imię i nazwisko w mianowniku), „Wysłane klientowi”
+  (`POST …/slots/{id}/client-replied`, idempotentne) i „Klient wybrał inny
+  termin” (`POST …/slots/{id}/change`: inny termin TEGO wniosku, także godzina
+  w oknie; nowa rozmowa, stara odwołana razem z blokadą w Outlooku, rekruter
+  dostaje powiadomienie; prepy zostają — prep po rozmowie ekran pokaże jako
+  „przełóż”). Obie trasy: role i członkostwo jak potwierdzenie.
+- Flaga zamiast „brak daty odpowiedzi”: wnioski potwierdzone przed 0487 mają
+  `client_reply_pending = false` i nie stają się zaległymi zadaniami.
+  Potwierdzenie przez DL-a (stara ścieżka) od razu odhacza odpowiedź.
+- Migracja 0487 stoi po 0486 z PR-a „Zgody” (rozliczenie wydatków) — lustro
+  kolumn w `entrypoint.sh`.
+
+## PR 4 — „Co mówił kandydat” w oknie debriefu (0488)
+
+- **Jedno pole na notatkę z telefonu po rozmowie** (`DebriefFromNote` na górze
+  `DebriefDialog`, poza trybem tylko do odczytu). „Rozpisz na pola” =
+  `POST /api/interview-cycle/debrief/from-text` (bramka jak zapis debriefu,
+  integracja = 403, niczego nie zapisuje; zawsze 200 ze `status`).
+- **Model F34 `debrief_from_text`** (GPT-6 Luna z zapasem Sonnet 5, jak F25):
+  pytania klienta, gotowość do oferty z warunkiem, nowa stawka i start — każdy
+  element z cytatem. **Kontrola kodu** (`debrief_from_text.check_parse`):
+  element bez cytatu z notatki odpada; kwota stawki tylko, gdy ta liczba stoi
+  w notatce (także „16 000”); duplikaty pytań łączone, najwyżej 30.
+- **Wypełnia tylko puste pola:** pytania są dopisywane (`mergeQuestions`,
+  limit debriefu), oferta i warunek tylko, gdy nie są zaznaczone, stawka tylko,
+  gdy „bez zmian”, komentarz kandydata = notatka (+ „Start: …”), gdy pusty.
+  „Jak poszło?” zostaje kliknięciem rekrutera. Zapis to zwykły debrief —
+  bank pytań klienta, bramka przed „Umową” i powiadomienie DL-a bez zmian.
+

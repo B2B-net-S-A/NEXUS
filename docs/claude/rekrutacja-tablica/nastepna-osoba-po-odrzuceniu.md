@@ -86,7 +86,9 @@ wszystkie D1–D5, wdrażaj”.
   „To ostatnia z N osób w kolejce.” ma „Od pierwszej”, „Wszyscy (M)”
   (gdy filtr coś schował) i „Dalej: <kolumna> (K) ›” — do pierwszej kolumny
   na prawo, w której ktoś jest (z filtrem). Jedna osoba bez dalszych kroków —
-  bez paska.
+  bez paska. Pasek stoi na górze `dock-actions`, nie w pasku osoby: w wąskim
+  doku pasek osoby się nie przewija, a te dwie linie zabierały sekcjom 61 px
+  przy 1280 × 650 (20.10.2026, `duzy-podglad-po-lewej-stronie-panelu-osoby.md`).
 - **Filtr „Kto dodał” (D2).** Jeden przycisk w linii faktów nagłówka
   rekrutacji (`JobDetailCompactHeader.factsTrailing`, tylko na Tablicy), nie
   pasek filtrów. Menu: „Wszyscy”, „Ty” (zawsze, z zerem wyszarzone), pozostałe

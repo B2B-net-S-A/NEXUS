@@ -68,7 +68,12 @@ from app.models.job import Job
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
-from app.services import client_interview_entry, interview_slot_mail, interview_slots
+from app.services import (
+    client_interview_entry,
+    debrief_from_text,
+    interview_slot_mail,
+    interview_slots,
+)
 from app.services.candidate_claim import is_integration_request
 from app.services.interview_cycle import load_overview
 from app.services.debrief_gate import interview_not_started_message
@@ -131,6 +136,12 @@ class SlotRequestOut(BaseModel):
     # Pipeline v4: terminy od klienta przesunęły kartę na „Rozmowa u klienta”
     # (tylko w odpowiedzi na utworzenie wniosku).
     moved_to_client_interview: bool = False
+    # 0487: rozmowa wpisana przy wyborze rekrutera — DL ma odpisać klientowi.
+    client_reply_pending: bool = False
+    client_replied_at: Optional[datetime] = None
+    # Tylko w odpowiedzi na wybór, który od razu potwierdził termin: stan
+    # blokady w Outlooku rekrutera (added | skipped | failed | not_requested).
+    outlook: Optional[str] = None
     # Runda 10 (F09): powód, dla którego automat ŚWIADOMIE zostawił kartę
     # (`cv_not_sent` — CV nie zostało jeszcze wysłane do klienta; albo kod
     # blokady kwalifikacji). `None`, gdy karta pojechała albo już jest dalej.
@@ -398,6 +409,8 @@ def _slot_out(req: ClientInterviewSlotRequest) -> SlotRequestOut:
         duration_minutes=req.duration_minutes,
         note=req.note,
         event_id=req.event_id,
+        client_reply_pending=bool(req.client_reply_pending),
+        client_replied_at=req.client_replied_at,
     )
 
 
@@ -817,19 +830,60 @@ async def choose_slot(
     await _ensure_recruiter(db, current_user, req)
     interview_slots.choose(req, body.index, user_id=current_user.id, start=body.start)
     await db.flush()
+    # 0487 (decyzja Artura 20.10.2026): wybór rekrutera od razu wpisuje
+    # rozmowę do kalendarza, a DL tylko odpisuje klientowi. Gdy para ma już
+    # zaplanowaną rozmowę, nowy termin może być jej przełożeniem — o tym
+    # decyduje DL w oknie potwierdzenia, jak dotąd (reguła 26.09.2026).
+    auto_confirm = settings.SLOT_CHOICE_CONFIRMS and not (
+        await interview_slots.replaceable_interviews(db, req)
+    )
+    event = None
+    outlook: Optional[str] = None
+    if auto_confirm:
+        event, outlook, _ = await interview_slots.confirm(
+            db, req, user_id=current_user.id, index=None, add_to_outlook=True
+        )
+        req.client_reply_pending = True
+        title = "Odpisz klientowi — termin wybrany"
+        message = (
+            "Rekruter ustalił termin z kandydatem i rozmowa jest już w kalendarzu. "
+            "Potwierdź ją klientowi."
+        )
+    else:
+        title = "Kandydat wybrał termin"
+        message = "Rekruter ustalił termin z kandydatem — potwierdź go u klienta."
+    await db.flush()
     for recipient in await interview_slots.slot_owner_recipients(db, req):
         await interview_slots.notify(
             db,
             user_id=recipient,
             ntype=NotificationType.interview_slot_chosen,
             req=req,
-            title="Kandydat wybrał termin",
-            message="Rekruter ustalił termin z kandydatem — potwierdź go u klienta.",
+            title=title,
+            message=message,
+            actor_id=current_user.id,
+        )
+    if event is not None and event.operational_owner_id not in (None, current_user.id):
+        # Termin wybrał ktoś inny niż właściciel rozmowy (np. DL) — rozmowa
+        # trafiła do kalendarza rekrutera, więc rekruter musi o tym wiedzieć
+        # (to samo powiadomienie co po potwierdzeniu DL-a).
+        await interview_slots.notify(
+            db,
+            user_id=event.operational_owner_id,
+            ntype=NotificationType.interview_slot_confirmed,
+            req=req,
+            title="Rozmowa u klienta w Twoim kalendarzu",
+            message=(
+                "Termin rozmowy wybrany z kandydatem jest w Twoim kalendarzu. "
+                "Zaplanuj prepy, jeśli jeszcze ich nie ma."
+            ),
             actor_id=current_user.id,
         )
     await db.commit()
     await db.refresh(req)
-    return _slot_out(req)
+    out = _slot_out(req)
+    out.outlook = outlook
+    return out
 
 
 @router.post(
@@ -851,6 +905,8 @@ async def confirm_slot(
         add_to_outlook=body.add_to_outlook,
         supersedes_event_id=body.supersedes_event_id,
     )
+    # DL potwierdza termin u klienta — odpowiedź do klienta jest za nim.
+    interview_slots.mark_client_replied(req, user_id=current_user.id)
     await interview_slots.notify(
         db,
         # Właściciel rozmowy, nie surowy rekruter wniosku — ten mógł odejść
@@ -873,6 +929,69 @@ async def confirm_slot(
         outlook=outlook,
         cancelled_event_id=body.supersedes_event_id,
         superseded_outlook=superseded_outlook,
+    )
+
+
+class SlotChange(BaseModel):
+    index: int = Field(..., ge=0)
+    # Godzina w oknie klienta (termin z ``window_end``).
+    start: Optional[datetime] = None
+
+
+@router.post(
+    "/interview-cycle/slots/{request_id}/client-replied",
+    response_model=SlotRequestOut,
+)
+async def slot_client_replied(
+    request_id: int,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> SlotRequestOut:
+    """„Wysłane klientowi” (0487): DL potwierdził klientowi wybrany termin."""
+    req = await interview_slots.lock_request(db, request_id)
+    await _ensure_slot_owner(db, current_user, req)
+    interview_slots.mark_client_replied(req, user_id=current_user.id)
+    await db.commit()
+    await db.refresh(req)
+    return _slot_out(req)
+
+
+@router.post(
+    "/interview-cycle/slots/{request_id}/change", response_model=SlotConfirmOut
+)
+async def change_slot(
+    request_id: int,
+    body: SlotChange,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> SlotConfirmOut:
+    """„Klient wybrał inny termin” (0487): inny termin z tego samego wniosku."""
+    req = await interview_slots.lock_request(db, request_id)
+    await _ensure_slot_owner(db, current_user, req)
+    old_event_id = req.event_id
+    event, outlook, old_outlook = await interview_slots.change_confirmed_slot(
+        db, req, user_id=current_user.id, index=body.index, start=body.start
+    )
+    await interview_slots.notify(
+        db,
+        user_id=event.operational_owner_id,
+        ntype=NotificationType.interview_slot_confirmed,
+        req=req,
+        title="Klient zmienił termin rozmowy",
+        message=(
+            "Klient wybrał inny z zaproponowanych terminów — rozmowa w kalendarzu "
+            "jest już przestawiona. Sprawdź godziny prepów."
+        ),
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    await db.refresh(req)
+    return SlotConfirmOut(
+        request=_slot_out(req),
+        event_id=event.id,
+        outlook=outlook,
+        cancelled_event_id=old_event_id,
+        superseded_outlook=old_outlook,
     )
 
 
@@ -1279,6 +1398,65 @@ async def _ensure_pair_writer(
     )
     if not _is_owner(user, recruiter):
         await ensure_job_membership(db, user, job_id)
+
+
+class DebriefFromTextIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=debrief_from_text.TEXT_MAX)
+
+
+class QuotedQuestion(BaseModel):
+    text: str
+    quote: str
+
+
+class QuotedOffer(BaseModel):
+    value: OfferAcceptance
+    condition: Optional[str] = None
+    quote: str
+
+
+class QuotedRate(BaseModel):
+    amount: str
+    unit: Optional[Literal["hourly", "daily", "monthly"]] = None
+    quote: str
+
+
+class QuotedStart(BaseModel):
+    text: str
+    quote: str
+
+
+class DebriefFromTextOut(BaseModel):
+    # ok | empty | unavailable — model nigdy nie daje 5xx.
+    status: str
+    message: Optional[str] = None
+    questions: list[QuotedQuestion] = Field(default_factory=list)
+    offer: Optional[QuotedOffer] = None
+    rate: Optional[QuotedRate] = None
+    start: Optional[QuotedStart] = None
+    dropped: int = 0
+
+
+@router.post("/interview-cycle/debrief/from-text", response_model=DebriefFromTextOut)
+async def debrief_from_note(
+    request: Request,
+    body: DebriefFromTextIn,
+    current_user: RecruitmentAssessmentWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> DebriefFromTextOut:
+    """„Po rozmowie” (20.10.2026): pytania klienta, oferta i stawka z notatki
+    z telefonu do kandydata. Niczego nie zapisuje — wynik wypełnia okno
+    debriefu, które rekruter sprawdza i zapisuje zwykłą trasą."""
+    if is_integration_request(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Notatkę po rozmowie rozpisuje osoba, nie integracja.",
+        )
+    result = await debrief_from_text.read_note(
+        db, text=body.text, user_id=current_user.id
+    )
+    await db.commit()
+    return DebriefFromTextOut(**result)
 
 
 @router.post("/interview-cycle/client-interviews", response_model=ClientInterviewOut)

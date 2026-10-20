@@ -140,6 +140,8 @@ class SlotRef:
     duration_minutes: int
     note: Optional[str]
     event_id: Optional[int]
+    # 0487: rozmowa wpisana przy wyborze rekrutera, DL jeszcze nie odpisał klientowi.
+    client_reply_pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -569,6 +571,7 @@ TodoKind = Literal[
     "questions_missing",
     "slots_pick",
     "slots_confirm",
+    "slots_reply",
     "prep_missing",
     "prep2_missing",
     "prep_late",
@@ -583,6 +586,7 @@ _TODO_PRIORITY = {
     "questions_missing": 1,
     "slots_pick": 2,
     "slots_confirm": 3,
+    "slots_reply": 3,
     "prep_missing": 4,
     "prep_late": 4,
     "precall_due": 4,
@@ -664,6 +668,26 @@ def compute_todos(
             add(
                 "slots_confirm",
                 due=chosen["start"] if chosen else None,
+                slot_request_id=req.id,
+                owner_id=req.created_by,
+            )
+
+    # 0487: rozmowa już w kalendarzu z wyboru rekrutera — DL odpisuje
+    # klientowi. Po starcie rozmowy odpowiedź nie ma już sensu.
+    if (
+        req is not None
+        and req.status == SLOT_STATUS_CONFIRMED
+        and req.client_reply_pending
+        and (is_dl_view or req.created_by in me)
+    ):
+        chosen = _chosen_slot(req)
+        chosen_start = (
+            _as_utc(datetime.fromisoformat(chosen["start"])) if chosen else None
+        )
+        if chosen_start is None or chosen_start > now:
+            add(
+                "slots_reply",
+                due=chosen_start,
                 slot_request_id=req.id,
                 owner_id=req.created_by,
             )
@@ -821,6 +845,7 @@ def slot_ref(req: ClientInterviewSlotRequest) -> SlotRef:
         duration_minutes=req.duration_minutes,
         note=req.note,
         event_id=req.event_id,
+        client_reply_pending=bool(req.client_reply_pending),
     )
 
 

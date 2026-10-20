@@ -148,7 +148,7 @@ export function PickInterviewDialog({
   const submit = useMutation({
     mutationFn: async (withPreps: boolean) => {
       if (!request || index == null || !start) throw new Error("no-slot");
-      await interviewCycleApi.chooseSlot(request.id, index, slot && isWindow(slot) ? start : null);
+      const chosen = await interviewCycleApi.chooseSlot(request.id, index, slot && isWindow(slot) ? start : null);
       const failed: string[] = [];
       if (withPreps && pair) {
         for (const p of toInvite) {
@@ -172,19 +172,28 @@ export function PickInterviewDialog({
           }
         }
       }
-      return { failed, invited: withPreps ? toInvite.length - failed.length : 0 };
+      return {
+        failed,
+        invited: withPreps ? toInvite.length - failed.length : 0,
+        // 0487: wybór od razu wpisuje rozmowę do kalendarza (chyba że to możliwe przełożenie).
+        inCalendar: chosen?.status === "confirmed",
+        outlookFailed: chosen?.outlook === "failed",
+      };
     },
-    onSuccess: ({ failed, invited }) => {
+    onSuccess: ({ failed, invited, inCalendar, outlookFailed }) => {
       onInvalidate();
       qc.invalidateQueries({ queryKey: ["interview-cycle", "preps"] });
-      if (failed.length) {
-        toast.showError(`Termin wybrany. ${failed.join(" ")} Zaplanuj go z panelu osoby.`);
-      } else {
-        toast.showSuccess(
-          invited > 0
-            ? `Termin wysłany do DL, zaproszenia na prepy wysłane (${invited}).`
-            : "Termin wysłany do DL — potwierdzi go u klienta.",
+      const head = inCalendar
+        ? "Rozmowa jest w kalendarzu — DL potwierdzi ją klientowi."
+        : "Termin wysłany do DL — potwierdzi go u klienta.";
+      if (outlookFailed) {
+        toast.showError(
+          `${head} Blokady nie udało się dodać do Outlooka rekrutera — rozmowa jest tylko w NEXUSIE.`,
         );
+      } else if (failed.length) {
+        toast.showError(`${head} ${failed.join(" ")} Zaplanuj go z panelu osoby.`);
+      } else {
+        toast.showSuccess(invited > 0 ? `${head} Zaproszenia na prepy wysłane (${invited}).` : head);
       }
       onOpenChange(false);
     },
