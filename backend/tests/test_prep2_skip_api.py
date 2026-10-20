@@ -193,21 +193,28 @@ async def test_other_reason_needs_words_and_call_must_be_before_interview(
         )
 
 
-async def test_role_without_candidate_access_cannot_skip(app_client: AsyncClient):
-    # Te same bramki co planowanie prepu (`POST /preps`): rekrutacje widzą
-    # wszyscy z zespołu rekrutacji (23.09.2026), Finanse — nie.
-    _rec_h, _dl_id, _dl_h, job_id, cand_id, _iv = await _pair_with_prep1(
+async def test_only_people_of_the_pair_can_skip(app_client: AsyncClient):
+    """Pominięcie zwalnia konkretną rozmowę z prepu — zapisują je ludzie pary.
+
+    Bramki `POST /preps` wpuszczały Finanse i rekrutera spoza rekrutacji
+    (CI 20.10.2026: 201 zamiast 403)."""
+    _rec_h, _dl_id, dl_h, job_id, cand_id, _iv = await _pair_with_prep1(
         interview_in=timedelta(hours=3)
     )
-    _other_id, other_h = await _user(UserRole.finance)
-    resp = await app_client.post(
-        "/api/interview-cycle/prep2-skip",
-        headers=other_h,
-        json={
-            "candidate_id": cand_id,
-            "job_id": job_id,
-            "reason": "no_slot",
-            "call_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
-        },
+    body = {
+        "candidate_id": cand_id,
+        "job_id": job_id,
+        "reason": "no_slot",
+        "call_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+    }
+    for role in (UserRole.recruiter, UserRole.finance):
+        _other_id, other_h = await _user(role)
+        resp = await app_client.post(
+            "/api/interview-cycle/prep2-skip", headers=other_h, json=body
+        )
+        assert resp.status_code == 403, (role, resp.text)
+
+    by_dl = await app_client.post(
+        "/api/interview-cycle/prep2-skip", headers=dl_h, json=body
     )
-    assert resp.status_code == 403, resp.text
+    assert by_dl.status_code == 201, by_dl.text

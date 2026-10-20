@@ -14,9 +14,12 @@ z warunkami, a telefon do kandydata przed rozmową jest obowiązkowy.
   ma w kalendarzu. Odmowy: `too_early`, `prep1_missing`, `prep1_weak` → 422
   z `detail.code = PREP2_SKIP_<STATUS>`, drugi zapis → 409. Przy rozmowie
   dalej nie ma przycisku, tylko zdanie „jest czas na Prep 2”.
-- **Zapis** `POST /api/interview-cycle/prep2-skip` (bramki jak
-  `POST /preps`: sekcja Pipeline, zapis kalendarza, członkostwo w
-  rekrutacji). Powód z listy (`no_slot`, `short_notice`, `prep1_covered`,
+- **Zapis** `POST /api/interview-cycle/prep2-skip`: bramki `POST /preps`
+  (sekcja Pipeline, zapis kalendarza, członkostwo w rekrutacji) i do tego
+  ludzie pary (`prep2_skips.ensure_skip_editor`): rekruter kandydata,
+  prowadzący rozmowę, DL rekrutacji, ich zastępcy, HoR i admin — inaczej
+  zapisywały Finanse i rekruter spoza rekrutacji. To samo przy odhaczeniu
+  telefonu. Powód z listy (`no_slot`, `short_notice`, `prep1_covered`,
   `other` — „inny” wymaga opisu) i `call_at` — telefon do kandydata przed
   rozmową (do 2 h wstecz, zawsze przed startem rozmowy). Tabela
   `prep2_skips`, jeden wpis na rozmowę (`interview_event_id` UNIQUE),

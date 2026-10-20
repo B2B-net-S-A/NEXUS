@@ -36,7 +36,7 @@ from app.models.job import Job
 from app.models.notification import Notification, NotificationType
 from app.models.prep_meeting import Prep2Skip
 from app.models.user import User
-from app.services import interview_cycle
+from app.services import interview_cycle, interview_slots
 from app.services.job_working_title import job_display_title_expr
 
 STATS_WINDOW_DAYS = 30
@@ -73,6 +73,47 @@ async def _snapshot(
     return snaps[(candidate_id, job_id)]
 
 
+NOT_PAIR_PERSON = (
+    "Rozmowę bez Prepu 2 zapisuje rekruter kandydata, prowadzący rozmowę "
+    "albo Delivery Lead rekrutacji."
+)
+
+
+async def ensure_skip_editor(
+    db: AsyncSession,
+    user: User,
+    *,
+    candidate_id: int,
+    job_id: int,
+    interview_owner_id: Optional[int],
+) -> None:
+    """Pominięcie zapisują i odhaczają ludzie pary, nie cały zespół.
+
+    Bramki planowania prepu (``POST /preps``) wpuszczają każdego z dostępem
+    do rekrutacji — także Finanse i rekrutera spoza tej rekrutacji (CI
+    20.10.2026). Tu decyzja zwalnia z prepu konkretną rozmowę, więc stoją za
+    nią: rekruter kandydata, prowadzący rozmowę (właściciel wydarzenia),
+    Delivery Lead rekrutacji, ich zastępcy oraz admin i Head of Recruitment —
+    ta sama reguła co zmiana prepu (``prep_meetings.user_can_edit_prep``).
+    """
+    from app.services.prep_meetings import user_can_edit_prep  # noqa: PLC0415
+
+    job = await db.get(Job, job_id)
+    pair = (candidate_id, job_id)
+    recruiter = (await interview_slots.default_recruiter_ids(db, [pair])).get(pair)
+    ids = {
+        i
+        for i in (
+            interview_owner_id,
+            job.delivery_lead_id if job is not None else None,
+            recruiter,
+        )
+        if i
+    }
+    if not user_can_edit_prep(user, ids):
+        raise HTTPException(status_code=403, detail=NOT_PAIR_PERSON)
+
+
 async def create_skip(
     db: AsyncSession,
     *,
@@ -91,6 +132,14 @@ async def create_skip(
     """
     now = now or datetime.now(timezone.utc)
     snap = await _snapshot(db, candidate_id=candidate_id, job_id=job_id, now=now)
+    upcoming = snap.for_preps().interview
+    await ensure_skip_editor(
+        db,
+        actor,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        interview_owner_id=upcoming.owner_id if upcoming is not None else None,
+    )
     status = interview_cycle.prep2_skip_status(snap, now)
     if status != "allowed":
         raise HTTPException(
@@ -141,6 +190,18 @@ async def mark_call_done(
     note: Optional[str],
     now: Optional[datetime] = None,
 ) -> Prep2Skip:
+    interview = await db.get(CalendarEvent, skip.interview_event_id)
+    await ensure_skip_editor(
+        db,
+        actor,
+        candidate_id=skip.candidate_id,
+        job_id=skip.job_id,
+        interview_owner_id=(
+            (interview.operational_owner_id or interview.created_by)
+            if interview is not None
+            else None
+        ),
+    )
     if skip.call_done_at is not None:
         raise HTTPException(
             status_code=409, detail="Telefon przed rozmową jest już odhaczony."
