@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 
-import { careerHosts, isCareerHost, requestHost } from "@/lib/career/host";
+import { careerHosts, isCareerHost, primaryCareerHost, requestHost } from "@/lib/career/host";
 
 /**
  * `robots.txt` zależny od hosta (etap 6 linków, decyzja D3 Artura 20.10.2026).
@@ -18,6 +18,9 @@ export const dynamic = "force-dynamic";
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const onCareerHost = isCareerHost(requestHost(await headers()), careerHosts());
   return onCareerHost
-    ? { rules: { userAgent: "*", allow: "/" } }
+    ? {
+        rules: { userAgent: "*", allow: "/" },
+        sitemap: `https://${primaryCareerHost()}/sitemap.xml`,
+      }
     : { rules: { userAgent: "*", disallow: "/" } };
 }

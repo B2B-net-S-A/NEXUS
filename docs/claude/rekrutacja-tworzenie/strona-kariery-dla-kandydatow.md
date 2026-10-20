@@ -65,8 +65,10 @@ Reguły, które łatwo cofnąć:
     (data zatwierdzenia, bez godziny), `CONTRACTOR`, B2B Network, miejsce albo
     praca zdalna z Polski. Bez klienta i bez stawek; adres kanoniczny na
     domenie kariery;
-  - mapa strony (`sitemap.xml`) przyjdzie razem z tablicą ofert — potrzebuje
-    listy wszystkich otwartych rekrutacji;
+  - `app/sitemap.ts` zależny od hosta: na domenie kariery strona główna
+    i `/r/<slug>` z listy tablicy (`GET /api/public/career/jobs`, zamknięta
+    rekrutacja znika z listy), w aplikacji pusta mapa; awaria API = sama
+    strona główna. `robots.txt` domeny kariery wskazuje mapę (`Sitemap:`);
   - ikona segmentu kariery (`app/kariera/icon.svg`) zamiast fioletowego logo
     NEXUSA; grafika OG strony głównej (`app/kariera/opengraph-image.tsx`).
 - **Plakat z kodem QR** (etap 3, 19.10.2026): `GET /api/jobs/{id}/public-profile/poster.pdf`
