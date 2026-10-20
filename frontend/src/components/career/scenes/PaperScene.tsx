@@ -23,16 +23,21 @@ export function paperReport(found: number): string {
 
 function Bug({ index, found, onFind }: { index: number; found: boolean; onFind: (i: number) => void }) {
   const bug = PAPER_BUGS[index];
-  if (found) return <span className="kr-paper-ok">{bug.right}</span>;
+  // Zakreślony błąd zostaje tym samym przyciskiem (aria-pressed) — fokus nie ginie.
   return (
     <button
       type="button"
-      className="kr-paper-bug"
+      className={found ? "kr-paper-bug kr-paper-ok" : "kr-paper-bug"}
       data-bug={index}
-      aria-label={`Błąd ${index + 1} z 4: ${bug.what}. Kliknij, żeby zakreślić.`}
+      aria-pressed={found}
+      aria-label={
+        found
+          ? `Błąd ${index + 1} z 4 zakreślony: ${bug.what}.`
+          : `Błąd ${index + 1} z 4: ${bug.what}. Kliknij, żeby zakreślić.`
+      }
       onClick={() => onFind(index)}
     >
-      <span aria-hidden="true">{bug.wrong}</span>
+      <span aria-hidden="true">{found ? bug.right : bug.wrong}</span>
     </button>
   );
 }

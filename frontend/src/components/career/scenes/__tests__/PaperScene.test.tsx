@@ -22,10 +22,10 @@ describe("scena Papier", () => {
     const bug = full.getByRole("button", { name: /^Błąd 1 z 4: literówka w etykiecie hasła/ });
     expect(bug).not.toHaveAccessibleName(/Hsało/);
     fireEvent.click(bug);
-    expect(full.getByText("Hasło")).toHaveClass("kr-paper-ok");
-    fireEvent.click(full.getByRole("button", { name: /^Błąd 2 z 4/ }));
-    fireEvent.click(full.getByRole("button", { name: /^Błąd 3 z 4/ }));
-    fireEvent.click(full.getByRole("button", { name: /^Błąd 4 z 4/ }));
+    expect(full.getByText("Hasło").closest("button")).toHaveClass("kr-paper-ok");
+    fireEvent.click(full.getByRole("button", { name: /^Błąd 2 z 4:/ }));
+    fireEvent.click(full.getByRole("button", { name: /^Błąd 3 z 4:/ }));
+    fireEvent.click(full.getByRole("button", { name: /^Błąd 4 z 4:/ }));
     expect(full.getByText("zgłoszenia: 4/4 — komplet")).toBeInTheDocument();
     expect(full.getByText("Nieprawidłowy login lub hasło")).toBeInTheDocument();
     expect(s.score().getByText("0/5")).toBeInTheDocument();
