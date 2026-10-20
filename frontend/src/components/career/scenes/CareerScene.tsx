@@ -3,17 +3,23 @@
 import type { ComponentType } from "react";
 
 import type { CareerThemeId } from "../themes";
+import { C4Scene } from "./C4Scene";
+import { ConstellationScene } from "./ConstellationScene";
 import { GlitchScene } from "./GlitchScene";
 import { useScene } from "./SceneContext";
 import { GlitchBug, SceneScore } from "./SceneParts";
 import { SequenceScene } from "./SequenceScene";
 import { TerminalScene } from "./TerminalScene";
+import { TopologyScene } from "./TopologyScene";
 
 /** Sceny gotowe w tym wydaniu; reszta szablonów — sam wygląd (kolejne PR-y). */
 const SCENES: Partial<Record<CareerThemeId, ComponentType>> = {
   terminal: TerminalScene,
   sekwencja: SequenceScene,
   glitch: GlitchScene,
+  konstelacja: ConstellationScene,
+  c4: C4Scene,
+  topologia: TopologyScene,
 };
 
 /** Podpis wyniku przy „Aplikuj” — językiem roli. */
@@ -21,6 +27,9 @@ const SCORE_LABELS: Partial<Record<CareerThemeId, string>> = {
   terminal: "Twoje dopasowanie",
   sekwencja: "Komunikaty obsłużone",
   glitch: "Testy zaliczone",
+  konstelacja: "Gwiazdy połączone",
+  c4: "Zaprojektowane",
+  topologia: "Łącza zestawione",
 };
 
 /** Dla testu: mapa scen zgadza się z `CAREER_SCENE_IDS` (model.ts, czytany też na serwerze). */
