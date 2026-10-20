@@ -93,11 +93,11 @@ const suggestions: PrepSuggestions = {
   ],
 };
 
-function renderDialog(onInvalidate = vi.fn()) {
+function renderDialog(onInvalidate = vi.fn(), req: SlotRequest = request) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <PickInterviewDialog open onOpenChange={() => {}} pair={pair} request={request} onInvalidate={onInvalidate} />
+      <PickInterviewDialog open onOpenChange={() => {}} pair={pair} request={req} onInvalidate={onInvalidate} />
     </QueryClientProvider>,
   );
   return screen.getByRole("dialog", { name: "Umów rozmowę i prepy" });
@@ -198,5 +198,30 @@ describe("PickInterviewDialog", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /Wybierz termin i zaproś/ }));
     await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(2));
     expect(mocks.createPrep.mock.calls[1][0].start).toBe("2031-06-12T10:00:00Z");
+  });
+
+  it("bez prepów do zaproszenia przycisk mówi, co się stanie: rozmowa trafia do kalendarza", async () => {
+    mocks.suggestions.mockResolvedValue({ enabled: false, preps: [] });
+    mocks.chooseSlot.mockResolvedValue({ status: "confirmed" });
+    const dialog = renderDialog();
+    expect(within(dialog).queryByRole("button", { name: "Wyślij do DL" })).toBeNull();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    await within(dialog).findByText(/Planowanie prepów w Teams jest wyłączone/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wpisz do kalendarza" }));
+    await waitFor(() => expect(mocks.toast.showSuccess).toHaveBeenCalledWith(expect.stringContaining("w kalendarzu")));
+  });
+
+  it("termin, który już minął, jest wyłączony z podpisem i nie jest zaznaczany sam", () => {
+    const past = new Date(Date.now() - 2 * 3600_000);
+    const req: SlotRequest = {
+      ...request,
+      slots: [{ start: past.toISOString(), end: new Date(past.getTime() + 45 * 60_000).toISOString() }],
+    };
+    const dialog = renderDialog(vi.fn(), req);
+    const radio = within(dialog).getAllByRole("radio", { name: /.+/ })[0];
+    expect(radio).toBeDisabled();
+    expect(radio).not.toBeChecked();
+    expect(within(dialog).getByText(/termin minął/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Wpisz do kalendarza" })).toBeDisabled();
   });
 });

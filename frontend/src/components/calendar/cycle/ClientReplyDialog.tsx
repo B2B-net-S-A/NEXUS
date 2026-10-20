@@ -17,7 +17,7 @@ import {
   slotConfirmedMessage,
   type SlotRequest,
 } from "@/lib/interview-cycle";
-import { hhmm, interviewStart, windowBounds } from "@/lib/interview-pick";
+import { hhmm, interviewStart, slotPassed, windowBounds } from "@/lib/interview-pick";
 import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
@@ -205,13 +205,19 @@ export function ClientReplyDialog({
               {request.slots.map((s, i) => {
                 if (i === request.chosen_index) return null;
                 const bounds = windowBounds(s, request.duration_minutes);
+                // Minionego terminu serwer nie przyjmie (422, audyt 21.10.2026).
+                const passed = slotPassed(s, request.duration_minutes);
                 return (
-                  <div key={`${s.start}-${i}`} className="rounded-md border border-border px-3 py-2 text-sm">
-                    <label className="flex cursor-pointer items-center gap-2">
+                  <div
+                    key={`${s.start}-${i}`}
+                    className={cn("rounded-md border border-border px-3 py-2 text-sm", passed && "opacity-60")}
+                  >
+                    <label className={cn("flex items-center gap-2", passed ? "cursor-not-allowed" : "cursor-pointer")}>
                       <input
                         type="radio"
                         name="client-other-slot"
                         checked={other === i}
+                        disabled={passed}
                         onChange={() => {
                           setOther(i);
                           setWindowTime(bounds?.from ?? "");
@@ -223,6 +229,7 @@ export function ClientReplyDialog({
                           ? `${formatSlot({ start: s.start, end: null })} · okno ${bounds.from}–${hhmm(s.window_end as string)}`
                           : formatSlot(s)}
                       </span>
+                      {passed ? <span className="text-xs text-muted-foreground">· termin minął</span> : null}
                     </label>
                     {bounds && other === i ? (
                       <label className="mt-2 flex items-center gap-2 pl-6 text-xs text-muted-foreground">

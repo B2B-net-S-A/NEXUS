@@ -25,7 +25,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import business_date
+from app.core.scheduling import business_date, local_now
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate import Candidate
 from app.models.client_interview_slot_request import (
@@ -359,6 +359,7 @@ def choose(
         )
     _check_index(req, index)
     pick_in_window(req, index, start)
+    _ensure_slot_ahead(req, index)
     req.chosen_index = index
     req.chosen_at = datetime.now(timezone.utc)
     req.chosen_by = user_id
@@ -368,6 +369,22 @@ def choose(
 def _check_index(req: ClientInterviewSlotRequest, index: int) -> None:
     if not 0 <= index < len(req.slots or []):
         raise HTTPException(status_code=422, detail="Nie ma takiego terminu.")
+
+
+PAST_SLOT_DETAIL = "Ten termin już minął — wybierz przyszły."
+
+
+def _ensure_slot_ahead(req: ClientInterviewSlotRequest, index: int) -> None:
+    """Termin ``index`` jeszcze się nie zaczął (tolerancja jak ``normalize_slots``).
+
+    Wniosek sprawdza terminy tylko przy zapisie, a od 0487 wybór od razu
+    zakłada rozmowę i blokadę w Outlooku — dzień później dało się wybrać
+    termin, który minął, i w kalendarzu stawała „zaplanowana” rozmowa
+    w przeszłości (audyt 21.10.2026). Dotyczy wyboru rekrutera, potwierdzenia
+    DL-a i „Klient wybrał inny termin”.
+    """
+    if _parse(req.slots[index]["start"]) < local_now() - timedelta(minutes=5):
+        raise HTTPException(status_code=422, detail=PAST_SLOT_DETAIL)
 
 
 def _status_conflict(status: str) -> str:
@@ -418,6 +435,7 @@ async def confirm(
         if index is None:
             raise HTTPException(status_code=409, detail=_status_conflict(req.status))
         _check_index(req, index)
+        _ensure_slot_ahead(req, index)
         req.chosen_index = index
         req.chosen_at = datetime.now(timezone.utc)
         req.chosen_by = user_id
@@ -426,7 +444,10 @@ async def confirm(
     elif index is not None and index != req.chosen_index:
         # DL potwierdza INNY termin niż wybrał rekruter (klient go odrzucił).
         _check_index(req, index)
+        _ensure_slot_ahead(req, index)
         req.chosen_index = index
+    else:
+        _ensure_slot_ahead(req, req.chosen_index)
 
     event, outlook = await _create_interview_event(
         db, req, user_id=user_id, add_to_outlook=add_to_outlook
@@ -539,6 +560,7 @@ async def change_confirmed_slot(
     if index == req.chosen_index and start is None:
         raise HTTPException(status_code=422, detail="To ten sam termin.")
     pick_in_window(req, index, start)
+    _ensure_slot_ahead(req, index)
     req.chosen_index = index
     event, outlook = await _create_interview_event(
         db, req, user_id=user_id, add_to_outlook=True

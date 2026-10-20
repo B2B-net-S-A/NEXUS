@@ -25,6 +25,22 @@ export function windowBounds(slot: SlotItem, durationMinutes: number): { from: s
   return { from: hhmm(slot.start), to: hhmm(latest.toISOString()) };
 }
 
+/** Tolerancja jak po stronie serwera (`normalize_slots`, `_ensure_slot_ahead`). */
+const PAST_TOLERANCE_MS = 5 * 60_000;
+
+/**
+ * Termin od klienta już minął (audyt 21.10.2026): od 0487 wybór od razu
+ * wpisuje rozmowę do kalendarza, więc minionego terminu nie da się wybrać
+ * (serwer odpowiada 422). Okno klienta mija, gdy nie zmieści się już w nim
+ * rozmowa.
+ */
+export function slotPassed(slot: SlotItem, durationMinutes: number, now: Date = new Date()): boolean {
+  const latest = isWindow(slot)
+    ? new Date(slot.window_end as string).getTime() - durationMinutes * 60_000
+    : new Date(slot.start).getTime();
+  return latest < now.getTime() - PAST_TOLERANCE_MS;
+}
+
 /**
  * Start rozmowy dla wybranego terminu: zwykły termin — jego start; okno —
  * dzień okna i godzina z pola. `null`, gdy godzina jest pusta albo poza oknem.

@@ -69,3 +69,79 @@ def test_mark_client_replied_is_idempotent_and_needs_a_confirmed_request():
     with pytest.raises(HTTPException) as exc:
         interview_slots.mark_client_replied(open_req, user_id=22)
     assert exc.value.status_code == 409
+
+
+# ── Termin z przeszłości (audyt 21.10.2026) ──────────────────────────────────
+# Od 0487 wybór rekrutera od razu zakłada rozmowę i blokadę w Outlooku, a DL
+# może przepiąć rozmowę na inny termin wniosku. Termin sprawdzał tylko zapis
+# wniosku (`normalize_slots`), więc dzień później dało się wybrać termin, który
+# już minął — rozmowa `scheduled` w przeszłości.
+
+
+def _two_slots(*, status: str, chosen_index=None) -> ClientInterviewSlotRequest:
+    now = datetime.now(timezone.utc)
+    past, future = now - timedelta(hours=2), now + timedelta(days=2)
+    return ClientInterviewSlotRequest(
+        status=status,
+        chosen_index=chosen_index,
+        duration_minutes=60,
+        event_id=None,
+        slots=[
+            {"start": past.isoformat(), "end": (past + timedelta(hours=1)).isoformat()},
+            {
+                "start": future.isoformat(),
+                "end": (future + timedelta(hours=1)).isoformat(),
+            },
+        ],
+    )
+
+
+def test_choose_refuses_a_slot_that_already_passed():
+    req = _two_slots(status="awaiting_recruiter")
+    with pytest.raises(HTTPException) as exc:
+        interview_slots.choose(req, 0, user_id=11)
+    assert exc.value.status_code == 422
+    assert "minął" in exc.value.detail
+    assert req.status == "awaiting_recruiter" and req.chosen_index is None
+    interview_slots.choose(req, 1, user_id=11)
+    assert req.status == "awaiting_dl" and req.chosen_index == 1
+
+
+def test_a_slot_within_the_five_minute_tolerance_is_still_accepted():
+    now = datetime.now(timezone.utc) - timedelta(minutes=2)
+    req = ClientInterviewSlotRequest(
+        status="awaiting_recruiter",
+        duration_minutes=60,
+        slots=[
+            {"start": now.isoformat(), "end": (now + timedelta(hours=1)).isoformat()}
+        ],
+    )
+    interview_slots.choose(req, 0, user_id=11)
+    assert req.chosen_index == 0
+
+
+async def test_confirm_refuses_a_slot_that_already_passed():
+    # DL potwierdza sam z `awaiting_recruiter` …
+    req = _two_slots(status="awaiting_recruiter")
+    with pytest.raises(HTTPException) as exc:
+        await interview_slots.confirm(
+            None, req, user_id=22, index=0, add_to_outlook=False
+        )
+    assert exc.value.status_code == 422
+    # … albo potwierdza INNY termin niż wybrał rekruter.
+    req = _two_slots(status="awaiting_dl", chosen_index=1)
+    with pytest.raises(HTTPException) as exc:
+        await interview_slots.confirm(
+            None, req, user_id=22, index=0, add_to_outlook=False
+        )
+    assert exc.value.status_code == 422
+    assert req.chosen_index == 1
+
+
+async def test_change_refuses_a_slot_that_already_passed():
+    req = _two_slots(status="confirmed", chosen_index=1)
+    with pytest.raises(HTTPException) as exc:
+        await interview_slots.change_confirmed_slot(None, req, user_id=22, index=0)
+    assert exc.value.status_code == 422
+    assert "minął" in exc.value.detail
+    assert req.chosen_index == 1
