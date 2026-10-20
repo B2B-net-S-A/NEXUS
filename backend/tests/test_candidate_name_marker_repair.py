@@ -227,6 +227,10 @@ async def test_prefilter_sql_runs_on_postgres_with_the_python_pattern():
                         "Nowak / x",
                         "Kowalski zatrudniony",
                         "Łukasz",
+                        "{ } Witold",
+                        "Skowron \u2601\ufe0f",
+                        "?\u200d? Grzegorz",
+                        "Żaneta",
                     ],
                     "pattern": PREFILTER_PATTERN,
                 },
@@ -239,4 +243,67 @@ async def test_prefilter_sql_runs_on_postgres_with_the_python_pattern():
             "ACTIVE Jan",
             "Nowak / x",
             "Kowalski zatrudniony",
+            # 0481: klamry i znaki spoza alfabetów łacińskich (zakres
+            # `\u0001-\u024f` musi działać tak samo w Postgresie).
+            "{ } Witold",
+            "Skowron \u2601\ufe0f",
+            "?\u200d? Grzegorz",
         }
+
+
+async def test_round_0481_fixes_split_fields_first_then_strips_the_rest():
+    """Ręczne poprawki 0481 biegną przed regułą; obca osoba pod ID zostaje."""
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        emoji_name = Candidate(name="\u2601", lastname=f"Szczepan Żuk{suffix} \u2601")
+        cut_title = Candidate(name=f"Jakub Kępiński{suffix} (Solution", lastname="Architect)")
+        braces = Candidate(name="{ } Witold", lastname=f"Testowy{suffix}")
+        ordinary = Candidate(name="Ewa", lastname=f"Zwykła{suffix}")
+        db.add_all([emoji_name, cut_title, braces, ordinary])
+        await db.commit()
+        seed = {
+            "suffix": suffix,
+            "emoji_name": emoji_name.id,
+            "cut_title": cut_title.id,
+            "braces": braces.id,
+            "ordinary": ordinary.id,
+        }
+    marker, details_key = _keys()
+    manual = {
+        seed["emoji_name"]: "split_from_lastname",
+        seed["cut_title"]: "split_from_name",
+        # Kształt się nie zgadza (zwykłe imię) — nic się nie dzieje.
+        seed["ordinary"]: "split_from_lastname",
+    }
+    try:
+        async with AsyncSessionLocal() as db:
+            summary = await run_candidate_name_marker_repair(
+                db,
+                marker=marker,
+                details_key=details_key,
+                only_ids=_ids(seed),
+                manual_fixes=manual,
+            )
+            await db.commit()
+        assert summary["manual_fixed_ids"] == sorted(
+            [seed["emoji_name"], seed["cut_title"]]
+        )
+        assert summary["changed_candidate_ids"] == sorted(
+            [seed["emoji_name"], seed["cut_title"], seed["braces"]]
+        )
+        async with AsyncSessionLocal() as db:
+            first = await db.get(Candidate, seed["emoji_name"])
+            assert (first.name, first.lastname) == ("Szczepan", f"Żuk{suffix}")
+            second = await db.get(Candidate, seed["cut_title"])
+            assert (second.name, second.lastname) == ("Jakub", f"Kępiński{suffix}")
+            third = await db.get(Candidate, seed["braces"])
+            assert third.name == "Witold"
+            fourth = await db.get(Candidate, seed["ordinary"])
+            assert (fourth.name, fourth.lastname) == ("Ewa", f"Zwykła{suffix}")
+            details = (await db.get(AppSetting, details_key)).value
+            # Stare wartości sprzed ręcznej poprawki, nie stan po niej.
+            assert details[str(seed["emoji_name"])]["name"] == "\u2601"
+            assert details[str(seed["cut_title"])]["lastname"] == "Architect)"
+        assert await _outbox_ids(_ids(seed)) == set(summary["changed_candidate_ids"])
+    finally:
+        await _drop(seed, marker, details_key)
