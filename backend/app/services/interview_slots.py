@@ -84,10 +84,24 @@ def normalize_slots(
                 status_code=422, detail="Termin rozmowy nie może być w przeszłości."
             )
         start_utc = start.astimezone(timezone.utc)
-        out[start_utc.isoformat()] = {
+        slot = {
             "start": start_utc.isoformat(),
             "end": end.astimezone(timezone.utc).isoformat(),
         }
+        # Okno klienta („piątek 9–12”, 20.10.2026): godzinę w oknie ustala
+        # rekruter z kandydatem przy wyborze (`choose(start=…)`).
+        window_end = item.get("window_end")
+        if window_end is not None:
+            if window_end.tzinfo is None:
+                window_end = window_end.replace(tzinfo=timezone.utc)
+            if window_end < start + timedelta(minutes=duration_minutes):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Okno klienta jest krótsze niż rozmowa.",
+                )
+            if window_end > end:
+                slot["window_end"] = window_end.astimezone(timezone.utc).isoformat()
+        out[start_utc.isoformat()] = slot
     return [out[k] for k in sorted(out)]
 
 
@@ -288,13 +302,55 @@ def _parse(value: str) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
-def choose(req: ClientInterviewSlotRequest, index: int, *, user_id: int) -> None:
+def pick_in_window(
+    req: ClientInterviewSlotRequest, index: int, start: Optional[datetime]
+) -> None:
+    """Godzina rozmowy w oknie klienta → termin ``index`` dostaje ją na stałe.
+
+    Bez ``start`` termin zostaje, jaki był (okno = początek okna). Godzina
+    poza oknem albo przy zwykłym terminie to 422 — rekruter nie przesunie
+    terminu, którego klient nie zaproponował.
+    """
+    if start is None:
+        return
+    slot = dict(req.slots[index])
+    window_end_raw = slot.get("window_end")
+    if not window_end_raw:
+        raise HTTPException(
+            status_code=422,
+            detail="Ten termin ma stałą godzinę — wybierz go bez zmiany godziny.",
+        )
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    window_start = _parse(slot.get("window_start") or slot["start"])
+    window_end = _parse(window_end_raw)
+    end = start + timedelta(minutes=req.duration_minutes or 60)
+    if start < window_start or end > window_end:
+        raise HTTPException(
+            status_code=422,
+            detail="Godzina rozmowy musi zmieścić się w oknie klienta.",
+        )
+    slot["window_start"] = slot.get("window_start") or slot["start"]
+    slot["start"] = start.astimezone(timezone.utc).isoformat()
+    slot["end"] = end.astimezone(timezone.utc).isoformat()
+    # Nowa lista — JSONB bez MutableList nie widzi zmiany w miejscu.
+    req.slots = [slot if i == index else s for i, s in enumerate(req.slots)]
+
+
+def choose(
+    req: ClientInterviewSlotRequest,
+    index: int,
+    *,
+    user_id: int,
+    start: Optional[datetime] = None,
+) -> None:
     if req.status != SLOT_STATUS_AWAITING_RECRUITER:
         raise HTTPException(
             status_code=409,
             detail=_status_conflict(req.status),
         )
     _check_index(req, index)
+    pick_in_window(req, index, start)
     req.chosen_index = index
     req.chosen_at = datetime.now(timezone.utc)
     req.chosen_by = user_id

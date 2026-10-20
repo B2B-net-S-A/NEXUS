@@ -140,6 +140,43 @@ export interface PrepUpdateInput {
   client_request_id?: string | null;
 }
 
+/** Wolne godziny prepu z kalendarza prowadzącego (20.10.2026, PR 2). */
+export interface PrepSuggestion {
+  prep_no: 1 | 2;
+  organizer: PrepPerson | null;
+  /** ok — z kalendarza; unavailable — NEXUS go nie widzi; off — prepy w Teams wyłączone. */
+  calendar: "ok" | "unavailable" | "off";
+  /** Prep tej rundy już jest — bez podpowiedzi. */
+  scheduled_start: string | null;
+  minutes: number;
+  options: { start: string; end: string }[];
+}
+
+export interface PrepSuggestions {
+  enabled: boolean;
+  preps: PrepSuggestion[];
+}
+
+export interface PrepSuggestionsParams {
+  candidateId: number;
+  jobId: number;
+  interviewStart: string;
+  candidateFrom?: string | null;
+  candidateTo?: string | null;
+}
+
+export const prepSuggestionsQueryKey = (p: PrepSuggestionsParams) =>
+  [
+    "interview-cycle",
+    "preps",
+    "suggestions",
+    p.candidateId,
+    p.jobId,
+    p.interviewStart,
+    p.candidateFrom ?? "",
+    p.candidateTo ?? "",
+  ] as const;
+
 export const prepOptionsQueryKey = (candidateId: number, jobId: number) =>
   ["interview-cycle", "preps", "options", candidateId, jobId] as const;
 export const prepQueryKey = (eventId: number) =>
@@ -152,6 +189,18 @@ export const prepMeetingsApi = {
     api
       .get<PrepOptions>("/api/interview-cycle/preps/options", {
         params: { candidate_id: candidateId, job_id: jobId },
+      })
+      .then((r) => r.data),
+  suggestions: (p: PrepSuggestionsParams) =>
+    api
+      .get<PrepSuggestions>("/api/interview-cycle/preps/suggestions", {
+        params: {
+          candidate_id: p.candidateId,
+          job_id: p.jobId,
+          interview_start: p.interviewStart,
+          ...(p.candidateFrom ? { candidate_from: p.candidateFrom } : {}),
+          ...(p.candidateTo ? { candidate_to: p.candidateTo } : {}),
+        },
       })
       .then((r) => r.data),
   create: (body: PrepCreateInput) =>

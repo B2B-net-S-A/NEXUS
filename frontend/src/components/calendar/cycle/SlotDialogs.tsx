@@ -8,6 +8,7 @@ import { AppModal } from "@/components/ds/AppModal";
 import { CandidateCombobox, type CandidateChoice } from "@/components/calendar/CandidateCombobox";
 import { RecruitmentSelect } from "@/components/calendar/RecruitmentSelect";
 import { PasteClientMail } from "@/components/calendar/cycle/PasteClientMail";
+import { PickInterviewDialog } from "@/components/calendar/cycle/PickInterviewDialog";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { interviewCycleApi } from "@/lib/api/interviewCycle";
@@ -106,7 +107,12 @@ export function SlotRequestDialog({
       interviewCycleApi.createSlots({
         candidate_id: candidateId as number,
         job_id: targetJobId as number,
-        slots: filledSlots.map((s) => ({ start: localToIso(s.value) })),
+        slots: filledSlots.map((s) => {
+          const start = localToIso(s.value);
+          // Okno klienta jedzie dalej, dopóki poprawiony początek mieści się w oknie.
+          const windowEnd = s.windowEnd && new Date(s.windowEnd) > new Date(start) ? s.windowEnd : null;
+          return windowEnd ? { start, window_end: windowEnd } : { start };
+        }),
         duration_minutes: duration,
         respond_by: respondBy ? localToIso(respondBy) : null,
         note: note.trim() || null,
@@ -309,9 +315,32 @@ export function SlotRequestDialog({
 
 /**
  * Wybór (rekruter) albo potwierdzenie (DL) terminu. DL może potwierdzić inny
- * termin niż wybrany, gdy klient zmienił zdanie.
+ * termin niż wybrany, gdy klient zmienił zdanie. Wybór rekrutera to od
+ * 20.10.2026 okno „Umów rozmowę i prepy” (termin + oba prepy w jednym kroku).
  */
-export function SlotDecisionDialog({
+export function SlotDecisionDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  mode: "pick" | "confirm";
+  pair: PairInfo | null;
+  request: SlotRequest | null;
+}) {
+  const invalidate = useInvalidateCycle();
+  if (props.mode === "pick") {
+    return (
+      <PickInterviewDialog
+        open={props.open}
+        onOpenChange={props.onOpenChange}
+        pair={props.pair}
+        request={props.request}
+        onInvalidate={invalidate}
+      />
+    );
+  }
+  return <SlotDecisionDialogBody {...props} />;
+}
+
+function SlotDecisionDialogBody({
   open,
   onOpenChange,
   mode,

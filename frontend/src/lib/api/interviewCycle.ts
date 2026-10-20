@@ -57,7 +57,7 @@ export const interviewCycleApi = {
   createSlots: (body: {
     candidate_id: number;
     job_id: number;
-    slots: { start: string; end?: string | null }[];
+    slots: { start: string; end?: string | null; window_end?: string | null }[];
     duration_minutes: number;
     respond_by?: string | null;
     note?: string | null;
@@ -67,9 +67,10 @@ export const interviewCycleApi = {
     api
       .post<SlotsFromMail>("/api/interview-cycle/slots/from-mail", body)
       .then((r) => r.data),
-  chooseSlot: (id: number, index: number) =>
+  /** `start` — godzina rozmowy w oknie klienta (termin z `window_end`). */
+  chooseSlot: (id: number, index: number, start?: string | null) =>
     api
-      .post<SlotRequest>(`/api/interview-cycle/slots/${id}/choose`, { index })
+      .post<SlotRequest>(`/api/interview-cycle/slots/${id}/choose`, start ? { index, start } : { index })
       .then((r) => r.data),
   confirmSlot: (
     id: number,
