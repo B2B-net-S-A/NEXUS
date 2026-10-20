@@ -43,6 +43,10 @@ interface CardProps {
   onTalk: (row: WeekContact) => void;
 }
 
+/* Karta ma 150 px kolumny: plakietka powodu („30 dni przed końcem zamówienia”)
+   i sygnały zawijają się zamiast wystawać poza kartę i stronę przy 360 px. */
+const WRAP_PILL = "h-auto max-w-full whitespace-normal py-0.5";
+
 function ContactCard({ row, inBefore, today, canEdit, showOwner, selected, onOpen, onTalk }: CardProps) {
   const [primary, ...rest] = row.reasons;
   const pill = reasonPill(primary, today, inBefore);
@@ -72,11 +76,11 @@ function ContactCard({ row, inBefore, today, canEdit, showOwner, selected, onOpe
         <span className="text-xs text-muted-foreground">menedżer: {row.manager.name}</span>
       ) : null}
       <div className="flex flex-wrap gap-1">
-        <Badge size="sm" variant={pill.tone} className="h-auto py-0.5">
+        <Badge size="sm" variant={pill.tone} className={WRAP_PILL}>
           {pill.text}
         </Badge>
         {rest.length ? (
-          <Badge size="sm" variant="neutral" className="h-auto py-0.5" title={rest.map((r) => r.label).join(", ")}>
+          <Badge size="sm" variant="neutral" className={WRAP_PILL} title={rest.map((r) => r.label).join(", ")}>
             +{rest.length}
           </Badge>
         ) : null}
@@ -84,12 +88,12 @@ function ContactCard({ row, inBefore, today, canEdit, showOwner, selected, onOpe
       {signals.length || row.front_office.handed_off_on ? (
         <div className="flex flex-wrap gap-1">
           {signals.map((text) => (
-            <Badge key={text} size="sm" variant="warning" className="h-auto py-0.5">
+            <Badge key={text} size="sm" variant="warning" className={WRAP_PILL}>
               {text}
             </Badge>
           ))}
           {row.front_office.handed_off_on ? (
-            <Badge size="sm" variant="neutral" className="h-auto py-0.5">
+            <Badge size="sm" variant="neutral" className={WRAP_PILL}>
               front office od {formatDayMonthPl(row.front_office.handed_off_on)}
             </Badge>
           ) : null}

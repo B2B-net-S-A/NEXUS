@@ -618,7 +618,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
       {activeTab === "overview" ? (
         <div className="space-y-4">
           {full ? (
-            <div className="grid gap-4 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <LeaveRingCard
                 person={full}
                 year={year}

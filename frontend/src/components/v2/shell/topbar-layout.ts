@@ -12,11 +12,14 @@ export const TOPBAR_HEADER_CLASS =
    wypychają dzwonka i „Dodaj” poza ekran. */
 export const TOPBAR_BREADCRUMB_CLASS = "hidden md:flex min-w-0 max-w-[360px] flex-1 md:flex-initial";
 
-/* Od 1024 px wyszukiwarka ma gwarantowane 220 px: zmierzone 13.10.2026 przy
+/* Od 1280 px wyszukiwarka ma gwarantowane 220 px: zmierzone 13.10.2026 przy
    oknie 1280 px z przypiętym menu i długimi okruszkami — bez minimum licznik
-   celów z trzema segmentami zostawiał jej 109 px (sama lupa i skrót). */
+   celów z trzema segmentami zostawiał jej 109 px (sama lupa i skrót).
+   Przy 1024–1279 px (menu jako szyna) 140 px: Head of Recruitment z rolą DL,
+   z Ligą DL i pigułką „Rozmowy” przy 1024 px nie mieścił się przy 220 px
+   o 45 px i cała strona przewijała się w bok (nocne E2E od 14.10.2026). */
 export const TOPBAR_SEARCH_CLASS =
-  "flex-1 min-w-0 lg:min-w-[220px] max-w-md mx-auto flex items-center gap-2 h-8 px-3 rounded-md border border-border bg-muted/50 hover:bg-muted transition-colors text-left text-sm text-muted-foreground";
+  "flex-1 min-w-0 lg:min-w-[140px] xl:min-w-[220px] max-w-md mx-auto flex items-center gap-2 h-8 px-3 rounded-md border border-border bg-muted/50 hover:bg-muted transition-colors text-left text-sm text-muted-foreground";
 
 /* Od 1024 px grupa akcji oddaje miejsce PIERWSZA (przed okruszkami), ale kurczy
    się w niej wyłącznie element oznaczony `data-topbar-shrinks` — licznik celów,

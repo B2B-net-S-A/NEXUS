@@ -34,8 +34,11 @@ ratio. Makiety: https://claude.ai/artifact/SDmwSbF8c9wWoqnUtB3KLt, raport:
   segmentów, także tych, które się nie zmieściły.
 - **Pasek pokazuje tyle CAŁYCH segmentów, ile się mieści.** Przycisk zawija
   segmenty i ma wysokość jednego wiersza, więc nadmiarowy segment spada do
-  ukrytego wiersza. Wyszukiwarka ma od 1024 px gwarantowane 220 px, a grupa
-  akcji kurczy się przed okruszkami (`shell/topbar-layout.ts`). Zmierzone na
+  ukrytego wiersza. Wyszukiwarka ma od 1280 px gwarantowane 220 px, przy
+  1024–1279 px (menu jako szyna) 140 px — przy 220 px Head of Recruitment
+  z rolą DL, Ligą DL i pigułką „Rozmowy” wypychał stronę w bok o 45 px przy
+  1024 px (20.10.2026). Grupa akcji kurczy się przed okruszkami
+  (`shell/topbar-layout.ts`). Zmierzone na
   harnessie 13.10.2026 (menu przypięte, z ikoną „Rozmowy”): rekruter przy
   1280 px widzi trzy segmenty na pulpicie, dwa na listach i jeden na ekranie
   rekrutacji; przy 1440 px dwa na ekranie rekrutacji; od 1536 px trzy wszędzie.

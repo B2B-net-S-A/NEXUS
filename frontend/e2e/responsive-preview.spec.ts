@@ -770,7 +770,9 @@ test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/preview/custom-dashboard?as=hor");
     const tile = page.getByTestId("dashboard-tile-request_board");
-    const priority = tile.getByLabel("Priorytet");
+    // `exact`: aktywny filtr dostaje przycisk „Wyczyść filtr: Priorytet” (#2385),
+    // którego nazwa też zawiera nazwę pola.
+    const priority = tile.getByLabel("Priorytet", { exact: true });
     await expect(priority).toBeVisible();
     const unscrolled = await priority.boundingBox();
     expect(unscrolled?.y ?? 0, "kafelek stoi poniżej pierwszego ekranu").toBeGreaterThan(720);
@@ -781,7 +783,7 @@ test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony
     await expect(page).toHaveURL(/rb_prio=p1/);
     await expect(priority).toHaveValue("p1");
     // Wartość pola idzie przez adres — szybkie pisanie nie może gubić liter.
-    const position = tile.getByLabel("Stanowisko");
+    const position = tile.getByLabel("Stanowisko", { exact: true });
     await position.pressSequentially("Java Developer", { delay: 30 });
     await expect(position).toHaveValue("Java Developer");
     await expect(page).toHaveURL(/rb_q=Java\+Developer/);
