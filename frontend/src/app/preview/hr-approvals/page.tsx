@@ -13,7 +13,9 @@
  *   (umowa o pracę — wnioski do decyzji); zgłoszona przerwa Oli (B2B) i
  *   nieobecność Tomasza (zlecenie, z kolizją od Marty) „do wiadomości” z
  *   „Zgłoś kolizję” (etap 2, D5); timesheety miesiąca, który ekran wybiera sam
- *   (do 10. dnia poprzedni);
+ *   (do 10. dnia poprzedni): Julia bez raportu i szkice z „Przypomnij”, godziny
+ *   „72 / 176 h” z paskiem (Kamil ma pełną normę — pasek zielony), 9 osób
+ *   zwiniętych do 5 z „Pokaż wszystkie (9)”;
  * - `?kind=timesheet&year=…&month=…` — link z powiadomienia: timesheety
  *   poprzedniego miesiąca na górze (Ewa wysłała, Tomasz z nadgodzinami,
  *   Julia nie założyła, reszta zaakceptowana);
@@ -45,13 +47,14 @@ import {
   type OnBehalfPerson,
   type PendingLeaveRow,
 } from "@/lib/api/hr-leave";
-import { timeKeys, type QueueStatus, type TeamQueueItem } from "@/lib/api/hr-time";
+import { timeKeys, type QueueStatus, type TeamQueue, type TeamQueueItem } from "@/lib/api/hr-time";
 import { warsawToday } from "@/lib/warsaw-date";
 import { shiftMonth, type YearMonth } from "@/lib/date-pl";
 
 import {
   HR_CAST,
   HR_CLIENTS,
+  harnessWorkDays,
   hrConfig,
   nthWorkDay,
   shiftDay,
@@ -290,15 +293,19 @@ function queueItem(person: HarnessPerson, period: YearMonth, status: QueueStatus
 }
 
 /** Kolejka miesiąca: `closed` = miesiąc zakończony (wysłane i zaakceptowane), inaczej szkice. */
-function queue(team: HarnessPerson[], period: YearMonth, closed: boolean): { year: number; month: number; items: TeamQueueItem[] } {
+function queue(team: HarnessPerson[], period: YearMonth, closed: boolean): TeamQueue {
+  const norm = harnessWorkDays(isoMonth(period)).length * 8;
   const items = team.map((person) => {
-    if (!closed) return queueItem(person, period, person.id === julia.id ? "missing" : "draft", 72);
-    if (person.id === ewa.id) return queueItem(person, period, "submitted", 168, 0, 1);
-    if (person.id === tomasz.id) return queueItem(person, period, "submitted", 178, 2);
+    if (!closed) {
+      if (person.id === julia.id) return queueItem(person, period, "missing", 0);
+      return queueItem(person, period, "draft", person.id === kamil.id ? norm : 72);
+    }
+    if (person.id === ewa.id) return queueItem(person, period, "submitted", norm - 8, 0, 1);
+    if (person.id === tomasz.id) return queueItem(person, period, "submitted", norm + 2, 2);
     if (person.id === julia.id) return queueItem(person, period, "missing", 0);
-    return queueItem(person, period, "approved", 176);
+    return queueItem(person, period, "approved", norm);
   });
-  return { year: period.year, month: period.month, items };
+  return { year: period.year, month: period.month, norm_hours: norm, items };
 }
 
 function modeOf(item: TeamQueueItem): HarnessTimesheetMode {

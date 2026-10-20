@@ -428,6 +428,9 @@ async def test_manager_sees_and_decides_only_own_team(app_client) -> None:
     assert set(items) == {worker.id}
     assert items[worker.id]["status"] == "submitted"
     assert items[worker.id]["hours"] == 8
+    # „8 / 168 h” w „Akceptacjach”: ta sama norma co w „Moim miesiącu” osoby.
+    own = (await app_client.get(BASE, headers=h)).json()
+    assert queue.json()["norm_hours"] == own["totals"]["norm_hours"] > 0
 
     other_queue = await app_client.get(
         f"/api/hr/time/team/{Y}/{M}", headers=headers(other_boss)

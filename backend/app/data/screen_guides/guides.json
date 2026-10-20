@@ -779,7 +779,7 @@
       },
       {
         "q": "Jak przyjąć timesheet?",
-        "a": "W sekcji „Timesheety” wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką. Przyjęty cofniesz „Cofnij akceptację”. Pasek nad tabelą liczy szkice, nie założone, do akceptacji i przyjęte. „Eksport CSV” daje godziny do Excela; Kadry i Płace pobiorą też „Pobierz ZIP”.",
+        "a": "W „Timesheetach” wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką; przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła osobie przypomnienie (raz dziennie). Godziny to wpisane wobec normy miesiąca. Na górze braki i do akceptacji, reszta pod „Pokaż wszystkie”.",
         "anchor": "hr.approvals.timesheets"
       },
       {
@@ -808,7 +808,7 @@
       {
         "id": "hr.approvals.timesheets",
         "label": "Timesheety",
-        "describe": "Godziny zespołu za miesiąc: podgląd, akceptacja, zwrot, CSV i ZIP."
+        "describe": "Godziny zespołu za miesiąc wobec normy: podgląd, akceptacja, zwrot, „Przypomnij”, CSV i ZIP."
       },
       {
         "id": "hr.approvals.history",
