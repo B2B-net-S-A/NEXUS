@@ -42,12 +42,19 @@ export function SettingsSideNav({ user, areaId, itemId, context }: SettingsSideN
       <ul className="space-y-0.5">
         {areas.map((area) => {
           const current = area.id === areaId;
-          const groups = current ? groupedAreaItems(user, area.id, context) : [];
+          const all = groupedAreaItems(user, area.id, context);
+          // Obszar z jedną pozycją o tej samej nazwie („Moje konto”) to jeden
+          // link prosto do ekranu, bez powtórzenia nazwy niżej.
+          const only = all.length === 1 && all[0].items.length === 1 ? all[0].items[0] : null;
+          const single = only && only.title === area.name ? only : null;
+          const groups = current && !single ? all : [];
           return (
             <li key={area.id}>
               <Link
-                href={`/settings?area=${area.id}`}
-                aria-current={current && !itemId ? "page" : undefined}
+                href={single ? settingsItemHref(single) : `/settings?area=${area.id}`}
+                aria-current={
+                  current && (single ? itemId === single.id : !itemId) ? "page" : undefined
+                }
                 className={cn(
                   "block rounded-lg px-2.5 py-1.5 text-sm font-semibold hover:bg-muted",
                   current ? "text-primary" : "text-foreground",

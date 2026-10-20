@@ -123,13 +123,18 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     id: "outlook", area: "me", title: "Outlook i kalendarz", group: "Moje",
     description: "Podłącz swoją skrzynkę i kalendarz Microsoft 365.",
     keywords: "poczta mail m365 microsoft skrzynka integracje",
+    // Od 20.10.2026 część ekranu „Moje konto” — pod adresem dalej sama karta.
+    hidden: true,
     // Finanse też tworzą wydarzenia w kalendarzu (audyt ról U6, 22.09).
     gate: { finance: true },
   },
   {
-    id: "my-notifications", area: "me", title: "Moje powiadomienia", group: "Moje",
-    description: "Wybierz, które powiadomienia mają do Ciebie trafiać.",
-    keywords: "powiadomienia dzwonek wycisz wylacz alerty przypomnienia kategorie",
+    // „Moje konto” (20.10.2026): skrzynka Microsoft 365 i moje powiadomienia na
+    // jednym ekranie. Id zostaje — dzwonek i maile linkują `?item=my-notifications`.
+    id: "my-notifications", area: "me", title: "Moje konto", group: "Moje",
+    description: "Twoja skrzynka Microsoft 365 i powiadomienia, które mają do Ciebie trafiać.",
+    keywords:
+      "powiadomienia dzwonek wycisz wylacz alerty przypomnienia kategorie poczta mail m365 microsoft skrzynka outlook kalendarz integracje",
     // Runda 9 (R9-N13-4): `/api/notifications/preferences` jest otwarte dla
     // każdego zalogowanego (CurrentUser) — Finanse też dostają powiadomienia.
     gate: { finance: true },

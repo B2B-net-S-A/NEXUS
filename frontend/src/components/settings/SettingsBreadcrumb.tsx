@@ -6,7 +6,9 @@ import type { SettingsArea, SettingsItem } from "@/lib/settings-registry";
 
 /** Ścieżka „Ustawienia / Obszar / Pozycja" — ta sama na `/settings` i nad
  *  podstronami z własną trasą (layout Ustawień). */
-export function SettingsBreadcrumb({ area, item }: { area?: SettingsArea; item?: SettingsItem }) {
+export function SettingsBreadcrumb({ area, item: rawItem }: { area?: SettingsArea; item?: SettingsItem }) {
+  // Pozycja o nazwie obszaru („Moje konto” w „Moje konto”) — jeden człon, nie dwa.
+  const item = rawItem && area && rawItem.title === area.name ? undefined : rawItem;
   return (
     <nav aria-label="Ścieżka" className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
       <Link href="/settings" className="hover:text-foreground hover:underline">
