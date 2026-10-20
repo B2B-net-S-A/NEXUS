@@ -32,6 +32,8 @@
  *   pytania z mapy technologii klienta;
  * - `cadence` — „Konsultanci” z otwartym oknem „Rytm kontaktu” Bartosza
  *   (M2: słaba opinia menedżera, podgląd „co 2 tygodnie” zasiany).
+ * `&big=1` przy `list` dosypuje do „Wszyscy w moim zakresie” 482 zaległe
+ * rozmowy (jak prod 20.10.2026) — kolumna pokazuje 8 najstarszych.
  */
 
 import { Suspense, useState } from "react";
@@ -98,6 +100,7 @@ const STATES = [
   { key: "tab", label: "Zakładka „Opieka”" },
   { key: "techcard", label: "Karta technologiczna" },
   { key: "list", label: "Ten tydzień (/care)" },
+  { key: "big", label: "482 zaległe (Wszyscy)", href: "?state=list&big=1" },
   {
     key: "panel",
     label: "Oś konsultanta i front office",
@@ -132,8 +135,9 @@ function prepare(params: URLSearchParams) {
   }
   // „Ten tydzień”: obie listy, osie każdej osoby, „front office” i mapa klienta
   // (pytania w oknie rozmowy).
+  const bulk = params.get("big") === "1" ? 482 : 0;
   for (const scope of ["mine", "all"] as const) {
-    client.setQueryData(careKeys.week(scope, null), careWeek(today, scope));
+    client.setQueryData(careKeys.week(scope, null), careWeek(today, scope, bulk));
   }
   for (const row of careWeek(today, "all").contacts) {
     client.setQueryData(careKeys.timeline(row.contract_id), shortTimeline(today, row));

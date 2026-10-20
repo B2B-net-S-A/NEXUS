@@ -19,10 +19,14 @@
  * „Klient zatrudnia”, „Do przepięcia” = 2, trzy otwarte rekrutacje z działem,
  * dostawcy i domyślny opiekun. „Dodaj notatkę o stacku” otwiera okno bez
  * zapytań, lista opiekunów jest zasiana.
+ *
+ * Stan „many”: jak Nordea na prodzie 20.10.2026 — 67 działów ze „Struktury
+ * u klienta” bez żadnego źródła, cały sygnał w „bez działu”. Puste działy
+ * są schowane („Pokaż wszystkie działy (67)”), „bez działu” stoi pierwsze.
  */
 
 import { ClientTechnologiesTab } from "@/components/care/ClientTechnologiesTab";
-import { careKeys } from "@/lib/api/care";
+import { careKeys, type ClientTechMap } from "@/lib/api/care";
 import { warsawToday } from "@/lib/warsaw-date";
 import { hrKeys } from "@/lib/api/hr";
 
@@ -39,13 +43,34 @@ import { CARE_OWNERS, MAP_CLIENT, clientTechMap, unlinkedCards } from "./fixture
 const STATES = [
   { key: "map", label: "Mapa (Delivery Lead klienta)" },
   { key: "links", label: "Karty z Compassa do połączenia" },
+  { key: "many", label: "67 pustych działów (jak Nordea)" },
 ] as const;
 type HarnessState = (typeof STATES)[number]["key"];
 
+/** 67 działów bez źródeł; wiersze mapy mają sygnał tylko w „bez działu”. */
+function manyEmptyDepartments(map: ClientTechMap): ClientTechMap {
+  const departments = Array.from({ length: 67 }, (_, i) => ({
+    ...map.departments[0],
+    area: { id: 7000 + i, name: `Dział ${String(i + 1).padStart(2, "0")} — zespół przykładowy` },
+    technologies: [],
+    technologies_total: 0,
+    managers: [],
+    consultants: 0,
+    has_fresh_source: true,
+    base: { skills: [], count: null },
+  }));
+  const rows = (map.heatmap?.rows ?? []).map((row) => ({
+    ...row,
+    cells: departments.map(() => null),
+    unassigned: row.unassigned ?? row.cells.find(Boolean) ?? null,
+  }));
+  return { ...map, departments, heatmap: { rows, rows_total: rows.length } };
+}
+
 function prepare(params: URLSearchParams) {
-  const state: HarnessState = pickState(params.get("state"), ["map", "links"] as const, "map");
+  const state: HarnessState = pickState(params.get("state"), ["map", "links", "many"] as const, "map");
   const today = warsawToday();
-  const map = clientTechMap(today);
+  const map = state === "many" ? manyEmptyDepartments(clientTechMap(today)) : clientTechMap(today);
   const client = harnessQueryClient();
   client.setQueryData(hrKeys.config, hrConfig());
   client.setQueryData(careKeys.clientMap(MAP_CLIENT.id), map);

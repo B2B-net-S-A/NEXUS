@@ -99,6 +99,44 @@ export function buildStructure(data: HrStructure): DivisionGroup[] {
   return groups;
 }
 
+/**
+ * Ilu podwładnych mieści się w schemacie w jednym rzędzie. Przy większej
+ * liczbie podwładni bez własnych ludzi stają w kolumnie pod przełożonym
+ * (prod 20.10.2026: 44 osoby pod dwiema osobami = 5384 px szerokości przy
+ * 623 px okna; decyzja Artura 20.10.2026).
+ */
+export const ROW_MAX = 4;
+
+export interface ChildLayout {
+  /** Podwładni z własnymi ludźmi — dalej rząd gałęzi. */
+  branches: TreeNode[];
+  /** Podwładni bez ludzi — kolumna kart pod przełożonym (pusta = wszyscy w rzędzie). */
+  stack: TreeNode[];
+}
+
+export function childLayout(node: TreeNode): ChildLayout {
+  const stack = node.children.filter((child) => child.children.length === 0);
+  if (node.children.length <= ROW_MAX || stack.length < 2) {
+    return { branches: node.children, stack: [] };
+  }
+  return { branches: node.children.filter((child) => child.children.length > 0), stack };
+}
+
+/**
+ * `scrollLeft`, przy którym karta (`left`, `width` w układzie przewijanej
+ * treści) stoi na środku okna — schemat otwiera się na korzeniu, nie na
+ * pustym polu obok niego.
+ */
+export function centeredScrollLeft(
+  left: number,
+  width: number,
+  viewport: number,
+  scrollWidth: number,
+): number {
+  const max = Math.max(0, scrollWidth - viewport);
+  return Math.round(Math.min(max, Math.max(0, left + width / 2 - viewport / 2)));
+}
+
 /** Wszystkie osoby z poddrzewa (w kolejności wyświetlania). */
 export function flatten(nodes: readonly TreeNode[], depth = 0): { node: TreeNode; depth: number }[] {
   return nodes.flatMap((node) => [{ node, depth }, ...flatten(node.children, depth + 1)]);

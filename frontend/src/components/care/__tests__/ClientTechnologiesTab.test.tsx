@@ -6,7 +6,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), canCreateJob: false }));
@@ -76,13 +76,15 @@ describe("ClientTechnologiesTab", () => {
     mocks.canCreateJob = false;
     renderTab([]);
     const table = await screen.findByRole("table", { name: "Technologie klienta po działach" });
-    const headers = within(table).getAllByRole("columnheader").map((th) => th.textContent ?? "");
-    expect(headers.slice(1, 5).map((text) => text.split(/(?=brak|menedżer|Piotr|Michał|nasi)/)[0])).toEqual([
-      "CI/CD i chmura",
-      "Data",
-      "Kredyty",
-      "Płatności",
-    ]);
+    const deptHeads = () =>
+      within(table)
+        .getAllByRole("columnheader")
+        .map((th) => (th.textContent ?? "").split(/(?=brak|menedżer|Piotr|Michał|nasi)/)[0]);
+    // Dział bez żadnego źródła jest schowany (prod 20.10.2026: 67 pustych działów Nordei).
+    expect(deptHeads().slice(1, 4)).toEqual(["Data", "Kredyty", "Płatności"]);
+    expect(screen.getByText("1 dział bez sygnału ukryty")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż wszystkie działy (4)" }));
+    expect(deptHeads().slice(1, 5)).toEqual(["CI/CD i chmura", "Data", "Kredyty", "Płatności"]);
     // Dział bez źródła z 18 miesięcy ma ostrzeżenie w nagłówku.
     expect(within(table).getByText("brak źródła 18 mies.")).toBeInTheDocument();
     const java = within(table).getByRole("row", { name: /Java 17/ });
@@ -99,5 +101,33 @@ describe("ClientTechnologiesTab", () => {
       "href",
       "/clients/3?tab=struktura",
     );
+  });
+
+  it("sygnał tylko w „bez działu” (Nordea): puste działy schowane, „bez działu” zaraz po technologii", async () => {
+    mocks.canCreateJob = false;
+    const base = clientTechMap("2026-10-19");
+    const empty = Array.from({ length: 67 }, (_, i) => ({
+      ...base.departments[0],
+      area: { id: 5000 + i, name: `Dział pusty ${i + 1}` },
+      consultants: 0,
+      has_fresh_source: true,
+    }));
+    const rows = base.heatmap!.rows.map((row) => ({ ...row, cells: empty.map(() => null) }));
+    mocks.get.mockImplementation(async (url: string) =>
+      url === "/api/care/owners"
+        ? { data: { items: [] } }
+        : { data: { ...base, departments: empty, heatmap: { rows, rows_total: rows.length } } },
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ClientTechnologiesTab clientId={11} />
+      </QueryClientProvider>,
+    );
+    const table = await screen.findByRole("table", { name: "Technologie klienta po działach" });
+    const heads = within(table).getAllByRole("columnheader").map((th) => th.textContent);
+    expect(heads.slice(1)).toEqual(["bez działu", "nasi", "ostatnio"]);
+    expect(screen.getByText("67 działów bez sygnału ukrytych")).toBeInTheDocument();
+    expect(table.style.minWidth).toBe("300px");
   });
 });

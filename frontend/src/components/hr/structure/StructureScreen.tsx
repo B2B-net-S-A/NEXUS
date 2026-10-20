@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type DragEvent } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 
@@ -41,6 +41,8 @@ import { DivisionDialog, DivisionHeadsDialog, ReassignDialog } from "./Structure
 import {
   buildStructure,
   canDropOn,
+  centeredScrollLeft,
+  childLayout,
   divisionKey,
   flatten,
   leavingManagers,
@@ -330,6 +332,22 @@ function ChartGroup({
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [dragId, setDragId] = useState<number | null>(null);
   const orphanWords = managerWords(group.orphans.map((person) => person.employment_type));
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const firstRootId = group.roots[0]?.person.user_id ?? null;
+  const centered = useRef(false);
+
+  // Szerokie drzewo otwiera się na korzeniu (raz — zapis po przeciągnięciu
+  // nie przesuwa widoku pod ręką).
+  useLayoutEffect(() => {
+    const box = scrollRef.current;
+    if (centered.current || !box || firstRootId === null) return;
+    const card = box.querySelector<HTMLElement>(`[data-testid="org-card-${firstRootId}"]`);
+    if (!card) return;
+    centered.current = true;
+    if (box.scrollWidth <= box.clientWidth) return;
+    const left = card.getBoundingClientRect().left - box.getBoundingClientRect().left + box.scrollLeft;
+    box.scrollLeft = centeredScrollLeft(left, card.offsetWidth, box.clientWidth, box.scrollWidth);
+  }, [firstRootId]);
 
   const drop = async (draggedId: number, target: StructurePerson) => {
     setDragId(null);
@@ -376,7 +394,7 @@ function ChartGroup({
       {group.roots.length > 0 ? (
         // `w-max` + `mx-auto`: szerokie drzewo przewija się w karcie od lewej
         // krawędzi (samo `justify-center` ucinałoby lewą stronę).
-        <div className="overflow-x-auto pb-1">
+        <div ref={scrollRef} className="overflow-x-auto pb-1">
           <ul className="mx-auto flex w-max p-0">
             {group.roots.map((node) => (
               <OrgBranch key={node.person.user_id} node={node} {...nodeProps} />
@@ -411,14 +429,30 @@ interface NodeHandlers {
 }
 
 function OrgBranch({ node, ...handlers }: { node: TreeNode } & NodeHandlers) {
+  const { branches, stack } = childLayout(node);
   return (
     <li className={TREE_ITEM}>
       <OrgCard person={node.person} {...handlers} />
       {node.children.length > 0 ? (
         <ul className={TREE_CHILDREN}>
-          {node.children.map((child) => (
+          {branches.map((child) => (
             <OrgBranch key={child.person.user_id} node={child} {...handlers} />
           ))}
+          {stack.length > 0 ? (
+            // Podwładni bez własnych ludzi w kolumnie — jedna „gałąź” rzędu.
+            <li className={TREE_ITEM}>
+              <ul
+                className="flex flex-col gap-1.5 p-0"
+                aria-label={`Pod osobą ${node.person.name}: ${peopleCount(stack.length)}`}
+              >
+                {stack.map((child) => (
+                  <li key={child.person.user_id}>
+                    <OrgCard person={child.person} {...handlers} />
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ) : null}
         </ul>
       ) : null}
     </li>

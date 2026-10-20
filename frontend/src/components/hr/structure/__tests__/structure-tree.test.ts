@@ -7,6 +7,8 @@ import {
   blockedManagers,
   buildStructure,
   canDropOn,
+  centeredScrollLeft,
+  childLayout,
   flatten,
   leavingManagers,
   todoItems,
@@ -205,5 +207,76 @@ describe("„Do uporządkowania”", () => {
   it("head pionu bez przełożonego to nie brak", () => {
     const head = person(1, "Kamil Testowy", { division: "front_office" });
     expect(todoItems(structure([head], { front_office: 1 }))).toEqual([]);
+  });
+});
+
+describe("schemat — kolumna podwładnych (prod 20.10.2026)", () => {
+  // Jak na produkcji: szef → dwie osoby → po kilkadziesiąt osób bez ludzi.
+  const boss = person(1, "Szef Przykładowy", { reports: 2 });
+  const leadA = person(2, "Adam Prowadzący", { reports: 20, ...under(boss) });
+  const leadB = person(3, "Beata Prowadząca", { reports: 3, ...under(boss) });
+  const many = Array.from({ length: 20 }, (_, i) =>
+    person(100 + i, `Osoba ${String(i).padStart(2, "0")}`, under(leadA)),
+  );
+  const few = [0, 1, 2].map((i) => person(200 + i, `Mała ${i}`, under(leadB)));
+  const noDivision = (people: StructurePerson[]) =>
+    buildStructure(structure(people)).find((g) => g.key === "none")!;
+  const group = noDivision([boss, leadA, leadB, ...many, ...few]);
+  const [root] = group.roots;
+
+  it("do czterech podwładnych — zwykły rząd", () => {
+    const b = root.children.find((node) => node.person.user_id === 3)!;
+    expect(childLayout(b).stack).toEqual([]);
+    expect(childLayout(b).branches).toHaveLength(3);
+    expect(childLayout(root).stack).toEqual([]);
+  });
+
+  it("więcej niż czterech bez własnych ludzi — kolumna, po nazwisku", () => {
+    const a = root.children.find((node) => node.person.user_id === 2)!;
+    const layout = childLayout(a);
+    expect(layout.branches).toEqual([]);
+    expect(layout.stack.map((node) => node.person.name)).toEqual(many.map((p) => p.name));
+  });
+
+  it("mieszany zespół: przełożeni zostają w rzędzie, reszta w kolumnie", () => {
+    const top = person(1, "Szef", { reports: 6 });
+    const mid = person(2, "Kierownik", { reports: 1, ...under(top) });
+    const sub = person(3, "Pod kierownikiem", under(mid));
+    const leaves = [4, 5, 6, 7, 8].map((id) => person(id, `Liść ${id}`, under(top)));
+    const g = noDivision([top, mid, sub, ...leaves]);
+    const layout = childLayout(g.roots[0]);
+    expect(layout.branches.map((node) => node.person.name)).toEqual(["Kierownik"]);
+    expect(layout.stack.map((node) => node.person.user_id)).toEqual([4, 5, 6, 7, 8]);
+  });
+
+  it("jeden liść wśród przełożonych nie robi kolumny", () => {
+    const top = person(1, "Szef", { reports: 5 });
+    const mids = [2, 3, 4, 5].map((id) => person(id, `Kierownik ${id}`, { reports: 1, ...under(top) }));
+    const subs = mids.map((m, i) => person(10 + i, `Pod ${i}`, under(m)));
+    const leaf = person(9, "Samotny liść", under(top));
+    const g = noDivision([top, ...mids, ...subs, leaf]);
+    const layout = childLayout(g.roots[0]);
+    expect(layout.stack).toEqual([]);
+    expect(layout.branches).toHaveLength(5);
+  });
+
+  it("nikt nie znika: rząd + kolumna = wszyscy podwładni", () => {
+    for (const { node } of flatten(group.roots)) {
+      const { branches, stack } = childLayout(node);
+      expect(branches.length + stack.length).toBe(node.children.length);
+    }
+  });
+});
+
+describe("schemat — otwarcie na korzeniu", () => {
+  it("karta w środku szerokiego drzewa staje na środku okna", () => {
+    // Prod 20.10.2026: 5384 px treści, 623 px okna, korzeń pośrodku.
+    expect(centeredScrollLeft(2606, 172, 623, 5384)).toBe(2381);
+  });
+
+  it("nie wychodzi poza zakres przewijania", () => {
+    expect(centeredScrollLeft(10, 172, 623, 5384)).toBe(0);
+    expect(centeredScrollLeft(5300, 172, 623, 5384)).toBe(5384 - 623);
+    expect(centeredScrollLeft(100, 172, 800, 600)).toBe(0);
   });
 });
