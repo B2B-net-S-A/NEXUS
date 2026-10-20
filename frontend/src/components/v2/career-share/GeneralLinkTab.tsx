@@ -24,6 +24,7 @@ import { useAuthStore } from "@/store/auth";
 
 import { InviteLinkHistory } from "./InviteLinkHistory";
 import { LinkedInPreviewCard } from "./LinkedInPreviewCard";
+import { RecruiterAbout } from "./RecruiterAbout";
 import {
   PROFILE_STATUS_LABEL,
   PROFILE_STATUS_VARIANT,
@@ -302,6 +303,8 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
                 </div>
               ) : null}
             </section>
+
+            {link ? <RecruiterAbout slug={link.slug} about={link.about ?? null} /> : null}
 
             <section className="space-y-2" aria-labelledby="general-stats-heading">
               <h3 id="general-stats-heading" className="text-sm font-semibold text-foreground">

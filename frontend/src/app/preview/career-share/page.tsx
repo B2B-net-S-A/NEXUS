@@ -218,6 +218,8 @@ const CAREER_LINK: CareerLinkState = {
     public_url: "https://kariera.b2bnetwork.pl/marta-n",
     created_at: "2026-09-01T10:00:00Z",
     visit_count: 112,
+    about:
+      "Szukam ludzi do projektów w bankowości i ubezpieczeniach — głównie Java, dane i chmura. Odzywam się do każdej osoby w ciągu dwóch dni roboczych.",
   },
   stats: { days: 30, applications: 9, new_candidates: 6 },
   suggested_slug: "marta-n",
@@ -288,7 +290,7 @@ export default function CareerSharePreviewPage() {
             <JobShareTab enabled defaultJobId={101} />
           </Case>
 
-          <Case id="case-general" title="2. Mój link ogólny — link aktywny, statystyki, widoczność">
+          <Case id="case-general" title="2. Mój link ogólny — link aktywny, „O mnie”, statystyki, widoczność">
             <GeneralLinkTab enabled />
           </Case>
         </main>

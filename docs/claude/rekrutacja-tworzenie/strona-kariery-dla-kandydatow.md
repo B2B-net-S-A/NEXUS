@@ -15,6 +15,25 @@ Publiczny landing, który rekruterzy wrzucają na LinkedIna. Raport:
   właściciela linku (`my_people` nie czyta `created_by`).
 
 Reguły, które łatwo cofnąć:
+- **Strona rekrutera (etap 6, 20.10.2026, makieta 6d w
+  https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h):** inicjał zamiast zdjęcia,
+  samo imię, „O mnie”, plakietki kategorii z otwartych rekrutacji, lista
+  rekrutacji z nazwą sceny, formularz „Zostaw CV u <imię>” (ta sama ścieżka
+  `submit_application`, jedna zgoda — niżej) i odesłanie do tablicy `/`.
+  `GET /api/public/career/p/{slug}` zwraca `recruiter.about`, a każda
+  rekrutacja `theme` (szablon, jak na `/r/`) i `category` (slug kategorii;
+  nazwy dla kandydata w `lib/career/format.ts`, `categoryChips`). Kształt
+  pilnuje `_RECRUITER_JOB_KEYS` w `test_career_links_api.py`.
+- **„O mnie” = `candidate_invite_links.about` (0489)**, najwyżej 280 znaków,
+  zapis `PUT /api/me/career-link` z `about` (pominięte = bez zmian, pusty
+  tekst = usuń), okno „Udostępnij” → „Mój link ogólny”. Na linku, nie na
+  `users`: tekst należy do publicznej strony, zmiana adresu i odzyskanie
+  odwołanego linku zostawiają ten sam wiersz. Zapis wycina znaki formatujące
+  (`visible`) i zlewa nowe linie, potem `lint_public_texts` (klienci otwartych
+  rekrutacji osoby — prowadzonych albo z jej linkiem; jej własne imię
+  i nazwisko) + `lint_internal_codes`. Znalezisko = 422
+  `CAREER_ABOUT_FINDINGS` z listą i nic się nie zapisuje (także adres) —
+  „O mnie” nie ma kroku zatwierdzenia, idzie na stronę od razu.
 - **Na stronę trafia wyłącznie zatwierdzony opis publiczny**
   (`job_public_profiles`, status liczony z hasha treści — edycja po zatwierdzeniu
   = szkic). Opis nigdy niezatwierdzony = 404. Publiczne GET-y budują odpowiedź z

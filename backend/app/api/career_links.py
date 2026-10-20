@@ -31,7 +31,7 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.application_submission import ApplicationSubmission
 from app.models.invite_link import CandidateInviteLink
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User
 from app.services import career_theme as ct
@@ -61,12 +61,15 @@ from app.services.career_slugs import (
     suggest_recruiter_slug,
 )
 from app.services.job_ad.text import visible
+from app.services.public_profile_lint import lint_internal_codes, lint_public_texts
 from app.services.public_apply import link_key
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 _STATS_DAYS = 30
 _SLUG_TAKEN = "Ten adres jest już zajęty."
+# „O mnie” na stronie rekrutera: dwa zdania (makieta 6d, 20.10.2026).
+ABOUT_MAX = 280
 
 
 # ── Stały link rekrutera ────────────────────────────────────────────────────
@@ -182,6 +185,7 @@ async def _career_link_response(db: AsyncSession, user: User) -> CareerLinkRespo
             public_url=recruiter_link_url(link.slug),
             created_at=link.created_at,
             visit_count=link.visit_count or 0,
+            about=link.about or None,
         )
         if link is not None and link.slug
         else None
@@ -314,6 +318,73 @@ def _new_recruiter_link(user_id: int, slug: str) -> CandidateInviteLink:
     )
 
 
+async def _about_findings(db: AsyncSession, user: User, about: str) -> list[dict]:
+    """Kontrola „O mnie” — ta sama co opisu rekrutacji (etap 6, 20.10.2026).
+
+    Klienci: wszystkich otwartych rekrutacji, które osoba prowadzi albo do
+    których ma aktywny link (zdanie „rekrutuję dla …” pisze się o nich).
+    Osoby: sama rekruterka — na stronie kariery jest tylko imię, więc nazwisko
+    w „O mnie” to znalezisko. Kody zgłoszeń klientów jak w opisie rekrutacji.
+    """
+    linked = select(CandidateInviteLink.job_id).where(
+        CandidateInviteLink.created_by == user.id,
+        CandidateInviteLink.kind == "job",
+        CandidateInviteLink.revoked.is_(False),
+        CandidateInviteLink.job_id.is_not(None),
+    )
+    client_ids = (
+        await db.execute(
+            select(Job.client_id)
+            .where(
+                Job.status == JobStatus.published,
+                Job.client_id.is_not(None),
+                (Job.recruiter_id == user.id) | Job.id.in_(linked),
+            )
+            .distinct()
+        )
+    ).scalars()
+    client_names: list[str] = []
+    for client_id in client_ids:
+        client_names.extend(await jpp.client_lint_names(db, client_id))
+    findings = [
+        *lint_public_texts(
+            [about], client_names=client_names, person_names=[user.name]
+        ),
+        *lint_internal_codes([about]),
+    ]
+    return [f.as_dict() for f in findings]
+
+
+async def _clean_about(
+    db: AsyncSession, user: User, raw: Optional[str]
+) -> Optional[str]:
+    """„O mnie” do zapisu albo 422. Pusty tekst = usuń."""
+    # Znaki formatujące (Cf) wycinamy jak w opisie rekrutacji
+    # (``put_public_profile``); nowe linie zlewamy — to dwa zdania pod imieniem.
+    about = " ".join(visible(raw or "").split())
+    if not about:
+        return None
+    if len(about) > ABOUT_MAX:
+        raise HTTPException(
+            status_code=422,
+            detail=f"„O mnie” może mieć najwyżej {ABOUT_MAX} znaków (dwa zdania).",
+        )
+    findings = await _about_findings(db, user, about)
+    if findings:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "CAREER_ABOUT_FINDINGS",
+                "message": (
+                    "„O mnie” zawiera treści, których nie publikujemy na stronie "
+                    "kariery — popraw je przed zapisem."
+                ),
+                "findings": findings,
+            },
+        )
+    return about
+
+
 @router.put("/me/career-link", response_model=CareerLinkResponse)
 async def put_my_career_link(
     data: CareerLinkUpdate,
@@ -324,6 +395,8 @@ async def put_my_career_link(
     problem = recruiter_slug_problem(slug)
     if problem:
         raise HTTPException(status_code=422, detail=problem)
+    about_given = "about" in data.model_fields_set
+    about = await _clean_about(db, current_user, data.about) if about_given else None
     own = await _own_recruiter_link(db, current_user.id)
     owner = await _slug_owner(db, slug)
     reclaim = (
@@ -338,10 +411,16 @@ async def put_my_career_link(
         # Własny, wcześniej odwołany link z tym adresem — wraca do życia
         # (slug jest unikalny także wśród odwołanych).
         owner.revoked = False
+        target = owner
     elif own is None:
-        db.add(_new_recruiter_link(current_user.id, slug))
-    elif own.slug != slug:
-        own.slug = slug
+        target = _new_recruiter_link(current_user.id, slug)
+        db.add(target)
+    else:
+        if own.slug != slug:
+            own.slug = slug
+        target = own
+    if about_given:
+        target.about = about
     try:
         await db.commit()
     except IntegrityError:

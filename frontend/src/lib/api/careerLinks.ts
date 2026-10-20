@@ -153,6 +153,8 @@ export interface CareerLinkState {
     public_url: string;
     created_at: string;
     visit_count: number | null;
+    /** „O mnie” na stronie rekrutera (etap 6); starszy backend: brak. */
+    about?: string | null;
   } | null;
   stats: {
     days: number;
@@ -350,6 +352,10 @@ export const careerLinksApi = {
   saveCareerLink: async (slug: string): Promise<void> => {
     await api.put("/api/me/career-link", { slug });
   },
+  /** „O mnie” na stronie rekrutera; pusty tekst usuwa. Adres zostaje bez zmian. */
+  saveCareerAbout: async (slug: string, about: string): Promise<void> => {
+    await api.put("/api/me/career-link", { slug, about });
+  },
   disableCareerLink: async (): Promise<void> => {
     await api.delete("/api/me/career-link");
   },
@@ -412,6 +418,18 @@ export function findingsFromApproveError(
   if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null;
   const { code, findings } = detail as { code?: unknown; findings?: unknown };
   if (code !== "PUBLIC_PROFILE_FINDINGS" || !Array.isArray(findings)) return null;
+  return findings as PublicProfileFinding[];
+}
+
+/** Znaleziska z odmowy zapisu „O mnie” (422 `CAREER_ABOUT_FINDINGS`) albo `null`. */
+export function findingsFromAboutError(error: unknown): PublicProfileFinding[] | null {
+  const response = (error as { response?: { status?: unknown; data?: unknown } })
+    ?.response;
+  if (response?.status !== 422) return null;
+  const detail = (response.data as { detail?: unknown } | null)?.detail;
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null;
+  const { code, findings } = detail as { code?: unknown; findings?: unknown };
+  if (code !== "CAREER_ABOUT_FINDINGS" || !Array.isArray(findings)) return null;
   return findings as PublicProfileFinding[];
 }
 

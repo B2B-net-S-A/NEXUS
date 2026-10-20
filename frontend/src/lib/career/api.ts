@@ -53,10 +53,15 @@ export interface CareerRecruiterJob {
   title: string;
   city: string | null;
   remote_policy: RemotePolicy | null;
+  /** Etap 6: szablon graficzny rekrutacji (nazwa sceny na stronie rekrutera). */
+  theme?: string;
+  /** Etap 6: slug kategorii kompetencji (plakietki na stronie rekrutera). */
+  category?: string | null;
 }
 
 export interface CareerRecruiterResponse {
-  recruiter: { first_name: string; slug: string };
+  /** `about` (etap 6): najwyżej dwa zdania „O mnie”, sprawdzone przy zapisie. */
+  recruiter: { first_name: string; slug: string; about?: string | null };
   jobs: CareerRecruiterJob[];
 }
 

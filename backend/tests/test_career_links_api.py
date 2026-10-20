@@ -185,6 +185,10 @@ def _cv():
     return {"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4 career"), "application/pdf")}
 
 
+# Rekrutacja na stronie rekrutera i na ekranie zamkniętej rekrutacji.
+_RECRUITER_JOB_KEYS = {"slug", "title", "city", "remote_policy", "theme", "category"}
+
+
 # ── Schemat ────────────────────────────────────────────────────────────────
 
 
@@ -369,7 +373,7 @@ async def test_closed_job_lists_other_open_jobs_even_without_recruiter_link(api)
     assert body["status"] == "closed"
     assert body["recruiter"]["slug"] is None
     assert [j["slug"] for j in body["other_jobs"]] == [other["slug"]]
-    assert set(body["other_jobs"][0]) == {"slug", "title", "city", "remote_policy"}
+    assert set(body["other_jobs"][0]) == _RECRUITER_JOB_KEYS
 
 
 async def test_approve_refuses_client_name_and_money(api):
@@ -997,9 +1001,14 @@ async def test_recruiter_page_lists_only_approved_visible_open_jobs(api):
     resp = await api.get(f"/api/public/career/p/{slug}")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["recruiter"] == {"first_name": "Marta", "slug": slug}
+    # Kształt odpowiedzi jest zamknięty (biała lista) — nowe pole = świadoma
+    # decyzja. Etap 6: „O mnie”, scena i slug kategorii rekrutacji.
+    assert set(body) == {"recruiter", "jobs"}
+    assert body["recruiter"] == {"first_name": "Marta", "slug": slug, "about": None}
     assert [j["slug"] for j in body["jobs"]] == [link["slug"]]
-    assert set(body["jobs"][0]) == {"slug", "title", "city", "remote_policy"}
+    assert set(body["jobs"][0]) == _RECRUITER_JOB_KEYS
+    assert body["jobs"][0]["theme"] == "terminal"  # „Senior Java Developer”
+    assert "Kwarcowy" not in json.dumps(body)
 
     me = await api.get("/api/me/career-link", headers=headers)
     by_job = {j["job_id"]: j for j in me.json()["jobs"]}
@@ -1400,3 +1409,86 @@ async def test_link_previews_and_og_images_do_not_count_as_visits(api):
     human = "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/130 Safari/537.36"
     assert (await api.get(url, headers={"User-Agent": human})).status_code == 200
     assert await _visits(link["slug"]) == start + 1
+
+
+# ── „O mnie” na stronie rekrutera (etap 6, 20.10.2026) ──────────────────────
+
+
+async def _recruiter_page(api: AsyncClient, headers, **body) -> tuple[str, dict]:
+    slug = body.pop("slug", None) or f"about-{uuid.uuid4().hex[:6]}"
+    put = await api.put(
+        "/api/me/career-link", json={"slug": slug, **body}, headers=headers
+    )
+    assert put.status_code == 200, put.text
+    return slug, put.json()
+
+
+async def test_about_is_saved_cleaned_and_shown_on_the_recruiter_page(api):
+    _, headers, _ = await _owner_with_job(api)
+    about = "Rekrutuję w IT\u00ad — głównie Java i chmura.\n\nOdpisuję w dwa dni."
+    slug, saved = await _recruiter_page(api, headers, about=about)
+    clean = "Rekrutuję w IT — głównie Java i chmura. Odpisuję w dwa dni."
+    assert saved["link"]["about"] == clean
+
+    page = (await api.get(f"/api/public/career/p/{slug}")).json()
+    assert page["recruiter"]["about"] == clean
+
+    # Sam adres bez pola „about” nie kasuje „O mnie”; pusty tekst kasuje.
+    _, kept = await _recruiter_page(api, headers, slug=slug)
+    assert kept["link"]["about"] == clean
+    _, cleared = await _recruiter_page(api, headers, slug=slug, about="  ")
+    assert cleared["link"]["about"] is None
+    page = (await api.get(f"/api/public/career/p/{slug}")).json()
+    assert page["recruiter"]["about"] is None
+
+
+async def test_about_keeps_with_a_new_address(api):
+    _, headers, _ = await _owner_with_job(api)
+    await _recruiter_page(api, headers, about="Szukam ludzi do projektów w chmurze.")
+    slug, moved = await _recruiter_page(api, headers)
+    assert moved["link"]["slug"] == slug
+    assert moved["link"]["about"] == "Szukam ludzi do projektów w chmurze."
+
+
+@pytest.mark.parametrize(
+    ("about", "code"),
+    [
+        ("Rekrutuję dla Kwarcowy Bank Hipoteczny {u}.", "client_name"),
+        ("Stawki do 180 zł/h netto.", "money"),
+        ("Napisz: marta@example.com albo zadzwoń.", "contact"),
+        ("Jestem Marta Rekruterska{u} i rekrutuję w IT.", "person_name"),
+        ("Prowadzę RITM0866775 i inne zgłoszenia.", "internal_code"),
+    ],
+)
+async def test_about_refuses_what_the_job_profile_refuses(api, about, code):
+    uid, headers, job_id = await _owner_with_job(api)
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, uid)
+        job = await db.get(Job, job_id)
+        from app.models.client import Client
+
+        client = await db.get(Client, job.client_id)
+        unique_user = user.name.removeprefix("Marta Rekruterska")
+        client_suffix = client.name.removeprefix(f"{_CLIENT_NAME_BASE} ")
+    text = about.format(u=unique_user if code == "person_name" else client_suffix)
+    slug = f"about-{uuid.uuid4().hex[:6]}"
+    resp = await api.put(
+        "/api/me/career-link", json={"slug": slug, "about": text}, headers=headers
+    )
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "CAREER_ABOUT_FINDINGS"
+    assert code in {f["code"] for f in detail["findings"]}
+    # Odmowa niczego nie zapisuje — także adresu.
+    assert (await api.get(f"/api/public/career/p/{slug}")).status_code == 404
+
+
+async def test_about_longer_than_two_sentences_limit_is_refused(api):
+    _, headers, _ = await _owner_with_job(api)
+    resp = await api.put(
+        "/api/me/career-link",
+        json={"slug": f"about-{uuid.uuid4().hex[:6]}", "about": "a" * 281},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert "280" in resp.json()["detail"]

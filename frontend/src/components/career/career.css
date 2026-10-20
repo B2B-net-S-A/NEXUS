@@ -803,6 +803,152 @@ a.kr-row:hover { background: var(--kr-tint); color: var(--kr-white) !important; 
   .kr-main-general .kr-title { font-size: 60px; line-height: 0.98; }
 }
 
+/* ── strona rekrutera, etap 6 (makieta 6d): inicjał, „O mnie”, sceny ─ */
+.kr-rec-hero { gap: 14px; }
+.kr-rec-id {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.kr-rec-initial {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--kr-title);
+  border-radius: 14px;
+  background: var(--kr-tint);
+  color: var(--kr-title);
+  font-family: var(--font-kr-display), system-ui, sans-serif;
+  font-size: 26px;
+  font-weight: 800;
+}
+.kr-rec-whoami {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--kr-gray);
+}
+.kr-rec-hero .kr-title { margin: 6px 0 0; }
+.kr-rec-about {
+  margin: 0;
+  max-width: 560px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--kr-text);
+}
+/* Komentarz `.kr-c` ma na czerni 4,4:1 — zdania strony rekrutera idą
+   szarym `.kr-g` (5,9:1), kursywą jak komentarz. */
+.kr-rec-note { margin: 0; font-style: italic; font-size: 14px; line-height: 1.6; }
+.kr-rec-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.kr-rec-chip {
+  padding: 6px 11px;
+  border: 1px solid var(--kr-line-strong);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--kr-text);
+}
+.kr-rec-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.kr-rec-job {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: center;
+  min-height: 44px;
+  padding: 12px 14px;
+  border: 1px solid var(--kr-line-strong);
+  border-radius: 10px;
+  background: var(--kr-form-bg);
+  color: var(--kr-text) !important;
+  text-decoration: none;
+}
+a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !important; }
+.kr-rec-scene {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 4px 8px;
+  border: 1px solid var(--kr-line-strong);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--kr-gray);
+}
+.kr-rec-job-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.kr-rec-job-title {
+  font-family: var(--font-kr-display), system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.kr-rec-job-meta { font-size: 12px; }
+.kr-rec-job-open { font-size: 12px; white-space: nowrap; }
+.kr-rec-form-head {
+  padding: 16px 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kr-rec-form-title {
+  margin: 0;
+  font-family: var(--font-kr-display), system-ui, sans-serif;
+  font-size: 19px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--kr-white);
+}
+.kr-rec-form-note { margin: 0; font-size: 13px; line-height: 1.5; }
+.kr-rec-all {
+  padding: 16px;
+  border-top: 1px solid var(--kr-line);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.kr-rec-all a {
+  display: inline-block;
+  padding: 12px 0;
+  margin: -12px 0;
+}
+@media (min-width: 1024px) {
+  .kr-rec-initial { width: 64px; height: 64px; font-size: 28px; }
+  /* Imię i „Rekrutuję w IT.” mieszczą się w linii obok formularza. */
+  .kr-main-general .kr-rec-hero .kr-title { font-size: 52px; }
+  .kr-rec-about { font-size: 16px; }
+  .kr-rec-job {
+    grid-template-columns: 150px minmax(0, 1fr) auto;
+    padding: 14px 16px;
+  }
+  .kr-rec-scene { grid-column: auto; justify-self: stretch; text-align: center; }
+  .kr-rec-job-title { font-size: 16px; }
+  .kr-rec-form-head { padding: 24px 24px 0; }
+  .kr-rec-form-title { font-size: 21px; }
+  .kr-rec-all { padding: 16px 40px; font-size: 13px; }
+}
+@media (min-width: 1280px) {
+  .kr-main-general .kr-rec-hero .kr-title { font-size: 60px; }
+  .kr-rec-all { padding: 16px 80px; }
+}
+
 /* 1280 px+: pełne marginesy i wielkości z makiety (1024–1279 ma węższe). */
 @media (min-width: 1280px) {
   .kr-hero { padding: 72px 80px 64px; }

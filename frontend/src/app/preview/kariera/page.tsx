@@ -86,13 +86,46 @@ const CLOSED_JOB_NO_LINK: CareerJobResponse = {
   ],
 };
 
+// Etap 6 (makieta 6d): „O mnie”, scena i kategoria każdej rekrutacji.
 const RECRUITER: CareerRecruiterResponse = {
-  recruiter: { first_name: "Marta", slug: "marta-n" },
+  recruiter: {
+    first_name: "Marta",
+    slug: "marta-n",
+    about:
+      "Szukam ludzi do projektów w bankowości i ubezpieczeniach — głównie Java, dane i chmura. Odzywam się do każdej osoby w ciągu dwóch dni roboczych.",
+  },
   jobs: [
-    { slug: "senior-java-developer-7kq2", title: "Senior Java Developer", city: "Warszawa", remote_policy: "hybrid" },
-    { slug: "devops-engineer-azure-p3x9", title: "DevOps Engineer Azure", city: null, remote_policy: "remote" },
-    { slug: "analityk-biznesowy-q8m1", title: "Analityk biznesowy", city: "Kraków", remote_policy: "hybrid" },
+    {
+      slug: "senior-java-developer-7kq2",
+      title: "Senior Java Developer",
+      city: "Warszawa",
+      remote_policy: "hybrid",
+      theme: "terminal",
+      category: "software_development",
+    },
+    {
+      slug: "devops-engineer-azure-p3x9",
+      title: "DevOps Engineer Azure",
+      city: null,
+      remote_policy: "remote",
+      theme: "topologia",
+      category: "infrastructure_operations",
+    },
+    {
+      slug: "analityk-biznesowy-q8m1",
+      title: "Analityk biznesowy",
+      city: "Kraków",
+      remote_policy: "hybrid",
+      theme: "tablica",
+      category: "management_delivery",
+    },
   ],
+};
+
+// Rekruterka bez „O mnie” i bez otwartych rekrutacji na stronie.
+const RECRUITER_EMPTY: CareerRecruiterResponse = {
+  recruiter: { first_name: "Ola", slug: "ola-k" },
+  jobs: [],
 };
 
 const STATES = [
@@ -102,6 +135,7 @@ const STATES = [
   { id: "zamknieta", label: "rekrutacja zamknięta" },
   { id: "zamknieta-bez-linku", label: "zamknięta, bez stałego linku" },
   { id: "rekruter", label: "stały link rekrutera" },
+  { id: "rekruter-pusty", label: "rekruter bez opisu i rekrutacji" },
 ];
 
 function State({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
@@ -222,6 +256,15 @@ export default function CareerPreviewPage({
 
       <State id="rekruter" label="stały link rekrutera">
         <CareerRecruiterView data={RECRUITER} base={BASE} host={HOST} formPreview={{ disableSubmit: true }} />
+      </State>
+
+      <State id="rekruter-pusty" label="rekruter bez opisu i rekrutacji">
+        <CareerRecruiterView
+          data={RECRUITER_EMPTY}
+          base={BASE}
+          host={HOST}
+          formPreview={{ disableSubmit: true }}
+        />
       </State>
     </div>
   );
