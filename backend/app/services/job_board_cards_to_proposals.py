@@ -493,15 +493,20 @@ _JOB_NOT_CLOSED = (
 )
 
 
-# Tryb ``delete`` zostaje przy kartach oznaczonych ``auto_match``. Starsze
-# karty scrapera (trzecia gałąź bazy, 11.10.2026) wchodzą wyłącznie do
-# ``convert``: zamknięta rekrutacja z Traffita bywa falą czekającą na
-# przeniesienie do NEXUSA, a jej karty mają stać się propozycjami, nie zniknąć.
+# Starsze karty scrapera (trzecia gałąź bazy, 11.10.2026) tryb ``delete``
+# bierze tylko z rekrutacji założonych w NEXUSIE. Zamknięta rekrutacja
+# z Traffita bywa falą czekającą na przeniesienie do NEXUSA, a jej karty mają
+# stać się propozycjami w ``convert``, nie zniknąć. Na zamkniętych
+# rekrutacjach z NEXUSA zostały po sprzątaniu z 06.10.2026 (znało tylko
+# ``auto_match``) — audyt 20.10.2026: ok. 3 900 kart w 19 rekrutacjach, w tym
+# 513 na rekrutacjach QA (``docs/qa-job-open-processes-audit.md``).
 _UNTAGGED_CARD = (
     "untagged_scraper_card",
     """NOT EXISTS (SELECT 1 FROM recruitment_processes rp1
               WHERE rp1.id = b.process_id
-                AND rp1.entry_source = 'auto_match')""",
+                AND rp1.entry_source = 'auto_match')
+       AND NOT EXISTS (SELECT 1 FROM jobs j1 WHERE j1.id = b.job_id
+              AND j1.external_source IS DISTINCT FROM 'traffit')""",
 )
 
 

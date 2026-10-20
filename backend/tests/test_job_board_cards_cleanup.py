@@ -62,11 +62,16 @@ def test_delete_mode_inverts_job_rule_and_skips_score():
         conversion.static_disqualifiers("drop")
 
 
-def test_delete_mode_never_takes_scraper_cards_from_before_tagging():
-    # Starsze karty scrapera (11.10.2026) mają stać się propozycjami po
-    # przeniesieniu rekrutacji z Traffita — tryb usuwania ich nie widzi.
-    reasons = [r for r, _ in conversion.static_disqualifiers("delete")]
-    assert "untagged_scraper_card" in reasons
+def test_delete_mode_takes_untagged_scraper_cards_only_from_nexus_jobs():
+    # Starsze karty scrapera (11.10.2026) na rekrutacji z Traffita mają stać
+    # się propozycjami po przeniesieniu fali — tryb usuwania ich nie widzi.
+    # Na rekrutacji założonej w NEXUSIE (20.10.2026) usuwa je jak oznaczone.
+    rules = dict(conversion.static_disqualifiers("delete"))
+    assert "untagged_scraper_card" in rules
+    assert (
+        "j1.external_source IS DISTINCT FROM 'traffit'"
+        in rules["untagged_scraper_card"]
+    )
     assert "untagged_scraper_card" not in [
         r for r, _ in conversion.static_disqualifiers("convert")
     ]
@@ -231,6 +236,73 @@ async def test_delete_mode_removes_card_from_closed_job_without_proposal(app_cli
             db, actor=actor, mode="delete", only_process_ids={process_id}
         )
     assert again["targets"] == 0
+
+
+async def _untagged_scraper_card_on_closed_job(**job_fields) -> tuple[int, int, int]:
+    """Karta scrapera z 16–23.09.2026 (puste ``entry_source``) na zamkniętej rekrutacji."""
+    from app.core.database import AsyncSessionLocal
+    from tests.test_job_board_proposals import (
+        _PRACUJ_NOTE,
+        _add_note,
+        _seed_candidate,
+        _seed_card,
+        _seed_integration_user,
+        _seed_job,
+    )
+
+    actor = await _seed_admin()
+    scraper = await _seed_integration_user()
+    job_id = await _seed_job(**job_fields)
+    cand_id = await _seed_candidate()
+    process_id = await _seed_card(job_id, cand_id, scraper, entry_meta=None)
+    await _add_note(cand_id, job_id, scraper, _PRACUJ_NOTE, "automatch")
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE recruitment_processes SET entry_source = NULL WHERE id = :p"),
+            {"p": process_id},
+        )
+        await db.execute(
+            text("UPDATE jobs SET status = 'closed' WHERE id = :id"), {"id": job_id}
+        )
+        await db.commit()
+    return actor, job_id, process_id
+
+
+@pytest.mark.asyncio
+async def test_delete_mode_removes_untagged_scraper_card_from_closed_nexus_job(
+    app_client,
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
+    from app.models.user import User
+
+    actor_id, _, process_id = await _untagged_scraper_card_on_closed_job()
+    assert await _qualifies_for_delete(process_id)
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, actor_id)
+        report = await conversion.apply(
+            db, actor=actor, mode="delete", only_process_ids={process_id}
+        )
+    assert report["counts"]["deleted"] == 1, report
+    async with AsyncSessionLocal() as db:
+        process = await db.get(RecruitmentProcess, process_id)
+        assert process.status == ProcessStatus.voided
+
+
+@pytest.mark.asyncio
+async def test_delete_mode_leaves_untagged_scraper_card_on_closed_traffit_job(
+    app_client,
+):
+    import uuid
+
+    for job_fields in (
+        {"external_source": "traffit"},
+        {"external_source": "traffit", "managed_in_nexus": True},
+    ):
+        _, _, process_id = await _untagged_scraper_card_on_closed_job(
+            external_id=f"t-{uuid.uuid4().hex[:8]}", **job_fields
+        )
+        assert not await _qualifies_for_delete(process_id), job_fields
 
 
 @pytest.mark.asyncio
