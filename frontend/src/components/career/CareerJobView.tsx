@@ -18,7 +18,12 @@ import { ClosedNotice } from "./ClosedNotice";
 import { ParamsPanel } from "./ParamsPanel";
 import { ProcessSteps } from "./ProcessSteps";
 import { RequirementsCheck } from "./RequirementsCheck";
+import { CareerScene, CareerSceneScore } from "./scenes/CareerScene";
+import { hasCareerScene, leftoverNice, processSteps, sceneItems } from "./scenes/model";
+import { CareerSceneProvider } from "./scenes/SceneContext";
+import { GlitchBug } from "./scenes/SceneParts";
 import { TerminalChrome } from "./TerminalChrome";
+import { DEFAULT_CAREER_THEME, isCareerThemeId } from "./themes";
 
 /**
  * Strona rekrutacji (`/r/<slug>`): hero, parametry, opis, wymagania, proces,
@@ -67,6 +72,22 @@ export function CareerJobView({
   const rows = show.params ? paramRows(job.params) : [];
   const paragraphs = aboutParagraphs(job.about);
   const chromePath = `~/b2bnetwork/kariera — zsh — ${handle}`;
+  // Scena roli w hero (po 0478): te same wymagania i kroki co niżej na stronie.
+  const theme = isCareerThemeId(data.theme) ? data.theme : DEFAULT_CAREER_THEME;
+  const must = show.must ? job.must : [];
+  const nice = show.nice ? job.nice : [];
+  const items = sceneItems(must, nice);
+  const withScene = hasCareerScene(theme) && items.length > 0;
+  const login = recruiterLogin(recruiter.first_name);
+  const whoamiNote =
+    withScene && theme === "glitch" ? (
+      <>
+        zaprasza Cię do{" "}
+        <GlitchBug index={0} wrong="rekrutcaji" right="rekrutacji" what="literówka w słowie „rekrutacji”" />
+      </>
+    ) : (
+      "zaprasza Cię do rekrutacji"
+    );
 
   return (
     <CareerThemeScope theme={data.theme}>
@@ -80,25 +101,42 @@ export function CareerJobView({
           recruiterPageSlug: recruiter.slug,
         }}
       >
-        <TerminalChrome path={chromePath} />
-        <section className="kr-top" aria-label="Rekrutacja">
-          <CareerHero
-            login={recruiterLogin(recruiter.first_name)}
-            whoamiNote="zaprasza Cię do rekrutacji"
-            catPath={`/rekrutacje/${handle}`}
-            title={splitTitle(job.title)}
-          >
-            {job.subtitle ? <span className="kr-c">{"// "}{job.subtitle}</span> : null}
-          </CareerHero>
-          <div className="kr-side">
-            <ParamsPanel rows={rows} />
-            <div style={{ padding: "0 16px 16px" }} className="kr-cta-wrap">
-              <a href="#aplikuj" className="kr-cta-mobile">
-                $ ./aplikuj — 2 min
-              </a>
+        <CareerSceneProvider
+          theme={theme}
+          items={items}
+          extraNice={leftoverNice(nice, items)}
+          steps={show.process ? processSteps(recruiter.first_name, job.params?.contract ?? null) : []}
+          recruiterFirstName={recruiter.first_name}
+          login={login}
+          handle={handle}
+        >
+          <TerminalChrome path={chromePath} />
+          <section className="kr-top" aria-label="Rekrutacja" data-kr-with-scene={withScene ? "" : undefined}>
+            <div className="kr-stage">
+              <CareerHero
+                login={login}
+                whoamiNote={whoamiNote}
+                catPath={`/rekrutacje/${handle}`}
+                title={splitTitle(job.title)}
+              >
+                {job.subtitle ? <span className="kr-c">{"// "}{job.subtitle}</span> : null}
+              </CareerHero>
+              {withScene ? <CareerScene /> : null}
             </div>
-          </div>
-        </section>
+            <div className="kr-side">
+              <ParamsPanel rows={rows} />
+              {withScene ? (
+                <CareerSceneScore />
+              ) : (
+                <div style={{ padding: "0 16px 16px" }} className="kr-cta-wrap">
+                  <a href="#aplikuj" className="kr-cta-mobile">
+                    $ ./aplikuj — 2 min
+                  </a>
+                </div>
+              )}
+            </div>
+          </section>
+        </CareerSceneProvider>
 
         <main className="kr-main">
           <div className="kr-col">
@@ -112,10 +150,7 @@ export function CareerJobView({
                 ))}
               </section>
             ) : null}
-            <RequirementsCheck
-              must={show.must ? job.must : []}
-              nice={show.nice ? job.nice : []}
-            />
+            <RequirementsCheck must={must} nice={nice} />
             {/* Kroki także na telefonie (etap 5). */}
             {show.process ? (
               <ProcessSteps

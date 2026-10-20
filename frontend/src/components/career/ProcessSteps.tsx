@@ -1,6 +1,5 @@
-import { instrumentalName } from "@/lib/career/format";
-
 import { Cmd } from "./CareerHero";
+import { processSteps } from "./scenes/model";
 
 /** `./proces --kroki` — stałe cztery kroki procesu. */
 export function ProcessSteps({
@@ -10,15 +9,7 @@ export function ProcessSteps({
   recruiterFirstName: string;
   contract?: string | null;
 }) {
-  const contractNote = contract?.trim()
-    ? `umowa ${contract.trim().toLocaleLowerCase("pl-PL")}`
-    : "umowa i wdrożenie";
-  const steps = [
-    { title: `rozmowa z ${instrumentalName(recruiterFirstName)}`, note: "poznajemy się" },
-    { title: "weryfikacja techniczna", note: "z ekspertem" },
-    { title: "spotkanie z zespołem", note: "po stronie klienta" },
-    { title: "decyzja i start", note: contractNote },
-  ];
+  const steps = processSteps(recruiterFirstName, contract);
   return (
     <section aria-label="Proces rekrutacji">
       <Cmd>./proces --kroki</Cmd>
