@@ -21,8 +21,16 @@ from typing import Optional
 # kluczu, jak `counter_offer` w ocenie ryzyka.
 WORK_MODE_MISMATCH = "work_mode_mismatch"
 
+# „Już po rozmowie u tego hiring managera” (20.10.2026, migracja 0484): osoba
+# była na rozmowie u managera tej rekrutacji w innym procesie, więc nie idzie
+# do niego drugi raz. Powód sytuacyjny, nie ocena osoby.
+HM_ALREADY_INTERVIEWED = "hm_already_interviewed"
+
+OTHER_LABEL = "Inne"
+
 REJECTION_REASON_LABELS: dict[str, str] = {
     WORK_MODE_MISMATCH: "Nie akceptuje trybu pracy (biuro / hybryda)",
+    HM_ALREADY_INTERVIEWED: "Już po rozmowie u tego hiring managera",
     "counter_offer": "Kontroferta od obecnego pracodawcy",
     "personal_reasons": "Powody osobiste",
     "lost_interest": "Stracił zainteresowanie",
@@ -40,3 +48,15 @@ def rejection_reason_label(name: Optional[str]) -> Optional[str]:
     if name is None:
         return None
     return REJECTION_REASON_LABELS.get(name.strip(), name)
+
+
+def needs_description(name: Optional[str]) -> bool:
+    """Czy powód bez opisu nic nie mówi (20.10.2026).
+
+    „Inne” to brak powodu, a „Już po rozmowie u tego hiring managera” bez
+    wskazania rozmowy nie da się sprawdzić — przy obu ruch wymaga opisu.
+    """
+    if name is None:
+        return False
+    key = name.strip()
+    return key == HM_ALREADY_INTERVIEWED or rejection_reason_label(key) == OTHER_LABEL

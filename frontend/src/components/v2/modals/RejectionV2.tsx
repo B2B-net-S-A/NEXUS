@@ -33,7 +33,11 @@ import {
  type RejectionWorkModeJob,
  type RejectionWorkModeProfile,
 } from "@/components/v2/modals/RejectionWorkModeField";
-import { WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
+import {
+ HM_ALREADY_INTERVIEWED_REASON,
+ WORK_MODE_MISMATCH_REASON,
+ reasonNeedsDescription,
+} from "@/lib/rejection-reasons";
 
 interface RejectionReason {
  id: string;
@@ -233,8 +237,12 @@ export function RejectionV2({
 
  const filtered = reasons.filter((r) => r.applies_to.includes(terminalType));
  const hasReasons = filtered.length > 0;
- const workModeReason =
- filtered.find((r) => r.id === reasonId)?.name === WORK_MODE_MISMATCH_REASON;
+ const chosenReason = filtered.find((r) => r.id === reasonId);
+ const workModeReason = chosenReason?.name === WORK_MODE_MISMATCH_REASON;
+ // 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
+ // zostawiały w historii samo słowo — notatka jest wtedy opisem powodu.
+ const descriptionRequired = hasReasons && reasonNeedsDescription(chosenReason);
+ const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
  const several = (emailPreview?.people.length ?? 1) > 1;
 
  const handleConfirm = () => {
@@ -284,6 +292,7 @@ export function RejectionV2({
  const submitDisabled =
  pending ||
  (hasReasons ? !reasonId : !freeReason.trim()) ||
+ (descriptionRequired && !notes.trim()) ||
  (offerResponseRequired && !offerResponse) ||
  (emailAvailable && sendEmail && emailState.invalid);
 
@@ -411,14 +420,29 @@ export function RejectionV2({
  </FormField>
  )}
  <FormField
- label="Notatka (opcjonalnie)"
- description="Np. kontekst decyzji, follow-up."
+ label={
+ hmInterviewed
+ ? "Na jakiej rozmowie i kiedy?"
+ : descriptionRequired
+ ? "Opisz powód"
+ : "Notatka (opcjonalnie)"
+ }
+ required={descriptionRequired}
+ description={
+ descriptionRequired
+ ? "Bez opisu w historii kandydata zostaje samo słowo."
+ : "Np. kontekst decyzji, follow-up."
+ }
  >
  <Textarea
  value={notes}
  onChange={(e) => setNotes(e.target.value)}
  rows={3}
- placeholder="Kandydat dostał lepszą ofertę finansową gdzie indziej."
+ placeholder={
+ hmInterviewed
+ ? "Np. Rating & Limit Management, rozmowa 21.08 — manager jej nie chce drugi raz."
+ : "Kandydat dostał lepszą ofertę finansową gdzie indziej."
+ }
  />
  </FormField>
 

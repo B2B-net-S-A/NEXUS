@@ -20,6 +20,25 @@ import api, { pipelineTemplatesApi, type RejectionReasonDef } from "@/lib/api";
  *  ile dni w biurze kandydat akceptuje, a serwer zapisuje to na profilu. */
 export const WORK_MODE_MISMATCH_REASON = "work_mode_mismatch";
 
+/** Klucz powodu „Już po rozmowie u tego hiring managera” (0484) — lustro
+ *  `rejection_reason_labels.HM_ALREADY_INTERVIEWED`. */
+export const HM_ALREADY_INTERVIEWED_REASON = "hm_already_interviewed";
+
+/**
+ * Czy powód bez opisu nic nie mówi (20.10.2026) — lustro
+ * `rejection_reason_labels.needs_description`. Przy „Inne” i „Już po rozmowie
+ * u tego hiring managera” serwer odrzuca ruch bez opisu (422).
+ */
+export function reasonNeedsDescription(
+  reason: Pick<RejectionReasonOption, "name" | "label"> | null | undefined,
+): boolean {
+  if (!reason) return false;
+  return (
+    reason.name?.trim() === HM_ALREADY_INTERVIEWED_REASON ||
+    reason.label.trim() === "Inne"
+  );
+}
+
 export interface RejectionReasonOption {
   id: string;
   label: string;

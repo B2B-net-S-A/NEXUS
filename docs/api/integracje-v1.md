@@ -403,6 +403,9 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
   „Zweryfikowany”, rozmowa przed kontraktem, wersja karty
   (`expected_state_version` z `/board`, inna = `409`), ostrzeżenie o konflikcie
   (`409`, ponów z `acknowledge_eligibility: true`), powód przy zamknięciu.
+  Od 20.10.2026 przy powodach „Inne” i „Już po rozmowie u tego hiring managera”
+  trzeba podać też opis w `rejection_reason` (obok `rejection_reason_id`) —
+  bez niego `422`.
   - **Klucz może:** przesuwać kartę między kolumnami w toku (Nowi, Screening,
     Zweryfikowany, QC CV, a po wysłaniu do klienta: CV wysłane, Rozmowa u klienta,
     Kontrakt), zamknąć kartę z powodem (odrzucenie, rezygnacja) i przywrócić
