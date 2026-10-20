@@ -370,3 +370,43 @@ async def test_apply_refuses_a_plan_that_differs_from_the_dry_run(storage, capsy
     assert code == 2
     assert "Plan różni się od próby" in capsys.readouterr().err
     assert await _docs(person) == []
+
+
+async def test_owner_keeps_the_primary_cv_someone_chose(storage):
+    """Pomiar 20.10: „najnowsze” u właściciela zdjęłoby główne CV z Traffita."""
+    user_id = await _mailbox_user()
+    owner = await _person("Owner")
+    holder = await _person("Holder")
+    owner_cv, holder_cv = b"%PDF owner mail synthetic", b"%PDF holder mail synthetic"
+    _, truncated = await _mail_cv(
+        storage, user_id=user_id, candidate_id=owner, content=owner_cv, days_ago=4
+    )
+    await _mail_cv(
+        storage, user_id=user_id, candidate_id=holder, content=holder_cv, days_ago=1
+    )
+    chosen_cv = b"%PDF traffit synthetic"
+    async with AsyncSessionLocal() as db:
+        chosen = CandidateDocument(
+            candidate_id=owner,
+            # Plik do klienta jako główne CV: ktoś go wskazał, zostaje.
+            filename="Synth_B2B.docx",
+            file_content=chosen_cv,
+            document_kind=CandidateDocumentKind.cv,
+            is_primary=True,
+            external_source="traffit",
+            content_sha256=_sha(chosen_cv),
+        )
+        db.add(chosen)
+        await db.commit()
+        chosen_id = chosen.id
+    poisoned = await _document(
+        holder, content=owner_cv, claimed_sha=_sha(holder_cv), external_id=truncated
+    )
+
+    items = await _run([owner, holder])
+
+    assert owner not in items.primaries
+    docs = {d.id: d for d in await _docs(owner)}
+    assert docs[chosen_id].is_primary is True
+    assert docs[poisoned].is_primary is False
+    assert docs[poisoned].content_sha256 == _sha(owner_cv)

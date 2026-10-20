@@ -27,11 +27,14 @@ Zasady:
   dokument z bajtami swojego załącznika i kluczem `m365_document_external_id`.
   Bez odczytu AI. Plik, który ktoś usunął z profilu tej osoby (`removed_at`),
   nie wraca (0435). Pozostałe dokumenty m365 dostają nowy klucz;
-* główne CV: zły posiadacz i właściciel, któremu wraca plik, dostają najnowsze
-  własne CV (rodzaj „cv”, `cv_source.current_cv_filters`, bez CV do klienta),
-  a bez niego żadne. Osoba, która dostaje tylko brakujący dokument, zachowuje
-  swoje główne CV; bez głównego dostaje najnowsze własne. Wskaźnik na
-  kandydacie idzie za głównym CV, a nazwa albo bajty cudzego pliku są odpinane;
+* główne CV: zły posiadacz dostaje najnowsze własne CV (rodzaj „cv”,
+  `cv_source.current_cv_filters`, bez CV do klienta), a bez niego żadne.
+  Właściciel, któremu wraca plik, i osoba, która dostaje brakujący dokument,
+  zachowują swoje główne CV (także „…B2B…” — ktoś je wskazał); bez głównego
+  dostają najnowsze własne. Pomiar 20.10: „najnowsze” u wszystkich zmieniłoby
+  główne CV z Traffita na CV z maila u osób, którym kod celowo go nie zmienił.
+  Wskaźnik na kandydacie idzie za głównym CV, a nazwa albo bajty cudzego pliku
+  są odpinane;
 * kopie CV etapu z cudzym plikiem u złego posiadacza dostają jego bieżące CV
   (`restore_stage_copies_after_quarantine`). Próba na sucho wypisuje je razem
   z etapem karty (`client_exposure`) — CV wysłane do klienta to decyzja Artura;
@@ -361,14 +364,17 @@ async def plan(
         result.creates.append((candidate_id, item.attachment_id))
         new_docs[item.attachment_id] = item
 
-    # Główne CV po planie.
-    reset = holders | owners
-    touched = reset | {item.candidate_id for item in new_docs.values()}
+    # Główne CV po planie: zły posiadacz od nowa, reszta zachowuje swoje.
+    reset = holders
+    touched = holders | owners | {item.candidate_id for item in new_docs.values()}
     quarantined = await _quarantined_pairs(db, touched) if touched else set()
     doc_by_id = {d.id: d for d in docs}
     returned_from = {doc_id: att for doc_id, _, _, att in result.returns}
 
-    def eligible(doc: Doc, candidate_id: int) -> bool:
+    def eligible(doc: Doc, candidate_id: int, *, choosing: bool = True) -> bool:
+        # Wskazanego już głównego CV nie oceniamy po nazwie: „…B2B…” bywa
+        # jedynym CV osoby (`cv_source.current_cv_filters`). Nazwa liczy się
+        # tylko przy wyborze następcy.
         filename = doc.filename
         if doc.id in returned_from:
             filename = result.mail_cvs[returned_from[doc.id]].filename
@@ -377,7 +383,7 @@ async def plan(
             and (doc.document_kind == "cv" or doc.id in returned_from)
             and not doc.outdated
             and (candidate_id, doc.id) not in quarantined
-            and not looks_like_client_cv(filename)
+            and not (choosing and looks_like_client_cv(filename))
         )
 
     for candidate_id in sorted(touched):
@@ -399,7 +405,7 @@ async def plan(
             candidate_id not in reset
             and before is not None
             and owner_of.get(before) == candidate_id
-            and eligible(doc_by_id[before], candidate_id)
+            and eligible(doc_by_id[before], candidate_id, choosing=False)
         )
         if keep:
             continue
