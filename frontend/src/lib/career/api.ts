@@ -44,6 +44,8 @@ export interface CareerJobResponse {
   job: CareerJob;
   /** Szablon graficzny (0478): wybór rekrutera albo domyślny według roli. */
   theme?: string;
+  /** Data zatwierdzenia opisu `RRRR-MM-DD` (tylko `open`) — „datePosted” JobPosting. */
+  published_at?: string | null;
   /** Tylko przy `closed` (etap 5): inne otwarte rekrutacje tej osoby. */
   other_jobs?: CareerRecruiterJob[];
 }

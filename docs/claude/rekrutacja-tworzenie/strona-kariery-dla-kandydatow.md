@@ -47,6 +47,28 @@ Reguły, które łatwo cofnąć:
   `client_reference` (od 4 znaków). Czyta ją tylko `lint_payload` (opis
   i tytuł), NIE kontrola adresu — znalezisko w adresie wymieniłoby rozesłany
   link (stary daje 404), a numer w adresie to kosmetyka.
+- **Strony kariery są w Google** (etap 6, decyzja D3 Artura 20.10.2026, makiety
+  plansze 6a–6e na https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h):
+  - layout kariery ma `index, follow`; zamknięta rekrutacja sama ustawia
+    `noindex` (`r/[slug]`), `/rodo` zostaje `noindex`, a nieznany slug dostaje
+    stronę 404 z `noindex` od Next.js;
+  - **kod HTTP nieznanego adresu to nadal 200**: `app/loading.tsx` wysyła
+    odpowiedź, zanim strona zdąży wywołać `notFound()` — także z metadanych.
+    Prawdziwe 404 wymaga przebudowy granic ładowania całej aplikacji; Google
+    i tak nie indeksuje takiej strony (`noindex`);
+  - `app/robots.ts` jest zależny od hosta: domena kariery `Allow: /` (także
+    `/kariera/*` z grafikami OG — LinkedIn czyta robots), host aplikacji
+    `Disallow: /`. Middleware pomija ścieżki z kropką, więc przepisanie
+    `/robots.txt` w `resolveCareerRoute` by nie zadziałało;
+  - strona otwartej rekrutacji niesie dane JobPosting (`lib/career/jobPosting.ts`):
+    tytuł, opis z opublikowanej wersji, `datePosted` = `published_at` z API
+    (data zatwierdzenia, bez godziny), `CONTRACTOR`, B2B Network, miejsce albo
+    praca zdalna z Polski. Bez klienta i bez stawek; adres kanoniczny na
+    domenie kariery;
+  - mapa strony (`sitemap.xml`) przyjdzie razem z tablicą ofert — potrzebuje
+    listy wszystkich otwartych rekrutacji;
+  - ikona segmentu kariery (`app/kariera/icon.svg`) zamiast fioletowego logo
+    NEXUSA; grafika OG strony głównej (`app/kariera/opengraph-image.tsx`).
 - **Plakat z kodem QR** (etap 3, 19.10.2026): `GET /api/jobs/{id}/public-profile/poster.pdf`
   (`services/career_poster.py`, kod QR z `segno` jako `data:` SVG, PDF przez
   WeasyPrint z blokadą zasobów spoza `data:`). Treść wyłącznie z

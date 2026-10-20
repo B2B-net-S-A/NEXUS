@@ -196,7 +196,18 @@ async def get_career_job(
         profile.theme, version.title, await ct.job_category_slug(db, job)
     )
     await _bump_visits(db, link, request)
-    return {"status": "open", "recruiter": recruiter, "theme": theme, "job": payload}
+    # Data zatwierdzenia opisu, bez godziny: „datePosted” danych JobPosting
+    # (etap 6 linków, decyzja D3 Artura 20.10.2026 — oferty widoczne w Google).
+    published_at = (
+        profile.approved_at.date().isoformat() if profile.approved_at else None
+    )
+    return {
+        "status": "open",
+        "recruiter": recruiter,
+        "theme": theme,
+        "published_at": published_at,
+        "job": payload,
+    }
 
 
 async def _recruiter_open_jobs(
