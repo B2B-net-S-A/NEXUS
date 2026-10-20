@@ -8,8 +8,12 @@ zwykłym mailem bez wolnego tekstu.
 
 Mail składa się z wiersza zgody w chwili wysyłki: zgoda już rozpatrzona albo
 na etapie kogoś innego = bez maila (``None``). Przyciski otwierają NEXUS
-(logowanie jak zwykle) na tej zgodzie z wybraną decyzją do potwierdzenia —
-z samego maila nic się nie zatwierdza.
+(logowanie jak zwykle) na tej zgodzie z wybraną decyzją do potwierdzenia.
+
+Etap 2 (20.10.2026, ``mail_reply.reply_mailbox()`` niepuste): temat niesie
+znacznik ``[Zgoda <id>/<kod>]``, mail ma Reply-To na skrzynkę zgód
+(``notification_email_outbox``), a odpowiedź „approved” zatwierdza zgodę
+(``mail_reader.py``). Inna treść wraca do autora jako pytanie.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from app.models.hr_approval import ApprovalRequest
 from app.models.notification import Notification
 from app.models.user import User
 from app.services.email import absolute_link, open_button_html
+from app.services.hr.approvals import mail_reply
 from app.services.hr.approvals.service import (
     KIND_LABELS,
     amount_text,
@@ -97,6 +102,13 @@ async def render(
     open_link = absolute_link(base)
 
     subject = f"[Nexus] Zgoda: {subject_line} — {amount_text(request)}"
+    by_reply = mail_reply.reply_mailbox() is not None
+    if by_reply:
+        subject += f" {mail_reply.marker(request.id, request.submitted_at)}"
+    reply_hint = (
+        "Możesz też odpowiedzieć na tego maila jednym słowem „approved” — to "
+        "jak „Zatwierdź”. Każda inna odpowiedź wróci do autora jako pytanie."
+    )
     lines = [
         f"Cześć {user.name or user.email},",
         "",
@@ -110,6 +122,7 @@ async def render(
         f"Odrzuć albo dopytaj: {decline}",
         f"Otwórz w Nexusie: {open_link}",
         "",
+        *([reply_hint, ""] if by_reply else []),
         "— Nexus ATS",
     ]
     rows = "".join(
@@ -129,7 +142,8 @@ async def render(
         "border:1px solid #cbd5e1;color:#0f172a;padding:9px 18px;border-radius:6px;"
         'text-decoration:none;font-weight:500">Odrzuć albo dopytaj</a> &nbsp; '
         f'<a href="{html.escape(open_link, quote=True)}">Otwórz w Nexusie</a></p>'
-        '<hr><p style="color:#888;font-size:12px">Przyciski otwierają zgodę w Nexusie '
+        + (f"<p>{html.escape(reply_hint)}</p>" if by_reply else "")
+        + '<hr><p style="color:#888;font-size:12px">Przyciski otwierają zgodę w Nexusie '
         "— decyzję potwierdzasz tam. Nexus ATS</p>"
     )
     return subject, "\n".join(lines), html_body

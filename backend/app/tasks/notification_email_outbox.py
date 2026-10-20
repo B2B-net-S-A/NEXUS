@@ -42,6 +42,7 @@ from app.models.user import User
 from app.services import loop_heartbeat
 from app.services.email import email_channel_enabled, render_notification_email
 from app.services.hr.approvals import mail as approval_mail
+from app.services.hr.approvals import mail_reply as approval_mail_reply
 from app.services.hr.hr_mail import mail_text
 from app.services.m365.system_mail import DELIVERY_UNCERTAIN, app_mail_send_outcome
 from app.services.notification_access import user_can_receive_notification
@@ -249,6 +250,7 @@ async def _deliver(
         await _set(db, notif.id, email_send_started_at=None)
         return None
 
+    extra: dict[str, str] = {}
     if notif.notification_type == NotificationType.hr_approval_requested:
         # Zgoda do decyzji: kwota i „po co” tylko decydującemu (20.10.2026).
         # Zgoda już rozpatrzona albo u kogoś innego — bez maila.
@@ -257,6 +259,10 @@ async def _deliver(
             await _set(db, notif.id, email_send_started_at=None)
             return None
         subject, text_body, html_body = rendered
+        # Etap 2: odpowiedź „approved” idzie do skrzynki, którą czyta NEXUS.
+        reply_to = approval_mail_reply.reply_mailbox()
+        if reply_to:
+            extra["reply_to"] = reply_to
     else:
         title, message = notif.title, notif.message
         if kind == HR_MAIL_KIND:
@@ -277,7 +283,14 @@ async def _deliver(
 
         return app_mail_send_outcome(
             guarded_send(
-                kind, created_at, send_email, to_addr, subject, text_body, html_body
+                kind,
+                created_at,
+                send_email,
+                to_addr,
+                subject,
+                text_body,
+                html_body,
+                **extra,
             )
         )
 

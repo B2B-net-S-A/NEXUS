@@ -1580,6 +1580,12 @@ class Settings(BaseSettings):
     ADMIN_CASES_MAILBOX: str = ""
     ADMIN_CASES_M365_MAILBOX: str = ""
     ADMIN_CASES_MAIL_INGEST_ENABLED: bool = False
+    # Zgody, etap 2 (20.10.2026): odpowiedź „approved” na mail o zgodzie.
+    # HR_APPROVALS_REPLY_MAILBOX = skrzynka M365 (zgody@), na którą mail do
+    # decydującego ma Reply-To i którą czyta `services/hr/approvals/mail_reader.py`
+    # rejestracją „NEXUS Kadry”. Bez obu zmiennych mail jest jak w etapie 1.
+    HR_APPROVALS_REPLY_MAILBOX: str = ""
+    HR_APPROVALS_MAIL_REPLY_ENABLED: bool = False
     # Rozliczenia zespołu (etap 4, R1): faktury od osób na B2B z KSeF 2.0 — tylko
     # odczyt, spółka jako nabywca (`app/services/hr/ksef/`). Tryb: off = nic nie
     # wychodzi (domyślnie); simulate = pliki z `KSEF_SIMULATE_DIR` (lokalnie);
