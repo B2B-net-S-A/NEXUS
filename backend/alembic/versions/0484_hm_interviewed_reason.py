@@ -1,7 +1,7 @@
 """Powód „Już po rozmowie u tego hiring managera” w każdym szablonie procesu.
 
 Revision ID: 0484_hm_interviewed_reason
-Revises: 0482_prep2_skips
+Revises: 0483_hr_approvals
 
 20.10.2026: Delivery Lead odrzucał osobę, bo była już na rozmowie u managera
 tej rekrutacji w innym procesie. Słownik tego nie miał, a przy „Inne” nie było
@@ -19,7 +19,7 @@ ten manager już ją zna, a nie że ją odrzucił.
 from alembic import op
 
 revision = "0484_hm_interviewed_reason"
-down_revision = "0482_prep2_skips"
+down_revision = "0483_hr_approvals"
 branch_labels = None
 depends_on = None
 
