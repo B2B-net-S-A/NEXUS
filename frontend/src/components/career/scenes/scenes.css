@@ -1,5 +1,5 @@
 /* Sceny ról w hero strony kariery (po 0478). Kolory WYŁĄCZNIE ze zmiennych
-   `--kr-*` (themes.ts → CareerThemeScope) — pilnuje `__tests__/scenes.test.tsx`.
+   `--kr-*` (themes.ts → CareerThemeScope) — pilnuje `__tests__/model.test.ts`.
    Pełna scena od 1024 px; na telefonie zwarta lista przycisków. */
 
 /* ── układ: hero + scena, panel z wynikiem ─────────────────────── */
@@ -520,7 +520,9 @@
 .kr-bug[data-bug="1"] { animation-delay: 1.2s; }
 .kr-bug[data-bug="2"] { animation-delay: 2.4s; }
 .kr-bug:hover { border-bottom-color: var(--kr-bordo); }
-.kr-bug-fixed {
+.kr-bug.kr-bug-fixed {
+  cursor: default;
+  animation: none;
   background: var(--kr-tint-strong);
   outline: 1px solid var(--kr-red);
 }
@@ -651,6 +653,7 @@
   color: var(--kr-bordo);
   text-decoration: underline;
 }
+.kr-const-clr[aria-disabled="true"] { color: var(--kr-dim); text-decoration: none; cursor: default; }
 
 /* ── Architektura C4 ───────────────────────────────────────────── */
 .kr-sc-c4 {

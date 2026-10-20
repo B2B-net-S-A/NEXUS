@@ -25,8 +25,8 @@ describe("scena Glitch", () => {
     expect(bugs).toHaveLength(1);
     expect(bugs[0]).not.toHaveAccessibleName(/spce/);
     fireEvent.click(bugs[0]);
-    expect(screen.queryAllByRole("button", { name: /^Błąd 2 z 3/ })).toHaveLength(0);
-    expect(s.full().getByText("kandydat.spec.ts")).toHaveClass("kr-bug-fixed");
+    expect(screen.queryAllByRole("button", { name: /^Błąd 2 z 3:/ })).toHaveLength(0);
+    expect(s.full().getByText("kandydat.spec.ts").closest("button")).toHaveClass("kr-bug-fixed");
     expect(s.full().getByText("znalezione 1/3 — szukaj dalej")).toBeInTheDocument();
     expect(s.score().getByText("0/5")).toBeInTheDocument();
     expect(huntMessage(3)).toMatch(/wszystkie 3/);
@@ -59,11 +59,11 @@ describe("scena Glitch", () => {
     for (const n of [1, 2, 3]) {
       expect(screen.getAllByRole("button", { name: new RegExp(`^Błąd ${n} z 3`) }).length).toBeGreaterThan(0);
     }
-    fireEvent.click(screen.getByRole("button", { name: /^Błąd 1 z 3/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Błąd 2 z 3/ })[0]);
-    fireEvent.click(screen.getByRole("button", { name: /^Błąd 3 z 3/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Błąd 1 z 3:/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Błąd 2 z 3:/ })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /^Błąd 3 z 3:/ }));
     expect(screen.getAllByText("wszystkie 3 znalezione. Dokładnie tego szukamy.").length).toBeGreaterThan(0);
-    expect(screen.getByText("rekrutacji")).toHaveClass("kr-bug-fixed");
+    expect(screen.getByText("rekrutacji").closest("button")).toHaveClass("kr-bug-fixed");
   });
 
   it("ograniczenie ruchu: „uruchom” bez paska postępu, PASS działa", () => {

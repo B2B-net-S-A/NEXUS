@@ -97,11 +97,15 @@ export function ConstellationScene() {
         <div className="kr-const-res" aria-live="polite">
           <p className="kr-const-name">{constellationName(count)}</p>
           <p>{count === 0 ? "kliknij pierwszą gwiazdę" : order.map((i) => items[i]?.name).join(" → ")}</p>
-          {count > 0 ? (
-            <button type="button" className="kr-const-clr" onClick={clear}>
-              zacznij od nowa
-            </button>
-          ) : null}
+          {/* Zawsze w DOM (aria-disabled przy zerze), żeby fokus nie spadł na <body>. */}
+          <button
+            type="button"
+            className="kr-const-clr"
+            aria-disabled={count === 0}
+            onClick={count > 0 ? clear : undefined}
+          >
+            zacznij od nowa
+          </button>
         </div>
       </SceneFrame>
       <SceneList

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { useScene } from "./SceneContext";
 import { itemAria, SceneFrame, SceneList } from "./SceneParts";
@@ -32,6 +33,12 @@ export function c4EdgeLit(on: (i: number) => boolean, [a, b]: readonly [number, 
 export function C4Scene() {
   const { items, isOn, toggle, recruiterFirstName } = useScene();
   const [view, setView] = useState<"c1" | "c2">("c2");
+  const c2Ref = useRef<HTMLButtonElement>(null);
+  // Przycisk „przełącz na C2” znika z widokiem C1 — fokus idzie na przełącznik C2.
+  const goC2 = () => {
+    flushSync(() => setView("c2"));
+    c2Ref.current?.focus();
+  };
   const boxes = items.slice(0, C4_BOXES.length);
   const boundary = items.length > C4_BOXES.length ? items[C4_BOXES.length] : null;
   const bIndex = C4_BOXES.length;
@@ -45,7 +52,13 @@ export function C4Scene() {
             <button type="button" className="kr-c4-vt" aria-pressed={view === "c1"} onClick={() => setView("c1")}>
               C1 · kontekst
             </button>
-            <button type="button" className="kr-c4-vt" aria-pressed={view === "c2"} onClick={() => setView("c2")}>
+            <button
+              type="button"
+              ref={c2Ref}
+              className="kr-c4-vt"
+              aria-pressed={view === "c2"}
+              onClick={() => setView("c2")}
+            >
               C2 · kontenery
             </button>
           </span>
@@ -80,7 +93,7 @@ export function C4Scene() {
               <br />
               integracje
             </p>
-            <button type="button" className="kr-c4-go" onClick={() => setView("c2")}>
+            <button type="button" className="kr-c4-go" onClick={goC2}>
               przełącz na C2, żeby zaprojektować wnętrze
             </button>
           </div>
