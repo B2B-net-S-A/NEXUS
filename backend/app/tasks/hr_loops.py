@@ -119,6 +119,32 @@ async def admin_cases_mail_ingest_loop() -> None:
     )
 
 
+# ── Zgody: odpowiedź „approved” mailem (etap 2, 20.10.2026) ─────────────────
+HR_APPROVAL_MAIL_INTERVAL_SECONDS = 2 * 60
+
+
+async def hr_approval_mail_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.hr.approvals.mail_reader import run_once
+
+    result = await run_once(db)
+    return None if result.get("status") == "disabled" else result
+
+
+async def hr_approval_mail_replies_loop() -> None:
+    if not loops_enabled("hr_approval_mail_replies"):
+        return
+    beat = loop_heartbeat.register(
+        "hr_approval_mail_replies",
+        max_silence_seconds=HR_APPROVAL_MAIL_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "hr_approval_mail_replies",
+        beat,
+        HR_APPROVAL_MAIL_INTERVAL_SECONDS,
+        hr_approval_mail_job,
+    )
+
+
 # ── Microsoft 365 dla urlopów (krok 7) ─────────────────────────────────────
 HR_M365_OUTBOX_INTERVAL_SECONDS = 60
 HR_M365_RECONCILE_INTERVAL_SECONDS = 15 * 60

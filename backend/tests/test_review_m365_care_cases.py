@@ -420,10 +420,14 @@ async def test_old_follow_up_from_import_does_not_ring() -> None:
         )
         result = await reminders.remind(db, contracts, today=today, now=local_now())
         await db.commit()
+        # Zbiorczy dzwonek ma ``related_entity_id`` = id osoby — bez zawężenia
+        # do umów i właściciela id konta z innego testu zderzało się z id umowy.
         rung = (
             await db.scalars(
                 select(Notification.related_entity_id).where(
                     Notification.notification_type == NotificationType.care_contact_due,
+                    Notification.related_entity_type == "contract",
+                    Notification.user_id == owner.id,
                     Notification.related_entity_id.in_([imported, recent]),
                 )
             )
