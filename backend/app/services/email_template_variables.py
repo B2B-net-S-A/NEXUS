@@ -6,7 +6,7 @@ Runda 9 (R9-N10-5): ekran szablonów obiecywał zmienne (``{{company_name}}``,
 (``rejection_email_scheduler._render``) nigdy nie wypełniała — kandydat
 dostawał dosłowne ``{{company_name}}``. Lista niżej to DOKŁADNIE to, co
 wypełnia wysyłka. Lustro na froncie: ``AVAILABLE_PLACEHOLDERS`` w
-``frontend/src/app/settings/templates/page.tsx`` (pilnuje
+``frontend/src/components/settings/CandidateEmailTemplates.tsx`` (pilnuje
 ``tests/test_r9_mail_template_variables.py``).
 """
 

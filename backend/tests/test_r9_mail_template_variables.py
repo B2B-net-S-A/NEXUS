@@ -25,14 +25,15 @@ from app.services.email_template_variables import (
 )
 from app.services.rejection_email_scheduler import _render
 
+# Edytor szablonów okna „Wyślij e-mail” — od 20.10.2026 zakładka „Do kandydatów”
+# w Ustawienia → Rekrutacja → Szablony maili (dawniej `app/settings/templates/page.tsx`).
 _FRONTEND_PAGE = (
     Path(__file__).resolve().parents[2]
     / "frontend"
     / "src"
-    / "app"
+    / "components"
     / "settings"
-    / "templates"
-    / "page.tsx"
+    / "CandidateEmailTemplates.tsx"
 )
 
 
