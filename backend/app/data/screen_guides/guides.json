@@ -881,5 +881,61 @@
     "sources": [
       "frontend/src/components/hr/leave/TeamCalendar.tsx"
     ]
+  },
+  {
+    "key": "hr.consents",
+    "title": "Zgody",
+    "section": null,
+    "roles": [],
+    "what": "Zgody na wydatki i premie poza umową: w „Akceptacjach” zgody czekające na Twoją decyzję, w „Moich zgodach” prośby, które wysłałeś, z przebiegiem i formularzem „Poproś o zgodę”.",
+    "tasks": [
+      {
+        "q": "Jak poprosić o zgodę na wydatek albo premię?",
+        "a": "„Ludzie → Moje zgody” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy przełożony, czy decyduje zatwierdzający. Premię z umowy (placement, liga) liczą Płace same — o nią nie prosisz.",
+        "anchor": "hr.consents.form"
+      },
+      {
+        "q": "Jak zatwierdzić albo odrzucić zgodę?",
+        "a": "„Akceptacje” → „Zgody”: wybierz zgodę z listy, obok liczby „NEXUS sprawdził”. „Zatwierdź” albo „Zatwierdź inną kwotę…”, „Dopytaj” wraca do autora z pytaniem, „Odrzuć” wymaga powodu. Przycisk z maila otwiera tę samą zgodę z oknem decyzji.",
+        "anchor": "hr.consents.inbox"
+      },
+      {
+        "q": "Dlaczego widzę „Popieram”, a nie „Zatwierdź”?",
+        "a": "Kwota jest ponad Twój próg przełożonego. Poparcie przekazuje zgodę zatwierdzającemu — to on decyduje i tylko on może ustalić inną kwotę. Progi ustawia admin w Ustawieniach → Kadry → Moduły.",
+        "anchor": "hr.consents.inbox"
+      },
+      {
+        "q": "Co zrobić, gdy dostałem pytanie do zgody?",
+        "a": "W „Moich zgodach” zgoda jest w „Do zrobienia przez Ciebie” z pytaniem na żółtym tle. „Popraw i wyślij” otwiera formularz z danymi — po wysłaniu zgoda zaczyna drogę od nowa. „Wycofaj” zdejmuje ją ze skrzynki decydującego.",
+        "anchor": "hr.consents.mine"
+      }
+    ],
+    "pitfalls": [
+      "Zatwierdzona premia poza umową jest od razu przyznana w Płacach — Płace nie zatwierdzają jej drugi raz.",
+      "O zgodzie dla siebie (także o premii dla siebie) nie decydujesz — nawet jako zatwierdzający."
+    ],
+    "anchors": [
+      {
+        "id": "hr.consents.inbox",
+        "label": "Zgody do decyzji",
+        "describe": "Lista zgód czekających na Twoją decyzję i szczegół z liczbami oraz przyciskami decyzji."
+      },
+      {
+        "id": "hr.consents.mine",
+        "label": "Moje zgody",
+        "describe": "Zgody, o które prosisz: do zrobienia, w toku, zamknięte; po prawej przebieg zgody."
+      },
+      {
+        "id": "hr.consents.form",
+        "label": "Poproś o zgodę",
+        "describe": "Formularz zgody: rodzaj, kwota, po co i panel „Kto zdecyduje”."
+      }
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/hr/approvals/ConsentsInbox.tsx",
+      "frontend/src/components/hr/approvals/MyConsentsScreen.tsx",
+      "frontend/src/components/hr/approvals/ConsentRequestForm.tsx"
+    ]
   }
 ]

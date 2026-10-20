@@ -40,6 +40,9 @@ vi.mock("@/lib/api/hr", async (importOriginal) => {
   };
 });
 vi.mock("../RoleDefaultsCard", () => ({ RoleDefaultsCard: () => <div>Karta: domyślne opisy godzin</div> }));
+vi.mock("@/components/hr/approvals/ApprovalRulesCard", () => ({
+  ApprovalRulesCard: () => <div>Karta: zgody — kto zatwierdza</div>,
+}));
 
 const ALL_OPEN = {
   people: true, leave: true, time: true, payroll: true, lifecycle: true,

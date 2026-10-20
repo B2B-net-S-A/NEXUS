@@ -61,6 +61,7 @@ function config(cases: boolean): HrConfig {
     cases: true,
     equipment: true,
     settlements: false,
+    approvals: false,
   };
   return {
     program: true,

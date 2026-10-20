@@ -26,6 +26,7 @@ export const SCREEN_KEYS = [
   "hr.my_time",
   "hr.approvals",
   "hr.team_calendar",
+  "hr.consents",
 ] as const;
 
 export type ScreenKey = (typeof SCREEN_KEYS)[number];
@@ -41,7 +42,11 @@ export function screenKeyFor(pathname: string | null | undefined, search?: strin
   if (path === "/calendar") return "calendar";
   if (path === "/finance") return "finance";
   if (path === "/my-time") return "hr.my_time";
-  if (path === "/people/approvals") return "hr.approvals";
+  // Zgody (0483): zakładka „Zgody” w Akceptacjach i „Moje zgody” mają jeden przewodnik.
+  if (path === "/people/consents") return "hr.consents";
+  if (path === "/people/approvals") {
+    return params.get("tab") === "consents" ? "hr.consents" : "hr.approvals";
+  }
   if (path === "/people/calendar") return "hr.team_calendar";
   if (path === "/contracts/b2b-generator") return "contracts.b2b_generator";
   if (path === "/contracts") {

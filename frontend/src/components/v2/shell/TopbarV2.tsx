@@ -15,6 +15,7 @@ import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
 import { CvNotificationsDropdown } from "./CvNotificationsDropdown";
 import { JobsNotificationsDropdown } from "./JobsNotificationsDropdown";
 import { AbsentTodayButton } from "@/components/hr/leave/AbsentTodayButton";
+import { ConsentsTopbarButton } from "@/components/hr/approvals/ConsentsTopbarButton";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
 import { hasSectionAccess } from "@/lib/section-access";
 import { useAuthStore } from "@/store/auth";
@@ -101,6 +102,8 @@ export function TopbarV2({
         <JobsNotificationsDropdown />
         <ChatNotificationsDropdown />
         <InterviewNotificationsDropdown />
+        {/* Zgody na wydatki i premie do decyzji (0483); przy zerze jej nie ma. */}
+        <ConsentsTopbarButton />
         {/* „Ludzie w NEXUSIE”: nieobecni dziś (moduł urlopów); przy zerze go nie ma. */}
         <AbsentTodayButton />
         <QuickActionsV2

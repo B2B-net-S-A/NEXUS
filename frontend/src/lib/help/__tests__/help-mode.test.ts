@@ -80,6 +80,8 @@ describe("klucz ekranu z adresu", () => {
     ["/my-time", "?tab=leave", "hr.my_time"],
     ["/people/approvals", "?kind=timesheet", "hr.approvals"],
     ["/people/calendar", "", "hr.team_calendar"],
+    ["/people/consents", "?request=4", "hr.consents"],
+    ["/people/approvals", "?tab=consents&request=4", "hr.consents"],
     ["/people", "", null],
     ["/order-mail", "", null],
     ["/jobs/new", "", null],

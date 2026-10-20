@@ -99,6 +99,7 @@ const ALL_MODULES: Record<HrModuleKey, boolean> = {
   cases: true,
   equipment: true,
   settlements: false,
+  approvals: false,
 };
 
 /** Stan modułów i prawa oglądającego — wszystkie moduły włączone. */

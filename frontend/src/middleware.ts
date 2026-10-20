@@ -546,6 +546,7 @@ const PUBLIC_PATHS = [
   "/preview/hr-client-structure",
   "/preview/hr-announcements",
   "/preview/hr-settlements",
+  "/preview/hr-consents",
   "/preview/hr-documents",
   "/preview/hr-agreements",
   // Katalog z listą rozjazdów kartoteka ↔ konto (19.10.2026).
