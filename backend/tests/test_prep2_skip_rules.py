@@ -231,3 +231,22 @@ def test_prep1_remaining_points_feed_the_call() -> None:
     prep = _prep1(remaining=("Power Apps w bankowości",))
     assert prep1_remaining(_pair(TOMORROW_9, [prep])) == ["Power Apps w bankowości"]
     assert prep1_remaining(_pair(TOMORROW_9, [])) == []
+
+
+def test_skip_does_not_survive_moving_the_interview_later() -> None:
+    # Przegląd 20.10: rozmowa przełożona (ten sam wpis kalendarza) na za
+    # tydzień nie może zachować wyjątku zapisanego „na jutro”.
+    next_week = TOMORROW_9 + timedelta(days=7)
+    moved = _pair(next_week, [_prep1()], prep2_skips={9: _skip()})
+    assert prep2_skip_status(moved, NOW) == "too_early"
+    assert [t["kind"] for t in _todos(moved)] == ["prep2_missing"]
+    assert _steps(moved)["prep2"]["state"] == "current"
+    badge = compute_badge(moved, NOW, call_window_minutes=30)
+    assert badge is None or badge["kind"] != "prep2_skipped"
+
+
+def test_skip_survives_moving_the_interview_earlier_or_same_day() -> None:
+    earlier = _pair(
+        TOMORROW_9 - timedelta(hours=20), [_prep1()], prep2_skips={9: _skip()}
+    )
+    assert prep2_skip_status(earlier, NOW - timedelta(hours=2)) == "skipped"

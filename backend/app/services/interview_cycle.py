@@ -225,10 +225,20 @@ class PairSnapshot:
         return max(matching, key=lambda p: (p.transcript_status != "missing", p.start))
 
     def prep2_skip(self) -> Optional[SkipRef]:
-        """Zapisane pominięcie Prepu 2 przed rozmową tej migawki."""
+        """Zapisane pominięcie Prepu 2 przed rozmową tej migawki.
+
+        Rozmowa przełożona na później (ten sam wpis kalendarza — PATCH albo
+        sync Outlooka) poza okno „dziś albo najbliższy dzień roboczy” liczone
+        od dnia zapisu traci wyjątek: Prep 2 znowu jest wymagany. Inaczej
+        jeden zapis „na jutro” zwalniałby z prepu rozmowę za tydzień.
+        """
         if self.interview is None:
             return None
-        return self.prep2_skips.get(self.interview.id)
+        skip = self.prep2_skips.get(self.interview.id)
+        if skip is None:
+            return None
+        deadline = _next_business_day(_local(skip.created_at).date())
+        return skip if _local(self.interview.start).date() <= deadline else None
 
     def late_prep(self, n: int) -> Optional[EventRef]:
         """Zaplanowany prep numer ``n``, który wypada po rozmowie u klienta."""
