@@ -88,6 +88,11 @@ nieaktualne”.
   maila „znajdowało” cudzy dokument i przepinało go na swojego kandydata
   z cudzym plikiem (kandydat 6673 dostał CV kandydata 26224). Nie ucinaj
   id załącznika w żadnym kluczu.
+  Dane naprawia jednorazowo `app.cli.m365_document_repair` (właścicielem
+  pliku jest `parsed_candidate_id` załącznika z tymi bajtami, nie skrót
+  w dokumencie; plik tylko z poczty wychodzącej = miękkie usunięcie u złego
+  posiadacza; główne CV od nowa tylko u złego posiadacza i u osób bez
+  głównego CV).
 - Ślad: wpis `candidate_document_removed` w historii profilu („Usunięto plik
   z profilu”), w `details` tylko id pliku, rodzaj i `was_primary` — bez nazwy
   pliku, bo nazwa CV to zwykle imię i nazwisko.

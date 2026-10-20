@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { HrConfig, HrModuleKey } from "@/lib/api/hr";
 
-import { peopleSections } from "../PeopleSectionNav";
+import { peopleSections, sectionCount } from "../PeopleSectionNav";
 
 const ALL_ON: Record<HrModuleKey, boolean> = {
   people: true,
@@ -14,6 +14,7 @@ const ALL_ON: Record<HrModuleKey, boolean> = {
   cases: true,
   equipment: true,
   settlements: false,
+  approvals: false,
 };
 
 function config(me: Partial<HrConfig["me"]>, open = ALL_ON): HrConfig {
@@ -87,5 +88,31 @@ describe("zakładki obszaru „Ludzie”", () => {
     const got = values(config({ people_admin: true, is_manager: true }, off));
     expect(got).not.toContain("structure");
     expect(got).not.toContain("team");
+  });
+});
+
+describe("zakładki przy module „Zgody” (0483)", () => {
+  const withConsents = { ...ALL_ON, approvals: true };
+  const onlyConsents = Object.fromEntries(
+    Object.keys(ALL_ON).map((key) => [key, key === "approvals"]),
+  ) as Record<HrModuleKey, boolean>;
+
+  it("„Moje zgody” ma każdy z kartoteką i admin; bez modułu — nikt", () => {
+    expect(values(config({}, withConsents))).toContain("consents");
+    expect(values(config({ has_profile: false, is_admin: true }, withConsents))).toContain("consents");
+    expect(values(config({ has_profile: false }, withConsents))).not.toContain("consents");
+    expect(values(config({}))).not.toContain("consents");
+  });
+
+  it("Akceptacje przy samych zgodach: przełożony i admin (zatwierdzający), zwykła osoba nie", () => {
+    expect(values(config({ is_manager: true }, onlyConsents))).toContain("approvals");
+    expect(values(config({ is_admin: true }, onlyConsents))).toContain("approvals");
+    expect(values(config({}, onlyConsents))).not.toContain("approvals");
+  });
+
+  it("liczba przy Akceptacjach = wnioski i timesheety + zgody; brak obu = bez liczby", () => {
+    expect(sectionCount("approvals", { approvals: 2, consents: 3, cases: null })).toBe(5);
+    expect(sectionCount("approvals", { approvals: null, consents: 3, cases: null })).toBe(3);
+    expect(sectionCount("approvals", { approvals: null, consents: null, cases: null })).toBeUndefined();
   });
 });

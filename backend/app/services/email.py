@@ -28,12 +28,18 @@ logger = logging.getLogger(__name__)
 
 
 def _build_message(
-    to: str, subject: str, text_body: str, html_body: Optional[str] = None
+    to: str,
+    subject: str,
+    text_body: str,
+    html_body: Optional[str] = None,
+    reply_to: Optional[str] = None,
 ) -> MIMEMultipart:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = settings.SMTP_FROM_EMAIL
     msg["To"] = to
+    if reply_to:
+        msg["Reply-To"] = reply_to
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     if html_body:
         msg.attach(MIMEText(html_body, "html", "utf-8"))
@@ -64,8 +70,12 @@ def send_email(
     subject: str,
     text_body: str,
     html_body: Optional[str] = None,
+    reply_to: Optional[str] = None,
 ) -> bool:
     """Wyślij email. Zwraca True gdy kanał potwierdził, False gdy no-op lub błąd.
+
+    ``reply_to`` — adres, na który pójdzie odpowiedź (zgody: skrzynka, którą
+    czyta NEXUS, ``services/hr/approvals/mail_reader.py``).
 
     Routing: gdy `M365_APP_MAIL_ENABLED` — idzie przez Microsoft Graph app-only
     (stała skrzynka serwisowa), inaczej przez SMTP. Graph jest wybranym kanałem
@@ -76,7 +86,11 @@ def send_email(
         from app.services.m365.app_mail import send_via_graph_app
 
         return send_via_graph_app(
-            to=to, subject=subject, text_body=text_body, html_body=html_body
+            to=to,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            reply_to=reply_to,
         )
 
     if not settings.SMTP_ENABLED:
@@ -101,7 +115,7 @@ def send_email(
         )
         return False
 
-    msg = _build_message(to, subject, text_body, html_body)
+    msg = _build_message(to, subject, text_body, html_body, reply_to)
     try:
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as client:
             if settings.SMTP_USE_TLS:

@@ -3032,6 +3032,14 @@
    "v3_home": "Tablica / panel osoby → ruch na „Rozmowę u klienta”"
   },
   {
+   "id": "ruch.client-interview-from-mail",
+   "area": "ruch",
+   "opis": "„Kiedy rozmowa u klienta?” i „Terminy od klienta”: „Wklej maila od klienta” wypisuje terminy z cytatem, długość i „odpowiedz do” (20.10.2026); treść maila nie jest zapisywana",
+   "file": "components/v2/recruitment/ClientInterviewDateDialog.tsx",
+   "marker": "PasteClientMail",
+   "v3_home": "Tablica / panel osoby → ruch na „Rozmowę u klienta” i Kalendarz → „Terminy od klienta”"
+  },
+  {
    "id": "panel.client-interview-questions",
    "area": "panel",
    "opis": "Panel osoby: „Pytania z rozmowy” na „Rozmowie u klienta” bez terminu w NEXUSIE (20.10.2026) — okno pytań pyta, kiedy była rozmowa",

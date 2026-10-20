@@ -35,6 +35,7 @@
   "GET /api/interview-cycle/slots/{request_id}/replaceable": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/client-interviews": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/interview-cycle/slots/from-mail": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots/{request_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots/{request_id}/choose": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots/{request_id}/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPP",

@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { PasteClientMail } from "@/components/calendar/cycle/PasteClientMail";
+import { formatSlot } from "@/lib/interview-cycle";
+import { isoToLocalInput, type SlotFromMail, warningLabel } from "@/lib/interview-slot-mail";
 import { warsawToday } from "@/lib/warsaw-date";
+import { cn } from "@/lib/utils";
 
 const INPUT =
   "h-10 w-full rounded-md border border-border bg-card px-3 text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
@@ -40,6 +44,9 @@ export function ClientInterviewDateDialog({
   const [duration, setDuration] = useState<number>(60);
   const [unknown, setUnknown] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Terminy z wklejonego maila: przy kilku wybiera się jeden (20.10.2026).
+  const [mailSlots, setMailSlots] = useState<SlotFromMail[]>([]);
+  const [picked, setPicked] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -48,7 +55,18 @@ export function ClientInterviewDateDialog({
     setDuration(60);
     setUnknown(false);
     setError(null);
+    setMailSlots([]);
+    setPicked(null);
   }, [open]);
+
+  const pickSlot = (slot: SlotFromMail) => {
+    const local = isoToLocalInput(slot.start);
+    setDay(local.slice(0, 10));
+    setTime(local.slice(11));
+    setPicked(slot.start);
+    setUnknown(false);
+    setError(null);
+  };
 
   const submit = () => {
     if (unknown) {
@@ -94,6 +112,40 @@ export function ClientInterviewDateDialog({
       }
     >
       <div className="space-y-4">
+        <PasteClientMail
+          idPrefix="client-interview"
+          onRead={(result) => {
+            setMailSlots(result.slots);
+            const minutes = result.duration_minutes;
+            if (minutes && (DURATIONS as readonly number[]).includes(minutes)) setDuration(minutes);
+            if (result.slots.length === 1) pickSlot(result.slots[0]);
+          }}
+        />
+        {mailSlots.length > 1 ? (
+          <div role="radiogroup" aria-label="Terminy z maila" className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground">Który termin wybrał kandydat?</p>
+            {mailSlots.map((slot) => {
+              const warning = warningLabel(slot.warning);
+              return (
+                <button
+                  key={slot.start}
+                  type="button"
+                  role="radio"
+                  aria-checked={picked === slot.start}
+                  onClick={() => pickSlot(slot)}
+                  className={cn(
+                    "flex w-full flex-col items-start rounded-md border px-3 py-2 text-left text-sm",
+                    picked === slot.start ? "border-primary bg-primary/5" : "border-border hover:bg-muted",
+                  )}
+                >
+                  <span className="font-semibold">{formatSlot({ start: slot.start, end: slot.end })}</span>
+                  <span className="text-xs italic text-muted-foreground">„{slot.quote}”</span>
+                  {warning ? <span className="text-xs text-warning-muted-foreground">{warning}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         <fieldset disabled={unknown} className="grid grid-cols-3 gap-2 disabled:opacity-60">
           <div>
             <label htmlFor="client-interview-day" className="mb-1 block text-xs font-semibold text-muted-foreground">

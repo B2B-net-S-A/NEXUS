@@ -47,6 +47,12 @@ miejsce, nie zbiór funkcji.
 - **Sortowanie domyślne zależy od zakresu** (`defaultSortForScope`):
   „Moje” → `sort=attention` („Wymaga uwagi”), „Otwarte”/„Wszystkie” →
   `newest`. `sort=deadline` = „Najbliższy termin” (bez terminu na końcu).
+- **„Od najnowszej” / „Od najstarszej” = data otwarcia (20.10.2026)**:
+  `coalesce(opened_at, created_at)` (`job_opened_effective_expr`), ta sama
+  wartość co filtr „Data otwarcia” i `opened_effective_at` w wierszu.
+  Samo `created_at` u ok. 4200 rekrutacji z Traffita to chwila importu.
+  Przycisk sortowania ma prefiks „Sortuj:” — bez niego „Wymaga uwagi”
+  czytało się jak filtr i nikt nie znajdował „Od najnowszej”.
 - **Filtry = pasek nad tabelą, nie kolumna (25.09.2026, wariant A z makiet
   https://claude.ai/artifact/4nGFAJ6N3NpjVWvLH9yjBH).** Z kolumny zniknęły
   filtry bez danych albo dublujące: Typ, „Potrzebny search” (flaga nigdzie nie

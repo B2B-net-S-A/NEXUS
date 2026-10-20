@@ -98,6 +98,8 @@ class TestFeatureKeyEnum:
             "cv_selection_edit",
             # 0434: polecenie własnymi słowami dla całego CV w edytorze.
             "cv_editor_command",
+            # 0485: terminy rozmowy u klienta z wklejonego maila.
+            "interview_slots_from_mail",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

@@ -996,6 +996,9 @@ async def lifespan(app: FastAPI):
         "admin_cases_mail_ingest": asyncio.create_task(
             hr_loops.admin_cases_mail_ingest_loop()
         ),
+        "hr_approval_mail_replies": asyncio.create_task(
+            hr_loops.hr_approval_mail_replies_loop()
+        ),
     }
 
     # Śmierć pętli musi być ZDARZENIEM, nie zmianą ułamka „running/expected".

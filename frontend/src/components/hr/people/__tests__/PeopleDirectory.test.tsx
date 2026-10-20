@@ -28,6 +28,7 @@ const MODULES = {
   cases: false,
   equipment: false,
   settlements: false,
+  approvals: false,
 };
 
 function config(peopleAdmin: boolean): HrConfig {

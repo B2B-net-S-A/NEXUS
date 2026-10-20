@@ -28,9 +28,11 @@ import {
 import { yearMonthFromParams } from "@/components/hr/MyTimeScreen";
 import { TimesheetApprovalsSection } from "@/components/hr/time/TimesheetApprovalsSection";
 import { defaultQueueMonth } from "@/components/hr/time/time-format";
+import { ConsentsInbox } from "@/components/hr/approvals/ConsentsInbox";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
-import type { HrConfig } from "@/lib/api/hr";
+import { useHrCounts, type HrConfig } from "@/lib/api/hr";
 import {
   useCancelTeamLeave,
   useDecideLeave,
@@ -47,6 +49,7 @@ import { useTeamQueue, type QueueStatus } from "@/lib/api/hr-time";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
+import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 import { formatWeekdayDayPl, monthTitlePl, type YearMonth } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -769,7 +772,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
  * (lista + szczegół), timesheety z podsumowaniem statusów, „Historia
  * wniosków” zwinięta do linku i wpis nieobecności za pracownika.
  */
-export function ApprovalsScreen({ config }: { config: HrConfig }) {
+function LeaveAndTimeApprovals({ config }: { config: HrConfig }) {
   const params = useSearchParams();
   const pending = usePendingLeave(config.open_modules.leave);
   const covering = useLeaveCovering(config.open_modules.leave);
@@ -863,6 +866,47 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
       {config.open_modules.leave ? <HistoryToggle viewerIsHr={viewerIsHr} /> : null}
 
       <LeaveRequestDialog open={entering} onOpenChange={setEntering} mode="on_behalf" />
+    </div>
+  );
+}
+
+type ApprovalsTab = "consents" | "leave";
+
+/**
+ * „Ludzie → Akceptacje” z modułem „Zgody” (0483, 20.10.2026): przełącznik
+ * „Zgody | Urlopy i timesheety”. Link z powiadomienia o zgodzie niesie
+ * `?tab=consents`; bez urlopu i czasu zostają same zgody.
+ */
+export function ApprovalsScreen({ config }: { config: HrConfig }) {
+  const params = useSearchParams();
+  const { replaceUrl } = useUrlWriter();
+  const counts = useHrCounts(config.open_modules.approvals);
+  const leaveOpen = config.open_modules.leave || config.open_modules.time;
+  const consentsOpen = config.open_modules.approvals;
+  const [tab, setTab] = useState<ApprovalsTab>(
+    !leaveOpen || params.get("tab") === "consents" ? "consents" : "leave",
+  );
+  if (!consentsOpen) return <LeaveAndTimeApprovals config={config} />;
+  if (!leaveOpen) return <ConsentsInbox />;
+
+  const current = counts.isSuccess ? counts.data : undefined;
+  const withCount = (label: string, value: number | null | undefined) =>
+    typeof value === "number" && value > 0 ? `${label} · ${value}` : label;
+  return (
+    <div className="space-y-4">
+      <SegmentedRadio
+        label="Co akceptujesz"
+        value={tab}
+        onChange={(value) => {
+          setTab(value);
+          replaceUrl(value === "consents" ? "?tab=consents" : "?");
+        }}
+        options={[
+          { value: "consents", label: withCount("Zgody", current?.consents) },
+          { value: "leave", label: withCount("Urlopy i timesheety", current?.approvals) },
+        ]}
+      />
+      {tab === "consents" ? <ConsentsInbox /> : <LeaveAndTimeApprovals config={config} />}
     </div>
   );
 }

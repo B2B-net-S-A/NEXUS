@@ -1,0 +1,9 @@
+{
+  "entry": "55334142794c314ebef9ce0430ac3f6c6ed7665e04ae6502a265bbc0f502bde6",
+  "guide": "hr.consents",
+  "sources": {
+    "frontend/src/components/hr/approvals/ConsentRequestForm.tsx": "341f4d2cb0fd402f03ed5cd11bc339a6c0f7762c5e2f7037d07b88d26adcc30d",
+    "frontend/src/components/hr/approvals/ConsentsInbox.tsx": "fea4041339dc664278d3356c6d4c1d9a05be47b65186739c2a9f2cdb9e6cf374",
+    "frontend/src/components/hr/approvals/MyConsentsScreen.tsx": "8a5ce0dcb88b625ea25d2a6cea341412b842c3cfa9368c8a4c265a2b2083ecf9"
+  }
+}

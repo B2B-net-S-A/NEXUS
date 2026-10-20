@@ -162,6 +162,10 @@ class AIFeatureKey(str, enum.Enum):
     # zwraca plan operacji na wierszach; kod sprawdza każdą (bez nowych faktów,
     # bez ruszania układu szablonu), a rekruter wybiera, które zastosować.
     cv_editor_command = "cv_editor_command"
+    # Terminy rozmowy u klienta z wklejonego maila (0485, 20.10.2026): model
+    # wypisuje terminy z cytatem, kod odrzuca termin bez cytatu i z przeszłości.
+    # Treści maila nie zapisujemy.
+    interview_slots_from_mail = "interview_slots_from_mail"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -198,6 +202,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.screening_answer_phrasing: "„Ułóż w zdanie” — odpowiedzi i pola opisowe screeningu",
     AIFeatureKey.cv_selection_edit: "Edytor CV — AI na zaznaczonym fragmencie",
     AIFeatureKey.cv_editor_command: "Edytor CV — polecenie dla całego CV (plan zmian)",
+    AIFeatureKey.interview_slots_from_mail: "Terminy rozmowy u klienta z wklejonego maila",
 }
 
 
@@ -348,6 +353,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.cv_editor_command: [
         "Treść CV dla klienta wiersz po wierszu (bez klauzuli zgody) i polecenie rekrutera",
         "Nazwy wymagań rekrutacji (bez nazwy klienta, stawek i notatek)",
+    ],
+    AIFeatureKey.interview_slots_from_mail: [
+        "Wklejony mail klienta z terminami rozmowy i dzisiejsza data",
+        "(bez danych kandydata z bazy; treść maila nie jest zapisywana)",
     ],
 }
 

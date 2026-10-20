@@ -25,7 +25,8 @@ export type HrModuleKey =
   | "care"
   | "cases"
   | "equipment"
-  | "settlements";
+  | "settlements"
+  | "approvals";
 
 export type EmploymentType = "uop" | "b2b" | "zlecenie";
 export type EmploymentStatus =
@@ -216,6 +217,7 @@ export const HR_MODULE_LABELS: Record<HrModuleKey, string> = {
   cases: "Sprawy administracja@",
   equipment: "Sprzęt i protokoły",
   settlements: "Rozliczenia zespołu",
+  approvals: "Zgody na wydatki i premie poza umową",
 };
 
 /** Klucze zapytań „Ludzi” — wszystkie moduły HR mają wspólny korzeń `["hr"]`. */
@@ -528,6 +530,8 @@ export function hrNavState(config: HrConfig | undefined): HrNavState {
 
 export interface HrCounts {
   approvals: number | null;
+  /** Zgody na wydatki i premie czekające na decyzję (0483); `null` — moduł nie działa. */
+  consents: number | null;
   cases: number | null;
 }
 
@@ -550,10 +554,12 @@ export function parseHrCounts(raw: unknown): HrCounts {
   const body = (raw ?? {}) as Record<string, unknown>;
   const approvals = countOrNull(body.approvals);
   const cases = countOrNull(body.cases);
-  if (approvals === undefined || cases === undefined) {
+  // Backend sprzed zgód (0483) nie zna klucza — wtedy „nie dotyczy”.
+  const consents = "consents" in body ? countOrNull(body.consents) : null;
+  if (approvals === undefined || cases === undefined || consents === undefined) {
     throw new Error("Nieoczekiwana odpowiedź liczników „Ludzi”.");
   }
-  return { approvals, cases };
+  return { approvals, consents, cases };
 }
 
 export function useHrCounts(enabled = true) {

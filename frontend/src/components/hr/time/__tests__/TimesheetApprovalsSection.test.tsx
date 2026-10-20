@@ -35,6 +35,7 @@ const modules = {
   cases: false,
   equipment: false,
   settlements: false,
+  approvals: false,
 };
 
 function config(me: Partial<HrConfig["me"]>): HrConfig {

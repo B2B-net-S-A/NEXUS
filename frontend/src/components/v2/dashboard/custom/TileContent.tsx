@@ -27,6 +27,7 @@ import { getDefaultDashboardPreset } from "@/lib/dashboard-presets"
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature"
 import { useAuthStore } from "@/store/auth"
 
+import { ClosingCandidatesTile } from "./ClosingCandidatesTile"
 import { EquipmentTasksTile } from "./EquipmentTasksTile"
 import { HrApprovalsTile } from "./HrApprovalsTile"
 import { HrMyTimeTile } from "./HrMyTimeTile"
@@ -107,6 +108,9 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
       // 04.10.2026: rekrutacje, w których jestem Rekruterem albo DL-em, z liczbami
       // w kolumnach Tablicy (dawniej 5 starych etapów z operacji rekrutacji).
       return <MyRecruitmentsTile />
+    case "closing_candidates":
+      // 20.10.2026: kolumna „Akceptacja i umowa” ze wszystkich rekrutacji z zakresu.
+      return <ClosingCandidatesTile />
     case "recruitment_activity":
       return <RecruitmentActivityDashboard />
     case "recruitment_competence":

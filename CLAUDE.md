@@ -185,6 +185,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `follow-up-z-kandydatem-gdy-klient-milczy.md` — Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026)
 - `imiennicy-w-oknie-dodawania.md` — Imiennicy w oknie „Dodaj kandydatów do pipeline” (13.10.2026) · telefon, e-mail i miasto w wierszu, szukanie po numerze, „Już w tej rekrutacji”, „Scal…”
 - `kanban-bez-bramek.md` — Kanban bez bramek (decyzja Artura, 17.09.2026)
+- `kandydaci-do-zamkniecia.md` — Kafelek „Kandydaci do zamknięcia” (20.10.2026)
 - `konflikty-z-klientem-blacklist-nda-konkurent-sa.md` — Konflikty z klientem (blacklist / NDA / konkurent) są OSTRZEŻENIEM, nie blokadą (decyzja Artura, 17.09.2026)
 - `lista-rekrutacji-pamieta-ostatnie-filtry.md` — Lista rekrutacji pamięta ostatnie filtry (13.10.2026) · goły `/jobs` = ostatni widok osoby, link z parametrami wygrywa, `keepScope`
 - `mail-odrzucenia-tresc-i-podglad.md` — Mail odrzucenia: treść domyślna i podgląd w oknie odrzucenia (13.10.2026) · treść domyślna w kodzie, podgląd przed potwierdzeniem, szablony z Ustawień nieużywane
@@ -374,6 +375,7 @@ Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archi
 - `przeniesienie-rekrutacji-z-traffita-falami.md` — Przeniesienie rekrutacji z Traffita do NEXUSA falami (11.10.2026) · próba i wykonanie fali, lista osób per stan = źródło prawdy, bliźniaki, duplikaty
 - `pytania-z-rozmowy-bez-terminu.md` — Pytania z rozmowy u klienta także bez terminu w NEXUSIE (20.10.2026) · „Kiedy rozmowa?” przy ruchu, `questions_missing` po 24 h, debrief pary bez wydarzenia, bramka przed „Umową” dla każdej pary z etapem rozmowy, podpowiedź z notatki
 - `rozmowa-bez-prepu-2.md` — Rozmowa u klienta bez Prepu 2 — wyjątek, nie wybór (0482, 20.10.2026)
+- `terminy-z-maila-klienta.md` — Terminy rozmowy z wklejonego maila klienta (0485, 20.10.2026) · „Wklej maila od klienta”, F32 Sonnet 5, cytat sprawdza kod, treść maila nie jest zapisywana, plan 4 PR-ów uproszczenia cyklu
 - `traffit-daily-sync-scheduled-import.md` — Traffit daily sync (scheduled import) · wyłączony na stałe 14.10.2026 (`traffit_retired.py`, 410) — co zostało tylko w Traffit
 
 ### Ludzie w NEXUSIE — `docs/claude/ludzie/`
