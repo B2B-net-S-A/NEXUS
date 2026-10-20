@@ -220,6 +220,8 @@ describe("zdanie Mojego miesiąca", () => {
 
   it("tabela Ludzi zostawia osobę ze spadkiem do zera", () => {
     const zero = {
+      role: "delivery_lead",
+      is_active: true,
       verifications: 0,
       recommendations: 0,
       interviews: 0,
@@ -229,6 +231,20 @@ describe("zdanie Mojego miesiąca", () => {
     expect(isPeopleRowWorthShowing(zero)).toBe(false);
     expect(isPeopleRowWorthShowing({ ...zero, previous_placements: 3 })).toBe(true);
     expect(isPeopleRowWorthShowing({ ...zero, verifications: 1 })).toBe(true);
+  });
+
+  it("tabela Ludzi zostawia aktywnego rekrutera bez ruchu, nieaktywnego nie", () => {
+    const zero = {
+      role: "recruiter",
+      is_active: true,
+      verifications: 0,
+      recommendations: 0,
+      interviews: 0,
+      placements: 0,
+      previous_placements: 0,
+    };
+    expect(isPeopleRowWorthShowing(zero)).toBe(true);
+    expect(isPeopleRowWorthShowing({ ...zero, is_active: false })).toBe(false);
   });
 
   it("poza rankingiem nie wymyśla miejsca", () => {
