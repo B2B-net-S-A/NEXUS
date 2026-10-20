@@ -7,16 +7,19 @@ import { BoardScene } from "./BoardScene";
 import { C4Scene } from "./C4Scene";
 import { ConstellationScene } from "./ConstellationScene";
 import { GlitchScene } from "./GlitchScene";
+import { HorizonScene } from "./HorizonScene";
 import { PaperScene } from "./PaperScene";
 import { PlanScene } from "./PlanScene";
+import { RackScene } from "./RackScene";
+import { RadarScene } from "./RadarScene";
 import { useScene } from "./SceneContext";
 import { GlitchBug, SceneScore } from "./SceneParts";
 import { SequenceScene } from "./SequenceScene";
 import { TerminalScene } from "./TerminalScene";
 import { TopologyScene } from "./TopologyScene";
 
-/** Sceny gotowe w tym wydaniu; reszta szablonów — sam wygląd (kolejne PR-y). */
-const SCENES: Partial<Record<CareerThemeId, ComponentType>> = {
+/** Scena każdego szablonu (makiety: strona kanwy „Najczęstsze role — interaktywne”). */
+const SCENES: Record<CareerThemeId, ComponentType> = {
   terminal: TerminalScene,
   sekwencja: SequenceScene,
   glitch: GlitchScene,
@@ -26,10 +29,13 @@ const SCENES: Partial<Record<CareerThemeId, ComponentType>> = {
   tablica: BoardScene,
   plan: PlanScene,
   papier: PaperScene,
+  radar: RadarScene,
+  horyzont: HorizonScene,
+  szafa: RackScene,
 };
 
 /** Podpis wyniku przy „Aplikuj” — językiem roli. */
-const SCORE_LABELS: Partial<Record<CareerThemeId, string>> = {
+const SCORE_LABELS: Record<CareerThemeId, string> = {
   terminal: "Twoje dopasowanie",
   sekwencja: "Komunikaty obsłużone",
   glitch: "Testy zaliczone",
@@ -39,6 +45,9 @@ const SCORE_LABELS: Partial<Record<CareerThemeId, string>> = {
   tablica: "W „Mam to”",
   plan: "Zakres pokryty",
   papier: "Kroki na PASS",
+  radar: "Cele namierzone",
+  horyzont: "Power-upy",
+  szafa: "Serwery online",
 };
 
 /** Dla testu: mapa scen zgadza się z `CAREER_SCENE_IDS` (model.ts, czytany też na serwerze). */
@@ -63,7 +72,7 @@ export function CareerSceneScore() {
     theme === "glitch" ? (
       <GlitchBug index={2} wrong="Tetsy zaliczone" right="Testy zaliczone" what="literówka w podpisie wyniku" />
     ) : (
-      (SCORE_LABELS[theme] ?? "Twoje dopasowanie")
+      SCORE_LABELS[theme]
     );
   return <SceneScore label={label} />;
 }

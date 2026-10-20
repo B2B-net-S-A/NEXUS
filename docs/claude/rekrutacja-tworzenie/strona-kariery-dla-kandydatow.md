@@ -220,9 +220,13 @@ Reguły, które łatwo cofnąć:
   zostawia interakcję i zdejmuje animacje (`data-kr-still` + CSS). Kolory
   `scenes.css` wyłącznie z `--kr-*` (test). Glitch: trzy celowe błędy (hero,
   nagłówek runnera, podpis wyniku) jako przyciski z `aria-label`, nigdy w
-  `<h1>`; nie liczą się do wyniku. Lista szablonów ze sceną:
-  `CAREER_SCENE_IDS` w `scenes/model.ts` (czyta ją serwer) — szablon bez
-  sceny i rekrutacja bez wymagań wyglądają jak przed scenami.
+  `<h1>`; nie liczą się do wyniku (to samo cztery błędy Papieru). Każdy
+  z 12 szablonów ma scenę (`CAREER_SCENE_IDS` w `scenes/model.ts`, czyta ją
+  serwer; test pilnuje zgodności z komponentami). Rekrutacja bez wymagań
+  i mile widzianych wygląda jak przed scenami. Współrzędne scen liczą na
+  pudełko 448 × 520 px — przy zmianie rozmiaru popraw stałe pozycji
+  w plikach scen, nie skaluj CSS-em. Pozycja, która znika po kliknięciu, to
+  błąd: element zostaje przyciskiem z `aria-pressed`, żeby nie zgubić fokusu.
 - **Jedna ścieżka zapisu zgłoszenia:** `services/public_apply.submit_application`
   (stary i nowy endpoint). Duplikat e-maila (od 22.09.2026, decyzja Artura —
   kolejka `/applications` przez całe życie nie dostała ani jednego wpisu) NIE
