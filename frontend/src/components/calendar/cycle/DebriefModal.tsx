@@ -17,7 +17,9 @@ const DEBRIEF_WRITE_ROLES = [
 /**
  * Debrief po telefonie do kandydata (≤30 min po rozmowie u klienta) — wejście
  * z kalendarza „Rozmowy u klienta”. Formularz żyje w `DebriefDialog`, wspólnym
- * z bramką na tablicy rekrutacji (`DebriefRequiredDialog`).
+ * z bramką na tablicy rekrutacji (`DebriefRequiredDialog`). Bez `eventId`
+ * (zadanie „Uzupełnij pytania z rozmowy”, 20.10.2026) zapisuje pytania pary
+ * i pyta, kiedy była rozmowa.
  */
 export function DebriefModal({
   open,
@@ -40,7 +42,8 @@ export function DebriefModal({
       open={open}
       onOpenChange={onOpenChange}
       eventId={eventId}
-      title="Debrief po rozmowie u klienta"
+      pair={pair ? { candidateId: pair.candidate_id, jobId: pair.job_id } : null}
+      title={eventId == null ? "Pytania z rozmowy u klienta" : "Debrief po rozmowie u klienta"}
       description={pair ? `${candidateLabel(pair)} · ${pairContext(pair)}` : undefined}
       interviewStart={interviewStart}
       readOnly={readOnly}

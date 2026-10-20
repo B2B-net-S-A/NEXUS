@@ -93,7 +93,8 @@ export interface CvQcFailure {
 
 export type MoveRefusal =
   | { kind: "eligibility"; message: string }
-  | { kind: "debrief_required"; eventId: number; message: string }
+  /** `eventId = null` — para była w „Rozmowie z klientem” bez terminu w NEXUSIE. */
+  | { kind: "debrief_required"; eventId: number | null; message: string }
   | { kind: "verified_missing"; info: VerifiedRequirementsMissing; message: string }
   | { kind: "cv_qc_failed"; failure: CvQcFailure; message: string }
   | { kind: "version_conflict"; message: string }
@@ -122,11 +123,16 @@ export function cvQcFailureOf(error: unknown): CvQcFailure | null {
   };
 }
 
-/** 409 `DEBRIEF_REQUIRED` (Pipeline v4) → id rozmowy u klienta albo `null`. */
-export function debriefRequiredEventId(error: unknown): number | null {
+/**
+ * 409 `DEBRIEF_REQUIRED` (Pipeline v4) → rozmowa, pod którą zapisać pytania
+ * klienta; `null` = to nie ta odmowa. `eventId = null` (20.10.2026): para była
+ * w „Rozmowie z klientem”, ale rozmowy nie ma w kalendarzu — okno pytań pyta
+ * wtedy, kiedy była.
+ */
+export function debriefRequiredOf(error: unknown): { eventId: number | null } | null {
   const detail = conflictDetail(error);
   if (!detail || detail.code !== "DEBRIEF_REQUIRED") return null;
-  return typeof detail.event_id === "number" ? detail.event_id : null;
+  return { eventId: typeof detail.event_id === "number" ? detail.event_id : null };
 }
 
 /** Jaką odmowę dał serwer — jedna reguła dla każdego ekranu z ruchem. */
@@ -137,12 +143,12 @@ export function classifyMoveError(error: unknown, fallback = DEFAULT_MOVE_ERROR)
       message: eligibilityWarningReason(error) ?? "Serwer ostrzega przed tym ruchem.",
     };
   }
-  const eventId = debriefRequiredEventId(error);
-  if (eventId != null) {
+  const debrief = debriefRequiredOf(error);
+  if (debrief) {
     return {
       kind: "debrief_required",
-      eventId,
-      message: "Najpierw zapisz rozmowę z kandydatem po spotkaniu u klienta.",
+      eventId: debrief.eventId,
+      message: "Najpierw zapisz pytania klienta z rozmowy u klienta.",
     };
   }
   const verified = verifiedRequirementsOf(error);

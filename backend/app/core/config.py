@@ -983,6 +983,14 @@ class Settings(BaseSettings):
     # 0338: okno „zadzwoń do kandydata po rozmowie u klienta” (min od końca).
     # Agenda „Rozmowy u klienta” pokazuje odliczanie do jego końca.
     POST_INTERVIEW_CALL_WINDOW_MINUTES: int = 30
+    # 20.10.2026: bramka „pytania klienta przed Umową” także dla par, które
+    # weszły w etap „Rozmowa z klientem” bez terminu w kalendarzu NEXUSA
+    # (88 z 99 par w 30 dniach). ``false`` = bramka znowu tylko przy rozmowie
+    # w kalendarzu (``services/debrief_gate.missing_debrief``).
+    DEBRIEF_GATE_WITHOUT_EVENT: bool = True
+    # Po ilu godzinach w etapie „Rozmowa z klientem” bez terminu i bez pytań
+    # okienko „Rozmowy” pokazuje „Uzupełnij pytania z rozmowy u klienta”.
+    QUESTIONS_MISSING_AFTER_HOURS: int = 24
     # Po ilu minutach od end_time interview z status=scheduled → auto-flip na
     # completed (sygnał, że event się odbył, nawet jeśli nikt go ręcznie nie
     # oznaczył). 10 min grace period absorbuje opóźnienia.

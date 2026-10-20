@@ -227,6 +227,19 @@ describe("„Czeka na Ciebie”", () => {
     expect(w.count).toBe(2);
   });
 
+  it("para bez terminu w NEXUSIE: „Uzupełnij pytania z rozmowy u klienta” (20.10.2026)", () => {
+    const w = build(overview({ todos: [todo(IGOR, "questions_missing", { due: at(-60) })] }));
+    expect(w.waiting.map((r) => [r.title, r.status, r.detail, r.icon])).toEqual([
+      [
+        "Igor Sowa",
+        "Uzupełnij pytania z rozmowy u klienta",
+        "rozmowy nie ma w kalendarzu — zapisz, o co pytał klient",
+        "note",
+      ],
+    ]);
+    expect(w.count).toBe(1);
+  });
+
   it("zaległy debrief rozmowy spoza okna agendy (ponad 14 dni) zostaje widoczny", () => {
     // Agenda sięga 14 dni wstecz, zadanie z serwera nie ma limitu wieku.
     const w = build(

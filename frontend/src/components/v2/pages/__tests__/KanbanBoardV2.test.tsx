@@ -940,6 +940,14 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     ).not.toBeDisabled();
   });
 
+  // Ruch na „Rozmowę u klienta” pyta najpierw o termin (20.10.2026) — te
+  // testy sprawdzają ostrzeżenie serwera, więc przesuwają bez terminu.
+  async function skipInterviewDate() {
+    const dateDialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
+    fireEvent.click(within(dateDialog).getByLabelText("Nie znam jeszcze terminu"));
+    fireEvent.click(within(dateDialog).getByRole("button", { name: "Przesuń" }));
+  }
+
   it("409 ELIGIBILITY_WARNING otwiera okno z powodem, a „Przenieś mimo to” powtarza ruch z potwierdzeniem", async () => {
     post
       .mockRejectedValueOnce(eligibilityWarning409())
@@ -955,6 +963,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     );
     const menu = await openDockStageMenu();
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Rozmowa u klienta" }));
+    await skipInterviewDate();
 
     const dialog = await screen.findByRole("dialog");
     expect(
@@ -997,6 +1006,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     renderBoard(vetoRouteColumns(VETO));
     const menu = await openDockStageMenu();
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Rozmowa u klienta" }));
+    await skipInterviewDate();
 
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));

@@ -66,7 +66,8 @@ export interface PipelineMoveCore {
 }
 
 interface DebriefState {
-  eventId: number;
+  eventId: number | null;
+  candidateId: number;
   candidateName: string;
   resolve: (saved: boolean) => void;
 }
@@ -128,6 +129,7 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
           const saved = await new Promise<boolean>((resolve) =>
             setDebrief({
               eventId: refusal.eventId,
+              candidateId: payload.candidate_id,
               candidateName: handlers.candidateName ?? "kandydat",
               resolve,
             }),
@@ -163,6 +165,7 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
             if (!open) debrief.resolve(false);
           }}
           eventId={debrief.eventId}
+          candidateId={debrief.candidateId}
           candidateName={debrief.candidateName}
           jobId={jobId}
           onSaved={() => debrief.resolve(true)}

@@ -169,6 +169,18 @@ describe("interview-cycle — akcje", () => {
     expect(actionForTodo(todo, [])).toEqual(expect.objectContaining({ type: "debrief", eventId: 44 }));
   });
 
+  it("„Uzupełnij pytania z rozmowy” otwiera okno pytań bez wydarzenia (20.10.2026)", () => {
+    const todo: TodoEntry = {
+      ...PAIR,
+      kind: "questions_missing",
+      priority: 1,
+      due: null,
+      event_id: null,
+      slot_request_id: null,
+    };
+    expect(actionForTodo(todo, [])).toEqual(expect.objectContaining({ type: "debrief", eventId: null }));
+  });
+
   it("bez nazwiska (brak odczytu kandydatów) — numer, nie pustka", () => {
     expect(candidateLabel({ candidate_id: 9, candidate_name: null })).toBe("Kandydat #9");
   });

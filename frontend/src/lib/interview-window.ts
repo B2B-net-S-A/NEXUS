@@ -110,6 +110,7 @@ const STARTING_LABELS: Record<"prep" | "prep2" | "interview", string> = {
 
 const TODO_ICONS: Partial<Record<TodoKind, WindowIcon>> = {
   debrief_overdue: "phone",
+  questions_missing: "note",
   slots_pick: "slots",
   slots_confirm: "confirm",
   prep_missing: "video",
@@ -234,6 +235,9 @@ function todoDetail(todo: TodoEntry, item: CycleItem | undefined, now: Date): st
       return todo.due ? `kandydat wybrał ${whenLabel(todo.due, now)}` : null;
     case "prep_late":
       return "przełóż przed rozmowę";
+    case "questions_missing":
+      // `due` to doba od przesunięcia na „Rozmowę u klienta”, nie termin rozmowy.
+      return "rozmowy nie ma w kalendarzu — zapisz, o co pytał klient";
     default:
       return todo.due ? `rozmowa u klienta ${whenLabel(todo.due, now)}` : null;
   }

@@ -198,6 +198,8 @@ export interface AgendaEntry extends PairInfo {
 export type TodoKind =
   | "call_now"
   | "debrief_overdue"
+  /** Para w „Rozmowie z klientem” bez terminu w NEXUSIE i bez pytań (20.10.2026). */
+  | "questions_missing"
   | "slots_pick"
   | "slots_confirm"
   | "prep_missing"
@@ -275,6 +277,16 @@ export interface DebriefInput {
     negotiable?: "no" | "maybe" | "unknown" | null;
     note?: string | null;
   } | null;
+}
+
+/**
+ * Pytania z rozmowy bez wskazania wydarzenia (20.10.2026): bez rozmowy
+ * w kalendarzu serwer zakłada odbytą z `held_on` (dzień, `YYYY-MM-DD`)
+ * i opcjonalną godziną `held_at` (`HH:MM`, czas firmy).
+ */
+export interface PairDebriefInput extends DebriefInput {
+  held_on?: string | null;
+  held_at?: string | null;
 }
 
 // ── Pytania klienta w debriefie ───────────────────────────────────────────────
@@ -396,6 +408,7 @@ export const AGENDA_LABELS: Record<AgendaKind, string> = {
 export const TODO_LABELS: Record<TodoKind, string> = {
   call_now: "Zadzwoń teraz",
   debrief_overdue: "Debrief zaległy",
+  questions_missing: "Uzupełnij pytania z rozmowy u klienta",
   slots_pick: "Terminy czekają na kandydata",
   slots_confirm: "Potwierdź termin u klienta",
   prep_missing: "Prep 1 bez terminu",
@@ -409,6 +422,7 @@ export const TODO_LABELS: Record<TodoKind, string> = {
 export const TODO_ACTIONS: Record<TodoKind, string> = {
   call_now: "Zapisz debrief",
   debrief_overdue: "Uzupełnij",
+  questions_missing: "Uzupełnij",
   slots_pick: "Wybierz termin",
   slots_confirm: "Potwierdź",
   prep_missing: "Zaplanuj Prep 1",
@@ -519,9 +533,9 @@ export function debriefAvailable(interviewStart: string | null | undefined, now:
  * pary albo wpis agendy); `undefined` = nie wiadomo (okno zapyta serwer). */
 export function interviewStartFor(
   data: CycleOverview | null | undefined,
-  eventId: number,
+  eventId: number | null,
 ): string | undefined {
-  if (!data) return undefined;
+  if (!data || eventId == null) return undefined;
   for (const item of data.items) {
     const step = item.steps.find((s) => s.key === "interview" && s.event_id === eventId);
     if (step?.at) return step.at;
@@ -677,7 +691,8 @@ export function parseScope(raw: string | null, fallback: CycleScope): CycleScope
 // ── Akcje ─────────────────────────────────────────────────────────────────────
 
 export type CycleAction =
-  | { type: "debrief"; pair: PairInfo; eventId: number }
+  /** `eventId = null` — rozmowy nie ma w kalendarzu; okno pyta, kiedy była. */
+  | { type: "debrief"; pair: PairInfo; eventId: number | null }
   | { type: "pick"; pair: PairInfo; request: SlotRequest }
   | { type: "confirm"; pair: PairInfo; request: SlotRequest }
   | { type: "plan_prep"; pair: PairInfo; second: boolean }
@@ -714,6 +729,8 @@ export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction 
     case "call_now":
     case "debrief_overdue":
       return todo.event_id != null ? { type: "debrief", pair, eventId: todo.event_id } : null;
+    case "questions_missing":
+      return { type: "debrief", pair, eventId: null };
     case "slots_pick":
       return item?.slot_request ? { type: "pick", pair, request: item.slot_request } : null;
     case "slots_confirm":

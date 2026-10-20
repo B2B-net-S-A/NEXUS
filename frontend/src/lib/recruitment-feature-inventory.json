@@ -3016,6 +3016,30 @@
    "v3_home": "Tablica / panel osoby / werdykt „Akceptuje”"
   },
   {
+   "id": "move.client-interview-date",
+   "area": "ruch",
+   "opis": "Przesunięcie na „Rozmowę u klienta” pyta „Kiedy rozmowa u klienta?” (20.10.2026): termin zakłada rozmowę w NEXUSIE (telefon po rozmowie, pytania klienta), „Nie znam jeszcze terminu” przesuwa bez niego",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "ClientInterviewDateDialog",
+   "v3_home": "Tablica / panel osoby → ruch na „Rozmowę u klienta”"
+  },
+  {
+   "id": "panel.client-interview-questions",
+   "area": "panel",
+   "opis": "Panel osoby: „Pytania z rozmowy” na „Rozmowie u klienta” bez terminu w NEXUSIE (20.10.2026) — okno pytań pyta, kiedy była rozmowa",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "DockClientInterviewQuestions",
+   "v3_home": "Panel osoby → sekcja procesu"
+  },
+  {
+   "id": "panel.client-questions-note-hint",
+   "area": "panel",
+   "opis": "Notatka „klient pytał…” po rozmowie u klienta podpowiada „Zapisz jako pytania z rozmowy” z listą pytań wyjętą z notatki (20.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "ClientQuestionsNoteHint",
+   "v3_home": "Panel osoby → nad polem notatki"
+  },
+  {
    "id": "panel.client-accept",
    "area": "panel",
    "opis": "Panel osoby: „Klient zaakceptował” na „Rozmowie u klienta”, zielony pasek akceptacji z planowanym startem na „Akceptacji i umowie” i „Cofnij akceptację klienta” w menu „⋯”",
