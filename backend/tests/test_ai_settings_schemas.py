@@ -100,6 +100,8 @@ class TestFeatureKeyEnum:
             "cv_editor_command",
             # 0485: terminy rozmowy u klienta z wklejonego maila.
             "interview_slots_from_mail",
+            # 0488: „Po rozmowie” — pytania i oferta z notatki z telefonu.
+            "debrief_from_text",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

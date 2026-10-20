@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { DebriefFromNote } from "@/components/calendar/cycle/DebriefFromNote";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { interviewCycleApi, useDebrief, useInterviewEvent } from "@/lib/api/interviewCycle";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/interview-cycle";
 import { blurNumberInputOnWheel } from "@/lib/number-input";
 import { warsawToday } from "@/lib/warsaw-date";
+import { commentFromNote, type DebriefFromText } from "@/lib/debrief-from-text";
 import {
   NEGOTIABLE_OPTIONS,
   notifyLine,
@@ -185,6 +187,23 @@ export function DebriefDialog({
         : null,
     );
     return merged.length;
+  };
+
+  // „Co mówił kandydat” (PR 4): odczyt notatki dopisuje pytania i wypełnia
+  // tylko PUSTE pola — niczego, co rekruter już zaznaczył, nie nadpisuje.
+  const applyNote = (result: DebriefFromText, note: string) => {
+    if (result.questions.length) {
+      addQuestions(result.questions.map((q) => q.text));
+      setNoQuestions(false);
+    }
+    if (result.offer && offer == null) setOffer(result.offer.value);
+    if (result.offer?.condition && !condition.trim()) setCondition(result.offer.condition);
+    if (result.rate && !rateChanged) {
+      setRateChanged(true);
+      setRateAmount(result.rate.amount);
+      setRateTouched(true);
+    }
+    if (!comment.trim()) setComment(commentFromNote(note, result));
   };
 
   // Formularz startuje od zapisanego debriefu (poprawka), inaczej pusty —
@@ -425,6 +444,7 @@ export function DebriefDialog({
             </div>
           </fieldset>
         ) : null}
+        {!readOnly ? <DebriefFromNote onApply={applyNote} /> : null}
         <fieldset>
           <legend className="mb-2 text-sm font-semibold">Jak poszło?</legend>
           <div className="grid grid-cols-3 gap-2">

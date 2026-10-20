@@ -98,3 +98,20 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
 - Migracja 0487 stoi po 0486 z PR-a „Zgody” (rozliczenie wydatków) — lustro
   kolumn w `entrypoint.sh`.
 
+## PR 4 — „Co mówił kandydat” w oknie debriefu (0488)
+
+- **Jedno pole na notatkę z telefonu po rozmowie** (`DebriefFromNote` na górze
+  `DebriefDialog`, poza trybem tylko do odczytu). „Rozpisz na pola” =
+  `POST /api/interview-cycle/debrief/from-text` (bramka jak zapis debriefu,
+  integracja = 403, niczego nie zapisuje; zawsze 200 ze `status`).
+- **Model F33 `debrief_from_text`** (GPT-6 Luna z zapasem Sonnet 5, jak F25):
+  pytania klienta, gotowość do oferty z warunkiem, nowa stawka i start — każdy
+  element z cytatem. **Kontrola kodu** (`debrief_from_text.check_parse`):
+  element bez cytatu z notatki odpada; kwota stawki tylko, gdy ta liczba stoi
+  w notatce (także „16 000”); duplikaty pytań łączone, najwyżej 30.
+- **Wypełnia tylko puste pola:** pytania są dopisywane (`mergeQuestions`,
+  limit debriefu), oferta i warunek tylko, gdy nie są zaznaczone, stawka tylko,
+  gdy „bez zmian”, komentarz kandydata = notatka (+ „Start: …”), gdy pusty.
+  „Jak poszło?” zostaje kliknięciem rekrutera. Zapis to zwykły debrief —
+  bank pytań klienta, bramka przed „Umową” i powiadomienie DL-a bez zmian.
+

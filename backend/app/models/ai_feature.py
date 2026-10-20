@@ -166,6 +166,10 @@ class AIFeatureKey(str, enum.Enum):
     # wypisuje terminy z cytatem, kod odrzuca termin bez cytatu i z przeszłości.
     # Treści maila nie zapisujemy.
     interview_slots_from_mail = "interview_slots_from_mail"
+    # „Po rozmowie” (0488, 20.10.2026): z notatki rekrutera z telefonu po
+    # rozmowie u klienta model rozpisuje pytania klienta, gotowość do oferty
+    # i stawkę — każdy element z cytatem, który sprawdza kod.
+    debrief_from_text = "debrief_from_text"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -203,6 +207,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_selection_edit: "Edytor CV — AI na zaznaczonym fragmencie",
     AIFeatureKey.cv_editor_command: "Edytor CV — polecenie dla całego CV (plan zmian)",
     AIFeatureKey.interview_slots_from_mail: "Terminy rozmowy u klienta z wklejonego maila",
+    AIFeatureKey.debrief_from_text: "Po rozmowie u klienta — pytania i oferta z notatki z telefonu",
 }
 
 
@@ -357,6 +362,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.interview_slots_from_mail: [
         "Wklejony mail klienta z terminami rozmowy i dzisiejsza data",
         "(bez danych kandydata z bazy; treść maila nie jest zapisywana)",
+    ],
+    AIFeatureKey.debrief_from_text: [
+        "Notatka rekrutera z telefonu do kandydata po rozmowie u klienta",
+        "(bez nazwy klienta, danych kandydata z bazy i historii stawek)",
     ],
 }
 
