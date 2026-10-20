@@ -74,3 +74,67 @@ async def test_template_render_404(app_client: AsyncClient, app_auth_headers: di
         headers=app_auth_headers,
     )
     assert resp.status_code == 404
+
+
+async def test_new_default_template_clears_previous_default_of_same_type_and_language(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Jeden domyślny wzór na typ i język (20.10.2026).
+
+    Do 20.10 zaznaczenie „Domyślny” na drugim wzorze zostawiało dwa domyślne —
+    na produkcji domyślny był wzór z testu smoke obok „Umowa B2B (PL)”.
+    """
+    kind = "test_default_one"
+    body = {"contract_type": kind, "content_jinja": "<p>{{ contract.id }}</p>"}
+    first = await app_client.post(
+        "/api/contract-templates",
+        json={**body, "name": "Pierwszy", "is_default": True},
+        headers=app_auth_headers,
+    )
+    assert first.status_code == 201, first.text
+    second = await app_client.post(
+        "/api/contract-templates",
+        json={**body, "name": "Drugi", "is_default": False},
+        headers=app_auth_headers,
+    )
+    assert second.status_code == 201, second.text
+    ids = [first.json()["id"], second.json()["id"]]
+    try:
+        promoted = await app_client.patch(
+            f"/api/contract-templates/{ids[1]}",
+            json={"is_default": True},
+            headers=app_auth_headers,
+        )
+        assert promoted.status_code == 200, promoted.text
+
+        listed = (
+            await app_client.get(
+                "/api/contract-templates",
+                params={"contract_type": kind},
+                headers=app_auth_headers,
+            )
+        ).json()
+        defaults = {t["name"]: t["is_default"] for t in listed}
+        assert defaults == {"Pierwszy": False, "Drugi": True}
+
+        # Nowy wzór tworzony od razu jako domyślny też przejmuje znacznik.
+        third = await app_client.post(
+            "/api/contract-templates",
+            json={**body, "name": "Trzeci", "is_default": True},
+            headers=app_auth_headers,
+        )
+        assert third.status_code == 201, third.text
+        ids.append(third.json()["id"])
+        listed = (
+            await app_client.get(
+                "/api/contract-templates",
+                params={"contract_type": kind},
+                headers=app_auth_headers,
+            )
+        ).json()
+        assert [t["name"] for t in listed if t["is_default"]] == ["Trzeci"]
+    finally:
+        for template_id in ids:
+            await app_client.delete(
+                f"/api/contract-templates/{template_id}", headers=app_auth_headers
+            )

@@ -29,6 +29,33 @@ const RATE_UNIT_LABELS: Record<string, string> = {
   monthly: "mies.",
 };
 
+/** Kolumny importu CSV (`POST /api/rate-benchmarks/import`) — wzór z samym nagłówkiem. */
+const RATE_BENCHMARK_CSV_COLUMNS = [
+  "role",
+  "seniority",
+  "currency",
+  "rate_unit",
+  "market_min",
+  "market_median",
+  "market_max",
+  "source",
+  "source_date",
+  "location",
+  "notes",
+] as const;
+
+function downloadCsvTemplate() {
+  const blob = new Blob([`${RATE_BENCHMARK_CSV_COLUMNS.join(",")}\n`], {
+    type: "text/csv;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "stawki-rynkowe-wzor.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function RateBenchmarksPage() {
   const user = useAuthStore((state) => state.user);
   const canEdit = hasRole(user, "admin");
@@ -63,7 +90,7 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
     errors: string[];
   } | null>(null);
 
-  const { data: rows = [], isLoading } = useQuery({
+  const { data: rows = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["rate-benchmarks", roleFilter],
     queryFn: async () => {
       const res = await rateBenchmarksApi.list(
@@ -204,13 +231,23 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
                   Ładowanie…
                 </td>
               </tr>
+            ) : isError ? (
+              <tr>
+                <td colSpan={readOnly ? 8 : 9} className="px-3 py-4">
+                  <QueryStateNotice state="error" onRetry={() => void refetch()} />
+                </td>
+              </tr>
             ) : rows.length === 0 ? (
               <tr>
                 <td
                   colSpan={readOnly ? 8 : 9}
                   className="px-3 py-6 text-center text-muted-foreground"
                 >
-                  Brak wpisów.
+                  {roleFilter
+                    ? "Żadna stawka nie pasuje do tej roli."
+                    : readOnly
+                      ? "Nie ma jeszcze stawek rynkowych."
+                      : "Nie ma jeszcze stawek rynkowych. Dodaj je ręcznie albo wgraj plik CSV z raportu — wzór pliku jest niżej."}
                 </td>
               </tr>
             ) : (
@@ -271,12 +308,18 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
         </table>
       </div>
 
-      <div className="text-xs text-muted-foreground">
-        CSV header:{" "}
-        <code className="bg-muted dark:bg-muted px-1 py-0.5 rounded">
-          role,seniority,currency,rate_unit,market_min,market_median,market_max,source,source_date,location,notes
-        </code>
-      </div>
+      {!readOnly && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>Plik CSV z nagłówkiem jak we wzorze; wypełnij co najmniej rolę, jednostkę, medianę, źródło i datę źródła.</span>
+          <button
+            type="button"
+            onClick={downloadCsvTemplate}
+            className="font-semibold text-primary hover:underline"
+          >
+            Pobierz wzór pliku
+          </button>
+        </div>
+      )}
     </div>
   );
 }

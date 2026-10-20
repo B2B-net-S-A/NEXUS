@@ -87,3 +87,34 @@ describe("RateBenchmarksPage — Finance read-only", () => {
     expect(mocks.importCsv).not.toHaveBeenCalled();
   });
 });
+
+describe("RateBenchmarksPage — pusty stan i wzór pliku (20.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.user = { role: "admin", roles: ["admin"] };
+  });
+
+  it("pusty rejestr mówi, co zrobić, a zamiast nagłówka CSV jest wzór pliku", async () => {
+    mocks.list.mockResolvedValue({ data: [] });
+    renderPage();
+    expect(await screen.findByText(/Nie ma jeszcze stawek rynkowych\. Dodaj je ręcznie/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pobierz wzór pliku" })).toBeInTheDocument();
+    expect(screen.queryByText(/CSV header/)).not.toBeInTheDocument();
+  });
+
+  it("awaria pobrania to błąd z ponowieniem, nie pusta lista", async () => {
+    mocks.list.mockRejectedValue(new Error("boom"));
+    renderPage();
+    expect(await screen.findByRole("button", { name: /Spróbuj ponownie|Ponów/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Nie ma jeszcze stawek rynkowych/)).not.toBeInTheDocument();
+  });
+
+  it("Finanse (tylko odczyt) nie dostają wzoru pliku do importu", async () => {
+    mocks.user = { role: "finance", roles: ["finance"] };
+    mocks.list.mockResolvedValue({ data: [] });
+    renderPage();
+    expect(await screen.findByText("Nie ma jeszcze stawek rynkowych.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pobierz wzór pliku" })).not.toBeInTheDocument();
+  });
+});
+
