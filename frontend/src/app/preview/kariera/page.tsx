@@ -4,8 +4,9 @@
  * Renderuje prawdziwe komponenty `components/career/*` na danych fikcyjnych
  * (repo jest publiczne — żadnych prawdziwych nazwisk ani klientów). Formularze
  * mają wyłączoną wysyłkę (`preview.disableSubmit`), więc klik „wyślij" niczego
- * nie wysyła. Stany obok siebie: rekrutacja otwarta, formularz z błędami,
- * podziękowanie, rekrutacja zamknięta, stały link rekrutera.
+ * nie wysyła. Stany obok siebie: tablica otwartych rekrutacji (strona główna,
+ * etap 6) z pustą tablicą i awarią API, rekrutacja otwarta, formularz
+ * z błędami, podziękowanie, rekrutacja zamknięta, stały link rekrutera.
  *
  * `?szablon=<id>` (0478) — rekrutacja otwarta i zamknięta w szablonie
  * graficznym (`components/career/themes.ts`) ze sceną roli w hero
@@ -15,13 +16,20 @@ import type { Metadata } from "next";
 import { use } from "react";
 
 import { CareerApplyForm } from "@/components/career/CareerApplyForm";
+import { CareerBoardView } from "@/components/career/CareerBoardView";
+import { CareerFooter } from "@/components/career/CareerFooter";
 import { CareerJobView } from "@/components/career/CareerJobView";
 import { CareerRecruiterView } from "@/components/career/CareerRecruiterView";
 import { CareerTheme } from "@/components/career/CareerTheme";
 import { CAREER_THEME_IDS, CAREER_THEMES, isCareerThemeId } from "@/components/career/themes";
 import { TerminalChrome } from "@/components/career/TerminalChrome";
 import { ThanksLog } from "@/components/career/ThanksLog";
-import type { CareerJobResponse, CareerRecruiterResponse } from "@/lib/career/api";
+import type {
+  CareerBoardJob,
+  CareerBoardResponse,
+  CareerJobResponse,
+  CareerRecruiterResponse,
+} from "@/lib/career/api";
 
 export const metadata: Metadata = {
   title: "Podgląd — strona kariery",
@@ -95,7 +103,44 @@ const RECRUITER: CareerRecruiterResponse = {
   ],
 };
 
+// Tablica (etap 6): 14 kart, każda scena co najmniej raz, „pokaż kolejne” po 12.
+const BOARD_JOB = (
+  slug: string,
+  title: string,
+  subtitle: string | null,
+  city: string | null,
+  remote_policy: CareerBoardJob["remote_policy"],
+  category: CareerBoardJob["category"],
+  theme: string,
+  recruiter_first_name: string,
+): CareerBoardJob => ({ slug, title, subtitle, city, remote_policy, category, theme, recruiter_first_name });
+
+const BOARD: CareerBoardResponse = {
+  cv: { slug: "olga-r", first_name: "Olga" },
+  jobs: [
+    BOARD_JOB("senior-java-developer-7kq2", "Senior Java Developer", "rozwój platformy płatności w dużym banku", "Warszawa", "hybrid", "development", "terminal", "Marta"),
+    BOARD_JOB("analityk-systemowy-k2p8", "Analityk systemowy", "integracje systemu rozliczeń w sektorze ubezpieczeń", null, "remote", "management", "sekwencja", "Kasia"),
+    BOARD_JOB("tester-automatyzujacy-r4t1", "Tester automatyzujący", "testy end-to-end aplikacji mobilnej", "Kraków", "hybrid", "qa", "glitch", "Tomasz"),
+    BOARD_JOB("data-engineer-m3n6", "Data Engineer", "hurtownia danych i strumienie zdarzeń", null, "remote", "infra", "konstelacja", "Marta"),
+    BOARD_JOB("architekt-rozwiazan-c4x2", "Architekt rozwiązań", "migracja systemów do chmury", "Warszawa", "onsite", "development", "c4", "Kasia"),
+    BOARD_JOB("devops-engineer-azure-p3x9", "DevOps Engineer Azure", "platforma Kubernetes dla zespołów produktowych", "Gdańsk", "hybrid", "infra", "topologia", "Tomasz"),
+    BOARD_JOB("analityk-biznesowy-q8m1", "Analityk biznesowy", "warsztaty z biznesem i backlog produktu", "Kraków", "hybrid", "management", "tablica", "Marta"),
+    BOARD_JOB("project-manager-h5j3", "Project Manager", "wdrożenie nowego CRM w 6 krajach", null, "remote", "management", "plan", "Kasia"),
+    BOARD_JOB("tester-manualny-w9e4", "Tester manualny", "testy regresji systemu bankowości internetowej", "Łódź", "onsite", "qa", "papier", "Tomasz"),
+    BOARD_JOB("security-engineer-s7d2", "Security Engineer", "monitoring i reagowanie na incydenty", "Wrocław", "hybrid", "infra", "radar", "Marta"),
+    BOARD_JOB("frontend-developer-f6g8", "Frontend Developer React", "nowy panel klienta w sektorze energetycznym", null, "remote", "development", "horyzont", "Kasia"),
+    BOARD_JOB("administrator-linux-a1b5", "Administrator Linux", "utrzymanie infrastruktury on-premise", "Poznań", "onsite", "infra", "szafa", "Tomasz"),
+    BOARD_JOB("python-developer-y2u7", "Python Developer", null, null, "remote", "development", "terminal", "Marta"),
+    BOARD_JOB("scrum-master-z8c3", "Scrum Master", "dwa zespoły produktowe w e-commerce", "Warszawa", "hybrid", "management", "plan", "Kasia"),
+  ],
+};
+
+const BOARD_FOOTER = <CareerFooter rodoHref={`${BASE}/rodo`} hostLabel={HOST} />;
+
 const STATES = [
+  { id: "tablica", label: "tablica otwartych rekrutacji" },
+  { id: "tablica-pusta", label: "tablica bez rekrutacji" },
+  { id: "tablica-awaria", label: "tablica — awaria API" },
   { id: "otwarta", label: "rekrutacja otwarta" },
   { id: "bledy", label: "formularz z błędami" },
   { id: "dziekujemy", label: "podziękowanie" },
@@ -161,6 +206,18 @@ export default function CareerPreviewPage({
           </a>
         ))}
       </nav>
+
+      <State id="tablica" label="tablica otwartych rekrutacji">
+        <CareerBoardView data={BOARD} base={BASE} footer={BOARD_FOOTER} />
+      </State>
+
+      <State id="tablica-pusta" label="tablica bez rekrutacji">
+        <CareerBoardView data={{ ...BOARD, jobs: [] }} base={BASE} footer={BOARD_FOOTER} />
+      </State>
+
+      <State id="tablica-awaria" label="tablica — awaria API">
+        <CareerBoardView data={null} base={BASE} footer={BOARD_FOOTER} />
+      </State>
 
       <State id="otwarta" label="rekrutacja otwarta">
         <CareerJobView

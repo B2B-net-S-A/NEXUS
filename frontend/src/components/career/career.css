@@ -810,3 +810,252 @@ a.kr-row:hover { background: var(--kr-tint); color: var(--kr-white) !important; 
   .kr-main-general { padding: 72px 80px 64px; }
   .kr-main-general .kr-title { font-size: 76px; }
 }
+
+/* ── strona główna: tablica otwartych rekrutacji (etap 6, 20.10.2026) ──
+   Makiety 6b (desktop) i 6c (telefon). Kolory wyłącznie z tokenów `--kr-*`;
+   pasek sceny karty maluje paleta szablonu rekrutacji (`BoardBand.tsx`). */
+.kr-board {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 16px 96px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.kr-board-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kr-board-h1 { margin: 6px 0 4px; font-size: clamp(34px, 10vw, 40px); }
+.kr-board-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kr-board-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.kr-chip {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--kr-line-strong);
+  border-radius: 999px;
+  background: var(--kr-input-bg);
+  color: var(--kr-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.kr-chip:hover { border-color: var(--kr-gray); }
+.kr-chip[aria-pressed="true"] {
+  border-color: var(--kr-title);
+  background: var(--kr-tint-strong);
+  color: var(--kr-white);
+}
+.kr-board-search-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.kr-board-search {
+  flex: 1 1 auto;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--kr-line-strong);
+  border-radius: 8px;
+  background: var(--kr-input-bg);
+}
+.kr-board-search:focus-within { border-color: var(--kr-red); }
+.kr-board-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--kr-text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.kr-board-input::placeholder { color: var(--kr-gray); }
+.kr-board-count { margin: 0; font-size: 12px; }
+.kr-board-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.kr-board-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--kr-line-strong);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--kr-form-bg);
+  color: var(--kr-text) !important;
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.kr-board-card:hover { border-color: var(--kr-title); transform: translateY(-2px); }
+.kr-board-card:focus-visible { outline-offset: 3px; }
+.kr-board-band {
+  position: relative;
+  height: 64px;
+  overflow: hidden;
+  border-bottom: 1px solid;
+}
+.kr-board-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.kr-board-scene,
+.kr-board-cat {
+  position: absolute;
+  top: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.kr-board-scene { left: 10px; }
+.kr-board-cat { right: 10px; border: 1px solid; }
+.kr-board-body {
+  flex: 1 1 auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kr-board-title {
+  font-family: var(--font-kr-display), system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--kr-white);
+}
+.kr-board-sub { font-size: 13px; line-height: 1.45; color: var(--kr-para); }
+.kr-board-tag { font-size: 12px; color: var(--kr-gray); }
+.kr-board-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--kr-line);
+  font-size: 12px;
+  color: var(--kr-gray);
+}
+.kr-board-more {
+  min-height: 46px;
+  padding: 10px;
+  border: 1px dashed var(--kr-line-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--kr-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.kr-board-more:hover { border-color: var(--kr-gray); }
+.kr-board-empty {
+  padding: 24px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kr-board-empty-title {
+  margin: 0;
+  font-family: var(--font-kr-display), system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--kr-white);
+}
+.kr-board-empty .kr-g { margin: 0; }
+.kr-board-reset { margin-top: 8px; background: transparent; color: var(--kr-text); font: inherit; cursor: pointer; }
+.kr-board-cv {
+  margin-top: 12px;
+  padding: 18px 16px;
+  border: 1px solid var(--kr-line-strong);
+  border-radius: 12px;
+  background: var(--kr-form-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scroll-margin-top: 16px;
+}
+.kr-board-cv:focus { outline: none; }
+.kr-board-cv-head {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.kr-board-cv-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kr-board-cv-title {
+  margin: 0;
+  font-family: var(--font-kr-display), system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--kr-white);
+}
+.kr-board-cv-note { color: var(--kr-para); font-size: 13.5px; line-height: 1.5; }
+.kr-board-cv-btn { margin-top: 0; border: 0; font: inherit; font-weight: 700; cursor: pointer; border-radius: 8px; }
+.kr-board-form { margin: 0; }
+/* Telefon: przycisk „Zostaw CV” przyklejony do dołu (makieta 6c). */
+.kr-board-sticky {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, var(--kr-bg) 30%);
+}
+.kr-board-sticky-btn {
+  width: 100%;
+  margin: 0;
+  min-height: 48px;
+  justify-content: center;
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+@media (min-width: 640px) {
+  .kr-board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kr-board-search-row { flex-direction: row; align-items: center; }
+  .kr-board-band { height: 96px; }
+}
+@media (min-width: 1024px) {
+  .kr-board { padding: 44px 64px 48px; gap: 20px; }
+  .kr-board-h1 { font-size: 56px; line-height: 1; }
+  .kr-board-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .kr-board-title { font-size: 19px; }
+  .kr-board-cv { padding: 22px 24px; }
+  .kr-board-cv-head { flex-direction: row; justify-content: space-between; align-items: center; }
+  .kr-board-cv-btn { flex: none; min-height: 46px; padding: 0 20px; }
+  .kr-board-sticky { display: none; }
+}
+@media (min-width: 1280px) {
+  .kr-board-h1 { font-size: 56px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kr-board-card { transition: none; }
+  .kr-board-card:hover { transform: none; }
+}
