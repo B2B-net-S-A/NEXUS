@@ -16,6 +16,8 @@ gsap.registerPlugin(useGSAP);
  * `./proces --kroki` — stałe cztery kroki procesu na pionowej osi (etap 7):
  * cztery wąskie kolumny łamały „rozmowa z / Martą”. Oś rysuje się razem ze
  * scrollem (ScrollTrigger scrub); przy „ograniczonym ruchu” stoi narysowana.
+ * Tekst kroków zawsze w pełnym kontraście — przygaszanie ze scrollem potrafiło
+ * zostać na ostatnich krokach krótkiej strony (audyt 21.10.2026).
  */
 export function ProcessSteps({
   recruiterFirstName,
@@ -47,11 +49,6 @@ export function ProcessSteps({
           ".kr-steps-line i",
           { scaleY: 0 },
           { scaleY: 1, ease: "none", scrollTrigger: scrub },
-        );
-        gsap.fromTo(
-          ".kr-step",
-          { opacity: 0.35 },
-          { opacity: 1, stagger: 0.25, ease: "none", scrollTrigger: scrub },
         );
       });
       return () => mm.revert();

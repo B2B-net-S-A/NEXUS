@@ -272,7 +272,9 @@ export function BoardPreviewScene({ job }: { job: CareerBoardJob }) {
     (job.must ?? []).map((name) => ({ name, note: null })),
     job.nice ?? [],
   );
-  return <SceneSketch theme={job.theme} items={items} animateKey={job.slug} />;
+  // `key`: każda rekrutacja to nowy szkic — animacje i pętle poprzedniego
+  // giną z nim, zamiast narastać przy każdym najechaniu (audyt 21.10.2026).
+  return <SceneSketch key={job.slug} theme={job.theme} items={items} animateKey={job.slug} />;
 }
 
 /** Stan „Sprawdź się” na stronie rekrutacji (etap 7, PR C). */
@@ -414,7 +416,7 @@ export function SceneSketch({
       );
       return () => mm.revert();
     },
-    { scope: root, dependencies: [animateKey] },
+    { scope: root, dependencies: [animateKey], revertOnUpdate: true },
   );
 
   return (
