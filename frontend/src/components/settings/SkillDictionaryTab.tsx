@@ -15,6 +15,7 @@ import { Loader2, Plus } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { PlainTermsSection } from "@/components/settings/PlainTermsSection";
+import { TabbedNav } from "@/components/ds/TabbedNav";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -317,7 +318,16 @@ function UnmatchedTermsSection() {
   );
 }
 
+type SkillTab = "skills" | "unmatched" | "plain";
+
+const SKILL_TABS = [
+  { value: "skills", label: "Słownik" },
+  { value: "unmatched", label: "Nieznane terminy" },
+  { value: "plain", label: "Po ludzku" },
+];
+
 export function SkillDictionaryTab() {
+  const [tab, setTab] = useState<SkillTab>("skills");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const debounced = useDebouncedValue(search.trim(), 300);
@@ -346,82 +356,94 @@ export function SkillDictionaryTab() {
         rozpoznają umiejętności kandydatów. Nowy alias działa od razu.
       </p>
 
-      <CreateSkillForm />
+      {/* Trzy listy w zakładkach (20.10.2026) — jedna pod drugą dawały 29 472 px. */}
+      <TabbedNav
+        tabs={SKILL_TABS}
+        value={tab}
+        onValueChange={(value) => setTab(value as SkillTab)}
+        ariaLabel="Słownik umiejętności"
+      />
 
-      <section aria-label="Umiejętności" className="space-y-3">
-        <Input
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(0);
-          }}
-          placeholder="Szukaj po nazwie albo aliasie…"
-          aria-label="Szukaj umiejętności"
-          className="max-w-sm"
-        />
-        {viewState === "loading" ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Ładowanie słownika…
-          </p>
-        ) : null}
-        {viewState === "error" || viewState === "forbidden" ? (
-          <QueryStateNotice
-            state={viewState}
-            description={
-              viewState === "forbidden"
-                ? "Słownik umiejętności prowadzi administrator i Head of Recruitment."
-                : undefined
-            }
-            onRetry={() => void query.refetch()}
-          />
-        ) : null}
-        {viewState === "empty" ? (
-          <p className="text-sm text-muted-foreground">
-            {debounced ? "Żadna umiejętność nie pasuje do wyszukiwania." : "Słownik jest pusty."}
-          </p>
-        ) : null}
-        {viewState === "ready" && data ? (
-          <>
-            <p className="text-sm text-muted-foreground">
-              {total} {pluralPl(total, "umiejętność", "umiejętności", "umiejętności")}
-            </p>
-            <ul className="divide-y divide-border rounded-xl border border-border text-sm">
-              {data.items.map((skill) => (
-                <SkillRow key={skill.id} skill={skill} />
-              ))}
-            </ul>
-            {lastPage > 0 ? (
-              <div className="flex items-center justify-between text-sm">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={page === 0}
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                >
-                  Poprzednia
-                </Button>
-                <span className="text-muted-foreground">
-                  Strona {page + 1} z {lastPage + 1}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={page >= lastPage}
-                  onClick={() => setPage((p) => Math.min(lastPage, p + 1))}
-                >
-                  Następna
-                </Button>
-              </div>
+      {tab === "skills" ? (
+        <>
+          <CreateSkillForm />
+
+          <section aria-label="Umiejętności" className="space-y-3">
+            <Input
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(0);
+              }}
+              placeholder="Szukaj po nazwie albo aliasie…"
+              aria-label="Szukaj umiejętności"
+              className="max-w-sm"
+            />
+            {viewState === "loading" ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Ładowanie słownika…
+              </p>
             ) : null}
-          </>
-        ) : null}
-      </section>
+            {viewState === "error" || viewState === "forbidden" ? (
+              <QueryStateNotice
+                state={viewState}
+                description={
+                  viewState === "forbidden"
+                    ? "Słownik umiejętności prowadzi administrator i Head of Recruitment."
+                    : undefined
+                }
+                onRetry={() => void query.refetch()}
+              />
+            ) : null}
+            {viewState === "empty" ? (
+              <p className="text-sm text-muted-foreground">
+                {debounced ? "Żadna umiejętność nie pasuje do wyszukiwania." : "Słownik jest pusty."}
+              </p>
+            ) : null}
+            {viewState === "ready" && data ? (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  {total} {pluralPl(total, "umiejętność", "umiejętności", "umiejętności")}
+                </p>
+                <ul className="divide-y divide-border rounded-xl border border-border text-sm">
+                  {data.items.map((skill) => (
+                    <SkillRow key={skill.id} skill={skill} />
+                  ))}
+                </ul>
+                {lastPage > 0 ? (
+                  <div className="flex items-center justify-between text-sm">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={page === 0}
+                      onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    >
+                      Poprzednia
+                    </Button>
+                    <span className="text-muted-foreground">
+                      Strona {page + 1} z {lastPage + 1}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={page >= lastPage}
+                      onClick={() => setPage((p) => Math.min(lastPage, p + 1))}
+                    >
+                      Następna
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </section>
+        </>
+      ) : null}
 
-      <UnmatchedTermsSection />
+      {tab === "unmatched" ? <UnmatchedTermsSection /> : null}
 
-      <PlainTermsSection />
+      {tab === "plain" ? <PlainTermsSection /> : null}
     </div>
   );
 }
