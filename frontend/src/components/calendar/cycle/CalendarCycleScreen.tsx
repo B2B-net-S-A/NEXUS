@@ -43,7 +43,7 @@ const VIEWS: { value: CycleView; label: string }[] = [
 
 type Dialog =
   | { kind: "debrief"; pair: PairInfo; eventId: number | null }
-  | { kind: "pick" | "confirm"; pair: PairInfo; request: SlotRequest }
+  | { kind: "pick" | "confirm" | "reply"; pair: PairInfo; request: SlotRequest }
   | { kind: "prep"; pair: PairInfo; second: boolean }
   | { kind: "prep_review"; pair: PairInfo; eventId: number }
   | { kind: "slots"; pair: PairInfo | null }
@@ -185,6 +185,7 @@ export function CalendarCycleScreen({
         break;
       case "pick":
       case "confirm":
+      case "reply":
         setDialog({ kind: action.type, pair: action.pair, request: action.request });
         break;
       case "plan_prep":
@@ -360,11 +361,13 @@ export function CalendarCycleScreen({
         pair={dialog?.kind === "slots" ? dialog.pair : null}
       />
       <SlotDecisionDialog
-        open={dialog?.kind === "pick" || dialog?.kind === "confirm"}
+        open={dialog?.kind === "pick" || dialog?.kind === "confirm" || dialog?.kind === "reply"}
         onOpenChange={(o) => !o && setDialog(null)}
-        mode={dialog?.kind === "confirm" ? "confirm" : "pick"}
-        pair={dialog?.kind === "pick" || dialog?.kind === "confirm" ? dialog.pair : null}
-        request={dialog?.kind === "pick" || dialog?.kind === "confirm" ? dialog.request : null}
+        mode={dialog?.kind === "confirm" || dialog?.kind === "reply" ? dialog.kind : "pick"}
+        pair={dialog?.kind === "pick" || dialog?.kind === "confirm" || dialog?.kind === "reply" ? dialog.pair : null}
+        request={
+          dialog?.kind === "pick" || dialog?.kind === "confirm" || dialog?.kind === "reply" ? dialog.request : null
+        }
       />
       {dialog?.kind === "prep" ? (
         <PlanPrepDialog

@@ -18,6 +18,16 @@ import type {
 } from "@/lib/interview-cycle";
 import type { SlotsFromMail } from "@/lib/interview-slot-mail";
 
+/** Wynik potwierdzenia albo zmiany terminu: rozmowa w kalendarzu. */
+export interface SlotConfirmResult {
+  request: SlotRequest;
+  event_id: number;
+  outlook: string;
+  cancelled_event_id?: number | null;
+  /** Blokada przełożonej rozmowy w Outlooku rekrutera (runda 7). */
+  superseded_outlook?: SupersededOutlook | null;
+}
+
 /** Agenda odświeża się co minutę — odliczanie „zadzwoń teraz” musi żyć. */
 export const CYCLE_REFETCH_MS = 60_000;
 
@@ -72,19 +82,20 @@ export const interviewCycleApi = {
     api
       .post<SlotRequest>(`/api/interview-cycle/slots/${id}/choose`, start ? { index, start } : { index })
       .then((r) => r.data),
+  /** „Wysłane klientowi” (0487). */
+  clientReplied: (id: number) =>
+    api.post<SlotRequest>(`/api/interview-cycle/slots/${id}/client-replied`).then((r) => r.data),
+  /** „Klient wybrał inny termin” (0487): inny termin z tego wniosku. */
+  changeSlot: (id: number, body: { index: number; start?: string | null }) =>
+    api
+      .post<SlotConfirmResult>(`/api/interview-cycle/slots/${id}/change`, body)
+      .then((r) => r.data),
   confirmSlot: (
     id: number,
     body: { index?: number | null; add_to_outlook: boolean; supersedes_event_id?: number | null },
   ) =>
     api
-      .post<{
-        request: SlotRequest;
-        event_id: number;
-        outlook: string;
-        cancelled_event_id?: number | null;
-        /** Blokada przełożonej rozmowy w Outlooku rekrutera (runda 7). */
-        superseded_outlook?: SupersededOutlook | null;
-      }>(`/api/interview-cycle/slots/${id}/confirm`, body)
+      .post<SlotConfirmResult>(`/api/interview-cycle/slots/${id}/confirm`, body)
       .then((r) => r.data),
   /** Nieodbyte rozmowy pary, które potwierdzany termin może przełożyć. */
   replaceableInterviews: (id: number) =>

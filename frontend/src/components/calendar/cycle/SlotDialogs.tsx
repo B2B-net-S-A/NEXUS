@@ -8,6 +8,7 @@ import { AppModal } from "@/components/ds/AppModal";
 import { CandidateCombobox, type CandidateChoice } from "@/components/calendar/CandidateCombobox";
 import { RecruitmentSelect } from "@/components/calendar/RecruitmentSelect";
 import { PasteClientMail } from "@/components/calendar/cycle/PasteClientMail";
+import { ClientReplyDialog } from "@/components/calendar/cycle/ClientReplyDialog";
 import { PickInterviewDialog } from "@/components/calendar/cycle/PickInterviewDialog";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -323,11 +324,22 @@ export function SlotRequestDialog({
 export function SlotDecisionDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  mode: "pick" | "confirm";
+  mode: "pick" | "confirm" | "reply";
   pair: PairInfo | null;
   request: SlotRequest | null;
 }) {
   const invalidate = useInvalidateCycle();
+  if (props.mode === "reply") {
+    return (
+      <ClientReplyDialog
+        open={props.open}
+        onOpenChange={props.onOpenChange}
+        pair={props.pair}
+        request={props.request}
+        onInvalidate={invalidate}
+      />
+    );
+  }
   if (props.mode === "pick") {
     return (
       <PickInterviewDialog
@@ -339,7 +351,7 @@ export function SlotDecisionDialog(props: {
       />
     );
   }
-  return <SlotDecisionDialogBody {...props} />;
+  return <SlotDecisionDialogBody {...props} mode={props.mode} />;
 }
 
 function SlotDecisionDialogBody({

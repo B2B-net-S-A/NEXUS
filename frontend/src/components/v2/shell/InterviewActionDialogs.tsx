@@ -44,6 +44,7 @@ export default function InterviewActionDialogs({
       );
     case "pick":
     case "confirm":
+    case "reply":
       return (
         <SlotDecisionDialog
           open

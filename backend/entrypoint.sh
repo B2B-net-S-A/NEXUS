@@ -6156,6 +6156,11 @@ END $$""",
         CHECK (reason <> 'other' OR reason_note IS NOT NULL)
 )""",
     "CREATE INDEX IF NOT EXISTS ix_prep2_skips_pair ON prep2_skips (candidate_id, job_id)",
+    # 0487: wybór terminu przez rekrutera = rozmowa w kalendarzu, DL odpisuje
+    # klientowi (20.10.2026). Lustro 1:1 z migracją.
+    "ALTER TABLE client_interview_slot_requests ADD COLUMN IF NOT EXISTS client_reply_pending BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE client_interview_slot_requests ADD COLUMN IF NOT EXISTS client_replied_at TIMESTAMPTZ NULL",
+    "ALTER TABLE client_interview_slot_requests ADD COLUMN IF NOT EXISTS client_replied_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
     # 0382: pozycja faktury Nordei zapisana przy zamówieniu
     # (`nordea_invoice_lines.py`). Pilnuje `test_nordea_invoice_lines.py`.
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS invoice_lines JSONB NULL",

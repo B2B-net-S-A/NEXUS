@@ -77,6 +77,11 @@ export interface SlotRequest {
   duration_minutes: number;
   note: string | null;
   event_id: number | null;
+  /** 0487: rozmowa wpisana przy wyborze rekrutera — DL ma odpisać klientowi. */
+  client_reply_pending?: boolean;
+  client_replied_at?: string | null;
+  /** Tylko w odpowiedzi na wybór z potwierdzeniem: blokada w Outlooku rekrutera. */
+  outlook?: string | null;
   /** Tylko w odpowiedzi na utworzenie wniosku: karta pojechała na „Rozmowę u klienta”. */
   moved_to_client_interview?: boolean;
   /** Runda 10 (F09): dlaczego karta została (`cv_not_sent` — CV nie wysłane). */
@@ -296,6 +301,8 @@ export type TodoKind =
   | "questions_missing"
   | "slots_pick"
   | "slots_confirm"
+  /** 0487: rozmowa już w kalendarzu z wyboru rekrutera — DL odpisuje klientowi. */
+  | "slots_reply"
   | "prep_missing"
   | "prep2_missing"
   | "prep_late"
@@ -507,6 +514,7 @@ export const TODO_LABELS: Record<TodoKind, string> = {
   questions_missing: "Uzupełnij pytania z rozmowy u klienta",
   slots_pick: "Terminy czekają na kandydata",
   slots_confirm: "Potwierdź termin u klienta",
+  slots_reply: "Odpisz klientowi",
   prep_missing: "Prep 1 bez terminu",
   prep2_missing: "Prep 2 bez terminu",
   prep_late: "Prep po rozmowie u klienta — przełóż",
@@ -522,6 +530,7 @@ export const TODO_ACTIONS: Record<TodoKind, string> = {
   questions_missing: "Uzupełnij",
   slots_pick: "Wybierz termin",
   slots_confirm: "Potwierdź",
+  slots_reply: "Odpisz",
   prep_missing: "Zaplanuj Prep 1",
   prep2_missing: "Zaplanuj Prep 2",
   prep_late: "Przełóż",
@@ -793,6 +802,8 @@ export type CycleAction =
   | { type: "debrief"; pair: PairInfo; eventId: number | null }
   | { type: "pick"; pair: PairInfo; request: SlotRequest }
   | { type: "confirm"; pair: PairInfo; request: SlotRequest }
+  /** 0487: odpowiedź do klienta po wyborze rekrutera (rozmowa już w kalendarzu). */
+  | { type: "reply"; pair: PairInfo; request: SlotRequest }
   | { type: "plan_prep"; pair: PairInfo; second: boolean }
   | { type: "prep_review"; pair: PairInfo; eventId: number }
   | { type: "add_slots"; pair: PairInfo | null }
@@ -836,6 +847,8 @@ export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction 
       return item?.slot_request ? { type: "pick", pair, request: item.slot_request } : null;
     case "slots_confirm":
       return item?.slot_request ? { type: "confirm", pair, request: item.slot_request } : null;
+    case "slots_reply":
+      return item?.slot_request ? { type: "reply", pair, request: item.slot_request } : null;
     case "prep_missing":
       return { type: "plan_prep", pair, second: false };
     case "prep2_missing":
