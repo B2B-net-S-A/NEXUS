@@ -41,7 +41,8 @@ export function CareerHero({
   children,
 }: {
   login: string;
-  whoamiNote: string;
+  /** Tekst albo tekst z błędem szablonu Glitch (`GlitchBug`). */
+  whoamiNote: ReactNode;
   catPath: string;
   title: { first: string; second: string };
   /** Linie pod tytułem (polecenie deploy, komentarz). */
