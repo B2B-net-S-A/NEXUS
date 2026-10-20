@@ -405,7 +405,12 @@ export function useUploadApprovalDocument() {
   return useSettlementMutation(async ({ id, file }: { id: number; file: File }) => {
     const form = new FormData();
     form.append("file", file);
-    return (await api.post<ApprovalRequestRow>(`${ROOT}/${id}/documents`, form)).data;
+    // Bez jawnego multipartu axios zserializowałby FormData do JSON-a (422).
+    return (
+      await api.post<ApprovalRequestRow>(`${ROOT}/${id}/documents`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+    ).data;
   });
 }
 
