@@ -468,7 +468,10 @@ async def try_parse_cv(
         document.candidate_id = candidate.id
         document.content_sha256 = content_hash
 
-    from app.services.candidate_identity_quarantine import record_detected_identity
+    from app.services.candidate_identity_quarantine import (
+        identity_unreadable,
+        record_detected_identity,
+    )
 
     review = await record_detected_identity(
         db,
@@ -483,6 +486,15 @@ async def try_parse_cv(
         document.is_primary = False
         attachment.parsed_candidate_id = candidate.id
         attachment.parse_error = "identity_mismatch_quarantined"
+        return
+    if identity_unreadable(candidate.name, candidate.lastname):
+        # Imię kandydata cyrylicą: bramka zawsze daje `inconclusive`, więc nie
+        # odróżnia jego CV od cudzego. Do 20.10.2026 cudze CV z maila
+        # (dopasowanego po wątku) zostawało tu głównym CV i nadpisywało tekst
+        # CV w profilu. Plik zostaje w profilu, główne CV wskazuje człowiek.
+        document.is_primary = False
+        attachment.parsed_candidate_id = candidate.id
+        attachment.parse_error = "identity_unreadable_not_primary"
         return
 
     # Only a source that passed the identity gate may replace the active CV.

@@ -70,15 +70,19 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
         timeout: 30_000,
       });
       await expect(manager.page).toHaveURL(/\/people\/approvals/);
-      const queue = manager.page.getByRole("region", {
+      // Skrzynka (makieta 19.10.2026): lista spraw po lewej, decyzja w szczegółach
+      // po prawej. Notatka jest tylko w szczegółach — wiersz listy ma termin.
+      const queue = manager.page.getByRole("list", {
         name: "Wnioski do decyzji (umowa o pracę)",
       });
-      const pendingRow = queue.getByRole("row").filter({ hasText: note });
-      await expect(pendingRow).toHaveCount(1);
-      await expect(pendingRow).toContainText(term);
-      await pendingRow.getByRole("button", { name: "Akceptuj" }).click();
+      const pendingItem = queue.getByRole("listitem").filter({ hasText: term });
+      await expect(pendingItem).toHaveCount(1);
+      await pendingItem.getByRole("button").click();
+      const detail = manager.page.getByRole("region", { name: /^Szczegóły:/ });
+      await expect(detail).toContainText(note);
+      await detail.getByRole("button", { name: "Akceptuj" }).click();
       await expect(manager.page.getByText("Wniosek zaakceptowany")).toBeVisible();
-      await expect(pendingRow).toHaveCount(0);
+      await expect(pendingItem).toHaveCount(0);
 
       // Pracownik po odświeżeniu widzi zatwierdzony wniosek.
       await employee.page.reload();
@@ -133,13 +137,16 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       await expect(manager.page.getByRole("heading", { name: "Akceptacje" })).toBeVisible({
         timeout: 30_000,
       });
-      const reported = manager.page.getByRole("region", {
+      const reported = manager.page.getByRole("list", {
         name: "Zgłoszone przerwy i nieobecności (B2B, zlecenie) — do wiadomości",
       });
-      const row = reported.getByRole("row").filter({ hasText: term });
-      await expect(row.first()).toBeVisible();
-      await expect(row.first().getByRole("button", { name: "Akceptuj" })).toHaveCount(0);
-      await row.first().getByRole("button", { name: "Zgłoś kolizję" }).click();
+      const item = reported.getByRole("listitem").filter({ hasText: term });
+      await expect(item.first()).toBeVisible();
+      await item.first().getByRole("button").click();
+      const detail = manager.page.getByRole("region", { name: /^Szczegóły:/ });
+      await expect(detail).toContainText(note);
+      await expect(detail.getByRole("button", { name: "Akceptuj" })).toHaveCount(0);
+      await detail.getByRole("button", { name: "Zgłoś kolizję" }).click();
       const conflict = manager.page.getByRole("dialog", { name: "Zgłoś kolizję z terminem" });
       await conflict.locator("#leave-conflict-note").fill(`Wdrożenie u klienta ${uniqueSuffix()}`);
       await conflict.getByRole("button", { name: "Zgłoś kolizję" }).click();

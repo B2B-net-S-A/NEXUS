@@ -246,6 +246,7 @@ Lista i profil kandydata, słowa kluczowe, kolejność „Dopasowanie”, Talent
 - `ekran-kandydaci-i-profil-kandydata-uproszczenie.md` — Ekran „Kandydaci” i profil kandydata — uproszczenie (22.09.2026)
 - `filtr-rekrutacje-bral-nie-bral-bez-procesu.md` — Blok „Rekrutacje” w filtrze „Rekrutacje i historia”: brał / nie brał udziału, bez procesu w toku (12.10.2026) · odpowiednik „Nieprzypisany” z Traffita, zakres klienta, cztery pola stanu
 - `imie-bez-dopiskow.md` — Imię i nazwisko bez dopisków (D6, 13.10.2026) · dopiski z Traffita w imieniu, `candidate_name_rules`, 422 przy ręcznym wpisie, migracje 0436 i 0481 (klamry, nawias bez pary, emoji)
+- `imie-cyrylica-w-dopasowaniu-maili.md` — Imię cyrylicą w dopasowaniu maili i w bramce CV (20.10.2026)
 - `indeks-wektorowy-dryf-degradacja-i-pula-ofert.md` — Indeks wektorowy: dryf, degradacja i pula ofert (18.09.2026)
 - `kolejnosc-dopasowanie-i-gorne-pole-listy.md` — Kolejność „Dopasowanie” i górne pole listy (25.09.2026)
 - `moi-ludzie-lista-rekrutera-dzwonek-przy-nowej.md` — „Moi ludzie" — lista rekrutera, dzwonek przy nowej rekrutacji, postać w rogu (21.09.2026)

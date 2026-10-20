@@ -100,6 +100,8 @@ class TestFeatureKeyEnum:
             "cv_editor_command",
             # 0485: terminy rozmowy u klienta z wklejonego maila.
             "interview_slots_from_mail",
+            # 0486: odczyt faktury albo paragonu do zgody (Zgody, etap 3).
+            "expense_document_read",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

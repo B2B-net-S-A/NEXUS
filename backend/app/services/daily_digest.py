@@ -98,11 +98,15 @@ _PREP_REASON = {
 }
 
 
+RENEWALS_PATH = "/finance?view=approved-expenses&expTab=subscriptions"
+
+
 def build_sections(
     tasks: Any,
     *,
     open_client_cases: int = 0,
     deadlines: tuple[tuple[int, str, date], ...] = (),
+    renewals: tuple[tuple[str, date], ...] = (),
     today: Optional[date] = None,
 ) -> list[Section]:
     """Sekcje skrótu w kolejności pilności. Pusta lista = brak maila.
@@ -355,6 +359,16 @@ def build_sections(
             tuple(
                 Row(f"{title} — {day:%d.%m}", f"/jobs/{job_id}")
                 for job_id, title, day in deadlines
+            ),
+        )
+    )
+    # Zgody, etap 3 (0486): roczne odnowienia subskrypcji w ciągu 30 dni —
+    # zatwierdzający i Finanse (opiekun dostaje osobny dzwonek z pytaniem).
+    out.append(
+        _section(
+            "Odnowienia roczne subskrypcji w ciągu 30 dni",
+            tuple(
+                Row(f"{title} — {day:%d.%m}", RENEWALS_PATH) for title, day in renewals
             ),
         )
     )

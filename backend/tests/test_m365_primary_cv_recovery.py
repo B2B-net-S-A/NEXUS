@@ -232,3 +232,76 @@ async def test_already_applied_attachment_is_not_parsed_again(monkeypatch):
 
     db.scalar.assert_not_awaited()
     db.get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unreadable_candidate_name_keeps_mail_cv_out_of_primary(
+    monkeypatch, tmp_path
+):
+    """Imię cyrylicą: bramka daje `inconclusive`, więc CV z maila nie zostaje
+    głównym i nie nadpisuje profilu (20.10.2026 — cudze CV jako główne)."""
+    now = datetime.now(timezone.utc)
+    ext_id = f"m365-unreadable-{uuid.uuid4().hex}"
+    content = b"Synthetic foreign CV"
+    (tmp_path / "foreign.pdf").write_bytes(content)
+    monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)
+    monkeypatch.setattr(cv_text_extractor, "extract_text", lambda *_: "Foreign CV")
+    monkeypatch.setattr(
+        cv_parser,
+        "parse_cv",
+        AsyncMock(return_value={"first_name": "Alex", "last_name": "Example"}),
+    )
+    enrichment = AsyncMock()
+    monkeypatch.setattr(cv_ingest_service, "finish_cv_ingest", enrichment)
+
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name="Іван", lastname="Петренко", raw_cv_text="Existing trusted CV"
+        )
+        db.add(candidate)
+        await db.flush()
+        current = CandidateDocument(
+            candidate_id=candidate.id,
+            filename="current.pdf",
+            file_content=b"Current synthetic CV",
+            content_type="application/pdf",
+            size_bytes=20,
+            document_kind=CandidateDocumentKind.cv,
+            is_primary=True,
+        )
+        db.add(current)
+        await db.flush()
+        attachment = SimpleNamespace(
+            id=1,
+            is_cv_candidate=True,
+            storage_path="foreign.pdf",
+            filename="foreign.pdf",
+            content_type="application/pdf",
+            sha256=None,
+            m365_attachment_id=ext_id,
+            parsed_candidate_id=None,
+            parse_error=None,
+        )
+        email = SimpleNamespace(
+            candidate_id=candidate.id, received_at=now - timedelta(days=1)
+        )
+        await attachment_handler.try_parse_cv(db, attachment, email)
+        await db.flush()
+        await db.refresh(current)
+        added = await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.external_source == "m365",
+                CandidateDocument.external_id
+                == attachment_handler.m365_document_external_id(ext_id),
+            )
+        )
+
+        assert added is not None and added.candidate_id == candidate.id
+        assert added.is_primary is False
+        assert current.is_primary is True
+        assert candidate.raw_cv_text == "Existing trusted CV"
+        assert attachment.parsed_candidate_id == candidate.id
+        assert attachment.parse_error == "identity_unreadable_not_primary"
+        enrichment.assert_not_called()
+        # Dane syntetyczne, bez commitu: zamknięcie sesji je wycofuje.

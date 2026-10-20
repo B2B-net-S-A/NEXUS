@@ -166,6 +166,10 @@ class AIFeatureKey(str, enum.Enum):
     # wypisuje terminy z cytatem, kod odrzuca termin bez cytatu i z przeszłości.
     # Treści maila nie zapisujemy.
     interview_slots_from_mail = "interview_slots_from_mail"
+    # Zgody, etap 3 (0486): odczyt kwoty i sprzedawcy z faktury albo paragonu
+    # dołączonego do zgody. Wynik to podpowiedź — osoba poprawia pola sama,
+    # a dokument zostaje przy zgodzie także bez odczytu.
+    expense_document_read = "expense_document_read"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -203,6 +207,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_selection_edit: "Edytor CV — AI na zaznaczonym fragmencie",
     AIFeatureKey.cv_editor_command: "Edytor CV — polecenie dla całego CV (plan zmian)",
     AIFeatureKey.interview_slots_from_mail: "Terminy rozmowy u klienta z wklejonego maila",
+    AIFeatureKey.expense_document_read: "Zgody — odczyt kwoty i sprzedawcy z faktury albo paragonu",
 }
 
 
@@ -357,6 +362,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.interview_slots_from_mail: [
         "Wklejony mail klienta z terminami rozmowy i dzisiejsza data",
         "(bez danych kandydata z bazy; treść maila nie jest zapisywana)",
+    ],
+    AIFeatureKey.expense_document_read: [
+        "Faktura albo paragon dołączony do zgody (tekst PDF-u albo zdjęcie)",
+        "(bez danych osoby, która prosiła o zgodę)",
     ],
 }
 

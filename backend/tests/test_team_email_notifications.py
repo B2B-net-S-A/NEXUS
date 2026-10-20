@@ -169,6 +169,17 @@ def test_empty_queue_gives_no_sections():
     assert daily_digest.build_sections(_empty_tasks()) == []
 
 
+def test_upcoming_subscription_renewals_make_a_section():
+    """Zgody, etap 3 (0486): roczne odnowienia w ciągu 30 dni."""
+    sections = daily_digest.build_sections(
+        _empty_tasks(), renewals=(("Narzędzie testowe", date(2026, 11, 12)),)
+    )
+    (section,) = sections
+    assert section.title == "Odnowienia roczne subskrypcji w ciągu 30 dni"
+    assert section.rows[0].text == "Narzędzie testowe — 12.11"
+    assert section.rows[0].path == daily_digest.RENEWALS_PATH
+
+
 def test_information_only_lists_do_not_make_a_digest():
     # Wysłane do Cpro to informacja — sama nie daje maila.
     tasks = _empty_tasks(cpro_sent=[{**_dl_row(1), "kind": "cpro_sent"}])

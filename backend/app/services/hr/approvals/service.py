@@ -34,12 +34,19 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import local_now
+from app.models.client import Client
 from app.models.hr_approval import ApprovalRequest
 from app.models.hr_payroll import HrBonus
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
-from app.services.hr import audit, payroll_access, payroll_periods, recipients
+from app.services.hr import (
+    audit,
+    payroll_access,
+    payroll_periods,
+    recipients,
+    white_list,
+)
 from app.services.hr.approvals import rules as approval_rules
 from app.services.hr.approvals.rules import ApprovalRules
 from app.services.hr.notify import notify_each
@@ -118,6 +125,10 @@ class RequestInput:
     beneficiary_user_id: Optional[int] = None
     payout_year: Optional[int] = None
     payout_month: Optional[int] = None
+    #: Etap 3 (0486): klient prezentu (Historia zdarzeń klienta) i NIP
+    #: sprzedawcy, jeśli autor go zna (faktura z KSeF przypnie się sama).
+    client_id: Optional[int] = None
+    seller_nip: Optional[str] = None
 
 
 # ── walidacja ────────────────────────────────────────────────────────────
@@ -192,6 +203,16 @@ def clean_input(data: RequestInput, *, today: date) -> RequestInput:
         amount = clean_bonus_amount(data.amount)
     else:
         amount = clean_amount(data.amount)
+    if data.client_id is not None and data.kind != "gift":
+        raise ApprovalError("Klienta wskazuje się przy prezencie dla klienta.")
+    seller_nip = None
+    if data.seller_nip and data.kind != "bonus":
+        try:
+            seller_nip = white_list.clean_nip(data.seller_nip)
+        except white_list.WhiteListError:
+            raise ApprovalError(
+                "NIP sprzedawcy ma 10 cyfr z poprawną sumą kontrolną."
+            ) from None
     if data.kind == "bonus":
         if data.beneficiary_user_id is None:
             raise ApprovalError("Wybierz osobę, której dotyczy premia.")
@@ -232,7 +253,19 @@ def clean_input(data: RequestInput, *, today: date) -> RequestInput:
         needed_by=data.needed_by,
         starts_on=data.starts_on,
         ends_on=data.ends_on,
+        client_id=data.client_id,
+        seller_nip=seller_nip,
     )
+
+
+async def _assert_client(db: AsyncSession, client_id: Optional[int]) -> None:
+    if client_id is None:
+        return
+    found = await db.scalar(
+        select(Client.id).where(Client.id == client_id, Client.deleted_at.is_(None))
+    )
+    if found is None:
+        raise ApprovalError("Nie ma takiego klienta.")
 
 
 # ── kto decyduje ─────────────────────────────────────────────────────────
@@ -409,6 +442,8 @@ def _apply(request: ApprovalRequest, data: RequestInput) -> None:
         "beneficiary_user_id",
         "payout_year",
         "payout_month",
+        "client_id",
+        "seller_nip",
     ):
         setattr(request, field_name, getattr(data, field_name))
 
@@ -467,6 +502,7 @@ async def submit(
     data = clean_input(data, today=today)
     if data.kind == "bonus":
         await _assert_bonus_allowed(db, actor, data)
+    await _assert_client(db, data.client_id)
     request = ApprovalRequest(requester_user_id=actor.id, status="pending_final")
     _apply(request, data)
     db.add(request)
@@ -503,6 +539,7 @@ async def resubmit(
     data = clean_input(data, today=today)
     if data.kind == "bonus":
         await _assert_bonus_allowed(db, actor, data)
+    await _assert_client(db, data.client_id)
     _apply(request, data)
     # Poparcie i pytanie dotyczyły starej treści — droga zaczyna się od nowa.
     # Stan przed czyszczeniem decyzji: autoflush przy odczycie zasad zapisałby
@@ -633,6 +670,12 @@ async def decide(
     )
     if status == "approved" and moved.kind == "bonus":
         await _create_bonus(db, moved, actor)
+    elif status == "approved":
+        # Etap 3: rozliczenie w Finansach, prezent → Historia klienta,
+        # delegacja → obecność (import w funkcji: settlement importuje ten moduł).
+        from app.services.hr.approvals import settlement  # noqa: PLC0415
+
+        await settlement.on_approved(db, moved, actor)
     _audit(db, moved, actor_id=actor.id, action=f"approval_{status}", channel=channel)
     await _notify_requester(db, moved, actor)
     return moved
@@ -838,7 +881,11 @@ async def inbox(db: AsyncSession, user: User) -> list[ApprovalRequest]:
 
 
 async def pending_count(db: AsyncSession, user: User) -> int:
-    return len(await inbox(db, user))
+    """Zgody do decyzji i dopłaty do decyzji (etap 3) — licznik ikony i zakładki."""
+
+    from app.services.hr.approvals import settlement  # noqa: PLC0415
+
+    return len(await inbox(db, user)) + len(await settlement.pending_topups(db, user))
 
 
 async def mine(db: AsyncSession, user: User) -> list[ApprovalRequest]:

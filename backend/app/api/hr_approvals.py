@@ -15,6 +15,17 @@ widzi go zawsze); kto co widzi i o czym decyduje, rozstrzyga serwis
 * ``GET /{id}`` — szczegół z kontekstem dla decydującego,
 * ``POST /{id}/decide`` — „Zatwierdź” / „Odrzuć” / „Dopytaj”,
 * ``GET /rules``, ``PUT /rules`` — zasady (admin).
+
+Rozliczenie (etap 3, 0486; Finanse mają osobny router
+``api/hr_approval_finance.py``):
+
+* ``GET /topups`` — dopłaty czekające na decyzję czytającego (zatwierdzający),
+* ``POST /{id}/documents`` — faktura albo paragon (plik + odczyt AI),
+  ``PATCH``/``DELETE /{id}/documents/{doc}`` — poprawka odczytu, usunięcie,
+  ``GET /{id}/documents/{doc}/file`` — pobranie pliku,
+* ``POST /{id}/documents/{doc}/topup`` — „Poproś o dopłatę”,
+  ``POST /{id}/documents/{doc}/topup/decide`` — decyzja zatwierdzającego,
+* ``POST /{id}/renewal`` — subskrypcja: „Dalej potrzebna” / „Wyłącz”.
 """
 
 from contextlib import contextmanager
@@ -22,7 +33,8 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, Iterator, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,14 +45,21 @@ from app.api.hr_gates import (
     require_hr_approvals_admin,
 )
 from app.core.database import get_db
+from app.core.http_headers import content_disposition, safe_document_disposition
 from app.core.scheduling import business_today
-from app.models.hr_approval import ApprovalRequest
+from app.models.hr_approval import ApprovalDocument, ApprovalRequest
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User, UserRole
 from app.services.hr import audit, payroll_access, people
 from app.services.hr.approvals import rules as approval_rules
 from app.services.hr.approvals import service
+from app.services.hr.approvals import settlement, store
 from app.services.hr.approvals.payload import names_for, request_payload
+from app.services.hr.approvals.settlement_payload import (
+    document_payload,
+    settlement_block,
+)
+from app.services.hr_approval_settlement_schema import MAX_FILE_BYTES
 
 router = APIRouter()
 
@@ -72,6 +91,8 @@ class RequestIn(BaseModel):
     beneficiary_user_id: Optional[int] = Field(default=None, ge=1)
     payout_year: Optional[int] = Field(default=None, ge=2020, le=2100)
     payout_month: Optional[int] = Field(default=None, ge=1, le=12)
+    client_id: Optional[int] = Field(default=None, ge=1)
+    seller_nip: Optional[str] = Field(default=None, max_length=20)
 
     def to_input(self) -> service.RequestInput:
         return service.RequestInput(**self.model_dump())
@@ -81,6 +102,27 @@ class DecisionIn(BaseModel):
     action: Literal["approve", "reject", "return"]
     amount: Optional[Decimal] = None
     note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class DocumentIn(BaseModel):
+    doc_type: Optional[Literal["invoice", "receipt"]] = None
+    seller_name: Optional[str] = Field(default=None, max_length=400)
+    seller_nip: Optional[str] = Field(default=None, max_length=20)
+    invoice_number: Optional[str] = Field(default=None, max_length=400)
+    issue_date: Optional[date] = None
+    currency: Optional[str] = Field(default=None, max_length=3)
+    net_amount: Optional[str] = Field(default=None, max_length=20)
+    vat_amount: Optional[str] = Field(default=None, max_length=20)
+    gross_amount: Optional[str] = Field(default=None, max_length=20)
+
+
+class TopupDecisionIn(BaseModel):
+    action: Literal["approve", "reject"]
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class RenewalIn(BaseModel):
+    keep: bool
 
 
 class RulesIn(BaseModel):
@@ -103,13 +145,43 @@ async def _payloads(
     rules = await approval_rules.load_rules(db)
     finals_all = await approval_rules.final_approver_ids(db, rules)
     names = await names_for(db, requests, tuple(finals_all))
+    docs = await settlement.documents_of(
+        db, [r.id for r in requests if r.settlement_status is not None]
+    )
+    extra = {
+        uid
+        for ds in docs.values()
+        for d in ds
+        for uid in (d.settled_by, d.topup_decided_by)
+        if uid is not None
+    } | {r.settled_by for r in requests if r.settled_by}
+    if extra - set(names):
+        names.update(await names_for(db, [], tuple(extra - set(names))))
     out = []
     for request in requests:
         finals = await service.finals_for_request(db, request)
         missing = [uid for uid in finals if uid not in names]
         if missing:
             names.update(await names_for(db, [], tuple(missing)))
-        out.append(request_payload(request, names, viewer=viewer, finals=finals))
+        item = request_payload(request, names, viewer=viewer, finals=finals)
+        item["client_id"] = request.client_id
+        item["client_name"] = await settlement.client_name(db, request.client_id)
+        item["seller_nip"] = request.seller_nip
+        item["settlement"] = settlement_block(
+            request,
+            docs.get(request.id, []),
+            viewer=viewer,
+            finals=tuple(finals),
+            names=names,
+            client_name=item["client_name"],
+        )
+        out.append(item)
+    return out
+
+
+async def _one(db: AsyncSession, request_id: int, viewer: User) -> dict[str, Any]:
+    request = await db.get(ApprovalRequest, request_id, populate_existing=True)
+    (out,) = await _payloads(db, [request], viewer)
     return out
 
 
@@ -133,6 +205,37 @@ async def inbox_count(
     current_user: ApprovalsUser, db: AsyncSession = Depends(get_db)
 ) -> dict[str, int]:
     return {"inbox": await service.pending_count(db, current_user)}
+
+
+@router.get("/topups")
+async def pending_topups(
+    current_user: ApprovalsUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Dopłaty do decyzji zatwierdzającego (faktura wyższa o ponad 10%)."""
+
+    rows = await settlement.pending_topups(db, current_user)
+    names = await names_for(db, [request for request, _ in rows])
+    items = []
+    for request, doc in rows:
+        attached = (await settlement.documents_of(db, [request.id]))[request.id]
+        items.append(
+            {
+                "request_id": request.id,
+                "title": request.title,
+                "kind_label": service.KIND_LABELS[request.kind],
+                "requester_name": names.get(request.requester_user_id),
+                "amount_text": service.amount_text(request),
+                "document": document_payload(
+                    doc,
+                    viewer=current_user,
+                    request=request,
+                    docs=attached,
+                    finals=(current_user.id,),
+                    names=names,
+                ),
+            }
+        )
+    return {"items": items}
 
 
 @router.get("/beneficiaries")
@@ -316,3 +419,139 @@ async def decide_request(
         )
     (out,) = await _payloads(db, [request], current_user)
     return out
+
+
+# ── rozliczenie: dokumenty, dopłata, odnowienie (0486) ─────────────────────
+
+
+@router.post("/{request_id}/documents", status_code=status.HTTP_201_CREATED)
+async def attach_document(
+    request_id: int,
+    current_user: ApprovalsUser,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Faktura albo paragon do zatwierdzonej zgody; NEXUS odczytuje kwotę i sprzedawcę."""
+
+    content = await file.read(MAX_FILE_BYTES + 1)
+    with _http_errors():
+        await settlement.attach_upload(
+            db,
+            current_user,
+            request_id,
+            content=content,
+            file_name=file.filename or "",
+        )
+    return await _one(db, request_id, current_user)
+
+
+@router.patch("/{request_id}/documents/{document_id}")
+async def update_document(
+    request_id: int,
+    document_id: int,
+    payload: DocumentIn,
+    current_user: ApprovalsUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    provided = set(payload.model_fields_set)
+    with _http_errors():
+        await settlement.update_document(
+            db,
+            current_user,
+            request_id,
+            document_id,
+            settlement.DocumentFields(**payload.model_dump()),
+            provided=provided,
+        )
+    return await _one(db, request_id, current_user)
+
+
+@router.delete("/{request_id}/documents/{document_id}")
+async def remove_document(
+    request_id: int,
+    document_id: int,
+    current_user: ApprovalsUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    with _http_errors():
+        orphan = await settlement.remove_document(
+            db, current_user, request_id, document_id
+        )
+    await db.commit()
+    if orphan:
+        store.delete(orphan)
+    return await _one(db, request_id, current_user)
+
+
+@router.get("/{request_id}/documents/{document_id}/file")
+async def document_file(
+    request_id: int,
+    document_id: int,
+    current_user: ApprovalsUser,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    with _http_errors():
+        request = await settlement.visible_request(db, current_user, request_id)
+    doc = await db.get(ApprovalDocument, document_id)
+    if doc is None or doc.approval_request_id != request.id or not doc.file_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego pliku.")
+    try:
+        path = store.path_for(doc.file_path)
+    except FileNotFoundError:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Pliku nie ma w magazynie."
+        ) from None
+    return FileResponse(
+        path,
+        media_type=doc.mime,
+        headers={
+            "Content-Disposition": content_disposition(
+                doc.file_name or "dokument",
+                safe_document_disposition(doc.mime, "inline"),
+            )
+        },
+    )
+
+
+@router.post("/{request_id}/documents/{document_id}/topup")
+async def request_topup(
+    request_id: int,
+    document_id: int,
+    current_user: ApprovalsUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    with _http_errors():
+        await settlement.request_topup(db, current_user, request_id, document_id)
+    return await _one(db, request_id, current_user)
+
+
+@router.post("/{request_id}/documents/{document_id}/topup/decide")
+async def decide_topup(
+    request_id: int,
+    document_id: int,
+    payload: TopupDecisionIn,
+    current_user: ApprovalsUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    with _http_errors():
+        await settlement.decide_topup(
+            db,
+            current_user,
+            request_id,
+            document_id,
+            action=payload.action,
+            note=payload.note,
+        )
+    return await _one(db, request_id, current_user)
+
+
+@router.post("/{request_id}/renewal")
+async def answer_renewal(
+    request_id: int,
+    payload: RenewalIn,
+    current_user: ApprovalsUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    with _http_errors():
+        await settlement.answer_renewal(db, current_user, request_id, keep=payload.keep)
+    return await _one(db, request_id, current_user)

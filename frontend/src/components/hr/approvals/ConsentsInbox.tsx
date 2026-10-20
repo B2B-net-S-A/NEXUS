@@ -28,6 +28,7 @@ import {
 } from "./approvals-format";
 import { DecisionDialog, type DecisionMode } from "./DecisionDialog";
 import { KindIcon } from "./KindIcon";
+import { TopupsPanel } from "./TopupsPanel";
 
 const LABEL = "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
 
@@ -245,7 +246,17 @@ function ConsentDetail({
  * szczegół z liczbami „NEXUS sprawdził” po prawej. Link z maila
  * (`?request=…&decide=approve|reject`) otwiera zgodę z oknem decyzji.
  */
+/** Skrzynka zgód z dopłatami do decyzji na górze (etap 3, 0486). */
 export function ConsentsInbox() {
+  return (
+    <div className="space-y-3">
+      <TopupsPanel />
+      <ConsentsInboxList />
+    </div>
+  );
+}
+
+function ConsentsInboxList() {
   const params = useSearchParams();
   const inbox = useApprovalList("inbox");
   const linked = Number(params.get("request"));
