@@ -42,6 +42,10 @@ z numerami problemów). Strona startowa z kafelkami zostaje bez zmian.
 - Każda pozycja z menu ma `group` w rejestrze (pilnuje test „każda pozycja
   z menu ma grupę”). Kolejność grup = kolejność pierwszej pozycji w rejestrze;
   lista obszaru też jest pogrupowana (`groupedAreaItems`).
+- **„Zespół rekrutacji” (20.10.2026):** pozycja `assign` (`/settings/team-structure`)
+  ma zakładki Kategorie (`CompetenceTeamPanel`) i Delivery Leadzi i klienci,
+  zakładka w adresie `?zakladka=`. `competence-team` ukryte, adres
+  przekierowuje na Kategorie. Finanse widzą dalej podgląd bez zakładek.
 - Tytuł ekranu = `title` z rejestru, jedna nazwa w menu, ścieżce, górnym pasku
   (`BreadcrumbV2`) i nagłówku strony. Karta pod nagłówkiem nie powtarza tytułu —
   zaczyna się od opisu.

@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import AdminTeamStructurePage from "./page"
 
 const mocks = vi.hoisted(() => ({
+  params: new URLSearchParams(),
+  replaceUrl: vi.fn(),
   get: vi.fn(),
   post: vi.fn(),
   put: vi.fn(),
@@ -20,6 +22,16 @@ const mocks = vi.hoisted(() => ({
     role: string
     roles: string[]
   },
+}))
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => mocks.params,
+  usePathname: () => "/settings/team-structure",
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+}))
+vi.mock("@/lib/url-selection", () => ({ useUrlWriter: () => ({ replaceUrl: mocks.replaceUrl }) }))
+vi.mock("@/components/v2/competence-team/CompetenceTeamPanel", () => ({
+  CompetenceTeamPanel: () => <div>Panel kategorii kompetencji</div>,
 }))
 
 vi.mock("@/lib/api", () => ({
@@ -124,6 +136,7 @@ function renderPage() {
 describe("AdminTeamStructurePage — kompetencje i raportowanie", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.params = new URLSearchParams()
     users = baseUsers
     mocks.authUser = {
       id: 1,
@@ -170,70 +183,22 @@ describe("AdminTeamStructurePage — kompetencje i raportowanie", () => {
     expect(mocks.get).not.toHaveBeenCalledWith("/api/clients")
   })
 
-  it("pokazuje kompetencje per osoba i odtwarza główną oraz dodatkowe", async () => {
-    renderPage()
-
-    const primary = await screen.findByRole("combobox", {
-      name: "Główna kompetencja — Anna TAC",
-    })
-    expect(primary).toHaveValue("1")
-    expect(
-      screen.getByRole("checkbox", {
-        name: "Engineering jako dodatkowa dla Anna TAC",
-      }),
-    ).toBeDisabled()
-    expect(
-      screen.getByRole("checkbox", {
-        name: "Sprzedaż jako dodatkowa dla Anna TAC",
-      }),
-    ).toBeChecked()
-
-    const unassignedSave = screen.getByRole("button", {
-      name: "Zapisz kompetencje — Bartek Rekruter",
-    })
-    expect(unassignedSave).toBeDisabled()
-    expect(
-      screen.getByText(/wybierz dokładnie jedną kompetencję główną/i),
-    ).toBeInTheDocument()
-  })
-
-  it("zapisuje jeden atomowy wybór bez duplikowania głównej w dodatkowych", async () => {
+  it("domyślnie zakładka „Kategorie” z panelem kategorii; zmiana zakładki idzie do adresu", async () => {
     const user = userEvent.setup()
     renderPage()
+    expect(await screen.findByRole("heading", { level: 1, name: "Zespół rekrutacji" })).toBeInTheDocument()
+    expect(screen.getByText("Panel kategorii kompetencji")).toBeInTheDocument()
+    // Osobny edytor „1. Kompetencje zespołu rekrutacji” zapisywał te same
+    // priorytety 1/2 — od 20.10.2026 jest tylko panel kategorii.
+    expect(screen.queryByText("1. Kompetencje zespołu rekrutacji")).not.toBeInTheDocument()
+    expect(screen.queryByText(/Zespół Delivery Leada/)).not.toBeInTheDocument()
 
-    const primary = await screen.findByRole("combobox", {
-      name: "Główna kompetencja — Anna TAC",
-    })
-    const salesSecondary = screen.getByRole("checkbox", {
-      name: "Sprzedaż jako dodatkowa dla Anna TAC",
-    })
-    const cloudSecondary = screen.getByRole("checkbox", {
-      name: "Cloud jako dodatkowa dla Anna TAC",
-    })
-
-    await user.selectOptions(primary, "2")
-    expect(salesSecondary).toBeDisabled()
-    expect(salesSecondary).not.toBeChecked()
-    await user.click(cloudSecondary)
-    await user.click(
-      screen.getByRole("button", {
-        name: "Zapisz kompetencje — Anna TAC",
-      }),
-    )
-
-    await waitFor(() =>
-      expect(mocks.put).toHaveBeenCalledWith(
-        "/api/team-structure/operators/10/competences",
-        {
-          primary_competence_category_id: 2,
-          secondary_competence_category_ids: [3],
-        },
-      ),
-    )
-    expect(mocks.put).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByRole("tab", { name: "Delivery Leadzi i klienci" }))
+    expect(mocks.replaceUrl).toHaveBeenCalledWith("/settings/team-structure?zakladka=dl")
   })
 
   it("nie oferuje ręcznej relacji TAC do DL i wyjaśnia relacje klientowe", async () => {
+    mocks.params = new URLSearchParams("zakladka=dl")
     renderPage()
 
     expect(
@@ -274,16 +239,11 @@ describe("AdminTeamStructurePage — kompetencje i raportowanie", () => {
       },
     ]
 
+    mocks.params = new URLSearchParams("zakladka=dl")
     renderPage()
 
     expect(
-      await screen.findByRole("combobox", {
-        name: "Główna kompetencja — Daria Hybrid",
-      }),
-    ).toBeInTheDocument()
-    expect(screen.getAllByText("Rekruter")).toHaveLength(3)
-    expect(
-      screen.getByRole("option", { name: "Daria Hybrid" }),
+      await screen.findByRole("option", { name: "Daria Hybrid" }),
     ).toBeInTheDocument()
     expect(mocks.get).toHaveBeenCalledWith(
       "/api/users?roles=recruiter&roles=delivery_lead",

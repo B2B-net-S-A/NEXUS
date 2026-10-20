@@ -1,9 +1,8 @@
 "use client"
 
-import Link from "next/link"
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CheckCircle2, Crown, Info, Save } from "lucide-react"
+import { Crown, Info } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,6 +18,10 @@ import { fetchAllClientOptions } from "@/lib/admin-client-options"
 import { cn } from "@/lib/utils"
 import { hasRole, useAuthStore } from "@/store/auth"
 import { TAC_UI_ENABLED } from "@/lib/tac-ui"
+import { useUrlWriter } from "@/lib/url-selection"
+import { TabbedNav } from "@/components/ds/TabbedNav"
+import { CompetenceTeamPanel } from "@/components/v2/competence-team/CompetenceTeamPanel"
+import { usePathname, useSearchParams } from "next/navigation"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -65,26 +68,8 @@ interface ClientBrief {
   name: string
 }
 
-interface CompetenceSelection {
-  primaryId: number | null
-  secondaryIds: number[]
-}
-
 const OPERATOR_ROLES = ["recruiter"]
 const DIRECTORY_ROLES = [...OPERATOR_ROLES, "delivery_lead"]
-
-const ROLE_LABELS: Record<string, string> = {
-  recruiter: "Rekruter",
-}
-
-function operatorRoleLabel(operator: UserBrief): string {
-  const roles = new Set([operator.role, ...(operator.roles ?? [])])
-  const labels = OPERATOR_ROLES.filter((role) => roles.has(role)).map(
-    (role) => ROLE_LABELS[role],
-  )
-
-  return labels.join(" / ") || "Zespół rekrutacji"
-}
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -95,234 +80,6 @@ function useInvalidate() {
     queryClient.invalidateQueries({ queryKey: ["team-structure-summary"] })
     queryClient.invalidateQueries({ queryKey: ["admin-team-structure-summary"] })
   }
-}
-
-function selectionForOperator(
-  userId: number,
-  categoryRows: SourcerCategoryRow[],
-): CompetenceSelection {
-  let primaryId: number | null = null
-  const secondaryIds: number[] = []
-
-  for (const row of categoryRows) {
-    if (row.first_priority.some((operator) => operator.user_id === userId)) {
-      primaryId ??= row.category.id
-    }
-    if (row.second_priority.some((operator) => operator.user_id === userId)) {
-      secondaryIds.push(row.category.id)
-    }
-  }
-
-  return {
-    primaryId,
-    secondaryIds: secondaryIds.filter((id) => id !== primaryId),
-  }
-}
-
-// ── 1. Person-centric competences ──────────────────────────────────────────────
-
-function OperatorCompetenceEditor({
-  operator,
-  categories,
-  initialSelection,
-}: {
-  operator: UserBrief
-  categories: Category[]
-  initialSelection: CompetenceSelection
-}) {
-  const invalidate = useInvalidate()
-  const [primaryId, setPrimaryId] = useState<number | null>(
-    initialSelection.primaryId,
-  )
-  const [secondaryIds, setSecondaryIds] = useState(
-    () => new Set(initialSelection.secondaryIds),
-  )
-
-  const save = useMutation({
-    mutationFn: () =>
-      api
-        .put(`/api/team-structure/operators/${operator.id}/competences`, {
-          primary_competence_category_id: primaryId,
-          secondary_competence_category_ids: [...secondaryIds].sort(
-            (left, right) => left - right,
-          ),
-        })
-        .then((response) => response.data),
-    onSuccess: invalidate,
-  })
-
-  const selectPrimary = (categoryId: number | null) => {
-    setPrimaryId(categoryId)
-    if (categoryId !== null) {
-      setSecondaryIds((current) => {
-        const next = new Set(current)
-        next.delete(categoryId)
-        return next
-      })
-    }
-    save.reset()
-  }
-
-  const toggleSecondary = (categoryId: number) => {
-    setSecondaryIds((current) => {
-      const next = new Set(current)
-      if (next.has(categoryId)) {
-        next.delete(categoryId)
-      } else {
-        next.add(categoryId)
-      }
-      return next
-    })
-    save.reset()
-  }
-
-  return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="font-semibold text-foreground">{operator.name}</p>
-          <p className="text-xs text-muted-foreground">{operator.email}</p>
-        </div>
-        <Badge variant="soft" size="sm">
-          {operatorRoleLabel(operator)}
-        </Badge>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[minmax(220px,0.8fr)_minmax(320px,1.2fr)_auto] lg:items-end">
-        <div>
-          <label
-            className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
-            htmlFor={`primary-competence-${operator.id}`}
-          >
-            Kompetencja główna
-          </label>
-          <select
-            id={`primary-competence-${operator.id}`}
-            aria-label={`Główna kompetencja — ${operator.name}`}
-            className="h-10 w-full rounded-lg border border-border bg-card px-3"
-            value={primaryId ?? ""}
-            onChange={(event) =>
-              selectPrimary(event.target.value ? Number(event.target.value) : null)
-            }
-          >
-            <option value="">Wybierz jedną kategorię</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name_pl}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <fieldset>
-          <legend className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Kompetencje dodatkowe
-          </legend>
-          <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border px-3 py-2">
-            {categories.length === 0 ? (
-              <span className="text-xs text-muted-foreground">
-                Brak aktywnych kategorii
-              </span>
-            ) : (
-              categories.map((category) => {
-                const isPrimary = primaryId === category.id
-                return (
-                  <label
-                    key={category.id}
-                    className={cn(
-                      "flex items-center gap-2 text-sm",
-                      isPrimary && "text-muted-foreground",
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      aria-label={`${category.name_pl} jako dodatkowa dla ${operator.name}`}
-                      checked={!isPrimary && secondaryIds.has(category.id)}
-                      disabled={isPrimary}
-                      onChange={() => toggleSecondary(category.id)}
-                      className="h-4 w-4"
-                    />
-                    <span>{category.name_pl}</span>
-                  </label>
-                )
-              })
-            )}
-          </div>
-        </fieldset>
-
-        <Button
-          aria-label={`Zapisz kompetencje — ${operator.name}`}
-          disabled={primaryId === null || save.isPending}
-          onClick={() => save.mutate()}
-        >
-          <Save className="h-4 w-4" />
-          {save.isPending ? "Zapisuję…" : "Zapisz"}
-        </Button>
-      </div>
-
-      {primaryId === null && (
-        <p className="mt-2 text-xs text-amber-700">
-          Wybierz dokładnie jedną kompetencję główną, aby zapisać.
-        </p>
-      )}
-      {save.isSuccess && (
-        <p className="mt-2 flex items-center gap-1 text-xs text-emerald-700">
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          Kompetencje zapisane atomowo.
-        </p>
-      )}
-      {save.isError && (
-        <p className="mt-2 text-xs text-destructive" role="alert">
-          Nie udało się zapisać kompetencji. Spróbuj ponownie.
-        </p>
-      )}
-    </div>
-  )
-}
-
-function OperatorCompetencesSection({
-  summary,
-  operators,
-}: {
-  summary: TeamStructureSummary | undefined
-  operators: UserBrief[]
-}) {
-  const categoryRows = summary?.categories ?? []
-  const categories = categoryRows.map((row) => row.category)
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>1. Kompetencje zespołu rekrutacji</CardTitle>
-        <CardDescription>
-          Każdy aktywny Rekruter ma dokładnie jedną kompetencję główną oraz
-          dowolną liczbę różnych kompetencji dodatkowych. Cały wybór jednej
-          osoby zapisujemy w jednej operacji.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {operators.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-            Brak aktywnych Rekruterów.
-          </p>
-        ) : (
-          operators.map((operator) => {
-            const selection = selectionForOperator(operator.id, categoryRows)
-            const selectionKey = `${operator.id}:${selection.primaryId ?? "none"}:${selection.secondaryIds.join(",")}`
-
-            return (
-              <OperatorCompetenceEditor
-                key={selectionKey}
-                operator={operator}
-                categories={categories}
-                initialSelection={selection}
-              />
-            )
-          })
-        )}
-      </CardContent>
-    </Card>
-  )
 }
 
 // ── 2. Reporting model ──────────────────────────────────────────────────────────────
@@ -599,9 +356,27 @@ function TeamStructureReadOnly({
 
 // ── Page ──────────────────────────────────────────────────────────────────────────────
 
+type TeamTab = "kategorie" | "dl"
+
+const TEAM_TABS = [
+  { value: "kategorie", label: "Kategorie" },
+  { value: "dl", label: "Delivery Leadzi i klienci" },
+]
+
 export default function AdminTeamStructurePage() {
   const user = useAuthStore((state) => state.user)
   const hydrated = useAuthStore((state) => state.hydrated)
+  // Zakładka w adresie (`?zakladka=`), żeby stary link `/settings/competence-team`
+  // mógł otworzyć „Kategorie”, a F5 zostawał na tej samej zakładce.
+  const searchParams = useSearchParams()
+  const pathname = usePathname() ?? "/settings/team-structure"
+  const { replaceUrl } = useUrlWriter()
+  const tab: TeamTab = searchParams?.get("zakladka") === "dl" ? "dl" : "kategorie"
+  const selectTab = (next: string) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "")
+    params.set("zakladka", next)
+    replaceUrl(`${pathname}?${params.toString()}`)
+  }
   const canEdit = hasRole(user, "admin", "head_of_recruitment")
   const isAllowed = canEdit || hasRole(user, "finance")
 
@@ -662,9 +437,6 @@ export default function AdminTeamStructurePage() {
   const dls = assignableUsers.filter((candidate) =>
     effectiveRoles(candidate).has("delivery_lead"),
   )
-  const operators = assignableUsers.filter((candidate) =>
-    OPERATOR_ROLES.some((role) => effectiveRoles(candidate).has(role)),
-  )
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 p-4 md:p-6">
@@ -673,30 +445,31 @@ export default function AdminTeamStructurePage() {
           Rekrutacja · Struktura zespołu
         </p>
         <h1 className="mt-1 text-3xl font-extrabold tracking-[-0.025em] text-foreground md:text-4xl">
-          Kto prowadzi którego klienta
+          Zespół rekrutacji
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {canEdit
-            ? "Zarządzaj kompetencjami osób oraz przypisaniami Delivery Leadów do klientów."
+            ? "Kto szuka w której kategorii i którego klienta prowadzi Delivery Lead. Automat przydziela requesty najpierw 1. priorytetowi."
             : "Podgląd kompetencji zespołu oraz przypisań Delivery Leadów do klientów."}
         </p>
       </div>
 
-      {canEdit && (
-        <p className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          Kategorie całego zespołu naraz (1. i 2. priorytet, „Poza przydziałem”, zasady
-          przydziału requestów) ustawisz w panelu{" "}
-          <Link href="/settings/competence-team" className="font-medium text-primary hover:underline">
-            Kategorie kompetencji
-          </Link>
-          .
-        </p>
-      )}
       {canEdit ? (
         <>
-          <OperatorCompetencesSection summary={summary} operators={operators} />
-          <DeliveryLeadReportingInfo />
-          <DlClientsSection summary={summary} dls={dls} clients={clients} />
+          <TabbedNav
+            tabs={TEAM_TABS}
+            value={tab}
+            onValueChange={selectTab}
+            ariaLabel="Zespół rekrutacji"
+          />
+          {tab === "kategorie" ? (
+            <CompetenceTeamPanel />
+          ) : (
+            <>
+              <DeliveryLeadReportingInfo />
+              <DlClientsSection summary={summary} dls={dls} clients={clients} />
+            </>
+          )}
         </>
       ) : (
         <TeamStructureReadOnly summary={summary} />
