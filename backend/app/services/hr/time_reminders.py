@@ -201,7 +201,13 @@ async def remind_one(
     if person is None or not person.is_active:
         raise TimeConflict("Konto tej osoby jest wyłączone.")
     timesheet = await find_timesheet(db, user_id, year, month)
-    if timesheet is not None and timesheet.payroll_locked:
+    # Także bez timesheetu: raport założony w zamkniętym miesiącu od razu ma
+    # ``payroll_locked``, więc przypomnienie byłoby niewykonalne (audyt 21.10).
+    from app.services.hr import payroll_periods
+
+    if (timesheet is not None and timesheet.payroll_locked) or (
+        timesheet is None and await payroll_periods.is_closed(db, year, month)
+    ):
         raise TimeConflict(
             "Miesiąc jest zamknięty w płacach — raport jest już rozliczony."
         )

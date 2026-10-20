@@ -354,6 +354,11 @@ async def update_bonus(
         raise PayrollForbidden("Przełożony zmienia tylko premie, które sam przyznał.")
     if bonus.status == "cancelled":
         raise PayrollConflict("Ta premia jest anulowana.")
+    # Od 19.10.2026 premia przełożonego to propozycja dla Płac: po zatwierdzeniu
+    # kwotę, okres i walutę zmieniają już tylko Płace — inaczej przełożony
+    # podniósłby zatwierdzoną kwotę bez ponownej decyzji (audyt 21.10.2026).
+    if not viewer.payroll and bonus.status != "proposed":
+        raise PayrollForbidden("Przyznaną premię zmieniają Płace.")
     await assert_open(db, bonus.period_year, bonus.period_month)
 
     before = {

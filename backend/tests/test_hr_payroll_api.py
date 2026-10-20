@@ -725,6 +725,15 @@ async def test_manual_bonus_from_manager_waits_for_payroll(
     assert own.status_code == 403
     assert "Płace" in own.json()["detail"]
 
+    # Propozycję przełożony może jeszcze poprawić.
+    corrected = await app_client.patch(
+        f"/api/hr/payroll/bonuses/{bonus_id}",
+        json={"amount": "300"},
+        headers=_headers(boss),
+    )
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["status"] == "proposed"
+
     approved = await app_client.post(
         f"/api/hr/payroll/bonuses/{bonus_id}/approve", headers=_headers(finance)
     )
@@ -732,6 +741,25 @@ async def test_manual_bonus_from_manager_waits_for_payroll(
     assert approved.json()["status"] == "assigned"
     assert approved.json()["assigned_by"] == finance.id
     assert await worker_bells() == 1
+
+    # Audyt 21.10.2026: po zatwierdzeniu przełożony nie podnosi kwoty bez Płac.
+    raised = await app_client.patch(
+        f"/api/hr/payroll/bonuses/{bonus_id}",
+        json={"amount": "50000"},
+        headers=_headers(boss),
+    )
+    assert raised.status_code == 403
+    assert "Płace" in raised.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        kept = await db.get(HrBonus, bonus_id)
+    assert kept is not None and kept.amount == Decimal("300.00")
+    assert await worker_bells() == 1
+    by_payroll = await app_client.patch(
+        f"/api/hr/payroll/bonuses/{bonus_id}",
+        json={"amount": "320"},
+        headers=_headers(finance),
+    )
+    assert by_payroll.status_code == 200, by_payroll.text
 
     # Płace przyznają od razu, jak dotąd.
     direct = await app_client.post(

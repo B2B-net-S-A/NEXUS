@@ -89,8 +89,11 @@ export function PayrollMonthScreen({
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [downloading, setDownloading] = useState<"xlsx" | "zip" | null>(null);
-  // Krok „Kontrola”: ostrzeżenia potwierdzone na ekranie (zamknięcie idzie z `acknowledge_warnings`).
-  const [acknowledged, setAcknowledged] = useState(false);
+  // Krok „Kontrola”: ostrzeżenia potwierdzone na ekranie (zamknięcie idzie z
+  // `acknowledge_warnings`). Potwierdzenie dotyczy TEGO zestawu ostrzeżeń —
+  // nowe ostrzeżenie po kliknięciu (cofnięty timesheet, osoba bez stawki)
+  // unieważnia je, a serwer zapyta o nie ponownie (audyt 21.10.2026).
+  const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<string | null>(null);
   const [assignedOpen, setAssignedOpen] = useState(false);
   const remind = useRemindTimesheet();
   const params = useSearchParams();
@@ -104,6 +107,8 @@ export function PayrollMonthScreen({
   });
   const data = detail.data;
   const label = data ? capitalize(data.label) : `${ymSegment(year, month)}`;
+  const warningsKey = JSON.stringify((data?.warnings ?? []).map((w) => [w.code, w.message]));
+  const acknowledged = acknowledgedWarnings !== null && acknowledgedWarnings === warningsKey;
 
   const download = async (kind: "xlsx" | "zip") => {
     setDownloading(kind);
@@ -238,8 +243,12 @@ export function PayrollMonthScreen({
     writeUrlParams({ view: value === MONTH_VIEW ? null : value, settlement: null });
   };
   const mine = (row: BonusRow) => me?.id === row.recipient_user_id;
+  // Przełożony poprawia tylko własną propozycję; przyznaną zmieniają Płace
+  // (serwer odpowiada wtedy 403 — audyt 21.10.2026).
   const canEdit = (row: BonusRow) =>
-    open && !mine(row) && (payroll || row.proposed_by === me?.id);
+    open &&
+    !mine(row) &&
+    (payroll || (row.proposed_by === me?.id && row.status === "proposed"));
 
   return (
     <div className="space-y-4">
@@ -347,7 +356,7 @@ export function PayrollMonthScreen({
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
                   <span>Przed zamknięciem: {(data.warnings ?? []).map((w) => w.message).join(" ")}</span>
                   {steps.needsAcknowledge ? (
-                    <Button size="sm" variant="outline" onClick={() => setAcknowledged(true)}>
+                    <Button size="sm" variant="outline" onClick={() => setAcknowledgedWarnings(warningsKey)}>
                       Potwierdzam ostrzeżenia
                     </Button>
                   ) : (
