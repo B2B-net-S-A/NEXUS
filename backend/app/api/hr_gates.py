@@ -101,6 +101,31 @@ def require_hr_self_service(module: str):
     return _check
 
 
+def require_hr_approvals():
+    """Zgody na wydatki i premie poza umową (0483): każde konto po onboardingu
+    przy włączonym module. Kto co widzi i o czym decyduje — serwis zgód."""
+
+    async def _check(
+        current_user: User = Depends(require_onboarded_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        await ensure_module(db, current_user, hr_modules.HrModule.approvals)
+        return current_user
+
+    return _check
+
+
+def require_hr_approvals_admin():
+    """Zasady zgód (progi, zatwierdzający) ustawia admin."""
+
+    async def _check(current_user: User = Depends(require_hr_approvals())) -> User:
+        if not current_user.has_role(UserRole.admin):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Zasady zgód ustawia admin.")
+        return current_user
+
+    return _check
+
+
 HrConfigReader = Annotated[User, Depends(require_hr_config_reader())]
 HrPeopleReader = Annotated[User, Depends(require_hr_people_reader())]
 

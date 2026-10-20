@@ -67,6 +67,8 @@ CHAIN = (
         "0475_client_structure_proposals",
         "hr_account_profile_schema",
     ),
+    # Zgody na wydatki i premie poza umową (20.10.2026) — za Prepem 2 z maina.
+    ("0483_hr_approvals", "0482_prep2_skips", "hr_approvals_schema"),
 )
 
 

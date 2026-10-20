@@ -17,6 +17,7 @@ from app.services.client_structure_schema import (
     NOTIFICATION_TYPES as CLIENT_STRUCTURE_TYPES,
 )
 from app.services.hr_agreements_schema import NOTIFICATION_TYPES as AGREEMENT_TYPES
+from app.services.hr_approvals_schema import NOTIFICATION_TYPES as APPROVAL_TYPES
 from app.services.hr_settlement_schema import NOTIFICATION_TYPES as SETTLEMENT_TYPES
 
 #: Osobiste: odbiorcę wybiera reguła modułu; widoczne bez sekcji produktu.
@@ -47,6 +48,8 @@ PERSONAL_TYPES: tuple[str, ...] = (
     *SETTLEMENT_TYPES,
     # Umowy z ludźmi (etap 5) — stan umowy do osoby z Kadr; enum dodaje 0469.
     *AGREEMENT_TYPES,
+    # Zgody na wydatki i premie poza umową — do decydującego i do autora (0483).
+    *APPROVAL_TYPES,
 )
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery; struktura

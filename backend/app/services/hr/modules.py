@@ -37,6 +37,8 @@ class HrModule(StrEnum):
     #: Rozliczenia zespołu (etap 4): faktury z KSeF, potwierdzenia godzin,
     #: płatności i eksport do Symfonii — domyślnie wyłączone.
     settlements = "settlements"
+    #: Zgody na wydatki i premie poza umową (0483) — domyślnie wyłączone.
+    approvals = "approvals"
 
 
 def normalize(raw: object) -> dict[str, bool]:

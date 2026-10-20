@@ -199,6 +199,7 @@ from app.api import kpi_targets_admin as kpi_targets_admin_api
 
 # „Ludzie w NEXUSIE” (16.10.2026): kartoteka, katalog ludzi, Kadry.
 from app.api import hr_admin as hr_admin_api
+from app.api import hr_approvals as hr_approvals_api
 from app.api import hr_counts as hr_counts_api
 from app.api import hr_dashboard as hr_dashboard_api
 from app.api import hr_import as hr_import_api
@@ -1769,6 +1770,12 @@ app.include_router(
 )
 app.include_router(
     hr_counts_api.router, prefix="/api/hr/counts", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_approvals_api.router,
+    prefix="/api/hr/approval-requests",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
 )
 app.include_router(
     hr_dashboard_api.router,

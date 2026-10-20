@@ -118,11 +118,24 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Zmiana stanu umowy",
         "Umowa osoby z zespołu zmieniła stan — szczegóły w kartotece w NEXUSIE.",
     ),
+    # Mail do decydującego składa `services/hr/approvals/mail.py` (z kwotą);
+    # zdanie zastępcze tylko na wypadek, gdyby tamten go nie złożył.
+    "hr_approval_requested": (
+        "Zgoda do decyzji",
+        "Prośba o zgodę czeka na Twoją decyzję w „Ludzie → Akceptacje → Zgody”.",
+    ),
+    # Uwaga decydującego to wolny tekst — do maila nie idzie.
+    "hr_approval_decided": (
+        "Decyzja o Twojej zgodzie",
+        "Decyzję i uwagę znajdziesz w „Ludzie → Moje zgody”.",
+    ),
 }
 _DEFAULT = ("Czas i ludzie", "Szczegóły znajdziesz w NEXUSIE.")
 
 # Treść tych typów to zawsze wolny tekst.
-_FREE_TEXT_TYPES = frozenset({"admin_case_assigned", "hr_leave_conflict"})
+_FREE_TEXT_TYPES = frozenset(
+    {"admin_case_assigned", "hr_leave_conflict", "hr_approval_decided"}
+)
 _RETURNED_BODY = "Uwagi akceptującego znajdziesz w „Moim miesiącu”."
 
 
