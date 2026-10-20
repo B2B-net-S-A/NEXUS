@@ -148,18 +148,23 @@ export function GlitchBug({
   what: string;
 }) {
   const { bugs, fixBug } = useScene();
-  if (bugs[index]) {
-    return <span className="kr-bug-fixed">{right}</span>;
-  }
+  const found = bugs[index];
+  // Znaleziony błąd zostaje tym samym przyciskiem (aria-pressed), żeby fokus
+  // klawiatury nie spadł na <body>.
   return (
     <button
       type="button"
-      className="kr-bug"
+      className={found ? "kr-bug kr-bug-fixed" : "kr-bug"}
       data-bug={index}
-      aria-label={`Błąd ${index + 1} z 3: ${what}. Kliknij, żeby oznaczyć jako znaleziony.`}
+      aria-pressed={found}
+      aria-label={
+        found
+          ? `Błąd ${index + 1} z 3 znaleziony: ${what}.`
+          : `Błąd ${index + 1} z 3: ${what}. Kliknij, żeby oznaczyć jako znaleziony.`
+      }
       onClick={() => fixBug(index)}
     >
-      <span aria-hidden="true">{wrong}</span>
+      <span aria-hidden="true">{found ? right : wrong}</span>
     </button>
   );
 }
