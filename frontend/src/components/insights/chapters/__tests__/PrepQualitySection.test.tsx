@@ -104,6 +104,48 @@ describe("PrepQualitySection", () => {
     expect(mocks.get).toHaveBeenCalledWith(ENDPOINT, { params: { days: 90 } });
   });
 
+  it("rozmowy bez Prepu 2: z powodem, bez słowa i osoba ponad progiem (0482)", async () => {
+    respond(
+      body({
+        skip_days: 30,
+        skip_threshold: 0.2,
+        skip_rows: [
+          {
+            person: { id: 21, name: "Celina Rekruterka" },
+            interviews: 9,
+            with_reason: 4,
+            silent: 0,
+            share: 0.444,
+            over_threshold: true,
+            reasons: { no_slot: 3, short_notice: 1 },
+          },
+          {
+            person: { id: 22, name: "Dawid Rekruter" },
+            interviews: 6,
+            with_reason: 0,
+            silent: 2,
+            share: 0,
+            over_threshold: false,
+            reasons: {},
+          },
+        ],
+      }),
+    );
+    renderSection();
+
+    const celina = await screen.findByTestId("prep2-skip-row-21");
+    expect(celina).toHaveAttribute("data-over", "true");
+    const cells = within(celina).getAllByRole("cell");
+    expect(cells[0]).toHaveTextContent("powyżej progu");
+    expect(cells[2]).toHaveTextContent("4 · 44%");
+    expect(cells[4]).toHaveTextContent("kandydat nie miał wolnego terminu ×3");
+
+    const dawid = screen.getByTestId("prep2-skip-row-22");
+    expect(dawid).not.toHaveAttribute("data-over");
+    expect(within(dawid).getAllByRole("cell")[3]).toHaveTextContent("2");
+    expect(screen.getByTestId("prep2-skip-table")).toHaveTextContent("ostatnie 30 dni");
+  });
+
   it("pusta lista ma własny komunikat", async () => {
     respond(body({ rows: [], interviews: 5, interviews_with_two_preps: 0 }));
     renderSection();

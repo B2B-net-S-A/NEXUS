@@ -7,6 +7,7 @@ import { ArrowUpRight } from "lucide-react";
 import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
 import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { PlanPrepDialog } from "@/components/calendar/cycle/PlanPrepDialog";
+import { Prep2SkipControls } from "@/components/calendar/cycle/Prep2Skip";
 import { PrepEditButtons } from "@/components/calendar/cycle/PrepEditButtons";
 import { PrepResponseChip } from "@/components/calendar/cycle/PrepResponseChip";
 import { PrepReviewDialog } from "@/components/calendar/cycle/PrepReviewDialog";
@@ -218,6 +219,14 @@ export function DockInterviewCycle({
           ) : null}
         </div>
       ) : null}
+      <Prep2SkipControls
+        pair={pair}
+        status={badge.prep2_skip_status}
+        skip={badge.prep2_skip}
+        remaining={badge.prep1_remaining}
+        interviewAt={steps.find((s) => s.key === "interview")?.at ?? null}
+        readOnly={readOnly}
+      />
       {debrief && badge.interview_event_id != null ? (
         // 04.10.2026: po zapisie debriefu dok tracił przycisk i nie pokazywał
         // niczego — warunek kandydata („chce jednak 125 zł/h”) ginął.

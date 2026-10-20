@@ -18,6 +18,7 @@ import {
   type CycleScope,
   type CycleView,
   type PairInfo,
+  type Prep2Skip,
   type SlotRequest,
 } from "@/lib/interview-cycle";
 import { prepInterviewForPair } from "@/lib/prep-timing";
@@ -30,6 +31,7 @@ import { CycleBoard } from "./CycleBoard";
 import { CycleCandidateSheet } from "./CycleCandidatePanel";
 import { DebriefModal } from "./DebriefModal";
 import { PlanPrepDialog } from "./PlanPrepDialog";
+import { PrecallDoneDialog } from "./Prep2Skip";
 import { PrepReviewDialog } from "./PrepReviewDialog";
 import { ReschedulePrepDialog } from "./ReschedulePrepDialog";
 import { SlotDecisionDialog, SlotRequestDialog } from "./SlotDialogs";
@@ -52,6 +54,7 @@ type Dialog =
       prepNo: 1 | 2;
       mode?: "late" | "edit" | "cancel";
     }
+  | { kind: "precall_done"; pair: PairInfo; skip: Prep2Skip }
   | null;
 
 /**
@@ -201,6 +204,9 @@ export function CalendarCycleScreen({
           prepNo: action.prepNo,
           mode: action.mode,
         });
+        break;
+      case "precall_done":
+        setDialog({ kind: "precall_done", pair: action.pair, skip: action.skip });
         break;
       case "open_event": {
         // Zakres zostaje — po powrocie na Tablicę użytkownik widzi ten sam zespół.
@@ -367,6 +373,14 @@ export function CalendarCycleScreen({
           pair={dialog.pair}
           prepNo={dialog.second ? 2 : 1}
           interview={prepInterviewForPair(data, dialog.pair)}
+        />
+      ) : null}
+      {dialog?.kind === "precall_done" ? (
+        <PrecallDoneDialog
+          open
+          onOpenChange={(o) => !o && setDialog(null)}
+          pair={dialog.pair}
+          skip={dialog.skip}
         />
       ) : null}
       {dialog?.kind === "reschedule_prep" ? (

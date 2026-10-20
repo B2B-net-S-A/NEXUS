@@ -57,6 +57,10 @@ const pairs: Record<string, PairInfo> = {
   karol: { candidate_id: 107, candidate_name: "Karol Przykładowy", candidate_email: "karol@example.com", job_id: 7, job_title: "Frontend Developer", client_id: 16, client_name: "Bank Omega" },
   // Zapisany debrief z warunkiem kandydata (04.10.2026: „Zobacz debrief”).
   bartek: { candidate_id: 108, candidate_name: "Bartek Testowy", candidate_email: "bartek@example.com", job_id: 8, job_title: "Senior Java Developer", client_id: 17, client_name: "Bank Sigma" },
+  // 0482: rozmowa jutro, Prep 1 dobry — wolno zapisać „bez Prepu 2”.
+  zuzanna: { candidate_id: 109, candidate_name: "Zuzanna Próbna", candidate_email: "zuzanna@example.com", job_id: 9, job_title: "Low Code Developer", client_id: 18, client_name: "Ubezpieczenia Delta" },
+  // 0482: pominięcie zapisane, telefon przed rozmową do zrobienia.
+  filip: { candidate_id: 110, candidate_name: "Filip Fikcyjny", candidate_email: "filip@example.com", job_id: 10, job_title: "Python Developer", client_id: 19, client_name: "Telekom Epsilon" },
 };
 
 const SAVED_DEBRIEF = {
@@ -140,6 +144,36 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
         st("prep2", "current"), st("interview", "scheduled", at(now, 60 * 70)), st("call", "todo"), st("debrief", "todo"),
       ],
       current_step: "prep2", latest_stage: "client_interview", slot_request: null, interview_event_id: 504, debrief: null,
+      prep2_skip_status: "prep1_weak",
+    },
+    {
+      ...pairs.zuzanna,
+      steps: [
+        st("slots", "done"), st("choice", "done", at(now, 60 * 20)),
+        st("prep", "done", at(now, -120), "ocena: dobry", { event_id: 608, quality: "good" }),
+        st("prep2", "current"), st("interview", "scheduled", at(now, 60 * 20), null, { event_id: 508 }),
+        st("call", "todo"), st("debrief", "todo"),
+      ],
+      current_step: "prep2", latest_stage: "client_interview", slot_request: null, interview_event_id: 508, debrief: null,
+      prep2_skip_status: "allowed",
+      prep1_remaining: ["Power Apps w bankowości", "Praca z Dataverse"],
+    },
+    {
+      ...pairs.filip,
+      steps: [
+        st("slots", "done"), st("choice", "done", at(now, 60 * 22)),
+        st("prep", "done", at(now, -60 * 5), "ocena: OK", { event_id: 609, quality: "ok" }),
+        st("prep2", "skipped", null, "kandydat nie miał wolnego terminu · Ola Rekruter"),
+        st("interview", "scheduled", at(now, 60 * 22), null, { event_id: 509 }),
+        st("call", "todo"), st("debrief", "todo"),
+      ],
+      current_step: "interview", latest_stage: "client_interview", slot_request: null, interview_event_id: 509, debrief: null,
+      prep2_skip_status: "skipped",
+      prep2_skip: {
+        id: 31, interview_event_id: 509, reason: "no_slot", reason_note: null,
+        call_at: at(now, 180), call_done_at: null, call_note: null,
+        created_by: 7, created_by_name: "Ola Rekruter", created_at: at(now, -30),
+      },
     },
     {
       ...pairs.ewa,
@@ -208,6 +242,8 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       { ...pairs.michal, kind: "prep_weak", priority: 6, due: at(now, 60 * 70), event_id: 601, slot_request_id: null },
       { ...pairs.michal, kind: "prep2_missing", priority: 6, due: at(now, 60 * 70), event_id: 504, slot_request_id: null },
       { ...pairs.karol, kind: "prep_late", priority: 4, due: at(now, 60 * 72), event_id: 604, slot_request_id: null },
+      { ...pairs.zuzanna, kind: "prep2_missing", priority: 1, due: at(now, 60 * 20), event_id: 508, slot_request_id: null, urgent: true },
+      { ...pairs.filip, kind: "precall_due", priority: 4, due: at(now, 180), event_id: 509, slot_request_id: null },
       ...(scope === "jobs"
         ? [{ ...pairs.oliwia, kind: "slots_missing" as const, priority: 5, due: null, event_id: null, slot_request_id: null }]
         : []),

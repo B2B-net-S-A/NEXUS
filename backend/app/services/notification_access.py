@@ -120,6 +120,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.prep_changed: ProductSection.pipeline,
     NotificationType.prep_changed_yours: ProductSection.pipeline,
     NotificationType.prep_no_response: ProductSection.pipeline,
+    NotificationType.prep2_skipped: ProductSection.pipeline,
+    NotificationType.prep2_skip_threshold: ProductSection.pipeline,
     NotificationType.trainee_program_decision: ProductSection.pipeline,
     NotificationType.candidate_followup_signal: ProductSection.pipeline,
     # 0399: odpowiedź na notatkę — notatki żyją za sekcją Sourcing (router).

@@ -144,6 +144,21 @@ class DebriefSummary(BaseModel):
     no_client_questions: bool = False
 
 
+class Prep2SkipSummary(BaseModel):
+    """Rozmowa bez Prepu 2 (0482): powód, kto i telefon przed rozmową."""
+
+    id: int
+    interview_event_id: int
+    reason: str
+    reason_note: Optional[str] = None
+    call_at: datetime
+    call_done_at: Optional[datetime] = None
+    call_note: Optional[str] = None
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    created_at: datetime
+
+
 class PairInfo(BaseModel):
     candidate_id: int
     candidate_name: Optional[str] = None
@@ -164,6 +179,12 @@ class CycleItem(PairInfo):
     tentative_interview_at: Optional[datetime] = None
     interview_event_id: Optional[int] = None
     debrief: Optional[DebriefSummary] = None
+    # 0482: rozmowa bez Prepu 2 — czy da się ją zapisać (``allowed``), czy już
+    # jest, a jeśli nie, to dlaczego (``interview_cycle.prep2_skip_status``).
+    prep2_skip_status: str = "not_needed"
+    prep2_skip: Optional[Prep2SkipSummary] = None
+    # Punkty klienta, których Prep 1 nie omówił — do telefonu przed rozmową.
+    prep1_remaining: list[str] = []
 
 
 class AgendaEntry(PairInfo):

@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils";
 
 import { ClientQuestions } from "./ClientQuestions";
 import { CycleStepper } from "./CycleStepper";
+import { Prep2SkipControls } from "./Prep2Skip";
 
 const CHIP: Record<AgendaEntry["kind"], string> = {
   prep: "bg-primary/10 text-primary",
@@ -207,6 +208,14 @@ export function CandidateCycleCard({
             : null
         }
         onPrepReview={(eventId) => onAction({ type: "prep_review", pair: item, eventId })}
+      />
+
+      <Prep2SkipControls
+        pair={item}
+        status={item.prep2_skip_status}
+        skip={item.prep2_skip}
+        remaining={item.prep1_remaining}
+        interviewAt={item.steps.find((s) => s.key === "interview")?.at ?? null}
       />
 
       {events.length > 0 ? (

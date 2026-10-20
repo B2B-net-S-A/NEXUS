@@ -6,8 +6,11 @@ import {
   PREP_QUALITY_DEFAULT_DAYS,
   formatTalkShare,
   usePrepQuality,
+  type Prep2SkipRow,
   type PrepQualityRow,
 } from "@/lib/api/prepQuality";
+import { PREP2_SKIP_REASON_LABELS, type Prep2SkipReason } from "@/lib/interview-cycle";
+import { cn } from "@/lib/utils";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 
 const LABEL = "Jakość prepów";
@@ -78,6 +81,13 @@ export function PrepQualitySection() {
           ) : (
             <PrepQualityTable rows={rows} />
           )}
+          {data?.skip_rows && data.skip_rows.length > 0 ? (
+            <Prep2SkipTable
+              rows={data.skip_rows}
+              days={data.skip_days ?? 30}
+              threshold={data.skip_threshold ?? 0.2}
+            />
+          ) : null}
         </>
       )}
     </section>
@@ -151,6 +161,115 @@ function PrepQualityTable({ rows }: { rows: PrepQualityRow[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function pct(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function reasonsLine(reasons: Record<string, number>): string {
+  return Object.entries(reasons)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, count]) => `${PREP2_SKIP_REASON_LABELS[key as Prep2SkipReason] ?? key} ×${count}`)
+    .join(", ");
+}
+
+/**
+ * Rozmowy bez Prepu 2 (0482, decyzja Artura 20.10.2026): hamulcem na „zawsze
+ * nie ma czasu” jest pomiar, nie blokada. Osoba ponad progiem (i z co najmniej
+ * dwiema rozmowami) świeci się na pomarańczowo.
+ */
+export function Prep2SkipTable({
+  rows,
+  days,
+  threshold,
+}: {
+  rows: Prep2SkipRow[];
+  days: number;
+  threshold: number;
+}) {
+  return (
+    <div className="mt-6" data-testid="prep2-skip-table">
+      <h3 className="mb-1 text-sm font-semibold text-foreground">
+        Rozmowy bez Prepu 2 · ostatnie {days} dni
+      </h3>
+      <p className="mb-3 text-xs text-muted-foreground">
+        „Z powodem” — rekruter zapisał powód i zadzwonił do kandydata przed rozmową. „Bez słowa” —
+        rozmowa się odbyła, prepów było mniej niż dwa i nikt nie zapisał dlaczego. Próg: powyżej{" "}
+        {pct(threshold)} rozmów z powodem.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-muted-foreground">
+              <th scope="col" className="py-2 pr-3 font-medium">
+                Osoba
+              </th>
+              <th scope="col" className="py-2 pr-3 text-right font-medium">
+                Rozmowy u klienta
+              </th>
+              <th scope="col" className="py-2 pr-3 text-right font-medium">
+                Bez Prepu 2 (z powodem)
+              </th>
+              <th scope="col" className="py-2 pr-3 text-right font-medium">
+                Pominięte bez słowa
+              </th>
+              <th scope="col" className="py-2 font-medium">
+                Powody
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.person.id}
+                data-testid={`prep2-skip-row-${row.person.id}`}
+                data-over={row.over_threshold ? "true" : undefined}
+                className={cn(
+                  "border-b border-border last:border-0",
+                  row.over_threshold && "bg-warning-muted/60",
+                )}
+              >
+                <td className="py-1.5 pr-3 font-medium text-foreground">
+                  {row.person.name}
+                  {row.over_threshold ? (
+                    <span className="ml-2 rounded-full bg-warning-muted px-2 py-0.5 text-xs font-semibold text-warning-muted-foreground">
+                      powyżej progu
+                    </span>
+                  ) : null}
+                </td>
+                <td className="py-1.5 pr-3 text-right tabular-nums text-foreground">
+                  {n(row.interviews)}
+                </td>
+                <td
+                  className={cn(
+                    "py-1.5 pr-3 text-right tabular-nums",
+                    row.over_threshold
+                      ? "font-semibold text-warning-muted-foreground"
+                      : "text-foreground",
+                  )}
+                >
+                  {n(row.with_reason)}
+                  {row.with_reason > 0 ? ` · ${pct(row.share)}` : ""}
+                </td>
+                <td
+                  className={cn(
+                    "py-1.5 pr-3 text-right tabular-nums",
+                    row.silent > 0 ? "font-semibold text-destructive" : "text-foreground",
+                  )}
+                >
+                  {n(row.silent)}
+                </td>
+                <td className="py-1.5 text-xs text-muted-foreground">
+                  {reasonsLine(row.reasons) || "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
