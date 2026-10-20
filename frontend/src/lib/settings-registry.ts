@@ -175,12 +175,18 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     description: "Kto należy do której kategorii (1. i 2. priorytet) i zasady przydziału requestów.",
     keywords: "kategorie kompetencji przydzial requesty obłożenie oblozenie priorytet poza przydzialem sourcer rekruter",
     route: "/settings/competence-team",
+    // Od 20.10.2026 zakładka „Kategorie” pozycji „Zespół rekrutacji”; adres
+    // przekierowuje na nią.
+    hidden: true,
     gate: { roles: ["admin", "head_of_recruitment"] },
   },
   {
-    id: "assign", area: "team", title: "Kto prowadzi którego klienta", group: "Zespół rekrutacji",
-    description: "Przypisania Delivery Leadów do klientów i kompetencje zespołu.",
-    keywords: "dl delivery portfel kompetencje przypisania odpowiedzialnosci",
+    // „Zespół rekrutacji” (20.10.2026): kategorie kompetencji i Delivery Leadzi
+    // z klientami w jednej pozycji — dwa ekrany zapisywały te same priorytety 1/2.
+    id: "assign", area: "team", title: "Zespół rekrutacji", group: "Zespół rekrutacji",
+    description: "Kto szuka w której kategorii i którego klienta prowadzi Delivery Lead.",
+    keywords:
+      "dl delivery portfel kompetencje przypisania odpowiedzialnosci kategorie kompetencji przydzial requesty obłożenie oblozenie priorytet poza przydzialem sourcer rekruter klienci",
     route: "/settings/team-structure",
     gate: { roles: ["admin", "head_of_recruitment", "finance"], finance: true },
   },

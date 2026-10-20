@@ -43,7 +43,7 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
       // Client navigation must keep updating the breadcrumb after hydration.
       mocks.pathname = "/settings/team-structure";
       await act(async () => root!.render(<BreadcrumbV2 />));
-      expect(container).toHaveTextContent("Kto prowadzi którego klienta");
+      expect(container).toHaveTextContent("Zespół rekrutacji");
     } finally {
       await act(async () => root?.unmount());
       container.remove();
@@ -56,7 +56,7 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
     ["/candidates/bulk-import", "Masowy import CV"],
     ["/candidates/search", "Wyszukiwanie"],
     ["/settings/entity-fields", "Dodatkowe pola"],
-    ["/settings/team-structure", "Kto prowadzi którego klienta"],
+    ["/settings/team-structure", "Zespół rekrutacji"],
   ])("%s → %s", (pathname, label) => {
     renderAt(pathname);
     expect(screen.getByText(label)).toBeInTheDocument();

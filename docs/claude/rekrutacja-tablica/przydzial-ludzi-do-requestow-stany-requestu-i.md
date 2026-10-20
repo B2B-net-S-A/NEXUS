@@ -20,9 +20,11 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   `api/request_work_states.py`): podpowiedź stanu liczona przy odczycie
   (`request_work_state.suggest`); **aplikacje z ogłoszeń (`posting`/`new`)
   NIE są pracą** — 235 z 327 rekrutacji je zbierało bez ruchu rekrutera.
-- **Kategorie ludzi**: Ustawienia → Zespół i dostęp → „Kategorie
-  kompetencji” (`/settings/competence-team`, `api/competence_team.py`,
-  admin/HoR). 1. priorytet jeden na osobę (częściowy UNIQUE), zdjęcie głównej
+- **Kategorie ludzi**: Ustawienia → Zespół i dostęp → „Zespół rekrutacji”,
+  zakładka „Kategorie” (od 20.10.2026; `/settings/team-structure?zakladka=kategorie`,
+  stary `/settings/competence-team` przekierowuje; `api/competence_team.py`,
+  admin/HoR). Osobny edytor „kompetencja główna + dodatkowe” na tym ekranie
+  zniknął — zapisywał te same priorytety 1/2. 1. priorytet jeden na osobę (częściowy UNIQUE), zdjęcie głównej
   jest dozwolone (stare trasy `/api/team-structure/sourcer-categories` tego nie
   pozwalały i zostały nietknięte). `users.allocation_excluded` = „Poza
   przydziałem”. Zasady (próg bazy dla sourcera, godzina przeglądu) w

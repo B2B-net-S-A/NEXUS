@@ -85,7 +85,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "entity-fields": "Dodatkowe pola",
   "hiring-managers": "Top hiring managers",
   "rate-benchmarks": "Stawki rynkowe",
-  "team-structure": "Kto prowadzi którego klienta",
+  "team-structure": "Zespół rekrutacji",
   // Trasy z 23–24.09.2026 (audyt 24.09) — nazwy jak w menu, na kafelkach
   // Ustawień i w nagłówkach stron. Nową stronę dopisz tutaj: test
   // „każdy stały segment…" czyta katalog `app/` i odrzuca slug bez nazwy.
