@@ -397,26 +397,26 @@ async def run_once(
         if not isinstance(graph_id, str) or not graph_id:
             counts["skipped"] += 1
             continue
-        key = message_key(graph_id)
+        digest = message_key(graph_id)
         received = _parse_dt(msg.get("receivedDateTime")) or now
-        if key in seen:
+        if digest in seen:
             counts["duplicate"] += 1
         else:
             try:
                 async with db.begin_nested():
                     outcome = await handle_message(db, msg)
             except Exception:  # noqa: BLE001 — jedna wiadomość nie zatrzymuje reszty
-                logger.exception("[approvals] wiadomość %s nie przetworzona", key)
+                logger.exception("[approvals] wiadomość %s nie przetworzona", digest)
                 counts["failed"] += 1
-                failures[key] = failures.get(key, 0) + 1
-                if failures[key] < MAX_MESSAGE_ATTEMPTS:
+                failures[digest] = failures.get(digest, 0) + 1
+                if failures[digest] < MAX_MESSAGE_ATTEMPTS:
                     if earliest_failed is None or received < earliest_failed:
                         earliest_failed = received
                     continue
                 outcome = "abandoned"
             counts[outcome] += 1
-            seen[key] = received.isoformat()
-            failures.pop(key, None)
+            seen[digest] = received.isoformat()
+            failures.pop(digest, None)
         if newest is None or received > newest:
             newest = received
     if earliest_failed is not None:
