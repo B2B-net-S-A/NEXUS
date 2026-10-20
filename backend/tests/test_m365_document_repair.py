@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import undefer
 
 import app.models  # noqa: F401  (zarejestruj wszystkie mappery)
 from app.cli import m365_document_repair as repair_cli
@@ -80,8 +81,10 @@ async def _mail_cv(
     suffix = uuid.uuid4().hex
     filename = f"cv-{suffix[:8]}.pdf"
     (storage / filename).write_bytes(content)
-    # Wspólny początek skrzynki jak w Graph — ucięcie do 100 znaków go zostawia.
-    graph_id = "AAMkSyntheticMailbox" + "x" * 90 + suffix
+    # Wspólny początek skrzynki jak w Graph. Ucięty klucz sprzed 20.10 zawiera
+    # tu jeszcze kawałek `suffix` — testy na wspólnej bazie nie mogą dzielić
+    # klucza (UNIQUE external_source + external_id); przepięcie siejemy wprost.
+    graph_id = "AAMkSyntheticMailbox" + "x" * 60 + suffix
     async with AsyncSessionLocal() as db:
         email = Email(
             user_id=user_id,
@@ -147,13 +150,11 @@ async def _docs(candidate_id: int) -> list[CandidateDocument]:
     async with AsyncSessionLocal() as db:
         rows = await db.scalars(
             select(CandidateDocument)
+            .options(undefer(CandidateDocument.file_content))
             .where(CandidateDocument.candidate_id == candidate_id)
             .order_by(CandidateDocument.id)
         )
-        docs = list(rows)
-        for doc in docs:
-            _ = doc.file_content
-        return docs
+        return list(rows)
 
 
 async def _run(ids: list[int], **kwargs) -> repair_cli.Plan:
