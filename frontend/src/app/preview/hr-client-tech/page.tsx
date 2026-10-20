@@ -20,7 +20,7 @@
  * dostawcy i domyślny opiekun. „Dodaj notatkę o stacku” otwiera okno bez
  * zapytań, lista opiekunów jest zasiana.
  *
- * Stan „many”: jak Nordea na prodzie 20.10.2026 — 67 działów ze „Struktury
+ * Stan „many”: jak duży bank na prodzie 20.10.2026 — 67 działów ze „Struktury
  * u klienta” bez żadnego źródła, cały sygnał w „bez działu”. Puste działy
  * są schowane („Pokaż wszystkie działy (67)”), „bez działu” stoi pierwsze.
  */
@@ -43,7 +43,7 @@ import { CARE_OWNERS, MAP_CLIENT, clientTechMap, unlinkedCards } from "./fixture
 const STATES = [
   { key: "map", label: "Mapa (Delivery Lead klienta)" },
   { key: "links", label: "Karty z Compassa do połączenia" },
-  { key: "many", label: "67 pustych działów (jak Nordea)" },
+  { key: "many", label: "67 pustych działów" },
 ] as const;
 type HarnessState = (typeof STATES)[number]["key"];
 
