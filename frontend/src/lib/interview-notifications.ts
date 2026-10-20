@@ -25,6 +25,9 @@ export const INTERVIEW_NOTIFICATION_TYPES = [
   "prep_changed",
   "prep_changed_yours",
   "prep_no_response",
+  // 0482 (20.10.2026): rozmowa bez Prepu 2 (do DL) i próg pominięć (do HoR).
+  "prep2_skipped",
+  "prep2_skip_threshold",
 ] as const;
 
 export type InterviewNotificationType = (typeof INTERVIEW_NOTIFICATION_TYPES)[number];
@@ -47,6 +50,9 @@ export const QUIET_INTERVIEW_TYPES: ReadonlySet<string> = new Set([
   "prep_candidate_response",
   "prep_changed",
   "prep_no_response",
+  // 0482: informacja o pominiętym Prepie 2 i progu — sam licznik.
+  "prep2_skipped",
+  "prep2_skip_threshold",
 ]);
 
 /** Zdarzenie okna: gniazdo dostarczyło powiadomienie kategorii „Rozmowy”. */

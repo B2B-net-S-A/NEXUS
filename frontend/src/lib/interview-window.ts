@@ -449,6 +449,13 @@ export function buildInterviewWindow({
       case "prep_changed_yours":
         icon = "video";
         break;
+      // 0482: rozmowa bez Prepu 2 (telefon zamiast prepu) i próg pominięć.
+      case "prep2_skipped":
+        icon = "phone";
+        break;
+      case "prep2_skip_threshold":
+        icon = "alert";
+        break;
       case "interview_scheduled": {
         // Po starcie wydarzenia przypomnienie nic już nie mówi. Wydarzenie
         // spoza agendy cyklu (screening, zwykła rozmowa, termin) nie ma tu
