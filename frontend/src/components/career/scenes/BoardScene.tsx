@@ -1,7 +1,7 @@
 "use client";
 
 import { useScene } from "./SceneContext";
-import { itemAria, SceneFrame, SceneList } from "./SceneParts";
+import { ItemName, itemAria, SceneFrame, SceneList } from "./SceneParts";
 
 /**
  * Tablica warsztatowa (analityk biznesowy): karteczki z wymaganiami w kolumnie
@@ -44,7 +44,7 @@ export function BoardScene() {
               style={{ top: pos.top, left: pos.column === "done" ? 240 : 16, rotate: `${tilt}deg` }}
               onClick={() => toggle(i)}
             >
-              <span className="kr-board-t">{item.name}</span>
+              <span className="kr-board-t"><ItemName item={item} /></span>
               {item.note ? <span className="kr-board-s">{item.note}</span> : null}
               {on ? <span className="kr-board-stamp">{item.kind === "must" ? "MUST · MAM" : "MAM"}</span> : null}
             </button>

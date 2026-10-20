@@ -47,19 +47,17 @@
   min-height: 100svh;
   display: flex;
   flex-direction: column;
+  /* Bez siatki pod całą stroną (audyt etapu 7, 21.10.2026): pod tablicą,
+     stroną rekrutera i RODO była ozdobnikiem. Szablony rekrutacji malują
+     własne tło w `.kr-scope`, a siatka w scenach jest częścią rysunku. */
   background-color: var(--kr-bg);
-  background-image:
-    linear-gradient(90deg, var(--kr-grid) 1px, transparent 1px),
-    linear-gradient(var(--kr-grid) 1px, transparent 1px);
-  background-size: 78px 78px;
   color: var(--kr-text);
-  font-family: var(--font-kr-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Krój terminala zostaje domyślny (komendy, dane, sceny); tekst do
+     czytania przechodzi na Geist przez `--kr-sans` niżej (D4, 21.10.2026). */
+  --kr-mono: var(--font-kr-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --kr-sans: var(--font-kr-display), system-ui, sans-serif;
+  font-family: var(--kr-mono);
   -webkit-font-smoothing: antialiased;
-}
-@media (min-width: 1024px) {
-  .kr-root {
-    background-size: 120px 120px;
-  }
 }
 
 /* Tło dokumentu pod stroną kariery: bez tego przy „przeciągnięciu poza
@@ -80,14 +78,7 @@ html:has(.kr-root[data-kr-page]) body {
   min-height: 100vh;
   min-height: 100svh;
   background-color: var(--kr-bg);
-  background-image:
-    linear-gradient(90deg, var(--kr-grid) 1px, transparent 1px),
-    linear-gradient(var(--kr-grid) 1px, transparent 1px);
-  background-size: 78px 78px;
   color: var(--kr-text);
-}
-@media (min-width: 1024px) {
-  .kr-scope { background-size: 120px 120px; }
 }
 /* Jasny szablon: przewinięcie poza stronę na iOS nie pokazuje czerni. */
 html:has(.kr-scope[data-kr-light]),
@@ -113,7 +104,7 @@ html:has(.kr-scope[data-kr-light]) body {
 
 /* ── kolory tekstu ─────────────────────────────────────────────── */
 .kr-g { color: var(--kr-gray); }
-.kr-c { color: var(--kr-comment); font-style: italic; }
+.kr-c { color: var(--kr-comment); font-style: italic; font-family: var(--kr-mono); }
 .kr-r { color: var(--kr-red); }
 .kr-w { color: var(--kr-text); }
 .kr-dim { color: var(--kr-dim); }
@@ -282,6 +273,11 @@ html:has(.kr-scope[data-kr-light]) body {
     margin: 18px 0 14px;
     font-size: 72px;
     line-height: 0.96;
+    /* Na komputerze tytuł się mieści — „kolej-nego” na stronie rekrutera
+       (audyt etapu 7). Na telefonie dzielenie zostaje dla długich słów. */
+    -webkit-hyphens: manual;
+    hyphens: manual;
+    text-wrap: balance;
   }
   .kr-cursor { margin-left: 10px; }
   .kr-side { border-left: 1px solid var(--kr-line); }
@@ -440,9 +436,8 @@ html:has(.kr-scope[data-kr-light]) body {
 }
 .kr-label {
   display: block;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--kr-gray);
   margin-bottom: 6px;
 }
@@ -1166,17 +1161,6 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
 .kr-board-cv-note { color: var(--kr-para); font-size: 13.5px; line-height: 1.5; }
 .kr-board-cv-btn { margin-top: 0; border: 0; font: inherit; font-weight: 700; cursor: pointer; border-radius: 8px; }
 .kr-board-form { margin: 0; }
-/* Telefon: kategorie w jednym przewijanym rzędzie (makieta 6c). */
-@media (max-width: 639px) {
-  .kr-board-cats {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    margin: 0 -16px;
-    padding: 0 16px 4px;
-    scrollbar-width: none;
-  }
-  .kr-board-cats .kr-chip { flex: none; }
-}
 /* Telefon: przycisk „Zostaw CV” przyklejony do dołu (makieta 6c); stopka
    dostaje miejsce pod nim, żeby nic nie znikało pod przyciskiem. */
 .kr-root:has(.kr-board-sticky) { padding-bottom: 76px; }
@@ -1224,4 +1208,33 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
 @media (prefers-reduced-motion: reduce) {
   .kr-board-card { transition: none; }
   .kr-board-card:hover { transform: none; }
+}
+
+/* ── krój tekstu do czytania (etap 7, D4 = A, 21.10.2026) ──────────
+   Opisy, kroki, formularz, chipy, RODO i stopka w Geist. Mono zostaje przy
+   komendach (`$ …`), komentarzach `// …`, parametrach i w scenach. */
+.kr-para,
+.kr-step,
+.kr-form,
+.kr-alert,
+.kr-chip,
+.kr-board-input,
+.kr-board-sub,
+.kr-doc,
+.kr-footer,
+.kr-log-text,
+.kr-cta-mobile {
+  font-family: var(--kr-sans);
+}
+.kr-kbd { font-family: var(--kr-mono); }
+.kr-nice-mark { font-size: 0.85em; white-space: nowrap; }
+/* Podpisy przy punktach scen są wąskie i ucinane wielokropkiem — dopisek
+   idzie do drugiej linii, żeby „mile widziane” nie zginęło. */
+.kr-const-lab .kr-nice-mark,
+.kr-topo-l .kr-nice-mark,
+.kr-radar-tag .kr-nice-mark,
+.kr-c4-n .kr-nice-mark,
+.kr-hz-n .kr-nice-mark,
+.kr-board-t .kr-nice-mark {
+  display: block;
 }

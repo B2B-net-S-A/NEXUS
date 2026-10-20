@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { useScene } from "./SceneContext";
-import { itemAria, SceneFrame, SceneList } from "./SceneParts";
+import { ItemName, itemAria, SceneFrame, SceneList } from "./SceneParts";
 
 /**
  * Topologia sieci (DevOps / Cloud): węzły = technologie, „TY” po lewej.
@@ -106,7 +106,7 @@ export function TopologyScene() {
               onBlur={() => setHover(null)}
             >
               <span className="kr-topo-c" />
-              <span className="kr-topo-l">{item.name}</span>
+              <span className="kr-topo-l"><ItemName item={item} /></span>
             </button>
           );
         })}

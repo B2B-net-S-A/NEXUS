@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { useScene } from "./SceneContext";
-import { itemAria, SceneFrame, SceneList } from "./SceneParts";
+import { ItemName, itemAria, SceneFrame, SceneList } from "./SceneParts";
 
 /**
  * Plan (PM, Scrum, PMO): harmonogram czterech kroków procesu (klik = opis
@@ -89,7 +89,7 @@ export function PlanScene() {
                     {on ? "✓" : ""}
                   </span>
                   <span>
-                    {item.name}
+                    <ItemName item={item} />
                     {item.note ? <span className="kr-plan-note"> · {item.note}</span> : null}
                   </span>
                 </button>

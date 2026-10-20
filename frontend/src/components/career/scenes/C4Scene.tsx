@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import { useScene } from "./SceneContext";
-import { itemAria, SceneFrame, SceneList } from "./SceneParts";
+import { ItemName, itemAria, SceneFrame, SceneList } from "./SceneParts";
 
 /**
  * Architektura C4 (architekt): C1 — kontekst (Ty, projekt, zespół), C2 —
@@ -140,7 +140,7 @@ export function C4Scene() {
                   onClick={() => toggle(i)}
                 >
                   <span className="kr-c4-k">[{i === 3 ? "baza" : "kontener"}]</span>
-                  <span className="kr-c4-n">{item.name}</span>
+                  <span className="kr-c4-n"><ItemName item={item} /></span>
                   {item.note ? <span className="kr-c4-d">{item.note}</span> : null}
                 </button>
               );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useScene } from "./SceneContext";
-import { itemAria, SceneFrame, SceneList } from "./SceneParts";
+import { ItemName, itemAria, SceneFrame, SceneList } from "./SceneParts";
 
 /**
  * Horyzont (frontend, fullstack): kartridże z umiejętnościami nad siatką
@@ -76,7 +76,7 @@ export function HorizonScene() {
               style={{ left: x, top: y, animationDelay: `${i * 0.35}s` }}
               onClick={() => toggle(i)}
             >
-              <span className="kr-hz-n">{item.name}</span>
+              <span className="kr-hz-n"><ItemName item={item} /></span>
               <span className="kr-hz-t">{on ? "ZEBRANE ✓" : (item.note ?? "POWER-UP").toLocaleUpperCase("pl-PL")}</span>
             </button>
           );

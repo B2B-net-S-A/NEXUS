@@ -361,3 +361,19 @@ Reguły, które łatwo cofnąć:
      `NEXT_PUBLIC_CAREER_HOST=kariera.b2bnetwork.pl` (`is_buildtime=true`);
   4. deploy w oknie 19:00–07:00, potem `/r/<slug>` na nowej domenie, stary
      `nexus…/kariera/r/<slug>` → 307, formularz wysyła (CORS).
+- **Krój i poprawki po audycie etapu 7 (decyzje D1–D4, 21.10.2026):** tekst do
+  czytania (opisy, kroki procesu, formularz, chipy tablicy, RODO, stopka) jest
+  w Geist 400/500 (`--kr-sans`), a JetBrains Mono zostaje przy komendach `$ …`,
+  komentarzach `// …`, parametrach i w scenach (`--kr-mono`, domyślny krój
+  `.kr-root`). Nowy element do czytania dopisz do listy `--kr-sans` na końcu
+  `career.css`, zamiast zmieniać krój korzenia. Etykiety formularza są zdaniem
+  („Imię *”, „CV *”), bez wersalików. Tytuł od 1024 px nie dzieli wyrazów
+  (`hyphens: manual`; wcześniej „kolej-nego” na stronie rekrutera), na
+  telefonie dzieli dalej. Pod stroną nie ma siatki; siatka w scenach Terminal,
+  Plan i C4 jest częścią rysunku i zostaje. Pozycja „mile widziane” dobrana do
+  pięciu punktów sceny ma dopisek (`ItemName` w `scenes/SceneParts.tsx`), żeby
+  nie wyglądała jak wymaganie. Chipy kategorii na telefonie łamią się do nowego
+  wiersza. Dalsze etapy (tablica z podglądem i Flip, „Sprawdź się” na
+  ScrollTrigger, Lenis) są na planszach 7a–7c kanwy
+  https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h i w prototypie
+  https://claude.ai/artifact/TsUgULCMSSjVTiYWvoGN3b.

@@ -12,6 +12,20 @@ export function itemAria(item: SceneItem): string {
 }
 
 /**
+ * Nazwa pozycji w scenie. „Mile widziane” dobrane do pięciu punktów
+ * (`sceneItems`) dostaje dopisek, żeby nie wyglądało jak wymaganie (audyt
+ * etapu 7, 21.10.2026). Czytnik ekranu dostaje to samo z `itemAria`.
+ */
+export function ItemName({ item }: { item: SceneItem }) {
+  return (
+    <>
+      {item.name}
+      {item.kind === "nice" ? <span className="kr-nice-mark"> · mile widziane</span> : null}
+    </>
+  );
+}
+
+/**
  * Pełna scena (komputer, ≥ 1024 px). Na telefonie CSS ją chowa, a tę samą
  * interakcję daje `SceneList`. `data-kr-still` = bez animacji.
  */
@@ -78,7 +92,7 @@ export function SceneList({
                   {mark(on, i)}
                 </span>
                 <span className="kr-scene-cl-name" aria-hidden="true">
-                  {item.name}
+                  <ItemName item={item} />
                   {item.note ? <span className="kr-c"> {"// "}{item.note}</span> : null}
                 </span>
               </button>
