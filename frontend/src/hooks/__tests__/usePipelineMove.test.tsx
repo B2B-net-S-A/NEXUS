@@ -1409,7 +1409,7 @@ describe("usePipelineMove — strzałka „→”: ruch odłożony z „Cofnij�
       candidate_id: 504,
       process_state_version: 1,
       interview_badge: {
-        kind: "interview",
+        kind: "slot",
         label: "czw 22.10 · 14:00",
         tone: "info",
         steps: [{ key: "interview", state: "scheduled" }],
