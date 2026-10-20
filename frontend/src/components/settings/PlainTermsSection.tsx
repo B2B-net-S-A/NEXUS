@@ -198,7 +198,7 @@ export function PlainTermsSection() {
   });
 
   return (
-    <section aria-label="Po ludzku" className="space-y-3 border-t border-border pt-5" data-testid="plain-terms">
+    <section aria-label="Po ludzku" className="space-y-3" data-testid="plain-terms">
       <div>
         <h3 className="text-sm font-semibold text-foreground">Po ludzku</h3>
         <p className="mt-0.5 text-sm text-muted-foreground">
