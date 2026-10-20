@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, History, RotateCcw } from "lucide-react";
+import { History, RotateCcw } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import {
@@ -113,15 +113,14 @@ function KpiHeader({ kpi }: { kpi: KpiTargetKpi }) {
   return (
     <div>
       <div className="font-medium text-foreground">{kpi.title}</div>
-      <div className="text-xs text-muted-foreground">
-        {kpi.period_label}
-        {kpi.race_threshold ? " · próg wyścigu" : ""}
-      </div>
+      <div className="text-xs text-muted-foreground">{kpi.period_label}</div>
     </div>
   );
 }
 
-export function KpiRoleTable({
+/** Cel roli jako kafelki (20.10.2026) — jedna rola od 0411, więc tabela
+ *  wskaźnik × rola miała jedną kolumnę. */
+export function KpiRoleTiles({
   data,
   busy,
   onSave,
@@ -131,50 +130,61 @@ export function KpiRoleTable({
   onSave: (role: string, kpiId: string, value: number | null) => Promise<void>;
 }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-          <tr>
-            <th className="px-3 py-2">Wskaźnik</th>
-            {data.roles.map((role) => (
-              <th key={role.role} className="px-3 py-2">
-                {role.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.kpis.map((kpi) => (
-            <tr key={kpi.kpi_id} className="border-t border-border align-top">
-              <td className="px-3 py-2">
-                <KpiHeader kpi={kpi} />
-              </td>
-              {data.roles.map((role) => {
-                const cell = role.targets[kpi.kpi_id];
-                return (
-                  <td key={role.role} className="px-3 py-2">
-                    <TargetCell
-                      label={`${kpi.title} — ${role.label}`}
-                      value={cell.override}
-                      fallback={cell.catalog_default}
-                      disabled={busy}
-                      onSave={(value) => onSave(role.role, kpi.kpi_id, value)}
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      katalog: {cell.catalog_default}
-                    </span>
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-4">
+      {data.roles.map((role) => (
+        <div key={role.role} className="space-y-2">
+          <h3 className="text-sm font-semibold text-foreground">
+            Cel roli: {role.label}
+            <span className="ml-2 font-normal text-muted-foreground">
+              obowiązuje każdego, kto nie ma wyjątku
+            </span>
+          </h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {data.kpis.map((kpi) => {
+              const cell = role.targets[kpi.kpi_id];
+              return (
+                <div
+                  key={kpi.kpi_id}
+                  className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3"
+                >
+                  <KpiHeader kpi={kpi} />
+                  <TargetCell
+                    label={`${kpi.title} — ${role.label}`}
+                    value={cell.override}
+                    fallback={cell.catalog_default}
+                    disabled={busy}
+                    onSave={(value) => onSave(role.role, kpi.kpi_id, value)}
+                  />
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    <span>katalog: {cell.catalog_default}</span>
+                    {kpi.race_threshold ? (
+                      <span className="rounded-full bg-warning-muted px-2 py-0.5 font-medium text-warning-muted-foreground">
+                        próg wyścigu
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-export function KpiUserTable({
+/** Cel, który osoba miałaby bez wyjątku: maksimum z jej ról (`services/kpi_targets.py`). */
+function roleTargetFor(data: KpiTargetsMatrix, roles: string[], kpiId: string): number | null {
+  const values = data.roles
+    .filter((role) => roles.includes(role.role))
+    .map((role) => role.targets[kpiId]?.effective)
+    .filter((value): value is number => typeof value === "number");
+  return values.length ? Math.max(...values) : null;
+}
+
+/** Wyjątki zamiast tabeli wszystkich osób (20.10.2026): widać tylko osoby
+ *  z osobistym celem, a nowy wyjątek dodaje się formularzem. */
+export function KpiExceptions({
   data,
   busy,
   onSave,
@@ -183,71 +193,168 @@ export function KpiUserTable({
   busy: boolean;
   onSave: (userId: number, kpiId: string, value: number | null) => Promise<void>;
 }) {
-  const [filter, setFilter] = useState("");
-  const needle = filter.trim().toLowerCase();
-  const users = needle
-    ? data.users.filter((user) => user.name.toLowerCase().includes(needle))
-    : data.users;
+  const rows = data.users.flatMap((user) =>
+    data.kpis
+      .filter((kpi) => user.targets[kpi.kpi_id]?.override != null)
+      .map((kpi) => ({ user, kpi, cell: user.targets[kpi.kpi_id] })),
+  );
+  const people = new Set(rows.map((row) => row.user.user_id)).size;
   return (
-    <div className="space-y-2">
-      <input
-        type="search"
-        value={filter}
-        onChange={(event) => setFilter(event.target.value)}
-        placeholder="Szukaj osoby…"
-        aria-label="Szukaj osoby"
-        className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm"
-      />
-      <div className="overflow-x-auto rounded-lg border border-border">
+    <div className="space-y-3">
+      <AddException data={data} busy={busy} onSave={onSave} />
+      <div className="relative overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
+          <caption className="sr-only">Wyjątki od celu roli ({people})</caption>
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="px-3 py-2">Osoba</th>
-              {data.kpis.map((kpi) => (
-                <th key={kpi.kpi_id} className="px-3 py-2 normal-case">
-                  <KpiHeader kpi={kpi} />
-                </th>
-              ))}
+              <th className="px-3 py-2">Wskaźnik</th>
+              <th className="px-3 py-2">Cel osoby</th>
+              <th className="px-3 py-2">Cel roli</th>
+              <th className="px-3 py-2">
+                <span className="sr-only">Akcje</span>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {users.length === 0 ? (
+            {rows.length === 0 ? (
               <tr>
-                <td
-                  colSpan={data.kpis.length + 1}
-                  className="px-3 py-4 text-center text-muted-foreground"
-                >
+                <td colSpan={5} className="px-3 py-4 text-center text-muted-foreground">
                   {data.users.length === 0
                     ? "Nikt nie ma dziś roli rekrutera."
-                    : "Żadna osoba nie pasuje do wyszukiwania."}
+                    : "Nikt nie ma wyjątku — wszystkich obowiązuje cel roli."}
                 </td>
               </tr>
             ) : null}
-            {users.map((user) => (
-              <tr key={user.user_id} className="border-t border-border align-top">
-                <td className="px-3 py-2">
-                  <div className="font-medium text-foreground">{user.name}</div>
-                </td>
-                {data.kpis.map((kpi) => {
-                  const cell = user.targets[kpi.kpi_id];
-                  return (
-                    <td key={kpi.kpi_id} className="px-3 py-2">
-                      <TargetCell
-                        label={`${kpi.title} — ${user.name}`}
-                        value={cell.override}
-                        fallback={cell.effective}
-                        disabled={busy}
-                        onSave={(value) => onSave(user.user_id, kpi.kpi_id, value)}
-                      />
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+            {rows.map(({ user, kpi, cell }) => {
+              const label = `${kpi.title} — ${user.name}`;
+              return (
+                <tr key={`${user.user_id}-${kpi.kpi_id}`} className="border-t border-border align-top">
+                  <td className="px-3 py-2 font-medium text-foreground">{user.name}</td>
+                  <td className="px-3 py-2">
+                    <KpiHeader kpi={kpi} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <TargetCell
+                      label={label}
+                      value={cell.override}
+                      fallback={roleTargetFor(data, user.roles, kpi.kpi_id) ?? cell.effective}
+                      disabled={busy}
+                      onSave={(value) => onSave(user.user_id, kpi.kpi_id, value)}
+                    />
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                    {roleTargetFor(data, user.roles, kpi.kpi_id) ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void onSave(user.user_id, kpi.kpi_id, null)}
+                      aria-label={`Usuń wyjątek: ${label}`}
+                      className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                    >
+                      Usuń
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+function AddException({
+  data,
+  busy,
+  onSave,
+}: {
+  data: KpiTargetsMatrix;
+  busy: boolean;
+  onSave: (userId: number, kpiId: string, value: number | null) => Promise<void>;
+}) {
+  const [userId, setUserId] = useState("");
+  const [kpiId, setKpiId] = useState(data.kpis[0]?.kpi_id ?? "");
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const user = data.users.find((u) => String(u.user_id) === userId);
+  const roleTarget = user ? roleTargetFor(data, user.roles, kpiId) : null;
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const parsed = parseTargetInput(value);
+    if (!user) {
+      setError("Wybierz osobę.");
+      return;
+    }
+    if (parsed === null || parsed === "invalid") {
+      setError("Wpisz liczbę całkowitą od 0 do 100 000.");
+      return;
+    }
+    setError(null);
+    try {
+      await onSave(user.user_id, kpiId, parsed);
+      setValue("");
+    } catch (err) {
+      setError(apiErrorMessage(err, "Nie udało się dodać wyjątku."));
+    }
+  }
+
+  const field = "h-9 rounded-md border border-input bg-background px-2 text-sm";
+  return (
+    <form
+      onSubmit={(event) => void submit(event)}
+      aria-label="Dodaj wyjątek"
+      className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-muted/30 p-3"
+    >
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        Osoba
+        <select value={userId} onChange={(e) => setUserId(e.target.value)} className={cn(field, "min-w-48")}>
+          <option value="">Wybierz osobę…</option>
+          {data.users.map((u) => (
+            <option key={u.user_id} value={u.user_id}>
+              {u.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        Wskaźnik
+        <select value={kpiId} onChange={(e) => setKpiId(e.target.value)} className={field}>
+          {data.kpis.map((kpi) => (
+            <option key={kpi.kpi_id} value={kpi.kpi_id}>
+              {kpi.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        Cel osoby
+        <input
+          type="text"
+          inputMode="numeric"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={roleTarget === null ? "" : String(roleTarget)}
+          className={cn(field, "w-24 tabular-nums")}
+        />
+      </label>
+      <button
+        type="submit"
+        disabled={busy}
+        className="h-9 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+      >
+        Dodaj wyjątek
+      </button>
+      {error ? (
+        <span role="alert" className="basis-full text-xs text-destructive">
+          {error}
+        </span>
+      ) : null}
+    </form>
   );
 }
 
@@ -293,6 +400,7 @@ export function KpiTargetsSettings() {
   const query = useKpiTargets();
   const saveRole = useSaveRoleDefault();
   const saveUser = useSaveUserTarget();
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
 
   if (query.isError) {
     return (
@@ -306,32 +414,22 @@ export function KpiTargetsSettings() {
     return <p role="status">Ładowanie celów KPI…</p>;
   }
   const busy = saveRole.isPending || saveUser.isPending;
+  const exceptions = query.data.users.filter((user) =>
+    Object.values(user.targets).some((cell) => cell.override != null),
+  ).length;
 
   return (
     <div className="space-y-8">
-      <div
-        role="note"
-        className="flex gap-3 rounded-lg border border-warning/40 bg-warning-muted p-3 text-sm text-warning-muted-foreground"
-      >
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-        <p>
-          Cele roli dla wskaźników oznaczonych „próg wyścigu” są też progiem
-          Wyścigu Rekomendacji (nagroda 1 500 zł). W wyścigu zmiana obowiązuje
-          od następnego miesiąca — progi bieżącego miesiąca są zapisane na jego
-          początku, więc edycja celu nie przestawia trwającego wyścigu. Minimum
-          placementów w Wyścigu Placementów ustawia administrator w punktacji
-          Insights.
-        </p>
-      </div>
+      <p role="status" aria-live="polite" className="text-xs text-muted-foreground">
+        {busy
+          ? "Zapisywanie…"
+          : savedAt
+            ? `Zapisano ${savedAt.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}`
+            : "Zmiana zapisuje się po wyjściu z pola albo Enterze."}
+      </p>
 
       <section className="space-y-3">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">Cele ról</h2>
-          <p className="text-sm text-muted-foreground">
-            Puste pole = wartość z katalogu.
-          </p>
-        </div>
-        <KpiRoleTable
+        <KpiRoleTiles
           data={query.data}
           busy={busy}
           onSave={async (role, kpiId, value) => {
@@ -340,19 +438,27 @@ export function KpiTargetsSettings() {
               kpi_id: kpiId,
               target_value: value,
             });
+            setSavedAt(new Date());
           }}
         />
+        <p role="note" className="text-xs text-muted-foreground">
+          „Próg wyścigu” to też próg Wyścigu Rekomendacji (1 500 zł) — tam zmiana
+          działa od następnego miesiąca, trwający wyścig liczy się po staremu.
+          Minimum placementów w Wyścigu Placementów ustawia administrator
+          w punktacji Insights. Puste pole = wartość z katalogu.
+        </p>
       </section>
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-base font-semibold text-foreground">Cele osobiste</h2>
+          <h2 className="text-base font-semibold text-foreground">
+            Wyjątki <span className="font-normal text-muted-foreground">({exceptions})</span>
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Osobisty cel wygrywa z celem ról. Szary placeholder to cel, który
-            obowiązuje tę osobę dziś.
+            Osoba z wyjątkiem ma swój cel zamiast celu roli. Usuń wyjątek, żeby wróciła do celu roli.
           </p>
         </div>
-        <KpiUserTable
+        <KpiExceptions
           data={query.data}
           busy={busy}
           onSave={async (userId, kpiId, value) => {
@@ -361,6 +467,7 @@ export function KpiTargetsSettings() {
               kpi_id: kpiId,
               target_value: value,
             });
+            setSavedAt(new Date());
           }}
         />
       </section>
