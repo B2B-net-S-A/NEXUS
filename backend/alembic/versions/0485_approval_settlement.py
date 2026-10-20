@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — rozliczenie zgód w Finansach (etap 3, decyzje Artura 20.10.2026).
 
 Revision ID: 0485_approval_settlement
-Revises: 0483_hr_approvals
+Revises: 0484_hm_interviewed_reason
 
 Zakres: dokumenty wydatków (faktura albo paragon do zgody, faktury kosztowe
 z KSeF z samych metadanych), lista sprzedawców „stały koszt”, kolumny
@@ -16,7 +16,7 @@ from alembic import op
 from app.services import hr_approval_settlement_schema as schema
 
 revision = "0485_approval_settlement"
-down_revision = "0483_hr_approvals"
+down_revision = "0484_hm_interviewed_reason"
 branch_labels = None
 depends_on = None
 
