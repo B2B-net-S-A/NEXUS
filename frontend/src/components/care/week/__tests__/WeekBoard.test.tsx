@@ -1,4 +1,8 @@
-/** „Opieka · Ten tydzień”: kolumna z setkami zaległych pokazuje 8 najstarszych (prod 20.10.2026). */
+/**
+ * „Opieka · Ten tydzień”: kolumna z setkami zaległych pokazuje 8 najstarszych
+ * (prod 20.10.2026: 482). Tu 30 kart — rozwinięcie 482 w jsdom trwało w CI
+ * ponad 5 s; przypadek 482 liczy czysty test `visibleCards`.
+ */
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -31,14 +35,14 @@ function contact(id: number, dueOn: string): WeekContact {
   } as WeekContact;
 }
 
-const contacts = Array.from({ length: 482 }, (_, i) => contact(1000 + i, shiftIso("2026-10-19", -1 - i)));
+const contacts = Array.from({ length: 30 }, (_, i) => contact(1000 + i, shiftIso("2026-10-19", -1 - i)));
 const data = {
   week: { from: "2026-10-19", to: "2026-10-23", today: "2026-10-20", is_current: true },
   scope: "all",
   contacts,
   feedback: [],
   feedback_visible: true,
-  counts: { contacts: 482, overdue: 482, feedback: 0, front_office: 0 },
+  counts: { contacts: 30, overdue: 30, feedback: 0, front_office: 0 },
   can_edit: true,
   can_write_feedback: true,
 } as unknown as CareWeek;
@@ -51,15 +55,15 @@ function renderBoard(selectedId: number | null = null) {
 }
 
 describe("WeekBoard — limit kolumny", () => {
-  it("482 zaległe: licznik w nagłówku, 8 najstarszych kart i „Pokaż wszystkie (482)”", () => {
+  it("30 zaległych: licznik w nagłówku, 8 najstarszych kart i „Pokaż wszystkie (30)”", () => {
     const column = renderBoard();
-    expect(within(column).getByText("482")).toBeInTheDocument();
+    expect(within(column).getByText("30")).toBeInTheDocument();
     const cards = within(column).getAllByRole("button", { name: /^Oś konsultanta:/ });
     expect(cards).toHaveLength(8);
     // Najstarszy termin (najwięcej dni po) na górze.
-    expect(cards[0]).toHaveAccessibleName("Oś konsultanta: Konsultant 1481");
-    fireEvent.click(within(column).getByRole("button", { name: "Pokaż wszystkie (482)" }));
-    expect(within(column).getAllByRole("button", { name: /^Oś konsultanta:/ })).toHaveLength(482);
+    expect(cards[0]).toHaveAccessibleName("Oś konsultanta: Konsultant 1029");
+    fireEvent.click(within(column).getByRole("button", { name: "Pokaż wszystkie (30)" }));
+    expect(within(column).getAllByRole("button", { name: /^Oś konsultanta:/ })).toHaveLength(30);
     fireEvent.click(within(column).getByRole("button", { name: "Pokaż mniej" }));
     expect(within(column).getAllByRole("button", { name: /^Oś konsultanta:/ })).toHaveLength(8);
   });
