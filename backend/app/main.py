@@ -3231,6 +3231,11 @@ async def api_health_deep_check():
         AcademyParticipantLogistics,
     )
     from app.models.equipment_intune import EquipmentIntuneDevice
+    from app.models.hr_approval import (
+        ApprovalDocument,
+        ApprovalFixedCostSeller,
+        ApprovalRequest,
+    )
     from app.models.hr_leave import HrM365Operation, LeaveRequest
     from app.models.hr_lifecycle import LifecycleCase, WorkHandover
     from app.models.contract_care import ClientFeedbackSession
@@ -3530,6 +3535,11 @@ async def api_health_deep_check():
         ("equipment_intune_devices", EquipmentIntuneDevice),
         ("academy_edition_checklist", AcademyEditionChecklistItem),
         ("academy_participant_logistics", AcademyParticipantLogistics),
+        # 0483 i 0486: zgody na wydatki i premie poza umową oraz ich rozliczenie
+        # w Finansach (dokumenty wydatków, sprzedawcy „stały koszt”).
+        ("approval_requests", ApprovalRequest),
+        ("approval_documents", ApprovalDocument),
+        ("approval_fixed_cost_sellers", ApprovalFixedCostSeller),
     ]
 
     checks: dict[str, str] = {}
