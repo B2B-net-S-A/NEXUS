@@ -149,7 +149,7 @@ function FeatureRow({
         <td className="px-3 py-2.5">
           {config.model && (
             <code
-              className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono"
+              className="whitespace-nowrap text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono"
               title="Efektywny model LLM (rejestr backendu)"
               data-testid="feature-model"
             >
@@ -158,7 +158,7 @@ function FeatureRow({
           )}
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(usage.used)}</td>
-        <td className="px-3 py-2.5 text-right tabular-nums">{cost ?? "—"}</td>
+        <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{cost ?? "—"}</td>
         <td className="px-3 py-2.5">
           <div className="h-1.5 w-28 rounded bg-muted" aria-hidden>
             <div className="h-1.5 rounded bg-primary" style={{ width: `${Math.round(share * 100)}%` }} />
