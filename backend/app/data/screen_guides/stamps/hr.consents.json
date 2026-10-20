@@ -1,9 +1,9 @@
 {
-  "entry": "55334142794c314ebef9ce0430ac3f6c6ed7665e04ae6502a265bbc0f502bde6",
+  "entry": "a2d6b30806e8fb2bb821abe2848a03faf50e5d7fc52efc689aa833ea6cbe9d8f",
   "guide": "hr.consents",
   "sources": {
-    "frontend/src/components/hr/approvals/ConsentRequestForm.tsx": "341f4d2cb0fd402f03ed5cd11bc339a6c0f7762c5e2f7037d07b88d26adcc30d",
-    "frontend/src/components/hr/approvals/ConsentsInbox.tsx": "fea4041339dc664278d3356c6d4c1d9a05be47b65186739c2a9f2cdb9e6cf374",
-    "frontend/src/components/hr/approvals/MyConsentsScreen.tsx": "8a5ce0dcb88b625ea25d2a6cea341412b842c3cfa9368c8a4c265a2b2083ecf9"
+    "frontend/src/components/hr/approvals/ConsentRequestForm.tsx": "e14b38306e5372c324cfd2dd53ee481f4cf8d1a8b9fa0a382ddb3d300509231b",
+    "frontend/src/components/hr/approvals/ConsentsInbox.tsx": "2646880bdb183b30fc0c826b42a2702cbd264df07adce79007b6a2e77a662c05",
+    "frontend/src/components/hr/approvals/MyConsentsScreen.tsx": "5cb28424dd782b783461dc263d8f4710487ca7864fdc34bd0c1851413cbc923b"
   }
 }

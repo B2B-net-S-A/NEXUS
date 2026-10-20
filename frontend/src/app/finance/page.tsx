@@ -27,6 +27,11 @@ import { useAuthStore } from "@/store/auth";
 import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
 import { FinanceSalesInvoicesTab } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
 import { useInvoicingModule } from "@/lib/api/client-invoicing";
+import {
+  APPROVED_EXPENSES_URL_KEYS,
+  ApprovedExpensesTab,
+} from "@/components/finance/ApprovedExpensesTab";
+import { useHrConfig } from "@/lib/api/hr";
 
 /** Jedno zdanie pod tytułem — mówi, co pokazuje wybrana zakładka. */
 const VIEW_DESCRIPTION: Record<ViewMode, string> = {
@@ -40,6 +45,8 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
     "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta",
   "sales-invoices":
     "Faktury do klientów z KSeF dopasowane do zamówień, wpłaty z wyciągu i zaległości",
+  "approved-expenses":
+    "Zatwierdzone wydatki do rozliczenia, rejestr subskrypcji i faktury kosztowe bez zgody",
 };
 
 /**
@@ -100,8 +107,12 @@ export default function FinancePage() {
     !impersonating && hasSectionAccess(user, "finance", "write");
   // „Faktury do klientów” (E8) tylko przy włączonym module (admin widzi zawsze).
   const invoicingOpen = useInvoicingModule().data?.open === true;
+  // „Wydatki ze zgodą” (Zgody, etap 3) tylko przy otwartym module „Zgody”.
+  const approvalsOpen = useHrConfig().data?.open_modules?.approvals === true;
   const visibleView =
-    (view === "md" && !canWrite) || (view === "sales-invoices" && !invoicingOpen)
+    (view === "md" && !canWrite) ||
+    (view === "sales-invoices" && !invoicingOpen) ||
+    (view === "approved-expenses" && !approvalsOpen)
       ? "results"
       : view;
 
@@ -150,6 +161,9 @@ export default function FinancePage() {
     }
     if (next !== "order-pdfs") {
       ORDER_PDFS_URL_KEYS.forEach((key) => params.delete(key));
+    }
+    if (next !== "approved-expenses") {
+      APPROVED_EXPENSES_URL_KEYS.forEach((key) => params.delete(key));
     }
     const query = params.toString();
     window.history.replaceState(
@@ -237,6 +251,14 @@ export default function FinancePage() {
               Faktury do klientów
             </ModeButton>
           ) : null}
+          {approvalsOpen ? (
+            <ModeButton
+              active={visibleView === "approved-expenses"}
+              onClick={() => changeView("approved-expenses")}
+            >
+              Wydatki ze zgodą
+            </ModeButton>
+          ) : null}
         </div>
 
         {!mounted ? (
@@ -253,6 +275,10 @@ export default function FinancePage() {
           <OrderPdfsTab />
         ) : visibleView === "sales-invoices" ? (
           <FinanceSalesInvoicesTab />
+        ) : visibleView === "approved-expenses" ? (
+          <div data-help="finance.approved-expenses">
+            <ApprovedExpensesTab />
+          </div>
         ) : (
           <MdImportWorkspace />
         )}

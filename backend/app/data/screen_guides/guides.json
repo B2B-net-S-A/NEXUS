@@ -637,11 +637,11 @@
     "title": "Finanse",
     "section": "finance",
     "roles": ["finance", "admin"],
-    "what": "Tu rozliczasz miesiąc: wyniki, import zużycia MD, comiesięczny audyt zmian w zamówieniach (wejścia, zejścia, braki), PDF-y zamówień i — przy włączonym module — faktury do klientów z KSeF z wpłatami.",
+    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, a przy włączonych modułach faktury do klientów z KSeF i wydatki ze zgodą (rozliczenie, subskrypcje, faktury bez zgody).",
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
-        "a": "Otwórz „Zmiany w zamówieniach”: Zmiany, Wejścia, Zejścia, Zamówienia bez kontynuacji i Braki. Odhaczaj pozycje „Zrobione” — pasek pokazuje postęp miesiąca, a eksport do Excela niesie kolumnę „Zrobione”.",
+        "a": "Otwórz „Zmiany w zamówieniach”: Zmiany, Wejścia, Zejścia, Zamówienia bez kontynuacji i Braki. Odhaczaj pozycje „Zrobione” — pasek pokazuje postęp miesiąca. „Eksport zakładki do Excela” niesie to, co widać po filtrach, z kolumną „Zrobione”.",
         "anchor": "finance.order_changes"
       },
       {
@@ -655,9 +655,9 @@
         "anchor": "finance.md_import"
       },
       {
-        "q": "Jak wyeksportować listę do Excela?",
-        "a": "W „Zmianach w zamówieniach” użyj „Eksport zakładki do Excela” — plik zawiera dokładnie to, co widać po filtrach.",
-        "anchor": "finance.export"
+        "q": "Jak rozliczyć wydatek ze zgodą?",
+        "a": "„Wydatki ze zgodą” → „Do rozliczenia”: faktura z KSeF przypięta sama albo wgrana przez autora, obok porównanie ze zgodą. „Rozliczone” klikasz Ty — własnego wydatku nie rozliczysz. Faktura ponad 10% czeka na dopłatę. „Faktury bez zgody” przypinasz do zgody albo oznaczasz sprzedawcę jako stały koszt.",
+        "anchor": "finance.approved-expenses"
       },
       {
         "q": "Gdzie są PDF-y zamówień za miesiąc?",
@@ -670,10 +670,11 @@
       "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie."
     ],
     "anchors": [
-      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Faktury do klientów (przy włączonym module)."},
+      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Faktury do klientów i Wydatki ze zgodą (przy włączonych modułach)."},
       {"id": "finance.order_changes", "label": "Zmiany w zamówieniach", "describe": "Podzakładki audytu i wybór miesiąca."},
       {"id": "finance.export", "label": "Eksport do Excela", "describe": "Eksport bieżącej podzakładki z filtrami."},
-      {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."}
+      {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."},
+      {"id": "finance.approved-expenses", "label": "Wydatki ze zgodą", "describe": "Kafle miesiąca, Do rozliczenia, Subskrypcje, Faktury bez zgody i suma miesiąca według rodzaju."}
     ],
     "help_slug": null,
     "sources": [
@@ -908,11 +909,17 @@
         "q": "Co zrobić, gdy dostałem pytanie do zgody?",
         "a": "W „Moich zgodach” zgoda jest w „Do zrobienia przez Ciebie” z pytaniem na żółtym tle. „Popraw i wyślij” otwiera formularz z danymi — po wysłaniu zgoda zaczyna drogę od nowa. „Wycofaj” zdejmuje ją ze skrzynki decydującego.",
         "anchor": "hr.consents.mine"
+      },
+      {
+        "q": "Jak dołączyć fakturę albo paragon do zgody?",
+        "a": "W „Moich zgodach” zatwierdzona zgoda ma „Rozliczenie”: przeciągnij PDF albo zdjęcie — NEXUS odczyta kwotę i sprzedawcę, popraw w „Popraw”. Faktura z KSeF na NIP firmy przypnie się sama, gdy zgoda zna sprzedawcę. Wyszło drożej o ponad 10% — „Poproś o dopłatę”.",
+        "anchor": "hr.consents.mine"
       }
     ],
     "pitfalls": [
       "Zatwierdzona premia poza umową jest od razu przyznana w Płacach — Płace nie zatwierdzają jej drugi raz.",
-      "O zgodzie dla siebie (także o premii dla siebie) nie decydujesz — nawet jako zatwierdzający."
+      "O zgodzie dla siebie (także o premii dla siebie) nie decydujesz — nawet jako zatwierdzający.",
+      "Zgoda bez faktury i paragonu wygasa po 30 dniach. Rozliczają Finanse, nie autor; dopłatę zatwierdza zatwierdzający."
     ],
     "anchors": [
       {

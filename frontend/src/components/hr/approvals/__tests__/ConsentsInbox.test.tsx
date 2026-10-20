@@ -17,6 +17,7 @@ vi.mock("@/lib/api/hr-approvals", async (importOriginal) => {
   return {
     ...actual,
     useDecideApproval: () => ({ isPending: false, mutate: decide.mutate }),
+    usePendingTopups: () => ({ isSuccess: true, data: [] }),
   };
 });
 
