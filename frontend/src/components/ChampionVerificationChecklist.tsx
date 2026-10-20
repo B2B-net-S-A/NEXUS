@@ -110,6 +110,40 @@ function noteTitle(n: MeetingNoteRow): string {
   return first.replace(/^#+\s*/, "").trim() || `Meeting #${n.id}`;
 }
 
+// Notatka dłuższa niż dwie linie pola o szerokości wiersza gotowości.
+const isLongNote = (text: string) => text.trim().split("\n").length > 2 || text.length > 160;
+
+/**
+ * Treść weryfikacji po zapisie — do 09.2026 wpisywana i nigdzie niewidoczna.
+ * Domyślnie dwie linie, rozwijana w miejscu: do 20.10.2026 resztę pokazywał
+ * tylko link do sekcji 8 „Wiedza z rozmów”, a w Briefie tej sekcji nie ma,
+ * więc wklejonej notatki nie dało się przeczytać.
+ */
+function SavedVerificationNote({ text, testId }: { text: string; testId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = isLongNote(text);
+  return (
+    <div className="space-y-0.5">
+      <p
+        className={`${expanded ? "" : "line-clamp-2 "}whitespace-pre-line text-[11px] text-foreground`}
+        data-testid={testId}
+      >
+        {text}
+      </p>
+      {long ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          className="text-[11px] font-medium text-primary hover:underline"
+        >
+          {expanded ? "Zwiń" : "Pokaż całość"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export type ChampionVerificationChecklistVariant = "section" | "rows";
 
 interface ChampionVerificationChecklistProps {
@@ -481,24 +515,8 @@ export function ChampionVerificationChecklist({
       </button>
     ) : undefined;
 
-  // Treść weryfikacji po zapisie — do 09.2026 wpisywana i nigdzie niewidoczna.
-  // Pełna wersja jest w sekcji 8 „Wiedza z rozmów” profilu.
   const savedText = (text: string | null | undefined, testId: string) =>
-    text && text.trim() ? (
-      <p
-        className="line-clamp-2 whitespace-pre-line text-[11px] text-foreground"
-        title={text}
-        data-testid={testId}
-      >
-        {text}{" "}
-        <a
-          href="#champion-section-insights"
-          className="whitespace-nowrap text-primary hover:underline"
-        >
-          w Wiedzy z rozmów →
-        </a>
-      </p>
-    ) : null;
+    text && text.trim() ? <SavedVerificationNote text={text} testId={testId} /> : null;
 
   if (variant === "rows") {
     const consultantState: ReadinessRowState =
