@@ -108,10 +108,10 @@ export default function EmailTemplatesCard() {
         </div>
         <div className="flex-1">
           <h3 className="text-base font-bold text-foreground dark:text-foreground">
-            Szablony emaili (Microsoft 365)
+            Moje szablony w Outlooku
           </h3>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
-            Twoje prywatne snippety dla okna nowej wiadomości w skrzynce M365.
+            Twoje gotowe treści do okna nowej wiadomości w Outlooku (Microsoft 365).
             Możesz udostępnić szablon całemu zespołowi.
           </p>
         </div>

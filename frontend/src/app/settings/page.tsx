@@ -42,7 +42,6 @@ import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import JobAdFixedBlocksCard from "@/components/settings/JobAdFixedBlocksCard";
 import JobBoardsCard from "@/components/settings/JobBoardsCard";
-import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useHrProgram } from "@/lib/api/hr";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { resetScreenSeen } from "@/lib/jarvis/bubble-budget";
@@ -112,6 +111,14 @@ const ImportsSettings = dynamic(
 
 const PlacementExclusionsTab = dynamic(
   () => import("@/components/settings/PlacementExclusionsTab"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
+
+const MailTemplatesSettings = dynamic(
+  () => import("@/components/settings/MailTemplatesSettings"),
   {
     ssr: false,
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
@@ -407,17 +414,7 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
     case "stages":
       return <PipelineTemplatesTab />;
     case "mail":
-      return (
-        <div className="space-y-4">
-          <EmailTemplatesCard />
-          <div className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground">
-            Szablony odrzuceń mają własny edytor:{" "}
-            <Link href="/settings/templates" className="font-medium text-primary hover:underline">
-              otwórz szablony odrzuceń
-            </Link>
-          </div>
-        </div>
-      );
+      return <MailTemplatesSettings />;
     case "skills":
       return <SkillDictionaryTab />;
     case "job-ad-blocks":
