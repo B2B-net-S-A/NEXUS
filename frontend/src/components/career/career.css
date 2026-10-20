@@ -1368,3 +1368,10 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
   .kr-fit-card,
   .kr-fit-bar i { transition: none; }
 }
+
+/* Lenis (płynny scroll od 1024 px, `CareerMotion.tsx`) — klasy na <html>
+   dodaje sam Lenis, tylko gdy działa. */
+html.lenis,
+html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: hidden; }

@@ -175,7 +175,7 @@ function Board({
           <span className="kr-r" aria-hidden="true">
             ${" "}
           </span>
-          ls ~/rekrutacje --open
+          <span data-kr-scramble="">ls ~/rekrutacje --open</span>
         </span>
         <TwoToneTitle className="kr-title kr-board-h1" first="Otwarte rekrutacje IT" second="B2B Network." />
         <span className="kr-g">

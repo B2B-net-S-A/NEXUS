@@ -403,3 +403,14 @@ Reguły, które łatwo cofnąć:
   dole od zniknięcia hero do pokazania formularza (`ApplyDock.tsx`).
   ScrollTrigger rejestruje się w efekcie, nie przy imporcie — przy imporcie
   czyta `matchMedia`, którego nie ma w jsdom.
+- **Moment otwarcia i płynny scroll (etap 7, PR D, D3 = A, 21.10.2026):**
+  `CareerMotion.tsx` (montowany w `CareerTheme`, po jednym na korzeń
+  `.kr-root`) przy każdym adresie wysuwa linie tytułu `.kr-title` spod maski
+  (SplitText) i raz rozszyfrowuje komendę z `data-kr-scramble` (ScrambleText).
+  Po animacji SplitText przywraca oryginalny tytuł, a sprzątanie efektu
+  (StrictMode, zmiana adresu) zabija animacje, cofa podział i odtwarza tekst
+  komendy — inaczej tytuł zostawał podzielony dwa razy i schowany pod maską.
+  Dzielenie czeka na `document.fonts.ready`. Lenis działa tylko od 1024 px
+  z myszą i bez „ograniczonego ruchu”, jeden na dokument (harness ma wiele
+  korzeni), napędza ScrollTrigger i przewija kotwice `#…`. Zrzut przed hydratacją w Playwright wstrzykuje
+  `caret-color` i daje fałszywy błąd hydratacji — sprawdzaj po `networkidle`.

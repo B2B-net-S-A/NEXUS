@@ -54,7 +54,7 @@ export function CareerHero({
         <span className="kr-r" aria-hidden="true">
           ${" "}
         </span>
-        whoami
+        <span data-kr-scramble="">whoami</span>
       </span>
       <span className="kr-g">
         {login} — <span className="kr-r">{whoamiNote}</span>
