@@ -198,7 +198,7 @@ export default function AISettingsPage() {
   return (
     <div className="container max-w-4xl mx-auto md:py-8 md:px-4">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground mt-2">Funkcje AI</h1>
+        <h1 className="text-2xl font-bold text-foreground mt-2">Koszty AI</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Wszystkie funkcje AI działają bez limitów. Poniżej zużycie i szacunkowy
           koszt w bieżącym miesiącu.

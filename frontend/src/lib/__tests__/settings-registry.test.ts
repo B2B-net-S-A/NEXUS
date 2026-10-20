@@ -6,6 +6,7 @@ import {
   canSeeSettingsItem,
   findSettingsItem,
   findSettingsItemByRoute,
+  groupedAreaItems,
   listedSettingsAreas,
   listedSettingsItems,
   resolveSettingsView,
@@ -329,5 +330,36 @@ describe("settings-registry — wyłączony program „Ludzie w NEXUSIE” (18.1
     expect(searchSettingsItems(admin, "kadry").map((i) => i.id)).not.toContain("hr");
     expect(searchSettingsItems(admin, "premie").map((i) => i.id)).toEqual([]);
     expect(searchSettingsItems(admin, "compass").map((i) => i.id)).not.toContain("hr-import");
+  });
+});
+
+describe("settings-registry — grupy w obszarze (lewa kolumna, 20.10.2026)", () => {
+  it("każda pozycja z menu ma grupę", () => {
+    const missing = SETTINGS_ITEMS.filter((i) => !i.hidden && !i.group).map((i) => i.id);
+    expect(missing).toEqual([]);
+  });
+
+  it("Rekrutacja: grupy w kolejności rejestru, pozycje w swoich grupach", () => {
+    const groups = groupedAreaItems(accessSnapshot("admin"), "rec");
+    expect(groups.map((g) => g.name)).toEqual(["Proces", "Klienci", "Teksty", "Wiedza"]);
+    expect(groups[0].items.map((i) => i.id)).toEqual(["stages", "ranking", "kpi-targets"]);
+    expect(groups.find((g) => g.name === "Teksty")!.items.map((i) => i.id)).toEqual([
+      "mail",
+      "job-ad-blocks",
+    ]);
+  });
+
+  it("grupa bez widocznej pozycji znika — rekruter widzi w Rekrutacji tylko Teksty", () => {
+    const groups = groupedAreaItems(accessSnapshot("recruiter"), "rec");
+    expect(groups.map((g) => g.name)).toEqual(["Teksty"]);
+    expect(groups[0].items.map((i) => i.id)).toEqual(["mail"]);
+  });
+
+  it("pozycje programu „Ludzie w NEXUSIE” wchodzą do grupy tylko przy włączonym programie", () => {
+    const admin = accessSnapshot("admin");
+    const names = (on: boolean) =>
+      groupedAreaItems(admin, "team", { hrProgram: on }).map((g) => g.name);
+    expect(names(false)).not.toContain("Ludzie w NEXUSIE");
+    expect(names(true)).toContain("Ludzie w NEXUSIE");
   });
 });

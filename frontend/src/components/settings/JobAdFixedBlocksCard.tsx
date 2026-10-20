@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Megaphone } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Alert } from "@/components/ui/alert";
@@ -99,18 +99,11 @@ export default function JobAdFixedBlocksCard() {
 
   return (
     <div className="rounded-2xl border border-border bg-card p-6">
-      <div className="mb-5 flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-          <Megaphone className="h-6 w-6 text-primary" aria-hidden="true" />
-        </div>
-        <div className="flex-1">
-          <h3 className="text-base font-bold text-foreground">Stałe części ogłoszenia</h3>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Wpisujesz raz. Trafiają do każdego ogłoszenia na Pracuj.pl i JustJoin.IT w tym samym
-            brzmieniu — rekruter ich nie przepisuje.
-          </p>
-        </div>
-      </div>
+      {/* Tytuł ekranu rysuje strona Ustawień — tu tylko opis (20.10.2026). */}
+      <p className="mb-5 text-sm text-muted-foreground">
+        Wpisujesz raz. Trafiają do każdego ogłoszenia na Pracuj.pl i JustJoin.IT w tym samym
+        brzmieniu — rekruter ich nie przepisuje.
+      </p>
 
       {query.isError ? (
         <Alert

@@ -32,13 +32,14 @@ export function TeamsPrepStatusCard() {
 
   return (
     <div className="rounded-2xl border border-border bg-card p-6">
+      {/* Tytuł ekranu rysuje strona Ustawień — tu stan i opis (20.10.2026). */}
       <div className="flex items-start gap-4">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
           <Video className="h-6 w-6 text-primary" aria-hidden />
         </div>
         <div className="flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-bold text-foreground">Prepy w Teams</h3>
+            <span className="text-sm font-semibold text-foreground">Stan integracji</span>
             <span
               className={cn(
                 "rounded-full px-2 py-0.5 text-xs font-medium",

@@ -32,6 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { SettingsBreadcrumb } from "@/components/settings/SettingsBreadcrumb";
+import { SettingsSideNav } from "@/components/settings/SettingsSideNav";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import { TeamsPrepStatusCard } from "@/components/settings/TeamsPrepStatusCard";
 import { NotificationsSettings } from "@/components/settings/NotificationsSettings";
@@ -47,9 +48,9 @@ import { resetScreenSeen } from "@/lib/jarvis/bubble-budget";
 import { openJarvis } from "@/lib/jarvis/events";
 import {
   findSettingsArea,
+  groupedAreaItems,
   isFinanceReadOnly,
   listedSettingsAreas,
-  listedSettingsItems,
   type SettingsContext,
   resolveSettingsView,
   searchSettingsItems,
@@ -475,45 +476,61 @@ export default function SettingsPage() {
     area: searchParams?.get("area"),
     tab: searchParams?.get("tab"),
   });
-  const wide = view.kind === "item" && view.item.wide;
-
-  return (
-    <div className={cn("mx-auto space-y-6", wide ? "max-w-7xl" : "max-w-4xl")}>
-      {view.kind === "home" && (
+  if (view.kind === "home") {
+    return (
+      <div className="mx-auto max-w-4xl space-y-6">
         <SettingsHome
           areas={listedSettingsAreas(user, settingsContext)}
           user={user}
           context={settingsContext}
         />
-      )}
+      </div>
+    );
+  }
 
-      {view.kind === "area" && (
-        <>
-          <SettingsBreadcrumb area={view.area} />
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">{view.area.name}</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">{view.area.hint}</p>
-          </div>
-          <SettingsItemRows
-            items={listedSettingsItems(user, settingsContext).filter(
-              (i) => i.area === view.area.id,
-            )}
-          />
-        </>
-      )}
-
-      {view.kind === "item" && (
-        <>
-          <SettingsBreadcrumb area={view.area} item={view.item} />
-          {!view.item.ownHeader && (
+  const wide = view.kind === "item" && view.item.wide;
+  return (
+    <div className="mx-auto max-w-7xl lg:flex lg:gap-8">
+      <SettingsSideNav
+        user={user}
+        areaId={view.area.id}
+        itemId={view.kind === "item" ? view.item.id : undefined}
+        context={settingsContext}
+      />
+      <div className={cn("min-w-0 flex-1 space-y-6", !wide && "max-w-4xl")}>
+        {view.kind === "area" && (
+          <>
+            <SettingsBreadcrumb area={view.area} />
             <div>
-              <h1 className="text-2xl font-bold text-foreground">{view.item.title}</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">{view.item.description}</p>
+              <h1 className="text-2xl font-bold text-foreground">{view.area.name}</h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">{view.area.hint}</p>
             </div>
-          )}
-          <SettingsItemBody item={view.item} user={user} />
-        </>
-      )}
+            {groupedAreaItems(user, view.area.id, settingsContext).map((group, _i, groups) => (
+              <section key={group.name} aria-label={group.name || view.area.name} className="space-y-2">
+                {groups.length > 1 && group.name && (
+                  <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {group.name}
+                  </h2>
+                )}
+                <SettingsItemRows items={group.items} />
+              </section>
+            ))}
+          </>
+        )}
+
+        {view.kind === "item" && (
+          <>
+            <SettingsBreadcrumb area={view.area} item={view.item} />
+            {!view.item.ownHeader && (
+              <div>
+                <h1 className="text-2xl font-bold text-foreground">{view.item.title}</h1>
+                <p className="mt-0.5 text-sm text-muted-foreground">{view.item.description}</p>
+              </div>
+            )}
+            <SettingsItemBody item={view.item} user={user} />
+          </>
+        )}
+      </div>
     </div>
   );
 }

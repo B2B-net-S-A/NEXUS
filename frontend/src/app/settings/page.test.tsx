@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SettingsPage from "./page";
@@ -62,6 +62,9 @@ vi.mock("@/lib/api", () => ({
     patch: vi.fn(),
   },
 }));
+
+const crumbs = () => screen.getByRole("navigation", { name: "Ścieżka" });
+const sideNav = () => screen.getByRole("navigation", { name: "Ustawienia" });
 
 function renderSettings(query = "") {
   mocks.params = new URLSearchParams(query);
@@ -134,7 +137,7 @@ describe("SettingsPage — obszar i pozycja", () => {
     mocks.user = ADMIN;
     renderSettings("item=notifications");
     expect(screen.getByRole("heading", { level: 1, name: "Powiadomienia" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "System" })).toHaveAttribute("href", "/settings?area=sys");
+    expect(within(crumbs()).getByRole("link", { name: "System" })).toHaveAttribute("href", "/settings?area=sys");
     expect(screen.getByText("Ekran powiadomień, zakładka startowa: role")).toBeInTheDocument();
   });
 
@@ -142,18 +145,17 @@ describe("SettingsPage — obszar i pozycja", () => {
     mocks.user = { role: "recruiter", roles: ["recruiter"], effective_section_access: { pipeline: "write" } };
     renderSettings("item=my-notifications");
     expect(screen.getByRole("heading", { level: 1, name: "Moje powiadomienia" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Moje konto" })).toHaveAttribute("href", "/settings?area=me");
+    expect(within(crumbs()).getByRole("link", { name: "Moje konto" })).toHaveAttribute("href", "/settings?area=me");
     expect(screen.getByText("Ekran powiadomień, zakładka startowa: moje")).toBeInTheDocument();
   });
   it("obszar pokazuje listę pozycji i ścieżkę", () => {
     mocks.user = ADMIN;
     renderSettings("area=rec");
     expect(screen.getByRole("heading", { level: 1, name: "Rekrutacja" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Procesy rekrutacyjne/ })).toHaveAttribute(
-      "href",
-      "/settings?item=stages",
-    );
-    expect(screen.getByRole("link", { name: "Ustawienia" })).toHaveAttribute("href", "/settings");
+    expect(
+      within(screen.getByRole("region", { name: "Proces" })).getByRole("link", { name: /Procesy rekrutacyjne/ }),
+    ).toHaveAttribute("href", "/settings?item=stages");
+    expect(within(crumbs()).getByRole("link", { name: "Ustawienia" })).toHaveAttribute("href", "/settings");
   });
 
   it("Delivery Lead z Insights read widzi Ranking kandydatów", () => {
@@ -163,7 +165,7 @@ describe("SettingsPage — obszar i pozycja", () => {
       effective_section_access: { insights: "read", pipeline: "write", delivery: "write" },
     };
     renderSettings("area=rec");
-    expect(screen.getByRole("link", { name: /Ranking kandydatów/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /Ranking kandydatów/ }).length).toBeGreaterThan(0);
   });
 
   it("bez Insights Ranking kandydatów znika", () => {
@@ -173,20 +175,51 @@ describe("SettingsPage — obszar i pozycja", () => {
       effective_section_access: { insights: "none", pipeline: "write", delivery: "write" },
     };
     renderSettings("area=rec");
-    expect(screen.queryByRole("link", { name: /Ranking kandydatów/ })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("link", { name: /Ranking kandydatów/ })).toHaveLength(0);
   });
 
   it("pozycja ma ścieżkę do obszaru", () => {
     mocks.user = ADMIN;
     renderSettings("item=mail");
     expect(screen.getByRole("heading", { level: 1, name: "Szablony maili" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Rekrutacja" })).toHaveAttribute("href", "/settings?area=rec");
+    expect(within(crumbs()).getByRole("link", { name: "Rekrutacja" })).toHaveAttribute("href", "/settings?area=rec");
   });
 
   it("pozycja bez dostępu wraca do strony startowej", () => {
     mocks.user = { role: "recruiter", roles: ["recruiter"], effective_section_access: { pipeline: "write" } };
     renderSettings("item=history");
     expect(screen.getByRole("heading", { level: 1, name: "Ustawienia" })).toBeInTheDocument();
+  });
+});
+
+describe("SettingsPage — lewa kolumna (20.10.2026)", () => {
+  it("na pozycji pokazuje pozycje obszaru w grupach i zaznacza otwartą", () => {
+    mocks.user = ADMIN;
+    renderSettings("item=mail");
+    const nav = within(sideNav());
+    for (const group of ["Proces", "Teksty", "Wiedza", "Klienci"]) {
+      expect(nav.getByText(group)).toBeInTheDocument();
+    }
+    expect(nav.getByRole("link", { name: "Szablony maili" })).toHaveAttribute("aria-current", "page");
+    expect(nav.getByRole("link", { name: "Reguły CV klientów" })).toHaveAttribute("href", "/settings/cv-rules");
+    // Pozostałe obszary są o jedno kliknięcie, bez rozwiniętych pozycji.
+    expect(nav.getByRole("link", { name: "System" })).toHaveAttribute("href", "/settings?area=sys");
+    expect(nav.queryByRole("link", { name: "Klucze API" })).not.toBeInTheDocument();
+  });
+
+  it("nie pokazuje obszarów ani pozycji, których osoba nie widzi", () => {
+    mocks.user = { role: "recruiter", roles: ["recruiter"], effective_section_access: { pipeline: "write" } };
+    renderSettings("item=my-notifications");
+    const nav = within(sideNav());
+    expect(nav.getByRole("link", { name: "Moje konto" })).toBeInTheDocument();
+    expect(nav.queryByRole("link", { name: "System" })).not.toBeInTheDocument();
+    expect(nav.queryByRole("link", { name: "Rekrutacja" })).not.toBeInTheDocument();
+  });
+
+  it("strona startowa zostaje bez lewej kolumny — tylko kafelki", () => {
+    mocks.user = ADMIN;
+    renderSettings();
+    expect(screen.queryByRole("navigation", { name: "Ustawienia" })).not.toBeInTheDocument();
   });
 });
 
@@ -203,6 +236,6 @@ describe("SettingsPage — stare linki `?tab=`", () => {
     mocks.user = ADMIN;
     renderSettings(`tab=${tab}`);
     // Ścieżka zawsze nazywa otwartą pozycję — także gdy nagłówek rysuje komponent.
-    expect(screen.getByText(title, { selector: '[aria-current="page"]' })).toBeInTheDocument();
+    expect(within(crumbs()).getByText(title, { selector: '[aria-current="page"]' })).toBeInTheDocument();
   });
 });

@@ -356,7 +356,7 @@ export default function ScoringWeightsPage() {
         <div className="flex-1 min-w-0 basis-64">
           <h1 className="text-2xl font-bold text-foreground dark:text-foreground flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-500" />
-            Profile wag scoringu
+            Ranking kandydatów
           </h1>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground">
             Domyślnie: semantic 35 + skills 30 + salary 12 + location 8 +

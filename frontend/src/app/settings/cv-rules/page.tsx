@@ -299,7 +299,7 @@ export default function CvRulesSettingsPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-6 md:p-6">
       <PageHeader
-        title="Reguły CV per klient"
+        title="Reguły CV klientów"
         description="Jak ma się nazywać plik CV, w jakim ma być języku, czego jeszcze wymaga klient i jakie instrukcje ma dostać generator. Reguła działa od chwili zatwierdzenia — każdy Delivery Lead zakłada i zatwierdza reguły dla swoich klientów sam."
         actions={
           canCreate ? (
