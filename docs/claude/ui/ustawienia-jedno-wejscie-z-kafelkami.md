@@ -32,12 +32,6 @@ z numerami problemów). Strona startowa z kafelkami zostaje bez zmian.
   `app/settings/layout.tsx`) z lewej jest `SettingsSideNav`: wszystkie obszary,
   otwarty rozwinięty w grupy. Od `lg` w górę; na wąskim ekranie zostaje ścieżka
   i lista obszaru.
-- Każda pozycja z menu ma `group` w rejestrze (pilnuje test „każda pozycja
-  z menu ma grupę”). Kolejność grup = kolejność pierwszej pozycji w rejestrze;
-  lista obszaru też jest pogrupowana (`groupedAreaItems`).
-- Tytuł ekranu = `title` z rejestru, jedna nazwa w menu, ścieżce, górnym pasku
-  (`BreadcrumbV2`) i nagłówku strony. Karta pod nagłówkiem nie powtarza tytułu —
-  zaczyna się od opisu.
 - **„Moje konto” = jeden ekran (20.10.2026):** pozycja `my-notifications` ma
   tytuł „Moje konto” i pokazuje kartę Microsoft 365 + `NotificationPreferencesPanel`,
   bez zakładek administratora (Kto co dostaje, Maile, Reguły etapów — te są
@@ -45,3 +39,9 @@ z numerami problemów). Strona startowa z kafelkami zostaje bez zmian.
   działa. Pozycja o nazwie obszaru: ścieżka ma jeden człon, a lewa kolumna jeden
   link prosto do ekranu. Grupowanie kategorii powiadomień wymaga pola grupy
   z API — kategorie zna tylko backend.
+- Każda pozycja z menu ma `group` w rejestrze (pilnuje test „każda pozycja
+  z menu ma grupę”). Kolejność grup = kolejność pierwszej pozycji w rejestrze;
+  lista obszaru też jest pogrupowana (`groupedAreaItems`).
+- Tytuł ekranu = `title` z rejestru, jedna nazwa w menu, ścieżce, górnym pasku
+  (`BreadcrumbV2`) i nagłówku strony. Karta pod nagłówkiem nie powtarza tytułu —
+  zaczyna się od opisu.
