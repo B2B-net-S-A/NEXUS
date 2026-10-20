@@ -31,7 +31,7 @@ export const SETTINGS_AREAS: readonly SettingsArea[] = [
   { id: "team", name: "Zespół i dostęp", hint: "Kto ma konto, co widzi i którego klienta prowadzi" },
   { id: "rec", name: "Rekrutacja", hint: "Etapy, CV dla klientów, ranking, maile" },
   { id: "deals", name: "Umowy i stawki", hint: "Wzory umów, stawki rynkowe" },
-  { id: "sys", name: "System", hint: "Powiadomienia, AI, klucze API, Traffit, portale ogłoszeniowe, listy wyboru, historia zdarzeń, wykluczone placementy" },
+  { id: "sys", name: "System", hint: "Powiadomienia, AI, klucze API, portale ogłoszeniowe, importy, historia zdarzeń, wykluczone placementy" },
 ] as const;
 
 export type SettingsItemId =
