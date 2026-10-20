@@ -146,6 +146,22 @@ def test_window_shorter_than_interview_is_refused():
     assert exc.value.status_code == 422
 
 
+def test_window_over_midnight_is_refused():
+    with pytest.raises(HTTPException) as exc:
+        interview_slots.normalize_slots(
+            [
+                {
+                    "start": datetime(2026, 10, 22, 10, 0, tzinfo=WAW),
+                    "end": None,
+                    "window_end": datetime(2026, 10, 23, 12, 0, tzinfo=WAW),
+                }
+            ],
+            duration_minutes=45,
+            now=NOW,
+        )
+    assert exc.value.status_code == 422
+
+
 def test_choose_hour_inside_window_rewrites_the_slot():
     req = _window_request()
     index = next(i for i, s in enumerate(req.slots) if "window_end" in s)

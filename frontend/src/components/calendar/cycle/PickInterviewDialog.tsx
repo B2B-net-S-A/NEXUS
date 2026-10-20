@@ -25,6 +25,7 @@ import {
   hhmm,
   interviewStart,
   isWindow,
+  overlaps,
   prepWhen,
   windowBounds,
 } from "@/lib/interview-pick";
@@ -123,6 +124,17 @@ export function PickInterviewDialog({
       return next;
     });
   }, [suggestions.data]);
+
+  // Dwa prepy nie mogą wypaść o tej samej godzinie: wybór, który nachodzi na
+  // drugi prep, przeskakuje na pierwszą wolną godzinę (albo „później”).
+  useEffect(() => {
+    const p1 = picks[1];
+    const p2 = picks[2];
+    if (p1?.kind !== "option" || p2?.kind !== "option" || !overlaps(p1, p2)) return;
+    const prep2 = suggestions.data?.preps.find((p) => p.prep_no === 2);
+    const free = prep2?.options.find((o) => !overlaps(o, p1));
+    setPicks((prev) => ({ ...prev, 2: free ? { kind: "option", ...free } : { kind: "none" } }));
+  }, [picks, suggestions.data]);
 
   const prepsEnabled = suggestions.data?.enabled ?? false;
   const toInvite = useMemo(
@@ -339,6 +351,8 @@ export function PickInterviewDialog({
                 <PrepPicker
                   key={p.prep_no}
                   prep={p}
+                  // Pierwszeństwo ma Prep 1 — wyłączamy tylko godziny Prepu 2.
+                  other={p.prep_no === 2 ? picks[1] : undefined}
                   pick={picks[p.prep_no]}
                   onPick={(next) => setPicks((prev) => ({ ...prev, [p.prep_no]: next }))}
                 />
@@ -359,10 +373,13 @@ export function PickInterviewDialog({
 
 function PrepPicker({
   prep,
+  other,
   pick,
   onPick,
 }: {
   prep: PrepSuggestion;
+  /** Wybrany Prep 1 (dla Prepu 2) — godziny, które na niego nachodzą, są wyłączone. */
+  other: PrepPick | undefined;
   pick: PrepPick | undefined;
   onPick: (pick: PrepPick) => void;
 }) {
@@ -400,15 +417,18 @@ function PrepPicker({
         <div role="radiogroup" aria-label={`Godzina Prepu ${prep.prep_no}`} className="mt-2 flex flex-wrap gap-2">
           {prep.options.map((o, i) => {
             const on = pick?.kind === "option" && pick.start === o.start;
+            const clash = other?.kind === "option" && overlaps(o, other);
             return (
               <button
                 key={o.start}
                 type="button"
                 role="radio"
                 aria-checked={on}
+                disabled={clash}
+                title={clash ? "W tym czasie jest drugi prep" : undefined}
                 onClick={() => onPick({ kind: "option", start: o.start, end: o.end })}
                 className={cn(
-                  "h-9 rounded-md border px-3 text-sm",
+                  "h-9 rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-40",
                   on ? "border-primary bg-primary/10 font-semibold text-primary" : "border-border hover:bg-muted",
                 )}
               >

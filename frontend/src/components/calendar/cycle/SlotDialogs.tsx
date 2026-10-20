@@ -23,6 +23,7 @@ import {
 } from "@/lib/interview-cycle";
 import {
   isoToLocalInput,
+  keepsWindow,
   noteFromMail,
   rowsFromMail,
   type SlotRow,
@@ -109,8 +110,9 @@ export function SlotRequestDialog({
         job_id: targetJobId as number,
         slots: filledSlots.map((s) => {
           const start = localToIso(s.value);
-          // Okno klienta jedzie dalej, dopóki poprawiony początek mieści się w oknie.
-          const windowEnd = s.windowEnd && new Date(s.windowEnd) > new Date(start) ? s.windowEnd : null;
+          // Okno klienta jedzie dalej, dopóki rozmowa mieści się w nim tego samego dnia
+          // (DL mógł przesunąć początek albo zmienić długość).
+          const windowEnd = keepsWindow(s.value, s.windowEnd, duration) ? (s.windowEnd as string) : null;
           return windowEnd ? { start, window_end: windowEnd } : { start };
         }),
         duration_minutes: duration,

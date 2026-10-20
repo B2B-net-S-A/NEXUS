@@ -53,6 +53,11 @@ export function prepWhen(iso: string): string {
   return WHEN.format(new Date(iso));
 }
 
+/** Czy dwa przedziały ISO na siebie nachodzą (Prep 1 i Prep 2 jednocześnie). */
+export function overlaps(a: { start: string; end: string }, b: { start: string; end: string }): boolean {
+  return new Date(a.start) < new Date(b.end) && new Date(b.start) < new Date(a.end);
+}
+
 /** Okno kandydata „od–do” jest poprawne albo puste (wtedy godziny pracy). */
 export function candidateWindowError(from: string, to: string): string | null {
   if (from && to && to <= from) return "Koniec musi być po początku.";

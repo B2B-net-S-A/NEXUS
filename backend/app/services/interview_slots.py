@@ -25,6 +25,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_date
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate import Candidate
 from app.models.client_interview_slot_request import (
@@ -98,6 +99,13 @@ def normalize_slots(
                 raise HTTPException(
                     status_code=422,
                     detail="Okno klienta jest krótsze niż rozmowa.",
+                )
+            # Okno to jeden dzień („piątek 9–12”); inaczej rekruter mógłby
+            # wybrać godzinę, której klient nie proponował.
+            if business_date(window_end) != business_date(start):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Okno klienta musi kończyć się tego samego dnia.",
                 )
             if window_end > end:
                 slot["window_end"] = window_end.astimezone(timezone.utc).isoformat()

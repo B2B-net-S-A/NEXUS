@@ -173,4 +173,30 @@ describe("PickInterviewDialog", () => {
     await waitFor(() => expect(mocks.toast.showError).toHaveBeenCalledWith(expect.stringContaining("Prep 2")));
     expect(mocks.chooseSlot).toHaveBeenCalledTimes(1);
   });
+
+  it("Prep 2 nie wypada o tej samej godzinie co wybrany Prep 1", async () => {
+    mocks.suggestions.mockResolvedValue({
+      enabled: true,
+      preps: [
+        { ...suggestions.preps[0], options: [
+          { start: "2031-06-12T08:00:00Z", end: "2031-06-12T08:45:00Z" },
+          { start: "2031-06-12T09:00:00Z", end: "2031-06-12T09:45:00Z" },
+        ] },
+        { ...suggestions.preps[1], options: [
+          { start: "2031-06-12T09:00:00Z", end: "2031-06-12T09:45:00Z" },
+          { start: "2031-06-12T10:00:00Z", end: "2031-06-12T10:45:00Z" },
+        ] },
+      ],
+    });
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    const prep1 = await within(dialog).findByRole("radiogroup", { name: "Godzina Prepu 1" });
+    fireEvent.click(within(prep1).getAllByRole("radio")[1]);
+    const prep2 = within(dialog).getByRole("radiogroup", { name: "Godzina Prepu 2" });
+    await waitFor(() => expect(within(prep2).getAllByRole("radio")[0]).toBeDisabled());
+    expect(within(prep2).getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(within(dialog).getByRole("button", { name: /Wybierz termin i zaproś/ }));
+    await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(2));
+    expect(mocks.createPrep.mock.calls[1][0].start).toBe("2031-06-12T10:00:00Z");
+  });
 });
