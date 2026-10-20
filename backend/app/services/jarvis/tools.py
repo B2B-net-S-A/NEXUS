@@ -595,6 +595,7 @@ _CYCLE_PAIR = ("candidate_id", "candidate_name", "job_id", "job_title", "client_
 _CYCLE_TODO_LABELS = {
     "call_now": "zadzwoń do kandydata po rozmowie u klienta",
     "debrief_overdue": "zaległy debrief po rozmowie",
+    "questions_missing": "uzupełnij pytania z rozmowy u klienta (brak terminu w NEXUSIE)",
     "slots_pick": "wybierz termin z propozycji klienta",
     "slots_confirm": "potwierdź termin u klienta",
     "prep_missing": "brak przygotowania (prep) przed rozmową",

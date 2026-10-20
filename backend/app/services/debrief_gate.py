@@ -14,9 +14,15 @@ rozmowy (``updated_at < start``) się nie liczy: po rozmowie, której jeszcze ni
 było, nie ma czego raportować (zapis blokuje dziś ``PUT …/debrief``, ale takie
 wiersze powstały, zanim ta blokada weszła).
 
-Bramka dotyczy wyłącznie par, które mają rozmowę ``client_interview``
-w kalendarzu NEXUSA. Proces prowadzony w Trafficie takiej rozmowy nie ma i nie
-da się go tym zablokować — to świadome (brak wydarzenia = brak bramki).
+Do 20.10.2026 bramka dotyczyła wyłącznie par z rozmową ``client_interview``
+w kalendarzu NEXUSA. Rozmowę zakłada tylko ścieżka „Terminy od klienta”, a
+karty przesuwa się bez niej: w 30 dniach 88 z 99 par weszło w „Rozmowę
+z klientem” bez wydarzenia i przeszło do „Umowy” bez jednego pytania (pytania
+lądowały w notatkach). Teraz para, która była w etapie „Rozmowa z klientem”,
+też musi mieć pytania — odmowa ma wtedy ``event_id = None`` i
+``needs_interview_date``, a okno pytań pyta, kiedy była rozmowa
+(``PUT /api/interview-cycle/pairs/{c}/{j}/debrief`` zakłada wydarzenie
+i zapisuje debrief razem). Wyłącznik: ``DEBRIEF_GATE_WITHOUT_EVENT``.
 """
 
 from __future__ import annotations
@@ -31,10 +37,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 
 DEBRIEF_REQUIRED_CODE = "DEBRIEF_REQUIRED"
 DEBRIEF_REQUIRED_MESSAGE = (
     "Najpierw zadzwoń do kandydata po rozmowie i zapisz pytania klienta."
+)
+QUESTIONS_REQUIRED_MESSAGE = (
+    "Najpierw zapisz pytania z rozmowy u klienta — o co pytał klient "
+    "(albo zaznacz, że nie pytał)."
 )
 
 
@@ -151,10 +162,12 @@ async def missing_debrief(
     """Zwraca szczegół odmowy 409, gdy brakuje debriefu po rozmowie u klienta.
 
     ``None`` = bramka nie dotyczy pary (brak rozmowy u klienta w kalendarzu
-    poza odwołanymi) albo debrief BIEŻĄCEJ rundy (``pick_current_round``) jest
-    kompletny i zapisany po jej rozpoczęciu. Bieżąca runda w przyszłości =
-    odmowa z flagą ``interview_pending`` (debrief będzie możliwy po rozmowie).
-    Jedno zapytanie.
+    poza odwołanymi i para nigdy nie była w etapie „Rozmowa z klientem”) albo
+    debrief BIEŻĄCEJ rundy (``pick_current_round``) jest kompletny i zapisany
+    po jej rozpoczęciu. Bieżąca runda w przyszłości = odmowa z flagą
+    ``interview_pending`` (debrief będzie możliwy po rozmowie). Para z etapem
+    „Rozmowa z klientem”, ale bez rozmowy w kalendarzu = odmowa z
+    ``event_id = None`` i ``needs_interview_date`` (20.10.2026).
     """
     now = now or datetime.now(timezone.utc)
     rows = (
@@ -183,7 +196,22 @@ async def missing_debrief(
         )
     ).all()
     if not rows:
-        return None
+        if not settings.DEBRIEF_GATE_WITHOUT_EVENT:
+            return None
+        if not await was_in_client_interview(
+            db, candidate_id=candidate_id, job_id=job_id
+        ):
+            return None
+        return {
+            "code": DEBRIEF_REQUIRED_CODE,
+            "message": QUESTIONS_REQUIRED_MESSAGE,
+            "interview_pending": False,
+            "needs_interview_date": True,
+            "event_id": None,
+            "event_start": None,
+            "candidate_id": candidate_id,
+            "job_id": job_id,
+        }
 
     def _aware(value: Optional[datetime]) -> Optional[datetime]:
         if value is None or value.tzinfo is not None:
@@ -208,8 +236,29 @@ async def missing_debrief(
             else DEBRIEF_REQUIRED_MESSAGE
         ),
         "interview_pending": pending,
+        "needs_interview_date": False,
         "event_id": event_id,
         "event_start": event_start.isoformat() if event_start else None,
         "candidate_id": candidate_id,
         "job_id": job_id,
     }
+
+
+async def was_in_client_interview(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> bool:
+    """Czy para była w tej rekrutacji w etapie „Rozmowa z klientem”.
+
+    Ten sam znacznik etapu co para „w cyklu” na ekranie „Rozmowy u klienta”
+    (``interview_cycle._scope_pairs``: ``stage == client_interview``).
+    """
+    found = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+            CandidateStage.stage == PipelineStage.client_interview,
+        )
+        .limit(1)
+    )
+    return found is not None
