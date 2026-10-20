@@ -9,6 +9,7 @@ import { RequireRole } from "@/components/RequireRole";
 import { Plus, Trash2, Save, X, Pencil } from "lucide-react";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 
 interface ContractTemplate {
   id: number;
@@ -156,9 +157,16 @@ export default function ContractTemplatesPage() {
   const [editing, setEditing] = useState<Partial<ContractTemplate> | null>(null);
   const { askConfirm, confirmDialog } = useConfirmV2();
 
-  const { data } = useQuery<ContractTemplate[]>({
+  const { data, isError, isSuccess, refetch } = useQuery<ContractTemplate[]>({
     queryKey: ["contract-templates"],
     queryFn: () => api.get("/api/contract-templates").then((r) => r.data),
+  });
+
+  // Jeden domyślny na typ i język — poprzedni znacznik zdejmuje serwer (20.10.2026).
+  const defaultMutation = useMutation({
+    mutationFn: (id: number) => api.patch(`/api/contract-templates/${id}`, { is_default: true }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["contract-templates"] }),
   });
 
   const deleteMutation = useMutation({
@@ -169,7 +177,7 @@ export default function ContractTemplatesPage() {
 
   return (
     <RequireRole roles={["admin", "finance"]}>
-      <div className="space-y-4 max-w-5xl">
+      <div className="mx-auto max-w-5xl space-y-4">
         {confirmDialog}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold">Wzory umów</h1>
@@ -183,6 +191,11 @@ export default function ContractTemplatesPage() {
           )}
         </div>
 
+        <p className="text-sm text-muted-foreground">
+          Treść umów, z których korzysta generator. Domyślny wzór podpowiada się
+          przy nowym kontrakcie — jeden na typ umowy i język.
+        </p>
+
         {canEdit && editing && (
           <TemplateEditor
             template={editing.id ? editing : null}
@@ -194,9 +207,21 @@ export default function ContractTemplatesPage() {
           />
         )}
 
+        {defaultMutation.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            {apiErrorMessage(defaultMutation.error, "Nie udało się ustawić wzoru jako domyślnego.")}
+          </p>
+        )}
+
         {!editing && (
           <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-x-auto">
-            {!data || data.length === 0 ? (
+            {isError ? (
+              <div className="p-6">
+                <QueryStateNotice state="error" onRetry={() => void refetch()} />
+              </div>
+            ) : !isSuccess ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">Ładowanie wzorów…</div>
+            ) : data.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground italic">
                 Brak szablonów — utwórz pierwszy, żeby TAC mógł generować umowy z 1 kliknięcia.
               </div>
@@ -218,7 +243,22 @@ export default function ContractTemplatesPage() {
                         {t.contract_type}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">
-                        {t.is_default ? "Tak" : "—"}
+                        {t.is_default ? (
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                            Domyślny
+                          </span>
+                        ) : canEdit ? (
+                          <button
+                            type="button"
+                            disabled={defaultMutation.isPending}
+                            onClick={() => defaultMutation.mutate(t.id)}
+                            className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                          >
+                            Ustaw jako domyślny
+                          </button>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       {canEdit && (
                         <td className="px-3 py-2 text-right">

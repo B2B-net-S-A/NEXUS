@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 from jinja2 import StrictUndefined, TemplateError, select_autoescape
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -271,6 +271,29 @@ def _contract_vars(contract: Contract, language: Optional[str] = None) -> dict:
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
+async def _clear_other_defaults(db: AsyncSession, tpl: ContractTemplate) -> None:
+    """Jeden domyślny wzór na typ i język (20.10.2026).
+
+    Lista wzorów przy kontrakcie stawia domyślny na górze
+    (`contracts._list_templates_for_contract_type`), a do 20.10 zaznaczenie
+    „Domyślny” na drugim wzorze zostawiało dwa — na produkcji domyślny był
+    wzór z testu smoke. Język jest częścią klucza, bo Generator Umów B2B
+    wybiera wzór po typie i języku.
+    """
+    if not tpl.is_default:
+        return
+    await db.execute(
+        update(ContractTemplate)
+        .where(
+            ContractTemplate.id != tpl.id,
+            ContractTemplate.contract_type == tpl.contract_type,
+            ContractTemplate.language.is_not_distinct_from(tpl.language),
+            ContractTemplate.is_default.is_(True),
+        )
+        .values(is_default=False)
+    )
+
+
 @router.get("", response_model=List[TemplateResponse])
 async def list_templates(
     current_user: ContractLegalReadAccess,
@@ -299,6 +322,7 @@ async def create_template(
     tpl = ContractTemplate(**data.model_dump(), created_by=current_user.id)
     db.add(tpl)
     await db.flush()
+    await _clear_other_defaults(db, tpl)
     await db.refresh(tpl)
     return tpl
 
@@ -338,6 +362,7 @@ async def update_template(
     for k, v in updates.items():
         setattr(tpl, k, v)
     await db.flush()
+    await _clear_other_defaults(db, tpl)
     await db.refresh(tpl)
     return tpl
 
