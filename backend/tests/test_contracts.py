@@ -2,6 +2,8 @@
 
 from httpx import AsyncClient
 
+from tests._contract_parties import pick_parties
+
 
 # Legacy live-server smoke tests (skipped unless RUN_LIVE_TESTS=1)
 
@@ -213,22 +215,12 @@ async def test_contract_rate_unit_round_trip(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Creating a contract with rate_unit=hourly persists it."""
-    # Find an existing candidate and client to reuse
-    cands = (
-        (await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
-    clients = (
-        (await app_client.get("/api/clients?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
-    if not cands or not clients:
-        return
+    # Własna para: „pierwszy kandydat i klient z bazy” bywał parą z umową
+    # sąsiedniego testu w shardzie → 409 duplicate_contractor (20.10.2026).
+    candidate_id, client_id = await pick_parties()
     payload = {
-        "candidate_id": cands[0]["id"],
-        "client_id": clients[0]["id"],
+        "candidate_id": candidate_id,
+        "client_id": client_id,
         "start_date": "2026-04-17",
         "rate_client": 150,
         "rate_candidate": 100,
@@ -256,19 +248,9 @@ async def test_contract_register_fields_round_trip(
 ):
     """Per-klient rejestr (migracja 0138): project_code, prolongation_status,
     engagement_model=hours_pool + pula godzin round-trip + inline PATCH."""
-    cands = (
-        (await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
-    clients = (
-        (await app_client.get("/api/clients?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
-    if not cands or not clients:
-        return
-    client_id = clients[0]["id"]
+    # Własna para: „pierwszy kandydat i klient z bazy” bywał parą z umową
+    # sąsiedniego testu w shardzie → 409 duplicate_contractor (20.10.2026).
+    candidate_id, client_id = await pick_parties()
     # `status: "active"` jest w tym ładunku od czerwca 2026, czyli z czasów,
     # gdy ``ContractCreate`` statusu NIE przyjmował („Any `status` in the
     # request body is ignored server-side") — było to martwe pole w teście
@@ -280,7 +262,7 @@ async def test_contract_register_fields_round_trip(
     # ``test_create_contract_active_requires_complete_draft``. Bez daty
     # końca: nowa umowa B2B jest bezterminowa (reguła 09.2026).
     payload = {
-        "candidate_id": cands[0]["id"],
+        "candidate_id": candidate_id,
         "client_id": client_id,
         "start_date": "2026-04-17",
         "rate_candidate": 15000,
@@ -359,21 +341,12 @@ async def test_contract_order_consumption_round_trip(
 ):
     """Zużycie zamówienia (migracja 0144): ilość + jednostka RBH/MD round-trip
     przez create (formularz "Nowy kontrakt") + zmiana jednostki przez PATCH."""
-    cands = (
-        (await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
-    clients = (
-        (await app_client.get("/api/clients?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
-    if not cands or not clients:
-        return
+    # Własna para: „pierwszy kandydat i klient z bazy” bywał parą z umową
+    # sąsiedniego testu w shardzie → 409 duplicate_contractor (20.10.2026).
+    candidate_id, client_id = await pick_parties()
     payload = {
-        "candidate_id": cands[0]["id"],
-        "client_id": clients[0]["id"],
+        "candidate_id": candidate_id,
+        "client_id": client_id,
         "start_date": "2026-04-17",
         "contract_type": "b2b",
         "status": "draft",
