@@ -30,6 +30,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hr_profile import CompanyDayOff, EmployeeProfile, LeaveEntitlement
+from app.models.oauth_client import OAuthClient
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.core.scheduling import business_today
@@ -359,8 +360,8 @@ async def person_row(db: AsyncSession, user_id: int) -> Optional[PersonRow]:
 async def users_without_profile(db: AsyncSession) -> list[dict[str, Any]]:
     """Aktywne konta bez kartoteki (do „Dodaj osobę” w Kadrach).
 
-    Konta techniczne (``automation``) i stary podgląd (``user``) pomijamy —
-    to nie są ludzie zatrudnieni w firmie.
+    Konta techniczne (``automation``, konta integracji) i stary podgląd
+    (``user``) pomijamy — to nie są ludzie zatrudnieni w firmie.
     """
 
     rows = await db.scalars(
@@ -369,10 +370,11 @@ async def users_without_profile(db: AsyncSession) -> list[dict[str, Any]]:
         .where(User.is_active.is_(True), EmployeeProfile.id.is_(None))
         .order_by(User.name, User.id)
     )
+    integration_ids = await integration_account_ids(db)
     return [
         {"user_id": user.id, "name": user.name, "email": user.email}
         for user in rows
-        if is_staff_account(user)
+        if is_staff_account(user, integration_ids=integration_ids)
     ]
 
 
@@ -381,15 +383,35 @@ async def users_without_profile(db: AsyncSession) -> list[dict[str, Any]]:
 NON_STAFF_ROLES = frozenset({UserRole.automation, UserRole.user})
 
 
-def is_staff_account(user: User) -> bool:
+async def integration_account_ids(db: AsyncSession) -> frozenset[int]:
+    """Konta, w których imieniu działają klienci OAuth (``acting_user_id``, 0311).
+
+    To konta integracji (scrapery pracuj.pl / JJIT), nie ludzie. Rola zostaje
+    rekrutacyjna, bo przez nią idzie RBAC zapisu kandydatów — „Automatyzacje”
+    są tylko do odczytu — więc rozpoznajemy je po kliencie, nie po roli
+    (decyzja Artura 20.10.2026).
+    """
+
+    rows = await db.scalars(
+        select(OAuthClient.acting_user_id).where(
+            OAuthClient.acting_user_id.is_not(None)
+        )
+    )
+    return frozenset(rows)
+
+
+def is_staff_account(user: User, *, integration_ids: Collection[int]) -> bool:
     """Konto pracownicze: ma mieć kartotekę, gdy jest aktywne (19.10.2026).
 
     Niepotwierdzona rejestracja (``email_verified`` = false) jeszcze nie jest
-    osobą w firmie. Konta serwisowe kluczy API żyją w ``service_accounts``.
+    osobą w firmie. Konta serwisowe kluczy API żyją w ``service_accounts``,
+    konta integracji OAuth podaje ``integration_account_ids``.
     """
 
-    return bool(user.email_verified) and not (
-        set(user.get_all_roles()) & NON_STAFF_ROLES
+    return (
+        bool(user.email_verified)
+        and user.id not in integration_ids
+        and not (set(user.get_all_roles()) & NON_STAFF_ROLES)
     )
 
 

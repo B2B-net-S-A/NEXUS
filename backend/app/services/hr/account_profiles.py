@@ -5,8 +5,9 @@
   i w „Wyrównaj wg konta” — jako „aktywny”, z formą i przełożonym „do
   uzupełnienia” (``employment_type_pending``, ``created_from_account``).
   Konto pracownicze = ``people.is_staff_account`` (bez „Automatyzacji”,
-  starego podglądu i niepotwierdzonej rejestracji; konta serwisowe kluczy API
-  to osobna tabela ``service_accounts``, nie ``users``).
+  starego podglądu, niepotwierdzonej rejestracji i kont integracji OAuth —
+  ``oauth_clients.acting_user_id``; konta serwisowe kluczy API to osobna
+  tabela ``service_accounts``, nie ``users``).
 * **Status kartoteki idzie za kontem.** Wyłączenie konta → „zakończył
   współpracę” (``exited``) z ostatnim dniem pracy = dzień wyłączenia, chyba że
   kartoteka ma wcześniejszy; ponowne włączenie → „aktywny” (ostatni dzień
@@ -39,7 +40,7 @@ from app.models.activity import Activity
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
 from app.services.hr import audit
-from app.services.hr.people import is_staff_account
+from app.services.hr.people import integration_account_ids, is_staff_account
 from app.services.hr.program import program_enabled
 from app.services.hr_foundation_schema import EmploymentStatus, EmploymentType
 
@@ -200,7 +201,9 @@ async def ensure_profile(
     do uzupełnienia). ``None``, gdy nie ma czego zakładać.
     """
 
-    if not user.is_active or not is_staff_account(user):
+    if not user.is_active or not is_staff_account(
+        user, integration_ids=await integration_account_ids(db)
+    ):
         return None
     existing = await db.scalar(
         select(EmployeeProfile.id).where(EmployeeProfile.user_id == user.id)
@@ -330,10 +333,13 @@ async def mismatches(db: AsyncSession) -> list[Mismatch]:
             )
         ).all()
     )
+    integration_ids = await integration_account_ids(db)
     found: list[Mismatch] = []
     for user, profile in rows:
         if profile is None:
-            if user.is_active and is_staff_account(user):
+            if user.is_active and is_staff_account(
+                user, integration_ids=integration_ids
+            ):
                 found.append(
                     Mismatch(
                         user_id=user.id,
