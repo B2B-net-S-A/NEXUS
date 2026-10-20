@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   closingMargin,
+  closingMarginSum,
+  closingNextStep,
   rateText,
   type ClosingCandidateRow,
   type ClosingCandidatesResponse,
@@ -48,6 +50,8 @@ function row(over: Partial<ClosingCandidateRow> = {}): ClosingCandidateRow {
   }
 }
 
+const COUNTS = { accepted: 1, sent: 0, signed: 0 }
+
 function wrap(children: ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
@@ -84,13 +88,37 @@ describe("closingMargin i rateText", () => {
   })
 })
 
+describe("closingMarginSum i closingNextStep", () => {
+  it("sumuje marżę miesięczną porównywalnych osób, strata odejmuje", () => {
+    const sum = closingMarginSum([
+      row(),
+      row({ candidate_id: 2, client_rate_value: "100", client_rate_unit: "hourly" }),
+      row({ candidate_id: 3, client_rate_currency: "EUR" }),
+    ])
+    // 30 zł/h × 168 h − 20 zł/h × 168 h; osoba w euro poza sumą.
+    expect(sum).toEqual({ monthly: 5040 - 3360, counted: 2 })
+  })
+
+  it("następny krok prowadzi do istniejących ekranów", () => {
+    expect(closingNextStep(row())).toEqual({
+      label: "Generuj umowę",
+      href: "/contracts/b2b-generator?tab=generator&candidate=1&job=10",
+    })
+    expect(closingNextStep(row({ step: "sent" }))).toEqual({
+      label: "Sprawdź podpis",
+      href: "/jobs/10?candidate=1",
+    })
+    expect(closingNextStep(row({ step: "signed" })).href).toBe("/jobs/10?candidate=1")
+  })
+})
+
 describe("ClosingCandidatesTile", () => {
   beforeEach(() => {
     response = null
   })
 
   it("pokazuje klienta, krok, koszt, przychód, marżę, DL i rekrutera", async () => {
-    response = { rows: [row()], total: 1, show_client_rate: true }
+    response = { rows: [row()], total: 1, step_counts: COUNTS, show_client_rate: true }
     render(wrap(<ClosingCandidatesTile />))
     expect(await screen.findByRole("link", { name: "Jan Przykładowy" })).toHaveAttribute(
       "href",
@@ -109,6 +137,7 @@ describe("ClosingCandidatesTile", () => {
     response = {
       rows: [row({ client_rate_value: null, client_rate_unit: null, client_rate_currency: null })],
       total: 1,
+      step_counts: COUNTS,
       show_client_rate: false,
     }
     render(wrap(<ClosingCandidatesTile />))
@@ -117,14 +146,34 @@ describe("ClosingCandidatesTile", () => {
     expect(screen.queryByRole("columnheader", { name: "Marża" })).not.toBeInTheDocument()
   })
 
+  it("filtr kroków z licznikami serwera zawęża wiersze", async () => {
+    response = {
+      rows: [row(), row({ candidate_id: 2, candidate_name: "Ewa Wzorcowa", step: "sent" })],
+      total: 2,
+      step_counts: { accepted: 1, sent: 1, signed: 0 },
+      show_client_rate: true,
+    }
+    render(wrap(<ClosingCandidatesTile />))
+    expect(await screen.findByText("Ewa Wzorcowa")).toBeInTheDocument()
+    expect(screen.getByText(/marża ok\./)).toHaveTextContent(/10\s080 zł\/mc/)
+    fireEvent.click(screen.getByRole("button", { name: /Umowa wysłana/ }))
+    expect(screen.getByRole("button", { name: /Umowa wysłana/ })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.queryByText("Jan Przykładowy")).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Sprawdź podpis" })).toHaveAttribute("href", "/jobs/10?candidate=2")
+    fireEvent.click(screen.getByRole("button", { name: /Podpisana/ }))
+    expect(screen.getByText(/Na tym kroku nikt nie czeka/)).toBeInTheDocument()
+  })
+
   it("mówi, ile pokazano z ilu", async () => {
-    response = { rows: [row()], total: 64, show_client_rate: true }
+    response = { rows: [row()], total: 64, step_counts: { accepted: 40, sent: 14, signed: 10 }, show_client_rate: true }
     render(wrap(<ClosingCandidatesTile />))
     expect(await screen.findByText(/Pokazano 1 z 64/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Zaakceptowani/ })).toHaveTextContent("40")
+    expect(screen.getByText(/spośród 1 pokazanych/)).toBeInTheDocument()
   })
 
   it("pusta lista po sukcesie, awaria jako błąd", async () => {
-    response = { rows: [], total: 0, show_client_rate: true }
+    response = { rows: [], total: 0, step_counts: { accepted: 0, sent: 0, signed: 0 }, show_client_rate: true }
     const { unmount } = render(wrap(<ClosingCandidatesTile />))
     expect(await screen.findByText(/Nikt nie czeka/)).toBeInTheDocument()
     unmount()
