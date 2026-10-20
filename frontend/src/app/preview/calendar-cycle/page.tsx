@@ -57,9 +57,9 @@ const pairs: Record<string, PairInfo> = {
   karol: { candidate_id: 107, candidate_name: "Karol Przykładowy", candidate_email: "karol@example.com", job_id: 7, job_title: "Frontend Developer", client_id: 16, client_name: "Bank Omega" },
   // Zapisany debrief z warunkiem kandydata (04.10.2026: „Zobacz debrief”).
   bartek: { candidate_id: 108, candidate_name: "Bartek Testowy", candidate_email: "bartek@example.com", job_id: 8, job_title: "Senior Java Developer", client_id: 17, client_name: "Bank Sigma" },
-  // 0480: rozmowa jutro, Prep 1 dobry — wolno zapisać „bez Prepu 2”.
+  // 0482: rozmowa jutro, Prep 1 dobry — wolno zapisać „bez Prepu 2”.
   zuzanna: { candidate_id: 109, candidate_name: "Zuzanna Próbna", candidate_email: "zuzanna@example.com", job_id: 9, job_title: "Low Code Developer", client_id: 18, client_name: "Ubezpieczenia Delta" },
-  // 0480: pominięcie zapisane, telefon przed rozmową do zrobienia.
+  // 0482: pominięcie zapisane, telefon przed rozmową do zrobienia.
   filip: { candidate_id: 110, candidate_name: "Filip Fikcyjny", candidate_email: "filip@example.com", job_id: 10, job_title: "Python Developer", client_id: 19, client_name: "Telekom Epsilon" },
 };
 

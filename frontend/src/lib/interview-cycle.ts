@@ -157,7 +157,7 @@ export interface CycleItem extends PairInfo {
   tentative_interview_at?: string | null;
   interview_event_id: number | null;
   debrief: DebriefSummary | null;
-  /** 0480: czy rozmowę da się zapisać jako „bez Prepu 2”; starszy serwer = brak. */
+  /** 0482: czy rozmowę da się zapisać jako „bez Prepu 2”; starszy serwer = brak. */
   prep2_skip_status?: Prep2SkipStatus;
   prep2_skip?: Prep2Skip | null;
   /** Punkty klienta, których Prep 1 nie omówił — do telefonu przed rozmową. */
@@ -165,7 +165,7 @@ export interface CycleItem extends PairInfo {
 }
 
 /**
- * Rozmowa bez Prepu 2 (0480, decyzja Artura 20.10.2026) — wyjątek, nie wybór.
+ * Rozmowa bez Prepu 2 (0482, decyzja Artura 20.10.2026) — wyjątek, nie wybór.
  * Lustro `prep2_skip_status` w `backend/app/services/interview_cycle.py`.
  */
 export type Prep2SkipStatus =
@@ -298,7 +298,7 @@ export type TodoKind =
   | "prep_weak"
   | "prep_unrecorded"
   | "slots_missing"
-  /** 0480: rozmowa bez Prepu 2 — telefon do kandydata przed rozmową. */
+  /** 0482: rozmowa bez Prepu 2 — telefon do kandydata przed rozmową. */
   | "precall_due";
 
 export interface TodoEntry extends PairInfo {
@@ -802,7 +802,7 @@ export type CycleAction =
       mode?: "late" | "edit" | "cancel";
     }
   | { type: "open_event"; eventId: number }
-  /** 0480: telefon przed rozmową bez Prepu 2 odbyty. */
+  /** 0482: telefon przed rozmową bez Prepu 2 odbyty. */
   | { type: "precall_done"; pair: PairInfo; skip: Prep2Skip };
 
 function pairOf(p: PairInfo): PairInfo {

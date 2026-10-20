@@ -145,7 +145,7 @@ class DebriefSummary(BaseModel):
 
 
 class Prep2SkipSummary(BaseModel):
-    """Rozmowa bez Prepu 2 (0480): powód, kto i telefon przed rozmową."""
+    """Rozmowa bez Prepu 2 (0482): powód, kto i telefon przed rozmową."""
 
     id: int
     interview_event_id: int
@@ -179,7 +179,7 @@ class CycleItem(PairInfo):
     tentative_interview_at: Optional[datetime] = None
     interview_event_id: Optional[int] = None
     debrief: Optional[DebriefSummary] = None
-    # 0480: rozmowa bez Prepu 2 — czy da się ją zapisać (``allowed``), czy już
+    # 0482: rozmowa bez Prepu 2 — czy da się ją zapisać (``allowed``), czy już
     # jest, a jeśli nie, to dlaczego (``interview_cycle.prep2_skip_status``).
     prep2_skip_status: str = "not_needed"
     prep2_skip: Optional[Prep2SkipSummary] = None

@@ -177,7 +177,7 @@ function reasonsLine(reasons: Record<string, number>): string {
 }
 
 /**
- * Rozmowy bez Prepu 2 (0480, decyzja Artura 20.10.2026): hamulcem na „zawsze
+ * Rozmowy bez Prepu 2 (0482, decyzja Artura 20.10.2026): hamulcem na „zawsze
  * nie ma czasu” jest pomiar, nie blokada. Osoba ponad progiem (i z co najmniej
  * dwiema rozmowami) świeci się na pomarańczowo.
  */

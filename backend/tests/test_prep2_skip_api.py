@@ -1,4 +1,4 @@
-"""Rozmowa bez Prepu 2 przez API (0480): zapis z powodem i telefonem, odmowy
+"""Rozmowa bez Prepu 2 przez API (0482): zapis z powodem i telefonem, odmowy
 poza wyjątkiem, odhaczenie telefonu, dzwonek DL i kolumny raportu."""
 
 from __future__ import annotations

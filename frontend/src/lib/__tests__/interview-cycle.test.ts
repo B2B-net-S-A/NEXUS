@@ -273,7 +273,7 @@ describe("interview-cycle — prepy w Teams (0370)", () => {
   });
 });
 
-describe("interview-cycle — rozmowa bez Prepu 2 (0480)", () => {
+describe("interview-cycle — rozmowa bez Prepu 2 (0482)", () => {
   const SKIP = {
     id: 5,
     interview_event_id: 9,

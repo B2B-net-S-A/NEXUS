@@ -38,7 +38,7 @@ function useRefreshCycle() {
 }
 
 /**
- * Prep 2 pod krokiem w panelu osoby i w kalendarzu (0480, decyzja Artura
+ * Prep 2 pod krokiem w panelu osoby i w kalendarzu (0482, decyzja Artura
  * 20.10.2026): przycisk „Rozmowa bez Prepu 2…” tylko tuż przed rozmową,
  * po odbytym Prepie 1, a po zapisie — powód, kto i telefon przed rozmową.
  * Poza wyjątkiem jedno zdanie, dlaczego przycisku nie ma.

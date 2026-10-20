@@ -1,4 +1,4 @@
-"""0480: rozmowa bez Prepu 2 — tabela i typy powiadomień mają lustro
+"""0482: rozmowa bez Prepu 2 — tabela i typy powiadomień mają lustro
 w entrypoincie (prod alembic bywa osierocony), model zgadza się z DDL,
 a downgrade odmawia, zanim stary kod trafi na powiadomienie, którego nie
 odczyta."""
@@ -14,11 +14,11 @@ from app.services.notification_access import NOTIFICATION_SECTION_BY_TYPE
 from app.services.notification_categories import NotificationCategory, types_in
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0480_prep2_skips.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0482_prep2_skips.py"
 
 
 def _migration_module():
-    spec = importlib.util.spec_from_file_location("m0480", MIGRATION)
+    spec = importlib.util.spec_from_file_location("m0482", MIGRATION)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -27,8 +27,8 @@ def _migration_module():
 
 def test_migration_follows_the_previous_head() -> None:
     module = _migration_module()
-    assert module.revision == "0480_prep2_skips"
-    assert module.down_revision == "0479_equipment_return_reminder"
+    assert module.revision == "0482_prep2_skips"
+    assert module.down_revision == "0481_candidate_name_markers_v2"
 
 
 def test_entrypoint_mirrors_every_statement() -> None:

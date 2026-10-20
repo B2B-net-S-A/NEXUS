@@ -1,7 +1,7 @@
 """Rozmowa u klienta bez Prepu 2 — wyjątek z powodem i telefonem przed rozmową.
 
-Revision ID: 0480_prep2_skips
-Revises: 0479_equipment_return_reminder
+Revision ID: 0482_prep2_skips
+Revises: 0481_candidate_name_markers_v2
 
 Zgłoszenie rekrutera (20.10.2026): zdarza się, że kandydat nie znajdzie czasu
 na drugi prep przed rozmową u klienta. Decyzja Artura: pominięcie jest
@@ -17,8 +17,8 @@ Lustro w ``entrypoint.sh`` — pilnuje ``test_prep2_skip_migration.py``.
 
 from alembic import op
 
-revision = "0480_prep2_skips"
-down_revision = "0479_equipment_return_reminder"
+revision = "0482_prep2_skips"
+down_revision = "0481_candidate_name_markers_v2"
 branch_labels = None
 depends_on = None
 
@@ -57,7 +57,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text IN ('prep2_skipped', 'prep2_skip_threshold')
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0480 odmawia: notifications ma wpisy o pominiętym Prepie 2, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0482 odmawia: notifications ma wpisy o pominiętym Prepie 2, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

@@ -104,7 +104,7 @@ describe("PrepQualitySection", () => {
     expect(mocks.get).toHaveBeenCalledWith(ENDPOINT, { params: { days: 90 } });
   });
 
-  it("rozmowy bez Prepu 2: z powodem, bez słowa i osoba ponad progiem (0480)", async () => {
+  it("rozmowy bez Prepu 2: z powodem, bez słowa i osoba ponad progiem (0482)", async () => {
     respond(
       body({
         skip_days: 30,

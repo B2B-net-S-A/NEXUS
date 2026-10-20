@@ -1,5 +1,5 @@
 /**
- * Rozmowa bez Prepu 2 (0480, decyzja Artura 20.10.2026) — wyjątek, nie wybór.
+ * Rozmowa bez Prepu 2 (0482, decyzja Artura 20.10.2026) — wyjątek, nie wybór.
  *
  * Pilnowane reguły:
  * 1. Przycisk „Rozmowa bez Prepu 2…” jest tylko przy statusie `allowed`;

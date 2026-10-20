@@ -220,12 +220,12 @@ class PrepReview(Base):
     )
 
 
-# Dlaczego rozmowa u klienta odbywa się bez Prepu 2 (0480, 20.10.2026).
+# Dlaczego rozmowa u klienta odbywa się bez Prepu 2 (0482, 20.10.2026).
 PREP2_SKIP_REASONS = ("no_slot", "short_notice", "prep1_covered", "other")
 
 
 class Prep2Skip(Base):
-    """Rozmowa u klienta bez Prepu 2 — wyjątek z powodem (0480, 20.10.2026).
+    """Rozmowa u klienta bez Prepu 2 — wyjątek z powodem (0482, 20.10.2026).
 
     Decyzja Artura: Prep 2 da się pominąć tylko tuż przed rozmową, po
     odbytym Prepie 1, z powodem i z krótkim telefonem do kandydata przed

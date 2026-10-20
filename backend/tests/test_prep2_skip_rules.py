@@ -1,4 +1,4 @@
-"""Rozmowa bez Prepu 2 — wyjątek, nie wybór (0480, decyzja Artura 20.10.2026).
+"""Rozmowa bez Prepu 2 — wyjątek, nie wybór (0482, decyzja Artura 20.10.2026).
 
 Pominąć Prep 2 da się tylko tuż przed rozmową (dziś albo w najbliższy dzień
 roboczy), po odbytym Prepie 1, który nie jest słaby ani bez nagrania.

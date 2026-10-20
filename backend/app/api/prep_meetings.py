@@ -14,7 +14,7 @@
 * ``GET  /api/interview-cycle/prep-quality`` — raport jakości prepów per
   organizator (admin i Head of Recruitment) i rozmowy bez Prepu 2 per osoba.
 * ``POST /api/interview-cycle/prep2-skip`` — rozmowa bez Prepu 2: powód
-  i telefon do kandydata przed rozmową (0480, wyjątek tuż przed rozmową).
+  i telefon do kandydata przed rozmową (0482, wyjątek tuż przed rozmową).
 * ``POST /api/interview-cycle/prep2-skip/{skip_id}/call-done`` — telefon
   przed rozmową odbyty.
 
@@ -433,7 +433,7 @@ async def create_prep(
         kind="scheduled",
     )
     if body.prep_no == 2:
-        # 0480: Prep 2 jednak jest — zapisane „bez Prepu 2” przestaje obowiązywać.
+        # 0482: Prep 2 jednak jest — zapisane „bez Prepu 2” przestaje obowiązywać.
         await prep2_skips.clear_upcoming(db, candidate_id=candidate.id, job_id=job.id)
     await db.commit()
     return await _prep_out(db, created.prep, created.event, current_user)
@@ -764,7 +764,7 @@ class PrepQualityRow(BaseModel):
 
 
 class Prep2SkipRow(BaseModel):
-    """Rozmowy u klienta osoby (właściciel rozmowy) bez Prepu 2 (0480)."""
+    """Rozmowy u klienta osoby (właściciel rozmowy) bez Prepu 2 (0482)."""
 
     person: PersonOut
     interviews: int
@@ -780,7 +780,7 @@ class PrepQualityOut(BaseModel):
     rows: list[PrepQualityRow]
     interviews: int
     interviews_with_two_preps: int
-    # 0480: rozmowy bez Prepu 2 w ostatnich ``skip_days`` dniach per osoba.
+    # 0482: rozmowy bez Prepu 2 w ostatnich ``skip_days`` dniach per osoba.
     skip_days: int = prep2_skips.STATS_WINDOW_DAYS
     skip_threshold: float = prep2_skips.THRESHOLD_SHARE
     skip_rows: list[Prep2SkipRow] = []
@@ -928,7 +928,7 @@ async def _skip_rows(db: AsyncSession, now: datetime) -> list[Prep2SkipRow]:
     )
 
 
-# ── Rozmowa bez Prepu 2 (0480, 20.10.2026) ───────────────────────────────────
+# ── Rozmowa bez Prepu 2 (0482, 20.10.2026) ───────────────────────────────────
 
 
 class Prep2SkipCreate(BaseModel):

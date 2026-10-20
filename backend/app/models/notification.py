@@ -205,7 +205,7 @@ class NotificationType(str, enum.Enum):
     prep_changed = "prep_changed"
     prep_changed_yours = "prep_changed_yours"
     prep_no_response = "prep_no_response"
-    # 0480 (20.10.2026): rozmowa u klienta bez Prepu 2 — do Delivery Leada
+    # 0482 (20.10.2026): rozmowa u klienta bez Prepu 2 — do Delivery Leada
     # rekrutacji (licznik), related_entity=(prep2_skip, id); przekroczony próg
     # pominięć w 30 dniach — do Head of Recruitment, related_entity=(user, id),
     # raz na 30 dni na osobę.

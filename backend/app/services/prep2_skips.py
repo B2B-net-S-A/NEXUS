@@ -1,4 +1,4 @@
-"""Rozmowa u klienta bez Prepu 2 — wyjątek z powodem (0480, 20.10.2026).
+"""Rozmowa u klienta bez Prepu 2 — wyjątek z powodem (0482, 20.10.2026).
 
 Zgłoszenie rekrutera: kandydat czasem nie znajdzie czasu na drugi prep przed
 rozmową u klienta. Decyzja Artura: to ma być wyjątek, a nie wymówka, więc

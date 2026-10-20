@@ -21,7 +21,7 @@ export interface PrepQualityRow {
 }
 
 /**
- * 0480: rozmowy u klienta osoby (właściciel rozmowy = rekruter) bez Prepu 2
+ * 0482: rozmowy u klienta osoby (właściciel rozmowy = rekruter) bez Prepu 2
  * w ostatnich `skip_days` dniach.
  */
 export interface Prep2SkipRow {
@@ -45,7 +45,7 @@ export interface PrepQualityResponse {
   interviews: number;
   /** …z których przed rozmową odbyły się oba prepy. */
   interviews_with_two_preps: number;
-  /** 0480; starszy serwer = brak. */
+  /** 0482; starszy serwer = brak. */
   skip_days?: number;
   skip_threshold?: number;
   skip_rows?: Prep2SkipRow[];

@@ -170,7 +170,7 @@ export const prepMeetingsApi = {
       .then((r) => r.data),
 };
 
-/** Rozmowa bez Prepu 2 (0480): powód i telefon do kandydata przed rozmową. */
+/** Rozmowa bez Prepu 2 (0482): powód i telefon do kandydata przed rozmową. */
 export interface Prep2SkipCreateInput {
   candidate_id: number;
   job_id: number;

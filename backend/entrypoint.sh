@@ -764,7 +764,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_changed_yours'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_no_response'",
-    # 0480: rozmowa u klienta bez Prepu 2 (do DL) i próg pominięć (do HoR).
+    # 0482: rozmowa u klienta bez Prepu 2 (do DL) i próg pominięć (do HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skipped'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skip_threshold'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
@@ -6129,7 +6129,7 @@ END $$""",
     "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS proposed_start TIMESTAMPTZ NULL",
     "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS proposed_end TIMESTAMPTZ NULL",
     "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS outlook_checked_at TIMESTAMPTZ NULL",
-    # 0480: rozmowa u klienta bez Prepu 2 — powód i telefon przed rozmową
+    # 0482: rozmowa u klienta bez Prepu 2 — powód i telefon przed rozmową
     # (20.10.2026). Lustro 1:1 z migracją — pilnuje `test_prep2_skip_migration.py`.
     """CREATE TABLE IF NOT EXISTS prep2_skips (
     id BIGSERIAL PRIMARY KEY,

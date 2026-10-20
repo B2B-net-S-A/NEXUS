@@ -1,4 +1,4 @@
-# Rozmowa u klienta bez Prepu 2 — wyjątek, nie wybór (0480, 20.10.2026)
+# Rozmowa u klienta bez Prepu 2 — wyjątek, nie wybór (0482, 20.10.2026)
 
 Zgłoszenie rekrutera: zdarza się, że kandydat nie znajdzie czasu na drugi
 prep przed rozmową u klienta. Artur obawiał się, że zwykłe „Prep 2

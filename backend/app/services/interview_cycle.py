@@ -159,7 +159,7 @@ class DebriefRef:
 
 @dataclass(frozen=True)
 class SkipRef:
-    """Rozmowa u klienta bez Prepu 2 (``prep2_skips``, 0480)."""
+    """Rozmowa u klienta bez Prepu 2 (``prep2_skips``, 0482)."""
 
     id: int
     interview_event_id: int
@@ -197,7 +197,7 @@ class PairSnapshot:
     # niż prep). Należą do rundy prepów — do 02.10.2026 nie należały do żadnej,
     # więc ekran prosił o drugi Prep 1, a serwer pozwalał go założyć.
     late_preps: list[EventRef] = field(default_factory=list)
-    # Rozmowy bez Prepu 2 (0480) po id rozmowy — każda runda ma własny wpis.
+    # Rozmowy bez Prepu 2 (0482) po id rozmowy — każda runda ma własny wpis.
     prep2_skips: dict[int, SkipRef] = field(default_factory=dict)
 
     def for_preps(self) -> "PairSnapshot":
@@ -254,7 +254,7 @@ LEVEL_LABELS_PL = {"weak": "słaby", "ok": "OK", "good": "dobry"}
 LATE_PREP_META = "zaplanowany po rozmowie u klienta — przełóż"
 SILENT_PREP2_META = "bez zapisanego powodu"
 
-# Rozmowa bez Prepu 2 (0480, decyzja Artura 20.10.2026) — wyjątek, nie wybór.
+# Rozmowa bez Prepu 2 (0482, decyzja Artura 20.10.2026) — wyjątek, nie wybór.
 # Lustro etykiet: ``lib/interview-cycle.ts`` (``PREP2_SKIP_REASON_LABELS``).
 PREP2_SKIP_REASON_LABELS = {
     "no_slot": "kandydat nie miał wolnego terminu",
@@ -489,7 +489,7 @@ def compute_steps(
                 )
             )
         elif n == 2 and (skip := pair.prep2_skip()) is not None:
-            # 0480: rozmowa bez Prepu 2 z zapisanym powodem — szary krok,
+            # 0482: rozmowa bez Prepu 2 z zapisanym powodem — szary krok,
             # nigdy „zrobione”.
             steps.append(_step(key, "skipped", meta=prep2_skip_meta(skip)))
         elif iv is not None and iv.start <= now:
@@ -699,7 +699,7 @@ def compute_todos(
                     owner_id=prep_iv.owner_id,
                 )
             elif skip.call_done_at is None:
-                # 0480: bez Prepu 2 zostaje telefon do kandydata przed rozmową.
+                # 0482: bez Prepu 2 zostaje telefon do kandydata przed rozmową.
                 add(
                     "precall_due",
                     due=skip.call_at,
@@ -1158,7 +1158,7 @@ async def load_snapshots(
                 if p.id in late_ids
             ]
 
-    # 0480: rozmowy bez Prepu 2 — jedno zapytanie dla wszystkich par.
+    # 0482: rozmowy bez Prepu 2 — jedno zapytanie dla wszystkich par.
     if interviews:
         from app.models.prep_meeting import Prep2Skip
 
@@ -1491,7 +1491,7 @@ def _prep_agenda_entry(
 
 
 def _prep2_skip_fields(snap: PairSnapshot, now: datetime) -> dict:
-    """Pola „bez Prepu 2” dla pozycji ekranu i odznaki doku (0480)."""
+    """Pola „bez Prepu 2” dla pozycji ekranu i odznaki doku (0482)."""
     rnd = snap.for_preps()
     skip = rnd.prep2_skip()
     status = prep2_skip_status(snap, now)
@@ -1576,7 +1576,7 @@ BadgeKind = Literal[
     "prep_weak",
     # 0453: kandydat odrzucił zaproszenie na prep albo proponuje inny termin.
     "prep_refused",
-    # 0480: rozmowa bez Prepu 2 (z powodem) — telefon przed rozmową.
+    # 0482: rozmowa bez Prepu 2 (z powodem) — telefon przed rozmową.
     "prep2_skipped",
     "call_due",
     "debrief_done",
@@ -1889,7 +1889,7 @@ async def interview_badges_for_job(
                 badge["debrief"] = (
                     _debrief_payload(snap.debrief) if snap.debrief else None
                 )
-                # 0480: rozmowa bez Prepu 2 — przycisk, wpis i telefon w doku.
+                # 0482: rozmowa bez Prepu 2 — przycisk, wpis i telefon w doku.
                 badge.update(_prep2_skip_fields(snap, now))
                 # 05.10.2026: faza cyklu dla kroku na karcie („kto ma ruch”).
                 badge["phase"], badge["interview_date"] = badge_phase(snap, badge)
