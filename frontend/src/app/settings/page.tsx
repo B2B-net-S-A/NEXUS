@@ -102,6 +102,14 @@ const RoleLibraryTab = dynamic(
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
   }
 );
+const ImportsSettings = dynamic(
+  () => import("@/components/settings/ImportsSettings"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
+
 const PlacementExclusionsTab = dynamic(
   () => import("@/components/settings/PlacementExclusionsTab"),
   {
@@ -426,6 +434,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       return <EventHistoryTab />;
     case "placements":
       return <PlacementExclusionsTab />;
+    case "imports":
+      return <ImportsSettings />;
     case "teams":
       return <TeamsNotificationsCard />;
     case "coaching":

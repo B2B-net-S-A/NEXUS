@@ -22,6 +22,11 @@ Widok wynika wyłącznie z adresu (`?area=`, `?item=`); stare `?tab=` mapuje
 - Nowa pozycja = wpis w rejestrze z bramką (`gate`) lustrzaną do backendu
   i `case` w `SettingsItemBody` (albo `route` dla osobnej strony).
 - `ownHeader` = komponent ma własny nagłówek; strona rysuje wtedy tylko ścieżkę.
+- **„Importy” w Systemie (20.10.2026, decyzja Artura):** pozycja `imports`
+  (admin) z zakładkami Rejestr umów z Excela · Dokumenty z SharePointa · Traffit
+  (archiwum), zakładka w adresie `?zakladka=`. `register-import`,
+  `contract-docs-sharepoint` i `traffit` ukryte; stare trasy przekierowują.
+  Import z Compassa zostaje w Zespole i dostępie (widzą go Kadry).
 
 ## Lewa kolumna i grupy (20.10.2026)
 

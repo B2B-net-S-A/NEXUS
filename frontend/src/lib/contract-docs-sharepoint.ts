@@ -157,7 +157,7 @@ export const REASON_LABEL: Record<string, string> = {
   typo: "możliwa literówka w nazwisku",
   same_name_people: "kilka rekordów kandydata o tym nazwisku",
   multiple_folders: "kilka pasujących podfolderów",
-  excluded: "Filip Jabłoński — dokumenty dodaje człowiek",
+  excluded: "osoba wyłączona z automatu — dokumenty dodaje człowiek",
 };
 
 export function reasonsText(reasons: string[]): string {
@@ -179,7 +179,7 @@ export const SUMMARY_COUNTERS: { key: string; label: string }[] = [
   { key: "folders_without_contract", label: "Foldery bez kontraktu" },
   { key: "assignments", label: "Pliki do zapisania" },
   { key: "files_skipped_extension", label: "Pominięte (Word i inne)" },
-  { key: "contracts_excluded", label: "Pominięte (Filip Jabłoński)" },
+  { key: "contracts_excluded", label: "Pominięte (dokumenty ręcznie)" },
 ];
 
 export const APPLIED_COUNTERS: { key: string; label: string }[] = [

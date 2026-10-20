@@ -1,25 +1,7 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { RequireRole } from "@/components/RequireRole";
-import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { ContractDocsSharePointPanel } from "@/components/settings/ContractDocsSharePointPanel";
-
-export default function ContractDocsSharePointPage() {
-  // API jest `AdminUser` — ta bramka tylko chowa ekran.
-  return (
-    <RequireRole
-      roles={["admin"]}
-      fallback={
-        <QueryStateNotice
-          state="forbidden"
-          description="Pobieranie dokumentów kontraktów z SharePointa prowadzi administrator."
-        />
-      }
-    >
-      <div className="mx-auto flex max-w-7xl flex-col gap-4">
-        <h1 className="text-xl font-semibold">Dokumenty kontraktów z SharePointa</h1>
-        <ContractDocsSharePointPanel />
-      </div>
-    </RequireRole>
-  );
+// Dokumenty kontraktów z SharePointa są od 20.10.2026 zakładką System → Importy.
+// Adres zostaje dla starych linków i zakładek przeglądarki.
+export default function ContractDocsSharePointRedirect() {
+  redirect("/settings?item=imports&zakladka=sharepoint");
 }

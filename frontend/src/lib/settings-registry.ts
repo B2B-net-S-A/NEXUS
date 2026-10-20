@@ -66,6 +66,7 @@ export type SettingsItemId =
   | "fields"
   | "history"
   | "placements"
+  | "imports"
   | "notifications"
   // Ukryte — tylko pod adresem.
   | "teams"
@@ -286,6 +287,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "import excel xlsx rejestr umowy b2b dzial numery aneks bez dzialalnosci",
     route: "/settings/b2b-register-import",
     wide: true,
+    // Od 20.10.2026 zakładka System › Importy; adres przekierowuje na nią.
+    hidden: true,
     gate: { roles: ["admin"] },
   },
   {
@@ -294,6 +297,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "sharepoint folder umowy pracownikow dokumenty aneksy wypowiedzenia import synchronizacja",
     route: "/settings/contract-docs-sharepoint",
     wide: true,
+    // Od 20.10.2026 zakładka System › Importy; adres przekierowuje na nią.
+    hidden: true,
     gate: { roles: ["admin"] },
   },
   {
@@ -331,6 +336,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     id: "traffit", area: "sys", title: "Import z Traffita", group: "Integracje",
     description: "Wyłączony 14.10.2026 — historia ostatnich importów.",
     keywords: "traffit synchronizacja import",
+    // Od 20.10.2026 zakładka „Traffit” w System › Importy; adres działa.
+    hidden: true,
     gate: { roles: ["admin"] },
   },
   {
@@ -362,6 +369,17 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "pola konfiguracja formularz",
     route: "/settings/entity-fields",
     gate: { roles: ["admin"], section: "system_admin" },
+  },
+  {
+    // Importy i synchronizacje w jednym miejscu (20.10.2026, decyzja Artura):
+    // rejestr z Excela, dokumenty z SharePointa i archiwum Traffita jako
+    // zakładki. Import z Compassa zostaje w Zespole i dostępie (widzą go Kadry).
+    id: "imports", area: "sys", title: "Importy", group: "Importy i synchronizacje",
+    description: "Rejestr umów z Excela, dokumenty kontraktów z SharePointa i historia importów z Traffita.",
+    keywords:
+      "import excel xlsx rejestr umowy b2b dzial numery aneks sharepoint folder umowy pracownikow dokumenty synchronizacja traffit",
+    wide: true,
+    gate: { roles: ["admin"] },
   },
   {
     id: "history", area: "sys", title: "Historia zdarzeń", group: "Nadzór",

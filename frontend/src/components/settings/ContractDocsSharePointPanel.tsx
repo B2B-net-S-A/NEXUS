@@ -275,7 +275,7 @@ export function ContractDocsRunView({
             </ul>
           </Section>
           <Section
-            title="Pominięte kontrakty (Filip Jabłoński)"
+            title="Pominięte kontrakty (dokumenty dodaje człowiek)"
             count={excluded.length}
           >
             <ul className="flex flex-col gap-1">
@@ -527,8 +527,8 @@ export function ContractDocsSharePointPanel() {
         NEXUS czyta folder „Umowy pracowników” (podfolder „Nazwisko Imię” na
         osobę) i zapisuje pliki PDF i JPG w zakładce Dokumenty każdego kontraktu
         tej osoby. Typ dokumentu wynika z nazwy pliku. Word jest pomijany,
-        kontraktów z folderu się nie zakłada, a Filipa Jabłońskiego pomijamy
-        (dokumenty dodaje człowiek).
+        kontraktów z folderu się nie zakłada, a osobę wyłączoną z automatu
+        pomijamy (jej dokumenty dodaje człowiek).
       </p>
       {!s.configured ? (
         <div className="rounded-md border border-warning/25 bg-warning-muted p-3 text-sm text-warning-muted-foreground">
