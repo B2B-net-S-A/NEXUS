@@ -1196,6 +1196,10 @@ export function PipelineCandidateDock({
     primaryTarget?.stage === "verified"
       ? primaryTarget
       : (moveTargets.find((t) => t.col.stage === "verified" && !t.blockedReason)?.col ?? null);
+  // „Przesuń na Zatrudniony…” w sekcji umowy — umowa spoza Generatora
+  // (20.10.2026). Ten sam `onMoveTo` co menu „Inny etap…”.
+  const hiredTarget =
+    moveTargets.find((t) => t.col.stage === "hired" && !t.blockedReason)?.col ?? null;
   const refreshMoveRequirements = () => {
     void queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
   };
@@ -1996,6 +2000,7 @@ export function PipelineCandidateDock({
                 readOnly={readOnly}
                 agreement={item.agreement ?? null}
                 onGenerate={onOpenWorkbench ? () => onOpenWorkbench("contract") : undefined}
+                onMarkHired={hiredTarget ? () => onMoveTo(hiredTarget) : undefined}
               />
             )}
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 text-xs">

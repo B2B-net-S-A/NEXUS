@@ -3054,6 +3054,22 @@
    "file": "components/v2/jobs/JobInterviewsTab.tsx",
    "marker": "acceptOpensWindow",
    "v3_home": "Panel osoby → zakładka „Rozmowy”"
+  },
+  {
+   "id": "board.hired-column-help",
+   "area": "tablica",
+   "opis": "„?” przy kolumnie „Zatrudniony”: kto przesuwa (każdy z zespołu), co jest potrzebne (debrief, jak podpisano umowę), a co nie (zamówienie)",
+   "file": "components/v2/jobs/HiredColumnHelp.tsx",
+   "marker": "Kto przesuwa na „Zatrudniony”?",
+   "v3_home": "Tablica → nagłówek kolumny „Zatrudniony”"
+  },
+  {
+   "id": "panel.hire-offline",
+   "area": "panel",
+   "opis": "Panel osoby, sekcja „Do „Zatrudnionego””: umowa spoza Generatora — „Przesuń na „Zatrudniony”…”; zamówienie osobno jako krok po zatrudnieniu, który nie blokuje ruchu",
+   "file": "components/v2/jobs/DockContractSteps.tsx",
+   "marker": "Po zatrudnieniu — nie blokuje ruchu",
+   "v3_home": "Panel osoby → sekcja umowy"
   }
  ]
 }

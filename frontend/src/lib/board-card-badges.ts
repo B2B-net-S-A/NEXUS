@@ -642,14 +642,18 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
         "Karta jest na „Zatrudniony”, ale w Kontraktach nie ma umowy tej osoby u klienta. „Pracuje u nas” pojawi się po wpisaniu umowy — Delivery Lead klienta dostał przypomnienie.",
     });
   }
+  // 20.10.2026: czerwone „Brak zamówienia” czytało się jak warunek
+  // zatrudnienia. Zamówienie to krok Delivery Leada i Finansów po fakcie —
+  // plakietka mówi, u kogo jest, i nie krzyczy.
   if (column === "hired" && item.order_status) {
     out.push(
       item.order_status === "missing"
         ? {
             key: "order",
-            label: "Brak zamówienia",
-            tone: "urgent",
-            title: "Umowa podpisana, ale zamówienia od klienta jeszcze nie ma — Delivery i Finanse dostały powiadomienie.",
+            label: "Zamówienie: u Delivery Leada",
+            tone: "neutral",
+            title:
+              "Zatrudnienie jest zapisane. Zamówienie od klienta uzupełnia Delivery Lead i Finanse — mają jedną sprawę „uzupełnij zamówienie”. Zamówienie nie jest warunkiem zatrudnienia.",
           }
         : { key: "order", label: "Zamówienie ✓", tone: "ok" },
     );
