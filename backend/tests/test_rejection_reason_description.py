@@ -27,11 +27,12 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import UserRole
 from app.services import dl_review, earlier_client_interviews
 from app.services.rejection_reason_labels import HM_ALREADY_INTERVIEWED
-from tests.test_board_tasks import (
+from tests.test_board_tasks import (  # noqa: F401 — api_client to fixture
     _cleanup,
     _login,
     _seed_user,
     _seed_world,
+    api_client,
     seed_entry_row,
 )
 
@@ -58,7 +59,7 @@ async def _reason(template_id: int, name: str) -> int:
 
 @pytest.mark.asyncio
 async def test_reasons_that_say_nothing_alone_refuse_a_move_without_description(
-    api_client: AsyncClient,
+    api_client: AsyncClient,  # noqa: F811 — fixture z test_board_tasks
 ) -> None:
     world = await _seed_world()
     await seed_entry_row(world["candidate_id"], world["job_id"])
