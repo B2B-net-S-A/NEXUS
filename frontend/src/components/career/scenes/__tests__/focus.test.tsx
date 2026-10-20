@@ -40,4 +40,13 @@ describe("fokus w scenach", () => {
     activate(s.full().getByRole("button", { name: /przełącz na C2/ }));
     expect(document.activeElement).toBe(s.full().getByRole("button", { name: "C2 · kontenery" }));
   });
+
+  it("Papier: zakreślony błąd zostaje przyciskiem z fokusem", () => {
+    const s = renderScene("papier");
+    const bug = s.full().getByRole("button", { name: /^Błąd 4 z 4/ });
+    activate(bug);
+    expect(document.activeElement).toBe(bug);
+    expect(bug).toHaveAttribute("aria-pressed", "true");
+    expect(bug).toHaveTextContent("Nieprawidłowy login lub hasło");
+  });
 });
