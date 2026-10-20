@@ -3195,7 +3195,7 @@
                 "type": "null"
               }
             ],
-            "description": "Opis powodu odrzucenia, gdy nie ma go w słowniku.",
+            "description": "Opis powodu odrzucenia: zamiast powodu ze słownika albo obok niego. Przy powodach „Inne” i „Już po rozmowie u tego hiring managera” opis jest wymagany (bez niego 422).",
             "title": "Rejection Reason"
           },
           "rejection_reason_id": {

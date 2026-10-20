@@ -337,6 +337,25 @@ const CONTEXT: DlReviewContext = {
     author_name: "Marta Testowa",
     created_at: "2026-10-14T09:10:00Z",
   },
+  // 20.10.2026: rozmowa u tego samego hiring managera — ostrzeżenie i wybór
+  // przy powodzie „Już po rozmowie u tego hiring managera”.
+  hiring_manager_name: "Hanna Testowa",
+  earlier_interviews: [
+    {
+      job_id: 202,
+      job_title: "Data Engineer · Spark",
+      interview_at: "2026-08-21T10:00:00Z",
+      latest_stage: "Rozmowa u klienta",
+      same_hiring_manager: true,
+    },
+    {
+      job_id: 203,
+      job_title: "Platform Engineer · Kubernetes",
+      interview_at: "2026-08-19T10:00:00Z",
+      latest_stage: "Odrzucony",
+      same_hiring_manager: false,
+    },
+  ],
 };
 
 const QUEUE: DlReviewQueue = {
@@ -584,6 +603,14 @@ function seededClient(): QueryClient {
     [
       { id: "5", label: "Stawka ponad budżet klienta", applies_to: ["rejected"], disqualifies_person: false },
       { id: "6", label: "Brak wymaganej technologii", applies_to: ["rejected"], disqualifies_person: false },
+      {
+        id: "12",
+        name: "hm_already_interviewed",
+        label: "Już po rozmowie u tego hiring managera",
+        applies_to: ["rejected"],
+        disqualifies_person: false,
+      },
+      { id: "8", name: "Inne (rejected)", label: "Inne", applies_to: ["rejected"], disqualifies_person: false },
     ],
     fresh,
   );

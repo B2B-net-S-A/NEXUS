@@ -44,13 +44,14 @@ from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
+from app.models.contact import Contact
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job
 from app.models.recommendation_card import RecommendationCard
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User
-from app.services import champion_view, must_text_evidence
+from app.services import champion_view, earlier_client_interviews, must_text_evidence
 from app.services import recommendation_cards as cards
 from app.services import recommendation_card_rules as card_rules
 from app.services.client_consultant_rates import (
@@ -1103,6 +1104,20 @@ async def build_context(
         else None
     )
     summary_rate = rate_summary(facts.candidate)
+    earlier = await earlier_client_interviews.load(
+        db,
+        job=job,
+        candidate_id=candidate_id,
+        client_ids=batch.family,
+        stage_labels=OUTCOME_LABELS,
+    )
+    hiring_manager_name = (
+        await db.scalar(
+            select(Contact.name).where(Contact.id == job.hiring_manager_contact_id)
+        )
+        if job.hiring_manager_contact_id
+        else None
+    )
     return {
         **person,
         "job_id": job.id,
@@ -1129,6 +1144,11 @@ async def build_context(
         ),
         "fix_options": [o.as_dict() for o in screening_fix_requests.fix_options(job)],
         "recruiter_handoff_remark": await recruiter_handoff_remark(db, facts.stage_id),
+        # 20.10.2026: rozmowy osoby w innych rekrutacjach klienta — wybór przy
+        # powodzie „Już po rozmowie u tego hiring managera” i ostrzeżenie, gdy
+        # rozmowa była u tego samego managera.
+        "hiring_manager_name": hiring_manager_name,
+        "earlier_interviews": [item.as_dict() for item in earlier],
     }
 
 
