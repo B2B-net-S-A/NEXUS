@@ -142,6 +142,8 @@ const SORT_OPTIONS: { value: JobSortValue; label: string }[] = [
   // `sort=attention`: najpierw rekrutacje z największą liczbą kandydatów
   // czekających na ruch rekrutera (backend: `needs_action_count` DESC).
   { value: "attention", label: "Wymaga uwagi" },
+  // Data otwarcia rekrutacji (`opened_at`, bez niej `created_at`) —
+  // u rekrutacji z Traffita `created_at` to chwila importu (20.10.2026).
   { value: "newest", label: "Od najnowszej" },
   { value: "oldest", label: "Od najstarszej" },
   // Termin rosnąco, bez terminu na końcu (backend `sort=deadline`).
@@ -1218,8 +1220,19 @@ export function JobsListV2({
                 setViewOrigin("user");
               }}
             >
-              <SelectTrigger className="h-9 w-[170px] font-medium" data-help="jobs.list.sort">
-                <SelectValue placeholder="Sortowanie" />
+              {/* „Sortuj:” w przycisku (20.10.2026): sama wartość „Wymaga uwagi”
+                  wyglądała jak filtr i „Od najnowszej” było nie do znalezienia. */}
+              <SelectTrigger
+                className="h-9 w-[220px] font-medium"
+                data-help="jobs.list.sort"
+                aria-label={`Sortuj: ${SORT_OPTIONS.find((o) => o.value === sort)?.label ?? ""}`}
+              >
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="shrink-0 font-normal text-muted-foreground">Sortuj:</span>
+                  <span className="truncate">
+                    <SelectValue placeholder="Sortowanie" />
+                  </span>
+                </span>
               </SelectTrigger>
               <SelectContent>
                 {SORT_OPTIONS.map((o) => (
