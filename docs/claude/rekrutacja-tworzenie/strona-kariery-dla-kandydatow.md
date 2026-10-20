@@ -205,6 +205,24 @@ Reguły, które łatwo cofnąć:
   `career.css` tylko przez `--kr-*` (test). Wynik interakcji „x z 5” (kolejne
   PR-y) zostaje w przeglądarce kandydata — nic nie wysyłamy (decyzja).
   Harness: `/preview/kariera?szablon=<id>`.
+- **Sceny ról w hero (20.10.2026, `components/career/scenes/`):** każdy
+  szablon dostaje interakcję z makiety (strona kanwy „Najczęstsze role —
+  interaktywne”) na danych, które strona już ma: do pięciu pozycji
+  (`sceneItems`: wymagania, potem mile widziane — ukryte przez rekrutera nie
+  wchodzą), cztery kroki procesu (`processSteps`, to samo co `ProcessSteps`),
+  imię rekrutera. Wynik „x z N” stoi przy „Aplikuj” w panelu parametrów, stan
+  tylko w pamięci komponentu (`SceneContext`: bez localStorage, bez wysyłki).
+  „Aplikuj” działa zawsze; poniżej kompletu zawsze „Nie musisz mieć
+  wszystkiego — aplikuj.” Zwykła lista wymagań niżej zostaje. Każdy element
+  to `<button aria-pressed>` z nazwą i notatką w `aria-label`. Pełna scena od
+  1024 px, na telefonie zwarta lista przycisków (ten sam stan). Efekty
+  kursora tylko z myszą (`FINE_POINTER_QUERY`); `prefers-reduced-motion`
+  zostawia interakcję i zdejmuje animacje (`data-kr-still` + CSS). Kolory
+  `scenes.css` wyłącznie z `--kr-*` (test). Glitch: trzy celowe błędy (hero,
+  nagłówek runnera, podpis wyniku) jako przyciski z `aria-label`, nigdy w
+  `<h1>`; nie liczą się do wyniku. Lista szablonów ze sceną:
+  `CAREER_SCENE_IDS` w `scenes/model.ts` (czyta ją serwer) — szablon bez
+  sceny i rekrutacja bez wymagań wyglądają jak przed scenami.
 - **Jedna ścieżka zapisu zgłoszenia:** `services/public_apply.submit_application`
   (stary i nowy endpoint). Duplikat e-maila (od 22.09.2026, decyzja Artura —
   kolejka `/applications` przez całe życie nie dostała ani jednego wpisu) NIE

@@ -8,7 +8,8 @@
  * podziękowanie, rekrutacja zamknięta, stały link rekrutera.
  *
  * `?szablon=<id>` (0478) — rekrutacja otwarta i zamknięta w szablonie
- * graficznym (`components/career/themes.ts`).
+ * graficznym (`components/career/themes.ts`) ze sceną roli w hero
+ * (`components/career/scenes/`), gdy szablon już ją ma.
  */
 import type { Metadata } from "next";
 import { use } from "react";

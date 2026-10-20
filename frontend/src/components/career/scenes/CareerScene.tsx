@@ -1,0 +1,51 @@
+"use client";
+
+import type { ComponentType } from "react";
+
+import type { CareerThemeId } from "../themes";
+import { GlitchScene } from "./GlitchScene";
+import { useScene } from "./SceneContext";
+import { GlitchBug, SceneScore } from "./SceneParts";
+import { SequenceScene } from "./SequenceScene";
+import { TerminalScene } from "./TerminalScene";
+
+/** Sceny gotowe w tym wydaniu; reszta szablonów — sam wygląd (kolejne PR-y). */
+const SCENES: Partial<Record<CareerThemeId, ComponentType>> = {
+  terminal: TerminalScene,
+  sekwencja: SequenceScene,
+  glitch: GlitchScene,
+};
+
+/** Podpis wyniku przy „Aplikuj” — językiem roli. */
+const SCORE_LABELS: Partial<Record<CareerThemeId, string>> = {
+  terminal: "Twoje dopasowanie",
+  sekwencja: "Komunikaty obsłużone",
+  glitch: "Testy zaliczone",
+};
+
+/** Dla testu: mapa scen zgadza się z `CAREER_SCENE_IDS` (model.ts, czytany też na serwerze). */
+export const SCENE_COMPONENT_IDS = Object.keys(SCENES);
+
+/** Scena roli w hero; nic, gdy szablon jeszcze jej nie ma albo nie ma czego zaznaczać. */
+export function CareerScene() {
+  const { theme, total } = useScene();
+  const Scene = SCENES[theme];
+  if (!Scene || total === 0) return null;
+  return (
+    <div className="kr-scene" data-kr-scene={theme}>
+      <Scene />
+    </div>
+  );
+}
+
+/** Wynik „x z 5” i „Aplikuj” w panelu parametrów. */
+export function CareerSceneScore() {
+  const { theme } = useScene();
+  const label =
+    theme === "glitch" ? (
+      <GlitchBug index={2} wrong="Tetsy zaliczone" right="Testy zaliczone" what="literówka w podpisie wyniku" />
+    ) : (
+      (SCORE_LABELS[theme] ?? "Twoje dopasowanie")
+    );
+  return <SceneScore label={label} />;
+}
