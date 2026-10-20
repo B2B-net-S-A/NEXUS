@@ -80,3 +80,22 @@ export function needsInterviewDate(item: Pick<KanbanItem, "interview_badge">): b
   const slots = badge.slot_request?.status;
   return slots !== "awaiting_recruiter" && slots !== "awaiting_dl";
 }
+
+/**
+ * Czy ruch WRACA na kolumnę `dst` z kolumny, która stoi za nią w szablonie
+ * (np. „Cofnij akceptację klienta” → „Rozmowa u klienta”). Taka karta była
+ * już na rozmowie — „Kiedy rozmowa u klienta?” pytałoby o termin rozmowy,
+ * która się odbyła (audyt 21.10.2026). Zamknięci (odrzucony, rezygnacja,
+ * zatrudniony) nie liczą się: przywrócenie z nich nie mówi, czy rozmowa była.
+ */
+export function movesBackTo<C extends TerminalAwareColumn>(
+  columns: readonly C[],
+  srcColId: string,
+  dst: C,
+  idOf: (col: C) => string,
+): boolean {
+  const srcIdx = columns.findIndex((c) => idOf(c) === srcColId);
+  const dstIdx = columns.findIndex((c) => idOf(c) === idOf(dst));
+  if (srcIdx < 0 || dstIdx < 0) return false;
+  return srcIdx > dstIdx && terminalOf(columns[srcIdx]) == null;
+}

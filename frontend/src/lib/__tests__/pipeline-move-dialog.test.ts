@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   dialogUnavailableReason,
   moveDialogFor,
+  movesBackTo,
   needsInterviewDate,
 } from "@/lib/pipeline-move-dialog";
 
@@ -95,5 +96,27 @@ describe("needsInterviewDate", () => {
     expect(
       needsInterviewDate({ interview_badge: badge({ slot_request: { status: "cancelled" } }) }),
     ).toBe(true);
+  });
+});
+
+describe("movesBackTo", () => {
+  // Audyt 21.10.2026: „Cofnij akceptację klienta” po odbytej rozmowie pytało
+  // „Kiedy rozmowa u klienta?” — karta wraca z kolumny ZA rozmową.
+  const cols = [
+    { id: "a", stage: "cv_sent" },
+    { id: "b", stage: "client_interview" },
+    { id: "c", stage: "client_accepted" },
+    { id: "d", stage: "rejected", terminal_type: "rejected" as const },
+  ];
+  const idOf = (c: { id: string }) => c.id;
+
+  it("powrót z kolumny za celem — tak", () => {
+    expect(movesBackTo(cols, "c", cols[1], idOf)).toBe(true);
+  });
+
+  it("ruch naprzód, przywrócenie z zamkniętych i nieznana kolumna — nie", () => {
+    expect(movesBackTo(cols, "a", cols[1], idOf)).toBe(false);
+    expect(movesBackTo(cols, "d", cols[1], idOf)).toBe(false);
+    expect(movesBackTo(cols, "zzz", cols[1], idOf)).toBe(false);
   });
 });
