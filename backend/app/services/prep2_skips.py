@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select
@@ -162,6 +162,27 @@ async def create_skip(
             status_code=422,
             detail="Podaj, kiedy zadzwonisz do kandydata — termin jest w przeszłości.",
         )
+    # Rozmowę przełożono (ten sam wpis kalendarza) i stary wyjątek przestał
+    # obowiązywać (``prep2_skip_valid``) — migawka mówi „allowed”, ale wiersz
+    # z UNIQUE na ``interview_event_id`` został. Nowy wyjątek go nadpisuje,
+    # razem z telefonem: stary telefon był przed inną datą rozmowy (audyt
+    # 21.10.2026, wcześniej 409).
+    stale = await db.scalar(
+        select(Prep2Skip)
+        .where(Prep2Skip.interview_event_id == interview.id)
+        .with_for_update()
+    )
+    if stale is not None:
+        stale.reason = reason
+        stale.reason_note = reason_note
+        stale.call_at = call_at
+        stale.call_done_at = None
+        stale.call_done_by = None
+        stale.call_note = None
+        stale.created_by = actor.id
+        stale.created_at = now
+        await db.flush()
+        return stale
     row = Prep2Skip(
         interview_event_id=interview.id,
         candidate_id=candidate_id,
@@ -281,12 +302,14 @@ async def skip_stats(
     if not interviews:
         return {}
     skips = {
-        row.interview_event_id: row.reason
+        row.interview_event_id: (row.reason, row.created_at)
         for row in (
             await db.execute(
-                select(Prep2Skip.interview_event_id, Prep2Skip.reason).where(
-                    Prep2Skip.interview_event_id.in_([iv[0] for iv in interviews])
-                )
+                select(
+                    Prep2Skip.interview_event_id,
+                    Prep2Skip.reason,
+                    Prep2Skip.created_at,
+                ).where(Prep2Skip.interview_event_id.in_([iv[0] for iv in interviews]))
             )
         ).all()
     }
@@ -307,13 +330,35 @@ async def skip_stats(
         )
     ).all():
         preps.setdefault((cid, jid), []).append(_utc(start))
+    return tally_skip_stats(interviews, skips, preps, now=now)
 
+
+def tally_skip_stats(
+    interviews: Sequence[tuple[int, int, int, datetime, int]],
+    skips: dict[int, tuple[str, datetime]],
+    preps: dict[tuple[int, int], list[datetime]],
+    *,
+    now: datetime,
+) -> dict[int, SkipStat]:
+    """Liczenie raportu bez bazy: rozmowy (id, kandydat, rekrutacja, start,
+    właściciel), wyjątki po id rozmowy (powód, data zapisu) i prepy pary.
+
+    Wyjątek, który po przełożeniu rozmowy przestał obowiązywać
+    (``prep2_skip_valid``), nie jest „powodem” — ekran i tak żąda wtedy
+    Prepu 2, więc raport nie może liczyć tej rozmowy jako usprawiedliwionej.
+    """
     stats: dict[int, SkipStat] = {}
     for iv_id, cid, jid, start, owner_id in interviews:
         start = _utc(start)
         stat = stats.setdefault(owner_id, SkipStat(owner_id=owner_id))
         stat.interviews += 1
-        reason = skips.get(iv_id)
+        skip = skips.get(iv_id)
+        reason = (
+            skip[0]
+            if skip is not None
+            and interview_cycle.prep2_skip_valid(_utc(skip[1]), start)
+            else None
+        )
         if reason is not None:
             stat.with_reason += 1
             stat.reasons[reason] = stat.reasons.get(reason, 0) + 1
