@@ -9,7 +9,7 @@ from typing import Any, List, Mapping, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.recruitment_access import ensure_job_read_access, job_read_scope_clause
@@ -989,6 +989,19 @@ async def advanced_candidate_search(
     else:
         base = select(Candidate).where(where_clause)
         order_cols: list[Any] = []
+        # Wpisany adres: jego właściciel przed osobą, która ma go tylko w CV
+        # albo notatce — ta sama reguła co lista Kandydaci (UAT B35).
+        if interpretation is not None and interpretation["kind"] == "email":
+            order_cols.append(
+                case(
+                    (
+                        func.lower(func.coalesce(Candidate.email, ""))
+                        == interpretation["email"],
+                        0,
+                    ),
+                    else_=1,
+                ).asc()
+            )
         # SEARCH-P0-03: skill chips are a soft signal — they no longer cut, so
         # rank matchers to the top. Leads the sort whenever skill chips are
         # present (a skill search wants skill-relevant results first); the
