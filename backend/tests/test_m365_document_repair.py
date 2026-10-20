@@ -33,8 +33,6 @@ from tests.test_candidate_stage_cv_snapshot import _seed_job, _seed_stage
 
 pytestmark = pytest.mark.asyncio
 
-NOW = datetime.now(timezone.utc)
-
 
 def _sha(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
@@ -92,7 +90,7 @@ async def _mail_cv(
             m365_message_id=f"msg-{suffix}",
             m365_conversation_id="c",
             from_address="synthetic@example.com",
-            received_at=NOW - timedelta(days=days_ago),
+            received_at=datetime.now(timezone.utc) - timedelta(days=days_ago),
             direction=direction,
             has_attachments=True,
         )
@@ -125,6 +123,7 @@ async def _document(
     uploaded_days_ago: int = 1,
     removed: bool = False,
 ) -> int:
+    now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
         doc = CandidateDocument(
             candidate_id=candidate_id,
@@ -134,12 +133,12 @@ async def _document(
             size_bytes=len(content),
             document_kind=CandidateDocumentKind.cv,
             is_primary=primary,
-            uploaded_at=NOW - timedelta(days=uploaded_days_ago),
+            uploaded_at=now - timedelta(days=uploaded_days_ago),
             external_source=source,
             external_id=external_id,
             content_sha256=claimed_sha,
-            source_deleted_at=NOW if removed else None,
-            removed_at=NOW if removed else None,
+            source_deleted_at=now if removed else None,
+            removed_at=now if removed else None,
         )
         db.add(doc)
         await db.commit()
