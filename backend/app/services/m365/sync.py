@@ -1349,11 +1349,16 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
                 attendee_rows.append({"address": addr, "name": ea.get("name")})
 
     # Link to candidate if any attendee matches.
+    # Adresy z domen firmy i adres właściciela skrzynki pomijamy — ta sama
+    # reguła co w matcherze maili. Kandydat z adresem pracownika (rekord
+    # testowy) zebrał setki spotkań z kalendarzy zespołu (20.10.2026).
     candidate_id: Optional[int] = None
-    if attendee_rows:
+    addrs = matcher.external_addresses(
+        [a["address"] for a in attendee_rows], getattr(conn, "mailbox_upn", None)
+    )
+    if addrs:
         from app.models.candidate import Candidate
 
-        addrs = [a["address"] for a in attendee_rows]
         # Runda 9 (R9-N10-8): adresy uczestników są już małymi literami, adres
         # w bazie bywa zapisany z wielkimi — porównanie po obu stronach.
         # Runda 10 (R10-V3-3): `btrim`, nie `trim` — wyrażenie dokładnie jak

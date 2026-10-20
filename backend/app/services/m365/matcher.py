@@ -144,6 +144,27 @@ def _internal_domains(owner_address: Optional[str]) -> set[str]:
     return domains
 
 
+def external_addresses(
+    addresses: list[str], owner_address: Optional[str] = None
+) -> list[str]:
+    """Adresy, po których wolno szukać kandydata: bez właściciela skrzynki
+    i bez domen firmy (``_internal_domains``).
+
+    Wspólna reguła maili i kalendarza: kandydat z adresem pracownika (import,
+    rekord testowy) przypinał do siebie każdy mail albo spotkanie, w którym
+    ten pracownik był w odbiorcach lub uczestnikach.
+    """
+    internal = _internal_domains(owner_address)
+    owner = _normalize_email(owner_address or "")
+    return sorted(
+        {
+            n
+            for n in (_normalize_email(a) for a in addresses if a)
+            if n and n != owner and _email_domain(n) not in internal
+        }
+    )
+
+
 # Sufit trafień „strict” — liczy się tylko „dokładnie jeden”, zapas na nadawcę.
 _STRICT_ROW_LIMIT = 20
 
@@ -166,15 +187,7 @@ async def _find_candidate_by_email(
     kolejne odpowiedzi. Teraz wygrywa kandydat-NADAWCA; bez niego tylko jeden
     kandydat wśród odbiorców daje dopasowanie, kilku = niejednoznaczność.
     """
-    internal = _internal_domains(owner_address)
-    owner = _normalize_email(owner_address or "")
-    normalized = sorted(
-        {
-            n
-            for n in (_normalize_email(a) for a in addresses if a)
-            if n and n != owner and _email_domain(n) not in internal
-        }
-    )
+    normalized = external_addresses(addresses, owner_address)
     if not normalized:
         return None
     stmt = (
