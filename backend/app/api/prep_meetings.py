@@ -27,7 +27,7 @@ właściciel wydarzenia z ``calendar_access``.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -66,6 +66,7 @@ from app.models.user import User
 from app.services import (
     interview_slots,
     prep2_skips,
+    prep_availability,
     prep_invitation,
     prep_meetings,
     prep_notifications,
@@ -347,6 +348,146 @@ async def prep_options(
             for n in (1, 2)
         },
     )
+
+
+class PrepOptionTime(BaseModel):
+    start: datetime
+    end: datetime
+
+
+class PrepSuggestion(BaseModel):
+    prep_no: int
+    organizer: Optional[PersonOut] = None
+    # ok — zajętość z kalendarza prowadzącego; unavailable — aplikacja go nie
+    # czyta (spoza grupy, błąd); off — prepy w Teams wyłączone.
+    calendar: Literal["ok", "unavailable", "off"]
+    # Prep tej rundy już jest — podpowiedzi nie ma, ekran pokazuje termin.
+    scheduled_start: Optional[datetime] = None
+    minutes: int
+    options: list[PrepOptionTime]
+
+
+class PrepSuggestionsOut(BaseModel):
+    enabled: bool
+    preps: list[PrepSuggestion]
+
+
+def _hhmm(value: Optional[str]) -> Optional[time]:
+    if not value:
+        return None
+    try:
+        parsed = time.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail="Godzina w formacie GG:MM."
+        ) from None
+    return parsed.replace(second=0, microsecond=0)
+
+
+@router.get("/interview-cycle/preps/suggestions", response_model=PrepSuggestionsOut)
+async def prep_suggestions(
+    current_user: CalendarWriteAccess,
+    candidate_id: int = Query(...),
+    job_id: int = Query(...),
+    interview_start: datetime = Query(...),
+    candidate_from: Optional[str] = Query(None, max_length=5),
+    candidate_to: Optional[str] = Query(None, max_length=5),
+    db: AsyncSession = Depends(get_db),
+) -> PrepSuggestionsOut:
+    """Wolne godziny Prepu 1 i Prepu 2 przed wybieraną rozmową (20.10.2026).
+
+    Niczego nie zapisuje. Zajętość z kalendarzy prowadzących przez aplikację
+    prepów (``prep_availability``); bez niej godziny liczą się bez kalendarza.
+    """
+    await ensure_job_membership(db, current_user, job_id)
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji.")
+    now = datetime.now(timezone.utc)
+    if interview_start.tzinfo is None:
+        interview_start = interview_start.replace(tzinfo=timezone.utc)
+    if interview_start <= now:
+        raise HTTPException(status_code=422, detail="Rozmowa musi być w przyszłości.")
+    if interview_start > now + timedelta(days=120):
+        raise HTTPException(
+            status_code=422, detail="Rozmowa jest za daleko w przyszłości."
+        )
+    cand_from, cand_to = _hhmm(candidate_from), _hhmm(candidate_to)
+    windows = None
+    if cand_from or cand_to:
+        lo, hi = (
+            cand_from or prep_availability.WORK_START,
+            cand_to or prep_availability.LATE_END,
+        )
+        if hi <= lo:
+            raise HTTPException(
+                status_code=422,
+                detail="Koniec okna kandydata musi być po jego początku.",
+            )
+        windows = [(lo, hi)]
+
+    suggested = await prep_meetings.suggestion_summary(
+        db, job=job, candidate_id=candidate_id
+    )
+    organizer_ids = {uid for uid in suggested.values() if uid}
+    users = await _active_users(db, organizer_ids)
+    enabled = prep_meetings.app_only_ready()
+    emails = [u.email for u in users.values() if u.email]
+    busy = (
+        await prep_availability.busy_blocks(
+            emails, start=now, end=interview_start + timedelta(hours=1)
+        )
+        if enabled
+        else {}
+    )
+
+    out: list[PrepSuggestion] = []
+    avoid: list[tuple[datetime, datetime]] = []
+    for prep_no in (1, 2):
+        uid = suggested.get(prep_no)
+        user = users.get(uid) if uid else None
+        existing = await prep_meetings.active_prep(
+            db, candidate_id=candidate_id, job_id=job_id, prep_no=prep_no
+        )
+        event = (
+            await db.get(CalendarEvent, existing.calendar_event_id)
+            if existing
+            else None
+        )
+        if event is not None:
+            avoid.append((event.start_time, event.end_time))
+        user_busy = busy.get((user.email or "").lower()) if user else None
+        calendar: Literal["ok", "unavailable", "off"] = (
+            "off" if not enabled else ("ok" if user_busy is not None else "unavailable")
+        )
+        options = (
+            []
+            if event is not None
+            else prep_availability.suggest(
+                prep_no=prep_no,
+                interview_start=interview_start,
+                now=now,
+                busy=user_busy,
+                candidate_windows=windows,
+                avoid=avoid,
+            )
+        )
+        if options and event is None:
+            # Prep 2 nie podpowiada godziny polecanego Prepu 1.
+            avoid.append((options[0].start, options[0].end))
+        out.append(
+            PrepSuggestion(
+                prep_no=prep_no,
+                organizer=PersonOut(id=user.id, name=user.name or user.email)
+                if user
+                else None,
+                calendar=calendar,
+                scheduled_start=event.start_time if event is not None else None,
+                minutes=prep_availability.PREP_MINUTES,
+                options=[PrepOptionTime(start=o.start, end=o.end) for o in options],
+            )
+        )
+    return PrepSuggestionsOut(enabled=enabled, preps=out)
 
 
 @router.post(

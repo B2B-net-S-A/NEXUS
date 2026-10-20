@@ -113,6 +113,8 @@ class CycleStep(BaseModel):
 class SlotItem(BaseModel):
     start: datetime
     end: Optional[datetime] = None
+    # Okno klienta („piątek 9–12”): koniec okna; godzinę wybiera rekruter.
+    window_end: Optional[datetime] = None
 
 
 class SlotRequestOut(BaseModel):
@@ -246,6 +248,8 @@ class SlotRequestCreate(BaseModel):
 
 class SlotChoose(BaseModel):
     index: int = Field(..., ge=0)
+    # Godzina rozmowy w oknie klienta (termin z ``window_end``).
+    start: Optional[datetime] = None
 
 
 class SlotConfirm(BaseModel):
@@ -811,7 +815,7 @@ async def choose_slot(
 ) -> SlotRequestOut:
     req = await interview_slots.lock_request(db, request_id)
     await _ensure_recruiter(db, current_user, req)
-    interview_slots.choose(req, body.index, user_id=current_user.id)
+    interview_slots.choose(req, body.index, user_id=current_user.id, start=body.start)
     await db.flush()
     for recipient in await interview_slots.slot_owner_recipients(db, req):
         await interview_slots.notify(

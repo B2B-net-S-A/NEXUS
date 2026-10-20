@@ -164,7 +164,7 @@ describe("nowe terminy po odbytej rozmowie (F26)", () => {
     const panel = await screen.findByTestId("cycle-candidate-card");
     const todos = within(panel).getByRole("list", { name: "Do zrobienia przy tym kandydacie" });
     fireEvent.click(within(todos).getByRole("button", { name: "Wybierz termin" }));
-    expect(await screen.findByRole("dialog", { name: "Termin ustalony z kandydatem" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Umów rozmowę i prepy" })).toBeInTheDocument();
   });
 
   it("„Wybierz termin” przy kroku otwiera wybór terminu", async () => {
@@ -172,6 +172,6 @@ describe("nowe terminy po odbytej rozmowie (F26)", () => {
     const panel = await screen.findByTestId("cycle-candidate-card");
     const steps = within(panel).getByRole("list", { name: "Kroki rozmowy u klienta" });
     fireEvent.click(within(steps).getByRole("button", { name: "Wybierz termin" }));
-    expect(await screen.findByRole("dialog", { name: "Termin ustalony z kandydatem" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Umów rozmowę i prepy" })).toBeInTheDocument();
   });
 });

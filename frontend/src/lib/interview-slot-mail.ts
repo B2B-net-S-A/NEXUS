@@ -58,6 +58,20 @@ export function rowsFromMail(result: SlotsFromMail): SlotRow[] {
   }));
 }
 
+/**
+ * Czy wiersz z oknem klienta dalej nim jest: początek (`datetime-local`) tego
+ * samego dnia co koniec okna, a cała rozmowa mieści się przed końcem okna.
+ */
+export function keepsWindow(value: string, windowEnd: string | undefined, durationMinutes: number): boolean {
+  if (!value || !windowEnd) return false;
+  const start = new Date(value);
+  const end = new Date(windowEnd);
+  return (
+    start.toDateString() === end.toDateString() &&
+    start.getTime() + durationMinutes * 60_000 <= end.getTime()
+  );
+}
+
 const WARNINGS: Record<SlotMailWarning, string> = {
   quote_mismatch: "Data albo godzina nie zgadza się z cytatem z maila — sprawdź.",
   weekday_mismatch: "Dzień tygodnia w mailu nie zgadza się z datą — sprawdź z klientem.",

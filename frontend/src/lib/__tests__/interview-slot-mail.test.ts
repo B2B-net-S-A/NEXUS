@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isoToLocalInput,
+  keepsWindow,
   noteFromMail,
   readSummary,
   rowsFromMail,
@@ -70,5 +71,13 @@ describe("interview-slot-mail", () => {
   it("ostrzeżenia po polsku", () => {
     expect(warningLabel("weekday_mismatch")).toMatch(/Dzień tygodnia/);
     expect(warningLabel(null)).toBeNull();
+  });
+
+  it("okno zostaje tylko, gdy rozmowa mieści się w nim tego samego dnia", () => {
+    const end = new Date(2031, 5, 13, 10, 0).toISOString();
+    expect(keepsWindow("2031-06-13T09:00", end, 45)).toBe(true);
+    expect(keepsWindow("2031-06-13T09:00", end, 90)).toBe(false);
+    expect(keepsWindow("2031-06-12T09:00", end, 45)).toBe(false);
+    expect(keepsWindow("2031-06-13T09:00", undefined, 45)).toBe(false);
   });
 });

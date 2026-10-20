@@ -56,6 +56,8 @@ export type PrepQuality = "good" | "ok" | "weak" | "unrecorded" | "pending";
 export interface SlotItem {
   start: string;
   end: string | null;
+  /** Okno klienta („piątek 9–12”, 20.10.2026): koniec okna; godzinę wybiera rekruter. */
+  window_end?: string | null;
 }
 
 export type SlotRequestStatus =
