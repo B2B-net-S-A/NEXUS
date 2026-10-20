@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { CareerBoardResponse, RemotePolicy } from "@/lib/career/api";
 import {
@@ -89,8 +89,18 @@ function Board({
   const uid = useId();
   const [filters, setFilters] = useState<BoardFilters>(NO_FILTERS);
   const [shown, setShown] = useState(BOARD_PAGE);
-  const [cvOpen, setCvOpen] = useState(Boolean(formPreview));
+  const [cvOpen, setCvOpen] = useState(false);
   const cvRef = useRef<HTMLElement | null>(null);
+  // Przyklejony przycisk znika, gdy sekcja „Zostaw CV” jest na ekranie —
+  // dwa takie same przyciski naraz to szum.
+  const [cvInView, setCvInView] = useState(false);
+  useEffect(() => {
+    const node = cvRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setCvInView(entry.isIntersecting));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   const jobs = data.jobs;
   const visible = useMemo(() => filterBoard(jobs, filters), [jobs, filters]);
@@ -131,7 +141,8 @@ function Board({
         </span>
         <TwoToneTitle className="kr-title kr-board-h1" first="Otwarte rekrutacje IT" second="B2B Network." />
         <span className="kr-g">
-          [{openCountLabel(jobs.length)} · projekty B2B · zdalnie, hybrydowo, stacjonarnie]
+          [{jobs.length > 0 ? `${openCountLabel(jobs.length)} · ` : ""}projekty B2B · zdalnie,
+          hybrydowo, stacjonarnie]
         </span>
       </div>
 
@@ -148,7 +159,7 @@ function Board({
       ) : (
         <>
           <div className="kr-board-filters">
-            <div className="kr-board-chips" role="group" aria-label="Kategoria">
+            <div className="kr-board-chips kr-board-cats" role="group" aria-label="Kategoria">
               <button
                 type="button"
                 className="kr-chip"
@@ -176,10 +187,10 @@ function Board({
                 <span className="kr-r" aria-hidden="true">
                   grep
                 </span>
-                <span className="kr-sr">Szukaj w rekrutacjach</span>
                 <input
                   id={`${uid}-q`}
                   type="search"
+                  aria-label="Szukaj w rekrutacjach"
                   className="kr-board-input"
                   placeholder="java, kraków, kafka…"
                   value={filters.query}
@@ -202,9 +213,7 @@ function Board({
               </div>
             </div>
             <p className="kr-board-count kr-g" aria-live="polite">
-              {filtered
-                ? `[${visible.length} z ${jobs.length} pasuje do filtrów]`
-                : `[${openCountLabel(jobs.length)}]`}
+              {filtered ? `[${visible.length} z ${jobs.length} pasuje do filtrów]` : null}
             </p>
           </div>
 
@@ -306,7 +315,7 @@ function Board({
         </section>
       ) : null}
 
-      {cv && !cvOpen ? (
+      {cv && !cvOpen && !cvInView ? (
         <div className="kr-board-sticky">
           <button type="button" className="kr-btn kr-board-sticky-btn" onClick={openCv}>
             Zostaw CV — odezwiemy się

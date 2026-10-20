@@ -208,11 +208,21 @@ export default function CareerPreviewPage({
       </nav>
 
       <State id="tablica" label="tablica otwartych rekrutacji">
-        <CareerBoardView data={BOARD} base={BASE} footer={BOARD_FOOTER} />
+        <CareerBoardView
+          data={BOARD}
+          base={BASE}
+          footer={BOARD_FOOTER}
+          formPreview={{ disableSubmit: true }}
+        />
       </State>
 
       <State id="tablica-pusta" label="tablica bez rekrutacji">
-        <CareerBoardView data={{ ...BOARD, jobs: [] }} base={BASE} footer={BOARD_FOOTER} />
+        <CareerBoardView
+          data={{ ...BOARD, jobs: [] }}
+          base={BASE}
+          footer={BOARD_FOOTER}
+          formPreview={{ disableSubmit: true }}
+        />
       </State>
 
       <State id="tablica-awaria" label="tablica — awaria API">

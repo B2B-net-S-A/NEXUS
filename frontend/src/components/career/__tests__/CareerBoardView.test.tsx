@@ -43,7 +43,7 @@ describe("CareerBoardView", () => {
     expect(cards()).toHaveLength(12);
     expect(cards()[0]).toHaveAttribute("href", "/r/rekrutacja-1");
     expect(cards()[0]).toHaveTextContent("rekruter: Marta");
-    expect(screen.getByText("[15 otwartych]")).toBeInTheDocument();
+    expect(screen.getByText(/\[15 otwartych · projekty B2B/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /pokaż kolejne 3/ }));
     expect(cards()).toHaveLength(15);
     expect(screen.queryByRole("button", { name: /pokaż kolejne/ })).toBeNull();
