@@ -45,7 +45,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,12 +63,52 @@ REPAIR_MARKER = "0436_candidate_name_markers"
 DETAILS_KEY = "repair_details_0436_candidate_name_markers"
 EMPTY_NAME_PLACEHOLDER = "?"
 
+# Druga runda (0481, 20.10.2026): reguła zna klamry, nawias bez pary,
+# literówkę „acive” i emoji — przeklikanie Opieki pokazało takie imiona
+# u konsultantów z umową. Ten sam rdzeń, własny paragon.
+REPAIR_MARKER_0481 = "0481_candidate_name_markers_v2"
+DETAILS_KEY_0481 = "repair_details_0481_candidate_name_markers_v2"
+
+# Trzy wiersze, których reguła nie naprawi (rozjechane pola), poprawione po
+# zgodzie Artura 20.10.2026 na listę „było → będzie”. Klucz to ID, ale zapis
+# zależy od KSZTAŁTU pól (`plan_manual_fix`), więc na innej bazie, gdzie to ID
+# ma zwykłe imię, nic się nie dzieje. Bez nazwisk — repo jest publiczne.
+MANUAL_FIXES_0481: Mapping[int, str] = {
+    9192: "split_from_lastname",
+    661918: "split_from_name",
+    33770: "drop_trailing_colon",
+}
+
 # Nadzbiór wszystkiego, co łapie `find_name_markers`: nawias albo ukośnik
 # (dopiski w nawiasach i słowa statusu przy ograniczniku) oraz rdzenie słów
 # statusu (gołe słowa na krawędzi, „zatrudnion*” w środku). Przekazywany jako
 # parametr, nie wklejany w SQL.
+#
+# 0481 (20.10.2026) dokłada klamry, literówkę „acive” i każdy znak spoza
+# alfabetów łacińskich (emoji, znak łączący emoji) — ``\u0001-\u024f`` to
+# zapis zakresu, który rozumieją i Python, i Postgres.
 PREFILTER_PATTERN = (
-    r"[][()/]|activ|aktywn|passive|zatrudn|zatrun|akcept|black|czarn|pracowni"
+    r"[][(){}/]|activ|acive|aktywn|passive|zatrudn|zatrun|akcept|black|czarn"
+    r"|pracowni|[^\u0001-\u024f]"
+)
+
+_MANUAL_SELECT_SQL = text(
+    """
+    SELECT id, name, lastname
+      FROM candidates
+     WHERE id = ANY(CAST(:ids AS integer[]))
+     ORDER BY id
+       FOR UPDATE
+    """
+)
+_MANUAL_UPDATE_SQL = text(
+    """
+    UPDATE candidates
+       SET name = CAST(:name AS text),
+           lastname = CAST(:lastname AS text),
+           updated_at = NOW()
+     WHERE id = :id
+    """
 )
 
 _SELECT_SQL = text(
@@ -280,6 +320,65 @@ def plan_fix(row: NameMarkerRow) -> Optional[NameMarkerFix]:
     )
 
 
+def plan_manual_fix(
+    kind: str, name: Optional[str], lastname: Optional[str]
+) -> Optional[tuple[str, str]]:
+    """Ręczna poprawka rozjechanych pól; ``None`` = kształt się nie zgadza.
+
+    - ``split_from_lastname``: imię bez liter (samo emoji), w nazwisku dwa
+      słowa → pierwsze to imię, reszta nazwisko (emoji zdejmie potem reguła);
+    - ``split_from_name``: w imieniu „Imię Nazwisko (Stanowisko”, w nazwisku
+      „Ciąg dalszy)” → ucięte stanowisko znika;
+    - ``drop_trailing_colon``: dwukropek na końcu nazwiska.
+    """
+    name = name or ""
+    lastname = lastname or ""
+    if kind == "split_from_lastname":
+        words = lastname.split()
+        if any(char.isalpha() for char in name) or len(words) < 2:
+            return None
+        return words[0], " ".join(words[1:])
+    if kind == "split_from_name":
+        head, sep, _ = name.partition("(")
+        words = head.split()
+        if (
+            not sep
+            or ")" in name
+            or len(words) != 2
+            or not lastname.rstrip().endswith(")")
+        ):
+            return None
+        return words[0], words[1]
+    if kind == "drop_trailing_colon":
+        if not lastname.endswith(":") or not lastname.rstrip(":").strip():
+            return None
+        return name, lastname.rstrip(":").rstrip()
+    return None
+
+
+def _apply_manual_fixes(conn: Any, manual_fixes: Mapping[int, str]) -> dict[str, dict]:
+    """Ręczne poprawki przed regułą; zwraca stare wartości zmienionych wierszy."""
+    changed: dict[str, dict] = {}
+    for mapping in conn.execute(
+        _MANUAL_SELECT_SQL, {"ids": list(manual_fixes)}
+    ).mappings():
+        planned = plan_manual_fix(
+            manual_fixes[int(mapping["id"])], mapping["name"], mapping["lastname"]
+        )
+        if planned is None:
+            continue
+        conn.execute(
+            _MANUAL_UPDATE_SQL,
+            {"id": mapping["id"], "name": planned[0], "lastname": planned[1]},
+        )
+        changed[str(mapping["id"])] = {
+            "name": mapping["name"],
+            "lastname": mapping["lastname"],
+            "manual": manual_fixes[int(mapping["id"])],
+        }
+    return changed
+
+
 def build_receipt(
     rows: Sequence[NameMarkerRow], fixes: Sequence[NameMarkerFix]
 ) -> dict:
@@ -338,11 +437,13 @@ def apply_name_marker_repair(
     marker: str = REPAIR_MARKER,
     details_key: str = DETAILS_KEY,
     only_ids: Optional[Sequence[int]] = None,
+    manual_fixes: Optional[Mapping[int, str]] = None,
 ) -> Optional[dict]:
     """Wykonaj korektę raz na synchronicznym połączeniu; ``None`` = już była.
 
     Wołający commituje. ``only_ids`` zawęża korektę (testy na współdzielonej
-    bazie testowej); produkcja i migracja wołają bez niego.
+    bazie testowej); produkcja i migracja wołają bez niego. ``manual_fixes``
+    (0481) biegną PRZED regułą — po podziale pól reguła zdejmuje emoji.
     """
 
     conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": marker})
@@ -351,6 +452,8 @@ def apply_name_marker_repair(
     ).first()
     if claimed is None:
         return None
+
+    manual = _apply_manual_fixes(conn, manual_fixes) if manual_fixes else {}
 
     rows = [
         _row(mapping)
@@ -379,13 +482,34 @@ def apply_name_marker_repair(
             conn.execute(_CLEAR_LOCK_SQL[field], {"id": fix.id})
 
     summary = build_receipt(rows, fixes)
+    if manual_fixes is not None:
+        changed = sorted({*summary["changed_candidate_ids"], *map(int, manual)})
+        summary = {
+            **summary,
+            "changed": len(changed),
+            "changed_candidate_ids": changed,
+            "manual_fixed_ids": sorted(map(int, manual)),
+        }
     conn.execute(_RECEIPT_SAVE_SQL, {"key": marker, "value": json.dumps(summary)})
-    if fixes:
+    if fixes or manual:
+        details = _details(rows, fixes)
+        for candidate_id, original in manual.items():
+            # Stare wartości sprzed ręcznej poprawki — reguła widziała już nowe.
+            details[candidate_id] = {**details.get(candidate_id, {}), **original}
         conn.execute(
-            _RECEIPT_SAVE_SQL,
-            {"key": details_key, "value": json.dumps(_details(rows, fixes))},
+            _RECEIPT_SAVE_SQL, {"key": details_key, "value": json.dumps(details)}
         )
     return summary
+
+
+def apply_name_marker_repair_0481(conn: Any) -> Optional[dict]:
+    """Migracja 0481: druga runda reguły + trzy ręczne poprawki."""
+    return apply_name_marker_repair(
+        conn,
+        marker=REPAIR_MARKER_0481,
+        details_key=DETAILS_KEY_0481,
+        manual_fixes=MANUAL_FIXES_0481,
+    )
 
 
 async def run_candidate_name_marker_repair(
@@ -394,6 +518,7 @@ async def run_candidate_name_marker_repair(
     marker: str = REPAIR_MARKER,
     details_key: str = DETAILS_KEY,
     only_ids: Optional[Sequence[int]] = None,
+    manual_fixes: Optional[Mapping[int, str]] = None,
 ) -> Optional[dict]:
     """Faza startu: korekta (jeśli jeszcze nie było) i kolejka indeksu.
 
@@ -410,6 +535,7 @@ async def run_candidate_name_marker_repair(
             marker=marker,
             details_key=details_key,
             only_ids=only_ids,
+            manual_fixes=manual_fixes,
         )
     )
     if summary is None:

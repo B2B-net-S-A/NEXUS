@@ -315,3 +315,124 @@ def test_entrypoint_runs_the_repair_and_logs_only_the_summary():
     assert source.index('startup_phase "repair-candidate-name-markers"') < (
         source.index("exec uvicorn app.main:app")
     )
+
+
+# ── Druga runda z produkcji 20.10.2026 (0481) ───────────────────────────────
+# Przeklikanie Opieki pokazało dopiski, których 0436 nie znała: klamry,
+# samotny nawias kwadratowy, literówka „acive”, emoji i emoji zepsute do „?”
+# ze znakiem łączącym. Imiona wymyślone (repo jest publiczne).
+
+MARKERS_0481 = [
+    ("[acive/ Marian", "Marian"),
+    ("{ } Witold", "Witold"),
+    ("[Jarosław", "Jarosław"),
+    ("Jarosław]", "Jarosław"),
+    ("{x} Damazy", "Damazy"),
+    ("?‍? Grzegorz", "Grzegorz"),
+    ("Skowron ☁️", "Skowron"),
+    ("Skowron ☁", "Skowron"),
+]
+
+
+@pytest.mark.parametrize("raw,expected", MARKERS_0481)
+def test_markers_found_on_production_20_10_are_stripped(raw: str, expected: str):
+    assert find_name_markers(raw), raw
+    assert strip_name_markers(raw)[0] == expected
+
+
+@pytest.mark.parametrize("raw,_", MARKERS_0481)
+def test_sql_prefilter_catches_the_0481_markers(raw: str, _: str):
+    import re
+
+    from app.services.candidate_name_marker_repair import PREFILTER_PATTERN
+
+    assert re.search(PREFILTER_PATTERN, raw, re.IGNORECASE)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Prawdziwe zapisy z produkcji 20.10.2026 w wymyślonej wersji: drugie
+        # nazwisko i przezwisko w nawiasie, ukośnik między imionami, tytuł po
+        # przecinku (decyzja Artura: tytuł to nie dopisek), dwukropek na końcu
+        # (66257 zostaje bez zmian — „Pawe:” to zgadywanie), sam „?”
+        # (zastępnik pustego pola z 0232/0436) i litera z łączonym znakiem
+        # diakrytycznym.
+        "Nowacka(Lisowska)",
+        "(Ernest) Kowalik",
+        "Bogdan (Bob)",
+        "Chris/Krzysztof",
+        "Kowalik, MBA",
+        "Pawe:",
+        "?",
+        "Zófia",
+        "Kącka",
+    ],
+)
+def test_0481_leaves_real_names_alone(value: str):
+    assert strip_name_markers(value) == (value, [])
+
+
+def test_acive_typo_does_not_mean_actively_looking():
+    """Literówka znika z imienia, ale nie zmienia Dyspozycyjności (osoba z umową)."""
+    markers = find_name_markers("[acive/ Marian")
+    assert markers
+    assert has_active_marker(markers) is False
+    fix = plan_fix(_row(name="[acive/ Marian"))
+    assert (fix.name, fix.availability_status) == ("Marian", "unknown")
+
+
+def test_symbol_only_field_gets_the_placeholder():
+    fix = plan_fix(_row(name="☁"))
+    assert fix.name == EMPTY_NAME_PLACEHOLDER
+
+
+# ── Ręczne poprawki 0481: warunek na kształt pól, nie na nazwisko ──────────
+
+
+def test_manual_split_moves_two_words_from_lastname_when_name_has_no_letters():
+    from app.services.candidate_name_marker_repair import plan_manual_fix
+
+    assert plan_manual_fix(
+        "split_from_lastname", "☁", "Szczepan Żuk ☁"
+    ) == ("Szczepan", "Żuk ☁")
+    # Imię z literą albo nazwisko z innym kształtem — bez zmian.
+    assert plan_manual_fix("split_from_lastname", "Jan", "Szczepan Żuk") is None
+    assert plan_manual_fix("split_from_lastname", "☁", "Żuk") is None
+
+
+def test_manual_split_takes_name_and_lastname_from_a_cut_job_title():
+    from app.services.candidate_name_marker_repair import plan_manual_fix
+
+    assert plan_manual_fix(
+        "split_from_name", "Jakub Kępiński (Solution", "Architect)"
+    ) == ("Jakub", "Kępiński")
+    assert plan_manual_fix("split_from_name", "Jakub Kępiński", "Nowak") is None
+
+
+def test_manual_trailing_colon_is_dropped_only_from_a_lastname_with_it():
+    from app.services.candidate_name_marker_repair import plan_manual_fix
+
+    assert plan_manual_fix("drop_trailing_colon", "Piotr", "Łasicki:") == (
+        "Piotr",
+        "Łasicki",
+    )
+    assert plan_manual_fix("drop_trailing_colon", "Piotr", "Łasicki") is None
+
+
+def test_migration_0481_runs_the_shared_repair_with_its_own_receipt():
+    source = (BACKEND / "alembic/versions/0481_candidate_name_markers_v2.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0481_candidate_name_markers_v2"' in source
+    assert "apply_name_marker_repair_0481(op.get_bind())" in source
+    entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
+    assert 'startup_phase "repair-candidate-name-markers-0481"' in entrypoint
+    from app.services.candidate_name_marker_repair import (
+        DETAILS_KEY_0481,
+        REPAIR_MARKER_0481,
+    )
+    from scripts.show_migration_receipts import is_receipt_key
+
+    assert is_receipt_key(REPAIR_MARKER_0481)
+    assert not is_receipt_key(DETAILS_KEY_0481)
