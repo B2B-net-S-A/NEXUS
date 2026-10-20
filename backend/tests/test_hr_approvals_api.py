@@ -187,7 +187,9 @@ async def test_trip_within_limit_is_closed_by_the_supervisor(client, team) -> No
     assert decided.status_code == 200, decided.text
     assert decided.json()["status"] == "approved"
     assert decided.json()["decided_by_name"] == boss.name
-    assert await _notifications(worker, NotificationType.hr_approval_decided)
+    (decided_note,) = await _notifications(worker, NotificationType.hr_approval_decided)
+    # Autor ląduje w „Moich zgodach”, nie w skrzynce decydującego.
+    assert decided_note.link == f"/people/consents?request={body['id']}"
 
 
 @pytest.mark.asyncio

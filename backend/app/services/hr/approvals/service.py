@@ -714,7 +714,15 @@ def amount_text(request: ApprovalRequest) -> str:
 
 
 def request_link(request_id: int) -> str:
+    """Zgoda w skrzynce decydującego („Ludzie → Akceptacje → Zgody”)."""
+
     return f"/people/approvals?tab=consents&request={request_id}"
+
+
+def my_request_link(request_id: int) -> str:
+    """Zgoda w „Ludzie → Moje zgody” autora."""
+
+    return f"/people/consents?request={request_id}"
 
 
 async def _name(db: AsyncSession, user_id: Optional[int]) -> str:
@@ -767,7 +775,7 @@ async def _notify_requester(
         title=f"{_DECISION_TITLES[request.status]}: {request.title}",
         message=message,
         ntype=NotificationType.hr_approval_decided,
-        link=request_link(request.id),
+        link=my_request_link(request.id),
         related_entity_type="approval_request",
         related_entity_id=request.id,
         log_tag="approvals",
@@ -946,6 +954,7 @@ __all__ = [
     "history",
     "inbox",
     "mine",
+    "my_request_link",
     "pending_count",
     "request_link",
     "resubmit",
