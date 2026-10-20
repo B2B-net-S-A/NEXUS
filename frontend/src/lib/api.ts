@@ -762,6 +762,9 @@ export const candidatesApi = {
       rate_value: number | null;
       rate_unit?: RateUnit;
       rate_currency?: string;
+      // Zmiana po wysyłce CV (20.10.2026): powód i słowa DL-a.
+      reason?: "client_negotiated" | "send_mistake" | "other";
+      note?: string | null;
     },
   ) =>
     api.patch(

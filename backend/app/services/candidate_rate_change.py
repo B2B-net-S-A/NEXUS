@@ -988,6 +988,21 @@ async def decide(
             raise _invalid("Wpisz nową stawkę do klienta.")
         if not await resolve_client_rate_write(db, actor, job):
             raise client_rate_write_denied()
+        # Po zamówieniu stawkę do klienta zmienia się w zamówieniu — ta sama
+        # blokada co `PATCH …/client-rate` (decyzja Artura 20.10.2026).
+        from app.services import client_rate_correction  # noqa: PLC0415
+        from app.services.stage_client_rate import (  # noqa: PLC0415
+            latest_client_rates,
+        )
+
+        lock = await client_rate_correction.order_lock(
+            db, candidate_id=change.candidate_id, job_id=change.job_id
+        )
+        if lock is not None:
+            raise _conflict(client_rate_correction.order_lock_message(lock))
+        pair_before = (
+            await latest_client_rates(db, [(change.candidate_id, change.job_id)])
+        ).get((change.candidate_id, change.job_id))
         stage, previous = await update_latest_client_rate(
             db,
             candidate_id=change.candidate_id,
@@ -996,6 +1011,8 @@ async def decide(
             rate_unit=client_rate_unit or "hourly",
             rate_currency=(client_rate_currency or "PLN")[:3].upper(),
         )
+        if previous[0] is None and pair_before is not None:
+            previous = pair_before
         candidate_audit.record_candidate_audit(
             db,
             action=candidate_audit.CLIENT_RATE_CHANGED,
