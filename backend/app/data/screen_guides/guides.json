@@ -66,7 +66,7 @@
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
-        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej” z przyciskami do uzupełnienia. Klient zaakceptował osobę po rozmowie? Kliknij na karcie „Klient zaakceptował” — trafi do „Akceptacja i umowa”, a rekruter, prowadzący, DL i Head of Recruitment zobaczą to w „Rekrutacjach”.",
+        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej”. Na „Rozmowę u klienta” okno pyta „Kiedy rozmowa?” — termin włącza przypomnienie o telefonie i pytaniach klienta. Klient zaakceptował osobę? „Klient zaakceptował” na karcie przenosi ją do „Akceptacja i umowa”.",
         "anchor": "jobs.board.columns"
       },
       {
@@ -176,7 +176,7 @@
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin od klienta, prepy i debrief, a „Klient zaakceptował” zapisuje akceptację (data, start, powiadomienie dla zespołu); pomyłkę cofa „⋯” → „Cofnij akceptację klienta”. Sekcja „Umowa” pokazuje umowę, podpis i zamówienie: „Wygeneruj umowę” rozwija Generator. „Rozwiń” otwiera pełne narzędzia.",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin od klienta, prepy i debrief; bez terminu w NEXUSIE — „Pytania z rozmowy” (zapyta, kiedy była). Notatka „klient pytał…” podpowie „Zapisz jako pytania z rozmowy”. „Klient zaakceptował” zapisuje akceptację. Sekcja „Umowa”: umowa, podpis, zamówienie; „Rozwiń” — pełne narzędzia.",
         "anchor": "jobs.person.expand"
       }
     ],
@@ -433,7 +433,7 @@
       },
       {
         "q": "Jak zapisać debrief po rozmowie?",
-        "a": "Na karcie w kolumnie „Telefon ≤ 30 min” kliknij „Zapisz debrief” (działa od rozpoczęcia rozmowy). Zapisz, jak poszło, czy kandydat przyjmie ofertę i pytania klienta — listę pytań wklejasz naraz. Zapisany debrief otwiera „Zobacz debrief” w panelu kandydata.",
+        "a": "Na karcie w kolumnie „Telefon ≤ 30 min” kliknij „Zapisz debrief” (działa od rozpoczęcia rozmowy). Zapisz, jak poszło, czy kandydat przyjmie ofertę i pytania klienta — listę wklejasz naraz. Kandydat bez terminu w NEXUSIE dostaje po dobie „Uzupełnij pytania z rozmowy u klienta”: okno zapyta, kiedy była rozmowa.",
         "anchor": "calendar.board"
       },
       {

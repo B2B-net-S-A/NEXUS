@@ -1402,7 +1402,19 @@ describe("usePipelineMove — strzałka „→”: ruch odłożony z „Cofnij�
 
   it("ruch tej samej osoby przed wysłaniem: najpierw odłożony, potem nowy z wersją po nim", async () => {
     vi.useFakeTimers();
-    const item = card({ id: 54, candidate_id: 504, process_state_version: 1 });
+    // Zaplanowana rozmowa u klienta — ruch na „Rozmowę u klienta” nie pyta
+    // o termin (20.10.2026), więc idzie od razu jak każdy inny.
+    const item = card({
+      id: 54,
+      candidate_id: 504,
+      process_state_version: 1,
+      interview_badge: {
+        kind: "interview",
+        label: "czw 22.10 · 14:00",
+        tone: "info",
+        steps: [{ key: "interview", state: "scheduled" }],
+      },
+    });
     const b = board({ fresh: [item] });
     post
       .mockResolvedValueOnce({ data: { id: 954, process_state_version: 2 } })

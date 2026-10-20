@@ -40,7 +40,7 @@ const VIEWS: { value: CycleView; label: string }[] = [
 ];
 
 type Dialog =
-  | { kind: "debrief"; pair: PairInfo; eventId: number }
+  | { kind: "debrief"; pair: PairInfo; eventId: number | null }
   | { kind: "pick" | "confirm"; pair: PairInfo; request: SlotRequest }
   | { kind: "prep"; pair: PairInfo; second: boolean }
   | { kind: "prep_review"; pair: PairInfo; eventId: number }

@@ -22,7 +22,10 @@
  * - ruch zbiorczy = pętla pojedynczych ruchów i kolejki okien, nigdy `/bulk-move`;
  * - strzałka „→” na karcie (`deferMove`, 14.10.2026): karta przechodzi od razu,
  *   żądanie idzie po 10 s albo przy zamknięciu Tablicy, „Cofnij” w komunikacie
- *   wraca bez żądania.
+ *   wraca bez żądania;
+ * - „Rozmowa u klienta” pyta „Kiedy rozmowa?” (20.10.2026), chyba że para ma
+ *   zaplanowaną rozmowę albo otwarte terminy od klienta; termin zakłada
+ *   rozmowę PO udanym ruchu (`POST /api/interview-cycle/client-interviews`).
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -63,6 +66,11 @@ import {
 } from "@/lib/rejection-email";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
+  ClientInterviewDateDialog,
+  type ClientInterviewDate,
+} from "@/components/v2/recruitment/ClientInterviewDateDialog";
+import { interviewCycleApi } from "@/lib/api/interviewCycle";
+import {
   colId,
   type KanbanColumn,
   type KanbanItem,
@@ -85,12 +93,12 @@ import {
   type VerifiedRequirementsMissing,
 } from "@/lib/verified-gate";
 import { terminalOf } from "@/lib/kanban-terminal";
-import { moveDialogFor } from "@/lib/pipeline-move-dialog";
+import { moveDialogFor, needsInterviewDate } from "@/lib/pipeline-move-dialog";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
   cvQcFailureOf,
-  debriefRequiredEventId,
+  debriefRequiredOf,
   type CvQcFailure,
   type PipelineMoveResult,
 } from "@/lib/pipeline-move-core";
@@ -467,12 +475,19 @@ export function usePipelineMove({
   // Pipeline v4: 409 DEBRIEF_REQUIRED — najpierw telefon po rozmowie u klienta
   // i pytania klienta, potem TEN SAM ruch.
   const [debriefRequired, setDebriefRequired] = useState<{
-    eventId: number;
+    /** `null` — rozmowy nie ma w kalendarzu; okno pyta, kiedy była. */
+    eventId: number | null;
     item: KanbanItem;
     retry: () => Promise<void>;
   } | null>(null);
   // Okno debriefu zamknięte ZAPISEM (ruch idzie ponownie), nie „Anuluj”.
   const debriefSavedRef = useRef(false);
+  // „Rozmowa u klienta” — „Kiedy rozmowa?” przed ruchem (20.10.2026).
+  const [interviewDatePrompt, setInterviewDatePrompt] = useState<{
+    item: KanbanItem;
+    destCol: KanbanColumn;
+    srcColId: string;
+  } | null>(null);
   const [clientRateBulkTotal, setClientRateBulkTotal] = useState(0);
   // 409 ELIGIBILITY_WARNING (17.09.2026) — jedno okno. `retry` powtarza ruch,
   // który je wywołał, z `acknowledge_eligibility: true`; `onDismiss` pozwala
@@ -749,10 +764,10 @@ export function usePipelineMove({
           });
           return false;
         }
-        const debriefEventId = debriefRequiredEventId(e);
-        if (!opts?.silent && debriefEventId != null) {
+        const debriefRefusal = debriefRequiredOf(e);
+        if (!opts?.silent && debriefRefusal) {
           setDebriefRequired({
-            eventId: debriefEventId,
+            eventId: debriefRefusal.eventId,
             item,
             retry: async () => {
               setDebriefRequired(null);
@@ -952,6 +967,13 @@ export function usePipelineMove({
         return;
       }
 
+      // „Rozmowa u klienta” bez terminu w NEXUSIE — najpierw „Kiedy rozmowa?”.
+      // NIE applyOptimistic tu: „Anuluj” zostawia kartę na miejscu.
+      if (dialog === "interview_date" && needsInterviewDate(item)) {
+        setInterviewDatePrompt({ item, destCol: dst, srcColId });
+        return;
+      }
+
       // M4 PR-03 (audyt P1.6): hired = artefakty (draft kontraktu i zamówienia)
       // — wymaga jawnego potwierdzenia zamiast samego drop-u.
       if (dialog === "hired_confirm") {
@@ -1014,6 +1036,8 @@ export function usePipelineMove({
           return hasStageRate(latest(item));
         case "client_rate":
           return cproEnabled && !canWriteClientRate;
+        case "interview_date":
+          return !needsInterviewDate(latest(item));
         default:
           return false;
       }
@@ -1068,6 +1092,45 @@ export function usePipelineMove({
     async (candidateId: number): Promise<boolean | null> =>
       deferredRef.current.has(candidateId) ? commitDeferred(candidateId) : null,
     [commitDeferred]
+  );
+
+  // Submit z okna „Kiedy rozmowa?”. Ruch idzie jak zwykle; termin zakłada
+  // rozmowę dopiero po potwierdzonym ruchu — odmowa ruchu nie zostawia
+  // w kalendarzu rozmowy osoby, która nie przeszła dalej.
+  const submitInterviewDateMove = useCallback(
+    (value: ClientInterviewDate | null) => {
+      const prompt = interviewDatePrompt;
+      if (!prompt) return;
+      setInterviewDatePrompt(null);
+      const { item, destCol, srcColId } = prompt;
+      applyOptimistic(item, srcColId, destCol);
+      void sendMove(item, destCol, undefined, {
+        onMoved: value
+          ? () => {
+              void interviewCycleApi
+                .createClientInterview({
+                  candidate_id: item.candidate_id,
+                  job_id: jobId,
+                  start: value.start,
+                  duration_minutes: value.durationMinutes,
+                })
+                .then(() => {
+                  queryClient.invalidateQueries({ queryKey: ["interview-cycle"] });
+                  queryClient.invalidateQueries({ queryKey: ["kanban"] });
+                })
+                .catch((err) =>
+                  showError(
+                    apiErrorMessage(
+                      err,
+                      "Kandydat jest na „Rozmowa u klienta”, ale terminu rozmowy nie udało się zapisać.",
+                    ),
+                  ),
+                );
+            }
+          : undefined,
+      });
+    },
+    [interviewDatePrompt, applyOptimistic, sendMove, jobId, queryClient, showError]
   );
 
   // Submit z okna „Zweryfikowany". `payload === null` = „Pomiń stawkę" (stawka
@@ -1654,6 +1717,7 @@ export function usePipelineMove({
             void refreshAfterMove();
           }}
           eventId={debriefRequired.eventId}
+          candidateId={debriefRequired.item.candidate_id}
           candidateName={itemFullName(debriefRequired.item)}
           jobId={jobId}
           onSaved={() => {
@@ -1731,6 +1795,15 @@ export function usePipelineMove({
           required={!cproEnabled}
           candidateRateLabel={formatExpectedRate(clientRatePrompt.item)}
           initialRate={knownClientRate(clientRatePrompt.item)}
+        />
+      )}
+
+      {interviewDatePrompt && (
+        <ClientInterviewDateDialog
+          open
+          candidateName={itemFullName(interviewDatePrompt.item)}
+          onCancel={() => setInterviewDatePrompt(null)}
+          onConfirm={(value) => submitInterviewDateMove(value)}
         />
       )}
 

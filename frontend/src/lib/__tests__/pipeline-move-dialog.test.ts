@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   dialogUnavailableReason,
   moveDialogFor,
+  needsInterviewDate,
 } from "@/lib/pipeline-move-dialog";
 
 describe("moveDialogFor", () => {
@@ -24,8 +25,13 @@ describe("moveDialogFor", () => {
     expect(moveDialogFor({ stage: "withdrawn" })).toBe("rejection");
   });
 
+  it("„Rozmowa u klienta” pyta o termin (20.10.2026)", () => {
+    expect(moveDialogFor({ stage: "client_interview" })).toBe("interview_date");
+    // Dok „Decyzja” nie blokuje tego ruchu — termin można podać później.
+    expect(dialogUnavailableReason("interview_date")).toBeNull();
+  });
+
   it("zwykły etap idzie bez dialogu", () => {
-    expect(moveDialogFor({ stage: "client_interview" })).toBe("none");
     expect(moveDialogFor({ stage: "acceptance" })).toBe("none");
     expect(moveDialogFor({ stage: "new", terminal_type: null })).toBe("none");
   });
@@ -53,5 +59,41 @@ describe("dialogUnavailableReason", () => {
     // inaczej nie dałoby się zamknąć kandydata z poziomu kroku 07.
     expect(dialogUnavailableReason("none")).toBeNull();
     expect(dialogUnavailableReason("rejection")).toBeNull();
+  });
+});
+
+describe("needsInterviewDate", () => {
+  const badge = (extra: object) => ({ kind: "slot", label: "x", tone: "info", ...extra }) as never;
+
+  it("bez niczego w cyklu — pyta", () => {
+    expect(needsInterviewDate({ interview_badge: null })).toBe(true);
+    expect(needsInterviewDate({ interview_badge: badge({ steps: [] }) })).toBe(true);
+  });
+
+  it("zaplanowana rozmowa albo otwarte terminy od klienta — nie pyta", () => {
+    expect(
+      needsInterviewDate({
+        interview_badge: badge({ steps: [{ key: "interview", state: "scheduled" }] }),
+      }),
+    ).toBe(false);
+    expect(
+      needsInterviewDate({ interview_badge: badge({ slot_request: { status: "awaiting_dl" } }) }),
+    ).toBe(false);
+    expect(
+      needsInterviewDate({
+        interview_badge: badge({ slot_request: { status: "awaiting_recruiter" } }),
+      }),
+    ).toBe(false);
+  });
+
+  it("odbyta rozmowa (kolejna runda) albo anulowany wniosek — pyta", () => {
+    expect(
+      needsInterviewDate({
+        interview_badge: badge({ steps: [{ key: "interview", state: "done" }] }),
+      }),
+    ).toBe(true);
+    expect(
+      needsInterviewDate({ interview_badge: badge({ slot_request: { status: "cancelled" } }) }),
+    ).toBe(true);
   });
 });
