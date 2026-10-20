@@ -121,6 +121,17 @@ describe("HrSettings — zakładki zamiast ośmiu kart (20.10.2026)", () => {
     expect(screen.getByRole("link", { name: "Ustawienia → Płace" })).toHaveAttribute("href", "/settings/payroll");
   });
 
+  it("zasady zgód tylko przy włączonym module „Zgody” (21.10.2026: wyłączony = ukryty także adminowi)", () => {
+    nav.params = new URLSearchParams("zakladka=moduly");
+    const off = { ...config({ is_admin: true }), modules: { ...ALL_OPEN, approvals: false } } as HrConfig;
+    const { unmount } = render(<HrSettings config={off} />);
+    expect(screen.queryByText("Karta: zgody — kto zatwierdza")).not.toBeInTheDocument();
+    unmount();
+    const on = { ...config({ is_admin: true }), modules: { ...ALL_OPEN, approvals: true } } as HrConfig;
+    render(<HrSettings config={on} />);
+    expect(screen.getByText("Karta: zgody — kto zatwierdza")).toBeInTheDocument();
+  });
+
   it("jedna zakładka = bez paska zakładek", () => {
     render(<HrSettings config={config({ back_office_head: true })} />);
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();

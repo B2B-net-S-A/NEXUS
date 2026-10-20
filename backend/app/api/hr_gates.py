@@ -57,7 +57,8 @@ def require_hr_config_reader():
 
 
 async def ensure_module(db: AsyncSession, user: User, module: str) -> None:
-    """Wyłączony moduł = 404 z ``MODULE_DISABLED_DETAIL``; admin przechodzi zawsze.
+    """Wyłączony moduł = 404 z ``MODULE_DISABLED_DETAIL``; admin przechodzi (poza
+    ``hr_modules.NO_ADMIN_PREVIEW`` — „Zgody” od 21.10.2026).
 
     Jedno sprawdzenie dla bramek wszystkich modułów „Ludzi” (``HrModule``).
     """

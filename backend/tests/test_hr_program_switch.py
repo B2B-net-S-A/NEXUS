@@ -162,8 +162,10 @@ async def test_config_says_program_on_when_enabled(
     resp = await app_client.get("/api/hr/config", headers=app_auth_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["program"] is True
-    # Przy włączonym programie admin dalej ma podgląd modułów (przygotowanie importu).
-    assert all(resp.json()["open_modules"].values())
+    # Przy włączonym programie admin dalej ma podgląd modułów (przygotowanie
+    # importu) — poza „Zgodami”, które bez przełącznika są ukryte (21.10.2026).
+    opened = resp.json()["open_modules"]
+    assert all(value for key, value in opened.items() if key != "approvals")
 
 
 @pytest.mark.asyncio

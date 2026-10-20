@@ -416,15 +416,31 @@ async def test_strangers_see_nothing_and_rules_are_admin_only(client, team) -> N
 
 
 @pytest.mark.asyncio
-async def test_module_off_hides_the_routes_from_everyone_but_admin(
+async def test_module_off_hides_the_routes_from_everyone_including_admin(
     client, team
 ) -> None:
+    """Decyzja Artura 21.10.2026: wydatki i premie na razie idą mailem, więc
+    wyłączone „Zgody” znikają także adminowi (bez podglądu jak w innych
+    modułach). Wracają po włączeniu w Ustawienia → Kadry → Moduły."""
     await _put_setting(
         HR_MODULES_SETTING,
         {key: key != "approvals" for key in HR_MODULE_KEYS},
     )
     off = await client.get(BASE, headers=_headers(team["worker"]))
     assert off.status_code == 404
+    admin = await client.get(BASE, headers=_headers(team["ceo"]))
+    assert admin.status_code == 404
+    config = await client.get("/api/hr/config", headers=_headers(team["ceo"]))
+    assert config.status_code == 200, config.text
+    assert config.json()["open_modules"]["approvals"] is False
+    # Inne wyłączone moduły admin dalej widzi (przygotowanie importu).
+    await _put_setting(HR_MODULES_SETTING, {key: False for key in HR_MODULE_KEYS})
+    config = await client.get("/api/hr/config", headers=_headers(team["ceo"]))
+    opened = config.json()["open_modules"]
+    assert opened["approvals"] is False
+    assert opened["leave"] is True
+
+    await _put_setting(HR_MODULES_SETTING, {key: True for key in HR_MODULE_KEYS})
     admin = await client.get(BASE, headers=_headers(team["ceo"]))
     assert admin.status_code == 200
 
