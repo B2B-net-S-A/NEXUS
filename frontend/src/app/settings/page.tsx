@@ -101,16 +101,16 @@ const RoleLibraryTab = dynamic(
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
   }
 );
-const PlacementExclusionsTab = dynamic(
-  () => import("@/components/settings/PlacementExclusionsTab"),
+const ImportsSettings = dynamic(
+  () => import("@/components/settings/ImportsSettings"),
   {
     ssr: false,
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
   }
 );
 
-const ImportsSettings = dynamic(
-  () => import("@/components/settings/ImportsSettings"),
+const PlacementExclusionsTab = dynamic(
+  () => import("@/components/settings/PlacementExclusionsTab"),
   {
     ssr: false,
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
