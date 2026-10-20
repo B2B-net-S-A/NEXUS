@@ -75,6 +75,11 @@ async def test_smart_name_two_people_is_no_match() -> None:
     assert await matcher._find_candidate_by_subject_name(db, "CV Jan Kowalski") is None
 
 
+async def test_smart_name_ignores_candidate_with_non_latin_name() -> None:
+    db, _ = _rows_db([SimpleNamespace(id=7, name="Іван", lastname="Петренко")])
+    assert await matcher._find_candidate_by_subject_name(db, "CV Java senior") is None
+
+
 async def test_smart_name_without_tokens_skips_query() -> None:
     db, captured = _rows_db([])
     assert await matcher._find_candidate_by_subject_name(db, "RE: 12") is None
