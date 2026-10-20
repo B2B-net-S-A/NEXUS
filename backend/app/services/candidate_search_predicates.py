@@ -1088,9 +1088,14 @@ def text_mode_to_apply(
 
 
 def literal_text_threshold(q: str) -> Optional[float]:
-    """Próg trigramowy gałęzi literówek albo ``None``, gdy jej nie ma."""
+    """Próg trigramowy gałęzi literówek albo ``None``, gdy jej nie ma.
+
+    Adres e-mail nie ma literówek (20.10.2026): przy progu 0,2 trygramy domeny
+    wystarczały, by ``borysiewicz@onet.pl`` dawał 476 osób z ``@onet.pl``,
+    a właściwa ginęła pod nimi. Adres trafia podłańcuch w polach, CV i notatkach.
+    """
     stripped = (q or "").strip()
-    if len(stripped) < 3:
+    if len(stripped) < 3 or detect_text_mode(stripped).kind == "email":
         return None
     return 0.5 if " " in stripped else 0.2
 

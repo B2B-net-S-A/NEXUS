@@ -70,6 +70,15 @@ D1–D6 z makiet (https://claude.ai/artifact/UidzDHHjGHMDuutb4zB21L).
   „Przywróć” okna nie da się zamknąć (Escape, tło, „Zamknij”, „Anuluj”) —
   ruch karty może jeszcze pokazać swoje okna, jak w `AddToRecruitmentDialog`.
 
+- **Adres e-mail bez literówek (20.10.2026).** Zgłoszenie: `borysiewicz@onet.pl`
+  dawał 476 wyników — gałąź literówek (trygramy, próg 0,2) łapała każdego
+  z adresem w `@onet.pl`, a właściwa osoba (już w tej rekrutacji) stała
+  w sekcji „Już w tej rekrutacji” pod 25 obcymi wierszami. Fraza w kształcie
+  e-maila (`detect_text_mode(...).kind == "email"`) nie ma progu literówek
+  (`literal_text_threshold` → `None`): trafia ją tylko podłańcuch w polach,
+  CV i notatkach. W okienku i na liście Kandydaci właściciel adresu stoi
+  pierwszy, przed osobą z tym adresem w CV albo notatce (jak UAT B35).
+
 Czego nie robimy: numer nie jest maskowany (lista Kandydaci pokazuje go tym
 samym osobom, a rekruter porównuje go cyfra po cyfrze), dodanie imiennika
 nie pyta „Czy na pewno?”. Harness: `/preview/add-candidates`.
