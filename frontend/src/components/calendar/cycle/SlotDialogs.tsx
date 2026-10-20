@@ -7,6 +7,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { AppModal } from "@/components/ds/AppModal";
 import { CandidateCombobox, type CandidateChoice } from "@/components/calendar/CandidateCombobox";
 import { RecruitmentSelect } from "@/components/calendar/RecruitmentSelect";
+import { PasteClientMail } from "@/components/calendar/cycle/PasteClientMail";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { interviewCycleApi } from "@/lib/api/interviewCycle";
@@ -19,6 +20,14 @@ import {
   slotsCreatedMessage,
   type SlotRequest,
 } from "@/lib/interview-cycle";
+import {
+  isoToLocalInput,
+  noteFromMail,
+  rowsFromMail,
+  type SlotRow,
+  type SlotsFromMail,
+  warningLabel,
+} from "@/lib/interview-slot-mail";
 import { cn } from "@/lib/utils";
 
 const INPUT =
@@ -27,6 +36,10 @@ const INPUT =
 /** `datetime-local` → ISO z przesunięciem przeglądarki (serwer normalizuje do UTC). */
 function localToIso(value: string): string {
   return new Date(value).toISOString();
+}
+
+function formatTimeOf(iso: string): string {
+  return isoToLocalInput(iso).slice(11);
 }
 
 function nextWorkdayAt(hour: number, offsetDays: number): string {
@@ -67,8 +80,9 @@ export function SlotRequestDialog({
   const invalidate = useInvalidateCycle();
   const [candidate, setCandidate] = useState<CandidateChoice | null>(null);
   const [jobId, setJobId] = useState<number | null>(null);
-  const [slots, setSlots] = useState<string[]>([]);
+  const [slots, setSlots] = useState<SlotRow[]>([]);
   const [duration, setDuration] = useState(60);
+  const [respondBy, setRespondBy] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -76,12 +90,14 @@ export function SlotRequestDialog({
     if (!open) return;
     setCandidate(null);
     setJobId(null);
-    setSlots([nextWorkdayAt(10, 1), nextWorkdayAt(14, 2)]);
+    setSlots([{ value: nextWorkdayAt(10, 1) }, { value: nextWorkdayAt(14, 2) }]);
     setDuration(60);
+    setRespondBy("");
     setNote("");
     setError(null);
   }, [open, pair]);
 
+  const filledSlots = slots.filter((s) => s.value);
   const candidateId = pair?.candidate_id ?? candidate?.id ?? null;
   const targetJobId = pair?.job_id ?? jobId;
 
@@ -90,8 +106,9 @@ export function SlotRequestDialog({
       interviewCycleApi.createSlots({
         candidate_id: candidateId as number,
         job_id: targetJobId as number,
-        slots: slots.filter(Boolean).map((s) => ({ start: localToIso(s) })),
+        slots: filledSlots.map((s) => ({ start: localToIso(s.value) })),
         duration_minutes: duration,
+        respond_by: respondBy ? localToIso(respondBy) : null,
         note: note.trim() || null,
       }),
     onSuccess: (res) => {
@@ -108,16 +125,24 @@ export function SlotRequestDialog({
       setError("Wybierz kandydata i rekrutację.");
       return;
     }
-    const filled = slots.filter(Boolean);
-    if (filled.length === 0) {
+    if (filledSlots.length === 0) {
       setError("Dodaj co najmniej jeden termin od klienta.");
       return;
     }
-    if (filled.some((s) => new Date(s).getTime() < Date.now())) {
+    if (filledSlots.some((s) => new Date(s.value).getTime() < Date.now())) {
       setError("Termin rozmowy nie może być w przeszłości.");
       return;
     }
     mutation.mutate();
+  };
+
+  const applyMail = (result: SlotsFromMail) => {
+    setSlots(rowsFromMail(result));
+    if (result.duration_minutes) setDuration(result.duration_minutes);
+    if (result.respond_by) setRespondBy(isoToLocalInput(result.respond_by));
+    const fromMail = noteFromMail(result);
+    if (fromMail) setNote((prev) => (prev.trim() ? `${prev.trim()}\n${fromMail}` : fromMail).slice(0, 1000));
+    setError(null);
   };
 
   return (
@@ -164,33 +189,53 @@ export function SlotRequestDialog({
             </div>
           </>
         )}
+        <PasteClientMail idPrefix="slot-request" onRead={applyMail} />
         <fieldset className="space-y-2">
           <legend className="mb-1 text-xs font-semibold text-muted-foreground">Terminy od klienta</legend>
-          {slots.map((value, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input
-                type="datetime-local"
-                aria-label={`Termin ${i + 1}`}
-                value={value}
-                onChange={(e) => setSlots((s) => s.map((v, j) => (j === i ? e.target.value : v)))}
-                className={INPUT}
-              />
-              {slots.length > 1 ? (
-                <button
-                  type="button"
-                  aria-label={`Usuń termin ${i + 1}`}
-                  onClick={() => setSlots((s) => s.filter((_, j) => j !== i))}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
-          ))}
+          {slots.map((row, i) => {
+            const warning = warningLabel(row.warning);
+            return (
+              <div key={i} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="datetime-local"
+                    aria-label={`Termin ${i + 1}`}
+                    value={row.value}
+                    onChange={(e) =>
+                      setSlots((s) =>
+                        // Poprawiony ręcznie termin traci ostrzeżenie odczytu — DL go sprawdził.
+                        s.map((v, j) => (j === i ? { ...v, value: e.target.value, warning: null } : v)),
+                      )
+                    }
+                    className={INPUT}
+                  />
+                  {slots.length > 1 ? (
+                    <button
+                      type="button"
+                      aria-label={`Usuń termin ${i + 1}`}
+                      onClick={() => setSlots((s) => s.filter((_, j) => j !== i))}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+                {row.quote ? (
+                  <p className="text-xs italic text-muted-foreground">
+                    „{row.quote}”
+                    {row.windowEnd ? ` · okno do ${formatTimeOf(row.windowEnd)} — godzinę ustali rekruter` : ""}
+                  </p>
+                ) : null}
+                {warning ? (
+                  <p className="rounded-md bg-warning-muted px-2 py-1 text-xs text-warning-muted-foreground">{warning}</p>
+                ) : null}
+              </div>
+            );
+          })}
           {slots.length < 6 ? (
             <button
               type="button"
-              onClick={() => setSlots((s) => [...s, ""])}
+              onClick={() => setSlots((s) => [...s, { value: "" }])}
               className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
             >
               <Plus className="h-3.5 w-3.5" /> Dodaj termin
@@ -227,12 +272,24 @@ export function SlotRequestDialog({
           </div>
         </div>
         <div>
+          <label htmlFor="slot-respond-by" className="mb-1 block text-xs font-semibold text-muted-foreground">
+            Odpowiedź do klienta do (opcjonalnie)
+          </label>
+          <input
+            id="slot-respond-by"
+            type="datetime-local"
+            value={respondBy}
+            onChange={(e) => setRespondBy(e.target.value)}
+            className={INPUT}
+          />
+        </div>
+        <div>
           <label htmlFor="slot-note" className="mb-1 block text-xs font-semibold text-muted-foreground">
             Notatka dla rekrutera (opcjonalnie)
           </label>
           <textarea
             id="slot-note"
-            rows={2}
+            rows={3}
             maxLength={1000}
             value={note}
             onChange={(e) => setNote(e.target.value)}

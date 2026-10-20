@@ -2,21 +2,29 @@
  * „Kiedy rozmowa u klienta?” przy przesunięciu karty (20.10.2026): termin albo
  * jawne „Nie znam jeszcze terminu”, nigdy cichy ruch bez decyzji.
  */
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ClientInterviewDateDialog } from "@/components/v2/recruitment/ClientInterviewDateDialog";
+import { interviewCycleApi } from "@/lib/api/interviewCycle";
+import type { SlotsFromMail } from "@/lib/interview-slot-mail";
+
+afterEach(() => vi.restoreAllMocks());
 
 function renderDialog() {
   const onConfirm = vi.fn();
   const onCancel = vi.fn();
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   render(
-    <ClientInterviewDateDialog
-      open
-      candidateName="Anna Nowak"
-      onCancel={onCancel}
-      onConfirm={onConfirm}
-    />,
+    <QueryClientProvider client={client}>
+      <ClientInterviewDateDialog
+        open
+        candidateName="Anna Nowak"
+        onCancel={onCancel}
+        onConfirm={onConfirm}
+      />
+    </QueryClientProvider>,
   );
   const dialog = screen.getByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
   return { dialog, onConfirm, onCancel };
@@ -54,6 +62,67 @@ describe("ClientInterviewDateDialog", () => {
     const { dialog, onConfirm, onCancel } = renderDialog();
     fireEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
     expect(onCancel).toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("wklejony mail z kilkoma terminami: wybrany termin i długość z maila idą do ruchu", async () => {
+    const result: SlotsFromMail = {
+      status: "ok",
+      message: null,
+      slots: [
+        { start: "2026-10-22T08:00:00Z", end: "2026-10-22T08:45:00Z", window: false, quote: "czwartek o 10:00", warning: null },
+        { start: "2026-10-22T12:30:00Z", end: "2026-10-22T13:15:00Z", window: false, quote: "albo 14:30", warning: null },
+      ],
+      extra_slots: 0,
+      dropped: 0,
+      duration_minutes: 45,
+      respond_by: null,
+      format: "online",
+      location_note: "Teams",
+      people: null,
+      unclear: [],
+    };
+    const read = vi.spyOn(interviewCycleApi, "readSlotsFromMail").mockResolvedValue(result);
+    const { dialog, onConfirm } = renderDialog();
+    fireEvent.change(within(dialog).getByLabelText(/Wklej maila od klienta/), {
+      target: { value: "Pasuje nam czwartek o 10:00 albo 14:30, 45 min na Teams." },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Odczytaj terminy" }));
+    const option = await within(dialog).findByRole("radio", { name: /albo 14:30/ });
+    expect(read).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Pasuje nam czwartek o 10:00 albo 14:30, 45 min na Teams." }),
+    );
+    fireEvent.click(option);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń" }));
+    await waitFor(() =>
+      expect(onConfirm).toHaveBeenCalledWith({
+        start: new Date("2026-10-22T12:30:00Z").toISOString(),
+        durationMinutes: 45,
+      }),
+    );
+  });
+
+  it("mail bez terminów zostawia ręczne wpisanie i mówi dlaczego", async () => {
+    vi.spyOn(interviewCycleApi, "readSlotsFromMail").mockResolvedValue({
+      status: "empty",
+      message: "Nie znalazłem w tym tekście terminów z dniem i godziną.",
+      slots: [],
+      extra_slots: 0,
+      dropped: 0,
+      duration_minutes: null,
+      respond_by: null,
+      format: null,
+      location_note: null,
+      people: null,
+      unclear: ["w czwartek rano"],
+    });
+    const { dialog, onConfirm } = renderDialog();
+    fireEvent.change(within(dialog).getByLabelText(/Wklej maila od klienta/), {
+      target: { value: "Może w czwartek rano?" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Odczytaj terminy" }));
+    expect(await within(dialog).findByText(/Nie znalazłem w tym tekście terminów/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Godzina")).toHaveValue("");
     expect(onConfirm).not.toHaveBeenCalled();
   });
 });

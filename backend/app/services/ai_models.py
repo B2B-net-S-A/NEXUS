@@ -52,6 +52,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F29 | screening_answer_phrasing        | gpt-6-luna (z Sonnet 5)  |
 | F30 | cv_selection_edit                | claude-sonnet-5 (z Haiku)|
 | F31 | cv_editor_command                | claude-sonnet-5 (z Haiku)|
+| F32 | interview_slots_from_mail        | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -390,6 +391,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         fallbacks=(SONNET_5,),
         rationale="F10. Sync imion z Traffita; deleguje do parse_cv z własnym modelem. GPT-6 Luna "
         "jak cv_backfill (ten sam odczyt CV, pomiar 22.09.2026).",
+    ),
+    AIFeatureKey.interview_slots_from_mail: ModelChoice(
+        default=SONNET_5,
+        env_vars=("INTERVIEW_SLOTS_FROM_MAIL_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F32 (20.10.2026, POZA badaniem 16.09). Terminy rozmowy z maila klienta: "
+        "daty względne („w czwartek”, „jutro”) liczone od daty maila, każdy termin z cytatem. "
+        "Sonnet, bo pomyłka w dacie przesuwa rozmowę u klienta; wywołanie krótkie i rzadkie. "
+        "Cytat spoza maila i termin z przeszłości odrzuca kod, a całość sprawdza DL przed wysłaniem.",
     ),
 }
 
