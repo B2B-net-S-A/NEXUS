@@ -455,7 +455,7 @@
     ],
     "anchors": [
       {"id": "calendar.board", "label": "Tablica kroków", "describe": "Siedem kroków cyklu, kandydaci w kolumnach, zadania na kartach."},
-      {"id": "calendar.person", "label": "Panel kandydata", "describe": "Kroki, prepy, Teams i pytania klienta wybranej osoby (otwiera się po kliknięciu nazwiska)."},
+      {"id": "calendar.person", "label": "Panel kandydata", "describe": "Telefon i e-mail kandydata, kroki, prepy, Teams i pytania klienta wybranej osoby (otwiera się po kliknięciu nazwiska)."},
       {"id": "calendar.views", "label": "Widok i zakres", "describe": "Przełącznik Tydzień / Tablica i lista „Pokaż”."},
       {
         "id": "calendar.slots",
