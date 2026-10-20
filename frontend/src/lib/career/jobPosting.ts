@@ -36,6 +36,10 @@ export function jobPostingJsonLd(
   const { job } = data;
   const params = job.params;
   const remote = params?.remote_policy === "remote";
+  // Google wymaga miejsca pracy albo pracy zdalnej. Bez miasta i bez trybu
+  // zdalnego (także przy ukrytych „parametrach”) nie zgadujemy — fałszywe
+  // TELECOMMUTE to naruszenie zasad danych o ofertach (audyt 21.10.2026).
+  if (!remote && !params?.city) return null;
   const posting: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "JobPosting",
@@ -47,7 +51,12 @@ export function jobPostingJsonLd(
     hiringOrganization: HIRING_ORGANIZATION,
     directApply: true,
     url,
-    identifier: { "@type": "PropertyValue", name: "B2B Network", value: job.slug },
+    // Jedna rekrutacja = jedna oferta w Google, choć ma kilka linków (każdy rekruter swój).
+    identifier: {
+      "@type": "PropertyValue",
+      name: "B2B Network",
+      value: data.canonical_slug ?? job.slug,
+    },
   };
   if (params?.city && !remote) {
     posting.jobLocation = {
@@ -59,7 +68,7 @@ export function jobPostingJsonLd(
       },
     };
   }
-  if (remote || !params?.city) {
+  if (remote) {
     posting.jobLocationType = "TELECOMMUTE";
     posting.applicantLocationRequirements = { "@type": "Country", name: "Polska" };
   }

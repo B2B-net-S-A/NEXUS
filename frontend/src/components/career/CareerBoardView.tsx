@@ -22,6 +22,7 @@ import { careerHref, type CareerBase } from "@/lib/career/host";
 import { BoardGlyph, BoardPreviewScene } from "./BoardPreview";
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
 import { TwoToneTitle } from "./CareerHero";
+import { CareerMotion } from "./CareerMotion";
 import { CareerSubmitGate } from "./CareerSubmitGate";
 import { TerminalChrome } from "./TerminalChrome";
 
@@ -73,6 +74,7 @@ export function CareerBoardView({
       }}
     >
       <TerminalChrome path={CHROME_PATH} />
+      <CareerMotion />
       {data ? (
         <Board data={data} base={base} formPreview={formPreview} />
       ) : (

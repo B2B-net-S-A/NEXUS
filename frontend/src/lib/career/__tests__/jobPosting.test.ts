@@ -61,6 +61,28 @@ describe("jobPostingJsonLd", () => {
     expect(ld?.jobLocation).toBeUndefined();
   });
 
+  it("bez miasta i bez trybu zdalnego nie ma danych — nigdy fałszywe TELECOMMUTE (audyt 21.10)", () => {
+    const base = data();
+    const onsiteNoCity = {
+      ...base,
+      job: { ...base.job, params: { ...base.job.params!, city: null, remote_policy: "onsite" as const } },
+    };
+    expect(jobPostingJsonLd(onsiteNoCity, URL)).toBeNull();
+    // Ukryte „parametry” zerują miasto i tryb — też bez danych.
+    const hidden = {
+      ...base,
+      job: { ...base.job, params: { ...base.job.params!, city: null, remote_policy: null } },
+    };
+    expect(jobPostingJsonLd(hidden, URL)).toBeNull();
+    // Hybryda z miastem: miejsce pracy, bez TELECOMMUTE.
+    expect(jobPostingJsonLd(base, URL)?.jobLocationType).toBeUndefined();
+  });
+
+  it("identyfikator oferty to slug kanoniczny, gdy API go podaje", () => {
+    const ld = jobPostingJsonLd(data({ canonical_slug: "senior-java-developer-tablica" }), URL);
+    expect(ld?.identifier).toMatchObject({ value: "senior-java-developer-tablica" });
+  });
+
   it("zamknięta rekrutacja i brak daty publikacji nie dają danych", () => {
     expect(jobPostingJsonLd(data({ status: "closed" }), URL)).toBeNull();
     expect(jobPostingJsonLd(data({ published_at: null }), URL)).toBeNull();

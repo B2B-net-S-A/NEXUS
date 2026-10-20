@@ -1,7 +1,6 @@
 import "./career.css";
 import "./scenes/scenes.css";
 
-import { CareerMotion } from "./CareerMotion";
 import { careerDisplayFont, careerMonoFont } from "./fonts";
 
 /**
@@ -24,7 +23,6 @@ export function CareerTheme({
       data-kr-page={page ? "" : undefined}
     >
       {children}
-      <CareerMotion />
     </div>
   );
 }

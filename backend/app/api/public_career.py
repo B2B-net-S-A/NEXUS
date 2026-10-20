@@ -203,11 +203,15 @@ async def get_career_job(
     published_at = (
         profile.approved_at.date().isoformat() if profile.approved_at else None
     )
+    from app.services import career_board
+
     return {
         "status": "open",
         "recruiter": recruiter,
         "theme": theme,
         "published_at": published_at,
+        # Canonical i identyfikator oferty w Google — link z tablicy.
+        "canonical_slug": await career_board.canonical_job_slug(db, job) or link.slug,
         "job": payload,
     }
 

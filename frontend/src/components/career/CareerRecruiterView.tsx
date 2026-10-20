@@ -6,6 +6,7 @@ import { careerHref, careerVisibleUrl, type CareerBase } from "@/lib/career/host
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
 import { CareerFooter } from "./CareerFooter";
 import { Cmd, TwoToneTitle } from "./CareerHero";
+import { CareerMotion } from "./CareerMotion";
 import { CareerSubmitGate } from "./CareerSubmitGate";
 import { TerminalChrome } from "./TerminalChrome";
 import { CAREER_THEMES, isCareerThemeId } from "./themes";
@@ -51,6 +52,7 @@ export function CareerRecruiterView({
       }}
     >
       <TerminalChrome path={chromePath} />
+      <CareerMotion />
       <main className="kr-main kr-main-general">
         <div className="kr-col">
           <div className="kr-hero kr-rec-hero">
@@ -130,7 +132,7 @@ export function CareerRecruiterView({
           </section>
         </div>
 
-        <aside id="aplikuj" className="kr-form-box" aria-label={`Zostaw CV u ${atName}`}>
+        <aside id="aplikuj" tabIndex={-1} className="kr-form-box" aria-label={`Zostaw CV u ${atName}`}>
           <div className="kr-form-bar">
             <span>
               <span className="kr-r" aria-hidden="true">

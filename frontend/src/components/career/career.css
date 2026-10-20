@@ -405,6 +405,8 @@ html:has(.kr-scope[data-kr-light]) body {
 }
 
 /* ── formularz ─────────────────────────────────────────────────── */
+/* Cel kotwicy „Aplikuj” (`tabIndex={-1}`) — fokus programowy, bez obwódki. */
+.kr-form-box:focus { outline: none; }
 .kr-form-box {
   margin: 0 12px;
   border: 1px solid var(--kr-line-strong);

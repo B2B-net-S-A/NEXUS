@@ -13,6 +13,7 @@ import { ApplyDock } from "./ApplyDock";
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
 import { CareerFooter } from "./CareerFooter";
 import { CareerHero, Cmd } from "./CareerHero";
+import { CareerMotion } from "./CareerMotion";
 import { CareerSubmitGate } from "./CareerSubmitGate";
 import { CareerThemeScope } from "./CareerThemeScope";
 import { ClosedNotice } from "./ClosedNotice";
@@ -114,6 +115,7 @@ export function CareerJobView({
           handle={handle}
         >
           <TerminalChrome path={chromePath} />
+          <CareerMotion />
           <section id={HERO_ID} className="kr-top" aria-label="Rekrutacja" data-kr-with-scene={withScene ? "" : undefined}>
             <div className="kr-stage">
               <CareerHero
@@ -163,7 +165,7 @@ export function CareerJobView({
             ) : null}
           </div>
 
-          <aside id="aplikuj" className="kr-form-box" aria-label="Aplikuj">
+          <aside id="aplikuj" tabIndex={-1} className="kr-form-box" aria-label="Aplikuj">
             <div className="kr-form-bar">
               <span>
                 <span className="kr-r" aria-hidden="true">

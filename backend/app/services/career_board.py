@@ -173,6 +173,34 @@ def _pick_link(
     return None, False
 
 
+async def canonical_job_slug(db: AsyncSession, job: Job) -> Optional[str]:
+    """Slug linku, pod którym rekrutacja stoi (albo stanie) na tablicy.
+
+    Ta sama reguła co karta tablicy (``_pick_link``), ale bez zakładania linku:
+    gdy prowadzący nie ma jeszcze swojego, bierzemy najnowszy aktywny link
+    rekrutacji. Strona ``/r/<slug>`` podaje go jako canonical i identyfikator
+    JobPosting — jedna rekrutacja, wiele linków, jedna oferta w Google (audyt
+    21.10.2026).
+    """
+    links = list(
+        await db.scalars(
+            select(CandidateInviteLink)
+            .where(
+                CandidateInviteLink.kind == "job",
+                CandidateInviteLink.job_id == job.id,
+                CandidateInviteLink.slug.is_not(None),
+            )
+            .order_by(CandidateInviteLink.created_at.desc())
+        )
+    )
+    now = _now()
+    lead_id = await _lead_id(db, job, {})
+    link, create = _pick_link(links, lead_id, now)
+    if link is None and create:
+        link = next((item for item in links if _active(item, now)), None)
+    return link.slug if link is not None else None
+
+
 async def board_jobs(db: AsyncSession) -> list[dict[str, Any]]:
     """Karty tablicy — biała lista pól, od najnowszej otwartej rekrutacji.
 

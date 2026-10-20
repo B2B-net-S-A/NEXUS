@@ -20,6 +20,10 @@ import { useEffect, useRef } from "react";
  *   zostaje natywny. Lenis napędza ScrollTrigger (sekcja „Sprawdź się”, oś
  *   procesu) i obsługuje kotwice `#…` („Aplikuj”).
  *
+ * Montują go widoki (tablica, rekrutacja, rekruter), nie układ `/kariera`:
+ * strona za `loading.tsx` dochodzi strumieniem, a efekt w układzie ruszał,
+ * zanim tytuł strony był zhydratowany (audyt 21.10.2026).
+ *
  * „Ograniczony ruch” w systemie wyłącza wszystko — strona stoi od początku.
  * Bez `matchMedia` (jsdom) komponent nic nie robi.
  */
@@ -96,7 +100,12 @@ export function CareerMotion() {
           const target = id ? document.getElementById(id) : null;
           if (!target) return;
           e.preventDefault();
-          lenis.scrollTo(target, { offset: -16 });
+          // Fokus za przewinięciem: klawiatura i czytnik ekranu lądują w formularzu,
+          // nie zostają na linku (natywny skok robi to sam, Lenis nie).
+          lenis.scrollTo(target, {
+            offset: -16,
+            onComplete: () => target.focus({ preventScroll: true }),
+          });
           history.replaceState(null, "", `#${id}`);
         };
         document.addEventListener("click", onClick);
