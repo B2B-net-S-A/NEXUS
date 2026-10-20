@@ -8,6 +8,13 @@ vi.mock("@/lib/api", () => ({
   api: { get: async () => ({ data: { items: [] } }) },
 }));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showToast: vi.fn() }) }));
+// Kadry mają od 20.10.2026 zakładki w adresie (`?zakladka=`).
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/settings/hr",
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+}));
+vi.mock("@/lib/url-selection", () => ({ useUrlWriter: () => ({ replaceUrl: vi.fn() }) }));
 // Karty z własnymi zapytaniami — tu liczy się tylko, GDZIE stoją reguły premii.
 vi.mock("@/components/hr/payroll/BonusRulesCard", () => ({
   BonusRulesCard: () => <div>karta reguł premii</div>,

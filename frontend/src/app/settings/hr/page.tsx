@@ -19,7 +19,8 @@ export default function HrSettingsPage() {
                 Kadry
               </h1>
               <p className="text-sm text-muted-foreground">
-                Dni wolne firmy i moduły „Ludzi w NEXUSIE”.
+                Kalendarz firmy, wejście i odejście, urlopy w M365, dokumenty
+                pracowników i moduły „Ludzi w NEXUSIE”.
               </p>
             </div>
             <HrSettings config={config} />
