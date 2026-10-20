@@ -1790,6 +1790,24 @@ async def apply_move(
                 "„Nie akceptuje trybu pracy”."
             ),
         )
+    # 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
+    # zostawiały w historii samo słowo. Opis przychodzi jako `notes` (okna
+    # odrzucenia) albo `rejection_reason` (API integracyjne).
+    reason_description = (data.notes or "").strip() or (
+        data.rejection_reason or ""
+    ).strip()
+    if (
+        reason is not None
+        and rejection_reason_labels.needs_description(reason.name)
+        and not reason_description
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Przy powodzie „{rejection_reason_labels.rejection_reason_label(reason.name)}” "
+                "opisz, dlaczego — bez opisu w historii zostaje samo słowo."
+            ),
+        )
 
     # ── Stawka przy ruchu na `verified` (0056; bramka zdjęta 17.09.2026) ──
     # Stawka jest OPCJONALNA i NIGDY nie ustawia `pending` (decyzja właściciela:
@@ -1850,6 +1868,13 @@ async def apply_move(
     if data.rejection_reason and not data.rejection_reason_id:
         prefix = f"Powód ({legacy_enum.value}): {data.rejection_reason.strip()}"
         effective_notes = f"{prefix}\n{data.notes}" if data.notes else prefix
+    elif (
+        data.rejection_reason
+        and data.rejection_reason.strip()
+        and not (data.notes or "").strip()
+    ):
+        # Powód ze słownika z opisem z API integracyjnego — opis dotąd znikał.
+        effective_notes = data.rejection_reason.strip()
 
     stage = await transition_process(
         db,

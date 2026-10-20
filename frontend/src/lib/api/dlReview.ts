@@ -137,6 +137,19 @@ export interface DlReviewContext {
   /** Uwaga rekrutera przy przekazaniu na „QC CV” (14.10.2026) — notatka etapu
    *  `stage_remark` wiersza `stage_id`. Brak = rekruter nic nie dopisał. */
   recruiter_handoff_remark?: DlReviewHandoffRemark | null;
+  /** Hiring manager tej rekrutacji (20.10.2026) — do ostrzeżenia o rozmowie. */
+  hiring_manager_name?: string | null;
+  /** Rozmowy osoby w innych rekrutacjach klienta, najnowsze pierwsze
+   *  (`services/earlier_client_interviews.py`). */
+  earlier_interviews?: DlReviewEarlierInterview[];
+}
+
+export interface DlReviewEarlierInterview {
+  job_id: number;
+  job_title: string;
+  interview_at: string;
+  latest_stage: string | null;
+  same_hiring_manager: boolean;
 }
 
 export interface DlReviewHandoffRemark {

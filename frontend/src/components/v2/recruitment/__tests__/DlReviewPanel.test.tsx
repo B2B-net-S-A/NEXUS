@@ -42,9 +42,9 @@ vi.mock("@/lib/cv-docx-preview", () => ({ alignB2bLetterheadPreview: () => undef
 vi.mock("@/lib/stage-cv-file", () => ({
   fetchStageCvFile: (...a: unknown[]) => fetchStageCvFile(...a),
 }));
-vi.mock("@/lib/rejection-reasons", () => ({
+vi.mock("@/lib/rejection-reasons", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rejection-reasons")>()),
   loadJobRejectionReasons: (...a: unknown[]) => loadJobRejectionReasons(...a),
-  WORK_MODE_MISMATCH_REASON: "work_mode_mismatch",
 }));
 const consentProps = vi.fn();
 vi.mock("@/components/v2/cv-generator/ConsentAttachButton", () => ({
@@ -1147,5 +1147,151 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
       expect(renderDocxSafely).toHaveBeenCalledTimes(1);
       expect(get.mock.calls.filter(([url]) => url === "/api/cv-generator/generated/77/docx")).toHaveLength(1);
     });
+  });
+});
+
+describe("DlReviewPanel — odrzucenie z uzasadnieniem i rozmowa u tego managera (20.10.2026)", () => {
+  const INTERVIEWS = [
+    {
+      job_id: 501,
+      job_title: "PL - Rating & Limit Management Unit",
+      interview_at: "2026-08-21T10:00:00Z",
+      latest_stage: "Rozmowa u klienta",
+      same_hiring_manager: true,
+    },
+    {
+      job_id: 502,
+      job_title: "SD Collateral - IT Operations Midrange",
+      interview_at: "2026-08-19T10:00:00Z",
+      latest_stage: "Odrzucony",
+      same_hiring_manager: false,
+    },
+  ];
+  const REASONS = [
+    { id: "5", label: "Za wysoka stawka", applies_to: ["rejected"], disqualifies_person: false },
+    { id: "8", name: "Inne (rejected)", label: "Inne", applies_to: ["rejected"], disqualifies_person: false },
+    {
+      id: "12",
+      name: "hm_already_interviewed",
+      label: "Już po rozmowie u tego hiring managera",
+      applies_to: ["rejected"],
+      disqualifies_person: false,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead" } } as never);
+    renderDocxSafely.mockResolvedValue(undefined);
+    post.mockResolvedValue({ data: {} });
+    loadJobRejectionReasons.mockResolvedValue(REASONS);
+  });
+
+  it("„Inne” wymaga opisu, a opis jedzie jako notatka ruchu", async () => {
+    mockApi();
+    renderPanel();
+    await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
+    const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
+    const confirm = within(group).getByRole("button", { name: /Potwierdź odrzucenie/ });
+    await userEvent.selectOptions(await within(group).findByRole("combobox"), "8");
+    expect(confirm).toBeDisabled();
+    await userEvent.type(within(group).getByLabelText(/Opisz powód/), "Klient zamknął budżet.");
+    expect(confirm).toBeEnabled();
+    await userEvent.click(confirm);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({ rejection_reason_id: 8, notes: "Klient zamknął budżet." }),
+      ),
+    );
+  });
+
+  it("zwykły powód: opis opcjonalny, bez opisu nie ma notatki", async () => {
+    mockApi();
+    renderPanel();
+    await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
+    const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
+    await userEvent.selectOptions(await within(group).findByRole("combobox"), "5");
+    expect(within(group).getByLabelText(/Opis powodu \(opcjonalnie\)/)).toBeTruthy();
+    await userEvent.click(within(group).getByRole("button", { name: /Potwierdź odrzucenie/ }));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(post.mock.calls[0][1].notes).toBeUndefined();
+  });
+
+  it("„Już po rozmowie…”: wybór rozmowy z listy, notatka z tytułem i datą", async () => {
+    mockApi({ context: { ...CONTEXT, earlier_interviews: INTERVIEWS } });
+    renderPanel();
+    await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
+    const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
+    const confirm = within(group).getByRole("button", { name: /Potwierdź odrzucenie/ });
+    await userEvent.selectOptions(await within(group).findByRole("combobox"), "12");
+    const list = within(group).getByTestId("dl-reject-interviews");
+    expect(confirm).toBeDisabled();
+    await userEvent.click(within(list).getByText("SD Collateral - IT Operations Midrange"));
+    await userEvent.type(within(group).getByLabelText(/Dopisek/), "manager pamięta ją z sierpnia");
+    await userEvent.click(confirm);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({
+          rejection_reason_id: 12,
+          notes: "SD Collateral - IT Operations Midrange · rozmowa 19.08.2026 — manager pamięta ją z sierpnia",
+        }),
+      ),
+    );
+  });
+
+  it("„Poza NEXUSEM” wymaga opisu rozmowy", async () => {
+    mockApi({ context: { ...CONTEXT, earlier_interviews: INTERVIEWS } });
+    renderPanel();
+    await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
+    const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
+    const confirm = within(group).getByRole("button", { name: /Potwierdź odrzucenie/ });
+    await userEvent.selectOptions(await within(group).findByRole("combobox"), "12");
+    await userEvent.click(within(group).getByText("Poza NEXUSEM / nie ma na liście"));
+    expect(confirm).toBeDisabled();
+    await userEvent.type(within(group).getByLabelText(/Na jakiej rozmowie i kiedy/), "Teams 02.10, z Traffita");
+    expect(confirm).toBeEnabled();
+  });
+
+  it("ostrzeżenie o tym samym managerze: „Odrzuć z tym powodem” wybiera powód i rozmowę", async () => {
+    mockApi({
+      context: { ...CONTEXT, hiring_manager_name: "Anna Manager", earlier_interviews: INTERVIEWS },
+    });
+    renderPanel();
+    const notice = await screen.findByTestId("dl-review-same-manager");
+    expect(notice).toHaveTextContent("hiring managera tej rekrutacji (Anna Manager)");
+    expect(notice).toHaveTextContent("PL - Rating & Limit Management Unit");
+    // Rozmowa u innego managera tego klienta nie jest powodem do ostrzeżenia.
+    expect(notice).not.toHaveTextContent("SD Collateral");
+    await userEvent.click(within(notice).getByRole("button", { name: "Odrzuć z tym powodem" }));
+    const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
+    await waitFor(() => expect(within(group).getByRole("combobox")).toHaveValue("12"));
+    const confirm = within(group).getByRole("button", { name: /Potwierdź odrzucenie/ });
+    expect(confirm).toBeEnabled();
+    await userEvent.click(confirm);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({
+          rejection_reason_id: 12,
+          notes: "PL - Rating & Limit Management Unit · rozmowa 21.08.2026",
+        }),
+      ),
+    );
+  });
+
+  it("„Wiem — oceniam dalej” chowa ostrzeżenie; bez rozmowy u tego managera go nie ma", async () => {
+    mockApi({ context: { ...CONTEXT, earlier_interviews: INTERVIEWS } });
+    const { view } = renderPanel();
+    const notice = await screen.findByTestId("dl-review-same-manager");
+    await userEvent.click(within(notice).getByRole("button", { name: "Wiem — oceniam dalej" }));
+    expect(screen.queryByTestId("dl-review-same-manager")).toBeNull();
+    view.unmount();
+
+    mockApi({ context: { ...CONTEXT, earlier_interviews: [INTERVIEWS[1]] } });
+    renderPanel();
+    await screen.findByText("Kraków");
+    expect(screen.queryByTestId("dl-review-same-manager")).toBeNull();
   });
 });

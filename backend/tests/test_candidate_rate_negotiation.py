@@ -193,6 +193,53 @@ async def test_raise_client_writes_client_rate_with_audit(app_client: AsyncClien
     assert bad.status_code == 422
 
 
+async def test_raise_client_is_refused_after_an_order(app_client: AsyncClient):
+    """Po zamówieniu stawkę do klienta zmienia się w zamówieniu (20.10.2026)."""
+    from datetime import date
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
+    from app.models.job import Job
+
+    p = await _open_case(app_client)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, p["job_id"])
+        contract = Contract(
+            candidate_id=p["cand_id"],
+            client_id=job.client_id,
+            job_id=p["job_id"],
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=date(2033, 11, 1),
+            rate_client=Decimal("150"),
+            rate_unit=RateUnit.hourly,
+        )
+        db.add(contract)
+        await db.flush()
+        db.add(
+            ClientOrder(
+                client_id=job.client_id,
+                contract_id=contract.id,
+                job_id=p["job_id"],
+                title="Zamówienie negocjacji",
+                status=ClientOrderStatus.active,
+                start_date=date(2033, 11, 1),
+                rate_client=Decimal("150"),
+                rate_unit=RateUnit.hourly,
+            )
+        )
+        await db.commit()
+    res = await app_client.post(
+        f"{URL}/{p['change_id']}/decision",
+        headers=p["dl_h"],
+        json={"decision": "raise_client", "client_rate": {"amount": "170"}},
+    )
+    assert res.status_code == 409, res.text
+    assert "zmień w zamówieniu" in res.json()["detail"]
+    _expected, client = await _stage_rate(p)
+    assert client == Decimal("150")
+
+
 async def test_withdrew_closes_with_withdraw_decision(app_client: AsyncClient):
     p = await _open_case(app_client)
     res = await app_client.post(

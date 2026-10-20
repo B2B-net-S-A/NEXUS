@@ -8610,6 +8610,25 @@ SELECT 'job', id, 'archived',
     "CROSS JOIN (VALUES ('rejected'), ('withdrawn')) AS c(cat) "
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
+    # 0484 — jednorazowo: powód „Już po rozmowie u tego hiring managera”
+    # w każdym szablonie (tylko odrzucenie), tuż przed „Inne”. Marker w tym
+    # samym statemencie, jak 0442. Lustro migracji (pilnuje
+    # `test_hm_interviewed_rejection_reason.py`).
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('hm_interviewed_rejection_reason_seeded', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "INSERT INTO rejection_reasons "
+    '(template_id, name, category, "order", active, disqualifies_person, '
+    "external_source, created_at, updated_at) "
+    "SELECT t.id, 'hm_already_interviewed', 'rejected'::terminaltype, "
+    "COALESCE((SELECT GREATEST(r.\"order\" - 1, 0) FROM rejection_reasons r "
+    "WHERE r.template_id = t.id AND r.category::text = 'rejected' "
+    "AND r.name = 'Inne (rejected)' LIMIT 1), 99), "
+    "TRUE, FALSE, 'manual', NOW(), NOW() "
+    "FROM pipeline_templates t "
+    "WHERE EXISTS (SELECT 1 FROM marker) "
+    "ON CONFLICT (template_id, name, category) DO NOTHING",
     # 0452: „Pracuje u nas” tylko z umowy (decyzja Artura 17.10.2026) —
     # ręczne wpisy `current_employment` zdjęte raz, z powodem (wiersze zostają
     # w historii). Lustro migracji.

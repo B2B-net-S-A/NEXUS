@@ -192,6 +192,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `nastepna-osoba-po-odrzuceniu.md` — Po odrzuceniu z panelu osoby — od razu następna osoba (13.10.2026) · kolejka „‹ ›” = kolumna + filtr „Kto dodał”, pasek „Odrzucono · Pokaż”, „Wróć do kolejki”
 - `nordea-akceptacja-dl-przed-cpro.md` — Nordea: do kolejki Cpro dopiero po akceptacji Delivery Leada (13.10.2026) · „Akceptuj — do Cpro” ze stawką, bramka serwera dla rekrutera, dzwonek od Cpro po akceptacji
 - `nowe-cv-w-rekrutacji.md` — Nowe CV w rekrutacji — kafelek w panelu osoby i „Dodaj do rekrutacji z tym CV” (13.10.2026) · „Wgraj nowe CV” w panelu osoby, trasa `…/cv/original/upload`, „Użyj w tej rekrutacji”, „Dodaj z CV” przy osobie z bazy
+- `odrzucenie-z-uzasadnieniem.md` — Odrzucenie z uzasadnieniem i rozmowa u tego samego managera (20.10.2026)
 - `pipeline-rekrutacji-bramka-ruchu-przekazanie-cv.md` — Pipeline rekrutacji — bramka ruchu, przekazanie CV, spójność ekranów (11.09.2026)
 - `pipeline-v4-6-kolumn-blokada-12-h-przeglad-dl.md` — Pipeline v4 — 6 kolumn, blokada 12 h, przegląd DL (0352, 23.09.2026)
 - `podobne-rekrutacje-przepiecia-i-status-requestu.md` — Podobne rekrutacje, przepięcia i status requestu (0341, 22.09.2026)
@@ -207,6 +208,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `rekrutacja-wersja-3-jedna-tabela-panel-osoby.md` — Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 - `role-przy-rekrutacji-delivery-lead-rekruter.md` — Role przy rekrutacji: Delivery Lead · Rekruter · Kategoria; propozycje automatu akceptuje Head of Recruitment (0409, 02.10.2026)
 - `sciezka-kandydata-przekazania-zweryfikowany-jeden.md` — Ścieżka kandydata: przekazania, „Zweryfikowany”, jeden panel osoby (04.10.2026)
+- `stawka-do-klienta-po-wysylce.md` — Zmiana stawki do klienta po wysyłce CV (20.10.2026)
 - `twoje-cv-w-drodze-na-pulpicie-domyslnie-u-kazdego-z.md` — „Twoje CV w drodze” na pulpicie — domyślnie u każdego, z „Usuń z pulpitu” (02.10.2026)
 - `zamkniecie-rekrutacji-osoby-w-toku.md` — Zamknięcie rekrutacji ostrzega o osobach w toku (13.10.2026) · 409 `active_cards_warning`, `acknowledge_active_cards`, trzy okna zamykania
 - `zatrudniony-kto-i-co-jest-potrzebne.md` — „Zatrudniony”: kto przesuwa i co jest potrzebne (20.10.2026)

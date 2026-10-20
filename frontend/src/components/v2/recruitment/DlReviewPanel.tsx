@@ -93,7 +93,20 @@ import { invalidateAfterPipelineVersionConflict } from "@/lib/pipeline-version-c
 import type { PipelineMovePayload } from "@/lib/pipeline-move-core";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
-import { loadJobRejectionReasons, WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
+import {
+  HM_ALREADY_INTERVIEWED_REASON,
+  loadJobRejectionReasons,
+  reasonNeedsDescription,
+  WORK_MODE_MISMATCH_REASON,
+} from "@/lib/rejection-reasons";
+import {
+  EMPTY_REJECTION_DETAILS,
+  RejectionDetails,
+  rejectionDetailsReady,
+  rejectionNotes,
+  SameManagerNotice,
+  type RejectionDetailsValue,
+} from "@/components/v2/recruitment/dl-review/RejectionDetails";
 import { RejectionWorkModeField } from "@/components/v2/modals/RejectionWorkModeField";
 import {
   RejectionEmailField,
@@ -366,6 +379,10 @@ export function DlReviewBody({
   const [rejecting, setRejecting] = useState(false);
   const [reasonId, setReasonId] = useState("");
   const [freeReason, setFreeReason] = useState("");
+  // 20.10.2026: opis powodu i rozmowa u tego samego managera (wariant A+B+C).
+  const [details, setDetails] = useState<RejectionDetailsValue>(EMPTY_REJECTION_DETAILS);
+  const [sameManagerSeen, setSameManagerSeen] = useState(false);
+  const [preferHmReason, setPreferHmReason] = useState(false);
   // „Nie akceptuje trybu pracy” (14.10.2026): to samo pytanie co w oknie
   // odrzucenia — domyślnie „Tylko zdalnie” z zapisem na profilu.
   const [officeDays, setOfficeDays] = useState(0);
@@ -399,6 +416,9 @@ export function DlReviewBody({
     setRejecting(false);
     setReasonId("");
     setFreeReason("");
+    setDetails(EMPTY_REJECTION_DETAILS);
+    setSameManagerSeen(false);
+    setPreferHmReason(false);
     setSendEmail(false);
     setEmailState(EMAIL_STATE_IDLE);
     setNote("");
@@ -474,8 +494,22 @@ export function DlReviewBody({
     () => (reasons.data ?? []).filter((r) => r.applies_to.includes("rejected")),
     [reasons.data],
   );
-  const workModeReason =
-    rejectedReasons.find((r) => r.id === reasonId)?.name === WORK_MODE_MISMATCH_REASON;
+  const chosenReason = rejectedReasons.find((r) => r.id === reasonId);
+  const workModeReason = chosenReason?.name === WORK_MODE_MISMATCH_REASON;
+  const hmReason = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
+  const descriptionRequired = reasonNeedsDescription(chosenReason);
+  const earlierInterviews = useMemo(
+    () => context.data?.earlier_interviews ?? [],
+    [context.data],
+  );
+  // „Odrzuć z tym powodem” z ostrzeżenia: powody wczytują się dopiero po
+  // otwarciu formularza, więc wybór powodu czeka na listę.
+  useEffect(() => {
+    if (!preferHmReason || !reasons.isSuccess) return;
+    setPreferHmReason(false);
+    const hm = rejectedReasons.find((r) => r.name === HM_ALREADY_INTERVIEWED_REASON);
+    if (hm) setReasonId(hm.id);
+  }, [preferHmReason, reasons.isSuccess, rejectedReasons]);
   const workModeJob = useRejectionWorkModeJob(jobId, rejecting);
   const profileWorkMode = useRejectionProfileWorkMode(task.candidate_id, rejecting);
 
@@ -561,6 +595,10 @@ export function DlReviewBody({
         ended_by: "delivery_lead",
         rejection_reason_id: reasonId ? Number(reasonId) : undefined,
         rejection_reason: !reasonId && freeReason.trim() ? freeReason.trim() : undefined,
+        notes:
+          (reasonId
+            ? rejectionNotes(details, { hmReason, interviews: earlierInterviews })
+            : "") || undefined,
         send_rejection_email: emailFlag,
         rejection_email_subject: emailFlag ? emailState.text?.subject : undefined,
         rejection_email_body: emailFlag ? emailState.text?.body : undefined,
@@ -629,6 +667,12 @@ export function DlReviewBody({
   const rejectReady =
     task.rejected_stage_def_id != null &&
     (reasonId !== "" || (rejectedReasons.length === 0 && freeReason.trim() !== "")) &&
+    (reasonId === "" ||
+      rejectionDetailsReady(details, {
+        required: descriptionRequired,
+        hmReason,
+        interviews: earlierInterviews,
+      })) &&
     !(sendEmail && emailState.invalid);
   const sendReady = canSend && clientRate != null && task.target_stage_def_id != null;
   const canReturn = (canSend || canReject) && task.return_stage_def_id != null;
@@ -897,6 +941,20 @@ export function DlReviewBody({
               </span>
             </p>
           ) : null}
+          {!sameManagerSeen && !rejecting ? (
+            <SameManagerNotice
+              interviews={earlierInterviews}
+              managerName={context.data?.hiring_manager_name}
+              canReject={canReject && task.rejected_stage_def_id != null}
+              onReject={() => {
+                const first = earlierInterviews.find((i) => i.same_hiring_manager);
+                setDetails({ description: "", interviewJobId: first ? String(first.job_id) : "" });
+                setPreferHmReason(true);
+                setRejecting(true);
+              }}
+              onDismiss={() => setSameManagerSeen(true)}
+            />
+          ) : null}
           {/* `scroll-mb-44`: po przewinięciu element staje nad przyklejoną
               stopką z przyciskami, nie pod nią. */}
           {warning ? (
@@ -961,6 +1019,15 @@ export function DlReviewBody({
                   />
                 </label>
               )}
+              {reasonId ? (
+                <RejectionDetails
+                  required={descriptionRequired}
+                  hmReason={hmReason}
+                  interviews={earlierInterviews}
+                  value={details}
+                  onChange={setDetails}
+                />
+              ) : null}
               {workModeReason ? (
                 <RejectionWorkModeField
                   job={workModeJob}

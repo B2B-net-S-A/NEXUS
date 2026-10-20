@@ -871,3 +871,64 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
     expect(mapped.name).toBe("work_mode_mismatch");
   });
 });
+
+describe("RejectionV2 — opis przy powodzie, który sam nic nie mówi (20.10.2026)", () => {
+  const vague = [
+    { id: "7", label: "Za wysoka stawka", applies_to: ["rejected" as const] },
+    { id: "8", label: "Inne", name: "Inne (rejected)", applies_to: ["rejected" as const] },
+    {
+      id: "9",
+      label: "Już po rozmowie u tego hiring managera",
+      name: "hm_already_interviewed",
+      applies_to: ["rejected" as const],
+    },
+  ];
+
+  function renderVague(onConfirm = vi.fn()) {
+    renderUi(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={vague}
+        previousStageCategory="internal"
+        previousStage="verified"
+        onConfirm={onConfirm}
+      />,
+    );
+    return onConfirm;
+  }
+
+  it("„Inne” bez opisu blokuje Potwierdź, opis odblokowuje i idzie jako notatka", () => {
+    const onConfirm = renderVague();
+    fireEvent.click(screen.getByText("Inne"));
+    expect(screen.getByText("Opisz powód")).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "Potwierdź" });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "   " } });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Klient zamknął budżet na ten zespół." },
+    });
+    fireEvent.click(confirm);
+    expect(onConfirm.mock.calls[0][0]).toBe("8");
+    expect(onConfirm.mock.calls[0][1]).toBe("Klient zamknął budżet na ten zespół.");
+  });
+
+  it("„Już po rozmowie u tego hiring managera” pyta, na jakiej rozmowie", () => {
+    renderVague();
+    fireEvent.click(screen.getByText("Już po rozmowie u tego hiring managera"));
+    expect(screen.getByText("Na jakiej rozmowie i kiedy?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Potwierdź" })).toBeDisabled();
+  });
+
+  it("zwykły powód zostawia notatkę opcjonalną", () => {
+    const onConfirm = renderVague();
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    expect(screen.getByText("Notatka (opcjonalnie)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+});

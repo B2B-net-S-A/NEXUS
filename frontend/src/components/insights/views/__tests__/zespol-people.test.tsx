@@ -10,6 +10,8 @@
  *    z plakietką „były pracownik”, wspólnie dla obu zakładek.
  * 3. **Klik w nagłówek sortuje**, `aria-sort` mówi, jak; wiersze zbiorcze
  *    zostają pod listą osób.
+ * 4. **Aktywny rekruter bez ruchu ma wiersz z zerami** (20.10.2026) — nowa
+ *    osoba nie może wyglądać, jakby jej nie było w zespole.
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -195,6 +197,41 @@ describe("Zespół → Ludzie", () => {
     rows = bodyRows(table);
     expect(rows[0]).toContain("Anna Test");
     expect(rows[2]).toContain("Byli pracownicy");
+  });
+
+  it("aktywny rekruter bez ruchu stoi z zerami, inna rola bez ruchu idzie do dopisku", async () => {
+    const zero = {
+      verifications: 0,
+      recommendations: 0,
+      interviews: 0,
+      placements: 0,
+      verifications_per_workday: 0,
+    };
+    const people = {
+      ...PEOPLE,
+      rows: [
+        ...PEOPLE.rows,
+        personRow(5, "Nowa Rekruterka", zero),
+        personRow(6, "Cichy Lead", { ...zero, role: "delivery_lead" }),
+      ],
+    };
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/insights/team/people") return Promise.resolve({ data: people });
+      if (url === "/api/insights/performance-flags") {
+        return Promise.resolve({ data: { flags_by_user: {}, types: [] } });
+      }
+      return new Promise(() => {});
+    });
+    const table = await peopleTable();
+    const row = within(table).getByText("Nowa Rekruterka").closest("tr")!;
+    expect(within(row).getAllByRole("cell").map((cell) => cell.textContent).slice(1, 5)).toEqual([
+      "0",
+      "0",
+      "0",
+      "0",
+    ]);
+    expect(within(table).queryByText("Cichy Lead")).toBeNull();
+    expect(screen.getByText(/Pominięto osoby bez ruchu w tym okresie: 1\./)).toBeTruthy();
   });
 
   it("zakładka Delivery Leadzi: ten sam przełącznik i wiersz zbiorczy", async () => {

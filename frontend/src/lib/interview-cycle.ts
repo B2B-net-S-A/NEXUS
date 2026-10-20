@@ -135,6 +135,8 @@ export interface PairInfo {
   candidate_name: string | null;
   /** Do zaproszenia na prep; `null` bez odczytu kandydatów. */
   candidate_email: string | null;
+  /** Do umawiania terminów (nagłówek panelu); `null` bez odczytu kandydatów, brak = starszy serwer. */
+  candidate_phone?: string | null;
   job_id: number;
   job_title: string | null;
   client_id: number | null;
@@ -810,6 +812,7 @@ function pairOf(p: PairInfo): PairInfo {
     candidate_id: p.candidate_id,
     candidate_name: p.candidate_name,
     candidate_email: p.candidate_email,
+    candidate_phone: p.candidate_phone,
     job_id: p.job_id,
     job_title: p.job_title,
     client_id: p.client_id,

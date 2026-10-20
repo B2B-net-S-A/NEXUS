@@ -74,3 +74,7 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
 - **Od 20.10.2026 rozmowę zakłada też ruch karty („Kiedy rozmowa?”) i zapis
   pytań bez terminu**, a bramka przed „Umową” obejmuje każdą parę z etapem
   rozmowy — `pytania-z-rozmowy-bez-terminu.md`.
+- **Telefon i e-mail kandydata w nagłówku panelu** (wariant C z makiet,
+  20.10.2026): `candidate_phone` obok `candidate_email` w `PairInfo`, za tą
+  samą bramką odczytu kandydatów; numer = `tel:`, e-mail = `mailto:`,
+  „Kopiuj oba”. Bez obu linii nie ma (`CandidateContactLine`).

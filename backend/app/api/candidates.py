@@ -216,8 +216,9 @@ from app.api.recruitment_access import (
     job_read_scope_clause,
 )
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
-from app.services import candidate_audit, candidate_hard_delete
+from app.services import candidate_audit, candidate_hard_delete, client_rate_correction
 from app.services.candidate_rate_from import declared_rate_from, rate_summary
+from app.services.stage_client_rate import latest_client_rates
 from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
     reject_retired_candidate_rate,
@@ -5806,6 +5807,22 @@ async def set_recruitment_client_rate(
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
     if not await resolve_client_rate_write(db, current_user, job):
         raise client_rate_write_denied()
+    if payload.note and payload.note.strip() and payload.reason is None:
+        raise HTTPException(status_code=422, detail="Wybierz powód zmiany stawki.")
+    # Po zamówieniu stawkę zmienia się w zamówieniu (decyzja Artura 20.10.2026).
+    lock = await client_rate_correction.order_lock(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    if lock is not None:
+        raise HTTPException(
+            status_code=409, detail=client_rate_correction.order_lock_message(lock)
+        )
+    # Stawka pary sprzed zmiany: ruch na kolejny etap zaczyna wiersz bez
+    # stawki, więc „stara” kwota z samego najnowszego wiersza bywa pusta,
+    # choć CV poszło za konkretną cenę.
+    pair_before = (await latest_client_rates(db, [(candidate_id, job_id)])).get(
+        (candidate_id, job_id)
+    )
 
     latest, previous_rate = await update_latest_client_rate(
         db,
@@ -5824,6 +5841,8 @@ async def set_recruitment_client_rate(
         ),
     )
     previous_value, old_unit, old_currency = previous_rate
+    if previous_value is None and pair_before is not None:
+        previous_value, old_unit, old_currency = pair_before
     old_value = float(previous_value) if previous_value is not None else None
 
     new_value = (
@@ -5832,24 +5851,44 @@ async def set_recruitment_client_rate(
         else None
     )
 
+    details: dict[str, Any] = {
+        "job_id": job_id,
+        "stage_id": latest.id,
+        "old_client_rate": old_value,
+        "old_client_rate_unit": getattr(old_unit, "value", old_unit),
+        "old_client_rate_currency": old_currency,
+        "new_client_rate": new_value,
+        "new_client_rate_unit": getattr(
+            latest.client_rate_unit, "value", latest.client_rate_unit
+        ),
+        "new_client_rate_currency": latest.client_rate_currency,
+    }
+    if payload.reason is not None:
+        details["reason"] = payload.reason
+        rate_old = client_rate_correction.rate_from_details(details, "old")
+        rate_new = client_rate_correction.rate_from_details(details, "new")
+        note = client_rate_correction.record_note(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            author_id=current_user.id,
+            content=client_rate_correction.note_content(
+                rate_old, rate_new, payload.reason, payload.note
+            ),
+        )
+        await db.flush()
+        details["note_id"] = note.id
+
     # Immutable audit trail (old→new). Kept out of the candidate timeline feed
     # (`_HIDDEN_TIMELINE_ACTIONS`) because that feed is visible to non-finance
     # roles without financial redaction — the rate value must not leak there.
+    # Powód to kod, słowa DL-a leżą w notatce `dl_rate` (`note_id`).
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.CLIENT_RATE_CHANGED,
         user_id=current_user.id,
         entity_id=candidate_id,
-        details={
-            "job_id": job_id,
-            "stage_id": latest.id,
-            "old_client_rate": old_value,
-            "old_client_rate_unit": old_unit,
-            "old_client_rate_currency": old_currency,
-            "new_client_rate": new_value,
-            "new_client_rate_unit": latest.client_rate_unit,
-            "new_client_rate_currency": latest.client_rate_currency,
-        },
+        details=details,
     )
 
     await db.commit()
@@ -5868,6 +5907,46 @@ async def set_recruitment_client_rate(
             else None
         ),
     }
+
+
+@router.get("/{candidate_id}/recruitments/{job_id}/client-rate/history")
+async def get_recruitment_client_rate_history(
+    candidate_id: DbIdPath,
+    job_id: DbIdPath,
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Stawka do klienta pary: za ile poszło CV, zmiany po wysyłce i blokada.
+
+    GET /api/candidates/{candidate_id}/recruitments/{job_id}/client-rate/history
+
+    Te same osoby co stawkę do klienta (``user_can_view_client_rate``);
+    rekruter dostaje 403. ``order_lock`` ≠ null = para ma zamówienie, a stawkę
+    zmienia się w nim (decyzja Artura 20.10.2026). ``can_write`` liczy ta sama
+    funkcja co bramka ``PATCH …/client-rate`` i jest fałszem przy blokadzie.
+    """
+    if not user_can_view_client_rate(current_user):
+        raise HTTPException(
+            status_code=403, detail="Stawki do klienta nie widzi ta rola."
+        )
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    payload = await client_rate_correction.history(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    lock = await client_rate_correction.order_lock(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    payload["order_lock"] = lock
+    payload["can_write"] = lock is None and await resolve_client_rate_write(
+        db, current_user, job
+    )
+    payload["reasons"] = [
+        {"value": value, "label": label}
+        for value, label in client_rate_correction.REASONS.items()
+    ]
+    return payload
 
 
 @router.patch("/{candidate_id}/recruitments/{job_id}/expected-rate")
