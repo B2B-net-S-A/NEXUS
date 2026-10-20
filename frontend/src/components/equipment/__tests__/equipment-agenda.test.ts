@@ -19,6 +19,7 @@ import {
   kitByKey,
   kitForTask,
   matchesAgendaFilter,
+  modelKey,
   pickKit,
   stockCoverage,
   taskContext,
@@ -34,6 +35,9 @@ const MODELS: Record<string, { id: number; category: EquipmentCategory; name: st
   headset: { id: 6, category: "akcesorium", name: "Słuchawki Jabra Evolve2" },
   cable: { id: 7, category: "akcesorium", name: "Kabel USB-C" },
   monitor: { id: 8, category: "monitor", name: "Dell P2422H" },
+  // Import Exceli recepcji założył ten sam model kilka razy innym zapisem (prod 20.10).
+  vostroUpper: { id: 9, category: "laptop", name: "Laptop DELL Vostro 3530" },
+  vostroTitle: { id: 10, category: "laptop", name: "Laptop Dell  Vostro 3530 " },
 };
 
 let nextId = 100;
@@ -100,6 +104,28 @@ describe("widok „Modele” — wolne sztuki zwinięte po modelu", () => {
   it("„095” jest przed „148” (porównanie liczbowe, nie znak po znaku)", () => {
     const [group] = groupByModel([item("vostro", "148"), item("vostro", "095"), item("vostro", "1000")]);
     expect(group.items.map((i) => i.inventory_number)).toEqual(["095", "148", "1000"]);
+  });
+
+  it("ten sam model różnym zapisem (DELL / Dell, spacje) to jedna grupa z najczęstszą etykietą", () => {
+    const groups = groupByModel([
+      item("vostroTitle", "201"),
+      item("vostroUpper", "105"),
+      item("vostroUpper", "102"),
+      item("vostroTitle", "150"),
+      item("vostroUpper", "110"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].model.name).toBe("Laptop DELL Vostro 3530");
+    expect(groups[0].items.map((i) => i.inventory_number)).toEqual(["102", "105", "110", "150", "201"]);
+    expect(modelKey(groups[0].items[4])).toBe(groups[0].key);
+  });
+
+  it("ta sama nazwa w innej kategorii to osobna grupa", () => {
+    const groups = groupByModel([
+      item("vostroUpper", "1"),
+      item("vostroUpper", "2", { category: "inne" }),
+    ]);
+    expect(groups).toHaveLength(2);
   });
 
   it("pusta lista = brak grup", () => {

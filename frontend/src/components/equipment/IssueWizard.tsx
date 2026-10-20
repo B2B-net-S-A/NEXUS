@@ -35,6 +35,7 @@ import {
   ISSUE_KITS,
   formatPln,
   groupByModel,
+  modelKey,
   isNoValueCategory,
   issueTotal,
   itemIdentifier,
@@ -442,9 +443,9 @@ export function IssueWizard({
               <ul className="max-h-[42dvh] divide-y divide-border overflow-y-auto rounded-lg border border-border">
                 {groups.map((group) => (
                   <ModelRow
-                    key={group.model.id}
+                    key={group.key}
                     group={group}
-                    inProtocol={lines.some((line) => line.item.model.id === group.model.id)}
+                    inProtocol={lines.some((line) => modelKey(line.item) === group.key)}
                     onAdd={(item) => add([item])}
                   />
                 ))}
@@ -618,7 +619,8 @@ function ModelRow({
 }) {
   const [pickedId, setPickedId] = useState<number | null>(null);
   const picked = group.items.find((item) => item.id === pickedId) ?? group.items[0];
-  const price = group.model.price_pln;
+  // Cena z modelu wybranej sztuki — grupa może łączyć modele różnie zapisane w imporcie.
+  const price = picked.model.price_pln;
   const facts = [
     countPl(group.items.length, "wolna", "wolne", "wolnych"),
     group.locations[0],

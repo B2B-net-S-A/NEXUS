@@ -160,7 +160,12 @@ logika modułu bez zmian).
   wydania `oczekuje` albo `podpisany`). Widok „Modele” (`?view=modele`): wydane
   i serwis sztukami, na stanie zwinięte po modelu; „Wydaj” bierze pierwszą wolną
   sztukę po numerze ewidencyjnym (porównanie liczbowe: 095 < 148), numer zmienia
-  się w oknie wydania. Ekran czyta do 500 pozycji naraz (`limit`), więcej =
+  się w oknie wydania. Grupa modelu = kategoria + nazwa bez wielkości liter
+  i nadmiarowych spacji (`modelKey`): import Exceli założył ten sam model kilka
+  razy („Laptop DELL Vostro 3530” i „Laptop Dell Vostro 3530”, prod 20.10), etykieta
+  z najczęstszego zapisu, cena z modelu wybranej sztuki. To samo w „Wydaj sprzęt”
+  krok 2. Sekcje „Wydane” i „Wycofane i zgubione” pokazują 5 wierszy
+  i „Pokaż wszystkie”. Ekran czyta do 500 pozycji naraz (`limit`), więcej =
   podpowiedź „zawęź filtrem”. Rzadkie zakładki (Wzory, Cennik, Intune,
   Akademia) są pod „Więcej”; aktywna rzadka zakładka pokazuje się w pasku.
 - **Akcje wiersza.** Protokół `oczekuje` → „Wyślij link” (pyta: nowy link
@@ -171,7 +176,12 @@ logika modułu bez zmian).
   terminu na końcu), chipy rodzaju, jedna główna akcja na zadanie, „Zrobione”
   i „Nie dotyczy” w ⋯. Zadanie podpisu niesie stan i skład protokołu
   (`protocol.status`, `protocol.categories`): podpisany = „Potwierdź”, inaczej
-  „Wyślij link ponownie”. „Ten tydzień w recepcji” = otwarte zadania pon–pt,
+  „Wyślij link ponownie”. Tytuł zadania podpisu = „Podpis protokołu: <osoba>”;
+  numer protokołu · klient · „wysłany DD.MM” (`protocol.client_name`,
+  `protocol.link_sent_on` = dzień ostatniego linku) idą do drugiej linii, bo przy
+  1280 z paskiem bocznym numer ucinał nazwisko (20.10). Starsze zadania mają
+  numer w zapisanym tytule — front składa tytuł sam (`taskTitle`). Ikony składu
+  schodzą pod tekst, gdy w wierszu brak miejsca. „Ten tydzień w recepcji” = otwarte zadania pon–pt,
   zaległe liczone do dziś; w weekend nadchodzący tydzień.
 - **„Przypomnij” o zwrocie** (`POST /tasks/{id}/remind`, uprawnienie „Sprzęt”):
   tylko otwarte zadanie `zwrot` (inne = 409). Konto NEXUSA dostaje dzwonek

@@ -167,12 +167,17 @@ export interface EquipmentTask {
   due_on: string | null;
   overdue_days: number;
   holder: { kind: EquipmentHolderKind | null; id: number | null; name: string | null };
-  /** `categories` = skład protokołu (ikony w agendzie „Do zrobienia”). */
+  /**
+   * `categories` = skład protokołu (ikony w agendzie „Do zrobienia”);
+   * `client_name` i `link_sent_on` (dzień ostatniego linku) — druga linia zadania podpisu.
+   */
   protocol: {
     id: number;
     number: string;
     status?: ProtocolStatus;
     categories?: EquipmentCategory[];
+    client_name?: string | null;
+    link_sent_on?: string | null;
   } | null;
   details: Record<string, unknown>;
 }

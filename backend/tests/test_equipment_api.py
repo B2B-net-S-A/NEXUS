@@ -891,6 +891,58 @@ async def test_paper_signature_is_confirmed_by_a_person(
     assert task.status == "zrobione"
 
 
+async def test_signature_task_title_names_the_person_and_row_carries_context(
+    app_client, modules_on, people
+) -> None:
+    """Prod 20.10: „Podpis protokołu PZO/2026/10/001: …” ucinał nazwisko przy 1280.
+
+    Tytuł = osoba; numer, klient i dzień wysłania linku idą do drugiej linii.
+    """
+    headers = _headers(people["reception"])
+    ids = await _contract(start=business_today() - timedelta(days=30), end=None)
+    try:
+        model = await _model(app_client, headers, "monitor", "700.00")
+        item = await _item(app_client, headers, model["id"])
+        issued = await app_client.post(
+            "/api/equipment/issue",
+            json={
+                "holder_kind": "contract",
+                "holder_id": ids["id"],
+                "lines": [{"item_id": item["id"]}],
+            },
+            headers=headers,
+        )
+        assert issued.status_code == 201, issued.text
+        protocol = issued.json()["protocol"]
+
+        def signature_row(payload: dict) -> dict:
+            return next(
+                t
+                for t in payload["items"]
+                if t["protocol"] and t["protocol"]["id"] == protocol["id"]
+            )
+
+        before = signature_row(
+            (await app_client.get("/api/equipment/tasks", headers=headers)).json()
+        )
+        assert before["title"] == f"Podpis protokołu: {protocol['holder']['name']}"
+        assert protocol["number"] not in before["title"]
+        assert before["protocol"]["number"] == protocol["number"]
+        assert before["protocol"]["client_name"].startswith("Klient Fikcyjny")
+        assert before["protocol"]["link_sent_on"] is None
+
+        link = await app_client.post(
+            f"/api/equipment/protocols/{protocol['id']}/link", headers=headers
+        )
+        assert link.status_code == 200, link.text
+        after = signature_row(
+            (await app_client.get("/api/equipment/tasks", headers=headers)).json()
+        )
+        assert after["protocol"]["link_sent_on"] == business_today().isoformat()
+    finally:
+        await _drop_contract(ids)
+
+
 async def test_signed_scan_upload(app_client, modules_on, people) -> None:
     headers = _headers(people["reception"])
     protocol = await _issued_protocol(app_client, people)
