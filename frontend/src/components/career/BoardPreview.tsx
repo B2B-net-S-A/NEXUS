@@ -17,6 +17,11 @@ import {
 
 gsap.registerPlugin(useGSAP);
 
+/** `gsap.from` tylko dla niepustej listy — pusty cel to ostrzeżenie w konsoli. */
+function fromIf(targets: Element[], vars: gsap.TweenVars): void {
+  if (targets.length > 0) gsap.from(targets, vars);
+}
+
 /**
  * Żywy podgląd sceny na tablicy (etap 7, D2 = A, 21.10.2026; prototyp
  * https://claude.ai/artifact/TsUgULCMSSjVTiYWvoGN3b). Najechanie albo fokus na
@@ -331,21 +336,21 @@ export function SceneSketch({
               },
             );
           });
-          gsap.from(q(".kr-bp-dot"), {
+          fromIf(q(".kr-bp-dot"), {
             scale: 0,
             transformOrigin: "50% 50%",
             stagger: 0.07,
             duration: 0.45,
             ease: "back.out(2.4)",
           });
-          gsap.from(q(".kr-bp-label"), {
+          fromIf(q(".kr-bp-label"), {
             opacity: 0,
             y: 6,
             stagger: 0.05,
             duration: 0.35,
             delay: 0.1,
           });
-          gsap.from(q(".kr-bp-bar, .kr-bp-note"), {
+          fromIf(q(".kr-bp-bar, .kr-bp-note"), {
             scaleX: 0,
             transformOrigin: "0% 50%",
             stagger: 0.05,
