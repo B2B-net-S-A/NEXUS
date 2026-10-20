@@ -62,6 +62,28 @@ export interface CareerRecruiterResponse {
   jobs: CareerRecruiterJob[];
 }
 
+/** Klucz filtra kategorii na tablicy — cztery kategorie kompetencji. */
+export type CareerBoardCategory = "development" | "infra" | "qa" | "management";
+
+/** Karta tablicy otwartych rekrutacji (strona główna, etap 6). */
+export interface CareerBoardJob {
+  /** Slug linku prowadzącego rekrutację (D2) — karta prowadzi na `/r/<slug>`. */
+  slug: string;
+  title: string;
+  subtitle: string | null;
+  city: string | null;
+  remote_policy: RemotePolicy | null;
+  category: CareerBoardCategory | null;
+  theme: string;
+  recruiter_first_name: string;
+}
+
+export interface CareerBoardResponse {
+  jobs: CareerBoardJob[];
+  /** Stały link Head of Recruitment dla „Zostaw CV”; `null` = bez przycisku. */
+  cv: { slug: string; first_name: string } | null;
+}
+
 /** Adres API dla odczytu z serwera (RSC, grafiki OG). */
 export function serverApiBase(): string {
   return (

@@ -1,38 +1,29 @@
 import type { Metadata } from "next";
 
-import { TerminalChrome } from "@/components/career/TerminalChrome";
-import { TwoToneTitle } from "@/components/career/CareerHero";
+import { CareerBoardView } from "@/components/career/CareerBoardView";
 import { CareerFooter } from "@/components/career/CareerFooter";
 import { careerHref } from "@/lib/career/host";
+import { fetchCareerBoard } from "@/lib/career/server";
 
 import { careerRequestContext } from "./_context";
 
 export const metadata: Metadata = { title: "Kariera" };
 
+export const dynamic = "force-dynamic";
+
 /**
- * Strona startowa hosta kariery. Nie ma tu listy rekrutacji (każdy rekruter ma
- * własny link) — tylko kierunek, gdzie ich szukać.
+ * Strona startowa hosta kariery: tablica wszystkich otwartych rekrutacji
+ * z opublikowanym opisem (etap 6, decyzja Artura D1 = A, 20.10.2026). Karta
+ * prowadzi na link prowadzącego rekrutację (D2 = A); „Zostaw CV” idzie stałym
+ * linkiem Head of Recruitment. Awaria API ma własny komunikat — nie pustą listę.
  */
 export default async function CareerHome() {
-  const { base, host } = await careerRequestContext();
+  const [{ base, host }, result] = await Promise.all([careerRequestContext(), fetchCareerBoard()]);
   return (
-    <>
-      <TerminalChrome path="~/b2bnetwork/kariera — zsh" />
-      <main className="kr-log">
-        <span>
-          <span className="kr-r" aria-hidden="true">
-            ${" "}
-          </span>
-          cat ~/b2bnetwork/kariera/README
-        </span>
-        <TwoToneTitle className="kr-log-title" first="Rekrutacje IT" second="B2B Network." />
-        <span className="kr-log-text">
-          Tu trafiają kandydaci z linków naszych rekruterów. Otwarte rekrutacje znajdziesz
-          w postach zespołu B2B Network na LinkedInie.
-        </span>
-        <span className="kr-c">{"// zajrzyj na LinkedIn rekruterów B2B Network"}</span>
-      </main>
-      <CareerFooter rodoHref={careerHref(base, { to: "rodo" })} hostLabel={host} />
-    </>
+    <CareerBoardView
+      data={result.ok ? result.data : null}
+      base={base}
+      footer={<CareerFooter rodoHref={careerHref(base, { to: "rodo" })} hostLabel={host} />}
+    />
   );
 }

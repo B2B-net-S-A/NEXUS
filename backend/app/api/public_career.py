@@ -4,6 +4,8 @@ Prefiks ``/api/public/career``:
 
 * ``GET /r/{slug}`` — strona rekrutacji (tylko ZATWIERDZONY opis publiczny);
 * ``GET /p/{slug}`` — stały link rekrutera i jego otwarte rekrutacje;
+* ``GET /jobs`` — tablica wszystkich otwartych rekrutacji (strona główna,
+  etap 6) i link „Zostaw CV”;
 * ``POST /apply`` — formularz (multipart), link po slugu.
 
 Nigdy nie zwracamy nazwy klienta, stawek, budżetu, nazwiska ani kontaktu
@@ -276,6 +278,39 @@ async def get_career_recruiter(
     await _bump_visits(db, link, request)
     _no_cache(response)
     return {"recruiter": recruiter, "jobs": jobs}
+
+
+# Tablica liczy opublikowany opis KAŻDEJ otwartej rekrutacji — 60/min na adres
+# to za mało, żeby chronić bazę przed wieloma odwiedzającymi naraz.
+_BOARD_CACHE_KEY = "career_board:v1"
+_BOARD_TTL_SECONDS = 60
+
+
+@router.get("/jobs")
+@limiter.limit("60/minute")
+async def get_career_board(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Tablica otwartych rekrutacji: karty z linkiem prowadzącego (D2) i stały
+    link Head of Recruitment dla „Zostaw CV” (``cv: None`` = bez CTA)."""
+    from app.core.cache import cache_get, cache_set, cache_single_flight
+    from app.services import career_board
+
+    _no_cache(response)
+    async with cache_single_flight(_BOARD_CACHE_KEY, db=db):
+        cached = await cache_get(_BOARD_CACHE_KEY)
+        if cached is not None:
+            return cached
+        payload = {
+            "jobs": await career_board.board_jobs(db),
+            "cv": await career_board.board_cv_link(db),
+        }
+        await cache_set(
+            _BOARD_CACHE_KEY, payload, _BOARD_TTL_SECONDS, jitter_seconds=10
+        )
+        return payload
 
 
 async def _apply_link(db: AsyncSession, slug: str) -> CandidateInviteLink:
