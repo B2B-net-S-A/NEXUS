@@ -339,6 +339,10 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     description: "Branże, powody odrzucenia i inne wartości list.",
     keywords: "slowniki branze powody taksonomie",
     route: "/settings/dictionaries",
+    // Ukryte 20.10.2026 (decyzja Artura): oba słowniki („Powody odrzucenia”,
+    // „Branża”) nie mają czytelnika poza tym ekranem — powody odrzucenia są
+    // w Procesach rekrutacyjnych (audyt: docs/settings-rejection-reasons-audit.md).
+    hidden: true,
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {

@@ -38,3 +38,7 @@ z numerami problemów). Strona startowa z kafelkami zostaje bez zmian.
 - Tytuł ekranu = `title` z rejestru, jedna nazwa w menu, ścieżce, górnym pasku
   (`BreadcrumbV2`) i nagłówku strony. Karta pod nagłówkiem nie powtarza tytułu —
   zaczyna się od opisu.
+- **„Listy wyboru” ukryte z menu (20.10.2026, decyzja Artura):** słowniki
+  „Powody odrzucenia” i „Branża” nie mają czytelnika poza tym ekranem
+  (`docs/settings-rejection-reasons-audit.md`). Powody odrzucenia edytuje się
+  w Procesach rekrutacyjnych. `/settings/dictionaries` dalej się otwiera.
