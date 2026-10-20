@@ -487,6 +487,12 @@ z odnośnikiem `hr_documents.leave_request_id`.
   + `reminderToast` w `lib/api/hr-time.ts` (z nich korzystają też „Akceptacje”).
   W Płacach „Przypomnij” przy szkicu i braku, „Ponagl przełożonego/koordynatora”
   przy raporcie do akceptacji (tylko Płace — przełożony sam akceptuje).
+  W „Akceptacjach” (sekcja „Timesheety”, 20.10.2026) „Przypomnij” jest przy
+  szkicu i braku raportu (`canRemindInQueue`), przy „do akceptacji” zostaje
+  „Akceptuj”. Godziny to „72 / 176 h” z paskiem — norma z pola `norm_hours`
+  odpowiedzi `GET /api/hr/time/team/{rok}/{miesiąc}` (kalendarz firmy × 8 h, ta
+  sama co w „Moim miesiącu”). Lista zwinięta do 5 wierszy (najpierw brak
+  raportu, potem do akceptacji, szkice, zaakceptowane) z „Pokaż wszystkie (N)”.
 
 ## „Mój czas” — przegląd, saldo, premie w drodze, rozliczenie (etap 2, 17.10.2026)
 

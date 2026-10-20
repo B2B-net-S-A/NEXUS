@@ -70,7 +70,8 @@ type ModelKey =
   | "sim"
   | "card"
   | "headset"
-  | "vostroOld";
+  | "vostroOld"
+  | "monitorImport";
 
 function model(
   id: number,
@@ -96,6 +97,8 @@ const MODELS: Record<ModelKey, EquipmentModel> = {
   card: model(10, "karta_dostepu", "ogólny + biuro, pon–pt 7–19", null, null),
   headset: model(11, "akcesorium", "Słuchawki Jabra Evolve2 40 SE", "Jabra", "416.97"),
   vostroOld: model(12, "laptop", "Dell Vostro 3520, 8 GB", "Dell", "2199.00", false),
+  // Ten sam monitor założony z importu Exceli innym zapisem — „Modele” liczą go razem.
+  monitorImport: model(13, "monitor", "DELL P2422H, 24 cale", "DELL", "749.00"),
 };
 
 // ── Posiadacze ──────────────────────────────────────────────────────────────
@@ -270,7 +273,7 @@ function freeSpecs(): ItemSpec[] {
     })),
     ...range(32, 39).map((n): ItemSpec => ({
       id: 6000 + n,
-      model: "monitor",
+      model: n >= 37 ? "monitorImport" : "monitor",
       nr: `M-0${n}`,
       sn: `SN-TEST-M0${n}`,
       location: "magazyn",
@@ -676,7 +679,7 @@ export function buildEquipmentData(phase: EquipmentPhase): EquipmentHarnessData 
           task(
             804,
             "podpis",
-            `Podpis protokołu ${numberOf("P14")}: ${anna.name}`,
+            `Podpis protokołu: ${anna.name}`,
             shiftDay(protocolDate("P14"), 3),
             holders.anna,
             {},
@@ -686,6 +689,8 @@ export function buildEquipmentData(phase: EquipmentPhase): EquipmentHarnessData 
                 number: numberOf("P14"),
                 status: PROTOCOLS.P14.status,
                 categories: PROTOCOLS.P14.items.map((id) => (byId.get(id) as EquipmentItem).category),
+                client_name: holders.anna.client_name,
+                link_sent_on: ago(PROTOCOLS.P14.link?.createdAgo ?? 0),
               },
             },
           ),

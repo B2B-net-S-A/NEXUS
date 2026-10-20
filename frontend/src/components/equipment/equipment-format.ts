@@ -301,6 +301,9 @@ export function compareItemNumber(a: EquipmentItem, b: EquipmentItem): number {
 }
 
 export interface ModelGroup {
+  /** Klucz grupy (`modelKey`) — ten sam model zapisany różnie to jedna grupa. */
+  key: string;
+  /** Model z najczęstszym zapisem nazwy w grupie (etykieta wiersza). */
   model: EquipmentModel;
   category: EquipmentCategory;
   /** Sztuki po numerze ewidencyjnym — pierwsza to ta, którą bierze „Wydaj”. */
@@ -310,25 +313,47 @@ export interface ModelGroup {
 }
 
 /**
- * Widok „Modele”: sztuki zwinięte po modelu. Kolejność: kategoria rejestru,
- * potem model z największą liczbą sztuk, potem nazwa.
+ * Klucz modelu w widoku „Modele”: import Exceli recepcji założył ten sam model
+ * kilka razy różnym zapisem („Laptop DELL Vostro 3530” i „Laptop Dell Vostro
+ * 3530”, prod 20.10) — wielkość liter i spacje nie rozdzielają grup.
+ */
+export function modelKey(item: Pick<EquipmentItem, "category" | "model">): string {
+  const name = item.model.name.trim().replace(/\s+/g, " ").toLocaleLowerCase("pl");
+  return `${item.category}:${name}`;
+}
+
+function mostCommon<T>(values: readonly T[], keyOf: (value: T) => string | number): T {
+  const counts = new Map<string | number, number>();
+  for (const value of values) counts.set(keyOf(value), (counts.get(keyOf(value)) ?? 0) + 1);
+  // Remis: pierwszy w kolejności wejścia (sztuki są już po numerze ewidencyjnym).
+  return values.reduce((best, value) =>
+    (counts.get(keyOf(value)) ?? 0) > (counts.get(keyOf(best)) ?? 0) ? value : best,
+  );
+}
+
+/**
+ * Widok „Modele”: sztuki zwinięte po modelu (`modelKey`). Kolejność: kategoria
+ * rejestru, potem model z największą liczbą sztuk, potem nazwa.
  */
 export function groupByModel(items: readonly EquipmentItem[]): ModelGroup[] {
-  const groups = new Map<number, EquipmentItem[]>();
+  const groups = new Map<string, EquipmentItem[]>();
   for (const item of items) {
-    groups.set(item.model.id, [...(groups.get(item.model.id) ?? []), item]);
+    const key = modelKey(item);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
   }
-  return [...groups.values()]
-    .map((members): ModelGroup => {
+  return [...groups.entries()]
+    .map(([key, members]): ModelGroup => {
+      const sorted = [...members].sort(compareItemNumber);
       const counts = new Map<string, number>();
       for (const member of members) {
         const place = member.location?.trim();
         if (place) counts.set(place, (counts.get(place) ?? 0) + 1);
       }
       return {
-        model: members[0].model,
+        key,
+        model: mostCommon(sorted, (member) => member.model.id).model,
         category: members[0].category,
-        items: [...members].sort(compareItemNumber),
+        items: sorted,
         locations: [...counts.entries()]
           .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pl"))
           .map(([place]) => place),
@@ -595,9 +620,30 @@ export function holderInitials(name: string): string {
 }
 
 /** Kontekst zadania pod tytułem: klient, powód i termin źródła, liczba pozycji. */
-export function taskContext(task: Pick<EquipmentTask, "kind" | "details">): string {
+/**
+ * Tytuł zadania w agendzie. Podpis: osoba w tytule, numer protokołu w drugiej
+ * linii — przy 1280 px „Podpis protokołu PZO/2026/10/001: …” ucinał nazwisko
+ * (prod 20.10). Starsze zadania mają numer w zapisanym tytule, stąd składanie tutaj.
+ */
+export function taskTitle(task: Pick<EquipmentTask, "kind" | "title" | "holder" | "protocol">): string {
+  if (task.kind === "podpis" && task.protocol && task.holder.name) {
+    return `Podpis protokołu: ${task.holder.name}`;
+  }
+  return task.title;
+}
+
+export function taskContext(
+  task: Pick<EquipmentTask, "kind" | "details"> & Partial<Pick<EquipmentTask, "protocol">>,
+): string {
   const d = task.details;
   const parts: string[] = [];
+  const protocol = task.kind === "podpis" ? task.protocol : null;
+  if (protocol) {
+    parts.push(protocol.number);
+    if (protocol.client_name) parts.push(protocol.client_name);
+    if (protocol.link_sent_on) parts.push(`wysłany ${formatDayMonthPl(protocol.link_sent_on)}`);
+    return parts.join(" · ");
+  }
   if (typeof d.client_name === "string" && d.client_name) parts.push(d.client_name);
   const on = (key: string) =>
     typeof d[key] === "string" ? formatDayMonthPl(d[key] as string) : null;

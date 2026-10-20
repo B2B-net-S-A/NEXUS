@@ -14,6 +14,7 @@
  * że bez zapytania o stawkę). Precedens w repo: `kanban-terminal.ts`.
  */
 
+import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { terminalOf, type TerminalAwareColumn } from "@/lib/kanban-terminal";
 
 export type PipelineMoveDialog =
@@ -26,11 +27,18 @@ export type PipelineMoveDialog =
   /** `hired` — jawne potwierdzenie (powstaje szkic kontraktu i zamówienia). */
   | "hired_confirm"
   /** `rejected` / `withdrawn` — modal powodu (`RejectionV2`). */
-  | "rejection";
+  | "rejection"
+  /**
+   * „Rozmowa u klienta” — „Kiedy rozmowa?” (20.10.2026). Bez terminu w NEXUSIE
+   * nie było telefonu po rozmowie ani przypomnienia o pytaniach klienta (88 z 99
+   * par w 30 dniach). Pytanie można pominąć („Nie znam jeszcze terminu”).
+   */
+  | "interview_date";
 
 export function moveDialogFor(col: TerminalAwareColumn): PipelineMoveDialog {
   if (col.stage === "verified") return "verified_rate";
   if (col.stage === "cv_sent") return "client_rate";
+  if (col.stage === "client_interview") return "interview_date";
   const terminal = terminalOf(col);
   if (terminal === "hired") return "hired_confirm";
   if (terminal === "rejected" || terminal === "withdrawn") return "rejection";
@@ -57,4 +65,18 @@ export function dialogUnavailableReason(
     default:
       return null;
   }
+}
+
+/**
+ * Czy przesunięcie na „Rozmowa u klienta” ma zapytać o termin. Nie pyta, gdy
+ * para ma już zaplanowaną rozmowę albo otwarty wniosek o terminy od klienta —
+ * termin ustala wtedy ścieżka „Terminy od klienta”.
+ */
+export function needsInterviewDate(item: Pick<KanbanItem, "interview_badge">): boolean {
+  const badge = item.interview_badge;
+  if (!badge) return true;
+  const interview = badge.steps?.find((s) => s.key === "interview");
+  if (interview?.state === "scheduled") return false;
+  const slots = badge.slot_request?.status;
+  return slots !== "awaiting_recruiter" && slots !== "awaiting_dl";
 }

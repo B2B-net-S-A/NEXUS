@@ -169,6 +169,11 @@ import { useCapability } from "@/hooks/useCapability";
 import { CvFileDropTarget, StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
 import { DockCvFreshness, profileReadPending } from "@/components/v2/jobs/DockCvFreshness";
 import { CompanyCvStaleNotice } from "@/components/v2/recruitment/CompanyCvStaleNotice";
+import {
+  ClientQuestionsNoteHint,
+  DockClientInterviewQuestions,
+} from "@/components/v2/jobs/DockClientInterviewQuestions";
+import { extractClientQuestions, looksLikeClientQuestions } from "@/lib/client-question-notes";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -864,7 +869,33 @@ export function PipelineCandidateDock({
   const noteBig = noteBigRequested && !readOnly;
   // Okna akcji z ramki „Następny etap” (te same, które otwiera „Przesuń dalej”).
   const [qcStageId, setQcStageId] = useState<number | null>(null);
-  const [debriefEventId, setDebriefEventId] = useState<number | null>(null);
+  // Okno pytań klienta: `eventId = null` — rozmowy nie ma w kalendarzu
+  // NEXUSA, okno pyta, kiedy była (20.10.2026). `initialQuestions` — z notatki.
+  const [debriefFor, setDebriefFor] = useState<{
+    eventId: number | null;
+    initialQuestions?: string[];
+  } | null>(null);
+  // Podpowiedź pod notatką „To wygląda na pytania klienta” — szkic listy
+  // pytań wyjęty z właśnie zapisanej notatki (20.10.2026).
+  const [questionsHint, setQuestionsHint] = useState<string[] | null>(null);
+  useEffect(() => setQuestionsHint(null), [item.candidate_id]);
+  const interviewBadge = item.interview_badge ?? null;
+  const interviewStepState = interviewBadge?.steps?.find((s) => s.key === "interview")?.state;
+  const openSlotRequest =
+    interviewBadge?.slot_request?.status === "awaiting_recruiter" ||
+    interviewBadge?.slot_request?.status === "awaiting_dl";
+  // Para w „Rozmowie u klienta” bez rozmowy w kalendarzu — „Pytania z rozmowy”
+  // zapisuje je z datą rozmowy (serwer zakłada odbytą rozmowę).
+  const pairQuestionsWithoutEvent =
+    item.stage === "client_interview" &&
+    interviewBadge?.interview_event_id == null &&
+    !openSlotRequest;
+  // Podpowiedź z notatki ma sens po rozmowie: w etapie rozmowy albo przy
+  // rozmowie w kalendarzu, która już się zaczęła.
+  const questionsHintApplies =
+    interviewStepState !== "scheduled" &&
+    !openSlotRequest &&
+    (item.stage === "client_interview" || interviewBadge?.interview_event_id != null);
   const [rateChangeOpen, setRateChangeOpen] = useState(false);
   // Linia „Warunki i następny etap” pod paskiem zakładek — domyślnie zwinięta.
   const [stageFoldOpen, setStageFoldOpen] = useState(false);
@@ -1033,6 +1064,9 @@ export function PipelineCandidateDock({
       queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
       if (vars.fill) void fillScreeningForm(res.data?.id, vars.content);
       else showSuccess("Notatka dodana.");
+      if (questionsHintApplies && looksLikeClientQuestions(vars.content)) {
+        setQuestionsHint(extractClientQuestions(vars.content));
+      }
     },
     onError: (e, { content }) => {
       // Nieudany zapis oddaje szkic, o ile w międzyczasie nie powstał nowy.
@@ -1177,7 +1211,7 @@ export function PipelineCandidateDock({
       case "set_client_rate":
         return Boolean(onOpenWorkbench);
       case "open_debrief":
-        return action.event_id != null || Boolean(onOpenWorkbench);
+        return true;
       case "request_slots":
         return Boolean(onAddClientSlots);
       case "reject":
@@ -1206,8 +1240,7 @@ export function PipelineCandidateDock({
         onOpenWorkbench?.("cv");
         return;
       case "open_debrief":
-        if (action.event_id != null) setDebriefEventId(action.event_id);
-        else onOpenWorkbench?.("interviews");
+        setDebriefFor({ eventId: action.event_id ?? null });
         return;
       case "request_slots":
         onAddClientSlots?.();
@@ -1942,8 +1975,14 @@ export function PipelineCandidateDock({
                   client_name: null,
                 }}
                 readOnly={readOnly}
-                onDebrief={setDebriefEventId}
+                onDebrief={(eventId) => setDebriefFor({ eventId })}
                 onAddClientSlots={onAddClientSlots}
+              />
+            )}
+            {pairQuestionsWithoutEvent && (
+              <DockClientInterviewQuestions
+                readOnly={readOnly}
+                onOpen={() => setDebriefFor({ eventId: null })}
               />
             )}
             {/* 04.10.2026: sekcja stoi też poza „Umową” i „Zatrudnionym”, gdy para
@@ -2364,6 +2403,19 @@ export function PipelineCandidateDock({
       </div>
       </div>
 
+      {questionsHint && !readOnly ? (
+        <ClientQuestionsNoteHint
+          count={questionsHint.length}
+          onSave={() => {
+            setDebriefFor({
+              eventId: interviewBadge?.interview_event_id ?? null,
+              initialQuestions: questionsHint,
+            });
+            setQuestionsHint(null);
+          }}
+          onDismiss={() => setQuestionsHint(null)}
+        />
+      ) : null}
       {/* Notatka zawsze pod ręką — bez przechodzenia do sekcji „Notatki". */}
       {!readOnly && (
         <DockNoteComposer
@@ -2424,19 +2476,22 @@ export function PipelineCandidateDock({
           description={`${fullName} · ${jobLabel}`}
         />
       ) : null}
-      {debriefEventId != null && (
+      {debriefFor != null && (
         <DebriefRequiredDialog
           open
           onOpenChange={(open) => {
             if (open) return;
-            setDebriefEventId(null);
+            setDebriefFor(null);
             refreshMoveRequirements();
           }}
-          eventId={debriefEventId}
+          eventId={debriefFor.eventId}
+          candidateId={item.candidate_id}
           candidateName={fullName}
           jobId={jobId}
+          initialQuestions={debriefFor.initialQuestions}
+          submitLabel="Zapisz pytania"
           onSaved={() => {
-            setDebriefEventId(null);
+            setDebriefFor(null);
             refreshMoveRequirements();
           }}
         />

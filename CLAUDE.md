@@ -368,6 +368,7 @@ Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archi
 - `kalendarz-rozmowy-u-klienta.md` — Kalendarz = „Rozmowy u klienta” (0338, 22.09.2026)
 - `prepy-w-teams-transkrypt-notatka-i-ocena-prepu.md` — Prepy w Teams → transkrypt, notatka i ocena prepu (0370, 23.09.2026)
 - `przeniesienie-rekrutacji-z-traffita-falami.md` — Przeniesienie rekrutacji z Traffita do NEXUSA falami (11.10.2026) · próba i wykonanie fali, lista osób per stan = źródło prawdy, bliźniaki, duplikaty
+- `pytania-z-rozmowy-bez-terminu.md` — Pytania z rozmowy u klienta także bez terminu w NEXUSIE (20.10.2026) · „Kiedy rozmowa?” przy ruchu, `questions_missing` po 24 h, debrief pary bez wydarzenia, bramka przed „Umową” dla każdej pary z etapem rozmowy, podpowiedź z notatki
 - `rozmowa-bez-prepu-2.md` — Rozmowa u klienta bez Prepu 2 — wyjątek, nie wybór (0480, 20.10.2026)
 - `traffit-daily-sync-scheduled-import.md` — Traffit daily sync (scheduled import) · wyłączony na stałe 14.10.2026 (`traffit_retired.py`, 410) — co zostało tylko w Traffit
 

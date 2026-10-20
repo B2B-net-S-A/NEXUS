@@ -182,7 +182,8 @@ export function ItemsTab({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-full sm:w-56">
+        {/* Jak w makiecie: pole rośnie do chipów, placeholder widać w całości (prod 20.10). */}
+        <div className="relative w-full sm:w-auto sm:flex-[1_1_280px]">
           <Search
             aria-hidden
             className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -531,7 +532,7 @@ function ModelTable({ groups, actions }: { groups: ModelGroup[]; actions: RowAct
             const first = group.items[0];
             const rest = group.items.length - NUMBERS_SHOWN;
             return (
-              <TableRow key={group.model.id} className={`${CALM_ROW} h-[52px]`}>
+              <TableRow key={group.key} className={`${CALM_ROW} h-[52px]`}>
                 <TableCell className="sticky left-0 bg-card">
                   <div className="flex min-w-0 items-center gap-2.5">
                     <CategoryIcon category={group.category} modelName={group.model.name} />
@@ -601,6 +602,7 @@ function ShowAll({ hidden, label, onClick }: { hidden: number; label: string; on
 function ModelsView({ rows, actions }: { rows: EquipmentItem[]; actions: RowActions }) {
   const [allIssued, setAllIssued] = useState(false);
   const [allModels, setAllModels] = useState(false);
+  const [allOther, setAllOther] = useState(false);
   const issued = rows.filter((item) => item.status === "wydany");
   const free = rows.filter((item) => item.status === "na_stanie");
   const service = rows.filter((item) => item.status === "serwis");
@@ -647,7 +649,19 @@ function ModelsView({ rows, actions }: { rows: EquipmentItem[]; actions: RowActi
       ) : null}
       {other.length ? (
         <SectionCard title="Wycofane i zgubione" count={other.length}>
-          <ItemTable bare rows={other} actions={actions} showIssued={false} />
+          <ItemTable
+            bare
+            rows={allOther ? other : other.slice(0, SECTION_PREVIEW)}
+            actions={actions}
+            showIssued={false}
+          />
+          {allOther ? null : (
+            <ShowAll
+              hidden={other.length - SECTION_PREVIEW}
+              label="Pokaż wszystkie wycofane i zgubione"
+              onClick={() => setAllOther(true)}
+            />
+          )}
         </SectionCard>
       ) : null}
     </div>

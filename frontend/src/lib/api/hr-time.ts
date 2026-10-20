@@ -187,6 +187,15 @@ export interface TeamQueueItem {
   can_decide: boolean;
 }
 
+/** Kolejka „Akceptacji” za miesiąc (`GET /api/hr/time/team/{rok}/{miesiąc}`). */
+export interface TeamQueue {
+  year: number;
+  month: number;
+  /** Norma miesiąca: dni robocze kalendarza firmy × 8 h (jak w „Moim miesiącu”). */
+  norm_hours: number;
+  items: TeamQueueItem[];
+}
+
 export const TIMESHEET_STATUS_LABELS: Record<QueueStatus, string> = {
   draft: "Szkic",
   submitted: "Do akceptacji",
@@ -475,9 +484,7 @@ export function useTeamQueue(year: number, month: number, enabled = true) {
     queryKey: timeKeys.team(year, month),
     queryFn: async () =>
       (
-        await api.get<{ year: number; month: number; items: TeamQueueItem[] }>(
-          `/api/hr/time/team/${year}/${month}`,
-        )
+        await api.get<TeamQueue>(`/api/hr/time/team/${year}/${month}`)
       ).data,
     enabled,
   });

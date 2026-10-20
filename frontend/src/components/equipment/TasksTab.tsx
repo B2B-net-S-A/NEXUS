@@ -40,6 +40,7 @@ import {
   returnReminderMailHref,
   stockCoverage,
   taskContext,
+  taskTitle,
   weekPlan,
   type AgendaFilter,
   type IssueKitKey,
@@ -188,7 +189,7 @@ export function TasksTab({ onIssue, onReturn, onOpenProtocol }: TasksTabProps) {
         {main}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="icon-sm" variant="ghost" aria-label={`Więcej akcji: ${task.title}`}>
+            <Button size="icon-sm" variant="ghost" aria-label={`Więcej akcji: ${taskTitle(task)}`}>
               <MoreHorizontal className="h-4 w-4" aria-hidden />
             </Button>
           </DropdownMenuTrigger>
@@ -317,18 +318,25 @@ export function TasksTab({ onIssue, onReturn, onOpenProtocol }: TasksTabProps) {
                         {task.holder.name ? (
                           <HolderAvatar name={task.holder.name} kind={task.holder.kind} />
                         ) : null}
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{task.title}</p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {[
-                              taskContext(task),
-                              reminded ? `przypomniano ${formatDayMonthPl(reminded)}` : "",
-                            ]
-                              .filter(Boolean)
-                              .join(" · ") || " "}
-                          </p>
+                        {/* Przy 1280 z paskiem bocznym ikony składu schodzą pod tekst, żeby
+                            tytuł z nazwiskiem się zmieścił (prod 20.10); tytuł nie ucina się
+                            w pół słowa, najwyżej łamie się na dwie linie. */}
+                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5">
+                          <div className="min-w-0 flex-[1_1_18rem]">
+                            <p className="line-clamp-2 break-words font-medium" title={taskTitle(task)}>
+                              {taskTitle(task)}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {[
+                                taskContext(task),
+                                reminded ? `przypomniano ${formatDayMonthPl(reminded)}` : "",
+                              ]
+                                .filter(Boolean)
+                                .join(" · ") || " "}
+                            </p>
+                          </div>
+                          {composition(task)}
                         </div>
-                        {composition(task)}
                       </div>
                       <div className="col-span-2 sm:col-span-1">{renderActions(task, overdue)}</div>
                     </li>

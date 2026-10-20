@@ -182,6 +182,10 @@ class PairSnapshot:
     interview: Optional[EventRef] = None
     debrief: Optional[DebriefRef] = None
     latest_stage: Optional[str] = None
+    # Kiedy para weszła w najnowszy etap i kto jest jej rekruterem — zadanie
+    # „Uzupełnij pytania z rozmowy” dla par bez terminu (20.10.2026).
+    latest_stage_at: Optional[datetime] = None
+    recruiter_id: Optional[int] = None
     # Runda do prepów, gdy jest INNA niż ``interview`` (runda do debriefu):
     # runda odbyta bez debriefu + zaplanowana kolejna. Runda 8 (CAL2, decyzja
     # Artura 27.09.2026): zaległy debrief i braki prepów do następnej rundy
@@ -562,6 +566,7 @@ def _chosen_slot(req: SlotRef) -> Optional[dict]:
 TodoKind = Literal[
     "call_now",
     "debrief_overdue",
+    "questions_missing",
     "slots_pick",
     "slots_confirm",
     "prep_missing",
@@ -575,6 +580,7 @@ TodoKind = Literal[
 _TODO_PRIORITY = {
     "call_now": 0,
     "debrief_overdue": 1,
+    "questions_missing": 1,
     "slots_pick": 2,
     "slots_confirm": 3,
     "prep_missing": 4,
@@ -597,6 +603,7 @@ def compute_todos(
     user_id: int,
     is_dl_view: bool,
     acting_for: Optional[Iterable[int]] = None,
+    questions_after_hours: int = 24,
 ) -> list[dict]:
     """Zadania „Do zrobienia” dla pary. Rekruter i DL widzą inne przekazania:
     wybór terminu należy do rekrutera, potwierdzenie u klienta do DL.
@@ -731,6 +738,24 @@ def compute_todos(
         and pair.latest_stage == PipelineStage.client_interview.value
     ):
         add("slots_missing")
+
+    # 20.10.2026: para w „Rozmowie z klientem” bez rozmowy w kalendarzu (88 z 99
+    # par w 30 dniach) nie dostawała ani telefonu, ani debriefu — pytania
+    # klienta lądowały w notatkach. Po dobie w etapie rekruter dostaje „Uzupełnij
+    # pytania z rozmowy”; otwarty wniosek o terminy znaczy, że rozmowy jeszcze
+    # nie było. Zapis pytań zakłada odbytą rozmowę, więc zadanie gaśnie samo.
+    if (
+        iv is None
+        and (req is None or req.status not in OPEN_SLOT_STATUSES)
+        and pair.latest_stage == PipelineStage.client_interview.value
+        and pair.latest_stage_at is not None
+        and pair.latest_stage_at + timedelta(hours=questions_after_hours) <= now
+    ):
+        add(
+            "questions_missing",
+            due=pair.latest_stage_at + timedelta(hours=questions_after_hours),
+            owner_id=pair.recruiter_id,
+        )
     return todos
 
 
@@ -758,6 +783,9 @@ def todo_is_mine(
         return owner in me if owner is not None else delivery_lead_id in me
     if kind == "slots_missing":
         return delivery_lead_id in me
+    if kind == "questions_missing":
+        # Para bez rekrutera (konto nieaktywne, brak zespołu) — Delivery Lead.
+        return owner in me if owner is not None else delivery_lead_id in me
     return owner in me
 
 
@@ -1184,7 +1212,12 @@ async def load_snapshots(
 
     # Najnowszy etap pary.
     latest = (
-        select(CandidateStage.candidate_id, CandidateStage.job_id, CandidateStage.stage)
+        select(
+            CandidateStage.candidate_id,
+            CandidateStage.job_id,
+            CandidateStage.stage,
+            CandidateStage.moved_at,
+        )
         .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
         .where(
             CandidateStage.candidate_id.in_(cand_ids),
@@ -1197,10 +1230,11 @@ async def load_snapshots(
             CandidateStage.id.desc(),
         )
     )
-    for cid, jid, stage in (await db.execute(latest)).all():
+    for cid, jid, stage, moved_at in (await db.execute(latest)).all():
         snap = snaps.get((cid, jid))
         if snap is not None:
             snap.latest_stage = stage.value if hasattr(stage, "value") else str(stage)
+            snap.latest_stage_at = _as_utc(moved_at) if moved_at else None
     return snaps
 
 
@@ -1265,6 +1299,19 @@ async def load_overview(
         sorted({k[0] for k in snaps}),
         sorted({k[1] for k in snaps}),
     )
+    # Rekruter par w „Rozmowie z klientem” bez terminu — adresat zadania
+    # „Uzupełnij pytania z rozmowy” (ta sama reguła co wniosek o terminy).
+    no_interview = [
+        key
+        for key, snap in snaps.items()
+        if snap.interview is None
+        and snap.latest_stage == PipelineStage.client_interview.value
+    ]
+    if no_interview:
+        from app.services.interview_slots import default_recruiter_ids
+
+        for key, rid in (await default_recruiter_ids(db, no_interview)).items():
+            snaps[key].recruiter_id = rid
     is_dl_view = scope != "mine"
     from app.services.workforce_availability import operational_owner_ids
 
@@ -1314,6 +1361,7 @@ async def load_overview(
             user_id=user.id,
             is_dl_view=is_dl_view,
             acting_for=acting_for,
+            questions_after_hours=settings.QUESTIONS_MISSING_AFTER_HOURS,
         ):
             todos.append(
                 {

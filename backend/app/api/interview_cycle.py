@@ -14,6 +14,10 @@ Trasy:
   telefonie do kandydata (jak poszło, pytania klienta, czy przyjmie ofertę).
 * ``GET  /api/interview-cycle/client-questions`` — pytania, które klient
   zadawał poprzednim kandydatom (z debriefów).
+* ``POST /api/interview-cycle/client-interviews`` — termin rozmowy podany
+  przy przesunięciu karty na „Rozmowa z klientem” (20.10.2026).
+* ``PUT  /api/interview-cycle/pairs/{candidate_id}/{job_id}/debrief`` — pytania
+  z rozmowy bez wskazania wydarzenia; bez rozmowy w kalendarzu zakłada odbytą.
 
 Uprawnienia nie są nowe: sekcja Pipeline, role zapisu kalendarza i
 członkostwo w rekrutacji (``ensure_job_membership``) jak przy każdym
@@ -25,9 +29,10 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -47,6 +52,7 @@ from app.api.recruitment_access import (
     job_read_scope_clause,
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.calendar_event import CalendarEvent, EventType
 from app.models.client_interview_slot_request import ClientInterviewSlotRequest
@@ -61,7 +67,7 @@ from app.models.job import Job
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
-from app.services import interview_slots
+from app.services import client_interview_entry, interview_slots
 from app.services.interview_cycle import load_overview
 from app.services.debrief_gate import interview_not_started_message
 from app.services.pipeline_auto_move import auto_advance, run_after_commit
@@ -1004,6 +1010,14 @@ async def save_debrief(
     if not _is_owner(current_user, event.operational_owner_id or event.created_by):
         if event.job_id is not None:
             await ensure_job_membership(db, current_user, event.job_id)
+    return await _store_debrief(db, event, body, current_user)
+
+
+async def _store_debrief(
+    db: AsyncSession, event: CalendarEvent, body: DebriefIn, current_user: User
+) -> DebriefOut:
+    """Zapis debriefu pod rozmową — wspólny dla ``PUT …/events/{id}/debrief``
+    i ``PUT …/pairs/{c}/{j}/debrief`` (pytania bez terminu, 20.10.2026)."""
     start = _event_start_utc(event)
     if start > datetime.now(timezone.utc):
         # Debrief to zapis telefonu PO rozmowie — przed jej rozpoczęciem nie ma
@@ -1146,6 +1160,162 @@ async def save_debrief(
         await send_pending_emails(rate_emails)
     await db.refresh(fb)
     return await _with_rates(db, _debrief_out(fb, questions_saved=saved), fb_id=fb.id)
+
+
+class ClientInterviewIn(BaseModel):
+    """„Kiedy rozmowa u klienta?” z okna przesunięcia karty (20.10.2026)."""
+
+    candidate_id: int
+    job_id: int
+    start: datetime
+    duration_minutes: int = Field(
+        client_interview_entry.DEFAULT_DURATION_MINUTES,
+        ge=client_interview_entry.MIN_DURATION_MINUTES,
+        le=client_interview_entry.MAX_DURATION_MINUTES,
+    )
+
+
+class ClientInterviewOut(BaseModel):
+    event_id: int
+    start: datetime
+    end: Optional[datetime] = None
+
+
+class PairDebriefIn(DebriefIn):
+    """Pytania z rozmowy, której nie ma w kalendarzu NEXUSA — ``held_on``
+    zakłada odbytą rozmowę (bez godziny: 9:00)."""
+
+    held_on: Optional[date] = None
+    held_at: Optional[time] = None
+
+
+async def _ensure_pair_writer(
+    db: AsyncSession, user: User, *, candidate_id: int, job_id: int
+) -> None:
+    """Rekruter kandydata albo członek zespołu rekrutacji — ta sama granica co
+    zapis debriefu pod rozmową (właściciel albo członkostwo)."""
+    if not await interview_slots.pair_in_pipeline(
+        db, candidate_id=candidate_id, job_id=job_id
+    ):
+        raise HTTPException(
+            status_code=404, detail="Ta osoba nie jest w procesie tej rekrutacji."
+        )
+    recruiter = await interview_slots.default_recruiter_id(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    if not _is_owner(user, recruiter):
+        await ensure_job_membership(db, user, job_id)
+
+
+@router.post("/interview-cycle/client-interviews", response_model=ClientInterviewOut)
+async def create_client_interview(
+    body: ClientInterviewIn,
+    current_user: RecruitmentAssessmentWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> ClientInterviewOut:
+    """Termin rozmowy u klienta podany przy przesunięciu karty — bez wniosku
+    o terminy. Para z zaplanowaną rozmową dostaje 409 (przełożenie idzie
+    przez „Terminy od klienta”)."""
+    await _ensure_pair_writer(
+        db, current_user, candidate_id=body.candidate_id, job_id=body.job_id
+    )
+    now = datetime.now(timezone.utc)
+    start = client_interview_entry.validate_planned_start(body.start, now=now)
+    await client_interview_entry.lock_pair(
+        db, candidate_id=body.candidate_id, job_id=body.job_id
+    )
+    upcoming = await client_interview_entry.upcoming_interview(
+        db, candidate_id=body.candidate_id, job_id=body.job_id, now=now
+    )
+    if upcoming is not None:
+        when = _event_start_utc(upcoming).astimezone(ZoneInfo(settings.BUSINESS_TZ))
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Ta osoba ma już zaplanowaną rozmowę u klienta "
+                f"({when:%d.%m.%Y, %H:%M}). Zmień ją w „Kalendarzu”."
+            ),
+        )
+    event = await client_interview_entry.create_interview(
+        db,
+        candidate_id=body.candidate_id,
+        job_id=body.job_id,
+        start=start,
+        duration_minutes=body.duration_minutes,
+        created_by=current_user.id,
+        held=False,
+        now=now,
+    )
+    out = ClientInterviewOut(
+        event_id=event.id, start=event.start_time, end=event.end_time
+    )
+    await db.commit()
+    return out
+
+
+@router.put(
+    "/interview-cycle/pairs/{candidate_id}/{job_id}/debrief", response_model=DebriefOut
+)
+async def save_pair_debrief(
+    candidate_id: int,
+    job_id: int,
+    body: PairDebriefIn,
+    current_user: RecruitmentAssessmentWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> DebriefOut:
+    """Pytania z rozmowy u klienta bez wskazania rozmowy (20.10.2026).
+
+    Bieżąca runda pary bez debriefu (``missing_debrief``) dostaje ten debrief;
+    rozmowa dopiero zaplanowana = 422; brak rozmowy w kalendarzu — „Kiedy była
+    rozmowa?” (``held_on``) zakłada odbytą rozmowę i debrief idzie pod nią,
+    w jednej transakcji. Dalej wszystko jak przy zwykłym debriefie: bank pytań
+    klienta, pin w rekrutacji, bramka przed „Umową”, kroki ekranu.
+    """
+    from app.services.debrief_gate import missing_debrief
+
+    await _ensure_pair_writer(
+        db, current_user, candidate_id=candidate_id, job_id=job_id
+    )
+    await client_interview_entry.lock_pair(db, candidate_id=candidate_id, job_id=job_id)
+    now = datetime.now(timezone.utc)
+    missing = await missing_debrief(
+        db, candidate_id=candidate_id, job_id=job_id, now=now
+    )
+    if missing is not None and missing.get("event_id") is not None:
+        if missing.get("interview_pending"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=missing["message"],
+            )
+        event = await _load_interview_event(db, missing["event_id"], current_user)
+        return await _store_debrief(db, event, body, current_user)
+    if body.held_on is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Podaj, kiedy była rozmowa u klienta.",
+        )
+    start = client_interview_entry.held_interview_start(
+        body.held_on, body.held_at, now=now
+    )
+    # Rozmowa z tego dnia już ma debrief (drugi zapis z innego okna, wyścig
+    # z panelem) — poprawiamy go, a nie zakładamy drugiej rundy tego samego dnia.
+    same_day = await client_interview_entry.held_interview_on(
+        db, candidate_id=candidate_id, job_id=job_id, day=body.held_on, now=now
+    )
+    if same_day is not None:
+        event = await _load_interview_event(db, same_day.id, current_user)
+        return await _store_debrief(db, event, body, current_user)
+    event = await client_interview_entry.create_interview(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        start=start,
+        duration_minutes=client_interview_entry.DEFAULT_DURATION_MINUTES,
+        created_by=current_user.id,
+        held=True,
+        now=now,
+    )
+    return await _store_debrief(db, event, body, current_user)
 
 
 @router.get("/interview-cycle/client-questions", response_model=list[ClientQuestionOut])

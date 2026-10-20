@@ -825,7 +825,8 @@ async def team_month(
         validate_period(year, month)
     actor = await _approver(db, current_user)
     items = await time_month.team_queue(db, actor=actor, year=year, month=month)
-    return {"year": year, "month": month, "items": items}
+    norm_hours = await time_month.month_norm_hours(db, year, month)
+    return {"year": year, "month": month, "norm_hours": norm_hours, "items": items}
 
 
 @router.get("/team/{user_id}/{year}/{month}")

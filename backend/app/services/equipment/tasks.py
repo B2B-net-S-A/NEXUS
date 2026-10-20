@@ -25,7 +25,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import business_today, local_now
+from app.core.scheduling import business_date, business_today, local_now
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
@@ -40,6 +40,7 @@ from app.models.equipment import (
     EquipmentItem,
     EquipmentProtocol,
     EquipmentProtocolLine,
+    EquipmentProtocolLink,
     EquipmentTask,
 )
 from app.models.notification import NotificationType
@@ -350,7 +351,8 @@ async def ensure_signature_task(
         db,
         kind="podpis",
         source_key=f"protocol:{protocol.id}:podpis",
-        title=f"Podpis protokołu {protocol.number}: {protocol.holder_name}",
+        # Numer protokołu idzie do drugiej linii agendy — w tytule zostaje osoba.
+        title=f"Podpis protokołu: {protocol.holder_name}",
         due_on=protocol.protocol_date + timedelta(days=SIGNATURE_DUE_DAYS),
         contract_id=protocol.contract_id,
         user_id=protocol.user_id,
@@ -399,9 +401,11 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
                 holder_name,
                 EquipmentProtocol.number,
                 EquipmentProtocol.status,
+                Client.name,
             )
             .outerjoin(User, User.id == EquipmentTask.user_id)
             .outerjoin(Contract, Contract.id == EquipmentTask.contract_id)
+            .outerjoin(Client, Client.id == Contract.client_id)
             .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
             .outerjoin(
                 EquipmentExternalPerson,
@@ -433,6 +437,20 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
             )
         ).all():
             categories.setdefault(protocol_id, []).append(category)
+    # Ostatni link do podpisu — „wysłany DD.MM” w drugiej linii zadania podpisu.
+    link_sent: dict[int, date] = {}
+    if protocol_ids:
+        for protocol_id, sent_at in (
+            await db.execute(
+                select(
+                    EquipmentProtocolLink.protocol_id,
+                    func.max(EquipmentProtocolLink.created_at),
+                )
+                .where(EquipmentProtocolLink.protocol_id.in_(protocol_ids))
+                .group_by(EquipmentProtocolLink.protocol_id)
+            )
+        ).all():
+            link_sent[protocol_id] = business_date(sent_at)
     return [
         {
             "id": task.id,
@@ -456,13 +474,19 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
                     "number": number,
                     "status": protocol_status,
                     "categories": categories.get(task.protocol_id, []),
+                    "client_name": client_name,
+                    "link_sent_on": (
+                        link_sent[task.protocol_id].isoformat()
+                        if task.protocol_id in link_sent
+                        else None
+                    ),
                 }
                 if task.protocol_id
                 else None
             ),
             "details": task.details or {},
         }
-        for task, name, number, protocol_status in rows
+        for task, name, number, protocol_status, client_name in rows
     ]
 
 

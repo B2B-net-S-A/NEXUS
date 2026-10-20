@@ -33,10 +33,12 @@
   "GET /api/interview-cycle/events/{event_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
   "GET /api/interview-cycle/events/{event_id}/debrief": "PPPPPPDDPPPPPPPPPPPPDPPPP",
   "GET /api/interview-cycle/slots/{request_id}/replaceable": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/interview-cycle/client-interviews": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots/{request_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots/{request_id}/choose": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots/{request_id}/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "PUT /api/interview-cycle/events/{event_id}/debrief": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "PUT /api/interview-cycle/events/{event_id}/debrief": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "PUT /api/interview-cycle/pairs/{candidate_id}/{job_id}/debrief": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

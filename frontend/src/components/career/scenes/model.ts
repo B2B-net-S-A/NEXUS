@@ -14,7 +14,17 @@ import type { CareerThemeId } from "../themes";
  * Szablony, które mają już scenę (`CareerScene.tsx`). Lista żyje tu, a nie
  * w module klienckim, bo czyta ją też komponent serwerowy strony.
  */
-export const CAREER_SCENE_IDS: readonly CareerThemeId[] = ["terminal", "sekwencja", "glitch"];
+export const CAREER_SCENE_IDS: readonly CareerThemeId[] = [
+  "terminal",
+  "sekwencja",
+  "glitch",
+  "konstelacja",
+  "c4",
+  "topologia",
+  "tablica",
+  "plan",
+  "papier",
+];
 
 export function hasCareerScene(theme: CareerThemeId): boolean {
   return CAREER_SCENE_IDS.includes(theme);

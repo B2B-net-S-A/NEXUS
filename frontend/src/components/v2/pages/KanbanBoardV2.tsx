@@ -816,8 +816,6 @@ const candidateIdOf = (item: KanbanItem): number => item.candidate_id;
 /** PR 6 (04.10.2026): zamiast nowej karty z kalendarzem — co zrobić w panelu. */
 export const SLOTS_BY_OTHERS_MESSAGE =
  "Terminy od klienta wpisuje osoba z uprawnieniem do terminów (zwykle Delivery Lead). Gdy je doda, wybierzesz termin z kandydatem w panelu osoby.";
-export const INTERVIEW_WITHOUT_EVENT_MESSAGE =
- "Rozmowa u klienta nie ma jeszcze terminu w NEXUSIE — dodaj terminy od klienta w panelu osoby, debrief zapiszesz po rozmowie.";
 
 /** Ikony skróconych plakietek karty (`compactCardBadge`). */
 const COMPACT_BADGE_ICON: Record<string, typeof Lock> = {
@@ -2101,7 +2099,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const [moveNextOpen, setMoveNextOpen] = useState(false);
  const moveNextSuspended = useRef(false);
  const [qcStageId, setQcStageId] = useState<number | null>(null);
- const [debriefFor, setDebriefFor] = useState<{ eventId: number; name: string } | null>(null);
+ // `eventId = null` — rozmowy nie ma w kalendarzu NEXUSA; okno pyta, kiedy
+ // była, i zapisuje pytania pary (20.10.2026).
+ const [debriefFor, setDebriefFor] = useState<{
+ eventId: number | null;
+ candidateId: number;
+ name: string;
+ } | null>(null);
  const openMoveNext = useCallback(
  (item: KanbanItem, srcColId: string, target: KanbanColumn) => {
  if (acceptInsteadOfMove(item, target)) return;
@@ -3452,16 +3456,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  return;
  case "open_debrief":
  suspendMoveNext();
- if (action.event_id != null) {
- setDebriefFor({ eventId: action.event_id, name });
- } else if (workbenchContext) {
- openWorkbench(item.candidate_id, "interviews");
- } else {
- // PR 6: bez nowej karty z kalendarzem — rozmowa bez terminu w NEXUSIE
- // nie ma debriefu do zapisania, termin dodaje się w panelu osoby.
- moveNextSuspended.current = false;
- showInfo(INTERVIEW_WITHOUT_EVENT_MESSAGE);
- }
+ // Bez terminu w NEXUSIE okno pytań pyta, kiedy była rozmowa (20.10.2026).
+ setDebriefFor({
+ eventId: action.event_id ?? null,
+ candidateId: item.candidate_id,
+ name,
+ });
  return;
  case "request_slots":
  if (canAddClientSlots) {
@@ -4496,6 +4496,7 @@ headerAction={
  resumeMoveNext();
  }}
  eventId={debriefFor.eventId}
+ candidateId={debriefFor.candidateId}
  candidateName={debriefFor.name}
  jobId={jobId}
  onSaved={() => {

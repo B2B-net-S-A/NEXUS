@@ -22,6 +22,7 @@ import {
   type OfferAcceptance,
 } from "@/lib/interview-cycle";
 import { blurNumberInputOnWheel } from "@/lib/number-input";
+import { warsawToday } from "@/lib/warsaw-date";
 import {
   NEGOTIABLE_OPTIONS,
   notifyLine,
@@ -61,6 +62,13 @@ export const DEBRIEF_QUESTIONS_REQUIRED =
  * nią okno mówi, od kiedy będzie dostępny, i nie pozwala zapisać. Termin
  * podaje wołający (`interviewStart`); bez niego okno pyta serwer o wydarzenie
  * (bramka na tablicy zna tylko jego id).
+ *
+ * Bez wydarzenia (`eventId = null`) i z `pair` okno zapisuje pytania pary
+ * (20.10.2026): w 30 dniach 88 z 99 par weszło w „Rozmowę z klientem” bez
+ * terminu w NEXUSIE, a pytania lądowały w notatkach. Pyta wtedy, kiedy była
+ * rozmowa — serwer zakłada odbytą rozmowę i debrief trafia pod nią
+ * (`PUT /api/interview-cycle/pairs/{c}/{j}/debrief`). `initialQuestions`
+ * (podpowiedź z notatki) dokłada pytania do listy.
  */
 export function DebriefDialog({
   open,
@@ -74,6 +82,8 @@ export function DebriefDialog({
   interviewStart,
   now: nowOverride,
   readOnly = false,
+  pair = null,
+  initialQuestions,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -90,6 +100,10 @@ export function DebriefDialog({
   now?: Date;
   /** Podgląd zapisanego debriefu dla roli bez prawa zapisu. */
   readOnly?: boolean;
+  /** Para bez rozmowy w kalendarzu — okno pyta, kiedy była rozmowa. */
+  pair?: { candidateId: number; jobId: number } | null;
+  /** Pytania dołożone do listy przy otwarciu (np. z notatki). */
+  initialQuestions?: string[];
 }) {
   const toast = useToast();
   const qc = useQueryClient();
@@ -97,8 +111,13 @@ export function DebriefDialog({
   // Wydarzenie zawsze — debrief potrzebuje pary (kandydat, rekrutacja), żeby
   // pokazać bieżącą stawkę i kto dostanie informację o jej zmianie (0418).
   const eventInfo = useInterviewEvent(open ? eventId : null);
-  const pairCandidateId = existing.data?.candidate_id ?? eventInfo.data?.candidate_id ?? null;
-  const pairJobId = existing.data?.job_id ?? eventInfo.data?.job_id ?? null;
+  const pairMode = eventId == null && pair != null;
+  const pairCandidateId =
+    existing.data?.candidate_id ??
+    eventInfo.data?.candidate_id ??
+    (pairMode ? pair.candidateId : null);
+  const pairJobId =
+    existing.data?.job_id ?? eventInfo.data?.job_id ?? (pairMode ? pair.jobId : null);
   const rateView = useRateChanges(
     open && !readOnly ? pairCandidateId : null,
     open && !readOnly ? pairJobId : null,
@@ -122,6 +141,9 @@ export function DebriefDialog({
   const [condition, setCondition] = useState("");
   const [notifyDl, setNotifyDl] = useState(true);
   const [noQuestions, setNoQuestions] = useState(false);
+  // Bez rozmowy w kalendarzu: kiedy była (dzień firmy + opcjonalna godzina).
+  const [heldOn, setHeldOn] = useState(() => warsawToday());
+  const [heldAt, setHeldAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [rateChanged, setRateChanged] = useState(false);
   const [rateAmount, setRateAmount] = useState("");
@@ -169,22 +191,31 @@ export function DebriefDialog({
   // RAZ na otwarcie, dopiero gdy odczyt się rozstrzygnął. Inicjalizacja przy
   // każdej zmianie `existing.data` czyściła zaznaczenia zrobione, zanim
   // odpowiedź zdążyła wrócić.
-  const initializedFor = useRef<number | null>(null);
+  const initializedFor = useRef<string | null>(null);
+  const initKey =
+    eventId != null ? `event-${eventId}` : pairMode ? `pair-${pair.candidateId}-${pair.jobId}` : null;
   useEffect(() => {
     if (!open) {
       initializedFor.current = null;
       return;
     }
-    if (eventId == null || existing.isPending || initializedFor.current === eventId) return;
-    initializedFor.current = eventId;
-    const d = existing.isSuccess ? existing.data : null;
+    if (initKey == null || initializedFor.current === initKey) return;
+    if (eventId != null && existing.isPending) return;
+    initializedFor.current = initKey;
+    const d = eventId != null && existing.isSuccess ? existing.data : null;
     setOutcome(d?.outcome ?? null);
     setComment(d?.candidate_comment ?? "");
-    setQuestions(d?.questions?.length ? [...d.questions, ""] : [""]);
+    const extra = initialQuestions ?? [];
+    const merged = extra.length
+      ? mergeQuestions(d?.questions ?? [], extra).questions
+      : (d?.questions ?? []);
+    setQuestions(merged.length ? withTrailing(merged) : [""]);
+    setHeldOn(warsawToday());
+    setHeldAt("");
     setOffer(d?.offer_acceptance ?? null);
     setCondition(d?.acceptance_condition ?? "");
     setNotifyDl(true);
-    setNoQuestions(Boolean(d?.no_client_questions) && !d?.questions?.length);
+    setNoQuestions(Boolean(d?.no_client_questions) && !merged.length);
     setError(null);
     setBulkOpen(false);
     setBulkText("");
@@ -194,13 +225,16 @@ export function DebriefDialog({
     setRateNegotiable(d?.rate_change?.negotiable ?? null);
     setRateNote(d?.rate_change?.note ?? "");
     setRateTouched(false);
-  }, [open, eventId, existing.isPending, existing.isSuccess, existing.data]);
+    // `initialQuestions` i `withTrailing` czytamy raz, przy otwarciu — nowa
+    // tablica od wołającego nie może wyczyścić tego, co ktoś już wpisał.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initKey, eventId, existing.isPending, existing.isSuccess, existing.data]);
 
   const typedQuestions = questions.map((q) => q.trim()).filter(Boolean);
 
   const mutation = useMutation({
-    mutationFn: () =>
-      interviewCycleApi.saveDebrief(eventId as number, {
+    mutationFn: () => {
+      const body = {
         outcome: outcome as DebriefOutcome,
         candidate_comment: comment.trim() || null,
         // „Nie pytał” zaznaczone = pola pytań są wyłączone i nic z nich nie jedzie.
@@ -213,12 +247,21 @@ export function DebriefDialog({
           rateChanged && rateTouched
           ? {
               amount: rateAmount.replace(",", "."),
-              unit: "hourly",
+              unit: "hourly" as const,
               negotiable: rateNegotiable,
               note: rateNote.trim() || null,
             }
           : null,
-      }),
+      };
+      if (eventId == null && pair) {
+        return interviewCycleApi.savePairDebrief(pair.candidateId, pair.jobId, {
+          ...body,
+          held_on: heldOn,
+          held_at: heldAt || null,
+        });
+      }
+      return interviewCycleApi.saveDebrief(eventId as number, body);
+    },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["interview-cycle"] });
       qc.invalidateQueries({ queryKey: ["calendar-events"] });
@@ -240,6 +283,10 @@ export function DebriefDialog({
   const submit = () => {
     setError(null);
     if (notStarted) return;
+    if (pairMode && !heldOn) {
+      setError("Podaj, kiedy była rozmowa u klienta.");
+      return;
+    }
     if (!outcome) {
       setError("Zaznacz, jak poszła rozmowa.");
       return;
@@ -259,10 +306,11 @@ export function DebriefDialog({
     mutation.mutate();
   };
 
+  // Zapytania bez wydarzenia są wyłączone — `isPending` byłoby wtedy wieczne.
   const loading =
     open &&
-    (existing.isPending ||
-      (interviewStart === undefined && eventId != null && eventInfo.isPending));
+    eventId != null &&
+    (existing.isPending || (interviewStart === undefined && eventInfo.isPending));
 
   return (
     <AppModal
@@ -300,7 +348,7 @@ export function DebriefDialog({
             <button
               type="button"
               onClick={submit}
-              disabled={mutation.isPending || loading || eventId == null || notStarted}
+              disabled={mutation.isPending || loading || (eventId == null && !pairMode) || notStarted}
               title={notStarted && start ? debriefAvailableFromLabel(start, now) : undefined}
               className="h-9 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
@@ -339,6 +387,44 @@ export function DebriefDialog({
         className="space-y-5"
         aria-busy={loading}
       >
+        {pairMode && !readOnly ? (
+          <fieldset
+            data-testid="debrief-held-on"
+            className="space-y-2 rounded-lg border border-border bg-muted/40 p-3"
+          >
+            <legend className="px-1 text-sm font-semibold">Kiedy była rozmowa?</legend>
+            <p className="text-xs text-muted-foreground">
+              Tej rozmowy nie ma w kalendarzu NEXUSA — zapiszemy ją z tą datą.
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:max-w-sm">
+              <div>
+                <label htmlFor="debrief-held-on" className="mb-1 block text-xs font-semibold text-muted-foreground">
+                  Dzień
+                </label>
+                <input
+                  id="debrief-held-on"
+                  type="date"
+                  value={heldOn}
+                  max={warsawToday()}
+                  onChange={(e) => setHeldOn(e.target.value)}
+                  className={INPUT}
+                />
+              </div>
+              <div>
+                <label htmlFor="debrief-held-at" className="mb-1 block text-xs font-semibold text-muted-foreground">
+                  Godzina (opcjonalnie)
+                </label>
+                <input
+                  id="debrief-held-at"
+                  type="time"
+                  value={heldAt}
+                  onChange={(e) => setHeldAt(e.target.value)}
+                  className={INPUT}
+                />
+              </div>
+            </div>
+          </fieldset>
+        ) : null}
         <fieldset>
           <legend className="mb-2 text-sm font-semibold">Jak poszło?</legend>
           <div className="grid grid-cols-3 gap-2">

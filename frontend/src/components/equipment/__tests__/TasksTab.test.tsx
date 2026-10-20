@@ -172,3 +172,36 @@ describe("TasksTab — „Przypomnij” przy zwrocie po terminie", () => {
     expect(screen.queryByText(/Nic do zrobienia/)).toBeNull();
   });
 });
+
+describe("TasksTab — zadanie podpisu", () => {
+  it("tytuł niesie osobę, numer protokołu · klient · „wysłany” idą do drugiej linii", async () => {
+    serve([
+      task({
+        id: 3,
+        kind: "podpis",
+        // Zapisany tytuł sprzed 20.10 ma numer — przy 1280 px ucinał nazwisko.
+        title: "Podpis protokołu PZO/2026/10/001: Jan Testowy",
+        due_on: shift(2),
+        overdue_days: 0,
+        protocol: {
+          id: 41,
+          number: "PZO/2026/10/001",
+          status: "oczekuje",
+          categories: ["laptop"],
+          client_name: "Klient Fikcyjny",
+          link_sent_on: "2026-10-19",
+        },
+        details: {},
+      }),
+    ]);
+    renderTab();
+
+    const later = await screen.findByRole("group", { name: "Później" });
+    expect(within(later).getByText("Podpis protokołu: Jan Testowy")).toBeInTheDocument();
+    expect(within(later).queryByText(/Podpis protokołu PZO/)).toBeNull();
+    expect(
+      within(later).getByText("PZO/2026/10/001 · Klient Fikcyjny · wysłany 19.10"),
+    ).toBeInTheDocument();
+    expect(within(later).getByRole("button", { name: "Wyślij link ponownie" })).toBeInTheDocument();
+  });
+});

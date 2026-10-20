@@ -8,6 +8,8 @@ import {
   formatHours,
   hoursLabel,
   parseHours,
+  queueHoursFill,
+  queueHoursLabel,
   statusLine,
   wouldExceedDay,
 } from "../time-format";
@@ -131,5 +133,21 @@ describe("pasek statusu", () => {
     expect(canEditMonth(view({ timesheet: header }))).toBe(true);
     expect(canEditMonth(view({ timesheet: { ...header, status: "submitted" } }))).toBe(false);
     expect(canEditMonth(view({ timesheet: { ...header, payroll_locked: true } }))).toBe(false);
+  });
+});
+
+describe("godziny w kolejce Akceptacji", () => {
+  it("etykieta z normą i bez niej", () => {
+    expect(queueHoursLabel(72, 176)).toBe("72 / 176 h");
+    expect(queueHoursLabel(7.5, 168)).toBe("7,5 / 168 h");
+    expect(queueHoursLabel(72, null)).toBe("72 h");
+  });
+
+  it("pasek: procent normy, przycięty do 0–100, bez normy pusty", () => {
+    expect(queueHoursFill(72, 176)).toBe(41);
+    expect(queueHoursFill(178, 176)).toBe(100);
+    expect(queueHoursFill(0, 176)).toBe(0);
+    expect(queueHoursFill(72, 0)).toBe(0);
+    expect(queueHoursFill(72, null)).toBe(0);
   });
 });
