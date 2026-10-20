@@ -11,6 +11,7 @@ Uruchomienie (w kontenerze backendu, po wdrożeniu #2447)::
 
     python -m app.cli.m365_document_repair [--exclude 6067]
     python -m app.cli.m365_document_repair [--exclude …] --apply --expected <odcisk>
+    … --apply … --reread 6673   # odczyt AI profilu z nowego głównego CV
 
 Zasady:
 
@@ -748,10 +749,19 @@ async def main(
     parser.add_argument(
         "--expected", help="odcisk planu z próby na sucho (wymagany z --apply)"
     )
+    parser.add_argument(
+        "--reread",
+        type=int,
+        action="append",
+        default=[],
+        help="po zapisie odczyt AI profilu z nowego głównego CV (np. profil "
+        "wyczyszczony przez kwarantannę po cudzym pliku)",
+    )
     args = parser.parse_args(argv)
     exclude = set(args.exclude)
 
     from app.core.database import AsyncSessionLocal
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 
     async with AsyncSessionLocal() as db:
         if args.apply:
@@ -791,7 +801,31 @@ async def main(
         }
         await _write_receipt(db, receipt)
         await db.commit()
+        new_primary = {
+            cid: doc_id
+            for cid, doc_id in (
+                await db.execute(
+                    select(CandidateDocument.candidate_id, CandidateDocument.id).where(
+                        CandidateDocument.candidate_id.in_(args.reread),
+                        CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                        CandidateDocument.is_primary.is_(True),
+                        CandidateDocument.source_deleted_at.is_(None),
+                    )
+                )
+            ).all()
+        }
     print(json.dumps(receipt, ensure_ascii=False))
+    if args.reread:
+        from app.api.candidates import _enrich_candidate_from_document_task
+
+        for cid in args.reread:
+            if cid not in items.primaries or cid not in new_primary:
+                print(f"Odczyt {cid} pominięty — bez nowego głównego CV.")
+                continue
+            await _enrich_candidate_from_document_task(
+                cid, new_primary[cid], trigger="cv_repair"
+            )
+            print(f"Odczyt profilu {cid} z dokumentu {new_primary[cid]}.")
     return 0
 
 

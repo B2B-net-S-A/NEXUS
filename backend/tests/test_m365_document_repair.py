@@ -10,6 +10,7 @@ i ustawia od nowa główne CV. Dane syntetyczne.
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -410,3 +411,64 @@ async def test_owner_keeps_the_primary_cv_someone_chose(storage):
     assert docs[chosen_id].is_primary is True
     assert docs[poisoned].is_primary is False
     assert docs[poisoned].content_sha256 == _sha(owner_cv)
+
+
+async def test_apply_writes_receipt_and_rereads_only_the_listed_profile(
+    storage, monkeypatch, capsys
+):
+    from sqlalchemy import text
+
+    user_id = await _mailbox_user()
+    person = await _person("Reread")
+    other = await _person("Quiet")
+    for candidate_id in (person, other):
+        await _mail_cv(
+            storage,
+            user_id=user_id,
+            candidate_id=candidate_id,
+            content=f"%PDF reread {candidate_id}".encode(),
+            days_ago=1,
+        )
+    calls: list[tuple[int, int, str]] = []
+
+    async def _fake_enrich(candidate_id, document_id, trigger="cv_upload", **_):
+        calls.append((candidate_id, document_id, trigger))
+
+    monkeypatch.setattr(
+        "app.api.candidates._enrich_candidate_from_document_task", _fake_enrich
+    )
+    async with AsyncSessionLocal() as db:
+        fingerprint = (
+            await repair_cli.plan(db, candidate_ids=[person, other])
+        ).fingerprint()
+    try:
+        code = await repair_cli.main(
+            ["--apply", "--expected", fingerprint, "--reread", str(person)],
+            candidate_ids=[person, other],
+        )
+        assert code == 0
+        [created] = await _docs(person)
+        assert created.is_primary is True
+        assert calls == [(person, created.id, "cv_repair")]
+        async with AsyncSessionLocal() as db:
+            receipt = await db.scalar(
+                text("SELECT value FROM app_settings WHERE key = :k"),
+                {"k": repair_cli.RECEIPT_KEY},
+            )
+        if isinstance(receipt, str):
+            receipt = json.loads(receipt)
+        assert receipt["created"] == 2 and receipt["fingerprint"] == fingerprint
+        # Drugi zapis przy istniejącym paragonie jest odrzucany.
+        assert (
+            await repair_cli.main(
+                ["--apply", "--expected", fingerprint], candidate_ids=[person, other]
+            )
+            == 2
+        )
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text("DELETE FROM app_settings WHERE key = :k"),
+                {"k": repair_cli.RECEIPT_KEY},
+            )
+            await db.commit()
