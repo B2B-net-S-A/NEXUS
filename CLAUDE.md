@@ -185,6 +185,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `follow-up-z-kandydatem-gdy-klient-milczy.md` — Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026)
 - `imiennicy-w-oknie-dodawania.md` — Imiennicy w oknie „Dodaj kandydatów do pipeline” (13.10.2026) · telefon, e-mail i miasto w wierszu, szukanie po numerze, „Już w tej rekrutacji”, „Scal…”
 - `kanban-bez-bramek.md` — Kanban bez bramek (decyzja Artura, 17.09.2026)
+- `kandydaci-do-zamkniecia.md` — Kafelek „Kandydaci do zamknięcia” (20.10.2026)
 - `konflikty-z-klientem-blacklist-nda-konkurent-sa.md` — Konflikty z klientem (blacklist / NDA / konkurent) są OSTRZEŻENIEM, nie blokadą (decyzja Artura, 17.09.2026)
 - `lista-rekrutacji-pamieta-ostatnie-filtry.md` — Lista rekrutacji pamięta ostatnie filtry (13.10.2026) · goły `/jobs` = ostatni widok osoby, link z parametrami wygrywa, `keepScope`
 - `mail-odrzucenia-tresc-i-podglad.md` — Mail odrzucenia: treść domyślna i podgląd w oknie odrzucenia (13.10.2026) · treść domyślna w kodzie, podgląd przed potwierdzeniem, szablony z Ustawień nieużywane

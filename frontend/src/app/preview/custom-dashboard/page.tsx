@@ -52,6 +52,10 @@ import {
 } from "@/components/v2/dashboard/custom/MyRecruitmentsTile";
 import { MY_WEEK_QUERY_KEY } from "@/components/v2/dashboard/custom/MyWeekTile";
 import {
+  CLOSING_CANDIDATES_QUERY_KEY,
+  type ClosingCandidatesResponse,
+} from "@/lib/closing-candidates";
+import {
   SYSTEM_STATUS_QUERY_KEY,
   type HealthResponse,
 } from "@/components/v2/dashboard/custom/SystemStatusTile";
@@ -140,6 +144,7 @@ const TILES: DashboardTile[] = [
       ],
     },
   },
+  { id: "t10", type: "closing_candidates", x: 0, y: 10, w: 12, h: 6, config: {} },
 ];
 
 const CATALOG: MetricCatalog = {
@@ -490,6 +495,68 @@ const recruitmentRow = (over: Partial<MyRecruitmentRow>): MyRecruitmentRow => ({
   stage_breakdown: { posting: 46, new: 4, screening: 2, verified: 1, cv_sent: 3, client_interview: 1 },
   ...over,
 });
+// „Kandydaci do zamknięcia” (dane fikcyjne): koszt w godzinach, przychód
+// w MD, brak stawki kandydata — trzy sposoby liczenia marży.
+const CLOSING_CANDIDATES: ClosingCandidatesResponse = {
+  total: 3,
+  show_client_rate: true,
+  rows: [
+    {
+      candidate_id: 9101,
+      candidate_name: "Jan Przykładowy",
+      job_id: 501,
+      job_title: "Senior Java Developer",
+      job_working_title: null,
+      client_name: "Bank Północny",
+      step: "accepted",
+      since: daysAgo(4),
+      delivery_lead_name: "Anna Nowak",
+      recruiter_name: "Piotr Zieliński",
+      candidate_rate_value: "120.00",
+      candidate_rate_unit: "hourly",
+      candidate_rate_currency: "PLN",
+      client_rate_value: "1200.00",
+      client_rate_unit: "daily",
+      client_rate_currency: "PLN",
+    },
+    {
+      candidate_id: 9102,
+      candidate_name: "Ewa Wzorcowa",
+      job_id: 502,
+      job_title: "Tester automatyzujący · Python",
+      job_working_title: null,
+      client_name: "Bank Kappa",
+      step: "sent",
+      since: daysAgo(2),
+      delivery_lead_name: "Anna Nowak",
+      recruiter_name: "Marta Kowalczyk",
+      candidate_rate_value: "110.00",
+      candidate_rate_unit: "hourly",
+      candidate_rate_currency: "PLN",
+      client_rate_value: "135.00",
+      client_rate_unit: "hourly",
+      client_rate_currency: "PLN",
+    },
+    {
+      candidate_id: 9103,
+      candidate_name: "Tomasz Testowy",
+      job_id: 503,
+      job_title: "Administrator chmury · Azure",
+      job_working_title: null,
+      client_name: "Fundusz Przykładowy",
+      step: "signed",
+      since: daysAgo(1),
+      delivery_lead_name: null,
+      recruiter_name: "Piotr Zieliński",
+      candidate_rate_value: null,
+      candidate_rate_unit: null,
+      candidate_rate_currency: null,
+      client_rate_value: "150.00",
+      client_rate_unit: "hourly",
+      client_rate_currency: "PLN",
+    },
+  ],
+};
 const MY_RECRUITMENTS = {
   total: 3,
   items: [
@@ -707,6 +774,7 @@ function seededClient(
   qc.setQueryData(TEAM_SIGNALS_QUERY_KEY, TEAM_SIGNALS);
   qc.setQueryData<HealthResponse>(SYSTEM_STATUS_QUERY_KEY, HEALTH);
   qc.setQueryData(MY_RECRUITMENTS_QUERY_KEY, MY_RECRUITMENTS);
+  qc.setQueryData(CLOSING_CANDIDATES_QUERY_KEY, CLOSING_CANDIDATES);
   qc.setQueryData(MY_CLIENTS_CARDS_QUERY_KEY, { cards: [], total: 0 });
   qc.setQueryData(ORDER_CHANGES_SUMMARY_KEY, {
     period: { year: 2026, month: 10, label: "październik 2026" },
