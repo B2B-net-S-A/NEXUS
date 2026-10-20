@@ -561,7 +561,9 @@ async def test_default_theme_follows_the_role_in_the_title(api):
     job_id = await _seed_job(uid, title="Analityk systemowy")
     link = await _create_job_link(api, headers, job_id)
     assert (await _approve(api, headers, job_id)).status_code == 200
-    profile = (await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)).json()
+    profile = (
+        await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
+    ).json()
     assert profile["theme_default"] == "sekwencja"
     page = await api.get(f"/api/public/career/r/{link['slug']}")
     assert page.json()["theme"] == "sekwencja"
@@ -1424,7 +1426,7 @@ async def test_board_lists_open_approved_jobs_without_client_or_rate(api, board)
     link = await _create_job_link(api, headers, job_id)
     assert (await _approve(api, headers, job_id)).status_code == 200
     body = await board()
-    assert set(body) == {"jobs", "cv_link_slug"}
+    assert set(body) == {"jobs", "cv"}
     card = next(j for j in body["jobs"] if j["slug"] == link["slug"])
     # Kształt karty jest zamknięty — nowe pole = świadoma decyzja.
     assert set(card) == {
@@ -1589,8 +1591,9 @@ async def test_board_cv_link_belongs_to_head_of_recruitment(api, board):
         )
         await db.commit()
 
-    slug = (await board())["cv_link_slug"]
-    assert slug
+    cv = (await board())["cv"]
+    assert set(cv) == {"slug", "first_name"}
+    slug = cv["slug"]
     async with AsyncSessionLocal() as db:
         link = await db.scalar(
             select(CandidateInviteLink).where(CandidateInviteLink.slug == slug)
@@ -1598,6 +1601,7 @@ async def test_board_cv_link_belongs_to_head_of_recruitment(api, board):
         owner = await db.get(User, link.created_by)
     assert link.kind == "recruiter" and not link.revoked
     assert owner.is_active and owner.has_role(UserRole.head_of_recruitment)
+    assert cv["first_name"] == owner.name.split(" ")[0]
 
     email = f"zostaw-cv-{uuid.uuid4().hex[:8]}@example.com"
     resp = await api.post(

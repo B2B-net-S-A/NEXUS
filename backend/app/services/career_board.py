@@ -277,7 +277,7 @@ async def _free_recruiter_slug(db: AsyncSession, name: Optional[str]) -> str:
 def pick_cv_owner(
     hor_ids: list[int], links: list[CandidateInviteLink], now: datetime
 ) -> tuple[Optional[str], Optional[int]]:
-    """``(slug aktywnego linku, HoR do założenia linku)`` — patrz ``board_cv_slug``."""
+    """``(slug aktywnego linku, HoR do założenia linku)`` — patrz ``board_cv_link``."""
     by_owner: dict[int, list[CandidateInviteLink]] = {}
     for link in links:
         by_owner.setdefault(link.created_by, []).append(link)
@@ -288,8 +288,15 @@ def pick_cv_owner(
     return None, next((u for u in hor_ids if u not in by_owner), None)
 
 
-async def board_cv_slug(db: AsyncSession) -> Optional[str]:
-    """Slug linku „Zostaw CV” — stały link Head of Recruitment.
+def _cv(slug: str, hors: Any, links: Any) -> dict[str, str]:
+    owner_id = next(link.created_by for link in links if link.slug == slug)
+    owner = next(u for u in hors if u.id == owner_id)
+    return {"slug": slug, "first_name": first_name(owner.name) or "Zespół"}
+
+
+async def board_cv_link(db: AsyncSession) -> Optional[dict[str, str]]:
+    """Link „Zostaw CV” (``slug`` i imię do podziękowania) — stały link Head of
+    Recruitment.
 
     Reguła przy kilku HoR: pierwszy (najniższe id) z aktywnym stałym linkiem;
     gdy żaden go nie ma — pierwszy, który NIGDY nie miał stałego linku,
@@ -319,7 +326,7 @@ async def board_cv_slug(db: AsyncSession) -> Optional[str]:
     ).all()
     slug, newcomer = pick_cv_owner([u.id for u in hors], list(links), _now())
     if slug is not None:
-        return slug
+        return _cv(slug, hors, links)
     if newcomer is None:
         logger.warning(
             "career_board: Head of Recruitment wyłączył stały link — bez „Zostaw CV”"
@@ -339,7 +346,10 @@ async def board_cv_slug(db: AsyncSession) -> Optional[str]:
     )
     if existing is not None:
         await db.commit()
-        return existing.slug
+        return {
+            "slug": existing.slug,
+            "first_name": first_name(newcomer_user.name) or "Zespół",
+        }
     # Jak ``PUT /me/career-link``: sekret tylko jako skrót, wejście po slugu.
     link = CandidateInviteLink(
         token=f"v2${secrets.token_hex(16)}",
@@ -353,4 +363,4 @@ async def board_cv_slug(db: AsyncSession) -> Optional[str]:
     db.add(link)
     await db.commit()
     logger.info("career_board: utworzono stały link Head of Recruitment %s", newcomer)
-    return link.slug
+    return {"slug": link.slug, "first_name": first_name(newcomer_user.name) or "Zespół"}

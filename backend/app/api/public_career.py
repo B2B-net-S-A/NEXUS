@@ -5,7 +5,7 @@ Prefiks ``/api/public/career``:
 * ``GET /r/{slug}`` — strona rekrutacji (tylko ZATWIERDZONY opis publiczny);
 * ``GET /p/{slug}`` — stały link rekrutera i jego otwarte rekrutacje;
 * ``GET /jobs`` — tablica wszystkich otwartych rekrutacji (strona główna,
-  etap 6) i slug linku „Zostaw CV”;
+  etap 6) i link „Zostaw CV”;
 * ``POST /apply`` — formularz (multipart), link po slugu.
 
 Nigdy nie zwracamy nazwy klienta, stawek, budżetu, nazwiska ani kontaktu
@@ -282,8 +282,8 @@ async def get_career_board(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Tablica otwartych rekrutacji: karty z linkiem prowadzącego (D2) i slug
-    stałego linku Head of Recruitment dla „Zostaw CV” (``None`` = bez CTA)."""
+    """Tablica otwartych rekrutacji: karty z linkiem prowadzącego (D2) i stały
+    link Head of Recruitment dla „Zostaw CV” (``cv: None`` = bez CTA)."""
     from app.core.cache import cache_get, cache_set, cache_single_flight
     from app.services import career_board
 
@@ -294,7 +294,7 @@ async def get_career_board(
             return cached
         payload = {
             "jobs": await career_board.board_jobs(db),
-            "cv_link_slug": await career_board.board_cv_slug(db),
+            "cv": await career_board.board_cv_link(db),
         }
         await cache_set(
             _BOARD_CACHE_KEY, payload, _BOARD_TTL_SECONDS, jitter_seconds=10
