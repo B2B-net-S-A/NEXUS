@@ -372,6 +372,9 @@ async def test_inactive_owner_links_fall_through_and_the_bell_reaches_someone() 
             await db.execute(
                 select(Notification.related_entity_id, Notification.user_id).where(
                     Notification.notification_type == NotificationType.care_contact_due,
+                    # Zbiorczy dzwonek niesie id osoby, nie kontraktu — bez typu
+                    # cudzy digest z tym samym numerem w bazie shardu liczył się tu.
+                    Notification.related_entity_type == "contract",
                     Notification.related_entity_id.in_([contract_id, second_contract]),
                 )
             )
@@ -424,6 +427,9 @@ async def test_old_follow_up_from_import_does_not_ring() -> None:
             await db.scalars(
                 select(Notification.related_entity_id).where(
                     Notification.notification_type == NotificationType.care_contact_due,
+                    # Zbiorczy dzwonek niesie id osoby, nie kontraktu — bez typu
+                    # cudzy digest z tym samym numerem w bazie shardu liczył się tu.
+                    Notification.related_entity_type == "contract",
                     Notification.related_entity_id.in_([imported, recent]),
                 )
             )
