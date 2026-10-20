@@ -11620,6 +11620,42 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Ślady testów w Ustawieniach (inwentarz docs/settings-test-data-inventory.md,
+# zgoda Artura 20.10.2026) — jednorazowo: klient QA-E2E znika z list Ustawień
+# (reguła CV, karta klienta, przypisanie DL, portfele; klient i rekrutacje
+# zostają), szablon procesu i wzór umowy ze smoke testów są usuwane, konto
+# serwisowe `claude-traffit-ops` wyłączone z odwołaniem kluczy. Logika
+# w `app/services/settings_test_data_cleanup.py`, przypięta do id i odcisków;
+# paragon w `app_settings` + advisory lock. Log: wyłącznie liczby.
+startup_phase "cleanup-settings-test-data"
+echo "Data: remove test traces from Settings (one-shot)..."
+python - <<'PY' || echo "settings test data cleanup skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.settings_test_data_cleanup import (
+    run_settings_test_data_cleanup,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_settings_test_data_cleanup(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — log bez treści wierszy
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"settings test data cleanup failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"settings test data cleanup: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Reset any m365_connections stuck in 'running' from a killed sync task.
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of
