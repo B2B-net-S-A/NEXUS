@@ -382,6 +382,7 @@ Moduły przeniesione z Compassa (bez Akademii) i sprzęt recepcji.
 - `runbook-przelaczenia-z-compassa.md` — Runbook przełączenia z Compassa na „Ludzi w NEXUSIE” (17.10.2026)
 - `sprzet-i-protokoly-recepcji.md` — Sprzęt i protokoły recepcji (D2–D10, 16.10.2026)
 - `urlopy-czas-place-wejscie-odejscie.md` — Urlopy i M365, „Mój miesiąc”, płace, wejście i odejście (16.10.2026)
+- `zgody-wydatki-i-premie-poza-umowa.md` — Zgody na wydatki i premie poza umową (0483, 20.10.2026)
 
 ### Programy — `docs/claude/programy/`
 

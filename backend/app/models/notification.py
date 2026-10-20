@@ -315,6 +315,11 @@ class NotificationType(str, enum.Enum):
     hr_settlement_paid = "hr_settlement_paid"
     hr_settlement_review = "hr_settlement_review"
     hr_agreement_update = "hr_agreement_update"
+    # 0483: zgody na wydatki i premie poza umową — zgoda do decyzji
+    # (przełożony albo zatwierdzający z Ustawień, mail z kwotą i przyciskami)
+    # i decyzja do autora. Osobiste, link do „Ludzie → Akceptacje → Zgody”.
+    hr_approval_requested = "hr_approval_requested"
+    hr_approval_decided = "hr_approval_decided"
     care_contact_due = "care_contact_due"
     # 0475: „uzupełnij strukturę klienta X” — konsultanci bez menedżera
     # u klienta (propozycje automatu czekają na akcept Delivery Leada).

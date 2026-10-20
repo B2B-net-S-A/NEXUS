@@ -257,6 +257,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.hr_settlement_paid: _C.people,
     _T.hr_settlement_review: _C.people,
     _T.hr_agreement_update: _C.people,
+    _T.hr_approval_requested: _C.people,
+    _T.hr_approval_decided: _C.people,
     _T.care_contact_due: _C.contracts,
     _T.care_client_structure: _C.contracts,
     # Konto i system

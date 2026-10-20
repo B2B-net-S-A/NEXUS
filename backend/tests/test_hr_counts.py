@@ -161,10 +161,10 @@ async def test_manager_counts_only_own_team_and_not_own_items(
     response = await client.get("/api/hr/counts", headers=_headers(boss))
     assert response.status_code == 200
     # 1 wniosek + 2 timesheety; Sprawy bez dostępu = brak liczby.
-    assert response.json() == {"approvals": 3, "cases": None}
+    assert response.json() == {"approvals": 3, "consents": 0, "cases": None}
 
     worker = await client.get("/api/hr/counts", headers=_headers(first))
-    assert worker.json() == {"approvals": 0, "cases": None}
+    assert worker.json() == {"approvals": 0, "consents": 0, "cases": None}
 
 
 @pytest.mark.asyncio
@@ -230,7 +230,7 @@ async def test_switched_off_modules_give_no_numbers_except_admin(
 
     off = await client.get("/api/hr/counts", headers=_headers(boss))
     assert off.status_code == 200
-    assert off.json() == {"approvals": None, "cases": None}
+    assert off.json() == {"approvals": None, "consents": None, "cases": None}
     # Admin widzi ekrany przy wyłączonym module — liczby też.
     on = (await client.get("/api/hr/counts", headers=_headers(admin))).json()
     assert isinstance(on["approvals"], int) and on["approvals"] >= 1

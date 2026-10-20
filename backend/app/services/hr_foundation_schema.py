@@ -43,11 +43,12 @@ HR_MODULE_KEYS: tuple[str, ...] = (
     "cases",
     "equipment",
     "settlements",
+    "approvals",
 )
-#: Moduły importu z Compassa — rozliczeń (etap 4) Compass nie ma, więc lista
-#: (i CHECK partii importu) zostaje bez nich.
+#: Moduły importu z Compassa — rozliczeń (etap 4) i zgód (0483) Compass nie ma,
+#: więc lista (i CHECK partii importu) zostaje bez nich.
 IMPORT_MODULE_KEYS: tuple[str, ...] = tuple(
-    key for key in HR_MODULE_KEYS if key != "settlements"
+    key for key in HR_MODULE_KEYS if key not in ("settlements", "approvals")
 )
 
 

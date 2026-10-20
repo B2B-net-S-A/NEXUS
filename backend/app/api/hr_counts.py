@@ -4,7 +4,9 @@ Kadrowe typy powiadomień nie mają ikony w pasku (decyzja „jedna ikona = jede
 temat”, ``docs/claude/powiadomienia/pasek-tematy-bez-dzwonka.md``), więc
 trwałym miejscem spraw, na które ktoś czeka, są ekrany „Ludzi”: zakładka
 „Akceptacje” pokazuje, ile wniosków i timesheetów czeka na decyzję
-czytającego, a „Sprawy” — ile otwartych spraw administracja@ ma przypisanych.
+czytającego, „Zgody” (zakładka Akceptacji, 0483) — ile zgód na wydatki
+i premie poza umową, a „Sprawy” — ile otwartych spraw administracja@ ma
+przypisanych.
 
 Liczą te same reguły co ekrany — zapytanie kolejki wniosków
 (``leave_service.pending_count`` = ``count()`` na tym samym zapytaniu co
@@ -34,6 +36,7 @@ from app.models.user import User
 from app.services.admin_cases import service as cases_service
 from app.services.admin_cases_schema import TERMINAL_STATUSES
 from app.services.hr import leave_service, time_access
+from app.services.hr.approvals import service as approvals_service
 from app.services.hr import modules as hr_modules
 from app.services.hr.modules import HrModule
 
@@ -92,6 +95,10 @@ async def hr_counts(
         approvals = (approvals or 0) + await _timesheets_waiting(db, current_user)
     return {
         "approvals": approvals,
+        # Osobno od „approvals” — zakładka „Zgody” ma własną liczbę.
+        "consents": await approvals_service.pending_count(db, current_user)
+        if is_open(HrModule.approvals)
+        else None,
         "cases": await _open_cases(db, current_user)
         if is_open(HrModule.cases)
         else None,
