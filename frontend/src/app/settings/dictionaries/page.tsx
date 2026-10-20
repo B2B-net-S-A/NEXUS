@@ -301,7 +301,7 @@ export default function DictionariesPage() {
   return (
     <div className="container max-w-5xl mx-auto md:py-8 md:px-4">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground mt-2">Słowniki</h1>
+        <h1 className="text-2xl font-bold text-foreground mt-2">Listy wyboru</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Edytuj wartości używane w listach rozwijanych — branże, powody
           odrzucenia, etc. Zarchiwizowane wartości pozostają w historycznych

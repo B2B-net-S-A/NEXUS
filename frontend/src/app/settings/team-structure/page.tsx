@@ -673,7 +673,7 @@ export default function AdminTeamStructurePage() {
           Rekrutacja · Struktura zespołu
         </p>
         <h1 className="mt-1 text-3xl font-extrabold tracking-[-0.025em] text-foreground md:text-4xl">
-          Kompetencje i odpowiedzialności
+          Kto prowadzi którego klienta
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {canEdit

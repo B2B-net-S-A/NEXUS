@@ -99,6 +99,9 @@ export interface SettingsItem {
   id: SettingsItemId;
   area: SettingsAreaId;
   title: string;
+  /** Grupa w obszarze (lewa kolumna i lista obszaru, 20.10.2026). Pozycje
+   *  ukryte z menu mogą jej nie mieć. Kolejność grup = kolejność w tym pliku. */
+  group?: string;
   description: string;
   keywords: string;
   /** Osobna trasa (np. `/settings/cv-rules`). Brak = ekran w `/settings?item=`. */
@@ -117,14 +120,14 @@ type SettingsUser = Parameters<typeof hasRole>[0] &
 
 export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   {
-    id: "outlook", area: "me", title: "Outlook i kalendarz",
+    id: "outlook", area: "me", title: "Outlook i kalendarz", group: "Moje",
     description: "Podłącz swoją skrzynkę i kalendarz Microsoft 365.",
     keywords: "poczta mail m365 microsoft skrzynka integracje",
     // Finanse też tworzą wydarzenia w kalendarzu (audyt ról U6, 22.09).
     gate: { finance: true },
   },
   {
-    id: "my-notifications", area: "me", title: "Moje powiadomienia",
+    id: "my-notifications", area: "me", title: "Moje powiadomienia", group: "Moje",
     description: "Wybierz, które powiadomienia mają do Ciebie trafiać.",
     keywords: "powiadomienia dzwonek wycisz wylacz alerty przypomnienia kategorie",
     // Runda 9 (R9-N13-4): `/api/notifications/preferences` jest otwarte dla
@@ -132,7 +135,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { finance: true },
   },
   {
-    id: "people", area: "team", title: "Osoby i role",
+    id: "people", area: "team", title: "Osoby i role", group: "Konta",
     description: "Dodaj osobę, zmień jej rolę i dostęp albo wyłącz konto.",
     keywords: "uzytkownicy konta uprawnienia dostep haslo rola administracja",
     wide: true,
@@ -141,7 +144,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   {
     // „Ludzie w NEXUSIE” (16.10.2026): dni wolne firmy (Kadry) i przełączniki
     // modułów (admin) — trasy `/api/hr/admin/*` stoją za uprawnieniem Kadry.
-    id: "hr", area: "team", title: "Kadry",
+    id: "hr", area: "team", title: "Kadry", group: "Ludzie w NEXUSIE",
     description: "Dni wolne firmy i moduły „Ludzi w NEXUSIE” (urlopy, czas pracy, płace, sprzęt).",
     keywords: "kadry hr urlopy dni wolne swieta moduly ludzie kartoteka",
     route: "/settings/hr",
@@ -151,7 +154,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // Reguły premii (17.10.2026) — `/api/hr/payroll/rules` stoi za uprawnieniem
     // „Płace” (Finanse z roli, admin zawsze). Do 17.10 karta była w „Kadrach”,
     // których osoba z samymi „Płacami” nie widziała.
-    id: "payroll", area: "team", title: "Płace",
+    id: "payroll", area: "team", title: "Płace", group: "Ludzie w NEXUSIE",
     description: "Reguły premii z placementów i z Ligi Mistrzów: progi marży, premia Delivery Leada, dodatkowe premie.",
     keywords: "place premie premia placementy liga mistrzow progi marza wynagrodzenia wyplaty bonus",
     route: "/settings/payroll",
@@ -160,7 +163,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   {
     // „Ludzie w NEXUSIE” (17.10.2026): import paczki z Compassa — na sucho
     // Kadry i admin, zapis tylko admin (`/api/hr/admin/import`).
-    id: "hr-import", area: "team", title: "Import z Compassa",
+    id: "hr-import", area: "team", title: "Import z Compassa", group: "Ludzie w NEXUSIE",
     description: "Paczka eksportu Compassa: sprawdzenie na sucho, zapis wybranych modułów i historia partii.",
     keywords: "import compass paczka kadry urlopy timesheety place migracja przelaczenie na sucho",
     route: "/settings/hr-import",
@@ -168,28 +171,28 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { permission: "people_admin", hrProgram: true },
   },
   {
-    id: "competence-team", area: "team", title: "Kategorie kompetencji",
+    id: "competence-team", area: "team", title: "Kategorie kompetencji", group: "Zespół rekrutacji",
     description: "Kto należy do której kategorii (1. i 2. priorytet) i zasady przydziału requestów.",
     keywords: "kategorie kompetencji przydzial requesty obłożenie oblozenie priorytet poza przydzialem sourcer rekruter",
     route: "/settings/competence-team",
     gate: { roles: ["admin", "head_of_recruitment"] },
   },
   {
-    id: "assign", area: "team", title: "Kto prowadzi którego klienta",
+    id: "assign", area: "team", title: "Kto prowadzi którego klienta", group: "Zespół rekrutacji",
     description: "Przypisania Delivery Leadów do klientów i kompetencje zespołu.",
     keywords: "dl delivery portfel kompetencje przypisania odpowiedzialnosci",
     route: "/settings/team-structure",
     gate: { roles: ["admin", "head_of_recruitment", "finance"], finance: true },
   },
   {
-    id: "stages", area: "rec", title: "Procesy rekrutacyjne",
+    id: "stages", area: "rec", title: "Procesy rekrutacyjne", group: "Proces",
     description: "Etapy (kolumny tablicy) i ich kolejność dla rekrutacji.",
     keywords: "pipeline procesy kanban kolumny etapy szablony",
     wide: true, ownHeader: true,
     gate: { roles: ["admin", "delivery_lead"], section: "pipeline", required: "write" },
   },
   {
-    id: "cv", area: "rec", title: "Reguły CV klientów",
+    id: "cv", area: "rec", title: "Reguły CV klientów", group: "Klienci",
     description: "Jak ma wyglądać CV wysyłane do danego klienta.",
     keywords: "generator cv plik jezyk klient reguly karta",
     route: "/settings/cv-rules",
@@ -198,14 +201,14 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { permission: "clients_edit", section: "delivery", required: "write" },
   },
   {
-    id: "ranking", area: "rec", title: "Ranking kandydatów",
+    id: "ranking", area: "rec", title: "Ranking kandydatów", group: "Proces",
     description: "Co liczy się najbardziej przy dopasowaniu kandydata.",
     keywords: "scoring wagi dopasowanie ranking profile",
     route: "/settings/scoring",
     gate: { roles: ["admin", "delivery_lead"], section: "insights", required: "read" },
   },
   {
-    id: "kpi-targets", area: "rec", title: "Cele KPI",
+    id: "kpi-targets", area: "rec", title: "Cele KPI", group: "Proces",
     description: "Cele weryfikacji, rekomendacji i placementów dla ról i osób.",
     keywords: "kpi cele targety wyscig progi weryfikacje placementy precyzja",
     route: "/settings/kpi-targets",
@@ -213,7 +216,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin", "head_of_recruitment"], section: "insights", required: "write" },
   },
   {
-    id: "mail", area: "rec", title: "Szablony maili",
+    id: "mail", area: "rec", title: "Szablony maili", group: "Teksty",
     description: "Treści maili do kandydatów, także odrzucenia.",
     keywords: "email odrzucenie outreach szablony wiadomosci",
     // Zapis szablonu = `require_candidate_write` (emails.py) — każdy rekruter;
@@ -221,21 +224,21 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { capability: "candidate.write" },
   },
   {
-    id: "skills", area: "rec", title: "Słownik umiejętności",
+    id: "skills", area: "rec", title: "Słownik umiejętności", group: "Wiedza",
     description: "Technologie i ich aliasy rozpoznawane w CV i wyszukiwarce.",
     keywords: "umiejetnosci skille technologie aliasy taksonomia slownik cortex",
     // `/api/skills-admin`: HeadOfRecruitmentPlus + zapis sekcji Sourcing.
     gate: { roles: ["admin", "head_of_recruitment"], section: "sourcing", required: "write" },
   },
   {
-    id: "job-ad-blocks", area: "rec", title: "Stałe części ogłoszenia",
+    id: "job-ad-blocks", area: "rec", title: "Stałe części ogłoszenia", group: "Teksty",
     description: "„Co oferujemy”, etapy procesu i dopisek do tytułu w ogłoszeniach na Pracuj.pl i JustJoin.IT.",
     keywords: "ogloszenie pracuj justjoin jjit oferujemy benefity proces tytul dopisek stale bloki",
     // `/api/job-ads/fixed-blocks`: HeadOfRecruitmentPlus + zapis sekcji Pipeline.
     gate: { roles: ["admin", "head_of_recruitment"], section: "pipeline", required: "write" },
   },
   {
-    id: "roles", area: "rec", title: "Biblioteka ról",
+    id: "roles", area: "rec", title: "Biblioteka ról", group: "Wiedza",
     description: "Opisy ról po ludzku, z których korzysta wyjaśnienie rekrutacji.",
     keywords: "role biblioteka po ludzku opis stanowiska wyjasnienie champion",
     // `/api/role-profiles` (zapis): admin + Head of Recruitment — ta sama
@@ -243,7 +246,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin", "head_of_recruitment"], section: "sourcing", required: "write" },
   },
   {
-    id: "trainee-rules", area: "rec", title: "Lista telefonów praktykantów",
+    id: "trainee-rules", area: "rec", title: "Lista telefonów praktykantów", group: "Proces",
     description: "Kto trafia na codzienną listę telefonów praktykantów.",
     keywords: "praktykant praktykanci telefony lista reguly pula stawka dostepnosc",
     route: "/settings/trainee-rules",
@@ -253,21 +256,21 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin", "head_of_recruitment"] },
   },
   {
-    id: "contracts", area: "deals", title: "Wzory umów",
+    id: "contracts", area: "deals", title: "Wzory umów", group: "Wzory i wycena",
     description: "Treść umów B2B używanych przez generator.",
     keywords: "umowa b2b szablon generator kontrakt",
     route: "/settings/contract-templates",
     gate: { roles: ["admin", "finance"], section: "finance", finance: true },
   },
   {
-    id: "rates", area: "deals", title: "Stawki rynkowe",
+    id: "rates", area: "deals", title: "Stawki rynkowe", group: "Wzory i wycena",
     description: "Widełki rynkowe dla ról — punkt odniesienia przy wycenie.",
     keywords: "benchmark wycena stawki rynek",
     route: "/settings/rate-benchmarks",
     gate: { roles: ["admin", "finance"], section: "finance", finance: true },
   },
   {
-    id: "register-import", area: "deals", title: "Rejestr umów z Excela",
+    id: "register-import", area: "deals", title: "Rejestr umów z Excela", group: "Importy",
     description: "Wgraj plik działu „UMOWY I ZAMÓWIENIA” — podgląd, zapis i cofnięcie.",
     keywords: "import excel xlsx rejestr umowy b2b dzial numery aneks bez dzialalnosci",
     route: "/settings/b2b-register-import",
@@ -275,7 +278,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin"] },
   },
   {
-    id: "contract-docs-sharepoint", area: "deals", title: "Dokumenty kontraktów z SharePointa",
+    id: "contract-docs-sharepoint", area: "deals", title: "Dokumenty kontraktów z SharePointa", group: "Importy",
     description: "Folder „Umowy pracowników” → zakładka Dokumenty kontraktów, synchronizacja w obie strony.",
     keywords: "sharepoint folder umowy pracownikow dokumenty aneksy wypowiedzenia import synchronizacja",
     route: "/settings/contract-docs-sharepoint",
@@ -283,21 +286,21 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin"] },
   },
   {
-    id: "notifications", area: "sys", title: "Powiadomienia",
+    id: "notifications", area: "sys", title: "Powiadomienia", group: "Firma",
     description: "Która rola dostaje które powiadomienia i które maile wychodzą do całej firmy.",
     keywords: "powiadomienia email maile wysylka nadawca odbiorcy kolejka rola role kto dostaje",
     wide: true,
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {
-    id: "ai", area: "sys", title: "Koszty AI",
+    id: "ai", area: "sys", title: "Koszty AI", group: "AI",
     description: "Który model robi co i ile to kosztuje w tym miesiącu.",
     keywords: "model claude limit alarm ai koszty funkcje",
     route: "/settings/ai",
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {
-    id: "qc-quality", area: "sys", title: "Jakość QC",
+    id: "qc-quality", area: "sys", title: "Jakość QC", group: "AI",
     description: "Jak często QC CV się myli i które uwagi są tylko informacją.",
     keywords: "qc cv trafnosc nieprawda pominiete uwagi wycisz informacja jakosc kontrola",
     route: "/settings/ai/qc-quality",
@@ -306,7 +309,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {
-    id: "api-keys", area: "sys", title: "Klucze API",
+    id: "api-keys", area: "sys", title: "Klucze API", group: "Integracje",
     description: "Konta serwisowe i klucze X-API-Key dla automatyzacji, np. rozliczeń w n8n.",
     keywords: "klucz klucze api x-api-key konto serwisowe integracje integracja automatyzacja n8n power automate make skrypt token",
     route: "/settings/api-keys",
@@ -314,39 +317,39 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {
-    id: "traffit", area: "sys", title: "Import z Traffita",
+    id: "traffit", area: "sys", title: "Import z Traffita", group: "Integracje",
     description: "Wyłączony 14.10.2026 — historia ostatnich importów.",
     keywords: "traffit synchronizacja import",
     gate: { roles: ["admin"] },
   },
   {
-    id: "job-boards", area: "sys", title: "Portale ogłoszeniowe",
+    id: "job-boards", area: "sys", title: "Portale ogłoszeniowe", group: "Integracje",
     description: "Konto firmy na RocketJobs i JustJoin.IT — połączenie i saldo ogłoszeń.",
     keywords: "portale ogloszenia rocketjobs justjoinit jjit multiposting publikacja oauth",
     gate: { roles: ["admin"] },
   },
   {
-    id: "teams-prep", area: "sys", title: "Prepy w Teams",
+    id: "teams-prep", area: "sys", title: "Prepy w Teams", group: "Integracje",
     description: "Transkrypty prepów z Teams, notatki i ocena prepu.",
     keywords: "teams prep transkrypcja spotkania notatki fireflies",
     gate: { roles: ["admin"] },
   },
   {
-    id: "dict", area: "sys", title: "Listy wyboru",
+    id: "dict", area: "sys", title: "Listy wyboru", group: "Firma",
     description: "Branże, powody odrzucenia i inne wartości list.",
     keywords: "slowniki branze powody taksonomie",
     route: "/settings/dictionaries",
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {
-    id: "fields", area: "sys", title: "Dodatkowe pola",
+    id: "fields", area: "sys", title: "Dodatkowe pola", group: "Firma",
     description: "Własne pola na profilu kandydata i rekrutacji.",
     keywords: "pola konfiguracja formularz",
     route: "/settings/entity-fields",
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {
-    id: "history", area: "sys", title: "Historia zdarzeń",
+    id: "history", area: "sys", title: "Historia zdarzeń", group: "Nadzór",
     description: "Kto co usunął i które próby zostały zablokowane.",
     keywords: "zdarzenia audyt log historia usuniecia",
     wide: true, ownHeader: true,
@@ -354,7 +357,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { permission: "finance_module", section: "finance", finance: true },
   },
   {
-    id: "placements", area: "sys", title: "Wykluczone placementy",
+    id: "placements", area: "sys", title: "Wykluczone placementy", group: "Nadzór",
     description: "Zatrudnienia z masowych serii bez CV, które nie liczą się w statystykach.",
     keywords: "placementy zatrudnieni statystyki wykluczenia seria kpi insights",
     wide: true, ownHeader: true,
@@ -432,6 +435,29 @@ export function listedSettingsAreas(
 ): SettingsArea[] {
   const items = listedSettingsItems(user, context);
   return SETTINGS_AREAS.filter((a) => items.some((i) => i.area === a.id));
+}
+
+export interface SettingsItemGroup {
+  name: string;
+  items: SettingsItem[];
+}
+
+/** Widoczne pozycje obszaru w grupach — lewa kolumna Ustawień i lista obszaru.
+ *  Grupy idą w kolejności pierwszej pozycji, pozycje w kolejności rejestru. */
+export function groupedAreaItems(
+  user: SettingsUser | null,
+  areaId: SettingsAreaId,
+  context: SettingsContext = {},
+): SettingsItemGroup[] {
+  const groups: SettingsItemGroup[] = [];
+  for (const item of listedSettingsItems(user, context)) {
+    if (item.area !== areaId) continue;
+    const name = item.group ?? "";
+    const group = groups.find((g) => g.name === name);
+    if (group) group.items.push(item);
+    else groups.push({ name, items: [item] });
+  }
+  return groups;
 }
 
 export function findSettingsItem(id: string | null | undefined): SettingsItem | undefined {
