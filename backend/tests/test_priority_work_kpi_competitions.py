@@ -890,7 +890,10 @@ def test_classified_process_without_verifier_keeps_pre_anchor_credit() -> None:
     """
     normalized = " ".join(VERIFIER_ANCHORED_CTE.split())
     assert "classified_fallback AS (" in normalized
-    assert "COALESCE(verified.first_mover, mf.first_mover) AS credit_user" in normalized
+    assert (
+        "COALESCE( verified.first_mover, pair_verifier.verifier, mf.first_mover ) "
+        "AS credit_user" in normalized
+    )
     # Rozłączność: fallback bierze wyłącznie procesy bez wiersza w kotwicy.
     assert "LEFT JOIN classified_anchor anchored ON anchored.process_id" in normalized
     assert "anchored.process_id IS NULL" in normalized

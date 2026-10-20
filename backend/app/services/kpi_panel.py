@@ -231,16 +231,34 @@ VERIFIER_ANCHORED_CTE = """
         WHERE (cp.kpi_eligible IS TRUE OR cp.origin_kind::text = 'external_observed')
           AND mf.reached_at >= verified.reached_at
     ),
+    -- Pierwsza zaakceptowana weryfikacja pary, niezależnie od okna procesu.
+    -- Procesy z Traffita mają start zapisany do ~2 h po pierwszym etapie,
+    -- więc weryfikacja wypadała przed oknem i „Zatrudniony" szło do osoby,
+    -- która je kliknęła (20.10.2026: placement Delivery Leada zamiast
+    -- weryfikującej rekruterki; od 12.10 trzy placementy i siedem etapów).
+    pair_first_verifier AS (
+        SELECT candidate_id, job_id,
+               first_moved_by AS verifier,
+               first_reached_at AS verified_at
+        FROM analytics_first_milestones
+        WHERE stage::text = 'verified'
+    ),
     classified_fallback AS (
         SELECT mf.stage,
                mf.reached_at,
                mf.candidate_id,
                mf.job_id,
-               COALESCE(verified.first_mover, mf.first_mover) AS credit_user
+               COALESCE(
+                   verified.first_mover, pair_verifier.verifier, mf.first_mover
+               ) AS credit_user
         FROM classified_mf mf
         JOIN classified_process cp ON cp.id = mf.process_id
         LEFT JOIN classified_verified verified
           ON verified.process_id = mf.process_id
+        LEFT JOIN pair_first_verifier pair_verifier
+          ON pair_verifier.candidate_id = mf.candidate_id
+         AND pair_verifier.job_id = mf.job_id
+         AND pair_verifier.verified_at <= mf.reached_at
         LEFT JOIN classified_anchor anchored
           ON anchored.process_id = mf.process_id
         WHERE (cp.kpi_eligible IS TRUE OR cp.origin_kind::text = 'external_observed')
