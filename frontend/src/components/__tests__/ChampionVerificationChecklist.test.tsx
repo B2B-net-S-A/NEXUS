@@ -202,3 +202,48 @@ describe("ChampionVerificationChecklist — wariant „rows”", () => {
     expect(screen.queryByTestId("client-verification-toggle")).not.toBeInTheDocument();
   });
 });
+
+describe("ChampionVerificationChecklist — zapisana notatka weryfikacji", () => {
+  const LONG_NOTE =
+    "Notatka ze spotkania z Managerką – Senior/Lead Android Developer\n" +
+    "Zespół: 6 osób, Kotlin + Compose, migracja z XML.\n" +
+    "Rekrutacja dwuetapowa: techniczna + rozmowa z managerką.\n" +
+    "Kluczowe: doświadczenie z modularyzacją aplikacji.";
+
+  const verifiedWith = (keyCorrections: string): ChampionVerification => ({
+    ...PENDING,
+    client: {
+      status: "verified",
+      method: "call",
+      key_corrections: keyCorrections,
+      confirmed_as_is: false,
+      verified_by_name: "Klaudia",
+      verified_at: "2026-10-20T10:00:00Z",
+    },
+  });
+
+  // Zgłoszenie 20.10.2026: w Briefie notatka była ucięta do dwóch linii, a link
+  // „w Wiedzy z rozmów →” prowadził do kotwicy, której na tej zakładce nie ma.
+  it("długą notatkę da się rozwinąć w miejscu i zwinąć z powrotem", async () => {
+    const user = userEvent.setup();
+    renderRows(verifiedWith(LONG_NOTE));
+
+    const text = screen.getByTestId("client-verification-saved-text");
+    expect(text.className).toContain("line-clamp-2");
+
+    await user.click(screen.getByRole("button", { name: "Pokaż całość" }));
+    expect(text.className).not.toContain("line-clamp-2");
+    expect(text).toHaveTextContent("Kluczowe: doświadczenie z modularyzacją aplikacji.");
+
+    await user.click(screen.getByRole("button", { name: "Zwiń" }));
+    expect(text.className).toContain("line-clamp-2");
+  });
+
+  it("krótka notatka nie ma przycisku rozwijania", () => {
+    renderRows(verifiedWith("Java 17 zamiast 8."));
+    expect(screen.getByTestId("client-verification-saved-text")).toHaveTextContent(
+      "Java 17 zamiast 8.",
+    );
+    expect(screen.queryByRole("button", { name: "Pokaż całość" })).not.toBeInTheDocument();
+  });
+});
