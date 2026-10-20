@@ -3,9 +3,12 @@
 import type { ComponentType } from "react";
 
 import type { CareerThemeId } from "../themes";
+import { BoardScene } from "./BoardScene";
 import { C4Scene } from "./C4Scene";
 import { ConstellationScene } from "./ConstellationScene";
 import { GlitchScene } from "./GlitchScene";
+import { PaperScene } from "./PaperScene";
+import { PlanScene } from "./PlanScene";
 import { useScene } from "./SceneContext";
 import { GlitchBug, SceneScore } from "./SceneParts";
 import { SequenceScene } from "./SequenceScene";
@@ -20,6 +23,9 @@ const SCENES: Partial<Record<CareerThemeId, ComponentType>> = {
   konstelacja: ConstellationScene,
   c4: C4Scene,
   topologia: TopologyScene,
+  tablica: BoardScene,
+  plan: PlanScene,
+  papier: PaperScene,
 };
 
 /** Podpis wyniku przy „Aplikuj” — językiem roli. */
@@ -30,6 +36,9 @@ const SCORE_LABELS: Partial<Record<CareerThemeId, string>> = {
   konstelacja: "Gwiazdy połączone",
   c4: "Zaprojektowane",
   topologia: "Łącza zestawione",
+  tablica: "W „Mam to”",
+  plan: "Zakres pokryty",
+  papier: "Kroki na PASS",
 };
 
 /** Dla testu: mapa scen zgadza się z `CAREER_SCENE_IDS` (model.ts, czytany też na serwerze). */

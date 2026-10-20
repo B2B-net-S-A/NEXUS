@@ -21,6 +21,9 @@ export const CAREER_SCENE_IDS: readonly CareerThemeId[] = [
   "konstelacja",
   "c4",
   "topologia",
+  "tablica",
+  "plan",
+  "papier",
 ];
 
 export function hasCareerScene(theme: CareerThemeId): boolean {
