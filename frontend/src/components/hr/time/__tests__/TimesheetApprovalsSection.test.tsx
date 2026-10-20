@@ -107,6 +107,18 @@ const items: TeamQueueItem[] = [
   },
 ];
 
+const draftItem: TeamQueueItem = {
+  user_id: 24,
+  name: "Ola Przykładowa",
+  job_title: null,
+  timesheet: header(304, "draft"),
+  status: "draft",
+  hours: 72,
+  overtime_hours: 0,
+  absence_days: 0,
+  can_decide: true,
+};
+
 function renderSection(me: Partial<HrConfig["me"]>) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -119,7 +131,7 @@ function renderSection(me: Partial<HrConfig["me"]>) {
 describe("TimesheetApprovalsSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.get.mockResolvedValue({ data: { year: 2031, month: 3, items } });
+    mocks.get.mockResolvedValue({ data: { year: 2031, month: 3, norm_hours: 176, items } });
   });
 
   it("link z powiadomienia na otwartym ekranie zmienia miesiąc i otwiera podgląd osoby", async () => {
@@ -160,7 +172,7 @@ describe("TimesheetApprovalsSection", () => {
     const submitted = await screen.findByTestId("queue-21");
     expect(within(submitted).getByText("Do akceptacji")).toBeInTheDocument();
     expect(within(submitted).getByRole("button", { name: "Akceptuj" })).toBeInTheDocument();
-    expect(within(submitted).getByText("168")).toBeInTheDocument();
+    expect(within(submitted).getByText("168 / 176 h")).toBeInTheDocument();
     const missing = screen.getByTestId("queue-22");
     expect(within(missing).getByText("Nie założony")).toBeInTheDocument();
     expect(within(missing).queryByRole("button", { name: "Akceptuj" })).toBeNull();
@@ -241,5 +253,82 @@ describe("TimesheetApprovalsSection", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).queryByRole("radio", { name: /Cały zespół/ })).toBeNull();
     expect(within(dialog).getByLabelText("Od miesiąca")).toHaveValue("2031-03");
+  });
+
+  it("„Przypomnij” przy braku i szkicu wysyła przypomnienie za ten miesiąc", async () => {
+    mocks.get.mockResolvedValue({
+      data: { year: 2031, month: 3, norm_hours: 176, items: [...items, draftItem] },
+    });
+    mocks.post.mockResolvedValue({
+      data: { target: "person", status: "missing", sent: true, already_today: false },
+    });
+    renderSection({ is_manager: true, direct_reports: 4 });
+
+    const missing = await screen.findByTestId("queue-22");
+    expect(within(screen.getByTestId("queue-24")).getByRole("button", { name: "Przypomnij" })).toBeInTheDocument();
+    // „Do akceptacji” decyduje akceptujący — tam zostaje „Akceptuj”, bez „Przypomnij”.
+    expect(within(screen.getByTestId("queue-21")).queryByRole("button", { name: "Przypomnij" })).toBeNull();
+    expect(within(screen.getByTestId("queue-23")).queryByRole("button", { name: "Przypomnij" })).toBeNull();
+
+    fireEvent.click(within(missing).getByRole("button", { name: "Przypomnij" }));
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith("/api/hr/time/remind/22/2031/3"),
+    );
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith("Przypomnienie poszło do: Julia Testowa.", "success"),
+    );
+  });
+
+  it("odmowa „Przypomnij” (409) pokazuje komunikat serwera", async () => {
+    mocks.post.mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 409, data: { detail: "Miesiąc jest zamknięty w płacach." } },
+    });
+    renderSection({ is_manager: true, direct_reports: 3 });
+
+    const missing = await screen.findByTestId("queue-22");
+    fireEvent.click(within(missing).getByRole("button", { name: "Przypomnij" }));
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith("Miesiąc jest zamknięty w płacach.", "error"),
+    );
+  });
+
+  it("godziny wobec normy, brak raportu bez godzin", async () => {
+    renderSection({ is_manager: true, direct_reports: 3 });
+
+    expect(await screen.findByText("160 / 176 h")).toBeInTheDocument();
+    const missing = screen.getByTestId("queue-22");
+    expect(within(missing).queryByText(/\/ 176 h/)).toBeNull();
+  });
+
+  it("długa lista jest zwinięta: najpierw brak raportu i do akceptacji, potem „Pokaż wszystkie”", async () => {
+    const many: TeamQueueItem[] = [
+      ...items,
+      ...Array.from({ length: 5 }, (_, index) => ({
+        ...draftItem,
+        user_id: 30 + index,
+        name: `Osoba Fikcyjna ${index + 1}`,
+      })),
+    ];
+    mocks.get.mockResolvedValue({ data: { year: 2031, month: 3, norm_hours: 176, items: many } });
+    renderSection({ is_manager: true, direct_reports: many.length });
+
+    await screen.findByTestId("queue-22");
+    const order = screen.getAllByTestId(/^queue-/).map((row) => row.dataset.testid);
+    expect(order).toEqual(["queue-22", "queue-21", "queue-30", "queue-31", "queue-32"]);
+    // Zaakceptowany jest na końcu listy — w zwiniętej go nie ma.
+    expect(screen.queryByTestId("queue-23")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż wszystkie (8)" }));
+    expect(screen.getAllByTestId(/^queue-/)).toHaveLength(8);
+    expect(screen.getByTestId("queue-23")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Zwiń" }));
+    expect(screen.getAllByTestId(/^queue-/)).toHaveLength(5);
+  });
+
+  it("krótka lista nie ma „Pokaż wszystkie”", async () => {
+    renderSection({ is_manager: true, direct_reports: 3 });
+    await screen.findByTestId("queue-21");
+    expect(screen.queryByRole("button", { name: /Pokaż wszystkie/ })).toBeNull();
   });
 });

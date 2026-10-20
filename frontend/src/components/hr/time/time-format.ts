@@ -5,6 +5,7 @@ import type {
   MonthTotals,
   MonthView,
   QueueStatus,
+  TeamQueueItem,
   TimesheetStatus,
 } from "@/lib/api/hr-time";
 import type { StatusDotTone } from "@/components/ds/StatusDot";
@@ -93,4 +94,42 @@ export function dayRowTone(day: MonthDay, today: string): DayRowTone {
 /** „121 / 176 h” — praca wpisana w miesiącu wobec normy (jak „Mój miesiąc”). */
 export function hoursLabel(totals: MonthTotals): string {
   return `${formatHours(totals.work_hours)} / ${totals.norm_hours} h`;
+}
+
+// ── Kolejka timesheetów w „Akceptacjach” ─────────────────────────────────────
+
+/** Ile wierszy kolejki widać przed „Pokaż wszystkie” (makieta 19.10.2026). */
+export const QUEUE_COLLAPSED_ROWS = 5;
+
+/** Najpierw to, co wymaga ruchu: brak raportu, raport do akceptacji, szkice. */
+const QUEUE_ORDER: Record<QueueStatus, number> = {
+  missing: 0,
+  submitted: 1,
+  draft: 2,
+  approved: 3,
+};
+
+export function sortQueue(items: readonly TeamQueueItem[]): TeamQueueItem[] {
+  return [...items].sort((a, b) => QUEUE_ORDER[a.status] - QUEUE_ORDER[b.status]);
+}
+
+/** „72 / 176 h”; bez normy (stara odpowiedź API) — „72 h”. */
+export function queueHoursLabel(hours: number, norm: number | null | undefined): string {
+  return norm ? `${formatHours(hours)} / ${norm} h` : `${formatHours(hours)} h`;
+}
+
+/** Wypełnienie paska godzin w procentach (0–100); pełny = norma osiągnięta. */
+export function queueHoursFill(hours: number, norm: number | null | undefined): number {
+  if (!norm) return 0;
+  return Math.min(100, Math.max(0, Math.round((hours / norm) * 100)));
+}
+
+/**
+ * „Przypomnij” przy szkicu i braku raportu. Przy „do akceptacji” decyduje
+ * akceptujący (trasa odpowiada 409 „czeka na Twoją decyzję”), zamknięty
+ * miesiąc płac też 409.
+ */
+export function canRemindInQueue(item: TeamQueueItem): boolean {
+  if (!item.can_decide || item.timesheet?.payroll_locked) return false;
+  return item.status === "missing" || item.status === "draft";
 }

@@ -328,6 +328,13 @@ def _employed_in(profile: EmployeeProfile, start: date, end: date) -> bool:
     return True
 
 
+async def month_norm_hours(db: AsyncSession, year: int, month: int) -> int:
+    """Norma miesiąca (dni robocze kalendarza firmy × 8 h) — jak „Mój miesiąc”."""
+
+    calendar = await month_calendar(db, year, month)
+    return sum(1 for item in calendar if item.is_working_day) * int(STANDARD)
+
+
 async def team_queue(
     db: AsyncSession, *, actor: Actor, year: int, month: int
 ) -> list[dict[str, Any]]:
