@@ -523,6 +523,20 @@ def normalize_person_name_part(value: Any) -> str:
     return _NON_ALNUM_RE.sub("", ascii_text.casefold())
 
 
+def identity_unreadable(first_name: Any, last_name: Any) -> bool:
+    """Imię albo nazwisko jest wpisane, ale normalizacja nic z niego nie zostawia.
+
+    Tak jest z zapisem cyrylicą: porównanie z odczytem CV zawsze kończy się
+    ``inconclusive``, więc bramka nie odróżnia CV tej osoby od cudzego.
+    """
+
+    for value in (first_name, last_name):
+        raw = str(value or "").strip()
+        if raw.casefold() not in _PLACEHOLDERS and not normalize_person_name_part(raw):
+            return True
+    return False
+
+
 def _fingerprint(first: str, last: str) -> str:
     # Names have too little entropy for an unkeyed digest. A domain-separated
     # HMAC supports reproducible provenance without enabling a dictionary

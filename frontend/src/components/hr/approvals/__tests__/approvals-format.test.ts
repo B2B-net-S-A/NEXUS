@@ -142,6 +142,8 @@ const form = (overrides: Partial<FormState> = {}): FormState => ({
   endsOn: "",
   beneficiary: "",
   payout: "2026-10",
+  client: null,
+  sellerNip: "",
   ...overrides,
 });
 
@@ -171,6 +173,18 @@ describe("ciało formularza zgody", () => {
       beneficiary_user_id: 107,
       payout_year: 2026,
       payout_month: 11,
+    });
+  });
+
+  it("klient tylko przy prezencie, NIP sprzedawcy bez spacji i myślników", () => {
+    const client = { id: 42, name: "Bank Przykładowy" } as NonNullable<FormState["client"]>;
+    expect(toInput(form({ kind: "gift", client, sellerNip: "123-456-32 18" }))).toMatchObject({
+      client_id: 42,
+      seller_nip: "1234563218",
+    });
+    expect(toInput(form({ kind: "training", client }))).toMatchObject({ client_id: null, seller_nip: null });
+    expect(toInput(form({ kind: "bonus", sellerNip: "1234563218", beneficiary: "7" }))).toMatchObject({
+      seller_nip: null,
     });
   });
 });

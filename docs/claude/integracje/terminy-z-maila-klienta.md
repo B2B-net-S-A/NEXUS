@@ -104,7 +104,7 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
   `DebriefDialog`, poza trybem tylko do odczytu). „Rozpisz na pola” =
   `POST /api/interview-cycle/debrief/from-text` (bramka jak zapis debriefu,
   integracja = 403, niczego nie zapisuje; zawsze 200 ze `status`).
-- **Model F33 `debrief_from_text`** (GPT-6 Luna z zapasem Sonnet 5, jak F25):
+- **Model F34 `debrief_from_text`** (GPT-6 Luna z zapasem Sonnet 5, jak F25):
   pytania klienta, gotowość do oferty z warunkiem, nowa stawka i start — każdy
   element z cytatem. **Kontrola kodu** (`debrief_from_text.check_parse`):
   element bez cytatu z notatki odpada; kwota stawki tylko, gdy ta liczba stoi

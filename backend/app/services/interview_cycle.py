@@ -952,6 +952,21 @@ async def _scope_pairs(
         )
         .exists()
     )
+    # 20.10.2026: rekruter pary to też pierwszy weryfikator i rekruter
+    # rekrutacji (``interview_slots.default_recruiter_ids``) — zadanie „Uzupełnij
+    # pytania z rozmowy” trafia do niego, więc para musi być w jego „mine”.
+    # Na produkcji 5 z 24 takich zadań nie widział nikt.
+    verified_by_me = (
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == latest.c.candidate_id,
+            CandidateStage.job_id == latest.c.job_id,
+            CandidateStage.stage == PipelineStage.verified,
+            CandidateStage.moved_by.in_(owners),
+        )
+        .exists()
+    )
+    my_job = latest.c.job_id.in_(select(Job.id).where(Job.recruiter_id.in_(owners)))
     stage_q = select(latest.c.candidate_id, latest.c.job_id).where(
         latest.c.stage == PipelineStage.client_interview,
         # Runda 8 (R8-N9-5): import Traffita dopisuje etap „Rozmowa z klientem”
@@ -961,7 +976,7 @@ async def _scope_pairs(
         latest.c.job_id.in_(select(Job.id).where(Job.status == JobStatus.published)),
         in_scope(
             latest.c.job_id,
-            or_(latest.c.moved_by.in_(owners), owned_process),
+            or_(latest.c.moved_by.in_(owners), owned_process, verified_by_me, my_job),
         ),
     )
     for cid, jid in (await db.execute(stage_q.limit(MAX_PAIRS))).all():

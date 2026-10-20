@@ -24,6 +24,7 @@ from app.services import equipment_schema as equipment
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
 from app.services import hr_agreements_schema as agreements
+from app.services import hr_approval_settlement_schema as approval_settlement
 from app.services import hr_approvals_schema as approvals
 from app.services import hr_documents_schema as documents
 from app.services import hr_foundation_schema as foundation
@@ -55,6 +56,7 @@ MODULES = (
     client_structure,
     account_profile,
     approvals,
+    approval_settlement,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

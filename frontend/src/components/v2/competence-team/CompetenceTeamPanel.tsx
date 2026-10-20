@@ -206,9 +206,11 @@ export function CompetenceTeamView({
   const people = team.people
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+      {/* Obok tabeli dopiero od 2xl: od 20.10.2026 panel stoi w Ustawieniach obok
+          lewej kolumny i przy 1280 px „Bez kategorii” ściskało tabelę do inicjałów. */}
+      <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start">
         <div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-card">
-          <div className="grid grid-cols-[240px_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-border px-5 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="grid grid-cols-[200px_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-border px-5 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             <div>Kategoria</div>
             <div>1. priorytet</div>
             <div>2. priorytet</div>
@@ -216,7 +218,7 @@ export function CompetenceTeamView({
           {team.categories.map((category) => (
             <div
               key={category.id}
-              className="grid grid-cols-[240px_minmax(0,1fr)_minmax(0,1fr)] items-start gap-4 border-b border-border px-5 py-4 last:border-0"
+              className="grid grid-cols-[200px_minmax(0,1fr)_minmax(0,1fr)] items-start gap-4 border-b border-border px-5 py-4 last:border-0"
             >
               <div className="flex flex-col gap-1.5">
                 <Badge variant={competenceTone(category.slug)} size="md" className="self-start">
@@ -251,7 +253,7 @@ export function CompetenceTeamView({
           </p>
         </div>
 
-        <aside className="flex w-full flex-col gap-4 xl:w-[340px] xl:shrink-0">
+        <aside className="flex w-full flex-col gap-4 2xl:w-[340px] 2xl:shrink-0">
           <section
             aria-label="Bez kategorii"
             className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4"

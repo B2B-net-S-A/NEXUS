@@ -547,6 +547,8 @@ const PUBLIC_PATHS = [
   "/preview/hr-announcements",
   "/preview/hr-settlements",
   "/preview/hr-consents",
+  // Finanse → „Wydatki ze zgodą” (Zgody, etap 3 — 0486, 20.10.2026).
+  "/preview/finance-approved-expenses",
   "/preview/hr-documents",
   "/preview/hr-agreements",
   // Katalog z listą rozjazdów kartoteka ↔ konto (19.10.2026).

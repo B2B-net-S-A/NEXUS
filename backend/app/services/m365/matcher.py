@@ -122,9 +122,23 @@ def _fold_diacritics(s: str) -> str:
     return folded.lower()
 
 
+def name_folds_to_nothing(name: Optional[str], lastname: Optional[str]) -> bool:
+    """Imię albo nazwisko bez jednej litery łacińskiej po złożeniu (cyrylica).
+
+    Taki zapis składa się do pustego napisu, a wzorzec `\\b\\b.*\\b\\b` pasuje
+    do każdego tematu: do 26.09.2026 jeden kandydat zbierał tak tysiące
+    cudzych maili i ich CV, a `smart_thread` doklejał mu kolejne odpowiedzi
+    (``app.cli.m365_unreadable_name_rematch``).
+    """
+    return not all(
+        re.search(r"[a-z0-9]", _fold_diacritics(part or ""))
+        for part in (name, lastname)
+    )
+
+
 def _contains_name(subject: str, name: str, lastname: str) -> bool:
     """True if `<name> <lastname>` (order-insensitive, diacritic-folded) is in subject."""
-    if not subject or not name or not lastname:
+    if not subject or name_folds_to_nothing(name, lastname):
         return False
     fs = _fold_diacritics(subject)
     fn = _fold_diacritics(name)

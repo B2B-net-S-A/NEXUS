@@ -55,6 +55,24 @@ def test_identity_match_without_observed_surname_is_inconclusive() -> None:
     assert result.evidence["observed_identity_complete"] is False
 
 
+@pytest.mark.parametrize(
+    ("first", "last", "unreadable"),
+    [
+        ("Іван", "Петренко", True),
+        ("Jan", "Петренко", True),
+        ("Łukasz", "Żółć", False),
+        ("Jan", None, False),
+        ("nieznany", "Kowalski", False),
+    ],
+)
+def test_identity_unreadable_flags_names_that_normalize_to_nothing(
+    first, last, unreadable
+) -> None:
+    # Cyrylica po normalizacji znika, więc bramka zawsze daje `inconclusive`
+    # (kandydat z 4 361 cudzymi mailami, 20.10.2026).
+    assert quarantine.identity_unreadable(first, last) is unreadable
+
+
 def test_identity_match_confirms_a_different_person_only_on_two_disagreements() -> None:
     result = quarantine.evaluate_identity_match(
         candidate_first_name="Jan",

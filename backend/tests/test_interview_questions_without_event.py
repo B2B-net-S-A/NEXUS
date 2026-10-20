@@ -486,3 +486,42 @@ async def test_overview_shows_questions_missing_to_the_recruiter(
     ]
     assert [t["kind"] for t in todos] == ["questions_missing"]
     assert todos[0]["mine"] is True
+
+
+async def test_verifier_sees_questions_missing_moved_by_someone_else(
+    app_client: AsyncClient,
+):
+    # Na produkcji 20.10.2026 5 z 24 zadań nie widział nikt: rekruterem pary był
+    # pierwszy weryfikator, a na „Rozmowę u klienta” przesunął kto inny.
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, _ = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _stage_pair(recruiter_id=None)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=cand_id,
+                job_id=job_id,
+                stage=PipelineStage.verified,
+                moved_by=rec_id,
+                moved_at=datetime.now(timezone.utc) - timedelta(days=5),
+            )
+        )
+        stage = await db.scalar(
+            select(CandidateStage).where(
+                CandidateStage.candidate_id == cand_id,
+                CandidateStage.stage == PipelineStage.client_interview,
+            )
+        )
+        stage.moved_by = dl_id
+        await db.commit()
+    res = await app_client.get(
+        "/api/interview-cycle", headers=rec_h, params={"scope": "mine"}
+    )
+    assert res.status_code == 200, res.text
+    todos = [
+        t
+        for t in res.json()["todos"]
+        if t["candidate_id"] == cand_id and t["kind"] == "questions_missing"
+    ]
+    assert len(todos) == 1
+    assert todos[0]["mine"] is True

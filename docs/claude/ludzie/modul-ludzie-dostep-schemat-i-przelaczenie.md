@@ -456,8 +456,15 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
 **Katalog = konta NEXUSA: „Konto decyduje + lista rozjazdów”** (`services/hr/account_profiles.py`).
 
 - Aktywne konto pracownicze (`people.is_staff_account`: bez „Automatyzacji”, starego podglądu
-  `user` i niepotwierdzonej rejestracji; klucze API to `service_accounts`, nie `users`) ma
-  kartotekę. Brakującą zakłada `ensure_profile` przy założeniu konta przez admina i przy każdym
+  `user`, niepotwierdzonej rejestracji i kont integracji OAuth; klucze API to `service_accounts`,
+  nie `users`) ma kartotekę.
+- **Konto integracji OAuth** (`oauth_clients.acting_user_id`, migracja 0311 — scrapery
+  pracuj.pl / JJIT) nie jest pracownikiem, choć ma rolę rekrutacyjną (TCM): przez nią idzie RBAC
+  zapisu kandydatów, a „Automatyzacje” są tylko do odczytu. Rozpoznajemy je po kliencie
+  (`people.integration_account_ids`), nie po roli (decyzja Artura 20.10.2026 — konto stało
+  w kolejce timesheetów jako „Nie założony”). Kartotekę założoną mu 19.10 usuwa jednorazowa
+  faza startu `cleanup-integration-profiles` (`hr/integration_profile_cleanup.py`, paragon
+  `hr_integration_profile_cleanup_2026_10_20`; tylko `created_from_account` bez danych kadrowych). Brakującą zakłada `ensure_profile` przy założeniu konta przez admina i przy każdym
   logowaniu SSO (w savepoincie — kartoteka nie blokuje logowania; tylko przy włączonym
   programie) oraz „Wyrównaj wg konta”: „Aktywny”, forma B2B tylko jako wartość domyślna
   z `employment_type_pending` (ekrany: „do uzupełnienia”; znacznik gaśnie przy pierwszym zapisie

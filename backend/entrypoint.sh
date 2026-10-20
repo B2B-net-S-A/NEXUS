@@ -193,6 +193,9 @@ _ENUM_STATEMENTS = [
     # 0483: zgody na wydatki i premie poza umową (`hr_approvals_schema`).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_decided'",
+    # 0486: rozliczenie zgód w Finansach (`hr_approval_settlement_schema`).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_topup_requested'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_subscription_renewal'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_feedback_eobd'",
@@ -317,6 +320,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_editor_command'",
     # 0485: terminy rozmowy u klienta z wklejonego maila (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_slots_from_mail'",
+    # 0486: odczyt kwoty i sprzedawcy z faktury albo paragonu do zgody.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'expense_document_read'",
     # 0488: „Po rozmowie” — pytania i oferta z notatki z telefonu (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'debrief_from_text'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
@@ -7248,6 +7253,11 @@ _DATA_STATEMENTS = [
     "SELECT 'interview_slots_from_mail', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'interview_slots_from_mail')",
+    # 0486: seed klucza AI odczytu faktury albo paragonu do zgody.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'expense_document_read', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'expense_document_read')",
     # 0488: seed klucza AI „Po rozmowie — notatka z telefonu”.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'debrief_from_text', TRUE, 0, now(), now() "
@@ -11693,6 +11703,41 @@ async def repair():
             )
             return
     print(f"settings test data cleanup: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Kartoteki kont integracji OAuth (decyzja Artura 20.10.2026) — jednorazowo:
+# konto, w którego imieniu działają scrapery (`oauth_clients.acting_user_id`),
+# dostało 19.10 kartotekę z „Kartoteka idzie za kontem” i stało w kolejce
+# timesheetów. Usuwana jest tylko kartoteka założona z konta i bez danych
+# kadrowych. Logika w `app/services/hr/integration_profile_cleanup.py`;
+# paragon w `app_settings` + advisory lock. Log: wyłącznie liczby.
+startup_phase "cleanup-integration-profiles"
+echo "Data: remove HR profiles of OAuth integration accounts (one-shot)..."
+python - <<'PY' || echo "integration profile cleanup skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.hr.integration_profile_cleanup import (
+    run_integration_profile_cleanup,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_integration_profile_cleanup(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — log bez treści wierszy
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"integration profile cleanup failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"integration profile cleanup: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY

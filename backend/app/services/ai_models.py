@@ -53,7 +53,8 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F30 | cv_selection_edit                | claude-sonnet-5 (z Haiku)|
 | F31 | cv_editor_command                | claude-sonnet-5 (z Haiku)|
 | F32 | interview_slots_from_mail        | claude-sonnet-5 (z Haiku)|
-| F33 | debrief_from_text                | gpt-6-luna (z Sonnet 5)  |
+| F33 | expense_document_read            | claude-sonnet-5 (z Haiku)|
+| F34 | debrief_from_text                | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -384,6 +385,16 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "zwraca listę operacji na wierszach, kod sprawdza każdą (nowy fakt, układ szablonu), "
         "a zastosowanie zatwierdza człowiek operacja po operacji.",
     ),
+    AIFeatureKey.expense_document_read: ModelChoice(
+        default=SONNET_5,
+        env_vars=("EXPENSE_DOCUMENT_READ_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F33 (decyzja 20.10.2026, POZA badaniem 16.09). Odczyt kwoty, waluty, "
+        "NIP-u i nazwy sprzedawcy z faktury albo paragonu do zgody (Zgody, etap 3). "
+        "Paragon bywa zdjęciem, więc model musi czytać obraz — Sonnet 5 jak odczyt PDF "
+        "zamówień (F7). Wynik to podpowiedź: osoba widzi pola i je poprawia, kwotę do "
+        "rozliczenia zatwierdzają Finanse.",
+    ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=GPT_LUNA,
         env_vars=("CV_NAME_BACKFILL_MODEL",),
@@ -406,7 +417,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         default=GPT_LUNA,
         env_vars=("DEBRIEF_FROM_TEXT_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F33 (20.10.2026, POZA badaniem 16.09). „Po rozmowie”: pytania klienta, "
+        rationale="F34 (20.10.2026, POZA badaniem 16.09). „Po rozmowie”: pytania klienta, "
         "gotowość do oferty i stawka z notatki rekrutera — „znajdź i zacytuj” jak F25 "
         "(Luna). Element bez cytatu z notatki odrzuca kod, kwotę tylko gdy stoi w tekście; "
         "całość sprawdza rekruter przed zapisem debriefu.",
