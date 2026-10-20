@@ -363,3 +363,14 @@ describe("settings-registry — grupy w obszarze (lewa kolumna, 20.10.2026)", ()
     expect(names(true)).toContain("Ludzie w NEXUSIE");
   });
 });
+
+describe("settings-registry — Listy wyboru ukryte (20.10.2026)", () => {
+  it("admin nie widzi „Listy wyboru” w menu ani w wyszukiwarce, adres zostaje", () => {
+    const admin = accessSnapshot("admin");
+    expect(listedSettingsItems(admin).map((i) => i.id)).not.toContain("dict");
+    expect(searchSettingsItems(admin, "powody odrzucenia").map((i) => i.id)).not.toContain("dict");
+    expect(findSettingsItemByRoute("/settings/dictionaries")?.id).toBe("dict");
+    expect(canSeeSettingsItem(admin, item("dict"))).toBe(true);
+  });
+});
+
