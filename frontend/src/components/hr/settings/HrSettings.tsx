@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Trash2 } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { TabbedNav } from "@/components/ds/TabbedNav";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -25,6 +27,7 @@ import {
   type HrModuleKey,
 } from "@/lib/api/hr";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 
 import { LifecycleTemplatesCard } from "@/components/hr/lifecycle/LifecycleTemplatesCard";
@@ -269,66 +272,107 @@ function ModulesCard({ config }: { config: HrConfig }) {
 /**
  * Reguły premii mieszkają od 17.10.2026 w Ustawienia → Płace — Kadry, które
  * szukały ich tutaj, dostają drogowskaz (link tylko z uprawnieniem „Płace”).
+ * Od 20.10.2026 to jedna linia pod zakładkami, nie osobna karta.
  */
-function BonusRulesMovedCard({ config }: { config: HrConfig }) {
-  return (
-    <Card className="space-y-1 p-5">
-      <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-        Reguły premii
-      </h2>
-      {canEditPayrollSettings(config) ? (
-        <p className="text-sm text-foreground">
-          Reguły premii są w{" "}
-          <Link href="/settings/payroll" className="font-medium text-primary hover:underline">
-            Ustawienia → Płace
-          </Link>
-          .
-        </p>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Reguły premii są w Ustawienia → Płace — zmienia je osoba z uprawnieniem „Płace”.
-        </p>
-      )}
-    </Card>
+function BonusRulesSignpost({ config }: { config: HrConfig }) {
+  return canEditPayrollSettings(config) ? (
+    <p className="text-sm text-muted-foreground">
+      Reguły premii są w{" "}
+      <Link href="/settings/payroll" className="font-medium text-primary hover:underline">
+        Ustawienia → Płace
+      </Link>
+      .
+    </p>
+  ) : (
+    <p className="text-sm text-muted-foreground">
+      Reguły premii są w Ustawienia → Płace — zmienia je osoba z uprawnieniem „Płace”.
+    </p>
   );
 }
 
+export type HrSettingsTab = "kalendarz" | "wejscie-odejscie" | "urlopy" | "dokumenty" | "moduly";
+
+const TAB_LABELS: Record<HrSettingsTab, string> = {
+  kalendarz: "Kalendarz firmy",
+  "wejscie-odejscie": "Wejście i odejście",
+  urlopy: "Urlopy i M365",
+  dokumenty: "Dokumenty i retencja",
+  moduly: "Moduły",
+};
+
+export const HR_SETTINGS_TAB_PARAM = "zakladka";
+
+/** Zakładki, w których osoba coś widzi — te same warunki co karty dotąd. */
+export function availableHrSettingsTabs(config: HrConfig): HrSettingsTab[] {
+  const { me, open_modules: open } = config;
+  const tabs: HrSettingsTab[] = [];
+  if (me.people_admin || (open.time && me.is_admin)) tabs.push("kalendarz");
+  if (open.lifecycle && (me.people_admin || me.is_admin || me.back_office_head)) {
+    tabs.push("wejscie-odejscie");
+  }
+  if (me.people_admin) tabs.push("urlopy");
+  if ((me.people_admin || me.is_admin) && open.people) tabs.push("dokumenty");
+  if (me.is_admin) tabs.push("moduly");
+  return tabs;
+}
+
 /**
- * Ustawienia → Kadry: dni wolne firmy, szablony wejścia/odejścia i domyślne
- * opisy godzin (Kadry), przełączniki modułów i źródło urlopów (admin), M365. Reguły premii są
+ * Ustawienia → Kadry (zakładki od 20.10.2026, makieta „Kadry — propozycja”):
+ * kalendarz firmy i domyślne opisy godzin, ścieżki wejścia i odejścia, urlopy
+ * w M365, wzory umów z pracownikami i retencja, przełączniki modułów (admin).
+ * Do 20.10 było to osiem kart na jednej stronie. Reguły premii są
  * w Ustawienia → Płace (`PayrollSettings`).
  */
 export function HrSettings({ config }: { config: HrConfig }) {
+  const searchParams = useSearchParams();
+  const pathname = usePathname() ?? "";
+  const { replaceUrl } = useUrlWriter();
+  const tabs = availableHrSettingsTabs(config);
+  const requested = searchParams?.get(HR_SETTINGS_TAB_PARAM) as HrSettingsTab | null;
+  const tab = requested && tabs.includes(requested) ? requested : tabs[0];
+  const { me, open_modules: open } = config;
+
+  const select = (next: string) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.set(HR_SETTINGS_TAB_PARAM, next);
+    replaceUrl(`${pathname}?${params.toString()}`);
+  };
+
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      {config.me.people_admin ? <DaysOffCard /> : null}
-      {config.me.is_admin ? <ModulesCard config={config} /> : null}
-      {config.open_modules.lifecycle &&
-      (config.me.people_admin || config.me.is_admin || config.me.back_office_head) ? (
-        <div className="lg:col-span-2">
-          <LifecycleTemplatesCard config={config} />
+    <div className="space-y-4">
+      {tabs.length > 1 ? (
+        <TabbedNav
+          tabs={tabs.map((value) => ({ value, label: TAB_LABELS[value] }))}
+          value={tab}
+          onValueChange={select}
+          ariaLabel="Kadry"
+        />
+      ) : null}
+      {open.payroll ? <BonusRulesSignpost config={config} /> : null}
+      {tabs.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Przy Twoich uprawnieniach nie ma tu nic do ustawienia.
+        </p>
+      ) : null}
+
+      {tab === "kalendarz" ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {me.people_admin ? <DaysOffCard /> : null}
+          {/* Domyślne opisy godzin (jak Compass `internal/admin/role-defaults`). */}
+          {open.time && (me.people_admin || me.is_admin) ? <RoleDefaultsCard /> : null}
         </div>
       ) : null}
-      {config.open_modules.payroll ? <BonusRulesMovedCard config={config} /> : null}
-      {/* Domyślne opisy godzin (jak Compass `internal/admin/role-defaults`). */}
-      {config.open_modules.time && (config.me.people_admin || config.me.is_admin) ? (
-        <div className="lg:col-span-2">
-          <RoleDefaultsCard />
+      {tab === "wejscie-odejscie" ? <LifecycleTemplatesCard config={config} /> : null}
+      {tab === "urlopy" ? <M365Card /> : null}
+      {tab === "dokumenty" ? (
+        <div className="space-y-4">
+          <AgreementTemplatesCard isAdmin={me.is_admin} />
+          {me.people_admin ? <DocumentsRetentionCard /> : null}
         </div>
       ) : null}
-      {config.me.people_admin ? (
-        <div className="lg:col-span-2">
-          <M365Card />
-        </div>
-      ) : null}
-      {(config.me.people_admin || config.me.is_admin) && config.open_modules.people ? (
-        <div className="lg:col-span-2">
-          <AgreementTemplatesCard isAdmin={config.me.is_admin} />
-        </div>
-      ) : null}
-      {config.me.people_admin && config.open_modules.people ? (
-        <div className="lg:col-span-2">
-          <DocumentsRetentionCard />
+      {tab === "moduly" ? (
+        <div className="max-w-2xl">
+          <ModulesCard config={config} />
         </div>
       ) : null}
     </div>
