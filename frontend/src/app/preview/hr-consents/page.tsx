@@ -7,10 +7,13 @@
  * zasianym cache, ZERO zapytań (`hr-harness.tsx`). Stany (`?state=`):
  * - `inbox` (domyślnie) — zatwierdzający (admin): premia poza umową z liczbami
  *   „NEXUS sprawdził”, delegacja poparta przez przełożoną, subskrypcja,
- *   prezent; przełącznik „Zgody | Urlopy i timesheety”;
+ *   prezent, dopłata do decyzji (faktura +18%); przełącznik „Zgody | Urlopy
+ *   i timesheety”;
  * - `supervisor` — przełożona: delegacja ponad próg („Popieram”) i prezent
  *   w progu („Zatwierdź”);
- * - `mine` — autorka: pytanie od zatwierdzającego, zgoda w toku, zatwierdzona;
+ * - `mine` — autorka: pytanie od zatwierdzającego, zgoda w toku, rozliczenia
+ *   (etap 3): delegacja czeka na fakturę, szkolenie z fakturą +18% („Poproś
+ *   o dopłatę”), subskrypcja roczna z pytaniem o odnowienie;
  * - `form` — „Poproś o zgodę” (panel „Kto zdecyduje” pyta serwer — w harnessie
  *   pokazuje komunikat o braku sieci).
  * Zapisy blokuje harness.
@@ -21,7 +24,13 @@ import { MyConsentsScreen } from "@/components/hr/approvals/MyConsentsScreen";
 import { ApprovalsScreen } from "@/components/hr/leave/ApprovalsScreen";
 import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
 import { hrKeys, type HrConfig } from "@/lib/api/hr";
-import { approvalKeys, type ApprovalRequestRow } from "@/lib/api/hr-approvals";
+import {
+  approvalKeys,
+  type ApprovalDocument,
+  type ApprovalRequestRow,
+  type ApprovalSettlement,
+  type ApprovalTopupRow,
+} from "@/lib/api/hr-approvals";
 import { leaveKeys } from "@/lib/api/hr-leave";
 
 import { HR_CAST, hrConfig } from "../hr-fixtures";
@@ -115,6 +124,101 @@ function row(
     context: null,
     ...partial,
   };
+}
+
+function doc(partial: Partial<ApprovalDocument> & Pick<ApprovalDocument, "id">): ApprovalDocument {
+  return {
+    source: "upload",
+    doc_type: "invoice",
+    status: "pinned",
+    status_label: "do rozliczenia",
+    approval_request_id: null,
+    match_reason: "upload",
+    match_reason_label: "dołączona do zgody",
+    ksef_number: null,
+    seller_nip: null,
+    seller_name: "Organizator Przykładowy sp. z o.o.",
+    invoice_number: "FV 7/10/2026",
+    issue_date: iso(-2),
+    currency: "PLN",
+    net_amount: null,
+    vat_amount: null,
+    gross_amount: "1416.00",
+    file_name: "faktura.pdf",
+    has_file: true,
+    read_status: "read",
+    topup: null,
+    settled_at: null,
+    settled_by_name: null,
+    settle_note: null,
+    close_note: null,
+    comparison: null,
+    can_edit: true,
+    can_remove: true,
+    can_request_topup: false,
+    can_decide_topup: false,
+    can_settle: false,
+    ...partial,
+  };
+}
+
+function settlement(partial: Partial<ApprovalSettlement> & Pick<ApprovalSettlement, "status" | "status_label">): ApprovalSettlement {
+  return {
+    expires_on: iso(21),
+    renews_on: null,
+    renewal_asked_for: null,
+    renewal_confirmed_for: null,
+    ended_on: null,
+    settled_at: null,
+    settled_by_name: null,
+    seller_nip: null,
+    client_id: null,
+    client_name: null,
+    tolerance_percent: 10,
+    comparison: null,
+    documents: [],
+    can_add_document: true,
+    can_answer_renewal: false,
+    can_end: false,
+    ...partial,
+  };
+}
+
+const OVER = {
+  status: "over" as const,
+  approved: "1200.00",
+  documented: "1416.00",
+  limit: "1320.00",
+  excess: "216.00",
+  percent: 18,
+};
+
+function topupRows(): ApprovalTopupRow[] {
+  return [
+    {
+      request_id: 21,
+      title: "Konferencja rekruterów IT — bilet",
+      kind_label: "Szkolenie",
+      requester_name: HR_CAST.ola.name,
+      amount_text: "1 200 zł brutto",
+      document: doc({
+        id: 31,
+        approval_request_id: 21,
+        comparison: OVER,
+        topup: {
+          status: "pending",
+          amount: "216.00",
+          requested_at: moment(0, 9),
+          decided_at: null,
+          decided_by_name: null,
+          note: null,
+        },
+        can_edit: false,
+        can_remove: false,
+        can_decide_topup: true,
+      }),
+    },
+  ];
 }
 
 const CONTEXT = {
@@ -310,6 +414,74 @@ function mineRows(): ApprovalRequestRow[] {
       decided_by_name: HR_CAST.marta.name,
       decided_at: moment(9, 14),
       submitted_at: moment(10, 9),
+      settlement: settlement({ status: "open", status_label: "czeka na fakturę" }),
+    }),
+    row({
+      ...base,
+      id: 21,
+      kind: "training",
+      kind_label: "Szkolenie",
+      status: "approved",
+      status_label: "Zatwierdzona",
+      title: "Warsztaty z sourcingu — bilet",
+      purpose: "Dwa dni warsztatów, materiały dla zespołu.",
+      amount: "1200.00",
+      amount_text: "1 200 zł brutto",
+      endorsed_by_name: HR_CAST.marta.name,
+      endorsed_at: moment(6, 11),
+      decided_by_name: HR_CAST.admin.name,
+      decided_at: moment(5, 8),
+      submitted_at: moment(6, 9),
+      settlement: settlement({
+        status: "documented",
+        status_label: "do rozliczenia",
+        comparison: OVER,
+        documents: [
+          doc({ id: 31, approval_request_id: 21, comparison: OVER, can_request_topup: true }),
+        ],
+      }),
+    }),
+    row({
+      ...base,
+      id: 22,
+      kind: "subscription",
+      kind_label: "Subskrypcja",
+      status: "approved",
+      status_label: "Zatwierdzona",
+      title: "Narzędzie do ogłoszeń — licencja roczna",
+      purpose: "Publikowanie ogłoszeń w trzech kanałach.",
+      amount: "2400.00",
+      recurrence: "yearly",
+      amount_text: "2 400 zł brutto / rok",
+      decided_by_name: HR_CAST.admin.name,
+      decided_at: moment(330, 8),
+      submitted_at: moment(331, 9),
+      settlement: settlement({
+        status: "active",
+        status_label: "w rejestrze",
+        renews_on: iso(26),
+        renewal_asked_for: iso(26),
+        can_answer_renewal: true,
+        can_end: true,
+        documents: [
+          doc({
+            id: 32,
+            approval_request_id: 22,
+            source: "ksef",
+            seller_name: "Dostawca Przykładowy sp. z o.o.",
+            invoice_number: "FV/2025/11/18",
+            issue_date: iso(-330),
+            gross_amount: "2400.00",
+            status: "settled",
+            status_label: "rozliczona",
+            file_name: null,
+            has_file: false,
+            comparison: { ...OVER, status: "fits", approved: "2400.00", documented: "2400.00", limit: "2640.00", excess: null, percent: null },
+            can_edit: false,
+            can_remove: false,
+          }),
+        ],
+      }),
     }),
   ];
 }
@@ -332,10 +504,11 @@ function prepare(params: URLSearchParams) {
     const rows = inboxRows();
     client.setQueryData(approvalKeys.list("inbox"), rows);
     for (const item of rows) client.setQueryData(approvalKeys.detail(item.id), item);
-    client.setQueryData(approvalKeys.count, rows.length);
+    client.setQueryData(approvalKeys.topups, topupRows());
+    client.setQueryData(approvalKeys.count, rows.length + 1);
     client.setQueryData(hrKeys.counts, {
       approvals: 2,
-      consents: rows.length,
+      consents: rows.length + 1,
       cases: null,
     });
   } else if (state === "supervisor") {
@@ -344,6 +517,7 @@ function prepare(params: URLSearchParams) {
     const rows = supervisorRows();
     client.setQueryData(approvalKeys.list("inbox"), rows);
     for (const item of rows) client.setQueryData(approvalKeys.detail(item.id), item);
+    client.setQueryData(approvalKeys.topups, []);
     client.setQueryData(hrKeys.counts, {
       approvals: 1,
       consents: rows.length,

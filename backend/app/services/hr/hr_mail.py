@@ -129,6 +129,16 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Decyzja o Twojej zgodzie",
         "Decyzję i uwagę znajdziesz w „Ludzie → Moje zgody”.",
     ),
+    "hr_approval_topup_requested": (
+        "Prośba o dopłatę do zgody",
+        "Faktura wyszła drożej niż zgoda — dopłata czeka na Twoją decyzję "
+        "w „Ludzie → Akceptacje → Zgody”.",
+    ),
+    "hr_subscription_renewal": (
+        "Odnowienie subskrypcji",
+        "Subskrypcja, której jesteś opiekunem, odnawia się za miesiąc — "
+        "potwierdź w „Ludzie → Moje zgody”, czy jest dalej potrzebna.",
+    ),
 }
 _DEFAULT = ("Czas i ludzie", "Szczegóły znajdziesz w NEXUSIE.")
 

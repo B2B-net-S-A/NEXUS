@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ClientSinglePicker, type ClientRef } from "@/components/clients/ClientSinglePicker";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -47,6 +48,9 @@ export interface FormState {
   endsOn: string;
   beneficiary: string;
   payout: string;
+  /** Etap 3 (0486): klient prezentu i NIP sprzedawcy, jeśli autor go zna. */
+  client: ClientRef | null;
+  sellerNip: string;
 }
 
 function initialState(row: ApprovalRequestRow | null, currentMonth: string): FormState {
@@ -67,6 +71,9 @@ function initialState(row: ApprovalRequestRow | null, currentMonth: string): For
       row?.payout_year && row.payout_month
         ? `${row.payout_year}-${String(row.payout_month).padStart(2, "0")}`
         : currentMonth,
+    client:
+      row?.client_id && row.client_name ? ({ id: row.client_id, name: row.client_name } as ClientRef) : null,
+    sellerNip: row?.seller_nip ?? "",
   };
 }
 
@@ -90,6 +97,8 @@ export function toInput(form: FormState): ApprovalRequestInput {
     beneficiary_user_id: bonus && form.beneficiary ? Number(form.beneficiary) : null,
     payout_year: bonus ? year : null,
     payout_month: bonus ? month : null,
+    client_id: form.kind === "gift" && form.client ? form.client.id : null,
+    seller_nip: bonus ? null : form.sellerNip.replace(/[\s-]/g, "") || null,
   };
 }
 
@@ -340,6 +349,39 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
                 </FormField>
               </>
             ) : null}
+          </div>
+        )}
+
+        {bonus ? null : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {form.kind === "gift" ? (
+              <FormField
+                label="Dla klienta"
+                htmlFor="consent-client"
+                description="Prezent trafi do Historii zdarzeń klienta"
+              >
+                <ClientSinglePicker
+                  value={form.client}
+                  onChange={(client) => setForm((prev) => ({ ...prev, client }))}
+                  queryKey="consent-gift-client"
+                  placeholder="Wybierz klienta (opcjonalnie)"
+                  allowClear
+                />
+              </FormField>
+            ) : null}
+            <FormField
+              label="NIP sprzedawcy"
+              htmlFor="consent-seller"
+              description="Jeśli znasz — faktura z KSeF przypnie się sama"
+            >
+              <Input
+                id="consent-seller"
+                inputMode="numeric"
+                maxLength={20}
+                value={form.sellerNip}
+                onChange={(event) => set("sellerNip", event.target.value)}
+              />
+            </FormField>
           </div>
         )}
 

@@ -71,6 +71,35 @@ describe("/preview/hr-consents", () => {
     expect(attempted()).toEqual([]);
   });
 
+  it("zatwierdzający: dopłata do decyzji nad skrzynką (faktura +18%)", async () => {
+    window.history.replaceState({}, "", "/preview/hr-consents?state=inbox&tab=consents");
+    render(<HrConsentsPreviewPage />);
+    const panel = await screen.findByRole("region", { name: "Dopłaty do decyzji" });
+    expect(within(panel).getByText(/Konferencja rekruterów IT/)).toBeInTheDocument();
+    expect(within(panel).getByText("216 zł")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Zatwierdź dopłatę" })).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("moje zgody: rozliczenie — faktura ponad 10% i „Poproś o dopłatę”", async () => {
+    window.history.replaceState({}, "", "/preview/hr-consents?state=mine&request=21");
+    render(<HrConsentsPreviewPage />);
+    const section = await screen.findByRole("region", { name: "Rozliczenie" });
+    expect(within(section).getByText("+18% vs zgoda")).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: "Poproś o dopłatę" })).toBeInTheDocument();
+    expect(within(section).getByText(/Przeciągnij fakturę albo paragon/)).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("moje zgody: subskrypcja roczna pyta, czy jest dalej potrzebna", async () => {
+    window.history.replaceState({}, "", "/preview/hr-consents?state=mine&request=22");
+    render(<HrConsentsPreviewPage />);
+    const section = await screen.findByRole("region", { name: "Rozliczenie" });
+    expect(within(section).getByRole("button", { name: "Dalej potrzebna" })).toBeInTheDocument();
+    expect(within(section).getByText(/Odnowienie roczne/)).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
   it("formularz „Poproś o zgodę” bez danych nie pyta serwera", async () => {
     window.history.replaceState({}, "", "/preview/hr-consents?state=form&new=1");
     render(<HrConsentsPreviewPage />);

@@ -21,6 +21,8 @@ import { resolveViewState } from "@/lib/view-state";
 import { STATUS_TONE, moneyPl, payoutLine, timeline, type StatusTone } from "./approvals-format";
 import { ConsentRequestForm } from "./ConsentRequestForm";
 import { KindIcon } from "./KindIcon";
+import { SettlementSection } from "./SettlementSection";
+import { settlementNeedsAuthor, settlementPill } from "./settlement-format";
 
 const TONE: Record<StatusTone, string> = {
   neutral: "bg-muted text-foreground",
@@ -32,14 +34,14 @@ const TONE: Record<StatusTone, string> = {
 const LABEL = "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
 
 function StatusPill({ row }: { row: ApprovalRequestRow }) {
+  // Zatwierdzony wydatek pokazuje stan rozliczenia (etap 3): „dołącz fakturę”.
+  const settlement = settlementPill(row);
+  const tone = settlement && settlementNeedsAuthor(row) ? "warning" : STATUS_TONE[row.status];
   return (
     <span
-      className={cn(
-        "whitespace-nowrap rounded-full px-2 py-px text-xs font-medium",
-        TONE[STATUS_TONE[row.status]],
-      )}
+      className={cn("whitespace-nowrap rounded-full px-2 py-px text-xs font-medium", TONE[tone])}
     >
-      {row.status_label}
+      {settlement ?? row.status_label}
     </span>
   );
 }
@@ -140,13 +142,14 @@ function Detail({ row, onEdit }: { row: ApprovalRequestRow; onEdit: () => void }
         <p className="mt-1 whitespace-pre-line text-sm text-foreground">{row.purpose}</p>
       </div>
 
-      {row.status === "approved" ? (
+      {row.status === "approved" && !row.settlement ? (
         <p className="border-t border-border/60 pt-3 text-sm text-foreground">
           {row.kind === "bonus"
             ? "Premia jest w Płacach jako przyznana."
             : `Możesz kupić albo zapłacić${row.decided_amount ? ` — do ${moneyPl(row.decided_amount, row.currency)}` : ""}.`}
         </p>
       ) : null}
+      <SettlementSection row={row} />
 
       {row.can_edit || row.can_withdraw ? (
         <div className="flex flex-wrap gap-2">
@@ -170,7 +173,7 @@ function Detail({ row, onEdit }: { row: ApprovalRequestRow; onEdit: () => void }
 const GROUPS: { title: string; match: (row: ApprovalRequestRow) => boolean }[] = [
   {
     title: "Do zrobienia przez Ciebie",
-    match: (row) => row.status === "returned",
+    match: (row) => row.status === "returned" || settlementNeedsAuthor(row),
   },
   {
     title: "W toku",
@@ -178,7 +181,8 @@ const GROUPS: { title: string; match: (row: ApprovalRequestRow) => boolean }[] =
   },
   {
     title: "Zamknięte",
-    match: (row) => ["approved", "rejected", "withdrawn"].includes(row.status),
+    match: (row) =>
+      ["approved", "rejected", "withdrawn"].includes(row.status) && !settlementNeedsAuthor(row),
   },
 ];
 

@@ -8,6 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 import { HR_COUNTS_MUTATION_KEY, hrKeys } from "@/lib/api/hr";
 
 const ROOT = "/api/hr/approval-requests";
@@ -34,6 +35,84 @@ export interface ApprovalContext {
     manual: string;
     same_month_automatic: string;
   };
+}
+
+/** Porównanie dokumentów z kwotą zgody (próg +10%, etap 3 — 0486). */
+export interface ApprovalComparison {
+  status: "fits" | "over" | "unknown";
+  approved: string;
+  documented: string | null;
+  limit: string;
+  excess: string | null;
+  percent: number | null;
+}
+
+export type ApprovalDocumentStatus = "pinned" | "settled" | "unmatched" | "fixed_cost" | "dismissed";
+
+export interface ApprovalDocument {
+  id: number;
+  source: "upload" | "ksef";
+  doc_type: "invoice" | "receipt";
+  status: ApprovalDocumentStatus;
+  status_label: string;
+  approval_request_id: number | null;
+  match_reason: string | null;
+  match_reason_label: string | null;
+  ksef_number: string | null;
+  seller_nip: string | null;
+  seller_name: string | null;
+  invoice_number: string | null;
+  issue_date: string | null;
+  currency: string;
+  net_amount: string | null;
+  vat_amount: string | null;
+  gross_amount: string | null;
+  file_name: string | null;
+  has_file: boolean;
+  read_status: "read" | "failed" | "skipped" | null;
+  topup: {
+    status: "pending" | "approved" | "rejected";
+    amount: string | null;
+    requested_at: string | null;
+    decided_at: string | null;
+    decided_by_name: string | null;
+    note: string | null;
+  } | null;
+  settled_at: string | null;
+  settled_by_name: string | null;
+  settle_note: string | null;
+  close_note: string | null;
+  comparison: ApprovalComparison | null;
+  can_edit: boolean;
+  can_remove: boolean;
+  can_request_topup: boolean;
+  can_decide_topup: boolean;
+  can_settle: boolean;
+  /** Tylko w kolejce „Faktury bez zgody”. */
+  suggestions?: { id: number; title: string; kind_label: string; amount_text: string; same_seller: boolean }[];
+}
+
+export type ApprovalSettlementStatus = "open" | "documented" | "settled" | "expired" | "active" | "ended";
+
+export interface ApprovalSettlement {
+  status: ApprovalSettlementStatus;
+  status_label: string;
+  expires_on: string | null;
+  renews_on: string | null;
+  renewal_asked_for: string | null;
+  renewal_confirmed_for: string | null;
+  ended_on: string | null;
+  settled_at: string | null;
+  settled_by_name: string | null;
+  seller_nip: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  tolerance_percent: number;
+  comparison: ApprovalComparison | null;
+  documents: ApprovalDocument[];
+  can_add_document: boolean;
+  can_answer_renewal: boolean;
+  can_end: boolean;
 }
 
 export interface ApprovalRequestRow {
@@ -81,6 +160,11 @@ export interface ApprovalRequestRow {
   can_withdraw: boolean;
   /** Tylko w szczególe (`GET /{id}`) i tylko dla decydującego. */
   context?: ApprovalContext | null;
+  /** Etap 3 (0486): klient prezentu, znany NIP sprzedawcy, rozliczenie. */
+  client_id?: number | null;
+  client_name?: string | null;
+  seller_nip?: string | null;
+  settlement?: ApprovalSettlement | null;
 }
 
 export interface ApprovalRequestInput {
@@ -99,6 +183,8 @@ export interface ApprovalRequestInput {
   beneficiary_user_id: number | null;
   payout_year: number | null;
   payout_month: number | null;
+  client_id?: number | null;
+  seller_nip?: string | null;
 }
 
 export interface ApprovalRoutePreview {
@@ -123,6 +209,7 @@ export const approvalKeys = {
   count: ["hr", "approval-requests", "count"] as const,
   beneficiaries: ["hr", "approval-requests", "beneficiaries"] as const,
   rules: ["hr", "approval-requests", "rules"] as const,
+  topups: ["hr", "approval-requests", "topups"] as const,
 };
 
 function parseCount(raw: unknown): number {
@@ -266,4 +353,127 @@ export function useSaveApprovalRules() {
     }) => (await api.put<ApprovalRules>(`${ROOT}/rules`, input)).data,
     onSuccess: (data) => queryClient.setQueryData(approvalKeys.rules, data),
   });
+}
+
+
+// ── rozliczenie (etap 3, 0486) ─────────────────────────────────────────────
+
+export interface ApprovalTopupRow {
+  request_id: number;
+  title: string;
+  kind_label: string;
+  requester_name: string | null;
+  amount_text: string;
+  document: ApprovalDocument;
+}
+
+export function documentFileUrl(requestId: number, documentId: number): string {
+  return `${ROOT}/${requestId}/documents/${documentId}/file`;
+}
+
+/** Pobranie faktury albo paragonu (autor, decydujący, Finanse). */
+export async function downloadApprovalDocument(
+  requestId: number,
+  doc: Pick<ApprovalDocument, "id" | "file_name">,
+): Promise<void> {
+  const { blob, filename } = await fetchAuthenticatedDownload(documentFileUrl(requestId, doc.id));
+  downloadBlob(blob, filename ?? doc.file_name ?? "dokument");
+}
+
+/** Dopłaty czekające na decyzję zatwierdzającego. */
+export function usePendingTopups(enabled = true) {
+  return useQuery({
+    queryKey: approvalKeys.topups,
+    queryFn: async () => {
+      const items = (await api.get<{ items?: unknown }>(`${ROOT}/topups`)).data?.items;
+      if (!Array.isArray(items)) throw new Error("Nieoczekiwana odpowiedź listy dopłat.");
+      return items as ApprovalTopupRow[];
+    },
+    enabled,
+  });
+}
+
+function useSettlementMutation<TVars>(
+  call: (vars: TVars) => Promise<ApprovalRequestRow>,
+  mutationKey?: readonly unknown[],
+) {
+  const invalidate = useInvalidateApprovals();
+  return useMutation({ mutationKey, mutationFn: call, onSuccess: invalidate });
+}
+
+export function useUploadApprovalDocument() {
+  return useSettlementMutation(async ({ id, file }: { id: number; file: File }) => {
+    const form = new FormData();
+    form.append("file", file);
+    // Bez jawnego multipartu axios zserializowałby FormData do JSON-a (422).
+    return (
+      await api.post<ApprovalRequestRow>(`${ROOT}/${id}/documents`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+    ).data;
+  });
+}
+
+export interface ApprovalDocumentInput {
+  doc_type?: "invoice" | "receipt";
+  seller_name?: string | null;
+  seller_nip?: string | null;
+  invoice_number?: string | null;
+  issue_date?: string | null;
+  currency?: string;
+  net_amount?: string | null;
+  vat_amount?: string | null;
+  gross_amount?: string | null;
+}
+
+export function useUpdateApprovalDocument() {
+  return useSettlementMutation(
+    async ({ id, documentId, input }: { id: number; documentId: number; input: ApprovalDocumentInput }) =>
+      (await api.patch<ApprovalRequestRow>(`${ROOT}/${id}/documents/${documentId}`, input)).data,
+  );
+}
+
+export function useRemoveApprovalDocument() {
+  return useSettlementMutation(
+    async ({ id, documentId }: { id: number; documentId: number }) =>
+      (await api.delete<ApprovalRequestRow>(`${ROOT}/${id}/documents/${documentId}`)).data,
+  );
+}
+
+export function useRequestTopup() {
+  return useSettlementMutation(
+    async ({ id, documentId }: { id: number; documentId: number }) =>
+      (await api.post<ApprovalRequestRow>(`${ROOT}/${id}/documents/${documentId}/topup`)).data,
+  );
+}
+
+export function useDecideTopup() {
+  return useSettlementMutation(
+    async ({
+      id,
+      documentId,
+      action,
+      note,
+    }: {
+      id: number;
+      documentId: number;
+      action: "approve" | "reject";
+      note?: string | null;
+    }) =>
+      (
+        await api.post<ApprovalRequestRow>(`${ROOT}/${id}/documents/${documentId}/topup/decide`, {
+          action,
+          note: note ?? null,
+        })
+      ).data,
+    // Licznik „Akceptacji” liczy dopłaty razem ze zgodami.
+    [...HR_COUNTS_MUTATION_KEY, "approval-topup"],
+  );
+}
+
+export function useAnswerRenewal() {
+  return useSettlementMutation(
+    async ({ id, keep }: { id: number; keep: boolean }) =>
+      (await api.post<ApprovalRequestRow>(`${ROOT}/${id}/renewal`, { keep })).data,
+  );
 }
