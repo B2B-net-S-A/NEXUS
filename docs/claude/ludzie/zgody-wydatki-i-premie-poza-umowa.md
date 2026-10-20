@@ -89,14 +89,16 @@ w `api/hr_approval_finance.py` (`/api/finance/approved-expenses`).
   `settled`; bez dokumentu przez 30 dni od zatwierdzenia → `expired`
   (pętla `hr_lifecycle` od 8:00, dzwonek do autora, potem nowa zgoda);
   cykliczny (subskrypcja, „co miesiąc / co rok”) `active` → `ended`, każda
-  faktura rozliczana osobno. Zatwierdzone przed 0485 dostają rozliczenie
-  w migracji.
+  faktura rozliczana osobno; bez żadnego dokumentu przez 30 dni od startu
+  (`starts_on`, gdy jest późniejszy niż zatwierdzenie) też `expired` — nic nie
+  kupiono, więc rejestr nie liczy „wiszącej” kwoty. Zatwierdzone przed 0485
+  dostają rozliczenie w migracji.
 - **Dokumenty** (`approval_documents`): autor albo Finanse wgrywają PDF/JPG/PNG
   do 10 MB (`store.py`, podkatalog `approval_documents/<zgoda>/` — nie e-teczka,
   bo to papier firmy). Odczyt kwoty, waluty, NIP-u i sprzedawcy robi model
   z rejestru (`expense_document_read`, F32) — to podpowiedź, osoba poprawia
   pola (`PATCH`), awaria albo brak limitu AI zostawia dokument bez odczytu.
-  Kwoty faktury z KSeF są wiążące (409 przy poprawce). Ta sama faktura wgrana
+  Kwoty i NIP sprzedawcy faktury z KSeF są wiążące (409 przy poprawce). Ta sama faktura wgrana
   i z KSeF (NIP + numer) to jeden wiersz.
 - **Dopasowanie KSeF** (`settlement.match_document`): zgoda zatwierdzona,
   otwarta, ten sam NIP sprzedawcy (z formularza, z odczytu pliku albo z

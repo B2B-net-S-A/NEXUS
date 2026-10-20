@@ -608,3 +608,65 @@ async def test_finance_summary_shows_bonuses_only_as_a_sum(client, team) -> None
             )
         )
         assert docs is None
+
+
+@pytest.mark.asyncio
+async def test_ksef_amounts_and_seller_are_binding(client, team) -> None:
+    nip = _nip(int(uuid.uuid4().int % 10**8))
+    approved = await _approved(
+        client, team, {**_training("500"), "kind": "other", "seller_nip": nip}
+    )
+    item = {
+        "invoiceNumber": f"FV {uuid.uuid4().hex[:6]}",
+        "issueDate": business_today().isoformat(),
+        "seller": {"nip": nip, "name": "Dostawca Testowy"},
+        "grossAmount": 500.0,
+        "currency": "PLN",
+        "invoiceType": "Vat",
+    }
+    async with AsyncSessionLocal() as db:
+        await cost_invoices.store(
+            db,
+            item,
+            ksef_number=f"{nip}-20261020-{uuid.uuid4().hex[:12].upper()}-AC",
+            now=datetime.now(timezone.utc),
+        )
+        await db.commit()
+    body = (
+        await client.get(f"{BASE}/{approved['id']}", headers=_headers(team["worker"]))
+    ).json()
+    (doc,) = body["settlement"]["documents"]
+    for change in ({"seller_nip": ""}, {"gross_amount": "1"}):
+        resp = await client.patch(
+            f"{BASE}/{approved['id']}/documents/{doc['id']}",
+            json=change,
+            headers=_headers(team["accountant"]),
+        )
+        assert resp.status_code == 409, resp.text
+
+
+@pytest.mark.asyncio
+async def test_future_subscription_does_not_expire_before_its_start(
+    client, team
+) -> None:
+    start = business_today() + timedelta(days=90)
+    approved = await _approved(
+        client,
+        team,
+        {
+            **_training("1200"),
+            "kind": "subscription",
+            "recurrence": "yearly",
+            "starts_on": start.isoformat(),
+        },
+    )
+    assert (
+        approved["settlement"]["expires_on"] == (start + timedelta(days=30)).isoformat()
+    )
+    async with AsyncSessionLocal() as db:
+        await settlement.expire_stale(db, business_today() + timedelta(days=45))
+        await db.commit()
+    after = (
+        await client.get(f"{BASE}/{approved['id']}", headers=_headers(team["worker"]))
+    ).json()
+    assert after["settlement"]["status"] == "active"

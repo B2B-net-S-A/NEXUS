@@ -98,7 +98,7 @@ _PREP_REASON = {
 }
 
 
-RENEWALS_PATH = "/finance?view=approved-expenses&tab=subscriptions"
+RENEWALS_PATH = "/finance?view=approved-expenses&expTab=subscriptions"
 
 
 def build_sections(

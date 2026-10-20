@@ -193,7 +193,10 @@ async def on_approved(db: AsyncSession, request: ApprovalRequest, actor: User) -
         return
     today = business_today()
     request.settlement_status = "open" if request.recurrence == "once" else "active"
-    request.expires_on = today + timedelta(days=EXPIRY_DAYS)
+    # Wydatek cykliczny ze startem w przyszłości (subskrypcja od stycznia)
+    # liczy 30 dni od startu — inaczej wygasałby, zanim przyjdzie pierwsza faktura.
+    start = request.starts_on if request.recurrence != "once" else None
+    request.expires_on = max(today, start or today) + timedelta(days=EXPIRY_DAYS)
     if request.recurrence == "yearly":
         request.renews_on = first_renewal(request.starts_on, today)
     await db.flush()
@@ -562,6 +565,8 @@ class DocumentFields:
 
 
 _AMOUNT_FIELDS = ("currency", "net_amount", "vat_amount", "gross_amount")
+#: Z faktury KSeF wiążą kwoty i NIP sprzedawcy (klucz dopasowania; CHECK origin).
+_KSEF_FIXED_FIELDS = (*_AMOUNT_FIELDS, "seller_nip")
 
 
 async def update_document(
@@ -588,9 +593,9 @@ async def update_document(
         raise approvals.ApprovalConflict(
             "Dopłata czeka na decyzję — kwot teraz nie zmienisz."
         )
-    if doc.source == "ksef" and provided & set(_AMOUNT_FIELDS):
+    if doc.source == "ksef" and provided & set(_KSEF_FIXED_FIELDS):
         raise approvals.ApprovalConflict(
-            "Kwoty faktury z KSeF są wiążące — nie zmienisz ich."
+            "Kwoty i NIP sprzedawcy z faktury KSeF są wiążące — nie zmienisz ich."
         )
     if "doc_type" in provided:
         doc.doc_type = "receipt" if fields.doc_type == "receipt" else "invoice"
@@ -868,10 +873,18 @@ async def settle_document(
 ) -> ApprovalDocument:
     """„Rozliczone” (Finanse). Wydatek raz zamyka całą zgodę."""
 
-    doc = await _finance_document(db, document_id)
-    if doc.status != "pinned" or doc.approval_request_id is None:
+    # Kolejność blokad jak w akcjach autora: najpierw zgoda, potem dokument.
+    request_id = await db.scalar(
+        select(ApprovalDocument.approval_request_id).where(
+            ApprovalDocument.id == document_id
+        )
+    )
+    if request_id is None:
         raise approvals.ApprovalConflict("Rozlicza się dokument przypięty do zgody.")
-    request = await _locked_request(db, doc.approval_request_id)
+    request = await _locked_request(db, request_id)
+    doc = await _finance_document(db, document_id)
+    if doc.status != "pinned" or doc.approval_request_id != request.id:
+        raise approvals.ApprovalConflict("Rozlicza się dokument przypięty do zgody.")
     if actor.id == request.requester_user_id:
         raise approvals.ApprovalForbidden(
             "Własnego wydatku nie rozliczasz — zrobi to druga osoba z Finansów."
