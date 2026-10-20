@@ -280,7 +280,30 @@ async def test_bonus_goes_to_the_approver_and_lands_in_payroll_as_assigned(
     assert bonus.proposed_by == boss.id
     assert bonus.amount == Decimal("1500.00")
     assert bonus.rule_snapshot == {"approval_request_id": body["id"]}
+    # Osoba z premii widzi stały opis, nie treść prośby.
+    assert bonus.description == "Premia poza umową"
     assert await _notifications(worker, NotificationType.hr_bonus_assigned)
+
+
+@pytest.mark.asyncio
+async def test_bonus_amount_has_the_payroll_ceiling(client, team) -> None:
+    worker, boss, ceo = team["worker"], team["boss"], team["ceo"]
+    too_big = await client.post(
+        BASE, json=_bonus(worker, amount="2000000"), headers=_headers(boss)
+    )
+    assert too_big.status_code == 422
+    created = (
+        await client.post(BASE, json=_bonus(worker), headers=_headers(boss))
+    ).json()
+    raised = await client.post(
+        f"{BASE}/{created['id']}/decide",
+        json={"action": "approve", "amount": "1000001"},
+        headers=_headers(ceo),
+    )
+    assert raised.status_code == 422
+    async with AsyncSessionLocal() as db:
+        request = await db.get(ApprovalRequest, created["id"])
+    assert request.status == "pending_final"
 
 
 @pytest.mark.asyncio

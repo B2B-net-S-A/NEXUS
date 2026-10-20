@@ -43,9 +43,10 @@ from app.services.hr import audit, payroll_access, payroll_periods, recipients
 from app.services.hr.approvals import rules as approval_rules
 from app.services.hr.approvals.rules import ApprovalRules
 from app.services.hr.notify import notify_each
-from app.services.hr.payroll_errors import PayrollConflict
+from app.services.hr import payroll_bonuses
+from app.services.hr.payroll_errors import PayrollConflict, PayrollError
 from app.services.hr.payroll_periods import add_months, label
-from app.services.hr_payroll_schema import AUTOMATED_SOURCES, DESCRIPTION_MAX_LENGTH
+from app.services.hr_payroll_schema import AUTOMATED_SOURCES
 from app.services.hr_approvals_schema import (
     AMOUNT_BASES,
     AMOUNT_MAX,
@@ -134,6 +135,16 @@ def clean_amount(value: Decimal) -> Decimal:
     return cleaned
 
 
+def clean_bonus_amount(value: Decimal) -> Decimal:
+    """Kwota premii jak w Płacach: HALF_UP i najwyżej 1 000 000 (CHECK
+    ``ck_hr_bonuses_amount``) — inaczej zatwierdzenie dawałoby 500."""
+
+    try:
+        return payroll_bonuses.clean_amount(value)
+    except PayrollError as exc:
+        raise ApprovalError(exc.message) from exc
+
+
 def _text(
     value: Optional[str], *, limit: int, field: str, required: bool
 ) -> Optional[str]:
@@ -177,7 +188,10 @@ def clean_input(data: RequestInput, *, today: date) -> RequestInput:
     purpose = _text(
         data.purpose, limit=PURPOSE_MAX_LENGTH, field="purpose", required=True
     )
-    amount = clean_amount(data.amount)
+    if data.kind == "bonus":
+        amount = clean_bonus_amount(data.amount)
+    else:
+        amount = clean_amount(data.amount)
     if data.kind == "bonus":
         if data.beneficiary_user_id is None:
             raise ApprovalError("Wybierz osobę, której dotyczy premia.")
@@ -585,7 +599,11 @@ async def decide(
 
     decided_amount: Optional[Decimal] = None
     if action == "approve" and amount is not None:
-        decided_amount = clean_amount(amount)
+        decided_amount = (
+            clean_bonus_amount(amount)
+            if request.kind == "bonus"
+            else clean_amount(amount)
+        )
         if decided_amount == request.amount:
             decided_amount = None
         elif not is_final:
@@ -652,7 +670,9 @@ async def _create_bonus(
         period_month=request.payout_month,
         status="assigned",
         source="manual",
-        description=f"Premia poza umową — {request.title}"[:DESCRIPTION_MAX_LENGTH],
+        # Stały opis: osoba z premii widzi go w „Moim czasie”, a treść prośby
+        # (tytuł, „po co”) zostaje przy zgodzie — prośby osoba nie widzi.
+        description="Premia poza umową",
         assigned_by=actor.id,
         assigned_at=local_now(),
         rule_snapshot={"approval_request_id": request.id},
@@ -864,7 +884,11 @@ def _year_bounds(today: date) -> tuple[date, date]:
 
 
 async def context_for(
-    db: AsyncSession, request: ApprovalRequest, *, today: date
+    db: AsyncSession,
+    request: ApprovalRequest,
+    *,
+    today: date,
+    include_bonuses: bool,
 ) -> dict[str, Any]:
     """„NEXUS sprawdził” — liczby obok decyzji (tylko PLN, bez innych walut)."""
 
@@ -876,7 +900,11 @@ async def context_for(
     )
 
     async def approved_sum(
-        start: date, end: date, *, kind: Optional[str] = None
+        start: date,
+        end: date,
+        *,
+        kind: Optional[str] = None,
+        exclude_bonuses: bool = False,
     ) -> dict[str, Any]:
         stmt = select(
             func.count(ApprovalRequest.id), func.coalesce(func.sum(approved_value), 0)
@@ -888,13 +916,19 @@ async def context_for(
         )
         if kind is not None:
             stmt = stmt.where(ApprovalRequest.kind == kind)
+        if exclude_bonuses:
+            stmt = stmt.where(ApprovalRequest.kind != "bonus")
         count, total = (await db.execute(stmt)).one()
         return {"count": int(count), "amount": str(Decimal(total).quantize(_CENT))}
 
     context: dict[str, Any] = {
         "kind_month": await approved_sum(month_start, next_month, kind=request.kind),
         "kind_year": await approved_sum(year_start, year_end, kind=request.kind),
-        "all_month": await approved_sum(month_start, next_month),
+        # Premie poza umową to kwoty płacowe — w sumie firmy tylko dla
+        # zatwierdzającego; przełożony od wydatków widzi same wydatki.
+        "all_month": await approved_sum(
+            month_start, next_month, exclude_bonuses=not include_bonuses
+        ),
     }
     if request.kind == "bonus" and request.beneficiary_user_id is not None:
         rows = await db.execute(

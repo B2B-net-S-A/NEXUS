@@ -37,7 +37,7 @@ from app.core.scheduling import business_today
 from app.models.hr_approval import ApprovalRequest
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User, UserRole
-from app.services.hr import payroll_access, people
+from app.services.hr import audit, payroll_access, people
 from app.services.hr.approvals import rules as approval_rules
 from app.services.hr.approvals import service
 from app.services.hr.approvals.payload import names_for, request_payload
@@ -237,7 +237,19 @@ async def put_rules(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "Zatwierdzający musi mieć aktywne konto.",
             )
+    before = await approval_rules.load_rules(db)
     await approval_rules.save_rules(db, rules, actor=current_user)
+    # Zasady mówią, kto zatwierdza premie — zmiana zostaje w śladzie Płac.
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="approval_rules",
+        entity_id=None,
+        action="approval_rules_changed",
+        sensitivity="payroll",
+        details={"before": before.as_dict(), "after": rules.as_dict()},
+    )
     return await get_rules(current_user, db)
 
 
@@ -249,13 +261,12 @@ async def get_request(
         request = await service.get_visible(db, current_user, request_id)
     (out,) = await _payloads(db, [request], current_user)
     finals = await service.finals_for_request(db, request)
-    deciding = (
-        service.can_decide(current_user.id, request, finals)
-        or current_user.id in finals
-        or current_user.has_role(UserRole.admin)
-    )
+    final_view = current_user.id in finals or current_user.has_role(UserRole.admin)
+    deciding = final_view or service.can_decide(current_user.id, request, finals)
     out["context"] = (
-        await service.context_for(db, request, today=business_today())
+        await service.context_for(
+            db, request, today=business_today(), include_bonuses=final_view
+        )
         if deciding
         else None
     )
