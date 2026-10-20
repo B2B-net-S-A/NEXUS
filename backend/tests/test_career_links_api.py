@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import uuid
 
 import pytest
@@ -275,8 +276,11 @@ async def test_public_page_never_leaks_client_or_rate(api):
     assert body["status"] == "open"
     # Kształt odpowiedzi jest zamknięty — nowe pole = świadoma decyzja.
     # „theme” (0478): sam identyfikator szablonu graficznego.
-    assert set(body) == {"status", "recruiter", "theme", "job"}
+    assert set(body) == {"status", "recruiter", "theme", "published_at", "job"}
     assert body["theme"] == "terminal"  # „Senior Java Developer” → Terminal
+    # Data zatwierdzenia (bez godziny) — „datePosted” w danych JobPosting dla
+    # Google (etap 6, decyzja D3 Artura 20.10.2026).
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", body["published_at"])
     assert set(body["recruiter"]) == {"first_name", "slug"}
     assert set(body["job"]) == {
         "slug",
@@ -561,7 +565,9 @@ async def test_default_theme_follows_the_role_in_the_title(api):
     job_id = await _seed_job(uid, title="Analityk systemowy")
     link = await _create_job_link(api, headers, job_id)
     assert (await _approve(api, headers, job_id)).status_code == 200
-    profile = (await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)).json()
+    profile = (
+        await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
+    ).json()
     assert profile["theme_default"] == "sekwencja"
     page = await api.get(f"/api/public/career/r/{link['slug']}")
     assert page.json()["theme"] == "sekwencja"
