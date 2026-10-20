@@ -66,6 +66,7 @@ import api, {
   type CandidateBlacklistInfo,
   type ChampionProfile,
   type CVOriginalSnapshot,
+  type RateUnit,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/authenticated-files";
@@ -152,6 +153,7 @@ import {
   fetchRecruitmentRateHints,
   recruitmentRateHintsQueryKey,
 } from "@/lib/api/recruitmentRateHints";
+import { sentLine, useClientRateHistory } from "@/lib/api/clientRateHistory";
 import { canViewClientRate } from "@/lib/client-rate-access";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
@@ -162,6 +164,7 @@ import { NewInBasePill, type CandidateInBase } from "@/components/v2/person/Pers
 import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import { RateChangeBanner } from "@/components/v2/rate-change/RateChangeBanner";
+import { ClientRateChangeDialog } from "@/components/v2/rate-change/ClientRateChangeDialog";
 import { RateChangeDialog } from "@/components/v2/rate-change/RateChangeDialog";
 import { rateChangeStatusLabel } from "@/lib/rate-change";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
@@ -312,6 +315,15 @@ interface CandidateDetail extends CandidateInBase {
   cv_parsed_at?: string | null;
   /** Tu tylko znacznik kwarantanny tożsamości (`_identity_quarantine_source`). */
   cv_extracted_data?: unknown;
+}
+
+/** Stawka kandydata pary — do podglądu marży w oknie stawki do klienta. */
+function dockCandidateRate(item: KanbanItem): { value: number; unit: RateUnit } | null {
+  const value = Number(item.expected_rate_value);
+  if (item.expected_rate_value == null || item.expected_rate_value === "" || !Number.isFinite(value)) {
+    return null;
+  }
+  return { value, unit: item.expected_rate_unit ?? "hourly" };
 }
 
 function daysLabel(n: number): string {
@@ -897,6 +909,7 @@ export function PipelineCandidateDock({
     !openSlotRequest &&
     (item.stage === "client_interview" || interviewBadge?.interview_event_id != null);
   const [rateChangeOpen, setRateChangeOpen] = useState(false);
+  const [clientRateChangeOpen, setClientRateChangeOpen] = useState(false);
   // Linia „Warunki i następny etap” pod paskiem zakładek — domyślnie zwinięta.
   const [stageFoldOpen, setStageFoldOpen] = useState(false);
   const [profileCvPreviewId, setProfileCvPreviewId] = useState<number | null>(null);
@@ -1289,6 +1302,22 @@ export function PipelineCandidateDock({
   const expectedRateHintValue = expectedRateHintText(expectedRateHint);
   const clientRateNote =
     clientRateText == null ? (rateHintsQuery.data?.client_rate_note ?? null) : null;
+  // 20.10.2026: za ile CV poszło do klienta, zmiany po wysyłce i blokada po
+  // zamówieniu — tylko gdy para ma stawkę do klienta, a rola ją widzi.
+  const clientRateHistory = useClientRateHistory(
+    item.candidate_id,
+    jobId,
+    !split && clientRateText != null && canViewClientRate(authUser),
+  ).data;
+  const clientRateLock = clientRateHistory?.order_lock ?? null;
+  const clientRateHint = clientRateHistory
+    ? [
+        sentLine(clientRateHistory),
+        clientRateLock ? `stawkę zmienia się w zamówieniu „${clientRateLock.title}”` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || null
+    : null;
   // „Nie odebrał” jednym kliknięciem — ta sama notatka-próba co w profilu
   // (rodzaj `contact_attempt`); ten sam hook stoi w profilu przed telefonem.
   const noAnswerMut = useNoAnswerNote({ candidateId: item.candidate_id, jobId });
@@ -1396,7 +1425,24 @@ export function PipelineCandidateDock({
         ? [
             {
               label: "Do klienta",
-              value: <span className="font-medium tabular-nums">{clientRateText}</span>,
+              wide: clientRateHint != null,
+              hint: clientRateHint,
+              value: (
+                <>
+                  <span className="font-medium tabular-nums">{clientRateText}</span>
+                  {!readOnly && clientRateHistory?.can_write ? (
+                    // 20.10.2026: zmiana po wysyłce — z powodem i śladem.
+                    <button
+                      type="button"
+                      data-testid="dock-client-rate-change"
+                      onClick={() => setClientRateChangeOpen(true)}
+                      className="ml-1.5 text-xs font-medium text-primary hover:underline"
+                    >
+                      Zmień
+                    </button>
+                  ) : null}
+                </>
+              ),
             },
           ]
         : clientRateNote
@@ -2479,6 +2525,16 @@ export function PipelineCandidateDock({
           candidateId={item.candidate_id}
           jobId={jobId}
           description={`${fullName} · ${jobLabel}`}
+        />
+      ) : null}
+      {clientRateChangeOpen ? (
+        <ClientRateChangeDialog
+          open
+          onOpenChange={(o) => !o && setClientRateChangeOpen(false)}
+          candidateId={item.candidate_id}
+          jobId={jobId}
+          description={`${fullName} · ${jobLabel}`}
+          candidateRate={dockCandidateRate(item)}
         />
       ) : null}
       {debriefFor != null && (

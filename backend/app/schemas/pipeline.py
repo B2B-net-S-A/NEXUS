@@ -174,6 +174,10 @@ class ClientRateUpdate(BaseModel):
     rate_value: Optional[Decimal] = Field(None, ge=0)
     rate_unit: Optional[RateUnit] = None
     rate_currency: Optional[str] = Field(default="PLN", max_length=3)
+    # Zmiana po wysyłce CV (20.10.2026): powód do audytu i notatka DL-a
+    # (wpis `dl_rate`). Wpis przy ruchu karty i stare wywołania ich nie niosą.
+    reason: Optional[Literal["client_negotiated", "send_mistake", "other"]] = None
+    note: Optional[str] = Field(default=None, max_length=500)
 
 
 class HiringManagerVetoBrief(BaseModel):

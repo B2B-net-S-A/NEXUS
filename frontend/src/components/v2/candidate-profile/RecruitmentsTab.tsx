@@ -57,6 +57,8 @@ import {
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { canViewClientRate, canWriteClientRate } from "@/lib/client-rate-access";
+import { useClientRateHistory } from "@/lib/api/clientRateHistory";
+import { ClientRateChangeDialog } from "@/components/v2/rate-change/ClientRateChangeDialog";
 import { daysSince, nextActionOwnerLabel } from "@/lib/candidate-overview";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
@@ -1128,10 +1130,13 @@ function EditableRateCell({
   successMessage,
   testIdPrefix,
   readOnly = false,
+  onEdit,
 }: {
   candidateId: number;
   label: string;
   rate: RecruitmentRate;
+  /** „Edytuj” istniejącej kwoty otwiera okno zamiast pola (stawka do klienta, 20.10.2026). */
+  onEdit?: () => void;
   /**
    * Kwota z notatek, gdy etap jej nie ma (12.10.2026): stoi w miejscu „—”,
    * a „Uzupełnij” otwiera pole już z nią. Stawką staje się po zapisie.
@@ -1188,6 +1193,10 @@ function EditableRateCell({
           <button
             type="button"
             onClick={() => {
+              if (rate && onEdit) {
+                onEdit();
+                return;
+              }
               resetDraft();
               setEditing(true);
             }}
@@ -1286,8 +1295,16 @@ export function RecruitmentRateRow({
   // Runda 10 (R10-X2-3): rozstrzyga serwer (rola + zapis w sekcji); rola
   // z przeglądarki tylko wtedy, gdy odpowiedź nie niesie flag.
   const showClientRate = clientRateAccess?.canView ?? canViewClientRate(authUser);
+  // 20.10.2026: zmiana istniejącej stawki do klienta idzie przez okno z powodem;
+  // po zamówieniu na tę parę stawkę zmienia się w zamówieniu.
+  const [clientRateDialogOpen, setClientRateDialogOpen] = useState(false);
+  const clientRateLock =
+    useClientRateHistory(candidateId, jobId, showClientRate && clientRate != null).data
+      ?.order_lock ?? null;
   const clientRateWritable =
-    showClientRate && (clientRateAccess?.canWrite ?? canWriteClientRate(authUser));
+    showClientRate &&
+    clientRateLock == null &&
+    (clientRateAccess?.canWrite ?? canWriteClientRate(authUser));
   const sameUnit =
     showClientRate &&
     clientRate != null &&
@@ -1337,12 +1354,34 @@ export function RecruitmentRateRow({
             testIdPrefix="client-rate"
             successMessage="Zapisano stawkę do klienta"
             readOnly={readOnly || !clientRateWritable}
+            onEdit={() => setClientRateDialogOpen(true)}
             mutationFn={(payload) =>
               candidatesApi.setRecruitmentClientRate(candidateId, jobId, payload)
             }
           />
         ) : null}
       </div>
+      {clientRateLock ? (
+        <div className="mt-2 text-xs text-muted-foreground" data-testid="client-rate-order-lock">
+          Stawkę do klienta zmienia się w zamówieniu „{clientRateLock.title}”.{" "}
+          <a href={`/contracts/${clientRateLock.contract_id}`} className="text-primary hover:underline">
+            Otwórz kontrakt
+          </a>
+        </div>
+      ) : null}
+      {clientRateDialogOpen ? (
+        <ClientRateChangeDialog
+          open
+          onOpenChange={(o) => !o && setClientRateDialogOpen(false)}
+          candidateId={candidateId}
+          jobId={jobId}
+          candidateRate={
+            expectedRate
+              ? { value: expectedRate.value, unit: (expectedRate.unit ?? "hourly") as RateUnit }
+              : null
+          }
+        />
+      ) : null}
       <RateChangeLatest candidateId={candidateId} jobId={jobId} />
       {margin != null ? (
         <div className="mt-2 text-xs text-muted-foreground">
