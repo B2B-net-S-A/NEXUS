@@ -16,6 +16,7 @@ import type {
   SlotRequest,
   SupersededOutlook,
 } from "@/lib/interview-cycle";
+import type { DebriefFromText } from "@/lib/debrief-from-text";
 import type { SlotsFromMail } from "@/lib/interview-slot-mail";
 
 /** Wynik potwierdzenia albo zmiany terminu: rozmowa w kalendarzu. */
@@ -81,6 +82,11 @@ export const interviewCycleApi = {
   chooseSlot: (id: number, index: number, start?: string | null) =>
     api
       .post<SlotRequest>(`/api/interview-cycle/slots/${id}/choose`, start ? { index, start } : { index })
+      .then((r) => r.data),
+  /** „Po rozmowie” (PR 4): pytania i oferta z notatki z telefonu — niczego nie zapisuje. */
+  debriefFromText: (text: string) =>
+    api
+      .post<DebriefFromText>("/api/interview-cycle/debrief/from-text", { text })
       .then((r) => r.data),
   /** „Wysłane klientowi” (0487). */
   clientReplied: (id: number) =>

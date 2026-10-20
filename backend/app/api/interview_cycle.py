@@ -68,7 +68,12 @@ from app.models.job import Job
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
-from app.services import client_interview_entry, interview_slot_mail, interview_slots
+from app.services import (
+    client_interview_entry,
+    debrief_from_text,
+    interview_slot_mail,
+    interview_slots,
+)
 from app.services.candidate_claim import is_integration_request
 from app.services.interview_cycle import load_overview
 from app.services.debrief_gate import interview_not_started_message
@@ -1393,6 +1398,65 @@ async def _ensure_pair_writer(
     )
     if not _is_owner(user, recruiter):
         await ensure_job_membership(db, user, job_id)
+
+
+class DebriefFromTextIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=debrief_from_text.TEXT_MAX)
+
+
+class QuotedQuestion(BaseModel):
+    text: str
+    quote: str
+
+
+class QuotedOffer(BaseModel):
+    value: OfferAcceptance
+    condition: Optional[str] = None
+    quote: str
+
+
+class QuotedRate(BaseModel):
+    amount: str
+    unit: Optional[Literal["hourly", "daily", "monthly"]] = None
+    quote: str
+
+
+class QuotedStart(BaseModel):
+    text: str
+    quote: str
+
+
+class DebriefFromTextOut(BaseModel):
+    # ok | empty | unavailable — model nigdy nie daje 5xx.
+    status: str
+    message: Optional[str] = None
+    questions: list[QuotedQuestion] = Field(default_factory=list)
+    offer: Optional[QuotedOffer] = None
+    rate: Optional[QuotedRate] = None
+    start: Optional[QuotedStart] = None
+    dropped: int = 0
+
+
+@router.post("/interview-cycle/debrief/from-text", response_model=DebriefFromTextOut)
+async def debrief_from_note(
+    request: Request,
+    body: DebriefFromTextIn,
+    current_user: RecruitmentAssessmentWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> DebriefFromTextOut:
+    """„Po rozmowie” (20.10.2026): pytania klienta, oferta i stawka z notatki
+    z telefonu do kandydata. Niczego nie zapisuje — wynik wypełnia okno
+    debriefu, które rekruter sprawdza i zapisuje zwykłą trasą."""
+    if is_integration_request(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Notatkę po rozmowie rozpisuje osoba, nie integracja.",
+        )
+    result = await debrief_from_text.read_note(
+        db, text=body.text, user_id=current_user.id
+    )
+    await db.commit()
+    return DebriefFromTextOut(**result)
 
 
 @router.post("/interview-cycle/client-interviews", response_model=ClientInterviewOut)

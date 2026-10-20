@@ -213,6 +213,88 @@ describe("CalendarCycleScreen", () => {
     expect(mocks.toast.showSuccess).toHaveBeenCalledWith(expect.stringMatching(/Nowe pytania klienta: 1/));
   });
 
+  it("„Co mówił kandydat”: notatka rozpisana na pytania, ofertę, stawkę i komentarz", async () => {
+    mocks.post.mockImplementation((url: string) =>
+      url === "/api/interview-cycle/debrief/from-text"
+        ? Promise.resolve({
+            data: {
+              status: "ok",
+              message: null,
+              questions: [
+                { text: "Jak robiła retry w Kafce?", quote: "pytali o Kafkę" },
+                { text: "Czy zna Kubernetes?", quote: "czy zna Kubernetes" },
+              ],
+              offer: { value: "likely", condition: "zdalnie 4 dni", quote: "przyjmie jeśli zdalnie 4 dni" },
+              rate: { amount: "160", unit: "hourly", quote: "chce 160 zł/h" },
+              start: { text: "od 1.12", quote: "od 1.12" },
+              dropped: 0,
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    mocks.put.mockResolvedValue({
+      data: { id: 1, calendar_event_id: 44, candidate_id: 11, job_id: 22, outcome: "good", candidate_comment: null, questions: [], offer_acceptance: "likely", acceptance_condition: null, questions_saved: 2 },
+    });
+    renderScreen();
+    fireEvent.click(within(await callCard()).getByRole("button", { name: "Zapisz debrief" }));
+    const dialog = await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" });
+    await waitFor(() => expect(within(dialog).getByLabelText("Dobrze")).not.toBeDisabled());
+    const note = "pytali o Kafkę, czy zna Kubernetes, przyjmie jeśli zdalnie 4 dni, chce 160 zł/h, od 1.12";
+    fireEvent.change(within(dialog).getByLabelText("Co mówił kandydat?"), { target: { value: note } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rozpisz na pola" }));
+    expect(await within(dialog).findByText(/Uzupełnione z notatki: 2 pytania, oferta, stawka, start/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Pytanie 1")).toHaveValue("Jak robiła retry w Kafce?");
+    expect(within(dialog).getByLabelText("Raczej tak")).toBeChecked();
+    fireEvent.click(within(dialog).getByLabelText("Dobrze"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz debrief" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    const body = mocks.put.mock.calls[0][1];
+    expect(body).toMatchObject({
+      questions: ["Jak robiła retry w Kafce?", "Czy zna Kubernetes?"],
+      offer_acceptance: "likely",
+      acceptance_condition: "zdalnie 4 dni",
+    });
+    expect(body.candidate_comment).toContain("chce 160 zł/h");
+    expect(body.rate_change).toMatchObject({ amount: "160" });
+  });
+
+  it("„Co mówił kandydat”: stawka miesięczna nie trafia do pola stawki godzinowej", async () => {
+    mocks.post.mockImplementation((url: string) =>
+      url === "/api/interview-cycle/debrief/from-text"
+        ? Promise.resolve({
+            data: {
+              status: "ok",
+              message: null,
+              questions: [{ text: "Czy zna Kubernetes?", quote: "zna Kubernetes" }],
+              offer: null,
+              rate: { amount: "16000", unit: "monthly", quote: "chce 16 000 netto" },
+              start: null,
+              dropped: 0,
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    mocks.put.mockResolvedValue({
+      data: { id: 1, calendar_event_id: 44, candidate_id: 11, job_id: 22, outcome: "good", candidate_comment: null, questions: [], offer_acceptance: "likely", acceptance_condition: null, questions_saved: 1 },
+    });
+    renderScreen();
+    fireEvent.click(within(await callCard()).getByRole("button", { name: "Zapisz debrief" }));
+    const dialog = await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" });
+    await waitFor(() => expect(within(dialog).getByLabelText("Dobrze")).not.toBeDisabled());
+    fireEvent.change(within(dialog).getByLabelText("Co mówił kandydat?"), {
+      target: { value: "zna Kubernetes, chce 16 000 netto miesięcznie" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rozpisz na pola" }));
+    await within(dialog).findByText(/Uzupełnione z notatki/);
+    fireEvent.click(within(dialog).getByLabelText("Dobrze"));
+    fireEvent.click(within(dialog).getByLabelText("Raczej tak"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz debrief" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    const body = mocks.put.mock.calls[0][1];
+    expect(body.rate_change ?? null).toBeNull();
+    expect(body.candidate_comment).toContain("16 000 netto miesięcznie");
+  });
+
   it("debrief bez odpowiedzi o ofercie się nie wysyła", async () => {
     renderScreen();
     fireEvent.click(within(await callCard()).getByRole("button", { name: "Zapisz debrief" }));

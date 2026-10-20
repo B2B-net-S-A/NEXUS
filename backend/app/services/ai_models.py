@@ -54,6 +54,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F31 | cv_editor_command                | claude-sonnet-5 (z Haiku)|
 | F32 | interview_slots_from_mail        | claude-sonnet-5 (z Haiku)|
 | F33 | expense_document_read            | claude-sonnet-5 (z Haiku)|
+| F34 | debrief_from_text                | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -411,6 +412,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "daty względne („w czwartek”, „jutro”) liczone od daty maila, każdy termin z cytatem. "
         "Sonnet, bo pomyłka w dacie przesuwa rozmowę u klienta; wywołanie krótkie i rzadkie. "
         "Cytat spoza maila i termin z przeszłości odrzuca kod, a całość sprawdza DL przed wysłaniem.",
+    ),
+    AIFeatureKey.debrief_from_text: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("DEBRIEF_FROM_TEXT_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F34 (20.10.2026, POZA badaniem 16.09). „Po rozmowie”: pytania klienta, "
+        "gotowość do oferty i stawka z notatki rekrutera — „znajdź i zacytuj” jak F25 "
+        "(Luna). Element bez cytatu z notatki odrzuca kod, kwotę tylko gdy stoi w tekście; "
+        "całość sprawdza rekruter przed zapisem debriefu.",
     ),
 }
 

@@ -170,6 +170,10 @@ class AIFeatureKey(str, enum.Enum):
     # dołączonego do zgody. Wynik to podpowiedź — osoba poprawia pola sama,
     # a dokument zostaje przy zgodzie także bez odczytu.
     expense_document_read = "expense_document_read"
+    # „Po rozmowie” (0488, 20.10.2026): z notatki rekrutera z telefonu po
+    # rozmowie u klienta model rozpisuje pytania klienta, gotowość do oferty
+    # i stawkę — każdy element z cytatem, który sprawdza kod.
+    debrief_from_text = "debrief_from_text"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -208,6 +212,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_editor_command: "Edytor CV — polecenie dla całego CV (plan zmian)",
     AIFeatureKey.interview_slots_from_mail: "Terminy rozmowy u klienta z wklejonego maila",
     AIFeatureKey.expense_document_read: "Zgody — odczyt kwoty i sprzedawcy z faktury albo paragonu",
+    AIFeatureKey.debrief_from_text: "Po rozmowie u klienta — pytania i oferta z notatki z telefonu",
 }
 
 
@@ -366,6 +371,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.expense_document_read: [
         "Faktura albo paragon dołączony do zgody (tekst PDF-u albo zdjęcie)",
         "(bez danych osoby, która prosiła o zgodę)",
+    ],
+    AIFeatureKey.debrief_from_text: [
+        "Notatka rekrutera z telefonu do kandydata po rozmowie u klienta",
+        "(bez nazwy klienta, danych kandydata z bazy i historii stawek)",
     ],
 }
 
