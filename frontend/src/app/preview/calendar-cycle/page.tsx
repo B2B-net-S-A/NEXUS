@@ -47,7 +47,7 @@ function mondayOf(date: Date): Date {
 }
 
 const pairs: Record<string, PairInfo> = {
-  piotr: { candidate_id: 101, candidate_name: "Piotr Nowak", candidate_email: "piotr@example.com", job_id: 1, job_title: "Senior Java Developer", client_id: 11, client_name: "Bank Lambda" },
+  piotr: { candidate_id: 101, candidate_name: "Piotr Nowak", candidate_email: "piotr@example.com", candidate_phone: "+48 500 100 200", job_id: 1, job_title: "Senior Java Developer", client_id: 11, client_name: "Bank Lambda" },
   anna: { candidate_id: 102, candidate_name: "Anna Kowalska", candidate_email: "anna@example.com", job_id: 2, job_title: "Data Engineer", client_id: 12, client_name: "Bank Północny" },
   tomasz: { candidate_id: 103, candidate_name: "Tomasz Zieliński", candidate_email: "tomasz@example.com", job_id: 3, job_title: "DevOps Engineer", client_id: 13, client_name: "Bank Kappa" },
   michal: { candidate_id: 104, candidate_name: "Michał Lewandowski", candidate_email: "michal@example.com", job_id: 4, job_title: ".NET Developer", client_id: 14, client_name: "Biuro Gamma" },

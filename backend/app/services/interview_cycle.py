@@ -1241,20 +1241,24 @@ async def load_snapshots(
 async def _labels(
     db: AsyncSession, cand_ids: list[int], job_ids: list[int]
 ) -> tuple[
-    dict[int, tuple[Optional[str], Optional[str]]],
+    dict[int, tuple[Optional[str], Optional[str], Optional[str]]],
     dict[int, tuple[str, Optional[int], Optional[str], Optional[int]]],
 ]:
-    names: dict[int, tuple[Optional[str], Optional[str]]] = {}
+    names: dict[int, tuple[Optional[str], Optional[str], Optional[str]]] = {}
     if cand_ids:
-        for cid, first, last, email in (
+        for cid, first, last, email, phone in (
             await db.execute(
                 select(
-                    Candidate.id, Candidate.name, Candidate.lastname, Candidate.email
+                    Candidate.id,
+                    Candidate.name,
+                    Candidate.lastname,
+                    Candidate.email,
+                    Candidate.phone,
                 ).where(Candidate.id.in_(cand_ids))
             )
         ).all():
             full = " ".join(part for part in (first, last) if part) or None
-            names[cid] = (full, email)
+            names[cid] = (full, email, phone)
     jobs: dict[int, tuple[str, Optional[int], Optional[str], Optional[int]]] = {}
     if job_ids:
         for jid, title, client_id, client_name, delivery_lead_id in (
@@ -1325,15 +1329,19 @@ async def load_overview(
         title, client_id, client_name, delivery_lead_id = jobs.get(
             jid, (None, None, None, None)
         )
-        # Nazwisko i e-mail tylko dla ról czytających kandydatów. E-mail jest
-        # potrzebny do zaproszenia na prep (Teams wysyła je kandydatowi).
-        name, email = (
-            names.get(cid, (None, None)) if can_read_candidates else (None, None)
+        # Nazwisko i kontakt tylko dla ról czytających kandydatów. E-mail jest
+        # potrzebny do zaproszenia na prep (Teams wysyła je kandydatowi),
+        # telefon i e-mail stoją w nagłówku panelu — do umawiania terminów.
+        name, email, phone = (
+            names.get(cid, (None, None, None))
+            if can_read_candidates
+            else (None, None, None)
         )
         pair_info = {
             "candidate_id": cid,
             "candidate_name": name,
             "candidate_email": email,
+            "candidate_phone": phone,
             "job_id": jid,
             "job_title": title,
             "client_id": client_id,

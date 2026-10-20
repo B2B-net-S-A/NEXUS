@@ -163,6 +163,7 @@ class PairInfo(BaseModel):
     candidate_id: int
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
+    candidate_phone: Optional[str] = None
     job_id: int
     job_title: Optional[str] = None
     client_id: Optional[int] = None
