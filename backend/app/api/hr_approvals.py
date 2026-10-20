@@ -16,7 +16,7 @@ widzi go zawsze); kto co widzi i o czym decyduje, rozstrzyga serwis
 * ``POST /{id}/decide`` — „Zatwierdź” / „Odrzuć” / „Dopytaj”,
 * ``GET /rules``, ``PUT /rules`` — zasady (admin).
 
-Rozliczenie (etap 3, 0485; Finanse mają osobny router
+Rozliczenie (etap 3, 0486; Finanse mają osobny router
 ``api/hr_approval_finance.py``):
 
 * ``GET /topups`` — dopłaty czekające na decyzję czytającego (zatwierdzający),
@@ -421,7 +421,7 @@ async def decide_request(
     return out
 
 
-# ── rozliczenie: dokumenty, dopłata, odnowienie (0485) ─────────────────────
+# ── rozliczenie: dokumenty, dopłata, odnowienie (0486) ─────────────────────
 
 
 @router.post("/{request_id}/documents", status_code=status.HTTP_201_CREATED)

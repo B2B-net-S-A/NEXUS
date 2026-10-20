@@ -26,6 +26,7 @@ formularze „Nowa rekrutacja” tej osoby.
 import logging
 from dataclasses import asdict
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -55,6 +56,7 @@ from app.services.effective_access import resolve_effective_access
 from app.services import (
     board_flow,
     candidate_followups,
+    closing_candidates,
     cpro_sender,
     cv_in_transit,
     cv_topic,
@@ -959,6 +961,68 @@ async def _dl_send_payload(
         not_ready_total=sum(1 for t in rows if not t.ready and not t.imported),
         imported_total=sum(1 for t in rows if t.imported),
         worst_urgency=dl_send_queue.worst_urgency(ready),
+    )
+
+
+class ClosingCandidateRow(BaseModel):
+    """Wiersz kafelka „Kandydaci do zamknięcia” (`closing_candidates.load`)."""
+
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: Optional[str] = None
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    step: Literal["accepted", "sent", "signed"]
+    since: datetime
+    delivery_lead_name: Optional[str] = None
+    recruiter_name: Optional[str] = None
+    candidate_rate_value: Optional[Decimal] = None
+    candidate_rate_unit: Optional[str] = None
+    candidate_rate_currency: Optional[str] = None
+    client_rate_value: Optional[Decimal] = None
+    client_rate_unit: Optional[str] = None
+    client_rate_currency: Optional[str] = None
+
+
+class ClosingCandidatesResponse(BaseModel):
+    rows: list[ClosingCandidateRow]
+    total: int
+    # Bez prawa do stawki do klienta kafelek nie pokazuje przychodu ani marży.
+    show_client_rate: bool
+
+
+@router.get("/closing", response_model=ClosingCandidatesResponse)
+async def get_closing_candidates(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> ClosingCandidatesResponse:
+    """Kandydaci w kolumnie „Akceptacja i umowa” — kafelek pulpitu (20.10.2026)."""
+    from app.api.candidate_access import user_can_view_client_rate
+
+    show_client_rate = user_can_view_client_rate(current_user)
+    result = await closing_candidates.load(db, current_user)
+    return ClosingCandidatesResponse(
+        rows=[
+            ClosingCandidateRow(
+                candidate_id=row.candidate_id,
+                candidate_name=row.candidate_name,
+                job_id=row.job_id,
+                job_title=row.job_title,
+                job_working_title=row.job_working_title,
+                client_name=row.client_name,
+                step=row.step,
+                since=row.since,
+                delivery_lead_name=row.delivery_lead_name,
+                recruiter_name=row.recruiter_name,
+                **closing_candidates.rate_fields(
+                    row.rate, show_client_rate=show_client_rate
+                ),
+            )
+            for row in result.rows
+        ],
+        total=result.total,
+        show_client_rate=show_client_rate,
     )
 
 

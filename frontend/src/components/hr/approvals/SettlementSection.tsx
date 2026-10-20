@@ -347,7 +347,7 @@ function RenewalBox({ row, settlement }: { row: ApprovalRequestRow; settlement: 
 }
 
 /**
- * Rozliczenie zatwierdzonego wydatku (makieta 4, etap 3 — 0485): dokument
+ * Rozliczenie zatwierdzonego wydatku (makieta 4, etap 3 — 0486): dokument
  * z odczytaną kwotą, porównanie ze zgodą (+10%), dopłata, odnowienie.
  */
 export function SettlementSection({ row }: { row: ApprovalRequestRow }) {

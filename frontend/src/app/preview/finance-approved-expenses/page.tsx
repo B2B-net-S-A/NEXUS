@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Harness Finanse → „Wydatki ze zgodą” (Zgody, etap 3 — 0485, makieta 5).
+ * Harness Finanse → „Wydatki ze zgodą” (Zgody, etap 3 — 0486, makieta 5).
  *
  * Prawdziwa zakładka `ApprovedExpensesTab` na zasianym cache, ZERO zapytań
  * (`hr-harness.tsx`). Stany (`?state=`):

@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — rozliczenie zgód w Finansach: SQL migracji ``0485_approval_settlement`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — rozliczenie zgód w Finansach: SQL migracji ``0486_approval_settlement`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0485_approval_settlement.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0486_approval_settlement.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

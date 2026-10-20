@@ -48,7 +48,7 @@ export interface FormState {
   endsOn: string;
   beneficiary: string;
   payout: string;
-  /** Etap 3 (0485): klient prezentu i NIP sprzedawcy, jeśli autor go zna. */
+  /** Etap 3 (0486): klient prezentu i NIP sprzedawcy, jeśli autor go zna. */
   client: ClientRef | null;
   sellerNip: string;
 }

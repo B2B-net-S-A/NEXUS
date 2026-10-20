@@ -1,4 +1,4 @@
-"""Rozliczenie zgód (0485) — reguły bez bazy: porównanie z progiem 10%,
+"""Rozliczenie zgód (0486) — reguły bez bazy: porównanie z progiem 10%,
 odnowienie subskrypcji, odczyt dokumentu przez AI, metadane KSeF. Dane fikcyjne (repo jest publiczne)."""
 
 from __future__ import annotations

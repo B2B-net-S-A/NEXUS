@@ -146,7 +146,7 @@ async def _deadlines(db: AsyncSession, user_id: int, today) -> tuple:
 
 
 async def _renewals(db: AsyncSession, user: User, today) -> tuple:
-    """Roczne odnowienia subskrypcji (Zgody, 0485) — zatwierdzający i Finanse,
+    """Roczne odnowienia subskrypcji (Zgody, 0486) — zatwierdzający i Finanse,
     tylko przy włączonym module „Zgody”."""
     from app.services.hr.approvals import rules as approval_rules
     from app.services.hr.approvals import settlement

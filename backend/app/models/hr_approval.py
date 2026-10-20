@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — model: zgoda na wydatek albo premię poza umową (0483).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/hr_approvals_schema.py``
-i ``app/services/hr_approval_settlement_schema.py`` (0485 — rozliczenie
+i ``app/services/hr_approval_settlement_schema.py`` (0486 — rozliczenie
 w Finansach; strażnik dryfu schematu porównuje model z bazą po migracji).
 """
 
@@ -152,7 +152,7 @@ class ApprovalRequest(TimestampMixin, Base):
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    # 0485 — rozliczenie w Finansach.
+    # 0486 — rozliczenie w Finansach.
     client_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("clients.id", ondelete="SET NULL"), nullable=True
     )

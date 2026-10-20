@@ -193,7 +193,7 @@ _ENUM_STATEMENTS = [
     # 0483: zgody na wydatki i premie poza umową (`hr_approvals_schema`).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_decided'",
-    # 0485: rozliczenie zgód w Finansach (`hr_approval_settlement_schema`).
+    # 0486: rozliczenie zgód w Finansach (`hr_approval_settlement_schema`).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_topup_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_subscription_renewal'",
     # notificationtype: 5 trigger types + champion_profile_updated
@@ -318,7 +318,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_selection_edit'",
     # 0434: polecenie własnymi słowami dla całego CV w edytorze (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_editor_command'",
-    # 0485: odczyt kwoty i sprzedawcy z faktury albo paragonu do zgody.
+    # 0485: terminy rozmowy u klienta z wklejonego maila (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_slots_from_mail'",
+    # 0486: odczyt kwoty i sprzedawcy z faktury albo paragonu do zgody.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'expense_document_read'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
@@ -7239,7 +7241,12 @@ _DATA_STATEMENTS = [
     "SELECT 'cv_editor_command', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'cv_editor_command')",
-    # 0485: seed klucza AI odczytu faktury albo paragonu do zgody.
+    # 0485: seed klucza AI „terminy rozmowy z maila klienta”.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'interview_slots_from_mail', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'interview_slots_from_mail')",
+    # 0486: seed klucza AI odczytu faktury albo paragonu do zgody.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'expense_document_read', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

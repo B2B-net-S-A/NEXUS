@@ -192,6 +192,17 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     ownChrome: false,
     availability: needsSection("pipeline", "Rekrutacje"),
   },
+  closing_candidates: {
+    type: "closing_candidates",
+    label: "Kandydaci do zamknięcia",
+    description:
+      "Osoby w „Akceptacja i umowa”: klient, koszt, przychód, marża, Delivery Lead i rekruter.",
+    category: "recruitment",
+    defaultSize: { w: 12, h: 6 },
+    minSize: { w: 6, h: 3 },
+    ownChrome: false,
+    availability: needsSection("pipeline", "Rekrutacje"),
+  },
   recruitment_activity: {
     type: "recruitment_activity",
     label: "Aktywność rekrutacyjna",

@@ -624,7 +624,7 @@ function KindBars({ year, month }: { year: number; month: number }) {
 }
 
 /**
- * Finanse → „Wydatki ze zgodą” (makieta 5, Zgody etap 3 — 0485): kafle, „Do
+ * Finanse → „Wydatki ze zgodą” (makieta 5, Zgody etap 3 — 0486): kafle, „Do
  * rozliczenia”, rejestr subskrypcji, „Faktury bez zgody” i suma miesiąca
  * według rodzaju. Premie poza umową tylko sumą (decyzja Artura 20.10.2026).
  */

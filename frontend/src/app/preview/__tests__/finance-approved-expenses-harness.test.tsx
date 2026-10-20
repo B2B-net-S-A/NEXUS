@@ -1,5 +1,5 @@
 /**
- * `/preview/finance-approved-expenses` (Zgody, etap 3 — 0485): prawdziwa
+ * `/preview/finance-approved-expenses` (Zgody, etap 3 — 0486): prawdziwa
  * zakładka Finansów „Wydatki ze zgodą” na danych fikcyjnych, ZERO prób
  * żądania — w każdym z trzech stanów i po wyborze faktury bez zgody.
  */

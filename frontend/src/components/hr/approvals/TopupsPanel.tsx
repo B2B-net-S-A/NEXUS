@@ -85,7 +85,7 @@ function TopupItem({ item }: { item: ApprovalTopupRow }) {
   );
 }
 
-/** „Dopłaty do decyzji” nad skrzynką zgód — faktura wyższa o ponad 10% (0485). */
+/** „Dopłaty do decyzji” nad skrzynką zgód — faktura wyższa o ponad 10% (0486). */
 export function TopupsPanel() {
   const topups = usePendingTopups();
   const items = topups.data ?? [];

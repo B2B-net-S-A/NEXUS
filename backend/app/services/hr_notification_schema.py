@@ -53,7 +53,7 @@ PERSONAL_TYPES: tuple[str, ...] = (
     *AGREEMENT_TYPES,
     # Zgody na wydatki i premie poza umową — do decydującego i do autora (0483).
     *APPROVAL_TYPES,
-    # Rozliczenie zgód — dopłata do zatwierdzającego, odnowienie subskrypcji (0485).
+    # Rozliczenie zgód — dopłata do zatwierdzającego, odnowienie subskrypcji (0486).
     *APPROVAL_SETTLEMENT_TYPES,
 )
 

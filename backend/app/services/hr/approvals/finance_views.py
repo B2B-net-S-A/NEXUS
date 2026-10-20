@@ -1,4 +1,4 @@
-"""Finanse → „Wydatki ze zgodą” (etap 3 zgód, 0485): kafle, listy, rejestr.
+"""Finanse → „Wydatki ze zgodą” (etap 3 zgód, 0486): kafle, listy, rejestr.
 
 Bramka trasy: moduł „Zgody” + uprawnienie „Moduł Finanse”. Premie poza
 umową widać tu tylko jako sumę miesiąca, bez osób (decyzja Artura

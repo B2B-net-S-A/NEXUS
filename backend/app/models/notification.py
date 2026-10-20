@@ -320,7 +320,7 @@ class NotificationType(str, enum.Enum):
     # i decyzja do autora. Osobiste, link do „Ludzie → Akceptacje → Zgody”.
     hr_approval_requested = "hr_approval_requested"
     hr_approval_decided = "hr_approval_decided"
-    # 0485: rozliczenie zgód — prośba o dopłatę (faktura wyższa o więcej niż
+    # 0486: rozliczenie zgód — prośba o dopłatę (faktura wyższa o więcej niż
     # 10%) do zatwierdzającego i pytanie o odnowienie rocznej subskrypcji do
     # jej opiekuna. Link do „Akceptacji → Zgody” albo „Moich zgód”.
     hr_approval_topup_requested = "hr_approval_topup_requested"

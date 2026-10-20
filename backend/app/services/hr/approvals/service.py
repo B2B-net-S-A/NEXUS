@@ -125,7 +125,7 @@ class RequestInput:
     beneficiary_user_id: Optional[int] = None
     payout_year: Optional[int] = None
     payout_month: Optional[int] = None
-    #: Etap 3 (0485): klient prezentu (Historia zdarzeń klienta) i NIP
+    #: Etap 3 (0486): klient prezentu (Historia zdarzeń klienta) i NIP
     #: sprzedawcy, jeśli autor go zna (faktura z KSeF przypnie się sama).
     client_id: Optional[int] = None
     seller_nip: Optional[str] = None

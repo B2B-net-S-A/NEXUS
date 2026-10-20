@@ -170,7 +170,7 @@ def test_empty_queue_gives_no_sections():
 
 
 def test_upcoming_subscription_renewals_make_a_section():
-    """Zgody, etap 3 (0485): roczne odnowienia w ciągu 30 dni."""
+    """Zgody, etap 3 (0486): roczne odnowienia w ciągu 30 dni."""
     sections = daily_digest.build_sections(
         _empty_tasks(), renewals=(("Narzędzie testowe", date(2026, 11, 12)),)
     )

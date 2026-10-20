@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — rozliczenie zgód w Finansach (etap 3, decyzje Artura 20.10.2026).
 
-Revision ID: 0485_approval_settlement
-Revises: 0484_hm_interviewed_reason
+Revision ID: 0486_approval_settlement
+Revises: 0485_interview_slots_from_mail
 
 Zakres: dokumenty wydatków (faktura albo paragon do zgody, faktury kosztowe
 z KSeF z samych metadanych), lista sprzedawców „stały koszt”, kolumny
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import hr_approval_settlement_schema as schema
 
-revision = "0485_approval_settlement"
-down_revision = "0484_hm_interviewed_reason"
+revision = "0486_approval_settlement"
+down_revision = "0485_interview_slots_from_mail"
 branch_labels = None
 depends_on = None
 
@@ -29,7 +29,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text IN ({", ".join(f"'{t}'" for t in schema.NOTIFICATION_TYPES)})
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0485 odmawia: notifications ma wpisy typów rozliczenia zgód, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0486 odmawia: notifications ma wpisy typów rozliczenia zgód, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

@@ -37,7 +37,7 @@ export interface ApprovalContext {
   };
 }
 
-/** Porównanie dokumentów z kwotą zgody (próg +10%, etap 3 — 0485). */
+/** Porównanie dokumentów z kwotą zgody (próg +10%, etap 3 — 0486). */
 export interface ApprovalComparison {
   status: "fits" | "over" | "unknown";
   approved: string;
@@ -160,7 +160,7 @@ export interface ApprovalRequestRow {
   can_withdraw: boolean;
   /** Tylko w szczególe (`GET /{id}`) i tylko dla decydującego. */
   context?: ApprovalContext | null;
-  /** Etap 3 (0485): klient prezentu, znany NIP sprzedawcy, rozliczenie. */
+  /** Etap 3 (0486): klient prezentu, znany NIP sprzedawcy, rozliczenie. */
   client_id?: number | null;
   client_name?: string | null;
   seller_nip?: string | null;
@@ -356,7 +356,7 @@ export function useSaveApprovalRules() {
 }
 
 
-// ── rozliczenie (etap 3, 0485) ─────────────────────────────────────────────
+// ── rozliczenie (etap 3, 0486) ─────────────────────────────────────────────
 
 export interface ApprovalTopupRow {
   request_id: number;

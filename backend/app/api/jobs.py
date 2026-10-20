@@ -757,8 +757,8 @@ def _recruiters_payload(people: list[TeamPerson]) -> list[dict]:
 class JobSort(str, enum.Enum):
     """Ordering options for GET /api/jobs (``newest`` is the default)."""
 
-    newest = "newest"  # created_at DESC — most recently created first
-    oldest = "oldest"  # created_at ASC — legacy implicit order (oldest first)
+    newest = "newest"  # data otwarcia DESC (`opened_at`, bez niej `created_at`)
+    oldest = "oldest"  # data otwarcia ASC
     deadline = "deadline"  # deadline ASC, NULLs last — soonest due first
     # Najpierw P1, potem „Wymaga ruchu" malejąco, przeterminowane, najbliższy
     # termin.
@@ -1005,6 +1005,16 @@ def jobs_deadline_clauses(
     return clauses
 
 
+def job_opened_effective_expr():
+    """Data otwarcia rekrutacji: ``opened_at``, a bez niej ``created_at``.
+
+    ``created_at`` rekrutacji z Traffita to chwila importu, więc „Od
+    najnowszej” po nim układało ok. 4200 rekrutacji w kolejności importu
+    (20.10.2026). W wierszu ta sama wartość to ``opened_effective_at``.
+    """
+    return func.coalesce(Job.opened_at, Job.created_at)
+
+
 def jobs_opened_clauses(opened_from: Optional[date], opened_to: Optional[date]) -> list:
     """Okno „Data otwarcia” — obie daty włącznie, doba w kalendarzu firmy.
 
@@ -1014,7 +1024,7 @@ def jobs_opened_clauses(opened_from: Optional[date], opened_to: Optional[date]) 
     ``opened_effective_at``.
     """
     start, end = business_date_range(opened_from, opened_to)
-    opened = func.coalesce(Job.opened_at, Job.created_at)
+    opened = job_opened_effective_expr()
     clauses = []
     if start is not None:
         clauses.append(opened >= start)
@@ -1089,8 +1099,9 @@ async def list_jobs(
     sort: JobSort = Query(
         JobSort.newest,
         description=(
-            "Result ordering. `newest` (default) → created_at DESC; `oldest` → "
-            "created_at ASC; `deadline` → deadline ASC with NULLs last; "
+            "Result ordering. `newest` (default) → opening date DESC "
+            "(`opened_at`, falling back to `created_at`); `oldest` → opening "
+            "date ASC; `deadline` → deadline ASC with NULLs last; "
             "`attention` → P1 priority first, then most candidates waiting for "
             "the recruiter (`needs_action_count` DESC), then overdue deadlines, "
             "then deadline."
@@ -1540,11 +1551,11 @@ async def list_jobs(
             Job.id.desc(),
         )
     elif sort == JobSort.oldest:
-        query = query.order_by(Job.created_at.asc(), Job.id.asc())
+        query = query.order_by(job_opened_effective_expr().asc(), Job.id.asc())
     elif sort == JobSort.deadline:
         query = query.order_by(nulls_last(Job.deadline.asc()), Job.id.desc())
     else:  # JobSort.newest (default)
-        query = query.order_by(Job.created_at.desc(), Job.id.desc())
+        query = query.order_by(job_opened_effective_expr().desc(), Job.id.desc())
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     jobs = list(result.scalars().all())
 

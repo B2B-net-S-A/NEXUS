@@ -1,4 +1,4 @@
-// Finanse → „Wydatki ze zgodą” (Zgody, etap 3 — 0485, decyzje Artura 20.10.2026).
+// Finanse → „Wydatki ze zgodą” (Zgody, etap 3 — 0486, decyzje Artura 20.10.2026).
 //
 // Lustro `backend/app/api/hr_approval_finance.py`. Bramka: uprawnienie
 // „Moduł Finanse” i moduł „Zgody”. Premie poza umową są tu tylko sumą

@@ -246,7 +246,7 @@ function ConsentDetail({
  * szczegół z liczbami „NEXUS sprawdził” po prawej. Link z maila
  * (`?request=…&decide=approve|reject`) otwiera zgodę z oknem decyzji.
  */
-/** Skrzynka zgód z dopłatami do decyzji na górze (etap 3, 0485). */
+/** Skrzynka zgód z dopłatami do decyzji na górze (etap 3, 0486). */
 export function ConsentsInbox() {
   return (
     <div className="space-y-3">

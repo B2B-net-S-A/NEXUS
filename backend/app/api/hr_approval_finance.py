@@ -1,4 +1,4 @@
-"""Finanse → „Wydatki ze zgodą” (etap 3 zgód, 0485, decyzje Artura 20.10.2026).
+"""Finanse → „Wydatki ze zgodą” (etap 3 zgód, 0486, decyzje Artura 20.10.2026).
 
 Prefiks ``/api/finance/approved-expenses`` (``app/main.py``, za wyłącznikiem
 programu). Bramki: sekcja Finanse (router), uprawnienie „Moduł Finanse”

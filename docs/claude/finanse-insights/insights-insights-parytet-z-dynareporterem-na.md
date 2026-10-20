@@ -469,6 +469,17 @@ z Tablicy. Granice to fakty biznesowe (`competition_history.DR_HISTORY_START`
   Narzędzie (`dr_manual_fill_sheet.py`, `import_dr_manual_fill.py`) zostaje na
   wypadek, gdyby ktoś znalazł konkretną pomyłkę w danych DynaReportera.
 
+## Zespół → Ludzie: aktywny rekruter bez ruchu ma wiersz (20.10.2026)
+
+Zgłoszenie: nowa rekruterka (konto z 19.10, rola `recruiter`, 4 rekrutacje,
+zero ruchów kart) nie pojawiała się w tabeli „Rekruterzy”, bo
+`isPeopleRowWorthShowing` (`lib/insights-views.ts`) chował każdy wiersz
+z samymi zerami — wyglądało to na brak uprawnień. Decyzja Artura: aktywne
+konto z rolą `recruiter` stoi w tabeli także z zerami (API i tak sortuje je
+na koniec). Inne role bez ruchu (np. Delivery Lead) nadal idą do dopisku
+„Pominięto osoby bez ruchu w tym okresie: N”; nieaktywnych bez ruchu API nie
+zwraca wcale.
+
 ## Zespół → Ludzie: byli pracownicy i sortowanie (19.10.2026)
 
 Prośba rekrutera: osoby, które już u nas nie pracują, wisiały w tabelach

@@ -324,6 +324,7 @@ def send_via_graph_app(
     subject: str,
     text_body: str,
     html_body: Optional[str] = None,
+    reply_to: Optional[str] = None,
 ) -> bool:
     """True means Graph accepted, not delivered. No raw Graph text is logged.
 
@@ -358,6 +359,8 @@ def send_via_graph_app(
         },
         "saveToSentItems": False,
     }
+    if reply_to:
+        payload["message"]["replyTo"] = [{"emailAddress": {"address": reply_to}}]
     url = f"{_GRAPH_BASE}/users/{settings.M365_MAIL_SENDER_UPN}/sendMail"
     posted = False
     try:

@@ -1,4 +1,4 @@
-"""Kształt rozliczenia zgody i dokumentu wydatku w odpowiedziach tras (0485)."""
+"""Kształt rozliczenia zgody i dokumentu wydatku w odpowiedziach tras (0486)."""
 
 from __future__ import annotations
 

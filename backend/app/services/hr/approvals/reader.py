@@ -1,4 +1,4 @@
-"""Odczyt kwoty i sprzedawcy z faktury albo paragonu do zgody (F32, 0485).
+"""Odczyt kwoty i sprzedawcy z faktury albo paragonu do zgody (F32, 0486).
 
 Model z rejestru (``AIFeatureKey.expense_document_read``) dostaje sam
 dokument — PDF albo zdjęcie — bez danych osoby, która prosiła o zgodę.

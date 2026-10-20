@@ -362,7 +362,7 @@ def build_sections(
             ),
         )
     )
-    # Zgody, etap 3 (0485): roczne odnowienia subskrypcji w ciągu 30 dni —
+    # Zgody, etap 3 (0486): roczne odnowienia subskrypcji w ciągu 30 dni —
     # zatwierdzający i Finanse (opiekun dostaje osobny dzwonek z pytaniem).
     out.append(
         _section(

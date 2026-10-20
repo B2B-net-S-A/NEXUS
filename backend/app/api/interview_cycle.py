@@ -34,7 +34,7 @@ from decimal import Decimal
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 from sqlalchemy import exists, select
@@ -54,6 +54,7 @@ from app.api.recruitment_access import (
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.calendar_event import CalendarEvent, EventType
 from app.models.client_interview_slot_request import ClientInterviewSlotRequest
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
@@ -67,7 +68,8 @@ from app.models.job import Job
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
-from app.services import client_interview_entry, interview_slots
+from app.services import client_interview_entry, interview_slot_mail, interview_slots
+from app.services.candidate_claim import is_integration_request
 from app.services.interview_cycle import load_overview
 from app.services.debrief_gate import interview_not_started_message
 from app.services.pipeline_auto_move import auto_advance, run_after_commit
@@ -602,6 +604,73 @@ async def get_cycle_overview(
         can_read_candidates=user_has_candidate_read(current_user),
     )
     return CycleOverview(**data)
+
+
+class SlotsFromMailIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=interview_slot_mail.TEXT_MAX)
+    # Dzień wysłania maila — od niego liczą się „jutro” i „w czwartek”.
+    # Bez niego: dziś (kalendarz firmy).
+    mail_date: Optional[date] = None
+
+
+class SlotFromMail(BaseModel):
+    start: datetime
+    end: datetime
+    window: bool = False
+    quote: str
+    # quote_mismatch | weekday_mismatch | weekend | unusual_hour — do sprawdzenia przez DL.
+    warning: Optional[str] = None
+
+
+class SlotsFromMailOut(BaseModel):
+    # ok | empty | unavailable — model nigdy nie daje 5xx.
+    status: str
+    message: Optional[str] = None
+    slots: list[SlotFromMail]
+    extra_slots: int = 0
+    dropped: int = 0
+    duration_minutes: Optional[int] = None
+    respond_by: Optional[datetime] = None
+    format: Optional[str] = None
+    location_note: Optional[str] = None
+    people: Optional[str] = None
+    unclear: list[str] = Field(default_factory=list)
+
+
+@router.post("/interview-cycle/slots/from-mail", response_model=SlotsFromMailOut)
+async def read_slots_from_mail(
+    request: Request,
+    body: SlotsFromMailIn,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> SlotsFromMailOut:
+    """Terminy z wklejonego maila klienta (20.10.2026). Niczego nie zapisuje.
+
+    Ta sama bramka co wpisanie terminów i rozmowy z ruchu karty — wynik to
+    podpowiedź dla formularza, który i tak przechodzi zwykłą walidację przy
+    zapisie. Treść maila nie trafia do bazy ani do logu.
+    """
+    if is_integration_request(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Terminy z maila odczytuje osoba, nie integracja.",
+        )
+    today = business_today()
+    mail_date = body.mail_date or today
+    if mail_date > today:
+        raise HTTPException(
+            status_code=422, detail="Data maila nie może być z przyszłości."
+        )
+    result = await interview_slot_mail.read_slots(
+        db,
+        text=body.text,
+        mail_date=mail_date,
+        today=today,
+        now=datetime.now(timezone.utc),
+        user_id=current_user.id,
+    )
+    await db.commit()
+    return SlotsFromMailOut(**result)
 
 
 @router.post(

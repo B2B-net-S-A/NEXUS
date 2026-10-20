@@ -536,7 +536,7 @@ async def _consider(run: _Run, item: dict[str, Any]) -> None:
 
 
 async def _store_cost(run: _Run, item: dict[str, Any], ksef_number: str) -> None:
-    """Faktura kosztowa spółki z samych metadanych → dokument wydatku (Zgody, 0485).
+    """Faktura kosztowa spółki z samych metadanych → dokument wydatku (Zgody, 0486).
 
     Bez pobierania XML-a (budżet pobrań zostaje dla faktur kontraktorów).
     Awaria zapisu nie zatrzymuje przebiegu — faktura wróci przy „Pobierz

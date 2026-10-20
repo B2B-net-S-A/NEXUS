@@ -98,7 +98,9 @@ class TestFeatureKeyEnum:
             "cv_selection_edit",
             # 0434: polecenie własnymi słowami dla całego CV w edytorze.
             "cv_editor_command",
-            # 0485: odczyt faktury albo paragonu do zgody (Zgody, etap 3).
+            # 0485: terminy rozmowy u klienta z wklejonego maila.
+            "interview_slots_from_mail",
+            # 0486: odczyt faktury albo paragonu do zgody (Zgody, etap 3).
             "expense_document_read",
         }
 

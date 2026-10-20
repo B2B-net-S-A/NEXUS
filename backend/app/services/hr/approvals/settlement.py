@@ -1,4 +1,4 @@
-"""Rozliczenie zatwierdzonych wydatków (etap 3 zgód, 0485, decyzje Artura 20.10.2026).
+"""Rozliczenie zatwierdzonych wydatków (etap 3 zgód, 0486, decyzje Artura 20.10.2026).
 
 Zgoda na wydatek po zatwierdzeniu dostaje rozliczenie (``on_approved``):
 

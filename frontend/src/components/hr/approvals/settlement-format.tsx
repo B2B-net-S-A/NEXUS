@@ -1,4 +1,4 @@
-// Rozliczenie zgody (etap 3, 0485) — zdania i plakietki liczone z odpowiedzi
+// Rozliczenie zgody (etap 3, 0486) — zdania i plakietki liczone z odpowiedzi
 // serwera. Próg dopłaty, stany i porównanie liczy backend; tu tylko słowa.
 
 import type {

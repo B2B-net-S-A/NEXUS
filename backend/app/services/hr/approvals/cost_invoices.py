@@ -1,4 +1,4 @@
-"""Faktury kosztowe spółki z KSeF → dokumenty wydatków (etap 3 zgód, 0485).
+"""Faktury kosztowe spółki z KSeF → dokumenty wydatków (etap 3 zgód, 0486).
 
 Pobieranie faktur zakupowych (``services/hr/ksef/sync.py``, ``Subject2``)
 zapisywało dotąd tylko faktury od NIP-ów kontraktorów, a resztę liczyło jako

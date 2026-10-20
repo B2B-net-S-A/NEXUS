@@ -1,4 +1,4 @@
-"""Pliki dokumentów wydatków (faktura albo paragon do zgody, 0485).
+"""Pliki dokumentów wydatków (faktura albo paragon do zgody, 0486).
 
 Ten sam wolumen uploadów co e-teczki (``storage_service.STORAGE_ROOT``),
 własny podkatalog ``approval_documents/<zgoda>/``: dokument wydatku to papier

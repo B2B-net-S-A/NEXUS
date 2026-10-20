@@ -1,4 +1,4 @@
-"""Rozliczenie zgód w Finansach (etap 3, 0485) — trasy autora i Finansów.
+"""Rozliczenie zgód w Finansach (etap 3, 0486) — trasy autora i Finansów.
 
 Decyzje Artura 20.10.2026: faktura z KSeF pasująca do zgody przypina się sama,
 „Rozliczone” klika osoba z Finansów (nie autor); faktura wyższa o ponad 10%

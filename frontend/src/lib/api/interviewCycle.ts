@@ -16,6 +16,7 @@ import type {
   SlotRequest,
   SupersededOutlook,
 } from "@/lib/interview-cycle";
+import type { SlotsFromMail } from "@/lib/interview-slot-mail";
 
 /** Agenda odświeża się co minutę — odliczanie „zadzwoń teraz” musi żyć. */
 export const CYCLE_REFETCH_MS = 60_000;
@@ -61,6 +62,11 @@ export const interviewCycleApi = {
     respond_by?: string | null;
     note?: string | null;
   }) => api.post<SlotRequest>("/api/interview-cycle/slots", body).then((r) => r.data),
+  /** Terminy z wklejonego maila klienta — podpowiedź, niczego nie zapisuje. */
+  readSlotsFromMail: (body: { text: string; mail_date?: string | null }) =>
+    api
+      .post<SlotsFromMail>("/api/interview-cycle/slots/from-mail", body)
+      .then((r) => r.data),
   chooseSlot: (id: number, index: number) =>
     api
       .post<SlotRequest>(`/api/interview-cycle/slots/${id}/choose`, { index })
