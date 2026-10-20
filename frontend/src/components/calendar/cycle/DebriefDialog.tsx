@@ -198,7 +198,9 @@ export function DebriefDialog({
     }
     if (result.offer && offer == null) setOffer(result.offer.value);
     if (result.offer?.condition && !condition.trim()) setCondition(result.offer.condition);
-    if (result.rate && !rateChanged) {
+    // Pole stawki przyjmuje stawkę godzinową — miesięczna albo dzienna z notatki
+    // zostaje w komentarzu (notatka), a nie ląduje jako „zł/h”.
+    if (result.rate && (result.rate.unit === "hourly" || result.rate.unit == null) && !rateChanged) {
       setRateChanged(true);
       setRateAmount(result.rate.amount);
       setRateTouched(true);

@@ -23,11 +23,21 @@ def test_questions_offer_rate_and_start_with_quotes():
     out = dft.check_parse(
         _raw(
             questions=[
-                {"text": "Jak robiła retry i DLQ w Kafce?", "quote": "jak robiła retry i DLQ"},
-                {"text": "Jak przebiegała migracja z Javy 11 na 21?", "quote": "migrację z Javy 11 na 21"},
+                {
+                    "text": "Jak robiła retry i DLQ w Kafce?",
+                    "quote": "jak robiła retry i DLQ",
+                },
+                {
+                    "text": "Jak przebiegała migracja z Javy 11 na 21?",
+                    "quote": "migrację z Javy 11 na 21",
+                },
                 {"text": "Czy zna Kubernetes?", "quote": "czy zna Kubernetes"},
             ],
-            offer={"value": "likely", "condition": "zdalnie 4 dni", "quote": "przyjmie jeśli zdalnie 4 dni w tygodniu"},
+            offer={
+                "value": "likely",
+                "condition": "zdalnie 4 dni",
+                "quote": "przyjmie jeśli zdalnie 4 dni w tygodniu",
+            },
             rate={"amount": "160", "unit": "hourly", "quote": "chce 160 zł/h"},
             start={"text": "od 1.12", "quote": "może zacząć od 1.12"},
         ),
@@ -59,8 +69,16 @@ def test_question_without_a_quote_from_the_note_is_dropped():
 @pytest.mark.parametrize(
     "rate",
     [
-        {"amount": "170", "unit": "hourly", "quote": "chce 160 zł/h"},  # kwoty nie ma w notatce
-        {"amount": "160", "unit": "hourly", "quote": "chce 160 zł za godzinę"},  # cytat spoza notatki
+        {
+            "amount": "170",
+            "unit": "hourly",
+            "quote": "chce 160 zł/h",
+        },  # kwoty nie ma w notatce
+        {
+            "amount": "160",
+            "unit": "hourly",
+            "quote": "chce 160 zł za godzinę",
+        },  # cytat spoza notatki
     ],
 )
 def test_rate_needs_the_amount_and_the_quote_in_the_note(rate):
@@ -69,24 +87,56 @@ def test_rate_needs_the_amount_and_the_quote_in_the_note(rate):
     assert out["dropped"] == 1
 
 
+@pytest.mark.parametrize(
+    "amount,quote,expected",
+    [
+        ("160,50", "chce 160,50 zł/h", "160.50"),
+        ("160", "chce 160,50 zł/h", None),  # obcięte grosze to inna kwota
+        ("21", "chce 160 zł/h", None),  # liczba z notatki, ale spoza cytatu stawki
+        ("160", "od 1.12 160 zł/h", "160"),
+        ("16000", "16 000 netto", "16000"),
+        ("160 zł/h", "chce 160 zł/h", "160"),
+    ],
+)
+def test_amount_is_checked_against_the_rate_quote(amount, quote, expected):
+    assert dft.amount_in_quote(amount, quote) == expected
+
+
 def test_rate_with_thousands_separator_and_unknown_unit():
     text = "kandydat chce 16 000 netto miesięcznie"
     out = dft.check_parse(
-        _raw(rate={"amount": "16000", "unit": "per_month", "quote": "chce 16 000 netto"}), text=text
+        _raw(
+            rate={"amount": "16000", "unit": "per_month", "quote": "chce 16 000 netto"}
+        ),
+        text=text,
     )
-    assert out["rate"] == {"amount": "16000", "unit": None, "quote": "chce 16 000 netto"}
+    assert out["rate"] == {
+        "amount": "16000",
+        "unit": None,
+        "quote": "chce 16 000 netto",
+    }
 
 
 def test_offer_with_unknown_value_or_no_quote_is_ignored():
-    assert dft.check_parse(_raw(offer={"value": "maybe", "quote": "przyjmie"}), text=NOTE)["offer"] is None
-    out = dft.check_parse(_raw(offer={"value": "yes", "quote": "na pewno przyjmie"}), text=NOTE)
+    assert (
+        dft.check_parse(_raw(offer={"value": "maybe", "quote": "przyjmie"}), text=NOTE)[
+            "offer"
+        ]
+        is None
+    )
+    out = dft.check_parse(
+        _raw(offer={"value": "yes", "quote": "na pewno przyjmie"}), text=NOTE
+    )
     assert out["offer"] is None and out["dropped"] == 1
 
 
 def test_questions_are_capped():
     text = " ".join(f"pytanie{i}" for i in range(40))
     qs = [{"text": f"Pytanie {i}?", "quote": f"pytanie{i}"} for i in range(40)]
-    assert len(dft.check_parse(_raw(questions=qs), text=text)["questions"]) == dft.MAX_QUESTIONS
+    assert (
+        len(dft.check_parse(_raw(questions=qs), text=text)["questions"])
+        == dft.MAX_QUESTIONS
+    )
 
 
 def test_prompt_fences_the_note():

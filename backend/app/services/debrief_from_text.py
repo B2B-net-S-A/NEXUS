@@ -10,8 +10,8 @@ Podział pracy jak w innych odczytach „znajdź i zacytuj” (F25):
 
 * model zwraca każdy element z DOSŁOWNYM cytatem z notatki,
 * KOD odrzuca element bez cytatu z notatki; kwotę stawki przyjmuje tylko
-  wtedy, gdy ta liczba stoi w notatce (jak `_drop_ungrounded_rate`
-  w odczycie notatek).
+  wtedy, gdy dokładnie ta liczba stoi w cytacie stawki (jak
+  `_drop_ungrounded_rate` w odczycie notatek).
 
 Trasa niczego nie zapisuje; tekst notatki trafia do komentarza debriefu
 dopiero, gdy rekruter go zapisze. Do logu idą długości i liczby, nie treść.
@@ -48,7 +48,6 @@ MSG_EMPTY = "Nie znalazłem w notatce pytań klienta ani informacji o ofercie."
 
 _OFFER = {"yes", "likely", "no", "unknown"}
 _UNITS = {"hourly", "daily", "monthly"}
-_DIGITS = re.compile(r"\d+")
 
 
 def _short(value: Any, limit: int) -> Optional[str]:
@@ -58,18 +57,34 @@ def _short(value: Any, limit: int) -> Optional[str]:
     return value[:limit] or None
 
 
-def _amount_in_text(amount: Any, text: str) -> Optional[str]:
-    """Kwota z modelu, o ile ta liczba stoi w notatce („160”, „16 000”, „16k” nie)."""
+# Liczba z separatorem tysięcy („16 000”) i częścią dziesiętną („160,50”).
+_NUMBER = re.compile(
+    r"(?<![\d.,])\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d{1,2})?(?![\d])|(?<![\d.,])\d+(?:[.,]\d{1,2})?(?![\d])"
+)
+
+
+def _canonical(number: str) -> str:
+    """„16 000” → „16000”, „160,50” → „160.50”."""
+    return re.sub(r"[ \u00a0]", "", number).replace(",", ".")
+
+
+def amount_in_quote(amount: Any, quote: str) -> Optional[str]:
+    """Kwota z modelu, o ile DOKŁADNIE ta liczba stoi w cytacie stawki.
+
+    Sprawdzamy cytat, nie całą notatkę — notatka pełna jest innych liczb
+    („Java 11/21”, „4 dni”, „od 1.12”). Część dziesiętna zostaje: „160,50”
+    to nie „160”.
+    """
     if not isinstance(amount, (str, int, float)) or isinstance(amount, bool):
         return None
-    digits = "".join(_DIGITS.findall(str(amount).split(".")[0].split(",")[0]))
-    if not digits or len(digits) > 7:
+    found = _NUMBER.search(str(amount))
+    if found is None:
         return None
-    # Liczby w notatce bez spacji tysięcy („16 000” → „16000”).
-    compact = re.sub(r"(?<=\d)[\s .](?=\d{3}\b)", "", text)
-    if digits not in set(_DIGITS.findall(compact)):
+    wanted = _canonical(found.group(0))
+    if len(wanted.split(".")[0]) > 7:
         return None
-    return digits
+    in_quote = {_canonical(m.group(0)) for m in _NUMBER.finditer(quote)}
+    return wanted if wanted in in_quote else None
 
 
 def check_parse(raw: str, *, text: str) -> dict:
@@ -111,7 +126,7 @@ def check_parse(raw: str, *, text: str) -> dict:
     raw_rate = data.get("rate")
     if isinstance(raw_rate, dict):
         quote = _quote_in_text(raw_rate.get("quote"), text)
-        amount = _amount_in_text(raw_rate.get("amount"), text)
+        amount = amount_in_quote(raw_rate.get("amount"), quote) if quote else None
         unit = raw_rate.get("unit") if raw_rate.get("unit") in _UNITS else None
         if quote is not None and amount is not None:
             rate = {"amount": amount, "unit": unit, "quote": quote}
