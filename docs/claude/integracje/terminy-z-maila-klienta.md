@@ -74,3 +74,27 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
   terminie = 422.
 - Pominięcie Prepu 2 (0482) bez zmian — okno tylko o nim przypomina.
 
+## PR 3 — wybór rekrutera = rozmowa w kalendarzu, DL odpisuje klientowi (0487)
+
+- **`choose` od razu potwierdza** (`interview_slots.confirm`: rozmowa
+  `client_interview` w kalendarzu rekrutera, blokada w jego Outlooku jak przy
+  potwierdzeniu DL-a) i ustawia `client_reply_pending`. Wyłącznik
+  `SLOT_CHOICE_CONFIRMS` (domyślnie włączony; OFF = jak przed 0487).
+- **Wyjątek — możliwe przełożenie:** gdy para ma nieodbytą zaplanowaną
+  rozmowę (`replaceable_interviews`), wybór czeka na DL-a jak dotąd — okno
+  potwierdzenia pyta, czy to przełożenie (reguła 26.09.2026).
+- **Zadanie `slots_reply` „Odpisz klientowi”** dla autora wniosku (DL; w
+  zakresie „jobs” widzi je też DL rekrutacji), do startu rozmowy. Okno
+  `ClientReplyDialog`: gotowy tekst do skopiowania (`lib/client-reply.ts`,
+  imię i nazwisko w mianowniku), „Wysłane klientowi”
+  (`POST …/slots/{id}/client-replied`, idempotentne) i „Klient wybrał inny
+  termin” (`POST …/slots/{id}/change`: inny termin TEGO wniosku, także godzina
+  w oknie; nowa rozmowa, stara odwołana razem z blokadą w Outlooku, rekruter
+  dostaje powiadomienie; prepy zostają — prep po rozmowie ekran pokaże jako
+  „przełóż”). Obie trasy: role i członkostwo jak potwierdzenie.
+- Flaga zamiast „brak daty odpowiedzi”: wnioski potwierdzone przed 0487 mają
+  `client_reply_pending = false` i nie stają się zaległymi zadaniami.
+  Potwierdzenie przez DL-a (stara ścieżka) od razu odhacza odpowiedź.
+- Migracja 0487 stoi po 0486 z PR-a „Zgody” (rozliczenie wydatków) — lustro
+  kolumn w `entrypoint.sh`.
+

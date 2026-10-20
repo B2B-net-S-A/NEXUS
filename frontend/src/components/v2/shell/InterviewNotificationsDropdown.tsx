@@ -480,7 +480,8 @@ function InterviewNotificationsWindow() {
     if (!row.todo) return null;
     const found = actionForTodo(row.todo, overview?.items ?? []);
     if (!found) return null;
-    if ((found.type === "confirm" || found.type === "add_slots") && !canManageSlots) return null;
+    if ((found.type === "confirm" || found.type === "reply" || found.type === "add_slots") && !canManageSlots)
+      return null;
     return found;
   };
 

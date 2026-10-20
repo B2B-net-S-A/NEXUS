@@ -37,7 +37,9 @@
   "POST /api/interview-cycle/slots": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots/from-mail": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots/{request_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/interview-cycle/slots/{request_id}/change": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots/{request_id}/choose": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/interview-cycle/slots/{request_id}/client-replied": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "POST /api/interview-cycle/slots/{request_id}/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "PUT /api/interview-cycle/events/{event_id}/debrief": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "PUT /api/interview-cycle/pairs/{candidate_id}/{job_id}/debrief": "PPPPPPDDPPPPPPPPPPPDDPPPP"

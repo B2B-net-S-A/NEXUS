@@ -26,6 +26,7 @@ import app.models  # noqa: F401
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.models.notification import Notification, NotificationType
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
 from app.models.interview_question import (
     InterviewQuestion,
@@ -496,25 +497,39 @@ async def test_full_slot_flow_creates_client_interview_for_recruiter(
         json={"index": 1},
     )
     assert chosen.status_code == 200, chosen.text
-    assert chosen.json()["status"] == "awaiting_dl"
+    # 0487 (20.10.2026): wybór rekrutera od razu wpisuje rozmowę do
+    # kalendarza, DL tylko odpisuje klientowi.
+    body = chosen.json()
+    assert body["status"] == "confirmed"
+    assert body["client_reply_pending"] is True
+    assert body["event_id"] is not None
 
-    # Rekruter nie potwierdza klientowi — to przekazanie należy do DL.
-    self_confirm = await app_client.post(
-        f"/api/interview-cycle/slots/{req['id']}/confirm",
-        headers=rec_h,
-        json={"add_to_outlook": False},
+    # Rekruter nie odpisuje klientowi w imieniu DL-a.
+    self_reply = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/client-replied", headers=rec_h
     )
-    assert self_confirm.status_code == 403, self_confirm.text
+    assert self_reply.status_code == 403, self_reply.text
 
-    confirmed = await app_client.post(
-        f"/api/interview-cycle/slots/{req['id']}/confirm",
-        headers=dl_h,
-        json={"add_to_outlook": False},
+    dl_todos = await app_client.get("/api/interview-cycle?scope=mine", headers=dl_h)
+    reply_todo = next(
+        t
+        for t in dl_todos.json()["todos"]
+        if t["candidate_id"] == cand_id and t["kind"] == "slots_reply"
     )
-    assert confirmed.status_code == 200, confirmed.text
-    body = confirmed.json()
-    assert body["request"]["status"] == "confirmed"
-    assert body["outlook"] == "not_requested"
+    assert reply_todo["mine"] is True
+
+    replied = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/client-replied", headers=dl_h
+    )
+    assert replied.status_code == 200, replied.text
+    assert replied.json()["client_reply_pending"] is False
+    assert replied.json()["client_replied_at"] is not None
+    dl_todos = await app_client.get("/api/interview-cycle?scope=mine", headers=dl_h)
+    assert not any(
+        t["kind"] == "slots_reply"
+        for t in dl_todos.json()["todos"]
+        if t["candidate_id"] == cand_id
+    )
 
     async with AsyncSessionLocal() as db:
         event = await db.get(CalendarEvent, body["event_id"])
@@ -1202,3 +1217,151 @@ async def test_confirm_skips_a_recruiter_who_left_before_confirmation(
         # Nikogo innego z dostępem nie ma — rozmowa zostaje u potwierdzającego.
         assert event.operational_owner_id == dl_id
         assert event.created_by == dl_id
+
+
+# ── 0487: wybór rekrutera = rozmowa w kalendarzu, DL odpisuje klientowi ─────
+
+
+async def _two_slot_request(app_client, dl_h, cand_id, job_id) -> dict:
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(3)}, {"start": _future(4)}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    return created.json()
+
+
+async def test_dl_picking_the_slot_notifies_the_recruiter(app_client: AsyncClient):
+    """DL wybrał termin sam — rozmowa jest w kalendarzu rekrutera, więc
+    rekruter dostaje powiadomienie, jak po potwierdzeniu."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=dl_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    assert chosen.json()["status"] == "confirmed"
+    assert chosen.json()["outlook"] in ("not_requested", "skipped", "failed", "added")
+    async with AsyncSessionLocal() as db:
+        recipients = set(
+            (
+                await db.execute(
+                    select(Notification.user_id).where(
+                        Notification.notification_type
+                        == NotificationType.interview_slot_confirmed,
+                        Notification.related_entity_id == req["id"],
+                    )
+                )
+            ).scalars()
+        )
+    assert rec_id in recipients
+
+
+async def test_choice_waits_for_dl_when_the_switch_is_off(
+    app_client: AsyncClient, monkeypatch
+):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "SLOT_CHOICE_CONFIRMS", False)
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    assert chosen.json()["status"] == "awaiting_dl"
+    assert chosen.json()["event_id"] is None
+    confirmed = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/confirm",
+        headers=dl_h,
+        json={"add_to_outlook": False},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    # DL potwierdził u klienta — nie ma zadania „Odpisz klientowi”.
+    assert confirmed.json()["request"]["client_reply_pending"] is False
+
+
+async def test_choice_next_to_a_planned_interview_still_waits_for_dl(
+    app_client: AsyncClient,
+):
+    """Nowy termin przy zaplanowanej rozmowie może być przełożeniem — o tym
+    decyduje DL w oknie potwierdzenia (reguła 26.09.2026)."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    first = await _slot_request(app_client, dl_h, cand_id, job_id, days=2)
+    one = await app_client.post(
+        f"/api/interview-cycle/slots/{first['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert one.status_code == 200, one.text
+    second = await _slot_request(app_client, dl_h, cand_id, job_id, days=5)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{second['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    assert chosen.json()["status"] == "awaiting_dl"
+
+
+async def test_client_picked_another_slot_moves_the_interview(
+    app_client: AsyncClient,
+):
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    first_event = chosen.json()["event_id"]
+
+    by_recruiter = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/change",
+        headers=rec_h,
+        json={"index": 1},
+    )
+    assert by_recruiter.status_code == 403, by_recruiter.text
+    same = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/change",
+        headers=dl_h,
+        json={"index": 0},
+    )
+    assert same.status_code == 422, same.text
+
+    changed = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/change",
+        headers=dl_h,
+        json={"index": 1},
+    )
+    assert changed.status_code == 200, changed.text
+    body = changed.json()
+    assert body["cancelled_event_id"] == first_event
+    assert body["request"]["chosen_index"] == 1
+    # Zmiana przyszła od klienta — odpowiedź do klienta jest odhaczona.
+    assert body["request"]["client_reply_pending"] is False
+    async with AsyncSessionLocal() as db:
+        old = await db.get(CalendarEvent, first_event)
+        new = await db.get(CalendarEvent, body["event_id"])
+        assert old.status == EventStatus.cancelled
+        assert new.status == EventStatus.scheduled
+        assert new.operational_owner_id == rec_id
+        assert new.start_time.isoformat().startswith(_future(4)[:13])

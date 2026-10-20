@@ -157,7 +157,10 @@ export function CandidateCycleCard({
             const action = actionForTodo(t, data.items);
             const allowed =
               action &&
-              !((action.type === "add_slots" || action.type === "confirm") && !canManageSlots);
+              !(
+                (action.type === "add_slots" || action.type === "confirm" || action.type === "reply") &&
+                !canManageSlots
+              );
             const urgent = t.urgent || TODO_URGENT.has(t.kind);
             return (
               <li

@@ -1213,6 +1213,10 @@ class Settings(BaseSettings):
     TEAMS_PREP_CLIENT_SECRET: str = ""
     # Zakładanie prepów przez aplikację. OFF = trasa prepów odpowiada 503.
     TEAMS_PREP_APP_ONLY_ENABLED: bool = False
+    # 0487 (20.10.2026, decyzja Artura): wybór terminu przez rekrutera od razu
+    # wpisuje rozmowę do kalendarza, DL tylko odpisuje klientowi. OFF = jak
+    # przed 0487 (wybór czeka na „Potwierdź” DL-a).
+    SLOT_CHOICE_CONFIRMS: bool = True
     # PATCH spotkania z automatycznym nagrywaniem/transkrypcją po utworzeniu.
     TEAMS_PREP_AUTO_TRANSCRIBE: bool = True
     # Język mowy prepu/follow-upu ustawiany przed startem transkrypcji.

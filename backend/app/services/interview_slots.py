@@ -428,6 +428,30 @@ async def confirm(
         _check_index(req, index)
         req.chosen_index = index
 
+    event, outlook = await _create_interview_event(
+        db, req, user_id=user_id, add_to_outlook=add_to_outlook
+    )
+    superseded_outlook: Optional[str] = None
+    if superseded is not None:
+        superseded_outlook = await _cancel_outlook_copy(db, superseded)
+        superseded.status = EventStatus.cancelled
+        await db.flush()
+
+    req.status = SLOT_STATUS_CONFIRMED
+    req.confirmed_at = datetime.now(timezone.utc)
+    req.confirmed_by = user_id
+    req.event_id = event.id
+    return event, outlook, superseded_outlook
+
+
+async def _create_interview_event(
+    db: AsyncSession,
+    req: ClientInterviewSlotRequest,
+    *,
+    user_id: int,
+    add_to_outlook: bool,
+) -> tuple[CalendarEvent, str]:
+    """Rozmowa u klienta z wybranego terminu wniosku (``chosen_index``)."""
     slot = req.slots[req.chosen_index]
     start, end = _parse(slot["start"]), _parse(slot["end"])
     candidate = await db.get(Candidate, req.candidate_id)
@@ -472,17 +496,66 @@ async def confirm(
     event.reminder_minutes = 15
     event.description = _interview_description(req)
     await db.flush()
-    superseded_outlook: Optional[str] = None
-    if superseded is not None:
-        superseded_outlook = await _cancel_outlook_copy(db, superseded)
-        superseded.status = EventStatus.cancelled
-        await db.flush()
+    return event, outlook
 
-    req.status = SLOT_STATUS_CONFIRMED
-    req.confirmed_at = datetime.now(timezone.utc)
-    req.confirmed_by = user_id
+
+def mark_client_replied(req: ClientInterviewSlotRequest, *, user_id: int) -> None:
+    """DL odpisał klientowi (0487). Powtórne kliknięcie niczego nie zmienia."""
+    if req.status != SLOT_STATUS_CONFIRMED:
+        raise HTTPException(status_code=409, detail=_status_conflict(req.status))
+    if req.client_replied_at is None:
+        req.client_replied_at = datetime.now(timezone.utc)
+        req.client_replied_by = user_id
+    req.client_reply_pending = False
+
+
+async def change_confirmed_slot(
+    db: AsyncSession,
+    req: ClientInterviewSlotRequest,
+    *,
+    user_id: int,
+    index: int,
+    start: Optional[datetime] = None,
+) -> tuple[CalendarEvent, str, Optional[str]]:
+    """„Klient wybrał inny termin” (0487): inny termin z TEGO wniosku.
+
+    Rozmowa wybrana przez rekrutera jest już w kalendarzu — DL, odpisując
+    klientowi, może się dowiedzieć, że ten wolałby inny z zaproponowanych.
+    Nowa rozmowa powstaje jak przy potwierdzeniu, a poprzednia jest
+    odwoływana (jak jawne przełożenie z 26.09.2026): zmiana godziny w miejscu
+    nie przeniosłaby blokady z Outlooka rekrutera. Prepy zostają — ekran
+    pokaże prep po rozmowie jako „przełóż”.
+    """
+    if req.status != SLOT_STATUS_CONFIRMED:
+        raise HTTPException(status_code=409, detail=_status_conflict(req.status))
+    old = await db.get(CalendarEvent, req.event_id) if req.event_id else None
+    now = datetime.now(timezone.utc)
+    if old is not None and _as_aware(old.start_time) <= now:
+        raise HTTPException(
+            status_code=409,
+            detail="Rozmowa już się zaczęła — nowe terminy dodaj osobnym wnioskiem.",
+        )
+    _check_index(req, index)
+    if index == req.chosen_index and start is None:
+        raise HTTPException(status_code=422, detail="To ten sam termin.")
+    pick_in_window(req, index, start)
+    req.chosen_index = index
+    event, outlook = await _create_interview_event(
+        db, req, user_id=user_id, add_to_outlook=True
+    )
+    old_outlook: Optional[str] = None
+    if old is not None and old.status != EventStatus.cancelled:
+        old_outlook = await _cancel_outlook_copy(db, old)
+        old.status = EventStatus.cancelled
+        await db.flush()
     req.event_id = event.id
-    return event, outlook, superseded_outlook
+    # Zmiana przyszła od klienta — DL właśnie z nim pisze.
+    mark_client_replied(req, user_id=user_id)
+    return event, outlook, old_outlook
+
+
+def _as_aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 async def replaceable_interviews(
