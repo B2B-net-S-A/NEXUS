@@ -14,13 +14,17 @@ Przebieg (w kontenerze backendu)::
         --plan /tmp/note_q_plan.json --review /tmp/note_q_review.xlsx
     # człowiek przegląda arkusz, dopiero potem (opcjonalnie bez części notatek):
     docker exec <backend> python -m scripts.import_note_client_questions \\
-        --apply /tmp/note_q_plan.json [--skip-notes 101,102]
+        --apply /tmp/note_q_plan.json [--skip-notes 101,102:7]
 
 * ``--plan`` czyta notatki i woła model (ten sam prompt i ta sama kontrola
   cytatu co archiwum z Excela, ``import_legacy_interview_questions``); niczego
   nie zapisuje.
 * ``--apply`` zapisuje dokładnie przejrzany plan, bez modelu; para, która ma
   już debrief z pytaniami albo z „klient nie pytał”, jest pomijana.
+  ``--skip-notes`` przyjmuje id notatki (cała) albo ``id_notatki:id_rekrutacji``.
+* Notatka bez rekrutacji trafia do pary tylko, gdy kandydat ma w oknie
+  dokładnie jedną; inaczej jest w „Odrzuconych” jako „niejednoznaczna
+  rekrutacja” (audyt 21.10.2026).
 * ``--rollback`` cofa wszystkie przebiegi z paragonu: debriefy i rozmowy
   założone przez import, dopisane pytania i przypięcia.
 
@@ -158,6 +162,45 @@ async def candidate_notes(db: Any, *, days: int, now: datetime) -> list[NoteRow]
     ]
 
 
+AMBIGUOUS_JOB = "niejednoznaczna rekrutacja"
+
+
+def _pairs_per_note(
+    items: list[tuple[int, int, int]],
+) -> dict[int, set[tuple[int, int]]]:
+    """(notatka, kandydat, rekrutacja) → pary, przy których stoi notatka."""
+    out: dict[int, set[tuple[int, int]]] = {}
+    for note_id, candidate_id, job_id in items:
+        out.setdefault(note_id, set()).add((candidate_id, job_id))
+    return out
+
+
+def split_ambiguous_notes(
+    notes: list[NoteRow],
+) -> tuple[list[NoteRow], list[dict[str, Any]]]:
+    """Notatka bez rekrutacji trafia do pary tylko, gdy pasuje dokładnie jedna.
+
+    Notatka z ``job_id`` łączy się z jedną parą; bez niego — z każdą parą
+    kandydata, która weszła w „Rozmowę z klientem” w oknie notatki. Wtedy nie
+    wiadomo, o którą rozmowę chodzi, a te same pytania lądowałyby w debriefach
+    i bankach kilku klientów (audyt 21.10.2026) — notatka idzie do
+    „Odrzuconych” z listą rekrutacji.
+    """
+    pairs = _pairs_per_note([(n.note_id, n.candidate_id, n.job_id) for n in notes])
+    kept = [n for n in notes if len(pairs[n.note_id]) == 1]
+    rejected = [
+        {
+            "note_id": note_id,
+            "reason": AMBIGUOUS_JOB,
+            "question": "rekrutacje: "
+            + ", ".join(str(job) for job in sorted(j for _c, j in found)),
+        }
+        for note_id, found in sorted(pairs.items())
+        if len(found) > 1
+    ]
+    return kept, rejected
+
+
 def business_day(value: datetime) -> date:
     from zoneinfo import ZoneInfo
 
@@ -170,7 +213,8 @@ async def build_plan(notes: list[NoteRow], *, concurrency: int = 4) -> dict[str,
     """Model + kontrola cytatu dla każdej notatki. Bez zapisu."""
     sem = asyncio.Semaphore(concurrency)
     questions: list[dict[str, Any]] = []
-    rejected: list[dict[str, Any]] = []
+    note_count = len({n.note_id for n in notes})
+    notes, rejected = split_ambiguous_notes(notes)
     failed: list[dict[str, Any]] = []
 
     async def one(note: NoteRow) -> None:
@@ -213,7 +257,7 @@ async def build_plan(notes: list[NoteRow], *, concurrency: int = 4) -> dict[str,
     return {
         "version": PLAN_VERSION,
         "built_at": datetime.now(timezone.utc).isoformat(),
-        "notes": len(notes),
+        "notes": note_count,
         "questions": questions,
         "rejected": rejected,
         "failed": failed,
@@ -262,15 +306,51 @@ def write_review(plan: dict[str, Any], path: Path) -> None:
     wb.save(path)
 
 
+def parse_skip_notes(
+    raw: Optional[str],
+) -> tuple[frozenset[int], frozenset[tuple[int, int]]]:
+    """``--skip-notes 101,102:7`` → notatki pominięte w całości i pary
+    (notatka, rekrutacja) pominięte tylko w tej rekrutacji."""
+    notes: set[int] = set()
+    note_jobs: set[tuple[int, int]] = set()
+    for token in (raw or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        note, sep, job = token.partition(":")
+        try:
+            if sep:
+                note_jobs.add((int(note), int(job)))
+            else:
+                notes.add(int(note))
+        except ValueError as exc:
+            raise ValueError(
+                f"--skip-notes: „{token}” — podaj id notatki albo id_notatki:id_rekrutacji"
+            ) from exc
+    return frozenset(notes), frozenset(note_jobs)
+
+
 def group_by_pair(
-    questions: list[dict[str, Any]], *, skip_notes: frozenset[int] = frozenset()
+    questions: list[dict[str, Any]],
+    *,
+    skip_notes: frozenset[int] = frozenset(),
+    skip_note_jobs: frozenset[tuple[int, int]] = frozenset(),
 ) -> dict[tuple[int, int], list[dict[str, Any]]]:
     """Pytania planu po parach (kandydat, rekrutacja), bez pominiętych notatek
-    i bez powtórzeń w parze (ten sam klucz co debrief)."""
+    i bez powtórzeń w parze (ten sam klucz co debrief).
+
+    Notatka stojąca przy kilku parach (plan sprzed 21.10.2026, notatka bez
+    rekrutacji) nie trafia do żadnej — ta sama reguła co ``split_ambiguous_notes``.
+    """
+    spread = _pairs_per_note(
+        [(q["note_id"], q["candidate_id"], q["job_id"]) for q in questions]
+    )
     pairs: dict[tuple[int, int], list[dict[str, Any]]] = {}
     seen: set[tuple[int, int, str]] = set()
     for q in questions:
-        if q["note_id"] in skip_notes:
+        if q["note_id"] in skip_notes or (q["note_id"], q["job_id"]) in skip_note_jobs:
+            continue
+        if len(spread[q["note_id"]]) > 1:
             continue
         key = (q["candidate_id"], q["job_id"])
         dedup = (*key, question_hash(q["question"]))
@@ -344,6 +424,7 @@ async def apply_plan(
     plan: dict[str, Any],
     *,
     skip_notes: frozenset[int] = frozenset(),
+    skip_note_jobs: frozenset[tuple[int, int]] = frozenset(),
     now: Optional[datetime] = None,
 ) -> dict[str, Any]:
     """Zapisuje plan. Para z debriefem, który już zamyka rundę, jest pomijana —
@@ -362,6 +443,7 @@ async def apply_plan(
     receipt: dict[str, Any] = {
         "applied_at": now.isoformat(),
         "skipped_notes": sorted(skip_notes),
+        "skipped_note_jobs": [f"{n}:{j}" for n, j in sorted(skip_note_jobs)],
         "pairs": 0,
         "pairs_already_closed": 0,
         "event_ids": [],
@@ -371,7 +453,9 @@ async def apply_plan(
         "pin_ids": [],
     }
     for (candidate_id, job_id), items in group_by_pair(
-        plan.get("questions") or [], skip_notes=skip_notes
+        plan.get("questions") or [],
+        skip_notes=skip_notes,
+        skip_note_jobs=skip_note_jobs,
     ).items():
         missing = await missing_debrief(
             db, candidate_id=candidate_id, job_id=job_id, now=now
@@ -561,11 +645,11 @@ async def _main(args: argparse.Namespace) -> int:
         return 0
     if args.apply:
         plan = json.loads(Path(args.apply).read_text(encoding="utf-8"))
-        skip = frozenset(
-            int(x) for x in (args.skip_notes or "").split(",") if x.strip()
-        )
+        skip, skip_jobs = parse_skip_notes(args.skip_notes)
         async with AsyncSessionLocal() as db:
-            receipt = await apply_plan(db, plan, skip_notes=skip)
+            receipt = await apply_plan(
+                db, plan, skip_notes=skip, skip_note_jobs=skip_jobs
+            )
             await db.commit()
         summary = {
             "pary": receipt["pairs"],
@@ -606,7 +690,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     mode.add_argument("--apply", help="Zapisz przejrzany plan JSON")
     mode.add_argument("--rollback", action="store_true", help="Cofnij import")
     parser.add_argument("--review", help="Arkusz XLSX do przeglądu (z --plan)")
-    parser.add_argument("--skip-notes", help="Id notatek do pominięcia (z --apply)")
+    parser.add_argument(
+        "--skip-notes",
+        help="Id notatek do pominięcia, np. 101,102:7 (102 tylko w rekrutacji 7; z --apply)",
+    )
     parser.add_argument("--days", type=int, default=DEFAULT_DAYS)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--concurrency", type=int, default=4)

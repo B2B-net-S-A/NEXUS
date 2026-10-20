@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import func, select
 
 import app.models  # noqa: F401
@@ -55,6 +56,90 @@ def test_group_by_pair_dedups_and_skips_notes():
     pairs = imp.group_by_pair(rows, skip_notes=frozenset({3}))
     assert [q["note_id"] for q in pairs[(5, 7)]] == [1]
     assert [q["note_id"] for q in pairs[(6, 7)]] == [4]
+
+
+# ── Notatka bez rekrutacji przy kilku parach (audyt 21.10.2026) ──────────────
+# Notatka bez `job_id` łączyła się z KAŻDĄ parą kandydata w oknie, więc te same
+# pytania lądowały w debriefach i bankach kilku klientów.
+
+
+def _row(note_id: int, job_id: int, *, candidate_id: int = 5) -> imp.NoteRow:
+    return imp.NoteRow(
+        note_id=note_id,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        job_title=f"Rola {job_id}",
+        client_id=job_id * 10,
+        author_id=9,
+        created_at=datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc),
+        content=NOTE,
+    )
+
+
+def test_note_without_job_goes_to_the_only_matching_pair():
+    kept, rejected = imp.split_ambiguous_notes([_row(1, 7), _row(2, 7), _row(2, 8)])
+    assert [(n.note_id, n.job_id) for n in kept] == [(1, 7)]
+    assert rejected == [
+        {
+            "note_id": 2,
+            "reason": "niejednoznaczna rekrutacja",
+            "question": "rekrutacje: 7, 8",
+        }
+    ]
+
+
+async def test_build_plan_rejects_ambiguous_notes_without_asking_the_model(
+    monkeypatch,
+):
+    seen: list[int] = []
+
+    async def fake_payload(entry):
+        seen.append(entry.row)
+        return {
+            "questions": [
+                {
+                    "question": "Czym różni się Spring Boot 2 od 3?",
+                    "quote": "różnice między Spring Boot 2 i 3",
+                }
+            ],
+            "people": [],
+        }
+
+    monkeypatch.setattr(imp, "_model_payload", fake_payload)
+    plan = await imp.build_plan([_row(1, 7), _row(2, 7), _row(2, 8)])
+    assert seen == [1]
+    assert {(q["note_id"], q["job_id"]) for q in plan["questions"]} == {(1, 7)}
+    assert {"note_id": 2, "reason": "niejednoznaczna rekrutacja"}.items() <= (
+        plan["rejected"][0].items()
+    )
+    assert plan["notes"] == 2
+
+
+def test_group_by_pair_drops_a_note_spread_over_several_pairs():
+    """Plan sprzed poprawki: ta sama notatka przy dwóch parach nie trafia do
+    żadnej — nie wiadomo, której rozmowy dotyczyła."""
+    rows = [
+        {"note_id": 1, "candidate_id": 5, "job_id": 7, "question": "Helm?"},
+        {"note_id": 1, "candidate_id": 5, "job_id": 8, "question": "Helm?"},
+        {"note_id": 2, "candidate_id": 5, "job_id": 8, "question": "Kafka?"},
+    ]
+    pairs = imp.group_by_pair(rows)
+    assert (5, 7) not in pairs
+    assert [q["note_id"] for q in pairs[(5, 8)]] == [2]
+
+
+def test_skip_notes_accepts_note_and_job():
+    notes, note_jobs = imp.parse_skip_notes("101, 102:7 ,")
+    assert notes == frozenset({101})
+    assert note_jobs == frozenset({(102, 7)})
+    rows = [
+        {"note_id": 102, "candidate_id": 5, "job_id": 7, "question": "Helm?"},
+        {"note_id": 103, "candidate_id": 5, "job_id": 7, "question": "Kafka?"},
+    ]
+    pairs = imp.group_by_pair(rows, skip_note_jobs=note_jobs)
+    assert [q["note_id"] for q in pairs[(5, 7)]] == [103]
+    with pytest.raises(ValueError):
+        imp.parse_skip_notes("abc")
 
 
 async def test_build_plan_keeps_only_quoted_questions(monkeypatch):
