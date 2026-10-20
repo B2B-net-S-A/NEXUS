@@ -88,6 +88,14 @@ async def _reply(request_id: int, sender: User | str, body: str) -> dict:
     }
 
 
+async def _notices(user: User) -> list:
+    return [
+        notif
+        for notif in await _notifications(user, NotificationType.hr_approval_requested)
+        if notif.related_entity_type == mail_reply.NOTICE_ENTITY
+    ]
+
+
 async def _run(*messages: dict) -> dict:
     async with AsyncSessionLocal() as db:
         return await mail_reader.run_once(db, FakeMailbox(list(messages)))
@@ -193,6 +201,8 @@ async def test_reply_to_an_already_decided_request_does_nothing(
     assert result["already_decided"] == 1
     request = await _request(request_id)
     assert request.status == "rejected" and request.decision_channel == "app"
+    # Decydujący dowiaduje się, że odpowiedź niczego nie zmieniła.
+    assert len(await _notices(team["boss"])) == 1
 
 
 @pytest.mark.asyncio
@@ -217,6 +227,8 @@ async def test_old_reply_does_not_approve_the_corrected_request(
     result = await _run(old_reply)
     assert result["stale"] == 1
     assert (await _request(request_id)).status == "pending_supervisor"
+    (notice,) = await _notices(team["boss"])
+    assert "poprawił" in notice.message
     # Odpowiedź na mail o poprawionej wersji już zatwierdza.
     assert (await _run(await _reply(request_id, team["boss"], "ok")))["approved"] == 1
 
@@ -283,3 +295,47 @@ async def test_mail_to_the_decider_carries_the_marker_and_the_hint(
     assert subject.endswith(mail_reply.marker(request.id, request.submitted_at))
     assert "jednym słowem „approved”" in text_body
     assert "wróci do autora jako pytanie" in html_body
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_reply_decides_nothing_and_tells_the_decider(
+    client,
+    team,
+    reply_on,
+) -> None:
+    request_id = await _submit(client, team)
+    spoofed = await _reply(request_id, team["boss"], "approved")
+    spoofed["internetMessageHeaders"] = []
+    result = await _run(spoofed)
+    assert result["unauthenticated"] == 1
+    assert (await _request(request_id)).status == "pending_supervisor"
+    (notice,) = await _notices(team["boss"])
+    assert notice.link == f"/people/approvals?tab=consents&request={request_id}"
+    async with AsyncSessionLocal() as db:
+        subject, text_body, _html = await approval_mail.render(
+            db, notice, await db.get(User, team["boss"].id)
+        )
+    assert "nie została zapisana" in subject
+    # Bez kwoty i bez treści odpowiedzi.
+    assert "980" not in text_body and "approved" not in text_body
+
+
+@pytest.mark.asyncio
+async def test_refused_decision_leaves_the_request_and_tells_the_decider(
+    client,
+    team,
+    reply_on,
+    monkeypatch,
+) -> None:
+    from app.services.hr.approvals import service
+
+    async def _closed(*args, **kwargs):
+        raise service.ApprovalConflict("Miesiąc wypłaty jest zamknięty.")
+
+    request_id = await _submit(client, team)
+    monkeypatch.setattr(service, "decide", _closed)
+    result = await _run(await _reply(request_id, team["boss"], "approved"))
+    assert result["refused"] == 1
+    assert (await _request(request_id)).status == "pending_supervisor"
+    (notice,) = await _notices(team["boss"])
+    assert notice.message.startswith("Miesiąc wypłaty jest zamknięty.")

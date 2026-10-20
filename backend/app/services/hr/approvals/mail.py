@@ -46,11 +46,47 @@ def _short(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def _notice(notif: Notification, user: User) -> tuple[str, str, str]:
+    """Odpowiedź mailem nie została zapisana (``mail_reader._notice``).
+
+    Treść to stałe zdanie z czytnika — bez kwoty i bez treści odpowiedzi.
+    """
+
+    link = absolute_link(request_link(notif.related_entity_id))
+    name = user.name or user.email
+    subject = "[Nexus] Odpowiedź w sprawie zgody nie została zapisana"
+    text_body = "\n".join(
+        [
+            f"Cześć {name},",
+            "",
+            notif.title,
+            notif.message,
+            "",
+            f"Otwórz w Nexusie: {link}",
+            "",
+            "— Nexus ATS",
+        ]
+    )
+    html_body = (
+        f"<p>Cześć {html.escape(name)},</p>"
+        f"<p><strong>{html.escape(notif.title)}</strong></p>"
+        f"<p>{html.escape(notif.message)}</p>"
+        f"<p>{open_button_html(link)}</p>"
+        '<hr><p style="color:#888;font-size:12px">Nexus ATS</p>'
+    )
+    return subject, text_body, html_body
+
+
 async def render(
     db: AsyncSession, notif: Notification, user: User
 ) -> Optional[tuple[str, str, str]]:
     """(temat, tekst, HTML) albo ``None``, gdy mail nie ma już sensu."""
 
+    if (
+        notif.related_entity_type == mail_reply.NOTICE_ENTITY
+        and notif.related_entity_id is not None
+    ):
+        return _notice(notif, user)
     if (
         notif.related_entity_type != "approval_request"
         or notif.related_entity_id is None

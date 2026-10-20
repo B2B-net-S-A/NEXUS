@@ -63,11 +63,15 @@ def test_signature_after_the_word_still_approves() -> None:
     assert _classify("ok\nPozdrawiam, Jan").kind == "approve"
     assert _classify("Approved\n--\nJan Testowy").kind == "approve"
     assert _classify("tak\n\nSent from Outlook for iOS").kind == "approve"
+    assert _classify("ok\nDzięki").kind == "approve"
+    assert _classify("ok\nDzięki\nJan Testowy\nCEO").kind == "approve"
 
 
 def test_a_second_line_of_content_is_not_a_signature() -> None:
     assert _classify("ok\nale tylko do 500 zł").kind == "other"
     assert _classify("ok\nDzięki, ale do 500 zł").kind == "other"
+    # Sam zwrot, a po nim treść — to nie podpis.
+    assert _classify("tak\nDzięki\nale tylko do 500 zł").kind == "other"
     # Bez znanego podpisu druga linia to treść — wraca jako pytanie, nie zgoda.
     assert _classify("approved\nCEO", signer=None).kind == "other"
 
@@ -182,30 +186,39 @@ def _msg(**extra) -> dict:
 
 
 def test_sender_must_be_himself() -> None:
-    assert mail_reader.sender_trusted(_msg()) == "ceo@example.com"
+    assert mail_reader.sender_address(_msg()) == "ceo@example.com"
     on_behalf = _msg(sender={"emailAddress": {"address": "assistant@example.com"}})
-    assert mail_reader.sender_trusted(on_behalf) is None
-    assert mail_reader.sender_trusted(_msg(**{"from": None})) is None
+    assert mail_reader.sender_address(on_behalf) is None
+    assert mail_reader.sender_address(_msg(**{"from": None})) is None
 
 
 @pytest.mark.parametrize(
-    "header",
+    "headers",
     [
-        {"name": "Authentication-Results", "value": "spf=fail; dmarc=fail action=none"},
-        {"name": "Authentication-Results", "value": "dkim=none; compauth=fail"},
-        {"name": "X-MS-Exchange-Organization-AuthAs", "value": "Anonymous"},
+        # Bez nagłówków uwierzytelnienia — nie decydujemy (fail-closed).
+        [],
+        [{"name": "Authentication-Results", "value": "spf=fail; dmarc=fail"}],
+        [{"name": "Authentication-Results", "value": "spf=softfail; dmarc=pass"}],
+        [{"name": "Authentication-Results", "value": "dkim=none; compauth=fail"}],
+        [{"name": "X-MS-Exchange-Organization-AuthAs", "value": "Anonymous"}],
+        [
+            {"name": "X-MS-Exchange-Organization-AuthAs", "value": "Internal"},
+            {"name": "Authentication-Results", "value": "dmarc=fail"},
+        ],
     ],
 )
-def test_spoofed_or_outside_mail_is_not_trusted(header) -> None:
-    assert mail_reader.sender_trusted(_msg(internetMessageHeaders=[header])) is None
+def test_unconfirmed_or_spoofed_mail_is_not_authenticated(headers) -> None:
+    assert not mail_reader.authenticated(_msg(internetMessageHeaders=headers))
 
 
-def test_internal_mail_is_trusted() -> None:
-    headers = [
+def test_internal_or_dmarc_pass_mail_is_authenticated() -> None:
+    internal = [
         {"name": "X-MS-Exchange-Organization-AuthAs", "value": "Internal"},
         {"name": "Authentication-Results", "value": "dkim=none (message not signed)"},
     ]
-    assert mail_reader.sender_trusted(_msg(internetMessageHeaders=headers))
+    assert mail_reader.authenticated(_msg(internetMessageHeaders=internal))
+    dmarc = [{"name": "Authentication-Results", "value": "spf=pass; dmarc=pass"}]
+    assert mail_reader.authenticated(_msg(internetMessageHeaders=dmarc))
 
 
 def test_auto_reply_is_recognized() -> None:

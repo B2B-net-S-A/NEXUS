@@ -91,17 +91,23 @@ w `tasks/hr_loops.py` co 2 minuty.
   poprawki autora („stale”) nic nie robi. Zmiana `SECRET_KEY` unieważnia
   odpowiedzi na maile wysłane wcześniej — to w porządku, przyciski działają.
 - **Kto**: nadawca `from` = e-mail aktywnego konta, które według `can_decide`
-  może TERAZ zdecydować. `sender` ≠ `from` (w czyimś imieniu), `fail`
-  w `Authentication-Results` albo `X-MS-Exchange-Organization-AuthAs` inne niż
-  `Internal` = nic. Domena ma MX na home.pl, więc poczta z zewnątrz do
-  `zgody@` w M365 nie dochodzi; odpowiedź z Outlooka firmy idzie wewnątrz M365.
+  może TERAZ zdecydować; `sender` ≠ `from` (w czyimś imieniu) = nic.
+  Exchange musi potwierdzić nadawcę (`authenticated`, fail-closed):
+  `X-MS-Exchange-Organization-AuthAs: Internal` albo `dmarc=pass`, bez
+  `fail`/`softfail` w `Authentication-Results`. Na MX (home.pl) nie polegamy —
+  na adres domeny w M365 da się wysłać wprost przez
+  `*.mail.protection.outlook.com`.
+- **Blokada**: zgoda jest blokowana (`FOR UPDATE`) przed sprawdzeniem kodu,
+  więc poprawka autora nie wejdzie między sprawdzenie a decyzję.
 - **Co**: liczy się tylko nowa treść — HTML ucięty na podpisie i cytacie
   Outlooka (`Signature`, `_MailAutoSig`, `appendonsend`, `divRplyFwdMsg`,
   `<hr>`, `blockquote`), tekst na „Od:”/„From:”, „W dniu … napisał”, „>”.
   - Samo słowo w pierwszej linii (`approved`, `approve`, `ok`, `okay`, `okej`,
     `zgoda`, `tak`, `zatwierdzam`, `akceptuję`; bez znaczenia wielkość liter
-    i końcowe „.”/„!”), dalej najwyżej podpis (zwrot pożegnalny, imię albo
-    imię i nazwisko konta, „Sent from…”) = `decide(approve)`. U przełożonego
+    i końcowe „.”/„!”), dalej najwyżej podpis = `decide(approve)`. Podpis
+    zaczyna się od „--”, imienia albo imienia i nazwiska konta, „Sent
+    from…” albo zwrotu („Dzięki”, „Pozdrawiam”), po którym jest koniec albo
+    imię — „tak / Dzięki / ale do 500 zł” to treść. U przełożonego
     ponad próg to poparcie, jak przycisk.
   - Każda inna niepusta treść („ok?”, „not approved”, „ok, ale do 500 zł”,
     „nie”) = `decide(return)` z treścią jako pytaniem do autora (wariant
@@ -113,11 +119,16 @@ w `tasks/hr_loops.py` co 2 minuty.
   zapisywane w tej samej transakcji co decyzje; wiersz jest blokadą przebiegu
   (`FOR UPDATE SKIP LOCKED`). Zgoda już rozpatrzona dostaje „already_decided”.
   Wiadomość, która 3 razy padła, jest pomijana.
-- **Odmowa serwisu** (np. zamknięty miesiąc wypłaty premii) = zgoda zostaje
-  w skrzynce decydującego, ślad tylko w liczniku `refused` i logu. Dzwonka
-  nie ma: dzienny dedup `emit` i tak by go połknął.
+- **Odpowiedź od decydującego, której nie zapisaliśmy** — nieuwierzytelniona,
+  na wersję sprzed poprawki, odmowa serwisu (np. zamknięty miesiąc wypłaty
+  premii), zgoda już u autora, odrzucona albo wycofana — daje mu dzwonek
+  i krótki mail „Odpowiedź w sprawie zgody nie została zapisana”
+  (`hr_approval_requested` z encją `approval_mail_reply`, osobno od dzwonka
+  „zgoda do decyzji”, więc dzienny dedup `emit` go nie połyka). Bez kwoty
+  i bez treści odpowiedzi, bez Reply-To. Obcym adresom nic nie wysyłamy.
 - **Stan czytnika** bez adresów i treści: `mail_reader.read_status`
-  (liczniki `approved`, `endorsed`, `returned`, `stale`, `foreign_sender`,
+  (liczniki `approved`, `endorsed`, `returned`, `stale`, `unauthenticated`,
+  `refused`, `foreign_sender`,
   `not_decider`, `already_decided`, `no_marker`, `auto_reply`, `empty`).
 
 ### Runbook włączenia (Codex / Artur)
@@ -137,7 +148,11 @@ w `tasks/hr_loops.py` co 2 minuty.
    w oknie 19:00–07:00 (pon–pt), w weekend o każdej porze.
 5. Próba: zgoda testowa na kilka złotych do Artura → odpowiedź „approved”
    → po ok. 2 minutach status `approved`, kanał `mail_reply`. Druga próba
-   „a po co?” → „Pytanie” u autora. Jeśli samo „approved” wróciło jako
+   „a po co?” → „Pytanie” u autora. Jeśli przyszedł mail „Odpowiedź…
+   nie została zapisana” z „Nie dało się potwierdzić…” (licznik
+   `unauthenticated`), Graph nie oddał `AuthAs`/`dmarc=pass` dla poczty
+   wewnętrznej — sprawdzić nagłówki tej wiadomości i poprawić
+   `mail_reader.authenticated`, nie wyłączać sprawdzenia. Jeśli samo „approved” wróciło jako
    pytanie z treścią podpisu — podpis Artura nie jest rozpoznany; dopisać
    jego początek do `_SIGN_OFF` w `mail_reply.py`.
 6. Wyłączenie: `HR_APPROVALS_MAIL_REPLY_ENABLED=false` + Deploy — maile

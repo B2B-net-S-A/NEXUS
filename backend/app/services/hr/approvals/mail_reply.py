@@ -33,6 +33,8 @@ from typing import Literal, Optional
 from app.core.config import settings
 from app.services.hr_approvals_schema import NOTE_MAX_LENGTH
 
+#: Rodzaj encji dzwonka „odpowiedź mailem nie zapisana” (``mail_reader._notice``).
+NOTICE_ENTITY = "approval_mail_reply"
 MARKER_RE = re.compile(r"\[Zgoda (\d{1,9})/([A-Z2-7]{8})\]")
 CODE_LENGTH = 8
 
@@ -159,15 +161,22 @@ def _normalized(line: str) -> str:
     return line.strip().rstrip(".! ").strip().lower()
 
 
-def _is_signature_start(line: str, signer_names: set[str]) -> bool:
-    if _QUOTE_LINE.match(line.strip()):
-        # „Sent from Outlook for iOS” i nagłówek cytatu — dalej nic nowego.
-        return True
-    sign_off = _SIGN_OFF.match(line.strip())
+def _signature_start(line: str, signer_names: set[str]) -> Optional[str]:
+    """``hard`` — dalej na pewno podpis albo cytat („--”, imię, „Sent from…”,
+    „Pozdrawiam, Jan”); ``soft`` — sam zwrot („Dzięki”), po którym podpis jest
+    tylko wtedy, gdy dalej nic nie ma albo stoi imię podpisującego;
+    ``None`` — treść."""
+
+    line = line.strip()
+    if _QUOTE_LINE.match(line):
+        return "hard"
+    sign_off = _SIGN_OFF.match(line)
     if sign_off:
         rest = _normalized(sign_off.group(1) or "")
-        return not rest or rest in signer_names
-    return _normalized(line) in signer_names
+        if line.startswith("--") or (rest and rest in signer_names):
+            return "hard"
+        return None if rest else "soft"
+    return "hard" if _normalized(line) in signer_names else None
 
 
 def classify(text: str, *, signer_name: Optional[str] = None) -> Reply:
@@ -177,13 +186,18 @@ def classify(text: str, *, signer_name: Optional[str] = None) -> Reply:
     if signer_name and signer_name.strip():
         full = " ".join(signer_name.split()).lower()
         names = {full, full.split(" ")[0]}
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
     meaningful: list[str] = []
-    for line in text.split("\n"):
-        if not line.strip():
-            continue
-        if _is_signature_start(line, names):
+    for index, line in enumerate(lines):
+        kind = _signature_start(line, names)
+        if kind == "hard":
             break
-        meaningful.append(line.strip())
+        if kind == "soft":
+            following = lines[index + 1 : index + 2]
+            # „tak / Dzięki / ale tylko do 500 zł” to treść, nie podpis.
+            if not following or _normalized(following[0]) in names:
+                break
+        meaningful.append(line)
     if not meaningful:
         return Reply("empty")
     if len(meaningful) == 1 and _normalized(meaningful[0]) in APPROVE_WORDS:

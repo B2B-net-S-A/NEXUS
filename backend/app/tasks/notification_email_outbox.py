@@ -261,7 +261,7 @@ async def _deliver(
         subject, text_body, html_body = rendered
         # Etap 2: odpowiedź „approved” idzie do skrzynki, którą czyta NEXUS.
         reply_to = approval_mail_reply.reply_mailbox()
-        if reply_to:
+        if reply_to and notif.related_entity_type == "approval_request":
             extra["reply_to"] = reply_to
     else:
         title, message = notif.title, notif.message

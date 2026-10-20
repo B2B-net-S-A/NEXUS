@@ -13,8 +13,12 @@ Reguły (``docs/claude/ludzie/zgody-wydatki-i-premie-poza-umowa.md``):
   kod musi pasować do obecnej wersji zgody (``mail_reply.code_matches``),
 * **decyduje tylko konto, które może teraz zdecydować** (``can_decide``):
   nadawca (``from``) = e-mail aktywnego konta, ``sender`` taki sam (bez
-  wysyłania w czyimś imieniu), bez nieudanego SPF/DKIM/DMARC i bez poczty
-  spoza organizacji, gdy Exchange to oznaczył,
+  wysyłania w czyimś imieniu), a Exchange potwierdził nadawcę
+  (``authenticated``: ``AuthAs: Internal`` albo ``dmarc=pass``, bez ``fail``),
+* zgoda zablokowana (``FOR UPDATE``) przed sprawdzeniem kodu i decyzją,
+* odpowiedź od decydującego, której nie zapisaliśmy (nieuwierzytelniona,
+  na starą wersję, odmowa serwisu, zgoda już u autora) = dzwonek i krótki
+  mail do niego (``_notice``),
 * samo słowo („approved”, „ok”, „zgoda”, „tak”…) = ``decide(approve)``, inna
   treść = ``decide(return)`` z treścią jako pytaniem do autora (decyzja Artura
   20.10.2026), pusta odpowiedź i autoodpowiedź = nic. Kanał ``mail_reply``,
@@ -41,8 +45,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
 from app.models.hr_approval import ApprovalRequest
+from app.models.notification import NotificationType
 from app.models.user import User
 from app.services.hr.approvals import mail_reply, service
+from app.services.hr.notify import notify_each
 from app.services.hr.payroll_errors import PayrollError
 
 logger = logging.getLogger(__name__)
@@ -129,13 +135,8 @@ def is_auto_reply(msg: dict[str, Any]) -> bool:
     return subject.startswith(_AUTO_SUBJECT_PREFIXES)
 
 
-def sender_trusted(msg: dict[str, Any]) -> Optional[str]:
-    """Adres nadawcy, gdy wolno go uznać za autora odpowiedzi, inaczej ``None``.
-
-    ``from`` = ``sender`` (nikt nie odpowiada w czyimś imieniu), żadne
-    ``Authentication-Results`` nie mówi ``fail``, a gdy Exchange oznaczył
-    pocztę (``X-MS-Exchange-Organization-AuthAs``), to jako wewnętrzną.
-    """
+def sender_address(msg: dict[str, Any]) -> Optional[str]:
+    """Adres ``from``, gdy nikt nie pisze w czyimś imieniu (``sender`` = ``from``)."""
 
     sender_from = _address(msg, "from")
     if sender_from is None:
@@ -143,18 +144,36 @@ def sender_trusted(msg: dict[str, Any]) -> Optional[str]:
     sender = _address(msg, "sender")
     if sender is not None and sender != sender_from:
         return None
+    return sender_from
+
+
+def authenticated(msg: dict[str, Any]) -> bool:
+    """Exchange potwierdził nadawcę — bez tego nie decydujemy (fail-closed).
+
+    Wymagane: ``X-MS-Exchange-Organization-AuthAs: Internal`` (poczta z wnętrza
+    organizacji) albo ``dmarc=pass`` w ``Authentication-Results``; żadne
+    ``fail``/``softfail`` i żadne ``AuthAs`` inne niż ``Internal``. Na MX
+    domeny nie polegamy: na adres domeny w M365 da się wysłać wprost
+    (``*.mail.protection.outlook.com``).
+    """
+
+    internal = False
+    dmarc_pass = False
     for name, value in _headers(msg):
         lowered = value.lower()
-        if name == "authentication-results" and any(
-            f"{check}=fail" in lowered for check in ("spf", "dkim", "dmarc", "compauth")
-        ):
-            return None
-        if (
-            name == "x-ms-exchange-organization-authas"
-            and lowered.strip() != "internal"
-        ):
-            return None
-    return sender_from
+        if name == "authentication-results":
+            if any(
+                f"{check}={verdict}" in lowered
+                for check in ("spf", "dkim", "dmarc", "compauth")
+                for verdict in ("fail", "softfail")
+            ):
+                return False
+            dmarc_pass = dmarc_pass or "dmarc=pass" in lowered
+        if name == "x-ms-exchange-organization-authas":
+            if lowered.strip() != "internal":
+                return False
+            internal = True
+    return internal or dmarc_pass
 
 
 def _body(msg: dict[str, Any]) -> tuple[str, str]:
@@ -164,10 +183,62 @@ def _body(msg: dict[str, Any]) -> tuple[str, str]:
 
 # ── Jedna wiadomość ──────────────────────────────────────────────────────────
 
+_NOTICES = {
+    "unauthenticated": (
+        "Nie dało się potwierdzić, że odpowiedź przyszła z Twojej skrzynki, "
+        "więc nic nie zapisaliśmy. Zdecyduj w Nexusie."
+    ),
+    "stale": (
+        "Autor poprawił zgodę po mailu, na który odpowiadasz — sprawdź nową "
+        "wersję i zdecyduj w Nexusie."
+    ),
+}
+_STATUS_NOTICES = {
+    "returned": "Zgoda czeka na poprawkę autora — po poprawce przyjdzie nowy mail.",
+    "rejected": "Ta zgoda jest już odrzucona — odpowiedź jej nie zmieniła.",
+    "withdrawn": "Autor wycofał tę zgodę — odpowiedź niczego nie zmieniła.",
+}
+
 
 async def _decider(db: AsyncSession, address: str) -> Optional[User]:
     return await db.scalar(
         select(User).where(func.lower(User.email) == address, User.is_active.is_(True))
+    )
+
+
+async def _locked_request(
+    db: AsyncSession, request_id: int
+) -> Optional[ApprovalRequest]:
+    # Blokada wiersza przed sprawdzeniem kodu: poprawka autora (nowe
+    # ``submitted_at``) nie wejdzie między sprawdzenie a decyzję.
+    return await db.scalar(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.id == request_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+async def _notice(
+    db: AsyncSession, actor: User, request: ApprovalRequest, message: str
+) -> None:
+    """Dzwonek i krótki mail do decydującego: odpowiedź nie została zapisana.
+
+    Osobny rodzaj encji (``mail_reply.NOTICE_ENTITY``) — dzienny dedup
+    ``emit`` nie połknie go razem z dzwonkiem „zgoda do decyzji”. Bez treści
+    odpowiedzi i bez kwot.
+    """
+
+    await notify_each(
+        db,
+        [actor.id],
+        title=f"Odpowiedź mailem nie zapisana: {request.title}",
+        message=message,
+        ntype=NotificationType.hr_approval_requested,
+        link=service.request_link(request.id),
+        related_entity_type=mail_reply.NOTICE_ENTITY,
+        related_entity_id=request.id,
+        log_tag="approvals",
     )
 
 
@@ -181,21 +252,33 @@ async def handle_message(db: AsyncSession, msg: dict[str, Any]) -> str:
     if found is None:
         return "no_marker"
     request_id, code = found
-    request = await db.get(ApprovalRequest, request_id)
-    if request is None or not mail_reply.code_matches(
-        request.id, request.submitted_at, code
-    ):
-        # Nieznana zgoda albo odpowiedź na wersję sprzed poprawki autora.
-        return "stale"
-    address = sender_trusted(msg)
+    address = sender_address(msg)
     actor = await _decider(db, address) if address else None
     if actor is None:
         return "foreign_sender"
+    request = await _locked_request(db, request_id)
+    if request is None:
+        return "stale"
     finals = await service.finals_for_request(db, request)
-    if not service.can_decide(actor.id, request, finals):
-        if request.status not in ("pending_supervisor", "pending_final"):
-            return "already_decided"
-        return "not_decider"
+    deciding = service.can_decide(actor.id, request, finals)
+    if not authenticated(msg):
+        # Mail idzie na prawdziwą skrzynkę konta — przy podróbce właściciel
+        # dowie się o próbie, przy prawdziwej odpowiedzi — że trzeba w Nexusie.
+        if deciding:
+            await _notice(db, actor, request, _NOTICES["unauthenticated"])
+        return "unauthenticated"
+    if not mail_reply.code_matches(request.id, request.submitted_at, code):
+        # Odpowiedź na wersję sprzed poprawki autora.
+        if deciding:
+            await _notice(db, actor, request, _NOTICES["stale"])
+        return "stale"
+    if not deciding:
+        if request.status in ("pending_supervisor", "pending_final"):
+            return "not_decider"
+        involved = actor.id == request.supervisor_user_id or actor.id in finals
+        if involved and request.status in _STATUS_NOTICES:
+            await _notice(db, actor, request, _STATUS_NOTICES[request.status])
+        return "already_decided"
     reply = mail_reply.classify(
         mail_reply.new_text(content, content_type), signer_name=actor.name
     )
@@ -220,6 +303,8 @@ async def handle_message(db: AsyncSession, msg: dict[str, Any]) -> str:
             request.id,
             type(exc).__name__,
         )
+        reason = getattr(exc, "message", "") or "Nexus nie zapisał decyzji."
+        await _notice(db, actor, request, f"{reason} Zdecyduj w Nexusie.")
         return "refused"
     if action == "return":
         return "returned"
@@ -388,5 +473,6 @@ __all__ = [
     "read_status",
     "reader_enabled",
     "run_once",
-    "sender_trusted",
+    "sender_address",
+    "authenticated",
 ]
