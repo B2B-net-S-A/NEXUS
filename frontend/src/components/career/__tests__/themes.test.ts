@@ -50,6 +50,11 @@ describe("szablony graficzne strony kariery (0478)", () => {
     ] as const) {
       expect(contrast(color, t.bg), `${id}.${name}`).toBeGreaterThanOrEqual(4.5);
     }
+    // Komentarz `// …` (`--kr-comment` = muted) stoi też w formularzu na `--kr-form-bg`.
+    const formBg = themeTokens(id)["--kr-form-bg"];
+    if (formBg) {
+      expect(contrast(t.muted, formBg), `${id}.muted na form-bg`).toBeGreaterThanOrEqual(4.5);
+    }
     // Druga linia tytułu to duży tekst — wystarczy 3:1.
     expect(contrast(t.title, t.bg), `${id}.title`).toBeGreaterThanOrEqual(3);
     expect(contrast(t.btnText, t.btn), `${id}.btnText`).toBeGreaterThanOrEqual(4.5);

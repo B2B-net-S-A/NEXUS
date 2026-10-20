@@ -39,6 +39,13 @@ describe("paleta strony kariery", () => {
     expect(contrast(OG_COLORS.white, OG_COLORS.bordo)).toBeGreaterThanOrEqual(4.5);
   });
 
+  it("komentarz `// …` ma ≥ 4,5:1 na tle strony i formularza, a zostaje ciemniejszy od szarego", () => {
+    const formBg = /--kr-form-bg:\s*(#[0-9a-fA-F]{6})\s*;/.exec(css)?.[1] ?? "";
+    expect(contrast(OG_COLORS.comment, OG_COLORS.bg)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(OG_COLORS.comment, formBg)).toBeGreaterThanOrEqual(4.5);
+    expect(luminance(OG_COLORS.comment)).toBeLessThan(luminance(OG_COLORS.gray));
+  });
+
   it("tytuł strony nie jest już w bordo", () => {
     expect(css).toMatch(/\.kr-title-b\s*\{\s*color:\s*var\(--kr-title\)/);
   });
