@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 
 import { useScene } from "./SceneContext";
 import { itemAria, SceneFrame, SceneList } from "./SceneParts";
@@ -33,6 +33,7 @@ export function RadarScene() {
   const { items, order, isOn, toggle, pointerFx, extraNice } = useScene();
   const [read, setRead] = useState<{ az: number; range: number } | null>(null);
   const frame = useRef(0);
+  useEffect(() => () => window.cancelAnimationFrame(frame.current), []);
   const [cx, cy] = RADAR_CENTER;
 
   const onMove = (e: PointerEvent<HTMLDivElement>) => {
