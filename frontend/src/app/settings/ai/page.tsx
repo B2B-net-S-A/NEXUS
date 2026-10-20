@@ -316,7 +316,7 @@ export default function AISettingsPage() {
 
           {/* Tabela po koszcie zamiast kart jedna pod drugą (20.10.2026): na
               produkcji ponad 20 kart dawało 10 804 px bez porównania kosztów. */}
-          <div className="overflow-x-auto rounded-xl border border-border bg-card">
+          <div className="relative overflow-x-auto rounded-xl border border-border bg-card">
             <table className="w-full text-sm">
               <caption className="sr-only">Funkcje AI według kosztu w tym miesiącu</caption>
               <thead className="text-left text-xs uppercase tracking-wide text-muted-foreground">
