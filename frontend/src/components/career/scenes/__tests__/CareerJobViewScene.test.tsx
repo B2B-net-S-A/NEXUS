@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { CareerJobResponse } from "@/lib/career/api";
@@ -31,8 +31,26 @@ describe("strona rekrutacji ze sceną roli", () => {
     const { container } = view(job(undefined));
     expect(container.querySelector('[data-kr-scene="terminal"]')).not.toBeNull();
     expect(screen.getByRole("link", { name: "Aplikuj — 2 minuty" })).toHaveAttribute("href", "#aplikuj");
-    expect(screen.getByText("java_spring_boot")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Sprawdź się" })).toBeInTheDocument();
     expect(container.querySelector(".kr-cta-mobile")).toBeNull();
+  });
+
+  it("„Sprawdź się”: „Znam to” w karcie łączy ten sam punkt w scenie i podbija wynik", () => {
+    const { container } = view(job("konstelacja"));
+    const fit = screen.getByRole("region", { name: "Sprawdź się" });
+    const first = MUST[0].name;
+    const card = within(fit).getByRole("button", { name: `Znam to: ${first}` });
+    expect(fit.querySelector(".kr-fit-score strong")).toHaveTextContent("0 z 5");
+    fireEvent.click(card);
+    expect(card).toHaveAttribute("aria-pressed", "true");
+    expect(fit.querySelector(".kr-fit-score strong")).toHaveTextContent("1 z 5");
+    // Ten sam stan w scenie hero (wspólny `useScene`).
+    const star = container.querySelector(`.kr-scene-full [aria-label^="${first}"]`);
+    expect(star).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(card);
+    expect(fit.querySelector(".kr-fit-score strong")).toHaveTextContent("0 z 5");
+    // Mile widziane, które nie weszły do sceny, nie giną z listy.
+    expect(within(fit).getAllByText("Mile widziane").length).toBeGreaterThan(0);
   });
 
   it("każdy z 12 szablonów ma scenę; nieznany szablon = Terminal", () => {

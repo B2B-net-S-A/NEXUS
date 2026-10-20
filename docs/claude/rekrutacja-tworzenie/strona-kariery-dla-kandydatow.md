@@ -308,11 +308,11 @@ Reguły, które łatwo cofnąć:
   - **Front** (`components/career/CareerBoardView.tsx`, logika filtrów
     `lib/career/board.ts`): kategorie z licznikami (liczone po szukaniu
     i trybie, bez samej kategorii; puste kategorie schowane), szukanie bez
-    polskich znaków (każde słowo w tytule, podtytule albo mieście), tryb
-    pracy (kilka = „lub”), 12 kart i „pokaż kolejne”, karty w barwach sceny
-    (`BoardBand.tsx`, rysunek `aria-hidden`), na telefonie kategorie w jednym
-    przewijanym rzędzie i przyklejone „Zostaw CV”, znikające, gdy sekcja jest
-    na ekranie. „Brak otwartych rekrutacji” tylko przy udanym odczycie;
+    polskich znaków (każde słowo w tytule, podtytule, mieście albo
+    wymaganiach), tryb pracy (kilka = „lub”), 12 wierszy i „pokaż kolejne”,
+    znak i podgląd sceny w barwach szablonu (`BoardPreview.tsx`, etap 7),
+    na telefonie kategorie łamane w wiersze i przyklejone „Zostaw CV”,
+    znikające, gdy sekcja jest na ekranie. „Brak otwartych rekrutacji” tylko przy udanym odczycie;
     awaria API = komunikat „Chwilowa przerwa”, nigdy pusta lista. Kontrast
     tekstu kart i etykiet scen ≥ 4,5:1 pilnuje `CareerBoardView.test.tsx`.
     Harness: `/preview/kariera#tablica` (plus `#tablica-pusta`,
@@ -390,3 +390,16 @@ Reguły, które łatwo cofnąć:
   Ruch tylko od 1024 px i bez „ograniczonego ruchu” (`gsap.matchMedia`); bez
   `matchMedia` (jsdom) scena stoi. GSAP 3.13.0 i `@gsap/react` 2.1.2 ładuje
   wyłącznie strona kariery.
+- **„Sprawdź się” i proces na stronie rekrutacji (etap 7, PR C, 21.10.2026):**
+  lista `check --wymagania` zamieniła się w karty (`FitSection.tsx`): każde
+  wymaganie z pięciu punktów sceny ma „Znam to”, które przełącza ten sam punkt
+  w scenie hero i wynik „x z 5” (wspólny `CareerSceneProvider`, który obejmuje
+  teraz także treść strony). Nad kartami stoi przyklejony pasek: szkic sceny
+  (`SceneSketch` z `BoardPreview.tsx`, z połączeniami w kolejności klikania)
+  i wynik. ScrollTrigger podświetla kartę, która mija środek ekranu, i ten
+  punkt w szkicu. Wymagania spoza pięciu punktów są kartami bez przycisku.
+  Kroki procesu stoją na pionowej osi rysowanej scrollem (`ProcessSteps.tsx`);
+  bez ruchu oś jest narysowana. Na telefonie „Aplikuj · 2 minuty” wisi na
+  dole od zniknięcia hero do pokazania formularza (`ApplyDock.tsx`).
+  ScrollTrigger rejestruje się w efekcie, nie przy imporcie — przy imporcie
+  czyta `matchMedia`, którego nie ma w jsdom.

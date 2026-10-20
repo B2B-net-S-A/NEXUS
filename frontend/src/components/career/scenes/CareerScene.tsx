@@ -35,7 +35,7 @@ const SCENES: Record<CareerThemeId, ComponentType> = {
 };
 
 /** Podpis wyniku przy „Aplikuj” — językiem roli. */
-const SCORE_LABELS: Record<CareerThemeId, string> = {
+export const SCORE_LABELS: Record<CareerThemeId, string> = {
   terminal: "Twoje dopasowanie",
   sekwencja: "Komunikaty obsłużone",
   glitch: "Testy zaliczone",

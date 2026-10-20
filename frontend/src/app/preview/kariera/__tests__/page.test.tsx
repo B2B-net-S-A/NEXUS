@@ -70,7 +70,7 @@ describe("/preview/kariera", () => {
     expect(within(open).getByRole("heading", { level: 1 })).toHaveTextContent("Senior JavaDeveloper.");
     expect(within(open).getByText("[hybryda · 2 dni]")).toBeInTheDocument();
     expect(within(open).getByText("[10.2026 · 12+ mies.]")).toBeInTheDocument();
-    expect(within(open).getByText("java_spring_boot")).toBeInTheDocument();
+    expect(within(open).getByRole("button", { name: "Znam to: Java Spring Boot" })).toBeInTheDocument();
     expect(within(open).getByText("rozmowa z Martą")).toBeInTheDocument();
     expect(within(open).getByRole("link", { name: /cd ~\/marta-n/ })).toHaveAttribute(
       "href",

@@ -45,20 +45,62 @@ const LAYOUTS: Record<CareerThemeId, Layout> = {
 
 /** Punkty sceny w polu 400 × 300 — po jednym na wymaganie, najwyżej pięć. */
 const POINTS: Record<Layout, readonly [number, number][]> = {
-  stars: [[90, 92], [214, 58], [318, 126], [270, 226], [124, 214]],
-  list: [[40, 78], [40, 124], [40, 170], [40, 216], [40, 262]],
-  net: [[70, 150], [184, 70], [184, 232], [306, 108], [326, 222]],
-  radar: [[150, 106], [266, 96], [246, 206], [136, 202], [210, 150]],
-  lanes: [[40, 78], [96, 124], [152, 170], [70, 216], [190, 262]],
-  board: [[64, 84], [214, 74], [128, 168], [282, 176], [76, 248]],
+  stars: [
+    [90, 92],
+    [214, 58],
+    [318, 126],
+    [270, 226],
+    [124, 214],
+  ],
+  list: [
+    [40, 78],
+    [40, 124],
+    [40, 170],
+    [40, 216],
+    [40, 262],
+  ],
+  net: [
+    [70, 150],
+    [184, 70],
+    [184, 232],
+    [306, 108],
+    [326, 222],
+  ],
+  radar: [
+    [150, 106],
+    [266, 96],
+    [246, 206],
+    [136, 202],
+    [210, 150],
+  ],
+  lanes: [
+    [40, 78],
+    [96, 124],
+    [152, 170],
+    [70, 216],
+    [190, 262],
+  ],
+  board: [
+    [64, 84],
+    [214, 74],
+    [128, 168],
+    [282, 176],
+    [76, 248],
+  ],
 };
 
-const NET_EDGES: readonly [number, number][] = [[0, 1], [0, 2], [1, 3], [2, 4], [3, 4], [1, 2]];
-const SKY: readonly [number, number, number][] = Array.from({ length: 34 }, (_, i) => [
-  (i * 97 + 13) % 400,
-  (i * 53 + 7) % 300,
-  i % 7 === 0 ? 1.4 : 0.8,
-]);
+const NET_EDGES: readonly [number, number][] = [
+  [0, 1],
+  [0, 2],
+  [1, 3],
+  [2, 4],
+  [3, 4],
+  [1, 2],
+];
+const SKY: readonly [number, number, number][] = Array.from(
+  { length: 34 },
+  (_, i) => [(i * 97 + 13) % 400, (i * 53 + 7) % 300, i % 7 === 0 ? 1.4 : 0.8],
+);
 
 /** Szerokość znaku kroju mono przy 12 px — do zmieszczenia podpisu w polu. */
 const CHAR_W = 7.3;
@@ -69,14 +111,30 @@ function labelX(x: number, text: string): number {
   return Math.min(Math.max(x, 12 + half), 388 - half);
 }
 
-function Decor({ layout, p, n }: { layout: Layout; p: ThemePalette; n: number }) {
+function Decor({
+  layout,
+  p,
+  n,
+}: {
+  layout: Layout;
+  p: ThemePalette;
+  n: number;
+}) {
   const pts = POINTS[layout].slice(0, n);
   switch (layout) {
     case "stars":
       return (
         <g>
           {SKY.map(([x, y, r], i) => (
-            <circle key={i} className="kr-bp-sky" cx={x} cy={y} r={r} fill={p.muted} opacity=".45" />
+            <circle
+              key={i}
+              className="kr-bp-sky"
+              cx={x}
+              cy={y}
+              r={r}
+              fill={p.muted}
+              opacity=".45"
+            />
           ))}
           {pts.slice(1).map(([x, y], i) => (
             <line
@@ -109,7 +167,15 @@ function Decor({ layout, p, n }: { layout: Layout; p: ThemePalette; n: number })
               opacity=".75"
             />
           ))}
-          {n > 1 ? <circle className="kr-bp-packet" r="3.2" cx={pts[0][0]} cy={pts[0][1]} fill={p.accent} /> : null}
+          {n > 1 ? (
+            <circle
+              className="kr-bp-packet"
+              r="3.2"
+              cx={pts[0][0]}
+              cy={pts[0][1]}
+              fill={p.accent}
+            />
+          ) : null}
         </g>
       );
     case "radar":
@@ -120,7 +186,13 @@ function Decor({ layout, p, n }: { layout: Layout; p: ThemePalette; n: number })
           ))}
           <line x1="205" y1="24" x2="205" y2="276" />
           <line x1="80" y1="150" x2="330" y2="150" />
-          <path className="kr-bp-sweep" d="M205 150 L205 30 A120 120 0 0 1 290 65 Z" fill={p.accent} stroke="none" opacity=".18" />
+          <path
+            className="kr-bp-sweep"
+            d="M205 150 L205 30 A120 120 0 0 1 290 65 Z"
+            fill={p.accent}
+            stroke="none"
+            opacity=".18"
+          />
         </g>
       );
     case "lanes":
@@ -139,7 +211,16 @@ function Decor({ layout, p, n }: { layout: Layout; p: ThemePalette; n: number })
               opacity=".28"
             />
           ))}
-          <line className="kr-bp-today" x1="230" y1="48" x2="230" y2="284" stroke={p.accent} strokeWidth="1.2" strokeDasharray="4 4" />
+          <line
+            className="kr-bp-today"
+            x1="230"
+            y1="48"
+            x2="230"
+            y2="284"
+            stroke={p.accent}
+            strokeWidth="1.2"
+            strokeDasharray="4 4"
+          />
         </g>
       );
     case "board":
@@ -167,85 +248,235 @@ function Decor({ layout, p, n }: { layout: Layout; p: ThemePalette; n: number })
           <text x="20" y="34" fill={p.muted} className="kr-bp-cmd">
             $ ./check --wymagania
           </text>
-          <rect className="kr-bp-cursor" x="20" y={Math.min(278, 52 + n * 46)} width="9" height="14" fill={p.accent} />
+          <rect
+            className="kr-bp-cursor"
+            x="20"
+            y={Math.min(278, 52 + n * 46)}
+            width="9"
+            height="14"
+            fill={p.accent}
+          />
         </g>
       );
   }
 }
 
-/** Scena podglądu: tło szablonu, ozdoba układu i punkty wymagań z podpisami. */
+/** Podgląd na tablicy: szkic sceny z wymagań karty. */
 export function BoardPreviewScene({ job }: { job: CareerBoardJob }) {
-  const theme = isCareerThemeId(job.theme) ? job.theme : DEFAULT_CAREER_THEME;
-  const p = careerTheme(theme);
-  const layout = LAYOUTS[theme];
-  const items: SceneItem[] = sceneItems(
+  const items = sceneItems(
     (job.must ?? []).map((name) => ({ name, note: null })),
     job.nice ?? [],
   );
+  return <SceneSketch theme={job.theme} items={items} animateKey={job.slug} />;
+}
+
+/** Stan „Sprawdź się” na stronie rekrutacji (etap 7, PR C). */
+export interface SketchFit {
+  /** Zaznaczone pozycje w kolejności klikania (`useScene().order`). */
+  order: readonly number[];
+  /** Wymaganie, które kandydat właśnie czyta (ScrollTrigger), albo `null`. */
+  reading: number | null;
+}
+
+/**
+ * Szkic sceny: tło szablonu, ozdoba układu i punkty wymagań z podpisami.
+ * Bez `fit` — podgląd (wymagania pełne, mile widziane puste). Z `fit` —
+ * wszystko puste, zaznaczone łączą się linią w kolejności klikania, a czytane
+ * dostaje obwódkę.
+ */
+export function SceneSketch({
+  theme: themeId,
+  items,
+  animateKey,
+  fit,
+}: {
+  theme: string;
+  items: readonly SceneItem[];
+  animateKey: string;
+  fit?: SketchFit;
+}) {
+  const theme = isCareerThemeId(themeId) ? themeId : DEFAULT_CAREER_THEME;
+  const p = careerTheme(theme);
+  const layout = LAYOUTS[theme];
   const pts = POINTS[layout];
   const root = useRef<HTMLDivElement>(null);
 
   useGSAP(
     () => {
       // Bez `matchMedia` (jsdom, bardzo stare przeglądarki) scena stoi.
-      if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+      if (
+        typeof window === "undefined" ||
+        typeof window.matchMedia !== "function"
+      )
+        return;
       const mm = gsap.matchMedia();
-      mm.add("(min-width: 1024px) and (prefers-reduced-motion: no-preference)", () => {
-        const q = gsap.utils.selector(root);
-        const links: Element[] = q(".kr-bp-link");
-        links.forEach((l) => {
-          const len = Math.hypot(
-            Number(l.getAttribute("x2")) - Number(l.getAttribute("x1")),
-            Number(l.getAttribute("y2")) - Number(l.getAttribute("y1")),
-          );
-          gsap.fromTo(l, { strokeDasharray: len, strokeDashoffset: len }, { strokeDashoffset: 0, duration: 0.7, ease: "power2.out", delay: 0.15 });
-        });
-        gsap.from(q(".kr-bp-dot"), { scale: 0, transformOrigin: "50% 50%", stagger: 0.07, duration: 0.45, ease: "back.out(2.4)" });
-        gsap.from(q(".kr-bp-label"), { opacity: 0, y: 6, stagger: 0.05, duration: 0.35, delay: 0.1 });
-        gsap.from(q(".kr-bp-bar, .kr-bp-note"), { scaleX: 0, transformOrigin: "0% 50%", stagger: 0.05, duration: 0.5, ease: "power3.out" });
-
-        // Spokojna pętla — jedna na układ, bez migania (≤ 1 zmiana na sekundę).
-        if (layout === "stars") gsap.to(q(".kr-bp-sky"), { opacity: 0.1, duration: 1.8, stagger: { each: 0.06, from: "random", repeat: -1, yoyo: true } });
-        if (layout === "radar") gsap.to(q(".kr-bp-sweep"), { rotation: 360, svgOrigin: "205 150", duration: 6, ease: "none", repeat: -1 });
-        if (layout === "lanes") gsap.fromTo(q(".kr-bp-today"), { attr: { x1: 150, x2: 150 } }, { attr: { x1: 320, x2: 320 }, duration: 7, ease: "none", repeat: -1, yoyo: true });
-        if (layout === "list") gsap.to(q(".kr-bp-cursor"), { opacity: 0, duration: 0.6, ease: "steps(1)", repeat: -1, yoyo: true });
-        if (layout === "net" && items.length > 1) {
-          const path = NET_EDGES.filter(([a, b]) => a < items.length && b < items.length);
-          const tl = gsap.timeline({ repeat: -1 });
-          path.forEach(([a, b]) => {
-            tl.fromTo(q(".kr-bp-packet"), { attr: { cx: pts[a][0], cy: pts[a][1] } }, { attr: { cx: pts[b][0], cy: pts[b][1] }, duration: 0.9, ease: "power1.inOut" });
+      mm.add(
+        "(min-width: 1024px) and (prefers-reduced-motion: no-preference)",
+        () => {
+          const q = gsap.utils.selector(root);
+          const links: Element[] = q(".kr-bp-link");
+          links.forEach((l) => {
+            const len = Math.hypot(
+              Number(l.getAttribute("x2")) - Number(l.getAttribute("x1")),
+              Number(l.getAttribute("y2")) - Number(l.getAttribute("y1")),
+            );
+            gsap.fromTo(
+              l,
+              { strokeDasharray: len, strokeDashoffset: len },
+              {
+                strokeDashoffset: 0,
+                duration: 0.7,
+                ease: "power2.out",
+                delay: 0.15,
+              },
+            );
           });
-        }
-      });
+          gsap.from(q(".kr-bp-dot"), {
+            scale: 0,
+            transformOrigin: "50% 50%",
+            stagger: 0.07,
+            duration: 0.45,
+            ease: "back.out(2.4)",
+          });
+          gsap.from(q(".kr-bp-label"), {
+            opacity: 0,
+            y: 6,
+            stagger: 0.05,
+            duration: 0.35,
+            delay: 0.1,
+          });
+          gsap.from(q(".kr-bp-bar, .kr-bp-note"), {
+            scaleX: 0,
+            transformOrigin: "0% 50%",
+            stagger: 0.05,
+            duration: 0.5,
+            ease: "power3.out",
+          });
+
+          // Spokojna pętla — jedna na układ, bez migania (≤ 1 zmiana na sekundę).
+          if (layout === "stars")
+            gsap.to(q(".kr-bp-sky"), {
+              opacity: 0.1,
+              duration: 1.8,
+              stagger: { each: 0.06, from: "random", repeat: -1, yoyo: true },
+            });
+          if (layout === "radar")
+            gsap.to(q(".kr-bp-sweep"), {
+              rotation: 360,
+              svgOrigin: "205 150",
+              duration: 6,
+              ease: "none",
+              repeat: -1,
+            });
+          if (layout === "lanes")
+            gsap.fromTo(
+              q(".kr-bp-today"),
+              { attr: { x1: 150, x2: 150 } },
+              {
+                attr: { x1: 320, x2: 320 },
+                duration: 7,
+                ease: "none",
+                repeat: -1,
+                yoyo: true,
+              },
+            );
+          if (layout === "list")
+            gsap.to(q(".kr-bp-cursor"), {
+              opacity: 0,
+              duration: 0.6,
+              ease: "steps(1)",
+              repeat: -1,
+              yoyo: true,
+            });
+          if (layout === "net" && items.length > 1) {
+            const path = NET_EDGES.filter(
+              ([a, b]) => a < items.length && b < items.length,
+            );
+            const tl = gsap.timeline({ repeat: -1 });
+            path.forEach(([a, b]) => {
+              tl.fromTo(
+                q(".kr-bp-packet"),
+                { attr: { cx: pts[a][0], cy: pts[a][1] } },
+                {
+                  attr: { cx: pts[b][0], cy: pts[b][1] },
+                  duration: 0.9,
+                  ease: "power1.inOut",
+                },
+              );
+            });
+          }
+        },
+      );
       return () => mm.revert();
     },
-    { scope: root, dependencies: [job.slug] },
+    { scope: root, dependencies: [animateKey] },
   );
 
   return (
-    <div ref={root} className="kr-bp-stage" style={{ background: p.bg, borderColor: p.line }}>
+    <div
+      ref={root}
+      className="kr-bp-stage"
+      style={{ background: p.bg, borderColor: p.line }}
+    >
       <svg viewBox="0 0 400 300" aria-hidden="true" focusable="false">
         <Decor layout={layout} p={p} n={items.length} />
+        {fit
+          ? fit.order.slice(1).map((id, k) => {
+              const [x1, y1] = pts[fit.order[k]];
+              const [x2, y2] = pts[id];
+              return (
+                <line
+                  key={`${fit.order[k]}-${id}`}
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke={p.title}
+                  strokeWidth="2"
+                />
+              );
+            })
+          : null}
         {items.map((item, i) => {
           const [x, y] = pts[i];
           const inline = layout === "list" || layout === "lanes";
           const nice = item.kind === "nice";
           const lx = inline ? x + 18 : labelX(x, item.name);
           const ly = inline ? y + 4 : y + 24;
+          const on = fit ? fit.order.includes(i) : item.kind === "must";
+          const color = fit ? p.title : p.accent;
           return (
-            <g key={item.key}>
+            <g key={item.key} data-on={fit && on ? "" : undefined}>
+              {fit && fit.reading === i ? (
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="13"
+                  fill="none"
+                  stroke={p.title}
+                  strokeWidth="2"
+                />
+              ) : null}
               <circle
                 className="kr-bp-dot"
                 cx={x}
                 cy={y}
                 r="6"
-                fill={item.kind === "must" ? p.accent : p.bg}
-                stroke={p.accent}
+                fill={on ? color : p.bg}
+                stroke={color}
                 strokeWidth="2"
               />
-              <text className="kr-bp-label" x={lx} y={ly} textAnchor={inline ? "start" : "middle"} fill={p.text}>
+              <text
+                className="kr-bp-label"
+                x={lx}
+                y={ly}
+                textAnchor={inline ? "start" : "middle"}
+                fill={p.text}
+              >
                 {item.name}
-                {nice && inline ? <tspan fill={p.muted}> · mile widziane</tspan> : null}
+                {nice && inline ? (
+                  <tspan fill={p.muted}> · mile widziane</tspan>
+                ) : null}
                 {nice && !inline ? (
                   <tspan x={labelX(x, "mile widziane")} dy="14" fill={p.muted}>
                     mile widziane
@@ -256,7 +487,13 @@ export function BoardPreviewScene({ job }: { job: CareerBoardJob }) {
           );
         })}
         {items.length === 0 ? (
-          <text className="kr-bp-label" x="200" y="156" textAnchor="middle" fill={p.muted}>
+          <text
+            className="kr-bp-label"
+            x="200"
+            y="156"
+            textAnchor="middle"
+            fill={p.muted}
+          >
             wymagania na stronie rekrutacji
           </text>
         ) : null}
@@ -270,9 +507,16 @@ export function BoardGlyph({ theme }: { theme: string }) {
   const id = isCareerThemeId(theme) ? theme : DEFAULT_CAREER_THEME;
   const p = careerTheme(id);
   const layout = LAYOUTS[id];
-  const pts = POINTS[layout].slice(0, 3).map(([x, y]) => [8 + (x / 400) * 28, 8 + (y / 300) * 28] as const);
+  const pts = POINTS[layout]
+    .slice(0, 3)
+    .map(([x, y]) => [8 + (x / 400) * 28, 8 + (y / 300) * 28] as const);
   return (
-    <svg className="kr-brow-glyph" viewBox="0 0 44 44" aria-hidden="true" focusable="false">
+    <svg
+      className="kr-brow-glyph"
+      viewBox="0 0 44 44"
+      aria-hidden="true"
+      focusable="false"
+    >
       <rect width="44" height="44" rx="10" fill={p.bg} stroke={p.line} />
       {layout === "list" ? (
         <g fill={p.accent}>
@@ -283,7 +527,12 @@ export function BoardGlyph({ theme }: { theme: string }) {
         </g>
       ) : (
         <g>
-          <polyline points={pts.map((q) => q.join(",")).join(" ")} fill="none" stroke={p.decor} strokeWidth="1.4" />
+          <polyline
+            points={pts.map((q) => q.join(",")).join(" ")}
+            fill="none"
+            stroke={p.decor}
+            strokeWidth="1.4"
+          />
           {pts.map(([x, y], i) => (
             <circle key={i} cx={x} cy={y} r="2.6" fill={p.accent} />
           ))}
