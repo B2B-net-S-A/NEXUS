@@ -81,6 +81,13 @@ nieaktualne”.
   u tej samej osoby zostaje usunięty; przypisanie załącznika innej osobie
   (rematch) przywraca go u niej normalnie. Ten sam plik przysłany w nowym
   mailu to nowy załącznik i nowy dokument — jak ponowne wgranie.
+- **Klucz dokumentu z maila (20.10.2026).** `external_id` dokumentu m365 to
+  `m365_document_external_id(id załącznika)` — skrót CAŁEGO id z Graph.
+  Do 20.10 klucz był ucinany do 100 znaków, a id ma 176–180 znaków ze
+  wspólnym początkiem skrzynki (3 964 załączniki → 13 kluczy). CV z nowego
+  maila „znajdowało” cudzy dokument i przepinało go na swojego kandydata
+  z cudzym plikiem (kandydat 6673 dostał CV kandydata 26224). Nie ucinaj
+  id załącznika w żadnym kluczu.
 - Ślad: wpis `candidate_document_removed` w historii profilu („Usunięto plik
   z profilu”), w `details` tylko id pliku, rodzaj i `was_primary` — bez nazwy
   pliku, bo nazwa CV to zwykle imię i nazwisko.

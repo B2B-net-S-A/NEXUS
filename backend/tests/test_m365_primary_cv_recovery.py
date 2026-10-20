@@ -72,7 +72,7 @@ async def test_restored_primary_waits_for_identity_gate(
             is_primary=True,
             source_deleted_at=(now if source_state == "deleted" else None),
             external_source="m365",
-            external_id=ext_id,
+            external_id=attachment_handler.m365_document_external_id(ext_id),
         )
         db.add_all([current, restored])
         await db.flush()
@@ -178,7 +178,7 @@ async def test_file_removed_from_profile_is_not_restored_for_the_same_person(
             source_deleted_at=now,
             removed_at=now,
             external_source="m365",
-            external_id=ext_id,
+            external_id=attachment_handler.m365_document_external_id(ext_id),
         )
         db.add(removed)
         await db.flush()
