@@ -34,6 +34,7 @@ const ALL_ON: Record<HrModuleKey, boolean> = {
   cases: true,
   equipment: true,
   settlements: false,
+  approvals: false,
 };
 
 function config(me: Partial<HrConfig["me"]>): HrConfig {
@@ -69,7 +70,7 @@ beforeEach(() => {
 
 describe("liczniki zakładek „Ludzie”", () => {
   it("pokazuje liczby przy Akceptacjach i Sprawach po udanym odczycie", () => {
-    countsState.current = { isSuccess: true, data: { approvals: 3, cases: 0 } };
+    countsState.current = { isSuccess: true, data: { approvals: 3, consents: null, cases: 0 } };
     render(<PeopleSectionNav config={manager} active="directory" />);
     expect(tab("Akceptacje")).toHaveTextContent("Akceptacje3");
     // Zero z udanego odczytu to prawdziwe zero.
@@ -79,16 +80,16 @@ describe("liczniki zakładek „Ludzie”", () => {
 
   it("awaria odczytu nie udaje zera — brak liczby", () => {
     // react-query trzyma stare `data` po nieudanym odświeżeniu.
-    countsState.current = { isSuccess: false, data: { approvals: 3, cases: 1 } };
+    countsState.current = { isSuccess: false, data: { approvals: 3, consents: null, cases: 1 } };
     render(<PeopleSectionNav config={manager} active="approvals" />);
     expect(tab("Akceptacje")).toHaveTextContent(/^Akceptacje$/);
     expect(tab("Sprawy")).toHaveTextContent(/^Sprawy$/);
   });
 
   it("„nie dotyczy” (null) to brak liczby", () => {
-    expect(sectionCount("cases", { approvals: 2, cases: null })).toBeUndefined();
-    expect(sectionCount("approvals", { approvals: 2, cases: null })).toBe(2);
-    expect(sectionCount("directory", { approvals: 2, cases: 4 })).toBeUndefined();
+    expect(sectionCount("cases", { approvals: 2, consents: null, cases: null })).toBeUndefined();
+    expect(sectionCount("approvals", { approvals: 2, consents: null, cases: null })).toBe(2);
+    expect(sectionCount("directory", { approvals: 2, consents: null, cases: 4 })).toBeUndefined();
     expect(sectionCount("approvals", undefined)).toBeUndefined();
   });
 
@@ -100,8 +101,11 @@ describe("liczniki zakładek „Ludzie”", () => {
   it("odpowiedź w innym kształcie to błąd zapytania, nie liczba", () => {
     expect(parseHrCounts({ approvals: 2, cases: null })).toEqual({
       approvals: 2,
+      consents: null,
       cases: null,
     });
+    expect(parseHrCounts({ approvals: 2, consents: 3, cases: null }).consents).toBe(3);
+    expect(() => parseHrCounts({ approvals: 2, consents: -1, cases: null })).toThrow();
     expect(() => parseHrCounts({ approvals: "2", cases: null })).toThrow();
     expect(() => parseHrCounts({ approvals: 2 })).toThrow();
     expect(() => parseHrCounts(null)).toThrow();

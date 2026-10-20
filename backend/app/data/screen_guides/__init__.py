@@ -59,6 +59,7 @@ SCREEN_KEYS: tuple[str, ...] = (
     "hr.my_time",
     "hr.approvals",
     "hr.team_calendar",
+    "hr.consents",
 )
 
 _ANCHOR_ID = r"^[a-z0-9][a-z0-9_.-]{1,59}$"

@@ -1,0 +1,401 @@
+"use client";
+
+/**
+ * Harness „Zgody” — wydatki i premie poza umową (makiety 20.10.2026).
+ *
+ * Prawdziwe `PeopleSectionNav` + `ApprovalsScreen` / `MyConsentsScreen` na
+ * zasianym cache, ZERO zapytań (`hr-harness.tsx`). Stany (`?state=`):
+ * - `inbox` (domyślnie) — zatwierdzający (admin): premia poza umową z liczbami
+ *   „NEXUS sprawdził”, delegacja poparta przez przełożoną, subskrypcja,
+ *   prezent; przełącznik „Zgody | Urlopy i timesheety”;
+ * - `supervisor` — przełożona: delegacja ponad próg („Popieram”) i prezent
+ *   w progu („Zatwierdź”);
+ * - `mine` — autorka: pytanie od zatwierdzającego, zgoda w toku, zatwierdzona;
+ * - `form` — „Poproś o zgodę” (panel „Kto zdecyduje” pyta serwer — w harnessie
+ *   pokazuje komunikat o braku sieci).
+ * Zapisy blokuje harness.
+ */
+
+import { PageHeader } from "@/components/ds/PageHeader";
+import { MyConsentsScreen } from "@/components/hr/approvals/MyConsentsScreen";
+import { ApprovalsScreen } from "@/components/hr/leave/ApprovalsScreen";
+import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
+import { hrKeys, type HrConfig } from "@/lib/api/hr";
+import { approvalKeys, type ApprovalRequestRow } from "@/lib/api/hr-approvals";
+import { leaveKeys } from "@/lib/api/hr-leave";
+
+import { HR_CAST, hrConfig } from "../hr-fixtures";
+import {
+  HrHarnessLoading,
+  HrHarnessShell,
+  harnessQueryClient,
+  pickState,
+  useHrHarness,
+  type HarnessUser,
+} from "../hr-harness";
+
+const STATE_KEYS = ["inbox", "supervisor", "mine", "form"] as const;
+type State = (typeof STATE_KEYS)[number];
+
+const STATES = [
+  { key: "inbox", label: "Zatwierdzający", href: "?state=inbox&tab=consents" },
+  {
+    key: "supervisor",
+    label: "Przełożona",
+    href: "?state=supervisor&tab=consents",
+  },
+  { key: "mine", label: "Moje zgody" },
+  { key: "form", label: "Poproś o zgodę", href: "?state=form&new=1" },
+] as const;
+
+const NOTES: Record<State, string> = {
+  inbox: "Dane fikcyjne, bez zapytań. Ogląda zatwierdzający (admin).",
+  supervisor: "Dane fikcyjne, bez zapytań. Ogląda przełożona — próg delegacji 1 500 zł.",
+  mine: "Dane fikcyjne, bez zapytań. Ogląda autorka zgód.",
+  form: "Dane fikcyjne, bez zapytań. „Kto zdecyduje” liczy serwer — tu bez sieci.",
+};
+
+function iso(daysFromToday: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromToday);
+  return date.toISOString().slice(0, 10);
+}
+
+function moment(daysAgo: number, hour = 9): string {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  date.setHours(hour, 12, 0, 0);
+  return date.toISOString();
+}
+
+const NOW = new Date();
+
+function row(
+  partial: Partial<ApprovalRequestRow> & Pick<ApprovalRequestRow, "id" | "kind" | "title">,
+): ApprovalRequestRow {
+  return {
+    kind_label: "Inny wydatek",
+    status: "pending_final",
+    status_label: "Czeka na zatwierdzającego",
+    purpose: "",
+    amount: "100.00",
+    decided_amount: null,
+    currency: "PLN",
+    amount_basis: "gross",
+    recurrence: "once",
+    amount_text: "100 zł brutto",
+    payer: "company_invoice",
+    link_url: null,
+    needed_by: null,
+    starts_on: null,
+    ends_on: null,
+    beneficiary_user_id: null,
+    beneficiary_name: null,
+    payout_year: null,
+    payout_month: null,
+    requester_user_id: HR_CAST.ola.id,
+    requester_name: HR_CAST.ola.name,
+    supervisor_user_id: null,
+    supervisor_name: null,
+    needs_final: true,
+    final_approver_names: [HR_CAST.admin.name],
+    endorsed_by_name: null,
+    endorsed_at: null,
+    endorse_note: null,
+    decided_by_name: null,
+    decided_at: null,
+    decision_note: null,
+    decision_channel: null,
+    bonus_id: null,
+    submitted_at: moment(0, 8),
+    can_decide: true,
+    decides_as: "final",
+    can_edit: false,
+    can_withdraw: false,
+    context: null,
+    ...partial,
+  };
+}
+
+const CONTEXT = {
+  kind_month: { count: 2, amount: "3500.00" },
+  kind_year: { count: 11, amount: "18200.00" },
+  all_month: { count: 14, amount: "21380.00" },
+};
+
+function inboxRows(): ApprovalRequestRow[] {
+  return [
+    row({
+      id: 1,
+      kind: "bonus",
+      kind_label: "Premia poza umową",
+      title: "Trzy przejęte rekrutacje",
+      purpose:
+        "Przejęła 3 rekrutacje po odejściu kolegi i domknęła je w 2 tygodnie. Standardowa premia z placementu dotyczy tylko jednej z nich.",
+      amount: "1500.00",
+      amount_text: "1 500 zł brutto",
+      payer: null,
+      needed_by: iso(1),
+      beneficiary_user_id: HR_CAST.julia.id,
+      beneficiary_name: HR_CAST.julia.name,
+      payout_year: NOW.getFullYear(),
+      payout_month: NOW.getMonth() + 1,
+      requester_user_id: HR_CAST.marta.id,
+      requester_name: HR_CAST.marta.name,
+      context: {
+        ...CONTEXT,
+        beneficiary_year: {
+          automatic: "9400.00",
+          outside_contract: "0.00",
+          manual: "0.00",
+          same_month_automatic: "0.00",
+        },
+      },
+    }),
+    row({
+      id: 2,
+      kind: "trip",
+      kind_label: "Delegacja",
+      title: "Gdańsk — warsztat u klienta",
+      purpose: "Warsztat z hiring managerem, dwie rekrutacje. Hotel 1 noc, pociąg, diety.",
+      amount: "2180.00",
+      amount_text: "2 180 zł brutto",
+      payer: "reimbursement",
+      needed_by: iso(1),
+      starts_on: iso(2),
+      ends_on: iso(3),
+      requester_user_id: HR_CAST.tomasz.id,
+      requester_name: HR_CAST.tomasz.name,
+      supervisor_user_id: HR_CAST.marta.id,
+      supervisor_name: HR_CAST.marta.name,
+      endorsed_by_name: HR_CAST.marta.name,
+      endorsed_at: moment(0, 10),
+      endorse_note: "Ważny klient, warto.",
+      context: { ...CONTEXT, kind_month: { count: 3, amount: "3900.00" } },
+    }),
+    row({
+      id: 3,
+      kind: "subscription",
+      kind_label: "Subskrypcja",
+      title: "Narzędzie do ogłoszeń — 3 licencje",
+      purpose:
+        "Automatyczne publikowanie ogłoszeń w trzech kanałach. Dziś ok. 6 h ręcznej pracy tygodniowo.",
+      amount: "240.00",
+      amount_basis: "net",
+      recurrence: "monthly",
+      amount_text: "240 zł netto / mies.",
+      link_url: "https://example.com/cennik",
+      requester_user_id: HR_CAST.ewa.id,
+      requester_name: HR_CAST.ewa.name,
+      context: { ...CONTEXT, kind_month: { count: 1, amount: "610.00" } },
+    }),
+    row({
+      id: 4,
+      kind: "gift",
+      kind_label: "Prezent",
+      title: "Prezent dla klienta — 10 lat współpracy",
+      purpose: "Kosz upominkowy dla zespołu klienta na rocznicę.",
+      amount: "450.00",
+      amount_text: "450 zł brutto",
+      requester_user_id: HR_CAST.adam.id,
+      requester_name: HR_CAST.adam.name,
+      context: { ...CONTEXT, kind_month: { count: 1, amount: "200.00" } },
+    }),
+  ];
+}
+
+function supervisorRows(): ApprovalRequestRow[] {
+  return [
+    row({
+      id: 2,
+      kind: "trip",
+      kind_label: "Delegacja",
+      status: "pending_supervisor",
+      status_label: "U przełożonego",
+      title: "Gdańsk — warsztat u klienta",
+      purpose: "Warsztat z hiring managerem, dwie rekrutacje. Hotel 1 noc, pociąg, diety.",
+      amount: "2180.00",
+      amount_text: "2 180 zł brutto",
+      payer: "reimbursement",
+      needed_by: iso(1),
+      requester_user_id: HR_CAST.tomasz.id,
+      requester_name: HR_CAST.tomasz.name,
+      supervisor_user_id: HR_CAST.marta.id,
+      supervisor_name: HR_CAST.marta.name,
+      decides_as: "supervisor",
+      context: { ...CONTEXT, all_month: { count: 10, amount: "13880.00" } },
+    }),
+    row({
+      id: 5,
+      kind: "gift",
+      kind_label: "Prezent",
+      status: "pending_supervisor",
+      status_label: "U przełożonego",
+      title: "Kwiaty dla kandydatki — powitanie",
+      purpose: "Pierwszy dzień u klienta, mały gest od zespołu.",
+      amount: "150.00",
+      amount_text: "150 zł brutto",
+      requester_user_id: HR_CAST.julia.id,
+      requester_name: HR_CAST.julia.name,
+      supervisor_user_id: HR_CAST.marta.id,
+      supervisor_name: HR_CAST.marta.name,
+      needs_final: false,
+      decides_as: "supervisor",
+      context: {
+        ...CONTEXT,
+        kind_month: { count: 1, amount: "200.00" },
+        all_month: { count: 10, amount: "13880.00" },
+      },
+    }),
+  ];
+}
+
+function mineRows(): ApprovalRequestRow[] {
+  const base = {
+    requester_user_id: HR_CAST.ola.id,
+    requester_name: HR_CAST.ola.name,
+    supervisor_user_id: HR_CAST.marta.id,
+    supervisor_name: HR_CAST.marta.name,
+    can_decide: false,
+    decides_as: null,
+  } as const;
+  return [
+    row({
+      ...base,
+      id: 11,
+      kind: "training",
+      kind_label: "Szkolenie",
+      status: "returned",
+      status_label: "Pytanie do Ciebie",
+      title: "Konferencja rekruterów IT — bilet",
+      purpose: "Dwa dni prelekcji o sourcingu, materiały dla zespołu.",
+      amount: "1200.00",
+      amount_text: "1 200 zł brutto",
+      endorsed_by_name: HR_CAST.marta.name,
+      endorsed_at: moment(2, 11),
+      decided_by_name: HR_CAST.admin.name,
+      decided_at: moment(1, 8),
+      decision_note: "Czy jest tańsza pula biletów early bird? Dopisz, proszę.",
+      submitted_at: moment(2, 9),
+      can_edit: true,
+      can_withdraw: true,
+    }),
+    row({
+      ...base,
+      id: 12,
+      kind: "other",
+      kind_label: "Inny wydatek",
+      status: "pending_supervisor",
+      status_label: "U przełożonego",
+      title: "Monitor do pracy zdalnej",
+      purpose: "Drugi ekran do pracy z kilkoma rekrutacjami naraz.",
+      amount: "890.00",
+      amount_text: "890 zł brutto",
+      submitted_at: moment(0, 9),
+      can_edit: true,
+      can_withdraw: true,
+    }),
+    row({
+      ...base,
+      id: 13,
+      kind: "trip",
+      kind_label: "Delegacja",
+      status: "approved",
+      status_label: "Zatwierdzona",
+      title: "Kraków — spotkanie z klientem",
+      purpose: "Spotkanie kwartalne, pociąg w obie strony.",
+      amount: "640.00",
+      amount_text: "640 zł brutto",
+      needs_final: false,
+      decided_by_name: HR_CAST.marta.name,
+      decided_at: moment(9, 14),
+      submitted_at: moment(10, 9),
+    }),
+  ];
+}
+
+function consentsConfig(me: Partial<HrConfig["me"]>): HrConfig {
+  const config = hrConfig(me);
+  return {
+    ...config,
+    modules: { ...config.modules, approvals: true },
+    open_modules: { ...config.open_modules, approvals: true },
+  };
+}
+
+function prepare(params: URLSearchParams) {
+  const state = pickState(params.get("state"), STATE_KEYS, "inbox");
+  const client = harnessQueryClient();
+  let user: HarnessUser = HR_CAST.admin;
+  let config = consentsConfig({ is_admin: true, has_profile: false });
+  if (state === "inbox") {
+    const rows = inboxRows();
+    client.setQueryData(approvalKeys.list("inbox"), rows);
+    for (const item of rows) client.setQueryData(approvalKeys.detail(item.id), item);
+    client.setQueryData(approvalKeys.count, rows.length);
+    client.setQueryData(hrKeys.counts, {
+      approvals: 2,
+      consents: rows.length,
+      cases: null,
+    });
+  } else if (state === "supervisor") {
+    user = HR_CAST.marta;
+    config = consentsConfig({ is_manager: true, direct_reports: 9 });
+    const rows = supervisorRows();
+    client.setQueryData(approvalKeys.list("inbox"), rows);
+    for (const item of rows) client.setQueryData(approvalKeys.detail(item.id), item);
+    client.setQueryData(hrKeys.counts, {
+      approvals: 1,
+      consents: rows.length,
+      cases: null,
+    });
+  } else {
+    user = HR_CAST.ola;
+    config = consentsConfig({});
+    client.setQueryData(approvalKeys.list("mine"), mineRows());
+    client.setQueryData(approvalKeys.beneficiaries, []);
+    client.setQueryData(hrKeys.counts, {
+      approvals: null,
+      consents: 0,
+      cases: null,
+    });
+  }
+  // Zakładka „Urlopy i timesheety” w Akceptacjach — pusta kolejka, bez zapytań.
+  client.setQueryData(leaveKeys.pending, {
+    items: [],
+    covering: [],
+    reported: [],
+  });
+  client.setQueryData(hrKeys.config, config);
+  return { user, client, value: { state, config } };
+}
+
+export default function HrConsentsPreviewPage() {
+  const ready = useHrHarness(prepare);
+  if (!ready) return <HrHarnessLoading />;
+  const { state, config } = ready.value;
+  const mine = state === "mine" || state === "form";
+  return (
+    <HrHarnessShell
+      client={ready.client}
+      title="Zgody"
+      note={NOTES[state]}
+      states={STATES}
+      current={state}
+    >
+      <div className="space-y-4">
+        <PageHeader
+          title={mine ? "Moje zgody" : "Akceptacje"}
+          description={
+            mine
+              ? "Wydatki i premie poza umową, o które prosisz — i kto o nich decyduje."
+              : "Wnioski, timesheety i zgody do decyzji."
+          }
+          density="compact"
+        />
+        <PeopleSectionNav config={config} active={mine ? "consents" : "approvals"} />
+        {mine ? <MyConsentsScreen /> : <ApprovalsScreen config={config} />}
+      </div>
+    </HrHarnessShell>
+  );
+}

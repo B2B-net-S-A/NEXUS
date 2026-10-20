@@ -11,6 +11,7 @@ export type PeopleSection =
   | "team"
   | "calendar"
   | "approvals"
+  | "consents"
   | "cases"
   | "payroll";
 
@@ -29,7 +30,9 @@ interface PeopleSectionLink {
  * * Mój zespół — moduł „Ludzie” i podwładni z kartoteką (Kadry i admin
  *   oglądają cudze zespoły ze Struktury, `?manager=`),
  * * Kalendarz zespołu — moduł urlopów i kartoteka (albo Kadry),
- * * Akceptacje — przełożony (ma podwładnych) albo Kadry, gdy działa urlop lub czas,
+ * * Akceptacje — przełożony (ma podwładnych) albo Kadry, gdy działa urlop lub czas;
+ *   przy module „Zgody” także przełożony i admin (zatwierdzający),
+ * * Moje zgody — moduł „Zgody” i kartoteka (albo admin),
  * * Sprawy — uprawnienie „Sprawy” albo przypisana sprawa,
  * * Płace — uprawnienie „Płace”.
  */
@@ -49,8 +52,11 @@ export function peopleSections(config: HrConfig): PeopleSectionLink[] {
   if (open.leave && staff) {
     links.push({ value: "calendar", label: "Kalendarz zespołu", href: "/people/calendar" });
   }
-  if ((open.leave || open.time) && approver) {
+  if (((open.leave || open.time) && approver) || (open.approvals && (me.is_manager || me.is_admin))) {
     links.push({ value: "approvals", label: "Akceptacje", href: "/people/approvals" });
+  }
+  if (open.approvals && (me.has_profile || me.is_admin)) {
+    links.push({ value: "consents", label: "Moje zgody", href: "/people/consents" });
   }
   if (open.cases && (me.cases || me.is_admin || me.has_assigned_cases)) {
     links.push({ value: "cases", label: "Sprawy", href: "/people/cases" });
@@ -70,8 +76,14 @@ export function sectionCount(
   section: PeopleSection,
   counts: HrCounts | undefined,
 ): number | undefined {
-  const value =
-    section === "approvals" ? counts?.approvals : section === "cases" ? counts?.cases : null;
+  if (section === "approvals") {
+    // Wnioski, timesheety i zgody — jedna liczba spraw czekających na decyzję.
+    const parts = [counts?.approvals, counts?.consents].filter(
+      (part): part is number => typeof part === "number",
+    );
+    return parts.length > 0 ? parts.reduce((sum, part) => sum + part, 0) : undefined;
+  }
+  const value = section === "cases" ? counts?.cases : null;
   return typeof value === "number" ? value : undefined;
 }
 

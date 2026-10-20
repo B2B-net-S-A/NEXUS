@@ -35,6 +35,7 @@ import { AgreementTemplatesCard } from "@/components/hr/people/agreements/Agreem
 import { DocumentsRetentionCard } from "@/components/hr/people/documents/DocumentsRetentionCard";
 
 import { M365Card } from "./M365Card";
+import { ApprovalRulesCard } from "@/components/hr/approvals/ApprovalRulesCard";
 import { canEditPayrollSettings } from "./PayrollSettings";
 import { RoleDefaultsCard } from "./RoleDefaultsCard";
 
@@ -210,7 +211,9 @@ function ModulesCard({ config }: { config: HrConfig }) {
     const ok = await askConfirm({
       title: next ? "Włączyć moduł dla wszystkich?" : "Wyłączyć moduł?",
       description: next
-        ? `„${HR_MODULE_LABELS[key]}” zobaczą wszyscy uprawnieni. Wcześniej zaimportuj dane z Compassa i przełącz Compass w tryb tylko do odczytu.`
+        ? key === "approvals"
+          ? "Każdy z kartoteką poprosi o zgodę w „Ludzie → Moje zgody”, a przełożeni i zatwierdzający dostaną je w „Akceptacjach”. Najpierw ustaw zasady niżej."
+          : `„${HR_MODULE_LABELS[key]}” zobaczą wszyscy uprawnieni. Wcześniej zaimportuj dane z Compassa i przełącz Compass w tryb tylko do odczytu.`
         : `„${HR_MODULE_LABELS[key]}” zniknie wszystkim poza administratorem. Dane zostają.`,
       confirmLabel: next ? "Włącz" : "Wyłącz",
       variant: next ? "default" : "destructive",
@@ -371,8 +374,10 @@ export function HrSettings({ config }: { config: HrConfig }) {
         </div>
       ) : null}
       {tab === "moduly" ? (
-        <div className="max-w-2xl">
+        <div className="max-w-2xl space-y-4">
           <ModulesCard config={config} />
+          {/* Zgody (0483): progi przełożonego i zatwierdzający — tylko admin. */}
+          {me.is_admin ? <ApprovalRulesCard /> : null}
         </div>
       ) : null}
     </div>
