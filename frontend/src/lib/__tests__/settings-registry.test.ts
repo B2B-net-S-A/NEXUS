@@ -333,6 +333,28 @@ describe("settings-registry — wyłączony program „Ludzie w NEXUSIE” (18.1
   });
 });
 
+describe("settings-registry — Importy w Systemie (20.10.2026)", () => {
+  it("admin ma jedną pozycję „Importy”; stare pozycje importów są ukryte, adresy zostają", () => {
+    const admin = accessSnapshot("admin");
+    const listed = listedSettingsItems(admin).map((i) => i.id);
+    expect(listed).toContain("imports");
+    expect(listed).not.toContain("register-import");
+    expect(listed).not.toContain("contract-docs-sharepoint");
+    expect(listed).not.toContain("traffit");
+    expect(findSettingsItemByRoute("/settings/contract-docs-sharepoint")?.id).toBe(
+      "contract-docs-sharepoint",
+    );
+    expect(searchSettingsItems(admin, "sharepoint").map((i) => i.id)).toEqual(["imports"]);
+    // Import z Compassa zostaje w Zespole i dostępie — widzą go Kadry.
+    expect(findSettingsItem("hr-import")?.area).toBe("team");
+  });
+
+  it("bez admina pozycji „Importy” nie widać", () => {
+    expect(listedSettingsItems(accessSnapshot("finance")).map((i) => i.id)).not.toContain("imports");
+    expect(listedSettingsItems(accessSnapshot("delivery_lead")).map((i) => i.id)).not.toContain("imports");
+  });
+});
+
 describe("settings-registry — grupy w obszarze (lewa kolumna, 20.10.2026)", () => {
   it("każda pozycja z menu ma grupę", () => {
     const missing = SETTINGS_ITEMS.filter((i) => !i.hidden && !i.group).map((i) => i.id);
@@ -361,27 +383,5 @@ describe("settings-registry — grupy w obszarze (lewa kolumna, 20.10.2026)", ()
       groupedAreaItems(admin, "team", { hrProgram: on }).map((g) => g.name);
     expect(names(false)).not.toContain("Ludzie w NEXUSIE");
     expect(names(true)).toContain("Ludzie w NEXUSIE");
-  });
-});
-
-describe("settings-registry — Importy w Systemie (20.10.2026)", () => {
-  it("admin ma jedną pozycję „Importy”; stare pozycje importów są ukryte, adresy zostają", () => {
-    const admin = accessSnapshot("admin");
-    const listed = listedSettingsItems(admin).map((i) => i.id);
-    expect(listed).toContain("imports");
-    expect(listed).not.toContain("register-import");
-    expect(listed).not.toContain("contract-docs-sharepoint");
-    expect(listed).not.toContain("traffit");
-    expect(findSettingsItemByRoute("/settings/contract-docs-sharepoint")?.id).toBe(
-      "contract-docs-sharepoint",
-    );
-    expect(searchSettingsItems(admin, "sharepoint").map((i) => i.id)).toEqual(["imports"]);
-    // Import z Compassa zostaje w Zespole i dostępie — widzą go Kadry.
-    expect(findSettingsItem("hr-import")?.area).toBe("team");
-  });
-
-  it("bez admina pozycji „Importy” nie widać", () => {
-    expect(listedSettingsItems(accessSnapshot("finance")).map((i) => i.id)).not.toContain("imports");
-    expect(listedSettingsItems(accessSnapshot("delivery_lead")).map((i) => i.id)).not.toContain("imports");
   });
 });
