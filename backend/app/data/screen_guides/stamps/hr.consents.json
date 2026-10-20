@@ -2,8 +2,8 @@
   "entry": "a2d6b30806e8fb2bb821abe2848a03faf50e5d7fc52efc689aa833ea6cbe9d8f",
   "guide": "hr.consents",
   "sources": {
-    "frontend/src/components/hr/approvals/ConsentRequestForm.tsx": "e14b38306e5372c324cfd2dd53ee481f4cf8d1a8b9fa0a382ddb3d300509231b",
-    "frontend/src/components/hr/approvals/ConsentsInbox.tsx": "2646880bdb183b30fc0c826b42a2702cbd264df07adce79007b6a2e77a662c05",
+    "frontend/src/components/hr/approvals/ConsentRequestForm.tsx": "e12b1b8cac59df08bdf9efb3a7e6ed33de113f69c653277fafcc62e898d739ee",
+    "frontend/src/components/hr/approvals/ConsentsInbox.tsx": "5b1d7b7cfc51ec55e40e7eac4d56399fa8ed936df01c6baaa4485ef46876e8ca",
     "frontend/src/components/hr/approvals/MyConsentsScreen.tsx": "5cb28424dd782b783461dc263d8f4710487ca7864fdc34bd0c1851413cbc923b"
   }
 }

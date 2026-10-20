@@ -362,6 +362,7 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.interview_slots_from_mail: [
         "Wklejony mail klienta z terminami rozmowy i dzisiejsza data",
         "(bez danych kandydata z bazy; treść maila nie jest zapisywana)",
+    ],
     AIFeatureKey.expense_document_read: [
         "Faktura albo paragon dołączony do zgody (tekst PDF-u albo zdjęcie)",
         "(bez danych osoby, która prosiła o zgodę)",
