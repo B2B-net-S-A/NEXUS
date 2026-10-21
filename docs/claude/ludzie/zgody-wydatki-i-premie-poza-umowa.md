@@ -18,6 +18,28 @@ Makiety: https://claude.ai/artifact/BMmUXqykCRrfcocgPfHChj.
   poprawia i wysyła znowu, `PUT`), `withdrawn`. Premia ma osobę i miesiąc
   wypłaty, jest raz i brutto (CHECK `bonus_shape`). Nikt nie decyduje we
   własnej sprawie ani o premii dla siebie — CHECK w bazie i 403 w serwisie.
+- **Premia dla B2B ma podstawę w umowie** (0491, decyzja Artura 21.10.2026).
+  Uznaniowa nagroda od koordynatora to dla PIP cecha wynagrodzenia ze stosunku
+  pracy (od 08.07.2026 PIP może sam stwierdzić stosunek pracy). Dlatego:
+  - wniosek o premię dla osoby z formą B2B albo z formą „do uzupełnienia”
+    (`employment_type_pending`, kartoteka z konta) wymaga pola „Podstawa
+    w umowie” (`approval_requests.contract_basis`, do 200 znaków): punkt umowy
+    albo numer aneksu, np. „§ 6 ust. 2 umowy z 01.03.2025”. Bez niej albo bez
+    żadnej cyfry w tekście — 422 przy wysłaniu i przy poprawce
+    (`service.needs_contract_basis`, `_assert_bonus_allowed`);
+  - umowa o pracę i zlecenie bez zmian — pole jest, ale nieobowiązkowe;
+  - podstawa jest tylko przy premii (CHECK `ck_approval_requests_contract_basis`,
+    422 przy wydatku). Formy nie zapisujemy w zgodzie — liczy się kartoteka
+    w chwili wysłania;
+  - `GET /beneficiaries` niesie `needs_contract_basis`, więc formularz oznacza
+    pole jako wymagane; podstawa jest w szczególe zgody, w „Moich zgodach”,
+    w mailu do zatwierdzającego i w Płacach: opis premii „Premia poza umową ·
+    podstawa: …” (widzi go też osoba w „Moim czasie” — to punkt jej umowy)
+    i `rule_snapshot.contract_basis`;
+  - podstawa to tekst, nie wybór z rejestru: umowy zespołu (`hr_agreements`)
+    są w większości poza NEXUSEM, a `b2b_contract_documents` to umowy
+    konsultantów z klientami. Słowa formy („wynagrodzenie dodatkowe”,
+    „koordynator”) zmienia osobna praca.
 - **Droga** (`services/hr/approvals/service.py`, `route`):
   - Premia: prosi Płace albo przełożony osoby
     (`PayrollViewer.manages_bonuses_of`). Wniosek przełożonego to jego

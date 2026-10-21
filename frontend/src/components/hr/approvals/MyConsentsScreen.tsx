@@ -84,6 +84,11 @@ function Detail({ row, onEdit }: { row: ApprovalRequestRow; onEdit: () => void }
           {row.kind === "bonus" && row.beneficiary_name ? ` · dla ${row.beneficiary_name}` : ""}
           {payout ? ` · wypłata: ${payout}` : ""}
         </p>
+        {row.contract_basis ? (
+          <p className="text-sm text-muted-foreground">
+            Podstawa w umowie: <span className="text-foreground">{row.contract_basis}</span>
+          </p>
+        ) : null}
         {row.link_url ? (
           <a
             href={row.link_url}
