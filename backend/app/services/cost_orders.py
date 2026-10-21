@@ -57,6 +57,15 @@ def quantize_money(value: Decimal | int | float | str) -> Decimal:
     return Decimal(str(value)).quantize(MONEY_SCALE)
 
 
+def format_pln(value: Decimal | int | float | str) -> str:
+    """„1 540,00 zł” — kwota do opisu wpisu historii (zapis polski)."""
+    amount = Decimal(str(value)).quantize(Decimal("0.01"))
+    whole, fraction = f"{abs(amount):.2f}".split(".")
+    grouped = f"{int(whole):,}".replace(",", " ")
+    sign = "-" if amount < 0 else ""
+    return f"{sign}{grouped},{fraction} zł"
+
+
 def cost_order_client_ids() -> frozenset[int]:
     """Aktualna lista klientów, u których zamówienie może być kosztowe."""
     return settings.cost_order_client_ids
@@ -265,8 +274,13 @@ async def upsert_invoice(
     source: str = CONSUMPTION_SOURCE_IMPORT,
     import_id: Optional[int] = None,
     user_id: Optional[int] = None,
+    status: Optional[str] = None,
+    note: Optional[str] = None,
 ) -> ClientOrderInvoiceConsumption:
     """Zapisz zafakturowaną kwotę linii za miesiąc (bez przeliczania grupy).
+
+    ``status`` i ``note`` niesie tylko ręczny wpis z zakładki „Zużycie”; zapis
+    z importu je czyści, bo opisywałyby kwotę, której już nie ma.
 
     ``INSERT … ON CONFLICT DO UPDATE``, a nie „SELECT, potem INSERT albo
     UPDATE": ta druga wersja ma okno wyścigu, w którym dwa równoległe importy
@@ -289,6 +303,8 @@ async def upsert_invoice(
             source=source,
             import_id=import_id,
             created_by_user_id=user_id,
+            status=status,
+            note=note,
         )
         .on_conflict_do_update(
             index_elements=[
@@ -300,6 +316,8 @@ async def upsert_invoice(
                 "source": source,
                 "import_id": import_id,
                 "created_by_user_id": user_id,
+                "status": status,
+                "note": note,
                 "updated_at": func.now(),
             },
         )
@@ -315,6 +333,65 @@ async def upsert_invoice(
             f"upsert_invoice: brak wiersza konsumpcji po zapisie (id={row_id})"
         )
     return row
+
+
+async def delete_invoice(
+    db: AsyncSession, *, order: ClientOrder, period_month: str
+) -> Optional[Decimal]:
+    """Usuń kwotę linii za miesiąc (bez przeliczania grupy).
+
+    Zwraca usuniętą kwotę albo ``None``, gdy za ten miesiąc nie było wpisu.
+    """
+    row = await db.scalar(
+        select(ClientOrderInvoiceConsumption).where(
+            ClientOrderInvoiceConsumption.order_id == order.id,
+            ClientOrderInvoiceConsumption.period_month == period_month,
+        )
+    )
+    if row is None:
+        return None
+    amount = quantize_money(row.invoice_amount)
+    await db.delete(row)
+    await db.flush()
+    return amount
+
+
+async def group_invoice_rows(
+    db: AsyncSession, group_id: int
+) -> list[ClientOrderInvoiceConsumption]:
+    """Wszystkie kwoty zamówienia w kolejności rozliczania (jak ``settle_group``)."""
+    return list(
+        (
+            await db.scalars(
+                select(ClientOrderInvoiceConsumption)
+                .join(
+                    ClientOrder,
+                    ClientOrder.id == ClientOrderInvoiceConsumption.order_id,
+                )
+                .where(ClientOrder.order_group_id == group_id)
+                .order_by(
+                    ClientOrderInvoiceConsumption.period_month.asc(),
+                    ClientOrderInvoiceConsumption.order_id.asc(),
+                )
+            )
+        ).all()
+    )
+
+
+def balance_after_months(
+    pool: Decimal, rows: list[ClientOrderInvoiceConsumption]
+) -> dict[str, Decimal]:
+    """Saldo zamówienia po każdym miesiącu — po wpisach WSZYSTKICH osób.
+
+    Liczone z zapisanych ``settled_amount``, więc nie schodzi poniżej zera tak
+    samo jak ``budget_remaining`` (ostatni miesiąc = kafel „Pozostało”).
+    """
+    balance = quantize_money(pool) if pool > ZERO else ZERO
+    out: dict[str, Decimal] = {}
+    for row in rows:
+        balance = quantize_money(balance - quantize_money(row.settled_amount))
+        out[row.period_month] = balance
+    return out
 
 
 def describe_invoice_import(

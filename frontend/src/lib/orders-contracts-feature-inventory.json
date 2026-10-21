@@ -569,6 +569,13 @@
    "b_home": "Panel, zakładka"
   },
   {
+   "id": "l.cost-consumption",
+   "opis": "Zużycie zamówienia kosztowego po miesiącach (kwoty, wspólny budżet) z edycją",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "CostConsumptionTab",
+   "b_home": "Panel, zakładka „Zużycie”"
+  },
+  {
    "id": "l.edit",
    "opis": "Edytuj linię / stawki",
    "file": "components/client-profile/orders/OrderLinePanel.tsx",

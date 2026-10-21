@@ -31,6 +31,7 @@ import type {
   ContractWithOrdersRead,
 } from "@/lib/api/dlPortal";
 import type {
+  CostConsumptionsResponse,
   LineConsumptionsResponse,
   OrderGroupListResponse,
   OrderGroupRead,
@@ -327,6 +328,7 @@ const COST_GROUP = group({
       candidate_id: 48,
       consultant_name: "Hanna Nowa",
       start_date: "2026-09-01",
+      missing_consumption_month: "2026-09",
       md_total: null,
       md_remaining: null,
       md_used: null,
@@ -337,6 +339,57 @@ const COST_GROUP = group({
   ],
   active_consultants: 2,
 });
+
+/** Zakładka „Zużycie” zamówienia kosztowego 503: Grzegorz z importu, Hanna bez zejścia. */
+const COST_PEOPLE = [
+  { order_id: 5031, name: "Grzegorz Kosztowy", invoiced: 32_000 },
+  { order_id: 5032, name: "Hanna Nowa", invoiced: 0 },
+];
+const COST_GROUP_ROWS = [
+  { order_id: 5031, period_month: "2026-08", invoice_amount: 16_000 },
+  { order_id: 5031, period_month: "2026-09", invoice_amount: 16_000 },
+];
+const COST_CONSUMPTIONS: Record<number, CostConsumptionsResponse> = {
+  5031: {
+    order_number: "SAP 4599050003",
+    budget_pool: 80_000,
+    budget_used: 32_000,
+    budget_remaining: 48_000,
+    rows: [
+      {
+        period_month: "2026-08",
+        invoice_amount: 16_000,
+        settled_amount: 16_000,
+        unsettled_amount: 0,
+        source: "import",
+        created_by_name: "Finanse (import)",
+        balance_after: 64_000,
+      },
+      {
+        period_month: "2026-09",
+        invoice_amount: 16_000,
+        settled_amount: 16_000,
+        unsettled_amount: 0,
+        source: "manual",
+        status: "accepted",
+        note: "faktura FV/09/2026",
+        created_by_name: "Delivery Lead (przykład)",
+        balance_after: 48_000,
+      },
+    ],
+    people: COST_PEOPLE,
+    group_rows: COST_GROUP_ROWS,
+  },
+  5032: {
+    order_number: "SAP 4599050003",
+    budget_pool: 80_000,
+    budget_used: 32_000,
+    budget_remaining: 48_000,
+    rows: [],
+    people: COST_PEOPLE,
+    group_rows: COST_GROUP_ROWS,
+  },
+};
 
 /** Wspólna pula MD zamówienia — linie bez własnego budżetu. */
 const SHARED_GROUP = group({
@@ -679,6 +732,7 @@ function seededClient(): QueryClient {
     history: { 501: MD_HISTORY },
     consumptions: { 5011: ANNA_CONSUMPTIONS },
     sharedConsumptions: { 504: SHARED_CONSUMPTIONS },
+    costConsumptions: COST_CONSUMPTIONS,
   });
   return qc;
 }
