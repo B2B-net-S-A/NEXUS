@@ -24,9 +24,10 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/placement-exclusions": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/placement-exclusions": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

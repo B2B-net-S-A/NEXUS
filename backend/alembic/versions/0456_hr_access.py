@@ -18,6 +18,23 @@ from alembic import op
 from app.services import hr_access_schema as schema
 from app.services import permission_schema
 
+#: Role znane w chwili tej migracji. Rola dodana później (0490, „Rada
+#: nadzorcza”) nie mieści się jeszcze w CHECK-u ról tabeli akcji — zasiew
+#: z bieżącego katalogu wywróciłby świeżą bazę (CheckViolation, jak 0410
+#: przy 0446). Jej wiersze zasiewa jej własna migracja.
+ROLES_AT_0456: tuple[str, ...] = (
+    "admin",
+    "finance",
+    "head_of_recruitment",
+    "delivery_lead",
+    "talent_community_manager",
+    "recruiter",
+    "user",
+    "trainee",
+    "automation",
+    "employee",
+)
+
 revision = "0456_hr_access"
 down_revision = "0455_hr_foundation"
 branch_labels = None
@@ -51,7 +68,7 @@ def upgrade() -> None:
     for stmt in schema.SEED_DDL:
         op.execute(stmt)
     # CHECK akcji z katalogu → zasiew wszystkich ról × uprawnień → rewizja.
-    for stmt in permission_schema.apply_statements():
+    for stmt in permission_schema.apply_statements(roles=ROLES_AT_0456):
         op.execute(stmt)
 
 

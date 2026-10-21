@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/champion-suggestions/{suggestion_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/apply": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/rate": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/reject": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/champion-suggestions/{suggestion_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/champion-suggestions/{suggestion_id}/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/champion-suggestions/{suggestion_id}/rate": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/champion-suggestions/{suggestion_id}/reject": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

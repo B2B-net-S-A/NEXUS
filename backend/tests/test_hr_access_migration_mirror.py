@@ -73,10 +73,10 @@ def test_models_know_the_role() -> None:
         (RoleActionPermission, "ck_rbac_role_action_permissions_role"),
     ):
         assert "'employee'" in _check_sql(model, name)
+    # Pełną listę wyłącznych ról porównuje lustro najnowszej z nich (0490,
+    # ``test_board_role_migration_mirror.py``); tu tylko: ``employee`` w niej jest.
     exclusive = _check_sql(User, "ck_users_exclusive_finance_viewer_roles")
-    assert re.sub(r"\s+", "", exclusive) == re.sub(
-        r"\s+", "", schema.EXCLUSIVE_ROLES_CHECK
-    )
+    assert exclusive.count("'employee'") == 2
     assert UserRole.employee.value == "employee"
     assert "employee" in catalog.ROLES
 

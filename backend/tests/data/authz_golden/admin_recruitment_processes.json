@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/recruitment-processes/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/recruitment-processes/by-pair/{candidate_id}/{job_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/recruitment-processes/shadow-compare": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/recruitment-processes/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/recruitment-processes/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/recruitment-processes/by-pair/{candidate_id}/{job_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/recruitment-processes/shadow-compare": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/recruitment-processes/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -378,9 +378,9 @@ async def users_without_profile(db: AsyncSession) -> list[dict[str, Any]]:
     ]
 
 
-#: Role, które nie są pracą w firmie: konto techniczne „Automatyzacje” i stary
-#: podgląd (``user``) — bez kartoteki.
-NON_STAFF_ROLES = frozenset({UserRole.automation, UserRole.user})
+#: Role, które nie są pracą w firmie: konto techniczne „Automatyzacje”, stary
+#: podgląd (``user``) i Rada nadzorcza (0490) — bez kartoteki.
+NON_STAFF_ROLES = frozenset({UserRole.automation, UserRole.user, UserRole.board})
 
 
 async def integration_account_ids(db: AsyncSession) -> frozenset[int]:

@@ -4,7 +4,7 @@
     "title": "Lista rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu widzisz rekrutacje — swoje, z Twojej kategorii albo całej firmy: stan requestu, priorytet (P1 = pilne), etapy kandydatów, Rekrutera (kto nad nią pracuje) i portale z wiszącym ogłoszeniem. Pod nazwą stoi kategoria, klient i tryb pracy.",
+    "what": "Tu widzisz rekrutacje — swoje, z Twojej kategorii albo całej firmy: stan requestu, priorytet (P1 = pilne), etapy kandydatów, Rekrutera (kto nad nią pracuje) i gdzie wisi ogłoszenie. Pod nazwą stoi kategoria, klient i tryb pracy.",
     "tasks": [
       {
         "q": "Jak przełączyć między moimi, otwartymi i wszystkimi rekrutacjami?",
@@ -234,7 +234,7 @@
       "Wymagania z „Czego szukamy” są tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
       "Kandydata z list AI ukrywa tylko brak wymagania krytycznego: najwyżej trzy słowa do szukania (zdanie nie może być krytyczne). Gdy razem zostawiają mniej niż 20 osób, zapis pyta. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” = nikt nie jest ukrywany.",
       "Budżet podany zakresem (np. 60–80) widać jako przedział, a plakietki liczą się od górnej granicy.",
-      "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta — numer stoi przed tytułem, nazwa jest w dymku tytułu."
+      "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta — numer stoi przed tytułem, nazwa jest w dymku tytułu. Zmienisz je przyciskiem „Zmień” przy tych wierszach w bloku „Warunki”, nie przez „Edytuj” bloku."
     ],
     "anchors": [
       {"id": "job.champion.intake", "label": "Wygeneruj z opisu klienta", "describe": "Wypełnienie profilu z opisu klienta przez AI."},
@@ -688,7 +688,7 @@
     "title": "Mój czas",
     "section": null,
     "roles": [],
-    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd”, zakładka nieobecności (na umowie o pracę „Urlop”, na B2B „Przerwy”, na zleceniu „Nieobecności”), miesiąc godzin, premie i kartoteka.",
+    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd” (z kartą „Ja w firmie” — stanowisko, przełożony, kartoteka), nieobecności („Urlop”, „Przerwy” albo „Nieobecności”), miesiąc godzin i premie.",
     "tasks": [
       {
         "q": "Jak zgłosić urlop albo przerwę?",
@@ -726,7 +726,7 @@
       {
         "id": "hr.my_time.tabs",
         "label": "Zakładki „Mojego czasu”",
-        "describe": "Przegląd, nieobecności, miesiąc godzin, rozliczenie, premie i kartoteka — widać tylko włączone."
+        "describe": "Przegląd, nieobecności, miesiąc godzin, rozliczenie i premie — widać tylko włączone."
       },
       {
         "id": "hr.my_time.leave_submit",
@@ -918,6 +918,7 @@
     ],
     "pitfalls": [
       "Zatwierdzona premia poza umową jest od razu przyznana w Płacach — Płace nie zatwierdzają jej drugi raz.",
+      "Premia dla osoby na B2B wymaga „Podstawy w umowie” — punktu umowy albo numeru aneksu; bez niej wniosek nie wyjdzie.",
       "O zgodzie dla siebie (także o premii dla siebie) nie decydujesz — nawet jako zatwierdzający.",
       "Zgoda bez faktury i paragonu wygasa po 30 dniach. Rozliczają Finanse, nie autor; dopłatę zatwierdza zatwierdzający."
     ],

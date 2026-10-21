@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/proposals": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/jobs/{job_id}/proposals/latest": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/jobs/{job_id}/proposals/regenerate": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/jobs/{job_id}/proposals": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/jobs/{job_id}/proposals/latest": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/jobs/{job_id}/proposals/regenerate": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/contract-structure": "PPDBPDDDBBBDPPPPDPPPDDDDD",
-  "GET /api/clients/{client_id}/executive-contracts/review": "PPDBPDDDBBBDPPPPDPPPDDDDD",
-  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PPDBDDDDBBBDDPDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/executive-contracts": "PPDBDDDDBBBDDPDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/executive-contracts/assignments": "PPDBDDDDBBBDDPDDDDDDDDDDD"
+  "GET /api/clients/{client_id}/contract-structure": "PPDBPDDDBBBDPPPPDPPPDDDDDD",
+  "GET /api/clients/{client_id}/executive-contracts/review": "PPDBPDDDBBBDPPPPDPPPDDDDDD",
+  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/executive-contracts": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/executive-contracts/assignments": "PPDBDDDDBBBDDPDDDDDDDDDDDD"
  }
 }

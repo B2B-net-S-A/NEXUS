@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

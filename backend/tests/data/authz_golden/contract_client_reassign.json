@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/contracts/{contract_id}/client-reassign-preview": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contracts/{contract_id}/client-reassign": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/contracts/{contract_id}/client-reassign-preview": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contracts/{contract_id}/client-reassign": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

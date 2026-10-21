@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Trash2, Wallet } from "lucide-react";
 
+import { TabbedNav } from "@/components/ds/TabbedNav";
 import { useToast } from "@/components/Toast";
 import { BonusRulesCard } from "@/components/hr/payroll/BonusRulesCard";
 import { parseAmount } from "@/components/hr/payroll/payroll-format";
@@ -12,11 +14,31 @@ import { Input } from "@/components/ui/input";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { HrConfig } from "@/lib/api/hr";
 import { useMinimumRates, useSaveMinimumRates, type MinimumRates } from "@/lib/api/hr-payroll";
+import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 
 import { KsefStatusCard } from "@/components/hr/payroll/ksef/KsefStatusCard";
 
 import { PaymentSettingsCard } from "./PaymentSettingsCard";
+
+/** Ten sam parametr co zakładki Kadr (`HR_SETTINGS_TAB_PARAM`) — bez importu, który zapętliłby moduły. */
+const PAYROLL_TAB_PARAM = "zakladka";
+
+export type PayrollSettingsTab = "premie" | "stawki" | "wyplaty" | "ksef";
+
+const PAYROLL_TAB_LABELS: Record<PayrollSettingsTab, string> = {
+  premie: "Premie",
+  stawki: "Stawki minimalne",
+  wyplaty: "Wypłaty i Symfonia",
+  ksef: "KSeF",
+};
+
+/** Zakładki Płac: wypłaty i KSeF tylko przy włączonych rozliczeniach (jak karty dotąd). */
+export function availablePayrollTabs(config: Pick<HrConfig, "open_modules">): PayrollSettingsTab[] {
+  const tabs: PayrollSettingsTab[] = ["premie", "stawki"];
+  if (config.open_modules.settlements) tabs.push("wyplaty", "ksef");
+  return tabs;
+}
 
 /** Kto zmienia reguły premii — lustro `require_hr_payroll_admin` (Płace, admin zawsze). */
 export function canEditPayrollSettings(config: Pick<HrConfig, "me">): boolean {
@@ -174,6 +196,40 @@ function MinimumRatesCard() {
 }
 
 /**
+ * Zakładki Płac (makieta rundy 2, 21.10.2026): na produkcji siedem sekcji
+ * i 39 pól jedna pod drugą (2 650 px) — reguły premii zmieniane raz na
+ * kwartał obok miesięcznych eksportów do Symfonii i KSeF. Zakładka w adresie
+ * (`?zakladka=`, jak Kadry).
+ */
+function PayrollTabs({ config }: { config: HrConfig }) {
+  const searchParams = useSearchParams();
+  const pathname = usePathname() ?? "";
+  const { replaceUrl } = useUrlWriter();
+  const tabs = availablePayrollTabs(config);
+  const requested = searchParams?.get(PAYROLL_TAB_PARAM) as PayrollSettingsTab | null;
+  const tab = requested && tabs.includes(requested) ? requested : tabs[0];
+  const select = (next: string) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.set(PAYROLL_TAB_PARAM, next);
+    replaceUrl(`${pathname}?${params.toString()}`);
+  };
+  return (
+    <div className="space-y-4">
+      <TabbedNav
+        tabs={tabs.map((value) => ({ value, label: PAYROLL_TAB_LABELS[value] }))}
+        value={tab}
+        onValueChange={select}
+        ariaLabel="Płace"
+      />
+      {tab === "premie" ? <BonusRulesCard /> : null}
+      {tab === "stawki" ? <MinimumRatesCard /> : null}
+      {tab === "wyplaty" ? <PaymentSettingsCard /> : null}
+      {tab === "ksef" ? <KsefStatusCard /> : null}
+    </div>
+  );
+}
+
+/**
  * Ustawienia → Zespół i dostęp → Płace (17.10.2026): reguły premii
  * z placementów i z Ligi. Do 17.10 karta stała w „Kadrach”, do których osoba
  * z samym uprawnieniem „Płace” (Finanse) nie wchodziła, choć API ją wpuszczało.
@@ -199,13 +255,7 @@ export function PayrollSettings({ config }: { config: HrConfig }) {
         </p>
       </div>
       {config.open_modules.payroll ? (
-        <>
-          <BonusRulesCard />
-          <MinimumRatesCard />
-          {config.open_modules.settlements ? <PaymentSettingsCard /> : null}
-          {config.open_modules.settlements ? <KsefStatusCard /> : null}
-        </>
-      ) : (
+        <PayrollTabs config={config} />      ) : (
         <p className="text-sm text-muted-foreground">
           Moduł płac nie jest jeszcze włączony — reguły premii ustawisz po jego włączeniu
           (Ustawienia → Kadry → „Moduły”).

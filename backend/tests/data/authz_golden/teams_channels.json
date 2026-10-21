@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/teams-channels/{channel_db_id}/test": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/teams-channels/{channel_db_id}/test": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

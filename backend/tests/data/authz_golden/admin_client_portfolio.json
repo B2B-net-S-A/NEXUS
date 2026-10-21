@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/client-portfolio/import-preview": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/admin/client-portfolio/import-runs": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/admin/client-portfolio/import-runs/{run_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD"
+  "GET /api/admin/client-portfolio/import-preview": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/admin/client-portfolio/import-runs": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/admin/client-portfolio/import-runs/{run_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD"
  }
 }

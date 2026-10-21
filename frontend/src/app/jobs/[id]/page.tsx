@@ -942,6 +942,9 @@ export default function JobDetailPage() {
         }
         activeView={showBoard ? "board" : activeView}
         onViewChange={selectView}
+        viewHref={(view) =>
+          view === JOB_DETAIL_DEFAULT_VIEW ? `/jobs/${id}` : `/jobs/${id}?tab=${view}`
+        }
         // „Zlecenie" otwiera okno na KAŻDYM widoku — także na „Zlecenie
         // i Champion": portale, zespół i „Zamknij rekrutację" mieszkają tylko
         // w tym oknie, więc muszą być osiągalne zewsząd.

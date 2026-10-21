@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "POST /api/invite-links": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/invite-links/{token}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "POST /api/invite-links": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/invite-links/{token}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/command": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/confirm-fact": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/selection": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/command": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/confirm-fact": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/selection": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

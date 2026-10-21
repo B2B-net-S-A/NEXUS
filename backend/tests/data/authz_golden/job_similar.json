@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/similar/{other_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/jobs/{job_id}/similar": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/jobs/{job_id}/similar/people": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/jobs/{job_id}/similar/search": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/job-similarity/preview": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/jobs/{job_id}/champion-found": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/jobs/{job_id}/similar": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/jobs/{job_id}/similar/reassign": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "DELETE /api/jobs/{job_id}/similar/{other_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/jobs/{job_id}/similar": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/jobs/{job_id}/similar/people": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/jobs/{job_id}/similar/search": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/job-similarity/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/jobs/{job_id}/champion-found": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/jobs/{job_id}/similar": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/jobs/{job_id}/similar/reassign": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

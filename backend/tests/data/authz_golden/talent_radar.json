@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "POST /api/talent-radar/interpret": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/talent-radar/parse-champion": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "POST /api/talent-radar/search": "PPPPPPPDPPPPPPPPPPPPDPPPP"
+  "POST /api/talent-radar/interpret": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/talent-radar/parse-champion": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "POST /api/talent-radar/search": "PPPPPPPDPPPPPPPPPPPPDPPPPD"
  }
 }

@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "PATCH /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/shortlist/{entry_id}/promote": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "DELETE /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "PATCH /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/shortlist/{entry_id}/promote": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

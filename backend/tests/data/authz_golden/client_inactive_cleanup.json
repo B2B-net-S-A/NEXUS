@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/clients/directory/inactive-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/directory/inactive-cleanup/preview": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/directory/inactive-cleanup/execute": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/clients/directory/inactive-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/directory/inactive-cleanup/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/directory/inactive-cleanup/execute": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

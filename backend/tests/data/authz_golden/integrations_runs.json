@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/insights/integrations/runs": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/integrations/summary": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/insights/integrations/runs": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/integrations/summary": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }
