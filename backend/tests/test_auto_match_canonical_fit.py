@@ -279,8 +279,21 @@ async def test_blacklist_and_client_conflict_still_block(world, penalties, warni
     assert world["proposed"] == []
 
 
-async def test_new_cv_without_a_current_vector_goes_back_to_the_queue(world):
+async def test_new_cv_without_a_current_vector_gets_no_decision(world):
+    """Wektor może dogonić CV dopiero po kilku minutach (reconciler co 300 s):
+    para bez decyzji, zdarzenie nie umiera — ocenia ją nocny przegląd bazy."""
     world["measurement"] = "stale"
+
+    result = await ams.run_candidate_event(
+        _candidate_db(), _event(candidate_id=CANDIDATE_ID)
+    )
+
+    assert world["logged"] == []
+    assert result["unmeasured"] == {"stale": 1}
+
+
+async def test_new_cv_with_the_engine_down_goes_back_to_the_queue(world):
+    world["measurement"] = "unavailable"
 
     with pytest.raises(ams.AutoMatchUnavailable):
         await ams.run_candidate_event(
@@ -350,3 +363,37 @@ async def test_warmed_vector_is_the_one_request_vector_would_compute(monkeypatch
     assert calls == [32, 8]
     assert await fsm.request_vector(texts[0]) == expected
     assert calls == [32, 8]
+
+
+async def test_job_event_with_one_failed_batch_goes_back_to_the_queue(
+    world, monkeypatch
+):
+    """Awaria jednej paczki pomiaru (256 osób) nie może zostawić reszty bez
+    decyzji do następnej zmiany rekrutacji."""
+    from app.models.job import Job
+    from app.services import canonical_fit
+
+    people = [
+        SimpleNamespace(**{**vars(_candidate()), "id": CANDIDATE_ID + i})
+        for i in range(2)
+    ]
+
+    async def half(db, context, candidates):
+        return [
+            SimpleNamespace(
+                breakdown=_breakdown(c.id, context.job_id, CANONICAL_FIT),
+                measurement="measured" if i == 0 else "unavailable",
+                fit_score=CANONICAL_FIT if i == 0 else None,
+            )
+            for i, c in enumerate(candidates)
+        ]
+
+    monkeypatch.setattr(canonical_fit, "score_candidates", half)
+    db = _FakeDb(
+        by_key={(Job.__name__, JOB_ID): _job()},
+        scalars=[[p.id for p in people], people],
+    )
+
+    with pytest.raises(ams.AutoMatchUnavailable):
+        await ams.run_job_event(db, _event(job_id=JOB_ID))
+    assert world["logged"] == []

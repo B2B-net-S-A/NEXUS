@@ -678,6 +678,7 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
     ineligible = [d for d in ineligible if (d.candidate_id, d.job_id) not in already]
 
     scored: list[Scored] = []
+    unmeasured: Counter = Counter()
     # Każda rekrutacja ma własny wektor zapytania: liczymy je paczkami, w
     # porcjach mieszczących się w pamięci podręcznej (zdarzenie CV ocenia
     # średnio 74 rekrutacje, do 300 — pomiar 21.10.2026).
@@ -686,16 +687,15 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
         contexts = [await _fit_context(db, job) for job in chunk]
         await warm_request_vectors([context.query_text for context in contexts])
         for job, context in zip(chunk, contexts):
-            rows, unmeasured = await _canonical_scored(
+            rows, missed = await _canonical_scored(
                 db, job, [candidate], context=context
             )
-            if unmeasured:
-                # Wektor CV jeszcze nieaktualny albo Qdrant/Voyage nie
-                # odpowiada: zdarzenie wraca do kolejki, zamiast zapisać
-                # „poniżej progu”.
-                raise AutoMatchUnavailable(
-                    f"pomiar kandydata {candidate.id}: {', '.join(sorted(unmeasured))}"
-                )
+            if missed.get("unavailable"):
+                # Qdrant/Voyage nie odpowiada: zdarzenie wraca do kolejki.
+                raise AutoMatchUnavailable(f"pomiar kandydata {candidate.id}")
+            # Wektor CV jeszcze nieaktualny (`stale`, `missing_index`): para
+            # bez decyzji — ocenia ją nocny przegląd bazy albo kolejne CV.
+            unmeasured += missed
             scored += rows
     plan = decide(
         scored,
@@ -737,7 +737,12 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
         jobs_by_id=jobs_by_id,
         candidates_by_id={candidate.id: candidate},
     )
-    return {**_summary(final, notified), "pool": len(similarity), "run_id": run_id}
+    return {
+        **_summary(final, notified),
+        "pool": len(similarity),
+        "run_id": run_id,
+        "unmeasured": dict(unmeasured),
+    }
 
 
 async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
@@ -803,7 +808,10 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
     unmeasured: Counter = Counter()
     if kept:
         scored, unmeasured = await _canonical_scored(db, job, kept)
-        if not scored and unmeasured.get("unavailable"):
+        if unmeasured.get("unavailable"):
+            # Awaria choćby jednej paczki pomiaru: całe zdarzenie wraca do
+            # kolejki (przed zapisem czegokolwiek), inaczej ta część osób
+            # zostałaby bez decyzji do następnej zmiany rekrutacji.
             raise AutoMatchUnavailable("pomiar rekrutacji niedostępny")
     plan = decide(
         scored,
@@ -848,6 +856,6 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
         "pool": len(similarity),
         "run_id": run_id,
         # Osoby bez pomiaru (wektor nieaktualny) nie dostają decyzji — ocenia
-        # je kolejne zdarzenie, np. ich własne nowe CV.
+        # je nocny przegląd bazy albo kolejne zdarzenie.
         "unmeasured": dict(unmeasured),
     }

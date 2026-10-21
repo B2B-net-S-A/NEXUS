@@ -116,10 +116,13 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   skalą niż procent na ekranach, a panel wag HoR go nie dotyczył. Kanoniczny fit
   nie niesie kar ani ostrzeżeń — czarną listę, konflikt i wykluczenie klienta
   liczy dalej `scoring_service._check_penalties_and_warnings` (`penalized`).
-  Para bez pomiaru nie dostaje decyzji: zdarzenie CV wraca do kolejki
-  (`AutoMatchUnavailable`), zdarzenie rekrutacji pomija tę osobę
-  (`result.unmeasured`) i wraca do kolejki tylko, gdy nie zmierzono nikogo
-  z powodu awarii. Wyników `candidate_auto_match_log.score` sprzed 21.10.2026
+  Para bez pomiaru nie dostaje decyzji: awaria pomiaru (`unavailable`, także
+  jednej paczki) cofa całe zdarzenie do kolejki (`AutoMatchUnavailable`, przed
+  zapisem); nieaktualny wektor CV (`stale`, `missing_index` — reconciler
+  dogania go co 300 s) zostawia parę bez decyzji, zdarzenie kończy się `done`
+  z `result.unmeasured`, a osobę ocenia nocny przegląd (A). Zdarzenie CV liczy
+  wektory zapytań paczkami (`full_search_measurement.warm_request_vectors`,
+  porcje po `_WARM_CHUNK` = 64), bo ocenia średnio 74 rekrutacje. Wyników `candidate_auto_match_log.score` sprzed 21.10.2026
   nie porównuj z nowszymi — to inny scorer (reguła „nie porównuj metryk między
   scorerami” w `kandydaci-wyszukiwanie/talent-radar-…md`).
 - **C. Jedna ścieżka walidacji z kliknięciem rekrutera:**
