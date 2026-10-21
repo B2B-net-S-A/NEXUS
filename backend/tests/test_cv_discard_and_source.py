@@ -27,8 +27,6 @@ from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot
 from tests.test_stage_cv_upload import _client_world
 
-pytestmark = pytest.mark.asyncio
-
 
 async def _with_draft(stage_id: int) -> int:
     async with AsyncSessionLocal() as db:
@@ -44,6 +42,7 @@ async def _with_draft(stage_id: int) -> int:
         return row.id
 
 
+@pytest.mark.asyncio
 async def test_discard_returns_card_to_none_and_keeps_a_snapshot(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
@@ -92,6 +91,7 @@ async def test_discard_returns_card_to_none_and_keeps_a_snapshot(
     assert again.status_code == 409, again.text
 
 
+@pytest.mark.asyncio
 async def test_discard_refuses_after_cv_sent(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
@@ -119,6 +119,7 @@ def test_generation_records_its_source_file():
     assert "ai_sources" not in result.render_payload
 
 
+@pytest.mark.asyncio
 async def test_ai_sources_says_which_file_the_current_cv_came_from(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
@@ -144,6 +145,8 @@ async def test_ai_sources_says_which_file_the_current_cv_came_from(
             sha = hashlib.sha256(original.file_content or b"").hexdigest()
             original.content_sha256 = sha
             row.original_cv_sha256 = sha
+        original_id = original.id
+        original_filename = original.filename
         generated = CvGeneratedDocument(
             candidate_id=world["candidate_id"],
             job_id=world["job_id"],
@@ -156,8 +159,8 @@ async def test_ai_sources_says_which_file_the_current_cv_came_from(
             render_payload={
                 "name": "Ewa Fikcyjna",
                 "source_cv": {
-                    "document_id": original.id,
-                    "filename": original.filename,
+                    "document_id": original_id,
+                    "filename": original_filename,
                 },
             },
         )
@@ -167,7 +170,6 @@ async def test_ai_sources_says_which_file_the_current_cv_came_from(
         row.branded_status = "draft"
         row.branded_draft_html = "<p>CV</p>"
         await db.commit()
-        original_id = original.id
 
     res = await app_client.get(
         f"/api/candidates/stages/{world['stage_id']}/cv/ai-sources",
