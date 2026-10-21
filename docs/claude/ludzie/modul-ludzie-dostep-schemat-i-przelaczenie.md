@@ -486,7 +486,11 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
 - **Status idzie za kontem**: listener `after_flush` na `users.is_active` (wszystkie ścieżki —
   Osoby i role, usunięcie konta, SSO bez roli, synchronizacja grup AAD, sprawa odejścia).
   Wyłączenie → `exited`, `exited_at`, ostatni dzień = dzień wyłączenia albo wcześniejsza data
-  z kartoteki; odejście w toku też. Włączenie → `active`, ostatni dzień i `exited_at` znikają.
+  z kartoteki; odejście w toku też. Włączenie → stan sprzed wyłączenia: status i ostatni dzień
+  ze śladu `profile_follows_account` (np. `offboarding` z jego ostatnim dniem) — decyzja Artura
+  21.10.2026, pomyłkowe wyłączenie nie kasuje odejścia. Tylko gdy kartotekę zamknęło samo
+  wyłączenie (ślad z tej samej transakcji co `exited_at`) i ostatni dzień od tamtej pory się nie
+  zmienił; inaczej `active` bez ostatniego dnia. `exited_at` zawsze znika.
   Ślad `hr_audit_events` `profile_follows_account` (`source: account` / `align`), w tej samej
   transakcji co zmiana konta. Zapis surowym SQL-em listener omija — łapie go lista rozjazdów.
 - **Lista rozjazdów** w „Ludzie → Katalog” (admin, Finanse, Kadry; `GET /api/hr/people/

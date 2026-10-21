@@ -82,6 +82,57 @@ async def test_switching_the_account_off_and_on_moves_the_profile() -> None:
 
 
 @pytest.mark.asyncio
+async def test_account_back_on_restores_the_departure_in_progress() -> None:
+    """Decyzja Artura 21.10.2026: pomyłkowe wyłączenie konta nie kasuje odejścia.
+
+    Ponowne włączenie wraca do statusu i ostatniego dnia sprzed wyłączenia,
+    o ile od wyłączenia nikt nie zmienił kartoteki ręcznie."""
+    later = business_today() + timedelta(days=20)
+    async with AsyncSessionLocal() as db:
+        leaving = await make_user(
+            db, "recruiter", employment_status="offboarding", last_working_day=later
+        )
+        onboarding = await make_user(db, "recruiter", employment_status="onboarding")
+        edited = await make_user(
+            db, "recruiter", employment_status="offboarding", last_working_day=later
+        )
+        await db.commit()
+
+    for user in (leaving, onboarding, edited):
+        await _switch(user.id, False)
+    # Kadry po wyłączeniu poprawiły ostatni dzień ręcznie — to już ich decyzja.
+    fixed_day = business_today() - timedelta(days=1)
+    async with AsyncSessionLocal() as db:
+        row = await people.profile_of(db, edited.id)
+        row.last_working_day = fixed_day
+        await db.commit()
+    for user in (leaving, onboarding, edited):
+        await _switch(user.id, True)
+
+    back = await _profile(leaving.id)
+    assert back.employment_status == "offboarding"
+    assert back.last_working_day == later and back.exited_at is None
+    assert (await _profile(onboarding.id)).employment_status == "onboarding"
+    # Ręczna zmiana po wyłączeniu: powrót jak dotąd, „aktywny” bez ostatniego dnia.
+    plain = await _profile(edited.id)
+    assert plain.employment_status == "active" and plain.last_working_day is None
+
+    async with AsyncSessionLocal() as db:
+        trail = (
+            await db.scalars(
+                select(HrAuditEvent)
+                .where(
+                    HrAuditEvent.subject_user_id == leaving.id,
+                    HrAuditEvent.action == account_profiles.FOLLOW_ACTION,
+                )
+                .order_by(HrAuditEvent.id)
+            )
+        ).all()
+    assert [e.details["to"] for e in trail] == ["exited", "offboarding"]
+    assert trail[1].details["last_working_day"] == later.isoformat()
+
+
+@pytest.mark.asyncio
 async def test_rolled_back_account_change_leaves_the_profile_alone() -> None:
     async with AsyncSessionLocal() as db:
         user = await make_user(db, "recruiter")
