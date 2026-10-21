@@ -21,7 +21,9 @@ from app.services.interview_cycle import (
     compute_todos,
     prep1_remaining,
     prep2_skip_status,
+    prep2_skip_valid,
 )
+from app.services.prep2_skips import tally_skip_stats
 
 # Wtorek 20.10.2026, 14:00 w Warszawie.
 NOW = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
@@ -250,3 +252,38 @@ def test_skip_survives_moving_the_interview_earlier_or_same_day() -> None:
         TOMORROW_9 - timedelta(hours=20), [_prep1()], prep2_skips={9: _skip()}
     )
     assert prep2_skip_status(earlier, NOW - timedelta(hours=2)) == "skipped"
+
+
+# ── Wyjątek po przełożeniu rozmowy (audyt 21.10.2026) ────────────────────────
+# Wiersz `prep2_skips` zostaje po przełożeniu rozmowy (UNIQUE na
+# `interview_event_id`). Ekran mówił „allowed”, a ponowny zapis dawał 409;
+# raport liczył nieważny wyjątek jako rozmowę „z powodem”.
+
+
+def test_skip_validity_is_one_rule_for_screen_and_report() -> None:
+    assert prep2_skip_valid(NOW, TOMORROW_9)
+    assert prep2_skip_valid(NOW, NOW + timedelta(hours=2))
+    assert not prep2_skip_valid(NOW, TOMORROW_9 + timedelta(days=7))
+    # Piątek → poniedziałek to dalej „najbliższy dzień roboczy”.
+    friday = datetime(2026, 10, 23, 10, 0, tzinfo=timezone.utc)
+    assert prep2_skip_valid(friday, datetime(2026, 10, 26, 7, 0, tzinfo=timezone.utc))
+
+
+def test_report_does_not_count_a_skip_lost_by_moving_the_interview() -> None:
+    past_iv = NOW - timedelta(hours=1)
+    interviews = [
+        # (id, kandydat, rekrutacja, start, właściciel)
+        (1, 10, 20, past_iv, 11),
+        (2, 12, 20, past_iv, 11),
+    ]
+    skips = {
+        1: ("no_slot", NOW - timedelta(hours=3)),
+        # Zapisany tydzień wcześniej „na jutro”, rozmowa przełożona na dziś.
+        2: ("short_notice", NOW - timedelta(days=7)),
+    }
+    stat = tally_skip_stats(interviews, skips, preps={}, now=NOW)[11]
+    assert stat.interviews == 2
+    assert stat.with_reason == 1
+    assert stat.reasons == {"no_slot": 1}
+    # Nieważny wyjątek = rozmowa bez Prepu 2 i bez powodu.
+    assert stat.silent == 1

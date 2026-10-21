@@ -59,11 +59,11 @@ const request: SlotRequest = {
   client_reply_pending: true,
 };
 
-function renderDialog(onInvalidate = vi.fn()) {
+function renderDialog(onInvalidate = vi.fn(), req: SlotRequest = request) {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <ClientReplyDialog open onOpenChange={() => {}} pair={pair} request={request} onInvalidate={onInvalidate} />
+      <ClientReplyDialog open onOpenChange={() => {}} pair={pair} request={req} onInvalidate={onInvalidate} />
     </QueryClientProvider>,
   );
   return screen.getByRole("dialog", { name: "Odpisz klientowi" });
@@ -100,6 +100,22 @@ describe("ClientReplyDialog", () => {
       }),
     );
     expect(mocks.clientReplied).not.toHaveBeenCalled();
+  });
+
+  it("termin, który już minął, jest wyłączony z podpisem — rozmowy nie da się na niego przestawić", () => {
+    const past = new Date(Date.now() - 2 * 3600_000);
+    const dialog = renderDialog(vi.fn(), {
+      ...request,
+      slots: [
+        request.slots[0],
+        { start: past.toISOString(), end: new Date(past.getTime() + 45 * 60_000).toISOString() },
+      ],
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Klient wybrał inny termin…" }));
+    const radio = within(dialog).getByRole("radio");
+    expect(radio).toBeDisabled();
+    expect(within(dialog).getByText(/termin minął/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Przestaw rozmowę" })).toBeDisabled();
   });
 });
 

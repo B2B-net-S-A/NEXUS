@@ -1499,4 +1499,42 @@ describe("usePipelineMove — strzałka „→”: ruch odłożony z „Cofnij�
   });
 });
 
+describe("usePipelineMove — „Kiedy rozmowa u klienta?” (audyt 21.10.2026)", () => {
+  const accepted = () => column("client_accepted", 5, "Klient zaakceptował", "external");
+
+  it("ruch naprzód na „Rozmowę” bez terminu pyta o datę", async () => {
+    const item = card({ id: 70, candidate_id: 700 });
+    const b = board({ fresh: [item] });
+    mount([...b.all, accepted()]);
+    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    expect(await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" })).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+    expect(move).not.toHaveBeenCalled();
+  });
+
+  it("powrót z kolumny za „Rozmową” (cofnięcie akceptacji) nie pyta o datę", async () => {
+    const item = card({ id: 71, candidate_id: 701, stage: "client_accepted" });
+    const b = board();
+    const acc = accepted();
+    post.mockResolvedValue({ data: { id: 900, process_state_version: 2 } });
+    mount([...b.all.slice(0, 4), acc, b.rejected]);
+    React.act(() => controls.requestMove(item, acc, b.clientInterview));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).toMatchObject({ candidate_id: 701, stage: "client_interview" });
+    expect(screen.queryByRole("dialog", { name: "Kiedy rozmowa u klienta?" })).toBeNull();
+  });
+
+  it("`skipInterviewDate` pomija okno także przy ruchu naprzód", async () => {
+    const item = card({ id: 72, candidate_id: 702 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 901, process_state_version: 2 } });
+    mount(b.all);
+    React.act(() =>
+      controls.requestMove(item, b.verified, b.clientInterview, { skipInterviewDate: true }),
+    );
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("dialog", { name: "Kiedy rozmowa u klienta?" })).toBeNull();
+  });
+});
+
 const colIdOf = (c: KanbanColumn) => `def:${c.stage_def_id}`;

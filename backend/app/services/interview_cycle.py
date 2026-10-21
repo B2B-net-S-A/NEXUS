@@ -243,8 +243,7 @@ class PairSnapshot:
         skip = self.prep2_skips.get(self.interview.id)
         if skip is None:
             return None
-        deadline = _next_business_day(_local(skip.created_at).date())
-        return skip if _local(self.interview.start).date() <= deadline else None
+        return skip if prep2_skip_valid(skip.created_at, self.interview.start) else None
 
     def late_prep(self, n: int) -> Optional[EventRef]:
         """Zaplanowany prep numer ``n``, który wypada po rozmowie u klienta."""
@@ -289,6 +288,16 @@ def _next_business_day(day: date) -> date:
     ):
         current += timedelta(days=1)
     return current
+
+
+def prep2_skip_valid(created_at: datetime, interview_start: datetime) -> bool:
+    """Wyjątek „bez Prepu 2” obowiązuje rozmowę najpóźniej w najbliższy dzień
+    roboczy po dniu zapisu. Jedna reguła dla ekranu (``PairSnapshot.prep2_skip``),
+    ponownego zapisu (``prep2_skips.create_skip``) i raportu
+    (``prep2_skips.tally_skip_stats``) — rozmowa przełożona dalej traci wyjątek.
+    """
+    deadline = _next_business_day(_local(created_at).date())
+    return _local(interview_start).date() <= deadline
 
 
 def prep2_skip_status(pair: PairSnapshot, now: datetime) -> Prep2SkipStatus:

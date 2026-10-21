@@ -2678,7 +2678,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  "Karta wróci do „Rozmowy u klienta”. Powiadomienia „Klient zaakceptował”, których nikt jeszcze nie otworzył, zgasną.",
  confirmLabel: "Cofnij akceptację",
  });
- if (ok) requestMove(item, colId(src), clientInterviewHost);
+ // Rozmowa się odbyła — bez „Kiedy rozmowa u klienta?” (audyt 21.10.2026).
+ if (ok) requestMove(item, colId(src), clientInterviewHost, { skipInterviewDate: true });
  },
  [askUndoAcceptance, clientInterviewHost, cols, requestMove]
  );

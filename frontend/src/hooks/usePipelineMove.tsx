@@ -95,7 +95,7 @@ import {
   type VerifiedRequirementsMissing,
 } from "@/lib/verified-gate";
 import { terminalOf } from "@/lib/kanban-terminal";
-import { moveDialogFor, needsInterviewDate } from "@/lib/pipeline-move-dialog";
+import { moveDialogFor, movesBackTo, needsInterviewDate } from "@/lib/pipeline-move-dialog";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
@@ -328,6 +328,12 @@ export interface RequestMoveOptions {
   clientAcceptance?: ClientAcceptancePayload;
   /** Serwer przyjął ruch (także po „Przenieś mimo to” i debriefie). */
   onMoved?: () => void;
+  /**
+   * Bez okna „Kiedy rozmowa u klienta?” — karta wraca po odbytej rozmowie
+   * („Cofnij akceptację klienta”, audyt 21.10.2026). Powrót z kolumny za
+   * „Rozmową” hook rozpoznaje sam (`movesBackTo`).
+   */
+  skipInterviewDate?: boolean;
 }
 
 export interface PipelineMoveControls {
@@ -978,7 +984,12 @@ export function usePipelineMove({
 
       // „Rozmowa u klienta” bez terminu w NEXUSIE — najpierw „Kiedy rozmowa?”.
       // NIE applyOptimistic tu: „Anuluj” zostawia kartę na miejscu.
-      if (dialog === "interview_date" && needsInterviewDate(item)) {
+      if (
+        dialog === "interview_date" &&
+        !options?.skipInterviewDate &&
+        !movesBackTo(columns, srcColId, dst, colId) &&
+        needsInterviewDate(item)
+      ) {
         setInterviewDatePrompt({ item, destCol: dst, srcColId });
         return;
       }
@@ -1020,6 +1031,7 @@ export function usePipelineMove({
       canWriteClientRate,
       canSendToClient,
       cproEnabled,
+      columns,
     ]
   );
   const requestMoveRef = useRef(requestMove);

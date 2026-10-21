@@ -27,6 +27,7 @@ import {
   isWindow,
   overlaps,
   prepWhen,
+  slotPassed,
   windowBounds,
 } from "@/lib/interview-pick";
 import { useAuthStore } from "@/store/auth";
@@ -77,7 +78,8 @@ export function PickInterviewDialog({
 
   useEffect(() => {
     if (!open) return;
-    const only = request?.slots.length === 1 ? 0 : null;
+    const only =
+      request?.slots.length === 1 && !slotPassed(request.slots[0], request.duration_minutes) ? 0 : null;
     setIndex(only);
     setWindowTime(only != null && request ? (windowBounds(request.slots[0], request.duration_minutes)?.from ?? "") : "");
     setCandFrom("");
@@ -204,7 +206,8 @@ export function PickInterviewDialog({
   const primaryLabel =
     prepsEnabled && toInvite.length > 0
       ? `Wybierz termin i zaproś na prepy (${toInvite.length})`
-      : "Wyślij do DL";
+      : // 0487: wybór od razu wpisuje rozmowę do kalendarza — to samo słowo co dymek po zapisie.
+        "Wpisz do kalendarza";
 
   return (
     <AppModal
@@ -268,19 +271,22 @@ export function PickInterviewDialog({
             {request.slots.map((s, i) => {
               const bounds = windowBounds(s, duration);
               const selected = index === i;
+              const passed = slotPassed(s, duration);
               return (
                 <div
                   key={`${s.start}-${i}`}
                   className={cn(
                     "rounded-md border px-3 py-2 text-sm",
                     selected ? "border-primary bg-primary/5" : "border-border",
+                    passed && "opacity-60",
                   )}
                 >
-                  <label className="flex cursor-pointer items-center gap-2">
+                  <label className={cn("flex items-center gap-2", passed ? "cursor-not-allowed" : "cursor-pointer")}>
                     <input
                       type="radio"
                       name="pick-slot"
                       checked={selected}
+                      disabled={passed}
                       onChange={() => {
                         setIndex(i);
                         setWindowTime(bounds?.from ?? "");
@@ -292,6 +298,7 @@ export function PickInterviewDialog({
                         ? `${formatSlot({ start: s.start, end: null })} · okno ${bounds.from}–${hhmm(s.window_end as string)}`
                         : formatSlot(s)}
                     </span>
+                    {passed ? <span className="text-xs text-muted-foreground">· termin minął</span> : null}
                   </label>
                   {bounds && selected ? (
                     <label className="mt-2 flex items-center gap-2 pl-6 text-xs text-muted-foreground">

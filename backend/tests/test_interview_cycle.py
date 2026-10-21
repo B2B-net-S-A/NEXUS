@@ -1365,3 +1365,74 @@ async def test_client_picked_another_slot_moves_the_interview(
         assert new.status == EventStatus.scheduled
         assert new.operational_owner_id == rec_id
         assert new.start_time.isoformat().startswith(_future(4)[:13])
+
+
+async def _move_slot_to_the_past(request_id: int, index: int) -> None:
+    """Termin wniosku cofnięty na now − 2 h (wniosek sprzed kilku dni)."""
+    from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+
+    past = datetime.now(timezone.utc) - timedelta(hours=2)
+    async with AsyncSessionLocal() as db:
+        req = await db.get(ClientInterviewSlotRequest, request_id)
+        slots = [dict(s) for s in req.slots]
+        slots[index] = {
+            "start": past.isoformat(),
+            "end": (past + timedelta(hours=1)).isoformat(),
+        }
+        req.slots = slots
+        await db.commit()
+
+
+async def test_choosing_a_slot_that_already_passed_is_refused(
+    app_client: AsyncClient,
+):
+    """Audyt 21.10.2026: wybór od 0487 od razu zakłada rozmowę i blokadę
+    w Outlooku — minionego terminu nie wolno wybrać."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    await _move_slot_to_the_past(req["id"], 0)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 422, chosen.text
+    assert "minął" in chosen.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        events = (
+            await db.execute(
+                select(CalendarEvent.id).where(
+                    CalendarEvent.candidate_id == cand_id,
+                    CalendarEvent.job_id == job_id,
+                )
+            )
+        ).all()
+    assert events == []
+
+
+async def test_changing_to_a_slot_that_already_passed_keeps_the_interview(
+    app_client: AsyncClient,
+):
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=rec_h,
+        json={"index": 1},
+    )
+    assert chosen.status_code == 200, chosen.text
+    event_id = chosen.json()["event_id"]
+    await _move_slot_to_the_past(req["id"], 0)
+    changed = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/change",
+        headers=dl_h,
+        json={"index": 0},
+    )
+    assert changed.status_code == 422, changed.text
+    async with AsyncSessionLocal() as db:
+        event = await db.get(CalendarEvent, event_id)
+        assert event.status == EventStatus.scheduled

@@ -218,3 +218,76 @@ async def test_only_people_of_the_pair_can_skip(app_client: AsyncClient):
         "/api/interview-cycle/prep2-skip", headers=dl_h, json=body
     )
     assert by_dl.status_code == 201, by_dl.text
+
+
+async def test_skip_can_be_saved_again_after_the_interview_was_moved(
+    app_client: AsyncClient,
+):
+    """Audyt 21.10.2026: po przełożeniu rozmowy stary wpis traci ważność
+    (``PairSnapshot.prep2_skip``), ekran mówi „allowed”, a ponowny zapis
+    dawał 409 na UNIQUE ``interview_event_id``. Zapis nadpisuje stary wpis."""
+    rec_h, _dl_id, _dl_h, job_id, cand_id, iv_id = await _pair_with_prep1(
+        interview_in=timedelta(hours=3)
+    )
+    now = datetime.now(timezone.utc)
+    first = await app_client.post(
+        "/api/interview-cycle/prep2-skip",
+        headers=rec_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "reason": "no_slot",
+            "call_at": (now + timedelta(hours=1)).isoformat(),
+        },
+    )
+    assert first.status_code == 201, first.text
+    done = await app_client.post(
+        f"/api/interview-cycle/prep2-skip/{first.json()['id']}/call-done",
+        headers=rec_h,
+        json={"note": "Stary telefon"},
+    )
+    assert done.status_code == 200, done.text
+
+    # Wyjątek zapisany tydzień temu „na jutro”, rozmowa przełożona na dziś.
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(Prep2Skip).where(Prep2Skip.interview_event_id == iv_id)
+        )
+        row.created_at = now - timedelta(days=7)
+        ev = await db.get(CalendarEvent, iv_id)
+        ev.start_time = now + timedelta(hours=4)
+        ev.end_time = now + timedelta(hours=5)
+        await db.commit()
+
+    overview = await app_client.get("/api/interview-cycle?scope=mine", headers=rec_h)
+    item = next(i for i in overview.json()["items"] if i["candidate_id"] == cand_id)
+    assert item["prep2_skip_status"] == "allowed"
+
+    again = await app_client.post(
+        "/api/interview-cycle/prep2-skip",
+        headers=rec_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "reason": "short_notice",
+            "call_at": (now + timedelta(hours=2)).isoformat(),
+        },
+    )
+    assert again.status_code == 201, again.text
+    body = again.json()
+    assert body["reason"] == "short_notice"
+    # Nowy wyjątek = nowy telefon do kandydata, stary nie liczy się.
+    assert body["call_done_at"] is None
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(Prep2Skip).where(Prep2Skip.interview_event_id == iv_id)
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].call_note is None
+    assert rows[0].created_at > now - timedelta(minutes=5)
+
+    overview = await app_client.get("/api/interview-cycle?scope=mine", headers=rec_h)
+    item = next(i for i in overview.json()["items"] if i["candidate_id"] == cand_id)
+    assert item["prep2_skip_status"] == "skipped"
