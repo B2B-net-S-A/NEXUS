@@ -187,7 +187,19 @@ function aiSources(person: Person): CvAiSources {
       filename: `${person.name.replace(" ", "_")}_CV.pdf`,
       uploaded_at: "2026-09-12T10:00:00Z",
     },
-    ...(person.variant === "forwarded" ? { cv_files: cvFiles(person) } : {}),
+    ...(person.variant === "forwarded" || person.variant === "counter" ? { cv_files: cvFiles(person) } : {}),
+    // „Powstało z” (21.10.2026): gotowe CV z pliku „CV dla klienta” — żółta ramka.
+    ...(person.variant === "counter"
+      ? {
+          last_source_cv: {
+            document_id: 800 + person.candidateId,
+            filename: `${person.name.replace(" ", "_")}_B2B_Inny_Klient.docx`,
+            outdated: false,
+            stage_original: false,
+            removed: false,
+          },
+        }
+      : {}),
     champion: true,
     answers: { count: 6, excluded: 2 },
     notes: { count: 4, excluded: 0 },

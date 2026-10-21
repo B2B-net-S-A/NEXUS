@@ -71,6 +71,9 @@ it("pokazuje panel „Z czego powstało” i jedną liczbę rzeczy do sprawdzeni
     "4 rzeczy do sprawdzenia przed wysłaniem",
   );
   expect(within(counter).getByRole("button", { name: /Sprawdź i popraw/ })).toBeInTheDocument();
+  // „Powstało z” (21.10.2026): CV z pliku „CV dla klienta” ma ramkę z drogą do innego pliku.
+  expect(await within(counter).findByTestId("cv-source-file")).toHaveTextContent("Powstało z: Marta_Zielińska_B2B_Inny_Klient.docx");
+  expect(within(counter).getByTestId("cv-source-warning")).toHaveTextContent("Oryginał CV w tej rekrutacji to Marta_Zielińska_CV.pdf");
 
   const clean = screen.getByRole("region", { name: "Gotowe, nic do sprawdzenia" });
   expect(await within(clean).findByTestId("cv-checks-count")).toHaveTextContent("Nic do sprawdzenia przed wysłaniem");

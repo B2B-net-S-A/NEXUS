@@ -45,6 +45,7 @@
   "GET /api/pipeline/candidates/{candidate_id}/jobs/{job_id}/cv-share-tokens": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "PATCH /api/candidates/stages/{stage_id}/cv/branded": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/stages/{stage_id}/cv/branded/consent": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/discard": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/stages/{stage_id}/cv/branded/finalize": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/stages/{stage_id}/cv/branded/issues/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/stages/{stage_id}/cv/branded/issues/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
