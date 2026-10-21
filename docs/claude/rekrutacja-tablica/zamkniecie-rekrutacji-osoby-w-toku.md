@@ -69,7 +69,7 @@ konkurencję”, 20 „Inny” (6 z notatką o duplikacie).
   Portfelach, a liga by je liczyła).
 - Nowy wzór hit ratio bez tego filtra = regresja. Nowy powód bez grupy pilnuje
   `tests/test_hit_ratio_neutral_closures.py`.
-- Migracja 0502: `jobclosereason` + `duplicate`, `no_match`;
+- Migracja 0504: `jobclosereason` + `duplicate`, `no_match`;
   `jobs.duplicate_of_job_id` (rekrutacja, która zostaje). Lustro w `entrypoint.sh`.
 - Ponowne otwarcie (`publish_core` i gałąź PATCH statusu, wspólne
   `job_lifecycle.clear_close_choice`) czyści `close_reason`, `close_notes`,

@@ -66,7 +66,7 @@ class JobCloseReason(str, enum.Enum):
 
     Grupę w hit ratio (wygrana / przegrana / nie liczy się) ustala
     `services/metric_definitions.HIT_RATIO_*_CLOSE_REASONS`, nie ten enum.
-    `duplicate` i `no_match` od 0502 (21.10.2026).
+    `duplicate` i `no_match` od 0504 (21.10.2026).
     """
 
     budget = "budget"
@@ -303,7 +303,7 @@ class Job(Base, TimestampMixin):
         Enum(JobCloseReason, name="jobclosereason"), nullable=True
     )
     close_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    # 0502: przy powodzie `duplicate` — rekrutacja, która zostaje (opcjonalnie;
+    # 0504: przy powodzie `duplicate` — rekrutacja, która zostaje (opcjonalnie;
     # „założona przez pomyłkę” nie ma drugiej rekrutacji).
     duplicate_of_job_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
