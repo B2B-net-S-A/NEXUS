@@ -77,3 +77,78 @@ krytycznych, miasto rekrutacji, kategoria), a `rerank_within_groups` układał
 - **Wyłącznik** `CANDIDATE_MATCH_JOB_PREFERRED_GROUPS=true` przywraca kolejność
   sprzed 19.10 (zmiana przez workflow „Coolify set env”). Nie wracaj do grup bez
   nowego pomiaru tym samym skryptem.
+
+## Panel „Ranking kandydatów” — wagi „Dop.” zmienia Head of Recruitment (21.10.2026)
+
+Makiety: kanwa `LttSvWiuw2CLPPHU1jL7kN` (Jak to działa · Wagi z podglądem na
+żywo · Pomiar na historii i historia zmian). Decyzje Artura 21.10.2026:
+
+- **D1 — HoR publikuje sam, ale dopiero po pomiarze na historii.** Dostęp jak
+  Cele KPI: zapis = admin albo Head of Recruitment z zapisem Insights
+  (`HeadOfRecruitmentPlus` + bramka sekcji routera); odczyt panelu ma też
+  Delivery Lead (`WeightsReader` w `api/scoring_weights.py`, lustro
+  w `middleware.ts` i `settings-registry.ts`). Stare trasy CRUD profili
+  (`POST/PATCH/DELETE /api/scoring-weights…`) zostają tylko dla admina —
+  HoR nie może ominąć pomiaru.
+- **D2 — edytowalne tylko trzy ważności** (podobieństwo CV, umiejętności,
+  lokalizacja) i próg nocnych propozycji. Stawka (plakietka od 30.09)
+  i dostępność (0 od 17.08) są zablokowane; bramki (krytyczne, „tylko
+  zdalnie”) bez zmian.
+- **D3 — tylko wagi ogólne.** Profile klienta i osoby zostają przy trasach
+  admina; panel tylko ostrzega, że istnieją (`scoped_profiles`), bo wygrywają
+  z wagami ogólnymi w `resolve_active_profile`.
+
+### Jak to jest zapisane (`services/ranking_weights.py`)
+
+- **Ważności nie sumują się do 100.** Udział warstwy = ważność / (suma trzech
+  ważności + 15 za stawkę) — to samo, co liczy `base_fit_profile`. Do bazy
+  idzie profil ogólny (`user_id`/`client_id` puste) z wagami rozpisanymi na
+  90 pkt + 10 pkt screeningu, którego `base_fit_profile` nie czyta.
+  Wbudowane 60/10/15/5/0/10 = ważności 60/10/5 bez zmiany żadnego wyniku.
+  Odwrotnie (`panel_from_profile`) kotwicą jest waga stawki.
+- **Szkic** (`app_settings['ranking_weights_draft']`) nic nie zmienia dla
+  zespołu. Szkic równy opublikowanym = brak szkicu.
+- **Próg nocnych propozycji** (`app_settings['auto_full_review_min_score']`)
+  czyta `auto_full_review.publish_run_proposals` przez `nightly_min_score`;
+  bez zapisu działa env `AUTO_FULL_REVIEW_MIN_SCORE`.
+- **Historia** (`scoring_weight_changes`, 0501): publikacja z panelu i każda
+  edycja profilu starymi trasami admina (`admin_edit`) — kto, kiedy, przed/po,
+  powód, wynik pomiaru. `PATCH` profilu ustawia `updated_at` (kolumna nie ma
+  `onupdate`).
+
+### Pomiar i podgląd (`services/ranking_lab.py`, `ranking_publish.py`)
+
+- **Składniki oceny liczone raz, wagi przeliczane bez AI.** Profil sondy
+  (`PROBE`, 20 pkt na każdą z pięciu warstw) daje dla każdej osoby ułamek
+  punktów warstwy, stosunek maksimum warstwy do wagi, flagę „oceniona”,
+  warstwę wcześniejszych rozmów i mnożnik kar. `score()` składa z nich „Dop.”
+  dla dowolnych wag dokładnie jak `score_candidate_job` (suma albo
+  renormalizacja). Zgodność z silnikiem: `tests/test_ranking_lab.py` —
+  zmiana składania wyniku w `scoring_service` = ten test na czerwono, popraw
+  `_composite` razem z silnikiem.
+- **Pomiar** = kolejność produkcji od 19.10 (wektor „Dop.” → 200 pierwszych
+  wg „Dop.”) na 120 zamkniętych rekrutacjach z ostatnich 24 miesięcy (≥ 2
+  „musi mieć”, ≥ 2 osoby zweryfikowane albo wysłane, które były w bazie przed
+  otwarciem); dwa pierwsze „musi mieć” jako wiersze wymagań, baza cofnięta do
+  dnia otwarcia, zweryfikowane wymagania zamaskowane
+  (`score_candidates(reviewed_evidence=False)`). Miary: rekrutacje z właściwą
+  osobą na 1. stronie, mediana miejsca pierwszej właściwej, właściwe w top 50,
+  MRR, osoby ≥ progu z trafionym must w 200 pierwszych. Każda rekrutacja
+  w osobnej sesji tylko do odczytu. Ten sam kod uruchamia
+  `python -m scripts.eval_manual_search_order --weights skills=30`.
+- **Zadanie w tle w procesie web, jedno naraz** (`ranking_publish.run`,
+  `scoring_weight_measurements`). Wiersz bez znaku życia od 5 min czyta się
+  jako przerwany (zwykle wdrożenie) — można od razu uruchomić nowy.
+- **Publikacja** wymaga ukończonego pomiaru z odciskiem = opublikowane wagi
+  + próg + szkic + `scoring_algorithm_version()` (inaczej 409). Spadek
+  którejś miary w punktach procentowych (1. strona, top 50) o więcej niż
+  2 pkt wymaga powodu (≥ 10 znaków, inaczej 422). Publikacja: profil ogólny
+  w miejscu albo nowy „Wagi ogólne (panel)”, `mark_stale_for_profile`, próg,
+  wiersz historii, usunięcie szkicu — w jednej transakcji. Otwarte pełne
+  przeglądy dostają 409 przy odczycie (zmiana odcisku) i trzeba je przeliczyć.
+- **„Przywróć”** = nowy szkic z wagami, które wprowadziła tamta zmiana; też
+  przechodzi pomiar.
+- **Podgląd na żywo**: `GET /api/scoring-weights/panel/preview/{job_id}` oddaje
+  składniki 200 pierwszych osób zamkniętej rekrutacji (pamięć 15 min, klucz
+  z wersją silnika), front przelicza kolejność sam. Lista rekrutacji do
+  podglądu: `…/preview/jobs`.
