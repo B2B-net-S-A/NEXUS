@@ -32,7 +32,7 @@ import { CycleCandidateSheet } from "./CycleCandidatePanel";
 import { DebriefModal } from "./DebriefModal";
 import { PlanPrepDialog } from "./PlanPrepDialog";
 import { PrecallDoneDialog } from "./Prep2Skip";
-import { PrepReviewDialog } from "./PrepReviewDialog";
+import { PrepReviewDialog, type PrepReviewTab } from "./PrepReviewDialog";
 import { ReschedulePrepDialog } from "./ReschedulePrepDialog";
 import { SlotDecisionDialog, SlotRequestDialog } from "./SlotDialogs";
 
@@ -45,7 +45,7 @@ type Dialog =
   | { kind: "debrief"; pair: PairInfo; eventId: number | null }
   | { kind: "pick" | "confirm" | "reply"; pair: PairInfo; request: SlotRequest }
   | { kind: "prep"; pair: PairInfo; second: boolean }
-  | { kind: "prep_review"; pair: PairInfo; eventId: number }
+  | { kind: "prep_review"; pair: PairInfo; eventId: number; tab?: PrepReviewTab }
   | { kind: "slots"; pair: PairInfo | null }
   | {
       kind: "reschedule_prep";
@@ -192,7 +192,7 @@ export function CalendarCycleScreen({
         setDialog({ kind: "prep", pair: action.pair, second: action.second });
         break;
       case "prep_review":
-        setDialog({ kind: "prep_review", pair: action.pair, eventId: action.eventId });
+        setDialog({ kind: "prep_review", pair: action.pair, eventId: action.eventId, tab: action.tab });
         break;
       case "add_slots":
         setDialog({ kind: "slots", pair: action.pair });
@@ -402,6 +402,7 @@ export function CalendarCycleScreen({
         onOpenChange={(o) => !o && setDialog(null)}
         eventId={dialog?.kind === "prep_review" ? dialog.eventId : null}
         pair={dialog?.kind === "prep_review" ? dialog.pair : null}
+        initialTab={dialog?.kind === "prep_review" ? (dialog.tab ?? "score") : "score"}
       />
     </div>
   );

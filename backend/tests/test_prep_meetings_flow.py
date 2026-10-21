@@ -407,6 +407,9 @@ async def test_transcript_is_fetched_graded_and_summarised_in_a_note(
     )
     assert text.status_code == 200
     assert "Zwiększam liczbę partycji" in text.json()["text"]
+    cues = text.json()["cues"]
+    assert {c["role"] for c in cues} >= {"candidate", "staff"}
+    assert all(isinstance(c["start"], int) for c in cues)
 
     # Od #1742 (decyzja 23.09.2026) rekrutację widzi każda rola wewnętrzna,
     # także rekruter spoza zespołu — transkrypt stoi za tą samą bramką.

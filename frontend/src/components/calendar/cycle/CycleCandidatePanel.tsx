@@ -46,6 +46,7 @@ import { CandidateContactLine } from "./CandidateContactLine";
 import { ClientQuestions } from "./ClientQuestions";
 import { CycleStepper } from "./CycleStepper";
 import { Prep2SkipControls } from "./Prep2Skip";
+import { Prep2FollowupFromPrep1, PrepStepReview } from "./PrepStepReview";
 
 const CHIP: Record<AgendaEntry["kind"], string> = {
   prep: "bg-primary/10 text-primary",
@@ -213,6 +214,36 @@ export function CandidateCycleCard({
             : null
         }
         onPrepReview={(eventId) => onAction({ type: "prep_review", pair: item, eventId })}
+        renderExtra={(step) => {
+          // Odbyty prep z oceną (także „niedostępna”) — wynik wprost w kroku.
+          if (
+            (step.key === "prep" || step.key === "prep2") &&
+            step.event_id != null &&
+            step.quality != null &&
+            step.quality !== "pending" &&
+            step.quality !== "unrecorded"
+          ) {
+            const eventId = step.event_id;
+            return (
+              <PrepStepReview
+                eventId={eventId}
+                onOpen={(tab) => onAction({ type: "prep_review", pair: item, eventId, tab })}
+              />
+            );
+          }
+          // Prep 2 przed spotkaniem: co powtórzyć z Prepu 1.
+          const prep1 = item.steps.find((s) => s.key === "prep");
+          if (
+            step.key === "prep2" &&
+            step.state !== "done" &&
+            step.state !== "skipped" &&
+            prep1?.event_id != null &&
+            (prep1.quality === "good" || prep1.quality === "ok" || prep1.quality === "weak")
+          ) {
+            return <Prep2FollowupFromPrep1 prep1EventId={prep1.event_id} />;
+          }
+          return null;
+        }}
       />
 
       <Prep2SkipControls

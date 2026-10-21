@@ -402,3 +402,29 @@ def test_note_when_ai_is_unavailable_has_no_grade() -> None:
     )
     assert "Ocena" not in text
     assert "niedostępne" in text
+
+
+def test_transcript_cues_carry_speaker_role_and_second() -> None:
+    from types import SimpleNamespace
+
+    from app.api.prep_meetings import _cues
+
+    vtt = (
+        "WEBVTT\n\n00:00:05.000 --> 00:00:09.000\n<v Anna DL>Opowiedz o Kafce.</v>\n\n"
+        "00:01:02.500 --> 00:01:10.000\n<v Jan Kandydat>Budowałem integracje.</v>\n\n"
+        "00:01:20.000 --> 00:01:22.000\nBez mówcy."
+    )
+    transcript = SimpleNamespace(
+        vtt=vtt,
+        speakers=[
+            {"name": "Anna DL", "role": "staff"},
+            {"name": "Jan Kandydat", "role": "candidate"},
+        ],
+    )
+    cues = _cues(transcript)
+    assert [(c.start, c.speaker, c.role) for c in cues] == [
+        (5, "Anna DL", "staff"),
+        (62, "Jan Kandydat", "candidate"),
+        (80, None, None),
+    ]
+    assert cues[1].text == "Budowałem integracje."
