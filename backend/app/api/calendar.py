@@ -788,7 +788,7 @@ async def _notify_client_interview_patch(
     previous_start: Optional[datetime],
     previous_status: EventStatus,
 ) -> None:
-    """Rozmowa u klienta przełożona albo odwołana z edycji (0498, 21.10.2026).
+    """Rozmowa u klienta przełożona albo odwołana z edycji (0500, 21.10.2026).
 
     Tylko rozmowa przed nami — poprawka godziny rozmowy, która już się odbyła,
     nikomu nic nie zmienia.

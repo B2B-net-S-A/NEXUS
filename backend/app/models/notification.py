@@ -211,7 +211,7 @@ class NotificationType(str, enum.Enum):
     # raz na 30 dni na osobę.
     prep2_skipped = "prep2_skipped"
     prep2_skip_threshold = "prep2_skip_threshold"
-    # 0498 (21.10.2026): rozmowa u klienta przełożona albo odwołana w NEXUSIE —
+    # 0500 (21.10.2026): rozmowa u klienta przełożona albo odwołana w NEXUSIE —
     # do Delivery Leada, rekrutera pary i właściciela wydarzenia, bez autora
     # zmiany (dymek). related_entity=(client_interview_<rodzaj>, None), link
     # do pary — jak ``prep_changed*``: dzienny dedup zjadałby drugą zmianę.

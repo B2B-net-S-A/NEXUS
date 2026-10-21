@@ -1,7 +1,7 @@
 """Rozmowa u klienta przełożona albo odwołana — powiadomienie dla pary (21.10.2026).
 
-Revision ID: 0498_interview_changed_notification
-Revises: 0496_b2b_generated_signed_file
+Revision ID: 0500_interview_changed_notification
+Revises: 0499_b2b_signing_requests
 
 Zgłoszenie rekruterki: terminy rozmów u klienta często się zmieniają, a gdy
 rekruter przełoży albo odwoła rozmowę w NEXUSIE, Delivery Lead nic nie
@@ -13,8 +13,8 @@ Lustro w ``entrypoint.sh`` — pilnuje ``test_interview_change_notifications.py`
 
 from alembic import op
 
-revision = "0498_interview_changed_notification"
-down_revision = "0496_b2b_generated_signed_file"
+revision = "0500_interview_changed_notification"
+down_revision = "0499_b2b_signing_requests"
 branch_labels = None
 depends_on = None
 
@@ -30,7 +30,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'interview_changed'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0498 odmawia: notifications ma wpisy o zmianie rozmowy, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0500 odmawia: notifications ma wpisy o zmianie rozmowy, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

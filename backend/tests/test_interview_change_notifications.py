@@ -1,4 +1,4 @@
-"""Rozmowa u klienta przełożona albo odwołana — powiadomienie pary (0498, 21.10.2026).
+"""Rozmowa u klienta przełożona albo odwołana — powiadomienie pary (0500, 21.10.2026).
 
 Do 21.10.2026 edycja wydarzenia powiadamiała parę tylko przy prepie;
 Delivery Lead nie wiedział, że rekruter przełożył albo odwołał rozmowę
@@ -233,7 +233,7 @@ async def test_deleting_an_upcoming_client_interview_counts_as_cancelled(
 
 def test_new_type_is_mirrored_in_entrypoint() -> None:
     migration = (
-        BACKEND / "alembic/versions/0498_interview_changed_notification.py"
+        BACKEND / "alembic/versions/0500_interview_changed_notification.py"
     ).read_text(encoding="utf-8")
     entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
     statement = (
