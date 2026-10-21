@@ -126,6 +126,7 @@ from app.services.order_burn_rate import (
     cost_burn_rate,
     high_priority_threshold,
     md_burn_rate,
+    workdays_left_phrase,
 )
 from app.services.order_continuation import order_ending_without_continuation
 from app.services.order_line_takeover import scheduled_takeover_draft_clause
@@ -422,7 +423,8 @@ async def _md_low_per_consultant(
         if stage == "high":
             message = (
                 f"Zamówieniu {number} dla {who} zostało {remaining} MD — przy "
-                f"dotychczasowym tempie to ok. {workdays} dni roboczych pracy. "
+                f"dotychczasowym tempie to "
+                f"{workdays_left_phrase(order.md_remaining, rate)} pracy. "
                 "Pilnie przygotuj nowe zamówienie lub przedłużenie."
             )
         else:
@@ -512,7 +514,8 @@ async def _md_low_shared_pool(
         stage, priority, email = _md_stage(group.md_budget_remaining, high)
         remaining = _fmt_md(group.md_budget_remaining)
         suffix = (
-            f" Przy dotychczasowym tempie to ok. {workdays} dni roboczych pracy — "
+            " Przy dotychczasowym tempie to "
+            f"{workdays_left_phrase(group.md_budget_remaining, rate)} pracy — "
             "pilnie zwiększ pulę albo przygotuj nowe zamówienie."
             if stage == "high"
             else " Zwiększ pulę albo zorganizuj nowe zamówienie."
@@ -771,8 +774,9 @@ async def rule_cost_budget_low(
         stage, priority, email = _md_stage(group.budget_remaining, high)
         if stage == "high":
             message = (
-                f"Budżet zamówienia kosztowego {number} wystarczy na ok. "
-                f"{workdays} dni roboczych przy dotychczasowym tempie. Pilnie "
+                f"Budżet zamówienia kosztowego {number} wystarczy na "
+                f"{workdays_left_phrase(group.budget_remaining, rate)} przy "
+                "dotychczasowym tempie. Pilnie "
                 "przygotuj nowe zamówienie lub zwiększenie kwoty."
             )
         else:
