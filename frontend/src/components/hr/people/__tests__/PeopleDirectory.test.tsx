@@ -195,7 +195,7 @@ describe("PeopleDirectory — makieta 19.10.2026", () => {
     expect(within(filters).getByRole("button", { name: /UoP/ })).toHaveTextContent("1");
 
     const ewa = screen.getByText("Ewa Makietowa").closest("tr") as HTMLElement;
-    expect(within(ewa).getByText(/^przerwa do/)).toBeInTheDocument();
+    expect(within(ewa).getByText(/^nieobecność do/)).toBeInTheDocument();
     expect(within(ewa).getByText("Ola P.")).toBeInTheDocument();
     const kamil = screen.getByText("Kamil Testowy").closest("tr") as HTMLElement;
     expect(within(kamil).getByText("delegacja")).toBeInTheDocument();

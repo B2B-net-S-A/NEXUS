@@ -518,8 +518,8 @@ razem z dodatkami. Logika i krąg widzących bez zmian — zmienił się układ.
   (D6; katalog widzi cała firma), praca zdalna i delegacja z `attendance_days`
   (`leave_calendar.presence_between`, bez notatek); nieobecność tylko przy module
   urlopów, Z/D tylko przy module czasu otwartym dla patrzącego. Słowo nieobecności
-  z formy („przerwa”, „urlop”) tylko, gdy patrzący widzi formę — inaczej „nieobecność”
-  (słowo zdradza formę). „W pracy” i chip „Dziś nieobecni” tylko przy module urlopów
+  zawsze „nieobecność”, także gdy patrzący widzi formę — słowo formy „urlop” opisywało też
+  L4 osoby na umowie o pracę (decyzja Artura 21.10.2026; wcześniej „przerwa”/„urlop”). „W pracy” i chip „Dziś nieobecni” tylko przy module urlopów
   otwartym dla patrzącego (`todayKnown` w `directory-view.ts`, audyt 21.10.2026) —
   sam moduł czasu daje zdalnie i delegację, reszta to „—”.
   Pasek rozjazdów nazywa pozycje (konto + kartoteki „do uzupełnienia” z katalogu)
