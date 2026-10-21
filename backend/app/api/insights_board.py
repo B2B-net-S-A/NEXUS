@@ -94,6 +94,7 @@ from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.core.scheduling import local_day_start_utc
 from app.services.action_permissions import reads_board_money
 from app.services.insights_board_yoy import (
     DEFAULT_YEARS,
@@ -103,6 +104,8 @@ from app.services.insights_board_yoy import (
     without_money,
 )
 from app.services.insights_board import _today_warsaw, compute_board
+from app.services import competition_history
+from app.services.hit_ratio_closures import hit_ratio_closures
 
 logger = logging.getLogger(__name__)
 
@@ -227,3 +230,24 @@ async def insights_board_yoy(
     if reads_board_money(current_user):
         return result
     return without_money(result)
+
+
+@router.get("/hit-ratio-closures")
+async def insights_hit_ratio_closures(
+    current_user: BoardTrendReader,
+    db: AsyncSession = Depends(get_db),
+    date_from: Optional[date] = Query(
+        None, description="od dnia (domyślnie 12.10.2026 — start Tablicy)"
+    ),
+):
+    """Zamknięcia w grupach hit ratio i lista kontrolna (21.10.2026).
+
+    Wyłączenia „nie liczy się” z uzasadnieniem i osobą oraz zamknięcia bez
+    powodu do przejrzenia. Bez kwot — „Moduł Finanse” albo Head of Recruitment
+    (``BoardTrendReader``), jak rok do roku. Bez cache: po „Zmień powód” lista
+    ma od razu pokazać nowy stan.
+    """
+    start = competition_history.cutover_utc()
+    if date_from is not None:
+        start = max(start, local_day_start_utc(date_from))
+    return await hit_ratio_closures(db, start=start, end=None)

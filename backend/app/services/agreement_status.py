@@ -2,7 +2,8 @@
 
 Rejestr Generatora jest jedynym źródłem stanu umowy; karta tylko go pokazuje
 — w KAŻDEJ kolumnie, bo co trzecia umowa powstaje jeszcze w „Rozmowie
-u klienta”. Jedno zapytanie na tablicę. Wiersze z Excela działu pomijamy
+u klienta”. Jedno zapytanie na tablicę (plus jedno o wysyłki do podpisu
+w NEXUSIE — etap 1b, 21.10.2026). Wiersze z Excela działu pomijamy
 (nie mają pary kandydat × rekrutacja z NEXUSA). Na parę bierzemy żywą umowę
 („W trakcie”, „Aktywna”) przed anulowaną albo zakończoną, potem najnowszą.
 """
@@ -16,6 +17,7 @@ from sqlalchemy import case, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_signing_request import B2BSigningRequest
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.services.board_stage_badges import board_column_for
@@ -27,7 +29,18 @@ def _iso(value: Any) -> Any:
     return value.isoformat() if value is not None else None
 
 
-def agreement_badge(row: Any) -> dict[str, Any]:
+def esign_badge(request: Any) -> Optional[dict[str, Any]]:
+    """Ostatnia wysyłka umowy do podpisu w NEXUSIE — tylko to, czego karta potrzebuje."""
+    if request is None:
+        return None
+    return {
+        "status": request.status,
+        "expires_at": _iso(request.expires_at),
+        "contractor_signed_at": _iso(request.contractor_signed_at),
+    }
+
+
+def agreement_badge(row: Any, esign: Any = None) -> dict[str, Any]:
     """Kształt pola ``agreement`` karty (też dla pulpitu)."""
     return {
         "id": row.id,
@@ -38,7 +51,27 @@ def agreement_badge(row: Any) -> dict[str, Any]:
         "signed_at": _iso(row.signed_at),
         "signature_requested_at": _iso(row.signature_requested_at),
         "contract_id": row.contract_id,
+        "esign": esign_badge(esign),
     }
+
+
+async def latest_esign_for_rows(
+    db: AsyncSession, row_ids: Iterable[int]
+) -> dict[int, B2BSigningRequest]:
+    """``{id umowy: najnowsza wysyłka do podpisu}`` — jedno zapytanie."""
+    ids = sorted({int(i) for i in row_ids})
+    if not ids:
+        return {}
+    result = await db.execute(
+        select(B2BSigningRequest)
+        .where(B2BSigningRequest.generated_contract_id.in_(ids))
+        .order_by(
+            B2BSigningRequest.generated_contract_id,
+            B2BSigningRequest.id.desc(),
+        )
+        .distinct(B2BSigningRequest.generated_contract_id)
+    )
+    return {r.generated_contract_id: r for r in result.scalars().all()}
 
 
 async def agreement_status_for_pairs(
@@ -75,10 +108,14 @@ async def agreement_status_for_pairs(
             B2BGeneratedContract.id.desc(),
         )
     )
-    out: dict[int, dict[str, Any]] = {}
+    chosen: dict[int, Any] = {}
     for row in rows.all():
-        out.setdefault(row.candidate_id, agreement_badge(row))
-    return out
+        chosen.setdefault(row.candidate_id, row)
+    esign = await latest_esign_for_rows(db, (row.id for row in chosen.values()))
+    return {
+        candidate_id: agreement_badge(row, esign.get(row.id))
+        for candidate_id, row in chosen.items()
+    }
 
 
 async def pair_columns(

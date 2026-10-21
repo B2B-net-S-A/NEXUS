@@ -796,6 +796,11 @@ class B2BStatusEventItem(BaseModel):
     # projektu i dane rozwiązania umowy (tryb, strona, daty). NULL dla
     # ręcznych zmian w Generatorze.
     details: Optional[dict] = None
+    # Etap 1b (21.10.2026): wpis z wysyłki do podpisu w NEXUSIE — wtedy
+    # ``to_status`` = „esign”, a treść niesie ``label`` (id ujemne, bez wiersza
+    # w dzienniku statusów).
+    kind: Literal["status", "esign"] = "status"
+    label: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

@@ -50,6 +50,7 @@ import {
   type ChampionBlock,
   type ChampionTab,
 } from "@/lib/champion-blocks";
+import { JobCloseReasonBadge } from "@/components/v2/jobs/JobCloseReasonBadge";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
 import { scrollToWhenReady } from "@/components/v2/recruitment/OrderMissingBlock";
@@ -296,6 +297,7 @@ export default function JobDetailPage() {
     if (championModeState === "edit") setChampionEditorMounted(true);
   }, [championModeState]);
   const [showCloseJob, setShowCloseJob] = useState(false);
+  const [showChangeCloseReason, setShowChangeCloseReason] = useState(false);
   // „Otwórz ponownie” / „Dokończ i opublikuj” (04.10.2026): menu „⋯” albo
   // `?reopen=1` (okno edycji, pulpit „Czeka na Ciebie”). Parametr znika po
   // zamknięciu okna, żeby odświeżenie go nie otwierało ponownie.
@@ -861,7 +863,8 @@ export default function JobDetailPage() {
                 cproEnabled={job.cpro_enabled === true}
                 onOpenPerson={openPersonPanel}
               />
-            ) : (
+            ) : job.status === "closed" ? null : (
+              // Zamknięta: plakietka z powodem niżej (`JobCloseReasonBadge`).
               <Badge
                 variant={
                   job.status === "published"
@@ -878,6 +881,9 @@ export default function JobDetailPage() {
                     : job.status}
               </Badge>
             )}
+            {job.status === "closed" ? (
+              <JobCloseReasonBadge reason={job.close_reason} notes={job.close_notes} />
+            ) : null}
             {!canWritePipeline ? (
               <Badge variant="info">Tylko odczyt</Badge>
             ) : null}
@@ -983,6 +989,9 @@ export default function JobDetailPage() {
         onCopyLink={copyJobLink}
         onCloseJob={canCloseJob && job.status !== "closed" ? () => setShowCloseJob(true) : undefined}
         onReopenJob={publishAction === "reopen" ? () => changeReopenOpen(true) : undefined}
+        onChangeCloseReason={
+          canCloseJob && job.status === "closed" ? () => setShowChangeCloseReason(true) : undefined
+        }
         onFinishJob={publishAction === "finish" ? () => changeReopenOpen(true) : undefined}
       />
 
@@ -1122,7 +1131,22 @@ export default function JobDetailPage() {
           jobId={jobId}
           jobTitle={job.title ?? `Rekrutacja #${jobId}`}
           clientId={job.client_id ?? null}
-          defaultReason={kanban && countHired(kanbanColumns) > 0 ? "filled_by_us" : "other"}
+          defaultReason={kanban && countHired(kanbanColumns) > 0 ? "filled_by_us" : null}
+        />
+      ) : null}
+      {canCloseJob && job.status === "closed" ? (
+        <JobCloseWithReasonDialog
+          mode="change"
+          open={showChangeCloseReason}
+          onOpenChange={setShowChangeCloseReason}
+          jobId={jobId}
+          jobTitle={job.title ?? `Rekrutacja #${jobId}`}
+          clientId={job.client_id ?? null}
+          initial={{
+            reason: job.close_reason ?? null,
+            notes: job.close_notes ?? null,
+            duplicateOfJobId: job.duplicate_of_job_id ?? null,
+          }}
         />
       ) : null}
       {publishAction ? (

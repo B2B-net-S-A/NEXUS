@@ -127,17 +127,17 @@ _PAGE = (
     Path(__file__).resolve().parents[2]
     / "frontend"
     / "src"
-    / "app"
+    / "components"
     / "settings"
-    / "scoring"
-    / "page.tsx"
+    / "ranking"
+    / "ScoringProfilesAdmin.tsx"
 )
 
 
 @pytest.mark.skipif(not _PAGE.is_file(), reason="brak katalogu frontend w checkoutcie")
 def test_settings_screen_shows_engine_default_weights():
     block = re.search(r"const DEFAULT_WEIGHTS[^{]*\{(.*?)\};", _PAGE.read_text(), re.S)
-    assert block, "nie znaleziono DEFAULT_WEIGHTS w page.tsx"
+    assert block, "nie znaleziono DEFAULT_WEIGHTS w ScoringProfilesAdmin.tsx"
     screen = {k: float(v) for k, v in re.findall(r"(\w+):\s*(\d+)", block.group(1))}
 
     engine = {
@@ -149,6 +149,6 @@ def test_settings_screen_shows_engine_default_weights():
         "champion_fit": scoring_service.CHAMPION_FIT_MAX,
     }
     assert screen == engine, (
-        "Ekran /settings/scoring pokazuje inne wagi domyślne niż silnik. "
-        "Zmiana stałych w scoring_service.py = popraw DEFAULT_WEIGHTS w page.tsx."
+        "Edytor profili (/settings/scoring) proponuje inne wagi domyślne niż silnik. "
+        "Zmiana stałych w scoring_service.py = popraw DEFAULT_WEIGHTS w ScoringProfilesAdmin.tsx."
     )

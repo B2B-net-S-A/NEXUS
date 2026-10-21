@@ -62,7 +62,12 @@ class WorkMode(str, enum.Enum):
 
 
 class JobCloseReason(str, enum.Enum):
-    """Powód zamknięcia oferty bez placementu (dla sekcji 'Przegrane rekrutacje')."""
+    """Powód zamknięcia rekrutacji.
+
+    Grupę w hit ratio (wygrana / przegrana / nie liczy się) ustala
+    `services/metric_definitions.HIT_RATIO_*_CLOSE_REASONS`, nie ten enum.
+    `duplicate` i `no_match` od 0504 (21.10.2026).
+    """
 
     budget = "budget"
     internal_hire = "internal_hire"
@@ -71,6 +76,8 @@ class JobCloseReason(str, enum.Enum):
     filled_by_us = "filled_by_us"
     client_ghosted = "client_ghosted"
     other = "other"
+    duplicate = "duplicate"
+    no_match = "no_match"
 
 
 class Job(Base, TimestampMixin):
@@ -296,6 +303,11 @@ class Job(Base, TimestampMixin):
         Enum(JobCloseReason, name="jobclosereason"), nullable=True
     )
     close_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 0504: przy powodzie `duplicate` — rekrutacja, która zostaje (opcjonalnie;
+    # „założona przez pomyłkę” nie ma drugiej rekrutacji).
+    duplicate_of_job_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Foreign keys
     # client_id: enforced NOT NULL od migracji 0120 (2026-05-27). Wcześniej
