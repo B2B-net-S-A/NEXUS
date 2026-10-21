@@ -651,7 +651,7 @@
       },
       {
         "q": "Jak zaimportować raport zużycia MD?",
-        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Numer zamówienia w „Uwagach” jest wiążący: gdy wiersza nie da się na nie rozliczyć, dostaje „Brak pasującego zamówienia” albo „Do weryfikacji”. Osoba bez zamówienia MD ma szary status „Bez zamówienia MD”, a faktura rozliczona na zamówieniu kosztowym — „Rozliczono kwotowo”.",
+        "a": "W „Import zużycia MD” wgraj XLSX i wybierz miesiąc. Numer w „Uwagach” wiąże: wiersz, którego nie da się na niego rozliczyć, dostaje „Brak pasującego zamówienia” albo „Do weryfikacji”. Wiersz bez numeru obok wiersza tej osoby z numerem ma „Oczekuje na zamówienie” i zejdzie z kolejnego zamówienia. Szary „Bez zamówienia MD” to nie błąd.",
         "anchor": "finance.md_import"
       },
       {
@@ -688,7 +688,7 @@
     "title": "Mój czas",
     "section": null,
     "roles": [],
-    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd” (z kartą „Ja w firmie” — stanowisko, przełożony, kartoteka), nieobecności („Urlop”, „Przerwy” albo „Nieobecności”), miesiąc godzin i premie.",
+    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd” (z kartą „Ja w firmie” — stanowisko, koordynator, kartoteka), nieobecności („Urlop”, „Przerwy” albo „Nieobecności”), miesiąc godzin i premie.",
     "tasks": [
       {
         "q": "Jak zgłosić urlop albo przerwę?",
@@ -718,7 +718,7 @@
     ],
     "pitfalls": [
       "Wniosek czekający anulujesz zawsze, zatwierdzony — przed pierwszym dniem. Termin, który już trwa, anuluje przełożony albo Kadry (na B2B i zleceniu — Kadry). Daty złożonego wniosku zmienia przełożony albo Kadry, zgłoszenia z B2B i zlecenia — tylko Kadry.",
-      "Rodzaj nieobecności widzisz Ty, przełożony i Kadry. Zespół w kalendarzu widzi samą nieobecność, a Outlook pokazuje „Poza biurem”.",
+      "Rodzaj nieobecności widzisz Ty, Twój koordynator i Kadry. Zespół w kalendarzu widzi samą nieobecność, a Outlook pokazuje „Poza biurem”.",
       "Ponad 8 godzin dziennie wpiszesz tylko wpisem dnia, z uzasadnieniem i uprawnieniem do nadgodzin — bez niego poproś Kadry.",
       "Na B2B i zleceniu nie zgłosisz przerwy na dni z wysłanego albo przyjętego raportu godzin — najpierw koordynator cofa raport do szkicu."
     ],
@@ -761,7 +761,7 @@
     "title": "Akceptacje",
     "section": null,
     "roles": [],
-    "what": "Skrzynka przełożonego i Kadr: po lewej wnioski z umowy o pracę do decyzji i zgłoszenia z B2B i zlecenia do wiadomości, po prawej szczegół sprawy; niżej timesheety zespołu i zwinięta historia wniosków.",
+    "what": "Skrzynka koordynatora i Kadr: po lewej wnioski z umowy o pracę do decyzji i zgłoszenia z B2B i zlecenia do wiadomości, po prawej szczegół sprawy; niżej timesheety zespołu i zwinięta historia wniosków.",
     "tasks": [
       {
         "q": "Jak zaakceptować albo odrzucić wniosek?",
@@ -785,7 +785,7 @@
       },
       {
         "q": "Jak wpisać komuś nieobecność, np. L4?",
-        "a": "Kliknij „Wpisz nieobecność za pracownika”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Za osoby na B2B i zleceniu wpisują tylko Kadry — one zgłaszają nieobecność same. Zgody na przekierowanie poczty nie dasz za tę osobę.",
+        "a": "Kliknij „Wpisz nieobecność za konsultanta/kontraktora”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Za osoby na B2B i zleceniu wpisują tylko Kadry — one zgłaszają nieobecność same. Zgody na przekierowanie poczty nie dasz za tę osobę.",
         "anchor": "hr.approvals.on_behalf"
       }
     ],
@@ -818,8 +818,8 @@
       },
       {
         "id": "hr.approvals.on_behalf",
-        "label": "Wpis za pracownika",
-        "describe": "Nieobecność wpisana przez przełożonego albo Kadry, od razu zatwierdzona."
+        "label": "Wpis za konsultanta/kontraktora",
+        "describe": "Nieobecność wpisana przez koordynatora albo Kadry, od razu zatwierdzona."
       }
     ],
     "help_slug": null,
@@ -834,21 +834,21 @@
     "title": "Kalendarz zespołu",
     "section": null,
     "roles": [],
-    "what": "Kto i kiedy jest nieobecny — ciągłe paski w miesiącu albo w dwóch tygodniach, wiersz „Nieobecnych” z liczbą osób na dzień i panel „W tym tygodniu nie ma”; przy czasie pracy także praca zdalna i delegacja.",
+    "what": "Kto i kiedy jest nieobecny — ciągłe paski w miesiącu albo w dwóch tygodniach, wiersz „Nieobecnych” z liczbą osób na dzień i panel „W tym tygodniu nie ma”; przy czasie pracy także dni zdalne i wyjazdy.",
     "tasks": [
       {
         "q": "Kto jest dziś nieobecny?",
-        "a": "Na liście „Kto” wybierz „Nieobecni dziś”. W innym miesiącu ta sama pozycja pokazuje każdego, kto był nieobecny choć jeden dzień. Delegacja liczy się do nieobecnych.",
+        "a": "Na liście „Kto” wybierz „Nieobecni dziś”. W innym miesiącu ta sama pozycja pokazuje każdego, kto był nieobecny choć jeden dzień. Wyjazd liczy się do nieobecnych.",
         "anchor": "hr.team_calendar.filters"
       },
       {
         "q": "Kto pracuje zdalnie?",
-        "a": "Wybierz „Zdalnie” na liście „Kto”. W siatce „Z” to praca zdalna, a „D” delegacja — z dni oznaczonych w miesiącu godzin. Pozycja pojawia się, gdy działa czas pracy.",
+        "a": "Wybierz „Zdalnie” na liście „Kto”. W siatce „Z” to dzień zdalny, a „W” wyjazd — z dni oznaczonych w miesiącu godzin. Pozycja pojawia się, gdy działa czas pracy.",
         "anchor": "hr.team_calendar.filters"
       },
       {
         "q": "Jak zawęzić kalendarz do zespołu albo działu?",
-        "a": "Nad siatką są przyciski „Wszyscy”, „Mój zespół” (dla przełożonych) i nazwy działów, a pole „Znajdź osobę” zawęża listę po imieniu. Przełącznik „2 tygodnie / Miesiąc” zmienia zakres, strzałki go przesuwają, a „Dziś” wraca do bieżącego.",
+        "a": "Nad siatką są przyciski „Wszyscy”, „Mój zespół” (dla koordynatorów) i nazwy działów, a pole „Znajdź osobę” zawęża listę po imieniu. Przełącznik „2 tygodnie / Miesiąc” zmienia zakres, strzałki go przesuwają, a „Dziś” wraca do bieżącego.",
         "anchor": "hr.team_calendar.filters"
       },
       {
@@ -858,8 +858,8 @@
       }
     ],
     "pitfalls": [
-      "Rodzaju nieobecności (np. L4) u innych nie zobaczysz — to nie błąd: widzą go tylko osoba, jej przełożony albo koordynator i Kadry.",
-      "Domyślna praca zdalna z kartoteki się nie pokazuje — „Z” to tylko dni oznaczone w miesiącu godzin."
+      "Rodzaju nieobecności (np. L4) u innych nie zobaczysz — to nie błąd: widzą go tylko osoba, jej koordynator i Kadry.",
+      "Domyślne dni zdalne z kartoteki się nie pokazuje — „Z” to tylko dni oznaczone w miesiącu godzin."
     ],
     "anchors": [
       {
@@ -892,7 +892,7 @@
     "tasks": [
       {
         "q": "Jak poprosić o zgodę na wydatek albo premię?",
-        "a": "„Ludzie → Moje zgody” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy przełożony, czy decyduje zatwierdzający. Premię z umowy (placement, liga) liczą Płace same — o nią nie prosisz.",
+        "a": "„Ludzie → Moje zgody” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy koordynator, czy decyduje zatwierdzający. Premię z umowy (placement, liga) liczą Płace same — o nią nie prosisz.",
         "anchor": "hr.consents.form"
       },
       {
@@ -902,7 +902,7 @@
       },
       {
         "q": "Dlaczego widzę „Popieram”, a nie „Zatwierdź”?",
-        "a": "Kwota jest ponad Twój próg przełożonego. Poparcie przekazuje zgodę zatwierdzającemu — to on decyduje i tylko on może ustalić inną kwotę. Progi ustawia admin w Ustawieniach → Kadry → Moduły.",
+        "a": "Kwota jest ponad Twój próg koordynatora. Poparcie przekazuje zgodę zatwierdzającemu — to on decyduje i tylko on może ustalić inną kwotę. Progi ustawia admin w Ustawieniach → Kadry → Moduły.",
         "anchor": "hr.consents.inbox"
       },
       {

@@ -20,7 +20,7 @@ export default function HrSettingsPage() {
               </h1>
               <p className="text-sm text-muted-foreground">
                 Kalendarz firmy, wejście i odejście, urlopy w M365, dokumenty
-                pracowników i moduły „Ludzi w NEXUSIE”.
+                kartotek i moduły „Ludzi w NEXUSIE”.
               </p>
             </div>
             <HrSettings config={config} />

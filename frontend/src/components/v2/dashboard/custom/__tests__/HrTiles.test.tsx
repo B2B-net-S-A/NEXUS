@@ -355,7 +355,7 @@ describe("HrTileGate — kafelek zapisany na pulpicie", () => {
     routes["/api/hr/config"] = hrConfig(undefined, { has_profile: false })
     renderWith(<HrTileGate type="hr_my_time">{() => <p>treść</p>}</HrTileGate>)
     expect(await screen.findByText("Brak dostępu")).toBeInTheDocument()
-    expect(screen.getByText("Dla osób z kartoteką pracownika — założą ją Kadry")).toBeInTheDocument()
+    expect(screen.getByText("Dla osób z kartoteką w NEXUSIE — założą ją Kadry")).toBeInTheDocument()
   })
 
   it("awaria stanu modułów to blok błędu", async () => {

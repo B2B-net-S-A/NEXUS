@@ -40,14 +40,16 @@ const COORDINATOR: ManagerWords = {
   ofOne: EMPLOYMENT_TERMS.b2b.coordinator_genitive,
 };
 const MIXED: ManagerWords = {
-  one: "przełożony lub koordynator",
-  ofOne: "przełożonego lub koordynatora",
+  one: EMPLOYMENT_TERMS.b2b.coordinator,
+  ofOne: EMPLOYMENT_TERMS.b2b.coordinator_genitive,
 };
 
 /**
  * Słowo zamiast „przełożony” (decyzja Artura 17.10.2026): przy B2B i zleceniu
  * „koordynator”, przy UoP „przełożony”. Tylko etykieta — w bazie to dalej
- * `manager_user_id`. Zbiór mieszany i pusty dostaje oba słowa.
+ * `manager_user_id`. Zbiór mieszany i pusty mówi „koordynator” — słowo nie
+ * może zdradzać formy, a „przełożony” to sygnał podporządkowania dla PIP
+ * (decyzja Artura 21.10.2026).
  */
 export function managerWords(types: readonly (EmploymentType | null | undefined)[]): ManagerWords {
   const known = types.filter((type): type is EmploymentType => Boolean(type));

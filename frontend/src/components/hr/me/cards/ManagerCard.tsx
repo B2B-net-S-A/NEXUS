@@ -77,7 +77,7 @@ export function ManagerCard({
               absence ? (
                 <AbsenceBadge absence={absence} />
               ) : (
-                <span className="text-xs text-muted-foreground">w pracy</span>
+                <span className="text-xs text-muted-foreground">dostępny(a)</span>
               )
             ) : null}
           </div>

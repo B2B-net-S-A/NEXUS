@@ -271,7 +271,7 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
           state={state}
           description={
             state === "forbidden"
-              ? "Kalendarz zespołu widzą osoby z kartoteką pracownika i Kadry."
+              ? "Kalendarz zespołu widzą osoby z kartoteką w NEXUSIE i Kadry."
               : state === "not_found"
                 ? "Moduł urlopów nie jest jeszcze włączony."
                 : undefined
@@ -342,7 +342,7 @@ function Legend({ withPresence }: { withPresence: boolean }) {
             <PresenceMark kind="remote" />Z · {PRESENCE_LABELS.remote}
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <PresenceMark kind="business_trip" />D · {PRESENCE_LABELS.business_trip}
+            <PresenceMark kind="business_trip" />W · {PRESENCE_LABELS.business_trip}
           </span>
         </>
       ) : null}
@@ -531,7 +531,7 @@ function CalendarGrid({ data, people, view, selected, onSelect }: CalendarGridPr
                         : "bg-warning-muted text-warning-muted-foreground",
                     )}
                   >
-                    {mark.kind === "remote" ? "Z" : "D"}
+                    {mark.kind === "remote" ? "Z" : "W"}
                   </span>
                 ))}
               </div>

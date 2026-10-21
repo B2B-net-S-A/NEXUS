@@ -281,7 +281,7 @@ export const CATEGORY_LABELS: Record<TaskCategory, string> = {
 };
 
 export const ASSIGNEE_LABELS: Record<AssigneeKind, string> = {
-  manager: "Przełożony",
+  manager: "Koordynator",
   people_admin: "Kadry",
   reception: "Recepcja",
   person: "Osoba",
@@ -326,7 +326,7 @@ export const EXIT_REASON_LABELS: Record<ExitReason, string> = {
   new_opportunity: "Nowa praca",
   compensation: "Wynagrodzenie",
   role_fit: "Dopasowanie do roli",
-  management: "Współpraca z przełożonym",
+  management: "Współpraca z koordynatorem",
   work_life_balance: "Czas pracy i życie prywatne",
   career_growth: "Rozwój",
   relocation: "Przeprowadzka",
@@ -340,9 +340,9 @@ export const HANDOVER_ERROR_LABELS: Record<string, string> = {
   receiver_not_eligible: "Przejmujący nie ma roli, której wymaga ta praca.",
   receiver_is_leaver: "Osoba odchodząca nie przejmie własnej pracy.",
   receiver_leaving:
-    "Przejmujący sam odchodzi — jego ostatni dzień pracy wypada najpóźniej w dniu przekazania.",
+    "Przejmujący sam odchodzi — jego ostatni dzień współpracy wypada najpóźniej w dniu przekazania.",
   receiver_creates_loop:
-    "Przejmujący podlega jednej z tych osób — wybierz kogoś spoza zespołu odchodzącego albo z jego bezpośrednich podwładnych.",
+    "Przejmujący podlega jednej z tych osób — wybierz kogoś spoza zespołu odchodzącego albo z osób w jego zespole.",
   receiver_out_of_scope:
     "Przejmujący nie ma części tych klientów w portfelu — wybierz head back office, Talent Community Managera albo administratora.",
   receiver_excluded: "Tej osobie nie przypisujemy konsultantów (pula opiekunów) — wybierz kogoś innego.",

@@ -161,7 +161,7 @@ async def test_account_without_profile_or_permission_is_refused(
 
     response = await app_client.get("/api/hr/people", headers=_headers(outsider))
     assert response.status_code == 403
-    assert "kartoteki pracownika" in response.json()["detail"]
+    assert "kartoteki w NEXUSIE" in response.json()["detail"]
 
 
 @pytest.mark.asyncio

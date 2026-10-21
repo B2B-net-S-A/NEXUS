@@ -73,7 +73,7 @@ describe("mini-tydzień pn–pt", () => {
     expect(cells.map((cell) => cell.mark)).toEqual(["pn", "D", "Z", "½", "pt"]);
     expect(cells.map((cell) => cell.isToday)).toEqual([false, false, false, false, true]);
     expect(weekAriaLabel(cells)).toBe(
-      "pn: nieobecność, wt: delegacja, śr: praca zdalna, cz: wniosek czeka (pół dnia), pt: w pracy",
+      "pn: nieobecność, wt: wyjazd, śr: zdalnie, cz: wniosek czeka (pół dnia), pt: dostępny(a)",
     );
   });
 
@@ -109,11 +109,11 @@ describe("pasek „Dziś”", () => {
     const trip = person({
       week: [{ date: TODAY, state: "business_trip", half_day: null }],
     });
-    expect(todayStatus(trip, TODAY)).toEqual({ kind: "trip", text: "delegacja" });
+    expect(todayStatus(trip, TODAY)).toEqual({ kind: "trip", text: "wyjazd" });
     expect(todayStatus(person({ covering_for: ["Ewa Makietowa"] }), TODAY).text).toBe(
       "zastępuje: Ewa",
     );
-    expect(todayStatus(person(), TODAY)).toEqual({ kind: "work", text: "w pracy" });
+    expect(todayStatus(person(), TODAY)).toEqual({ kind: "work", text: "dostępny(a)" });
     expect(todayStatus(person({ today: null, week: null }), TODAY).kind).toBe("unknown");
   });
 
@@ -121,9 +121,9 @@ describe("pasek „Dziś”", () => {
     const absent = person({ today: { absent: true, until: TODAY } });
     const trip = person({ week: [{ date: TODAY, state: "business_trip", half_day: null }] });
     expect(todaySummary([person(), person(), absent, trip], TODAY)).toBe(
-      "2 w pracy · 1 osoba nieobecna · 1 w delegacji",
+      "dostępni: 2 · 1 osoba nieobecna · na wyjeździe: 1",
     );
-    expect(todaySummary([absent, absent], TODAY)).toBe("0 w pracy · 2 osoby nieobecne");
+    expect(todaySummary([absent, absent], TODAY)).toBe("dostępni: 0 · 2 osoby nieobecne");
   });
 });
 
@@ -136,11 +136,11 @@ describe("sam moduł czasu — bez nieobecności nie ma „w pracy” (audyt 21.
   it("dzień bez wpisu to „—”, zdalnie i delegacja zostają", () => {
     expect(todayStatus(timeOnly("unknown"), TODAY)).toEqual({ kind: "unknown", text: "—" });
     expect(todayStatus(timeOnly("remote"), TODAY)).toEqual({ kind: "remote", text: "zdalnie" });
-    expect(todayStatus(timeOnly("business_trip"), TODAY)).toEqual({ kind: "trip", text: "delegacja" });
+    expect(todayStatus(timeOnly("business_trip"), TODAY)).toEqual({ kind: "trip", text: "wyjazd" });
   });
 
   it("podsumowanie nie liczy „—” jako w pracy", () => {
-    expect(todaySummary([timeOnly("unknown"), timeOnly("remote")], TODAY)).toBe("1 w pracy");
+    expect(todaySummary([timeOnly("unknown"), timeOnly("remote")], TODAY)).toBe("dostępni: 1");
   });
 
   it("komórka mini-tygodnia mówi „brak danych”, nie „w pracy”", () => {

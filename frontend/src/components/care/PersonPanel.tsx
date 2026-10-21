@@ -144,7 +144,7 @@ export function PersonPanel({
 
       {person.subordinates.length ? (
         <div className={section}>
-          <h4 className={CALM_HEAD}>Podwładni</h4>
+          <h4 className={CALM_HEAD}>Zespół</h4>
           <ul className="flex flex-wrap gap-1.5">
             {person.subordinates.map((sub) => (
               <li key={sub.id}>

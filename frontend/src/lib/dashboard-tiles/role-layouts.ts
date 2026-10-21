@@ -113,7 +113,7 @@ export const ROLE_LABELS_PL: Partial<Record<UserRole, string>> = {
   delivery_lead: "Delivery Lead",
   talent_community_manager: "Talent Community Manager",
   recruiter: "Rekruter",
-  employee: "Pracownik",
+  employee: "Konsultant/Kontraktor",
 }
 
 function layoutRoles(user: User | null | undefined): UserRole[] {

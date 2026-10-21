@@ -63,10 +63,10 @@ logger = logging.getLogger(__name__)
 
 MODULE = HrModule.payroll
 NOT_MEMBER_DETAIL = (
-    "Płace widzą osoby z kartoteką pracownika, ich przełożeni i dział Płac."
+    "Płace widzą osoby z kartoteką w NEXUSIE, ich koordynatorzy i dział Płac."
 )
 NOT_ADMIN_DETAIL = "Miesiąc płac otwiera ponownie tylko administrator."
-NO_PROFILE_DETAIL = "Rozliczenie widzą osoby z kartoteką pracownika."
+NO_PROFILE_DETAIL = "Rozliczenie widzą osoby z kartoteką w NEXUSIE."
 MONTHS_LISTED = 13
 
 
@@ -936,7 +936,7 @@ async def put_rules(
         if missing:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Dodatkowa premia DL: obie osoby muszą mieć kartotekę pracownika.",
+                "Dodatkowa premia DL: obie osoby muszą mieć kartotekę w NEXUSIE.",
             )
     with _http_errors():
         rules = await bonus_rules.save_rules(db, merged, actor_id=current_user.id)

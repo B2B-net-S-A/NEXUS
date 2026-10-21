@@ -57,7 +57,7 @@ describe("/preview/hr-my-time", () => {
     const todo = screen.getByRole("generic", { name: "Do zrobienia" });
     expect(within(todo).getByText("Podpisz protokół PZO/TEST/2026/011")).toBeInTheDocument();
     expect(within(todo).getByText("Szkolenie stanowiskowe: praca w NEXUSIE")).toBeInTheDocument();
-    expect(screen.getByText("w pracy")).toBeInTheDocument();
+    expect(screen.getByText("dostępny(a)")).toBeInTheDocument();
     // Słowa według formy (D4): B2B „zgłasza przerwę”, zakładki „Przerwy” i „Raport godzin”.
     expect(screen.getByRole("button", { name: "Zgłoś przerwę" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Przerwy" })).toBeInTheDocument();

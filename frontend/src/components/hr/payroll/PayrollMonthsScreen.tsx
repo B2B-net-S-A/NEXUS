@@ -59,7 +59,7 @@ export function PayrollMonthsScreen({ config }: { config: HrConfig }) {
           state={state}
           description={
             state === "forbidden"
-              ? "Płace prowadzi dział Płac. Przełożony widzi godziny i premie zespołu w widoku miesiąca."
+              ? "Płace prowadzi dział Płac. Koordynator widzi godziny i premie zespołu w widoku miesiąca."
               : state === "not_found"
                 ? "Moduł Płac nie jest jeszcze włączony."
                 : undefined

@@ -127,7 +127,7 @@ export function OnboardingCaseView({ caseId }: { caseId: number }) {
         <Card className="p-4">
           <h2 className="mb-2 text-sm font-semibold text-foreground">Zatrudnienie</h2>
           <Fact label="Start">{formatWeekdayDayPl(data.start_date)}</Fact>
-          <Fact label="Przełożony">{data.manager_name ?? "—"}</Fact>
+          <Fact label="Koordynator">{data.manager_name ?? "—"}</Fact>
           <Fact label="Forma">
             {values.employment_type ? EMPLOYMENT_TYPE_LABELS[values.employment_type] : "—"}
           </Fact>

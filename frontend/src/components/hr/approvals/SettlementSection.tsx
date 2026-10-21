@@ -403,7 +403,7 @@ export function SettlementSection({ row }: { row: ApprovalRequestRow }) {
           </p>
           <p className="rounded-lg bg-muted/50 px-3 py-2.5 text-xs leading-relaxed text-foreground">
             <b>Zgoda wygasa po 30 dniach</b>, jeśli nic nie dołączysz — Finanse nie widzą wtedy „wiszącej” kwoty.
-            {row.kind === "trip" ? " Delegacja jest już w kalendarzu zespołu." : ""}
+            {row.kind === "trip" ? " Wyjazd jest już w kalendarzu zespołu." : ""}
             {row.kind === "gift" && settlement.client_name ? ` Prezent jest w Historii klienta ${settlement.client_name}.` : ""}
           </p>
         </div>
