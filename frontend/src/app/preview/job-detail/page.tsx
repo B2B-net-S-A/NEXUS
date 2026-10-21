@@ -1925,6 +1925,9 @@ function JobDetailHarness() {
                         }
                         activeView="board"
                         onViewChange={noop}
+                        viewHref={(view) =>
+                          view === "board" ? `/jobs/${JOB_ID}` : `/jobs/${JOB_ID}?tab=${view}`
+                        }
                         onOpenOrder={noop}
                         onOpenHistoryChat={noop}
                         onOpenQuestions={noop}

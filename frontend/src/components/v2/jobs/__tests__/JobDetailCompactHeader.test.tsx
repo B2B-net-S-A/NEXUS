@@ -1,5 +1,5 @@
 import * as React from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -176,6 +176,26 @@ describe("JobDetailCompactHeader", () => {
     expect(within(nav).getByTestId("open-champion-profile")).not.toHaveAttribute("aria-current");
 
     await userEvent.click(within(nav).getByTestId("open-champion-profile"));
+    expect(onViewChange).toHaveBeenCalledWith("champion");
+  });
+
+  it("zakładki z adresem to linki: środkowy przycisk i Ctrl/Cmd otwierają nową kartę", () => {
+    const { onViewChange } = renderHeader({
+      viewHref: (view) => (view === "board" ? "/jobs/7" : `/jobs/7?tab=${view}`),
+    });
+    const champion = screen.getByTestId("open-champion-profile");
+    expect(champion.tagName).toBe("A");
+    expect(champion).toHaveAttribute("href", "/jobs/7?tab=champion");
+    expect(screen.getByTestId("view-board")).toHaveAttribute("href", "/jobs/7");
+
+    // Ctrl/Cmd+klik i środkowy przycisk: przeglądarka otwiera kartę, widok tu się nie zmienia.
+    expect(fireEvent.click(champion, { button: 0, ctrlKey: true })).toBe(true);
+    expect(fireEvent.click(champion, { button: 0, metaKey: true })).toBe(true);
+    expect(fireEvent.click(champion, { button: 1 })).toBe(true);
+    expect(onViewChange).not.toHaveBeenCalled();
+
+    // Zwykły klik: przełącza widok w miejscu, bez przeładowania strony.
+    expect(fireEvent.click(champion, { button: 0 })).toBe(false);
     expect(onViewChange).toHaveBeenCalledWith("champion");
   });
 
