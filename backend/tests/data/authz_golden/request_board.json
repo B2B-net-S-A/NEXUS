@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDPPPPDDDDPDDDDDDDD",
-  "GET /api/request-board": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/request-board/jobs/{job_id}/lead-confirmation": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDPPPPDDDDPDDDDDDDD",
-  "POST /api/request-board/jobs/{job_id}/proposals/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "POST /api/request-board/proposals/accept": "PDPDDDDDDPDPDDDDDDDDDDDDD"
+  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDPPPPDDDDPDDDDDDDDD",
+  "GET /api/request-board": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/request-board/jobs/{job_id}/lead-confirmation": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDPPPPDDDDPDDDDDDDDD",
+  "POST /api/request-board/jobs/{job_id}/proposals/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "POST /api/request-board/proposals/accept": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

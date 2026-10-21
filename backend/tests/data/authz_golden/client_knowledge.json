@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDPPPDDDPDDDDDDDDDD",
-  "GET /api/clients/{client_id}/knowledge": "PPDBPDDDBBBDPPPPDPPPDDDDD",
-  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDBBBDDDPDDDDDDDDDD"
+  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/knowledge": "PPDBPDDDBBBDPPPPDPPPDDDDDD",
+  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDBBBDDDPDDDDDDDDDDD"
  }
 }

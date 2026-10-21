@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/screening-form": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/screening-form/joint-context": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/screening-form/question-groups": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/screening-form/versions": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/screening-form/restore": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "PUT /api/screening-form": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/screening-form": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/screening-form/joint-context": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/screening-form/question-groups": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/screening-form/versions": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/screening-form/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "PUT /api/screening-form": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

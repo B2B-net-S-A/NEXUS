@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/insights/delivery-leads": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPDPPPPPPPPPPPPDPPPP"
+  "GET /api/insights/delivery-leads": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
  }
 }

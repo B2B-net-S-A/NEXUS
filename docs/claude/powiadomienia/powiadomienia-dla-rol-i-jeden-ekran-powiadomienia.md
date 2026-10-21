@@ -11,6 +11,11 @@ wszystkich). Makiety: https://claude.ai/artifact/TRKAAZX3RcB8AA7LVohkT8, raport
   (admin + `system_admin`), „Reguły etapów” (link do Procesów rekrutacyjnych).
   Oba id rejestru zostają (`my-notifications`, `notifications`) i otwierają ten
   sam ekran na innej zakładce — linki z dzwonka i zakładki przeglądarki działają.
+  **Od 21.10.2026 (runda 2 Ustawień):** `my-notifications` to „Moje konto”
+  (Microsoft 365 + własne powiadomienia), a System › „Powiadomienia firmy”
+  (`notifications`) nie ma zakładki „Moje” (`includeMine` tylko przy
+  `defaultTab="moje"`); „tylko sobie” w „Maile” prowadzi linkiem do „Moje konto”.
+  Liczba pod przełącznikiem roli ma podpis: powiadomienia z `window_days` dni.
 - **„Kto co dostaje” = wyłączenie GRUPY dla ROLI**
   (`services/notification_role_mutes.py`, wiersz
   `app_settings['notification_role_mutes']` = `{revision, roles: {rola:

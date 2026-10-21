@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/assignable-stages": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/jobs/{job_id}/proposals/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/jobs/{job_id}/assignable-stages": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/jobs/{job_id}/proposals/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

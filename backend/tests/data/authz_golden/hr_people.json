@@ -24,15 +24,16 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/hr/config": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "GET /api/hr/me": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "GET /api/hr/people": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/people/account-mismatches": "PPDDDDDDDDDDDDDDDDDDDPPDD",
-  "GET /api/hr/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PATCH /api/hr/people/{user_id}/employment-type": "PPDDDDDDDDDDDDDDDDDDDPPDD",
-  "POST /api/hr/people/account-mismatches/align": "PPDDDDDDDDDDDDDDDDDDDPPDD"
+  "GET /api/hr/config": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/hr/me": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/hr/people": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/people/account-mismatches": "PPDDDDDDDDDDDDDDDDDDDPPDDD",
+  "GET /api/hr/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/hr/people/{user_id}/employment-type": "PPDDDDDDDDDDDDDDDDDDDPPDDD",
+  "POST /api/hr/people/account-mismatches/align": "PPDDDDDDDDDDDDDDDDDDDPPDDD"
  }
 }

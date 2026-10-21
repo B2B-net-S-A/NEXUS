@@ -6,6 +6,7 @@ import {
   isDeliveryLeadGoverned,
   type Permission,
 } from "@/lib/permissions"
+import { BOARD_HOME, isBoardAllowedPath } from "@/lib/board-access"
 import { normalizeRole, normalizeRoles } from "@/lib/role-normalize"
 import { hasSectionAccess } from "@/lib/section-access"
 
@@ -31,6 +32,9 @@ export type UserRole =
   // „Pracownik” (0456, „Ludzie w NEXUSIE”) — rola WYŁĄCZNA: osoba bez pracy
   // w rekrutacji widzi swój czas, ludzi i pomoc; przyjmuje nadania (np. Sprzęt).
   | "employee"
+  // „Rada nadzorcza” (0490) — rola WYŁĄCZNA: tylko Insights (kokpit Firma
+  // z kwotami, rok do roku, raporty, zespół imiennie); bez zapisu i nadań.
+  | "board"
 
 // Ranga — liczbowa reprezentacja pozwala na porównanie "min rola".
 // Legacy rank helper only. Section/action access is defined by explicit
@@ -56,6 +60,8 @@ export const ROLE_RANK: Record<UserRole, number> = {
   automation: 1,
   // Bez sekcji produktu — żadna bramka rangowa go nie przepuszcza.
   employee: 0.5,
+  // Tylko odczyt Insights — żadna bramka rangowa jej nie przepuszcza.
+  board: 0.5,
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -69,6 +75,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   trainee: "Praktykant",
   automation: "Automatyzacje",
   employee: "Pracownik",
+  board: "Rada nadzorcza",
 }
 
 /** Identyfikatory modułów DynaReportera (migracja B.0, 0111). Lista
@@ -260,7 +267,21 @@ export function postLoginDestination(
   if (isEmployeeOnly(user)) {
     return fallback === "/" || fallback.startsWith("/dashboard") ? "/my-time" : fallback
   }
+  // „Rada nadzorcza” (0490) ma jeden ekran — Insights, domyślnie widok Firma.
+  // Jawny `?next=` do Insights albo własnego konta zostaje.
+  if (isBoardOnly(user)) {
+    return isBoardAllowedPath(fallback.split("?")[0]) ? fallback : BOARD_HOME
+  }
   return fallback
+}
+
+/** Konto wyłącznie z rolą „Rada nadzorcza” (rola wyłączna, lustro CHECK-a). */
+export function isBoardOnly(
+  user: { role: UserRole; roles?: readonly UserRole[] } | null | undefined,
+): boolean {
+  if (!user) return false
+  const roles = getUserRoles(user)
+  return roles.length === 1 && roles[0] === "board"
 }
 
 /** Konto wyłącznie z rolą „Pracownik” (rola wyłączna, lustro CHECK-a). */

@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/public/consultant-mail/unsubscribe/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/consultant-mail/unsubscribe/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/consultant-mail/unsubscribe/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/consultant-mail/unsubscribe/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/rejection-emails/by-candidate/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/rejection-emails/{rejection_email_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/rejection-emails/preview": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/rejection-emails/{rejection_email_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/rejection-emails/by-candidate/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/rejection-emails/{rejection_email_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/rejection-emails/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/rejection-emails/{rejection_email_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

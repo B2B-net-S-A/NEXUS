@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/application-submissions": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/application-submissions/{submission_id}/resolve": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/application-submissions": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/application-submissions/{submission_id}/resolve": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

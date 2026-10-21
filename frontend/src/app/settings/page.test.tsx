@@ -139,7 +139,7 @@ describe("SettingsPage — obszar i pozycja", () => {
   it("prowadzi z Systemu do ekranu powiadomień na zakładce „Kto co dostaje”", () => {
     mocks.user = ADMIN;
     renderSettings("item=notifications");
-    expect(screen.getByRole("heading", { level: 1, name: "Powiadomienia" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Powiadomienia firmy" })).toBeInTheDocument();
     expect(within(crumbs()).getByRole("link", { name: "System" })).toHaveAttribute("href", "/settings?area=sys");
     expect(screen.getByText("Ekran powiadomień, zakładka startowa: role")).toBeInTheDocument();
   });

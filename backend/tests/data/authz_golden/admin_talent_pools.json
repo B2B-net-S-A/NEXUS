@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/talent-pools/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/talent-pools/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/talent-pools/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/talent-pools/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

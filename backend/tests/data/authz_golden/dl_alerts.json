@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/dl-alerts": "PPDPDDDDPPPDDDDDDDDDDDDDD",
-  "GET /api/dl-alerts/cards": "PPDPDDDDPPPDDDDDDDDDDDDDD",
-  "GET /api/dl-alerts/export": "PPDPDDDDPPPDDDDDDDDDDDDDD",
-  "POST /api/dl-alerts/{alert_id}/handled": "PPDPDDDDPPPDDDDDDDDDDDDDD"
+  "GET /api/dl-alerts": "PPDPDDDDPPPDDDDDDDDDDDDDDD",
+  "GET /api/dl-alerts/cards": "PPDPDDDDPPPDDDDDDDDDDDDDDD",
+  "GET /api/dl-alerts/export": "PPDPDDDDPPPDDDDDDDDDDDDDDD",
+  "POST /api/dl-alerts/{alert_id}/handled": "PPDPDDDDPPPDDDDDDDDDDDDDDD"
  }
 }

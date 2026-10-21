@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

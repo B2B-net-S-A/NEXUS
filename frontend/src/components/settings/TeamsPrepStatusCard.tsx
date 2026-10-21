@@ -6,9 +6,18 @@ import { Video } from "lucide-react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type TeamsPrepHealth = "unconfigured" | "misconfigured" | "degraded" | "healthy";
+export type TeamsPrepHealth = "unconfigured" | "misconfigured" | "degraded" | "healthy";
 
-const LABELS: Record<TeamsPrepHealth, { text: string; className: string }> = {
+export const TEAMS_PREP_HEALTH_KEY = ["health", "teams-prep"] as const;
+
+/** Stan sondy `checks.teams_prep` z `/api/health` (karta i lista „Integracje”). */
+export function fetchTeamsPrepHealth(): Promise<TeamsPrepHealth | undefined> {
+  return api
+    .get<{ checks?: Record<string, string> }>("/api/health")
+    .then((r) => r.data.checks?.teams_prep as TeamsPrepHealth | undefined);
+}
+
+export const TEAMS_PREP_LABELS: Record<TeamsPrepHealth, { text: string; className: string }> = {
   unconfigured: { text: "Nieskonfigurowane", className: "bg-muted text-muted-foreground" },
   misconfigured: { text: "Brak poświadczeń", className: "bg-destructive/15 text-destructive" },
   degraded: { text: "Problemy z dostępem", className: "bg-warning-muted text-warning-muted-foreground" },
@@ -21,14 +30,11 @@ const LABELS: Record<TeamsPrepHealth, { text: string; className: string }> = {
  */
 export function TeamsPrepStatusCard() {
   const health = useQuery({
-    queryKey: ["health", "teams-prep"],
-    queryFn: () =>
-      api
-        .get<{ checks?: Record<string, string> }>("/api/health")
-        .then((r) => r.data.checks?.teams_prep as TeamsPrepHealth | undefined),
+    queryKey: TEAMS_PREP_HEALTH_KEY,
+    queryFn: fetchTeamsPrepHealth,
     staleTime: 60_000,
   });
-  const status = health.data ? LABELS[health.data] : null;
+  const status = health.data ? TEAMS_PREP_LABELS[health.data] : null;
 
   return (
     <div className="rounded-2xl border border-border bg-card p-6">

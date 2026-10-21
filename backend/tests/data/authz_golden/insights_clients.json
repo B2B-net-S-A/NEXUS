@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/insights/clients/hiring-managers": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/clients/hit-ratio": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/clients/ranking": "PPDDDDDDDDDDDDDDDPDDDDDDD"
+  "GET /api/insights/clients/hiring-managers": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/clients/hit-ratio": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/clients/ranking": "PPDDDDDDDDDDDDDDDPDDDDDDDP"
  }
 }

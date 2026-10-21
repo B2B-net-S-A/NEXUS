@@ -74,6 +74,7 @@ export const ALL_USER_ROLES: readonly UserRole[] = [
   "trainee",
   "automation",
   "employee",
+  "board",
 ];
 
 /**
@@ -173,6 +174,16 @@ export const ROLE_SECTION_ACCESS: Record<
     pipeline: "none",
     delivery: "none",
     insights: "none",
+    finance: "none",
+    system_admin: "none",
+  },
+  // „Rada nadzorcza” (0490): tylko odczyt Insights. Kwoty widoku Firma
+  // otwiera rola (`FIRMA_ROLES`), nie sekcja Finanse.
+  board: {
+    sourcing: "none",
+    pipeline: "none",
+    delivery: "none",
+    insights: "read",
     finance: "none",
     system_admin: "none",
   },

@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/workflows": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/workflows/revisions/{revision_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/admin/workflows/stage-revisions/{stage_revision_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/bootstrap": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/revisions/{revision_id}/draft": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/revisions/{revision_id}/publish": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/workflows": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/workflows/revisions/{revision_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/admin/workflows/stage-revisions/{stage_revision_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/bootstrap": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/revisions/{revision_id}/draft": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/revisions/{revision_id}/publish": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

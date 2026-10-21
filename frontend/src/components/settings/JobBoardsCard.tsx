@@ -31,13 +31,13 @@ import {
 } from "@/lib/api/jobPortals";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
 
-const STATUS_LABEL: Record<JobBoardConnectionRead["status"], string> = {
+export const STATUS_LABEL: Record<JobBoardConnectionRead["status"], string> = {
   not_connected: "Niepołączone",
   active: "Połączone",
   reconnect_required: "Wymaga ponownego połączenia",
 };
 
-const STATUS_TONE: Record<JobBoardConnectionRead["status"], string> = {
+export const STATUS_TONE: Record<JobBoardConnectionRead["status"], string> = {
   not_connected: "bg-muted text-muted-foreground",
   active: "bg-success-muted text-success-muted-foreground",
   reconnect_required: "bg-warning-muted text-warning-muted-foreground",
@@ -203,8 +203,18 @@ export default function JobBoardsCard() {
           {!staticKey && !data?.oauth_configured ? (
             <Alert
               variant="warning"
-              title="Brak konfiguracji OAuth na serwerze"
-              description="Aplikacja nie ma danych klienta OAuth dostawcy (JJIT_OAUTH_CLIENT_ID, JJIT_OAUTH_CLIENT_SECRET, JJIT_OAUTH_REDIRECT_URI). Bez nich nie da się połączyć konta."
+              title="Konto jeszcze nie do połączenia"
+              description={
+                <>
+                  Na serwerze brakuje danych aplikacji OAuth od JustJoin.IT. Ustawia je administrator
+                  serwera (workflow „Coolify set env”); potem pojawi się tu „Połącz konto”.
+                  {/* Nazwy zmiennych tylko dla administratora serwera — zwinięte (runda 2, 21.10.2026). */}
+                  <details className="mt-1 text-xs">
+                    <summary className="cursor-pointer">Szczegóły techniczne</summary>
+                    JJIT_OAUTH_CLIENT_ID, JJIT_OAUTH_CLIENT_SECRET, JJIT_OAUTH_REDIRECT_URI
+                  </details>
+                </>
+              }
             />
           ) : null}
           {status === "reconnect_required" ? (

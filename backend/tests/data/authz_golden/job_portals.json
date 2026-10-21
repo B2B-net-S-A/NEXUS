@@ -24,15 +24,16 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/job-boards/{board}/dictionaries": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/job-portals/config": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/jobs/{job_id}/portal-listing-defaults": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/jobs/{job_id}/portals": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "PATCH /api/jobs/{job_id}/portals/{portal}/options": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/jobs/{job_id}/portals/{portal}/publish": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/jobs/{job_id}/portals/{portal}/unpublish": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/job-boards/{board}/dictionaries": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/job-portals/config": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/jobs/{job_id}/portal-listing-defaults": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/jobs/{job_id}/portals": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "PATCH /api/jobs/{job_id}/portals/{portal}/options": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/jobs/{job_id}/portals/{portal}/publish": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/jobs/{job_id}/portals/{portal}/unpublish": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

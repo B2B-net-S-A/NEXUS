@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}/override": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "PUT /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}/override": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "PUT /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPP"
+  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
  }
 }

@@ -6,7 +6,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/Toast";
 import { useAuthStore, type User } from "@/store/auth";
-import { AdminUsersTab, impersonationProfile } from "./AdminUsersTab";
+import {
+  ADMIN_USERS_PAGE_SIZE,
+  AdminUsersTab,
+  adminUserCounts,
+  filterAdminUsers,
+  impersonationProfile,
+} from "./AdminUsersTab";
 import {
   permissionsSnapshot,
   userPermissionsResponse,
@@ -421,9 +427,8 @@ describe("podgląd jako użytkownik", () => {
     renderTab();
 
     const row = await screen.findByRole("row", { name: /Celina Wzorcowa/ });
-    await user.click(
-      within(row).getByRole("button", { name: "Podgląd jako ten użytkownik" }),
-    );
+    await user.click(within(row).getByRole("button", { name: "Więcej: Celina Wzorcowa" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Podgląd jako ten użytkownik" }));
 
     await waitFor(() => expect(impersonate).toHaveBeenCalledTimes(1));
     expect(adminApi.startImpersonation).toHaveBeenCalledWith(90);
@@ -453,5 +458,63 @@ describe("podgląd jako użytkownik", () => {
     expect(impersonationProfile(withoutRoles as User).roles).toEqual([
       "talent_community_manager",
     ]);
+  });
+});
+
+describe("lista kont: domyślnie aktywni, liczniki, „Bez aktywności”, kolejność, strony", () => {
+  const account = (id: number, name: string, over: Partial<AdminUser> = {}): AdminUser =>
+    ({
+      id,
+      email: `konto${id}@example.com`,
+      name,
+      role: "recruiter",
+      roles: ["recruiter"],
+      is_active: true,
+      activity_count: 0,
+      last_activity: null,
+      ...over,
+    }) as AdminUser;
+  const list = [
+    account(1, "Anna Testowa", { last_activity: "2026-10-20T08:00:00Z", activity_count: 3 }),
+    account(2, "Bartek Wzorcowy"),
+    account(3, "Cezary Były", { is_active: false }),
+    account(4, "Dorota Fikcyjna", { last_activity: "2026-10-21T08:00:00Z", activity_count: 1 }),
+  ];
+
+  it("liczy aktywnych, nieaktywnych i aktywnych bez żadnej aktywności", () => {
+    expect(adminUserCounts(list)).toEqual({ all: 4, active: 3, inactive: 1, idle: 1 });
+  });
+
+  it("„Bez aktywności” zostawia tylko aktywne konta bez aktywności; nieaktywne nigdy", () => {
+    const idle = filterAdminUsers(list, { status: "all", role: "all", search: "", idle: true });
+    expect(idle.map((u) => u.name)).toEqual(["Bartek Wzorcowy"]);
+  });
+
+  it("kolejność od ostatniej aktywności, konta bez aktywności na końcu", () => {
+    const sorted = filterAdminUsers(list, { status: "active", role: "all", search: "", sort: "activity" });
+    expect(sorted.map((u) => u.name)).toEqual(["Dorota Fikcyjna", "Anna Testowa", "Bartek Wzorcowy"]);
+  });
+
+  it("w Ustawieniach domyślnie aktywni, z licznikami; ponad 25 kont = kolejna strona", async () => {
+    const many = [
+      ...Array.from({ length: 27 }, (_, i) => account(100 + i, `Osoba ${String(i + 1).padStart(2, "0")}`)),
+      account(200, "Zenon Były", { is_active: false }),
+    ];
+    vi.mocked(adminApi.listUsers).mockResolvedValue({ data: many } as never);
+    const user = userEvent.setup();
+    renderTab();
+
+    expect(await screen.findByRole("button", { name: "Aktywni 27" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Nieaktywni 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /Zenon Były/ })).toBeNull();
+    expect(screen.getAllByRole("row")).toHaveLength(ADMIN_USERS_PAGE_SIZE + 1);
+    expect(screen.getByText("1–25 z 27")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Następne" }));
+    expect(screen.getByRole("row", { name: /Osoba 27/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Nieaktywni 1" }));
+    expect(screen.getByRole("row", { name: /Zenon Były/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Następne" })).toBeNull();
   });
 });

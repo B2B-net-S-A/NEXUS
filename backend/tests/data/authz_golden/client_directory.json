@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/directory": "PPDPPDDDPPPDPPPPDPPPDDDDD",
-  "GET /api/clients/directory/export": "PPDPPDDDPPPDPPPPDPPPDDDDD",
-  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}/placement": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/portfolio-scopes": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/directory": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
+  "GET /api/clients/directory/export": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
+  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}/placement": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/portfolio-scopes": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

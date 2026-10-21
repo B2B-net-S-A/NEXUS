@@ -144,6 +144,7 @@ def _normalized_role_values(
         UserRole.trainee.value,
         UserRole.automation.value,
         UserRole.employee.value,
+        UserRole.board.value,
     }.intersection(values)
     if exclusive and len(values) != 1:
         role_name = sorted(exclusive)[0]
@@ -347,12 +348,14 @@ async def update_user(
                 UserRole.trainee,
                 UserRole.automation,
                 UserRole.employee,
+                UserRole.board,
             }
             or UserRole.finance.value in original_roles
             or UserRole.user.value in original_roles
             or UserRole.trainee.value in original_roles
             or UserRole.automation.value in original_roles
             or UserRole.employee.value in original_roles
+            or UserRole.board.value in original_roles
         ):
             final_roles = [final_primary.value]
         else:

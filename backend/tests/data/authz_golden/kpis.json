@@ -24,15 +24,16 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/kpis/me/goals": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/kpis/me/panel": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/kpis/me/today": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/kpis/team/panel": "PPPPPDDDPPPPPPDDDDDDDDDDD",
-  "GET /api/kpis/users/{user_id}/today": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/kpis/me/goals": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/kpis/me/panel": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/kpis/me/today": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/kpis/team/panel": "PPPPPDDDPPPPPPDDDDDDDDDDDP",
+  "GET /api/kpis/users/{user_id}/today": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

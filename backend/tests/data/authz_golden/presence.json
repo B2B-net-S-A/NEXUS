@@ -24,9 +24,10 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/presence/{resource_type}/{resource_id}/viewers": "PPPPPPDDPPPPPPPPPPPPDPPPP"
+  "GET /api/presence/{resource_type}/{resource_id}/viewers": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
  }
 }

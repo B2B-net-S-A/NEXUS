@@ -504,8 +504,9 @@ export function useHrNavState(
   const roles = user
     ? new Set([user.role, ...(user.roles ?? [])])
     : new Set<string>();
-  const traineeOnly = roles.size === 1 && roles.has("trainee");
-  const { data } = useHrConfig(Boolean(user) && !traineeOnly);
+  // Rada nadzorcza (0490) nie ma w menu ekranów „Ludzi” — bez zapytania.
+  const ownShell = roles.size === 1 && (roles.has("trainee") || roles.has("board"));
+  const { data } = useHrConfig(Boolean(user) && !ownShell);
   return hrNavState(data);
 }
 

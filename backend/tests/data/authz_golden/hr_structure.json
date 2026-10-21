@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/hr/structure": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "POST /api/hr/structure/division": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "POST /api/hr/structure/reassign": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "PUT /api/hr/structure/divisions": "PDDDDDDDDDDDDDDDDDDDDPDDD"
+  "GET /api/hr/structure": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "POST /api/hr/structure/division": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "POST /api/hr/structure/reassign": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "PUT /api/hr/structure/divisions": "PDDDDDDDDDDDDDDDDDDDDPDDDD"
  }
 }

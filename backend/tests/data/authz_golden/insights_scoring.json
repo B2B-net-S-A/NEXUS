@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/insights/scoring-config": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "PATCH /api/insights/scoring-config": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/insights/scoring-config": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "PATCH /api/insights/scoring-config": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

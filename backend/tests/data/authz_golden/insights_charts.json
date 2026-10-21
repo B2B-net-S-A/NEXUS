@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/insights/charts/placement-analysis": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/charts/yearly-stats": "PPPPPPPDPPPPPPPPPPPPDPPPP"
+  "GET /api/insights/charts/placement-analysis": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/charts/yearly-stats": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
  }
 }

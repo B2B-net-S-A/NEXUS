@@ -262,6 +262,21 @@ describe("clientReferenceFor — numer u klienta bez osobnego pola", () => {
     expect(clientReferenceFor(base({ clientTitle: "Java ZOB 100 (ZOB-100)" }))).toBe("ZOB 100");
   });
 
+  // 21.10.2026: odczyt dał numer = nazwa roli; CV dostały nagłówek „(43020)”.
+  it("nazwa roli z odczytu to nie numer — bierze numer z nawiasu albo nic", () => {
+    const role = "PL_IT_Developer_expert_TP#40379";
+    expect(
+      clientReferenceFor(base({ clientTitle: `${role} (43020)`, referenceHint: role })),
+    ).toBe("43020");
+    expect(clientReferenceFor(base({ clientTitle: role, referenceHint: role }))).toBe("");
+    expect(
+      clientReferenceFor(base({ clientTitle: `${role} (2026)`, referenceHint: role })),
+    ).toBe("");
+    expect(
+      clientReferenceFor(base({ clientTitle: `${role} (43020)`, referenceHint: "43020" })),
+    ).toBe("43020");
+  });
+
   it("bez numeru w nazwie i bez podpowiedzi — pusto", () => {
     expect(clientReferenceFor(base({ clientTitle: "Programista Java" }))).toBe("");
   });
