@@ -482,10 +482,15 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
     });
   }
 
+  // Odmowa płac (403/404) chowa ich część; awaria (np. 500) to nie brak dostępu.
+  const payrollRefused = payroll.isError && refused(payroll.error);
+  const payrollShown = config.open_modules.payroll && !payrollRefused;
+  // Dane do rozliczeń stoją w tej zakładce — Kadry bez Płac i wyłączony moduł
+  // płac też muszą do nich dojść (audyt 21.10.2026).
   const tabs: { value: ProfileTab; label: string; count?: number }[] = [
     { value: "overview", label: "Przegląd" },
     ...(full ? [{ value: "time" as const, label: "Czas i przerwy" }] : []),
-    ...(config.open_modules.payroll && (pay || payroll.isLoading)
+    ...(payrollShown || (full && billingVisible)
       ? [
           {
             value: "payroll" as const,
@@ -636,10 +641,17 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
                     </Button>
                   ) : null}
                 </div>
-                {!config.open_modules.payroll || payroll.isError ? (
+                {!config.open_modules.payroll || payrollRefused ? (
                   <p className="text-sm text-muted-foreground">
-                    {payroll.isError ? "Płace niedostępne dla Ciebie." : "Moduł płac jest wyłączony."}
+                    {payrollRefused ? "Płace niedostępne dla Ciebie." : "Moduł płac jest wyłączony."}
                   </p>
+                ) : payroll.isError ? (
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    Nie udało się wczytać płac.
+                    <Button size="sm" variant="ghost" onClick={() => payroll.refetch()}>
+                      Spróbuj ponownie
+                    </Button>
+                  </div>
                 ) : !pay ? (
                   <p className="text-sm text-muted-foreground">Wczytywanie płac…</p>
                 ) : (
