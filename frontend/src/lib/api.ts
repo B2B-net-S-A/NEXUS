@@ -3643,6 +3643,18 @@ export const b2bGeneratorApi = {
         body,
       )
       .then((r) => r.data),
+  /** Podpisany egzemplarz umowy (PDF, JPG, PNG) → Dokumenty kontraktu (0496). */
+  attachSignedFile: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<B2BGeneratedContractRow>(
+        `/api/b2b-generator/generated/${id}/signed-file`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      )
+      .then((r) => r.data);
+  },
   /** Podpowiedzi formularza umowy z rekrutacji (panel osoby i Generator). */
   prefill: (candidateId: number, jobId: number) =>
     api
@@ -3903,6 +3915,10 @@ export interface B2BGeneratedContractRow {
   signed_by_name: string | null;
   can_confirm_signed: boolean;
   blocked_reason: string | null;
+  /** 0496: podpisany egzemplarz w Dokumentach kontraktu (`null` = brak). */
+  signed_document_id?: number | null;
+  /** Czy to konto dołączy albo podmieni podpisany plik (jak oznaczenie podpisu). */
+  can_attach_signed_file?: boolean;
   can_delete: boolean;
   can_edit: boolean;
   can_download: boolean;
