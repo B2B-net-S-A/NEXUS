@@ -506,3 +506,122 @@ async def test_failed_refresh_keeps_the_last_good_eu_list(monkeypatch):
     stale = 1000.0 + qualified.REFRESH_HOURS * 3600 + 1
     assert await qualified.trusted_registry(now=stale) is sentinel
     assert calls == ["ok", "down"]
+
+
+# ── po podpisie obu stron (PR 5) ─────────────────────────────────────────────
+
+
+async def _sign_both(
+    app_client, sender_headers, signer_headers, generated_id, signer_id
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+
+    partner = await _partner(generated_id)
+    sent = await _send(app_client, sender_headers, generated_id, signer_id)
+    assert sent.status_code == 200, sent.text
+    token = _token(sent.json()["sign_url"])
+    request_id = sent.json()["request"]["id"]
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+    contractor_pdf = SOURCE + b"% podpis kontraktora\n"
+    signed = await app_client.post(
+        f"/api/public/b2b-sign/{token}",
+        files={"file": ("u.pdf", contractor_pdf, "application/pdf")},
+    )
+    assert signed.status_code == 200, signed.text
+    async with AsyncSessionLocal() as db:
+        signer_name = (await db.get(User, signer_id)).name
+    _FakeValidator.report = _report(
+        (f"CN={partner}", "TOTAL_PASSED", "QESig"),
+        (f"CN={signer_name}", "TOTAL_PASSED", "QESig"),
+    )
+    done = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/company-sign",
+        files={"file": ("u.pdf", contractor_pdf + b"% firma\n", "application/pdf")},
+        headers=signer_headers,
+    )
+    assert done.status_code == 200, done.text
+    assert done.json()["status"] == "completed"
+    return request_id
+
+
+async def _notices(user_id: int, request_id: int) -> list[str]:
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.notification import Notification
+
+    async with AsyncSessionLocal() as db:
+        rows = await db.scalars(
+            select(Notification.title).where(
+                Notification.user_id == user_id,
+                Notification.related_entity_type == "b2b_signing_request",
+                Notification.related_entity_id == request_id,
+            )
+        )
+        return list(rows.all())
+
+
+@pytest.mark.asyncio
+async def test_both_signatures_run_the_signed_automation_with_the_file(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Reprezentant z prawem oznaczania podpisu: kontrakt, zamówienie,
+    „Zatrudniony” i podpisany PDF w Dokumentach — jak „Oznacz jako podpisaną”."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from tests.test_b2b_signature_automation import _seed_bound_scenario
+
+    admin_id = esign_env["admin_id"]
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db,
+            esign_settings.EsignSettings(mode="all", company_signer_ids=(admin_id,)),
+            actor_id=admin_id,
+        )
+        await db.commit()
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    request_id = await _sign_both(
+        app_client,
+        app_auth_headers,
+        app_auth_headers,
+        scenario["generated_id"],
+        admin_id,
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        assert row.signature_status == "signed_both"
+        assert row.signature_source == "validated_upload"
+        assert row.contract_id is not None and row.signed_document_id is not None
+    titles = await _notices(admin_id, request_id)
+    assert any("podpisana przez obie strony" in t for t in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_without_the_confirm_permission_the_sender_is_asked_to_finish(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Reprezentant bez zakresu klienta: podpis zostaje, kontrakt nie powstaje,
+    nadawca dostaje dzwonek „oznacz ją w rejestrze” i może pobrać plik."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from tests.test_b2b_signature_automation import _seed_bound_scenario
+
+    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    request_id = await _sign_both(
+        app_client,
+        app_auth_headers,
+        esign_env["signer_headers"],
+        scenario["generated_id"],
+        esign_env["signer_id"],
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None and row.signature_status == "unsigned"
+    titles = await _notices(esign_env["admin_id"], request_id)
+    assert any("oznacz ją w rejestrze" in t for t in titles), titles
+    pdf = await app_client.get(
+        f"/api/b2b-generator/esign/{request_id}/signed-pdf", headers=app_auth_headers
+    )
+    assert pdf.status_code == 200 and pdf.content.endswith(b"% firma\n")

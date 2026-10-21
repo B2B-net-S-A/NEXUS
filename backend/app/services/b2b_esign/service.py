@@ -235,7 +235,10 @@ async def contractor_submit(
         await _count_failed_attempt(db, request_id)
         raise HTTPException(status_code=422, detail=MSG_CHANGED)
     # Walidacja trwa do 30 s — bez otwartej transakcji i bez połączenia z puli.
-    await db.rollback()
+    # ``commit`` (nic nie zmieniono), nie ``rollback``: sesja ma
+    # ``expire_on_commit=False``, a rollback wygasiłby też zalogowanego
+    # użytkownika z tej samej sesji (odczyt jego pól w async = MissingGreenlet).
+    await db.commit()
     report = await validator.validate(data)
     verdict = judge(
         report,
@@ -297,7 +300,7 @@ async def company_submit(
     check_pdf_upload(data)
     if not builds_on(data, contractor_version):
         raise HTTPException(status_code=422, detail=MSG_CHANGED)
-    await db.rollback()
+    await db.commit()  # jak wyżej — bez transakcji na czas walidacji
     report = await validator.validate(data)
     verdict = judge(
         report,
