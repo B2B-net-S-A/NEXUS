@@ -94,6 +94,9 @@ function esignBadge(agreement: CardAgreement, now: Date): AgreementBadge | null 
     (esign.status === "sent" &&
       !!esign.expires_at &&
       new Date(esign.expires_at).getTime() <= now.getTime());
+  // Po wygaśnięciu rekruter mógł przejść na drogę mailową i poprosić
+  // o potwierdzenie podpisu — wtedy liczy się zwykła plakietka.
+  if (expired && agreement.signature_requested_at) return null;
   if (expired) {
     return {
       label: "Link wygasł — wyślij ponownie",

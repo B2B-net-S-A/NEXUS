@@ -195,6 +195,18 @@ describe("plakietka umowy w podpisie w NEXUSIE (etap 1b)", () => {
     ).toBe("Link wygasł — wyślij ponownie");
   });
 
+  it("prośba o potwierdzenie po wygaśnięciu linku wygrywa", () => {
+    expect(
+      agreementBadge(
+        {
+          ...esign({ status: "expired" }),
+          signature_requested_at: "2026-10-03T10:00:00Z",
+        },
+        NOW,
+      )?.label,
+    ).toBe("Prośba o podpis");
+  });
+
   it("wycofana wysyłka wraca do zwykłej plakietki", () => {
     expect(agreementBadge(esign({ status: "withdrawn" }), NOW)?.label).toBe(
       "Do podpisu · 2 d",
