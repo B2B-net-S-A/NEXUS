@@ -92,3 +92,15 @@ def test_board_role_cannot_be_combined() -> None:
         assert "board" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("rola board połączyła się z rekruterem")
+
+
+def test_hr_access_migration_seeds_only_roles_known_at_0456() -> None:
+    # 0456 biegnie na świeżej bazie przed 0490 — wiersz ``board`` w jej
+    # zasiewie łamałby CHECK ról tabeli akcji (CI 21.10.2026).
+    spec = importlib.util.spec_from_file_location(
+        "m0456", ROOT / "alembic" / "versions" / "0456_hr_access.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert "board" not in module.ROLES_AT_0456
+    assert set(module.ROLES_AT_0456) | {"board"} == set(catalog.ROLES)

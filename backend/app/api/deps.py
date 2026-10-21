@@ -614,6 +614,7 @@ DeliveryLeadPlus = Annotated[
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
 ]
 
+
 async def _require_board_reader(
     current_user: User = Depends(require_onboarded_user),
 ) -> User:
