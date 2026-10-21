@@ -38,7 +38,12 @@ export function TeamDecisions({ team }: { team: MyTeam }) {
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [rejecting, setRejecting] = useState<RejectTarget | null>(null);
 
-  if (cards.length === 0) return null;
+  if (cards.length === 0) {
+    // Sprawa zniknęła przy otwartym oknie (ktoś inny zdecydował) — bez tego
+    // okno odrzucenia samo wracało przy następnej karcie (audyt 21.10.2026).
+    if (rejecting !== null) setRejecting(null);
+    return null;
+  }
   const count = decisionCount(cards);
 
   const approveLeave = (card: Extract<DecisionCard, { kind: "leave" }>) =>

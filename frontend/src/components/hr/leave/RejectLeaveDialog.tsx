@@ -37,12 +37,13 @@ export function RejectLeaveDialog({ request, onClose }: RejectLeaveDialogProps) 
       setError("Podaj powód — osoba zobaczy go przy wniosku.");
       return;
     }
-    decide.mutate(
-      { id: request.id, decision: "reject", note: note.trim() },
-      {
-        onSuccess: () => close(true),
-        onError: (err) => setError(apiErrorMessage(err, "Nie udało się odrzucić wniosku.")),
-      },
+    // `mutateAsync`, nie callbacki `mutate()`: po odrzuceniu lista odświeża się
+    // bez sprawy, okno odmontowuje się razem z nią („Akceptacje”: szczegół
+    // z `key` sprawy; „Mój zespół”: sekcja bez kart), a callbacki `mutate()`
+    // TanStack Query wtedy pomija — znikał toast „Wniosek odrzucony” (audyt 21.10.2026).
+    decide.mutateAsync({ id: request.id, decision: "reject", note: note.trim() }).then(
+      () => close(true),
+      (err) => setError(apiErrorMessage(err, "Nie udało się odrzucić wniosku.")),
     );
   };
 
