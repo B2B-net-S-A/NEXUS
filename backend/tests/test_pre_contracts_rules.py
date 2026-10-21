@@ -196,12 +196,12 @@ def test_entrypoint_mirrors_every_statement_after_b2b_documents() -> None:
 
 
 def test_migration_uses_the_shared_ddl() -> None:
-    path = BACKEND / "alembic" / "versions" / "0505_pre_contract_requests.py"
+    path = BACKEND / "alembic" / "versions" / "0506_pre_contract_requests.py"
     spec = importlib.util.spec_from_file_location("m0504", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
-    assert module.revision == "0505_pre_contract_requests"
+    assert module.revision == "0506_pre_contract_requests"
     text = path.read_text(encoding="utf-8")
     assert "schema.ALL_DDL" in text and "schema.ENUM_DDL" in text
 
