@@ -105,7 +105,7 @@ kodu sprzed 10.10.2026 odnoszą się do plików z tego indeksu.
 
 Deploy przez Coolify, `/api/health`, zmienne środowiskowe, CI i kolejka merge'ów, obciążenie, klucze API kont serwisowych, obsługa błędów API.
 
-- `ci-gotchas.md` — CI gotchas · kolejka merge'ów, sito na PR, shardy pytest, pokrycie, Trivy, E2E, minuty Actions, „dziś” = Europe/Warsaw
+- `ci-gotchas.md` — CI gotchas · kolejka merge'ów, kolizje migracji, sito na PR, shardy, pokrycie, Trivy, E2E, minuty Actions, „dziś” = Europe/Warsaw
 - `deploy.md` — Deploy
 - `env-vars-build-time-vs-runtime.md` — Env vars (build-time vs runtime)
 - `healthcheck-endpoint.md` — Healthcheck endpoint
@@ -139,6 +139,7 @@ Role, dziewięć uprawnień, bramki sekcji i tras, zakres Delivery Leada, kto wi
 Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, pulpit, wygląd tabel.
 
 - `design-system-ui-zawsze-przy-pracy-nad-wygladem.md` — Design system & UI — ZAWSZE przy pracy nad wyglądem
+- `kafelek-do-uzupelnienia.md` — Kafelek „Do uzupełnienia” (21.10.2026)
 - `klienci-kontrakty-finanse-spokojne-tabele.md` — Klienci, Kontrakty, Finanse — spokojne tabele (02.10.2026)
 - `licznik-celow-w-gornym-pasku.md` — Licznik celów w górnym pasku (13.10.2026) · podpisane segmenty, panel po kliknięciu, „poniżej tempa”, cel DL z 30% hit ratio
 - `liga-w-gornym-pasku.md` — Liga Mistrzów w górnym pasku (13.10.2026) · przycisk ligi przed licznikiem celów, `/api/competitions/my-league`, stany przycisku, menu „Wygląd”
@@ -192,11 +193,13 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `konflikty-z-klientem-blacklist-nda-konkurent-sa.md` — Konflikty z klientem (blacklist / NDA / konkurent) są OSTRZEŻENIEM, nie blokadą (decyzja Artura, 17.09.2026)
 - `lista-rekrutacji-pamieta-ostatnie-filtry.md` — Lista rekrutacji pamięta ostatnie filtry (13.10.2026) · goły `/jobs` = ostatni widok osoby, link z parametrami wygrywa, `keepScope`
 - `mail-odrzucenia-tresc-i-podglad.md` — Mail odrzucenia: treść domyślna i podgląd w oknie odrzucenia (13.10.2026) · treść domyślna w kodzie, podgląd przed potwierdzeniem, szablony z Ustawień nieużywane
+- `minimum-dla-dl-przed-zweryfikowany.md` — Minimum dla Delivery Leada przed „Zweryfikowany” (21.10.2026) · lokalizacja, tryb pracy, dostępność, „Dlaczego ten kandydat” blokują; pola o osobie z innej rekrutacji; okno na Tablicy
 - `narzedzia-rekrutera-reguly-po-audycie-17-09-2026.md` — Narzędzia rekrutera — reguły po audycie 17.09.2026 · HoR = parytet z rekruterem, stawka do klienta, werdykt HM, kalendarz, powiadomienia z triggerów
 - `nastepna-osoba-po-odrzuceniu.md` — Po odrzuceniu z panelu osoby — od razu następna osoba (13.10.2026) · kolejka „‹ ›” = kolumna + filtr „Kto dodał”, pasek „Odrzucono · Pokaż”, „Wróć do kolejki”
 - `nordea-akceptacja-dl-przed-cpro.md` — Nordea: do kolejki Cpro dopiero po akceptacji Delivery Leada (13.10.2026) · „Akceptuj — do Cpro” ze stawką, bramka serwera dla rekrutera, dzwonek od Cpro po akceptacji
 - `nowe-cv-w-rekrutacji.md` — Nowe CV w rekrutacji — kafelek w panelu osoby i „Dodaj do rekrutacji z tym CV” (13.10.2026) · „Wgraj nowe CV” w panelu osoby, trasa `…/cv/original/upload`, „Użyj w tej rekrutacji”, „Dodaj z CV” przy osobie z bazy
 - `odrzucenie-z-uzasadnieniem.md` — Odrzucenie z uzasadnieniem i rozmowa u tego samego managera (20.10.2026)
+- `off-limits-sam-sie-zglosil.md` — Off-limits: „Czy sam(a) się do nas zgłosił(a)?” przy dodaniu do rekrutacji (21.10.2026)
 - `pipeline-rekrutacji-bramka-ruchu-przekazanie-cv.md` — Pipeline rekrutacji — bramka ruchu, przekazanie CV, spójność ekranów (11.09.2026)
 - `pipeline-v4-6-kolumn-blokada-12-h-przeglad-dl.md` — Pipeline v4 — 6 kolumn, blokada 12 h, przegląd DL (0352, 23.09.2026)
 - `podobne-rekrutacje-przepiecia-i-status-requestu.md` — Podobne rekrutacje, przepięcia i status requestu (0341, 22.09.2026)
@@ -311,11 +314,13 @@ Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchroni
 - `data-rozpoczecia-umowy-start-zamowienia.md` — Data rozpoczęcia umowy ≠ start zamówienia (korekta 21.09.2026)
 - `dokumenty-kontraktow-z-sharepointa.md` — Dokumenty kontraktów z SharePointa (ticket 9, 0402, 29.09.2026)
 - `domyslny-widok-modulu-kontrakty-aktywne-i-konczace.md` — Domyślny widok modułu Kontrakty: Aktywne **i** Kończące się
+- `foldery-w-dokumentach-kontraktu.md` — Foldery w zakładce Dokumenty kontraktu (0494, 21.10.2026)
 - `generator-umow-b2b-trzy-zakladki-cyklu-zycia-umowy.md` — Generator Umów B2B — trzy zakładki cyklu życia umowy
 - `kafelek-kontraktora-status-zamowienia-musi-zgadzac.md` — Kafelek kontraktora: status zamówienia musi zgadzać się z okresem (29.09.2026)
 - `kontakt-do-konsultanta-na-umowie.md` — Kontakt do konsultanta na umowie (09.2026, migracja 0320)
 - `kontrakty-i-zamowienia-lista-z-panelem.md` — Kontrakty i Zamówienia: lista z panelem (wersja B, 29.09.2026)
 - `podpis-umowy-b2b-oznacza-autor-zespol-dl-tcm.md` — Podpis umowy B2B oznacza autor, zespół rekrutacji, DL klienta albo TCM (19.10.2026)
+- `podpis-umowy-b2b-w-nexusie.md` — Podpis umowy B2B w NEXUSIE — druga droga obok „Oznacz jako podpisaną” (0499, 21.10.2026)
 - `przedluzenie-zamowienia-wskrzesza-zakonczony.md` — Przedłużenie zamówienia wskrzesza zakończony kontrakt
 - `rejestr-aneksow-i-aneks-w-kontrakcie.md` — Rejestr aneksów i aneks w kontrakcie od wygenerowania (13.10.2026) · jeden stan aneksu, aneks do umowy spoza Nexusa, skan podpisanego, zakładka „Aneksy”
 - `stawki-z-rekrutacji-w-zamowieniu-i-umowie.md` — Stawki z rekrutacji w zamówieniu i umowie (D7, 08.10.2026)
@@ -347,6 +352,7 @@ Poczta zamówień i odczyt PDF per klient, zamówienia MD, kosztowe i okresowe, 
 - `zamowienia-z-maila-zamowienia-b2bnetwork-pl-czytnik.md` — Zamówienia z maila `zamowienia@b2bnetwork.pl` — czytnik app-only, skrzynka współdzielona
 - `zamowienie-md-i-zamowienie-okresowe-to-dwa.md` — Zamówienie MD i zamówienie okresowe to DWA niezależne byty
 - `zapis-zamowienia-network-error-znaczy-nieobsluzone.md` — Zapis zamówienia: „Network Error" znaczy nieobsłużone 500
+- `zuzycie-zamowienia-kosztowego.md` — Zakładka „Zużycie” przy zamówieniu kosztowym (0493, 21.10.2026)
 
 ### Finanse i Insights — `docs/claude/finanse-insights/`
 
@@ -367,6 +373,7 @@ Ikony paska, kategorie i wyciszenia, powiadomienia dla ról, maile do zespołu.
 - `okienko-rozmowy-w-gornym-pasku.md` — Okienko „Rozmowy” w górnym pasku (13.10.2026) · zadania z cyklu (`mine`), czas z agendy, gaszenie osobną trasą, pigułka telefonu
 - `pasek-tematy-bez-dzwonka.md` — Pasek bez dzwonka: ikony z jednym tematem (16.10.2026)
 - `powiadomienia-dla-rol-i-jeden-ekran-powiadomienia.md` — Powiadomienia dla ról i jeden ekran „Powiadomienia” (0425, 09.10.2026)
+- `zmiana-notatki-i-terminu-rozmowy.md` — Zmieniona notatka z oznaczeniem i przełożona rozmowa u klienta (21.10.2026) · „Powiadom oznaczonych o zmianie” (`notify_mentions`), `interview_changed` (0500) w „Kalendarzu”, kto dostaje, czego nie wysyłamy
 
 ### Integracje — `docs/claude/integracje/`
 

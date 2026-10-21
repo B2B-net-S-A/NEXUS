@@ -209,8 +209,12 @@ async def send_mention_side_effects(
     notification_title: str,
     notification_type: NotificationType = NotificationType.note_mention,
     send_email: bool = True,
+    edited: bool = False,
 ) -> int:
     """Po commicie: WS push + email per user. Best-effort (try/except).
+
+    ``edited`` — zmiana notatki, w której odbiorca już był oznaczony: mail
+    mówi „zmienił(a) treść”, nie „oznaczył(a) Cię” (21.10.2026).
 
     Odpowiedź na notatkę (``note_reply``, 0399) idzie bez maila — mail
     wzmianki mówi „oznaczył(a) Cię”, a odpowiedź widać w dzwonku.
@@ -287,6 +291,7 @@ async def send_mention_side_effects(
                 deep_link_path=deep_link_path,
                 context_label=context_label,
                 event_at=notif.created_at,
+                edited=edited,
             )
             if ok:
                 sent += 1

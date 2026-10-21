@@ -301,6 +301,10 @@ class CandidateStageResponse(BaseModel):
     # wyszukiwania (`availability_status` / `availability_date`).
     availability_status: Optional[str] = None
     availability_date: Optional[date] = None
+    # Minimum dla DL przed „Zweryfikowany” (21.10.2026): klucze pól karty bez
+    # treści (`move_requirements.board_minimum_missing`). Tylko na Tablicy;
+    # `None` = endpoint nie liczy.
+    minimum_missing: Optional[list[str]] = None
     # „W bazie od” (0437): kiedy osoba weszła do bazy (`candidate_added_date`),
     # czy data jest dokładna (import z Traffita bez daty u źródła = nie) i kto
     # ją dodał. Tylko na Tablicy (`build_kanban_view`); ruch i historia — None.
@@ -360,6 +364,10 @@ class CandidateStageResponse(BaseModel):
     # 0404: przegląd zgłoszenia z linku rekrutacji — {"verdict", "assessed",
     # "must_found", "must_total", "overridden"}; `None` = wejście bez przeglądu.
     entry_ai_screening: Optional[dict] = None
+    # Off-limits (21.10.2026): osoba z firmy z aktywnym zamówieniem dodana
+    # po potwierdzeniu „sama się zgłosiła” — {"client_name", "company", "how",
+    # "how_label", "confirmed_by_id", "confirmed_by_name", "confirmed_at"}.
+    entry_off_limits: Optional[dict] = None
     # Etap 2 linków (19.10.2026): właściciel linku rekrutacji, z którego
     # osoba się zgłosiła — plakietka „Z Twojego linku” / „Z linku Marty N.”.
     entry_link_owner_id: Optional[int] = None

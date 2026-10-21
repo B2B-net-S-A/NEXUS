@@ -242,7 +242,9 @@ export function MonthGrid({
                           {day.hours > 0 ? formatHours(day.hours) : <span className={CALM_EMPTY}>—</span>}
                           {day.overtime_hours > 0 ? (
                             <span className="mt-0.5 block whitespace-nowrap rounded bg-warning-muted px-1 text-[11px] text-warning-muted-foreground">
-                              +{formatHours(day.overtime_hours)} nadg.
+                              {/* B2B i zlecenie: „ponad 8 h”, nie „nadgodziny” (21.10.2026). */}
+                              +{formatHours(day.overtime_hours)}{" "}
+                              {view.employment_type === "uop" ? "nadg." : "h ponad 8 h"}
                             </span>
                           ) : null}
                         </td>

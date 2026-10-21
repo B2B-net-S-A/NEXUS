@@ -21,6 +21,7 @@ import { qcCountsText } from "@/lib/cv-qc";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
 import { warsawToday } from "@/lib/warsaw-date";
 import { addedToBaseTitle, addedToBaseView, newInBaseDaysText } from "@/lib/added-to-base";
+import { offLimitsConfirmedDay } from "@/lib/off-limits";
 
 export type CardBadgeTone =
   | "own"
@@ -388,6 +389,24 @@ function reappliedViaLinkBadge(item: KanbanItem, ctx: CardBadgeContext): CardBad
   };
 }
 
+/**
+ * Off-limits (21.10.2026): osoba z firmy, z której nie wyciągamy ludzi,
+ * dodana po potwierdzeniu w oknie „Czy sam(a) się do nas zgłosił(a)?”.
+ * Plakietka w każdej kolumnie — to ślad dla klienta, nie stan procesu.
+ */
+export function offLimitsCardBadge(meta: KanbanItem["entry_off_limits"]): CardBadge | null {
+  if (!meta) return null;
+  const day = offLimitsConfirmedDay(meta.confirmed_at);
+  const who = [meta.confirmed_by_name, day].filter(Boolean).join(", ");
+  return {
+    key: "off_limits",
+    label:
+      meta.how === "left_company" ? "Off-limits · już tam nie pracuje" : "Off-limits · sam(a) się zgłosił(a)",
+    tone: "wait",
+    title: `${meta.client_name}: stamtąd nie wyciągamy ludzi. ${meta.how_label}${who ? ` — potwierdził(a) ${who}` : ""}.`,
+  };
+}
+
 function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
   switch (item.entry_source) {
     case "added_manual": {
@@ -514,6 +533,8 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
         : "Osoba była już wysłana do klienta przy podobnej rekrutacji.",
     });
   }
+  const offLimits = offLimitsCardBadge(item.entry_off_limits);
+  if (offLimits) out.push(offLimits);
   if (column === "new" || column === "screening") {
     const link = linkOwnerBadge(item, ctx);
     if (link) out.push(link);
@@ -786,6 +807,10 @@ export function knownForwardGap(
       ? "Brak „Dlaczego ten kandydat”"
       : "Brak arkusza screeningu";
   }
+  // Minimum dla Delivery Leada (21.10.2026) — bramka „Zweryfikowany”.
+  if (from === "screening" && minimumOnlyGap(item)) {
+    return `Brak: ${item.minimum_missing!.map(minimumFieldShortLabel).join(", ")}`;
+  }
   // 14.10.2026: bez CV firmowego przeciągnięcie na „QC CV” wkładało osobę
   // wprost do kolejki Delivery Leada. `null`/brak pola = nie wiadomo.
   if (from === "verified" && item.company_cv === false) {
@@ -795,6 +820,32 @@ export function knownForwardGap(
     return `QC: ${item.qc.blocking_failed} do poprawy`;
   }
   return null;
+}
+
+const MINIMUM_SHORT_LABEL: Readonly<Record<string, string>> = {
+  location: "lokalizacja",
+  work_mode: "tryb pracy",
+  availability: "dostępność",
+  recommendation: "„Dlaczego”",
+  motivation: "motywacja",
+  worked_at_client: "praca u klienta",
+  english: "angielski",
+  nationality: "narodowość",
+  red_flags: "red flags",
+};
+
+/** Krótka nazwa pola minimum na karcie Tablicy (kolumna ma ~200 px przy 1280). */
+export function minimumFieldShortLabel(key: string): string {
+  return MINIMUM_SHORT_LABEL[key] ?? key;
+}
+
+/**
+ * Brakuje tylko pól minimum dla DL — arkusz (albo „Dlaczego” w rekrutacji bez
+ * pytań) jest. Strzałka otwiera wtedy małe okno z tymi polami zamiast
+ * „Przesuń dalej” (21.10.2026).
+ */
+export function minimumOnlyGap(item: Pick<KanbanItem, "screening_done" | "minimum_missing">): boolean {
+  return item.screening_done !== false && (item.minimum_missing?.length ?? 0) > 0;
 }
 
 export interface CardNextStep {

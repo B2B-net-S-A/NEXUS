@@ -65,7 +65,6 @@ pretending to be complete.
 
 import logging
 import re
-import unicodedata
 from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -92,6 +91,10 @@ from app.models.client import Client
 from app.models.contract import Contract
 from app.models.oauth_client import OAuthScope
 from app.services.contract_service import placed_contract_clause
+from app.services.company_names import (
+    entry_says_current as _entry_says_current,
+    normalize_company_name,
+)
 from app.services.experience_end import is_current_end
 
 logger = logging.getLogger(__name__)
@@ -124,53 +127,6 @@ _MAX_NAME_CHARS = 500
 # Hard ceiling on returned people. A company like a large bank legitimately has
 # hundreds of matches; the caller renders a panel, not an export.
 _MAX_PEOPLE = 200
-
-# Ported verbatim from ATLAS `src/services/company_service.py` so both sides
-# agree byte-for-byte on what "the same company" means. Any change here MUST be
-# mirrored there, otherwise matches silently diverge between the two systems.
-_SUFFIXES = [
-    " sp. z o.o.",
-    " sp.z o.o.",
-    " sp z oo",
-    " sp. z o. o.",
-    " spolka z o.o.",
-    " sp. j.",
-    " sp.j.",
-    " s.a.",
-    " sa",
-    " s.k.",
-    " sp k",
-    " sp. k.",
-    " s.c.",
-    " s. c.",
-    " sp. komandytowa",
-    " spółka z ograniczoną odpowiedzialnością",
-    " spolka z ograniczona odpowiedzialnoscia",
-    " inc",
-    " inc.",
-    " ltd",
-    " ltd.",
-    " gmbh",
-]
-
-
-def normalize_company_name(name: str) -> str:
-    """Canonical form used for cross-system company matching.
-
-    Keep in lockstep with ATLAS ``src/services/company_service.py``.
-    """
-    if not name:
-        return ""
-    s = name.strip().lower()
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    s = s.replace("ł", "l")
-    for suf in _SUFFIXES:
-        if s.endswith(suf):
-            s = s[: -len(suf)].rstrip()
-    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
-    s = re.sub(r"\s+", " ", s)
-    return s
 
 
 def _normalize_nip(nip: Optional[str]) -> str:
@@ -355,21 +311,6 @@ def _match_experience(
     if undated_entry is not None:
         return "unknown", undated_entry
     return None, None
-
-
-def _entry_says_current(entry: dict[str, Any]) -> bool:
-    """Open-ended entry that carries evidence, not just a missing date.
-
-    Called only for entries where ``is_current_end(end)`` already holds. A
-    ``start`` date means the CV listed a period that has not closed; a word
-    like "present"/"obecnie" in ``end`` says it outright. A blank ``end`` with
-    no ``start`` says nothing.
-    """
-    start = entry.get("start")
-    if isinstance(start, str) and start.strip():
-        return True
-    end = entry.get("end")
-    return isinstance(end, str) and bool(end.strip())
 
 
 def _profile_url(candidate_id: int) -> Optional[str]:

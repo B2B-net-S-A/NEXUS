@@ -24,6 +24,19 @@ vi.mock("@/lib/api", () => ({
     }),
     uploadDocument: vi.fn(),
     deleteDocument: vi.fn(),
+    documentFolders: vi.fn().mockResolvedValue({
+      data: {
+        folders: [],
+        orders_folder_name: "Zamówienia",
+        current_contract_number: null,
+        suggestions: [],
+      },
+    }),
+  },
+}));
+vi.mock("@/lib/api/dlPortal", () => ({
+  dlPortalApi: {
+    listContractOrderDocuments: vi.fn().mockResolvedValue({ data: { documents: [] } }),
   },
 }));
 vi.mock("@/components/OrderDocumentsSection", () => ({
@@ -47,7 +60,9 @@ describe("ContractDocumentsTab section access", () => {
 
     expect(await screen.findByText("umowa.pdf")).toBeInTheDocument();
     expect(screen.getByTitle("Pobierz")).toBeInTheDocument();
-    expect(screen.queryByText("Wgraj plik")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dodaj plik")).not.toBeInTheDocument();
+    expect(screen.queryByText("Nowy folder")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Usuń")).not.toBeInTheDocument();
   });
 });

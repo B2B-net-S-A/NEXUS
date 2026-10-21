@@ -22,6 +22,7 @@ export const TILE_TYPES = [
   "my_onboarding",
   "my_recruitments",
   "closing_candidates",
+  "to_complete",
   "recruitment_activity",
   "recruitment_competence",
   "team_workload",

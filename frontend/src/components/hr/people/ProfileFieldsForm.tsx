@@ -425,15 +425,17 @@ export function ProfileFieldsForm({
         </label>
         <label className="flex items-center justify-between gap-3 text-sm">
           <span>
-            Może wpisywać nadgodziny
+            Może wpisywać {words.overtime}
             <span className="block text-xs text-muted-foreground">
-              Ponad 8 godzin dziennie, z uzasadnieniem.
+              {words.flow === "request"
+                ? "Ponad 8 godzin dziennie, z uzasadnieniem."
+                : "Ponad 8 godzin dziennie, z krótkim opisem."}
             </span>
           </span>
           <Switch
             checked={form.can_log_overtime}
             onCheckedChange={(checked) => set("can_log_overtime", checked)}
-            aria-label="Może wpisywać nadgodziny"
+            aria-label={`Może wpisywać ${words.overtime}`}
           />
         </label>
       </div>

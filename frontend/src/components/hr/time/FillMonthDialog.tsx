@@ -18,8 +18,10 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
+import type { EmploymentType } from "@/lib/api/hr";
 import type { FillInput, FillResult, TimesheetTemplate } from "@/lib/api/hr-time";
 import { monthTitlePl, type YearMonth } from "@/lib/date-pl";
+import { employmentTerms } from "@/lib/hr-employment-terms";
 
 import { formatHours, parseHours } from "./time-format";
 
@@ -44,6 +46,8 @@ export interface FillMonthDialogProps {
   roleDefault: RoleDefaultHint | null;
   onFill: (payload: FillInput) => Promise<FillResult>;
   onDone: (result: FillResult) => void;
+  /** Forma osoby: przy B2B i zleceniu „godziny ponad 8 h” zamiast „nadgodzin”. */
+  form?: EmploymentType | null;
 }
 
 /** Ciało żądania z pól okna (czysta funkcja — test bez renderu). */
@@ -79,6 +83,7 @@ export function FillMonthDialog({
   roleDefault,
   onFill,
   onDone,
+  form,
 }: FillMonthDialogProps) {
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [hours, setHours] = useState("8");
@@ -101,7 +106,7 @@ export function FillMonthDialog({
     const parsed = parseHours(hours);
     if (parsed == null || parsed <= 0 || parsed > MAX_FILL_HOURS) {
       setError(
-        `Wypełnianie wpisuje od 0,01 do ${MAX_FILL_HOURS} h dziennie — nadgodziny wpisuje się w dniu, z uzasadnieniem.`,
+        `Wypełnianie wpisuje od 0,01 do ${MAX_FILL_HOURS} h dziennie — ${employmentTerms(form).overtime_fill_note}.`,
       );
       return;
     }

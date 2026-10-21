@@ -47,6 +47,7 @@ from app.models.hr_payroll import EmployeeRate
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.services.hr import audit
+from app.services.hr.employment_terms import terms
 from app.services.hr.notify import notify_each
 from app.services.hr.payroll_errors import (
     PayrollError,
@@ -342,6 +343,12 @@ async def _locked_history(db: AsyncSession, user_id: int) -> list[EmployeeRate]:
 
 
 async def _notify(db: AsyncSession, rate: EmployeeRate) -> None:
+    # Zakładka „Premie i stawka” / „Wynagrodzenie dodatkowe i stawka” (21.10.2026).
+    form = await db.scalar(
+        select(EmployeeProfile.employment_type).where(
+            EmployeeProfile.user_id == rate.user_id
+        )
+    )
     # Dzwonek nie cofa zapisu stawki (``notify_each`` łapie awarię).
     await notify_each(
         db,
@@ -349,7 +356,7 @@ async def _notify(db: AsyncSession, rate: EmployeeRate) -> None:
         title="Zmiana Twojej stawki",
         message=(
             f"Nowa stawka obowiązuje od {rate.effective_from:%d.%m.%Y}. "
-            "Szczegóły w „Moim czasie” → Premie."
+            f"Szczegóły w „Moim czasie” → {terms(form)['bonuses_tab']}."
         ),
         ntype=NotificationType.hr_rate_changed,
         link="/my-time?tab=bonuses",

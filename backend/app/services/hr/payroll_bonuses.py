@@ -43,6 +43,7 @@ from app.models.notification import NotificationType
 from app.models.user import User
 from app.services.hr import audit, payroll_periods
 from app.services.hr import modules as hr_modules
+from app.services.hr.employment_terms import bonus_message, terms
 from app.services.hr.notify import notify_each
 from app.services.hr.settlements_rules import settled_in_nexus
 from app.services.hr.payroll_access import PayrollViewer
@@ -188,15 +189,25 @@ async def names_for(db: AsyncSession, bonuses: list[HrBonus]) -> dict[int, str]:
     return {int(uid): str(name) for uid, name in rows.all()}
 
 
-async def _notify(
-    db: AsyncSession, bonus: HrBonus, *, title: str, message: str
-) -> None:
+async def _notify(db: AsyncSession, bonus: HrBonus, *, event: str) -> None:
+    """Dzwonek osobie: ``event`` = new / changed / cancelled, słowa z jej formy."""
+
+    # Przy B2B i zleceniu „wynagrodzenie dodatkowe”, nie „premia” (21.10.2026).
+    form = await db.scalar(
+        select(EmployeeProfile.employment_type).where(
+            EmployeeProfile.user_id == bonus.recipient_user_id
+        )
+    )
     # Dzwonek nie cofa decyzji o premii (``notify_each`` łapie awarię).
     await notify_each(
         db,
         [bonus.recipient_user_id],
-        title=title,
-        message=message,
+        title=terms(form)[f"bonus_{event}_title"],
+        message=bonus_message(
+            form,
+            label(bonus.period_year, bonus.period_month),
+            cancelled=event == "cancelled",
+        ),
         ntype=NotificationType.hr_bonus_assigned,
         link="/my-time?tab=bonuses",
         related_entity_type="hr_bonus",
@@ -329,11 +340,7 @@ async def create_manual(
     await _notify(
         db,
         bonus,
-        title="Masz nową premię",
-        message=(
-            f"Premia za {label(bonus.period_year, bonus.period_month)}. "
-            "Szczegóły w „Moim czasie” → Premie."
-        ),
+        event="new",
     )
     return bonus
 
@@ -391,11 +398,7 @@ async def update_bonus(
         await _notify(
             db,
             bonus,
-            title="Twoja premia została zmieniona",
-            message=(
-                f"Premia za {label(bonus.period_year, bonus.period_month)}. "
-                "Szczegóły w „Moim czasie” → Premie."
-            ),
+            event="changed",
         )
     return bonus
 
@@ -429,11 +432,7 @@ async def approve_bonus(
     await _notify(
         db,
         bonus,
-        title="Masz nową premię",
-        message=(
-            f"Premia za {label(bonus.period_year, bonus.period_month)}. "
-            "Szczegóły w „Moim czasie” → Premie."
-        ),
+        event="new",
     )
     return bonus
 
@@ -471,11 +470,7 @@ async def cancel_bonus(
         await _notify(
             db,
             bonus,
-            title="Premia została anulowana",
-            message=(
-                f"Premia za {label(bonus.period_year, bonus.period_month)} "
-                "została anulowana. Szczegóły w „Moim czasie” → Premie."
-            ),
+            event="cancelled",
         )
     return bonus
 

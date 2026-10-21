@@ -29,8 +29,9 @@ Raport: `docs/audyt-nexus-2026-09-22.md`, naprawa: `docs/audit-2026-09-22-remedi
 - **Podpis kończy się tylko jawnie pozytywnym wynikiem KAŻDEGO podpisu**, plik
   podpisany musi zaczynać się bajtami wydanego źródła (odciski w
   `validation_report.source_pdfs`), kandydat musi być wśród podpisujących.
-  „Obie strony" = 2 RÓŻNE tożsamości. Moduł jest wyłączony na prodzie
-  (`SIGNING_ENABLED=false` od 22.09.2026) — umowy podpisujemy offline.
+  „Obie strony" = 2 RÓŻNE tożsamości. Moduł (`/api/signing`) wyłączono
+  22.09.2026 i usunięto z kodu 21.10.2026; te reguły stosuje teraz podpis umowy
+  B2B w NEXUSIE (`kontrakty/podpis-umowy-b2b-w-nexusie.md`).
 - **`_canon_skill` zachowuje C/C++/C#/F#/.NET jako różne umiejętności**
   (`cpp`, `csharp`, `fsharp`, `dotnet`). Zmiana kanonizacji skilli albo
   lokalizacji = podbicie znaczników w `scoring_algorithm_version()` i

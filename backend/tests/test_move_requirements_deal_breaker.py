@@ -46,6 +46,8 @@ READY = PairFacts(
     screening_done=True,
     candidate_rate=True,
     availability_known=True,
+    # Minimum dla Delivery Leada (21.10.2026) — wpisane, nie blokuje.
+    card_present=frozenset({"location", "work_mode", "recommendation"}),
 )
 
 

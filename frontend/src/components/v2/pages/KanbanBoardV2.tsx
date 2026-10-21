@@ -89,6 +89,7 @@ import { DlReviewQueueDialog } from "@/components/v2/recruitment/dl-review/DlRev
 import { PersonPanelShell, type PersonPanelSize } from "@/components/v2/person/PersonPanelShell";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
+import { MinimumFieldsDialog } from "@/components/v2/recruitment/MinimumFieldsDialog";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { ClientAcceptedDialog, type ClientAcceptanceValues } from "@/components/v2/recruitment/ClientAcceptedDialog";
 import {
@@ -144,6 +145,7 @@ import {
  cardNextStep,
  claimAction,
  knownForwardGap,
+ minimumOnlyGap,
  qcChip,
  type CardNextStep,
  type QcChipTone,
@@ -2414,6 +2416,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  stageDefId: number;
  stageName: string;
  } | null>(null);
+ // Minimum dla Delivery Leada (21.10.2026): małe okno z brakującymi polami.
+ // `move` = ruch czeka na zapis (strzałka, przeciągnięcie), `retry` = serwer
+ // odmówił ruchu na „Zweryfikowany”, `resume` = wracamy do „Przesuń dalej”.
+ const [minimumPrompt, setMinimumPrompt] = useState<{
+ item: KanbanItem;
+ mode: "move" | "retry" | "resume";
+ srcColId?: string;
+ dst?: KanbanColumn;
+ } | null>(null);
  // Formularz screeningu w oknie — tylko bez panelu osoby (harness, testy).
  const [screeningPrompt, setScreeningPrompt] = useState<{
  candidateId: number;
@@ -2616,7 +2627,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // D1 (04.10.2026): „Zweryfikowany” bez arkusza albo stawki → formularz
  // screeningu tej pary (0424: arkusz i stawka są w jednym miejscu).
  onVerifiedRequirementsMissing: (info, item) => {
- if (info.missing.length === 0) return;
+ if (info.missing.length === 0) {
+ // Brakuje tylko pól minimum dla DL — małe okno, potem ruch jeszcze raz.
+ if (info.cardFields.length > 0) setMinimumPrompt({ item, mode: "retry" });
+ return;
+ }
  openScreeningFor(item);
  },
  });
@@ -2704,6 +2719,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  },
  [boardFold, cproEnabled, canReviewAsDl]
  );
+ // Minimum dla DL (21.10.2026): ze „Screeningu” na „Zweryfikowany” brakuje
+ // tylko pól karty — zamiast „Przesuń dalej” małe okno z tymi polami.
+ const minimumGapBeforeVerified = useCallback(
+ (item: KanbanItem, fromIndex: number, toIndex: number): boolean =>
+ boardFold.columns[fromIndex]?.key === "screening" &&
+ boardFold.columns[toIndex]?.key === "verified" &&
+ minimumOnlyGap(item),
+ [boardFold]
+ );
  const routeMove = useCallback(
  (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
  if (acceptInsteadOfMove(item, dst)) return;
@@ -2714,13 +2738,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  return;
  }
  if (openDlReviewRef.current(item, dst)) return;
+ if (minimumGapBeforeVerified(item, fromIndex, toIndex)) {
+ setMinimumPrompt({ item, mode: "move", srcColId, dst });
+ return;
+ }
  if (forwardNeedsMoveNext(item, fromIndex, toIndex)) {
  openMoveNext(item, srcColId, dst);
  return;
  }
  requestMove(item, srcColId, dst);
  },
- [foldIndexByColId, forwardNeedsMoveNext, openMoveNext, requestMove, acceptInsteadOfMove]
+ [foldIndexByColId, forwardNeedsMoveNext, minimumGapBeforeVerified, openMoveNext, requestMove, acceptInsteadOfMove]
  );
  // Strzałka „→” na karcie (D7, decyzja Artura 14.10.2026): ta sama reguła co
  // przeciągnięcie na sąsiednią kolumnę, ale ruch, który nie potrzebuje
@@ -2735,6 +2763,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  if (acceptInsteadOfMove(item, next.host)) return;
  const fromIndex = foldIndexByColId.get(colId(src));
  const toIndex = foldIndexByColId.get(colId(next.host));
+ if (fromIndex != null && toIndex != null && minimumGapBeforeVerified(item, fromIndex, toIndex)) {
+ setMinimumPrompt({ item, mode: "move", srcColId: colId(src), dst: next.host });
+ return;
+ }
  if (
  fromIndex != null &&
  toIndex != null &&
@@ -3411,8 +3443,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  setQcStageId(stageId);
  return;
  case "open_card":
- // 0424: pola karty rekomendacji są w formularzu screeningu.
+ // 0424: pola karty rekomendacji są w formularzu screeningu. Brak samego
+ // minimum dla DL (21.10.2026) — małe okno z tymi polami.
  suspendMoveNext();
+ if (item.minimum_missing?.length) {
+ setMinimumPrompt({ item, mode: "resume" });
+ return;
+ }
  openScreeningFor(item);
  return;
  case "reject":
@@ -4524,6 +4561,38 @@ headerAction={
  stageDefId={scorecardPrompt.stageDefId}
  stageName={scorecardPrompt.stageName}
  onSaved={() => setScorecardPrompt(null)}
+ />
+ )}
+
+ {minimumPrompt && (
+ <MinimumFieldsDialog
+ open={true}
+ candidateId={minimumPrompt.item.candidate_id}
+ jobId={jobId}
+ candidateName={itemFullName(minimumPrompt.item)}
+ actionLabel={minimumPrompt.mode === "resume" ? "Zapisz" : "Zapisz i przesuń"}
+ onDone={() => {
+ const prompt = minimumPrompt;
+ setMinimumPrompt(null);
+ if (prompt.mode === "resume") {
+ resumeMoveNext();
+ return;
+ }
+ const dst = prompt.dst ?? boardFold.columns.find((f) => f.key === "verified")?.host;
+ const src = cols.find((c) => c.items.some((i) => i.id === prompt.item.id));
+ const srcColId = prompt.srcColId ?? (src ? colId(src) : null);
+ if (dst && srcColId) requestMove(prompt.item, srcColId, dst);
+ }}
+ onOpenFull={() => {
+ const item = minimumPrompt.item;
+ setMinimumPrompt(null);
+ openScreeningFor(item);
+ }}
+ onClose={() => {
+ const resume = minimumPrompt.mode === "resume";
+ setMinimumPrompt(null);
+ if (resume) resumeMoveNext();
+ }}
  />
  )}
 

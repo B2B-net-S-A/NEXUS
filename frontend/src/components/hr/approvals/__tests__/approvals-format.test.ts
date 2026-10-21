@@ -5,6 +5,7 @@ import type { ApprovalRequestRow } from "@/lib/api/hr-approvals";
 import { parseLimit } from "../ApprovalRulesCard";
 import { toInput, type FormState } from "../ConsentRequestForm";
 import {
+  KIND_OPTIONS,
   afterDecision,
   approveLabel,
   canChangeAmount,
@@ -90,6 +91,11 @@ describe("teksty zgód", () => {
     expect(afterDecision(bonus).label).toBe("Po zatwierdzeniu");
     expect(afterDecision(bonus).text).toContain("Płac");
     expect(afterDecision(bonus).text).toContain("październik 2026");
+    // Zgody to ekran wielu osób: neutralnie, bez „premii poza umową” (21.10.2026).
+    expect(afterDecision(bonus).text).not.toMatch(/premi/i);
+    const option = KIND_OPTIONS.find((item) => item.value === "bonus");
+    expect(option?.label).toBe("Wynagrodzenie dodatkowe");
+    expect(option?.hint).toBe("wymaga podstawy: punkt umowy albo aneks");
   });
 
   it("kto decyduje teraz", () => {

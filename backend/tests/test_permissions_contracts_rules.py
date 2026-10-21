@@ -14,7 +14,7 @@ from typing import get_args, get_type_hints
 import pytest
 from fastapi import HTTPException
 
-from app.api import autenti, b2b_contract_generator, contracts, signing
+from app.api import autenti, b2b_contract_generator, contracts
 from app.models.contract import ContractStatus, ContractTerminationReason
 from app.models.user import User, UserRole
 from app.schemas.contract import ContractUpdate
@@ -146,10 +146,6 @@ EDIT_ROUTES = (
     autenti.send_contract_for_signature,
     autenti.withdraw_signature,
     autenti.remind_signer,
-    signing.send_for_signature,
-    signing.mark_sent_offline,
-    signing.withdraw_signature,
-    signing.regenerate_link,
 )
 
 STATUS_ROUTES = (
@@ -166,8 +162,6 @@ RATE_BEARING_READ_ROUTES = (
     contracts.download_contract_document,
     autenti.list_signatures_for_contract,
     autenti.get_signature_detail,
-    signing.list_signatures,
-    signing.get_signature,
 )
 
 
@@ -275,14 +269,14 @@ DEFAULT_HOLDERS = (
     # Decyzja Artura 02.10.2026: Finanse zakładają i edytują kontrakty.
     (contracts.create_contract, {ADMIN, FINANCE, LEAD}),
     (contracts.update_contract, {ADMIN, FINANCE, LEAD}),
-    (signing.send_for_signature, {ADMIN, FINANCE, LEAD}),
+    (autenti.send_contract_for_signature, {ADMIN, FINANCE, LEAD}),
     # Statusu Finanse nie zmieniają; TCM kończy współpracę — także zbiorczo.
     (contracts.update_contract_status, {ADMIN, LEAD, TCM}),
     (contracts.terminate_contract, {ADMIN, LEAD, TCM}),
     (contracts.bulk_mark_ended, {ADMIN, LEAD, TCM}),
     # TCM czyta rejestr operacyjnie, ale dokumentów ze stawkami nie otwiera.
     (contracts.list_contract_documents, {ADMIN, FINANCE, LEAD}),
-    (signing.list_signatures, {ADMIN, FINANCE, LEAD}),
+    (autenti.list_signatures_for_contract, {ADMIN, FINANCE, LEAD}),
 )
 
 

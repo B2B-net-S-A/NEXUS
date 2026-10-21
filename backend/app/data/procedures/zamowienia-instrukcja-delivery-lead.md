@@ -540,8 +540,9 @@ stawki i notatkę. Zapisuje się zawsze typ wybrany w chwili zapisu.
 > masz wgrać plik ponownie przez edycję — **nie zakładaj zamówienia drugi raz**.
 
 Wgrany PDF pojawia się nie tylko w panelu zamówienia: znajdziesz go też
-w sekcji **„Dokumenty zamówień"** w dokumentach umowy konsultanta i w jego
-plikach. Rola bez dostępu do zamówień tego klienta tej sekcji po prostu nie
+w automatycznym folderze **„Zamówienia"** w zakładce Dokumenty umowy konsultanta
+(razem z zamówieniami z SharePointa i dodanymi tam ręcznie) i w jego plikach.
+Rola bez dostępu do zamówień tego klienta tych plików po prostu nie
 zobaczy — bez żadnego komunikatu.
 
 **Dokładanie konsultanta do istniejącego zamówienia.** Kliknij wiersz
@@ -597,7 +598,7 @@ zamówienia i zakładkę **Historia**.
 | **Anuluj zamówienie** | dla zamówienia, które **nie doszło do skutku** albo zostało założone omyłkowo, a chcesz zachować jego historię. Zamówienie i jego konsultanci dostają status „Anulowane”, znikają z aktywnych zamówień, sum, alertów i rozliczeń, ale zostają w rejestrze (filtr **Anulowane**). **Zamówienia z rozliczeniami (zaraportowane MD, faktury) nie anulujesz** — system odmówi i wskaże, co blokuje; wtedy właściwą akcją jest **Zakończ**. Anulowanego zamówienia nie edytujesz, nie kończysz ani nie przedłużasz |
 | **Przywróć anulowane** | cofa anulowanie: zamówienie wraca do stanu sprzed niego (np. „Aktywne”), a konsultanci — do swoich statusów; osoba, której okres w międzyczasie minął, wraca jako zakończona; osoba, której umowę w międzyczasie zakończono, wraca jako zakończona, ze sprawą o pozostałe MD (jak po „Zakończ współpracę”), a osoba z unieważnioną umową zostaje anulowana |
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
-| **Historia** (zakładka panelu zamówienia) | lista **zdarzeń biznesowych**: data · autor (wpis bez osoby = zmiana automatyczna) · rodzaj · osoba · co zmieniono w formie „przed → po" · saldo osoby po zmianie (ujemne na czerwono, obok „było …"). Są w niej: utworzenie, przedłużenie, zakończenie i anulowanie zamówienia, dodanie, zamiana i usunięcie konsultanta, decyzje o osobie i o puli MD, zmiany stawek i budżetu MD osoby oraz **jeden wpis na każdy import MD** („Import MD za sierpień 2026 – 2 osoby, 25 MD") z odsyłaczem **„Otwórz import →"** do zakładki **Importy MD**. Kilka edycji tej samej osoby przez tę samą osobę w odstępie do 15 minut to **jeden wpis z wynikiem netto** — pojedyncze zmiany rozwiniesz przyciskiem „▸ N zmian". Nad listą są filtry: **typ zdarzenia** (Wszystko / Zamówienie / Konsultanci / Zużycie MD / Edycje) i **osoba**. **Nie ma tu** pojedynczych zejść i korekt MD (są w oknie **Zużycie MD** osoby) ani technicznych zmian pól, np. waluty czy jednostki stawki (są w zakładce **Timeline** kontraktu osoby, z polskimi nazwami pól). Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
+| **Historia** (zakładka panelu zamówienia) | lista **zdarzeń biznesowych**: data · autor (wpis bez osoby = zmiana automatyczna) · rodzaj · osoba · co zmieniono w formie „przed → po" · saldo osoby po zmianie (ujemne na czerwono, obok „było …"). Są w niej: utworzenie, przedłużenie, zakończenie i anulowanie zamówienia, dodanie, zamiana i usunięcie konsultanta, decyzje o osobie i o puli MD, zmiany stawek i budżetu MD osoby oraz **jeden wpis na każdy import MD** („Import MD za sierpień 2026 – 2 osoby, 25 MD") z odsyłaczem **„Otwórz import →"** do zakładki **Importy MD**. Kilka edycji tej samej osoby przez tę samą osobę w odstępie do 15 minut to **jeden wpis z wynikiem netto** — pojedyncze zmiany rozwiniesz przyciskiem „▸ N zmian". Nad listą są filtry: **typ zdarzenia** (Wszystko / Zamówienie / Konsultanci / Zużycie MD / Edycje) i **osoba**. Ręczny wpis kwoty na zamówieniu **kosztowym** (zakładka **Zużycie**) jest w historii z kwotą i resztą budżetu; kwoty widzą tylko osoby z dostępem do finansów. **Nie ma tu** pojedynczych zejść i korekt MD (są w oknie **Zużycie MD** osoby) ani technicznych zmian pól, np. waluty czy jednostki stawki (są w zakładce **Timeline** kontraktu osoby, z polskimi nazwami pól). Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 
 Kliknij wiersz konsultanta, a jego panel ma: **Edytuj linię** (osoba, która
 zmienia same kwoty, a zamówień nie prowadzi, widzi tu **Edytuj stawki**),
@@ -624,6 +625,25 @@ importu z **innym numerem zamówienia**, nad tabelą stoi ostrzeżenie z tym
 numerem i liczbą MD. Nowy wpis dodajesz, wybierając **miesiąc z listy**
 (miesiące okresu osoby na zamówieniu); miesiąc, który ma już wpis, jest
 oznaczony „ma wpis (nadpisze)".
+
+### Zużycie przy zamówieniu kosztowym
+
+Na zamówieniu **kosztowym** panel osoby ma zakładkę **Zużycie** (widzą ją osoby
+z dostępem do kwot). U góry stoi **budżet całego zamówienia** — pasek
+i kafelki **Wykorzystane**, **Budżet**, **Pozostało** w złotych — a gdy na
+zamówieniu jest kilka osób, pod paskiem widać, ile zafakturowano na każdą
+z nich. Tabela pokazuje miesiące tej osoby: **Kwota**, **Źródło** (import /
+ręcznie), **Saldo zamówienia** po miesiącu (liczone z wpisów wszystkich osób,
+bo pula jest wspólna) i wiersz **Razem**; przy każdym wpisie są **Edytuj**
+i **Usuń**. Formularz **„Nowy wpis miesięczny"** ma pola **Miesiąc**, **Kwota
+(zł)**, **Status** i **Notatka**; przed zapisem pokazuje, ile zostanie na
+zamówieniu. Wpis większy niż reszta budżetu da się zapisać — formularz
+ostrzega „Przekroczenie budżetu o X zł", zamówienie przechodzi
+w **Wyczerpane**, a nadwyżka zostaje jako nierozliczona przy osobie.
+Zapis przelicza „zafakturowano" i „pozostało" na karcie zamówienia i zdejmuje
+uwagę „Brak zejścia za [miesiąc]" dla tego miesiąca. **Ręcznego wpisu import
+Finansów nie nadpisuje**: wiersz arkusza za ten sam miesiąc dostaje status
+„Jest ręczny wpis za ten miesiąc — faktura pominięta" i czeka na decyzję.
 
 ### Zakładka „Importy MD"
 

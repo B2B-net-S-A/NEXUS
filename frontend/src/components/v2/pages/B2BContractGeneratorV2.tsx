@@ -23,14 +23,17 @@ import {
   Eye,
   ExternalLink,
   FilePen,
+  FileCheck2,
   FileSignature,
   Loader2,
+  Paperclip,
   History,
   PauseCircle,
   Pencil,
   Plus,
   Printer,
   Save,
+  Send,
   Search,
   Sparkles,
   Trash2,
@@ -126,6 +129,14 @@ import { positiveIntParam } from "@/lib/client-tab";
 import { DocumentsTab } from "@/components/v2/b2b-generator/documents/DocumentsTab";
 import { RegisterNewDocumentMenu } from "@/components/v2/b2b-generator/documents/RegisterNewDocumentMenu";
 import { AnnexGeneratorTab } from "@/components/v2/b2b-generator/documents/AnnexGeneratorTab";
+import {
+  ScanFileField,
+  scanFileProblem,
+} from "@/components/v2/b2b-generator/documents/DocumentDialogs";
+import { apiErrorMessage } from "@/lib/api-error";
+import { CompanySignaturesPanel } from "@/components/v2/b2b-generator/esign/CompanySignaturesPanel";
+import { EsignRowStatus } from "@/components/v2/b2b-generator/esign/EsignRowStatus";
+import { SendForSignatureDialog } from "@/components/v2/b2b-generator/esign/SendForSignatureDialog";
 import {
   RegisterAnnexLabel,
   RegisterStartDate,
@@ -773,6 +784,10 @@ export function B2BContractGeneratorV2() {
 
 // ── Zakładka: wygenerowane umowy (numery) ───────────────────────────────────
 
+/** Ta sama odmowa formatu co na serwerze (``signed_file.MSG_FORMAT``). */
+const SIGNED_FILE_FORMAT_MESSAGE =
+  "Podpisana umowa musi być plikiem PDF, JPG albo PNG.";
+
 export function ConfirmFullySignedDialog({
   row,
   open,
@@ -796,6 +811,12 @@ export function ConfirmFullySignedDialog({
   // (stawka dzienna w kontrakcie vs godzinowa w dokumencie) nigdy nie
   // dotarłby do operatora.
   const [keepExistingTerms, setKeepExistingTerms] = useState(false);
+  // Podpisany egzemplarz (0496) — dobrowolny; trafia do Dokumentów kontraktu
+  // dopiero PO udanym podpisie, bo to podpis zakłada kontrakt.
+  const [signedFile, setSignedFile] = useState<File | null>(null);
+  const signedFileProblem = signedFile
+    ? scanFileProblem(signedFile, SIGNED_FILE_FORMAT_MESSAGE)
+    : null;
 
   useEffect(() => {
     if (!open) return;
@@ -805,6 +826,7 @@ export function ConfirmFullySignedDialog({
     setStageId("");
     setSubmitError(null);
     setKeepExistingTerms(false);
+    setSignedFile(null);
   }, [open, row.id]);
 
   const effectiveCandidateId = row.candidate_id ?? candidate?.id ?? null;
@@ -884,11 +906,11 @@ export function ConfirmFullySignedDialog({
 
   const confirmMut = useMutation({
     onMutate: () => setSubmitError(null),
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!effectiveCandidateId || !effectiveJobId) {
         throw new Error("Wybierz kandydata i konkretną rekrutację.");
       }
-      return b2bGeneratorApi.confirmFullySigned(row.id, {
+      const result = await b2bGeneratorApi.confirmFullySigned(row.id, {
         candidate_id: effectiveCandidateId,
         job_id: effectiveJobId,
         // Klucz dopiero po świadomym zaznaczeniu — `false` nie leci wcale,
@@ -898,9 +920,26 @@ export function ConfirmFullySignedDialog({
         // na błędzie w tym miejscu widziałby już `null` i gubił flagę.
         ...(keepExistingTerms ? { keep_existing_contract_terms: true } : {}),
       });
+      if (!signedFile) return { result, fileError: null };
+      // Podpis jest już zapisany — nieudana wysyłka pliku go nie cofa, plik
+      // da się dołączyć z wiersza rejestru.
+      try {
+        await b2bGeneratorApi.attachSignedFile(row.id, signedFile);
+        return { result, fileError: null };
+      } catch (error) {
+        return {
+          result,
+          fileError: apiErrorMessage(error, "Nie udało się zapisać pliku."),
+        };
+      }
     },
-    onSuccess: (result) => {
+    onSuccess: ({ result, fileError }) => {
       onConfirmed(result);
+      if (fileError) {
+        toast.showError(
+          `Umowa oznaczona jako podpisana, ale plik nie został zapisany: ${fileError} Dołącz go z wiersza rejestru („Dołącz podpisaną umowę”).`,
+        );
+      }
       onOpenChange(false);
     },
     onError: (error) => {
@@ -954,6 +993,7 @@ export function ConfirmFullySignedDialog({
     !!effectiveJobId &&
     jobQuery.isSuccess &&
     !canonicalClientMismatch &&
+    !signedFileProblem &&
     !confirmMut.isPending;
 
   return (
@@ -1134,10 +1174,25 @@ export function ConfirmFullySignedDialog({
             />
           ) : null}
 
+          <div className="space-y-1">
+            <ScanFileField
+              id={`b2b-signed-file-${row.id}`}
+              file={signedFile}
+              onFile={setSignedFile}
+              disabled={confirmMut.isPending}
+              label="Podpisana umowa (opcjonalnie)"
+              formatMessage={SIGNED_FILE_FORMAT_MESSAGE}
+            />
+            <p className="text-xs text-muted-foreground">
+              Bez pliku potwierdzenie działa jak dotąd — plik dołączysz później
+              z wiersza rejestru.
+            </p>
+          </div>
+
           <Alert
             variant="warning"
             title="To nie jest walidacja podpisu elektronicznego"
-            description="Potwierdzenie zapisze autora i czas deklaracji, ale nie utworzy pliku podpisanej umowy ani wpisu QES."
+            description="Potwierdzenie zapisze autora i czas deklaracji. Dołączony plik trafi do Dokumentów kontraktu, ale NEXUS nie sprawdza podpisów w nim."
           />
 
           {submitError ? (
@@ -1253,6 +1308,87 @@ export function ConfirmFullySignedDialog({
             {keepExistingTerms
               ? "Potwierdź mimo różnic"
               : "Potwierdź podpisanie"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** „Dołącz podpisaną umowę” przy wierszu podpisanym bez pliku (0496). */
+export function AttachSignedFileDialog({
+  row,
+  onClose,
+}: {
+  row: B2BGeneratedContractRow;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [file, setFile] = useState<File | null>(null);
+  const problem = file ? scanFileProblem(file, SIGNED_FILE_FORMAT_MESSAGE) : null;
+  const attach = useMutation({
+    mutationFn: (picked: File) => b2bGeneratorApi.attachSignedFile(row.id, picked),
+    onSuccess: () => {
+      toast.showSuccess("Podpisana umowa zapisana w Dokumentach kontraktu.");
+      queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["contract-documents"] });
+      onClose();
+    },
+  });
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !attach.isPending) onClose();
+      }}
+    >
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>Dołącz podpisaną umowę</DialogTitle>
+          <DialogDescription>
+            Umowa {row.contract_number}
+            {row.candidate_name ? ` · ${row.candidate_name}` : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-3">
+          <ScanFileField
+            id={`b2b-attach-signed-${row.id}`}
+            file={file}
+            onFile={setFile}
+            disabled={attach.isPending}
+            label="Podpisana umowa"
+            formatMessage={SIGNED_FILE_FORMAT_MESSAGE}
+          />
+          {attach.isError ? (
+            <Alert
+              variant="error"
+              title="Nie udało się zapisać pliku"
+              description={apiErrorMessage(attach.error, "Spróbuj ponownie.")}
+            />
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={attach.isPending}
+            onClick={onClose}
+          >
+            Anuluj
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={!file || Boolean(problem) || attach.isPending}
+            onClick={() => file && attach.mutate(file)}
+          >
+            {attach.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Paperclip className="h-4 w-4" />
+            )}
+            Zapisz plik
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2297,6 +2433,11 @@ export function GeneratedContractsTab({
   const queryClient = useQueryClient();
   const [signatureRow, setSignatureRow] =
     useState<B2BGeneratedContractRow | null>(null);
+  const [signedFileRow, setSignedFileRow] =
+    useState<B2BGeneratedContractRow | null>(null);
+  const [esignRow, setEsignRow] = useState<B2BGeneratedContractRow | null>(
+    null,
+  );
   const [statusRow, setStatusRow] = useState<B2BGeneratedContractRow | null>(
     null,
   );
@@ -2451,6 +2592,8 @@ export function GeneratedContractsTab({
     : "";
 
   return (
+    <>
+    <CompanySignaturesPanel />
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Umowy bieżące</CardTitle>
@@ -2842,6 +2985,53 @@ export function GeneratedContractsTab({
                                   <ExternalLink className="h-3 w-3" />
                                 </Link>
                               ) : null}
+                              {r.signed_document_id && r.contract_id ? (
+                                <Link
+                                  href={`/contracts/${r.contract_id}?tab=documents`}
+                                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                                  aria-label={`Podpisana umowa ${r.contract_number} w Dokumentach kontraktu`}
+                                >
+                                  <FileCheck2 className="h-3 w-3" aria-hidden="true" />
+                                  Podpisana umowa
+                                </Link>
+                              ) : r.can_attach_signed_file ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setSignedFileRow(r)}
+                                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                                >
+                                  <Paperclip className="h-3 w-3" aria-hidden="true" />
+                                  Dołącz podpisaną umowę
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : r.esign || r.can_send_esign ? (
+                            <div className="flex flex-col items-start gap-1.5">
+                              {r.esign ? <EsignRowStatus row={r} /> : null}
+                              {r.can_send_esign ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => setEsignRow(r)}
+                                >
+                                  <Send className="h-4 w-4" />
+                                  Wyślij do podpisu
+                                </Button>
+                              ) : null}
+                              {r.can_confirm_signed ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => setSignatureRow(r)}
+                                >
+                                  <FileSignature className="h-4 w-4" />
+                                  Oznacz jako podpisaną
+                                </Button>
+                              ) : null}
                             </div>
                           ) : r.can_confirm_signed ? (
                             <Button
@@ -3027,6 +3217,15 @@ export function GeneratedContractsTab({
           onConfirmed={handleConfirmed}
         />
       ) : null}
+      {esignRow ? (
+        <SendForSignatureDialog row={esignRow} onClose={() => setEsignRow(null)} />
+      ) : null}
+      {signedFileRow ? (
+        <AttachSignedFileDialog
+          row={signedFileRow}
+          onClose={() => setSignedFileRow(null)}
+        />
+      ) : null}
       {statusRow ? (
         <ContractStatusDialog
           row={statusRow}
@@ -3077,6 +3276,7 @@ export function GeneratedContractsTab({
         </DialogContent>
       </Dialog>
     </Card>
+    </>
   );
 }
 

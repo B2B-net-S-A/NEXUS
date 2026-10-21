@@ -28,7 +28,7 @@ describe("słownik formy współpracy", () => {
       expect(reportsAbsence(form)).toBe(true);
       expect(coordinatorLabel(form)).toBe("Koordynator");
       const words = Object.values(EMPLOYMENT_TERMS[form]).join(" ").toLowerCase();
-      expect(words).not.toMatch(/urlop|wniosek|przełożon/);
+      expect(words).not.toMatch(/urlop|wniosek|przełożon|nadgodzin|premi/);
     }
     expect(reportsAbsence("uop")).toBe(false);
     expect(coordinatorLabel("uop")).toBe("Przełożony");
@@ -41,5 +41,23 @@ describe("słownik formy współpracy", () => {
     expect(timesheetCardTitle("b2b")).toBe("Raport godzin");
     expect(timesheetCardTitle("zlecenie")).toBe("Potwierdzenie godzin");
     expect(timesheetAccusative("uop")).toBe("ewidencję czasu pracy");
+  });
+
+  it("godziny ponad 8 h i wynagrodzenie dodatkowe poza UoP (decyzja Artura 21.10.2026)", () => {
+    expect(employmentTerms("uop").overtime).toBe("nadgodziny");
+    expect(employmentTerms("uop").overtime_reason).toBe("Uzasadnienie nadgodzin");
+    expect(employmentTerms("uop").bonus).toBe("premia");
+    expect(employmentTerms("uop").bonuses_tab).toBe("Premie i stawka");
+    for (const form of ["b2b", "zlecenie"] as const) {
+      const words = employmentTerms(form);
+      expect(words.overtime).toBe("godziny ponad 8 h");
+      expect(words.overtime_stat).toBe("ponad 8 h dziennie");
+      expect(words.overtime_reason).toBe("Czego dotyczyły godziny ponad 8 h");
+      expect(words.bonus).toBe("wynagrodzenie dodatkowe");
+      expect(words.bonuses).toBe("wynagrodzenie dodatkowe");
+      expect(words.bonuses_tab).toBe("Wynagrodzenie dodatkowe i stawka");
+    }
+    expect(employmentTerms("b2b").overtime_reason_hint).toContain("raporcie godzin");
+    expect(employmentTerms("zlecenie").overtime_reason_hint).toContain("potwierdzeniu godzin");
   });
 });

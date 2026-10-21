@@ -15,7 +15,16 @@ from datetime import date, datetime, timedelta, timezone
 from collections.abc import Callable
 from typing import Any, get_args
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
 from sqlalchemy import Select, and_, func, or_, select, update
@@ -48,6 +57,10 @@ from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_contract_role import B2BContractRole
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_signing_request import (
+    OPEN_STATUSES as ESIGN_OPEN_STATUSES,
+    B2BSigningRequest,
+)
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
 )
@@ -76,11 +89,12 @@ from app.services.access_scope import (
     is_delivery_lead_governed,
     resolve_delivery_lead_assigned_client_ids,
 )
-from app.services.b2b_documents import contract_annexes
+from app.services.b2b_documents import contract_annexes, signed_scan
 from app.services.b2b_documents import effects as document_effects
 from app.services.b2b_documents.contract_versions import version_for_variant
 from app.services.critical_events import audited_deletion
 from app.schemas.b2b_contract_generator import (
+    B2BGeneratedEsign,
     B2B_CLOSING_STATUSES,
     B2BClosureReason,
     B2BCompanyLookupResponse,
@@ -157,6 +171,9 @@ from app.services.b2b_contract_generator.entity_type import (
     partner_display_lines,
     resolve_partner_entity_type,
 )
+from app.services.b2b_contract_generator import signed_file
+from app.services.b2b_esign import service as esign_service
+from app.services.b2b_esign import settings as esign_settings
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.company_variant import (
     CompanyVariantError,
@@ -1143,6 +1160,33 @@ async def _serialize_generated_contracts(
                 if exc.status_code != 403:
                     raise
                 signature_client_access[client_id] = False
+    live_signed_files = await signed_file.existing_document_ids(db, rows)
+    # Podpis w NEXUSIE (0499): ostatni wniosek na wiersz, jedno zapytanie.
+    esign_mode = await esign_settings.load(db)
+    esign_allowed = esign_mode.can_send(current_user)
+    latest_esign: dict[int, B2BSigningRequest] = {}
+    if rows:
+        esign_rows = await db.scalars(
+            select(B2BSigningRequest)
+            .where(
+                B2BSigningRequest.generated_contract_id.in_([row.id for row in rows])
+            )
+            .order_by(
+                B2BSigningRequest.generated_contract_id,
+                B2BSigningRequest.id.desc(),
+            )
+            .distinct(B2BSigningRequest.generated_contract_id)
+        )
+        latest_esign = {r.generated_contract_id: r for r in esign_rows.all()}
+    esign_signer_ids = {
+        r.company_signer_id for r in latest_esign.values() if r.company_signer_id
+    }
+    esign_signer_names: dict[int, str] = {}
+    if esign_signer_ids:
+        named = await db.execute(
+            select(User.id, User.name).where(User.id.in_(esign_signer_ids))
+        )
+        esign_signer_names = {uid: name for uid, name in named.all()}
     items: list[B2BGeneratedContractItem] = []
     for row in rows:
         is_signed = row.signature_status == "signed_both"
@@ -1228,6 +1272,48 @@ async def _serialize_generated_contracts(
             blocked_reason = _SIGNATURE_ROW_SCOPE_DENIED
             can_confirm = False
 
+        # Plik dołącza ten, kto mógłby oznaczyć podpis — liczone bez warunku
+        # „jeszcze niepodpisana”, bo plik dochodzi właśnie po podpisie.
+        can_attach_file = (
+            is_signed
+            and not from_excel
+            and row.contract_id is not None
+            and generator_access >= ActionAccess.view
+            and can_write_client
+            and _has_signature_permission(current_user)
+            and signature_client_access.get(row.client_id, False)
+            and _may_confirm_row_signature(
+                current_user,
+                created_by=row.created_by,
+                job_id=row.job_id,
+                team_job_ids=scoped_job_ids,
+            )
+        )
+
+        # Kto wysyła i wycofuje podpis w NEXUSIE — jak trasy w api/b2b_esign.py.
+        esign = latest_esign.get(row.id)
+        esign_open = esign is not None and esign.status in ESIGN_OPEN_STATUSES
+        # Wysłany do podpisu PDF jest zamrożony — „Popraw” dopiero po wycofaniu.
+        can_correct = can_correct and not esign_open
+        may_run_esign = (
+            esign_allowed
+            and not from_excel
+            and can_generate_documents
+            and can_write_client
+            and _may_correct_generated(current_user, row, team_job_ids)
+            and rate_visibility.visible(
+                client_id=row.client_id, created_by=row.created_by, job_id=row.job_id
+            )
+        )
+        can_send_esign = (
+            may_run_esign
+            and not is_signed
+            and row.contract_status == "in_progress"
+            and not esign_open
+            and bool(row.partner_name)
+            and row.render_payload is not None
+        )
+
         linked_status, linked_end = linked_contracts.get(row.contract_id, (None, None))
         job = jobs.get(row.job_id) if row.job_id is not None else None
         # Kolumna „Partner": nazwa firmy z rejestru, a dla spółki dodatkowo
@@ -1304,6 +1390,28 @@ async def _serialize_generated_contracts(
                 signed_by_name=users.get(row.signed_by_user_id),
                 can_confirm_signed=can_confirm,
                 blocked_reason=blocked_reason,
+                signed_document_id=(
+                    row.signed_document_id
+                    if row.signed_document_id in live_signed_files
+                    else None
+                ),
+                can_attach_signed_file=can_attach_file,
+                esign=(
+                    B2BGeneratedEsign(
+                        request_id=esign.id,
+                        status=esign.status,
+                        contractor_signed_at=esign.contractor_signed_at,
+                        completed_at=esign.completed_at,
+                        expires_at=esign.expires_at,
+                        company_signer_name=esign_signer_names.get(
+                            esign.company_signer_id or -1
+                        ),
+                    )
+                    if esign is not None
+                    else None
+                ),
+                can_send_esign=can_send_esign,
+                can_withdraw_esign=may_run_esign and esign_open,
                 annex_rates=(
                     list((row.annex_rates or {}).get("items") or [])
                     if row.annex_rates
@@ -3227,6 +3335,8 @@ async def _load_row_for_correction(
                 "podpisany dokument jest zapisem tego, co strony podpisały."
             ),
         )
+    # Po wysyłce do podpisu w NEXUSIE PDF jest zamrożony (code review 21.10).
+    await esign_service.assert_no_open_request(db, row.id)
     return row
 
 
@@ -3770,6 +3880,15 @@ async def confirm_generated_contract_fully_signed(
                 extra={"generated_contract_id": row.id},
             )
         row.signature_status = "signed_both"
+        # Ręczne oznaczenie podpisu kończy drogę NEXUSOWĄ: link kontraktora
+        # i przypomnienia przestają działać (code review 21.10.2026).
+        await esign_service.close_open_requests(
+            db,
+            row_id=row.id,
+            actor_id=current_user.id,
+            reason="Podpis oznaczony ręcznie w rejestrze",
+            now=datetime.now(timezone.utc),
+        )
         row.signature_source = "manual_confirmation"
         # Podpis obustronny to JEDYNE przejście `in_progress` → `active`.
         # WARUNKOWO: „Zakończona”/„Bez projektu”/„Anulowana” odmawiają wyżej
@@ -4018,6 +4137,62 @@ async def _lock_person_contracts_before_row(
     await lock_contract_then_orders(db, contract_ids=[*contract_ids, link.contract_id])
 
 
+@router.post(
+    "/generated/{generated_id}/signed-file",
+    response_model=B2BGeneratedContractItem,
+)
+async def attach_generated_contract_signed_file(
+    generated_id: int,
+    current_user: B2BGeneratorAccess,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dołącz podpisany egzemplarz umowy — trafia do Dokumentów kontraktu (0496).
+
+    Okno „Oznacz jako podpisaną” woła najpierw podpis (JSON, bez zmian), potem
+    tę trasę; wiersz podpisany wcześniej bez pliku dołącza go z rejestru.
+    Wchodzi ten, kto mógłby ten podpis oznaczyć (``_may_confirm_row_signature``),
+    bo plik ląduje w kontrakcie, który założył podpis."""
+    _require_signature_confirmation(current_user)
+    row = await db.scalar(
+        select(B2BGeneratedContract)
+        .where(B2BGeneratedContract.id == generated_id)
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    _reject_excel_row(row)
+    await _assert_signature_client_access(db, current_user, row.client_id)
+    team_job_ids = (
+        await _jobs_run_by(db, current_user, {row.job_id})
+        if row.job_id is not None
+        and not current_user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES)
+        else set()
+    )
+    if not _may_confirm_row_signature(
+        current_user,
+        created_by=row.created_by,
+        job_id=row.job_id,
+        team_job_ids=team_job_ids,
+    ):
+        raise HTTPException(status_code=403, detail=_SIGNATURE_ROW_SCOPE_DENIED)
+    name, content_type, data = await signed_scan.read_scan(
+        file, format_msg=signed_file.MSG_FORMAT
+    )
+    replaced_path = await signed_file.attach(
+        db,
+        row=row,
+        filename=name,
+        content_type=content_type,
+        data=data,
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    signed_file.discard(replaced_path)
+    await db.refresh(row)
+    return await _serialize_generated_contract(db, row, current_user)
+
+
 @router.patch("/generated/{generated_id}", response_model=B2BGeneratedContractItem)
 async def update_generated_contract(
     generated_id: int,
@@ -4110,6 +4285,10 @@ async def update_generated_contract(
         )
 
     if wants_client_name:
+        # Nazwa Klienta jest w treści PDF-u wysłanego do podpisu w NEXUSIE.
+        await esign_service.assert_no_open_request(db, row.id)
+
+    if wants_client_name:
         old_client = row.client_name
         new_client = (payload.client_name or "").strip() or None
         row.client_name = new_client
@@ -4158,6 +4337,15 @@ async def update_generated_contract(
     if wants_status:
         old_status = row.contract_status
         new_status = payload.contract_status
+        if new_status != "in_progress":
+            # Umowa przestaje czekać na podpis — wysyłka w NEXUSIE też.
+            await esign_service.close_open_requests(
+                db,
+                row_id=row.id,
+                actor_id=current_user.id,
+                reason=f"Status umowy zmieniony na „{new_status}”",
+                now=datetime.now(timezone.utc),
+            )
         # ŚWIADOMA ASYMETRIA: projektu i notatki wymaga wyłącznie powrót
         # z ZAWIESZENIA, nie każde przejście na „Aktywna".
         #

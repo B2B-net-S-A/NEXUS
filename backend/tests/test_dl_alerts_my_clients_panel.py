@@ -191,6 +191,26 @@ def test_burn_rate_uses_order_history_and_start_date():
     assert high_priority_threshold(estimated, 7) == Decimal("21")
 
 
+def test_workdays_left_phrase_is_remaining_over_rate_not_the_threshold():
+    """Mail „mało MD” podawał stałą progu (7) zamiast dni, na które starczy
+    pozostałość: 1 MD przy 1 MD/dzień dawało „ok. 7 dni roboczych”."""
+    from app.services.order_burn_rate import BurnRate, workdays_left_phrase
+
+    one_per_day = BurnRate(per_workday=Decimal("1"), estimated=False)
+    assert workdays_left_phrase(Decimal("1"), one_per_day) == "ok. 1 dzień roboczy"
+    assert workdays_left_phrase(Decimal("3"), one_per_day) == "ok. 3 dni robocze"
+    assert workdays_left_phrase(Decimal("7"), one_per_day) == "ok. 7 dni roboczych"
+    assert workdays_left_phrase(Decimal("22"), one_per_day) == "ok. 22 dni robocze"
+    assert (
+        workdays_left_phrase(Decimal("0.5"), one_per_day) == "mniej niż 1 dzień roboczy"
+    )
+    # Pula trzech osób: 6 MD to 2 dni, nie 6 i nie 7.
+    three = BurnRate(per_workday=Decimal("3"), estimated=True)
+    assert workdays_left_phrase(Decimal("6"), three) == "ok. 2 dni robocze"
+    # Zaokrąglamy w dół — lepiej ostrzec o dzień za wcześnie niż za późno.
+    assert workdays_left_phrase(Decimal("6.9"), one_per_day) == "ok. 6 dni roboczych"
+
+
 def test_date_cycle_thresholds():
     from app.services.dl_alerts import date_cycle_stage
 
@@ -543,6 +563,18 @@ async def test_md_starts_at_21_and_escalates_on_order_burn_rate(monkeypatch):
     assert rows[-1].priority == "high"
     assert rows[-1].dedupe_key.endswith(":high")
     assert (rows[-1].payload or {}).get("email") is True
+
+    # Treść podaje dni z tempa, nie stałą progu (7): 1 MD przy 1 MD/dzień.
+    # Osobna linia — ta sama linia na tym samym etapie nie dostaje nowej karty.
+    last_md_line = await _seed_md_line(client_id, contract_id, remaining="1")
+    await _run(rule_md_budget_low, monkeypatch, _TODAY)
+    rows = [
+        r
+        for r in await _alerts(user_id, ALERT_MD_BUDGET_LOW)
+        if r.order_id == last_md_line
+    ]
+    assert rows[-1].priority == "high"
+    assert "ok. 1 dzień roboczy pracy" in rows[-1].message, rows[-1].message
 
 
 async def test_cost_order_starts_at_10000_without_amounts_in_text(monkeypatch):

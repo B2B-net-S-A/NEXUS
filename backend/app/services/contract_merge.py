@@ -179,6 +179,10 @@ _KNOWN_CONTRACT_FKS = {
     ("contract_care_plan_items", "contract_id"),
     ("contract_client_rates", "contract_id"),
     ("contract_documents", "contract_id"),
+    # Foldery zakładki Dokumenty (0494) idą za kontraktem zachowanym razem
+    # z plikami. Dwa foldery o tej samej nazwie (UNIQUE kontrakt + nazwa)
+    # i nazwę „Zamówień” rozstrzyga ``_resolve_child_duplicates``.
+    ("contract_document_folders", "contract_id"),
     # Wiersze raportu pobrania dokumentów z SharePointa (0402) — idą za
     # kontraktem jak same dokumenty, żeby raport przebiegu wskazywał kontrakt,
     # który zostaje.
@@ -3097,7 +3101,11 @@ async def _resolve_child_duplicates(
       historia opinii obu duplikatów) przechodzą bez zmian,
     * ``client_structure_skips`` — „Pomiń” propozycji menedżera to podpowiedź
       ekranu, jedna na kontrakt: pominięcia przegranych są kasowane, zachowany
-      trzyma swoje (bez niego propozycja po prostu wraca na listę DL).
+      trzyma swoje (bez niego propozycja po prostu wraca na listę DL),
+    * ``contract_document_folders`` — foldery o tej samej nazwie (bez względu
+      na wielkość liter) łączą się w jeden: folder zachowanego (a bez niego
+      najstarszy) dostaje pliki pozostałych, te są kasowane. Własna nazwa
+      „Zamówień” przegranych znika — zostaje nazwa zachowanego albo domyślna.
     """
     present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
     every = [survivor_id, *loser_ids]
@@ -3112,6 +3120,45 @@ async def _resolve_child_duplicates(
             {"ids": [int(i) for i in loser_ids]},
         )
         out["client_structure_skips_removed"] = len(removed.all())
+
+    if ("contract_document_folders", "contract_id") in present:
+        await db.execute(
+            text(
+                "DELETE FROM contract_document_folders "
+                "WHERE kind = 'orders' AND contract_id = ANY(:ids)"
+            ),
+            {"ids": [int(i) for i in loser_ids]},
+        )
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, lower(name) AS slot FROM contract_document_folders "
+            "WHERE kind = 'user' AND contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        by_slot: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_slot.setdefault(str(row["slot"]), []).append(row)
+        merged = 0
+        for group in by_slot.values():
+            if len(group) < 2:
+                continue
+            winner = next(
+                (r for r in group if int(r["contract_id"]) == survivor_id), group[0]
+            )
+            others = [int(r["id"]) for r in group if r is not winner]
+            await db.execute(
+                text(
+                    "UPDATE contract_documents SET folder_id = :winner "
+                    "WHERE folder_id = ANY(:ids)"
+                ),
+                {"winner": int(winner["id"]), "ids": others},
+            )
+            await db.execute(
+                text("DELETE FROM contract_document_folders WHERE id = ANY(:ids)"),
+                {"ids": others},
+            )
+            merged += len(others)
+        out["contract_document_folders_merged"] = merged
 
     if ("contract_care_plan_items", "contract_id") in present:
         rows = await _child_rows(

@@ -141,6 +141,15 @@ describe("FillMonthDialog", () => {
     expect(onFill).not.toHaveBeenCalled();
   });
 
+  it("B2B: „godziny ponad 8 h wpisuje się w dniu” zamiast nadgodzin (21.10.2026)", async () => {
+    renderDialog({ form: "b2b" });
+    fireEvent.change(screen.getByLabelText("Godziny dziennie"), { target: { value: "9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Wypełnij" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/godziny ponad 8 h wpisuje się w dniu, z krótkim opisem/);
+    expect(alert.textContent).not.toMatch(/nadgodzin/);
+  });
+
   it("szablon z listy i 6,5 h", async () => {
     const { onFill } = renderDialog();
     fireEvent.click(screen.getByRole("radio", { name: "Mój szablon" }));

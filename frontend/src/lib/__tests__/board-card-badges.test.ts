@@ -12,6 +12,7 @@ import {
   hoursLeft,
   isReadyForDlSend,
   knownForwardGap,
+  minimumOnlyGap,
   qcChip,
   type CardBadgeContext,
   compactCardBadge,
@@ -235,6 +236,20 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
       "QC: 2 do poprawy",
     );
     expect(knownForwardGap(item({ qc: { status: "unchecked", blocking_failed: 0 } }), "cv_qc")).toBeNull();
+  });
+
+  // 21.10.2026: minimum dla Delivery Leada blokuje „Zweryfikowany”.
+  it("brak minimum dla DL robi strzałkę szarą — dopiero po arkuszu", () => {
+    const gap = item({ screening_done: true, minimum_missing: ["location", "work_mode"] });
+    expect(knownForwardGap(gap, "screening")).toBe("Brak: lokalizacja, tryb pracy");
+    expect(minimumOnlyGap(gap)).toBe(true);
+    // Brak arkusza mówi pierwszy; okno minimum nie zastępuje formularza.
+    const noSheet = item({ screening_done: false, minimum_missing: ["location"] });
+    expect(knownForwardGap(noSheet, "screening")).toBe("Brak arkusza screeningu");
+    expect(minimumOnlyGap(noSheet)).toBe(false);
+    // Starszy serwer (brak pola) albo pusta lista = bez braku.
+    expect(minimumOnlyGap(item({ screening_done: true }))).toBe(false);
+    expect(knownForwardGap(item({ screening_done: true, minimum_missing: [] }), "screening")).toBeNull();
   });
 
   // 14.10.2026: przeciągnięcie ze „Zweryfikowanego” bez CV firmowego wkładało

@@ -86,7 +86,7 @@
     ],
     "pitfalls": [
       "Wysłanie na „CV wysłane” poza Nordeą robi osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin) w przeglądzie: wymagania z dowodem, CV, budżet i marża na żywo, stawka do klienta. Gdy CV jest po QC, na karcie w „QC CV” ma ona przycisk „Przejrzyj i wyślij” (u Nordei „Przejrzyj → Cpro”) zamiast strzałki. Delivery Lead tej rekrutacji widzi na takiej karcie „Twój ruch” i „Czeka na Ciebie”, a przy dwóch i więcej osobach „Przejrzyj po kolei” w nagłówku kolumny — przegląd osoba po osobie, od najdłużej czekającej. U Nordei przegląd kończy „Akceptuj — do Cpro” ze stawką do Cpro: rekruter przekazuje osobę Delivery Leadowi, a osoba od Cpro dostaje zadanie dopiero po akceptacji. Cofnięcie karty z „Rozmowy u klienta” przeglądu nie wymaga. „Wróć do poprawy…” zaznacza pola — rekruter widzi je w formularzu screeningu, a uwagę w powiadomieniu i notatkach kandydata. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata.",
-      "Wejście na „Zweryfikowany” wymaga odpowiedzi z formularza screeningu i stawki kandydata (w rekrutacji bez pytań screeningowych zamiast odpowiedzi wystarcza pole „Dlaczego ten kandydat”), wyjście z „Rozmowy u klienta” — debriefu (pytań klienta albo potwierdzenia, że ich nie było), a ruch na „Zatrudniony” (może każdy z zespołu; zamówienie nie jest potrzebne) — informacji, jak podpisano umowę.",
+      "Wejście na „Zweryfikowany” wymaga odpowiedzi z formularza screeningu, stawki kandydata, lokalizacji, trybu pracy, dostępności i „Dlaczego ten kandydat” oraz pól dołożonych w karcie klienta (gdy brakuje tylko tych pól, strzałka otwiera okno z nimi; w rekrutacji bez pytań screeningowych zamiast odpowiedzi wystarcza „Dlaczego ten kandydat”), wyjście z „Rozmowy u klienta” — debriefu (pytań klienta albo potwierdzenia, że ich nie było), a ruch na „Zatrudniony” (może każdy z zespołu; zamówienie nie jest potrzebne) — informacji, jak podpisano umowę.",
       "QC CV doradza: bez zielonego QC ruch na „CV wysłane” i do kolejki Cpro (u Nordei akceptuje Delivery Lead, a wrzuca osoba od Cpro) wymaga „Przesuń mimo uwag…” z powodem; Delivery Lead dostaje wtedy powiadomienie i może cofnąć kartę. QC zgłasza cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV (da się zapisać „Potwierdzone z kandydatem”) i reguły klienta — reszta to uwagi. Powrót z „Zamkniętych” tego nie omija.",
       "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin. Zielona linia „Pracuje u nas · klient” na karcie znaczy trwającą umowę u nas; plakietki konfliktu z klientem (NDA, czarna lista klienta, konkurent) ostrzegają, nie blokują. Gdy CV takiej osoby idzie do innego klienta albo zostaje u niego zatrudniona, Delivery Lead jej obecnego klienta dostaje powiadomienie, a okno zatrudnienia pyta „Co z obecną współpracą?”. Plakietka „brak: …” obok wyniku dopasowania znaczy, że tej umiejętności krytycznej nie ma w profilu, CV ani notatkach — wyszukiwanie tej osoby nie pokaże, ale wynik na karcie jest; sprawdź to w rozmowie albo dopisz w profilu."
     ],
@@ -157,7 +157,7 @@
     "tasks": [
       {
         "q": "Jak zapisać screening rozmowy?",
-        "a": "Wpisz warunki, odpowiedzi z Profilu Championa i ocenę dla DL. Stawkę wpisuje karta tej rekrutacji albo niższa z notatki i „Stawki od” (źródło pod polem), a „Zapisz notatkę i wypełnij formularz” przy notatce wypełni puste pola. „Zapisz i przekaż dalej” przesuwa na „Zweryfikowany” i otwiera „CV”. Po zwrocie od DL — „Zapisz i oddaj do przeglądu DL”.",
+        "a": "Wpisz warunki, odpowiedzi z Profilu Championa i ocenę dla DL; lokalizacja i tryb z innej rekrutacji osoby wpiszą się same. Stawka: karta tej rekrutacji albo niższa z notatki i „Stawki od”. „Zapisz notatkę i wypełnij formularz” wypełni puste pola. „Zapisz i przekaż dalej” → „Zweryfikowany”. Po zwrocie od DL — „Zapisz i oddaj do przeglądu DL”.",
         "anchor": "jobs.person.screening-form"
       },
       {
@@ -504,7 +504,7 @@
     ],
     "pitfalls": [
       "Usunięcie zamówienia może zmienić stawkę w przeszłych miesiącach — okno usuwania pokazuje skutki, przeczytaj je przed potwierdzeniem.",
-      "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się usunąć — najpierw usuń zejścia: wspólna pula w panelu zamówienia („Zejścia MD”), osoba w oknie „Zużycie MD”.",
+      "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się usunąć — najpierw usuń zejścia: wspólna pula w panelu zamówienia („Zejścia MD”), osoba w oknie „Zużycie MD”, kwoty zamówienia kosztowego w zakładce „Zużycie” osoby.",
       "Osoby zakończonej przez pomyłkę albo wracającej po przerwie nie dodawaj od nowa — użyj „Cofnij zakończenie” albo „Powrót po przerwie” na jej kontrakcie.",
       "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się też anulować — okno pokaże, które miesiące je blokują."
     ],
@@ -595,8 +595,8 @@
         "anchor": "contracts.b2b_generator.docx"
       },
       {
-        "q": "Umowa jest podpisana — co dalej?",
-        "a": "W „Umowy bieżące” kliknij „Oznacz jako podpisaną” — bez uprawnienia „Podpis B2B” poproś Delivery Leada. Dopiero wtedy powstaje kontrakt i szkic zamówienia, a kandydat przechodzi na „Zatrudniony”. Link w kolumnie rekrutacji otwiera panel osoby.",
+        "q": "Jak podpisać umowę i co dalej?",
+        "a": "„Wyślij do podpisu” (gdy włączony podpis w NEXUSIE): link do kontraktora, potem podpis za B2B Network — kontrakt i plik powstaną same. Droga mailowa: po podpisie „Oznacz jako podpisaną” (bez uprawnienia „Podpis B2B” poproś DL) i dołącz plik. Wtedy powstaje kontrakt, szkic zamówienia, a kandydat przechodzi na „Zatrudniony”.",
         "anchor": "contracts.b2b_generator.tabs"
       },
       {
@@ -688,7 +688,7 @@
     "title": "Mój czas",
     "section": null,
     "roles": [],
-    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd” (z kartą „Ja w firmie” — stanowisko, koordynator, kartoteka), nieobecności („Urlop”, „Przerwy” albo „Nieobecności”), miesiąc godzin i premie.",
+    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd” (z kartą „Ja w firmie” — stanowisko, koordynator, kartoteka), nieobecności („Urlop”, „Przerwy” albo „Nieobecności”), miesiąc godzin i premie (B2B: „Wynagrodzenie dodatkowe”).",
     "tasks": [
       {
         "q": "Jak zgłosić urlop albo przerwę?",
@@ -719,7 +719,7 @@
     "pitfalls": [
       "Wniosek czekający anulujesz zawsze, zatwierdzony — przed pierwszym dniem. Termin, który już trwa, anuluje przełożony albo Kadry (na B2B i zleceniu — Kadry). Daty złożonego wniosku zmienia przełożony albo Kadry, zgłoszenia z B2B i zlecenia — tylko Kadry.",
       "Rodzaj nieobecności widzisz Ty, Twój koordynator i Kadry. Zespół w kalendarzu widzi samą nieobecność, a Outlook pokazuje „Poza biurem”.",
-      "Ponad 8 godzin dziennie wpiszesz tylko wpisem dnia, z uzasadnieniem i uprawnieniem do nadgodzin — bez niego poproś Kadry.",
+      "Ponad 8 godzin dziennie wpiszesz tylko wpisem dnia, z opisem i uprawnieniem (na umowie o pracę „nadgodziny”, na B2B i zleceniu „godziny ponad 8 h”) — bez niego poproś Kadry.",
       "Na B2B i zleceniu nie zgłosisz przerwy na dni z wysłanego albo przyjętego raportu godzin — najpierw koordynator cofa raport do szkicu."
     ],
     "anchors": [
@@ -888,11 +888,11 @@
     "title": "Zgody",
     "section": null,
     "roles": [],
-    "what": "Zgody na wydatki i premie poza umową: w „Akceptacjach” zgody czekające na Twoją decyzję, w „Moich zgodach” prośby, które wysłałeś, z przebiegiem i formularzem „Poproś o zgodę”.",
+    "what": "Zgody na wydatki i wynagrodzenie dodatkowe: w „Akceptacjach” zgody czekające na Twoją decyzję, w „Moich zgodach” prośby, które wysłałeś, z przebiegiem i formularzem „Poproś o zgodę”.",
     "tasks": [
       {
-        "q": "Jak poprosić o zgodę na wydatek albo premię?",
-        "a": "„Ludzie → Moje zgody” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy koordynator, czy decyduje zatwierdzający. Premię z umowy (placement, liga) liczą Płace same — o nią nie prosisz.",
+        "q": "Jak poprosić o zgodę na wydatek albo wynagrodzenie dodatkowe?",
+        "a": "„Ludzie → Moje zgody” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy koordynator, czy decyduje zatwierdzający. Wynagrodzenie z reguł umowy (placement, liga) liczą Płace same — o nie nie prosisz.",
         "anchor": "hr.consents.form"
       },
       {
@@ -917,9 +917,9 @@
       }
     ],
     "pitfalls": [
-      "Zatwierdzona premia poza umową jest od razu przyznana w Płacach — Płace nie zatwierdzają jej drugi raz.",
-      "Premia dla osoby na B2B wymaga „Podstawy w umowie” — punktu umowy albo numeru aneksu; bez niej wniosek nie wyjdzie.",
-      "O zgodzie dla siebie (także o premii dla siebie) nie decydujesz — nawet jako zatwierdzający.",
+      "Zatwierdzone wynagrodzenie dodatkowe jest od razu przyznane w Płacach — Płace nie zatwierdzają go drugi raz.",
+      "Wynagrodzenie dodatkowe dla osoby na B2B wymaga „Podstawy w umowie” — punktu umowy albo numeru aneksu; bez niej wniosek nie wyjdzie.",
+      "O zgodzie dla siebie (także o wynagrodzeniu dodatkowym dla siebie) nie decydujesz — nawet jako zatwierdzający.",
       "Zgoda bez faktury i paragonu wygasa po 30 dniach. Rozliczają Finanse, nie autor; dopłatę zatwierdza zatwierdzający."
     ],
     "anchors": [

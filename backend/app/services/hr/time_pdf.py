@@ -81,13 +81,14 @@ def render_html(sheet: PdfTimesheet) -> str:
     rows = []
     total = Decimal("0")
     overtime_days = set()
+    words = terms(sheet.employment_type)
     for entry in sorted(sheet.entries, key=lambda e: (e.work_date, e.description)):
         total += entry.hours
         day = date.fromisoformat(entry.work_date)
         tag = ""
         if entry.is_overtime:
             overtime_days.add(entry.work_date)
-            tag = " <span class='tag'>nadgodziny</span>"
+            tag = f" <span class='tag'>{escape(words['overtime_stat'])}</span>"
         rows.append(
             "<tr>"
             f"<td class='nowrap'>{day.day}.{day.month:02d}</td>"
@@ -103,7 +104,6 @@ def render_html(sheet: PdfTimesheet) -> str:
     generated = _local(datetime.now(ZoneInfo(DEFAULT_TZ)))
     # Nazwa dokumentu i role z formy współpracy (D4): ewidencja czasu pracy,
     # raport godzin do faktury albo potwierdzenie liczby godzin (art. 8b).
-    words = terms(sheet.employment_type)
     title = words["timesheet_document"]
     note = words["timesheet_document_note"]
     body = (
@@ -116,7 +116,8 @@ def render_html(sheet: PdfTimesheet) -> str:
         f"<tr><th>Forma współpracy</th><td>{escape(employment)}</td></tr>"
         f"<tr><th>Liczba wpisów</th><td>{len(sheet.entries)}</td></tr>"
         f"<tr><th>Suma godzin</th><td>{_hours(total)} h</td></tr>"
-        f"<tr><th>Dni z nadgodzinami</th><td>{len(overtime_days)}</td></tr>"
+        f"<tr><th>Dni z {escape(words['overtime_instrumental'])}</th>"
+        f"<td>{len(overtime_days)}</td></tr>"
         "</table>"
         "<table class='entries'><thead><tr>"
         "<th>Data</th><th>Dzień</th><th>Projekt</th><th>Opis</th><th class='num'>Godziny</th>"

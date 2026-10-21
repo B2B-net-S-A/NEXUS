@@ -99,7 +99,8 @@ export function TimesheetApprovalsSection({
     const ok = await askConfirm({
       title: `Zaakceptować timesheet: ${item.name}?`,
       description: `${monthTitlePl(period)} · ${formatHours(item.hours)} h${
-        item.overtime_hours > 0 ? `, w tym ${formatHours(item.overtime_hours)} h nadgodzin` : ""
+        // Ekran wielu osób: neutralnie „ponad 8 h dziennie”, nie „nadgodziny” (21.10.2026).
+        item.overtime_hours > 0 ? `, w tym ${formatHours(item.overtime_hours)} h ponad 8 h dziennie` : ""
       }. Po akceptacji powstaje PDF z sumą kontrolną.`,
       confirmLabel: "Akceptuj",
     });
@@ -261,7 +262,7 @@ export function TimesheetApprovalsSection({
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Osoba</th>
                 <th className={cn(CALM_HEAD, "px-2 py-2 text-left")}>Status</th>
                 <th className={cn(CALM_HEAD, "px-2 py-2 text-right")}>Godziny</th>
-                <th className={cn(CALM_HEAD, "px-2 py-2 text-right")}>Nadgodziny</th>
+                <th className={cn(CALM_HEAD, "px-2 py-2 text-right")}>Ponad 8 h</th>
                 <th className={cn(CALM_HEAD, "px-2 py-2 text-right")}>Nieobecność</th>
                 <th className="px-2 py-2">
                   <span className="sr-only">Akcje</span>

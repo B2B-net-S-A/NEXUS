@@ -208,8 +208,10 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    // Odczyt: admin, Delivery Lead, Head of Recruitment; szkic i publikację
+    // wag (admin, HoR + zapis Insights) bramkuje strona i backend.
     prefix: "/settings/scoring",
-    roles: ["admin", "delivery_lead"],
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
     section: "insights",
     required: "read",
     enforceRoles: true,
@@ -452,6 +454,8 @@ const PUBLIC_PATHS = [
   "/preview/client-playbook",
   "/preview/inactive-clients-cleanup",
   "/preview/contract-docs-sharepoint",
+  // Foldery w zakładce Dokumenty kontraktu (0494); zasiany cache, sieć odcięta.
+  "/preview/contract-documents-folders",
   "/preview/order-new-from-pdf",
   "/preview/jobs-list-v3",
   "/preview/new-job",

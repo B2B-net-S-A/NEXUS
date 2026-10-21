@@ -10,6 +10,7 @@ import { ToastProvider } from "@/components/Toast";
 import { DatePasteHandler } from "@/components/DatePasteHandler";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KpiNudgeToaster } from "@/components/v2/kpi/KpiNudgeToaster";
+import { OffLimitsConfirmHost } from "@/components/v2/recruitment/OffLimitsConfirmHost";
 
 // Fonts are self-hosted from `./fonts` on purpose — `next/font/google` fetches
 // the .woff2 files from fonts.gstatic.com AT BUILD TIME, and Coolify rebuilds
@@ -130,6 +131,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <TooltipProvider delayDuration={200} skipDelayDuration={100}>
                 <AppShellV2>{children}</AppShellV2>
                 <KpiNudgeToaster />
+                <OffLimitsConfirmHost />
               </TooltipProvider>
             </ToastProvider>
           </ThemeProvider>

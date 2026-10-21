@@ -602,6 +602,53 @@ export interface LineConsumptionForeignWarning {
   row_number: number;
 }
 
+/** Jeden miesiąc osoby na zamówieniu kosztowym (zakładka „Zużycie”). */
+export interface CostConsumptionRow {
+  period_month: string;
+  invoice_amount: number;
+  settled_amount: number;
+  /** Część kwoty, która nie zmieściła się w budżecie zamówienia. */
+  unsettled_amount: number;
+  source: "import" | "manual";
+  status?: LineConsumptionStatus | null;
+  note?: string | null;
+  import_id?: number | null;
+  created_by_name?: string | null;
+  updated_at?: string | null;
+  /** Saldo ZAMÓWIENIA po tym miesiącu — po wpisach wszystkich osób. */
+  balance_after: number;
+}
+
+export interface CostConsumptionPerson {
+  order_id: number;
+  name: string;
+  invoiced: number;
+}
+
+/** Kwota dowolnej osoby zamówienia — do podglądu „po zapisie”. */
+export interface CostConsumptionGroupRow {
+  order_id: number;
+  period_month: string;
+  invoice_amount: number;
+}
+
+export interface CostConsumptionsResponse {
+  order_number: string;
+  /** Budżet zamówienia z ręczną korektą — punkt startu rozliczenia. */
+  budget_pool: number;
+  budget_used: number;
+  budget_remaining: number;
+  rows: CostConsumptionRow[];
+  people: CostConsumptionPerson[];
+  group_rows: CostConsumptionGroupRow[];
+}
+
+export interface CostConsumptionUpsert {
+  invoice_amount: number;
+  status?: LineConsumptionStatus | null;
+  note?: string | null;
+}
+
 export interface LineConsumptionsResponse {
   rows: LineConsumptionRow[];
   order_number?: string | null;
@@ -780,7 +827,9 @@ export type ImportCostStatus =
   | "invoice_unreadable"
   /** Runda 10: numer wskazuje wyczerpane zamówienie kosztowe — faktura
    *  nierozliczona. */
-  | "order_exhausted";
+  | "order_exhausted"
+  /** 0493: za ten miesiąc jest ręczny wpis kwoty — import go nie nadpisał. */
+  | "manual_kept";
 
 export interface ImportLineOption {
   order_id: number;
@@ -1041,6 +1090,37 @@ export const orderGroupsApi = {
   ) =>
     api.delete<OrderLineRead>(
       `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/consumptions/${periodMonth}`,
+    ),
+
+  /** Zakładka „Zużycie” osoby na zamówieniu kosztowym — same kwoty, więc
+   *  serwer zwraca 403 roli bez dostępu do finansów klienta. */
+  listCostConsumptions: (clientId: number, groupId: number, lineId: number) =>
+    api.get<CostConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/cost-consumptions`,
+    ),
+
+  /** Upsert po miesiącu (powtórka nadpisuje). Import Finansów nie nadpisuje
+   *  ręcznego wpisu za ten sam miesiąc. */
+  putCostConsumption: (
+    clientId: number,
+    groupId: number,
+    lineId: number,
+    periodMonth: string,
+    payload: CostConsumptionUpsert,
+  ) =>
+    api.put<CostConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/cost-consumptions/${periodMonth}`,
+      payload,
+    ),
+
+  deleteCostConsumption: (
+    clientId: number,
+    groupId: number,
+    lineId: number,
+    periodMonth: string,
+  ) =>
+    api.delete<CostConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/cost-consumptions/${periodMonth}`,
     ),
 
   /** Zejścia wspólnej puli MD — miesiąc po miesiącu, z podziałem na osoby. */

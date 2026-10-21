@@ -30,6 +30,7 @@ import { MD_TRANSFER_METHOD_LABELS, swapBlockedReason } from "@/lib/order-takeov
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { formatDate, formatPLN } from "@/types/client-profile";
 
+import { CostConsumptionTab } from "./CostConsumptionTab";
 import { formatPeriodMonthPl, LineConsumptionTable } from "./LineConsumptionTable";
 import { formatMd, MdBudgetBar } from "./MdBudgetBar";
 import { MdScopeBars, MdScopePanels, MdScopeTotalBar } from "./MdScopeBars";
@@ -85,6 +86,10 @@ export function OrderLinePanel({
   const sharedMd = usesSharedMdPool(group);
   // Rozliczenia miesięczne mają sens tylko przy własnym budżecie MD osoby.
   const perPersonMd = !group.is_cost_based && !sharedMd;
+  // Zamówienie kosztowe: zakładka „Zużycie” w złotych. Same kwoty, więc tylko
+  // dla konta, któremu serwer nie zredagował budżetu grupy.
+  const costUsage = group.is_cost_based && group.budget_amount != null;
+  const hasUsageTab = perPersonMd || costUsage;
   const ended = !isCurrentLine(line);
   const needsDecision = ended && requiresDecision(line);
   const pendingPool = hasPendingPoolDecision(line);
@@ -102,17 +107,18 @@ export function OrderLinePanel({
   const barLine: OrderLineRead = transferredOut ? { ...line, md_remaining: 0 } : line;
   const scopedCard = isEzdrowieClient(clientId) && hasScopedMd(line, group) && !group.is_cost_based && !sharedMd;
 
-  const defaultTab: LinePanelTab = initialTab ?? (perPersonMd && !needsDecision ? "zuzycie" : "szczegoly");
+  const defaultTab: LinePanelTab = initialTab ?? (hasUsageTab && !needsDecision ? "zuzycie" : "szczegoly");
   const [tab, setTab] = useState<LinePanelTab>(defaultTab);
   // Inna osoba w tym samym panelu — wróć do zakładki domyślnej dla niej.
   useEffect(() => {
     setTab(defaultTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line.id, initialTab]);
-  const effectiveTab: LinePanelTab = !perPersonMd && tab === "zuzycie" ? "szczegoly" : tab;
+  const effectiveTab: LinePanelTab = !hasUsageTab && tab === "zuzycie" ? "szczegoly" : tab;
 
   const tabs = [
     ...(perPersonMd ? [{ value: "zuzycie", label: "Zużycie MD" }] : []),
+    ...(costUsage ? [{ value: "zuzycie", label: "Zużycie" }] : []),
     { value: "szczegoly", label: "Szczegóły" },
     { value: "historia", label: "Historia" },
   ];
@@ -244,7 +250,9 @@ export function OrderLinePanel({
       onTabChange={(value) => setTab(value as LinePanelTab)}
       footer={footer}
     >
-      {effectiveTab === "zuzycie" ? (
+      {effectiveTab === "zuzycie" && costUsage ? (
+        <CostConsumptionTab clientId={clientId} group={group} line={line} canEdit={canManage} />
+      ) : effectiveTab === "zuzycie" ? (
         <>
           <DetailSection title="Budżet">{budget}</DetailSection>
           <LineConsumptionTable clientId={clientId} group={group} line={line} canEdit={canManage} compact />
