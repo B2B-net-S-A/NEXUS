@@ -1,5 +1,5 @@
 /**
- * Okno „Ogłoszenie na portale” — kontrakty, o które najłatwiej się potknąć:
+ * Okno „Ogłoszenie” — kontrakty, o które najłatwiej się potknąć:
  * do schowka idą tylko teksty policzone przez serwer, znalezisko blokujące
  * wyłącza kopiowanie, ponowne przygotowanie pyta o zgodę, a awaria zapytania
  * nie wygląda jak rekrutacja bez ogłoszenia.
@@ -25,7 +25,7 @@ const clipboard = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/clipboard", () => clipboard);
 
-import { jobAdQueryKey, type JobAdState } from "@/lib/api/jobAd";
+import { jobAdQueryKey, type AdCareerState, type JobAdState } from "@/lib/api/jobAd";
 
 import { JobAdWindow, type JobAdWindowApi } from "../JobAdWindow";
 import {
@@ -37,6 +37,13 @@ import {
   publication,
   TECH,
 } from "./job-ad-fixtures";
+
+const CAREER_LIVE: AdCareerState = {
+  status: "live",
+  url: "https://kariera.b2bnetwork.pl/r/senior-java-developer-ab12",
+  published_at: "2026-10-21T09:00:00Z",
+  published_by_name: "Marta Przykładowa",
+};
 
 type SaveInput = Parameters<JobAdWindowApi["save"]>[1];
 type SaveImpl = (jobId: number, input: SaveInput) => Promise<JobAdState>;
@@ -67,6 +74,9 @@ function setup(initial: Loaded, saveImpl?: SaveImpl, generateImpl?: GenerateImpl
       adState({ publications: [publication({ portal, url })] }),
     ),
     markRemoved: vi.fn<JobAdWindowApi["markRemoved"]>(async () => adState()),
+    publishCareer: vi.fn<JobAdWindowApi["publishCareer"]>(async () =>
+      adState({ career: CAREER_LIVE }),
+    ),
   };
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -206,8 +216,8 @@ describe("JobAdWindow — kontrola przed skopiowaniem", () => {
 
   it("„Usuń fragment” zapisuje treść bez wskazanego fragmentu i odblokowuje kopiowanie", async () => {
     const api = setup(blocked());
-    const panel = await screen.findByRole("complementary", {
-      name: "Kontrola przed skopiowaniem",
+    const panel = await screen.findByRole("region", {
+      name: "Kontrola przed publikacją",
     });
     fireEvent.click(within(panel).getByRole("button", { name: "Usuń fragment" }));
 
@@ -455,18 +465,18 @@ describe("JobAdWindow — oznaczenie publikacji", () => {
     );
   });
 
-  it("zakładka pokazuje stan swojego portalu", async () => {
+  it("kolumna „Gdzie publikujesz” pokazuje oba portale niezależnie od zakładki", async () => {
     setup(adState({ publications: [publication()] }));
     expect(
       await screen.findByRole("listitem", { name: "Publikacja: Pracuj.pl" }),
     ).toHaveTextContent("Opublikowane");
+    expect(
+      screen.getByRole("listitem", { name: "Publikacja: JustJoin.IT" }),
+    ).toHaveTextContent("Nieoznaczone jako opublikowane");
     openTab("JustJoin.IT");
     expect(
-      await screen.findByRole("listitem", { name: "Publikacja: JustJoin.IT" }),
-    ).toHaveTextContent("Nieoznaczone jako opublikowane");
-    expect(
-      screen.queryByRole("listitem", { name: "Publikacja: Pracuj.pl" }),
-    ).not.toBeInTheDocument();
+      await screen.findByRole("listitem", { name: "Publikacja: Pracuj.pl" }),
+    ).toHaveTextContent("Opublikowane");
   });
 
   it("treści z fragmentem blokującym nie da się oznaczyć jako opublikowanej", async () => {
@@ -478,5 +488,57 @@ describe("JobAdWindow — oznaczenie publikacji", () => {
     );
     const row = await screen.findByRole("listitem", { name: "Publikacja: Pracuj.pl" });
     expect(within(row).getByRole("button", { name: "Oznacz jako opublikowane" })).toBeDisabled();
+  });
+});
+
+describe("JobAdWindow — strona kariery z ogłoszenia (21.10.2026)", () => {
+  it("„Opublikuj na stronie” wysyła wersję z ekranu i pokazuje link", async () => {
+    const api = setup(adState());
+    const card = await screen.findByRole("region", { name: "Strona kariery" });
+    fireEvent.click(within(card).getByRole("button", { name: "Opublikuj na stronie" }));
+
+    await waitFor(() => expect(api.publishCareer).toHaveBeenCalledWith(7, "2026-10-12T09:20:00Z"));
+    const live = await screen.findByRole("region", { name: "Strona kariery" });
+    await waitFor(() => expect(live).toHaveTextContent("Wisi"));
+    expect(within(live).getByRole("link", { name: /Otwórz stronę/ })).toHaveAttribute(
+      "href",
+      CAREER_LIVE.url,
+    );
+    fireEvent.click(within(live).getByRole("button", { name: "Kopiuj link" }));
+    await waitFor(() =>
+      expect(clipboard.copyTextToClipboard).toHaveBeenCalledWith(CAREER_LIVE.url),
+    );
+    expect(within(live).getByRole("button", { name: "Skopiowano link" })).toBeInTheDocument();
+  });
+
+  it("fragment blokujący wyłącza publikację na stronie", async () => {
+    setup(
+      adState({
+        content: { ...CONTENT, about: "Platforma płatności dla klienta Bank Przykładowy." },
+        findings: [CLIENT_FINDING],
+      }),
+    );
+    const card = await screen.findByRole("region", { name: "Strona kariery" });
+    expect(within(card).getByRole("button", { name: "Opublikuj na stronie" })).toBeDisabled();
+    expect(card).toHaveTextContent("Najpierw usuń z treści fragmenty wskazane w kontroli.");
+  });
+
+  it("otwarta poprawka wstrzymuje publikację, bo na stronę idzie zapisana treść", async () => {
+    setup(adState());
+    fireEvent.click(await screen.findByRole("button", { name: "Edytuj: O projekcie" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Treść: O projekcie" }), {
+      target: { value: "Nowy opis." },
+    });
+    const card = screen.getByRole("region", { name: "Strona kariery" });
+    expect(within(card).getByRole("button", { name: "Opublikuj na stronie" })).toBeDisabled();
+    expect(card).toHaveTextContent("Najpierw zapisz albo zamknij otwarte poprawki.");
+  });
+
+  it("strona ze starszą treścią proponuje aktualizację", async () => {
+    setup(adState({ career: { ...CAREER_LIVE, status: "outdated" } }));
+    const card = await screen.findByRole("region", { name: "Strona kariery" });
+    expect(card).toHaveTextContent("Starsza treść");
+    expect(within(card).getByRole("button", { name: "Zaktualizuj na stronie" })).toBeEnabled();
+    expect(within(card).getByRole("button", { name: "Kopiuj link" })).toBeInTheDocument();
   });
 });

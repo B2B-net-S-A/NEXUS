@@ -1,6 +1,14 @@
-// Stan okna „Ogłoszenie na portale” do testów — dane fikcyjne.
+// Stan okna „Ogłoszenie” do testów — dane fikcyjne.
 
-import type { AdContent, AdFinding, AdPublication, AdTechItem, JobAdState } from "@/lib/api/jobAd";
+import {
+  NO_CAREER_PAGE,
+  type AdCareerState,
+  type AdContent,
+  type AdFinding,
+  type AdPublication,
+  type AdTechItem,
+  type JobAdState,
+} from "@/lib/api/jobAd";
 
 export const CONTENT: AdContent = {
   title: "Senior Java Developer",
@@ -41,6 +49,7 @@ export function adState(
     stale?: boolean;
     lang?: "pl" | "en";
     publications?: AdPublication[];
+    career?: AdCareerState;
   } = {},
 ): JobAdState {
   const content = patch.content ?? CONTENT;
@@ -63,6 +72,7 @@ export function adState(
     findings,
     can_copy: !findings.some((f) => f.severity === "block"),
     publications: patch.publications ?? [],
+    career: patch.career ?? NO_CAREER_PAGE,
     rendered: {
       title: `${content.title} (k/m/x)`,
       pracuj: {
@@ -143,6 +153,7 @@ export const EMPTY_STATE: JobAdState = {
   rendered: null,
   can_copy: false,
   publications: [],
+  career: NO_CAREER_PAGE,
 };
 
 export const PRACUJ_URL = "https://www.pracuj.pl/praca/przyklad,oferta,1000000001";

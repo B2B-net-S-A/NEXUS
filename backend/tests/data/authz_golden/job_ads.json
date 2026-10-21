@@ -31,6 +31,7 @@
   "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/jobs/{job_id}/portal-ad/career": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPDDPPPPD",

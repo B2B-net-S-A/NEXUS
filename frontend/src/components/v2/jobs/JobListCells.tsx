@@ -547,6 +547,8 @@ export interface JobListRowFields extends JobTeamSource {
   recruiters?: JobRecruiter[] | null;
   /** Aktywne ogłoszenia wklejone ręcznie na portalach (kolumna „Ogłoszenia”). */
   ad_publications?: JobAdPublicationBrief[] | null;
+  /** Otwarta rekrutacja wisi na stronie kariery (21.10.2026). */
+  career_page?: boolean | null;
   status?: string | null;
   /** Poziom priorytetu liczony przez serwer; bez niego `priorityLevelOf` czyta `priority`. */
   priority_level?: PriorityLevel;
@@ -818,19 +820,29 @@ export function JobCategoryShortBadge({
 
 // ── Ogłoszenia na portalach (13.10.2026) ─────────────────────────────────────
 
+const AD_CHIP =
+  "inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full px-2 text-[11px] font-medium";
+
 /**
- * Kolumna „Ogłoszenia”: gdzie rekrutacja ma wklejone ogłoszenie. Plakietka
- * z linkiem otwiera je na portalu; żółta znaczy „treść zmieniła się po
- * publikacji” albo „rekrutacja zamknięta, a ogłoszenie nadal wisi”.
+ * Kolumna „Ogłoszenia”: gdzie rekrutacja ma ogłoszenie — strona kariery
+ * (21.10.2026) i portale. Plakietka z linkiem otwiera je na portalu; żółta
+ * znaczy „treść zmieniła się po publikacji” albo „rekrutacja zamknięta,
+ * a ogłoszenie nadal wisi”. Plakietki stoją w wierszu z zawijaniem — trzy
+ * jedna pod drugą podnosiłyby wiersz listy.
  */
 export function JobAdPublicationsCell({ job }: { job: JobListRowFields }) {
   const items = job.ad_publications ?? [];
-  if (items.length === 0) {
+  if (items.length === 0 && !job.career_page) {
     return <span className="text-[13px] text-muted-foreground">—</span>;
   }
   const closed = job.status === "closed";
   return (
-    <div className="flex flex-col items-start gap-0.5" data-testid="job-ad-publications-cell">
+    <div className="flex flex-wrap items-start gap-0.5" data-testid="job-ad-publications-cell">
+      {job.career_page ? (
+        <span aria-label="Strona kariery" className={cn(AD_CHIP, "bg-muted text-foreground")}>
+          Kariera
+        </span>
+      ) : null}
       {AD_PORTALS.map(({ key, label, short }) => {
         const item = items.find((entry) => entry.portal === key);
         if (!item) return null;
@@ -841,7 +853,7 @@ export function JobAdPublicationsCell({ job }: { job: JobListRowFields }) {
             ? "treść zmieniła się po publikacji — do aktualizacji"
             : null;
         const className = cn(
-          "inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full px-2 text-[11px] font-medium",
+          AD_CHIP,
           note
             ? "bg-warning-muted text-warning-muted-foreground"
             : "bg-muted text-foreground",

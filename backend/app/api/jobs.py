@@ -150,6 +150,7 @@ from app.services.candidate_search_predicates import (
     business_date_range,
 )
 from app.services.job_ad.publications import Publication as AdPublication
+from app.services.job_ad.publications import career_pages_for_jobs
 from app.services.job_ad.publications import for_jobs as ad_publications_for_jobs
 from app.services.job_previous_recruiters import (
     apply_priority_transition,
@@ -1723,6 +1724,7 @@ async def list_jobs(
     previous_by_job = await previous_recruiters_for_jobs(db, job_ids)
     # Kolumna „Ogłoszenia” (0432) — też jedno zapytanie na stronę.
     ad_publications_by_job = await ad_publications_for_jobs(db, job_ids)
+    career_page_jobs = await career_pages_for_jobs(db, job_ids)
 
     # Hiring manager names batch lookup — denormalized na response żeby UI
     # nie musiało robić extra fetch per job.
@@ -1854,6 +1856,7 @@ async def list_jobs(
         d["ad_publications"] = _ad_publications_payload(
             ad_publications_by_job.get(j.id, [])
         )
+        d["career_page"] = j.id in career_page_jobs
         d["hiring_manager_name"] = (
             hm_names.get(j.hiring_manager_contact_id)
             if j.hiring_manager_contact_id
@@ -2347,6 +2350,7 @@ async def get_job(
     payload["ad_publications"] = _ad_publications_payload(
         (await ad_publications_for_jobs(db, [job.id])).get(job.id, [])
     )
+    payload["career_page"] = job.id in await career_pages_for_jobs(db, [job.id])
 
     # Hiring manager name z Contact join'a (denormalized)
     if job.hiring_manager_contact_id:
