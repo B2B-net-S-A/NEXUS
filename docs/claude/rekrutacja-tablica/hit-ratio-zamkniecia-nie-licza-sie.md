@@ -37,3 +37,21 @@ konkurencję”, 20 „Inny” (6 z notatką o duplikacie).
 - Ponowne otwarcie (`publish_core` i gałąź PATCH statusu, wspólne
   `job_lifecycle.clear_close_choice`) czyści `close_reason`, `close_notes`,
   `duplicate_of_job_id` — powód należy do zamknięcia.
+
+## Okno zamykania i „Zmień powód” (PR 2)
+
+- Jedne pola wyboru (`components/v2/jobs/CloseReasonFields.tsx`) w trzech
+  oknach: strona rekrutacji, krok „Umowa” i profil klienta (Projekty →
+  „Zamknij”, dawne „Zamknij jako przegraną”). Słownik grup:
+  `lib/job-close-reasons.ts` — lustro `metric_definitions`.
+- Serwer (`services/job_close_choice.validate_close_choice`, wspólne dla
+  zamknięcia i zmiany) odmawia 422 z `code`: `close_notes_required` (neutralny
+  bez uzasadnienia), `close_reason_has_hire` (neutralny przy zatrudnieniu od
+  nas), `close_reason_other_retired`, `duplicate_of_requires_duplicate`,
+  `duplicate_of_self`, `duplicate_of_not_found`.
+- `PATCH /api/jobs/{id}/close-reason` — ta sama bramka co zamknięcie, tylko
+  zamknięta rekrutacja (409 `job_not_closed`), `closed_at` zostaje, wpis
+  `close_reason_changed` z `from`/`to` w historii. W UI: „⋯” → „Zmień powód
+  zamknięcia…”; plakietka powodu w nagłówku (`JobCloseReasonBadge`).
+- Zamknięcie przez „Edytuj rekrutację” (PATCH `status=closed`) dalej nie ma
+  powodu — liczy się jak przegrana i trafia do przeglądu (PR 3).
