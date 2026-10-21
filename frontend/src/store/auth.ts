@@ -68,7 +68,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   user: "User",
   trainee: "Praktykant",
   automation: "Automatyzacje",
-  employee: "Pracownik",
+  employee: "Konsultant/Kontraktor",
 }
 
 /** Identyfikatory modułów DynaReportera (migracja B.0, 0111). Lista

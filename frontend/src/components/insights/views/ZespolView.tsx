@@ -350,7 +350,7 @@ function PeoplePanel({
               checked={showFormer}
               onCheckedChange={setShowFormer}
             />
-            Pokaż byłych pracowników
+            Pokaż byłych członków zespołu
           </label>
           <div
             role="group"
@@ -640,9 +640,9 @@ function RecruiterTable({
         liczy się osoba, która przesunęła etap). Precyzja: z osób
         zweryfikowanych w ostatnich 30 dniach — ilu wysłano CV do klienta; „—” =
         mniej niż 5 weryfikacji. Konta administracyjne stoją jednym wierszem
-        pod tabelą, jak w Hall of Fame. Byli pracownicy (konto wyłączone) też
+        pod tabelą, jak w Hall of Fame. Byli członkowie zespołu (konto wyłączone) też
         stoją jednym wierszem — ich liczby zostają w sumach; „Pokaż byłych
-        pracowników” rozwija ich z powrotem. Klik w nagłówek sortuje kolumnę.
+        członków zespołu” rozwija ich z powrotem. Klik w nagłówek sortuje kolumnę.
       </p>
     </div>
   );
@@ -660,7 +660,7 @@ function FormerEmployeesLabel({
 }) {
   return (
     <>
-      Byli pracownicy ({count}):{" "}
+      Byli w zespole ({count}):{" "}
       <span className="text-foreground/80">{names.join(", ")}</span>
     </>
   );
@@ -757,7 +757,7 @@ function PersonRow({
           <span className="font-medium text-foreground">{row.name}</span>
           {!row.is_active ? (
             <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-              były pracownik
+              był(a) w zespole
             </span>
           ) : null}
           <InsightsPerformanceFlags flags={flags} />
@@ -904,7 +904,7 @@ function DeliveryTable({ showFormer }: { showFormer: boolean }) {
                       <span className="font-medium text-foreground">{lead.dl_name}</span>
                       {!lead.is_active ? (
                         <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                          były pracownik
+                          był(a) w zespole
                         </span>
                       ) : null}
                     </div>
@@ -958,7 +958,7 @@ function DeliveryTable({ showFormer }: { showFormer: boolean }) {
         <Link href={reportHref("portfele-dl", period)} className="font-semibold text-primary hover:underline">
           raport Portfele Delivery Leadów
         </Link>
-        . Byli pracownicy (konto wyłączone) stoją jednym wierszem pod listą —
+        . Byli członkowie zespołu (konto wyłączone) stoją jednym wierszem pod listą —
         ich liczby zostają w sumach. Klik w nagłówek sortuje kolumnę.
       </p>
     </div>

@@ -20,7 +20,7 @@ const row = (overrides: Partial<ApprovalRequestRow> = {}): ApprovalRequestRow =>
     kind: "trip",
     kind_label: "Delegacja",
     status: "pending_supervisor",
-    status_label: "U przełożonego",
+    status_label: "U koordynatora",
     title: "Gdańsk",
     purpose: "Warsztat",
     amount: "2180.00",
@@ -93,7 +93,7 @@ describe("teksty zgód", () => {
   });
 
   it("kto decyduje teraz", () => {
-    expect(stageLine(row())).toBe("U przełożonego (Marta Fikcyjna), potem Aniela Administrująca");
+    expect(stageLine(row())).toBe("U koordynatora (Marta Fikcyjna), potem Aniela Administrująca");
     expect(stageLine(row({ status: "pending_final" }))).toBe("Czeka na: Aniela Administrująca");
     expect(stageLine(row({ status: "approved", decided_by_name: "Aniela Administrująca" }))).toBe(
       "Zatwierdził(a) Aniela Administrująca",

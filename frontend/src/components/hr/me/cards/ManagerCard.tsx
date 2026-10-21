@@ -51,7 +51,7 @@ export function ManagerCard({ person, leaveOpen }: { person: OwnProfile; leaveOp
               absence ? (
                 <AbsenceBadge absence={absence} />
               ) : (
-                <span className="text-xs text-muted-foreground">w pracy</span>
+                <span className="text-xs text-muted-foreground">dostępny(a)</span>
               )
             ) : null}
           </div>

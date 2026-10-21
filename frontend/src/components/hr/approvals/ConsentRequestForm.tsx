@@ -451,8 +451,8 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
                 <p className="font-semibold text-foreground">{route.supervisor_name}</p>
                 <p className="text-muted-foreground">
                   {route.supervisor_decides_alone
-                    ? `Twój przełożony — zatwierdza sam (do ${moneyPl(String(route.supervisor_limit ?? 0))})`
-                    : "Twój przełożony — popiera albo dopytuje"}
+                    ? `Twój koordynator — potwierdza sam (do ${moneyPl(String(route.supervisor_limit ?? 0))})`
+                    : "Twój koordynator — popiera albo dopytuje"}
                 </p>
               </li>
             ) : null}
@@ -466,7 +466,7 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
                     ? "premie poza umową zawsze u zatwierdzającego"
                     : route.supervisor_limit === null
                       ? "ten rodzaj zawsze u zatwierdzającego"
-                      : `kwota ponad próg przełożonego (${moneyPl(String(route.supervisor_limit))})`}
+                      : `kwota ponad próg koordynatora (${moneyPl(String(route.supervisor_limit))})`}
                 </p>
               </li>
             ) : null}

@@ -35,7 +35,7 @@ SELF_EDIT_DETAIL = (
     "z Kadr albo admina."
 )
 NO_PROFILE_DETAIL = (
-    "Nie masz kartoteki pracownika w NEXUSIE — poproś Kadry o jej założenie."
+    "Nie masz kartoteki w NEXUSIE — poproś Kadry o jej założenie."
 )
 
 #: Uprawnienia, z którymi konto bez kartoteki i tak czyta katalog ludzi.

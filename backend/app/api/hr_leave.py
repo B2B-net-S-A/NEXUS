@@ -270,7 +270,7 @@ async def _outcome(
 async def _own_profile(db: AsyncSession, user: User):
     profile = await people.profile_of(db, user.id)
     if profile is None:  # bramka samoobsługi już to sprawdziła
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Brak kartoteki pracownika.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Brak kartoteki w NEXUSIE.")
     return profile
 
 

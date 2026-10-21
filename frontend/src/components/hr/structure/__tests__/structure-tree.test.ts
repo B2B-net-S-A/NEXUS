@@ -131,8 +131,8 @@ describe("przełożony czy koordynator", () => {
   it("B2B i zlecenie — koordynator, UoP — przełożony, mieszane — oba", () => {
     expect(managerWords(["b2b", "zlecenie"]).one).toBe("koordynator");
     expect(managerWords(["uop"]).ofOne).toBe("przełożonego");
-    expect(managerWords(["uop", "b2b"]).one).toBe("przełożony lub koordynator");
-    expect(managerWords([]).one).toBe("przełożony lub koordynator");
+    expect(managerWords(["uop", "b2b"]).one).toBe("koordynator");
+    expect(managerWords([]).one).toBe("koordynator");
   });
 });
 

@@ -94,7 +94,7 @@ async def _validate_links(db: AsyncSession, values: dict[str, Any]) -> None:
         await _active_user(db, values["assignee_user_id"], "Osoba odpowiedzialna")
     if values.get("subject_user_id") is not None:
         if await db.get(User, values["subject_user_id"]) is None:
-            raise CaseError("Pracownik: nie ma takiego konta.")
+            raise CaseError("Osoba: nie ma takiego konta.")
     if values.get("contract_id") is not None:
         if await db.get(Contract, values["contract_id"]) is None:
             raise CaseError("Nie ma takiego kontraktu.")

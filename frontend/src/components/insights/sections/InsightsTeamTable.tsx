@@ -120,7 +120,7 @@ export function sortRows(
  *    że suma kolumny nie zgadza się z lejkiem, a tabela wygląda na ZEPSUTĄ,
  *    nie na niekompletną.
  * 2. **Były pracownik zostaje.** Wiersz z `is_active === false` dostaje chip
- *    „były pracownik" i liczy się normalnie. Wycięcie go kasowałoby wstecz
+ *    „był(a) w zespole" i liczy się normalnie. Wycięcie go kasowałoby wstecz
  *    wyniki, które ta osoba osiągnęła w tym oknie.
  */
 /** Ile wierszy tabeli widać przed „Pokaż wszystkich". */
@@ -182,7 +182,7 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
           <span className="ml-auto text-xs font-normal text-muted-foreground">
             {count(totals.users)} osób
             {totals.former_employees > 0
-              ? ` · ${count(totals.former_employees)} byłych pracowników`
+              ? ` · ${count(totals.former_employees)} byłych członków zespołu`
               : ""}
           </span>
         )}
@@ -293,7 +293,7 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
                             </span>
                             {row.is_active === false && (
                               <span className="rounded-full border border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                                były pracownik
+                                był(a) w zespole
                               </span>
                             )}
                           </span>

@@ -38,7 +38,7 @@ const KIND_LABELS: Record<AccountMismatch["kind"], string> = {
 /** Co się stanie po „Wyrównaj wg konta” — jedno zdanie na wiersz. */
 export function mismatchOutcome(item: AccountMismatch): string {
   if (item.kind === "missing") {
-    return "Nowa kartoteka „Aktywny” — forma i przełożony do uzupełnienia";
+    return "Nowa kartoteka „Aktywny” — forma i koordynator do uzupełnienia";
   }
   const status = EMPLOYMENT_STATUS_LABELS[item.proposed_status];
   if (item.kind === "exit" && item.proposed_last_working_day) {
@@ -120,7 +120,7 @@ export function AccountMismatchesPanel({
       key: `m-${item.user_id}`,
       href: item.kind === "missing" ? null : `/people/${item.user_id}`,
       text: `${item.name}: ${KIND_LABELS[item.kind].toLowerCase()}${
-        item.reports > 0 ? ` · ${countPl(item.reports, "osoba", "osoby", "osób")} pod sobą` : ""
+        item.reports > 0 ? ` · ${countPl(item.reports, "osoba", "osoby", "osób")} w zespole` : ""
       }`,
     })),
     ...pendingPeople.map((person) => ({
@@ -238,7 +238,7 @@ export function AccountMismatchesPanel({
                     {mismatchOutcome(item)}
                     {item.reports > 0 ? (
                       <span className={CALM_SUBLINE}>
-                        {countPl(item.reports, "osoba", "osoby", "osób")} pod sobą — przepnij w{" "}
+                        {countPl(item.reports, "osoba", "osoby", "osób")} w zespole — przepnij w{" "}
                         <Link href="/people/structure" className="underline">
                           Strukturze
                         </Link>

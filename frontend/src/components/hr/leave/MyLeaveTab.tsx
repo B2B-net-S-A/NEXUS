@@ -134,7 +134,7 @@ export function MyLeaveTab() {
             state === "not_found"
               ? "Moduł urlopów nie jest jeszcze włączony."
               : state === "forbidden"
-                ? "Wnioski składają osoby z kartoteką pracownika."
+                ? "Wnioski składają osoby z kartoteką w NEXUSIE."
                 : undefined
           }
           onRetry={() => requests.refetch()}

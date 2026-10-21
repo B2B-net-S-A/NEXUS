@@ -439,7 +439,7 @@ export function leaveInputFrom(
 export function sourceBadge(source: LeaveRequestRow["source"]): string | null {
   switch (source) {
     case "on_behalf":
-      return "Wpis za pracownika";
+      return "Wpis za konsultanta/kontraktora";
     case "outlook_oof":
       return "Z Outlooka";
     case "compass_import":
@@ -529,8 +529,8 @@ export function canEditRow(row: LeaveRequestRow, viewerIsHr: boolean): boolean {
 // ── Kalendarz zespołu: praca zdalna, delegacja, filtr (Compass) ──────────────
 
 export const PRESENCE_LABELS: Record<CalendarPresenceKind, string> = {
-  remote: "praca zdalna",
-  business_trip: "delegacja",
+  remote: "zdalnie",
+  business_trip: "wyjazd",
 };
 
 /** Dzień → wyjątek obecności osoby (zdalnie albo delegacja). */

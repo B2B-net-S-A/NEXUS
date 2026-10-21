@@ -335,7 +335,7 @@ export function CaseFormDialog({ open, onOpenChange, existing, onCreated }: Case
             </SelectContent>
           </Select>
         </FormField>
-        <FormField label="Pracownik, którego dotyczy" htmlFor="case-subject">
+        <FormField label="Osoba, której dotyczy" htmlFor="case-subject">
           <Select
             value={form.subject_user_id || NONE}
             onValueChange={(value) => set("subject_user_id", value === NONE ? "" : value)}

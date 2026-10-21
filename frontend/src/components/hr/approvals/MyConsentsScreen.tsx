@@ -242,7 +242,7 @@ export function MyConsentsScreen() {
     return (
       <div className="space-y-3 rounded-xl border border-dashed border-border p-6 text-center">
         <p className="text-sm text-muted-foreground">
-          Nie prosiłeś(-aś) jeszcze o zgodę. Subskrypcja, delegacja, prezent, szkolenie albo premia
+          Nie prosiłeś(-aś) jeszcze o zgodę. Subskrypcja, koszty podróży, prezent, szkolenie albo premia
           poza umową — wszystko w jednym formularzu.
         </p>
         <div>{newButton}</div>
