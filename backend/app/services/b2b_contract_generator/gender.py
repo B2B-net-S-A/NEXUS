@@ -29,6 +29,8 @@ _FORMS_M = {
     "g_przekazal": "przekazałem",
     "g_zlozyl": "złożyłem",
     "g_mr_long": "Mr",
+    # Umowa o udziale w procesie rekrutacyjnym (21.10.2026): „wpisanym do CEIDG”.
+    "g_wpisany": "wpisanym",
 }
 _FORMS_F = {
     "g_pan": "Panią",
@@ -45,6 +47,7 @@ _FORMS_F = {
     "g_przekazal": "przekazałam",
     "g_zlozyl": "złożyłam",
     "g_mr_long": "Ms",
+    "g_wpisany": "wpisaną",
 }
 
 
