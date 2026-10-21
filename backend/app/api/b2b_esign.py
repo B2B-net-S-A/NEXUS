@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.b2b_contract_generator import (
     _assert_generator_client_access,
+    confirm_generated_contract_fully_signed,
     _jobs_led_by,
     _may_correct_generated,
     _reject_excel_row,
@@ -53,11 +54,15 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import B2BSigningRequest
+from app.models.notification import NotificationType
 from app.models.user import User, UserRole
+from app.schemas.b2b_contract_generator import B2BConfirmFullySignedRequest
 from app.services import storage_service
 from app.services.b2b_esign import service
 from app.services.b2b_esign import settings as esign_settings
+from app.services.b2b_contract_generator import signed_file
 from app.services.b2b_esign.qualified import QualifiedValidator
+from app.services.notification_triggers import emit as emit_notification
 from app.services.cv_pdf_preview import PdfPreviewUnavailable, pdf_from_docx
 from app.services.signing.validation import ValidationService
 
@@ -438,7 +443,172 @@ async def company_sign(
         now=_now(),
     )
     await db.commit()
-    return await _out(db, updated)
+    await _after_both_signed(db, updated.id, current_user)
+    refreshed = await db.get(B2BSigningRequest, updated.id)
+    return await _out(db, refreshed or updated)
+
+
+@router.get("/esign/{request_id}/signed-pdf")
+async def signed_pdf(
+    request_id: int,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Umowa podpisana przez obie strony — dla nadawcy i reprezentanta (np. gdy
+    automatyka nie założyła kontraktu i trzeba oznaczyć podpis ręcznie)."""
+    request = await db.get(B2BSigningRequest, request_id)
+    if request is None or request.status != "completed" or not request.final_pdf_path:
+        raise HTTPException(status_code=404, detail="Wniosek o podpis nie istnieje.")
+    if request.company_signer_id != current_user.id:
+        row = await db.get(B2BGeneratedContract, request.generated_contract_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+        await _assert_row_sender(db, current_user, row)
+    data = storage_service.read_b2b_signing_pdf(request.final_pdf_path)
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="umowa_{request.id}_podpisana.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+# ── Po podpisie (PR 5) ──────────────────────────────────────────────────────
+
+_REGISTER_LINK = "/contracts/b2b-generator?tab=generated"
+
+
+async def _notify(
+    db: AsyncSession,
+    *,
+    user_id: int | None,
+    title: str,
+    message: str,
+    ntype: NotificationType,
+    request_id: int,
+) -> None:
+    """Dzwonek bez kwot; jego awaria nie cofa podpisu."""
+    if not user_id:
+        return
+    try:
+        await emit_notification(
+            db,
+            user_id=user_id,
+            title=title,
+            message=message,
+            ntype=ntype,
+            related_entity_type="b2b_signing_request",
+            related_entity_id=request_id,
+            link=_REGISTER_LINK,
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("[b2b_esign] dzwonek nie wyszedł request=%d", request_id)
+        await db.rollback()
+
+
+async def _after_contractor_signed(db: AsyncSession, request_id: int) -> None:
+    request = await db.get(B2BSigningRequest, request_id)
+    if request is None:
+        return
+    row = await db.get(B2BGeneratedContract, request.generated_contract_id)
+    number = row.contract_number if row else ""
+    await _notify(
+        db,
+        user_id=request.company_signer_id,
+        title=f"Umowa {number} czeka na Twój podpis",
+        message=(
+            f"{request.contractor_name} podpisał(a) umowę {number} podpisem "
+            "kwalifikowanym. Podpisz ją za B2B Network."
+        ),
+        ntype=NotificationType.signature_sent,
+        request_id=request_id,
+    )
+
+
+async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) -> None:
+    """Ta sama automatyka co „Oznacz jako podpisaną” + plik w Dokumentach.
+
+    Woła trasę potwierdzenia w imieniu reprezentanta — z tymi samymi bramkami
+    (uprawnienie „Oznaczanie podpisu”, zakres klienta, różnice warunków).
+    Odmowa nie cofa podpisu: nadawca dostaje dzwonek, żeby oznaczyć umowę
+    ręcznie i dołączyć plik (``signed-pdf``)."""
+    # Same identyfikatory: trasa potwierdzenia przy odmowie robi ``rollback``,
+    # który wygasza obiekty sesji, także ``signer``.
+    signer_id = signer.id
+    request = await db.get(B2BSigningRequest, request_id)
+    if request is None or request.status != "completed":
+        return
+    row_id = request.generated_contract_id
+    sender_id = request.sent_by
+    final_path = request.final_pdf_path
+    row = await db.get(B2BGeneratedContract, row_id)
+    number = row.contract_number if row else ""
+    reason: str | None = None
+    try:
+        await confirm_generated_contract_fully_signed(
+            generated_id=row_id,
+            payload=B2BConfirmFullySignedRequest(),
+            current_user=signer,
+            db=db,
+        )
+    except HTTPException as exc:
+        detail = exc.detail
+        reason = (
+            detail
+            if isinstance(detail, str)
+            else "brak uprawnienia albo różnice warunków"
+        )
+        await db.rollback()
+    if reason is None and final_path:
+        try:
+            locked = await db.scalar(
+                select(B2BGeneratedContract)
+                .where(B2BGeneratedContract.id == row_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            replaced = await signed_file.attach(
+                db,
+                row=locked,
+                filename=f"umowa_{number.replace('/', '_')}_podpisana.pdf",
+                content_type="application/pdf",
+                data=storage_service.read_b2b_signing_pdf(final_path),
+                actor_id=signer_id,
+            )
+            locked.signature_source = "validated_upload"
+            await db.commit()
+            signed_file.discard(replaced)
+        except Exception:  # noqa: BLE001 — kontrakt jest; plik da się dołączyć ręcznie
+            logger.exception("[b2b_esign] plik nie trafił do Dokumentów row=%d", row_id)
+            await db.rollback()
+    if reason is None:
+        await _notify(
+            db,
+            user_id=sender_id,
+            title=f"Umowa {number} podpisana przez obie strony",
+            message=(
+                "Kontrakt i szkic zamówienia założone, kandydat na „Zatrudniony”, "
+                "podpisany plik w Dokumentach kontraktu."
+            ),
+            ntype=NotificationType.signature_signed,
+            request_id=request_id,
+        )
+    else:
+        await _notify(
+            db,
+            user_id=sender_id,
+            title=f"Umowa {number} podpisana — oznacz ją w rejestrze",
+            message=(
+                "Obie strony podpisały umowę w NEXUSIE, ale kontrakt nie powstał "
+                f"automatycznie: {reason} Oznacz umowę jako podpisaną i dołącz "
+                "podpisany plik."
+            )[:1000],
+            ntype=NotificationType.signature_signed,
+            request_id=request_id,
+        )
 
 
 # ── Kontraktor (publicznie, link z maila) ───────────────────────────────────
@@ -515,4 +685,7 @@ async def public_sign_submit(
         db, request=signing, data=data, validator=_validator(), now=now
     )
     await db.commit()
-    return await _public_view(db, signing)
+    signing_id = signing.id
+    await _after_contractor_signed(db, signing_id)
+    refreshed = await db.get(B2BSigningRequest, signing_id)
+    return await _public_view(db, refreshed or signing)
