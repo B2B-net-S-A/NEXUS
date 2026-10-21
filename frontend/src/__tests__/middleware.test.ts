@@ -232,6 +232,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/candidate-merge",
     "/preview/add-candidates",
     "/preview/job-ad",
+    "/preview/career-queue",
     "/preview/kpi-topbar",
     "/preview/kpi-who-counts",
     "/preview/topbar-topics",

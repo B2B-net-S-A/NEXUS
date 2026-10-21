@@ -749,6 +749,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.note_kind_backfill import note_kind_backfill_loop
     from app.tasks.cv_qc_recompute import cv_qc_recompute_loop
     from app.tasks.qc_quality_daily import qc_quality_daily_loop
+    from app.tasks.job_ad_prepare import job_ad_prepare_loop
     from app.tasks.recommendation_card_import import (
         recommendation_card_import_loop,
     )
@@ -890,6 +891,9 @@ async def lifespan(app: FastAPI):
         "cv_qc_recompute": asyncio.create_task(cv_qc_recompute_loop()),
         # „Jakość QC” (D6): trafność sprawdzeń z „To nieprawda”, raz na dobę.
         "qc_quality_daily": asyncio.create_task(qc_quality_daily_loop()),
+        # Ogłoszenia (21.10.2026): w nocy treść dla otwartych rekrutacji bez
+        # ogłoszenia — rano kolejka „Strona kariery do uzupełnienia”.
+        "job_ad_prepare": asyncio.create_task(job_ad_prepare_loop()),
         # 0413: karty rekomendacji z notatek; wyłączona flagą kończy się od razu.
         "recommendation_card_import": asyncio.create_task(
             recommendation_card_import_loop()

@@ -61,6 +61,7 @@ EXEMPT: dict[str, str] = {
     "note_kind_backfill": "jednorazowe uzupełnienie rodzaju notatek; do końca wiersz bez rodzaju czyta się jak zwykłą notatkę",
     "cv_qc_recompute": "jednorazowe przeliczenie QC CV po zmianie reguł; do końca plakietka pokazuje poprzedni wynik, a bramka ruchu i okno liczą QC na żywo",
     "qc_quality_daily": "dzienna trafność sprawdzeń QC CV („Jakość QC”); opóźnienie = stary stan automatu, blokady i tak nie przechodzą same",
+    "job_ad_prepare": "nocne przygotowanie treści ogłoszeń; brak = rekruter klika „Przygotuj treść” w kolejce, nic nie publikuje się samo",
     "recommendation_card_import": "karty rekomendacji z notatek; opóźnienie nieszkodliwe, notatka z NEXUSA przelicza kartę w żądaniu",
     "chat_email_fallback": "fallback mailowy czatu; nie ścieżka krytyczna",
     "signature_reconciler": "uzgadnianie podpisów; sweeper podpisów jest objęty",
