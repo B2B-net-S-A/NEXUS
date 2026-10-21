@@ -10,8 +10,10 @@
   tabela ``service_accounts``, nie ``users``).
 * **Status kartoteki idzie za kontem.** Wyłączenie konta → „zakończył
   współpracę” (``exited``) z ostatnim dniem pracy = dzień wyłączenia, chyba że
-  kartoteka ma wcześniejszy; ponowne włączenie → „aktywny” (ostatni dzień
-  i ``exited_at`` znikają). Konto zmienia się w dziewięciu miejscach (Osoby
+  kartoteka ma wcześniejszy; ponowne włączenie → stan sprzed wyłączenia
+  (np. odejście w toku z jego ostatnim dniem), a gdy kartotekę ktoś w tym
+  czasie zmienił albo zamknął ją ręcznie — „aktywny” bez ostatniego dnia
+  (decyzja Artura 21.10.2026). Konto zmienia się w dziewięciu miejscach (Osoby
   i role, usunięcie konta, SSO bez roli, synchronizacja grup AAD, sprawa
   odejścia…), więc pilnuje tego jeden listener ``after_flush`` na
   ``users.is_active``, w tej samej transakcji co zmiana konta. Ślad:
@@ -83,22 +85,50 @@ _EXIT_SQL = text(
     """
 )
 
+#: Powrót konta. Kartoteka wraca do stanu sprzed wyłączenia (status i ostatni
+#: dzień ze śladu ``profile_follows_account``), gdy wyłączenie zamknęło ją samo
+#: — ślad z tej samej transakcji co ``exited_at`` — a ostatni dzień od tamtej
+#: pory się nie zmienił. Inaczej (ręczne zakończenie, poprawka Kadr) „aktywny”
+#: bez ostatniego dnia, jak dotąd. Decyzja Artura 21.10.2026: pomyłkowe
+#: wyłączenie konta nie kasuje odejścia w toku.
 _RETURN_SQL = text(
     """
     WITH target AS (
-        SELECT id, last_working_day AS before_day
+        SELECT id, last_working_day AS before_day, exited_at
         FROM employee_profiles
         WHERE user_id = :user_id AND employment_status = 'exited'
         FOR UPDATE
+    ),
+    prev AS (
+        SELECT DISTINCT ON (e.entity_id) e.entity_id, e.details
+        FROM hr_audit_events e
+        JOIN target t ON e.entity_id = t.id::text
+        WHERE e.entity_type = 'employee_profile'
+          AND e.action = 'profile_follows_account'
+          AND e.details ->> 'to' = 'exited'
+          AND e.details ->> 'source' = 'account'
+          AND e.created_at = t.exited_at
+        ORDER BY e.entity_id, e.id DESC
+    ),
+    restore AS (
+        SELECT t.id,
+               t.before_day,
+               prev.details ->> 'from' AS status,
+               (prev.details ->> 'previous_last_working_day')::date AS day
+        FROM target t
+        LEFT JOIN prev ON prev.entity_id = t.id::text
+        WHERE prev.details ->> 'from' IN ('pending', 'onboarding', 'active', 'offboarding')
+          AND prev.details ->> 'last_working_day' IS NOT DISTINCT FROM t.before_day::text
     )
     UPDATE employee_profiles p
-    SET employment_status = 'active',
+    SET employment_status = COALESCE(restore.status, 'active'),
         exited_at = NULL,
-        last_working_day = NULL,
+        last_working_day = restore.day,
         updated_at = now()
     FROM target
+    LEFT JOIN restore ON restore.id = target.id
     WHERE p.id = target.id
-    RETURNING p.id, target.before_day
+    RETURNING p.id, target.before_day, p.employment_status, p.last_working_day
     """
 )
 
@@ -140,8 +170,13 @@ def _follow(session: Session, user_id: int, active: bool) -> None:
     if active:
         rows = connection.execute(_RETURN_SQL, {"user_id": user_id}).all()
         details = [
-            {"from": "exited", "to": "active", "previous_last_working_day": _iso(day)}
-            for _, day in rows
+            {
+                "from": "exited",
+                "to": status,
+                "previous_last_working_day": _iso(before_day),
+                "last_working_day": _iso(day),
+            }
+            for _, before_day, status, day in rows
         ]
     else:
         rows = connection.execute(
