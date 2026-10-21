@@ -27,6 +27,7 @@ vi.mock("@/components/hr/lifecycle/LifecycleTemplatesCard", () => ({
 import { HrSettings } from "@/components/hr/settings/HrSettings";
 import {
   PayrollSettings,
+  availablePayrollTabs,
   canEditPayrollSettings,
   minimumRatesPayload,
   rowsFromRates,
@@ -62,6 +63,24 @@ function renderWith(node: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
 }
+
+describe("Ustawienia → Płace — zakładki (runda 2, 21.10.2026)", () => {
+  it("premie i stawki zawsze; wypłaty z Symfonią i KSeF tylko przy rozliczeniach", () => {
+    const base = config({ payroll: true });
+    expect(availablePayrollTabs(base)).toEqual(["premie", "stawki"]);
+    expect(
+      availablePayrollTabs({ ...base, open_modules: { ...base.open_modules, settlements: true } }),
+    ).toEqual(["premie", "stawki", "wyplaty", "ksef"]);
+  });
+
+  it("pierwsza zakładka to „Premie” z kartą reguł, reszta schowana za zakładkami", () => {
+    renderWith(<PayrollSettings config={config({ payroll: true })} />);
+    expect(screen.getByRole("tab", { name: "Premie", selected: true })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Stawki minimalne" })).toBeInTheDocument();
+    expect(screen.getByText("karta reguł premii")).toBeInTheDocument();
+    expect(screen.queryByText("Minimalna stawka na zleceniu")).toBeNull();
+  });
+});
 
 describe("Ustawienia → Płace", () => {
   it("osoba z samymi „Płacami” (Finanse) dochodzi do reguł premii", () => {
