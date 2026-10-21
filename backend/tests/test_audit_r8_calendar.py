@@ -443,7 +443,7 @@ async def test_too_long_transcript_is_unavailable_not_truncated(monkeypatch):
     called = []
     monkeypatch.setattr(prep_review, "_call_model", lambda *a: called.append(a))
 
-    async def items(db, job):
+    async def items(db, job, **_kwargs):
         return [Item("must:Java", "Java", "must")]
 
     monkeypatch.setattr(prep_review, "build_items", items)
