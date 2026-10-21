@@ -7,6 +7,7 @@ i pomiar na historii pokazywałyby ranking, którego nie ma.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from datetime import timedelta
@@ -313,3 +314,38 @@ def test_restore_takes_only_global_active_profiles(snapshot, ok):
     from app.services.ranking_publish import is_global_snapshot
 
     assert is_global_snapshot(snapshot) is ok
+
+
+_CASES = (
+    Path(__file__).resolve().parents[2]
+    / "frontend"
+    / "src"
+    / "lib"
+    / "__fixtures__"
+    / "ranking-score-cases.json"
+)
+
+
+@pytest.mark.skipif(not _CASES.is_file(), reason="brak katalogu frontend w checkoucie")
+def test_shared_cases_with_the_front_match_python():
+    """Ten sam plik czyta ``rankingMath.test.ts`` — podgląd w przeglądarce
+    liczy „Dop.” tak samo jak pomiar na serwerze."""
+    cases = json.loads(_CASES.read_text(encoding="utf-8"))["cases"]
+    assert len(cases) >= 20
+    for case in cases:
+        raw = case["components"]
+        components = lab.Components(
+            candidate_id=raw["candidate_id"],
+            layers={k: (v[0], v[1], v[2]) for k, v in raw["layers"].items()},
+            extra=tuple(raw["extra"]) if raw["extra"] else None,
+            factor=raw["factor"],
+            matched_must=raw["matched_must"],
+            must_total=raw["must_total"],
+        )
+        assert lab.score(
+            components, case["weights"], renormalize=case["renormalize"]
+        ) == pytest.approx(case["expected"], abs=1e-3)
+        assert rw.engine_weights(rw.PanelWeights.from_dict(case["panel"])) == {
+            **case["weights"],
+            "champion_fit": rw.CHAMPION_RESERVE,
+        }
