@@ -25,6 +25,7 @@ from app.models.hr_ops import HrAuditEvent, HrImportBatch, HrImportUpload
 from app.models.hr_profile import EmployeeProfile
 from app.models.section_permission import UserActionOverride
 from app.models.user import User, UserRole
+from app.services.hr import compass_import
 from tests._route_introspection import iter_api_routes
 
 BASE = "/api/hr/admin/import"
@@ -297,10 +298,81 @@ async def test_chain_dry_run_writes_nothing_apply_writes_and_repeat_is_unchanged
             assert not any(module["applied"]["written"].values()), module
 
     listed = await app_client.get(f"{BASE}/batches", headers=_headers(admin))
-    rows = {row["id"]: row for row in listed.json()}
+    rows = {row["id"]: row for row in listed.json() if row["source"] == "screen"}
     assert rows[upload["id"]]["status"] == "applied"
     assert rows[upload["id"]]["applied_by_name"] == admin.name
     assert "attention" not in _module(rows[upload["id"]], "profiles")
+
+
+@pytest.mark.asyncio
+async def test_history_lists_script_batches_next_to_screen_uploads(app_client) -> None:
+    """18.10.2026 import szedł ``scripts/hr_compass_import.py`` — partie bez
+    paczki z ekranu, a historia mówiła „Nie było jeszcze żadnego importu”."""
+    async with AsyncSessionLocal() as db:
+        admin = await _user(db, "admin")
+        await db.commit()
+    content, _ = await _simple_bundle()
+    bundle = compass_import.parse_bundle(content)
+    importer = compass_import.IMPORTERS["profiles"]
+
+    # Ten sam przebieg co skrypt: na sucho bez zapisu, potem na sucho → zapis.
+    async with AsyncSessionLocal() as db:
+        stale, _ = await compass_import.dry_run(
+            db,
+            module="profiles",
+            bundle=bundle,
+            planner=importer.plan,
+            actor_user_id=None,
+        )
+        await db.commit()
+        stale_id = stale.id
+    async with AsyncSessionLocal() as db:
+        batch, _ = await compass_import.dry_run(
+            db,
+            module="profiles",
+            bundle=bundle,
+            planner=importer.plan,
+            actor_user_id=None,
+        )
+        await compass_import.apply(
+            db,
+            batch=batch,
+            bundle=bundle,
+            planner=importer.plan,
+            applier=importer.apply,
+            actor_user_id=None,
+        )
+        await db.commit()
+        applied_id = batch.id
+
+    screen = (await _dry_run(app_client, admin, (await _simple_bundle())[0])).json()
+
+    listed = await app_client.get(f"{BASE}/batches", headers=_headers(admin))
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()
+    scripted = {row["id"]: row for row in rows if row["source"] == "script"}
+
+    assert scripted[applied_id]["status"] == "applied"
+    assert scripted[applied_id]["created_by_name"] is None
+    assert scripted[applied_id]["applied_modules"] == ["profiles"]
+    assert scripted[applied_id]["expires_at"] is None
+    module = scripted[applied_id]["modules"][0]
+    assert module["module"] == "profiles" and module["counts"]["create"] == 1
+    assert module["applied"]["written"]["profiles_created"] == 1
+    assert "attention" not in module
+    # Sprawdzenie skryptem sprzed późniejszego zapisu nie czeka już na zapis.
+    assert scripted[stale_id]["status"] == "superseded"
+
+    # Partie paczki z ekranu nie wracają jako osobne wiersze „ze skryptu”.
+    async with AsyncSessionLocal() as db:
+        upload = await db.get(HrImportUpload, screen["id"])
+        screen_batches = set(upload.batch_ids.values())
+    assert screen_batches and not screen_batches & set(scripted)
+    assert [row["id"] for row in rows if row["source"] == "screen"][0] == screen["id"]
+    # Od najnowszych: paczka z ekranu powstała po partiach skryptu.
+    order = [(row["source"], row["id"]) for row in rows]
+    assert order.index(("screen", screen["id"])) < order.index(("script", applied_id))
+    assert order.index(("script", applied_id)) < order.index(("script", stale_id))
 
 
 @pytest.mark.asyncio
