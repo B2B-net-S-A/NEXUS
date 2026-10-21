@@ -785,6 +785,16 @@ export default function JobDetailPage() {
   const onWriteAnnouncement = canEditJobContentFields
     ? () => setShowJobAd(true)
     : undefined;
+  // Kropki przy „Ogłoszenie” w nagłówku (21.10.2026): strona kariery
+  // i aktywne ogłoszenia na portalach z `GET /api/jobs/{id}`.
+  const adPortals: ReadonlyArray<{ portal?: string }> = Array.isArray(job.ad_publications)
+    ? job.ad_publications
+    : [];
+  const adChannels = {
+    career: job.career_page === true,
+    pracuj: adPortals.some((item) => item.portal === "pracuj"),
+    jjit: adPortals.some((item) => item.portal === "jjit"),
+  };
   const onGenerateInviteLink =
     canWritePipeline && job.status === "published" && canCreateInviteLink
       ? () => setShowInviteLink(true)
@@ -961,6 +971,7 @@ export default function JobDetailPage() {
         }
         onEdit={onEdit}
         onWriteAnnouncement={onWriteAnnouncement}
+        adChannels={adChannels}
         onGenerateInviteLink={onGenerateInviteLink}
         chatUnreadCount={chatUnread?.unread_count ?? 0}
         clientCardHref={
@@ -988,14 +999,18 @@ export default function JobDetailPage() {
         />
       )}
 
-      {/* Ogłoszenie na portale (Pracuj.pl, JustJoin.IT) */}
+      {/* Ogłoszenie: strona kariery, Pracuj.pl, JustJoin.IT */}
       {canEditJobContentFields && showJobAd && (
         <JobAdWindow
           jobId={jobId}
           jobTitle={jobDisplayTitle(job)}
           jobClosed={job.status === "closed"}
           open
-          onClose={() => setShowJobAd(false)}
+          onClose={() => {
+            setShowJobAd(false);
+            // Kropki w nagłówku: publikacja w oknie zmienia stronę kariery i portale.
+            void refetchJob();
+          }}
         />
       )}
 

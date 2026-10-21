@@ -29,7 +29,7 @@ import {
 } from "@/lib/api";
 import { foldText, matchRank } from "@/lib/contract-client-filter";
 import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
-import { jobAdQueryKey, type JobAdState } from "@/lib/api/jobAd";
+import { jobAdQueryKey, NO_CAREER_PAGE, type JobAdState } from "@/lib/api/jobAd";
 import { jobPortalKeys } from "@/lib/api/jobPortals";
 import { categoryRecruitersQueryKey } from "@/lib/api/requestAllocation";
 import { clientQuestionPoolQueryKey } from "@/lib/api/interviewCycle";
@@ -84,6 +84,7 @@ const JOB_AD: JobAdState = {
       removed_at: null,
     },
   ],
+  career: NO_CAREER_PAGE,
 };
 const isoDay = (offsetDays: number) =>
   new Date(Date.now() + offsetDays * DAY_MS).toISOString().slice(0, 10);

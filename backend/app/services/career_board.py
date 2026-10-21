@@ -93,7 +93,13 @@ async def _lead_id(db: AsyncSession, job: Job, users: dict[int, User]) -> Option
 
 
 async def _new_job_link(
-    db: AsyncSession, job: Job, owner_id: int, title: str
+    db: AsyncSession,
+    job: Job,
+    owner_id: int,
+    title: str,
+    *,
+    label: str = "Tablica kariery",
+    via: str = "career_board",
 ) -> CandidateInviteLink:
     """Link rekrutacji prowadzącego (albo Head of Recruitment, gdy nikt nie
     prowadzi) — jak „Udostępnij”, tylko bez okna.
@@ -128,28 +134,80 @@ async def _new_job_link(
         job_id=job.id,
         origin_assignment_id=origin_assignment_id,
         priority_compliant_at_create=priority_compliant,
-        label="Tablica kariery",
+        label=label,
         expires_at=None,
     )
     db.add(link)
     await db.flush()
     from app.services.priority_work_service import audit_event
 
-    # Ten sam ślad co `POST /api/invite-links`, bez aktora — założyła tablica.
+    # Ten sam ślad co `POST /api/invite-links`, bez aktora — założyła tablica
+    # albo „Opublikuj na stronie” z ogłoszenia.
     audit_event(
         db,
         "invite_link_created",
         job_id=job.id,
         subject_user_id=owner_id,
         assignment_id=origin_assignment_id,
-        payload={"slug": link.slug, "via": "career_board"},
+        payload={"slug": link.slug, "via": via},
     )
     logger.info(
-        "career_board: utworzono link rekrutacji %s dla osoby %s",
+        "career_board: utworzono link rekrutacji %s dla osoby %s (%s)",
         job.id,
         owner_id,
+        via,
     )
     return link
+
+
+async def own_job_link(
+    db: AsyncSession, job: Job, user_id: int
+) -> Optional[CandidateInviteLink]:
+    """Najnowszy aktywny link rekrutacji tej osoby (ze slugiem)."""
+    now = _now()
+    links = await db.scalars(
+        select(CandidateInviteLink)
+        .where(
+            CandidateInviteLink.kind == "job",
+            CandidateInviteLink.job_id == job.id,
+            CandidateInviteLink.created_by == user_id,
+            CandidateInviteLink.slug.is_not(None),
+        )
+        .order_by(CandidateInviteLink.created_at.desc())
+    )
+    return next((link for link in links if _active(link, now)), None)
+
+
+async def ensure_own_job_link(
+    db: AsyncSession, job: Job, user_id: int, title: str
+) -> Optional[CandidateInviteLink]:
+    """Link osoby, która publikuje stronę z ogłoszenia (21.10.2026): ma od razu
+    co skopiować, a zgłoszenia z jej linku liczą się jej.
+
+    Kto swój link do tej rekrutacji wyłączył, nie dostaje nowego (``None``) —
+    jak na tablicy: wyłączony link to decyzja człowieka.
+    """
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": _LINK_LOCK_KEY}
+    )
+    existing = await own_job_link(db, job, user_id)
+    if existing is not None:
+        return existing
+    revoked = await db.scalar(
+        select(CandidateInviteLink.token)
+        .where(
+            CandidateInviteLink.kind == "job",
+            CandidateInviteLink.job_id == job.id,
+            CandidateInviteLink.created_by == user_id,
+            CandidateInviteLink.revoked.is_(True),
+        )
+        .limit(1)
+    )
+    if revoked is not None:
+        return None
+    return await _new_job_link(
+        db, job, user_id, title, label="Ogłoszenie", via="job_ad_career"
+    )
 
 
 def _pick_link(

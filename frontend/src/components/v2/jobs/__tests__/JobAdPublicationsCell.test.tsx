@@ -65,6 +65,23 @@ describe("JobAdPublicationsCell", () => {
     ).toHaveClass("bg-warning-muted");
   });
 
+  it("strona kariery stoi przed portalami — także bez żadnego portalu (21.10.2026)", () => {
+    renderCell({ status: "published", career_page: true, ad_publications: [] });
+    expect(screen.getByTestId("job-ad-publications-cell").textContent).toBe("Kariera");
+    expect(screen.getByLabelText("Strona kariery")).toHaveClass("bg-muted");
+  });
+
+  it("strona kariery i portal stoją w jednym wierszu", () => {
+    renderCell({
+      status: "published",
+      career_page: true,
+      ad_publications: [{ portal: "pracuj", url: null, outdated: false }],
+    });
+    const cell = screen.getByTestId("job-ad-publications-cell");
+    expect(cell.textContent).toBe("KarieraPracuj");
+    expect(cell).toHaveClass("flex-wrap");
+  });
+
   it("adres, który przeglądarka otworzyłaby poza portalem, nie staje się odnośnikiem", () => {
     renderCell({
       status: "published",

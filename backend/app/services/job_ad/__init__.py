@@ -6,7 +6,8 @@ Jedna treść na rekrutację, dwa formaty:
 * ``generate`` — układanie treści modelem i złożenie zapasowe bez modelu,
 * ``fixed_blocks`` — stałe części firmy z Ustawień,
 * ``render`` — pola Pracuj.pl i opis JustJoin.IT (czyste funkcje),
-* ``lint`` — kontrola przed skopiowaniem.
+* ``lint`` — kontrola przed skopiowaniem,
+* ``career`` — strona kariery z tej samej treści (21.10.2026).
 
 Reguły: ``docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.md``.
 """

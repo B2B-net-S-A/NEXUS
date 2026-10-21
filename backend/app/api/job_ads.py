@@ -35,6 +35,7 @@ from app.models.job_ad import JobAd
 from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User
 from app.schemas.job_ad import (
+    AdCareerRequest,
     AdGenerateRequest,
     AdUpdateRequest,
     FixedBlocksModel,
@@ -43,6 +44,7 @@ from app.schemas.job_ad import (
 from app.schemas.job_ad_publication import AdPortal, AdPublishRequest
 from app.services import job_public_profile as jpp
 from app.services.job_ad import (
+    career,
     fixed_blocks,
     generate,
     lint,
@@ -79,9 +81,18 @@ async def _material(db: AsyncSession, job: Job) -> material.AdMaterial:
 
 
 async def _response(
-    db: AsyncSession, job: Job, ad: Optional[JobAd], mat: material.AdMaterial
+    db: AsyncSession,
+    job: Job,
+    ad: Optional[JobAd],
+    mat: material.AdMaterial,
+    *,
+    user_id: int,
 ) -> JobAdResponse:
-    base = {"facts": material.facts(mat), "readiness": material.readiness(mat)}
+    base = {
+        "facts": material.facts(mat),
+        "readiness": material.readiness(mat),
+        "career": (await career.career_state(db, job, ad, user_id=user_id)).as_dict(),
+    }
     if ad is None:
         return JobAdResponse(**base)
     all_blocks = await fixed_blocks.load_blocks(db)
@@ -131,7 +142,11 @@ async def get_portal_ad(
 ) -> JobAdResponse:
     job = await _load_job(db, current_user, job_id)
     return await _response(
-        db, job, await db.get(JobAd, job_id), await _material(db, job)
+        db,
+        job,
+        await db.get(JobAd, job_id),
+        await _material(db, job),
+        user_id=current_user.id,
     )
 
 
@@ -231,7 +246,7 @@ async def generate_portal_ad(
         )
     await db.commit()
     ad = await db.get(JobAd, job_id, populate_existing=True)
-    return await _response(db, job, ad, mat)
+    return await _response(db, job, ad, mat, user_id=current_user.id)
 
 
 @router.put("/jobs/{job_id}/portal-ad", response_model=JobAdResponse)
@@ -265,7 +280,7 @@ async def put_portal_ad(
     ad.updated_at = _now()
     await db.commit()
     await db.refresh(ad)
-    return await _response(db, job, ad, mat)
+    return await _response(db, job, ad, mat, user_id=current_user.id)
 
 
 @router.put(
@@ -304,7 +319,9 @@ async def mark_ad_published(
             url=url,
             user_id=current_user.id,
             content_updated=data.content_updated,
-            blocked=not (await _response(db, job, ad, mat)).can_copy,
+            blocked=not (
+                await _response(db, job, ad, mat, user_id=current_user.id)
+            ).can_copy,
         )
     except publications.ContentBlocked as exc:
         raise HTTPException(
@@ -318,7 +335,7 @@ async def mark_ad_published(
             },
         ) from exc
     await db.commit()
-    return await _response(db, job, ad, mat)
+    return await _response(db, job, ad, mat, user_id=current_user.id)
 
 
 @router.delete(
@@ -341,8 +358,91 @@ async def mark_ad_removed(
         )
     await db.commit()
     return await _response(
-        db, job, await db.get(JobAd, job_id), await _material(db, job)
+        db,
+        job,
+        await db.get(JobAd, job_id),
+        await _material(db, job),
+        user_id=current_user.id,
     )
+
+
+@router.post("/jobs/{job_id}/portal-ad/career", response_model=JobAdResponse)
+async def publish_career_page(
+    job_id: int,
+    data: AdCareerRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> JobAdResponse:
+    """„Opublikuj na stronie” (21.10.2026): treść ogłoszenia trafia na stronę
+    kariery i od razu jest zatwierdzona; osoba dostaje swój link.
+
+    Publikuje się dokładnie wersja z ekranu (``expected_updated_at``), tylko
+    bez znalezisk blokujących i tylko w otwartej rekrutacji. Kontrola strony
+    kariery czyta dodatkowo kody wewnętrzne (RITM, numer u klienta) — jej
+    znalezisko = 422 z listą.
+    """
+    job = await _load_job(db, current_user, job_id)
+    ad = await db.get(JobAd, job_id, with_for_update=True)
+    if ad is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Najpierw przygotuj ogłoszenie — potem opublikujesz je na stronie.",
+        )
+    if (
+        data.expected_updated_at is not None
+        and ad.updated_at is not None
+        and data.expected_updated_at != ad.updated_at
+    ):
+        raise _changed(
+            "Ktoś w międzyczasie zmienił to ogłoszenie. Wczytałem aktualną "
+            "wersję — przeczytaj ją, zanim opublikujesz."
+        )
+    if not jpp.job_is_open(job):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_not_open",
+                "message": "Na stronie kariery publikujemy tylko otwarte rekrutacje.",
+            },
+        )
+    mat = await _material(db, job)
+    if not (await _response(db, job, ad, mat, user_id=current_user.id)).can_copy:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_ad_blocked",
+                "message": (
+                    "W treści są fragmenty, których nie publikujemy. Usuń je, "
+                    "zanim opublikujesz ogłoszenie na stronie."
+                ),
+            },
+        )
+    try:
+        await career.publish(db, job, ad, user_id=current_user.id)
+    except career.NothingToPublish as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Ogłoszenie nie ma wstępu, opisu projektu ani obowiązków — "
+                "dopisz choć jedno z nich."
+            ),
+        ) from exc
+    except jpp.ProfileFindings as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PUBLIC_PROFILE_FINDINGS",
+                "message": (
+                    "Strona kariery nie przyjmie tej treści: "
+                    + "; ".join(f.message for f in exc.findings[:3])
+                ),
+                "findings": [f.as_dict() for f in exc.findings],
+            },
+        ) from exc
+    await db.commit()
+    ad = await db.get(JobAd, job_id, populate_existing=True)
+    return await _response(db, job, ad, mat, user_id=current_user.id)
 
 
 @router.get("/job-ads/fixed-blocks", response_model=FixedBlocksModel)
