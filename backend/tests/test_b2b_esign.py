@@ -430,3 +430,79 @@ async def test_bogus_link_is_refused_before_the_file_and_failures_are_capped(
         files={"file": ("u.pdf", SOURCE + b"% podpis\n", "application/pdf")},
     )
     assert capped.status_code == 429, capped.text
+
+
+# ── walidator pyHanko z listą UE (bez sieci) ────────────────────────────────
+
+
+def test_only_a_qualified_esign_certificate_on_a_qscd_is_qesig():
+    from types import SimpleNamespace
+
+    from pyhanko.sign.validation.qualified.q_status import (
+        QcPrivateKeyManagementType as Key,
+    )
+    from pyhanko.sign.validation.qualified.tsp import QcCertType
+
+    from app.services.b2b_esign.qualified import level_of
+
+    def q(qualified: bool, qc_type: QcCertType, key: Key):
+        return SimpleNamespace(
+            status=SimpleNamespace(
+                qualified=qualified, qc_type=qc_type, qc_key_security=key
+            )
+        )
+
+    assert level_of(q(True, QcCertType.QC_ESIGN, Key.QSCD)) == "QESig"
+    # SimplySign, mSzafir: klucz na zdalnym QSCD zarządzanym przez dostawcę.
+    assert level_of(q(True, QcCertType.QC_ESIGN, Key.QSCD_DELEGATED)) == "QESig"
+    assert level_of(q(True, QcCertType.QC_ESIGN, Key.UNKNOWN)) == "AdESig"
+    # Pieczęć firmy nie zastępuje podpisu osoby.
+    assert level_of(q(True, QcCertType.QC_ESEAL, Key.QSCD)) == "AdESig"
+    assert level_of(q(False, QcCertType.QC_ESIGN, Key.QSCD)) == "AdESig"
+    assert level_of(None) == "AdESig"
+
+
+@pytest.mark.asyncio
+async def test_without_the_eu_list_the_validator_is_not_authoritative(monkeypatch):
+    from app.services.b2b_esign import qualified
+
+    async def _down():
+        raise OSError("ec.europa.eu nie odpowiada")
+
+    monkeypatch.setattr(qualified, "_registry", None)
+    monkeypatch.setattr(qualified, "_fetch_registry", _down)
+    validator = qualified.QualifiedValidator()
+    report = await validator.validate(SOURCE + b"% podpis\n")
+    assert validator.authoritative is False
+    assert report.sub_indication == "EU_TRUSTED_LIST_UNAVAILABLE"
+    verdict = judge(
+        report, authoritative=validator.authoritative, required_signers=["Jan Kowalski"]
+    )
+    assert verdict.code == "no_validator"
+
+
+@pytest.mark.asyncio
+async def test_failed_refresh_keeps_the_last_good_eu_list(monkeypatch):
+    from app.services.b2b_esign import qualified
+
+    sentinel = object()
+    calls: list[str] = []
+
+    async def _ok():
+        calls.append("ok")
+        return sentinel
+
+    async def _down():
+        calls.append("down")
+        raise OSError("timeout")
+
+    monkeypatch.setattr(qualified, "_registry", None)
+    monkeypatch.setattr(qualified, "_loaded_at", 0.0)
+    monkeypatch.setattr(qualified, "_fetch_registry", _ok)
+    assert await qualified.trusted_registry(now=1000.0) is sentinel
+    # Świeża lista — bez ponownego pobrania.
+    assert await qualified.trusted_registry(now=1000.0 + 3600) is sentinel
+    monkeypatch.setattr(qualified, "_fetch_registry", _down)
+    stale = 1000.0 + qualified.REFRESH_HOURS * 3600 + 1
+    assert await qualified.trusted_registry(now=stale) is sentinel
+    assert calls == ["ok", "down"]
