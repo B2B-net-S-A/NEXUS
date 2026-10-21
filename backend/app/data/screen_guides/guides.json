@@ -707,7 +707,7 @@
       },
       {
         "q": "Jak szybko wypełnić miesiąc godzin?",
-        "a": "W zakładce miesiąca kliknij „Wypełnij miesiąc…”: godziny dziennie (najwyżej 8), opis — domyślny, z „Szablonów opisów” albo własny — i projekt. Dni z wpisem zostają, chyba że zaznaczysz „Nadpisz istniejące wpisy”. Weekendy, święta i nieobecności zostają puste. Gotowy miesiąc wyślij przyciskiem „Wyślij do…”.",
+        "a": "Pojedynczy pusty dzień wpiszesz wprost w wierszu: godziny i opis, potem „Wpisz” (puste pole opisu = opis domyślny). Wszystkie puste dni naraz — „Wypełnij puste dni…” nad siatką (albo „Więcej → Wypełnij miesiąc…”): godziny dziennie (najwyżej 8), opis — domyślny, z „Szablonów opisów” albo własny — i projekt. Dni z wpisem zostają, chyba że zaznaczysz „Nadpisz istniejące wpisy”. Weekendy, święta i nieobecności zostają puste. Gotowy miesiąc wyślij przyciskiem „Wyślij do…” pod siatką.",
         "anchor": "hr.my_time.month_actions"
       },
       {

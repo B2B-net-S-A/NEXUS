@@ -91,6 +91,58 @@ export function dayRowTone(day: MonthDay, today: string): DayRowTone {
   };
 }
 
+/**
+ * Dzień roboczy bez wpisu, który można wpisać wprost w wierszu (makieta
+ * „Mój miesiąc” 21.10.2026). Pełny urlop, święto i auto-wpis płatnej puli —
+ * nie.
+ */
+export function needsEntry(day: MonthDay): boolean {
+  return (
+    day.working_day &&
+    day.capacity !== null &&
+    day.capacity > 0 &&
+    day.entries.length === 0 &&
+    !day.leave?.paid_work
+  );
+}
+
+export interface WeekGroup {
+  /** Pierwszy i ostatni dzień tygodnia w tym miesiącu („RRRR-MM-DD”). */
+  start: string;
+  end: string;
+  days: MonthDay[];
+  hours: number;
+  normHours: number;
+}
+
+/**
+ * Dni miesiąca w tygodniach od poniedziałku. Norma tygodnia = dni robocze
+ * × norma dnia z miesiąca (`norm_hours / working_days`).
+ */
+export function weekGroups(days: readonly MonthDay[], normPerDay: number): WeekGroup[] {
+  const weeks: WeekGroup[] = [];
+  for (const day of days) {
+    const last = weeks[weeks.length - 1];
+    const week = !last || day.weekday === 1 ? null : last;
+    const target = week ?? { start: day.date, end: day.date, days: [], hours: 0, normHours: 0 };
+    if (!week) weeks.push(target);
+    target.days.push(day);
+    target.end = day.date;
+    target.hours += day.hours;
+    if (day.working_day) target.normHours += normPerDay;
+  }
+  return weeks;
+}
+
+/** „Tydzień 5–11.10” albo „Tydzień 29.09–5.10” (miesiąc zawsze z ostatniego dnia). */
+export function weekTitle(week: Pick<WeekGroup, "start" | "end">): string {
+  const [, sm, sd] = week.start.split("-").map(Number);
+  const [, em, ed] = week.end.split("-").map(Number);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (week.start === week.end) return `Tydzień ${ed}.${pad(em)}`;
+  return sm === em ? `Tydzień ${sd}–${ed}.${pad(em)}` : `Tydzień ${sd}.${pad(sm)}–${ed}.${pad(em)}`;
+}
+
 /** „121 / 176 h” — praca wpisana w miesiącu wobec normy (jak „Mój miesiąc”). */
 export function hoursLabel(totals: MonthTotals): string {
   return `${formatHours(totals.work_hours)} / ${totals.norm_hours} h`;
