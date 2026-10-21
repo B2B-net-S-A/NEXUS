@@ -911,7 +911,7 @@ async def lifespan(app: FastAPI):
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
         "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
-        # 0504: umowa przedwstępna — wygasanie, przypomnienia, termin B2B.
+        # 0505: umowa przedwstępna — wygasanie, przypomnienia, termin B2B.
         "pre_contract_sweeper": asyncio.create_task(pre_contract_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
@@ -1204,7 +1204,7 @@ app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
 # 0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
 app.include_router(job_intake_forms_api.router, prefix="/api", tags=["jobs"])
 app.include_router(job_files_api.router, prefix="/api", tags=["jobs"])
-# 0504: umowa przedwstępna przy osobie w rekrutacji (prośba, podpisy, lista).
+# 0505: umowa przedwstępna przy osobie w rekrutacji (prośba, podpisy, lista).
 app.include_router(pre_contracts_api.router, prefix="/api", tags=["pipeline"])
 # 0430: ogłoszenie do wklejenia na portale (zastąpiło `ai_writer`).
 app.include_router(job_ads_api.router, prefix="/api", tags=["jobs"])

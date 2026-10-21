@@ -510,7 +510,7 @@ const PUBLIC_PATHS = [
   "/preview/job-ad",
   // „Strona kariery do uzupełnienia” (21.10.2026) — kolejka na danych w pamięci.
   "/preview/career-queue",
-  // Umowa przedwstępna (0504) — sekcja panelu, lista i kafelek na danych w pamięci.
+  // Umowa przedwstępna (0505) — sekcja panelu, lista i kafelek na danych w pamięci.
   "/preview/pre-contracts",
   "/preview/job-portals",
   "/preview/academy",

@@ -787,7 +787,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skip_threshold'",
     # 0500: rozmowa u klienta przełożona albo odwołana (do ludzi pary).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_changed'",
-    # 0504: prośba o umowę przedwstępną — zmiany stanu dla proszących i wystawiającego.
+    # 0505: prośba o umowę przedwstępną — zmiany stanu dla proszących i wystawiającego.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'pre_contract'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
@@ -5217,7 +5217,7 @@ END $$""",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_b2b_signing_requests_open_per_row "
     "ON b2b_signing_requests (generated_contract_id) "
     "WHERE status IN ('sent', 'contractor_signed')",
-    # 0504: prośby o umowę przedwstępną przy osobie w rekrutacji. Lustro 1:1
+    # 0505: prośby o umowę przedwstępną przy osobie w rekrutacji. Lustro 1:1
     # z `app/services/pre_contract_schema.py` (pilnuje test_pre_contract_schema_mirror)
     # — PO tabeli `b2b_contract_documents`, na którą wskazuje klucz obcy.
     "CREATE TABLE IF NOT EXISTS pre_contract_requests (id SERIAL PRIMARY KEY, candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, client_id INTEGER NULL REFERENCES clients(id) ON DELETE SET NULL, needed_before VARCHAR(24) NOT NULL, needed_by DATE NULL, reason TEXT NULL, requested_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, requested_at TIMESTAMPTZ NOT NULL DEFAULT now(), assignee_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, document_id INTEGER NULL REFERENCES b2b_contract_documents(id) ON DELETE SET NULL, issued_at TIMESTAMPTZ NULL, sent_at TIMESTAMPTZ NULL, candidate_signed_at TIMESTAMPTZ NULL, candidate_signature_form VARCHAR(24) NULL, candidate_file_path VARCHAR(512) NULL, candidate_file_name VARCHAR(255) NULL, company_signed_at TIMESTAMPTZ NULL, company_file_path VARCHAR(512) NULL, company_file_name VARCHAR(255) NULL, valid_until DATE NULL, b2b_deadline DATE NULL, closed_at TIMESTAMPTZ NULL, close_reason VARCHAR(24) NULL, closed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, withdrawal JSONB NULL, last_reminder_at TIMESTAMPTZ NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT ck_pre_contract_needed_before CHECK (needed_before IN ('cv_sent', 'client_interview', 'b2b_contract', 'date')), CONSTRAINT ck_pre_contract_signature_form CHECK (candidate_signature_form IS NULL OR candidate_signature_form IN ('trusted_profile', 'personal_signature', 'qualified', 'handwritten_scan', 'other')), CONSTRAINT ck_pre_contract_close_reason CHECK (close_reason IS NULL OR close_reason IN ('fulfilled', 'expired', 'cancelled', 'withdrawn', 'candidate_refused', 'candidate_withdrew')))",

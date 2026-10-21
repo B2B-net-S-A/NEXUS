@@ -574,7 +574,7 @@ function PersonMoreMenu({
   onUndoClientAcceptance?: () => void;
   /** „Czarna lista…” (17.10.2026) — to samo okno co w menu profilu. */
   onBlacklist?: () => void;
-  /** 0504: umowa przedwstępna — zakładka „Umowa” albo okno prośby. */
+  /** 0505: umowa przedwstępna — zakładka „Umowa” albo okno prośby. */
   onPreContract?: () => void;
 }) {
   return (
@@ -1289,7 +1289,7 @@ export function PipelineCandidateDock({
         onReject({ notes: action.note ?? null });
         return;
       case "open_pre_contract":
-        // 0504: umowa przedwstępna — sekcja w zakładce „Umowa” panelu osoby.
+        // 0505: umowa przedwstępna — sekcja w zakładce „Umowa” panelu osoby.
         onOpenWorkbench?.("contract");
         return;
       default:

@@ -1,6 +1,6 @@
 "use client"
 
-// Kafelek „Umowy przedwstępne” (0504, 21.10.2026): ile próśb czeka na
+// Kafelek „Umowy przedwstępne” (0505, 21.10.2026): ile próśb czeka na
 // wystawienie lub podpis, ile umów wygasa w 7 dni, ile osób ma termin umowy
 // B2B z przedwstępnej i ile rezygnacji czeka na decyzję o karze. Zakres liczy
 // serwer (HoR wszystko, DL swoi klienci i swoje prośby, rekruter swoje).

@@ -322,7 +322,7 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
       title: offLimits.title ?? offLimits.label,
     });
   }
-  // Umowa przedwstępna (0504) — ta sama plakietka co karta Tablicy.
+  // Umowa przedwstępna (0505) — ta sama plakietka co karta Tablicy.
   const preContract = preContractCardBadge(item.pre_contract);
   if (preContract) {
     out.push({

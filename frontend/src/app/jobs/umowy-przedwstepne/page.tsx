@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { PreContractsList } from "@/components/v2/recruitment/PreContractsList";
 
 /**
- * Rekrutacje → „Umowy przedwstępne” (0504, 21.10.2026): prośby o umowę
+ * Rekrutacje → „Umowy przedwstępne” (0505, 21.10.2026): prośby o umowę
  * przedwstępną przy osobach w rekrutacjach — stan, kto wystawia, ważność,
  * termin umowy B2B i decyzje o karze. Bramka jak „Rekrutacje” (sekcja
  * Pipeline); zakres wierszy liczy API.

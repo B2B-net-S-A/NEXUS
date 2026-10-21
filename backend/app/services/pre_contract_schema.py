@@ -1,6 +1,6 @@
-"""Prośby o umowę przedwstępną — SQL migracji 0504 i lustra w ``entrypoint.sh``.
+"""Prośby o umowę przedwstępną — SQL migracji 0505 i lustra w ``entrypoint.sh``.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0504_pre_contract_requests.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0505_pre_contract_requests.py``
 i ``entrypoint.sh`` (alembic na prodzie bywa osierocony); test
 ``test_pre_contract_schema_mirror.py`` sprawdza, że każda stoi w entrypoincie
 dosłownie — po tabeli ``b2b_contract_documents``, na którą wskazuje klucz obcy.
