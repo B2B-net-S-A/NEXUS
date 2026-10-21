@@ -427,14 +427,18 @@ export function CustomDashboard() {
   // „Do uzupełnienia” (prośba Olafa, 21.10.2026): kafelek na pulpicie zabiera
   // trzy listy z „Czeka na Ciebie”; bez niego panel proponuje „Przenieś na
   // pulpit”, a „Zostaw tutaj” chowa propozycję jak ogłoszenie kafelka.
-  const toCompleteOnGrid = saved.some((t) => t.type === TO_COMPLETE_TILE_TYPE)
+  // Kafelek bez dostępu do sekcji pokazuje tylko „Brak dostępu” — listy
+  // zostają wtedy w panelu, inaczej nie byłoby ich nigdzie.
+  const toCompleteAvailable = TILE_DEFINITIONS.to_complete.availability(user).ok
+  const toCompleteOnGrid =
+    toCompleteAvailable && saved.some((t) => t.type === TO_COMPLETE_TILE_TYPE)
   const toCompleteTemplate = TILE_TEMPLATES.find((t) => t.type === TO_COMPLETE_TILE_TYPE)
   const offerToComplete =
     dismissedLoaded &&
     query.isSuccess &&
-    !toCompleteOnGrid &&
-    !dismissed.has(TO_COMPLETE_TILE_TYPE) &&
-    TILE_DEFINITIONS.to_complete.availability(user).ok
+    toCompleteAvailable &&
+    !saved.some((t) => t.type === TO_COMPLETE_TILE_TYPE) &&
+    !dismissed.has(TO_COMPLETE_TILE_TYPE)
   const moveToComplete = () => {
     if (!toCompleteTemplate) return
     if (tiles.length >= MAX_TILES) {

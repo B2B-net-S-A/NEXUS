@@ -126,6 +126,21 @@ describe("pulpit — „Do uzupełnienia”", () => {
     expect(screen.queryByRole("button", { name: "Przenieś na pulpit" })).toBeNull()
   })
 
+  it("kafelek w układzie, ale bez dostępu do „Rekrutacji” → listy zostają w panelu", async () => {
+    useAuthStore.setState({
+      user: { ...recruiter, effective_section_access: { pipeline: "none" } } as User,
+      hydrated: true,
+    })
+    getMock.mockResolvedValue({
+      tiles: [myWeek, { id: "b", type: "to_complete", x: 6, y: 0, w: 6, h: 5, config: {} }],
+      version: 3,
+      dropped_tiles: [],
+    })
+    renderDashboard()
+    expect(await screen.findByText("kafelek na pulpicie: nie")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Przenieś na pulpit" })).toBeNull()
+  })
+
   it("„Zostaw tutaj” chowa propozycję także po ponownym wejściu, bez zapisu układu", async () => {
     getMock.mockResolvedValue({ tiles: [myWeek], version: 3, dropped_tiles: [] })
     const first = renderDashboard()

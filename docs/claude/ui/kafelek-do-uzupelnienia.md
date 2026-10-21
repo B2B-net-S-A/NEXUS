@@ -12,6 +12,8 @@ Kod: `custom/ToCompleteTile.tsx`, `ToCompleteMovePrompt.tsx`,
   pulpicie → `BoardTasksPanel` dostaje `toCompleteOnGrid` i wycina trzy listy
   (`withoutToCompleteLists`). Bez kafelka listy stoją w „Czeka na Ciebie” jak
   przed zmianą. Usunięcie kafelka oddaje je panelowi — nic nie znika.
+  Kafelek w układzie konta bez dostępu do „Rekrutacji” (pokazuje „Brak
+  dostępu”) się nie liczy — listy zostają wtedy w panelu.
 - **Umowy: tylko „do zamknięcia”.** „Umowy do potwierdzenia” (podpis) to
   zadanie i zostają w „Czeka na Ciebie”; prośby rekrutera — w „U innych”.
 - **Te same sekcje co w panelu** (`AgreementTasksSection`,
