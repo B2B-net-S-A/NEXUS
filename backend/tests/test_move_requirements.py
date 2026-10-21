@@ -561,7 +561,12 @@ def test_job_without_questions_asks_for_the_assessment_instead_of_the_sheet() ->
 
 
 def test_job_without_questions_moves_once_the_assessment_is_written() -> None:
-    facts = replace(NO_QUESTIONS, card_exists=True, card_recommendation=True)
+    facts = replace(
+        NO_QUESTIONS,
+        card_exists=True,
+        card_recommendation=True,
+        card_present=NO_QUESTIONS.card_present | {"recommendation"},
+    )
     result = build_requirements(facts, "verified")
     item = _item(result, "why_candidate")
     assert item["status"] == "ok" and item["action"] is None
@@ -706,3 +711,40 @@ def test_client_extra_fields_join_the_minimum_with_the_client_name() -> None:
     assert item["detail"] == "wymaga Bank A" and item["blocking"] is True
     done = replace(facts, card_present=facts.card_present | {"motivation"})
     assert minimum_missing(done) == []
+
+
+def test_job_without_questions_still_needs_why_when_note_answers_met_the_talk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Przegląd 21.10.2026: odpowiedzi z notatki spełniają `why_candidate` bez
+    oceny — minimum dalej wymaga „Dlaczego ten kandydat”, raz."""
+    facts = replace(
+        NO_QUESTIONS,
+        card_answers=True,
+        card_present=frozenset({"location", "work_mode"}),
+    )
+    assert screening_requirement(facts) == ("why_candidate", True)
+    assert minimum_missing(facts) == ["recommendation"]
+    result = build_requirements(facts, "verified")
+    assert _item(result, "why_candidate")["status"] == "ok"
+    assert _item(result, "recommendation")["status"] == "missing"
+    assert result["primary"]["kind"] == "blocked"
+    # Bez odpowiedzi — „Dlaczego” stoi tylko jako wymaganie rozmowy.
+    bare = replace(facts, card_answers=False)
+    assert minimum_missing(bare) == []
+    assert "recommendation" not in _keys(build_requirements(bare, "verified"))
+    # Tablica: ta sama reguła z flagi `screening_done` karty.
+    from app.core.config import settings
+    from app.services.move_requirements import board_minimum_missing
+
+    monkeypatch.setattr(settings, "VERIFIED_MINIMUM_FIELDS_ENABLED", True)
+    card = {"present": ["location", "work_mode"], "availability": False}
+    assert board_minimum_missing(
+        card, has_questions=False, availability_known=True, screening_met=True
+    ) == ["recommendation"]
+    assert (
+        board_minimum_missing(
+            card, has_questions=False, availability_known=True, screening_met=False
+        )
+        == []
+    )

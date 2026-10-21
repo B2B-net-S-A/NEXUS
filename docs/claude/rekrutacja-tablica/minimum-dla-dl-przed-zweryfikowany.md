@@ -21,7 +21,9 @@ Decyzje Artura 21.10.2026:
   blokujące z akcją `open_card`), karty Tablicy (`minimum_missing`) i formularza
   (`state.card.required`, lustro `minimumMissingForForward`). Dostępność liczy się też
   z daty w profilu, wartość z notatki — także przy pustym polu formularza. W rekrutacji bez
-  pytań „Dlaczego” stoi raz, jako `why_candidate`. „Pomiń brakujące” dotyczy tylko pytań
+  pytań niewpisane „Dlaczego” stoi raz, jako `why_candidate`; gdy rozmowę zapisały odpowiedzi
+  z notatki albo stary arkusz (`why_candidate` spełnione), minimum dalej wymaga „Dlaczego”
+  (`_why_candidate_reported`, przegląd 21.10.2026). „Pomiń brakujące” dotyczy tylko pytań
   i minimum nie pomija. Wyłącznik: `VERIFIED_MINIMUM_FIELDS_ENABLED` (testy: autouse
   w `conftest.py` wyłącza, `minimum_on` w `test_verified_gate.py` włącza).
 - **Zaślepka nie jest wartością.** Pole bez litery i cyfry („-”, „.”, „?”) liczy się jako

@@ -1,4 +1,4 @@
-"""0493: kolumna karty klienta ma lustro 1:1 w ``entrypoint.sh``.
+"""0495: kolumna karty klienta ma lustro 1:1 w ``entrypoint.sh``.
 
 Alembic na produkcji bywa osierocony — wdrożeniem schematu jest entrypoint.
 """
@@ -12,8 +12,8 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 
 def _migration():
-    path = BACKEND / "alembic/versions/0493_playbook_verified_required.py"
-    spec = importlib.util.spec_from_file_location("m0493", path)
+    path = BACKEND / "alembic/versions/0495_playbook_verified_required.py"
+    spec = importlib.util.spec_from_file_location("m0495", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -28,7 +28,7 @@ def test_entrypoint_mirrors_the_migration() -> None:
     )
     assert mirrored in entrypoint
     module = _migration()
-    assert module.revision == "0493_playbook_verified_required"
+    assert module.revision == "0495_playbook_verified_required"
     assert module.UPGRADE_SQL == (
         "ALTER TABLE client_playbooks "
         "ADD COLUMN IF NOT EXISTS verified_required_fields JSONB NULL"

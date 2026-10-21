@@ -65,8 +65,16 @@ describe("minimumMissingForForward", () => {
     expect(minimumMissingForForward(state, FORM_QUESTIONS, { card: { work_mode: "hybryda" } })).toEqual([
       "recommendation",
     ]);
-    // Bez pytań „Dlaczego ten kandydat” pilnuje `assessmentMissingForForward`.
+    // Bez pytań i bez odpowiedzi „Dlaczego” zatrzymuje `assessmentMissingForForward` — raz.
     expect(minimumMissingForForward(state, [], { card: { work_mode: "hybryda" } })).toEqual([]);
+    // Odpowiedzi z notatki spełniają rozmowę, ale nie zastępują „Dlaczego” (przegląd 21.10).
+    const withNote = formState({
+      card: state.card,
+      note_answers: [{ question_id: "q1", number: 1, question: "Ile lat Java?", answer: "6" }],
+    });
+    expect(minimumMissingForForward(withNote, [], { card: { work_mode: "hybryda" } })).toEqual([
+      "recommendation",
+    ]);
   });
 
   it("bez listy `required` (wyłącznik, starszy serwer) niczego nie wymaga", () => {

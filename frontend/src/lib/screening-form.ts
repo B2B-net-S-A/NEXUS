@@ -480,18 +480,20 @@ export function cardValueCounts(key: string, raw: string | null | undefined): bo
 /**
  * Pola minimum bez wartości — „Zapisz i przekaż dalej” zatrzymuje się na nich
  * (lustro `move_requirements.minimum_missing`). Puste pole nie kasuje wartości
- * z notatki, dostępność liczy się też z profilu, a w rekrutacji bez pytań
- * „Dlaczego ten kandydat” pilnuje `assessmentMissingForForward`.
+ * z notatki, dostępność liczy się też z profilu. W rekrutacji bez pytań
+ * „Dlaczego ten kandydat” pomijamy tylko wtedy, gdy już zatrzymuje
+ * `assessmentMissingForForward` — odpowiedzi z notatki albo stary arkusz go
+ * nie zastępują (lustro `_why_candidate_reported`, przegląd 21.10.2026).
  */
 export function minimumMissingForForward(
-  state: Pick<ScreeningFormState, "card">,
+  state: Pick<ScreeningFormState, "card" | "sheet" | "note_answers" | "questions">,
   questions: readonly ScreeningQuestion[],
   values: Pick<ScreeningFullFormValues, "card">,
 ): string[] {
   const editable = new Set(editableCardKeys(state));
   return (state.card?.required ?? []).filter((key) => {
     if (!editable.has(key)) return false;
-    if (key === "recommendation" && questions.length === 0) return false;
+    if (key === "recommendation" && assessmentMissingForForward(state, questions, values)) return false;
     if (key === "availability" && state.card?.availability_in_profile) return false;
     const typed = values.card?.[key] ?? "";
     if (cardValueCounts(key, typed)) return false;

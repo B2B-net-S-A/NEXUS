@@ -3621,6 +3621,7 @@ async def build_kanban_view(
             card_by_candidate.get(e.candidate_id),
             has_questions=job_has_questions,
             availability_known=availability[1] is not None,
+            screening_met=bool(payload["screening_done"]),
             client_required=job_client_required,
         )
         in_base_at, in_base_exact, in_base_by = added_to_base_by_id.get(

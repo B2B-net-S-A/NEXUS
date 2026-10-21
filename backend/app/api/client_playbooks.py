@@ -120,7 +120,7 @@ class ClientPlaybookPayload(BaseModel):
     process_rules_md: Optional[str] = Field(default=None, max_length=20000)
     onboarding_md: Optional[str] = Field(default=None, max_length=20000)
     documents: list[PlaybookDocument] = Field(default_factory=list, max_length=50)
-    # 0493 (D3, 21.10.2026): pola karty rekomendacji, które klient dokłada do
+    # 0495 (D3, 21.10.2026): pola karty rekomendacji, które klient dokłada do
     # minimum przed „Zweryfikowany”. Tylko z `CLIENT_EXTRA_FIELDS`.
     verified_required_fields: list[str] = Field(default_factory=list, max_length=10)
 

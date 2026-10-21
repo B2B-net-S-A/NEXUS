@@ -64,7 +64,7 @@ export interface ClientPlaybook {
   onboarding_md: string | null;
   documents: PlaybookDocument[];
   /**
-   * 0493 (21.10.2026, D3): pola screeningu, które klient dokłada do minimum przed
+   * 0495 (21.10.2026, D3): pola screeningu, które klient dokłada do minimum przed
    * „Zweryfikowany”. Opcjonalne — starsze odpowiedzi go nie niosą.
    */
   verified_required_fields?: string[];

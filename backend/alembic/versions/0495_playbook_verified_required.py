@@ -1,6 +1,6 @@
 """Karta klienta: pola wymagane przed „Zweryfikowany” (decyzja Artura 21.10.2026, D3).
 
-Revision ID: 0493_playbook_verified_required
+Revision ID: 0495_playbook_verified_required
 Revises: 0491_approval_contract_basis
 
 ``client_playbooks.verified_required_fields`` — lista kluczy pól karty
@@ -11,7 +11,7 @@ dokłada do minimum przed „Zweryfikowany”. Lustro 1:1 w ``entrypoint.sh``
 
 from alembic import op
 
-revision = "0493_playbook_verified_required"
+revision = "0495_playbook_verified_required"
 down_revision = "0491_approval_contract_basis"
 branch_labels = None
 depends_on = None

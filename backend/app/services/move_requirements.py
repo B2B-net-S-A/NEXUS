@@ -426,9 +426,20 @@ def minimum_missing(f: PairFacts) -> list[str]:
     if f.availability_known or f.card_availability:
         present.add("availability")
     missing = [key for key in required_card_fields(f) if key not in present]
-    if not f.has_screening_questions:
+    if _why_candidate_reported(f):
         missing = [key for key in missing if key != "recommendation"]
     return missing
+
+
+def _why_candidate_reported(f: PairFacts) -> bool:
+    """„Dlaczego” stoi już na liście jako niespełnione `why_candidate`.
+
+    Tylko wtedy minimum go pomija. Rekrutacja bez pytań, w której rozmowę
+    zapisały odpowiedzi z notatki albo stary arkusz, spełnia `why_candidate`
+    bez oceny — minimum dalej jej wymaga (przegląd 21.10.2026).
+    """
+    key, met = screening_requirement(f)
+    return key == WHY_CANDIDATE and not met
 
 
 def board_minimum_missing(
@@ -436,11 +447,13 @@ def board_minimum_missing(
     *,
     has_questions: bool,
     availability_known: bool,
+    screening_met: bool,
     client_required: Sequence[str] = (),
 ) -> list[str]:
     """Braki minimum dla DL karty Tablicy — z podsumowania karty, bez zapytań.
 
     Ta sama reguła co ``minimum_missing`` (bramka i okno „Przesuń dalej”).
+    ``screening_met`` = ``screening_done`` karty (`card_screening_state`).
     """
     from app.core.config import settings  # noqa: PLC0415
 
@@ -451,6 +464,7 @@ def board_minimum_missing(
             card_availability=bool(card and card.get("availability")),
             card_present=frozenset((card or {}).get("present") or ()),
             has_screening_questions=has_questions,
+            screening_done=screening_met,
             client_required_fields=tuple(client_required),
             minimum_enabled=settings.VERIFIED_MINIMUM_FIELDS_ENABLED,
         )
@@ -559,8 +573,8 @@ def _minimum_items(column: str, f: PairFacts) -> list[_Item]:
     client_extra = set(f.client_required_fields)
     items: list[_Item] = []
     for key in required_card_fields(f):
-        if key == "recommendation" and not f.has_screening_questions:
-            continue  # już jako wymaganie rozmowy (`why_candidate`)
+        if key == "recommendation" and _why_candidate_reported(f):
+            continue  # już jako niespełnione wymaganie rozmowy (`why_candidate`)
         absent = key in missing
         if key == "availability":
             detail = availability_detail
