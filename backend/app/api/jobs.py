@@ -2623,12 +2623,17 @@ async def update_job(
         updates["working_title"] = manual
         job.working_title_auto = manual is None
         working_title_reset = manual is None
-    if "client_reference" in updates:
-        from app.services.job_working_title import normalize_client_reference
+    if "client_reference" in updates or "title" in updates:
+        from app.services.job_working_title import client_reference_for_title
 
-        updates["client_reference"] = normalize_client_reference(
-            updates["client_reference"]
+        # 21.10.2026: nazwa roli w polu numeru dawała w CV nagłówek „(43020)”.
+        reference = client_reference_for_title(
+            updates.get("title", job.title),
+            updates.get("client_reference", job.client_reference),
+            job.reference_number,
         )
+        if "client_reference" in updates or reference != job.client_reference:
+            updates["client_reference"] = reference
     if "champion_profile" in updates:
         from app.api.champion_intake import invalid_champion_profile
         from app.services.champion_intake import user_edit

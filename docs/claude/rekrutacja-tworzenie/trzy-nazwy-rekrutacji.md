@@ -105,3 +105,19 @@ pokazywało już tytuł dla rekrutera (z karty), a reszta — `jobs.title`.
   `jobDisplayTitle(job)`, nie `job.title`.
 - Listy, w których osoba już jest (profil → Rekrutacje, „ostatnio: …”
   w oknie dodawania, „Moi ludzie”), robi osobny PR.
+
+## Numer u klienta nie może być nazwą roli (21.10.2026)
+
+Nordea 20.10.2026: nazwa „PL_IT_Developer_expert_TP#40379 (43020)”, a numer
+u klienta „PL_IT_Developer_expert_TP#40379”. `cv_role_title` wycinał numer
+z nazwy i zostawał sam „(43020)” — cztery CV dostały nagłówek
+„(43020) – Imię Nazwisko”, a QC przepuszczało je, bo nagłówek z payloadu
+potwierdzał sam siebie.
+
+- Numer, po którego wycięciu z nazwy nie zostaje żadna litera, to nazwa roli
+  (`reference_swallows_role`). Przy zapisie (`POST`/`PATCH /api/jobs`,
+  odczyt maila) ustępuje numerowi z nazwy (`client_reference_for_title` →
+  `reference_from_title`) albo pustce. Lustro na froncie: `clientReferenceFor`.
+- `cv_role_title` nigdy nie zwraca nagłówka bez liter, gdy nazwa je ma —
+  wtedy liczy rolę z pełnej nazwy, ignorując numer.
+- QC CV nie uznaje nagłówka bez liter za zgodny tytuł.

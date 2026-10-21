@@ -861,6 +861,26 @@ def test_header_is_compared_with_the_role_name_without_client_codes() -> None:
     assert _by_key(qc.compute_checks(data))["title_matches_role"]["status"] == "pass"
 
 
+async def test_letterless_header_does_not_confirm_itself(monkeypatch) -> None:
+    """21.10.2026: CV z nagłówkiem „(43020) – …” przechodziło QC, bo nagłówek
+    z payloadu potwierdzał sam siebie."""
+    import app.services.job_public_profile as public_profile
+
+    async def no_names(_db, _client_id):
+        return []
+
+    monkeypatch.setattr(public_profile, "_client_names", no_names)
+    src = SimpleNamespace(
+        job=SimpleNamespace(
+            title="PL_IT_Developer_expert_TP#40379 (43020)",
+            client_reference="PL_IT_Developer_expert_TP#40379",
+            client_id=1,
+        )
+    )
+    titles = await qc.expected_titles(None, src, {"presentation_position": "(43020)"})
+    assert titles == ("PL_IT_Developer_expert_TP#40379",)
+
+
 @pytest.mark.parametrize(
     ("head", "expected", "matches"),
     [
