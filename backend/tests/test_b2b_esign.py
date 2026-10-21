@@ -163,7 +163,7 @@ class _FakeValidator:
     """Walidator z gotowym raportem — DSS nie stoi w CI."""
 
     report: ValidationReport = _report()
-    has_dss = True
+    authoritative = True
     on_validate: Any = None
 
     async def validate(self, signed_pdf: bytes) -> ValidationReport:
@@ -217,7 +217,6 @@ async def _send(app_client, headers, generated_id: int, signer_id: int):
     return await app_client.post(
         f"/api/b2b-generator/generated/{generated_id}/esign/send",
         json={
-            "contractor_name": "Anna Signature",
             "contractor_email": "anna@example.com",
             "company_signer_id": signer_id,
             "days": 14,
@@ -230,6 +229,17 @@ def _token(sign_url: str) -> str:
     return sign_url.rsplit("/", 1)[-1]
 
 
+async def _partner(generated_id: int) -> str:
+    """Kto podpisuje za kontraktora — osoba z umowy, nie z formularza wysyłki."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, generated_id)
+        assert row is not None and row.partner_name
+        return row.partner_name
+
+
 @pytest.mark.asyncio
 async def test_contractor_then_company_sign_and_the_request_completes(
     app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
@@ -237,10 +247,12 @@ async def test_contractor_then_company_sign_and_the_request_completes(
     from tests.test_b2b_signature_automation import _seed_bound_scenario
 
     scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    partner = await _partner(scenario["generated_id"])
     sent = await _send(
         app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
     )
     assert sent.status_code == 200, sent.text
+    assert sent.json()["request"]["contractor_name"] == partner
     token = _token(sent.json()["sign_url"])
     again = await _send(
         app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
@@ -252,7 +264,7 @@ async def test_contractor_then_company_sign_and_the_request_completes(
     pdf = await app_client.get(f"/api/public/b2b-sign/{token}/pdf")
     assert pdf.content == SOURCE
 
-    _FakeValidator.report = _report(("CN=Anna Signature", "TOTAL_PASSED", "QESig"))
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
     changed = await app_client.post(
         f"/api/public/b2b-sign/{token}",
         files={
@@ -291,7 +303,7 @@ async def test_contractor_then_company_sign_and_the_request_completes(
         signer_name = (await db.get(User, esign_env["signer_id"])).name
     final_pdf = contractor_pdf + b"% podpis firmy\n"
     _FakeValidator.report = _report(
-        ("CN=Anna Signature", "TOTAL_PASSED", "QESig"),
+        (f"CN={partner}", "TOTAL_PASSED", "QESig"),
         (f"CN={signer_name}", "TOTAL_PASSED", "AdESig"),
     )
     not_qualified = await app_client.post(
@@ -301,7 +313,7 @@ async def test_contractor_then_company_sign_and_the_request_completes(
     )
     assert not_qualified.status_code == 422, not_qualified.text
     _FakeValidator.report = _report(
-        ("CN=Anna Signature", "TOTAL_PASSED", "QESig"),
+        (f"CN={partner}", "TOTAL_PASSED", "QESig"),
         (f"CN={signer_name}", "TOTAL_PASSED", "QESig"),
     )
     done = await app_client.post(
@@ -322,6 +334,7 @@ async def test_withdraw_closes_the_link_and_wins_over_a_running_validation(
     from tests.test_b2b_signature_automation import _seed_bound_scenario
 
     scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    partner = await _partner(scenario["generated_id"])
     sent = await _send(
         app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
     )
@@ -337,7 +350,7 @@ async def test_withdraw_closes_the_link_and_wins_over_a_running_validation(
         )
         assert response.status_code == 200, response.text
 
-    _FakeValidator.report = _report(("CN=Anna Signature", "TOTAL_PASSED", "QESig"))
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
     _FakeValidator.on_validate = _withdraw_meanwhile
     late = await app_client.post(
         f"/api/public/b2b-sign/{token}",
@@ -383,3 +396,37 @@ def test_token_is_stored_only_as_a_hash():
     token, digest = new_token()
     assert digest == hashlib.sha256(token.encode()).hexdigest() == token_hash(token)
     assert token not in digest
+
+
+@pytest.mark.asyncio
+async def test_bogus_link_is_refused_before_the_file_and_failures_are_capped(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Przegląd bezpieczeństwa 21.10.2026: fałszywy link nie przyjmuje pliku,
+    a jeden link nie uruchamia walidacji w nieskończoność."""
+    from app.services.b2b_esign import service
+    from tests.test_b2b_signature_automation import _seed_bound_scenario
+
+    bogus = await app_client.post(
+        "/api/public/b2b-sign/nie-ma-takiego-linku",
+        files={"file": ("u.pdf", SOURCE + b"% podpis\n", "application/pdf")},
+    )
+    assert bogus.status_code == 404, bogus.text
+
+    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    token = _token(sent.json()["sign_url"])
+    _FakeValidator.report = _report(("CN=Ktoś Obcy", "TOTAL_PASSED", "QESig"))
+    for _ in range(service.MAX_FAILED_ATTEMPTS):
+        wrong = await app_client.post(
+            f"/api/public/b2b-sign/{token}",
+            files={"file": ("u.pdf", SOURCE + b"% podpis\n", "application/pdf")},
+        )
+        assert wrong.status_code == 422, wrong.text
+    capped = await app_client.post(
+        f"/api/public/b2b-sign/{token}",
+        files={"file": ("u.pdf", SOURCE + b"% podpis\n", "application/pdf")},
+    )
+    assert capped.status_code == 429, capped.text

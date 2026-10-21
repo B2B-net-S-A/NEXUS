@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS b2b_signing_requests (
     contractor_name VARCHAR(255) NOT NULL,
     contractor_email VARCHAR(255) NOT NULL,
     contractor_token_hash VARCHAR(64) UNIQUE,
+    contractor_failed_attempts INTEGER NOT NULL DEFAULT 0,
     company_signer_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     source_pdf_path VARCHAR(512) NOT NULL,
     source_sha256 VARCHAR(64) NOT NULL,

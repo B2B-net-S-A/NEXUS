@@ -107,7 +107,8 @@ class EsignSettingsIn(BaseModel):
 
 
 class EsignSendIn(BaseModel):
-    contractor_name: str = Field(min_length=3, max_length=255)
+    # Imię i nazwisko podpisującego bierze się z umowy (``partner_name``),
+    # nie z formularza — przegląd bezpieczeństwa 21.10.2026.
     contractor_email: EmailStr
     company_signer_id: int
     days: int = Field(default=14, ge=1, le=30)
@@ -118,7 +119,7 @@ class EsignRequestOut(BaseModel):
     generated_contract_id: int
     status: str
     contractor_name: str
-    contractor_email: str
+    contractor_email: Optional[str]
     company_signer_id: Optional[int]
     company_signer_name: Optional[str]
     sent_at: datetime
@@ -157,7 +158,9 @@ async def _names(db: AsyncSession, ids: list[int]) -> dict[int, str]:
     return {uid: name for uid, name in rows.all()}
 
 
-async def _out(db: AsyncSession, request: B2BSigningRequest) -> EsignRequestOut:
+async def _out(
+    db: AsyncSession, request: B2BSigningRequest, *, with_contact: bool = True
+) -> EsignRequestOut:
     names = (
         await _names(db, [request.company_signer_id])
         if request.company_signer_id
@@ -168,7 +171,9 @@ async def _out(db: AsyncSession, request: B2BSigningRequest) -> EsignRequestOut:
         generated_contract_id=request.generated_contract_id,
         status=request.status,
         contractor_name=request.contractor_name,
-        contractor_email=request.contractor_email,
+        # E-mail kontraktora widzi nadawca i reprezentant firmy, nie każdy
+        # z odczytem rejestru (przegląd bezpieczeństwa 21.10.2026).
+        contractor_email=request.contractor_email if with_contact else None,
         company_signer_id=request.company_signer_id,
         company_signer_name=names.get(request.company_signer_id or -1),
         sent_at=request.sent_at,
@@ -198,6 +203,16 @@ async def _assert_row_sender(
                 "rekrutacji, TCM albo admin."
             ),
         )
+
+
+async def _may_send(db: AsyncSession, user: User, row: B2BGeneratedContract) -> bool:
+    try:
+        await _assert_row_sender(db, user, row)
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        return False
+    return True
 
 
 async def _upload_bytes(file: UploadFile) -> bytes:
@@ -288,7 +303,6 @@ async def send_for_esign(
         row=row,
         pdf=pdf,
         actor_id=current_user.id,
-        contractor_name=body.contractor_name,
         contractor_email=str(body.contractor_email),
         company_signer_id=body.company_signer_id,
         days=body.days,
@@ -315,7 +329,12 @@ async def get_row_esign(
         .order_by(B2BSigningRequest.id.desc())
         .limit(1)
     )
-    return await _out(db, request) if request else None
+    if request is None:
+        return None
+    with_contact = request.company_signer_id == current_user.id or await _may_send(
+        db, current_user, row
+    )
+    return await _out(db, request, with_contact=with_contact)
 
 
 @router.post("/esign/{request_id}/withdraw", response_model=EsignRequestOut)
@@ -372,12 +391,14 @@ async def company_signer_pdf(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Plik do podpisu za firmę — wersja podpisana przez kontraktora."""
-    request = await db.get(B2BSigningRequest, request_id)
-    if request is None or request.company_signer_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Wniosek o podpis nie istnieje.")
-    if request.status != "contractor_signed" or not request.contractor_pdf_path:
-        raise HTTPException(status_code=409, detail=service.MSG_CLOSED)
-    data = storage_service.read_b2b_signing_pdf(request.contractor_pdf_path)
+    current = await esign_settings.load(db)
+    request = await service.company_precheck(
+        db,
+        request_id=request_id,
+        actor_id=current_user.id,
+        signer_ids=current.company_signer_ids,
+    )
+    data = storage_service.read_b2b_signing_pdf(request.contractor_pdf_path or "")
     return Response(
         content=data,
         media_type="application/pdf",
@@ -395,12 +416,19 @@ async def company_sign(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> EsignRequestOut:
-    data = await _upload_bytes(file)
-    updated = await service.company_submit(
+    current = await esign_settings.load(db)
+    request = await service.company_precheck(
         db,
         request_id=request_id,
         actor_id=current_user.id,
-        actor_name=current_user.name,
+        signer_ids=current.company_signer_ids,
+    )
+    actor_name = current_user.name
+    data = await _upload_bytes(file)
+    updated = await service.company_submit(
+        db,
+        request=request,
+        actor_name=actor_name,
         data=data,
         validator=_validator(),
         now=_now(),
@@ -474,9 +502,13 @@ async def public_sign_submit(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> PublicSignView:
+    # Najpierw link i stan, dopiero potem plik (fałszywy link nie zmusza
+    # serwera do przyjęcia 20 MB).
+    now = _now()
+    signing = await service.contractor_precheck(db, token, now)
     data = await _upload_bytes(file)
     signing = await service.contractor_submit(
-        db, token=token, data=data, validator=_validator(), now=_now()
+        db, request=signing, data=data, validator=_validator(), now=now
     )
     await db.commit()
     return await _public_view(db, signing)
