@@ -526,7 +526,7 @@ Kod: `models/pre_contract.py`, `services/pre_contracts.py`, `api/pre_contracts.p
   procesu → weryfikujący → rekruter rekrutacji); proszący może wskazać kogoś
   innego, wystawiający można zmienić.
 - **Proszący i obserwujący widzą stan i dostają dzwonek przy każdym kroku**
-  (typ `pre_contract`, kategoria „Kontrakty, zamówienia i podpisy”, ikona
+  (typ `pre_contract`, kategoria „Wzmianki” — imienne zadanie, nie do wyciszenia; ikona
   „Rekrutacje” z dymkiem), bez autora kroku. Encją dzwonka jest zdarzenie
   (`pre_contract_events`), więc dwa kroki jednego dnia dają dwa dzwonki.
   Druga prośba o tę samą osobę dopisuje proszącego do obserwujących — nie

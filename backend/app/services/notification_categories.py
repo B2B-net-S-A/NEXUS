@@ -126,6 +126,9 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.board_task_waiting: _C.mentions,
     # Rekruter czeka, aż potwierdzisz podpis jego umowy — imienne zadanie (0417).
     _T.b2b_signature_requested: _C.mentions,
+    # 0504: umowa przedwstępna — imienne zadanie (wystaw, podpisz) albo
+    # krok umowy, o którą ktoś sam poprosił; obserwowanie wyłącza się w panelu.
+    _T.pre_contract: _C.mentions,
     # 0418: zadanie DL po wzroście stawki — na DL czeka klient, nie do wyciszenia.
     _T.candidate_rate_change_task: _C.mentions,
     # Ktoś przejął Twoją osobę w „Nowych" — imienne, jak wzmianka.
@@ -187,8 +190,6 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.prep2_skipped: _C.interviews,
     _T.prep2_skip_threshold: _C.interviews,
     _T.interview_changed: _C.interviews,
-    # 0504: umowa przedwstępna kandydata — podpisy i terminy umowy.
-    _T.pre_contract: _C.contracts,
     # Akceptacje klienta (0451)
     _T.client_accepted: _C.acceptances,
     # 0374: koniec programu praktykanta — decyzja Head of Recruitment.

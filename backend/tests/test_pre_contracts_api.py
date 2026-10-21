@@ -467,3 +467,24 @@ async def test_finance_outside_the_job_cannot_read_files_or_change_state(
             url, headers=fin_h, **({"json": body} if body else {})
         )
         assert resp.status_code == 403, (url, resp.status_code)
+
+
+async def test_automation_account_cannot_open_pre_contract_files(
+    app_client: AsyncClient,
+) -> None:
+    pair = await _pair()
+    rec_h = await _headers(app_client, pair["recruiter"])
+    created = await app_client.post(
+        "/api/pre-contracts",
+        headers=rec_h,
+        json={"candidate_id": pair["candidate_id"], "job_id": pair["job_id"]},
+    )
+    async with AsyncSessionLocal() as db:
+        bot, pwd = await _user(db, UserRole.automation)
+        await db.commit()
+        who = (bot.id, bot.email, pwd)
+    resp = await app_client.get(
+        f"/api/pre-contracts/{created.json()['id']}",
+        headers=await _headers(app_client, who),
+    )
+    assert resp.status_code == 403

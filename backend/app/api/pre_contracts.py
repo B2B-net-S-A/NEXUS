@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, exists, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess
@@ -75,6 +76,18 @@ MSG_LOCKED = (
 MSG_ASSIGNEE = "Wybierz aktywne konto."
 
 _OVERSIGHT = (UserRole.admin, UserRole.head_of_recruitment)
+#: Role, które prowadzą rekrutacje. ``ensure_job_membership`` przepuszcza też
+#: Finanse i „Automatyzacje” (podgląd rekrutacji), a pliki mają PESEL i trasy
+#: zmieniają stan — te role (i Rada nadzorcza) tu nie wchodzą.
+_WORKING_ROLES = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.recruiter,
+)
+MSG_ROLE = "Umowy przedwstępne prowadzą osoby z rekrutacji."
+MSG_RACE = "Ktoś właśnie poprosił o tę umowę — odśwież panel i dołącz do obserwujących."
 
 # ── Schematy ─────────────────────────────────────────────────────────────────
 
@@ -231,11 +244,17 @@ async def _load(
     return req
 
 
+async def _ensure_pair_access(db: AsyncSession, user: User, job_id: int) -> None:
+    if not user.has_any_role(*_WORKING_ROLES):
+        raise HTTPException(status_code=403, detail=MSG_ROLE)
+    await ensure_job_membership(db, user, job_id)
+
+
 async def _load_for(
     db: AsyncSession, user: User, request_id: int, *, lock: bool = True
 ) -> PreContractRequest:
     req = await _load(db, request_id, lock=lock)
-    await ensure_job_membership(db, user, req.job_id)
+    await _ensure_pair_access(db, user, req.job_id)
     return req
 
 
@@ -465,7 +484,7 @@ async def create_request(
 ):
     """Poproś o przedwstępną dla osoby. Gdy prośba w toku już jest — dopisz się
     do obserwujących (druga prośba nie tworzy drugiej umowy)."""
-    await ensure_job_membership(db, current_user, body.job_id)
+    await _ensure_pair_access(db, current_user, body.job_id)
     job = await db.get(Job, body.job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Nie ma takiej rekrutacji.")
@@ -525,8 +544,14 @@ async def create_request(
         requested_by=current_user.id,
         assignee_id=assignee,
     )
-    db.add(req)
-    await db.flush()
+    try:
+        # Dwa kliknięcia naraz: druga prośba trafia na indeks „jedna w toku
+        # na parę” — czytelne 409 zamiast 500.
+        async with db.begin_nested():
+            db.add(req)
+            await db.flush()
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=MSG_RACE) from exc
     await svc.add_watchers(db, req.id, [current_user.id, assignee])
     event = await svc.add_event(
         db,
@@ -603,7 +628,7 @@ async def pair_requests(
     db: AsyncSession = Depends(get_db),
 ):
     """Prośba w toku i zamknięte — sekcja „Umowa przedwstępna” w panelu osoby."""
-    await ensure_job_membership(db, current_user, job_id)
+    await _ensure_pair_access(db, current_user, job_id)
     rows = (
         await db.scalars(
             select(PreContractRequest)

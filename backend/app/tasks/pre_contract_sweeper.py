@@ -45,8 +45,11 @@ def due_action(req: PreContractRequest, *, today: date, now: datetime) -> Option
     )
     if reminded_today:
         return None
+    # Termin B2B: tylko przed jego upływem (po terminie dzwonek co dzień
+    # nikomu nie pomaga i zjadałby ostrzeżenie o ważności).
     if (
         req.b2b_deadline is not None
+        and req.b2b_deadline >= today
         and svc.business_days_until(today, req.b2b_deadline) <= 1
     ):
         return "b2b_deadline"

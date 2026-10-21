@@ -245,3 +245,24 @@ def test_no_warning_before_the_needed_column_or_when_signed() -> None:
 def test_cez_template_binds_five_business_days() -> None:
     assert svc.b2b_term_days("preliminary_cez") == 5
     assert svc.b2b_term_days(None) is None
+
+
+def test_sweeper_does_not_repeat_b2b_deadline_after_it_passed() -> None:
+    req = _signed(
+        valid_until=TODAY + timedelta(days=30),
+        b2b_deadline=TODAY - timedelta(days=5),
+        last_reminder_at=NOW - timedelta(days=1),
+    )
+    assert due_action(req, today=TODAY, now=NOW) is None
+
+
+def test_pre_contract_bell_cannot_be_muted_and_has_a_group() -> None:
+    from app.models.notification import NotificationType
+    from app.services.notification_categories import (
+        CATEGORY_BY_TYPE,
+        NotificationCategory,
+    )
+
+    assert (
+        CATEGORY_BY_TYPE[NotificationType.pre_contract] is NotificationCategory.mentions
+    )
