@@ -784,7 +784,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skip_threshold'",
     # 0500: rozmowa u klienta przełożona albo odwołana (do ludzi pary).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_changed'",
-    # 0505: alarm o masowym przeglądaniu CV (do adminów i HoR).
+    # 0506: alarm o masowym przeglądaniu CV (do adminów i HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_data_access_alert'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
