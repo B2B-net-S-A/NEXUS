@@ -1,4 +1,4 @@
-"""Umowa przedwstępna przy osobie w rekrutacji — API (0504, 21.10.2026).
+"""Umowa przedwstępna przy osobie w rekrutacji — API (0505, 21.10.2026).
 
 Droga z makiet: Delivery Lead prosi → rekruter prowadzący wystawia (Generator),
 wysyła, wgrywa umowę podpisaną przez kandydata (dowolna forma podpisu) i przez
