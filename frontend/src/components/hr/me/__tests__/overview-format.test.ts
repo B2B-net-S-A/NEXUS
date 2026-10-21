@@ -512,6 +512,10 @@ describe("mini-kalendarz miesiąca", () => {
     expect(missingLine(["2026-10-15", "2026-10-16", "2026-10-19"], "2026-10-19")).toBe(
       "Brakuje 3 dni: 15, 16, 19.10",
     );
+    // Dłuższej listy nie wypisujemy — dni są zaznaczone w kalendarzu karty.
+    expect(missingLine(["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"], "2026-10-19")).toBe(
+      "Brakuje 4 dni",
+    );
   });
 
   it("pasek godzin: praca i płatna nieobecność wobec normy, najwyżej 100", () => {

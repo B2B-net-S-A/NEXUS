@@ -6,6 +6,7 @@
  * Dane fikcyjne.
  */
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { YearMonth } from "@/lib/date-pl";
@@ -91,5 +92,18 @@ describe("MyTimeScreen — przejście z Przeglądu do raportu godzin", () => {
       String(now.year),
       String(now.month),
     ]);
+  });
+
+  it("klik w zakładkę zapisuje ją w adresie, a stary `?tab=profile` otwiera „Przegląd”", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/my-time?tab=profile");
+    render(<MyTimeScreen config={hrConfig()} />);
+    expect(screen.getByRole("tab", { name: "Przegląd", selected: true })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Kartoteka" })).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: "Przerwy" }));
+
+    expect(new URLSearchParams(window.location.search).get("tab")).toBe("leave");
+    expect(router.replace).not.toHaveBeenCalled();
   });
 });
