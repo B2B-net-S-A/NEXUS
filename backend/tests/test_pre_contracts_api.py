@@ -158,6 +158,13 @@ async def test_dl_request_goes_to_pair_recruiter_and_tracks_every_step(
 
     valid_until = business_today() + timedelta(days=60)
     doc_id = await _document(pair, valid_until=valid_until)
+    listed = await app_client.get(
+        "/api/pre-contracts/pair",
+        headers=rec_h,
+        params={"candidate_id": pair["candidate_id"], "job_id": pair["job_id"]},
+    )
+    assert [d["id"] for d in listed.json()["documents"]] == [doc_id]
+    assert listed.json()["current"]["id"] == request_id
     resp = await app_client.post(
         f"/api/pre-contracts/{request_id}/document",
         headers=rec_h,

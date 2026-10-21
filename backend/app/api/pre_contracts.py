@@ -177,9 +177,23 @@ class RequestOut(BaseModel):
     events: list[EventOut] = []
 
 
+class PairDocument(BaseModel):
+    """Umowa przedwstępna z Generatora wystawiona dla tej pary."""
+
+    id: int
+    document_type: str
+    document_date: date
+    status: str
+    signed: bool
+    linked: bool
+
+
 class PairOut(BaseModel):
     current: Optional[RequestOut] = None
     history: list[RequestOut] = []
+    # Umowy z Generatora dla pary (bez anulowanych) — panel podpina je do
+    # prośby jednym kliknięciem („Podepnij umowę z DD.MM”).
+    documents: list[PairDocument] = []
 
 
 class ListOut(BaseModel):
@@ -593,7 +607,36 @@ async def pair_requests(
     ).all()
     items = await _serialize(db, current_user, list(rows), with_events=True)
     current = next((i for i in items if i.is_open), None)
-    return PairOut(current=current, history=[i for i in items if not i.is_open])
+    linked = {r.document_id for r in rows if r.document_id}
+    docs = (
+        await db.scalars(
+            select(B2BContractDocument)
+            .where(
+                B2BContractDocument.candidate_id == candidate_id,
+                B2BContractDocument.job_id == job_id,
+                B2BContractDocument.document_type.like("preliminary%"),
+                B2BContractDocument.status != "cancelled",
+            )
+            .order_by(
+                B2BContractDocument.document_date.desc(), B2BContractDocument.id.desc()
+            )
+        )
+    ).all()
+    return PairOut(
+        current=current,
+        history=[i for i in items if not i.is_open],
+        documents=[
+            PairDocument(
+                id=d.id,
+                document_type=d.document_type,
+                document_date=d.document_date,
+                status=d.status,
+                signed=d.signature_status == "signed_both",
+                linked=d.id in linked,
+            )
+            for d in docs
+        ],
+    )
 
 
 @router.get("/pre-contracts/{request_id}", response_model=RequestOut)
