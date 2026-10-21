@@ -311,11 +311,15 @@ async def test_board_card_names_who_added_the_person_not_who_moved_it_last(
     assert cards[untouched_id]["added_to_job_by_id"] is None
 
 
-async def test_board_card_names_who_verified_the_person_newest_verified_row(
+async def test_board_card_names_who_verified_the_person_first_verifier(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """Karta od „Zweryfikowanego” (20.10.2026): osoba z NAJNOWSZEGO wpisu
-    „Zweryfikowany” pary, obok osoby, która dodała."""
+    """Karta od „Zweryfikowanego”: osoba, która PIERWSZA zweryfikowała parę
+    (ta sama reguła co premia rekrutera, ``load_verifiers``), obok osoby,
+    która dodała. Cofnięcie karty przez DL z „QC CV” na „Zweryfikowany” to
+    nowszy wiersz „Zweryfikowany”, ale nie weryfikacja (zgłoszenie 21.10.2026:
+    karta pokazywała DL-a zamiast rekruterki). Wiersz bez autora (import)
+    nikogo nie wskazuje."""
     from sqlalchemy import select
 
     from app.core.database import AsyncSessionLocal
@@ -324,8 +328,8 @@ async def test_board_card_names_who_verified_the_person_newest_verified_row(
 
     world = await _seed(cards=[("Screening", 1), ("Nowy", 0)])
     adder_id = await new_recruiter()
-    first_verifier_id = await new_recruiter()
     verifier_id = await new_recruiter()
+    returning_dl_id = await new_recruiter()
     async with AsyncSessionLocal() as db:
         current, untouched = (
             (
@@ -339,9 +343,11 @@ async def test_board_card_names_who_verified_the_person_newest_verified_row(
             .all()
         )
         for stage, mover, days_ago in (
-            (PipelineStage.new, adder_id, 3),
-            (PipelineStage.verified, first_verifier_id, 2),
-            (PipelineStage.verified, verifier_id, 1),
+            (PipelineStage.new, adder_id, 4),
+            (PipelineStage.verified, None, 3),
+            (PipelineStage.verified, verifier_id, 2),
+            (PipelineStage.interview, verifier_id, 2),
+            (PipelineStage.verified, returning_dl_id, 1),
         ):
             db.add(
                 CandidateStage(
@@ -352,7 +358,7 @@ async def test_board_card_names_who_verified_the_person_newest_verified_row(
                     moved_at=current.moved_at - timedelta(days=days_ago),
                 )
             )
-        newest_verified_at = current.moved_at - timedelta(days=1)
+        first_verified_at = current.moved_at - timedelta(days=2)
         await db.commit()
         current_id, untouched_id = current.id, untouched.id
 
@@ -365,7 +371,7 @@ async def test_board_card_names_who_verified_the_person_newest_verified_row(
     assert cards[current_id]["verified_by_id"] == verifier_id
     assert cards[current_id]["verified_by_name"] == "Job Factory Recruiter"
     assert cards[current_id]["verified_at"].startswith(
-        newest_verified_at.isoformat()[:19]
+        first_verified_at.isoformat()[:19]
     )
     assert cards[current_id]["added_to_job_by_id"] == adder_id
     assert cards[untouched_id]["verified_by_id"] is None

@@ -111,11 +111,16 @@ wszystkie D1–D5, wdrażaj”.
   zweryfikowała osobę, którą dwa miesiące wcześniej dodał ktoś inny, a karta
   w „CV w Cpro” dalej pokazywała dodającego. Decyzja Artura: w „Nowych”
   i „Screeningu” karta pokazuje, kto dodał. Od „Zweryfikowanego” w prawo
-  (i w „Zamkniętych”) pokazuje, kto zweryfikował: osobę z NAJNOWSZEGO wpisu
-  „Zweryfikowany” pary (`verified_by_*` w kanbanie, ta sama reguła co
-  przegląd DL w `board_tasks`). Dymek pokazuje obie osoby z datami. Wyborem
-  osoby rządzi `cardOwner` w `lib/board-card-badges.ts`. Filtr „Kto dodał”
-  i kolejka panelu dalej liczą po dodającym (D5).
+  (i w „Zamkniętych”) pokazuje, kto zweryfikował (`verified_by_*` w kanbanie).
+  Dymek pokazuje obie osoby z datami. Wyborem osoby rządzi `cardOwner`
+  w `lib/board-card-badges.ts`. Filtr „Kto dodał” i kolejka panelu dalej
+  liczą po dodającym (D5).
+- **„Kto zweryfikował” = PIERWSZY weryfikujący pary (21.10.2026).** Karta
+  Tablicy i przegląd DL biorą `stage_verifier.first_verifier` — tę samą osobę
+  co premia rekrutera (`load_verifiers`), KPI i rekruter pary w rozmowach.
+  Nie najnowszy wiersz „Zweryfikowany”: DL, który cofa kartę z „QC CV”,
+  zapisuje nowszy wiersz „Zweryfikowany”, a karta pokazywała wtedy jego
+  zamiast rekruterki (NORD/047/2026). Decyzja Artura 21.10.2026.
 - **Przeciąganie i zaznaczanie przy filtrze.** Filtr jest nakładany na kolumny
   do renderu PRZED przeciąganiem, a karta przy upuszczeniu jest szukana po
   `draggableId`, nie po `source.index`. Zaznaczone osoby, które filtr schował,
