@@ -28,6 +28,7 @@
   "board"
  ],
  "routes": {
+  "GET /api/care/case-assignees": "BBDBBDDDBBBDBBBDDDBDDDDDDD",
   "GET /api/care/contracts/{contract_id}/cases": "BBDBBDDDBBBDBBBBDBBDDDDDDD"
  }
 }

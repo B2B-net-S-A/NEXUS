@@ -32,6 +32,7 @@ import { CareScreen } from "@/components/care/CareScreen";
 import { ContractCareTab } from "@/components/care/ContractCareTab";
 import { ConversationDialog } from "@/components/care/ConversationDialog";
 import { TechCardDialog } from "@/components/care/TechCardDialog";
+import { caseKeys } from "@/lib/api/admin-cases";
 import { careKeys } from "@/lib/api/care";
 import { announcementKeys } from "@/lib/api/care-announcements";
 import { careBoardKeys } from "@/lib/api/care-board";
@@ -42,7 +43,7 @@ import { warsawToday } from "@/lib/warsaw-date";
 
 import { detail as announcementDetail, list as announcementList } from "../hr-announcements/fixtures";
 import { careBoard } from "../hr-cases/care-fixtures";
-import { weekEnd } from "../hr-cases/fixtures";
+import { CASE_ASSIGNEES, weekEnd } from "../hr-cases/fixtures";
 import { clientOrg } from "../hr-client-people/fixtures";
 import { clientTechMap } from "../hr-client-tech/fixtures";
 import { seedStructure } from "../hr-client-structure/fixtures";
@@ -149,6 +150,8 @@ function prepare(params: URLSearchParams) {
     client.setQueryData(announcementKeys.detail(row.id), announcementDetail(row.id, viewer));
   }
   seedStructure(client, today);
+  // „Prowadzi” w „Coś do załatwienia?” — lista osób spraw dla zapisującego opiekę.
+  client.setQueryData([...caseKeys.assignees, "care"], CASE_ASSIGNEES);
   return { user: HR_CAST.natalia, client, value: { state, today } };
 }
 

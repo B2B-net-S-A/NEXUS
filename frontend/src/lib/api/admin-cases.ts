@@ -265,7 +265,7 @@ export function useCase(id: number) {
  */
 export function useCaseAssignees(enabled: boolean, via: "cases" | "care" = "cases") {
   return useQuery({
-    queryKey: [...caseKeys.assignees, via],
+    queryKey: via === "care" ? [...caseKeys.assignees, "care"] : caseKeys.assignees,
     queryFn: async () =>
       (
         await api.get<{ items: AssigneeOption[] }>(

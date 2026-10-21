@@ -40,7 +40,11 @@ CHAIN = (
     ("0465_equipment_extras", "0464_equipment", "equipment_extras_schema"),
     ("0466_care_announcements", "0465_equipment_extras", "care_announcements_schema"),
     # Rozliczenia (etap 4) idą za migracją statystyk z maina (0467).
-    ("0468_hr_settlements", "0467_kpi_milestones_history_only_dr", "hr_settlement_schema"),
+    (
+        "0468_hr_settlements",
+        "0467_kpi_milestones_history_only_dr",
+        "hr_settlement_schema",
+    ),
     ("0469_hr_documents", "0468_hr_settlements", "hr_documents_schema"),
     ("0470_hr_agreements", "0469_hr_documents", "hr_agreements_schema"),
     (
