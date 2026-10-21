@@ -176,7 +176,7 @@
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin od klienta, prepy i debrief; bez terminu w NEXUSIE — „Pytania z rozmowy” (zapyta, kiedy była). Notatka „klient pytał…” podpowie „Zapisz jako pytania z rozmowy”. „Klient zaakceptował” zapisuje akceptację. Sekcja „Do „Zatrudnionego””: umowa i podpis; zamówienie dopiero po zatrudnieniu.",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin, prepy i debrief; bez terminu — „Pytania z rozmowy”. „Klient zaakceptował” zapisuje akceptację. Sekcja „Do „Zatrudnionego””: umowa i podpis; zamówienie po zatrudnieniu. Umowa przedwstępna: „⋯ → Umowa przedwstępna…” albo zakładka „Umowa” — prośba, wystawienie, podpisy, ważność.",
         "anchor": "jobs.person.expand"
       }
     ],

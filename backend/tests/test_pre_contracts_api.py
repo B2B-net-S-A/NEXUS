@@ -9,7 +9,7 @@ nie. Każdy test zakłada własne dane (shard ma wspólną bazę).
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -18,6 +18,7 @@ from sqlalchemy import select
 import app.models  # noqa: F401
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
+from app.services.candidate_followups import add_business_days
 from app.core.security import hash_password
 from app.models.b2b_contract_document import B2BContractDocument
 from app.models.candidate import Candidate
@@ -395,7 +396,7 @@ async def test_client_acceptance_starts_b2b_deadline_for_signed_cez_contract() -
             job_id=pair["job_id"],
             to_column="contract",
             to_label="Akceptacja i umowa",
-            accepted_on=date(2026, 10, 21),  # środa
+            accepted_on=business_today(),
             actor_id=pair["recruiter"][0],
             actor_name="Rekruter",
         )
@@ -403,9 +404,13 @@ async def test_client_acceptance_starts_b2b_deadline_for_signed_cez_contract() -
         request_id = req.id
     async with AsyncSessionLocal() as db:
         req = await db.get(PreContractRequest, request_id)
-        assert req.b2b_deadline == date(2026, 10, 28)  # 5 dni roboczych
+        # 5 dni roboczych od akceptacji (od dziś, gdy akceptacja jest dzisiejsza).
+        expected = add_business_days(
+            datetime.combine(business_today(), time(12), tzinfo=timezone.utc), 5
+        )
+        assert req.b2b_deadline == expected
     [bell] = await _bells(pair["dl"][0])
-    assert "28.10.2026" in bell.message
+    assert f"{expected:%d.%m.%Y}" in bell.message
 
 
 async def test_moving_past_needed_column_without_signature_tells_requester_once() -> (
