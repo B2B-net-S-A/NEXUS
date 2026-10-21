@@ -8,6 +8,8 @@ import type { ImportRow } from "@/lib/api/orderGroups";
  *  - `applied` — MD zeszły z puli,
  *  - `pending` — czeka na człowieka (kilka zamówień, przekroczenie puli),
  *  - `cost`    — nic z MD, ale faktura zeszła z zamówienia kosztowego,
+ *  - `awaiting` — wiersz bez numeru obok wiersza tej osoby z numerem: MD
+ *                czekają na kolejne zamówienie i zejdą z niego same,
  *  - `neutral` — osoba bez zamówienia MD w tym miesiącu (zwykły kontraktor
  *                okresowy) — to nie jest błąd, więc bez czerwieni,
  *  - `danger`  — numer z „Uwag”, którego nie da się rozliczyć, albo faktura,
@@ -15,11 +17,14 @@ import type { ImportRow } from "@/lib/api/orderGroups";
  *
  * Etykietę składa serwer (`status_label`); tu wyłącznie ton.
  */
-export type ImportRowTone = "applied" | "pending" | "cost" | "neutral" | "danger";
+export type ImportRowTone = "applied" | "pending" | "cost" | "awaiting" | "neutral" | "danger";
 
 export function importRowTone(row: ImportRow): ImportRowTone {
   if (row.status === "applied") return "applied";
   if (row.status === "needs_assignment" || row.status === "overflow") return "pending";
+  if (row.status === "awaiting_order") return "awaiting";
+  // Wiersz oczekujący zastąpiony nowszym importem tego miesiąca.
+  if (row.status === "superseded") return "neutral";
   if (row.cost_status === "applied") return "cost";
   if (row.status_reason) return "danger";
   if (row.cost_status != null) return "danger";
@@ -35,6 +40,7 @@ export function countImportRowTones(rows: ImportRow[]): ImportRowToneCounts {
     applied: 0,
     pending: 0,
     cost: 0,
+    awaiting: 0,
     neutral: 0,
     danger: 0,
   };

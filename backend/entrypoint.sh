@@ -9216,12 +9216,22 @@ _CONSTRAINT_STATEMENTS = [
     "ADD COLUMN IF NOT EXISTS overflow_md NUMERIC(16, 6) NULL",
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_status",
+    # 0492: 'awaiting_order' — wiersz bez numeru zamówienia czeka na kolejne
+    # zamówienie; 'superseded' — taki wiersz zastąpiony nowszą paczką.
+    "ALTER TABLE md_consumption_import_rows "
+    "ADD COLUMN IF NOT EXISTS awaiting_origin_order_id INTEGER NULL "
+    "REFERENCES client_orders (id) ON DELETE SET NULL",
+    "ALTER TABLE md_consumption_import_rows "
+    "ADD COLUMN IF NOT EXISTS md_pending NUMERIC(16, 6) NULL",
+    "CREATE INDEX IF NOT EXISTS ix_md_import_rows_awaiting_origin "
+    "ON md_consumption_import_rows (awaiting_origin_order_id) "
+    "WHERE awaiting_origin_order_id IS NOT NULL",
     """DO $$ BEGIN
         ALTER TABLE md_consumption_import_rows
             ADD CONSTRAINT ck_md_import_rows_status
             CHECK (status IN (
                 'applied', 'needs_assignment', 'unmatched', 'cost_only',
-                'overflow'
+                'overflow', 'awaiting_order', 'superseded'
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE my_people_overrides "

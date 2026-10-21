@@ -334,6 +334,7 @@ Poczta zamówień i odczyt PDF per klient, zamówienia MD, kosztowe i okresowe, 
 - `faktury-do-klientow-z-ksef.md` — Faktury do klientów z KSeF (E8 cz. 1, 18.10.2026)
 - `historia-zamowienia-zuzycie-md-i-importy-md.md` — Historia zamówienia, „Zużycie MD" i „Importy MD" (ticket 7, 25.09.2026)
 - `instrukcja-zamowien-w-pomocy-przestempluj-po.md` — Instrukcja zamówień w Pomocy — przestempluj po ZMIANIE LOGIKI ZAMÓWIEŃ
+- `md-oczekujace-na-kolejne-zamowienie.md` — Import MD: wiersz bez numeru czeka na kolejne zamówienie (0492, 21.10.2026)
 - `odczyt-pdf-w-formularzu-nowego-zamowienia.md` — Odczyt PDF w formularzu NOWEGO zamówienia
 - `okno-nowe-zamowienie-jeden-odczyt-pdf-a-karty.md` — Okno „Nowe zamówienie" — jeden odczyt PDF-a, karty wszystkich osób (09.2026)
 - `panel-moi-klienci-na-dashboardzie-delivery-leada.md` — Panel „Moi klienci" na dashboardzie Delivery Leada (09.2026, migracja 0310)

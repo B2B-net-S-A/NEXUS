@@ -249,6 +249,10 @@ from app.services.order_line_takeover import (
     stored_rate_basis,
 )
 from app.services.md_pool_used_up import offboarding_decision_in_progress
+from app.services.md_awaiting_orders import (
+    awaiting_md_by_origin_line,
+    settle_awaiting_md_for_client,
+)
 from app.services.dl_alerts import (
     emit_cost_order_exhausted,
     emit_shared_md_pool_exhausted,
@@ -1558,10 +1562,16 @@ async def _apply_consumption_signals(
             except (TypeError, ValueError):
                 continue
     by_id = {line.id: line for line in md_lines}
+    # „Pozostało do zafakturowania za … – oczekuje na kolejne zamówienie”.
+    awaiting = await awaiting_md_by_origin_line(db, by_id)
     for item in reads:
         line = by_id.get(item.id)
         if line is None:
             continue
+        item.awaiting_md = [
+            LineConsumptionPoint(period_month=period, md=md)
+            for period, md in awaiting.get(line.id, [])
+        ]
         loaded = sa_inspect(line).attrs.md_consumptions.loaded_value
         consumptions = (
             sorted(loaded, key=lambda c: c.period_month)
@@ -3548,6 +3558,8 @@ async def create_order_group(
             },
         )
     )
+    # MD z importu, które czekały na kolejne zamówienie tej osoby (21.10.2026).
+    await settle_awaiting_md_for_client(db, client_id=client_id, user_id=user.id)
     await commit_order_write(db)
     await db.refresh(group)
     return await _group_to_read(
@@ -5267,6 +5279,9 @@ async def apply_group_extend(
         )
     )
     await materialize_scheduled_order_groups(db, client_id=client_id)
+    await settle_awaiting_md_for_client(
+        db, client_id=client_id, user_id=policy.actor_id
+    )
     await commit_order_write(db)
     await db.refresh(group)
     return group
@@ -5446,6 +5461,7 @@ async def _add_line_to_group(
         },
         user_id=user.id,
     )
+    await settle_awaiting_md_for_client(db, client_id=group.client_id, user_id=user.id)
     return line
 
 

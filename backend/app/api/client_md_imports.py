@@ -50,6 +50,7 @@ from app.models.contract import Contract
 from app.models.md_consumption import (
     COST_ROW_APPLIED,
     IMPORT_ROW_APPLIED,
+    IMPORT_ROW_AWAITING_ORDER,
     IMPORT_ROW_COST_ONLY,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_OVERFLOW,
@@ -73,13 +74,14 @@ router = APIRouter(
     dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
 )
 
-RowState = Literal["booked", "to_verify", "error", "neutral"]
+RowState = Literal["booked", "to_verify", "error", "neutral", "awaiting"]
 
 ROW_STATE_LABELS: dict[str, str] = {
     "booked": "Zaksięgowano",
     "to_verify": "Do weryfikacji",
     "error": "Błąd",
     "neutral": "Bez zamówienia MD",
+    "awaiting": "Oczekuje na zamówienie",
 }
 
 
@@ -127,6 +129,8 @@ def row_state(row: MdConsumptionImportRow, has_reason: bool) -> RowState:
         return "booked"
     if row.status in (IMPORT_ROW_NEEDS_ASSIGNMENT, IMPORT_ROW_OVERFLOW):
         return "to_verify"
+    if row.status == IMPORT_ROW_AWAITING_ORDER:
+        return "awaiting"
     if row.cost_status == COST_ROW_APPLIED:
         return "booked"
     if has_reason or row.cost_status is not None:
@@ -191,6 +195,12 @@ class _ClientScope:
 
     def touches(self, row: MdConsumptionImportRow) -> bool:
         if self.target_group(row) is not None:
+            return True
+        # Wiersz czekający na kolejne zamówienie po zamówieniu tego klienta.
+        if (
+            row.matched_order_id is None
+            and row.awaiting_origin_order_id in self.line_group
+        ):
             return True
         # Wiersz zaksięgowany u INNEGO klienta nigdy nie jest wierszem tego
         # klienta — niezależnie od numeru w „Uwagach" (przegląd 25.09.2026:
