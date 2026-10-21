@@ -302,7 +302,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin"] },
   },
   {
-    id: "notifications", area: "sys", title: "Powiadomienia", group: "Firma",
+    // „firmy” od 21.10.2026 — własne powiadomienia są w „Moje konto”.
+    id: "notifications", area: "sys", title: "Powiadomienia firmy", group: "Firma",
     description: "Która rola dostaje które powiadomienia i które maile wychodzą do całej firmy.",
     keywords: "powiadomienia email maile wysylka nadawca odbiorcy kolejka rola role kto dostaje",
     wide: true,
