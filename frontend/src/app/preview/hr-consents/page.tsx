@@ -15,7 +15,8 @@
  *   (etap 3): delegacja czeka na fakturę, szkolenie z fakturą +18% („Poproś
  *   o dopłatę”), subskrypcja roczna z pytaniem o odnowienie;
  * - `form` — „Poproś o zgodę” (panel „Kto zdecyduje” pyta serwer — w harnessie
- *   pokazuje komunikat o braku sieci).
+ *   pokazuje komunikat o braku sieci); przy premii Julia jest na B2B (pole
+ *   „Podstawa w umowie” wymagane, 0491), Kamil na umowie o pracę.
  * Zapisy blokuje harness.
  */
 
@@ -61,7 +62,7 @@ const NOTES: Record<State, string> = {
   inbox: "Dane fikcyjne, bez zapytań. Ogląda zatwierdzający (admin).",
   supervisor: "Dane fikcyjne, bez zapytań. Ogląda przełożona — próg delegacji 1 500 zł.",
   mine: "Dane fikcyjne, bez zapytań. Ogląda autorka zgód.",
-  form: "Dane fikcyjne, bez zapytań. „Kto zdecyduje” liczy serwer — tu bez sieci.",
+  form: "Dane fikcyjne, bez zapytań. „Kto zdecyduje” liczy serwer — tu bez sieci. Premia: Julia na B2B, Kamil na UoP.",
 };
 
 function iso(daysFromToday: number): string {
@@ -244,6 +245,7 @@ function inboxRows(): ApprovalRequestRow[] {
       beneficiary_name: HR_CAST.julia.name,
       payout_year: NOW.getFullYear(),
       payout_month: NOW.getMonth() + 1,
+      contract_basis: "§ 6 ust. 2 umowy z 01.03.2025",
       requester_user_id: HR_CAST.marta.id,
       requester_name: HR_CAST.marta.name,
       context: {
@@ -527,7 +529,10 @@ function prepare(params: URLSearchParams) {
     user = HR_CAST.ola;
     config = consentsConfig({});
     client.setQueryData(approvalKeys.list("mine"), mineRows());
-    client.setQueryData(approvalKeys.beneficiaries, []);
+    client.setQueryData(approvalKeys.beneficiaries, [
+      { user_id: HR_CAST.julia.id, name: HR_CAST.julia.name, needs_contract_basis: true },
+      { user_id: HR_CAST.kamil.id, name: HR_CAST.kamil.name, needs_contract_basis: false },
+    ]);
     client.setQueryData(hrKeys.counts, {
       approvals: null,
       consents: 0,

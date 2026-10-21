@@ -124,6 +124,8 @@ async def render(
         facts.append(("Dla", person))
         if request.payout_year and request.payout_month:
             facts.append(("Wypłata", label(request.payout_year, request.payout_month)))
+        if request.contract_basis:
+            facts.append(("Podstawa w umowie", request.contract_basis))
     if request.needed_by:
         facts.append(("Potrzebne do", request.needed_by.strftime("%d.%m.%Y")))
     if request.endorsed_by:
