@@ -1,6 +1,7 @@
 """Restoring a source must not promote it before the identity gate flushes."""
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
@@ -212,6 +213,99 @@ async def test_file_removed_from_profile_is_not_restored_for_the_same_person(
             assert removed.candidate_id == other.id
             assert removed.source_deleted_at is None
             assert removed.removed_at is None
+        # Dane syntetyczne, bez commitu: zamknięcie sesji je wycofuje.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("same_attachment", [True, False])
+async def test_file_removed_under_the_old_key_is_not_restored(
+    monkeypatch, tmp_path, same_attachment
+):
+    """0435 także dla dokumentu ze starym kluczem (`id[:100]`, sprzed #2447).
+
+    Nowy klucz (skrót całego id) takiego dokumentu nie znajduje, a zapasowe
+    szukanie po treści pomijało usunięte — wstawiał się nowy dokument i plik
+    usunięty z profilu wracał (audyt 21.10.2026, kandydat po naprawie poczty).
+    Ten sam plik w NOWYM mailu to dalej nowy dokument, jak ponowne wgranie.
+    """
+    now = datetime.now(timezone.utc)
+    ext_id = f"m365-old-key-{uuid.uuid4().hex}" + "x" * 120
+    content = b"Synthetic old key CV " + uuid.uuid4().hex.encode()
+    sha = hashlib.sha256(content).hexdigest()
+    (tmp_path / "synthetic.pdf").write_bytes(content)
+    monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)
+    monkeypatch.setattr(cv_text_extractor, "extract_text", lambda *_: "Synthetic CV")
+    monkeypatch.setattr(
+        cv_parser,
+        "parse_cv",
+        AsyncMock(return_value={"first_name": "Alex", "last_name": "Example"}),
+    )
+    monkeypatch.setattr(cv_ingest_service, "finish_cv_ingest", AsyncMock())
+    monkeypatch.setattr(
+        candidate_identity_quarantine,
+        "record_detected_identity",
+        AsyncMock(return_value=SimpleNamespace(is_quarantined=False)),
+    )
+
+    async with AsyncSessionLocal() as db:
+        owner = Candidate(name="Alex", lastname="Example")
+        db.add(owner)
+        await db.flush()
+        removed = CandidateDocument(
+            candidate_id=owner.id,
+            filename="synthetic.pdf",
+            file_content=content,
+            content_type="application/pdf",
+            size_bytes=len(content),
+            document_kind=CandidateDocumentKind.cv,
+            is_primary=False,
+            source_deleted_at=now,
+            removed_at=now,
+            external_source="m365",
+            external_id=ext_id[:100],
+            content_sha256=sha,
+        )
+        db.add(removed)
+        await db.flush()
+
+        attachment = SimpleNamespace(
+            id=1,
+            is_cv_candidate=True,
+            storage_path="synthetic.pdf",
+            filename="synthetic.pdf",
+            content_type="application/pdf",
+            sha256=sha,
+            m365_attachment_id=(
+                ext_id
+                if same_attachment
+                else f"m365-new-mail-{uuid.uuid4().hex}" + "x" * 120
+            ),
+            parsed_candidate_id=None,
+            parse_error=None,
+        )
+        email = SimpleNamespace(
+            candidate_id=owner.id, received_at=now - timedelta(days=1)
+        )
+        await attachment_handler.try_parse_cv(db, attachment, email)
+        await db.flush()
+        await db.refresh(removed)
+
+        assert attachment.parsed_candidate_id == owner.id
+        assert removed.removed_at is not None
+        assert removed.source_deleted_at is not None
+        docs = list(
+            await db.scalars(
+                select(CandidateDocument.id).where(
+                    CandidateDocument.candidate_id == owner.id
+                )
+            )
+        )
+        if same_attachment:
+            assert docs == [removed.id]
+            assert owner.raw_cv_text is None
+        else:
+            assert len(docs) == 2 and removed.id in docs
         # Dane syntetyczne, bez commitu: zamknięcie sesji je wycofuje.
 
 

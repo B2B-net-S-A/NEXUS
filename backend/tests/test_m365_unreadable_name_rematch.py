@@ -231,3 +231,89 @@ async def test_rematch_releases_foreign_mail_and_cv() -> None:
         assert own.is_primary is True
         assert victim.cv_filename == "own.pdf"
         # Bez commitu: zamknięcie sesji wycofuje dane syntetyczne.
+
+
+@pytest.mark.asyncio
+async def test_rematch_skips_private_mail_and_ineligible_mailbox() -> None:
+    """Odpięty mail prywatny albo ze skrzynki bez dostępu zostaje niedopasowany.
+
+    Ta sama reguła co zwykły rematch (`microsoft365_sync._rematch_pass`):
+    `is_private_filtered` i `eligible_m365_owner`. Bez niej skrypt przypinał
+    taki mail prawdziwej osobie z adresu nadawcy.
+    """
+    tag = uuid.uuid4().hex[:12]
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        recruiter = User(
+            email=f"unreadable-r-{tag}@example.com",
+            name="Synthetic recruiter",
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
+            is_active=True,
+        )
+        viewer = User(
+            email=f"unreadable-v-{tag}@example.com",
+            name="Synthetic viewer",
+            role=UserRole.user,
+            roles=[UserRole.user.value],
+            is_active=True,
+        )
+        victim = Candidate(
+            name="Іван", lastname="Петренко", email=f"victim-{tag}@example.org"
+        )
+        real = Candidate(
+            name="Alex", lastname="Example", email=f"real-{tag}@example.org"
+        )
+        db.add_all([recruiter, viewer, victim, real])
+        await db.flush()
+
+        private = _email(
+            recruiter.id,
+            victim.id,
+            EmailMatchMethod.smart_name,
+            f"conv-p-{tag}",
+            real.email,
+            now - timedelta(days=3),
+        )
+        private.is_private_filtered = True
+        foreign_box = _email(
+            viewer.id,
+            victim.id,
+            EmailMatchMethod.smart_name,
+            f"conv-v-{tag}",
+            real.email,
+            now - timedelta(days=2),
+        )
+        regular = _email(
+            recruiter.id,
+            victim.id,
+            EmailMatchMethod.smart_name,
+            f"conv-r-{tag}",
+            real.email,
+            now - timedelta(days=1),
+        )
+        db.add_all([private, foreign_box, regular])
+        await db.flush()
+
+        plan = await script.plan_and_stage(db, now=now)
+
+        mine = {e: (new, method) for e, v, new, method in plan.emails if v == victim.id}
+        assert mine == {
+            private.id: (None, "unmatched"),
+            foreign_box.id: (None, "unmatched"),
+            regular.id: (real.id, "strict"),
+        }
+        rows = {
+            r.id: (r.candidate_id, r.match_method)
+            for r in (
+                await db.execute(
+                    select(Email.id, Email.candidate_id, Email.match_method).where(
+                        Email.id.in_([private.id, foreign_box.id, regular.id])
+                    )
+                )
+            ).all()
+        }
+        assert rows[private.id] == (None, EmailMatchMethod.unmatched)
+        assert rows[foreign_box.id] == (None, EmailMatchMethod.unmatched)
+        assert rows[regular.id] == (real.id, EmailMatchMethod.strict)
+        # Bez commitu: zamknięcie sesji wycofuje dane syntetyczne.
