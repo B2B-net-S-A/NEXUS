@@ -688,7 +688,7 @@
     "title": "Mój czas",
     "section": null,
     "roles": [],
-    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd”, zakładka nieobecności (na umowie o pracę „Urlop”, na B2B „Przerwy”, na zleceniu „Nieobecności”), miesiąc godzin, premie i kartoteka.",
+    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd” (z kartą „Ja w firmie” — stanowisko, przełożony, kartoteka), nieobecności („Urlop”, „Przerwy” albo „Nieobecności”), miesiąc godzin i premie.",
     "tasks": [
       {
         "q": "Jak zgłosić urlop albo przerwę?",
@@ -726,7 +726,7 @@
       {
         "id": "hr.my_time.tabs",
         "label": "Zakładki „Mojego czasu”",
-        "describe": "Przegląd, nieobecności, miesiąc godzin, rozliczenie, premie i kartoteka — widać tylko włączone."
+        "describe": "Przegląd, nieobecności, miesiąc godzin, rozliczenie i premie — widać tylko włączone."
       },
       {
         "id": "hr.my_time.leave_submit",
