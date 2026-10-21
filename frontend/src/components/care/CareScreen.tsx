@@ -217,15 +217,17 @@ function CareTabs({ config }: { config: HrConfig }) {
       <TabbedNav ariaLabel="Opieka nad konsultantami" value={tab} onValueChange={select} tabs={tabs}>
         <div className="pt-3">
           {tab === "todo" ? (
-            <WorkBoard
-              scope="care"
-              config={config}
-              initialSelectedKey={cardKey}
-              onOpenConversation={(id, planItemId) => setTalk({ contractId: id, planItemId: planItemId ?? null })}
-              onOpenFrontOffice={(id) => setFrontOffice(id)}
-              onOpenFeedback={(card) => setFeedback(feedbackTarget(card, false))}
-              onOpenDemand={(card) => setFeedback(feedbackTarget(card, true))}
-            />
+            <div data-help="hr.care.board">
+              <WorkBoard
+                scope="care"
+                config={config}
+                initialSelectedKey={cardKey}
+                onOpenConversation={(id, planItemId) => setTalk({ contractId: id, planItemId: planItemId ?? null })}
+                onOpenFrontOffice={(id) => setFrontOffice(id)}
+                onOpenFeedback={(card) => setFeedback(feedbackTarget(card, false))}
+                onOpenDemand={(card) => setFeedback(feedbackTarget(card, true))}
+              />
+            </div>
           ) : null}
           {tab === "consultants" ? (
             <ConsultantsPanel

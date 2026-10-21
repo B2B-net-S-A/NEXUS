@@ -477,7 +477,7 @@ function CardBody({
   const history = <CardHistory contractId={card.contract_id} eventAction={historyAction} />;
 
   return (
-    <div className="space-y-4" data-testid="consultant-card">
+    <div className="space-y-4" data-testid="consultant-card" data-help="hr.care.card">
       <header className="space-y-1.5">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">

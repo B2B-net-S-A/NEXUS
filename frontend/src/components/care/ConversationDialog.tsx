@@ -222,7 +222,7 @@ export function ConversationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="2xl" aria-describedby={ids.date + "-desc"}>
+      <DialogContent size="2xl" aria-describedby={ids.date + "-desc"} data-help="hr.care.conversation">
         <DialogHeader>
           <DialogTitle>{name ? `Rozmowa · ${name}` : "Rozmowa z konsultantem"}</DialogTitle>
           <DialogDescription id={ids.date + "-desc"}>
