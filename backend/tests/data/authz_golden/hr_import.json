@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/hr/admin/import/batches": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "POST /api/hr/admin/import/dry-run": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "POST /api/hr/admin/import/{upload_id}/apply": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/hr/admin/import/batches": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "POST /api/hr/admin/import/dry-run": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "POST /api/hr/admin/import/{upload_id}/apply": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

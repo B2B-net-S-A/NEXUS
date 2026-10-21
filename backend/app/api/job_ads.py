@@ -21,16 +21,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import update
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import HeadOfRecruitmentPlus, OperationalUser, RecruiterPlus
-from app.api.recruitment_access import ensure_job_membership
+from app.api.recruitment_access import ensure_job_membership, job_scope_clause
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.job_ad import JobAd
 from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User
@@ -38,6 +40,8 @@ from app.schemas.job_ad import (
     AdCareerRequest,
     AdGenerateRequest,
     AdUpdateRequest,
+    CareerQueueItem,
+    CareerQueueResponse,
     FixedBlocksModel,
     JobAdResponse,
 )
@@ -443,6 +447,89 @@ async def publish_career_page(
     await db.commit()
     ad = await db.get(JobAd, job_id, populate_existing=True)
     return await _response(db, job, ad, mat, user_id=current_user.id)
+
+
+_QUEUE_LIMIT = 300
+
+
+@router.get("/job-ads/career-queue", response_model=CareerQueueResponse)
+async def get_career_queue(
+    current_user: RecruiterPlus,
+    scope: Literal["mine", "all"] = Query("mine"),
+    # 0 = same liczby (przycisk na liście rekrutacji).
+    limit: int = Query(_QUEUE_LIMIT, ge=0, le=_QUEUE_LIMIT),
+    db: AsyncSession = Depends(get_db),
+) -> CareerQueueResponse:
+    """Otwarte rekrutacje bez strony kariery, od najnowszej (21.10.2026).
+
+    „Wszystkie” = te, w których osoba może publikować (zakres
+    ``ensure_job_membership``), „Moje” = te, w których jest Rekruterem albo
+    Delivery Leadem. Treść każdej przygotowuje noc (``tasks.job_ad_prepare``);
+    publikuje człowiek — ``POST …/portal-ad/career``.
+    """
+    from sqlalchemy.orm import aliased
+
+    from app.services.job_team import jobs_worked_by_clause
+
+    # Alias, nie `User`: klauzula „Moje” ma podzapytania po `users` skorelowane
+    # z `Job` — z gołym `User` w zewnętrznym FROM SQLAlchemy skorelowałby je
+    # całe i zostawił bez FROM (500 w CI 21.10.2026).
+    lead = aliased(User)
+
+    live = exists().where(
+        JobPublicProfile.job_id == Job.id, JobPublicProfile.approved_at.is_not(None)
+    )
+    base = and_(
+        Job.status == JobStatus.published,
+        ~live,
+        job_scope_clause(current_user, Job.id),
+    )
+    mine = or_(
+        jobs_worked_by_clause([current_user.id]),
+        Job.delivery_lead_id == current_user.id,
+    )
+    all_count = await db.scalar(select(func.count()).select_from(Job).where(base))
+    mine_count = await db.scalar(
+        select(func.count()).select_from(Job).where(base, mine)
+    )
+    rows = (
+        []
+        if limit == 0
+        else (
+            await db.execute(
+                select(Job, JobAd.source, lead.name)
+                .outerjoin(JobAd, JobAd.job_id == Job.id)
+                .outerjoin(lead, lead.id == Job.delivery_lead_id)
+                .where(base, *([mine] if scope == "mine" else []))
+                .order_by(Job.opened_at.desc().nulls_last(), Job.id.desc())
+                .limit(limit)
+            )
+        ).all()
+    )
+    items = [
+        CareerQueueItem(
+            job_id=job.id,
+            title=job.working_title or job.title,
+            city=job.location,
+            remote_policy=job.remote_policy.value if job.remote_policy else None,
+            delivery_lead_name=lead_name,
+            opened_at=job.opened_at,
+            ad=(
+                "missing"
+                if source is None
+                else "template"
+                if source == "template"
+                else "ready"
+            ),
+        )
+        for job, source, lead_name in rows
+    ]
+    return CareerQueueResponse(
+        scope=scope,
+        mine_count=mine_count or 0,
+        all_count=all_count or 0,
+        items=items,
+    )
 
 
 @router.get("/job-ads/fixed-blocks", response_model=FixedBlocksModel)

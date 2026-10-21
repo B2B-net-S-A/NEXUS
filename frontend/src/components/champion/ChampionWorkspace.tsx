@@ -167,6 +167,8 @@ export function ChampionWorkspace({
             onOpenManualSearch={onOpenManualSearch}
             onOpenTeam={() => onTabChange("team")}
             onOpenClient={() => onTabChange("client")}
+            onEditClientTitle={canEditJob ? onEditJob : undefined}
+            onEditClientReference={canEditJobContent ? onEditJob : undefined}
           />
         </div>
       ) : null}

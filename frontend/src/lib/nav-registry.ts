@@ -52,6 +52,7 @@ import {
 } from "@/lib/section-access";
 import {
   hasRole,
+  isBoardOnly,
   isTraineeOnly,
   type User,
   type UserRole,
@@ -391,6 +392,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inSidebar: false,
   },
   {
+    // Strona kariery do uzupełnienia (21.10.2026): otwarte rekrutacje bez
+    // strony kariery, „Opublikuj i następna”. W menu nie stoi (wejście jest
+    // na liście rekrutacji), paleta ma skrót.
+    id: "career-queue",
+    href: "/jobs/strona-kariery",
+    label: "Strona kariery do uzupełnienia",
+    icon: Briefcase,
+    section: "pipeline",
+    placement: "primary",
+    paletteKeywords: ["kariera", "ogłoszenie", "strona kariery", "opublikuj", "link"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
     // Daily (04.10.2026): pulpit „Requesty i obłożenie” na całą stronę —
     // „Zmiany od wczoraj” na górze i kategorie po kolei. Ta sama bramka co
     // „Rekrutacje” (sekcja Pipeline); w menu nie stoi, wejście jest z kafelka.
@@ -680,6 +695,8 @@ function featureFlagOn(
   }
 }
 
+const BOARD_NAV_IDS: ReadonlySet<string> = new Set(["insights", "help", "settings"]);
+
 function isEntryVisible(
   entry: NavEntry,
   user: NavUser,
@@ -688,6 +705,9 @@ function isEntryVisible(
   // Praktykant ma własną powłokę z jednym ekranem — żadnej pozycji menu,
   // także tych bez sekcji produktu (Pomoc, Ustawienia).
   if (isTraineeOnly(user)) return false;
+  // Rada nadzorcza (0490) ma tylko Insights, własne konto i Pomoc — reszta
+  // menu (np. „Mój czas”, gdy ma kartotekę) i tak odbiłaby w middleware.
+  if (isBoardOnly(user)) return BOARD_NAV_IDS.has(entry.id);
   const productSection = SECTION_META_BY_KEY.get(entry.section)?.section;
   return (
     (!productSection || hasSectionAccess(user, productSection)) &&

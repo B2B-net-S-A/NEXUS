@@ -60,8 +60,8 @@ export function placementsDeltaLabel(
 }
 
 /**
- * Firma — „Jak zarabia firma?". Tylko admin i Finanse (decyzja Artura
- * 24.09.2026; lustro `BoardReader`).
+ * Firma — „Jak zarabia firma?". Tylko „Moduł Finanse” (admin, Finanse —
+ * decyzja Artura 24.09.2026) i Rada nadzorcza (0490); lustro `BoardReader`.
  *
  * Kwoty porównujemy z poprzednim okresem, NIE rok do roku: ewidencja
  * kontraktów jest młodsza niż firma, więc porównanie lat opisuje głównie

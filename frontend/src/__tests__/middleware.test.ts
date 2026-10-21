@@ -74,6 +74,19 @@ const validHybridHeadOfRecruitment = makeToken({
 })
 const expiredAdmin = makeToken({ role: "admin", roles: ["admin"], exp: now() - HOUR })
 const validEmployee = makeToken({ role: "employee", roles: ["employee"], exp: now() + HOUR })
+const validBoard = makeToken({
+  role: "board",
+  roles: ["board"],
+  sa: {
+    sourcing: "none",
+    pipeline: "none",
+    delivery: "none",
+    insights: "read",
+    finance: "none",
+    system_admin: "none",
+  },
+  exp: now() + HOUR,
+})
 
 function request(pathname: string, token?: string): NextRequest {
   return new NextRequest(new URL(pathname, BASE), {
@@ -219,6 +232,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/candidate-merge",
     "/preview/add-candidates",
     "/preview/job-ad",
+    "/preview/career-queue",
     "/preview/kpi-topbar",
     "/preview/kpi-who-counts",
     "/preview/topbar-topics",
@@ -1027,4 +1041,32 @@ describe("„Pracownik” (Ludzie w NEXUSIE)", () => {
     const res = middleware(request("/my-time", validEmployee))
     expect(res.headers.get("location")).toBeNull()
   })
+})
+
+describe("„Rada nadzorcza” (0490)", () => {
+  it.each([
+    "/",
+    "/dashboard",
+    "/jobs",
+    "/candidates/12",
+    "/clients",
+    "/contracts",
+    "/finance",
+    "/my-time",
+    "/people",
+    "/settings/api-keys",
+  ])("%s prowadzi do kokpitu Firma", (path) => {
+    const res = middleware(request(path, validBoard))
+    const location = new URL(res.headers.get("location") ?? "")
+    expect(location.pathname).toBe("/insights")
+    expect(location.searchParams.get("tab")).toBe("firma")
+  })
+
+  it.each(["/insights", "/profile", "/settings", "/help"])(
+    "%s otwiera się bez przekierowania",
+    (path) => {
+      const res = middleware(request(path, validBoard))
+      expect(res.headers.get("location")).toBeNull()
+    },
+  )
 })

@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/rate-cards": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "POST /api/rate-cards": "PPDDDDDDDDDDDDDDDPDDDDDDD"
+  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/rate-cards": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "POST /api/rate-cards": "PPDDDDDDDDDDDDDDDPDDDDDDDD"
  }
 }

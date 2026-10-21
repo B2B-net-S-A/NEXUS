@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/fx": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "POST /api/fx/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/fx/refresh": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/fx": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "POST /api/fx/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/fx/refresh": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

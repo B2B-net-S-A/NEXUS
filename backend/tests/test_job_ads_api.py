@@ -34,7 +34,7 @@ from app.models.job import Job
 from app.models.job_ad import JobAd
 from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User, UserRole
-from app.services.job_ad import career, fixed_blocks, generate
+from app.services.job_ad import career, fixed_blocks, generate, prepare
 from app.services.job_ad_schema import SOURCE_AI, SOURCE_TEMPLATE
 from tests.test_career_links_api import _login, _owner_with_job
 
@@ -857,6 +857,71 @@ async def test_career_publish_keeps_section_toggles_saved_meanwhile(
     body = profile.json()
     assert body["sections"]["nice"] is False
     assert body["status"] == "approved"
+
+
+# ── Zaległe: kolejka i nocne przygotowanie (21.10.2026) ─────────────────────
+
+
+async def _queue(api: AsyncClient, headers, scope: str = "mine") -> dict:
+    resp = await api.get(
+        "/api/job-ads/career-queue", params={"scope": scope}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def test_career_queue_lists_open_jobs_without_a_page_until_published(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    body = await _queue(api, headers)
+    items = {item["job_id"]: item for item in body["items"]}
+    assert items[job_id]["ad"] == "missing"
+    assert items[job_id]["city"] == "Warszawa"
+    assert body["mine_count"] >= 1 and body["all_count"] >= body["mine_count"]
+    # Kształt wiersza jest zamknięty — nowe pole = świadoma decyzja.
+    assert set(items[job_id]) == {
+        "job_id",
+        "title",
+        "city",
+        "remote_policy",
+        "delivery_lead_name",
+        "opened_at",
+        "ad",
+    }
+
+    await _generated(api, headers, job_id, monkeypatch)
+    items = {item["job_id"]: item for item in (await _queue(api, headers))["items"]}
+    assert items[job_id]["ad"] == "ready"
+
+    published = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/career", json={}, headers=headers
+    )
+    assert published.status_code == 200, published.text
+    after = await _queue(api, headers, "all")
+    assert job_id not in {item["job_id"] for item in after["items"]}
+
+
+async def test_nightly_prepare_writes_a_first_version_and_never_replaces_one(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    _no_model(monkeypatch)
+    async with AsyncSessionLocal() as db:
+        assert job_id in await prepare.missing_job_ids(db, limit=10_000)
+        assert await prepare.prepare_one(db, job_id) is True
+        await db.commit()
+
+    ad = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)).json()
+    assert ad["ad"]["source"] == "template"
+    items = {item["job_id"]: item for item in (await _queue(api, headers))["items"]}
+    assert items[job_id]["ad"] == "template"
+
+    async with AsyncSessionLocal() as db:
+        assert await prepare.prepare_one(db, job_id) is False
+        assert job_id not in await prepare.missing_job_ids(db, limit=10_000)
+    again = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)).json()
+    assert again["ad"]["updated_at"] == ad["ad"]["updated_at"]
 
 
 # ── Dostęp ──────────────────────────────────────────────────────────────────

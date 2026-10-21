@@ -31,6 +31,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.services import hr_approval_basis_schema as basis
 from app.services import hr_approval_settlement_schema as settlement
 from app.services import hr_approvals_schema as schema
 
@@ -89,6 +90,9 @@ class ApprovalRequest(TimestampMixin, Base):
             "settlement_status",
             "kind",
             postgresql_where=text(settlement.SETTLEMENT_WHERE),
+        ),
+        CheckConstraint(
+            basis.CK_CONTRACT_BASIS, name="ck_approval_requests_contract_basis"
         ),
     )
 
@@ -171,6 +175,10 @@ class ApprovalRequest(TimestampMixin, Base):
     ended_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     ended_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # 0491 — podstawa premii w umowie (wymagana przy B2B, decyzja 21.10.2026).
+    contract_basis: Mapped[Optional[str]] = mapped_column(
+        String(basis.CONTRACT_BASIS_MAX_LENGTH), nullable=True
     )
 
 

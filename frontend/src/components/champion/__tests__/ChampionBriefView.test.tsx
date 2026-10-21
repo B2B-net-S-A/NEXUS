@@ -76,7 +76,10 @@ const PROFILE = {
   insights: [{ id: "n1", topic: "ask_client", text: "Czy start dotyczy 2026?", source: "manual", audience: "team" }],
 };
 
-function renderBrief(onEditBlock?: (block: ChampionBlock) => void) {
+function renderBrief(
+  onEditBlock?: (block: ChampionBlock) => void,
+  names: { onEditClientTitle?: () => void; onEditClientReference?: () => void } = {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -95,6 +98,7 @@ function renderBrief(onEditBlock?: (block: ChampionBlock) => void) {
           ],
         }}
         onEditBlock={onEditBlock}
+        {...names}
       />
     </QueryClientProvider>,
   );
@@ -218,6 +222,24 @@ describe("ChampionBriefView", () => {
     renderBrief(undefined);
     await screen.findByText("do 95,00 PLN/h");
     expect(screen.queryByRole("button", { name: /^Edytuj:/ })).toBeNull();
+  });
+
+  // Zgłoszenie 21.10.2026: wiersze z kolumn rekrutacji stały w bloku „Warunki”,
+  // a szuflada „Edytuj” ich nie ma — „Zmień” otwiera okno edycji rekrutacji.
+  it("„Zmień” przy nazwie i numerze od klienta wywołuje edycję rekrutacji", async () => {
+    const onEditClientTitle = vi.fn();
+    const onEditClientReference = vi.fn();
+    renderBrief(vi.fn(), { onEditClientTitle, onEditClientReference });
+    await userEvent.click(await screen.findByRole("button", { name: "Zmień: Nazwa od klienta" }));
+    await userEvent.click(screen.getByRole("button", { name: "Zmień: Numer u klienta" }));
+    expect(onEditClientTitle).toHaveBeenCalledTimes(1);
+    expect(onEditClientReference).toHaveBeenCalledTimes(1);
+  });
+
+  it("bez prawa zmiany pól rekrutacji — brak „Zmień”", async () => {
+    renderBrief(vi.fn());
+    await screen.findByText("do 95,00 PLN/h");
+    expect(screen.queryByRole("button", { name: /^Zmień:/ })).toBeNull();
   });
 
   it("awaria odczytu profilu to komunikat z „Ponów”, nie pusty brief", async () => {

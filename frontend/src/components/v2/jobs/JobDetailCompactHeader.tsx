@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import {
   ArrowLeft,
   BookOpen,
@@ -35,6 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ClientReferenceChip } from "@/components/v2/jobs/ClientReferenceChip";
 import type { JobDetailView } from "@/lib/job-detail-routing";
+import { isPlainLeftClick } from "@/lib/plain-left-click";
 import type { JobHeaderFact, JobHeaderFactKey } from "@/lib/job-header-facts";
 import {
   DropdownMenu,
@@ -133,6 +134,11 @@ interface JobDetailCompactHeaderProps {
   /** Aktywny widok: „Tablica" albo „Profil Championa" (`people` = lista „Do przejrzenia"). */
   activeView: JobDetailView;
   onViewChange: (view: JobDetailView) => void;
+  /**
+   * Adres widoku. Podany = zakładki są linkami: środkowy przycisk i Ctrl/Cmd+klik
+   * otwierają widok w nowej karcie, zwykły klik dalej przełącza w miejscu.
+   */
+  viewHref?: (view: JobDetailView) => string;
   /**
    * Ile rzeczy brakuje w zleceniu wg bramki gotowości. `undefined`/`null` =
    * nie wiadomo (rola spoza bramki, zapytanie w toku) — odznaki nie ma;
@@ -236,6 +242,58 @@ function deferMenuAction(action: () => void) {
   window.setTimeout(action, 0);
 }
 
+interface ViewTabProps {
+  view: JobDetailView;
+  activeView: JobDetailView;
+  onViewChange: (view: JobDetailView) => void;
+  href?: string;
+  testId: string;
+  children: ReactNode;
+}
+
+/**
+ * Zakładka widoku. Z adresem to link (21.10.2026): środkowy przycisk
+ * i Ctrl/Cmd+klik zostają przeglądarce (nowa karta), zwykły klik przełącza
+ * widok w miejscu, bez przeładowania strony.
+ */
+function ViewTab({ view, activeView, onViewChange, href, testId, children }: ViewTabProps) {
+  const className = cn(
+    "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors pointer-coarse:h-9",
+    activeView === view
+      ? "bg-card text-primary shadow-sm"
+      : "text-muted-foreground hover:text-foreground",
+  );
+  const ariaCurrent = activeView === view ? ("page" as const) : undefined;
+  if (href == null) {
+    return (
+      <button
+        type="button"
+        onClick={() => onViewChange(view)}
+        aria-current={ariaCurrent}
+        data-testid={testId}
+        className={className}
+      >
+        {children}
+      </button>
+    );
+  }
+  return (
+    <a
+      href={href}
+      onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+        if (!isPlainLeftClick(event)) return;
+        event.preventDefault();
+        onViewChange(view);
+      }}
+      aria-current={ariaCurrent}
+      data-testid={testId}
+      className={className}
+    >
+      {children}
+    </a>
+  );
+}
+
 /**
  * Nagłówek rekrutacji (02.10.2026, makieta B:
  * https://claude.ai/artifact/ASHNaTXA9omvTH393cQjCv).
@@ -276,6 +334,7 @@ export function JobDetailCompactHeader({
   presence,
   activeView,
   onViewChange,
+  viewHref,
   orderMissingCount,
   onOpenHistoryChat,
   chatUnreadCount = 0,
@@ -363,34 +422,24 @@ export function JobDetailCompactHeader({
             className="flex shrink-0 items-center gap-0.5 rounded-lg bg-muted p-0.5"
             aria-label="Widok rekrutacji"
           >
-            <button
-              type="button"
-              onClick={() => onViewChange("board")}
-              aria-current={activeView === "board" ? "page" : undefined}
-              data-testid="view-board"
-              className={cn(
-                "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors pointer-coarse:h-9",
-                activeView === "board"
-                  ? "bg-card text-primary shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
+            <ViewTab
+              view="board"
+              activeView={activeView}
+              onViewChange={onViewChange}
+              href={viewHref?.("board")}
+              testId="view-board"
             >
               {activeView !== "board" && activeView !== "champion" ? (
                 <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
               ) : null}
               Tablica
-            </button>
-            <button
-              type="button"
-              onClick={() => onViewChange("champion")}
-              aria-current={activeView === "champion" ? "page" : undefined}
-              data-testid="open-champion-profile"
-              className={cn(
-                "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors pointer-coarse:h-9",
-                activeView === "champion"
-                  ? "bg-card text-primary shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
+            </ViewTab>
+            <ViewTab
+              view="champion"
+              activeView={activeView}
+              onViewChange={onViewChange}
+              href={viewHref?.("champion")}
+              testId="open-champion-profile"
             >
               <FileText className="h-3.5 w-3.5" aria-hidden="true" />
               Profil Championa
@@ -399,7 +448,7 @@ export function JobDetailCompactHeader({
                   brakuje {missing}
                 </Badge>
               ) : null}
-            </button>
+            </ViewTab>
           </nav>
 
           {presence}

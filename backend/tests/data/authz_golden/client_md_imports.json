@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/md-imports": "PPDBPDDDBBBDPPPPDPPPDDDDD",
-  "GET /api/clients/{client_id}/md-imports/{import_id}": "PPDBPDDDBBBDPPPPDPPPDDDDD",
-  "GET /api/clients/{client_id}/md-imports/{import_id}/export": "PPDBPDDDBBBDPPPPDPPPDDDDD"
+  "GET /api/clients/{client_id}/md-imports": "PPDBPDDDBBBDPPPPDPPPDDDDDD",
+  "GET /api/clients/{client_id}/md-imports/{import_id}": "PPDBPDDDBBBDPPPPDPPPDDDDDD",
+  "GET /api/clients/{client_id}/md-imports/{import_id}/export": "PPDBPDDDBBBDPPPPDPPPDDDDDD"
  }
 }

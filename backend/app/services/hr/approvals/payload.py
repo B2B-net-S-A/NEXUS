@@ -88,6 +88,7 @@ def request_payload(
         else None,
         "payout_year": request.payout_year,
         "payout_month": request.payout_month,
+        "contract_basis": request.contract_basis,
         "requester_user_id": request.requester_user_id,
         "requester_name": names.get(request.requester_user_id),
         "supervisor_user_id": request.supervisor_user_id,

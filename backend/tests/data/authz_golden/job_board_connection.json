@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/job-boards/jjit/authorize": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/job-boards/jjit/callback": "PPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/job-boards/jjit/authorize": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/job-boards/jjit/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

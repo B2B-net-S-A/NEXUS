@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/integrations/jjit/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/integrations/jjit/run": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/integrations/jjit/status": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/integrations/jjit/run": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/skills": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "GET /api/skills/autocomplete": "PPPPPPPDPPPPPPPPPPPPPPPPP"
+  "GET /api/skills": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/skills/autocomplete": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
  }
 }

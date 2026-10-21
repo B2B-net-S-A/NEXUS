@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/competitions/current": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/competitions/history": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/competitions/monthly-races": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/competitions/my-league": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/competitions/my-position": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/competitions/current": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/competitions/history": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/competitions/monthly-races": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/competitions/my-league": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/competitions/my-position": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

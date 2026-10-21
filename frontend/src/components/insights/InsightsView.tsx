@@ -38,6 +38,8 @@ type TabDef = {
   roles: UserRole[] | null;
   /** Widok za uprawnieniem zamiast roli; gdy ustawione, `roles` nie rozstrzyga. */
   permission?: Permission;
+  /** Role, które widzą widok bez `permission` (Firma: Rada nadzorcza). */
+  alsoRoles?: UserRole[];
 };
 
 /**
@@ -53,6 +55,13 @@ type TabDef = {
  * którego API i tak by nie odmówiło (split-brain z #1215).
  */
 export const FIRMA_PERMISSION: Permission = "finance_module";
+
+/**
+ * Role, które widzą widok Firma bez „Modułu Finanse”: Rada nadzorcza (0490,
+ * decyzja Artura 21.10.2026) — kwoty kokpitu tak, faktury i zgody modułu
+ * Finanse nie. Lustro `_require_board_reader` w `backend/app/api/deps.py`.
+ */
+export const FIRMA_ROLES: UserRole[] = ["board"];
 
 /**
  * Role z własnymi KPI rekrutacyjnymi — lustro `_OPERATIONAL_ROLES`
@@ -71,7 +80,14 @@ const TABS: TabDef[] = [
   { id: "rywalizacja", label: "Rywalizacja", icon: Trophy, roles: null },
   { id: "moj-miesiac", label: "Mój miesiąc", icon: UserRound, roles: PERSONAL_ROLES },
   { id: "zespol", label: "Zespół", icon: Users, roles: null },
-  { id: "firma", label: "Firma", icon: Landmark, roles: null, permission: FIRMA_PERMISSION },
+  {
+    id: "firma",
+    label: "Firma",
+    icon: Landmark,
+    roles: null,
+    permission: FIRMA_PERMISSION,
+    alsoRoles: FIRMA_ROLES,
+  },
   { id: "raporty", label: "Raporty", icon: FileText, roles: null },
 ];
 
@@ -151,7 +167,12 @@ export function getDefaultTabForUser(_user: AuthUser): TabId {
 export function getVisibleInsightTabIds(user: AuthUser): TabId[] {
   return TABS.filter((tab) => {
     if (!user) return true;
-    if (tab.permission) return hasPermission(user, tab.permission);
+    if (tab.permission) {
+      return (
+        hasPermission(user, tab.permission) ||
+        hasRole(user, ...(tab.alsoRoles ?? []))
+      );
+    }
     return !tab.roles || hasRole(user, ...tab.roles);
   }).map((tab) => tab.id);
 }
@@ -334,6 +355,7 @@ export function InsightsView() {
         {firmaVisible ? (
           <p className="pb-3 text-xs text-muted-foreground">
             Firma: widzą osoby z uprawnieniem „{permissionLabel(FIRMA_PERMISSION)}”
+            i Rada nadzorcza
           </p>
         ) : null}
       </div>

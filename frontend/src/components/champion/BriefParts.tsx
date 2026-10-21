@@ -17,13 +17,30 @@ import type { GlossaryTerm } from "@/lib/api/plainKnowledge";
 import { includesLabel } from "@/lib/critical-skills";
 import { glossaryKey } from "@/lib/plain-glossary-lookup";
 
-export function Fact({ label, value, muted = false }: { label: string; value: ReactNode; muted?: boolean }) {
+export function Fact({
+  label,
+  value,
+  muted = false,
+  action,
+}: {
+  label: string;
+  value: ReactNode;
+  muted?: boolean;
+  /** Przycisk przy wartości, np. „Zmień” dla pola spoza bloku „Edytuj”. */
+  action?: ReactNode;
+}) {
+  const tone = muted ? "text-[13px] text-muted-foreground" : "text-[13px] font-medium text-foreground";
   return (
     <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-2 py-1">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={muted ? "text-[13px] text-muted-foreground" : "text-[13px] font-medium text-foreground"}>
-        {value}
-      </dd>
+      {action ? (
+        <dd className="flex min-w-0 items-start justify-between gap-2">
+          <span className={`min-w-0 ${tone}`}>{value}</span>
+          {action}
+        </dd>
+      ) : (
+        <dd className={tone}>{value}</dd>
+      )}
     </div>
   );
 }

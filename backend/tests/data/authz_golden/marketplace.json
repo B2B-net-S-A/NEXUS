@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/marketplace/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/marketplace/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/marketplace/candidates/{candidate_id}/matches": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/marketplace/pool": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/marketplace/candidates/{candidate_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "DELETE /api/marketplace/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/marketplace/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/marketplace/candidates/{candidate_id}/matches": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/marketplace/pool": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/marketplace/candidates/{candidate_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

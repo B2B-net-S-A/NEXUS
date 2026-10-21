@@ -69,6 +69,12 @@ CHAIN = (
     ),
     # Zgody na wydatki i premie poza umową (20.10.2026) — za Prepem 2 z maina.
     ("0483_hr_approvals", "0482_prep2_skips", "hr_approvals_schema"),
+    # Podstawa w umowie przy premii poza umową (21.10.2026) — za rolą Rady (0490).
+    (
+        "0491_approval_contract_basis",
+        "0490_board_role",
+        "hr_approval_basis_schema",
+    ),
 )
 
 

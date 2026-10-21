@@ -93,6 +93,7 @@ class RequestIn(BaseModel):
     payout_month: Optional[int] = Field(default=None, ge=1, le=12)
     client_id: Optional[int] = Field(default=None, ge=1)
     seller_nip: Optional[str] = Field(default=None, max_length=20)
+    contract_basis: Optional[str] = Field(default=None, max_length=400)
 
     def to_input(self) -> service.RequestInput:
         return service.RequestInput(**self.model_dump())
@@ -243,11 +244,17 @@ async def beneficiaries(
     current_user: ApprovalsUser, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     """Osoby z kartoteką, dla których czytający prosi o premię (Płace: wszyscy,
-    przełożony: bezpośredni podwładni) — nigdy on sam."""
+    przełożony: bezpośredni podwładni) — nigdy on sam. ``needs_contract_basis``:
+    premia dla tej osoby wymaga podstawy w umowie (B2B, 0491)."""
 
     viewer = await payroll_access.load_viewer(db, current_user)
     stmt = (
-        select(User.id, User.name)
+        select(
+            User.id,
+            User.name,
+            EmployeeProfile.employment_type,
+            EmployeeProfile.employment_type_pending,
+        )
         .join(EmployeeProfile, EmployeeProfile.user_id == User.id)
         .where(
             EmployeeProfile.employment_status != "exited",
@@ -260,7 +267,18 @@ async def beneficiaries(
             return {"items": []}
         stmt = stmt.where(User.id.in_(viewer.report_ids))
     rows = await db.execute(stmt)
-    return {"items": [{"user_id": uid, "name": name} for uid, name in rows.all()]}
+    return {
+        "items": [
+            {
+                "user_id": uid,
+                "name": name,
+                "needs_contract_basis": service.needs_contract_basis(
+                    employment_type, bool(pending)
+                ),
+            }
+            for uid, name, employment_type, pending in rows.all()
+        ]
+    }
 
 
 @router.post("/preview")

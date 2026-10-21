@@ -1941,6 +1941,9 @@ function JobDetailHarness() {
                         }
                         activeView="board"
                         onViewChange={noop}
+                        viewHref={(view) =>
+                          view === "board" ? `/jobs/${JOB_ID}` : `/jobs/${JOB_ID}?tab=${view}`
+                        }
                         onOpenOrder={noop}
                         onWriteAnnouncement={readOnlyRole ? undefined : noop}
                         adChannels={{ career: true, pracuj: false, jjit: false }}

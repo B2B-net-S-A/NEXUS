@@ -24,15 +24,16 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/hr/admin/m365/forwards": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "GET /api/hr/admin/m365/operations": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "GET /api/hr/admin/m365/status": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "POST /api/hr/admin/m365/forwards/check": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "POST /api/hr/admin/m365/forwards/close": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "POST /api/hr/admin/m365/operations/{operation_id}/retry": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "POST /api/hr/admin/m365/reconcile": "PDDDDDDDDDDDDDDDDDDDDPDDD"
+  "GET /api/hr/admin/m365/forwards": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "GET /api/hr/admin/m365/operations": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "GET /api/hr/admin/m365/status": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "POST /api/hr/admin/m365/forwards/check": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "POST /api/hr/admin/m365/forwards/close": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "POST /api/hr/admin/m365/operations/{operation_id}/retry": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "POST /api/hr/admin/m365/reconcile": "PDDDDDDDDDDDDDDDDDDDDPDDDD"
  }
 }

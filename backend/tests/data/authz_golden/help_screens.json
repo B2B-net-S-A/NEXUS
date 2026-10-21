@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/help/screens": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "GET /api/help/screens/{key}": "PPPPPPPDPPPPPPPPPPPPPPPPP"
+  "GET /api/help/screens": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/help/screens/{key}": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
  }
 }

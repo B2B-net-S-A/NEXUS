@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -247,7 +247,7 @@ def with_terms(
 
 
 async def _ask_model(
-    db: AsyncSession, material: AdMaterial, *, lang: str, user_id: int
+    db: AsyncSession, material: AdMaterial, *, lang: str, user_id: Optional[int]
 ) -> dict[str, Any]:
     from fastapi.concurrency import run_in_threadpool
 
@@ -282,7 +282,8 @@ async def generate_content(
     material: AdMaterial,
     *,
     lang: str,
-    user_id: int,
+    # Puste = przygotowanie nocne (`job_ad.prepare`), bez osoby.
+    user_id: Optional[int],
     log_ref: str,
     allow_template: bool,
 ) -> tuple[dict[str, Any], str]:

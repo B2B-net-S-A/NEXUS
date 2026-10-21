@@ -15,6 +15,7 @@ w ``_ENUM_STATEMENTS`` — ta lista jest zdefiniowana przed importami.
 from __future__ import annotations
 
 from app.services import admin_cases_schema as admin_cases
+from app.services import board_role_schema as board_role
 from app.services import care_announcements_schema as care_announcements
 from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_structure_schema as client_structure
@@ -24,6 +25,7 @@ from app.services import equipment_schema as equipment
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
 from app.services import hr_agreements_schema as agreements
+from app.services import hr_approval_basis_schema as approval_basis
 from app.services import hr_approval_settlement_schema as approval_settlement
 from app.services import hr_approvals_schema as approvals
 from app.services import hr_documents_schema as documents
@@ -57,12 +59,15 @@ MODULES = (
     account_profile,
     approvals,
     approval_settlement,
+    approval_basis,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
     *foundation.TABLE_DDL,
     *foundation.INDEX_DDL,
     *access.ROLE_CHECK_DDL,
+    # 0490: rola „Rada nadzorcza” — po CHECK-ach „Pracownika”, przed zasiewem.
+    *board_role.ROLE_CHECK_DDL,
     *(stmt for module in MODULES for stmt in module.TABLE_DDL),
     *(stmt for module in MODULES for stmt in module.COLUMN_DDL),
     *(stmt for module in MODULES for stmt in module.INDEX_DDL),
@@ -71,6 +76,7 @@ COLUMN_DDL: tuple[str, ...] = (
 DATA_DDL: tuple[str, ...] = (
     *foundation.DATA_DDL,
     *access.SEED_DDL,
+    *board_role.SEED_DDL,
     *(stmt for module in MODULES for stmt in module.DATA_DDL),
 )
 
@@ -79,4 +85,8 @@ CONSTRAINT_DDL: tuple[str, ...] = tuple(
 )
 
 #: Wartości enumów, które musi znać ``_ENUM_STATEMENTS`` (test lustra).
-ENUM_DDL: tuple[str, ...] = (access.ENUM_DDL, *notifications.ENUM_DDL)
+ENUM_DDL: tuple[str, ...] = (
+    access.ENUM_DDL,
+    board_role.ENUM_DDL,
+    *notifications.ENUM_DDL,
+)

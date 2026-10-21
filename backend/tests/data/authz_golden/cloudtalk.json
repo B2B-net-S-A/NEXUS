@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/cloudtalk/agents": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/cloudtalk/initiate-call": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/cloudtalk/sync-agents": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/cloudtalk/agents": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/cloudtalk/initiate-call": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/cloudtalk/sync-agents": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

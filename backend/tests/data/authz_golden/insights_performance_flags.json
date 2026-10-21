@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/insights/performance-flags": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/insights/performance-flags": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

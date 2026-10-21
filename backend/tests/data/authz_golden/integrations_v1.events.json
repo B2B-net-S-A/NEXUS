@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/integrations/v1/webhooks/{webhook_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/events": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/webhooks/{webhook_id}/test": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "DELETE /api/integrations/v1/webhooks/{webhook_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/events": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/webhooks/{webhook_id}/test": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -15,6 +15,7 @@ import {
   type ProductSection,
   type SectionAccess,
 } from "@/lib/section-access";
+import { BOARD_HOME, isBoardAllowedPath } from "@/lib/board-access";
 import type { UserRole } from "@/store/auth";
 
 /**
@@ -389,6 +390,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/plain-brief`, `/preview/permissions`,
 //   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
 //   `/preview/job-team-panel`, `/preview/champion-workspace`, `/preview/job-ad`,
+//   `/preview/career-queue`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -500,6 +502,8 @@ const PUBLIC_PATHS = [
   // Okno „Dodaj kandydatów do pipeline”: imiennicy, telefon, „Już w tej rekrutacji”.
   "/preview/add-candidates",
   "/preview/job-ad",
+  // „Strona kariery do uzupełnienia” (21.10.2026) — kolejka na danych w pamięci.
+  "/preview/career-queue",
   "/preview/job-portals",
   "/preview/academy",
   "/preview/request-allocation",
@@ -735,6 +739,15 @@ export function middleware(request: NextRequest) {
     (pathname === "/" || pathname === "/dashboard" || pathname.startsWith("/dashboard/"))
   ) {
     return NextResponse.redirect(new URL("/my-time", request.url));
+  }
+  // „Rada nadzorcza” (0490, rola wyłączna) widzi tylko Insights, własne konto
+  // i Pomoc — wszystko inne prowadzi do kokpitu Firma, także „/” i pulpit.
+  if (
+    userRoles.size === 1 &&
+    userRoles.has("board") &&
+    !isBoardAllowedPath(pathname)
+  ) {
+    return NextResponse.redirect(new URL(BOARD_HOME, request.url));
   }
   if (accessRule?.section && payload.sa) {
     if (
