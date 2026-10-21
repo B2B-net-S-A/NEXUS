@@ -11,7 +11,9 @@
  */
 
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, PencilLine } from "lucide-react";
+
+import { TabbedNav } from "@/components/ds/TabbedNav";
 
 import { PlainChangeHistory } from "@/components/settings/PlainChangeHistory";
 import { SourceLinks, WebOriginChip } from "@/components/champion/plain/PlainBits";
@@ -76,11 +78,80 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
+function ReadBlock({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-1">
+      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Opis roli do czytania — tymi samymi słowami trafia do bloku „Po ludzku”
+ * rekrutacji z tą rolą. Puste pole = „—”, żeby brak był widać.
+ */
+function RoleReadView({ role }: { role: RoleProfileDetail }) {
+  const empty = <p className="text-sm text-muted-foreground">—</p>;
+  return (
+    <div className="space-y-4" data-testid="role-library-read">
+      <ReadBlock title="Po ludzku">
+        {role.summary ? <p className="text-sm text-foreground">{role.summary}</p> : empty}
+      </ReadBlock>
+      <ReadBlock title="Przykład z codzienności">
+        {role.example ? <p className="text-sm text-foreground">{role.example}</p> : empty}
+      </ReadBlock>
+      <ReadBlock title="Czym się zajmuje">
+        {role.day_to_day.length > 0 ? (
+          <ul className="list-disc space-y-0.5 pl-5 text-sm text-foreground">
+            {role.day_to_day.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        ) : (
+          empty
+        )}
+      </ReadBlock>
+      <ReadBlock title="O co pyta kandydat">
+        {role.candidate_questions.length > 0 ? (
+          <ol className="list-decimal space-y-0.5 pl-5 text-sm text-foreground">
+            {role.candidate_questions.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ol>
+        ) : (
+          empty
+        )}
+      </ReadBlock>
+      <ReadBlock title="Typowe technologie">
+        {role.typical_skills.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {role.typical_skills.map((skill) => (
+              <span key={skill} className="rounded-full bg-muted px-2 py-0.5 text-xs text-foreground">
+                {skill}
+              </span>
+            ))}
+          </div>
+        ) : (
+          empty
+        )}
+      </ReadBlock>
+      <p className="text-[11px] text-muted-foreground">
+        Tak opis widzi rekruter w bloku „Po ludzku” każdej rekrutacji z tą rolą.
+      </p>
+    </div>
+  );
+}
+
 function RoleDetail({ id }: { id: number }) {
   const toast = useToast();
   const query = useRoleProfile(id);
   const update = useUpdateRoleProfile(id);
   const [form, setForm] = useState<RoleForm | null>(null);
+  // Runda 2 (21.10.2026): najpierw opis do czytania, edycja pod „Edytuj” — dotąd
+  // rola od razu otwierała się jako formularz z pięcioma długimi polami.
+  const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState<"opis" | "zrodla" | "historia">("opis");
 
   useEffect(() => {
     if (query.data) setForm(toForm(query.data));
@@ -123,7 +194,10 @@ function RoleDetail({ id }: { id: number }) {
           .filter(Boolean),
       },
       {
-        onSuccess: () => toast.showSuccess(`Zapisano rolę „${form.name.trim()}”`),
+        onSuccess: () => {
+          toast.showSuccess(`Zapisano rolę „${form.name.trim()}”`);
+          setEditing(false);
+        },
         onError: (e) => toast.showError(apiErrorMessage(e, "Nie udało się zapisać roli")),
       },
     );
@@ -147,6 +221,28 @@ function RoleDetail({ id }: { id: number }) {
           : ""}
       </p>
 
+      <div className="flex flex-wrap items-start gap-3">
+        <h3 className="min-w-0 flex-1 text-base font-semibold text-foreground">{role.name}</h3>
+        {!editing ? (
+          <Button type="button" size="sm" onClick={() => setEditing(true)}>
+            <PencilLine className="mr-1.5 h-4 w-4" aria-hidden />
+            Edytuj
+          </Button>
+        ) : null}
+      </div>
+
+      <TabbedNav
+        tabs={[
+          { value: "opis", label: "Opis" },
+          { value: "zrodla", label: `Źródła (${role.sources.length})` },
+          { value: "historia", label: "Historia zmian" },
+        ]}
+        value={tab}
+        onValueChange={(value) => setTab(value as typeof tab)}
+        ariaLabel="Rola"
+      />
+
+      {tab === "opis" && editing ? (
       <form onSubmit={submit} className="space-y-3">
         <Field label="Nazwa">
           <Input value={form.name} onChange={(e) => set("name")(e.target.value)} />
@@ -180,25 +276,37 @@ function RoleDetail({ id }: { id: number }) {
           </Button>
           {dirty ? (
             <Button type="button" size="sm" variant="ghost" onClick={() => setForm(toForm(role))}>
-              Anuluj zmiany
+              Cofnij zmiany
             </Button>
           ) : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setForm(toForm(role));
+              setEditing(false);
+            }}
+          >
+            Zamknij edycję
+          </Button>
         </div>
       </form>
-
-      {role.sources.length > 0 ? (
-        <section className="space-y-1">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Źródła</h3>
-          <SourceLinks sources={role.sources} />
-        </section>
       ) : null}
 
-      <section className="space-y-1.5">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Historia zmian
-        </h3>
-        <PlainChangeHistory entries={role.history ?? []} />
-      </section>
+      {tab === "opis" && !editing ? (
+        <RoleReadView role={role} />
+      ) : null}
+
+      {tab === "zrodla" ? (
+        role.sources.length > 0 ? (
+          <SourceLinks sources={role.sources} />
+        ) : (
+          <p className="text-sm text-muted-foreground">Opis bez źródeł z internetu.</p>
+        )
+      ) : null}
+
+      {tab === "historia" ? <PlainChangeHistory entries={role.history ?? []} /> : null}
     </div>
   );
 }
