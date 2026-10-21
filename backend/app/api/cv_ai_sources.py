@@ -30,6 +30,20 @@ class AiSourceOriginal(BaseModel):
     uploaded_at: Optional[datetime] = None
 
 
+class AiSourceFile(BaseModel):
+    """Plik CV osoby do wyboru w kroku „Plik CV” (21.10.2026)."""
+
+    document_id: int
+    filename: Optional[str] = None
+    uploaded_at: Optional[datetime] = None
+    is_primary: bool = False
+    # „Nieaktualne” albo z kwarantanny tożsamości — rekruter może je wybrać,
+    # ale nie proponujemy ich domyślnie.
+    outdated: bool = False
+    # Ten sam plik co kopia „Oryginał CV” tej rekrutacji (po SHA).
+    stage_original: bool = False
+
+
 class AiSourceCount(BaseModel):
     count: int = 0
     # Odpowiedzi: ile przeczy pytaniu (nie są dowodem). Transkrypty: ile
@@ -38,7 +52,10 @@ class AiSourceCount(BaseModel):
 
 
 class AiSourcesResponse(BaseModel):
+    # Plik zaznaczony domyślnie: kopia „Oryginał CV” etapu, a bez niej główne
+    # (albo najnowsze) CV z pominięciem nieaktualnych i kwarantanny.
     original_cv: Optional[AiSourceOriginal] = None
+    cv_files: list[AiSourceFile] = []
     champion: bool = False
     answers: AiSourceCount
     notes: AiSourceCount
@@ -73,7 +90,6 @@ async def get_stage_cv_ai_sources(
         AI_SOURCE_DEFAULTS,
         _not_followup_note,
         champion_present,
-        list_candidate_cv_sources,
     )
     from app.services.money_text import is_rate_text
     from app.services.must_text_evidence import is_negative_answer
@@ -85,14 +101,19 @@ async def get_stage_cv_ai_sources(
     job = await db.get(Job, stage.job_id)
     candidate_id = stage.candidate_id
 
-    documents = await list_candidate_cv_sources(db, candidate_id)
+    cv_files = await _cv_files(db, stage)
+    default = next((f for f in cv_files if f.stage_original), None) or next(
+        (f for f in cv_files if not f.outdated), None
+    )
+    if default is None and cv_files:
+        default = cv_files[0]
     original = (
         AiSourceOriginal(
-            document_id=documents[0]["id"],
-            filename=documents[0]["filename"],
-            uploaded_at=documents[0]["uploaded_at"],
+            document_id=default.document_id,
+            filename=default.filename,
+            uploaded_at=default.uploaded_at,
         )
-        if documents
+        if default is not None
         else None
     )
 
@@ -181,6 +202,7 @@ async def get_stage_cv_ai_sources(
 
     return AiSourcesResponse(
         original_cv=original,
+        cv_files=cv_files,
         champion=champion_present(job),
         answers=answers,
         notes=notes,
@@ -190,3 +212,79 @@ async def get_stage_cv_ai_sources(
         defaults=dict(AI_SOURCE_DEFAULTS),
         last_used=last_used,
     )
+
+
+async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFile]:
+    """Pliki CV osoby, które generator umie przeczytać, w kolejności generatora.
+
+    21.10.2026 (zgłoszenie zespołu „CV wygenerowało się z błędnego pliku”):
+    karta pokazywała kopię „Oryginał CV” etapu, a generator brał główne albo
+    najnowsze CV z profilu — także „nieaktualne” i z kwarantanny. Domyślnym
+    plikiem jest teraz plik kopii etapu (po SHA, także sprzed ruchu karty).
+    """
+    from app.models.candidate_document import CandidateDocument
+    from app.models.candidate_stage_cv import CandidateStageCV
+    from app.services.candidate_identity_quarantine import source_is_eligible_clause
+    from app.services.cv_generator_b2b.standalone_service import (
+        _supported_cv_doc_filter,
+    )
+
+    eligible = source_is_eligible_clause(
+        candidate_id_column=CandidateDocument.candidate_id,
+        source_id_column=CandidateDocument.id,
+        source_kind="document",
+    )
+    rows = (
+        await db.execute(
+            select(
+                CandidateDocument.id,
+                CandidateDocument.filename,
+                CandidateDocument.uploaded_at,
+                CandidateDocument.is_primary,
+                CandidateDocument.content_sha256,
+                CandidateDocument.outdated_at.isnot(None),
+                eligible,
+            )
+            .where(
+                CandidateDocument.candidate_id == stage.candidate_id,
+                _supported_cv_doc_filter(),
+            )
+            .order_by(
+                CandidateDocument.is_primary.desc(),
+                CandidateDocument.uploaded_at.desc(),
+                CandidateDocument.id.desc(),
+            )
+        )
+    ).all()
+    # Kopia bieżącego wiersza etapu, a bez niej najnowsza kopia pary (ruch
+    # karty zakłada nowy wiersz etapu bez CV).
+    original_sha = await db.scalar(
+        select(CandidateStageCV.original_cv_sha256)
+        .where(
+            CandidateStageCV.candidate_id == stage.candidate_id,
+            CandidateStageCV.job_id == stage.job_id,
+            CandidateStageCV.original_cv_sha256.isnot(None),
+        )
+        .order_by(
+            (CandidateStageCV.candidate_stage_id == stage.id).desc(),
+            CandidateStageCV.original_snapshot_at.desc().nulls_last(),
+            CandidateStageCV.id.desc(),
+        )
+        .limit(1)
+    )
+    files: list[AiSourceFile] = []
+    marked = False
+    for doc_id, filename, uploaded_at, primary, sha, outdated, ok in rows:
+        is_original = bool(original_sha) and sha == original_sha and not marked
+        marked = marked or is_original
+        files.append(
+            AiSourceFile(
+                document_id=doc_id,
+                filename=filename,
+                uploaded_at=uploaded_at,
+                is_primary=bool(primary),
+                outdated=bool(outdated) or not bool(ok),
+                stage_original=is_original,
+            )
+        )
+    return files

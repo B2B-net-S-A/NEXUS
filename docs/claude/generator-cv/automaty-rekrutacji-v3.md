@@ -15,7 +15,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
 |---|---|---|
 | A. nocny pełny przegląd bazy → „Propozycje" (`full_base`) | `AUTO_FULL_REVIEW_ENABLED` | `services/auto_full_review.py`, `tasks/auto_full_review.py` |
 | B. nowe CV → „Propozycje" (`new_cv`) | `AUTO_MATCH_MODE=dry_run` | `services/auto_match_service.py` |
-| C. auto-CV po ruchu na „Zweryfikowany" | `CV_AUTO_GENERATE_ON_VERIFIED` | `services/cv_auto_generate.py` |
+| C. auto-CV po ruchu na „Zweryfikowany" — od 21.10.2026 tylko QC istniejącego CV pary, generacja po potwierdzeniu w karcie (`cv-po-potwierdzeniu.md`) | `CV_AUTO_GENERATE_ON_VERIFIED`, `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION` | `services/cv_auto_generate.py` |
 | D. podpowiedź stawki/dostępności w arkuszu screeningu | brak (czysty odczyt) | `services/screening_suggestions.py` |
 
 - **A. Co noc WSZYSTKIE rekrutacje w pracy (decyzja Artura 30.09.2026).**

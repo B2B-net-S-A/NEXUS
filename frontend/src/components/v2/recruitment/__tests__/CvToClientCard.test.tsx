@@ -22,6 +22,7 @@ import { act, configure, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CvAiSourceFile } from "@/lib/cv-ai-sources";
 
 import { useAuthStore } from "@/store/auth";
 
@@ -160,7 +161,7 @@ const AI_SOURCES = {
   defaults: { answers: true, notes: true, transcripts: false, prep: false },
   last_used: null as null | Record<string, boolean>,
 };
-let aiSources = AI_SOURCES;
+let aiSources: typeof AI_SOURCES & { cv_files?: CvAiSourceFile[] } = AI_SOURCES;
 // Liczba rzeczy do sprawdzenia: QC karty (bez zapisu przebiegu) i uwagi edytora.
 let qcChecks: unknown[] = [];
 let qcError: unknown = null;
@@ -209,6 +210,13 @@ async function chooseFromMore(name: string | RegExp) {
 /** Zwinięty panel „Z czego powstało” → przełączniki, obróbka i język. */
 async function expandSources(panel: HTMLElement) {
   await userEvent.click(await within(panel).findByRole("button", { name: "Zmień" }));
+}
+
+/** Trzy potwierdzenia przed „Generuj” (21.10.2026): plik, odpowiedzi, notatki. */
+async function confirmAll(panel: HTMLElement) {
+  await userEvent.click(await within(panel).findByRole("button", { name: "Potwierdź plik" }));
+  await userEvent.click(within(panel).getByRole("button", { name: /^Potwierdź (odpowiedzi|bez odpowiedzi)$/ }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Nie mam nic do dodania" }));
 }
 
 function generatePosts(): Array<[string, Record<string, unknown>]> {
@@ -279,7 +287,13 @@ describe("CvToClientCard — brak CV", () => {
       "Z oryginału CV, Championa, screeningu i notatek · Pod rekrutację · polski · Zmień",
     );
     expect(within(panel).queryByRole("region", { name: "Z czego powstało" })).toBeNull();
-    // „Generuj” działa bez rozwijania.
+    // 21.10.2026: „Generuj” czeka na trzy potwierdzenia, potem działa bez rozwijania.
+    expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeDisabled();
+    expect(await within(panel).findByTestId("cv-confirm-left")).toHaveTextContent(
+      "Potwierdź jeszcze: plik, odpowiedzi, notatki",
+    );
+    await confirmAll(panel);
+    expect(within(panel).getByTestId("cv-confirm-count")).toHaveTextContent("Potwierdzone 3 z 3");
     await waitFor(() => expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeEnabled());
     await expandSources(panel);
 
@@ -315,6 +329,7 @@ describe("CvToClientCard — brak CV", () => {
     await expandSources(panel);
     await userEvent.click(await within(panel).findByRole("switch", { name: "Transkrypty rozmów" }));
     await userEvent.click(within(panel).getByRole("switch", { name: "Odpowiedzi ze screeningu" }));
+    await confirmAll(panel);
     const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
     await waitFor(() => expect(generate).toBeEnabled());
     rows = [{ id: 77, status: "processing", origin: "manual" }];
@@ -349,6 +364,68 @@ describe("CvToClientCard — brak CV", () => {
     expect(within(panel).getByRole("switch", { name: "Podsumowania prepu" })).toBeChecked();
   });
 
+  it("21.10.2026: wybrany plik i dodatkowa notatka idą w generacji; zmiana po potwierdzeniu zdejmuje potwierdzenie", async () => {
+    aiSources = {
+      ...AI_SOURCES,
+      cv_files: [
+        {
+          document_id: 30,
+          filename: "Jan_Kowalski_B2B_Orlen.docx",
+          uploaded_at: "2026-10-20T10:00:00Z",
+          is_primary: true,
+          outdated: false,
+          stage_original: false,
+        },
+        {
+          document_id: 31,
+          filename: "Jan_Kowalski_CV.pdf",
+          uploaded_at: "2026-09-12T10:00:00Z",
+          is_primary: false,
+          outdated: false,
+          stage_original: true,
+        },
+      ],
+    };
+    mocks.apiPost.mockImplementation(async (url: string) => {
+      if (url === "/api/notes") return { data: { id: 1 } };
+      if (url === "/api/cv-generator/generate") return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+      throw new Error(`unexpected POST ${url}`);
+    });
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    const fileStep = await within(panel).findByTestId("cv-confirm-file");
+    // Domyślnie kopia „Oryginał CV” rekrutacji, nie nowsze główne CV.
+    expect(within(fileStep).getByRole("radio", { name: /Jan_Kowalski_CV\.pdf/ })).toBeChecked();
+    expect(fileStep).toHaveTextContent("Oryginał CV w tej rekrutacji");
+    await userEvent.click(within(fileStep).getByRole("radio", { name: /Jan_Kowalski_B2B_Orlen/ }));
+    await userEvent.click(within(panel).getByRole("button", { name: "Potwierdź plik" }));
+    expect(within(panel).getByTestId("cv-confirm-file")).toHaveTextContent("Plik CV: Jan_Kowalski_B2B_Orlen.docx");
+    await userEvent.click(within(panel).getByRole("button", { name: "Potwierdź odpowiedzi" }));
+    await userEvent.type(within(panel).getByRole("textbox", { name: "Dodatkowe notatki do CV" }), "Migracja Jenkinsa");
+    await userEvent.click(within(panel).getByRole("button", { name: "Potwierdź notatki" }));
+    expect(within(panel).getByTestId("cv-confirm-count")).toHaveTextContent("Potwierdzone 3 z 3");
+
+    // Edycja notatki po potwierdzeniu wymaga potwierdzenia jeszcze raz.
+    await userEvent.click(within(panel).getByRole("button", { name: "Edytuj notatki" }));
+    await userEvent.type(within(panel).getByRole("textbox", { name: "Dodatkowe notatki do CV" }), " do GitHub Actions");
+    expect(within(panel).getByTestId("cv-confirm-count")).toHaveTextContent("Potwierdzone 2 z 3");
+    expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeDisabled();
+    await userEvent.click(within(panel).getByRole("button", { name: "Potwierdź notatki" }));
+
+    const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    await waitFor(() => expect(generatePosts()).toHaveLength(1));
+    expect(generatePosts()[0][1]).toMatchObject({ cv_document_id: 30 });
+    // Notatka zapisana w rekrutacji PRZED generacją.
+    const notePosts = mocks.apiPost.mock.calls.filter(([url]) => url === "/api/notes");
+    expect(notePosts).toHaveLength(1);
+    expect(notePosts[0][1]).toMatchObject({ content: "Migracja Jenkinsa do GitHub Actions", job_id: 42 });
+    const order = mocks.apiPost.mock.calls.map(([url]) => url);
+    expect(order.indexOf("/api/notes")).toBeLessThan(order.indexOf("/api/cv-generator/generate"));
+  });
+
   it("odmowa serwera (reguła klienta, 422) stoi w panelu, a panel zostaje otwarty", async () => {
     mocks.apiPost.mockRejectedValue({
       response: { status: 422, data: { detail: "Ten klient wymaga numeru projektu w CV." } },
@@ -356,6 +433,7 @@ describe("CvToClientCard — brak CV", () => {
     renderCard();
     await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
     const panel = await screen.findByTestId("cv-generate-panel");
+    await confirmAll(panel);
     const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
     await waitFor(() => expect(generate).toBeEnabled());
     await userEvent.click(generate);
@@ -388,6 +466,9 @@ describe("CvToClientCard — brak CV", () => {
     const panel = await screen.findByTestId("cv-generate-panel");
     expect(await within(panel).findByText(/Nie udało się wczytać źródeł/)).toBeInTheDocument();
     expect(within(panel).queryByTestId("cv-generate-summary")).toBeNull();
+    // Plik z listy generatora, odpowiedzi „nie udało się sprawdzić” — potwierdzenia dalej działają.
+    expect(within(panel).getByTestId("cv-confirm-answers")).toHaveTextContent("nie udało się sprawdzić");
+    await confirmAll(panel);
     await waitFor(() => expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeEnabled());
   });
 
@@ -559,6 +640,7 @@ describe("CvToClientCard — CV gotowe", () => {
     );
     await chooseFromMore(/Wygeneruj ponownie/);
     const panel = await screen.findByTestId("cv-generate-panel");
+    await confirmAll(panel);
     const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
     await waitFor(() => expect(generate).toBeEnabled());
     await userEvent.click(generate);
@@ -595,6 +677,7 @@ describe("CvToClientCard — CV gotowe", () => {
     const panel = await screen.findByTestId("cv-generate-panel");
     expect(screen.queryByTestId("generator-dialog")).toBeNull();
     expect(panel).toHaveTextContent("Nowa wersja zastąpi bieżący szkic, gdy będzie gotowa");
+    await confirmAll(panel);
     const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
     await waitFor(() => expect(generate).toBeEnabled());
     await userEvent.click(generate);
@@ -617,7 +700,9 @@ describe("CvToClientCard — CV gotowe", () => {
     });
     renderCard();
     await chooseFromMore(/Wygeneruj ponownie/);
-    const generate = within(await screen.findByTestId("cv-generate-panel")).getByRole("button", { name: /^Generuj$/ });
+    const regenPanel = await screen.findByTestId("cv-generate-panel");
+    await confirmAll(regenPanel);
+    const generate = within(regenPanel).getByRole("button", { name: /^Generuj$/ });
     await waitFor(() => expect(generate).toBeEnabled());
     await userEvent.click(generate);
     expect(await screen.findByText(/Nowa wersja nie powstała: Model nie odpowiedział/)).toBeInTheDocument();
@@ -1115,41 +1200,25 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
     expect(screen.queryByTestId("cv-forward-progress")).toBeNull();
   });
 
-  it("automat jeszcze nie ruszył: „generuje się”, dzwonek, karta pyta co 4 s aż do wiersza CV", async () => {
+  it("21.10.2026: po przekazaniu CV czeka na rekrutera — potwierdzenia otwarte, karta nie odpytuje", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       renderCard({ forwarded: true });
       expect(await screen.findByTestId("cv-forward-progress")).toBeInTheDocument();
       expect(within(progress()).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
         "Screening zapisany",
-        "CV generuje się (ok. 40 s)",
+        "CV czeka na Ciebie — potwierdź niżej, z czego je zrobić",
         "QC — po CV",
       ]);
-      expect(progress()).toHaveTextContent("Dam znać w ikonie „CV”, gdy CV będzie gotowe.");
-      const before = generatedCalls();
-      rows = [{ id: 77, status: "processing", origin: "auto" }];
-      await act(async () => {
-        vi.advanceTimersByTime(4100);
-      });
-      await waitFor(() => expect(generatedCalls()).toBeGreaterThan(before));
-      expect(await screen.findByText("Automat generuje CV…")).toBeInTheDocument();
-
-      // Automat podpiął CV — krok CV gotowy, QC policzone.
-      rows = [{ id: 77, status: "ready", origin: "auto" }];
-      mocks.brandedGet.mockResolvedValue({ data: { ...READY, generated_document_id: 77 } });
-      issues = { generator_warnings: ["WERYFIKUJ: daty"], content_review: { status: null, version: null, findings: [] } };
-      await act(async () => {
-        vi.advanceTimersByTime(4100);
-      });
-      await waitFor(() => expect(progress()).toHaveTextContent("CV gotowe"));
-      await waitFor(() => expect(progress()).toHaveTextContent("QC: 1 do poprawy"));
       expect(progress()).not.toHaveTextContent("Dam znać w ikonie „CV”");
-      // Gotowe CV kończy odpytywanie.
-      const settled = generatedCalls();
+      // Panel z potwierdzeniami otwiera się sam.
+      const panel = await screen.findByTestId("cv-generate-panel");
+      expect(await within(panel).findByTestId("cv-confirm-file")).toBeInTheDocument();
+      const before = generatedCalls();
       await act(async () => {
         vi.advanceTimersByTime(8200);
       });
-      expect(generatedCalls()).toBe(settled);
+      expect(generatedCalls()).toBe(before);
     } finally {
       vi.useRealTimers();
     }
@@ -1190,7 +1259,7 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
     expect(progress()).not.toHaveTextContent("Dam znać w ikonie „CV”");
   });
 
-  it("stare pominięcie (sprzed przekazania) nie jest odpowiedzią — dalej czekamy na automat", async () => {
+  it("stare pominięcie (sprzed przekazania) nie jest odpowiedzią — CV czeka na rekrutera", async () => {
     events = [
       {
         id: 9,
@@ -1202,7 +1271,7 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
     ];
     renderCard({ forwarded: true });
     expect(await screen.findByTestId("auto-cv-skip-notice")).toBeInTheDocument();
-    expect(progress()).toHaveTextContent("CV generuje się (ok. 40 s)");
+    expect(progress()).toHaveTextContent("CV czeka na Ciebie");
   });
 
   it("para miała już CV (plik Word): „CV firmowe: z pliku Word”, QC z liczbą", async () => {

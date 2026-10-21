@@ -40,9 +40,24 @@ export interface CvAiSourceCount {
   excluded: number;
 }
 
+/** Plik CV osoby do wyboru w kroku „Plik CV” (21.10.2026). */
+export interface CvAiSourceFile {
+  document_id: number;
+  filename: string | null;
+  uploaded_at: string | null;
+  is_primary: boolean;
+  /** „Nieaktualne” albo z kwarantanny tożsamości — nie proponujemy domyślnie. */
+  outdated: boolean;
+  /** Ten sam plik co kopia „Oryginał CV” tej rekrutacji. */
+  stage_original: boolean;
+}
+
 /** Odpowiedź `GET …/cv/ai-sources`. */
 export interface CvAiSources {
+  /** Plik zaznaczony domyślnie: kopia „Oryginał CV” etapu, a bez niej główne CV. */
   original_cv: { document_id: number; filename: string | null; uploaded_at: string | null } | null;
+  /** Pliki CV osoby w kolejności generatora; starszy serwer ich nie podaje. */
+  cv_files?: CvAiSourceFile[];
   champion: boolean;
   answers: CvAiSourceCount;
   notes: CvAiSourceCount;
