@@ -65,7 +65,7 @@ describe("/preview/hr-people", () => {
     expect(await screen.findByRole("columnheader", { name: "Forma" })).toBeInTheDocument();
     expect(screen.getAllByText("Zlecenie · student").length).toBe(2);
     expect(screen.getByRole("button", { name: /^UoP/ })).toBeInTheDocument();
-    expect(screen.getAllByText(/^przerwa do .* · zastępuje Ola P\.$/).length).toBe(2);
+    expect(screen.getAllByText(/^nieobecność do .* · zastępuje Ola P\.$/).length).toBe(2);
     expect(screen.getByText("delegacja")).toBeInTheDocument();
     expect(screen.getByText("odchodzi 30.11")).toBeInTheDocument();
     expect(attempted()).toEqual([]);
@@ -77,7 +77,7 @@ describe("/preview/hr-people", () => {
     expect(await screen.findByText("Ola Przykładowa")).toBeInTheDocument();
     expect(screen.queryByText(/Do wyrównania/)).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Forma" })).toBeNull();
-    // Bez widocznej formy: „nieobecność”, nie „przerwa” (słowo zdradzałoby formę).
+    // Zawsze „nieobecność”, nie „przerwa” ani „urlop” (decyzja Artura 21.10.2026).
     expect(screen.getAllByText(/^nieobecność do /).length).toBeGreaterThan(0);
     expect(screen.queryByText(/^przerwa do /)).toBeNull();
     expect(attempted()).toEqual([]);

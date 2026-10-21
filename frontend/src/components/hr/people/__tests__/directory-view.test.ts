@@ -76,19 +76,18 @@ describe("todayChips — kolumna „Dziś”", () => {
     ]);
   });
 
-  it("przy widocznej formie mówi słowem formy („przerwa”, „urlop”)", () => {
+  it("także przy widocznej formie mówi „nieobecność” — L4 to nie „urlop” (21.10.2026)", () => {
     const absent = {
       absent_until: "2026-10-21",
       half_day: null,
       substitute_name: null,
       presence: null,
     } as const;
-    expect(todayChips(full({ today: absent }), TODAY, true)[0].label).toBe(
-      "przerwa do śr 21.10",
-    );
-    expect(
-      todayChips(full({ employment_type: "uop", today: absent }), TODAY, true)[0].label,
-    ).toBe("urlop do śr 21.10");
+    for (const employment_type of ["b2b", "uop", "zlecenie"] as const) {
+      expect(
+        todayChips(full({ employment_type, today: absent }), TODAY, true)[0].label,
+      ).toBe("nieobecność do śr 21.10");
+    }
   });
 
   it("nieobecność tylko dziś i pół dnia", () => {

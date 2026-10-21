@@ -18,7 +18,7 @@
  * - `colleague` — rekruterka: wizytówki, bez paska i bez formy.
  *
  * Makieta 19.10.2026: chipy działów z licznikami, grupy po dziale, kolumna
- * „Dziś” (przerwa do…, delegacja, odchodzi, w pracy), mini-awatar przełożonego
+ * „Dziś” (nieobecność do…, delegacja, odchodzi, w pracy), mini-awatar przełożonego
  * i staż. Nieobecności bez rodzaju (D6).
  * Zapis „Wyrównaj” blokuje harness.
  */

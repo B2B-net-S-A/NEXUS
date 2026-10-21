@@ -25,10 +25,11 @@ export function todayKnown(openModules: Pick<HrConfig["open_modules"], "leave" |
 }
 
 /**
- * Co dziś z osobą. Nieobecność bez rodzaju (D6 — katalog widzi cała firma);
- * słowo formy („przerwa”, „urlop”) tylko, gdy patrzący widzi formę (serwer
- * zwrócił `employment_type`), inaczej „nieobecność”. „W pracy” tylko, gdy
- * nieobecności są znane (`known` = `todayKnown(...)`) — bez nich nie wiemy.
+ * Co dziś z osobą. Nieobecność bez rodzaju (D6 — katalog widzi cała firma):
+ * zawsze „nieobecność”, także przy widocznej formie — słowo formy „urlop”
+ * opisywało też L4 osoby na umowie o pracę (decyzja Artura 21.10.2026).
+ * „W pracy” tylko, gdy nieobecności są znane (`known` = `todayKnown(...)`)
+ * — bez nich nie wiemy.
  */
 export function todayChips(person: Person, today: string, known: boolean): TodayChip[] {
   const full = isFullPerson(person) ? person : null;
@@ -42,16 +43,13 @@ export function todayChips(person: Person, today: string, known: boolean): Today
     return [{ tone: "neutral", label: "przed startem" }];
   }
   if (day?.absent_until) {
-    const word = full?.employment_type
-      ? EMPLOYMENT_TERMS[full.employment_type].absence_short
-      : "nieobecność";
     const when =
       day.absent_until === today
         ? day.half_day
           ? "dziś (pół dnia)"
           : "dziś"
         : `do ${formatWeekdayDayPl(day.absent_until)}`;
-    const label = `${word} ${when}`;
+    const label = `nieobecność ${when}`;
     chips.push({
       tone: "info",
       label: day.substitute_name ? `${label} · zastępuje ${shortName(day.substitute_name)}` : label,
