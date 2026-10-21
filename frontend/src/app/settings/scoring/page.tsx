@@ -14,46 +14,59 @@ import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
-// Sześć warstw silnika — spójne z backendowym built-in (scoring_service.py):
-// 35 + 30 + 12 + 8 + 5 + 10 = 100. Edytor był 5-warstwowy (M3-SCORE/UI):
-// ukrywał warstwę Champion i każdy zapisany profil dostawał champion_fit=0
-// (cicho wyłączona warstwa), a stare 5-kluczowe rekordy w runtime dostają
-// domyślne +10 PONAD budżet 100.
+// Sześć warstw silnika — te same liczby co built-in w scoring_service.py
+// (SEMANTIC_MAX … CHAMPION_FIT_MAX): 60 + 10 + 15 + 5 + 0 + 10 = 100. Zgodność
+// pilnuje backend/tests/test_scoring_profile_resolution_and_patch.py — do
+// 21.10.2026 ekran pokazywał 35/30/12/8/5/10, czyli wagi sprzed 17.08.
 const DEFAULT_WEIGHTS: Required<ScoringWeights> = {
-  semantic: 35,
-  skills: 30,
-  salary: 12,
-  location: 8,
-  availability: 5,
+  semantic: 60,
+  skills: 10,
+  salary: 15,
+  location: 5,
+  availability: 0,
   champion_fit: 10,
 };
 
 const LAYER_LABELS: Record<keyof ScoringWeights, string> = {
-  semantic: "Dopasowanie do opisu",
+  semantic: "Podobieństwo CV do rekrutacji",
   skills: "Umiejętności",
   salary: "Stawka",
-  location: "Lokalizacja",
+  location: "Lokalizacja i tryb pracy",
   availability: "Dostępność",
-  champion_fit: "Profil Championa",
+  champion_fit: "Wynik screeningu",
 };
 
-/** Co liczy każda waga — jednym zdaniem, po ludzku (makieta rundy 2, 21.10.2026). */
+/** Co liczy każda waga — jednym zdaniem, po ludzku, tak jak liczy silnik. */
 const LAYER_HINTS: Record<keyof ScoringWeights, string> = {
-  semantic: "jak CV pasuje do treści rekrutacji (AI)",
-  skills: "wymagane i mile widziane technologie",
-  salary: "czy oczekiwania mieszczą się w budżecie",
-  location: "miasto i tryb pracy",
-  availability: "od kiedy może zacząć",
-  champion_fit: "podobieństwo do opisanego idealnego kandydata",
+  semantic: "AI porównuje CV i profil z treścią rekrutacji",
+  skills: "technologie z listy: wymagane 2×, mile widziane 1×",
+  salary: "każdy dostaje tyle samo — ponad budżet to plakietka, nie punkty",
+  location: "pół za tryb pracy, pół za miasto",
+  availability: "wyłączona — w pomiarze z 17.08 pogarszała trafność",
+  champion_fit: "nie wchodzi do „Dop.” — silnik pomija tę wagę",
 };
 
-/** Kolejność wag na ekranie: od najważniejszej w wagach domyślnych. */
-const LAYER_ORDER = (Object.keys(DEFAULT_WEIGHTS) as (keyof ScoringWeights)[]).sort(
-  (a, b) => DEFAULT_WEIGHTS[b] - DEFAULT_WEIGHTS[a],
-);
+/** Warstwy, które składają się na „Dop.” (bez wyniku screeningu). */
+const FIT_LAYERS: (keyof ScoringWeights)[] = [
+  "semantic",
+  "skills",
+  "location",
+  "salary",
+  "availability",
+];
 
-/** Wagi domyślne silnika jako paski z opisem — tylko do odczytu, zmienia je profil. */
+/**
+ * Udział warstwy w „Dop.”: silnik bierze pięć wag bez screeningu i przelicza je
+ * do 100 (`base_fit_profile` w request_matching_context.py), więc 60 z 90 to 67%.
+ */
+function fitShares(w: Required<ScoringWeights>): Record<string, number> {
+  const total = FIT_LAYERS.reduce((acc, layer) => acc + w[layer], 0) || 1;
+  return Object.fromEntries(FIT_LAYERS.map((layer) => [layer, (w[layer] * 100) / total]));
+}
+
+/** Jak dziś liczy się „Dop.” — tylko do odczytu, zmienia je profil. */
 function DefaultWeights() {
+  const shares = fitShares(DEFAULT_WEIGHTS);
   return (
     <section
       className="space-y-3 rounded-xl border border-border bg-card p-5 dark:border-border dark:bg-muted"
@@ -61,12 +74,12 @@ function DefaultWeights() {
     >
       <div className="flex items-center gap-2">
         <h2 id="default-weights-title" className="flex-1 text-base font-semibold text-foreground">
-          Wagi domyślne — dla wszystkich rekrutacji
+          Z czego składa się „Dop.” — dla wszystkich rekrutacji
         </h2>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">suma 100%</span>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">udział w ocenie</span>
       </div>
       <ul className="space-y-2.5">
-        {LAYER_ORDER.map((layer) => (
+        {FIT_LAYERS.map((layer) => (
           <li key={layer} className="grid grid-cols-[minmax(0,13rem)_minmax(0,1fr)_3rem] items-center gap-3">
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">{LAYER_LABELS[layer]}</p>
@@ -75,26 +88,30 @@ function DefaultWeights() {
             <div className="h-2.5 overflow-hidden rounded-full bg-muted" aria-hidden>
               <div
                 className={cn("h-full rounded-full", LAYER_COLORS[layer])}
-                style={{ width: `${(DEFAULT_WEIGHTS[layer] / 40) * 100}%` }}
+                style={{ width: `${shares[layer]}%` }}
               />
             </div>
             <span className="text-right text-sm font-semibold tabular-nums text-foreground">
-              {DEFAULT_WEIGHTS[layer]}%
+              {Math.round(shares[layer])}%
             </span>
           </li>
         ))}
       </ul>
+      <p className="text-xs text-muted-foreground">
+        O kolejności decydują podobieństwo CV, umiejętności i lokalizacja. Stawka dodaje każdemu
+        tyle samo, a wynik screeningu nie wchodzi do „Dop.”.
+      </p>
     </section>
   );
 }
 
 const LAYER_COLORS: Record<keyof ScoringWeights, string> = {
-  semantic: "bg-purple-500",
-  skills: "bg-primary",
-  salary: "bg-emerald-500",
-  location: "bg-amber-500",
-  availability: "bg-rose-500",
-  champion_fit: "bg-cyan-500",
+  semantic: "bg-chart-1",
+  skills: "bg-chart-2",
+  salary: "bg-muted-foreground",
+  location: "bg-chart-3",
+  availability: "bg-chart-4",
+  champion_fit: "bg-chart-5",
 };
 
 function sum(w: ScoringWeights): number {
@@ -195,7 +212,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
             type="checkbox"
             checked={active}
             onChange={(e) => setActive(e.target.checked)}
-            className="accent-blue-600"
+            className="accent-primary"
           />
           Aktywny
         </label>
@@ -238,7 +255,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
               step={1}
               value={weights[layer]}
               onChange={(e) => updateLayer(layer, Number(e.target.value))}
-              className="w-0 flex-1 min-w-0 accent-blue-600"
+              className="w-0 flex-1 min-w-0 accent-primary"
             />
             <input
               type="number"
@@ -256,8 +273,8 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
         className={cn(
           "flex items-center justify-between text-xs font-medium px-3 py-2 rounded-lg",
           total === 100
-            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-            : "bg-amber-50 text-amber-700 border border-amber-200"
+            ? "bg-success-muted text-success-muted-foreground border border-success/30"
+            : "bg-warning-muted text-warning-muted-foreground border border-warning/30"
         )}
       >
         <span>Suma: {total} / 100</span>
@@ -350,7 +367,7 @@ function ProfileRow({
           </button>
           <button
             onClick={onDelete}
-            className="text-xs text-destructive hover:text-red-800"
+            className="text-xs text-destructive hover:text-destructive/80"
             title="Usuń"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -406,7 +423,7 @@ export default function ScoringWeightsPage() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-0 basis-64">
           <h1 className="text-2xl font-bold text-foreground dark:text-foreground flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-purple-500" />
+            <Sparkles className="w-5 h-5 text-primary" />
             Ranking kandydatów
           </h1>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground">

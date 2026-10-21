@@ -363,6 +363,10 @@ async def resolve_active_profile(
             _select(ScoringWeightProfile)
             .where(ScoringWeightProfile.active.is_(True))
             .where(where)
+            # Kilka aktywnych profili w jednym zakresie: wygrywa najnowszy.
+            # Bez ORDER BY wygrywał dowolny wiersz i „Dop.” mógł się zmieniać
+            # między zapytaniami bez zmiany wag (21.10.2026).
+            .order_by(ScoringWeightProfile.id.desc())
             .limit(1)
         )
         return WeightProfile.from_record(row) if row else None

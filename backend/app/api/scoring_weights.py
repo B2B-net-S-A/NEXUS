@@ -158,8 +158,13 @@ async def update_profile(
     if not row:
         raise HTTPException(status_code=404, detail="not found")
     row.name = payload.name
-    row.user_id = payload.user_id
-    row.client_id = payload.client_id
+    # Ekran wysyła tylko {name, weights, active}. Przypięcie do osoby albo
+    # klienta zmienia się wyłącznie, gdy pole przyszło w żądaniu — inaczej
+    # edycja z ekranu po cichu robiła z profilu klienta profil ogólny.
+    if "user_id" in payload.model_fields_set:
+        row.user_id = payload.user_id
+    if "client_id" in payload.model_fields_set:
+        row.client_id = payload.client_id
     row.weights = payload.weights.model_dump()
     row.active = payload.active
     # Editing weights in place would otherwise keep serving old-weight cached
