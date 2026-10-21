@@ -102,7 +102,7 @@ assert set(SignatureForm.__args__) == set(SIGNATURE_FORMS)  # type: ignore[attr-
 assert set(WithdrawalKind.__args__) == set(WITHDRAWAL_KINDS)  # type: ignore[attr-defined]
 
 
-class CreateRequest(BaseModel):
+class PreContractCreateRequest(BaseModel):
     candidate_id: int
     job_id: int
     needed_before: NeededBefore = "cv_sent"
@@ -111,51 +111,51 @@ class CreateRequest(BaseModel):
     assignee_id: Optional[int] = None
 
 
-class UpdateRequest(BaseModel):
+class PreContractUpdateRequest(BaseModel):
     needed_before: Optional[NeededBefore] = None
     needed_by: Optional[date] = None
     assignee_id: Optional[int] = None
 
 
-class LinkDocument(BaseModel):
+class PreContractLinkDocument(BaseModel):
     document_id: int
 
 
-class MarkSent(BaseModel):
+class PreContractMarkSent(BaseModel):
     note: Optional[str] = Field(default=None, max_length=500)
 
 
-class CloseBody(BaseModel):
+class PreContractCloseBody(BaseModel):
     reason: str = Field(min_length=3, max_length=1000)
 
 
-class WithdrawalBody(BaseModel):
+class PreContractWithdrawalBody(BaseModel):
     kind: WithdrawalKind
     event_on: date
     note: str = Field(min_length=3, max_length=2000)
     decision_user_id: Optional[int] = None
 
 
-class PenaltyDecision(BaseModel):
+class PreContractPenaltyDecision(BaseModel):
     decision: Literal["demand", "waive"]
     note: Optional[str] = Field(default=None, max_length=2000)
 
 
-class PersonRef(BaseModel):
+class PreContractPersonRef(BaseModel):
     id: int
     name: str
 
 
-class EventOut(BaseModel):
+class PreContractEventOut(BaseModel):
     id: int
     kind: str
     label: str
     at: str
-    actor: Optional[PersonRef] = None
+    actor: Optional[PreContractPersonRef] = None
     payload: Optional[dict[str, Any]] = None
 
 
-class RequestOut(BaseModel):
+class PreContractRequestOut(BaseModel):
     id: int
     candidate_id: int
     candidate_name: str
@@ -171,10 +171,10 @@ class RequestOut(BaseModel):
     needed_before_label: str
     needed_by: Optional[date] = None
     reason: Optional[str] = None
-    requested_by: Optional[PersonRef] = None
+    requested_by: Optional[PreContractPersonRef] = None
     requested_at: str
-    assignee: Optional[PersonRef] = None
-    watchers: list[PersonRef] = []
+    assignee: Optional[PreContractPersonRef] = None
+    watchers: list[PreContractPersonRef] = []
     watching: bool = False
     document_id: Optional[int] = None
     document_type: Optional[str] = None
@@ -194,10 +194,10 @@ class RequestOut(BaseModel):
     stage_name: Optional[str] = None
     can_withdraw: bool = False
     can_decide_penalty: bool = False
-    events: list[EventOut] = []
+    events: list[PreContractEventOut] = []
 
 
-class PairDocument(BaseModel):
+class PreContractPairDocument(BaseModel):
     """Umowa przedwstępna z Generatora wystawiona dla tej pary."""
 
     id: int
@@ -208,16 +208,16 @@ class PairDocument(BaseModel):
     linked: bool
 
 
-class PairOut(BaseModel):
-    current: Optional[RequestOut] = None
-    history: list[RequestOut] = []
+class PreContractPairOut(BaseModel):
+    current: Optional[PreContractRequestOut] = None
+    history: list[PreContractRequestOut] = []
     # Umowy z Generatora dla pary (bez anulowanych) — panel podpina je do
     # prośby jednym kliknięciem („Podepnij umowę z DD.MM”).
-    documents: list[PairDocument] = []
+    documents: list[PreContractPairDocument] = []
 
 
-class ListOut(BaseModel):
-    items: list[RequestOut]
+class PreContractListOut(BaseModel):
+    items: list[PreContractRequestOut]
     counts: dict[str, int]
 
 
@@ -271,10 +271,10 @@ async def _people(db: AsyncSession, ids: set[int]) -> dict[int, str]:
     return {uid: name for uid, name in rows.all()}
 
 
-def _ref(names: dict[int, str], uid: Optional[int]) -> Optional[PersonRef]:
+def _ref(names: dict[int, str], uid: Optional[int]) -> Optional[PreContractPersonRef]:
     if not uid:
         return None
-    return PersonRef(id=uid, name=names.get(uid, "—"))
+    return PreContractPersonRef(id=uid, name=names.get(uid, "—"))
 
 
 async def _serialize(
@@ -283,7 +283,7 @@ async def _serialize(
     reqs: list[PreContractRequest],
     *,
     with_events: bool = False,
-) -> list[RequestOut]:
+) -> list[PreContractRequestOut]:
     if not reqs:
         return []
     ids = [r.id for r in reqs]
@@ -374,7 +374,7 @@ async def _serialize(
     )
     columns = await svc.pair_columns(db, [(r.candidate_id, r.job_id) for r in reqs])
     today = svc.today()
-    out: list[RequestOut] = []
+    out: list[PreContractRequestOut] = []
     for r in reqs:
         column, stage_name = columns.get((r.candidate_id, r.job_id), (None, None))
         left = (
@@ -395,7 +395,7 @@ async def _serialize(
             and _sees_all(user)
         )
         out.append(
-            RequestOut(
+            PreContractRequestOut(
                 id=r.id,
                 candidate_id=r.candidate_id,
                 candidate_name=candidates.get(r.candidate_id, "—"),
@@ -444,7 +444,7 @@ async def _serialize(
                 ),
                 can_decide_penalty=can_decide,
                 events=[
-                    EventOut(
+                    PreContractEventOut(
                         id=e.id,
                         kind=e.kind,
                         label=svc.EVENT_TITLE.get(e.kind, e.kind),
@@ -459,7 +459,9 @@ async def _serialize(
     return out
 
 
-async def _one(db: AsyncSession, user: User, req: PreContractRequest) -> RequestOut:
+async def _one(
+    db: AsyncSession, user: User, req: PreContractRequest
+) -> PreContractRequestOut:
     return (await _serialize(db, user, [req], with_events=True))[0]
 
 
@@ -476,9 +478,9 @@ def _valid_until_of(doc: B2BContractDocument) -> Optional[date]:
 # ── Prośba ───────────────────────────────────────────────────────────────────
 
 
-@router.post("/pre-contracts", response_model=RequestOut)
+@router.post("/pre-contracts", response_model=PreContractRequestOut)
 async def create_request(
-    body: CreateRequest,
+    body: PreContractCreateRequest,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -574,10 +576,10 @@ async def create_request(
     return await _one(db, current_user, req)
 
 
-@router.patch("/pre-contracts/{request_id}", response_model=RequestOut)
+@router.patch("/pre-contracts/{request_id}", response_model=PreContractRequestOut)
 async def update_request(
     request_id: int,
-    body: UpdateRequest,
+    body: PreContractUpdateRequest,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -620,7 +622,7 @@ async def update_request(
     return await _one(db, current_user, req)
 
 
-@router.get("/pre-contracts/pair", response_model=PairOut)
+@router.get("/pre-contracts/pair", response_model=PreContractPairOut)
 async def pair_requests(
     current_user: CandidatePIIAccess,
     candidate_id: int = Query(...),
@@ -658,11 +660,11 @@ async def pair_requests(
             )
         )
     ).all()
-    return PairOut(
+    return PreContractPairOut(
         current=current,
         history=[i for i in items if not i.is_open],
         documents=[
-            PairDocument(
+            PreContractPairDocument(
                 id=d.id,
                 document_type=d.document_type,
                 document_date=d.document_date,
@@ -675,7 +677,7 @@ async def pair_requests(
     )
 
 
-@router.get("/pre-contracts/{request_id}", response_model=RequestOut)
+@router.get("/pre-contracts/{request_id}", response_model=PreContractRequestOut)
 async def get_request(
     request_id: int,
     current_user: CandidatePIIAccess,
@@ -690,7 +692,7 @@ async def get_request(
 TABS = ("todo", "mine", "expiring", "b2b", "penalty", "all")
 
 
-@router.get("/pre-contracts", response_model=ListOut)
+@router.get("/pre-contracts", response_model=PreContractListOut)
 async def list_requests(
     current_user: CandidatePIIAccess,
     tab: Literal["todo", "mine", "expiring", "b2b", "penalty", "all"] = Query("todo"),
@@ -753,16 +755,20 @@ async def list_requests(
         stmt = stmt.where(visible)
     stmt = stmt.order_by(PreContractRequest.requested_at.desc()).limit(300)
     rows = list((await db.scalars(stmt)).all())
-    return ListOut(items=await _serialize(db, current_user, rows), counts=counts)
+    return PreContractListOut(
+        items=await _serialize(db, current_user, rows), counts=counts
+    )
 
 
 # ── Kroki umowy ──────────────────────────────────────────────────────────────
 
 
-@router.post("/pre-contracts/{request_id}/document", response_model=RequestOut)
+@router.post(
+    "/pre-contracts/{request_id}/document", response_model=PreContractRequestOut
+)
 async def link_document(
     request_id: int,
-    body: LinkDocument,
+    body: PreContractLinkDocument,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -802,10 +808,10 @@ async def link_document(
     return await _one(db, current_user, req)
 
 
-@router.post("/pre-contracts/{request_id}/sent", response_model=RequestOut)
+@router.post("/pre-contracts/{request_id}/sent", response_model=PreContractRequestOut)
 async def mark_sent(
     request_id: int,
-    body: MarkSent,
+    body: PreContractMarkSent,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -842,7 +848,9 @@ async def _store(
     return name, path, None
 
 
-@router.post("/pre-contracts/{request_id}/candidate-signed", response_model=RequestOut)
+@router.post(
+    "/pre-contracts/{request_id}/candidate-signed", response_model=PreContractRequestOut
+)
 async def candidate_signed(
     request_id: int,
     current_user: CandidatePIIAccess,
@@ -882,7 +890,9 @@ async def candidate_signed(
     return await _one(db, current_user, req)
 
 
-@router.post("/pre-contracts/{request_id}/company-signed", response_model=RequestOut)
+@router.post(
+    "/pre-contracts/{request_id}/company-signed", response_model=PreContractRequestOut
+)
 async def company_signed(
     request_id: int,
     current_user: CandidatePIIAccess,
@@ -951,7 +961,7 @@ async def download_file(
 # ── Obserwujący ──────────────────────────────────────────────────────────────
 
 
-@router.post("/pre-contracts/{request_id}/watch", response_model=RequestOut)
+@router.post("/pre-contracts/{request_id}/watch", response_model=PreContractRequestOut)
 async def watch(
     request_id: int,
     current_user: CandidatePIIAccess,
@@ -963,7 +973,9 @@ async def watch(
     return await _one(db, current_user, req)
 
 
-@router.delete("/pre-contracts/{request_id}/watch", response_model=RequestOut)
+@router.delete(
+    "/pre-contracts/{request_id}/watch", response_model=PreContractRequestOut
+)
 async def unwatch(
     request_id: int,
     current_user: CandidatePIIAccess,
@@ -1001,7 +1013,9 @@ async def _close(
     await svc.notify(db, req, event, message=message, actor_id=actor.id)
 
 
-@router.post("/pre-contracts/{request_id}/withdraw", response_model=RequestOut)
+@router.post(
+    "/pre-contracts/{request_id}/withdraw", response_model=PreContractRequestOut
+)
 async def withdraw_request(
     request_id: int,
     current_user: CandidatePIIAccess,
@@ -1025,10 +1039,10 @@ async def withdraw_request(
     return await _one(db, current_user, req)
 
 
-@router.post("/pre-contracts/{request_id}/cancel", response_model=RequestOut)
+@router.post("/pre-contracts/{request_id}/cancel", response_model=PreContractRequestOut)
 async def cancel_request(
     request_id: int,
-    body: CloseBody,
+    body: PreContractCloseBody,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -1046,10 +1060,13 @@ async def cancel_request(
     return await _one(db, current_user, req)
 
 
-@router.post("/pre-contracts/{request_id}/candidate-refused", response_model=RequestOut)
+@router.post(
+    "/pre-contracts/{request_id}/candidate-refused",
+    response_model=PreContractRequestOut,
+)
 async def candidate_refused(
     request_id: int,
-    body: CloseBody,
+    body: PreContractCloseBody,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -1072,7 +1089,9 @@ async def candidate_refused(
     return await _one(db, current_user, req)
 
 
-@router.post("/pre-contracts/{request_id}/fulfilled", response_model=RequestOut)
+@router.post(
+    "/pre-contracts/{request_id}/fulfilled", response_model=PreContractRequestOut
+)
 async def mark_fulfilled(
     request_id: int,
     current_user: CandidatePIIAccess,
@@ -1097,11 +1116,12 @@ async def mark_fulfilled(
 
 
 @router.post(
-    "/pre-contracts/{request_id}/candidate-withdrew", response_model=RequestOut
+    "/pre-contracts/{request_id}/candidate-withdrew",
+    response_model=PreContractRequestOut,
 )
 async def candidate_withdrew(
     request_id: int,
-    body: WithdrawalBody,
+    body: PreContractWithdrawalBody,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -1151,10 +1171,12 @@ async def candidate_withdrew(
     return await _one(db, current_user, req)
 
 
-@router.post("/pre-contracts/{request_id}/penalty-decision", response_model=RequestOut)
+@router.post(
+    "/pre-contracts/{request_id}/penalty-decision", response_model=PreContractRequestOut
+)
 async def penalty_decision(
     request_id: int,
-    body: PenaltyDecision,
+    body: PreContractPenaltyDecision,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
