@@ -33,6 +33,12 @@ class ValidationService:
     def has_dss(self) -> bool:
         return bool(self._dss_url)
 
+    @property
+    def authoritative(self) -> bool:
+        """Werdykt „kwalifikowany” ma tylko DSS — lokalny pyHanko bez listy
+        zaufanych dostawców nie (podpis umowy B2B w NEXUSIE, 0497)."""
+        return self.has_dss
+
     async def validate(self, signed_pdf: bytes) -> ValidationReport:
         """Return the QES verdict for ``signed_pdf``.
 

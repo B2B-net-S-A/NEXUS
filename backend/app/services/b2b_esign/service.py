@@ -55,11 +55,23 @@ MSG_WAITS_FOR_CONTRACTOR = (
     "Najpierw podpisuje kontraktor — umowa jeszcze na niego czeka."
 )
 MSG_TOO_BIG = "Plik jest za duży — może mieć najwyżej 20 MB."
+MSG_TOO_MANY_ATTEMPTS = (
+    "Za dużo nieudanych prób z tego linku. Poproś osobę z B2B Network o nowy link."
+)
+MSG_NAME_MISSING = (
+    "W umowie brakuje imienia i nazwiska osoby podpisującej — popraw umowę "
+    "w generatorze i wyślij ponownie."
+)
+#: Nieudane wgrania z jednego linku (zły plik albo podpis) — potem nowy link.
+MAX_FAILED_ATTEMPTS = 10
 
 
 class Validator(Protocol):
+    """``authoritative`` = walidator sprawdza listę zaufanych dostawców UE
+    (pyHanko z EUTL albo EU DSS); bez tego żaden plik nie przejdzie."""
+
     @property
-    def has_dss(self) -> bool: ...
+    def authoritative(self) -> bool: ...
 
     async def validate(self, signed_pdf: bytes) -> ValidationReport: ...
 
@@ -111,7 +123,6 @@ async def send(
     row: B2BGeneratedContract,
     pdf: bytes,
     actor_id: int,
-    contractor_name: str,
     contractor_email: str,
     company_signer_id: int,
     days: int,
@@ -120,6 +131,12 @@ async def send(
     """Zamroź PDF i otwórz wniosek. Wołający trzyma blokadę wiersza rejestru
     i sprawdził uprawnienia oraz przełącznik. Zwraca (wniosek, token linku)."""
     assert_sendable(row)
+    # Kto podpisuje za kontraktora, mówi umowa (osoba z ``partner_name`` —
+    # przy spółce osoba reprezentująca), nie nadawca: inaczej nadawca mógłby
+    # wpisać siebie i podpisać za kontraktora z otrzymanego linku.
+    contractor_name = (row.partner_name or "").strip()
+    if not contractor_name:
+        raise HTTPException(status_code=422, detail=MSG_NAME_MISSING)
     if await open_request_for(db, row.id) is not None:
         raise HTTPException(status_code=409, detail=MSG_OPEN_EXISTS)
     days = max(MIN_DAYS, min(MAX_DAYS, days))
@@ -128,7 +145,7 @@ async def send(
     request = B2BSigningRequest(
         generated_contract_id=row.id,
         status="sent",
-        contractor_name=contractor_name.strip(),
+        contractor_name=contractor_name,
         contractor_email=contractor_email.strip(),
         contractor_token_hash=digest,
         company_signer_id=company_signer_id,
@@ -180,33 +197,56 @@ def _with_report(
     return {**(request.validation or {}), party: report.as_db_report()}
 
 
-async def contractor_submit(
-    db: AsyncSession,
-    *,
-    token: str,
-    data: bytes,
-    validator: Validator,
-    now: datetime,
+async def contractor_precheck(
+    db: AsyncSession, token: str, now: datetime
 ) -> B2BSigningRequest:
+    """Token, stan i limit prób — PRZED odczytem pliku (fałszywy link nie
+    zmusza serwera do przyjęcia 20 MB)."""
     request = await load_by_token(db, token)
     if request.status in ("contractor_signed", "completed"):
         raise HTTPException(status_code=409, detail=MSG_ALREADY_SIGNED)
     if not is_link_live(request, now):
         raise HTTPException(status_code=410, detail=MSG_CLOSED)
-    check_pdf_upload(data)
+    if request.contractor_failed_attempts >= MAX_FAILED_ATTEMPTS:
+        raise HTTPException(status_code=429, detail=MSG_TOO_MANY_ATTEMPTS)
+    return request
+
+
+async def _count_failed_attempt(db: AsyncSession, request_id: int) -> None:
+    locked = await _lock(db, request_id)
+    locked.contractor_failed_attempts = (locked.contractor_failed_attempts or 0) + 1
+    await db.commit()
+
+
+async def contractor_submit(
+    db: AsyncSession,
+    *,
+    request: B2BSigningRequest,
+    data: bytes,
+    validator: Validator,
+    now: datetime,
+) -> B2BSigningRequest:
+    """Wołać po ``contractor_precheck`` z tym samym wnioskiem."""
+    request_id = request.id
     source = Fingerprint(request.source_sha256, request.source_size)
+    contractor_name = request.contractor_name
+    check_pdf_upload(data)
     if not builds_on(data, source):
+        await _count_failed_attempt(db, request_id)
         raise HTTPException(status_code=422, detail=MSG_CHANGED)
+    # Walidacja trwa do 30 s — bez otwartej transakcji i bez połączenia z puli.
+    await db.rollback()
     report = await validator.validate(data)
     verdict = judge(
         report,
-        authoritative=validator.has_dss,
-        required_signers=[request.contractor_name],
+        authoritative=validator.authoritative,
+        required_signers=[contractor_name],
     )
     if not verdict.accepted:
+        await _count_failed_attempt(db, request_id)
         raise HTTPException(status_code=422, detail=verdict.message)
 
-    locked = await _lock(db, request.id)
+    locked = await _lock(db, request_id)
     if not is_link_live(locked, now) or locked.source_sha256 != source.sha256:
         raise HTTPException(status_code=409, detail=MSG_RACE)
     path, size = storage_service.save_b2b_signing_pdf(
@@ -223,41 +263,51 @@ async def contractor_submit(
     return locked
 
 
-async def company_submit(
-    db: AsyncSession,
-    *,
-    request_id: int,
-    actor_id: int,
-    actor_name: str,
-    data: bytes,
-    validator: Validator,
-    now: datetime,
+async def company_precheck(
+    db: AsyncSession, *, request_id: int, actor_id: int, signer_ids: tuple[int, ...]
 ) -> B2BSigningRequest:
+    """Wskazany reprezentant, nadal na liście z ustawień, i kontraktor już podpisał."""
     request = await db.get(B2BSigningRequest, request_id)
-    if request is None:
+    if request is None or request.company_signer_id != actor_id:
         raise HTTPException(status_code=404, detail="Wniosek o podpis nie istnieje.")
-    if request.company_signer_id != actor_id:
+    if actor_id not in signer_ids:
         raise HTTPException(status_code=403, detail=MSG_NOT_COMPANY_SIGNER)
     if request.status == "sent":
         raise HTTPException(status_code=409, detail=MSG_WAITS_FOR_CONTRACTOR)
     if request.status != "contractor_signed" or request.contractor_sha256 is None:
         raise HTTPException(status_code=409, detail=MSG_CLOSED)
-    check_pdf_upload(data)
+    return request
+
+
+async def company_submit(
+    db: AsyncSession,
+    *,
+    request: B2BSigningRequest,
+    actor_name: str,
+    data: bytes,
+    validator: Validator,
+    now: datetime,
+) -> B2BSigningRequest:
+    """Wołać po ``company_precheck`` z tym samym wnioskiem."""
+    request_id = request.id
+    contractor_name = request.contractor_name
     contractor_version = Fingerprint(
-        request.contractor_sha256, request.contractor_size or 0
+        request.contractor_sha256 or "", request.contractor_size or 0
     )
+    check_pdf_upload(data)
     if not builds_on(data, contractor_version):
         raise HTTPException(status_code=422, detail=MSG_CHANGED)
+    await db.rollback()
     report = await validator.validate(data)
     verdict = judge(
         report,
-        authoritative=validator.has_dss,
-        required_signers=[request.contractor_name, actor_name],
+        authoritative=validator.authoritative,
+        required_signers=[contractor_name, actor_name],
     )
     if not verdict.accepted:
         raise HTTPException(status_code=422, detail=verdict.message)
 
-    locked = await _lock(db, request.id)
+    locked = await _lock(db, request_id)
     if (
         locked.status != "contractor_signed"
         or locked.contractor_sha256 != contractor_version.sha256

@@ -81,6 +81,11 @@ class B2BSigningRequest(Base, TimestampMixin):
     contractor_token_hash: Mapped[Optional[str]] = mapped_column(
         String(64), nullable=True, unique=True
     )
+    # Nieudane wgrania z linku (zły plik, podpis) — po ``MAX_FAILED_ATTEMPTS``
+    # link przestaje przyjmować pliki (każde wgranie to do 30 s walidacji).
+    contractor_failed_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
     # Reprezentant B2B Network (konto w NEXUSIE) — podpisuje drugi.
     company_signer_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
