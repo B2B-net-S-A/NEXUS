@@ -1,7 +1,7 @@
 """Prośby o umowę przedwstępną przy osobie w rekrutacji (21.10.2026).
 
 Revision ID: 0504_pre_contract_requests
-Revises: 0501_scoring_weight_changes
+Revises: 0503_b2b_document_participation_types
 
 * ``pre_contract_requests`` — prośba DL / HoR / rekrutera o przedwstępną dla
   pary (kandydat, rekrutacja), jej droga do podpisu i ważność; najwyżej jedna
@@ -19,7 +19,7 @@ from alembic import op
 from app.services import pre_contract_schema as schema
 
 revision = "0504_pre_contract_requests"
-down_revision = "0501_scoring_weight_changes"
+down_revision = "0503_b2b_document_participation_types"
 branch_labels = None
 depends_on = None
 
