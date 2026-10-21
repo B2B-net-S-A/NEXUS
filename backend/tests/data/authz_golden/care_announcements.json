@@ -24,21 +24,22 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/care/announcements": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "GET /api/care/announcements/options": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "GET /api/care/announcements/{announcement_id}": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "PATCH /api/care/announcements/{announcement_id}": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/announcements": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/announcements/preview": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/announcements/{announcement_id}/approve": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/announcements/{announcement_id}/cancel": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/announcements/{announcement_id}/retry-failed": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/announcements/{announcement_id}/return": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/announcements/{announcement_id}/submit": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/announcements/{announcement_id}/test-send": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "PUT /api/care/announcements/settings": "BBBBBBBDBBBBBBBBBBBDBBBBB"
+  "GET /api/care/announcements": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "GET /api/care/announcements/options": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "GET /api/care/announcements/{announcement_id}": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "PATCH /api/care/announcements/{announcement_id}": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/announcements": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/announcements/preview": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/announcements/{announcement_id}/approve": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/announcements/{announcement_id}/cancel": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/announcements/{announcement_id}/retry-failed": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/announcements/{announcement_id}/return": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/announcements/{announcement_id}/submit": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/announcements/{announcement_id}/test-send": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "PUT /api/care/announcements/settings": "BBBBBBBDBBBBBBBBBBBDBBBBBB"
  }
 }

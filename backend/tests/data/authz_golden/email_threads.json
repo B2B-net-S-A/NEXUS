@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/emails": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/candidates/{candidate_id}/emails/thread/{conversation_id:path}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/emails/{email_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/emails/{email_id}/attachments/{attachment_id}/download": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/microsoft365/emails/search": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/candidates/{candidate_id}/emails/compose": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/candidates/{candidate_id}/emails/reply": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/microsoft365/emails/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/candidates/{candidate_id}/emails": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidates/{candidate_id}/emails/thread/{conversation_id:path}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/emails/{email_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/emails/{email_id}/attachments/{attachment_id}/download": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/microsoft365/emails/search": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/candidates/{candidate_id}/emails/compose": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/candidates/{candidate_id}/emails/reply": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/microsoft365/emails/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

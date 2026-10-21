@@ -175,6 +175,7 @@ _TECH_LABEL = re.compile(
     r"\s*:",
     re.IGNORECASE,
 )
+_HAS_LETTER = re.compile(r"[^\W\d_]")
 _LIST_SPLIT = re.compile(r"[,;|·•]")
 _WORD = re.compile(r"[^\W_]+(?:[.#+\-][^\W_]+)*[#+]*", re.UNICODE)
 
@@ -2205,6 +2206,9 @@ async def expected_titles(
     if role:
         out.append(role)
     header = str((payload or {}).get("presentation_position") or "").strip()
+    # 21.10.2026: nagłówek „(43020)” nie jest rolą — nie potwierdza sam siebie.
+    if not _HAS_LETTER.search(header):
+        header = ""
     if header and header.casefold() not in {t.casefold() for t in out}:
         out.append(header)
     return tuple(out)

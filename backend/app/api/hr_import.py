@@ -14,7 +14,8 @@ Prefiks ``/api/hr/admin/import`` (wpina ``app/main.py``). Ten sam przebieg co
   modułów, w jednej transakcji. Tylko admin: to hurtowa zmiana danych płacowych
   i zdrowotnych. Odmowa (409), gdy sprawdzenie ma ponad 24 h albo po nim ktoś
   zapisał inną paczkę (też z wiersza poleceń).
-* ``GET /batches`` — historia: kto, kiedy, SHA, stan, liczby.
+* ``GET /batches`` — historia: kto, kiedy, SHA, stan, liczby; paczki z ekranu
+  i partie ze skryptu (``source``: ``screen`` / ``script``).
 
 Dane osobowe: surowa paczka leży w ``hr_import_uploads.bundle`` tylko do
 zapisu albo 24 h (sprząta ją kolejny przebieg na sucho albo
@@ -64,6 +65,8 @@ MAX_UNPACKED_BYTES = MAX_BUNDLE_BYTES
 MAX_ZIP_ENTRIES = 10
 #: Pozycji do wyjaśnienia w odpowiedzi na moduł (pełna lista jest w partii).
 ATTENTION_LIMIT = 200
+#: Wierszy w historii (paczki z ekranu i partie ze skryptu razem).
+HISTORY_LIMIT = 50
 ACTIONS = ("create", "update", "unchanged", "conflict", "skip")
 LOCK_KEY = "hr_compass_import"
 #: Kolumny wiersza źródła, które wskazują osobę Compassa (``profiles.id``).
@@ -348,6 +351,7 @@ def _view(
         modules.append(entry)
     return {
         "id": upload.id,
+        "source": "screen",
         "status": status,
         "bundle_sha256": upload.bundle_sha256,
         "size_bytes": upload.size_bytes,
@@ -359,6 +363,57 @@ def _view(
         "applied_by_name": names.get(upload.applied_by) if upload.applied_by else None,
         "applied_modules": list(report.get("applied_modules") or []),
         "modules": modules,
+    }
+
+
+def _script_view(
+    batch: HrImportBatch,
+    names: Mapping[int, str],
+    *,
+    last_applied_at: Optional[datetime],
+) -> dict[str, Any]:
+    """Partia z ``scripts/hr_compass_import.py``: jeden moduł, bez paczki w bazie.
+
+    Kształt jak ``_view``, żeby historia była jedną listą. Sprawdzenie na sucho
+    sprzed późniejszego zapisu (dowolnej partii) jest nieaktualne, tak jak na
+    ekranie; terminu 24 h skrypt nie ma, bo paczka nie leży w bazie.
+    """
+
+    report = batch.report or {}
+    applied = report.get("applied")
+    status = batch.status
+    if (
+        status == "dry_run"
+        and last_applied_at is not None
+        and batch.created_at < last_applied_at
+    ):
+        status = "superseded"
+    importer = compass_import.IMPORTERS.get(batch.module)
+    module = {
+        "module": batch.module,
+        "label": importer.label if importer else batch.module,
+        **_summary(report.get("dry_run") or {}),
+        "error": None,
+        "applied": (
+            {**_summary(applied), "written": dict(applied.get("written") or {})}
+            if applied
+            else None
+        ),
+    }
+    return {
+        "id": batch.id,
+        "source": "script",
+        "status": status,
+        "bundle_sha256": batch.bundle_sha256,
+        "size_bytes": None,
+        "exported_at": report.get("exported_at"),
+        "created_at": _iso(batch.created_at),
+        "created_by_name": names.get(batch.created_by) if batch.created_by else None,
+        "expires_at": None,
+        "applied_at": _iso(batch.applied_at),
+        "applied_by_name": names.get(batch.applied_by) if batch.applied_by else None,
+        "applied_modules": [batch.module] if batch.status == "applied" else [],
+        "modules": [module],
     }
 
 
@@ -607,13 +662,45 @@ async def list_uploads(
     _: HrImportReader,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
+    """Paczki z ekranu i partie ze skryptu w jednej liście, od najnowszych.
+
+    Partie paczki z ekranu wskazuje ``HrImportUpload.batch_ids``; partia bez
+    takiej paczki przyszła z wiersza poleceń (import 18.10.2026 szedł skryptem
+    i ekran pokazywał „nie było importu”).
+    """
+
     uploads = (
         await db.scalars(
-            select(HrImportUpload).order_by(HrImportUpload.id.desc()).limit(50)
+            select(HrImportUpload)
+            .order_by(HrImportUpload.id.desc())
+            .limit(HISTORY_LIMIT)
+        )
+    ).all()
+    from_screen = {
+        int(batch_id)
+        for batch_ids in (await db.scalars(select(HrImportUpload.batch_ids))).all()
+        for batch_id in (batch_ids or {}).values()
+    }
+    scripted = (
+        await db.scalars(
+            select(HrImportBatch)
+            .where(HrImportBatch.id.not_in(from_screen))
+            .order_by(HrImportBatch.id.desc())
+            .limit(HISTORY_LIMIT)
         )
     ).all()
     now = await db.scalar(select(func.now()))
+    last_applied_at = await db.scalar(select(func.max(HrImportBatch.applied_at)))
+    people = [*uploads, *scripted]
     names = await _names(
-        db, {u.created_by for u in uploads} | {u.applied_by for u in uploads}
+        db, {p.created_by for p in people} | {p.applied_by for p in people}
     )
-    return [_view(upload, names, now=now) for upload in uploads]
+    rows = [
+        *((u.created_at, _view(u, names, now=now)) for u in uploads),
+        *(
+            (b.created_at, _script_view(b, names, last_applied_at=last_applied_at))
+            for b in scripted
+        ),
+    ]
+    rows.sort(key=lambda row: row[0], reverse=True)
+    return [view for _, view in rows[:HISTORY_LIMIT]]

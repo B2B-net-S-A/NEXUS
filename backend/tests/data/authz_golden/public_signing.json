@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/public/sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/sign/{token}/pdf": "PPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/sign/{token}/submit": "PPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/sign/{token}/pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/sign/{token}/submit": "PPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

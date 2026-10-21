@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/calls/cloudtalk-status": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/calls/stats": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/candidates/{candidate_id}/calls": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/calls": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/calls/webhook": "PPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/calls/cloudtalk-status": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/calls/stats": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidates/{candidate_id}/calls": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/calls": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/calls/webhook": "PPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

@@ -30,6 +30,7 @@ const ALL_ROLES: UserRole[] = [
   "trainee",
   "automation",
   "employee",
+  "board",
 ];
 
 const mkUser = (role: UserRole) => ({ role });
@@ -57,6 +58,7 @@ const EXPECTED: Record<
       | "trainee"
       | "automation"
       | "employee"
+      | "board"
     >,
     boolean
   >
@@ -514,7 +516,7 @@ describe("hasCapability — pełna macierz rola × capability", () => {
               ? traineeExpected(capability)
               : role === "automation"
                 ? automationExpected(capability)
-                : role === "employee"
+                : role === "employee" || role === "board"
                   ? false
                   : EXPECTED[capability][role];
       it(`${role} ${expected ? "MA" : "NIE ma"} ${capability}`, () => {
@@ -573,6 +575,14 @@ describe("hasCapability — przypadki brzegowe", () => {
     // kartoteką, nie za capability. Radar pokazuje kandydatów (RODO).
     for (const capability of ALL_CAPABILITIES) {
       expect(hasCapability(mkUser("employee"), capability)).toBe(false);
+    }
+  });
+
+  it("„Rada nadzorcza” (0490) nie ma ŻADNEJ capability — tylko Insights z sekcji", () => {
+    // Rada nie zakłada ani nie zmienia niczego; Talent Radar pokazuje
+    // kandydatów (RODO), a Insights otwiera sekcja, nie capability.
+    for (const capability of ALL_CAPABILITIES) {
+      expect(hasCapability(mkUser("board"), capability)).toBe(false);
     }
   });
 
@@ -1454,10 +1464,10 @@ describe("kontrakt backend ↔ rejestr capability", () => {
  * Role z sidebarem. Praktykant (0374) ma własną powłokę bez menu, więc nie
  * widzi ŻADNEJ pozycji — liczony tu robiłby z każdej pozycji „bramkowaną”.
  */
-// Praktykant i „Pracownik” (0456) mają własną, wąską powłokę — ich pozycje
-// menu nie wynikają z capability ani sekcji produktu.
+// Praktykant, „Pracownik” (0456) i „Rada nadzorcza” (0490) mają własną, wąską
+// powłokę — ich pozycje menu nie wynikają z capability ani sekcji produktu.
 const SIDEBAR_ROLES = ALL_ROLES.filter(
-  (role) => role !== "trainee" && role !== "employee",
+  (role) => role !== "trainee" && role !== "employee" && role !== "board",
 );
 
 /** Role, dla których `visibleNavSections` pokazuje daną pozycję menu. */

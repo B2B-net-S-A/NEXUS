@@ -163,6 +163,9 @@ _ENUM_STATEMENTS = [
     # „Ludzie w NEXUSIE” (0456): rola „Pracownik” — lustro
     # `app/services/hr_access_schema.ENUM_DDL`.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'employee'",
+    # 0490: rola „Rada nadzorcza” — lustro
+    # `app/services/board_role_schema.ENUM_DDL`.
+    "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'board'",
     # „Ludzie w NEXUSIE” (0457): typy powiadomień modułów kadrowych — lustro
     # `app/services/hr_notification_schema.ENUM_DDL`.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_requested'",
@@ -6925,7 +6928,13 @@ _DATA_STATEMENTS = [
            ('employee', 'delivery', 'none'),
            ('employee', 'insights', 'none'),
            ('employee', 'finance', 'none'),
-           ('employee', 'system_admin', 'none')
+           ('employee', 'system_admin', 'none'),
+           ('board', 'sourcing', 'none'),
+           ('board', 'pipeline', 'none'),
+           ('board', 'delivery', 'none'),
+           ('board', 'insights', 'read'),
+           ('board', 'finance', 'none'),
+           ('board', 'system_admin', 'none')
        ) AS defaults(role, section, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_section_permissions
@@ -6983,7 +6992,8 @@ _DATA_STATEMENTS = [
            ('user', 'b2b_contract_generator', 'view'),
            ('trainee', 'b2b_contract_generator', 'none'),
            ('automation', 'b2b_contract_generator', 'none'),
-           ('employee', 'b2b_contract_generator', 'none')
+           ('employee', 'b2b_contract_generator', 'none'),
+           ('board', 'b2b_contract_generator', 'none')
        ) AS defaults(role, action, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_action_permissions

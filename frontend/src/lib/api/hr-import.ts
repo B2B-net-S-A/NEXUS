@@ -53,11 +53,17 @@ export interface HrImportModuleReport {
   attention?: HrImportAttention[];
 }
 
+/** Paczka wgrana w Ustawieniach albo partia z `scripts/hr_compass_import.py`. */
+export type HrImportSource = "screen" | "script";
+
 export interface HrImportUpload {
+  /** Id paczki z ekranu albo id partii skryptu — unikalne dopiero z `source`. */
   id: number;
+  source: HrImportSource;
   status: HrImportStatus;
   bundle_sha256: string;
-  size_bytes: number;
+  /** Partia ze skryptu nie zostawia paczki w bazie, więc rozmiaru nie ma. */
+  size_bytes: number | null;
   exported_at: string | null;
   created_at: string | null;
   created_by_name: string | null;
@@ -73,6 +79,11 @@ export const HR_IMPORT_STATUS_LABELS: Record<HrImportStatus, string> = {
   applied: "Zapisana",
   expired: "Wygasła",
   superseded: "Nieaktualna",
+};
+
+export const HR_IMPORT_SOURCE_LABELS: Record<HrImportSource, string> = {
+  screen: "z ekranu",
+  script: "ze skryptu",
 };
 
 export const HR_IMPORT_ACTION_LABELS: Record<HrImportAction, string> = {

@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/candidates/tags/suggest": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "DELETE /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/candidates/tags/suggest": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

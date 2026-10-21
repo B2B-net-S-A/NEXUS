@@ -17,7 +17,15 @@ import {
   Wrench,
   Eye,
   ShieldCheck,
+  MoreHorizontal,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { adminApi, extractErrorMsg } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -60,6 +68,12 @@ interface AdminUsersTabProps {
 }
 
 const EMBEDDED_SUBTABS: readonly SubTab[] = ["users", "permissions"];
+
+/** Strona listy kont (makieta rundy 2, 21.10.2026: 252 konta na jednej stronie = 15 085 px). */
+export const ADMIN_USERS_PAGE_SIZE = 25;
+
+export type AdminUserStatus = "all" | "active" | "inactive";
+export type AdminUserSort = "name" | "activity";
 
 /**
  * Błędy drugiego żądania zapisu: dane konta już się zapisały, dodatkowe
@@ -117,7 +131,11 @@ export function AdminUsersTab({
   const [permissionsDirty, setPermissionsDirty] = useState(false);
   const [modal, setModal] = useState<"create" | "edit" | "reset" | null>(null);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  // W Ustawieniach domyślnie aktywni: 207 z 252 kont to byli pracownicy (prod 21.10.2026).
+  const [statusFilter, setStatusFilter] = useState<AdminUserStatus>(embedded ? "active" : "all");
+  const [idleOnly, setIdleOnly] = useState(false);
+  const [sort, setSort] = useState<AdminUserSort>("name");
+  const [page, setPage] = useState(0);
   // UAT M11-B02: przy ~240 kontach sama lista ze statusem nie wystarczała.
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
@@ -218,11 +236,32 @@ export function AdminUsersTab({
   // Filtr po statusie, roli i wyszukiwarce + domyślne sortowanie alfabetyczne
   // po imieniu (locale pl).
   const displayedUsers = useMemo(
-    () => filterAdminUsers(users ?? [], { status: statusFilter, role: roleFilter, search }),
-    [users, statusFilter, roleFilter, search],
+    () =>
+      filterAdminUsers(users ?? [], {
+        status: statusFilter,
+        role: roleFilter,
+        search,
+        idle: idleOnly,
+        sort,
+      }),
+    [users, statusFilter, roleFilter, search, idleOnly, sort],
   );
+  const counts = useMemo(() => adminUserCounts(users ?? []), [users]);
   const filtersActive =
-    statusFilter !== "all" || roleFilter !== "all" || search.trim() !== "";
+    statusFilter !== "all" || roleFilter !== "all" || search.trim() !== "" || idleOnly;
+  const pageCount = Math.max(1, Math.ceil(displayedUsers.length / ADMIN_USERS_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageUsers = displayedUsers.slice(
+    currentPage * ADMIN_USERS_PAGE_SIZE,
+    (currentPage + 1) * ADMIN_USERS_PAGE_SIZE,
+  );
+  // Każda zmiana filtra wraca na pierwszą stronę.
+  const withFirstPage =
+    <T,>(set: (value: T) => void) =>
+    (value: T) => {
+      set(value);
+      setPage(0);
+    };
 
   if (!user) {
     return (
@@ -355,37 +394,61 @@ export function AdminUsersTab({
       )}
 
       {subTab === "users" && (
-        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-x-auto">
+        <div className="relative bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-x-auto">
           <div className="flex items-center gap-2 flex-wrap px-4 py-3 border-b border-border dark:border-border">
-            <span className="text-sm text-muted-foreground dark:text-muted-foreground">Status:</span>
-            {([
-              { id: "all", label: "Wszyscy" },
-              { id: "active", label: "Aktywni" },
-              { id: "inactive", label: "Nieaktywni" },
-            ] as const).map(({ id, label }) => (
+            <div className="inline-flex overflow-hidden rounded-lg border border-border" role="group" aria-label="Status">
+              {([
+                { id: "active", label: "Aktywni", count: counts.active },
+                { id: "inactive", label: "Nieaktywni", count: counts.inactive },
+                { id: "all", label: "Wszyscy", count: counts.all },
+              ] as const).map(({ id, label, count }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => withFirstPage(setStatusFilter)(id)}
+                  aria-pressed={statusFilter === id}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    statusFilter === id
+                      ? "bg-primary text-white"
+                      : "bg-card text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                  {users ? (
+                    <>
+                      {" "}
+                      <span className="tabular-nums opacity-80">{count}</span>
+                    </>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+            {counts.idle > 0 ? (
               <button
-                key={id}
-                onClick={() => setStatusFilter(id)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  statusFilter === id
-                    ? "bg-primary text-white"
-                    : "bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
+                type="button"
+                onClick={() => withFirstPage(setIdleOnly)(!idleOnly)}
+                aria-pressed={idleOnly}
+                title="Aktywne konta bez żadnej zapisanej aktywności"
+                className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                  idleOnly
+                    ? "border-warning bg-warning-muted text-warning-muted-foreground"
+                    : "border-border bg-card text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {label}
+                Bez aktywności · <span className="tabular-nums">{counts.idle}</span>
               </button>
-            ))}
+            ) : null}
             <input
               type="search"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => withFirstPage(setSearch)(e.target.value)}
               placeholder="Szukaj po imieniu lub e-mailu…"
               aria-label="Szukaj użytkowników"
               className="min-w-[14rem] rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
             />
             <select
               value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
+              onChange={(e) => withFirstPage(setRoleFilter)(e.target.value)}
               aria-label="Filtr roli"
               className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
             >
@@ -398,6 +461,15 @@ export function AdminUsersTab({
                 </option>
               ))}
             </select>
+            <select
+              value={sort}
+              onChange={(e) => withFirstPage(setSort)(e.target.value as AdminUserSort)}
+              aria-label="Kolejność"
+              className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+            >
+              <option value="name">Sortuj: imię</option>
+              <option value="activity">Sortuj: ostatnia aktywność</option>
+            </select>
             <span className="ml-auto text-xs text-muted-foreground dark:text-muted-foreground">
               {displayedUsers.length}
               {filtersActive && users ? ` z ${users.length}` : ""}{" "}
@@ -409,24 +481,33 @@ export function AdminUsersTab({
           ) : (
             // Siedem kolumn nie mieści się na telefonie: tabela przewija się
             // w poziomie, a kolumna „Imię” zostaje przyklejona (decyzja 23.09.2026).
-            <div className="overflow-x-auto">
-            <table className="w-full min-w-[960px] text-sm">
+            <div className="relative overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
               <thead>
                 <tr className="border-b border-border dark:border-border bg-muted dark:bg-card">
-                  <th className="sticky left-0 z-10 bg-muted dark:bg-card px-4 py-3 text-left font-semibold text-foreground">Imię</th>
-                  <th className="px-4 py-3 text-left font-semibold text-foreground">Email</th>
-                  <th className="px-4 py-3 text-left font-semibold text-foreground">Rola</th>
-                  <th className="px-4 py-3 text-left font-semibold text-foreground">Status</th>
+                  <th className="sticky left-0 z-10 bg-muted dark:bg-card px-4 py-3 text-left font-semibold text-foreground">Osoba</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Rola i uprawnienia</th>
                   <th className="px-4 py-3 text-left font-semibold text-foreground">Ostatnia aktywność</th>
-                  <th className="px-4 py-3 text-right font-semibold text-foreground">Akcje</th>
+                  <th className="px-4 py-3 text-right font-semibold text-foreground">
+                    <span className="sr-only">Akcje</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {displayedUsers.map((u) => (
+                {pageUsers.map((u) => (
                   <tr key={u.id} className="group hover:bg-muted dark:bg-card transition-colors">
-                    <td className="sticky left-0 z-10 bg-card group-hover:bg-muted px-4 py-3 font-medium text-foreground dark:text-foreground">{u.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">{u.email}</td>
-                    <td className="px-4 py-3">
+                    <td className="sticky left-0 z-10 bg-card group-hover:bg-muted px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-foreground dark:text-foreground">{u.name}</span>
+                        {!u.is_active ? (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/15 text-destructive">
+                            Nieaktywny
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{u.email}</div>
+                    </td>
+                    <td className="px-4 py-2.5">
                       <div className="flex flex-wrap gap-1">
                         <span
                           className="px-2 py-0.5 rounded-full text-xs font-medium bg-primary/15 text-primary"
@@ -463,75 +544,73 @@ export function AdminUsersTab({
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          u.is_active
-                            ? "bg-green-100 text-green-700"
-                            : "bg-destructive/15 text-destructive"
-                        }`}
-                      >
-                        {u.is_active ? "Aktywny" : "Nieaktywny"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground text-xs">
-                      {formatDate(u.last_activity)}
-                      {u.activity_count > 0 && (
-                        <span className="ml-1 text-muted-foreground">({u.activity_count})</span>
+                    <td className="px-4 py-2.5 text-xs">
+                      {u.last_activity ? (
+                        <span className="text-muted-foreground">
+                          {formatDate(u.last_activity)}
+                          {u.activity_count > 0 && <span className="ml-1">({u.activity_count})</span>}
+                        </span>
+                      ) : u.is_active ? (
+                        <span className="rounded-full bg-warning-muted px-2 py-0.5 font-medium text-warning-muted-foreground">
+                          bez aktywności
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
+                      {/* Jedna podpisana akcja na wierzchu, rzadkie w menu — zamiast czterech ikon bez podpisu. */}
                       <div className="flex items-center justify-end gap-1">
-                        {u.is_active && u.id !== user.id && (
-                          <button
-                            onClick={() => handleImpersonate(u)}
-                            title="Podgląd jako ten użytkownik"
-                            className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                        )}
-
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => {
                             setSelectedUser(u);
                             setModal("edit");
                           }}
-                          title="Edytuj"
-                          className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
                         >
-                          <PencilLine className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setSelectedUser(u);
-                            setModal("reset");
-                          }}
-                          title="Resetuj hasło"
-                          className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                        >
-                          <KeyRound className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          onClick={() => toggleActiveMutation.mutate(u)}
-                          title={u.is_active ? "Dezaktywuj" : "Aktywuj"}
-                          className={`p-1.5 pointer-coarse:p-2.5 rounded-lg transition-colors ${
-                            u.is_active
-                              ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                              : "text-muted-foreground hover:text-green-600 hover:bg-green-50"
-                          }`}
-                        >
-                          {u.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-                        </button>
+                          <PencilLine className="mr-1.5 h-4 w-4" aria-hidden />
+                          Edytuj
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" aria-label={`Więcej: ${u.name}`}>
+                              <MoreHorizontal className="h-4 w-4" aria-hidden />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {u.is_active && u.id !== user.id ? (
+                              <DropdownMenuItem onSelect={() => void handleImpersonate(u)}>
+                                <Eye className="mr-2 h-4 w-4" aria-hidden />
+                                Podgląd jako ten użytkownik
+                              </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setSelectedUser(u);
+                                setModal("reset");
+                              }}
+                            >
+                              <KeyRound className="mr-2 h-4 w-4" aria-hidden />
+                              Resetuj hasło
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => toggleActiveMutation.mutate(u)}>
+                              {u.is_active ? (
+                                <UserX className="mr-2 h-4 w-4" aria-hidden />
+                              ) : (
+                                <UserCheck className="mr-2 h-4 w-4" aria-hidden />
+                              )}
+                              {u.is_active ? "Dezaktywuj" : "Aktywuj"}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </td>
                   </tr>
                 ))}
                 {displayedUsers.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                       {filtersActive
                         ? "Brak użytkowników pasujących do filtrów"
                         : "Brak użytkowników"}
@@ -540,6 +619,31 @@ export function AdminUsersTab({
                 )}
               </tbody>
             </table>
+            {pageCount > 1 ? (
+              <div className="flex items-center gap-2 border-t border-border px-4 py-2">
+                <span className="flex-1 text-xs text-muted-foreground">
+                  {currentPage * ADMIN_USERS_PAGE_SIZE + 1}–
+                  {Math.min((currentPage + 1) * ADMIN_USERS_PAGE_SIZE, displayedUsers.length)} z{" "}
+                  {displayedUsers.length}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage === 0}
+                  onClick={() => setPage(currentPage - 1)}
+                >
+                  Poprzednie
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= pageCount - 1}
+                  onClick={() => setPage(currentPage + 1)}
+                >
+                  Następne
+                </Button>
+              </div>
+            ) : null}
             </div>
           )}
         </div>
@@ -599,26 +703,51 @@ function foldText(value: string): string {
     .toLowerCase();
 }
 
+/** Liczniki przy filtrach: aktywni, nieaktywni, wszyscy i aktywni bez żadnej aktywności. */
+export function adminUserCounts(users: readonly AdminUser[]) {
+  const active = users.filter((u) => u.is_active);
+  return {
+    all: users.length,
+    active: active.length,
+    inactive: users.length - active.length,
+    idle: active.filter((u) => !u.last_activity).length,
+  };
+}
+
 /** Filtrowanie listy użytkowników po stronie klienta (lista to komplet kont).
  *  Rola pasuje po roli głównej ALBO dodatkowej; wyszukiwarka ignoruje wielkość
- *  liter i polskie znaki. */
+ *  liter i polskie znaki. `idle` = aktywne konta bez zapisanej aktywności.
+ *  Kolejność: po imieniu (locale pl) albo od ostatniej aktywności (bez
+ *  aktywności na końcu). */
 export function filterAdminUsers(
   users: AdminUser[],
   {
     status,
     role,
     search,
-  }: { status: "all" | "active" | "inactive"; role: string; search: string },
+    idle = false,
+    sort = "name",
+  }: { status: AdminUserStatus; role: string; search: string; idle?: boolean; sort?: AdminUserSort },
 ): AdminUser[] {
   const needle = foldText(search.trim());
   const list = users.filter((u) => {
     if (status === "active" && !u.is_active) return false;
     if (status === "inactive" && u.is_active) return false;
+    if (idle && (!u.is_active || u.last_activity)) return false;
     if (role !== "all" && u.role !== role && !(u.roles ?? []).includes(role)) {
       return false;
     }
     if (needle && !foldText(`${u.name} ${u.email}`).includes(needle)) return false;
     return true;
   });
-  return [...list].sort((a, b) => a.name.localeCompare(b.name, "pl"));
+  const byName = (a: AdminUser, b: AdminUser) => a.name.localeCompare(b.name, "pl");
+  if (sort === "activity") {
+    return [...list].sort((a, b) => {
+      if (a.last_activity && b.last_activity) return b.last_activity.localeCompare(a.last_activity);
+      if (a.last_activity) return -1;
+      if (b.last_activity) return 1;
+      return byName(a, b);
+    });
+  }
+  return [...list].sort(byName);
 }

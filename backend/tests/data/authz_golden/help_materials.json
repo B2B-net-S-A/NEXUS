@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/help-materials": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "POST /api/help-materials": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/help-materials": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "POST /api/help-materials": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

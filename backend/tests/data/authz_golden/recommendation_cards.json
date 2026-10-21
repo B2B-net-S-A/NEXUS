@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/recommendation-cards/deal-breaker": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "PUT /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/recommendation-cards/deal-breaker": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "PUT /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/recruitment-allocation/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/recruitment-allocation/mine": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/recruitment-allocation/onboarding": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/recruitment-allocation/team": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "PATCH /api/recruitment-allocation/onboarding/{item_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "PUT /api/recruitment-allocation/mode": "PDPDDDDDDPDPDDDDDDDDDDDDD"
+  "GET /api/recruitment-allocation/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/recruitment-allocation/mine": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/recruitment-allocation/onboarding": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/recruitment-allocation/team": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "PATCH /api/recruitment-allocation/onboarding/{item_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "PUT /api/recruitment-allocation/mode": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

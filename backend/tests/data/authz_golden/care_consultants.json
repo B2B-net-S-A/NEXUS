@@ -24,17 +24,18 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/care/assignment": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "GET /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "GET /api/care/consultants": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "GET /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/assignment": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "POST /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "PUT /api/care/assignment/pool": "BBBBBBBDBBBBBBBBBBBDBBBBB",
-  "PUT /api/care/assignment/threshold": "BBBBBBBDBBBBBBBBBBBDBBBBB"
+  "GET /api/care/assignment": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "GET /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "GET /api/care/consultants": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "GET /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/assignment": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "POST /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "PUT /api/care/assignment/pool": "BBBBBBBDBBBBBBBBBBBDBBBBBB",
+  "PUT /api/care/assignment/threshold": "BBBBBBBDBBBBBBBBBBBDBBBBBB"
  }
 }

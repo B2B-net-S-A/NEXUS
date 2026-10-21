@@ -214,7 +214,14 @@ export function monthHoursPercent(totals: Pick<MonthTotals, "work_hours" | "leav
   return segmentPercent(totals.work_hours + totals.leave_paid_hours, totals.norm_hours);
 }
 
-/** „Brakuje dziś (19.10)” / „Brakuje 3 dni: 15, 16, 19.10”; nic nie brakuje — `null`. */
+/** Najwięcej dat wypisanych w linii braków; dłuższą listę pokazuje kalendarz karty. */
+const MISSING_DAYS_LISTED = 3;
+
+/**
+ * „Brakuje dziś (19.10)” / „Brakuje 3 dni: 15, 16, 19.10” / „Brakuje 15 dni”
+ * (dłuższej listy nie wypisujemy — dni są zaznaczone w kalendarzu karty,
+ * makieta 21.10.2026); nic nie brakuje — `null`.
+ */
 export function missingLine(missing: readonly string[], today: string): string | null {
   if (missing.length === 0) return null;
   if (missing.length === 1) {
@@ -222,6 +229,7 @@ export function missingLine(missing: readonly string[], today: string): string |
       ? `Brakuje dziś (${formatDayMonthPl(today)})`
       : `Brakuje ${formatDayMonthPl(missing[0])}`;
   }
+  if (missing.length > MISSING_DAYS_LISTED) return `Brakuje ${missing.length} dni`;
   return `Brakuje ${missing.length} dni: ${compactDays(missing)}`;
 }
 

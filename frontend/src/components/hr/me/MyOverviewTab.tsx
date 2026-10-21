@@ -91,7 +91,7 @@ export function MyOverviewTab({ config, person, onOpenTab }: MyOverviewTabProps)
       >
         <TodoCard config={config} person={person} onOpenTab={onOpenTab} />
         {open.equipment ? <EquipmentCard /> : null}
-        <ManagerCard person={person} leaveOpen={open.leave} />
+        <ManagerCard person={person} leaveOpen={open.leave} year={year} />
       </div>
       {open.leave ? (
         <LeaveRequestDialog

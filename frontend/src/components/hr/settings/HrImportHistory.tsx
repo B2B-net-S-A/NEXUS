@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  HR_IMPORT_SOURCE_LABELS,
   HR_IMPORT_STATUS_LABELS,
   useHrImportBatches,
   type HrImportAction,
@@ -33,7 +34,15 @@ function total(upload: HrImportUpload, action: HrImportAction): number {
   return upload.modules.reduce((sum, module) => sum + (module.counts[action] ?? 0), 0);
 }
 
-/** Historia partii importu: kto, kiedy, stan, SHA-256 i liczby na sucho. */
+/** Podpis z kropkami bez pustych kawałków (partia ze skryptu nie ma autora). */
+function line(...parts: (string | null)[]): string {
+  return parts.filter(Boolean).join(" · ");
+}
+
+/**
+ * Historia partii importu: kto, kiedy, stan, SHA-256 i liczby na sucho —
+ * paczki z ekranu i partie ze skryptu (`scripts/hr_compass_import.py`).
+ */
 export function HrImportHistory() {
   const batches = useHrImportBatches();
   const rows = batches.data ?? [];
@@ -69,11 +78,15 @@ export function HrImportHistory() {
             </TableHeader>
             <TableBody>
               {rows.map((upload) => (
-                <TableRow key={upload.id} className={CALM_ROW}>
+                <TableRow key={`${upload.source}-${upload.id}`} className={CALM_ROW}>
                   <TableCell className="whitespace-nowrap">
                     {formatDateTimePl(upload.created_at)}
                     <span className={CALM_SUBLINE}>
-                      #{upload.id} · {upload.created_by_name ?? "—"}
+                      {line(
+                        `#${upload.id}`,
+                        upload.created_by_name,
+                        HR_IMPORT_SOURCE_LABELS[upload.source],
+                      )}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -94,11 +107,13 @@ export function HrImportHistory() {
                       <>
                         {formatDateTimePl(upload.applied_at)}
                         <span className={CALM_SUBLINE}>
-                          {upload.applied_by_name ?? "—"} ·{" "}
-                          {upload.modules
-                            .filter((m) => upload.applied_modules.includes(m.module))
-                            .map((m) => m.label)
-                            .join(", ")}
+                          {line(
+                            upload.applied_by_name,
+                            upload.modules
+                              .filter((m) => upload.applied_modules.includes(m.module))
+                              .map((m) => m.label)
+                              .join(", "),
+                          )}
                         </span>
                       </>
                     ) : (
