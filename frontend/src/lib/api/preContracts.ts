@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Umowa przedwstępna przy osobie w rekrutacji (0505, 21.10.2026).
+ * Umowa przedwstępna przy osobie w rekrutacji (0506, 21.10.2026).
  *
  * Lustro `backend/app/api/pre_contracts.py`. Stan, plakietkę i napisy liczy
  * serwer (`services/pre_contracts.badge`) — front tylko je pokazuje.

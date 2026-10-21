@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Harness „Umowa przedwstępna” (0505, 21.10.2026): PRODUKCYJNE
+ * Harness „Umowa przedwstępna” (0506, 21.10.2026): PRODUKCYJNE
  * `PreContractSection` (cztery stany pary), `PreContractsList` i kafelek
  * pulpitu na danych wstrzykniętych do pamięci zapytań — zero zapytań.
  * Dane fikcyjne. `?tab=` przełącza zakładkę listy.

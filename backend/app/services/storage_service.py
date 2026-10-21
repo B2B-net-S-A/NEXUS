@@ -400,7 +400,7 @@ def read_b2b_signing_pdf(relative_path: str) -> bytes:
     return _resolve_under_root(relative_path).read_bytes()
 
 
-# ── Umowa przedwstępna kandydata (0505) ──────────────────────────────────────
+# ── Umowa przedwstępna kandydata (0506) ──────────────────────────────────────
 
 
 def save_pre_contract_file(request_id: int, name: str, data: bytes) -> tuple[str, int]:

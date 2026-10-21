@@ -332,7 +332,7 @@ function columns(): KanbanColumn[] {
         entry_source: "proposal",
         added_to_job_by_id: 12,
         added_to_job_by_name: "Piotr Szkicowy",
-        // 0505: umowa przedwstępna wysłana, kandydat jeszcze nie odesłał.
+        // 0506: umowa przedwstępna wysłana, kandydat jeszcze nie odesłał.
         pre_contract: {
           id: 501,
           state: "sent",
@@ -1612,7 +1612,7 @@ function JobDetailHarness() {
         });
         return config;
       }
-      // 0505: sekcja „Umowa przedwstępna” w zakładce „Umowa” — bez prośby.
+      // 0506: sekcja „Umowa przedwstępna” w zakładce „Umowa” — bez prośby.
       if (config.url === "/api/pre-contracts/pair") {
         config.adapter = async () => ({
           data: { current: null, history: [], documents: [] },

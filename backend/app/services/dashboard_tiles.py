@@ -50,7 +50,7 @@ TileType = Literal[
     # „Do uzupełnienia” (21.10.2026): umowy do zamknięcia, rekrutacje do
     # dokończenia i wymagania do poprawy z `/api/board-tasks` w kafelku.
     "to_complete",
-    # 0505: umowy przedwstępne — liczniki z `/api/pre-contracts` w kafelku.
+    # 0506: umowy przedwstępne — liczniki z `/api/pre-contracts` w kafelku.
     "pre_contracts",
     "recruitment_activity",
     "recruitment_competence",

@@ -418,7 +418,7 @@ const PRE_CONTRACT_CARD_TONE: Record<PreContractTone, CardBadgeTone> = {
 };
 
 /**
- * Umowa przedwstępna pary (0505, 21.10.2026) — napis i ton liczy serwer
+ * Umowa przedwstępna pary (0506, 21.10.2026) — napis i ton liczy serwer
  * (`services/pre_contracts.badge`), karta tylko mapuje ton na swój.
  * W każdej kolumnie: o umowę proszą przed CV, przed rozmową albo przed B2B.
  */

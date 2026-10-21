@@ -56,7 +56,7 @@ vi.mock("@/components/v2/person/PersonSidePreview", () => ({
 }));
 vi.mock("@/components/v2/jobs/JobContractTab", () => ({ JobContractTab: workbenchMock("contract") }));
 vi.mock("@/components/v2/pages/DopasowanieTab", () => ({ DopasowanieTab: workbenchMock("match") }));
-// 0505: sekcja umowy przedwstępnej ma własne testy (`PreContractSection.test.tsx`).
+// 0506: sekcja umowy przedwstępnej ma własne testy (`PreContractSection.test.tsx`).
 vi.mock("@/components/v2/person/pre-contract/PreContractSection", () => ({
   PreContractSection: () => <div data-testid="pre-contract-section" />,
 }));

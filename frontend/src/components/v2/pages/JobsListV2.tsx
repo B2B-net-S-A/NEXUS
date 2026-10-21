@@ -1137,7 +1137,7 @@ export function JobsListV2({
             </Button>
           )}
           <CareerQueueLink />
-          {/* 0505: umowy przedwstępne przy osobach — lista dla HoR, DL i rekruterów. */}
+          {/* 0506: umowy przedwstępne przy osobach — lista dla HoR, DL i rekruterów. */}
           <Button size="sm" variant="outline" asChild>
             <Link href="/jobs/umowy-przedwstepne">Umowy przedwstępne</Link>
           </Button>

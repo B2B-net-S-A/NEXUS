@@ -42,7 +42,7 @@ export interface ClientAcceptanceValues {
   acceptedOn: string;
   plannedStartOn: string | null;
   clientNote: string | null;
-  /** 0505: po zapisie — prośba o umowę przedwstępną „przed umową B2B”. */
+  /** 0506: po zapisie — prośba o umowę przedwstępną „przed umową B2B”. */
   requestPreContract?: boolean;
 }
 

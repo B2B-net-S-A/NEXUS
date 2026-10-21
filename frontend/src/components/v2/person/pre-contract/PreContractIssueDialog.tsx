@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * „Wystaw umowę” z panelu osoby (0505) — ten sam formularz i ten sam wiersz
+ * „Wystaw umowę” z panelu osoby (0506) — ten sam formularz i ten sam wiersz
  * co Generator dokumentów (rodzina „preliminary”), z ustaloną parą
  * (kandydat + rekrutacja). Po zapisie DOCX pobiera się, a dokument od razu
  * podpina się do prośby. Wzór dobiera serwer po kliencie rekrutacji

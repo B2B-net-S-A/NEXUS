@@ -507,7 +507,7 @@ export function PersonWorkbenchTabs({
             />
             {/* 04.10.2026: rekruter generuje umowę tu — ten sam formularz
                 i ten sam wiersz rejestru co w Generatorze. */}
-            {/* 0505 (21.10.2026): umowa przedwstępna — prośba DL / HoR /
+            {/* 0506 (21.10.2026): umowa przedwstępna — prośba DL / HoR /
                 rekrutera, kroki podpisu i ważność przy tej osobie. */}
             <PreContractSection
               candidateId={candidateId}

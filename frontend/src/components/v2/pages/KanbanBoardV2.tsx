@@ -2653,7 +2653,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  onMoved: () => {
  showSuccess(acceptedToast(name, recipients));
  if (values.requestPreContract) {
- // 0505: prośba o przedwstępną „przed umową B2B” z okna akceptacji.
+ // 0506: prośba o przedwstępną „przed umową B2B” z okna akceptacji.
  preContractsApi
  .create({ candidate_id: item.candidate_id, job_id: jobId, needed_before: "b2b_contract" })
  .then(() => invalidatePreContract(queryClient, jobId))
@@ -3503,7 +3503,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  }
  return;
  case "open_pre_contract":
- // 0505: umowa przedwstępna niepodpisana — sekcja w zakładce „Umowa”.
+ // 0506: umowa przedwstępna niepodpisana — sekcja w zakładce „Umowa”.
  // Ruch „Przesuń mimo braku” zostaje (ostrzeżenie, nie bramka).
  if (workbenchContext) {
  suspendMoveNext();

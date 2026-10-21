@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Okna umowy przedwstępnej (0505, makiety VWyCFF3aU7CLCNSXGCSx2R):
+ * Okna umowy przedwstępnej (0506, makiety VWyCFF3aU7CLCNSXGCSx2R):
  * prośba, wgranie podpisanej umowy (forma podpisu), powód zamknięcia,
  * rezygnacja kandydata (dowód do decyzji o karze) i decyzja o karze.
  * Każde okno samo woła API i zgłasza sukces przez `onDone`.

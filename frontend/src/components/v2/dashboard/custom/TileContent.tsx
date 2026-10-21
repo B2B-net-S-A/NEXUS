@@ -117,7 +117,7 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
       // 21.10.2026: trzy listy zaległości z „Czeka na Ciebie” w kafelku.
       return <ToCompleteTile />
     case "pre_contracts":
-      // 0505: umowy przedwstępne — liczniki zakładek listy.
+      // 0506: umowy przedwstępne — liczniki zakładek listy.
       return <PreContractsTile />
     case "recruitment_activity":
       return <RecruitmentActivityDashboard />

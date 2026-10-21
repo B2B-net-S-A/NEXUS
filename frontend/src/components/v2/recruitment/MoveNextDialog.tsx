@@ -188,7 +188,7 @@ export function MoveNextDialog({
     () => (data?.items ?? []).some((i) => i.key === "deal_breaker" && isDealBreakerWarning(i)),
     [data],
   );
-  // 0505: umowa przedwstępna niepodpisana — ostrzeżenie, ruch przechodzi.
+  // 0506: umowa przedwstępna niepodpisana — ostrzeżenie, ruch przechodzi.
   const preContract = useMemo(() => (data?.items ?? []).some(isPreContractWarning), [data]);
   const fullName = item ? itemFullName(item) : "";
   const shownTargetLabel =

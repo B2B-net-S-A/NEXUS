@@ -171,7 +171,7 @@ class PairFacts:
     # deal-breakera — `{number, question, response, deal_breaker}`. Ruch za
     # „Screening” dostaje ostrzeżenie (nie blokadę) i akcję „Odrzuć z powodem”.
     deal_breaker_hits: tuple[dict[str, Any], ...] = ()
-    # 0505 (21.10.2026): prośba o umowę przedwstępną w toku — kolumna, przed
+    # 0506 (21.10.2026): prośba o umowę przedwstępną w toku — kolumna, przed
     # którą umowa ma być podpisana, i opis stanu. Ruch na nią albo dalej bez
     # podpisanej umowy dostaje ostrzeżenie (nie blokadę — „Kanban bez bramek”).
     pre_contract_column: Optional[str] = None

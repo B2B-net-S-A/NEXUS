@@ -283,7 +283,7 @@ export interface KanbanItem {
  // 0451 (16.10.2026): ostatnia akceptacja klienta pary — karta i panel
  // pokazują ją wyłącznie w kolumnie „Akceptacja i umowa”.
  client_acceptance?: ClientAcceptanceBadge | null;
- /** 0505: umowa przedwstępna pary — plakietka z serwera (`services/pre_contracts.badge`). */
+ /** 0506: umowa przedwstępna pary — plakietka z serwera (`services/pre_contracts.badge`). */
  pre_contract?: CardPreContract | null;
  // 0372: follow-up z kandydatem, gdy klient milczy — kto dzwoni i kiedy
  // (liczone dla OSOBY, ze wszystkimi jej procesami).

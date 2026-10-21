@@ -1984,7 +1984,7 @@ async def apply_move(
                 "source": "pipeline_move",
             },
         )
-    # 0505: umowa przedwstępna pary — termin umowy B2B po akceptacji klienta
+    # 0506: umowa przedwstępna pary — termin umowy B2B po akceptacji klienta
     # i ślad ruchu bez podpisanej umowy (ostrzeżenie, nie bramka).
     from app.services import pre_contracts as _pre_contracts  # noqa: PLC0415
     from app.services.board_stage_badges import (  # noqa: PLC0415
@@ -3332,7 +3332,7 @@ async def build_kanban_view(
         if with_employment
         else {}
     )
-    # 0505: umowa przedwstępna pary na karcie — dwa zapytania na tablicę.
+    # 0506: umowa przedwstępna pary na karcie — dwa zapytania na tablicę.
     from app.services.pre_contracts import kanban_badges  # noqa: PLC0415
 
     pre_contract_badges = await kanban_badges(db, job_id, candidate_ids)

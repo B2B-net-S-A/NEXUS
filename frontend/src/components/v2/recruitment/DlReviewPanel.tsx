@@ -442,7 +442,7 @@ export function DlReviewBody({
   const candidateId = task.candidate_id;
   const jobId = task.job_id;
   const context = useDlReviewContext(candidateId, jobId);
-  // 0505: prośba o przedwstępną z przeglądu (DL decyduje, że CV poczeka na umowę).
+  // 0506: prośba o przedwstępną z przeglądu (DL decyduje, że CV poczeka na umowę).
   const [preContractOpen, setPreContractOpen] = useState(false);
   // Braki wśród wymagań, które serwer liczy do „X/Y” (krytyczne i „musi mieć”)
   // — same nazwy; liczb X/Y tu nie przeliczamy.

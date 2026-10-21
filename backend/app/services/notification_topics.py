@@ -64,7 +64,7 @@ _JOBS = (
     _T.candidate_rate_change_task,
     _T.candidate_claim_taken,
     _T.candidate_followup_signal,
-    # 0505: umowa przedwstępna osoby (prośba, podpisy, terminy).
+    # 0506: umowa przedwstępna osoby (prośba, podpisy, terminy).
     _T.pre_contract,
     # Rekrutacja: Champion, termin, przydział
     _T.champion_profile_updated,
@@ -131,7 +131,7 @@ _JOBS_TOAST = (
     _T.client_accepted,
     # 0452: Delivery Lead ma wpisać umowę zatrudnionej osoby.
     _T.hire_missing_contract,
-    # 0505: ktoś czeka na przedwstępną — wystawienie, podpis, termin B2B.
+    # 0506: ktoś czeka na przedwstępną — wystawienie, podpis, termin B2B.
     _T.pre_contract,
     _T.request_assignment_changed,
     _T.recruiter_parked,
