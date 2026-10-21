@@ -22,9 +22,12 @@ migracji i zacommituj. Po każdym pushu na main z nową migracją robi to za
 sesje workflow „Przepnij migracje PR-ów” (``migration-rechain.yml``).
 Tylko biblioteka standardowa, Python 3.9+.
 
-Pełny identyfikator starego rodzica (np. ``assert down_revision ==
-"0496_…"`` w teście PR-a) w liniach dodanych przez PR też dostaje nowego
-rodzica — to jedyne miejsce, gdzie PR-y zapisują rodzica poza migracją.
+Pełny identyfikator starego rodzica w liniach PR-a ze słowem
+``down_revision`` (np. asercja w teście PR-a) też dostaje nowego rodzica;
+w innych liniach (komentarz „kolumna z 0496_…”) zostaje.
+
+PR zbudowany na gałęzi innego PR-a: po squashu tamtego jego migracja i linie
+są już na mainie, więc nie liczą się jako migracja ani linie tego PR-a.
 
 ``--check-heads`` liczy głowy w drzewie roboczym i kończy się kodem 1,
 gdy nie ma dokładnie jednej. Biegnie jako pierwszy krok wymaganego
@@ -196,13 +199,21 @@ def check_heads(repo: str, versions_dir: str, out=print) -> int:
 
 
 def added_migration_paths(repo: str, base: str, versions_dir: str) -> List[str]:
+    """Pliki migracji z HEAD, których nie ma na czubku bazy.
+
+    Diff dwukropkowy (drzewo bazy ↔ HEAD), nie od merge-base: PR zbudowany na
+    gałęzi innego PR-a po squashu tamtego ma jego migrację w historii od
+    merge-base, a ta sama migracja jest już na mainie — to nie jest migracja
+    tego PR-a (#2516 → #2522 → #2524, 21.10.2026).
+    """
     out = git(
         repo,
         "diff",
         "--no-renames",
         "--name-status",
         "--diff-filter=A",
-        f"{base}...HEAD",
+        base,
+        "HEAD",
         "--",
         versions_dir,
     )
@@ -280,14 +291,23 @@ def plan_renames(
 def added_lines(repo: str, base: str) -> Dict[str, Set[int]]:
     """Numery linii (1-based, w drzewie roboczym) dodanych przez PR.
 
-    Diff od merge-base, nie od czubka bazy: gałąź bez scalonego maina miałaby
-    inaczej za „dodane” także linie, które main usunął po rozgałęzieniu.
-    Po scaleniu maina merge-base = czubek bazy, więc wynik jest ten sam.
+    Część wspólna dwóch diffów. Od merge-base: gałąź bez scalonego maina
+    miałaby inaczej za „dodane” linie, które main usunął po rozgałęzieniu.
+    Od czubka bazy: PR zbudowany na gałęzi innego PR-a po squashu tamtego
+    miałby inaczej za swoje linie, które main już ma. Po scaleniu maina
+    merge-base = czubek bazy, więc wynik jest ten sam co dawniej.
     """
     merge_base = git(repo, "merge-base", base, "HEAD").strip()
-    out = git(
-        repo, "diff", "--no-renames", "--no-ext-diff", "--no-color", "-U0", merge_base
-    )
+    since_fork = _added_lines_against(repo, merge_base)
+    against_tip = _added_lines_against(repo, base)
+    return {
+        path: numbers & against_tip.get(path, set())
+        for path, numbers in since_fork.items()
+    }
+
+
+def _added_lines_against(repo: str, ref: str) -> Dict[str, Set[int]]:
+    out = git(repo, "diff", "--no-renames", "--no-ext-diff", "--no-color", "-U0", ref)
     result: Dict[str, Set[int]] = {}
     current: Optional[str] = None
     hunk = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
@@ -348,10 +368,18 @@ def build_line_rewriter(renames: List[Rename], base_migrations: List[Migration])
     """Zwraca funkcję (linia) -> linia z podmienionymi id/numerami migracji PR-a."""
     full = {r.migration.revision: r.new_revision for r in renames}
     full.update({r.migration.stem: r.new_path.rsplit("/", 1)[1][:-3] for r in renames})
-    old_parent = renames[0].migration.down_revision
-    if isinstance(old_parent, str):
-        full.setdefault(old_parent, renames[0].new_down_revision)
     full = {old: new for old, new in full.items() if old != new}
+    # Stary rodzic tylko w liniach o rodzicu (asercja `down_revision` w teście
+    # PR-a); w komentarzu „kolumna z 0496_…” to nadal 0496.
+    parent: Dict[str, str] = {}
+    old_parent = renames[0].migration.down_revision
+    if isinstance(old_parent, str) and old_parent != renames[0].new_down_revision:
+        parent[old_parent] = renames[0].new_down_revision
+    parent_re = (
+        re.compile(r"(?<![\w])" + re.escape(old_parent) + r"(?![\w])")
+        if parent
+        else None
+    )
     bare = {r.old_number: r.new_number for r in renames if r.old_number != r.new_number}
     # Nazwy migracji z bazy z tym samym numerem (kolizja) — linia, która je
     # wymienia, mówi o migracji z maina, więc gołego numeru na niej nie ruszamy.
@@ -359,8 +387,14 @@ def build_line_rewriter(renames: List[Rename], base_migrations: List[Migration])
     for mig in base_migrations:
         if mig.number in bare:
             base_names.setdefault(mig.number, []).extend({mig.revision, mig.stem})
+
+    def rewrite_parent(line: str) -> str:
+        if parent_re is None or "down_revision" not in line:
+            return line
+        return parent_re.sub(lambda m: parent[m.group(0)], line)
+
     if not full and not bare:
-        return lambda line: line
+        return rewrite_parent
     alternatives = []
     if full:
         ids = sorted(full, key=len, reverse=True)
@@ -389,7 +423,7 @@ def build_line_rewriter(renames: List[Rename], base_migrations: List[Migration])
                 return num
             return bare[num]
 
-        return pattern.sub(repl, line)
+        return rewrite_parent(pattern.sub(repl, line))
 
     return rewrite
 

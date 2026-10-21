@@ -100,7 +100,9 @@ class RechainBranchTests(unittest.TestCase):
         sh(self.seed, "checkout", "-q", "-b", "feature")
         write(self.seed, f"{VERSIONS}/0003_pr.py", migration("0003_pr", "0002_b"))
         write(self.seed, "backend/entrypoint.sh", "# 0002: b\n# 0003: pr (0003_pr)\n")
-        write(self.seed, "backend/tests/test_pr.py", 'PARENT = "0002_b"\n')
+        write(
+            self.seed, "backend/tests/test_pr.py", 'assert down_revision == "0002_b"\n'
+        )
         self.commit_push(self.seed, "feature", "pr")
         sh(root, "clone", "-q", self.origin, self.work)
 
@@ -138,7 +140,8 @@ class RechainBranchTests(unittest.TestCase):
             "# 0002: b\n# 0004: pr (0004_pr)\n",
         )
         self.assertEqual(
-            self.remote_file("backend/tests/test_pr.py"), 'PARENT = "0003_main"\n'
+            self.remote_file("backend/tests/test_pr.py"),
+            'assert down_revision == "0003_main"\n',
         )
         log = sh(self.origin, "log", "-1", "--format=%an|%s", "feature")
         self.assertTrue(log.startswith(f"{QRM.BOT_NAME}|fix(migracje):"), log)

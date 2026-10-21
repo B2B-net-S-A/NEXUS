@@ -304,6 +304,7 @@ def test_parent_reference_in_pr_test_follows_new_parent(tmp_path: Path) -> None:
     write(
         repo,
         "backend/tests/test_prep_parent.py",
+        "# kolumna z 0368_y zostaje w spokoju\n"
         "def test_parent(migration):\n"
         "    assert 'down_revision = \"0368_y\"' in migration\n",
     )
@@ -315,7 +316,8 @@ def test_parent_reference_in_pr_test_follows_new_parent(tmp_path: Path) -> None:
 
     text = (repo / "backend/tests/test_prep_parent.py").read_text()
     assert 'down_revision = "0369_academy"' in text
-    assert "0368_y" not in text
+    # Wzmianka bez `down_revision` mówi o starym rodzicu i ma nim zostać.
+    assert text.splitlines()[0] == "# kolumna z 0368_y zostaje w spokoju"
     # Linia maina z tym identyfikatorem nie jest linią PR-a — zostaje.
     assert "# 0368: y" in (repo / "backend/entrypoint.sh").read_text()
 
@@ -382,3 +384,56 @@ def test_cli_check_heads(tmp_path: Path, monkeypatch, capsys) -> None:
 
     assert rechain.main(["--check-heads"]) == 1
     assert "2 głowy" in capsys.readouterr().out
+
+
+def test_stacked_pr_after_squash_of_its_base_pr_is_left_alone(tmp_path: Path) -> None:
+    # #2516 → #2522 → #2524 (21.10.2026): PR zbudowany na gałęzi innego PR-a.
+    # Po squashu pierwszego jego migracja jest na mainie, a w historii drugiego
+    # nadal „dodana” od merge-base — to nie jest kolizja ani migracja tego PR-a.
+    repo = base_repo(tmp_path)
+    add_pr_branch(repo)  # prA: 0369_prep + linie w entrypoint i teście
+    sh(repo, "checkout", "-q", "-b", "stacked", "pr")
+    write(repo, f"{VERSIONS}/0370_use.py", migration("0370_use", "0369_prep", "use"))
+    commit(repo, "stacked: 0370_use na 0369_prep")
+    sh(repo, "checkout", "-q", "main")
+    sh(repo, "merge", "-q", "--squash", "pr")
+    sh(repo, "commit", "-q", "-m", "prA (squash)")
+    sh(repo, "checkout", "-q", "stacked")
+    before = sh(repo, "status", "--porcelain")
+
+    code, output = run_script(repo)
+
+    assert code == 0, output
+    assert "nic do zrobienia" in output
+    assert sh(repo, "status", "--porcelain") == before
+    assert not (repo / VERSIONS / "0371_prep.py").exists()
+
+
+def test_stacked_pr_rechains_only_its_own_migration(tmp_path: Path) -> None:
+    repo = base_repo(tmp_path)
+    add_pr_branch(repo)
+    sh(repo, "checkout", "-q", "-b", "stacked", "pr")
+    write(repo, f"{VERSIONS}/0370_use.py", migration("0370_use", "0369_prep", "use"))
+    write(repo, "docs/use.md", "0370 używa 0369_prep\n")
+    commit(repo, "stacked: 0370_use")
+    sh(repo, "checkout", "-q", "main")
+    sh(repo, "merge", "-q", "--squash", "pr")
+    sh(repo, "commit", "-q", "-m", "prA (squash)")
+    write(repo, f"{VERSIONS}/0370_other.py", migration("0370_other", "0369_prep", "o"))
+    commit(repo, "main: 0370_other")
+    sh(repo, "checkout", "-q", "stacked")
+
+    code, output = run_script(repo)
+    assert code == 0, output
+
+    versions = repo / VERSIONS
+    assert (versions / "0369_prep.py").read_text() == migration(
+        "0369_prep", "0368_y", "ocena prepu"
+    )
+    assert not (versions / "0370_use.py").exists()
+    moved = (versions / "0371_use.py").read_text()
+    assert 'down_revision = "0370_other"' in moved
+    # Linie prA (już na mainie) nietknięte; linia stacked przenumerowana.
+    entrypoint = (repo / "backend/entrypoint.sh").read_text()
+    assert "# 0369: ocena prepu (0369_prep)" in entrypoint
+    assert (repo / "docs/use.md").read_text() == "0371 używa 0369_prep\n"
