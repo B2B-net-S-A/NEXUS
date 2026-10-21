@@ -52,6 +52,16 @@ export interface CvAiSourceFile {
   stage_original: boolean;
 }
 
+/** Plik, z którego powstała bieżąca wersja CV etapu (21.10.2026). */
+export interface CvAiSourceUsedFile {
+  document_id: number;
+  filename: string | null;
+  outdated: boolean;
+  stage_original: boolean;
+  /** Pliku nie ma już wśród plików CV osoby. */
+  removed: boolean;
+}
+
 /** Odpowiedź `GET …/cv/ai-sources`. */
 export interface CvAiSources {
   /** Plik zaznaczony domyślnie: kopia „Oryginał CV” etapu, a bez niej główne CV. */
@@ -67,6 +77,8 @@ export interface CvAiSources {
   defaults: Partial<CvAiSourceToggles>;
   /** Wybór, z którego powstała bieżąca wersja CV etapu (`null` = sprzed zmiany). */
   last_used: Partial<CvAiSourceToggles> | null;
+  /** Plik CV bieżącej wersji („Powstało z”); brak = CV sprzed 21.10.2026 albo spoza generatora. */
+  last_source_cv?: CvAiSourceUsedFile | null;
 }
 
 export const cvAiSourcesQueryKey = (stageId: number) => ["cv-ai-sources", stageId] as const;

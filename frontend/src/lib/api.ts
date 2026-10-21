@@ -6420,6 +6420,11 @@ export const candidateStageCvApi = {
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/restore-previous`, {
         expected_revision,
       }),
+    /** „Odrzuć to CV i zacznij od nowa” (21.10.2026) — karta wraca do „brak”, treść do historii. */
+    discard: (stageId: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/discard`, {
+        expected_revision,
+      }),
     /** Plik Word z profilu kandydata → szkic CV firmowego (bez AI). */
     selectDocument: (stageId: number, document_id: number, expected_revision: number) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-document`, {

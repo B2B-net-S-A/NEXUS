@@ -10,6 +10,7 @@
  * Tu tylko czyste reguły i zdania; panel `CvGeneratePanel` je rysuje.
  */
 
+import { isClientCvFilename } from "@/lib/candidate-files";
 import type { CvAiSourceFile, CvAiSources } from "@/lib/cv-ai-sources";
 
 export type CvConfirmStep = "file" | "answers" | "notes";
@@ -90,4 +91,27 @@ export function cvFileDetail(file: CvAiSourceFile): string {
   const date = shortDate(file.uploaded_at);
   if (date) parts.push(`wgrane ${date}`);
   return parts.join(" · ") || "plik CV kandydata";
+}
+
+/**
+ * Żółta ramka przy gotowym CV (21.10.2026): źródło jest podejrzane, gdy to nie
+ * kopia „Oryginał CV” rekrutacji, plik „CV dla klienta” („…B2B…”), plik
+ * nieaktualny albo usunięty z profilu. `null` = źródło w porządku albo nieznane
+ * (CV sprzed zmiany — nie zgadujemy).
+ */
+export function sourceCvWarning(
+  data: Pick<CvAiSources, "last_source_cv" | "cv_files" | "original_cv"> | null | undefined,
+): string | null {
+  const used = data?.last_source_cv;
+  if (!used) return null;
+  const name = used.filename ?? "ten plik";
+  const original = (data?.cv_files ?? []).find((file) => file.stage_original) ?? null;
+  const tail = original && original.document_id !== used.document_id
+    ? ` Oryginał CV w tej rekrutacji to ${original.filename ?? "inny plik"}.`
+    : "";
+  if (used.removed) return `CV powstało z pliku ${name}, którego nie ma już w profilu.${tail}`;
+  if (used.outdated) return `CV powstało z pliku ${name}, oznaczonego jako nieaktualny.${tail}`;
+  if (isClientCvFilename(used.filename)) return `CV powstało z ${name} — to „CV dla klienta”, nie CV kandydata.${tail}`;
+  if (original && !used.stage_original) return `CV powstało z ${name}, a nie z Oryginału CV tej rekrutacji.${tail}`;
+  return null;
 }
