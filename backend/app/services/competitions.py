@@ -838,6 +838,34 @@ async def dl_portfolio_counts(
     return placements_by_dl, requests_by_dl
 
 
+async def dl_neutral_closed_counts(
+    db: AsyncSession, *, start: datetime, end: datetime
+) -> dict[int, int]:
+    """Rekrutacje zamknięte w oknie jako „nie liczy się” (21.10.2026) per DL.
+
+    Lustro mianownika `dl_portfolio_counts` z odwrotnym warunkiem — pasek
+    i cel DL mówią, ile zamknięć nie obniżyło hit ratio.
+    """
+    from app.api.reports import _dl_head_fallback_map, _resolve_dl_id
+
+    fallback = await _dl_head_fallback_map(db)
+    rows = (
+        await db.execute(
+            select(Job.delivery_lead_id, Job.client_id).where(
+                Job.closed_at >= competition_history.board_start(start),
+                Job.closed_at < end,
+                ~counts_in_hit_ratio(),
+            )
+        )
+    ).all()
+    out: dict[int, int] = {}
+    for r in rows:
+        dl_id = _resolve_dl_id(r.delivery_lead_id, r.client_id, fallback)
+        if dl_id is not None:
+            out[dl_id] = out.get(dl_id, 0) + 1
+    return out
+
+
 async def _rank_dls_by_placements(
     db: AsyncSession,
     *,

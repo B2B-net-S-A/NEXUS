@@ -93,6 +93,9 @@ class GoalsResult:
     # Delivery Lead: rekrutacje zamknięte w kwartale — podstawa celu
     # placementów (30% z tej liczby). Reszta: None.
     closed_requests: Optional[int] = None
+    # Delivery Lead: zamknięte w kwartale jako „nie liczy się” (21.10.2026) —
+    # poza podstawą celu. Reszta: None.
+    closed_neutral: Optional[int] = None
 
     def as_dict(self) -> dict:
         return {
@@ -101,6 +104,7 @@ class GoalsResult:
             "people": self.people,
             "goals": [asdict(g) for g in self.goals],
             "closed_requests": self.closed_requests,
+            "closed_neutral": self.closed_neutral,
         }
 
     @classmethod
@@ -111,6 +115,7 @@ class GoalsResult:
             people=data["people"],
             goals=tuple(GoalRow(**g) for g in data["goals"]),
             closed_requests=data.get("closed_requests"),
+            closed_neutral=data.get("closed_neutral"),
         )
 
 
@@ -140,6 +145,7 @@ async def _delivery_lead_goals(
     from app.services.competitions import (
         HIT_RATIO_TARGET,
         current_quarter_period,
+        dl_neutral_closed_counts,
         dl_portfolio_counts,
     )
 
@@ -149,6 +155,13 @@ async def _delivery_lead_goals(
     )
     placements = int(placements_by_dl.get(user.id, 0))
     requests = int(requests_by_dl.get(user.id, 0))
+    neutral = int(
+        (
+            await dl_neutral_closed_counts(
+                db, start=bounds.start_utc, end=bounds.end_utc
+            )
+        ).get(user.id, 0)
+    )
     hit_ratio = round(100.0 * placements / requests, 1) if requests else None
     target_hr = float(HIT_RATIO_TARGET)
     # Cel placementów = próg hit ratio z rekrutacji zamkniętych, w górę (2 z 7
@@ -208,6 +221,7 @@ async def _delivery_lead_goals(
         people=None,
         goals=goals,
         closed_requests=requests,
+        closed_neutral=neutral,
     )
 
 

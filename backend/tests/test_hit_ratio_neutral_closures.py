@@ -406,3 +406,74 @@ async def test_change_close_reason_keeps_the_close_date_and_logs_it(
         ).scalar_one()
     assert logged["from"]["reason"] == "competitor"
     assert logged["to"]["reason"] == "internal_hire"
+
+
+# ── Lista kontrolna i liczniki DL (PR 3, CI) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_closures_list_groups_rows_and_counts() -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.services.hit_ratio_closures import hit_ratio_closures
+
+    year = _year()
+    async with AsyncSessionLocal() as db:
+        client_id = await _closed_jobs(
+            db,
+            year=year,
+            reasons=[
+                JobCloseReason.competitor,
+                JobCloseReason.duplicate,
+                JobCloseReason.paused,
+                JobCloseReason.other,
+                None,
+            ],
+        )
+        await db.commit()
+        result = await hit_ratio_closures(
+            db, start=_at(year, 8, 1), end=_at(year, 9, 1)
+        )
+    mine = [r for r in result["neutral"] + result["unreviewed"] if r["client_name"]]
+    assert client_id
+    assert result["counts"] == {"won": 0, "lost": 1, "neutral": 2, "unreviewed": 2}
+    assert {r["close_reason"] for r in result["neutral"]} == {"duplicate", "paused"}
+    assert {r["close_reason"] for r in result["unreviewed"]} == {"other", None}
+    assert len(mine) == 4
+    # 0 wygranych z 3 liczonych (konkurencja + dwa do przejrzenia).
+    assert result["hit_ratio"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_dl_neutral_closed_counts_mirror_the_league_denominator() -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+    from app.services import competitions
+
+    year = _year()
+    async with AsyncSessionLocal() as db:
+        dl = User(
+            email=f"hr-neutral-cnt-{uuid.uuid4().hex[:10]}@example.com",
+            password_hash=hash_password("x"),
+            name="DL liczniki",
+            role=UserRole.delivery_lead,
+            is_active=True,
+        )
+        db.add(dl)
+        await db.flush()
+        await _closed_jobs(
+            db,
+            year=year,
+            dl_id=dl.id,
+            reasons=[
+                JobCloseReason.competitor,
+                JobCloseReason.duplicate,
+                JobCloseReason.budget,
+            ],
+        )
+        await db.commit()
+        start, end = competitions.quarter_bounds(year, 3)
+        neutral = await competitions.dl_neutral_closed_counts(db, start=start, end=end)
+        _p, requests = await competitions.dl_portfolio_counts(db, start=start, end=end)
+    assert neutral.get(dl.id) == 2
+    assert requests.get(dl.id) == 1

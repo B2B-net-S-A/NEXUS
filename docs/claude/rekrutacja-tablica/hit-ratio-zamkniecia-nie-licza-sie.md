@@ -55,3 +55,17 @@ konkurencję”, 20 „Inny” (6 z notatką o duplikacie).
   zamknięcia…”; plakietka powodu w nagłówku (`JobCloseReasonBadge`).
 - Zamknięcie przez „Edytuj rekrutację” (PATCH `status=closed`) dalej nie ma
   powodu — liczy się jak przegrana i trafia do przeglądu (PR 3).
+
+## Kontrola i pasek (PR 3)
+
+- Insights → Raporty → „Zamknięcia i hit ratio” (`zamkniecia-hit-ratio`,
+  `GET /api/insights/hit-ratio-closures`, `services/hit_ratio_closures.py`):
+  kafle wygrane / przegrane / nie liczą się od 12.10.2026, lista „Do
+  przejrzenia” („Inny” i brak powodu) i „Zamknięte poza hit ratio”
+  z uzasadnieniem i osobą (`Activity` `closed` / `close_reason_changed`),
+  przy każdym wierszu „Zmień powód”. Bramka `BoardTrendReader` (Moduł Finanse
+  albo Head of Recruitment), jak rok do roku; bez kwot, bez cache.
+- Pasek: Liga DL (`/api/competitions/my-league` → `dl.closed_neutral`) dopisuje
+  do zdania o hit ratio, ile zamknięć nie liczy się; cel DL
+  (`/api/kpis/me/goals` → `closed_neutral`) pokazuje to jako osobny fakt.
+  Liczy `competitions.dl_neutral_closed_counts` — lustro mianownika ligi.

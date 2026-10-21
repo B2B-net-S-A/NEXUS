@@ -412,6 +412,14 @@ function deliveryLeadModel(data: MyLeague, standing: LeagueStanding, options: Le
     dl && dl.hit_ratio !== null
       ? `Hit ratio ${String(dl.hit_ratio).replace(".", ",")}% (${dl.placements} z ${dl.closed_requests} ${pluralPl(dl.closed_requests, "zamkniętej rekrutacji", "zamkniętych rekrutacji", "zamkniętych rekrutacji")}).`
       : "Hit ratio liczy się od pierwszej rekrutacji zamkniętej w kwartale.";
+  // 21.10.2026: duplikaty, anulowane przez klienta i obsadzone wewnętrznie nie
+  // wchodzą do hit ratio — zdanie mówi, ile ich było, żeby liczby się zgadzały.
+  const neutral = dl?.closed_neutral ?? 0;
+  const neutralLine =
+    neutral > 0
+      ? ` ${pluralPl(neutral, "Jedna zamknięta nie liczy się", `${neutral} zamknięte nie liczą się`, `${neutral} zamkniętych nie liczy się`)} (duplikat, anulowana, wewnętrzna…).`
+      : "";
+  const hitText = hitLine + neutralLine;
 
   let medal: LeagueMedal;
   let label = `Liga DL · ${quarter}`;
@@ -426,7 +434,7 @@ function deliveryLeadModel(data: MyLeague, standing: LeagueStanding, options: Le
     spokenState = `${rank}. miejsce, ${placements(myPlacements)}`;
     sentences = [
       ...placedSentences(standing, rank, { missing: placementsMissing, amount: placements }, () => null),
-      { text: hitLine, tone: "default" },
+      { text: hitText, tone: "default" },
     ];
   } else if (dl?.qualified) {
     medal = { text: "–", tone: "neutral" };
@@ -435,7 +443,7 @@ function deliveryLeadModel(data: MyLeague, standing: LeagueStanding, options: Le
     spokenState = `${placements(myPlacements)}, w lidze poza pierwszą dziesiątką`;
     sentences = [
       { text: "Próg ligi spełniony. Ranking pokazuje pierwszą dziesiątkę, a Ty jesteś dalej.", tone: "default" },
-      { text: hitLine, tone: "default" },
+      { text: hitText, tone: "default" },
     ];
   } else {
     medal = { text: "–", tone: "warn" };
@@ -449,7 +457,7 @@ function deliveryLeadModel(data: MyLeague, standing: LeagueStanding, options: Le
         text: `Do ligi potrzeba co najmniej ${placementsMissing(minimum)} i hit ratio ${target}%.`,
         tone: "default",
       },
-      { text: hitLine, tone: "default" },
+      { text: hitText, tone: "default" },
     ];
     if (dl && dl.missing_placements > 0) {
       sentences.push({ text: `Brakuje ${placementsMissing(dl.missing_placements)}.`, tone: "warn" });

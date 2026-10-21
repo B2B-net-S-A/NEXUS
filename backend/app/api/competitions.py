@@ -472,11 +472,14 @@ async def _dl_league_numbers(db: AsyncSession, user_id: int, period: str) -> dic
         placements, requests = await comp_service.dl_portfolio_counts(
             db, start=start, end=end
         )
-        return {"placements": placements, "requests": requests}
+        neutral = await comp_service.dl_neutral_closed_counts(db, start=start, end=end)
+        return {"placements": placements, "requests": requests, "neutral": neutral}
 
     counts = await _topbar_cached(f"{_CACHE_PREFIX}dl-counts:{period}", compute, db)
     placements = int(counts["placements"].get(user_id, 0))
     closed = int(counts["requests"].get(user_id, 0))
+    # Wpis cache sprzed 21.10.2026 nie ma klucza — wtedy 0, nie błąd.
+    closed_neutral = int(counts.get("neutral", {}).get(user_id, 0))
     target = comp_service.HIT_RATIO_TARGET
     min_placements = comp_service.QUARTERLY_MIN_PLACEMENTS
     # Ta sama arytmetyka co ranking DL: hit ratio zaokrąglone do 0,1.
@@ -489,6 +492,7 @@ async def _dl_league_numbers(db: AsyncSession, user_id: int, period: str) -> dic
     return {
         "placements": placements,
         "closed_requests": closed,
+        "closed_neutral": closed_neutral,
         "hit_ratio": hit_ratio,
         "hit_ratio_target": target,
         "min_placements": min_placements,

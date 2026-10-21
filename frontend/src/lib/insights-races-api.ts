@@ -482,6 +482,11 @@ export interface LeagueStanding {
 export interface LeagueDlNumbers {
   placements: number;
   closed_requests: number;
+  /**
+   * Zamknięte w kwartale jako „nie liczy się” (duplikat, anulowane…) — poza
+   * hit ratio (21.10.2026). Brak = odpowiedź sprzed tej zmiany.
+   */
+  closed_neutral?: number;
   /** `null` = brak zamkniętych rekrutacji w kwartale (hit ratio niepoliczone). */
   hit_ratio: number | null;
   hit_ratio_target: number;

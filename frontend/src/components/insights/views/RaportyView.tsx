@@ -24,6 +24,7 @@ import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
 import { CompetenceMatrix } from "@/components/insights/sections/CompetenceMatrix";
 import { InsightsBoardYoY } from "@/components/insights/sections/InsightsBoardYoY";
 import { InsightsClientsRanking } from "@/components/insights/sections/InsightsClientsRanking";
+import { HitRatioClosures } from "@/components/insights/sections/HitRatioClosures";
 import {
   DlPortfolioTiles,
   InsightsDlPortfolio,
@@ -220,6 +221,8 @@ function ReportBody({
           <InsightsDlPortfolio period={p} />
         </div>
       );
+    case "zamkniecia-hit-ratio":
+      return <HitRatioClosures />;
     case "ranking-klientow":
       return <InsightsClientsRanking period={p} />;
     case "rok-do-roku":

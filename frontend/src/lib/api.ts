@@ -662,6 +662,8 @@ export interface MyKpiGoals {
   goals: KpiGoal[];
   /** Delivery Lead: rekrutacje zamknięte w kwartale (podstawa celu placementów). */
   closed_requests?: number | null;
+  /** Delivery Lead: zamknięte jako „nie liczy się” — poza podstawą celu (21.10.2026). */
+  closed_neutral?: number | null;
 }
 
 /** Liczniki „Moje KPI" — dzień, tydzień i miesiąc kalendarzowy. */

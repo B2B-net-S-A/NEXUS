@@ -295,6 +295,15 @@ describe("licznik celów — Delivery Lead", () => {
       description: "2 placementy z 10 zamkniętych rekrutacji. Kreska to próg 30%.",
     });
     expect(model?.facts).toEqual([{ label: "Zamknięte rekrutacje w kwartale", value: "10" }]);
+    // 21.10.2026: zamknięcia „nie liczy się” jako osobny fakt, tylko gdy są.
+    const withNeutral = buildKpiTopbarModel([], {
+      ...dlGoals({ placements: 2, closed: 10 }),
+      closed_neutral: 2,
+    });
+    expect(withNeutral?.facts).toEqual([
+      { label: "Zamknięte rekrutacje w kwartale", value: "10" },
+      { label: "Zamknięte, które nie liczą się do hit ratio", value: "2" },
+    ]);
     expect(model?.link?.href).toBe("/insights?tab=raporty&report=portfele-dl");
   });
 
