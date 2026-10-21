@@ -1,7 +1,7 @@
 """Ustawienia oceny prepów — wersje i wersja przy ocenie (22.10.2026).
 
 Revision ID: 0505_prep_review_configs
-Revises: 0503_b2b_document_participation_types
+Revises: 0504_job_close_neutral
 
 Tabela ``prep_review_configs``: każda publikacja ustawień z Ustawienia →
 Ocena prepów (Head of Recruitment, admin) to nowy wiersz; obowiązuje
@@ -15,7 +15,7 @@ from alembic import op
 from app.services.prep_review_config_schema import DOWNGRADE_DDL, TABLE_DDL
 
 revision = "0505_prep_review_configs"
-down_revision = "0503_b2b_document_participation_types"
+down_revision = "0504_job_close_neutral"
 branch_labels = None
 depends_on = None
 
