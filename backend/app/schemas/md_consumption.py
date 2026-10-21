@@ -66,6 +66,15 @@ class ImportRowRead(BaseModel):
     #: Ile wierszy arkusza tej samej osoby z tym samym numerem zamówienia
     #: zsumowano w jedno zejście (1 = wiersz osobno).
     merged_rows: int = 1
+    #: Status ``awaiting_order`` (21.10.2026): ile MD z wiersza wciąż czeka na
+    #: kolejne zamówienie.
+    md_pending: Optional[MdValue] = None
+    #: „Pozostało do zafakturowania za {miesiąc}: X MD – oczekuje na kolejne
+    #: zamówienie” — przy wierszu oczekującym jego ``md_pending``, przy wierszu
+    #: z numerem suma oczekujących po jego zamówieniu w tej paczce.
+    awaiting_md: Optional[MdValue] = None
+    #: Zamówienie z numerem, po którym wiersz oczekuje na kolejne.
+    awaiting_order: Optional[LineOption] = None
 
     # ── Rozliczenie kosztowe (Polkomtel) ──
     # `cost_status is None` znaczy „wiersz nie dotyczy zamówień kosztowych",
