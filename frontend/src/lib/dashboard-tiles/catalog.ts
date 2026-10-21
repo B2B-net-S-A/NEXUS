@@ -203,6 +203,17 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     ownChrome: false,
     availability: needsSection("pipeline", "Rekrutacje"),
   },
+  to_complete: {
+    type: "to_complete",
+    label: "Do uzupełnienia",
+    description:
+      "Umowy do zamknięcia, rekrutacje do dokończenia i wymagania do poprawy — poza „Czeka na Ciebie”.",
+    category: "my_work",
+    defaultSize: { w: 12, h: 5 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    availability: needsSection("pipeline", "Rekrutacje"),
+  },
   recruitment_activity: {
     type: "recruitment_activity",
     label: "Aktywność rekrutacyjna",
