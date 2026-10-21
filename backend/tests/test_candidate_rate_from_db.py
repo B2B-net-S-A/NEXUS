@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+import re
 from decimal import Decimal
 
 import pytest
@@ -226,6 +227,23 @@ async def test_minimum_leaving_the_window_is_requeued_and_recomputed(
 # ── Wpis DL-a „X/Y” w notatce (07.10.2026) ────────────────────────────────────
 
 
+def _mentions_amount(value: object, amount: str) -> bool:
+    """Czy gdzieś w JSON-ie stoi kwota ``amount`` (liczba, „160.00”, „160/…”)."""
+    if isinstance(value, dict):
+        return any(_mentions_amount(v, amount) for v in value.values())
+    if isinstance(value, list):
+        return any(_mentions_amount(v, amount) for v in value)
+    # Liczby całkowite to identyfikatory — kwoty API podaje jako tekst („115.00”).
+    if isinstance(value, (bool, int)) or value is None:
+        return False
+    if isinstance(value, float):
+        return Decimal(str(value)) == Decimal(amount)
+    text = str(value)
+    return bool(
+        re.search(rf"(?<![\d.:T-]){re.escape(amount)}(?:[.,]\d+)?(?![\d:])", text)
+    )
+
+
 async def _note(candidate_id: int, job_id: int, content: str) -> int:
     from app.models.note import Note
 
@@ -257,7 +275,9 @@ async def test_dl_pair_note_is_a_candidate_rate_observation_without_client_rate(
     assert observation["source"] == "note"
     assert observation["raw"] == "115 PLN/h"
     # Stawka do klienta nie wychodzi w historii stawek (widzi ją każda rola).
-    assert "160" not in resp.text
+    # Sprawdzamy wartości, nie surowy tekst: „160” trafiało się w znacznikach
+    # czasu i identyfikatorach odpowiedzi (kolejka merge'ów 21.10.2026).
+    assert not _mentions_amount(body, "160")
 
     # „Nie licz jako minimum” działa także na wpisie z notatki.
     resp = await app_client.put(
