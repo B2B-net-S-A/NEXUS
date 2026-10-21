@@ -837,6 +837,10 @@ async def _client_leads(
     return {client_id: leads for client_id, leads in out.items() if leads}
 
 
+#: Ci sami odbiorcy dostają dzwonek popytu z rozmowy opiekuna (``care/demand``).
+client_leads = _client_leads
+
+
 async def _recently_reminded(
     db: AsyncSession, client_ids: Sequence[int], now: datetime
 ) -> set[tuple[int, int]]:

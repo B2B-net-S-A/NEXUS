@@ -41,7 +41,7 @@ import { UnlinkedCardsPanel } from "./UnlinkedCardsPanel";
 
 const DEFAULT_OWNER = "none";
 
-function StackNoteDialog({ clientId, onClose }: { clientId: number; onClose: () => void }) {
+export function StackNoteDialog({ clientId, onClose }: { clientId: number; onClose: () => void }) {
   const { showToast } = useToast();
   const save = useAddStackNote(clientId);
   const [content, setContent] = useState("");
@@ -98,7 +98,7 @@ function StackNoteDialog({ clientId, onClose }: { clientId: number; onClose: () 
   );
 }
 
-function GapsCard({
+export function GapsCard({
   gaps,
   clientId,
   onAddNote,
@@ -127,10 +127,10 @@ function GapsCard({
                 <span className="text-xs text-muted-foreground">{item.detail}</span>
                 {gap.kind === "manager_unplaced" ? (
                   <Link
-                    href={`/clients/${clientId}?tab=struktura`}
+                    href={`/clients/${clientId}?tab=ludzie&view=drzewo`}
                     className="text-xs text-primary hover:underline"
                   >
-                    Ustaw w „Strukturze u klienta”
+                    Ustaw w „Drzewie osób”
                   </Link>
                 ) : onAddNote ? (
                   <button
@@ -155,7 +155,7 @@ function GapsCard({
   );
 }
 
-function DefaultOwner({ map, clientId }: { map: ClientTechMap; clientId: number }) {
+export function DefaultOwner({ map, clientId }: { map: ClientTechMap; clientId: number }) {
   const { showToast } = useToast();
   const owners = useCareOwners(map.can_edit);
   const save = useSetClientDefaultOwner(clientId);

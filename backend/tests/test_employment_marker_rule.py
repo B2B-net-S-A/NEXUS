@@ -347,3 +347,58 @@ def test_rows_from_candidate_handles_empty_relations():
     )
 
     assert rows_from_candidate(candidate) == []
+
+
+# ── „Wraca na rynek” (22.10.2026) ───────────────────────────────────────────
+
+
+def test_returning_marker_takes_end_date_of_the_handed_over_contract():
+    from app.services.employment_marker import mark_returning
+
+    markers = build_markers(
+        [_contract()], today=TODAY, order_ends={10: date(2026, 11, 30)}
+    )
+    marked = mark_returning(markers, {10})[1]
+
+    assert marked.returns_to_market is True
+    assert marked.returns_to_market_on == date(2026, 11, 30)
+    # Bez wpisu „Do przepięcia” w toku — bez plakietki.
+    assert markers[1].returns_to_market is False
+    assert mark_returning(markers, set())[1].returns_to_market is False
+
+
+def test_second_contract_without_handover_keeps_the_person_with_us():
+    from app.services.employment_marker import mark_returning
+
+    rows = [
+        _contract(contract_id=10, client_id=100),
+        _contract(contract_id=11, client_id=200, client_name="Telekom Wzorcowy"),
+    ]
+    markers = build_markers(rows, today=TODAY, order_ends={10: date(2026, 11, 30)})
+
+    assert mark_returning(markers, {10})[1].returns_to_market is False
+    both = mark_returning(markers, {10, 11})[1]
+    assert both.returns_to_market is True
+    # Umowa bez końca pracy = data nieznana, plakietka bez daty.
+    assert both.returns_to_market_on is None
+
+
+def test_future_contract_does_not_block_returning_and_alone_is_not_returning():
+    from app.services.employment_marker import mark_returning
+
+    rows = [
+        _contract(contract_id=10, client_id=100),
+        _contract(
+            contract_id=12,
+            client_id=300,
+            client_name="Klinika Testowa",
+            start_date=TODAY + timedelta(days=40),
+        ),
+    ]
+    markers = build_markers(rows, today=TODAY, order_ends={10: date(2026, 12, 15)})
+    marked = mark_returning(markers, {10})[1]
+    assert marked.returns_to_market is True
+    assert marked.returns_to_market_on == date(2026, 12, 15)
+
+    only_future = build_markers([rows[1]], today=TODAY)
+    assert mark_returning(only_future, {12})[1].returns_to_market is False

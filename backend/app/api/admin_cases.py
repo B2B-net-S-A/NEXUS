@@ -154,6 +154,7 @@ async def list_cases(
     include_closed: bool = False,
     week: bool = False,
     unassigned: bool = False,
+    mine_care: bool = False,
 ) -> dict:
     return await queries.list_cases(
         db,
@@ -167,6 +168,7 @@ async def list_cases(
             include_closed=include_closed,
             week=week,
             unassigned=unassigned,
+            mine_care=mine_care,
         ),
     )
 

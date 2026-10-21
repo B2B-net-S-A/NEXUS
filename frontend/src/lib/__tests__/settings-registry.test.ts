@@ -114,6 +114,20 @@ describe("settings-registry — widoczność jak przed przebudową", () => {
     expect(can(user("finance", { sourcing: "write" }), "mail")).toBe(false);
   });
 
+  it("„Nazwy z rozmów do przejrzenia”: osobna pozycja dla TCM, tylko przy włączonym programie", () => {
+    const tcm = accessSnapshot("talent_community_manager");
+    const listed = (on: boolean) =>
+      listedSettingsItems(tcm, { hrProgram: on }).map((i) => i.id);
+    expect(listed(true)).toContain("skills-review");
+    expect(listed(false)).not.toContain("skills-review");
+    // Admin i HoR mają ją w Słowniku umiejętności — nie dublujemy pozycji.
+    expect(
+      listedSettingsItems(accessSnapshot("admin"), { hrProgram: true }).map((i) => i.id),
+    ).not.toContain("skills-review");
+    expect(resolveSettingsView(tcm, { item: "skills-review" }, { hrProgram: true }).kind).toBe("item");
+    expect(resolveSettingsView(tcm, { item: "skills-review" }).kind).toBe("home");
+  });
+
   it("Słownik umiejętności: admin i HoR z zapisem Sourcing (lustro /api/skills-admin)", () => {
     expect(can(user("admin", { sourcing: "write" }), "skills")).toBe(true);
     expect(can(user("head_of_recruitment", { sourcing: "write" }), "skills")).toBe(true);

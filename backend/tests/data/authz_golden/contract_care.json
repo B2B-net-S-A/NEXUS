@@ -33,6 +33,8 @@
   "GET /api/care/clients/{client_id}/tech-cards/unlinked": "BBDBBDDDBBBDBBBBDBBDDDDDDD",
   "GET /api/care/clients/{client_id}/tech-map": "BBDBBDDDBBBDBBBBDBBDDDDDDD",
   "GET /api/care/contracts/{contract_id}": "BBDBBDDDBBBDBBBBDBBDDDDDDD",
+  "GET /api/care/contracts/{contract_id}/card": "BBDBBDDDBBBDBBBBDBBDDDDDDD",
+  "GET /api/care/contracts/{contract_id}/client-state": "BBDBBDDDBBBDBBBBDBBDDDDDDD",
   "GET /api/care/contracts/{contract_id}/feedback": "BDBBBDDDBBBBBBDDDDDDDDDDDD",
   "GET /api/care/contracts/{contract_id}/front-office": "BBDBBDDDBBBDBBBBDBBDDDDDDD",
   "GET /api/care/contracts/{contract_id}/timeline": "BBDBBDDDBBBDBBBBDBBDDDDDDD",

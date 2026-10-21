@@ -97,9 +97,9 @@ describe("ClientTechnologiesTab", () => {
     expect(within(java).getByTitle("Bez działu · Java 17: 2 konsultantów, 1 notatka")).toBeInTheDocument();
     expect(within(java).getByTitle("CI/CD i chmura · Java 17: brak źródeł")).not.toHaveClass("ring-warning");
     // Luki do dopytania mają akcję.
-    expect(screen.getByRole("link", { name: "Ustaw w „Strukturze u klienta”" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Ustaw w „Drzewie osób”" })).toHaveAttribute(
       "href",
-      "/clients/3?tab=struktura",
+      "/clients/3?tab=ludzie&view=drzewo",
     );
   });
 

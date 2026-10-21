@@ -163,3 +163,49 @@ def normalize_checklist(items: Iterable[Any]) -> list[dict[str, Any]]:
             f"Checklista może mieć najwyżej {CHECKLIST_MAX_ITEMS} pozycji."
         )
     return result
+
+
+#: Pozycje checklisty sprawy „Koniec współpracy” (bez kwot).
+END_EQUIPMENT_ITEM = "Zwrot sprzętu i protokół zwrotu"
+END_ACCESS_PREFIX = "Odebranie dostępu: "
+END_ACCESS_GENERIC = "Odebranie dostępów u klienta"
+END_FEEDBACK_ITEM = "Ostatnia opinia menedżera u klienta"
+END_DECISION_ITEM = "Decyzja: przekaż do front office albo „nie przepinamy”"
+END_SETTLEMENT_ITEM = "Rozliczenie ostatniego miesiąca"
+
+
+def end_of_cooperation_checklist(
+    *,
+    equipment_ours: bool,
+    accesses: Iterable[str],
+    feedback_done: bool = False,
+    decision_done: bool = False,
+) -> list[dict[str, Any]]:
+    """Checklista sprawy „Koniec współpracy” z pakietu klienta i stanu opieki.
+
+    * zwrot sprzętu i protokół — tylko gdy klient ma „sprzęt od nas”,
+    * odebranie dostępów — pozycje „Dostępy” z pakietu klienta (bez pakietu
+      jedna pozycja ogólna),
+    * ostatnia opinia menedżera — odhaczona, gdy opiekun już ją zapisał,
+    * decyzja o przepięciu — odhaczona, gdy wpis „Do przepięcia” jest już
+      w toku, zrobiony albo odłożony („nie przepinamy”),
+    * rozliczenie ostatniego miesiąca (bez kwot).
+    """
+
+    items: list[dict[str, Any]] = []
+    if equipment_ours:
+        items.append({"text": END_EQUIPMENT_ITEM, "done": False})
+    room = CHECKLIST_TEXT_MAX - len(END_ACCESS_PREFIX)
+    names = [" ".join(str(name).split())[:room] for name in accesses]
+    # Miejsce na pięć stałych pozycji — checklista ma limit pozycji.
+    names = [name for name in dict.fromkeys(names) if name][: CHECKLIST_MAX_ITEMS - 5]
+    if names:
+        items.extend(
+            {"text": f"{END_ACCESS_PREFIX}{name}", "done": False} for name in names
+        )
+    else:
+        items.append({"text": END_ACCESS_GENERIC, "done": False})
+    items.append({"text": END_FEEDBACK_ITEM, "done": feedback_done})
+    items.append({"text": END_DECISION_ITEM, "done": decision_done})
+    items.append({"text": END_SETTLEMENT_ITEM, "done": False})
+    return normalize_checklist(items)

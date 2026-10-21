@@ -43,6 +43,14 @@ CARE_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
 )
+#: D11: kto widzi strukturę u klienta, opinie klienta i zdrowie relacji
+#: (opiekun z roli, DL, Head of Recruitment, admin; Finanse i Kadry nie).
+PEOPLE_READER_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.head_of_recruitment,
+)
 #: Kontrakty, przy których opieka trwa (plan, przypomnienia, „Moi konsultanci”).
 LIVE_STATUSES: tuple[ContractStatus, ...] = (
     ContractStatus.active,
@@ -58,6 +66,12 @@ _clients_care = CLIENTS_CARE.alias("clients_care")
 
 def is_care_worker(user: User) -> bool:
     return user.has_any_role(*CARE_ROLES)
+
+
+def reads_client_people(user: User) -> bool:
+    """Krąg D11: opinie klienta i zdrowie relacji (bramka ``PeopleReader``)."""
+
+    return user.has_any_role(*PEOPLE_READER_ROLES)
 
 
 async def is_care_writer(db: AsyncSession, user: User) -> bool:

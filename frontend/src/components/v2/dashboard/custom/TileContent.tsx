@@ -27,6 +27,7 @@ import { getDefaultDashboardPreset } from "@/lib/dashboard-presets"
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature"
 import { useAuthStore } from "@/store/auth"
 
+import { CareAtRiskTile, CareMineTile } from "./CareTiles"
 import { ClosingCandidatesTile } from "./ClosingCandidatesTile"
 import { EquipmentTasksTile } from "./EquipmentTasksTile"
 import { HrApprovalsTile } from "./HrApprovalsTile"
@@ -157,6 +158,11 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
       return <HrTileGate type={tile.type}>{() => <HrApprovalsTile />}</HrTileGate>
     case "equipment_tasks":
       return <HrTileGate type={tile.type}>{() => <EquipmentTasksTile />}</HrTileGate>
+    // Opieka (22.10.2026) — moduł `care` rozstrzyga ta sama bramka.
+    case "care_mine":
+      return <HrTileGate type={tile.type}>{() => <CareMineTile />}</HrTileGate>
+    case "care_at_risk":
+      return <HrTileGate type={tile.type}>{() => <CareAtRiskTile />}</HrTileGate>
     case "note":
       return <NoteBody config={tile.config} />
     case "metric_number":

@@ -2,6 +2,8 @@ import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
+  CLIENT_MORE_TABS,
+  clientTabFrom,
   isClientTab,
   positiveIntParam,
   useClientTab,
@@ -127,6 +129,31 @@ describe("isClientTab", () => {
   });
 });
 
+
+describe("„Ludzie i technologie” (22.10.2026)", () => {
+  it("dawne „Struktura u klienta” i „Technologie” otwierają nową zakładkę", () => {
+    expect(clientTabFrom("struktura")).toBe("ludzie");
+    expect(clientTabFrom("technologie")).toBe("ludzie");
+    expect(clientTabFrom("ludzie")).toBe("ludzie");
+    expect(isClientTab("struktura")).toBe(false);
+    expect(clientTabFrom("nie-ma-takiej")).toBeNull();
+    const { result } = renderHook(() => useClientTab("struktura"));
+    expect(result.current[0]).toBe("ludzie");
+  });
+
+  it("rzadkie zakładki stoją pod „Więcej”", () => {
+    expect([...CLIENT_MORE_TABS]).toEqual(["importy-md", "faktury", "analityka"]);
+  });
+
+  it("zamknięty moduł opieki (po odpowiedzi konfiguracji) wraca na Profil", () => {
+    const { result } = renderHook(() => {
+      const [tab, setTab] = useClientTab("ludzie");
+      useForbiddenTabFallback(tab, setTab, "ludzie", false, true);
+      return tab;
+    });
+    expect(result.current).toBe("profil");
+  });
+});
 
 describe("positiveIntParam", () => {
   it("przyjmuje wyłącznie dodatnie liczby całkowite", () => {

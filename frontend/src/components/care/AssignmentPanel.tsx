@@ -159,7 +159,12 @@ function ThresholdEditor({ data }: { data: CareAssignment }) {
  * office, admin), nad nimi pula opiekunów i „Przypisz wg obłożenia”
  * (``OwnerPoolPanel``). Każda zmiana zostaje na osi konsultanta.
  */
-export function AssignmentPanel() {
+export function AssignmentPanel({
+  withPool = true,
+}: {
+  /** „Zespół opiekunów” pokazuje pulę zwiniętą w „Ustawieniach przydziału” — wtedy `false`. */
+  withPool?: boolean;
+} = {}) {
   const { showToast } = useToast();
   const query = useCareAssignment();
   const assign = useAssignOwners();
@@ -267,7 +272,7 @@ export function AssignmentPanel() {
           Domyślni opiekunowie klientów
         </Button>
       </div>
-      {data.can_assign ? <OwnerPoolPanel /> : null}
+      {data.can_assign && withPool ? <OwnerPoolPanel /> : null}
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)]">
         <section className="grid content-start gap-2" aria-label="Opiekunowie i obciążenie">
           <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

@@ -21,6 +21,8 @@ import { HR_CAST, HR_CLIENTS, HR_CONSULTANTS, shiftDay } from "../hr-fixtures";
 
 /** Sprawa onboardingu Anny — stan `?state=detail`. */
 export const ONBOARDING_CASE_ID = 901;
+/** Mail z firmy klienta bez kontraktu — stan `?state=who` („Kogo dotyczy?”). */
+export const WHO_CASE_ID = 909;
 
 const person = (p: { id: number; name: string }): CasePersonRef => ({ id: p.id, name: p.name });
 const { zofia, natalia, julia, paulina, tomasz } = HR_CAST;
@@ -44,6 +46,28 @@ function annaContract(today: string): CaseContractRef {
     client_name: HR_CLIENTS.insurance.name,
     start_date: shiftDay(today, 18),
     end_date: null,
+    care_owner_user_id: natalia.id,
+    care_owner_name: natalia.name,
+    candidate_id: HR_CONSULTANTS.anna.id,
+    health: { level: "ok", label: "Dobrze", reasons: ["brak rozmów — kontrakt startuje"] },
+  };
+}
+
+function karolinaContract(today: string): CaseContractRef {
+  return {
+    id: 4502,
+    candidate_name: HR_CONSULTANTS.karolina.name,
+    client_name: HR_CLIENTS.telecom.name,
+    start_date: shiftDay(today, -33),
+    end_date: null,
+    care_owner_user_id: natalia.id,
+    care_owner_name: natalia.name,
+    candidate_id: HR_CONSULTANTS.karolina.id,
+    health: {
+      level: "watch",
+      label: "Uwaga",
+      reasons: ["zaległa rozmowa (3 dni)", "ostatnie zadowolenie 3"],
+    },
   };
 }
 
@@ -122,13 +146,7 @@ function allCards(today: string): CaseCard[] {
       status: "in_progress",
       due_on: shiftDay(today, 5),
       assignee: person(natalia),
-      contract: {
-        id: 4502,
-        candidate_name: HR_CONSULTANTS.karolina.name,
-        client_name: HR_CLIENTS.telecom.name,
-        start_date: shiftDay(today, -33),
-        end_date: null,
-      },
+      contract: karolinaContract(today),
     }),
     card(today, {
       id: 905,
@@ -155,17 +173,21 @@ function allCards(today: string): CaseCard[] {
       priority: "P2",
       status: "done",
       assignee: person(paulina),
-      contract: {
-        id: 4502,
-        candidate_name: HR_CONSULTANTS.karolina.name,
-        client_name: HR_CLIENTS.telecom.name,
-        start_date: shiftDay(today, -33),
-        end_date: null,
-      },
+      contract: karolinaContract(today),
       source: "contract",
       checklist_done: 4,
       checklist_total: 4,
       closed_at: at(shiftDay(today, -29)),
+    }),
+    card(today, {
+      id: WHO_CASE_ID,
+      title: "Pytanie o fakturę od działu zakupów",
+      area: "administration",
+      priority: "P2",
+      status: "new",
+      due_on: shiftDay(today, 3),
+      source: "mail",
+      created_at: at(today, "07:05:00"),
     }),
     card(today, {
       id: 908,
@@ -190,13 +212,30 @@ export function weekEnd(today: string): string {
 }
 
 /** Odpowiedź `GET /api/cases` dla filtrów tablicy (kolejność serwera: priorytet, termin). */
-export function caseList(today: string, filters: CaseListFilters): CaseList {
+export function caseList(
+  today: string,
+  filters: CaseListFilters,
+  viewerId: number = zofia.id,
+): CaseList {
   const friday = weekEnd(today);
-  const scoped = allCards(today).filter(
-    (item) => !filters.mine || item.assignee?.id === zofia.id,
-  );
+  // Zdrowie relacji widzi tylko krąg D11 (opiekunka) — recepcja dostaje `null`.
+  const scoped = allCards(today)
+    .map((item) =>
+      item.contract && viewerId !== natalia.id
+        ? { ...item, contract: { ...item.contract, health: null } }
+        : item,
+    )
+    .filter((item) => !filters.mine || item.assignee?.id === viewerId)
+    .filter((item) => !filters.mine_care || item.contract?.care_owner_user_id === viewerId);
   const open = scoped.filter((item) => OPEN.has(item.status));
-  const areas: CaseList["counts"] = { areas: {}, week: 0, unassigned: 0 };
+  const areas: CaseList["counts"] = {
+    areas: {},
+    week: 0,
+    unassigned: 0,
+    mine_care: allCards(today).filter(
+      (item) => OPEN.has(item.status) && item.contract?.care_owner_user_id === viewerId,
+    ).length,
+  };
   for (const item of open) {
     areas.areas[item.area] = (areas.areas[item.area] ?? 0) + 1;
     if (item.due_on && item.due_on <= friday) areas.week += 1;
@@ -237,9 +276,12 @@ export const BOARD_AREAS: (CaseArea | null)[] = [
   "other",
 ];
 
-export function onboardingCase(today: string): CaseDetail {
-  const base = allCards(today).find((item) => item.id === ONBOARDING_CASE_ID) as CaseCard;
+/** `d11` — oglądający z kręgu D11 widzi zdrowie relacji, reszta dostaje `null`. */
+export function onboardingCase(today: string, d11 = false): CaseDetail {
+  const card = allCards(today).find((item) => item.id === ONBOARDING_CASE_ID) as CaseCard;
   const start = dayMonth(shiftDay(today, 18));
+  const contract = { ...annaContract(today), ...(d11 ? {} : { health: null }) };
+  const base = { ...card, contract };
   const received = shiftDay(today, -1);
   return {
     ...base,
@@ -276,6 +318,56 @@ export function onboardingCase(today: string): CaseDetail {
     ],
     can_manage: true,
     can_comment: true,
+    consultant: {
+      contract_id: contract.id,
+      candidate_name: contract.candidate_name,
+      client_name: contract.client_name,
+      role: "Analityczka biznesowa",
+      form: "B2B",
+      order_end_on: shiftDay(today, 200),
+      owner_user_id: natalia.id,
+      owner_name: natalia.name,
+      cadence_label: "co 2 tygodnie (pierwsze 90 dni)",
+      last_conversation: null,
+      other_open_cases: 0,
+      health: contract.health ?? null,
+    },
+  };
+}
+
+/** Sprawa z maila z firmy klienta bez kontraktu — propozycja „Kogo dotyczy?”. */
+export function whoCase(today: string): CaseDetail {
+  const base = allCards(today).find((item) => item.id === WHO_CASE_ID) as CaseCard;
+  return {
+    ...base,
+    description: null,
+    checklist: [],
+    lifecycle_case_id: null,
+    created_by: null,
+    messages: [
+      {
+        id: 2,
+        sender_email: "zakupy@ubezpieczenia-fikcyjne.example.com",
+        sender_name: `Dział zakupów — ${HR_CLIENTS.insurance.name}`,
+        subject: "Faktura za październik — brak numeru zamówienia",
+        received_at: at(today, "07:02:00"),
+        body_text:
+          "Dzień dobry,\nna fakturze za październik dla naszej konsultantki brakuje numeru zamówienia. " +
+          "Prosimy o korektę.\nPozdrawiamy",
+        attachments: [],
+      },
+    ],
+    comments: [],
+    can_manage: true,
+    can_comment: true,
+    link_suggestions: [
+      {
+        contract_id: 4505,
+        candidate_name: HR_CONSULTANTS.anna.name,
+        client_name: HR_CLIENTS.insurance.name,
+        reason: "jedyna osoba z aktywnym kontraktem u tego klienta",
+      },
+    ],
   };
 }
 

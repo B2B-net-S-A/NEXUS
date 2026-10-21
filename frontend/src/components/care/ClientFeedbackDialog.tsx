@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { useToast } from "@/components/Toast";
@@ -17,32 +18,61 @@ import {
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
+import { useClientTechMap } from "@/lib/api/care";
+import {
+  DEMAND_OUTCOME_LABELS,
+  DEMAND_OUTCOME_TOASTS,
+  jobsNewHref,
+  useSaveClientFeedbackWithDemand,
+  type DemandContext,
+  type DemandOutcome,
+  type DemandPayload,
+} from "@/lib/api/care-clients";
 import {
   EXTENSION_LABELS,
   FEEDBACK_CHANNEL_LABELS,
   FEEDBACK_NOTE_MAX,
   SCORE_LABELS,
+  canReadClientPeople,
   scoresForPayload,
-  useSaveClientFeedback,
+  useClientOrg,
   type ExtensionOutlook,
   type FeedbackChannel,
   type OrgConsultant,
   type ScoreField,
 } from "@/lib/api/client-people";
+import { useAuthStore } from "@/store/auth";
+
+import { orgPeople } from "./client-people-format";
+
+export type { DemandContext } from "@/lib/api/care-clients";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
 
 const FIELDS: ScoreField[] = ["quality", "communication", "autonomy"];
 const EXTENSIONS: ExtensionOutlook[] = ["yes", "likely", "unsure", "no"];
+const OUTCOMES: DemandOutcome[] = ["confirmed", "not_now", "stale"];
+const NO_MANAGER = "none";
+/** Ile technologii działu podsuwa sekcja popytu do zaznaczenia. */
+const DEMAND_SKILLS_MAX = 12;
 
+/**
+ * Okno „Rozmowa z menedżerem” / „Zapisz opinię”. Z karty „Popyt do
+ * sprawdzenia” (tablica opieki DL) otwiera się z `demand` — wtedy dochodzi
+ * sekcja „Czego potrzebuje dział?”, oceny są opcjonalne, a menedżera (gdy
+ * karta go nie zna) wybiera się z osób klienta.
+ */
 export interface ClientFeedbackDialogProps {
   clientId: number;
   clientName: string;
-  manager: { id: number; name: string };
-  consultants: OrgConsultant[];
+  /** Menedżer u klienta; przy popycie bez menedżera — `null` (wybór w oknie). */
+  manager?: { id: number; name: string } | null;
+  consultants?: OrgConsultant[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Karta popytu z tablicy — sekcja „Czego potrzebuje dział?”. */
+  demand?: DemandContext | null;
 }
 
 function ScorePicker({
@@ -93,18 +123,72 @@ function ScorePicker({
  * klienta nie ma (D10). Konsultant bez ani jednej oceny („pomiń”) nie dostaje
  * wiersza opinii.
  */
-export function ClientFeedbackDialog({
+export function ClientFeedbackDialog(props: ClientFeedbackDialogProps) {
+  return props.demand ? <DemandFeedbackDialog {...props} /> : <FeedbackDialogBody {...props} />;
+}
+
+/** Popyt potwierdzony kończy się przejściem na `/jobs/new` — router tylko tutaj. */
+function DemandFeedbackDialog(props: ClientFeedbackDialogProps) {
+  const router = useRouter();
+  return <FeedbackDialogBody {...props} navigate={(href) => router.push(href)} />;
+}
+
+function FeedbackDialogBody({
   clientId,
   clientName,
-  manager,
-  consultants,
+  manager: givenManager = null,
+  consultants: givenConsultants,
   open,
   onOpenChange,
-}: ClientFeedbackDialogProps) {
+  demand = null,
+  navigate,
+}: ClientFeedbackDialogProps & { navigate?: (href: string) => void }) {
   const { showToast } = useToast();
-  const save = useSaveClientFeedback(clientId);
+  const save = useSaveClientFeedbackWithDemand(clientId);
   const today = warsawToday();
-  const ids = { date: useId(), channel: useId(), note: useId(), extension: useId() };
+  const ids = {
+    date: useId(),
+    channel: useId(),
+    note: useId(),
+    extension: useId(),
+    outcome: useId(),
+    role: useId(),
+    headcount: useId(),
+    start: useId(),
+    manager: useId(),
+  };
+  // Popyt bez menedżera na karcie: osoby klienta z drzewa (krąg D11) do wyboru.
+  const canReadPeople = useAuthStore((s) => canReadClientPeople(s.user));
+  const needsManager = demand !== null && givenManager === null;
+  const orgQuery = useClientOrg(clientId, open && needsManager && canReadPeople);
+  const people = useMemo(
+    () => (orgQuery.data ? orgPeople(orgQuery.data) : []),
+    [orgQuery.data],
+  );
+  const [pickedManagerId, setPickedManagerId] = useState<number | null>(null);
+  const pickedPerson = people.find((person) => person.id === pickedManagerId) ?? null;
+  const manager =
+    givenManager ?? (pickedPerson ? { id: pickedPerson.id, name: pickedPerson.name } : null);
+  const consultants = givenConsultants ?? pickedPerson?.consultants ?? [];
+  // Technologie działu z mapy klienta — do zaznaczenia przy potwierdzonej potrzebie.
+  const mapQuery = useClientTechMap(clientId, open && demand !== null);
+  const demandSkills = useMemo(() => {
+    const map = mapQuery.data;
+    if (!map || !demand) return [];
+    const department = demand.area
+      ? map.departments.find((d) => d.area.id === demand.area?.id)
+      : null;
+    const source = department ? department.technologies : map.technologies;
+    return [...source]
+      .sort((a, b) => b.source_count - a.source_count || a.name.localeCompare(b.name, "pl"))
+      .slice(0, DEMAND_SKILLS_MAX)
+      .map((tech) => ({ id: tech.skill_id, name: tech.name }));
+  }, [mapQuery.data, demand]);
+  const [outcome, setOutcome] = useState<DemandOutcome | null>(null);
+  const [role, setRole] = useState(demand?.roles[0] ?? "");
+  const [headcount, setHeadcount] = useState("1");
+  const [startMonth, setStartMonth] = useState("");
+  const [skillIds, setSkillIds] = useState<Set<number>>(new Set());
   const [heldOn, setHeldOn] = useState(today);
   const [channel, setChannel] = useState<FeedbackChannel>("phone");
   const [scores, setScores] = useState<
@@ -133,25 +217,80 @@ export function ClientFeedbackDialog({
       return next;
     });
 
+  const toggleSkill = (skillId: number) =>
+    setSkillIds((current) => {
+      const next = new Set(current);
+      if (next.has(skillId)) next.delete(skillId);
+      else next.add(skillId);
+      return next;
+    });
+
+  const demandPayload = (): DemandPayload | null | string => {
+    if (!demand) return null;
+    if (!outcome) return "Zaznacz, co z potrzebą działu.";
+    if (outcome !== "confirmed") return { key: demand.key, outcome };
+    const count = Number(headcount);
+    if (!role.trim()) return "Wpisz rolę, której szuka dział.";
+    if (!Number.isInteger(count) || count < 1 || count > 50) {
+      return "Liczba osób to od 1 do 50.";
+    }
+    return {
+      key: demand.key,
+      outcome,
+      role: role.trim(),
+      headcount: count,
+      start_month: startMonth || null,
+      skill_ids: [...skillIds],
+    };
+  };
+
   const submit = () => {
     setError(null);
+    // Przy popycie menedżer jest opcjonalny (serwer przyjmuje sam `demand`).
+    if (!manager && !demand) {
+      setError("Wybierz menedżera, z którym była rozmowa.");
+      return;
+    }
     if (!heldOn || heldOn > today) {
       setError("Podaj datę rozmowy (najpóźniej dzisiejszą).");
       return;
     }
+    const demandBody = demandPayload();
+    if (typeof demandBody === "string") {
+      setError(demandBody);
+      return;
+    }
     save.mutate(
       {
-        contact_id: manager.id,
+        ...(manager ? { contact_id: manager.id } : {}),
         held_on: heldOn,
         channel,
         extension_outlook: extension,
         note: note.trim() || null,
         scores: scoresForPayload(scores, skipped),
+        ...(demandBody ? { demand: demandBody } : {}),
       },
       {
-        onSuccess: () => {
-          showToast("Opinia zapisana", "success");
+        onSuccess: (saved) => {
           onOpenChange(false);
+          if (!demandBody) {
+            showToast("Opinia zapisana", "success");
+            return;
+          }
+          showToast(DEMAND_OUTCOME_TOASTS[demandBody.outcome], "success");
+          if (demandBody.outcome === "confirmed") {
+            // Serwer składa adres z klientem, menedżerem i technologiami; starszy
+            // serwer bez `jobs_new_url` — ten sam adres z okna.
+            navigate?.(
+              saved.jobs_new_url ||
+                jobsNewHref({
+                  clientId,
+                  hmId: manager?.id ?? null,
+                  skillIds: demandBody.skill_ids,
+                  title: demandBody.role,
+                }),
+            );
+          }
         },
         onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać opinii.")),
       },
@@ -162,8 +301,16 @@ export function ClientFeedbackDialog({
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      title={`Opinia od: ${manager.name} · ${clientName}`}
-      description="Rozmowa z menedżerem u klienta o pracy naszych konsultantów."
+      title={
+        demand
+          ? `Rozmowa z menedżerem · ${clientName}`
+          : `Opinia od: ${manager?.name ?? ""} · ${clientName}`
+      }
+      description={
+        demand
+          ? "Czego potrzebuje dział i jak pracują nasi konsultanci. Oceny są tym razem opcjonalne."
+          : "Rozmowa z menedżerem u klienta o pracy naszych konsultantów."
+      }
       size="lg"
       footer={
         <>
@@ -171,11 +318,146 @@ export function ClientFeedbackDialog({
             Anuluj
           </Button>
           <Button onClick={submit} disabled={save.isPending}>
-            {save.isPending ? "Zapisywanie…" : "Zapisz opinię"}
+            {save.isPending
+              ? "Zapisywanie…"
+              : demand && outcome === "confirmed"
+                ? "Zapisz i otwórz rekrutację"
+                : demand
+                  ? "Zapisz rozmowę"
+                  : "Zapisz opinię"}
           </Button>
         </>
       }
     >
+      {demand ? (
+        <section
+          aria-labelledby={ids.outcome}
+          className="mb-3 space-y-3 rounded-md border border-border bg-muted/40 p-3"
+          data-demand-section
+        >
+          <div className="space-y-1">
+            <h3 id={ids.outcome} className="text-sm font-semibold">
+              Czego potrzebuje dział{demand.area ? ` ${demand.area.name}` : ""}?
+            </h3>
+            {demand.roles.length ? (
+              <p className="text-xs text-muted-foreground">
+                Opiekun usłyszał: {demand.roles.join(", ")}
+                {demand.source ? ` (${demand.source})` : ""}.
+              </p>
+            ) : null}
+            <SegmentedRadio
+              labelledBy={ids.outcome}
+              size="sm"
+              value={outcome}
+              onChange={setOutcome}
+              options={OUTCOMES.map((value) => ({ value, label: DEMAND_OUTCOME_LABELS[value] }))}
+            />
+            {outcome === "not_now" ? (
+              <p className="text-xs text-muted-foreground">Karta wróci na tablicę za 30 dni.</p>
+            ) : null}
+          </div>
+          {outcome === "confirmed" ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_10rem]">
+                <FormField label="Rola" htmlFor={ids.role} required>
+                  <Input
+                    id={ids.role}
+                    value={role}
+                    maxLength={200}
+                    placeholder="np. Java Developer"
+                    onChange={(event) => setRole(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="Ile osób" htmlFor={ids.headcount}>
+                  <Input
+                    id={ids.headcount}
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={headcount}
+                    onChange={(event) => setHeadcount(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="Od kiedy" htmlFor={ids.start}>
+                  <Input
+                    id={ids.start}
+                    type="month"
+                    value={startMonth}
+                    onChange={(event) => setStartMonth(event.target.value)}
+                  />
+                </FormField>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Technologie z mapy {demand.area ? "działu" : "klienta"}
+                </p>
+                {demandSkills.length ? (
+                  <div role="group" aria-label="Technologie do rekrutacji" className="flex flex-wrap gap-1.5">
+                    {demandSkills.map((skill) => (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        aria-pressed={skillIds.has(skill.id)}
+                        onClick={() => toggleSkill(skill.id)}
+                        className={cn(
+                          "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
+                          skillIds.has(skill.id)
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-card text-foreground hover:bg-muted",
+                        )}
+                      >
+                        {skill.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {mapQuery.isLoading
+                      ? "Wczytywanie mapy technologii…"
+                      : mapQuery.isError
+                        ? "Mapy technologii nie udało się wczytać — technologie dopiszesz w rekrutacji."
+                        : "Mapa nie zna jeszcze technologii tego działu."}
+                  </p>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Po zapisie otworzy się nowa rekrutacja z klientem, menedżerem i zaznaczonymi
+                technologiami — wypełnią się tylko puste pola.
+              </p>
+            </>
+          ) : null}
+        </section>
+      ) : null}
+      {needsManager ? (
+        <FormField label="Menedżer u klienta (opcjonalnie)" htmlFor={ids.manager} className="mb-3">
+          <Select
+            value={pickedManagerId != null ? String(pickedManagerId) : NO_MANAGER}
+            onValueChange={(value) =>
+              setPickedManagerId(value === NO_MANAGER ? null : Number(value))
+            }
+          >
+            <SelectTrigger id={ids.manager}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_MANAGER}>
+                {orgQuery.isLoading ? "Wczytywanie osób klienta…" : "Wybierz osobę klienta"}
+              </SelectItem>
+              {[...people]
+                .sort(
+                  (a, b) =>
+                    Number(b.area_id === demand?.area?.id) - Number(a.area_id === demand?.area?.id) ||
+                    a.name.localeCompare(b.name, "pl"),
+                )
+                .map((person) => (
+                  <SelectItem key={person.id} value={String(person.id)}>
+                    {[person.name, person.position].filter(Boolean).join(" · ")}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <FormField label="Rozmowa" htmlFor={ids.channel}>
           <Select value={channel} onValueChange={(value) => setChannel(value as FeedbackChannel)}>
@@ -203,7 +485,7 @@ export function ClientFeedbackDialog({
       </div>
 
       <div className="mt-3 space-y-2">
-        {consultants.length === 0 ? (
+        {consultants.length === 0 && manager ? (
           <p className="text-sm text-muted-foreground">
             Ta osoba nie jest menedżerem żadnego z naszych konsultantów — opinia zapisze
             samą rozmowę.

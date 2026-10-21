@@ -254,6 +254,7 @@ async def update_case(
     )
 
     previous_assignee = case.assignee_user_id
+    previous_contract = case.contract_id
     changed: list[str] = []
     for field, value in changes.items():
         if field == "title":
@@ -290,6 +291,22 @@ async def update_case(
         action="case_updated",
         details={"fields": changed, "status": case.status},
     )
+    if "contract_id" in changed:
+        # Ślad przypięcia do kontraktu — oś konsultanta pokazuje go jako
+        # „case_linked” (``queries.contract_case_events``).
+        audit.record(
+            db,
+            actor_user_id=actor.id,
+            subject_user_id=case.subject_user_id,
+            entity_type=ENTITY,
+            entity_id=case.id,
+            action="case_linked" if case.contract_id is not None else "case_unlinked",
+            details={
+                "contract_id": case.contract_id,
+                "previous_contract_id": previous_contract,
+                "source": "manual",
+            },
+        )
     if "assignee_user_id" in changed and case.assignee_user_id != previous_assignee:
         await notify_assignee(db, case, actor_id=actor.id)
     if "checklist" in changed and case.lifecycle_case_id is not None:
@@ -351,6 +368,8 @@ class AutomaticCase:
     subject_user_id: Optional[int] = None
     lifecycle_case_id: Optional[int] = None
     assignee_user_id: Optional[int] = None
+    #: Pozycje ``{text, done}`` po ``rules.normalize_checklist``.
+    checklist: tuple[dict[str, Any], ...] = ()
 
 
 async def open_automatic_case(
@@ -377,7 +396,7 @@ async def open_automatic_case(
             subject_user_id=spec.subject_user_id,
             lifecycle_case_id=spec.lifecycle_case_id,
             assignee_user_id=spec.assignee_user_id,
-            checklist=[],
+            checklist=[dict(item) for item in spec.checklist],
         )
         .on_conflict_do_nothing(index_elements=[AdminCase.source_key])
         .returning(AdminCase.id)

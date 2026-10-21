@@ -12,10 +12,13 @@
  *
  * Stany: lista klientów z Telekomem (pewne, do sprawdzenia z alternatywą,
  * bez propozycji, pominięte; „Podlega pod”) i Bank z jedną pewną propozycją
- * z pola „Line Manager”. „Zatwierdź”, „Zmień” i „Pomiń” odcina interceptor
- * harnessu — toast mówi wtedy o błędzie zapisu.
+ * z pola „Line Manager”. Stan `bar` — pasek „Do zatwierdzenia” z zakładki
+ * klienta „Ludzie i technologie” (22.10.2026): jedna propozycja Telekomu
+ * i „Wszystkie propozycje (N)”. „Zatwierdź”, „Zmień” i „Pomiń” odcina
+ * interceptor harnessu — toast mówi wtedy o błędzie zapisu.
  */
 
+import { ApprovalBar } from "@/components/care/client/ApprovalBar";
 import { StructureTab } from "@/components/care/structure/StructureTab";
 import { hrKeys } from "@/lib/api/hr";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -24,10 +27,11 @@ import { HR_CAST, HR_CLIENTS, hrConfig } from "../hr-fixtures";
 import { HrHarnessLoading, HrHarnessShell, harnessQueryClient, pickState, useHrHarness } from "../hr-harness";
 import { seedStructure } from "./fixtures";
 
-const KNOWN = ["telecom", "bank"] as const;
+const KNOWN = ["telecom", "bank", "bar"] as const;
 const STATES = [
   { key: "telecom", label: "Telekom (wszystkie stany)", href: `?state=telecom&client=${HR_CLIENTS.telecom.id}` },
   { key: "bank", label: "Bank (jedna pewna)", href: `?state=bank&client=${HR_CLIENTS.bank.id}` },
+  { key: "bar", label: "Pasek „Do zatwierdzenia” (zakładka klienta)", href: "?state=bar" },
 ] as const;
 
 function prepare(params: URLSearchParams) {
@@ -49,7 +53,11 @@ export default function HrClientStructurePreviewPage() {
       states={STATES}
       current={ready.value.state}
     >
-      <StructureTab />
+      {ready.value.state === "bar" ? (
+        <ApprovalBar clientId={HR_CLIENTS.telecom.id} />
+      ) : (
+        <StructureTab />
+      )}
     </HrHarnessShell>
   );
 }

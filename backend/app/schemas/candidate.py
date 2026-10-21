@@ -121,6 +121,11 @@ class EmploymentMarker(BaseModel):
     # notatki ze screeningu sprzed zatrudnienia jej nie przesuwają.
     free_from: Optional[date] = None
     free_from_basis: Optional[EmploymentFreeFromBasis] = None
+    # „Wraca na rynek DD.MM” (22.10.2026): opieka przekazała osobę do front
+    # office albo zdecydowała „przekaż” (wpis „Do przepięcia” w toku) na
+    # każdej trwającej umowie; data = koniec pracy (None = nieznany).
+    returns_to_market: bool = False
+    returns_to_market_on: Optional[date] = None
 
 
 _VALID_SKILL_LEVELS = {"expert", "senior", "mid", "junior", None}

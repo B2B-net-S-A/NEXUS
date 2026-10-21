@@ -14,6 +14,7 @@ import type {
   ClientManagerRef,
   ConsultantRow,
   ContractCadence,
+  Health,
   PersonRef,
 } from "@/lib/api/care";
 
@@ -102,6 +103,14 @@ interface RowInput {
   signals?: ConsultantRow["signals"];
   suggested?: ConsultantRow["suggested_level"];
   talks: [number, number];
+  health?: Health;
+  redeploy?: boolean;
+}
+
+const OK: Health = { level: "ok", label: "Dobrze", reasons: [] };
+
+function health(level: Health["level"], ...reasons: string[]): Health {
+  return { level, label: level === "risk" ? "Ryzyko" : level === "watch" ? "Uwaga" : "Dobrze", reasons };
 }
 
 function row(input: RowInput): ConsultantRow {
@@ -134,6 +143,8 @@ function row(input: RowInput): ConsultantRow {
     suggested_level: input.suggested ?? null,
     conversations: { this_month: input.talks[0], next_month: input.talks[1] },
     can_change_cadence: owner.id === natalia.id,
+    health: input.health ?? OK,
+    redeploy_active: input.redeploy ?? false,
   };
 }
 
@@ -171,6 +182,7 @@ export function careConsultants(today: string): CareConsultants {
       last: { on: shiftDay(today, -19), satisfaction: 5, note: "Dobrze, chce więcej automatyzacji testów." },
       signals: [{ kind: "overdue", days: 5 }],
       talks: [2, 2],
+      health: health("watch", "rozmowa zaległa od 5 dni"),
     }),
     row({
       id: 4504,
@@ -189,6 +201,12 @@ export function careConsultants(today: string): CareConsultants {
         { kind: "wants_change" },
       ],
       talks: [2, 3],
+      health: health(
+        "risk",
+        `chce zmiany projektu (${shiftDay(today, -9).slice(8, 10)}.${shiftDay(today, -9).slice(5, 7)})`,
+        "zamówienie kończy się za 34 dni",
+      ),
+      redeploy: true,
     }),
     row({
       id: CARE_CONTRACT_ID,
@@ -217,6 +235,7 @@ export function careConsultants(today: string): CareConsultants {
       signals: [{ kind: "weak_feedback", average: 2.7, on: shiftDay(today, -2) }],
       suggested: "biweekly",
       talks: [1, 1],
+      health: health("risk", "ostatnia opinia menedżera 2,7 / 5"),
     }),
     row({
       id: 4506,
@@ -243,6 +262,7 @@ export function careConsultants(today: string): CareConsultants {
       next: next(shiftDay(today, 45), today, "pre_end"),
       last: { on: shiftDay(today, -100), note: null },
       talks: [0, 0],
+      health: health("watch", "brak rozmowy od 100 dni"),
     }),
     row({
       id: 4508,
@@ -267,6 +287,7 @@ export function careConsultants(today: string): CareConsultants {
       cadence: program(shiftDay(today, 18)),
       next: next(shiftDay(today, 25), today, "day_7"),
       talks: [0, 2],
+      health: health("ok", "brak rozmów — kontrakt startuje za 18 dni"),
     }),
   ];
   const monthStart = `${today.slice(0, 7)}-01`;

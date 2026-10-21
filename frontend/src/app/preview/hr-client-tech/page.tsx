@@ -3,11 +3,14 @@
 /**
  * Harness „Technologie klienta” (makieta 10 raportu „Ludzie w NEXUSIE”).
  *
- * W aplikacji to zakładka „Technologie” profilu klienta
- * (`/clients/[id]?tab=technologie`). Harness nie montuje całej strony klienta —
- * pokazuje prosty nagłówek klienta i pod nim prawdziwy `ClientTechnologiesTab`
- * na zasianym cache, ZERO zapytań (`hr-harness.tsx`). Ogląda Delivery Lead
- * klienta (może dodać notatkę o stacku i zmienić domyślnego opiekuna).
+ * Od 22.10.2026 to widok „Mapa” zakładki „Ludzie i technologie” profilu
+ * klienta (`/clients/[id]?tab=ludzie&view=mapa`; dawne `?tab=technologie`
+ * prowadzi tu). Harness nie montuje całej strony klienta — pokazuje prosty
+ * nagłówek klienta i pod nim prawdziwy `ClientPeopleTechTab` w widoku „Mapa”
+ * (w środku dawny `ClientTechnologiesTab`) na zasianym cache, ZERO zapytań
+ * (`hr-harness.tsx`). Ogląda Delivery Lead klienta (może dodać notatkę
+ * o stacku i zmienić domyślnego opiekuna). Przełącznik widoków działa —
+ * działy i drzewo mają osobny harness `/preview/hr-client-people`.
  *
  * Stan „links”: nad mapą „Karty z Compassa do połączenia” (import 18.10.2026)
  * — karta z dwiema propozycjami i karta bez kontraktu z tym nazwiskiem.
@@ -25,8 +28,12 @@
  * są schowane („Pokaż wszystkie działy (67)”), „bez działu” stoi pierwsze.
  */
 
-import { ClientTechnologiesTab } from "@/components/care/ClientTechnologiesTab";
+import { useState } from "react";
+
+import { ClientPeopleTechTab } from "@/components/care/client/ClientPeopleTechTab";
+import type { PeopleView } from "@/components/care/client/people-tech-format";
 import { careKeys, type ClientTechMap } from "@/lib/api/care";
+import { clientPeopleKeys } from "@/lib/api/client-people";
 import { warsawToday } from "@/lib/warsaw-date";
 import { hrKeys } from "@/lib/api/hr";
 
@@ -38,6 +45,8 @@ import {
   pickState,
   useHrHarness,
 } from "../hr-harness";
+import { seedStructure } from "../hr-client-structure/fixtures";
+import { clientOrgWithHealth } from "../hr-client-people/fixtures";
 import { CARE_OWNERS, MAP_CLIENT, clientTechMap, unlinkedCards } from "./fixtures";
 
 const STATES = [
@@ -80,6 +89,9 @@ function prepare(params: URLSearchParams) {
     state === "links" ? unlinkedCards(today) : { items: [], contracts: [], can_link: true },
   );
   client.setQueryData(careKeys.owners, CARE_OWNERS);
+  // Nagłówek zakładki i pasek „Do zatwierdzenia” czytają drzewo i propozycje.
+  client.setQueryData(clientPeopleKeys.org(MAP_CLIENT.id), clientOrgWithHealth(today));
+  seedStructure(client, today);
   return {
     user: HR_CAST.kamil,
     client,
@@ -103,11 +115,16 @@ function ClientHeader({ consultants, openJobs }: { consultants: number; openJobs
       </div>
       <div className="border-t border-border px-3 text-[13px] sm:px-5">
         <span className="inline-block border-b-2 border-primary px-3 py-2 font-semibold text-foreground">
-          Technologie
+          Ludzie i technologie
         </span>
       </div>
     </div>
   );
+}
+
+function MapView() {
+  const [view, setView] = useState<PeopleView>("mapa");
+  return <ClientPeopleTechTab clientId={MAP_CLIENT.id} view={view} onViewChange={setView} />;
 }
 
 export default function HrClientTechPreviewPage() {
@@ -123,7 +140,7 @@ export default function HrClientTechPreviewPage() {
     >
       <div className="space-y-4">
         <ClientHeader consultants={ready.value.consultants} openJobs={ready.value.openJobs} />
-        <ClientTechnologiesTab clientId={MAP_CLIENT.id} />
+        <MapView />
       </div>
     </HrHarnessShell>
   );

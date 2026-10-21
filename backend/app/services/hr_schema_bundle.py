@@ -17,6 +17,7 @@ from __future__ import annotations
 from app.services import admin_cases_schema as admin_cases
 from app.services import board_role_schema as board_role
 from app.services import care_announcements_schema as care_announcements
+from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_structure_schema as client_structure
 from app.services import contract_care_schema as contract_care
@@ -60,6 +61,8 @@ MODULES = (
     approvals,
     approval_settlement,
     approval_basis,
+    # 0504: tablica opieki i popyt dla DL (przebudowa opieki, 22.10.2026).
+    care_board,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

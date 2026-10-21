@@ -100,7 +100,7 @@ describe("/preview/hr-client-tech", () => {
       .getAllByRole("listitem")
       .map((item) => item.textContent);
     expect(items[0]).toBe("CI/CD i chmurabrak źródła od 18 miesięcyDopisz notatkę o stacku");
-    expect(items[1]).toBe("Płatnościnie wiemy, komu podlega Michał R.Ustaw w „Strukturze u klienta”");
+    expect(items[1]).toBe("Płatnościnie wiemy, komu podlega Michał R.Ustaw w „Drzewie osób”");
     expect(items[2]).toMatch(/^Azure Data Factoryznane tylko z rozmowy z konsultantem z \d{2}\.\d{4}Dopisz/);
     expect(attempted()).toEqual([]);
   });

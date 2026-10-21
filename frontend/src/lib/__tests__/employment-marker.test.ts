@@ -4,6 +4,7 @@ import {
   markerDetails,
   markerLabel,
   markerTone,
+  returnsToMarketLabel,
   worksForUsNow,
   type EmploymentMarker,
   type EmploymentMarkerClient,
@@ -176,5 +177,18 @@ describe("employedCountLabel", () => {
     [22, 30, "22 z 30 osób pracują u nas"],
   ])("%i z %i", (employed, total, expected) => {
     expect(employedCountLabel(employed, total)).toBe(expected);
+  });
+});
+
+describe("returnsToMarketLabel (22.10.2026)", () => {
+  it("„Wraca na rynek DD.MM” tylko przy przekazaniu z opieki", () => {
+    expect(returnsToMarketLabel(marker())).toBeNull();
+    expect(returnsToMarketLabel(null)).toBeNull();
+    expect(
+      returnsToMarketLabel(marker({ returns_to_market: true, returns_to_market_on: "2026-11-30" })),
+    ).toBe("Wraca na rynek 30.11");
+    expect(returnsToMarketLabel(marker({ returns_to_market: true, returns_to_market_on: null }))).toBe(
+      "Wraca na rynek",
+    );
   });
 });

@@ -14,7 +14,9 @@
  *   (3 rekrutacje, 2 rozmowy u klienta, 4 osoby w procesie) i „Mój czas”;
  * - `manager` — Marta, przełożona: „Do akceptacji”, ostrzeżenie „zastępca też
  *   nieobecny” w „W zastępstwie”, „Mój czas”;
- * - `reception` — Zofia z uprawnieniem Sprzęt: „Sprzęt do zrobienia” i „Mój czas”.
+ * - `reception` — Zofia z uprawnieniem Sprzęt: „Sprzęt do zrobienia” i „Mój czas”;
+ * - `care` — Kamil, Delivery Lead: kafelki opieki „Moja opieka” (dwie karty po
+ *   terminie, dwie do piątku) i „Zagrożeni konsultanci” (dwie osoby z „Ryzyko”).
  * U rekruterki pod pulpitem „Plakietka i wzmianka”: kropka nieobecności przy
  * Rekruterze/DL w liście rekrutacji i podpowiedź zastępcy po „@Kamil” w notatce
  * (`absence-mentions.tsx`).
@@ -27,6 +29,8 @@ import { Search } from "lucide-react";
 import { AbsentTodayButton, AbsentTodayPanel } from "@/components/hr/leave/AbsentTodayButton";
 import { currentYearMonth } from "@/components/hr/time/time-format";
 import { TileFrame, type TileActions } from "@/components/v2/dashboard/custom/TileFrame";
+import { careKeys } from "@/lib/api/care";
+import { careBoardKeys, type CareBoard } from "@/lib/api/care-board";
 import { equipmentKeys, type EquipmentTask } from "@/lib/api/equipment";
 import {
   SUBSTITUTION_QUERY_KEY,
@@ -55,16 +59,18 @@ import {
   useHrHarness,
   type HarnessUser,
 } from "../hr-harness";
+import { careConsultants } from "../hr-care/rhythm-fixtures";
 import { balance, olaRequests, personMonth } from "../hr-my-time/fixtures";
 import { AbsenceMentions, seedAbsenceMentions } from "./absence-mentions";
 
-const AS = ["recruiter", "manager", "reception"] as const;
+const AS = ["recruiter", "manager", "reception", "care"] as const;
 type As = (typeof AS)[number];
 
 const STATES = [
   { key: "recruiter", label: "Rekruterka w zastępstwie" },
   { key: "manager", label: "Przełożona" },
   { key: "reception", label: "Recepcja" },
+  { key: "care", label: "Opieka (Delivery Lead)" },
 ] as const;
 
 const { ola, kamil, ewa, adam, marta, zofia, kacper } = HR_CAST;
@@ -84,13 +90,60 @@ const LAYOUT: Record<As, DashboardTile[]> = {
     tile("time", "hr_my_time", 4, 3),
   ],
   reception: [tile("eq", "equipment_tasks", 6, 4), tile("time", "hr_my_time", 6, 3)],
+  care: [tile("care", "care_mine", 6, 4), tile("risk", "care_at_risk", 6, 4)],
 };
 
 const VIEWER: Record<As, HarnessPerson & Pick<HarnessUser, "grants">> = {
   recruiter: ola,
   manager: marta,
   reception: { ...zofia, grants: ["equipment"] },
+  care: kamil,
 };
+
+/** Tablica opieki Kamila: dwie karty po terminie, dwie do piątku (fikcja). */
+function careBoard(today: string): CareBoard {
+  const card = (
+    key: string,
+    kind: CareBoard["cards"][number]["kind"],
+    title: string,
+    client: { id: number; name: string },
+    due: string,
+    overdue: number,
+    level: "ok" | "watch" | "risk" | null,
+    contractId: number | null,
+  ): CareBoard["cards"][number] => ({
+    key,
+    kind,
+    column: "new",
+    title,
+    subtitle: null,
+    reason_label: null,
+    due_on: due,
+    overdue_days: overdue,
+    scheduled_at: null,
+    retry_on: null,
+    note_excerpt: null,
+    contract_id: contractId,
+    client_id: client.id,
+    client_name: client.name,
+    owner_user_id: kamil.id,
+    owner_name: kamil.name,
+    health: level
+      ? { level, label: { ok: "Dobrze", watch: "Uwaga", risk: "Ryzyko" }[level], reasons: [] }
+      : null,
+  });
+  return {
+    today,
+    week_end: shiftDay(today, 4),
+    cards: [
+      card("contact:plan:1", "contact", "Rozmowa: Paweł Makietowy", bank, shiftDay(today, -6), 6, "risk", 4504),
+      card("feedback:8802", "feedback", "Opinia: Piotr Menedżerski", bank, shiftDay(today, -2), 2, null, null),
+      card("contact:plan:2", "contact", "Rozmowa: Karolina Przykładowa", telecom, shiftDay(today, 2), 0, "watch", 4502),
+      card("demand:7001:301:77", "demand", "Popyt do sprawdzenia: Java", bank, shiftDay(today, 3), 0, null, null),
+    ],
+    done: { this_week: 3, recent: [] },
+  };
+}
 
 function absentToday(today: string, viewer: HarnessPerson): { date: string; items: AbsentTodayRow[]; total: number } {
   const row = (
@@ -218,6 +271,24 @@ function prepare(params: URLSearchParams) {
   client.setQueryData(leaveKeys.mine, olaRequests(current));
   client.setQueryData(timeKeys.month(current.year, current.month), personMonth(viewer, current, today, "draft"));
   client.setQueryData(equipmentKeys.tasks("otwarte"), equipmentTasks(today));
+  client.setQueryData(careBoardKeys.board("mine"), careBoard(today));
+  const consultants = careConsultants(today);
+  client.setQueryData(careKeys.consultants, {
+    ...consultants,
+    // Zdrowie „Ryzyko” u dwóch osób — kafelek „Zagrożeni konsultanci”.
+    items: consultants.items.map((row, index) =>
+      index < 2
+        ? {
+            ...row,
+            health: {
+              level: "risk" as const,
+              label: "Ryzyko",
+              reasons: [index === 0 ? "chce zmiany projektu" : "zamówienie kończy się za 32 dni"],
+            },
+          }
+        : { ...row, health: { level: "ok" as const, label: "Dobrze", reasons: [] } },
+    ),
+  });
   seedAbsenceMentions(client, today);
   return { user: viewer, client, value: { as, viewer, today } };
 }

@@ -13,6 +13,7 @@ osoba/przełożony/Kadry ani kwot w tytule.
 
 from __future__ import annotations
 
+from app.services.care_board_schema import NOTIFICATION_TYPES as CARE_BOARD_TYPES
 from app.services.client_structure_schema import (
     NOTIFICATION_TYPES as CLIENT_STRUCTURE_TYPES,
 )
@@ -58,8 +59,13 @@ PERSONAL_TYPES: tuple[str, ...] = (
 )
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery; struktura
-#: u klienta (0475) — „uzupełnij strukturę klienta X” do Delivery Leadów.
-DELIVERY_TYPES: tuple[str, ...] = ("care_contact_due", *CLIENT_STRUCTURE_TYPES)
+#: u klienta (0475) — „uzupełnij strukturę klienta X” do Delivery Leadów;
+#: popyt z rozmowy opiekuna (0504) — „klient zatrudnia” do DL klienta.
+DELIVERY_TYPES: tuple[str, ...] = (
+    "care_contact_due",
+    *CLIENT_STRUCTURE_TYPES,
+    *CARE_BOARD_TYPES,
+)
 
 NOTIFICATION_TYPES: tuple[str, ...] = (*PERSONAL_TYPES, *DELIVERY_TYPES)
 

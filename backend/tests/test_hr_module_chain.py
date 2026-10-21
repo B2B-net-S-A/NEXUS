@@ -75,6 +75,12 @@ CHAIN = (
         "0490_board_role",
         "hr_approval_basis_schema",
     ),
+    # Tablica opieki i popyt dla DL (22.10.2026).
+    (
+        "0504_care_board",
+        "0503_b2b_document_participation_types",
+        "care_board_schema",
+    ),
 )
 
 

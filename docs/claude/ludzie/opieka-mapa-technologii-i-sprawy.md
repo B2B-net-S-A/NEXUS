@@ -1,5 +1,97 @@
 # Opieka, mapa technologii, ATLAS, administracja@ (16.10.2026)
 
+## Przebudowa 22.10.2026 — kanban, karta konsultanta, okno rozmowy, popyt dla DL
+
+Ta sekcja ma pierwszeństwo przed opisami ekranów niżej (dawne zakładki /care, „Oś opieki”, okno „Karta technologiczna” na kontrakcie).
+
+Decyzje Artura 21–22.10.2026 (makiety `2yNppKPWBQcstvBK3YiaxV`): wszystko według rekomendacji,
+głównym widokiem pracy jest **kanban Spraw z kartami opieki** (zespół jest do niego przyzwyczajony),
+popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opieki
+(`opieka-mapa-technologii-i-sprawy.md`) dalej obowiązują — ten plik mówi, co się zmieniło.
+
+### Układ ekranów
+
+- **/care** ma zakładki: Do zrobienia · Konsultanci · Klienci · Zespół opiekunów (tylko
+  `require_hr_care_assigner`: head back office i admin). „Komunikaty” to przycisk w nagłówku
+  (ekran bez zmian, `?tab=announcements` działa). Stare `?tab=` (`week`, `contracts`, `mine`,
+  `structure`, `redeploy`, `review`) prowadzą w nowe miejsca — dzwonki z linkami dalej działają.
+  „Do przepięcia” to karty „Decyzja” na tablicy i filtr w Konsultantach; kolejka nazw technologii
+  jest w Ustawienia → Słownik umiejętności („Nazwy z rozmów do przejrzenia”).
+- **Profil klienta**: jedna zakładka „Ludzie i technologie” (`?tab=ludzie`, po „Kontaktach
+  klienta”) z widokami Działy · Drzewo osób · Mapa; `struktura` i `technologie` przekierowują.
+  Rzadkie zakładki (Importy MD, Faktury, Analityka) są pod „Więcej”.
+- **Kontrakt → Opieka** = Karta konsultanta na pełną szerokość (ten sam komponent co panel
+  `/care?contract=<id>`). Przycisku „Karta technologiczna” nie ma — stan projektu wpisuje się
+  w oknie rozmowy; stare karty edytuje się z historii.
+
+### Tablica (`components/work-board/`, `GET /api/care/board`, `PUT /api/care/board/state`)
+
+- Jedna tablica w Ludzie → Sprawy (`scope="cases"`) i w Opieka → Do zrobienia (`scope="care"`).
+  Wszystko z dawnego kanbana spraw zostaje: Moje/Wszystkie, chipy obszarów, Na ten tydzień, Bez
+  osoby, szukanie, Nowa sprawa, kolumny Nowa · W toku · Czeka na kogoś · wąskie Zrobione, karta
+  sprawy 1:1. Nie usuwaj żadnego z tych elementów przy zmianach — to był warunek Artura.
+- Obszar „Opieka” (karty rozmów, opinii menedżerów, decyzji o przepięciu, u DL — popytu), chip
+  „Moi podopieczni” (`GET /api/cases?mine_care=true`) i kropka zdrowia widzą tylko osoby
+  z dostępem do opieki (moduł `care` + rola z menu). Obsługa skrzynki bez opieki widzi same sprawy.
+- Rozmowa wchodzi na tablicę tylko z terminem do piątku albo po terminie. „W toku” = umówiona
+  (dzień i godzina), „Czeka” = nie odbiera (dzień ponownej próby > dziś; w ten dzień karta wraca do
+  „Nowa”). Stan karty opieki żyje w `care_board_states` (0504, kolumna `board_column`); punkt planu
+  dalej ma tylko `open/done/skipped`. Upuszczenie rozmowy/opinii na „Zrobione” otwiera okno zapisu —
+  stan „zrobione” daje wyłącznie zapis. Sprawa przesuwa się PATCH-em statusu z `expected_updated_at`
+  (409 = ktoś zmienił w międzyczasie). Ruch: przeciąganie (`@hello-pangea/dnd`) albo menu „Przenieś do…”.
+- Klik w kartę otwiera panel boczny (sprawa albo skrót karty konsultanta); pełny ekran sprawy
+  zostaje pod linkiem. Widok Tablica / Lista pamięta się per osoba (localStorage).
+
+### Zdrowie relacji (`care/health.py`)
+
+- Dobrze / Uwaga / Ryzyko + powody („dlaczego”), czyste reguły w module z testami brzegów. Widzi
+  krąg D11 (opiekun, DL, HoR, admin) — inni dostają `health: null`, bo reguły czytają opinię
+  menedżera, której Finanse nie widzą. Zadowolenie bierze się tylko z rozmów opiekuna.
+  „Decyzja” = wpis „Do przepięcia” w toku / przepięty / nie dotyczy z 120 dni albo przekazanie do
+  front office. Bez modelu AI.
+
+### Okno „Rozmowa” (`care/conversation_save.py`, `GET …/client-state`)
+
+- Jedna transakcja: rozmowa → karta z „Co u klienta” (ostatni stan + zmiany; tylko gdy przyszedł
+  `client_state`) → odpowiedzi na pytania z mapy → sprawy „Coś do załatwienia?” (≤ 5, wymagają
+  modułu Spraw, inaczej 409) → dzwonek popytu. „Co u klienta” bez żadnej technologii = rozmowa bez
+  karty (nie 422). Sama zmiana menedżera nie robi karty; innego menedżera kontraktu zmienia tylko DL
+  klienta albo admin (`manager_kept: true`). Odpowiedź „technologie działu” = notatka o stacku;
+  nazwy spoza słownika idą do kolejki przeglądu. Karta wie, z której rozmowy powstała
+  (`tech_cards.care_conversation_id`).
+
+### Popyt → Delivery Lead (`care/demand.py`)
+
+- Sygnał = rozmowa z „klient zatrudnia” (i karta z `hiring`) z 90 dni. Ten sam klient + dział +
+  zbiór ról z 30 dni = jedna karta. Dzwonek `care_demand_signal` (sekcja Delivery, bez maila) do
+  aktywnych DL klienta, najwyżej jeden na (DL, klient, dział) w 7 dni. Rozstrzyga DL klienta albo
+  admin w oknie „Rozmowa z menedżerem” (`POST /clients/{id}/feedback` z `demand`): potwierdzona →
+  `jobs_new_url` (`/jobs/new?client=&hm=&skills=&title=`, odczyt tylko pustych pól), nie teraz →
+  wraca za 30 dni, nieaktualne → znika. **ATLAS (`/api/care/atlas/*`) bez rozbudowy.**
+
+### Sprawy przy konsultancie (`admin_cases/contract_links.py`, `queries.py`, `hooks.py`)
+
+- Rejestr spraw zostaje jeden (Ludzie → Sprawy). Karta konsultanta pokazuje sprawy kontraktu
+  (`cases_for_contract`): treść tylko z `may_read`, **negocjacje zawsze bez treści** (opieka „bez
+  stawek”). Oś osoby ma zdarzenia spraw bez treści.
+- Mail z nowej sprawy: nadawca = e-mail konsultanta z kontraktu i dokładnie jeden aktywny lub
+  kończący się kontrakt → `contract_id` sam (ślad `case_linked`, `source: mail_sender`). Kilka
+  kontraktów albo mail z firmy klienta z nazwiskiem naszego konsultanta → tylko propozycje „Kogo
+  dotyczy?” (klik), nigdy automatycznie. Odmienione nazwiska celowo nie dają propozycji.
+- Koniec współpracy konsultanta (`contract_hooks.contract_ended`, krok `cases_end`) zakłada sprawę
+  „Koniec współpracy: <osoba> · <klient>” (`contract:<id>:end`, prowadzi efektywny opiekun) z checklistą:
+  zwrot sprzętu (tylko sprzęt od nas), dostępy z pakietu klienta, ostatnia opinia menedżera,
+  decyzja o przepięciu, rozliczenie ostatniego miesiąca (bez kwot). „Cofnij zakończenie” zamyka
+  sprawę; sprawy zamkniętej ręcznie automat nie otwiera ponownie. Void i wyłączony moduł — nic.
+- Import spraw z Compassa wiąże kontrakt regułami `care/card_linking.py` (pewny = `contract_id`,
+  niepewny = nic); kontraktu ustawionego w NEXUSIE nie nadpisuje.
+
+### Lista klientów w /care (`care/portfolio.py`, `GET /api/care/clients`)
+
+- Liczona hurtem; mapa technologii tylko z cache (`gaps: null` = nie liczone) — nie licz pełnej
+  mapy dla wszystkich klientów w jednym żądaniu. `managers_known` = liczba różnych menedżerów,
+  `structure_open` = konsultanci bez menedżera.
+
 ## Opieka (`app/services/care/*`, zakładka „Opieka” kontraktu, `/care`)
 
 - Zakres klientów = zakres Delivery (`access_scope.resolve_delivery_lead_client_ids`):

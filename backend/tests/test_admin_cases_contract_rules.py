@@ -1,0 +1,178 @@
+"""Sprawy ↔ kontrakt konsultanta — reguły bez bazy (decyzja 7, 22.10.2026).
+
+* imię i nazwisko konsultanta w treści maila: bez wielkości liter, polskich
+  znaków i kolejności słów, słowa obok siebie; samo imię i odmienione
+  nazwisko nie wskazują nikogo,
+* automat wpisuje kontrakt tylko przy DOKŁADNIE jednym kandydacie,
+* propozycje w kolejności siły dowodu, każdy kontrakt raz,
+* checklista „Koniec współpracy” z pakietu klienta i stanu opieki,
+* import z Compassa: klient po nazwie + osoba + dzień — pewny albo nic.
+
+Dane fikcyjne (repo jest publiczne).
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+from app.services.admin_cases import rules
+from app.services.admin_cases.contract_links import (
+    MAX_SUGGESTIONS,
+    REASON_CLIENT_MAIL,
+    REASON_SENDER,
+    REASON_TEXT,
+    LiveContract,
+    names_in_text,
+    rank_suggestions,
+    sender_contract,
+)
+from app.services.care.card_linking import ContractIndex, ContractRow
+from app.services.hr.compass_import.cases import ContractLinker
+
+PEOPLE = {
+    11: "Anna Przykładowa",
+    12: "Łukasz Zażółć-Gęślą",
+    13: "Jan Nowak",
+}
+
+
+def test_name_found_regardless_of_case_accents_and_order() -> None:
+    text = "Dzień dobry, w sprawie PRZYKLADOWA anna — prośba o aneks."
+    assert names_in_text(text, PEOPLE) == [11]
+    assert names_in_text("Pan lukasz zazolc gesla prosi o kontakt", PEOPLE) == [12]
+
+
+def test_name_needs_both_words_next_to_each_other() -> None:
+    assert names_in_text("Anna dzwoniła. Potem Przykładowa pisała.", PEOPLE) == []
+    assert names_in_text("Rozmawiałam z Anną", PEOPLE) == []
+    # Odmienione nazwisko nie wskazuje nikogo — lepiej brak propozycji niż zła.
+    assert names_in_text("Umowa Jana Nowaka", PEOPLE) == []
+    assert names_in_text("Umowa: Jan Nowak, Anna Przykładowa", PEOPLE) == [11, 13]
+
+
+def test_single_word_name_is_never_a_person() -> None:
+    assert names_in_text("Anna", {21: "Anna"}) == []
+
+
+def test_sender_link_only_for_exactly_one_contract() -> None:
+    assert sender_contract([7]) == 7
+    assert sender_contract([7, 7]) == 7
+    assert sender_contract([7, 8]) is None
+    assert sender_contract([]) is None
+
+
+def _live(cid: int, name: str) -> LiveContract:
+    return LiveContract(
+        contract_id=cid, client_id=1, candidate_name=name, client_name="Klient"
+    )
+
+
+def test_suggestions_are_ranked_and_deduplicated() -> None:
+    contracts = {cid: _live(cid, name) for cid, name in PEOPLE.items()}
+    out = rank_suggestions(
+        by_sender=[12],
+        client_named=[12, 11],
+        text_named=[13, 99],
+        contracts=contracts,
+    )
+    assert [item["contract_id"] for item in out] == [12, 11, 13]
+    assert out[0]["reason"] == REASON_SENDER
+    assert out[1]["reason"] == REASON_CLIENT_MAIL.format(name="Anna Przykładowa")
+    assert out[2]["reason"] == REASON_TEXT.format(name="Jan Nowak")
+    many = {cid: _live(cid, f"Osoba Numer{cid}") for cid in range(1, 20)}
+    assert (
+        len(
+            rank_suggestions(
+                by_sender=list(many), client_named=[], text_named=[], contracts=many
+            )
+        )
+        == MAX_SUGGESTIONS
+    )
+
+
+def test_end_checklist_from_pack_and_care_state() -> None:
+    ours = rules.end_of_cooperation_checklist(
+        equipment_ours=True,
+        accesses=["Konto VPN", " Konto  VPN ", "Jira"],
+        feedback_done=True,
+    )
+    texts = [item["text"] for item in ours]
+    assert texts == [
+        rules.END_EQUIPMENT_ITEM,
+        f"{rules.END_ACCESS_PREFIX}Konto VPN",
+        f"{rules.END_ACCESS_PREFIX}Jira",
+        rules.END_FEEDBACK_ITEM,
+        rules.END_DECISION_ITEM,
+        rules.END_SETTLEMENT_ITEM,
+    ]
+    done = {item["text"]: item["done"] for item in ours}
+    assert done[rules.END_FEEDBACK_ITEM] is True
+    assert done[rules.END_DECISION_ITEM] is False
+
+    theirs = rules.end_of_cooperation_checklist(
+        equipment_ours=False, accesses=[], decision_done=True
+    )
+    texts = [item["text"] for item in theirs]
+    assert rules.END_EQUIPMENT_ITEM not in texts
+    assert rules.END_ACCESS_GENERIC in texts
+    assert {i["text"]: i["done"] for i in theirs}[rules.END_DECISION_ITEM] is True
+
+
+def test_end_checklist_stays_within_limits() -> None:
+    items = rules.end_of_cooperation_checklist(
+        equipment_ours=True,
+        accesses=[f"Dostęp {n} " + "x" * 400 for n in range(80)],
+    )
+    assert len(items) <= rules.CHECKLIST_MAX_ITEMS
+    assert all(len(item["text"]) <= rules.CHECKLIST_TEXT_MAX for item in items)
+    assert items[-1]["text"] == rules.END_SETTLEMENT_ITEM
+
+
+def _linker(rows: list[tuple[ContractRow, str]], clients: dict[str, set[int]]):
+    return ContractLinker(
+        by_key=clients,
+        by_loose={},
+        by_words={},
+        index=ContractIndex.build(rows),
+    )
+
+
+def _row(cid: int, candidate: int, client: int, start: date, end=None):
+    return ContractRow(
+        contract_id=cid, candidate_id=candidate, client_id=client, start=start, end=end
+    )
+
+
+def test_compass_case_links_only_a_sure_contract() -> None:
+    from app.services.client_portfolio_import import normalize_client_name
+
+    key = normalize_client_name("Firma Przykładowa")
+    day = date(2026, 9, 1)
+    linker = _linker(
+        [
+            (_row(1, 100, 5, date(2026, 1, 1)), "Ewa Testowa"),
+            (_row(2, 200, 5, date(2026, 1, 1)), "Jan Testowy"),
+            (_row(3, 300, 5, date(2026, 1, 1)), "Jan Testowy"),  # imiennik
+        ],
+        {key: {5}},
+    )
+    assert linker.contract_for("Firma Przykładowa", "testowa ewa", day) == 1
+    assert linker.contract_for("Firma Przykładowa", "Jan Testowy", day) is None
+    assert linker.contract_for("Inna Firma", "Ewa Testowa", day) is None
+    assert linker.contract_for("Firma Przykładowa", None, day) is None
+    # Dzień przed startem umowy — tylko propozycja przy odczycie, nie kontrakt.
+    assert (
+        linker.contract_for("Firma Przykładowa", "Ewa Testowa", date(2025, 6, 1))
+        is None
+    )
+
+
+def test_compass_duplicate_client_resolved_by_the_sure_contract() -> None:
+    from app.services.client_portfolio_import import normalize_client_name
+
+    key = normalize_client_name("PFRON")
+    day = date(2026, 9, 1)
+    linker = _linker(
+        [(_row(9, 900, 8, date(2026, 1, 1)), "Ola Przykładowa")], {key: {7, 8}}
+    )
+    assert linker.contract_for("PFRON", "Ola Przykładowa", day) == 9

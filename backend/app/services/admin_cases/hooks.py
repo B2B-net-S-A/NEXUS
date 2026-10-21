@@ -11,6 +11,14 @@
 * ``open_case_for_offboarding`` — odejście pracownika (moduł cyklu życia)
   zakłada sprawę „Odejście: …” (obszar offboarding), jak w Compassie
   ``inbox_offboarding`` przy starcie offboardingu.
+* ``open_case_for_contract_end`` — „Zakończ współpracę” konsultanta (okno
+  kontraktu i masowe „Oznacz zakończone”, hak ``contract_hooks.contract_ended``)
+  zakłada sprawę „Koniec współpracy: <osoba> · <klient>” (obszar offboarding,
+  decyzja 7 z 22.10.2026). Prowadzi efektywny opiekun kontraktu (łańcuch
+  opieki), termin = ostatni dzień, checklista z pakietu klienta i stanu opieki
+  (``rules.end_of_cooperation_checklist``). „Cofnij zakończenie” i ponowne
+  otwarcie kontraktu zamykają ją (``close_case_for_undone_end``); kolejne
+  zakończenie otwiera sprawę zamkniętą przez automat jeszcze raz.
 
 Oba są idempotentne po ``source_key`` (powtórne wywołanie oddaje tę samą
 sprawę) i nie commitują — robi to wołający razem ze swoją zmianą. Przy
@@ -27,17 +35,18 @@ zostaje, jak jest.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_now
 from app.models.admin_case import AdminCase, AdminCaseComment
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.models.hr_lifecycle import LifecycleCase, LifecycleTask
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
@@ -51,9 +60,15 @@ from app.services.admin_cases.service import (
 )
 from app.services.hr import audit
 
+logger = logging.getLogger(__name__)
+
 
 def contract_source_key(contract_id: int) -> str:
     return f"contract:{contract_id}:start"
+
+
+def contract_end_source_key(contract_id: int) -> str:
+    return f"contract:{contract_id}:end"
 
 
 def offboarding_source_key(user_id: int, lifecycle_case_id: Optional[int]) -> str:
@@ -365,4 +380,215 @@ async def close_case_for_deleted_contract(
         db,
         contract_source_key(contract_id),
         note="Kontrakt usunięty z NEXUSA — sprawa zamknięta automatycznie.",
+    )
+
+
+# ── Koniec współpracy konsultanta (decyzja 7, 22.10.2026) ────────────────────
+
+#: Opinia menedżera z tylu ostatnich dni odhacza pozycję checklisty.
+END_FEEDBACK_RECENT_DAYS = 30
+#: Decyzja „Do przepięcia” z tylu ostatnich dni odhacza pozycję checklisty.
+END_DECISION_RECENT_DAYS = 90
+
+
+async def _end_checklist(db: AsyncSession, contract: Contract) -> list[dict[str, Any]]:
+    """Checklista z pakietu klienta (sprzęt, dostępy) i stanu opieki."""
+
+    from datetime import timedelta
+
+    from app.models.contract_care import (
+        ClientFeedbackScore,
+        ClientFeedbackSession,
+        RedeployQueueItem,
+    )
+    from app.services.equipment.errors import EquipmentNotFound
+    from app.services.hr import client_pack
+
+    try:
+        pack = await client_pack.load_pack(db, contract.client_id)
+    except EquipmentNotFound:
+        pack = None
+    today = business_today()
+    feedback_done = (
+        await db.scalar(
+            select(ClientFeedbackScore.id)
+            .join(
+                ClientFeedbackSession,
+                ClientFeedbackSession.id == ClientFeedbackScore.session_id,
+            )
+            .where(
+                ClientFeedbackScore.contract_id == contract.id,
+                ClientFeedbackSession.held_on
+                >= today - timedelta(days=END_FEEDBACK_RECENT_DAYS),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    decision_done = (
+        await db.scalar(
+            select(RedeployQueueItem.id)
+            .where(
+                RedeployQueueItem.contract_id == contract.id,
+                RedeployQueueItem.status.in_(("in_progress", "done", "dismissed")),
+                RedeployQueueItem.updated_at
+                >= datetime.now(timezone.utc)
+                - timedelta(days=END_DECISION_RECENT_DAYS),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    return rules.end_of_cooperation_checklist(
+        equipment_ours=pack is not None and pack.equipment_provider == "nasz",
+        accesses=[item.name for item in pack.accesses] if pack is not None else [],
+        feedback_done=feedback_done,
+        decision_done=decision_done,
+    )
+
+
+async def _care_owner_id(db: AsyncSession, contract_id: int) -> Optional[int]:
+    """Efektywny opiekun kontraktu (pole kontraktu → klient → DL).
+
+    Awaria modułu opieki = sprawa bez osoby (obsługa ją weźmie), nie brak sprawy.
+    """
+
+    from app.services.care import access as care_access
+
+    try:
+        async with db.begin_nested():
+            contracts = await care_access.contracts_by_id(db, [contract_id])
+            if contract_id not in contracts:
+                return None
+            owners = await care_access.effective_owners(db, list(contracts.values()))
+    except Exception:  # noqa: BLE001 — opiekun to dodatek do sprawy
+        logger.exception(
+            "[admin_cases] opiekun kontraktu %s nie policzony", contract_id
+        )
+        return None
+    return owners[contract_id].user_id
+
+
+async def _closed_by_automation(db: AsyncSession, case_id: int) -> bool:
+    """Ostatnia zmiana sprawy to zamknięcie przez automat (nie przez człowieka).
+
+    Człowiek zamyka przyciskiem (``case_closed`` z autorem) albo zmianą
+    statusu (``case_updated``) — takiej sprawy automat nie otwiera.
+    """
+
+    from app.models.hr_ops import HrAuditEvent
+
+    latest = (
+        await db.execute(
+            select(HrAuditEvent.action, HrAuditEvent.actor_user_id)
+            .where(
+                HrAuditEvent.entity_type == ENTITY,
+                HrAuditEvent.entity_id == str(case_id),
+                HrAuditEvent.action.in_(
+                    ("case_closed", "case_updated", "case_reopened")
+                ),
+            )
+            .order_by(HrAuditEvent.created_at.desc(), HrAuditEvent.id.desc())
+            .limit(1)
+        )
+    ).first()
+    return latest is not None and latest[0] == "case_closed" and latest[1] is None
+
+
+async def open_case_for_contract_end(
+    db: AsyncSession, contract: Contract
+) -> Optional[AdminCase]:
+    """Sprawa „Koniec współpracy” po zapisaniu zakończenia kontraktu.
+
+    Idempotentnie po ``contract:<id>:end``: powtórne wywołanie oddaje tę samą
+    sprawę i przesuwa termin otwartej sprawy na nowy ostatni dzień. Sprawa
+    zamknięta przez automat (cofnięte zakończenie) wraca jako „Nowa”; zrobiona
+    albo zamknięta przez człowieka zostaje, jak jest.
+    """
+
+    if not await module_enabled(db):
+        return None
+    if contract.status == ContractStatus.void:
+        return None
+
+    candidate_name = None
+    if contract.candidate_id is not None:
+        candidate_name = await db.scalar(
+            select(CANDIDATE_FULL_NAME).where(Candidate.id == contract.candidate_id)
+        )
+    client_name = await db.scalar(
+        select(Client.name).where(Client.id == contract.client_id)
+    )
+    who = candidate_name or f"kontrakt #{contract.id}"
+    title = f"Koniec współpracy: {who}"
+    if client_name:
+        title = f"{title} · {client_name}"
+    last_day = contract.end_date or contract.terminated_at
+    due_on = last_day if last_day is not None and last_day >= business_today() else None
+    description = (
+        f"Ostatni dzień współpracy {last_day.strftime('%d.%m.%Y')}."
+        if last_day
+        else None
+    )
+    owner_id = await _care_owner_id(db, contract.id)
+    case, created = await open_automatic_case(
+        db,
+        AutomaticCase(
+            title=title,
+            area="offboarding",
+            priority="P2",
+            source="contract",
+            source_key=contract_end_source_key(contract.id),
+            due_on=due_on,
+            description=description,
+            contract_id=contract.id,
+            assignee_user_id=owner_id,
+            checklist=tuple(await _end_checklist(db, contract)),
+        ),
+    )
+    if created:
+        return case
+    if case.status == "closed" and await _closed_by_automation(db, case.id):
+        now = datetime.now(timezone.utc)
+        case.status = "new"
+        case.closed_at = None
+        case.updated_at = now
+        case.due_on = due_on or rules.due_date_for(case.priority, local_now())
+        case.description = description or case.description
+        if case.assignee_user_id is None:
+            case.assignee_user_id = owner_id
+        db.add(
+            AdminCaseComment(
+                case_id=case.id,
+                author_user_id=None,
+                body="Zakończenie współpracy zapisane ponownie — sprawa otwarta.",
+            )
+        )
+        audit.record(
+            db,
+            actor_user_id=None,
+            subject_user_id=case.subject_user_id,
+            entity_type=ENTITY,
+            entity_id=case.id,
+            action="case_reopened",
+            details={"source": "automation", "source_key": case.source_key},
+        )
+        await db.flush()
+    elif not rules.is_terminal(case.status) and due_on and case.due_on != due_on:
+        case.due_on = due_on
+        case.description = description
+        case.updated_at = datetime.now(timezone.utc)
+        await db.flush()
+    return case
+
+
+async def close_case_for_undone_end(
+    db: AsyncSession, contract_id: int
+) -> Optional[AdminCase]:
+    """„Cofnij zakończenie” albo ponowne otwarcie kontraktu — końca nie będzie."""
+
+    return await close_automatic_case(
+        db,
+        contract_end_source_key(contract_id),
+        note="Zakończenie współpracy cofnięte — sprawa zamknięta automatycznie.",
     )

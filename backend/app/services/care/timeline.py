@@ -10,6 +10,10 @@ Bez stawek (zamówienie to tytuł, status i daty) i bez danych o zdrowiu —
 rozmowy opieki ich nie zbierają. Opinie klienta tylko dla ról z D11
 (trasa przekazuje ``include_feedback``): Finanse widzą oś bez nich.
 
+Sprawy kontraktu (22.10.2026): założenie, podpięcie i zamknięcie z serwisu
+spraw (``admin_cases.queries.contract_case_events``) — tytuł i obszar, bez
+treści maili.
+
 Etap 3 (O8, O10): zmiany rytmu kontaktu z powodem i autorem, powrót rytmu
 po dacie „do kiedy” (przed nami, gdy w przyszłości) i zmiany opiekuna ze
 śladu ``care.owner_set`` z powodem — zmianę widzi DL klienta na osi.
@@ -92,6 +96,9 @@ _KIND_ORDER = {
     "cadence": 6,
     "cadence_return": 6,
     "handoff": 7,
+    "case_opened": 7,
+    "case_linked": 7,
+    "case_closed": 7,
     "plan": 8,
     "order_end": 9,
     "contract_end": 10,
@@ -463,6 +470,41 @@ async def _owners(
     return out
 
 
+_CASE_TITLES = {
+    "case_opened": "Sprawa",
+    "case_linked": "Sprawa podpięta",
+    "case_closed": "Sprawa zamknięta",
+}
+
+
+async def _cases(
+    db: AsyncSession, contract_id: int, today: date
+) -> list[dict[str, Any]]:
+    """Sprawy kontraktu z serwisu spraw (``contract_case_events``) — bez treści."""
+
+    # Import w funkcji: moduł spraw ciągnie serwisy HR, a oś jest w opiece.
+    from app.services.admin_cases.queries import (  # noqa: PLC0415
+        contract_case_events,
+    )
+
+    out = []
+    for event in await contract_case_events(db, contract_id):
+        at = event["at"]
+        on = _local(at) if isinstance(at, datetime) else at
+        item = _event(
+            event["kind"],
+            on,
+            f"{_CASE_TITLES.get(event['kind'], 'Sprawa')}: {event['title']}",
+            today=today,
+            detail=event.get("area_label"),
+            link=f"/people/cases/{event['case_id']}",
+        )
+        if item is not None:
+            item["case_id"] = event["case_id"]
+        out.append(item)
+    return out
+
+
 async def _next_plan(
     db: AsyncSession, contract_id: int, today: date
 ) -> Optional[dict[str, Any]]:
@@ -513,6 +555,7 @@ async def contract_timeline(
         *(await _handoffs(db, contract.id, today)),
         *(await _cadence(db, contract, today)),
         *(await _owners(db, contract.id, today)),
+        *(await _cases(db, contract.id, today)),
         _event(
             "contract_end",
             contract.contract_end_date,

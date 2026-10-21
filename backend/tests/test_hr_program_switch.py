@@ -38,6 +38,8 @@ PROGRAM_API_MODULES = {
     "app.api.hr_approval_finance",
     "app.api.hr_lifecycle",
     "app.api.contract_care",
+    "app.api.care_board",
+    "app.api.care_cases",
     "app.api.care_skills",
     "app.api.care_atlas",
     "app.api.care_announcements",
@@ -126,6 +128,8 @@ def program_off(monkeypatch):
         "/api/hr/ksef/status",
         "/api/cases",
         "/api/care/owners",
+        "/api/care/board",
+        "/api/care/clients",
         "/api/finance/sales-invoices/status",
     ],
 )

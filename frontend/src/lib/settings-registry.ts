@@ -49,6 +49,7 @@ export type SettingsItemId =
   | "kpi-targets"
   | "mail"
   | "skills"
+  | "skills-review"
   | "job-ad-blocks"
   | "roles"
   | "trainee-rules"
@@ -248,6 +249,17 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "umiejetnosci skille technologie aliasy taksonomia slownik cortex",
     // `/api/skills-admin`: HeadOfRecruitmentPlus + zapis sekcji Sourcing.
     gate: { roles: ["admin", "head_of_recruitment"], section: "sourcing", required: "write" },
+  },
+  {
+    // Kolejka nazw technologii z rozmów opieki (22.10.2026, dawna zakładka
+    // Opieki „Technologie”). Admin i HoR mają ją w „Słowniku umiejętności”
+    // (zakładka „Nazwy z rozmów”); TCM, który decyduje o nazwach
+    // (`care_gates.can_curate`), do Słownika nie wchodzi — stąd ta pozycja.
+    // Lustro `require_hr_care_skill_curator` (rola + moduł opieki).
+    id: "skills-review", area: "rec", title: "Nazwy z rozmów do przejrzenia", group: "Wiedza",
+    description: "Technologie z rozmów opiekunów, których słownik umiejętności nie zna.",
+    keywords: "technologie nazwy rozmowy opieka slownik umiejetnosci zmapuj alias karta technologiczna",
+    gate: { roles: ["talent_community_manager"], hrProgram: true },
   },
   {
     id: "job-ad-blocks", area: "rec", title: "Stałe części ogłoszenia", group: "Teksty",
@@ -566,14 +578,17 @@ export type SettingsView =
 export function resolveSettingsView(
   user: SettingsUser | null,
   params: { item?: string | null; area?: string | null; tab?: string | null },
+  // Pozycje programu „Ludzie w NEXUSIE” bez własnej trasy (`skills-review`)
+  // otwierają się tylko przy włączonym programie.
+  context: SettingsContext = {},
 ): SettingsView {
   const itemId = params.item ?? (params.tab ? LEGACY_SETTINGS_TABS[params.tab] : undefined);
   const item = findSettingsItem(itemId);
-  if (item && !item.route && canSeeSettingsItem(user, item)) {
+  if (item && !item.route && canSeeSettingsItem(user, item, context)) {
     return { kind: "item", item, area: findSettingsArea(item.area)! };
   }
   const area = findSettingsArea(params.area);
-  if (area && listedSettingsAreas(user).some((a) => a.id === area.id)) {
+  if (area && listedSettingsAreas(user, context).some((a) => a.id === area.id)) {
     return { kind: "area", area };
   }
   return { kind: "home" };

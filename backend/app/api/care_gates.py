@@ -110,12 +110,7 @@ _CURATOR_ROLES = require_roles(
     UserRole.admin, UserRole.head_of_recruitment, UserRole.talent_community_manager
 )
 #: D11: kto widzi strukturę u klienta i opinie klienta (Finanse i Kadry nie).
-_PEOPLE_READER_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.delivery_lead,
-    UserRole.talent_community_manager,
-    UserRole.head_of_recruitment,
-)
+_PEOPLE_READER_ROLES: tuple[UserRole, ...] = care_access.PEOPLE_READER_ROLES
 ASSIGN_DENIED = (
     "Przydział wielu konsultantów naraz i próg obciążenia ustawia head back "
     "office albo administrator."

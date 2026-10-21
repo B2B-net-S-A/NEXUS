@@ -42,14 +42,14 @@ const columnCount = (title: string) =>
 const tiles = () => screen.getAllByRole("button", { name: /^Sprawa: / });
 
 describe("/preview/hr-cases", () => {
-  it("tablica: Nowa 3 / W toku 2 / Czeka 1 / Zrobione, źródła i priorytety", async () => {
+  it("tablica: Nowa 4 / W toku 2 / Czeka 1 / Zrobione, źródła i priorytety", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-cases");
     render(<HrCasesPreviewPage />);
 
     expect(await screen.findByRole("heading", { name: "Sprawy administracja@" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /Sprawy/ })).toHaveAttribute("aria-selected", "true");
-    expect(columnCount("Nowa")).toBe("3");
+    expect(columnCount("Nowa")).toBe("4");
     expect(columnCount("W toku")).toBe("2");
     expect(columnCount("Czeka na kogoś")).toBe("1");
     // Wąska kolumna „Zrobione”: liczba z miesiąca, jedna sprawa z 30 dni na liście.
@@ -70,6 +70,7 @@ describe("/preview/hr-cases", () => {
 
     await user.click(screen.getByRole("button", { name: /^Bez osoby/ }));
     expect(tiles().map((tile) => tile.getAttribute("aria-label"))).toEqual([
+      "Sprawa: Pytanie o fakturę od działu zakupów",
       "Sprawa: Offboarding: Tomasz Podglądowy",
       "Sprawa: Faktura za szkolenie BHP",
     ]);
@@ -80,10 +81,15 @@ describe("/preview/hr-cases", () => {
     await user.click(screen.getByRole("radio", { name: "Wszystkie" }));
     await user.click(screen.getByRole("button", { name: "Pokaż zamknięte" }));
     expect(await screen.findByRole("heading", { name: "Zamknięta", level: 3 })).toBeInTheDocument();
-    expect(tiles()).toHaveLength(8);
+    expect(tiles()).toHaveLength(9);
 
     await user.click(screen.getByRole("button", { name: "Sprawa: Onboarding: Anna Kontraktorska" }));
-    expect(push).toHaveBeenCalledWith("/people/cases/901");
+    // Klik otwiera panel boczny (przebudowa 22.10), pełny ekran sprawy jest pod linkiem.
+    const panel = await screen.findByRole("dialog");
+    expect(within(panel).getByRole("link", { name: /Pełny widok/ })).toHaveAttribute(
+      "href",
+      "/people/cases/901",
+    );
     expect(attempted()).toEqual([]);
   });
 
@@ -101,8 +107,8 @@ describe("/preview/hr-cases", () => {
     expect(attachment).toHaveTextContent("wniosek-vpn.docx · 47 kB");
     expect(screen.getByRole("heading", { name: "Checklista · 1/4" })).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Anna Kontraktorska · Ubezpieczenia Fikcyjne" }),
-    ).toHaveAttribute("href", "/contracts/4505");
+      screen.getByRole("link", { name: /Otwórz (kontrakt|kartę konsultanta)/ }),
+    ).toHaveAttribute("href", expect.stringMatching(/^\/(contracts\/|care\?contract=)4505$/));
     expect(screen.queryByRole("alert")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Edytuj" }));

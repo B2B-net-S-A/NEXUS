@@ -35,6 +35,7 @@ z 17.09.2026: ostrzeżenie, nie blokada).
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -68,8 +69,14 @@ from app.services.order_continuation import (
     order_ending_without_continuation,
 )
 
+logger = logging.getLogger(__name__)
+
 #: Horyzont filtra listy „Kończy u nas w ciągu 60 dni".
 ENDING_SOON_FILTER_DAYS = 60
+
+#: Wpis „Do przepięcia” w tym stanie = osoba przekazana do front office albo
+#: decyzja „przekaż” z tablicy opieki (22.10.2026).
+RETURNING_REDEPLOY_STATUS = "in_progress"
 
 _PHASE_RANK: dict[str, int] = {"working": 0, "ending": 1, "starting": 2}
 
@@ -302,6 +309,73 @@ def build_markers(
     return out
 
 
+def mark_returning(
+    markers: Mapping[int, EmploymentMarker], returning_contract_ids: Collection[int]
+) -> dict[int, EmploymentMarker]:
+    """„Wraca na rynek DD.MM” przy znaczniku (22.10.2026, czysta).
+
+    Osoba wraca na rynek, gdy KAŻDA jej trwająca umowa (bez tych z przyszłym
+    startem) ma przekazanie do front office albo decyzję „przekaż” z opieki
+    (wpis „Do przepięcia” w toku). Druga umowa bez takiej decyzji = osoba
+    zostaje u nas. Data = najpóźniejszy koniec pracy na tych umowach; brak
+    daty na którejś = data nieznana (plakietka bez daty).
+    """
+    returning = set(returning_contract_ids)
+    out: dict[int, EmploymentMarker] = dict(markers)
+    if not returning:
+        return out
+    for candidate_id, marker in markers.items():
+        started = [client for client in marker.clients if client.phase != "starting"]
+        if not started or any(
+            client.contract_id not in returning for client in started
+        ):
+            continue
+        known = [c.order_end_date for c in started if c.order_end_date is not None]
+        out[candidate_id] = marker.model_copy(
+            update={
+                "returns_to_market": True,
+                "returns_to_market_on": max(known)
+                if len(known) == len(started)
+                else None,
+            }
+        )
+    return out
+
+
+async def load_returning_contract_ids(
+    db: AsyncSession, contract_ids: Iterable[int]
+) -> set[int]:
+    """Umowy z wpisem „Do przepięcia” w toku — tylko przy włączonym module opieki.
+
+    Wyłączony program albo moduł = nikt nie „wraca na rynek” (dane opieki nie
+    wychodzą poza moduł). Awaria odczytu (np. brak tabel modułu) nie kładzie
+    ekranu z osobami: savepoint, log i pusty wynik.
+    """
+    ids = sorted({int(cid) for cid in contract_ids})
+    if not ids:
+        return set()
+    from app.models.contract_care import RedeployQueueItem
+    from app.services.hr.modules import load_modules
+
+    try:
+        async with db.begin_nested():
+            modules = await load_modules(db)
+            if not modules.get("care"):
+                return set()
+            rows = await db.scalars(
+                select(RedeployQueueItem.contract_id).where(
+                    RedeployQueueItem.contract_id.in_(ids),
+                    RedeployQueueItem.status == RETURNING_REDEPLOY_STATUS,
+                )
+            )
+            return set(rows)
+    except Exception:  # noqa: BLE001 — znacznik ma się pokazać bez dopisku
+        logger.warning(
+            "employment_marker: returning contracts unavailable", exc_info=True
+        )
+        return set()
+
+
 def marker_client_ids(contracts: Iterable[ContractRow]) -> set[int]:
     """Klienci, których Delivery Leada trzeba doczytać dla tych wierszy."""
     return {row.client_id for row in contracts if row.client_id is not None}
@@ -505,13 +579,17 @@ async def markers_from_rows(
         today=today,
     )
     leads = await client_delivery_leads(db, marker_client_ids(contracts))
-    return build_markers(
+    markers = build_markers(
         contracts,
         today=today,
         order_ends=order_ends,
         leads=leads,
         job_client_ids=job_client_ids,
     )
+    returning = await load_returning_contract_ids(
+        db, (row.contract_id for row in contracts)
+    )
+    return mark_returning(markers, returning)
 
 
 async def load_employment_markers(
@@ -642,6 +720,8 @@ __all__ = [
     "job_client_family",
     "load_employment_markers",
     "load_order_ends",
+    "load_returning_contract_ids",
+    "mark_returning",
     "marker_client_ids",
     "markers_from_rows",
     "order_end_by_contract",

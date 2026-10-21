@@ -426,6 +426,38 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     ownChrome: false,
     availability: ANY,
   },
+  // Opieka nad konsultantami (22.10.2026). Moduł zna `/api/hr/config` —
+  // rozstrzyga `hrTileGate`; tu rola i sekcja jak bramki tras opieki.
+  care_mine: {
+    type: "care_mine",
+    label: "Moja opieka",
+    description:
+      "Rozmowy z konsultantami i opinie menedżerów po terminie i do piątku — z tablicy „Do zrobienia” w Opiece.",
+    category: "people",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    // Lustro `require_hr_care_reader`: sekcja Delivery (rola Automatyzacje odpada na serwerze).
+    availability: needsSection("delivery", "Delivery"),
+  },
+  care_at_risk: {
+    type: "care_at_risk",
+    label: "Zagrożeni konsultanci",
+    description:
+      "Konsultanci ze zdrowiem relacji „Ryzyko” w Twoim zakresie — z powodem i linkiem do karty.",
+    category: "people",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    // Zdrowie widzi krąg D11 (opiekun, DL, HoR, admin); lista — sekcja Delivery.
+    availability: both(
+      needsSection("delivery", "Delivery"),
+      needsRole(
+        ["admin", "delivery_lead", "talent_community_manager", "head_of_recruitment"],
+        "Dla opiekunów, Delivery Leadów i Head of Recruitment",
+      ),
+    ),
+  },
   equipment_tasks: {
     type: "equipment_tasks",
     label: "Sprzęt do zrobienia",
@@ -775,6 +807,8 @@ export const HR_TILE_TYPES: ReadonlySet<TileType> = new Set<TileType>([
   "hr_my_time",
   "hr_approvals",
   "equipment_tasks",
+  "care_mine",
+  "care_at_risk",
 ]);
 
 const OK: TileAvailability = { ok: true };
@@ -786,7 +820,8 @@ const OK: TileAvailability = { ok: true };
  * kafelków wymaga kartoteki albo roli przełożonego — wtedy powód, jak przy
  * innych kafelkach. Lustro bramek tras: `require_hr_self_service`,
  * `require_hr_leave_approver` / `require_hr_time_approver`,
- * `require_hr_substitution_reader`, `require_hr_equipment`.
+ * `require_hr_substitution_reader`, `require_hr_equipment`, a dla opieki
+ * (`care_mine`, `care_at_risk`) — moduł `care` (`require_hr_care_reader`).
  */
 export function hrTileGate(type: TileType, hr: TileHrContext): TileAvailability | "hidden" {
   if (!HR_TILE_TYPES.has(type)) return OK;
@@ -807,6 +842,9 @@ export function hrTileGate(type: TileType, hr: TileHrContext): TileAvailability 
         : { ok: false, reason: "Dla koordynatorów i Kadr" };
     case "equipment_tasks":
       return open.equipment ? OK : "hidden";
+    case "care_mine":
+    case "care_at_risk":
+      return open.care ? OK : "hidden";
     default:
       return OK;
   }

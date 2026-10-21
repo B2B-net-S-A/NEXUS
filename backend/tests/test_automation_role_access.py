@@ -96,6 +96,9 @@ CLOSED_CARE_MODULES = (
     "care_structure",
     "care_announcements",
     "care_atlas",
+    # Przebudowa opieki (22.10.2026): tablica, „Klienci”, sprawy w karcie.
+    "care_board",
+    "care_cases",
 )
 CLOSED_EQUIPMENT_ROUTES = ("GET /api/equipment/contracts/{contract_id}",)
 

@@ -14,12 +14,19 @@ import type {
   OrgPerson,
 } from "@/lib/api/client-people";
 
+import type { ClientTechMap } from "@/lib/api/care";
+
 import { HR_CLIENTS, HR_CONSULTANTS, shiftDay } from "../hr-fixtures";
+import { clientTechMap } from "../hr-client-tech/fixtures";
 
 export const ORG_CLIENT = HR_CLIENTS.bank;
 
-const AREA_DATA = { id: 8101, name: "Data" };
-const AREA_PAYMENTS = { id: 8102, name: "Płatności" };
+// Te same działy co na mapie technologii banku (`hr-client-tech/fixtures.ts`) —
+// zakładka „Ludzie i technologie” składa karty działów z obu odpowiedzi.
+const AREA_DATA = { id: 303, name: "Data" };
+const AREA_PAYMENTS = { id: 301, name: "Płatności" };
+const AREA_LOANS = { id: 302, name: "Kredyty" };
+const AREA_CLOUD = { id: 304, name: "CI/CD i chmura" };
 
 function consultant(
   contractId: number,
@@ -150,7 +157,7 @@ export function clientOrg(today: string): ClientOrg {
   return {
     client_id: ORG_CLIENT.id,
     client_name: ORG_CLIENT.name,
-    areas: [AREA_DATA, AREA_PAYMENTS],
+    areas: [AREA_CLOUD, AREA_DATA, AREA_LOANS, AREA_PAYMENTS],
     departments: [
       { area: AREA_DATA, people: [director, headOfData] },
       { area: AREA_PAYMENTS, people: [paymentsLead] },
@@ -176,5 +183,64 @@ export function clientOrg(today: string): ClientOrg {
     consultants_count: 5,
     can_edit_org: true,
     can_write_feedback: true,
+  };
+}
+
+/** Zdrowie relacji przy konsultantach w drzewie (krąg D11) — fikcja do kropek. */
+const HEALTH: Record<number, { level: "ok" | "watch" | "risk"; label: string; reasons: string[] }> = {
+  9401: { level: "ok", label: "Dobrze", reasons: [] },
+  9402: { level: "watch", label: "Uwaga", reasons: ["zamówienie kończy się za 20 dni bez decyzji"] },
+  9403: { level: "ok", label: "Dobrze", reasons: [] },
+  9404: { level: "risk", label: "Ryzyko", reasons: ["chce zmiany projektu"] },
+};
+
+/** Drzewo z polem `health` przy konsultancie (serwer od 22.10.2026, krąg D11). */
+export function clientOrgWithHealth(today: string): ClientOrg {
+  const org = clientOrg(today);
+  const withHealth = (c: OrgConsultant): OrgConsultant =>
+    ({ ...c, health: HEALTH[c.contract_id] ?? null }) as OrgConsultant;
+  return {
+    ...org,
+    departments: org.departments.map((department) => ({
+      ...department,
+      people: department.people.map((person) => ({
+        ...person,
+        consultants: person.consultants.map(withHealth),
+      })),
+    })),
+  };
+}
+
+/**
+ * Mapa banku zgodna z drzewem (zakładka „Ludzie i technologie”): menedżerowie
+ * działów i liczby naszych z `clientOrg`, luka „komu podlega” przy
+ * kierowniczce płatności bez przełożonego.
+ */
+export function peopleTechMap(today: string): ClientTechMap {
+  const map = clientTechMap(today);
+  const managers: Record<number, ClientTechMap["departments"][number]["managers"]> = {
+    303: [{ id: 8202, name: "Piotr Menedżerski", position: "Head of Data", consultants: 3 }],
+    301: [
+      { id: 8203, name: "Katarzyna Płatnicza", position: "Kierowniczka zespołu płatności", consultants: 1 },
+    ],
+  };
+  return {
+    ...map,
+    consultants_count: 5,
+    departments: map.departments.map((department) => ({
+      ...department,
+      managers: managers[department.area.id] ?? [],
+      consultants: managers[department.area.id]?.[0]?.consultants ?? 0,
+    })),
+    gaps: map.gaps.map((gap) =>
+      gap.kind === "manager_unplaced"
+        ? {
+            ...gap,
+            contact: { id: 8203, name: "Katarzyna Płatnicza" },
+            position: "Kierowniczka zespołu płatności",
+            consultants: 1,
+          }
+        : gap,
+    ),
   };
 }

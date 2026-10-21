@@ -14,6 +14,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { Loader2, Plus } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { SkillReviewPanel } from "@/components/care/SkillReviewPanel";
 import { PlainTermsSection } from "@/components/settings/PlainTermsSection";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { useToast } from "@/components/Toast";
@@ -25,6 +26,7 @@ import {
   type UnmatchedSkillTerm,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { useHrConfig } from "@/lib/api/hr";
 import { pluralPl } from "@/lib/plural-pl";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
@@ -318,7 +320,7 @@ function UnmatchedTermsSection() {
   );
 }
 
-type SkillTab = "skills" | "unmatched" | "plain";
+type SkillTab = "skills" | "unmatched" | "plain" | "conversations";
 
 const SKILL_TABS = [
   { value: "skills", label: "Słownik" },
@@ -326,8 +328,32 @@ const SKILL_TABS = [
   { value: "plain", label: "Po ludzku" },
 ];
 
+/**
+ * „Nazwy z rozmów do przejrzenia” (22.10.2026, dawna zakładka Opieki
+ * „Technologie”): nazwy technologii z kart i rozmów opiekunów, których
+ * słownik nie zna. Ta sama kolejka i te same decyzje (`SkillReviewPanel`,
+ * `/api/care/skill-review`) — tylko przy otwartym module opieki. TCM, który
+ * do „Słownika umiejętności” nie wchodzi, ma ją jako osobną pozycję
+ * Ustawień (`skills-review`).
+ */
+export function ConversationSkillNamesSection() {
+  return (
+    <section aria-label="Nazwy z rozmów do przejrzenia" className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Nazwy technologii z rozmów opiekunów i kart technologicznych, których słownik nie zna.
+        „Zmapuj” dopisuje alias, „Dodaj do słownika” — nową umiejętność; nic nie mapuje się samo.
+      </p>
+      <SkillReviewPanel />
+    </section>
+  );
+}
+
 export function SkillDictionaryTab() {
   const [tab, setTab] = useState<SkillTab>("skills");
+  const careOpen = useHrConfig().data?.open_modules.care === true;
+  const tabs = careOpen
+    ? [...SKILL_TABS, { value: "conversations", label: "Nazwy z rozmów" }]
+    : SKILL_TABS;
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const debounced = useDebouncedValue(search.trim(), 300);
@@ -358,7 +384,7 @@ export function SkillDictionaryTab() {
 
       {/* Trzy listy w zakładkach (20.10.2026) — jedna pod drugą dawały 29 472 px. */}
       <TabbedNav
-        tabs={SKILL_TABS}
+        tabs={tabs}
         value={tab}
         onValueChange={(value) => setTab(value as SkillTab)}
         ariaLabel="Słownik umiejętności"
@@ -444,6 +470,8 @@ export function SkillDictionaryTab() {
       {tab === "unmatched" ? <UnmatchedTermsSection /> : null}
 
       {tab === "plain" ? <PlainTermsSection /> : null}
+
+      {tab === "conversations" && careOpen ? <ConversationSkillNamesSection /> : null}
     </div>
   );
 }

@@ -40,6 +40,8 @@ export const TILE_TYPES = [
   "hr_my_time",
   "hr_approvals",
   "equipment_tasks",
+  "care_mine",
+  "care_at_risk",
   "metric_number",
   "metric_chart",
   "metric_funnel",

@@ -264,6 +264,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.hr_subscription_renewal: _C.people,
     _T.care_contact_due: _C.contracts,
     _T.care_client_structure: _C.contracts,
+    _T.care_demand_signal: _C.contracts,
     # Konto i system
     _T.password_reset_requested: _C.system,
     _T.password_changed_by_admin: _C.system,
@@ -381,6 +382,12 @@ _SPLIT_GROUPS: dict[
         "Opieka: struktura u klienta",
         _C.contracts,
         (_T.care_client_structure,),
+    ),
+    # 0504: „klient zatrudnia” z rozmowy opiekuna → Delivery Lead klienta.
+    "contracts_care_demand": (
+        "Opieka: popyt u klienta",
+        _C.contracts,
+        (_T.care_demand_signal,),
     ),
     "contracts_signatures": (
         "Podpisy i zwrot sprzętu",
