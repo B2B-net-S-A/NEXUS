@@ -433,6 +433,7 @@ class FlowContractRow(BaseModel):
     partner_name: Optional[str] = None
     client_name: Optional[str] = None
     created_at: datetime
+    esign_status: Optional[Literal["sent", "contractor_signed"]] = None
 
 
 class FlowBlockOut(BaseModel):

@@ -1,6 +1,7 @@
 /**
- * „Zamknij jako przegraną” w profilu klienta — to samo ostrzeżenie o osobach
- * w toku co w oknie rekrutacji (13.10.2026), bo woła tę samą trasę.
+ * „Zamknij rekrutację” w profilu klienta — to samo ostrzeżenie o osobach
+ * w toku co w oknie rekrutacji (13.10.2026), bo woła tę samą trasę; od
+ * 21.10.2026 te same trzy grupy powodów (start: „Przegraliśmy”).
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -11,9 +12,12 @@ const mocks = vi.hoisted(() => ({ post: vi.fn(), showError: vi.fn(), showSuccess
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
-  default: { post: (...a: unknown[]) => mocks.post(...a) },
+  default: { post: vi.fn() },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
-  jobsApi: {},
+  jobsApi: {
+    close: (...a: unknown[]) => mocks.post(...a),
+    list: vi.fn().mockResolvedValue({ data: { items: [] } }),
+  },
 }));
 
 vi.mock("@/components/Toast", () => ({
@@ -52,20 +56,34 @@ describe("CloseJobAsLostModal — osoby w toku", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Zamknij jako lost" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij rekrutację" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("W tej rekrutacji są 2 osoby w toku");
     expect(alert).toHaveTextContent("CV wysłane 2");
-    expect(mocks.post).toHaveBeenCalledWith("/api/jobs/7/close", { reason: "budget", notes: null });
+    expect(mocks.post).toHaveBeenCalledWith(7, "competitor", "", false, null);
     expect(onClose).not.toHaveBeenCalled();
     expect(mocks.showError).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Zamknij mimo to" }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(mocks.post).toHaveBeenLastCalledWith("/api/jobs/7/close", {
-      reason: "budget",
-      notes: null,
-      acknowledge_active_cards: true,
-    });
+    expect(mocks.post).toHaveBeenLastCalledWith(7, "competitor", "", true, null);
+  });
+});
+
+describe("CloseJobAsLostModal — powód poza hit ratio", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("„Nie liczy się” bez uzasadnienia nie zamyka", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <CloseJobAsLostModal jobId={7} jobTitle="Analityk" clientId={3} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByTestId("close-group-neutral"));
+    expect(screen.getByRole("button", { name: "Zamknij rekrutację" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Uzasadnienie *"), { target: { value: "Duplikat" } });
+    expect(screen.getByRole("button", { name: "Zamknij rekrutację" })).toBeEnabled();
   });
 });

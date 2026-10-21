@@ -1,6 +1,6 @@
 # Po odrzuceniu z panelu osoby — od razu następna osoba (13.10.2026)
 
-<!-- indeks: kolejka „‹ ›” = kolumna + filtr „Kto dodał”, pasek „Odrzucono · Pokaż”, „Wróć do kolejki” -->
+<!-- indeks: kolejka „‹ ›” = kolumna + „Kto dodał”, pasek „Odrzucono · Pokaż” -->
 
 Prośba rekrutera, decyzje Artura D1–D4 z 13.10.2026 (makiety:
 https://claude.ai/artifact/JMfDAZdjFJtGjFxwHNyta6). Do tej daty po „Potwierdź”

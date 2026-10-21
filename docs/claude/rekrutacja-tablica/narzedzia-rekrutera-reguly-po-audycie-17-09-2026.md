@@ -1,6 +1,6 @@
 # Narzędzia rekrutera — reguły po audycie 17.09.2026
 
-<!-- indeks: HoR = parytet z rekruterem, stawka do klienta, werdykt HM, kalendarz, powiadomienia z triggerów -->
+<!-- indeks: HoR = rekruter, stawka do klienta, werdykt HM, kalendarz, powiadomienia -->
 
 Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek
 `docs/recruiter-tools-fixes-completion-report.md`. Decyzje Artura, które łatwo

@@ -1,4 +1,5 @@
 import api from "@/lib/api";
+import type { JobCloseReason } from "@/types/client-profile";
 
 /**
  * Klient `/api/insights/*` — powierzchni Insights liczonej z danych
@@ -902,6 +903,28 @@ export interface InsightsCompetenceMatrixResponse {
   };
 }
 
+/** Wiersz listy kontrolnej zamknięć (`GET /api/insights/hit-ratio-closures`). */
+export interface HitRatioClosureRow {
+  job_id: number;
+  title: string;
+  client_name: string | null;
+  close_reason: JobCloseReason | null;
+  close_notes: string | null;
+  duplicate_of_job_id: number | null;
+  closed_at: string | null;
+  closed_by_name: string | null;
+  delivery_lead_name: string | null;
+}
+
+/** Zamknięcia w grupach hit ratio od 12.10.2026 (21.10.2026). */
+export interface HitRatioClosuresResponse {
+  since: string;
+  counts: { won: number; lost: number; neutral: number; unreviewed: number };
+  hit_ratio: number | null;
+  neutral: HitRatioClosureRow[];
+  unreviewed: HitRatioClosureRow[];
+}
+
 export const insightsQueryKeys = {
   board: (p: InsightsPeriodParams) => ["insights", "board", p] as const,
   clientsRanking: (p: InsightsPeriodParams) =>
@@ -927,9 +950,15 @@ export const insightsQueryKeys = {
     ["insights", "delivery-leads", "portfolio", p] as const,
   competenceMatrix: () =>
     ["insights", "recruitment", "competence-matrix"] as const,
+  hitRatioClosures: () => ["insights", "hit-ratio-closures"] as const,
 };
 
 export const insightsBoardApi = {
+  hitRatioClosures: () =>
+    api
+      .get<HitRatioClosuresResponse>("/api/insights/hit-ratio-closures")
+      .then((r) => r.data),
+
   board: (p: InsightsPeriodParams) =>
     api
       .get<InsightsBoardResponse>("/api/insights/board", {

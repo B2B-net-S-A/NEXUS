@@ -379,10 +379,10 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
                     size="sm"
                     variant="quiet"
                     onClick={() => setCloseJobAsLost(job)}
-                    title="Zamknij jako przegraną"
+                    title="Zamknij rekrutację z powodem"
                   >
                     <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
-                    Przegrana
+                    Zamknij
                   </Button>
                 ) : null}
               </>

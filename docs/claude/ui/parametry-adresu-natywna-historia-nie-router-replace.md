@@ -1,5 +1,5 @@
 # Filtr albo zakładka w adresie: `useUrlWriter`, nie `router.replace(…, { scroll: false })` (12.10.2026)
-<!-- indeks: zmiana samych parametrów adresu przez router Next przewija stronę na górę na produkcji -->
+<!-- indeks: router Next przewija stronę na górę na produkcji -->
 
 Zgłoszenie Artura 12.10.2026: w kafelku „Requesty i obłożenie” każda zmiana
 filtra przewijała pulpit na górę. Pomiar na produkcji: `<main>` 1000 → 24 px

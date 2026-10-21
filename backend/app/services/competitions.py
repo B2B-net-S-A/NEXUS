@@ -50,6 +50,7 @@ from app.services.competition_rules import (
 from app.models.job import Job
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
+from app.services.hit_ratio_scope import counts_in_hit_ratio
 from app.services.metric_definitions import (
     DL_HIT_RATIO_TARGET_PCT,
     FIRST_HIRED_PER_CANDIDATE_JOB,
@@ -820,10 +821,12 @@ async def dl_portfolio_counts(
                 r.cnt or 0
             )
 
-    # Mianownik hit ratio: rekrutacje ZAMKNIĘTE w kwartale (od 12.10.2026).
+    # Mianownik hit ratio: rekrutacje ZAMKNIĘTE w kwartale (od 12.10.2026),
+    # bez zamknięć „nie liczy się” (duplikat, anulowane… — 21.10.2026).
     req_q = select(Job.id, Job.delivery_lead_id, Job.client_id).where(
         Job.closed_at >= competition_history.board_start(start),
         Job.closed_at < end,
+        counts_in_hit_ratio(),
     )
     req_rows = (await db.execute(req_q)).all()
     requests_by_dl: dict[int, int] = {}
@@ -833,6 +836,34 @@ async def dl_portfolio_counts(
             continue
         requests_by_dl[dl_id] = requests_by_dl.get(dl_id, 0) + 1
     return placements_by_dl, requests_by_dl
+
+
+async def dl_neutral_closed_counts(
+    db: AsyncSession, *, start: datetime, end: datetime
+) -> dict[int, int]:
+    """Rekrutacje zamknięte w oknie jako „nie liczy się” (21.10.2026) per DL.
+
+    Lustro mianownika `dl_portfolio_counts` z odwrotnym warunkiem — pasek
+    i cel DL mówią, ile zamknięć nie obniżyło hit ratio.
+    """
+    from app.api.reports import _dl_head_fallback_map, _resolve_dl_id
+
+    fallback = await _dl_head_fallback_map(db)
+    rows = (
+        await db.execute(
+            select(Job.delivery_lead_id, Job.client_id).where(
+                Job.closed_at >= competition_history.board_start(start),
+                Job.closed_at < end,
+                ~counts_in_hit_ratio(),
+            )
+        )
+    ).all()
+    out: dict[int, int] = {}
+    for r in rows:
+        dl_id = _resolve_dl_id(r.delivery_lead_id, r.client_id, fallback)
+        if dl_id is not None:
+            out[dl_id] = out.get(dl_id, 0) + 1
+    return out
 
 
 async def _rank_dls_by_placements(

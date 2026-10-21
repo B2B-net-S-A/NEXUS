@@ -23,7 +23,7 @@ import html
 import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -142,6 +142,9 @@ class EsignRequestOut(BaseModel):
     completed_at: Optional[datetime]
     closed_at: Optional[datetime]
     close_reason: Optional[str]
+    # Tylko w liście „Czeka na mój podpis” (pulpit i rejestr) — reszta zna wiersz.
+    contract_number: Optional[str] = None
+    client_name: Optional[str] = None
 
 
 class EsignSendOut(BaseModel):
@@ -488,7 +491,27 @@ async def my_company_signatures(
             .order_by(B2BSigningRequest.contractor_signed_at)
         )
     ).all()
-    return [await _out(db, r) for r in rows]
+    contracts: dict[int, Any] = {}
+    if rows:
+        result = await db.execute(
+            select(
+                B2BGeneratedContract.id,
+                B2BGeneratedContract.contract_number,
+                B2BGeneratedContract.client_name,
+            ).where(
+                B2BGeneratedContract.id.in_([r.generated_contract_id for r in rows])
+            )
+        )
+        contracts = {row.id: row for row in result.all()}
+    out = []
+    for r in rows:
+        item = await _out(db, r)
+        contract = contracts.get(r.generated_contract_id)
+        if contract is not None:
+            item.contract_number = contract.contract_number
+            item.client_name = contract.client_name
+        out.append(item)
+    return out
 
 
 @router.get("/esign/{request_id}/pdf")

@@ -59,7 +59,7 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
 - **Pliki przed podpisem leżą w `b2b_signing/{id}/`**, nie w Dokumentach
   kontraktu — kontraktu jeszcze nie ma.
 
-## Reszta systemu przy umowie w podpisie (etap 1b, 22.10.2026)
+## Reszta systemu przy umowie w podpisie (etap 1b, 21.10.2026)
 
 - **Dzwonki `signature_*` stoją za sekcją Sourcing** (bramka Generatora), nie
   Delivery — inaczej rekruter, który wysłał umowę, nie dostawał żadnego.
@@ -74,10 +74,30 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
 - **Walidator czyta PDF w trybie nieścisłym** (`strict=False`): Word, część
   narzędzi do podpisu i Dziennik Ustaw robią „mieszany” spis obiektów, który
   tryb ścisły odrzucał w całości — prawdziwy podpis kwalifikowany dostawał
-  „nie przeszedł” (test na akcie z Dz.U. 2025 poz. 1, 22.10.2026). Ukrytą
+  „nie przeszedł” (test na akcie z Dz.U. 2025 poz. 1, 21.10.2026). Ukrytą
   treść łapie analiza zmian po podpisie i porównanie z wysłanym plikiem.
   Połączenia OCSP/CRL: jeden backend na walidację, zamykany w `finally`.
   Lista UE wczytywana przy starcie pętli przypomnień (pierwsze pobranie ok. 20 s).
+- **Ekrany znają stan wysyłki** (część „Ważne”): karta Tablicy dostaje
+  `agreement.esign` (`agreement_status.latest_esign_for_rows`, jedno zapytanie
+  na tablicę) i plakietki „U kontraktora · link do …”, „Czeka na podpis firmy”,
+  „Link wygasł — wyślij ponownie” (`lib/b2b-agreement.ts`; wygasły link liczy
+  się od `expires_at`, zanim zamiatacz zmieni stan). Wycofana wysyłka wraca do
+  zwykłej plakietki. Panel osoby mówi, u kogo jest umowa, zamiast „Przesuń na
+  „Zatrudniony”…” pokazuje blokadę, a zakładka „Umowa” tłumaczy brak „Popraw”.
+- **„Czeka na Twój podpis za B2B Network” to pas nad pulpitem**
+  (`EsignCompanyBand`), nie kafelek — jak „Do wysłania do klienta”: widać go
+  tylko, gdy coś czeka na tę osobę (`/esign/mine`, teraz z numerem umowy
+  i klientem). Lista „Umowy B2B czekają na podpis” dostaje znacznik
+  „NEXUS · u kontraktora / czeka na firmę” (`ContractRow.esign_status`).
+- **Historia umowy składa wpisy z wysyłek** (`b2b_esign/history.py`): wysłana,
+  przypomnienie, podpis kontraktora, podpis firmy, wycofana z powodem, wygasła.
+  Bez migracji — `status-history` dokłada je jako `kind: "esign"` z treścią
+  w `label` i ujemnym `id`.
+- **Strona kontraktora ma zakładki narzędzi** (mObywatel, SimplySign, Szafir,
+  inne) i stałą ramkę „podpis w pliku PDF (PAdES)”.
+- **Wysyłka NIE przesuwa karty na „Umowa wysłana”** (świadomie): to ruch na etap
+  szablonu, który Insights liczy jako kamień milowy; plakietka karty mówi to samo.
 
 ## Stary tor z czerwca — usunięty 21.10.2026 (PR 2b)
 

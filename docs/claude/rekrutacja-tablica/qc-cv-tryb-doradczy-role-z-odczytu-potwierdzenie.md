@@ -1,5 +1,5 @@
 # QC CV: tryb doradczy, role z odczytu CV, „Potwierdzone z kandydatem” (12.10.2026)
-<!-- indeks: `CV_QC_ADVISORY`, rola technologii z odczytu CV, potwierdzenie z kandydatem jako notatka -->
+<!-- indeks: `CV_QC_ADVISORY`, potwierdzenie jako notatka -->
 
 Trzy zgłoszenia zespołu z 12.10.2026 kończyły się tym samym — rekruter nie mógł
 przesunąć karty: QC żądało zdania o „python lub java” w roli supportu, „testing”

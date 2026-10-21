@@ -1,6 +1,6 @@
 # Mail odrzucenia: treść domyślna i podgląd w oknie odrzucenia (13.10.2026)
 
-<!-- indeks: treść domyślna w kodzie, podgląd przed potwierdzeniem, szablony z Ustawień nieużywane -->
+<!-- indeks: treść domyślna w kodzie, podgląd przed potwierdzeniem -->
 
 Decyzje Artura D1–D6 z 13.10.2026 (makiety:
 https://claude.ai/artifact/2YZDg3zkKYxayvWayRiZxs). Pierwszy mail odrzucenia

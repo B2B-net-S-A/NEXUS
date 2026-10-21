@@ -48,6 +48,7 @@ from app.models.candidate import Candidate
 from app.models.contract import Contract
 from app.services.current_employment import LIVE_CONTRACT_STATUSES
 from app.services.employment_marker import job_client_family
+from app.services.job_close_choice import validate_close_choice
 from app.services.pipeline_latest import latest_stage_ids
 from app.services.access_scope import DL_CLIENT_OUT_OF_SCOPE_DETAIL
 from app.models.competence_category import UserCompetenceCategory
@@ -79,6 +80,7 @@ from app.schemas.job import (
     CcOverrideRequest,
     CcSuggestion,
     CcSuggestionsResponse,
+    JobCloseReasonUpdate,
     JobCloseRequest,
     JobCollaboratorAdd,
     JobCreate,
@@ -2858,6 +2860,7 @@ async def update_job(
             await expire_open_for_job(db, job_id=job_id)
         elif prev_status == JobStatus.closed:
             job.closed_at = None
+            job_lifecycle.clear_close_choice(job)
             _take_over_reopened_traffit_job(db, job, current_user)
             # Lustro zamknięcia (0371): ponownie otwarta rekrutacja wraca do
             # „Do przejrzenia” — z „Zakończonego” wypadała z puli przydziału,
@@ -3204,6 +3207,13 @@ async def close_job(
                 "message": "Rekrutacja jest już zamknięta.",
             },
         )
+    choice = await validate_close_choice(
+        db,
+        job,
+        reason=data.reason,
+        notes=data.notes,
+        duplicate_of_job_id=data.duplicate_of_job_id,
+    )
     if not data.acknowledge_active_cards:
         # Zamknięcie nie rusza kart: osoby w toku zostają w zamkniętej
         # rekrutacji. Ostrzeżenie do potwierdzenia, nie blokada.
@@ -3217,14 +3227,79 @@ async def close_job(
     await job_lifecycle.close_job_core(
         db,
         job,
-        reason=data.reason,
-        notes=data.notes,
+        reason=choice.reason,
+        notes=choice.notes,
         actor_id=current_user.id,
         effects=effects,
     )
+    job.duplicate_of_job_id = choice.duplicate_of_job_id
     await db.commit()
     await db.refresh(job)
     await job_lifecycle.run_post_commit(effects)
+    payload = JobResponse.model_validate(job).model_dump()
+    return _redact_delivery_lead_job_finance(payload, current_user)
+
+
+@router.patch("/{job_id}/close-reason", response_model=JobResponse)
+async def change_close_reason(
+    job_id: int,
+    data: JobCloseReasonUpdate,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Zmiana powodu zamkniętej rekrutacji (21.10.2026).
+
+    Ta sama bramka co zamknięcie. Data zamknięcia zostaje — kwartał Ligi
+    się nie przesuwa, a rozliczony kwartał trzyma zamrożony wynik. Każda
+    zmiana zostaje w historii rekrutacji (`close_reason_changed`).
+    """
+    result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    if job.status != JobStatus.closed:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_not_closed",
+                "message": "Powód zmienia się tylko w zamkniętej rekrutacji.",
+            },
+        )
+    choice = await validate_close_choice(
+        db,
+        job,
+        reason=data.reason,
+        notes=data.notes,
+        duplicate_of_job_id=data.duplicate_of_job_id,
+    )
+    before = {
+        "reason": job.close_reason.value if job.close_reason else None,
+        "notes": job.close_notes,
+        "duplicate_of_job_id": job.duplicate_of_job_id,
+    }
+    job.close_reason = choice.reason
+    job.close_notes = choice.notes
+    job.duplicate_of_job_id = choice.duplicate_of_job_id
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job.id,
+            action="close_reason_changed",
+            user_id=current_user.id,
+            details={
+                "from": before,
+                "to": {
+                    "reason": choice.reason.value,
+                    "notes": choice.notes,
+                    "duplicate_of_job_id": choice.duplicate_of_job_id,
+                },
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(job)
+    await cache_invalidate("reports:clients")
     payload = JobResponse.model_validate(job).model_dump()
     return _redact_delivery_lead_job_finance(payload, current_user)
 
