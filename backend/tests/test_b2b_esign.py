@@ -635,3 +635,48 @@ async def test_without_the_confirm_permission_the_sender_is_asked_to_finish(
         f"/api/b2b-generator/esign/{request_id}/signed-pdf", headers=app_auth_headers
     )
     assert pdf.status_code == 200 and pdf.content.endswith(b"% firma\n")
+
+
+# ── wygasanie i przypomnienia (PR 4b) ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sweeper_reminds_after_three_days_then_expires_the_link(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
+    from app.tasks import b2b_esign_sweeper
+    from tests.test_b2b_signature_automation import _seed_bound_scenario
+
+    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+    now = datetime.now(timezone.utc)
+
+    assert await b2b_esign_sweeper._handle(request_id, now + timedelta(days=1)) is None
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=3, minutes=1))
+        == "reminded"
+    )
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None and request.last_reminder_at is not None
+    titles = await _notices(esign_env["admin_id"], request_id)
+    assert any("czeka na podpis kontraktora" in t for t in titles), titles
+
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=15))
+        == "expired"
+    )
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None and request.status == "expired"
+    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
+    titles = await _notices(esign_env["admin_id"], request_id)
+    assert any("wygasł" in t for t in titles), titles
