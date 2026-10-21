@@ -73,6 +73,9 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   `hr_gates.py` na trasach kartoteki, puli, „składa raport godzin”, „Struktury”
   (przełożony, pion) i formy umowy; 403 z prośbą o inną osobę z Kadr albo admina.
   Admin przechodzi. Ten sam guard co przy premiach, umowach i rozliczeniach.
+  „Wyrównaj wg konta” też (audyt 21.10.2026): własne id w `user_ids` = 403,
+  a wyrównanie wszystkich rozjazdów (`user_ids` puste) pomija własną kartotekę
+  (`account_profiles.align(skip_user_ids=…)`); admin wyrównuje także siebie.
 - Ślad wrażliwych zapisów: `app/services/hr/audit.record(...)` z `sensitivity`
   `health` (L4) albo `payroll` (kwoty). Kwot nie ma w `critical_events` ani logach.
 
@@ -172,13 +175,21 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   z „Mojego zespołu”** (decyzja Artura) — te same hooki i trasy co
   „Akceptacje” (`useDecideLeave`, `useDecideTimesheet`, odrzucenie przez
   `RejectLeaveDialog` z powodem), bez nowej logiki serwera; prawo do decyzji
-  sprawdza serwer. Propozycje premii tylko do wiadomości (decydują Płace), karta
+  sprawdza serwer. **Toast po decyzji idzie z obietnicy `mutateAsync`, nie
+  z callbacków `mutate()`** (20–21.10.2026): po decyzji lista odświeża się bez
+  sprawy, a komponent z przyciskiem albo oknem się odmontowuje (szczegół
+  „Akceptacji” ma `key` sprawy, „Do Twojej decyzji” bez kart zwraca `null`) —
+  callbacki `mutate()` TanStack Query wtedy przepadają. Sekcja bez kart zeruje
+  też otwarte okno odrzucenia, żeby nie wróciło samo przy następnej karcie. Propozycje premii tylko do wiadomości (decydują Płace), karta
   premii tylko przy `sees_bonuses` (D2). Mini-tydzień to pole `week` trasy
   `GET /api/hr/team` (`team._week`): stan dnia `work` / `off` / `absent` /
-  `pending` / `business_trip` / `remote`, **bez rodzaju nieobecności** (D6 —
+  `pending` / `business_trip` / `remote` / `unknown`, **bez rodzaju nieobecności** (D6 —
   także dla przełożonego; rodzaj zostaje w `today`), oczekujące tylko dla kręgu
   D6, praca zdalna i delegacja z `leave_calendar.presence_between` tylko przy
-  module czasu; urlopy i czas zamknięte = `week: null`. Do kart doszły
+  module czasu; urlopy i czas zamknięte = `week: null`. Sam moduł czasu (urlopy
+  zamknięte dla patrzącego, audyt 21.10.2026): nieobecności nie są czytane, więc
+  dzień bez wpisu obecności to `unknown` („—”), nigdy `work` — „w pracy” mówimy
+  tylko, gdy znamy nieobecności (`team.day_state`, `todayStatus`). Do kart doszły
   `created_at` wniosku i `submitted_at` timesheetu („czeka 5 dni”).
   „Kalendarz zespołu”: ciągłe paski (`components/hr/leave/calendar-bars.ts`),
   wiersz „Nieobecnych” (½ = pół dnia, „?” = wliczony wniosek, który czeka,
@@ -380,7 +391,9 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
   ono wpisało: wraca data najnowszego pozostałego ważnego oświadczenia, a bez niego zwolnienie
   znika; data wpisana ręcznie zostaje. Usunięcie po retencji kartoteki nie rusza.
 - Pobranie i podgląd pliku dokumentu zostawia ślad `document_downloaded` w `hr_audit_events`
-  (19.10.2026; przy potwierdzeniu nieobecności `sensitivity='health'`). Plik zapisany przed
+  (19.10.2026; przy potwierdzeniu nieobecności `sensitivity='health'`). Ten sam ślad przy
+  pobraniu załącznika z wniosku urlopowego — trasą osoby i trasą Kadr (`hr_leave._proof_file`,
+  audyt 21.10.2026). Nowa trasa wydająca plik e-teczki = ten sam `audit.record`. Plik zapisany przed
   wierszem znika z dysku, gdy zapis wiersza albo kartoteki się wycofa.
 - Retencja: lata na rodzaj w `app_settings['hr_document_retention']` (domyślnie 10 lat dla
   każdego rodzaju, także „inne” — decyzja Artura 19.10.2026), liczone od końca roku ostatniego
@@ -506,7 +519,9 @@ razem z dodatkami. Logika i krąg widzących bez zmian — zmienił się układ.
   (`leave_calendar.presence_between`, bez notatek); nieobecność tylko przy module
   urlopów, Z/D tylko przy module czasu otwartym dla patrzącego. Słowo nieobecności
   z formy („przerwa”, „urlop”) tylko, gdy patrzący widzi formę — inaczej „nieobecność”
-  (słowo zdradza formę). „W pracy” pada tylko, gdy patrzący ma urlopy albo czas.
+  (słowo zdradza formę). „W pracy” i chip „Dziś nieobecni” tylko przy module urlopów
+  otwartym dla patrzącego (`todayKnown` w `directory-view.ts`, audyt 21.10.2026) —
+  sam moduł czasu daje zdalnie i delegację, reszta to „—”.
   Pasek rozjazdów nazywa pozycje (konto + kartoteki „do uzupełnienia” z katalogu)
   i ma „Przejrzyj po kolei” (rozwija tabelę) i „Wyrównaj wg konta”.
 - **Kartoteka** (`PersonProfile`, `person-view.ts`): wizytówka z rzędem faktów — staż,
@@ -522,6 +537,13 @@ razem z dodatkami. Logika i krąg widzących bez zmian — zmienił się układ.
   w menu ⋯ (ta sama reguła `can_manage` co dawna sekcja „Wejście i odejście”, która
   jest teraz linią w Przeglądzie). Oś „Ostatnio” składa się z danych, które patrzący
   już dostał (stawki, premie, wydania sprzętu, start, ostatni dzień).
+  **Zakładka „Płace i premie”** (audyt 21.10.2026) powstaje przy module płac, chyba że
+  serwer płac odmówił (403/404 — `refused`), ORAZ przy pełnej kartotece z widocznymi
+  danymi do rozliczeń (`billingVisible`), bo `BillingDetailsSection` stoi tylko tam —
+  Kadry bez Płac w cudzej kartotece i wyłączony moduł płac nie mogą tracić danych do
+  rozliczeń. Awaria zapytania o płace (np. 500) to nie odmowa: zakładka zostaje,
+  karta „Premie” mówi „Nie udało się wczytać płac.” z „Spróbuj ponownie”; „Płace
+  niedostępne dla Ciebie.” tylko przy 403/404.
 - **Struktura** (`StructureScreen`, `structure-tree.ts`): przełącznik Lista | Schemat
   (domyślnie Schemat — drzewo kart per pion; Lista = dotychczasowy widok z
   zaznaczaniem i zmianą hurtową). **Przeciągnięcie karty na inną = zmiana przełożonego**
