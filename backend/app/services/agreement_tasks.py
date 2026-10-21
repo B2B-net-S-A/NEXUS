@@ -31,6 +31,7 @@ from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job
 from app.models.user import User, UserRole
+from app.services.b2b_esign import service as esign_service
 from app.services.access_scope import is_delivery_lead_governed
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.agreement_status import pair_columns
@@ -117,6 +118,9 @@ async def load_for_user(
     confirms = _confirms_signatures(user)
     conditions = [
         B2BGeneratedContract.source != "excel",
+        # Umowa w podpisie w NEXUSIE nie jest zadaniem „Potwierdź podpis” —
+        # NEXUS potwierdzi sam po podpisie obu stron (etap 1b, 22.10.2026).
+        ~esign_service.open_request_exists(),
         B2BGeneratedContract.candidate_id.is_not(None),
         B2BGeneratedContract.job_id.is_not(None),
         or_(

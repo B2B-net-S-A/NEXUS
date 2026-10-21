@@ -3551,6 +3551,11 @@ async def request_signature_confirmation(
             status_code=status.HTTP_409_CONFLICT,
             detail="Prosić o potwierdzenie można tylko przy niepodpisanej umowie „W trakcie”.",
         )
+    if await esign_service.open_request_for(db, row.id) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=esign_service.MSG_REQUEST_WHILE_OPEN,
+        )
     if row.candidate_id is None or row.job_id is None:
         raise HTTPException(
             status_code=422,

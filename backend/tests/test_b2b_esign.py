@@ -773,3 +773,52 @@ async def test_unexpected_confirm_failure_still_tells_the_sender(
     )
     titles = await _notices(admin_id, request_id)
     assert any("oznacz ją w rejestrze" in t for t in titles), titles
+
+
+# ── etap 1b: reszta systemu wie, że umowa jest w podpisie (22.10.2026) ───────
+
+
+def test_signature_bells_reach_the_recruiter_who_sent_the_contract():
+    """Dzwonki podpisu stoją za sekcją Generatora (Sourcing), nie Delivery —
+    rekruter bez Delivery dostaje informację o swojej umowie."""
+    from app.models.notification import NotificationType
+    from app.services.notification_access import NOTIFICATION_SECTION_BY_TYPE
+    from app.services.section_permissions import ProductSection
+
+    for ntype in (
+        NotificationType.signature_sent,
+        NotificationType.signature_signed,
+        NotificationType.signature_failed,
+    ):
+        assert NOTIFICATION_SECTION_BY_TYPE[ntype] == ProductSection.sourcing
+
+
+@pytest.mark.asyncio
+async def test_open_request_blocks_manual_confirm_requests_and_manual_hire(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+
+    asked = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/signature-request",
+        headers=app_auth_headers,
+    )
+    assert asked.status_code == 409, asked.text
+    assert "zwykłą drogę" in asked.json()["detail"]
+
+    moved = await app_client.post(
+        "/api/pipeline/move",
+        json={
+            "candidate_id": scenario["candidate_id"],
+            "job_id": scenario["job_id"],
+            "stage": "hired",
+            "hired_signed_via": "b2b_offline",
+        },
+        headers=app_auth_headers,
+    )
+    assert moved.status_code == 409, moved.text
+    assert moved.json()["detail"]["code"] == "ESIGN_IN_PROGRESS"
