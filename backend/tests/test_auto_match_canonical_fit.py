@@ -151,8 +151,10 @@ def world(monkeypatch):
     monkeypatch.setattr(ams, "_write_log", write_log)
     monkeypatch.setattr(ams, "_publish_proposals", publish)
     monkeypatch.setattr(ams, "_notify", notify)
-    monkeypatch.setattr(embedding_service, "_build_candidate_text", lambda c: "cv")
-    monkeypatch.setattr(embedding_service, "_build_job_text", lambda j: "job")
+    monkeypatch.setattr(
+        embedding_service, "_build_candidate_text", lambda c, **kw: "cv"
+    )
+    monkeypatch.setattr(embedding_service, "_build_job_text", lambda j, **kw: "job")
     monkeypatch.setattr(pipeline_eligibility, "filter_eligible_candidates", eligible)
     monkeypatch.setattr(
         requirement_contract,

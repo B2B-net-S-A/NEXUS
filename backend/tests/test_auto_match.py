@@ -160,8 +160,10 @@ def _stub_ranking(monkeypatch, *, job_hits, candidate_hits, total=86.0):
         return {k: v for k, v in hits.items() if k in ids}
 
     monkeypatch.setattr(ams, "scoped_similarity", scoped)
-    monkeypatch.setattr(embedding_service, "_build_candidate_text", lambda c: "cv")
-    monkeypatch.setattr(embedding_service, "_build_job_text", lambda j: "job")
+    monkeypatch.setattr(
+        embedding_service, "_build_candidate_text", lambda c, **kw: "cv"
+    )
+    monkeypatch.setattr(embedding_service, "_build_job_text", lambda j, **kw: "job")
 
     async def eligible(db, *, job, candidates, now):
         return list(candidates)
