@@ -126,6 +126,7 @@ from app.services.multi_consultant_orders import (
     INPUT_MODE_MD,
     quantize_md,
 )
+from app.services.md_awaiting_orders import settle_awaiting_md_for_client
 from app.services.order_group_materializer import (
     materialize_group_for_activated_order,
     md_rate_from_order_rate,
@@ -656,11 +657,17 @@ async def _materialize_group_after_activation(
     if candidate_rate is None and order.contract is not None:
         candidate_rate = _activation_candidate_rate(order.contract)
     try:
-        await materialize_group_for_activated_order(
+        group = await materialize_group_for_activated_order(
             db, order, actor_id=actor_id, candidate_rate=candidate_rate
         )
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
+    if group is not None:
+        # Szkic stał się kolejnym zamówieniem — MD z importu, które na nie
+        # czekały, schodzą z niego od razu (21.10.2026).
+        await settle_awaiting_md_for_client(
+            db, client_id=order.client_id, user_id=actor_id
+        )
 
 
 def _apply_md_order_quantity(order: ClientOrder, quantity: Optional[Decimal]) -> None:

@@ -443,11 +443,6 @@ async def materialize_group_for_activated_order(
         },
         user_id=actor_id,
     )
-    # Import lokalny — serwis importu MD sięga do `client_order_lines`, które
-    # leniwie woła materializację.
-    from app.services.md_awaiting_orders import settle_awaiting_md_for_client
-
-    await settle_awaiting_md_for_client(db, client_id=order.client_id, user_id=actor_id)
     return group
 
 

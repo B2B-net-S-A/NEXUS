@@ -651,7 +651,7 @@
       },
       {
         "q": "Jak zaimportować raport zużycia MD?",
-        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Numer zamówienia w „Uwagach” jest wiążący: gdy wiersza nie da się na nie rozliczyć, dostaje „Brak pasującego zamówienia” albo „Do weryfikacji”. Osoba bez zamówienia MD ma szary status „Bez zamówienia MD”, a faktura rozliczona na zamówieniu kosztowym — „Rozliczono kwotowo”.",
+        "a": "W „Import zużycia MD” wgraj XLSX i wybierz miesiąc. Numer w „Uwagach” wiąże: wiersz, którego nie da się na niego rozliczyć, dostaje „Brak pasującego zamówienia” albo „Do weryfikacji”. Wiersz bez numeru obok wiersza tej osoby z numerem ma „Oczekuje na zamówienie” i zejdzie z kolejnego zamówienia. Szary „Bez zamówienia MD” to nie błąd.",
         "anchor": "finance.md_import"
       },
       {
