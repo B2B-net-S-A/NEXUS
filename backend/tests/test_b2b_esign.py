@@ -225,6 +225,21 @@ async def _send(app_client, headers, generated_id: int, signer_id: int):
     )
 
 
+async def _seed_in_progress(*, created_by: int) -> dict[str, Any]:
+    """Wiersz jak po „Pobierz DOCX”: niepodpisany, „W trakcie” (``/render``)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from tests.test_b2b_signature_automation import _seed_bound_scenario
+
+    scenario = await _seed_bound_scenario(created_by=created_by)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        row.contract_status = "in_progress"
+        await db.commit()
+    return scenario
+
+
 def _token(sign_url: str) -> str:
     return sign_url.rsplit("/", 1)[-1]
 
@@ -244,9 +259,8 @@ async def _partner(generated_id: int) -> str:
 async def test_contractor_then_company_sign_and_the_request_completes(
     app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
 ):
-    from tests.test_b2b_signature_automation import _seed_bound_scenario
 
-    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
     partner = await _partner(scenario["generated_id"])
     sent = await _send(
         app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
@@ -341,9 +355,8 @@ async def test_contractor_then_company_sign_and_the_request_completes(
 async def test_withdraw_closes_the_link_and_wins_over_a_running_validation(
     app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
 ):
-    from tests.test_b2b_signature_automation import _seed_bound_scenario
 
-    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
     partner = await _partner(scenario["generated_id"])
     sent = await _send(
         app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
@@ -381,9 +394,8 @@ async def test_sending_needs_the_switch_and_a_listed_company_signer(
     app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
 ):
     from app.core.database import AsyncSessionLocal
-    from tests.test_b2b_signature_automation import _seed_bound_scenario
 
-    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
     wrong_signer = await _send(
         app_client, app_auth_headers, scenario["generated_id"], esign_env["admin_id"]
     )
@@ -415,7 +427,6 @@ async def test_bogus_link_is_refused_before_the_file_and_failures_are_capped(
     """Przegląd bezpieczeństwa 21.10.2026: fałszywy link nie przyjmuje pliku,
     a jeden link nie uruchamia walidacji w nieskończoność."""
     from app.services.b2b_esign import service
-    from tests.test_b2b_signature_automation import _seed_bound_scenario
 
     bogus = await app_client.post(
         "/api/public/b2b-sign/nie-ma-takiego-linku",
@@ -423,7 +434,7 @@ async def test_bogus_link_is_refused_before_the_file_and_failures_are_capped(
     )
     assert bogus.status_code == 404, bogus.text
 
-    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
     sent = await _send(
         app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
     )
@@ -580,7 +591,6 @@ async def test_both_signatures_run_the_signed_automation_with_the_file(
     „Zatrudniony” i podpisany PDF w Dokumentach — jak „Oznacz jako podpisaną”."""
     from app.core.database import AsyncSessionLocal
     from app.models.b2b_generated_contract import B2BGeneratedContract
-    from tests.test_b2b_signature_automation import _seed_bound_scenario
 
     admin_id = esign_env["admin_id"]
     async with AsyncSessionLocal() as db:
@@ -590,7 +600,7 @@ async def test_both_signatures_run_the_signed_automation_with_the_file(
             actor_id=admin_id,
         )
         await db.commit()
-    scenario = await _seed_bound_scenario(created_by=admin_id)
+    scenario = await _seed_in_progress(created_by=admin_id)
     request_id = await _sign_both(
         app_client,
         app_auth_headers,
@@ -616,9 +626,8 @@ async def test_without_the_confirm_permission_the_sender_is_asked_to_finish(
     nadawca dostaje dzwonek „oznacz ją w rejestrze” i może pobrać plik."""
     from app.core.database import AsyncSessionLocal
     from app.models.b2b_generated_contract import B2BGeneratedContract
-    from tests.test_b2b_signature_automation import _seed_bound_scenario
 
-    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
     request_id = await _sign_both(
         app_client,
         app_auth_headers,
@@ -649,9 +658,8 @@ async def test_sweeper_reminds_after_three_days_then_expires_the_link(
     from app.core.database import AsyncSessionLocal
     from app.models.b2b_signing_request import B2BSigningRequest
     from app.tasks import b2b_esign_sweeper
-    from tests.test_b2b_signature_automation import _seed_bound_scenario
 
-    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
     sent = await _send(
         app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
     )
@@ -701,9 +709,9 @@ async def test_open_request_blocks_correction_and_closes_on_manual_paths(
 ):
     """Po wysyłce PDF jest zamrożony: „Popraw” odmawia, a „Oznacz jako
     podpisaną” i „Anulowana” zamykają wniosek — link przestaje działać."""
-    from tests.test_b2b_signature_automation import _confirm, _seed_bound_scenario
+    from tests.test_b2b_signature_automation import _confirm
 
-    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
     sent = await _send(
         app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
     )
@@ -719,7 +727,7 @@ async def test_open_request_blocks_correction_and_closes_on_manual_paths(
     assert confirmed.status_code == 200, confirmed.text
     assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
 
-    other = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    other = await _seed_in_progress(created_by=esign_env["admin_id"])
     sent = await _send(
         app_client, app_auth_headers, other["generated_id"], esign_env["signer_id"]
     )
@@ -741,7 +749,6 @@ async def test_unexpected_confirm_failure_still_tells_the_sender(
     nadawca dostaje „oznacz ją w rejestrze”."""
     from app.api import b2b_esign
     from app.core.database import AsyncSessionLocal
-    from tests.test_b2b_signature_automation import _seed_bound_scenario
 
     async def _boom(**kwargs):
         raise RuntimeError("employment automation returned no ClientOrder")
@@ -755,7 +762,7 @@ async def test_unexpected_confirm_failure_still_tells_the_sender(
             actor_id=admin_id,
         )
         await db.commit()
-    scenario = await _seed_bound_scenario(created_by=admin_id)
+    scenario = await _seed_in_progress(created_by=admin_id)
     request_id = await _sign_both(
         app_client,
         app_auth_headers,
