@@ -63,6 +63,11 @@ export interface ClientPlaybook {
   process_rules_md: string | null;
   onboarding_md: string | null;
   documents: PlaybookDocument[];
+  /**
+   * 0495 (21.10.2026, D3): pola screeningu, które klient dokłada do minimum przed
+   * „Zweryfikowany”. Opcjonalne — starsze odpowiedzi go nie niosą.
+   */
+  verified_required_fields?: string[];
   seed_key: string | null;
   updated_at: string | null;
   updated_by_name: string | null;
@@ -85,7 +90,21 @@ export interface ClientPlaybookPayload {
   process_rules_md: string | null;
   onboarding_md: string | null;
   documents: PlaybookDocument[];
+  verified_required_fields: string[];
 }
+
+/**
+ * Pola, które Delivery Lead może dołożyć do minimum przed „Zweryfikowany”
+ * — lustro `CLIENT_EXTRA_FIELDS`; lokalizacja, tryb pracy, dostępność
+ * i „Dlaczego ten kandydat” są wymagane u każdego klienta.
+ */
+export const VERIFIED_EXTRA_FIELD_OPTIONS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: "motivation", label: "Motywacja" },
+  { key: "worked_at_client", label: "Czy pracował u Klienta" },
+  { key: "english", label: "Angielski" },
+  { key: "nationality", label: "Narodowość" },
+  { key: "red_flags", label: "Red flags („brak” też się liczy)" },
+];
 
 export interface PlaybookEvent {
   id: number;
@@ -122,6 +141,7 @@ export const PLAYBOOK_FIELD_LABELS: Record<string, string> = {
   process_rules_md: "Zasady procesu rekrutacji (Markdown)",
   onboarding_md: "Onboarding po akceptacji (Markdown)",
   documents: "Dokumenty (nazwa + link)",
+  verified_required_fields: "Przed „Zweryfikowany” wymagaj też",
 };
 
 /** Etykiety akcji historii — backend emituje dziś wyłącznie `saved`;
@@ -200,7 +220,8 @@ export function isPlaybookEmpty(p: ClientPlaybook | null | undefined): boolean {
   return (
     ints.every((v) => v == null) &&
     texts.every((t) => !t?.trim()) &&
-    (p.documents ?? []).length === 0
+    (p.documents ?? []).length === 0 &&
+    (p.verified_required_fields ?? []).length === 0
   );
 }
 
@@ -217,6 +238,7 @@ export interface PlaybookForm {
   process_rules_md: string;
   onboarding_md: string;
   documents: PlaybookDocument[];
+  verified_required_fields: string[];
 }
 
 const str = (v: number | null) => (v != null ? String(v) : "");
@@ -234,6 +256,7 @@ export function playbookToForm(p: ClientPlaybook): PlaybookForm {
     process_rules_md: p.process_rules_md ?? "",
     onboarding_md: p.onboarding_md ?? "",
     documents: (p.documents ?? []).map((d) => ({ name: d.name, url: d.url })),
+    verified_required_fields: [...(p.verified_required_fields ?? [])],
   };
 }
 
@@ -263,5 +286,8 @@ export function playbookFormToPayload(form: PlaybookForm): ClientPlaybookPayload
     documents: form.documents
       .map((d) => ({ name: d.name.trim(), url: d.url.trim() }))
       .filter((d) => d.name && d.url),
+    verified_required_fields: VERIFIED_EXTRA_FIELD_OPTIONS.map((o) => o.key).filter((key) =>
+      form.verified_required_fields.includes(key),
+    ),
   };
 }

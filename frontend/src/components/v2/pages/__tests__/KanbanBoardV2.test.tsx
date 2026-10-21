@@ -3718,6 +3718,41 @@ describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14
     expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 2100, stage: "verified" });
     expect(moveCalls()[0][1]).not.toHaveProperty("expected_rate_value");
   });
+
+  it("brak samego minimum dla DL: strzałka otwiera okno z brakującymi polami, bez ruchu (21.10.2026)", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[1] = {
+      ...columns[1],
+      items: [
+        {
+          id: 1101,
+          candidate_id: 2101,
+          stage: "screening",
+          name: "Kandydat",
+          lastname: "Minimum",
+          days_in_stage: 2,
+          screening_done: true,
+          minimum_missing: ["location", "work_mode"],
+          expected_rate_value: "140.00",
+          expected_rate_unit: "hourly",
+          expected_rate_currency: "PLN",
+        },
+      ],
+    };
+    const { container } = renderBoard(columns as never);
+    const card = (await screen.findByRole("link", { name: "Kandydat Minimum" })).closest(
+      "[data-kanban-card]",
+    ) as HTMLElement;
+    const arrow = within(card).getByRole("button", { name: /Przesuń Kandydat Minimum na następny etap/ });
+    expect(arrow).toHaveAttribute("data-gap", "true");
+    expect(arrow).toHaveAttribute("title", expect.stringContaining("Brak: lokalizacja, tryb pracy"));
+    fireEvent.click(arrow);
+    expect(await screen.findByText("Kandydat Minimum → Zweryfikowany")).toBeTruthy();
+    expect(screen.queryByTestId("move-next-dialog")).toBeNull();
+    // Karta stoi w „Screeningu” i nic nie idzie do serwera, dopóki pola nie są zapisane.
+    expect(moveCalls()).toHaveLength(0);
+    expect(columnOf(container, 2101)).toBe("def:301");
+  });
 });
 
 describe("KanbanBoardV2 — stan CV na karcie „Zweryfikowanego” (14.10.2026)", () => {

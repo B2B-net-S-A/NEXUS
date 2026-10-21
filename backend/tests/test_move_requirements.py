@@ -14,6 +14,8 @@ from app.services.move_requirements import (
     PairFacts,
     build_requirements,
     card_screening_state,
+    minimum_missing,
+    required_card_fields,
     screening_requirement,
 )
 
@@ -23,7 +25,10 @@ VERIFIED_READY = PairFacts(
     screening_done=True,
     candidate_rate=True,
     availability_known=True,
+    card_present=frozenset({"location", "work_mode", "recommendation"}),
 )
+# Minimum dla Delivery Leada (decyzja Artura 21.10.2026) — w kolejności okna.
+MINIMUM_KEYS = ["location", "work_mode", "availability", "recommendation"]
 
 
 def _keys(result: dict) -> list[str]:
@@ -41,7 +46,7 @@ def test_screening_needs_nothing() -> None:
     assert result["primary"] == {"kind": "move", "label": "Przesuń na „Screening”"}
 
 
-def test_verified_needs_the_sheet_and_the_rate_but_not_availability() -> None:
+def test_verified_needs_the_sheet_the_rate_and_the_minimum_for_dl() -> None:
     result = build_requirements(
         PairFacts(from_column="screening", stage_id=5, screening_stage_id=4),
         "verified",
@@ -49,7 +54,7 @@ def test_verified_needs_the_sheet_and_the_rate_but_not_availability() -> None:
     assert _keys(result) == [
         "screening_sheet",
         "candidate_rate",
-        "availability",
+        *MINIMUM_KEYS,
         "recommendation_card",
     ]
     sheet = _item(result, "screening_sheet")
@@ -60,7 +65,12 @@ def test_verified_needs_the_sheet_and_the_rate_but_not_availability() -> None:
         "stage_id": 4,
     }
     assert _item(result, "candidate_rate")["action"]["kind"] == "set_candidate_rate"
-    assert _item(result, "availability")["blocking"] is False
+    for key in MINIMUM_KEYS:
+        item = _item(result, key)
+        assert item["status"] == "missing" and item["blocking"] is True
+        assert item["action"]["kind"] == "open_card"
+    assert _item(result, "recommendation")["label"] == "Dlaczego ten kandydat"
+    assert _item(result, "recommendation_card")["blocking"] is False
     assert result["primary"]["kind"] == "blocked"
 
 
@@ -70,7 +80,7 @@ def test_skipped_columns_add_up() -> None:
     assert _keys(result) == [
         "screening_sheet",
         "candidate_rate",
-        "availability",
+        *MINIMUM_KEYS,
         "recommendation_card",
         "company_cv",
     ]
@@ -517,6 +527,8 @@ NO_QUESTIONS = PairFacts(
     stage_id=5,
     candidate_rate=True,
     has_screening_questions=False,
+    availability_known=True,
+    card_present=frozenset({"location", "work_mode"}),
 )
 
 
@@ -524,9 +536,12 @@ def test_job_without_questions_asks_for_the_assessment_instead_of_the_sheet() ->
     """Zgłoszenie 12.10.2026: rekrutacja z Traffita bez Profilu Championa nie
     ma pytań, więc arkusza nie da się zapisać, a okno kazało go uzupełnić."""
     result = build_requirements(NO_QUESTIONS, "verified")
+    # „Dlaczego ten kandydat” stoi raz — jako wymaganie rozmowy.
     assert _keys(result) == [
         "why_candidate",
         "candidate_rate",
+        "location",
+        "work_mode",
         "availability",
         "recommendation_card",
     ]
@@ -546,7 +561,12 @@ def test_job_without_questions_asks_for_the_assessment_instead_of_the_sheet() ->
 
 
 def test_job_without_questions_moves_once_the_assessment_is_written() -> None:
-    facts = replace(NO_QUESTIONS, card_exists=True, card_recommendation=True)
+    facts = replace(
+        NO_QUESTIONS,
+        card_exists=True,
+        card_recommendation=True,
+        card_present=NO_QUESTIONS.card_present | {"recommendation"},
+    )
     result = build_requirements(facts, "verified")
     item = _item(result, "why_candidate")
     assert item["status"] == "ok" and item["action"] is None
@@ -625,4 +645,106 @@ def test_card_in_a_job_without_questions_follows_the_gate(
     assert card_screening_state(has_questions=False, sheet=sheet, card=card) == (
         done,
         "why_candidate",
+    )
+
+
+# ── Minimum dla Delivery Leada (decyzja Artura 21.10.2026) ──────────────────
+
+
+def test_minimum_blocks_until_every_field_is_written() -> None:
+    """Zgłoszenie DL 21.10: rekomendacje bez lokalizacji i trybu pracy."""
+    facts = replace(VERIFIED_READY, from_column="screening", card_present=frozenset())
+    assert minimum_missing(facts) == ["location", "work_mode", "recommendation"]
+    result = build_requirements(facts, "verified")
+    assert result["primary"] == {
+        "kind": "blocked",
+        "label": "Najpierw uzupełnij: Lokalizacja",
+    }
+    ready = build_requirements(
+        replace(VERIFIED_READY, from_column="screening"), "verified"
+    )
+    assert ready["primary"]["kind"] == "move"
+    assert all(_item(ready, key)["status"] == "ok" for key in MINIMUM_KEYS)
+
+
+def test_availability_from_the_profile_or_the_card_counts() -> None:
+    base = replace(
+        VERIFIED_READY,
+        from_column="screening",
+        availability_known=False,
+        card_availability=False,
+    )
+    assert "availability" in minimum_missing(base)
+    assert "availability" not in minimum_missing(replace(base, card_availability=True))
+    assert "availability" not in minimum_missing(replace(base, availability_known=True))
+
+
+def test_switch_off_restores_the_old_window() -> None:
+    facts = replace(
+        VERIFIED_READY,
+        from_column="screening",
+        card_present=frozenset(),
+        minimum_enabled=False,
+    )
+    assert minimum_missing(facts) == []
+    result = build_requirements(facts, "verified")
+    assert _keys(result) == [
+        "screening_sheet",
+        "candidate_rate",
+        "availability",
+        "recommendation_card",
+    ]
+    assert result["primary"]["kind"] == "move"
+
+
+def test_client_extra_fields_join_the_minimum_with_the_client_name() -> None:
+    facts = replace(
+        VERIFIED_READY,
+        from_column="screening",
+        client_required_fields=("motivation", "location"),
+        client_name="Bank A",
+    )
+    assert required_card_fields(facts) == (*MINIMUM_KEYS, "motivation")
+    result = build_requirements(facts, "verified")
+    item = _item(result, "motivation")
+    assert item["label"] == "Motywacja"
+    assert item["detail"] == "wymaga Bank A" and item["blocking"] is True
+    done = replace(facts, card_present=facts.card_present | {"motivation"})
+    assert minimum_missing(done) == []
+
+
+def test_job_without_questions_still_needs_why_when_note_answers_met_the_talk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Przegląd 21.10.2026: odpowiedzi z notatki spełniają `why_candidate` bez
+    oceny — minimum dalej wymaga „Dlaczego ten kandydat”, raz."""
+    facts = replace(
+        NO_QUESTIONS,
+        card_answers=True,
+        card_present=frozenset({"location", "work_mode"}),
+    )
+    assert screening_requirement(facts) == ("why_candidate", True)
+    assert minimum_missing(facts) == ["recommendation"]
+    result = build_requirements(facts, "verified")
+    assert _item(result, "why_candidate")["status"] == "ok"
+    assert _item(result, "recommendation")["status"] == "missing"
+    assert result["primary"]["kind"] == "blocked"
+    # Bez odpowiedzi — „Dlaczego” stoi tylko jako wymaganie rozmowy.
+    bare = replace(facts, card_answers=False)
+    assert minimum_missing(bare) == []
+    assert "recommendation" not in _keys(build_requirements(bare, "verified"))
+    # Tablica: ta sama reguła z flagi `screening_done` karty.
+    from app.core.config import settings
+    from app.services.move_requirements import board_minimum_missing
+
+    monkeypatch.setattr(settings, "VERIFIED_MINIMUM_FIELDS_ENABLED", True)
+    card = {"present": ["location", "work_mode"], "availability": False}
+    assert board_minimum_missing(
+        card, has_questions=False, availability_known=True, screening_met=True
+    ) == ["recommendation"]
+    assert (
+        board_minimum_missing(
+            card, has_questions=False, availability_known=True, screening_met=False
+        )
+        == []
     )

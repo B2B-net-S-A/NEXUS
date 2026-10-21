@@ -301,6 +301,10 @@ class CandidateStageResponse(BaseModel):
     # wyszukiwania (`availability_status` / `availability_date`).
     availability_status: Optional[str] = None
     availability_date: Optional[date] = None
+    # Minimum dla DL przed „Zweryfikowany” (21.10.2026): klucze pól karty bez
+    # treści (`move_requirements.board_minimum_missing`). Tylko na Tablicy;
+    # `None` = endpoint nie liczy.
+    minimum_missing: Optional[list[str]] = None
     # „W bazie od” (0437): kiedy osoba weszła do bazy (`candidate_added_date`),
     # czy data jest dokładna (import z Traffita bez daty u źródła = nie) i kto
     # ją dodał. Tylko na Tablicy (`build_kanban_view`); ruch i historia — None.

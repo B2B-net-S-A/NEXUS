@@ -37,6 +37,35 @@ REQUIRED_FIELDS: tuple[str, ...] = (
     "motivation",
 )
 EDITABLE_FIELDS: tuple[str, ...] = REQUIRED_FIELDS + ("client_manager",)
+# Minimum dla Delivery Leada przed „Zweryfikowany” (decyzja Artura
+# 21.10.2026): bez tych pól DL dopytywał rekrutera na Teams. Stawka
+# i pytania screeningowe mają własne wymagania (`move_requirements`).
+VERIFIED_MINIMUM_FIELDS: tuple[str, ...] = (
+    "location",
+    "work_mode",
+    "availability",
+    "recommendation",
+)
+# Pola, które klient może dołożyć do minimum w karcie klienta (D3, 21.10.2026).
+CLIENT_EXTRA_FIELDS: tuple[str, ...] = (
+    "motivation",
+    "worked_at_client",
+    "english",
+    "nationality",
+    "red_flags",
+)
+# Pola o osobie, nie o rekrutacji — formularz wpisuje je z ostatniej rozmowy
+# tej osoby w innej rekrutacji (D2, 21.10.2026). Wartość: ważność w dniach.
+CARRIED_FIELDS: dict[str, int] = {
+    "location": 183,
+    "work_mode": 183,
+    "nationality": 183,
+    "english": 183,
+    "availability": 30,
+}
+# „-” albo „brak” w red flags znaczy „brak uwag”; w pozostałych polach wpis
+# bez litery i cyfry („-”, „.”, „?”) nie jest wartością (pomiar 21.10.2026).
+_PLACEHOLDER_IS_VALUE = frozenset({"red_flags"})
 # Imię i nazwisko bierzemy z profilu kandydata, nie z notatki.
 _NOT_STORED = frozenset({"name"})
 _MULTILINE = frozenset({"recommendation", "motivation", "red_flags"})
@@ -173,9 +202,31 @@ def split_fields(
     return current, previous
 
 
+def has_value(key: str, value: Any) -> bool:
+    """Pole karty niesie treść — nie samo „-”, „.” ani „?” (21.10.2026)."""
+    if not isinstance(value, Mapping):
+        return False
+    raw = str(value.get("raw") or "").strip()
+    if key in _PLACEHOLDER_IS_VALUE:
+        return bool(raw)
+    return any(char.isalnum() for char in raw)
+
+
+def present_fields(current: Mapping[str, Any]) -> frozenset[str]:
+    """Pola bieżącej próby, które liczą się jako wypełnione."""
+    return frozenset(key for key, value in current.items() if has_value(key, value))
+
+
+def missing_required(current: Mapping[str, Any], required: Sequence[str]) -> list[str]:
+    """Pola z ``required`` bez treści w bieżącej próbie — w kolejności listy."""
+    present = present_fields(current)
+    return [key for key in required if key not in present]
+
+
 def completeness(current: Mapping[str, Any]) -> dict[str, Any]:
     """Jedna reguła „karta gotowa / brakuje N” dla wszystkich ekranów."""
-    missing = [key for key in REQUIRED_FIELDS if key not in current]
+    present = present_fields(current)
+    missing = [key for key in REQUIRED_FIELDS if key not in present]
     filled = len(REQUIRED_FIELDS) - len(missing)
     status = "complete" if not missing else "partial" if filled else "empty"
     return {
@@ -397,6 +448,47 @@ def latest_facts(cards: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, Any]
                     best[key] = (
                         order,
                         {**value, "source": source, "job_id": card.get("job_id")},
+                    )
+    return {key: value for key, (_, value) in best.items()}
+
+
+def carried_values(
+    cards: Iterable[Mapping[str, Any]],
+    *,
+    now: datetime,
+    skip: Iterable[str] = (),
+) -> dict[str, dict[str, Any]]:
+    """Pola o osobie z jej innych rekrutacji do wpisania w pusty formularz.
+
+    D2 (21.10.2026): przy przepięciu i ponownej rozmowie rekruter nie pyta
+    drugi raz o lokalizację czy tryb pracy. Bierzemy najświeższą wartość
+    z treścią spośród kart osoby (data pola; przy tej samej — wpis ręczny),
+    nie starszą niż ``CARRIED_FIELDS[key]`` dni. Pole bez daty odpada — nie
+    wiemy, czy jest aktualne. ``skip`` = pola, które para już ma.
+    """
+    skipped = set(skip)
+    best: dict[str, tuple[tuple[datetime, int], dict[str, Any]]] = {}
+    for card in cards:
+        for rank, source in enumerate(("note", "manual")):
+            fields = card.get("fields_notes" if source == "note" else "fields_manual")
+            if not isinstance(fields, Mapping):
+                continue
+            for key, days in CARRIED_FIELDS.items():
+                value = fields.get(key)
+                if key in skipped or not has_value(key, value):
+                    continue
+                at = _moment(value.get("at"))
+                if at is None or (now - at).days > days:
+                    continue
+                order = (at, rank)
+                if key not in best or order > best[key][0]:
+                    best[key] = (
+                        order,
+                        {
+                            "raw": str(value.get("raw") or "").strip(),
+                            "at": at.isoformat(),
+                            "job_id": card.get("job_id"),
+                        },
                     )
     return {key: value for key, (_, value) in best.items()}
 

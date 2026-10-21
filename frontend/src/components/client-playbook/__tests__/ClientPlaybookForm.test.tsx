@@ -54,6 +54,7 @@ const PAYLOAD_KEYS = [
   "process_rules_md",
   "onboarding_md",
   "documents",
+  "verified_required_fields",
 ];
 
 function makeQueryClient() {
@@ -121,6 +122,20 @@ describe("ClientPlaybookForm", () => {
     expect(screen.getByText(/Karta klienta · wersja 4/)).toBeInTheDocument();
     // Dwa podglądy markdown + historia renderują się przy każdej zmianie pola;
     // pod obciążeniem (pełny pakiet) domyślne 5 s bywa za mało.
+  }, 15_000);
+
+  // D3 (21.10.2026): pola, które klient dokłada do minimum przed „Zweryfikowany”.
+  it("zaznaczone pola wymagane przed „Zweryfikowany” idą w PUT w stałej kolejności", async () => {
+    renderForm();
+    const section = await screen.findByTestId("playbook-verified-required");
+    expect(section).toHaveTextContent("Lokalizację, tryb pracy, dostępność i „Dlaczego ten kandydat” rekruter wpisuje zawsze");
+    fireEvent.click(within(section).getByLabelText("Angielski"));
+    fireEvent.click(within(section).getByLabelText("Motywacja"));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz kartę" }));
+
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    const [, body] = mocks.put.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.verified_required_fields).toEqual(["motivation", "english"]);
   }, 15_000);
 
   it("po zapisie invaliduje kartę, listę ustawień i historię", async () => {

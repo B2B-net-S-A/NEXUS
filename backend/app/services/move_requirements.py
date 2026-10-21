@@ -23,10 +23,14 @@ klienta tylko z uprawnieniem) egzekwuje `POST /api/pipeline/move`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# Pola karty, które klient może dołożyć do minimum (karta klienta, D3) — jedno
+# wejście dla modułów spoza listy czytelników kart rekomendacji.
+from app.services.recommendation_card_rules import CLIENT_EXTRA_FIELDS
 
 from app.services.board_stage_badges import (
     BOARD_COLUMN_ORDER,
@@ -134,6 +138,12 @@ class PairFacts:
     # nie może wtedy mówić, że tego nie wiemy.
     card_availability: bool = False
     card_rate_hourly: Optional[float] = None
+    # 21.10.2026: pola karty z treścią i pola, które klient dokłada do
+    # minimum dla DL (karta klienta). `minimum_enabled` = wyłącznik.
+    card_present: frozenset[str] = frozenset()
+    client_required_fields: tuple[str, ...] = ()
+    client_name: Optional[str] = None
+    minimum_enabled: bool = True
     company_cv: bool = False
     qc_status: str = "unchecked"
     qc_blocking_failed: int = 0
@@ -344,6 +354,123 @@ def _screening_requirement(
     return WHY_CANDIDATE, answered or recommendation
 
 
+def required_card_fields(f: PairFacts) -> tuple[str, ...]:
+    """Pola karty wymagane przed „Zweryfikowany” — minimum + pola klienta."""
+    from app.services.recommendation_card_rules import (  # noqa: PLC0415
+        VERIFIED_MINIMUM_FIELDS,
+    )
+
+    if not f.minimum_enabled:
+        return ()
+    extra = tuple(
+        key for key in f.client_required_fields if key not in VERIFIED_MINIMUM_FIELDS
+    )
+    return (*VERIFIED_MINIMUM_FIELDS, *extra)
+
+
+async def client_required_fields(
+    db: AsyncSession, client_id: Optional[int]
+) -> tuple[tuple[str, ...], Optional[str]]:
+    """Pola dołożone do minimum w karcie klienta (D3, 21.10.2026) i nazwa klienta.
+
+    Jedno zapytanie; brak karty albo pustej listy = ``((), None)``. Klucze
+    spoza ``CLIENT_EXTRA_FIELDS`` (stary zapis) pomijamy.
+    """
+    from app.models.client import Client  # noqa: PLC0415
+    from app.models.client_playbook import ClientPlaybook  # noqa: PLC0415
+    from app.services.recommendation_card_rules import (  # noqa: PLC0415
+        CLIENT_EXTRA_FIELDS,
+    )
+
+    if client_id is None:
+        return (), None
+    row = (
+        await db.execute(
+            select(
+                ClientPlaybook.verified_required_fields,
+                Client.display_name,
+                Client.name,
+            )
+            .join(Client, Client.id == ClientPlaybook.client_id)
+            .where(ClientPlaybook.client_id == client_id)
+        )
+    ).first()
+    if row is None or not isinstance(row.verified_required_fields, list):
+        return (), None
+    fields = tuple(
+        key for key in CLIENT_EXTRA_FIELDS if key in row.verified_required_fields
+    )
+    if not fields:
+        return (), None
+    name = (row.display_name or "").strip() or row.name
+    return fields, name
+
+
+def card_field_label(key: str) -> str:
+    """Nazwa pola karty na ekranie („Dlaczego ten kandydat”, „Lokalizacja”)."""
+    from app.services.recommendation_card_rules import (  # noqa: PLC0415
+        DISPLAY_LABELS,
+    )
+
+    return DISPLAY_LABELS.get(key, key)
+
+
+def minimum_missing(f: PairFacts) -> list[str]:
+    """Pola minimum dla DL bez treści (decyzja Artura 21.10.2026).
+
+    Dostępność liczy się też z profilu (data dostępności). W rekrutacji bez
+    pytań „Dlaczego ten kandydat” jest już wymaganiem rozmowy
+    (`why_candidate`) — nie wymieniamy go drugi raz.
+    """
+    present = set(f.card_present)
+    if f.availability_known or f.card_availability:
+        present.add("availability")
+    missing = [key for key in required_card_fields(f) if key not in present]
+    if _why_candidate_reported(f):
+        missing = [key for key in missing if key != "recommendation"]
+    return missing
+
+
+def _why_candidate_reported(f: PairFacts) -> bool:
+    """„Dlaczego” stoi już na liście jako niespełnione `why_candidate`.
+
+    Tylko wtedy minimum go pomija. Rekrutacja bez pytań, w której rozmowę
+    zapisały odpowiedzi z notatki albo stary arkusz, spełnia `why_candidate`
+    bez oceny — minimum dalej jej wymaga (przegląd 21.10.2026).
+    """
+    key, met = screening_requirement(f)
+    return key == WHY_CANDIDATE and not met
+
+
+def board_minimum_missing(
+    card: Optional[Mapping[str, Any]],
+    *,
+    has_questions: bool,
+    availability_known: bool,
+    screening_met: bool,
+    client_required: Sequence[str] = (),
+) -> list[str]:
+    """Braki minimum dla DL karty Tablicy — z podsumowania karty, bez zapytań.
+
+    Ta sama reguła co ``minimum_missing`` (bramka i okno „Przesuń dalej”).
+    ``screening_met`` = ``screening_done`` karty (`card_screening_state`).
+    """
+    from app.core.config import settings  # noqa: PLC0415
+
+    return minimum_missing(
+        PairFacts(
+            from_column=None,
+            availability_known=availability_known,
+            card_availability=bool(card and card.get("availability")),
+            card_present=frozenset((card or {}).get("present") or ()),
+            has_screening_questions=has_questions,
+            screening_done=screening_met,
+            client_required_fields=tuple(client_required),
+            minimum_enabled=settings.VERIFIED_MINIMUM_FIELDS_ENABLED,
+        )
+    )
+
+
 def _card_recommended(card: Optional[Mapping[str, Any]]) -> bool:
     """Karta (``recommendation_cards.card_summary``) ma „Dlaczego ten kandydat”."""
     return bool(card) and "recommendation" not in (card.get("missing") or ())
@@ -418,6 +545,61 @@ def _screening_item(column: str, f: PairFacts) -> _Item:
     )
 
 
+def _minimum_items(column: str, f: PairFacts) -> list[_Item]:
+    """Pozycje minimum dla DL (21.10.2026) — blokują jak bramka serwera.
+
+    Przy wyłączniku zostaje dawna, nieblokująca „Dostępność”.
+    """
+    availability_ok = f.availability_known or f.card_availability
+    availability_detail = (
+        None
+        if f.availability_known
+        else "jest w screeningu"
+        if f.card_availability
+        else "nie wiemy, od kiedy może zacząć"
+    )
+    if not f.minimum_enabled:
+        return [
+            _Item(
+                column,
+                "availability",
+                "Dostępność",
+                OK if availability_ok else MISSING,
+                False,
+                availability_detail,
+            )
+        ]
+    missing = set(minimum_missing(f))
+    client_extra = set(f.client_required_fields)
+    items: list[_Item] = []
+    for key in required_card_fields(f):
+        if key == "recommendation" and _why_candidate_reported(f):
+            continue  # już jako niespełnione wymaganie rozmowy (`why_candidate`)
+        absent = key in missing
+        if key == "availability":
+            detail = availability_detail
+        elif absent and key in client_extra and f.client_name:
+            detail = f"wymaga {f.client_name}"
+        elif absent:
+            detail = "Delivery Lead potrzebuje tego przed wysłaniem CV"
+        else:
+            detail = None
+        items.append(
+            _Item(
+                column,
+                key,
+                card_field_label(key),
+                MISSING if absent else OK,
+                True,
+                detail,
+                _action("open_card", "Uzupełnij w screeningu", f.stage_id)
+                if absent
+                else None,
+            )
+        )
+    return items
+
+
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
     sid = f.stage_id
     if column == "verified":
@@ -434,22 +616,11 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 if f.candidate_rate
                 else _action("set_candidate_rate", "Wpisz stawkę", sid),
             ),
-            _Item(
-                column,
-                "availability",
-                "Dostępność",
-                OK if f.availability_known or f.card_availability else MISSING,
-                False,
-                None
-                if f.availability_known
-                else "jest w screeningu"
-                if f.card_availability
-                else "nie wiemy, od kiedy może zacząć",
-            ),
-            # Braki pól nie blokują ruchu — Delivery Lead zobaczy je przed
-            # wysłaniem CV. Od 0424 uzupełnia się je w formularzu screeningu
-            # (akcja `open_card` otwiera panel na screeningu); od 09.10.2026
-            # ekran nie używa nazwy „karta rekomendacji”.
+            *_minimum_items(column, f),
+            # Pozostałe pola nie blokują ruchu — Delivery Lead zobaczy je
+            # przed wysłaniem CV. Od 0424 uzupełnia się je w formularzu
+            # screeningu (akcja `open_card` otwiera panel na screeningu); od
+            # 09.10.2026 ekran nie używa nazwy „karta rekomendacji”.
             _Item(
                 column,
                 "recommendation_card",
@@ -1163,6 +1334,8 @@ async def load_pair_facts(
     # Import leniwy: arkusz screeningu importuje ten moduł (`sheet_filled`).
     from app.services import screening_sheets  # noqa: PLC0415
 
+    client_fields, client_fields_owner = await client_required_fields(db, job.client_id)
+
     return PairFacts(
         from_column=from_column,
         stage_id=latest.id if latest is not None else None,
@@ -1189,6 +1362,10 @@ async def load_pair_facts(
         ),
         card_availability=bool(card and card["availability"]),
         card_rate_hourly=card["rate_hourly"] if card else None,
+        card_present=frozenset(card["present"]) if card else frozenset(),
+        client_required_fields=client_fields,
+        client_name=client_fields_owner,
+        minimum_enabled=settings.VERIFIED_MINIMUM_FIELDS_ENABLED,
         company_cv=cv is not None,
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
@@ -1216,6 +1393,7 @@ async def load_pair_facts(
 
 
 __all__ = [
+    "CLIENT_EXTRA_FIELDS",
     "COLUMN_LABEL",
     "PairFacts",
     "answer_has_content",

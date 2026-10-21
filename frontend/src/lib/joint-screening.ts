@@ -27,7 +27,9 @@ import {
   assessmentMissingForForward,
   editableCardKeys,
   formDefaultsFromState,
+  formFieldLabel,
   formQuestions,
+  minimumMissingForForward,
   missingAnswersForForward,
   rateFromValues,
   ratePrefill,
@@ -378,6 +380,10 @@ export function forwardBlockers(pair: JointPair, projected: ScreeningFullFormVal
     out.push(missing.length === 1 ? "1 pytanie bez odpowiedzi" : `${missing.length} pytania bez odpowiedzi`);
   }
   if (assessmentMissingForForward(pair.state, questions, projected)) out.push("„Dlaczego ten kandydat”");
+  // Minimum dla Delivery Leada (21.10.2026) — ta sama reguła co bramka serwera.
+  for (const key of minimumMissingForForward(pair.state, questions, projected)) {
+    out.push(`„${formFieldLabel(pair.state, key)}”`);
+  }
   return out;
 }
 

@@ -109,7 +109,8 @@ type HarnessState =
   | "cvnewer"
   | "joint"
   | "overbudget"
-  | "contract";
+  | "contract"
+  | "minimum";
 const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
   { value: "nowi", label: "Nowi — formularz od razu" },
   { value: "earlier", label: "Wcześniejsze odpowiedzi" },
@@ -126,6 +127,7 @@ const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
   { value: "joint", label: "Screening dla — dwie rekrutacje" },
   { value: "overbudget", label: "Stawka ponad budżet, niższa znana" },
   { value: "contract", label: "Pracuje u nas — stawka z umowy" },
+  { value: "minimum", label: "Minimum dla DL — przepięcie" },
 ];
 
 /** Stany wyboru CV z profilu (09.10.2026) — w podglądzie kliknij „CV” → „CV firmowe”. */
@@ -451,6 +453,23 @@ const CONTRACT_STATE: ScreeningFormState = {
     rate_from_at: "2026-02-01T00:00:00Z",
     declared_from: { amount: 120, unit: "hourly", currency: "PLN" },
     declared_from_at: "2026-09-01T10:00:00Z",
+  },
+};
+
+// 21.10.2026: minimum dla Delivery Leada przed „Zweryfikowany” — lokalizacja
+// i tryb pracy przeszły z innej rekrutacji osoby, klient dokłada motywację.
+const MINIMUM_STATE: ScreeningFormState = {
+  ...BASE_STATE,
+  board_column: "screening",
+  card: {
+    ...BASE_STATE.card!,
+    required: ["location", "work_mode", "availability", "recommendation", "motivation"],
+    required_by_client: { fields: ["motivation"], client_name: "Bank Przykładowy" },
+    carried: {
+      location: { raw: "Warszawa", at: "2026-10-20T10:00:00Z", job_id: 9001, job_title: "Java Developer — Ubezpieczenia B" },
+      work_mode: { raw: "hybryda, 2 dni w biurze", at: "2026-10-20T10:00:00Z", job_id: 9001, job_title: "Java Developer — Ubezpieczenia B" },
+      availability: { raw: "od 1.11.2026", at: "2026-10-20T10:00:00Z", job_id: 9001, job_title: "Java Developer — Ubezpieczenia B" },
+    },
   },
 };
 
@@ -953,6 +972,8 @@ function seededClient(state: HarnessState): QueryClient {
         ? OVER_BUDGET_STATE
         : state === "contract"
           ? CONTRACT_STATE
+          : state === "minimum"
+            ? MINIMUM_STATE
           : state === "earlier"
         ? EARLIER_STATE
         : state === "readonly"

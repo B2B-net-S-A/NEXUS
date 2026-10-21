@@ -16,6 +16,7 @@ import pytest
 import pytest_asyncio
 from fastapi import HTTPException
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -57,6 +58,11 @@ WITH_QUESTIONS = {
 def gates_on(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "VERIFIED_GATE_ENABLED", True)
     monkeypatch.setattr(settings, "HIRED_SIGNED_VIA_REQUIRED", True)
+
+
+@pytest.fixture
+def minimum_on(gates_on, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "VERIFIED_MINIMUM_FIELDS_ENABLED", True)
 
 
 async def _post_move(client: AsyncClient, headers: dict, world: dict, **body):
@@ -217,6 +223,85 @@ async def test_job_without_questions_needs_the_assessment_not_the_sheet(
                     },
                 )
             )
+            await db.commit()
+        ok = await _post_move(api_client, rec, world, stage_def_id=verified, **rate)
+        assert ok.status_code == 200, ok.text
+    finally:
+        await _cleanup(world, [rec_id])
+
+
+@pytest.mark.asyncio
+async def test_minimum_for_the_delivery_lead_blocks_until_written(
+    api_client: AsyncClient, minimum_on
+) -> None:
+    """Decyzja Artura 21.10.2026: rekomendacje przychodziły do DL bez
+    lokalizacji i trybu pracy. Zaślepka „-” nie liczy się jako wartość."""
+    from app.models.recommendation_card import RecommendationCard
+
+    world = await _seed_world(champion_profile=WITH_QUESTIONS)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    rec = await _login(api_client, rec_creds)
+    verified = world["defs"]["verified"]
+    rate = {
+        "expected_rate_value": "140",
+        "expected_rate_unit": "hourly",
+        "expected_rate_currency": "PLN",
+    }
+
+    def field(raw: str) -> dict:
+        # Data po starcie procesu — pole liczy się do bieżącej próby.
+        return {"raw": raw, "by": rec_id, "at": datetime.now(timezone.utc).isoformat()}
+
+    try:
+        await seed_entry_row(world["candidate_id"], world["job_id"])
+        await _add_row(
+            world,
+            def_key="screening",
+            stage="screening",
+            minutes_ago=1,
+            moved_by=rec_id,
+            screening_answers={
+                "answers": [{"question_id": "q1", "response": "3 lata"}]
+            },
+        )
+        async with AsyncSessionLocal() as db:
+            db.add(
+                RecommendationCard(
+                    candidate_id=world["candidate_id"],
+                    job_id=world["job_id"],
+                    fields_manual={
+                        "location": field("-"),
+                        "availability": field("od zaraz"),
+                    },
+                )
+            )
+            await db.commit()
+
+        refused = await _post_move(
+            api_client, rec, world, stage_def_id=verified, **rate
+        )
+        assert refused.status_code == 409, refused.text
+        detail = refused.json()["detail"]
+        assert detail["missing"] == ["location", "work_mode", "recommendation"]
+        assert detail["card_fields"] == ["location", "work_mode", "recommendation"]
+        assert "„Lokalizacja”" in detail["message"]
+        assert "„Dlaczego ten kandydat”" in detail["message"]
+
+        async with AsyncSessionLocal() as db:
+            card = (
+                await db.execute(
+                    select(RecommendationCard).where(
+                        RecommendationCard.candidate_id == world["candidate_id"],
+                        RecommendationCard.job_id == world["job_id"],
+                    )
+                )
+            ).scalar_one()
+            card.fields_manual = {
+                **card.fields_manual,
+                "location": field("Warszawa"),
+                "work_mode": field("hybryda, 2 dni w biurze"),
+                "recommendation": field("6 lat w Javie w bankowości."),
+            }
             await db.commit()
         ok = await _post_move(api_client, rec, world, stage_def_id=verified, **rate)
         assert ok.status_code == 200, ok.text
