@@ -700,6 +700,8 @@ export interface MyKpiGoals {
   goals: KpiGoal[];
   /** Delivery Lead: rekrutacje zamknięte w kwartale (podstawa celu placementów). */
   closed_requests?: number | null;
+  /** Delivery Lead: zamknięte jako „nie liczy się” — poza podstawą celu (21.10.2026). */
+  closed_neutral?: number | null;
 }
 
 /** Liczniki „Moje KPI" — dzień, tydzień i miesiąc kalendarzowy. */
@@ -1736,11 +1738,27 @@ export const jobsApi = {
     notes?: string | null,
     /** Potwierdzenie ostrzeżenia o osobach w toku (409 `active_cards_warning`). */
     acknowledgeActiveCards = false,
+    /** Przy „Duplikat”: rekrutacja, która zostaje (21.10.2026). */
+    duplicateOfJobId: number | null = null,
   ) =>
     api.post(`/api/jobs/${id}/close`, {
       reason,
       notes: notes?.trim() || null,
+      ...(duplicateOfJobId != null ? { duplicate_of_job_id: duplicateOfJobId } : {}),
       ...(acknowledgeActiveCards ? { acknowledge_active_cards: true } : {}),
+    }),
+  /**
+   * „Zmień powód zamknięcia” zamkniętej rekrutacji (21.10.2026). Ta sama
+   * walidacja co zamknięcie: 422 `close_notes_required`, `close_reason_has_hire`…
+   */
+  changeCloseReason: (
+    id: number,
+    body: { reason: string; notes?: string | null; duplicateOfJobId?: number | null },
+  ) =>
+    api.patch(`/api/jobs/${id}/close-reason`, {
+      reason: body.reason,
+      notes: body.notes?.trim() || null,
+      duplicate_of_job_id: body.duplicateOfJobId ?? null,
     }),
   /**
    * „Otwórz ponownie” zamkniętą rekrutację albo „Dokończ i opublikuj” stary
@@ -4751,7 +4769,159 @@ export const scoringWeightsApi = {
   update: (id: number, payload: ScoringWeightProfileCreate) =>
     api.patch<ScoringWeightProfile>(`/api/scoring-weights/${id}`, payload),
   remove: (id: number) => api.delete(`/api/scoring-weights/${id}`),
+  panel: () => api.get<RankingPanelState>("/api/scoring-weights/panel"),
+  saveDraft: (payload: RankingPanelWeights) =>
+    api.put<RankingPanelState>("/api/scoring-weights/panel/draft", payload),
+  discardDraft: () => api.delete("/api/scoring-weights/panel/draft"),
+  measurement: () =>
+    api.get<{ measurement: RankingMeasurement | null }>(
+      "/api/scoring-weights/panel/measurement",
+    ),
+  startMeasurement: () =>
+    api.post<{ measurement: RankingMeasurement | null }>(
+      "/api/scoring-weights/panel/measurements",
+    ),
+  publish: (reason: string | null) =>
+    api.post<RankingPanelState>("/api/scoring-weights/panel/publish", { reason }),
+  restore: (changeId: number) =>
+    api.post<RankingPanelState>(
+      `/api/scoring-weights/panel/history/${changeId}/restore`,
+    ),
+  previewJobs: () =>
+    api.get<{ jobs: RankingPreviewJob[] }>("/api/scoring-weights/panel/preview/jobs"),
+  preview: (jobId: number) =>
+    api.get<RankingPreview>(`/api/scoring-weights/panel/preview/${jobId}`),
 };
+
+// ── Panel „Ranking kandydatów” (21.10.2026) ─────────────────────────────────
+
+/** Trzy ważności i próg nocnych propozycji — to, co zmienia Head of Recruitment. */
+export interface RankingPanelWeights {
+  semantic: number;
+  skills: number;
+  location: number;
+  threshold: number;
+}
+
+export type RankingLayer = "semantic" | "skills" | "salary" | "location" | "availability";
+
+export interface RankingMetrics {
+  page1_hit: number;
+  median_first: number | null;
+  top50_share: number;
+  mrr: number;
+  proposals: number;
+}
+
+export interface RankingMeasurementResult {
+  jobs: number;
+  before: RankingMetrics;
+  after: RankingMetrics;
+  max_drop_pt: number;
+  needs_reason: boolean;
+  biggest_changes: { job_id: number; title: string; before: number; after: number }[];
+  duration_s?: number;
+}
+
+export interface RankingMeasurement {
+  id: number;
+  status: "queued" | "running" | "done" | "failed";
+  error: string | null;
+  progress: { done: number; target: number; at?: string } | null;
+  result: RankingMeasurementResult | null;
+  draft: RankingPanelWeights;
+  baseline: { panel: RankingPanelWeights; threshold: number };
+  /** Pomiar dotyczy obecnego szkicu i obecnych opublikowanych wag. */
+  fresh: boolean;
+  created_at: string;
+  finished_at: string | null;
+}
+
+/** Stan przed/po: publikacja z panelu (`panel`) albo profil z edycji admina. */
+export interface RankingChangeSnapshot {
+  panel?: RankingPanelWeights;
+  threshold?: number;
+  weights?: Record<string, number> | null;
+  name?: string;
+  user_id?: number | null;
+  client_id?: number | null;
+  active?: boolean;
+}
+
+export interface RankingChange {
+  id: number;
+  created_at: string;
+  kind: "publish" | "admin_edit";
+  actor_name: string | null;
+  profile_id: number | null;
+  before: RankingChangeSnapshot;
+  after: RankingChangeSnapshot;
+  reason: string | null;
+  measurement: {
+    id: number;
+    jobs: number;
+    before: RankingMetrics;
+    after: RankingMetrics;
+    max_drop_pt: number;
+  } | null;
+}
+
+export interface RankingPanelState {
+  published: {
+    weights: RankingPanelWeights;
+    shares: Record<RankingLayer, number>;
+    source: "profile" | "built_in";
+    profile_id: number | null;
+    updated_at: string | null;
+    threshold_source: "setting" | "env";
+  };
+  draft: {
+    weights: RankingPanelWeights;
+    shares: Record<RankingLayer, number>;
+    updated_at: string;
+    updated_by_name: string | null;
+    restored_from: number | null;
+  } | null;
+  fixed: { salary: number; availability: number };
+  limits: { threshold_min: number; threshold_max: number };
+  scoped_profiles: { id: number; name: string; client_id: number | null; user_id: number | null }[];
+  history: RankingChange[];
+  measurement: RankingMeasurement | null;
+  can_edit: boolean;
+}
+
+export interface RankingPreviewJob {
+  job_id: number;
+  title: string;
+  location: string | null;
+  positives: number;
+}
+
+/** Składniki oceny jednej osoby: [ułamek punktów, maks./waga, oceniona]. */
+export interface RankingComponents {
+  candidate_id: number;
+  layers: Record<RankingLayer, [number, number, boolean]>;
+  extra: [number, number] | null;
+  factor: number;
+  matched_must: number;
+  must_total: number;
+}
+
+export interface RankingPreviewPerson extends RankingComponents {
+  vector_rank: number;
+  name: string;
+  city: string | null;
+  positive: boolean;
+}
+
+export interface RankingPreview {
+  job_id: number;
+  title: string;
+  location: string | null;
+  positives: number;
+  renormalize: boolean;
+  people: RankingPreviewPerson[];
+}
 
 // ── Champion Profile (Phase 10) ─────────────────────────────────────────────
 

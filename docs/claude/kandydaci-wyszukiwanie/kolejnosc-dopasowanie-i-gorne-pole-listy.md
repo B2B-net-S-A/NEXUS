@@ -152,3 +152,23 @@ Makiety: kanwa `LttSvWiuw2CLPPHU1jL7kN` (Jak to działa · Wagi z podglądem na
   składniki 200 pierwszych osób zamkniętej rekrutacji (pamięć 15 min, klucz
   z wersją silnika), front przelicza kolejność sam. Lista rekrutacji do
   podglądu: `…/preview/jobs`.
+
+### Ekran (`components/settings/ranking/`)
+
+- `/settings/scoring` = trzy zakładki w adresie `?zakladka=jak-dziala|wagi|historia`
+  (`useUrlWriter`). Udziały „stan na dziś” przychodzą z serwera
+  (`published.shares`) — ekran nie trzyma własnych wag domyślnych.
+- **Suwaki liczą w przeglądarce** (`rankingMath.ts`, lustro `engine_weights`
+  i `ranking_lab.score`). Wspólny plik przypadków
+  `lib/__fixtures__/ranking-score-cases.json` wygenerowany z prawdziwego
+  silnika czytają `rankingMath.test.ts` i `tests/test_ranking_lab.py` — zmiana
+  składania wyniku = wygeneruj plik od nowa i popraw obie strony.
+- Delivery Lead i osoba bez zapisu Insights może przesuwać suwaki dla
+  podglądu; przyciski zapisu, pomiaru i publikacji widzi tylko `can_edit`
+  z serwera + zapis Insights.
+- „Sprawdź na historii” zapisuje szkic i uruchamia pomiar, potem przechodzi
+  do „Historia zmian”; odpytywanie co 5 s tylko w trakcie pomiaru.
+- Stary edytor profili klienta i osoby (`ScoringProfilesAdmin`) widzi tylko
+  admin, zwinięty pod zakładką „Wagi”.
+- Harness `/preview/ranking-panel?stan=bez|szkic|pomiar|spadek|awaria`
+  (dane fikcyjne z `previewFixtures.ts`, bez odpytywania).

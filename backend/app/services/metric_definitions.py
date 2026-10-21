@@ -63,6 +63,9 @@ __all__ = [
     "FIRST_HIRED_PER_CANDIDATE_JOB",
     "VERIFIER_ANCHORED_MILESTONES",
     "DL_HIT_RATIO_TARGET_PCT",
+    "HIT_RATIO_LOST_CLOSE_REASONS",
+    "HIT_RATIO_NEUTRAL_CLOSE_REASONS",
+    "HIT_RATIO_WON_CLOSE_REASONS",
 ]
 
 
@@ -74,3 +77,30 @@ __all__ = [
 # w jednym miejscu dawała ekrany, które się ze sobą nie zgadzają. Ten moduł
 # jest liściem grafu importów, więc każdy może go czytać bez cyklu.
 DL_HIT_RATIO_TARGET_PCT = 30.0
+
+
+# ── Powody zamknięcia rekrutacji w hit ratio ──────────────────────────────
+#
+# Decyzja Artura 21.10.2026: przegraną jest WYŁĄCZNIE rekrutacja, którą wzięła
+# inna firma. Duplikat, zatrudnienie wewnętrzne u klienta, anulowany projekt,
+# wstrzymanie, milczenie klienta i „nie znaleźliśmy kandydata” nie wchodzą do
+# mianownika żadnego hit ratio (Liga DL, cel DL, Insights, raport klientów).
+# Do tego dnia każda zamknięta rekrutacja obniżała wynik — zamknięcie
+# zdublowanego requestu liczyło się jak przegrana.
+#
+# `other` i NULL (stare zamknięcia, zamknięcia z „Edytuj rekrutację”) zostają
+# w mianowniku, dopóki ktoś nie przypisze im powodu — wyłączenie wymaga
+# uzasadnienia, więc nie może dziać się samo. Napisy, nie enum: ten moduł jest
+# liściem grafu importów (filtr na modelu: `services/hit_ratio_scope.py`).
+HIT_RATIO_WON_CLOSE_REASONS = frozenset({"filled_by_us"})
+HIT_RATIO_LOST_CLOSE_REASONS = frozenset({"competitor"})
+HIT_RATIO_NEUTRAL_CLOSE_REASONS = frozenset(
+    {
+        "duplicate",
+        "internal_hire",
+        "budget",
+        "paused",
+        "client_ghosted",
+        "no_match",
+    }
+)

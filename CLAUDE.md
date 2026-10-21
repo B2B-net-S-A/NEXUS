@@ -216,7 +216,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `sciezka-kandydata-przekazania-zweryfikowany-jeden.md`: Ścieżka kandydata: przekazania, „Zweryfikowany”, jeden panel osoby
 - `stawka-do-klienta-po-wysylce.md`: Zmiana stawki do klienta po wysyłce CV
 - `twoje-cv-w-drodze-na-pulpicie-domyslnie-u-kazdego-z.md`: „Twoje CV w drodze” na pulpicie — domyślnie u każdego, z „Usuń z pulpitu”
-- `zamkniecie-rekrutacji-osoby-w-toku.md`: Zamknięcie rekrutacji ostrzega o osobach w toku · 409 `active_cards_warning`, `acknowledge_active_cards`, trzy okna zamykania
+- `zamkniecie-rekrutacji-osoby-w-toku.md`: Zamknięcie rekrutacji ostrzega o osobach w toku · 409 `active_cards_warning`, `acknowledge_active_cards`, powody i hit ratio
 - `zatrudniony-kto-i-co-jest-potrzebne.md`: „Zatrudniony”: kto przesuwa i co jest potrzebne
 
 ### Screening, notatki, stawki kandydata — `screening-notatki/`

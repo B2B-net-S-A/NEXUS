@@ -29,6 +29,7 @@ export type ReportId =
   | "bez-ruchu"
   | "doplyw"
   | "portfele-dl"
+  | "zamkniecia-hit-ratio"
   | "ranking-klientow"
   | "rok-do-roku"
   | "hall-of-fame"
@@ -188,6 +189,17 @@ export const REPORTS: readonly ReportDef[] = [
     window: "rok",
     defaultPeriod: { period: "year", offset: 0 },
     note: "bez kwot",
+  },
+  {
+    id: "zamkniecia-hit-ratio",
+    group: "Klienci i trend",
+    title: "Zamknięcia i hit ratio",
+    question: "Które zamknięte rekrutacje liczą się do hit ratio, a które nie — i dlaczego?",
+    window: "od 12.10.2026",
+    defaultPeriod: null,
+    note: "bez kwot",
+    // Lista kontrolna wyłączeń (21.10.2026) — ta sama bramka co rok do roku.
+    visible: seesBoardTrend,
   },
   {
     id: "ranking-klientow",
