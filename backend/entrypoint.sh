@@ -5396,6 +5396,9 @@ END $$""",
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS md_optional_total NUMERIC(16, 6) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
+    # 0493: to samo przy wpisie kosztowym (zakładka „Zużycie” zamówienia kosztowego).
+    "ALTER TABLE client_order_invoice_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
+    "ALTER TABLE client_order_invoice_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
     # 0317: etap „Ogłoszenia" (`posting`) — pierwsza kolumna kanbana przed „Nowi",
     # poczekalnia dla kandydatów z portali (auto-match). Enum + stage def w KAŻDYM
     # szablonie (trik +1000/-999, bo UNIQUE (template_id, order) nie jest DEFERRABLE).
@@ -9213,12 +9216,14 @@ _CONSTRAINT_STATEMENTS = [
     # 0351: 'non_positive_amount' — korekta faktury / kwota ≤ 0 (FIN-MD-06).
     # 0391: 'invoice_unreadable' (nieczytelna faktura, MD zostają) i
     # 'order_exhausted' (faktura na wyczerpane zamówienie kosztowe).
+    # 0493: 'manual_kept' (za ten miesiąc linia ma ręczny wpis kosztowy).
     """DO $$ BEGIN
         ALTER TABLE md_consumption_import_rows
             ADD CONSTRAINT ck_md_import_rows_cost_status
             CHECK (cost_status IS NULL OR cost_status IN (
                 'applied', 'unmatched_number', 'unmatched_consultant',
-                'non_positive_amount', 'invoice_unreadable', 'order_exhausted'
+                'non_positive_amount', 'invoice_unreadable', 'order_exhausted',
+                'manual_kept'
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0351: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
@@ -9498,6 +9503,13 @@ _CONSTRAINT_STATEMENTS = [
     """DO $$ BEGIN
         ALTER TABLE client_order_md_consumptions
             ADD CONSTRAINT ck_md_consumptions_status
+            CHECK (status IS NULL OR status IN ('accepted', 'protocol'));
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    # 0493: status i notatka ręcznego wpisu kosztowego (zakładka „Zużycie”).
+    """DO $$ BEGIN
+        ALTER TABLE client_order_invoice_consumptions
+            ADD CONSTRAINT ck_invoice_consumptions_status
             CHECK (status IS NULL OR status IN ('accepted', 'protocol'));
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",
