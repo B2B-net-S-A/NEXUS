@@ -25,11 +25,15 @@ konkurencję”, 20 „Inny” (6 z notatką o duplikacie).
   `counts_in_hit_ratio_sql(alias)` (surowy SQL). Każdy wzór hit ratio korzysta
   z niego: Liga i cel DL (`competitions.dl_portfolio_counts`), Insights → Firma
   (`insights_board`, `insights_board_yoy`), raport klientów (`reports`),
-  Insights klienci (`insights_clients`), portfele DL (`insights_dl_scope.JOBS_SCOPED_CTE`,
-  tylko dla zamkniętych), raport DL (`reports._compute_dl_metrics`).
+  Insights klienci (`insights_clients`), raport DL (`reports._compute_dl_metrics`),
+  „win rate” przetargów (`analytics/metrics.tenders`), portfele DL — kolumna
+  `jobs_scoped.in_demand` filtruje tylko requesty i wakaty, NIE zatrudnienia
+  (placementy łączą się z tym samym CTE; WHERE w CTE wycinałby je tylko w
+  Portfelach, a liga by je liczyła).
 - Nowy wzór hit ratio bez tego filtra = regresja. Nowy powód bez grupy pilnuje
   `tests/test_hit_ratio_neutral_closures.py`.
-- Migracja 0491: `jobclosereason` + `duplicate`, `no_match`;
+- Migracja 0492: `jobclosereason` + `duplicate`, `no_match`;
   `jobs.duplicate_of_job_id` (rekrutacja, która zostaje). Lustro w `entrypoint.sh`.
-- Ponowne otwarcie (`publish_core`) czyści `close_reason`, `close_notes`,
+- Ponowne otwarcie (`publish_core` i gałąź PATCH statusu, wspólne
+  `job_lifecycle.clear_close_choice`) czyści `close_reason`, `close_notes`,
   `duplicate_of_job_id` — powód należy do zamknięcia.

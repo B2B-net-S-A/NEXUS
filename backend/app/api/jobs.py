@@ -2858,6 +2858,7 @@ async def update_job(
             await expire_open_for_job(db, job_id=job_id)
         elif prev_status == JobStatus.closed:
             job.closed_at = None
+            job_lifecycle.clear_close_choice(job)
             _take_over_reopened_traffit_job(db, job, current_user)
             # Lustro zamknięcia (0371): ponownie otwarta rekrutacja wraca do
             # „Do przejrzenia” — z „Zakończonego” wypadała z puli przydziału,

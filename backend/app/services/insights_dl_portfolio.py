@@ -99,6 +99,7 @@ async def _demand_and_placements(
                        COALESCE(SUM(js.headcount), 0) AS vacancies
                 FROM jobs_scoped js
                 WHERE js.opened_at >= :start AND js.opened_at < :end
+                  AND js.in_demand
                 GROUP BY js.dl_id, js.client_id
                 """
                 ),
@@ -288,6 +289,7 @@ async def _top_hiring_managers(db: AsyncSession, start, end) -> list:
                     FROM jobs_scoped js
                     JOIN jobs j ON j.id = js.id
                     WHERE js.opened_at >= :start AND js.opened_at < :end
+                  AND js.in_demand
                       AND j.hiring_manager_contact_id IS NOT NULL
                     GROUP BY js.dl_id, js.client_id, j.hiring_manager_contact_id
                 ),

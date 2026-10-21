@@ -586,7 +586,7 @@ _ENUM_STATEMENTS = [
             );
         END IF;
     END $$""",
-    # 0491: powody „nie liczy się do hit ratio” (21.10.2026).
+    # 0492: powody „nie liczy się do hit ratio” (21.10.2026).
     "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'duplicate'",
     "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'no_match'",
     # LinkedIn employment tracking (migracja 0049_linkedin_employment).
@@ -2244,7 +2244,7 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_jobs_closed_at ON jobs(closed_at)",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_reason jobclosereason",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_notes TEXT",
-    # 0491: rekrutacja, która zostaje, gdy zamykana jest duplikatem.
+    # 0492: rekrutacja, która zostaje, gdy zamykana jest duplikatem.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS duplicate_of_job_id INTEGER "
     "NULL REFERENCES jobs(id) ON DELETE SET NULL",
     # LinkedIn tracking (migracja 0049_linkedin_employment): 7 kolumn na
