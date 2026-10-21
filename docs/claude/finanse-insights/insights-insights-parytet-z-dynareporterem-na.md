@@ -159,6 +159,14 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   z widoku `analytics_first_milestones`. `candidate_stages` nie ma unikalności
   na `(candidate_id, job_id, stage)`, a import Traffita dopisuje wiersz na każde
   zdarzenie — liczenie surowych wierszy dubluje powroty na etap.
+- **Weryfikacje i rekomendacje też liczymy per para (kandydat, rekrutacja),
+  nie per osoba** (decyzja Artura 21.10.2026). Osoba zweryfikowana
+  i zarekomendowana w trzech rekrutacjach to trzy weryfikacje i trzy
+  rekomendacje, także tego samego dnia. Zespół zgłosił, że DynaReporter
+  liczył ją raz; Artur zostawił definicję, bo każda rekrutacja to osobna
+  praca. Nie deduplikuj po `candidate_id` w liczniku celów, Insights ani
+  ligach. Od 12.10 do 21.10.2026 było 254 par `verified` na 210 osób
+  i 220 par `cv_sent` na 187 osób.
 - **`analytics_first_milestones` niesie DOKŁADNIE SZEŚĆ etapów**
   (`verified`, `cv_sent`, `interview`, `client_interview`, `acceptance`,
   `hired`). Reszta lejka idzie z `candidate_stages`. Lejek trzyma **dwie
