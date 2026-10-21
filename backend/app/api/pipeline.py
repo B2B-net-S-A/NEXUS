@@ -621,6 +621,26 @@ def _sheet_filled(payload: object) -> bool:
     return any(value not in (None, "", [], {}) for value in payload.values())
 
 
+async def _assert_client_rate_not_order_locked(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> None:
+    """Kwota do klienta w ruchu karty = ta sama blokada co ``PATCH …/client-rate``.
+
+    Po zamówieniu pary stawkę zmienia się w zamówieniu (decyzja Artura
+    20.10.2026) — powrót na „CV wysłane” z nową kwotą nie może jej obejść.
+    """
+
+    from app.services import client_rate_correction  # noqa: PLC0415
+
+    lock = await client_rate_correction.order_lock(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    if lock is not None:
+        raise HTTPException(
+            status_code=409, detail=client_rate_correction.order_lock_message(lock)
+        )
+
+
 async def _record_rate_from_move(
     db: AsyncSession,
     *,
@@ -1632,6 +1652,19 @@ async def apply_move(
     ):
         # Stawka do klienta w ruchu = ta sama bramka co `PATCH …/client-rate`.
         raise client_rate_write_denied()
+    # Stawka pary sprzed ruchu — „stara” kwota w audycie, jak w PATCH. Nowy
+    # wiersz etapu startuje bez stawki, więc bez niej historia gubi kwotę
+    # wysyłki („brak stawki → X”).
+    client_rate_before = None
+    if client_rate_value is not None:
+        await _assert_client_rate_not_order_locked(
+            db, candidate_id=data.candidate_id, job_id=data.job_id
+        )
+        from app.services.stage_client_rate import latest_client_rates  # noqa: PLC0415
+
+        client_rate_before = (
+            await latest_client_rates(db, [(data.candidate_id, data.job_id)])
+        ).get((data.candidate_id, data.job_id))
 
     # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
     # enforce (global blacklist / hiring-manager veto) → 409 with the Polish
@@ -1924,6 +1957,7 @@ async def apply_move(
         stage.client_accepted_on = data.client_accepted_on or business_today()
         stage.planned_start_on = data.planned_start_on
     if client_rate_value is not None:
+        old_value, old_unit, old_currency = client_rate_before or (None, None, None)
         candidate_audit.record_candidate_audit(
             db,
             action=candidate_audit.CLIENT_RATE_CHANGED,
@@ -1932,6 +1966,9 @@ async def apply_move(
             details={
                 "job_id": data.job_id,
                 "stage_id": stage.id,
+                "old_client_rate": old_value,
+                "old_client_rate_unit": old_unit,
+                "old_client_rate_currency": old_currency,
                 "new_client_rate": float(client_rate_value),
                 "new_client_rate_unit": stage.client_rate_unit,
                 "new_client_rate_currency": stage.client_rate_currency,
@@ -4692,6 +4729,12 @@ async def bulk_move_candidates(
         db, current_user, job
     ):
         raise client_rate_write_denied()
+    if data.client_rate_value is not None:
+        # Jak pojedynczy /move: osoba z zamówieniem zatrzymuje całą paczkę.
+        for cid in unique_ids:
+            await _assert_client_rate_not_order_locked(
+                db, candidate_id=cid, job_id=job.id
+            )
 
     # Rekrutacja v5 (0361): QC CV przed „CV wysłane” — jak pojedynczy /move.
     # Pierwsza osoba bez QC zatrzymuje całą paczkę (409 z jej `stage_id`).

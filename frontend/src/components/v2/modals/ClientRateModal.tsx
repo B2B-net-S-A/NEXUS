@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 
 import type { RateUnit } from "@/lib/api";
+import type { ClientRateOrderLock } from "@/lib/api/clientRateHistory";
 
 interface Props {
   open: boolean;
@@ -41,6 +42,9 @@ interface Props {
   /** Stawka do klienta zapisana wcześniej w tej rekrutacji — podstawiona,
    *  żeby okno nie pytało o coś, co już znamy (test na produkcji 24.09.2026). */
   initialRate?: { value: number; unit: RateUnit } | null;
+  /** Para ma zamówienie (`order_lock` z historii stawki, 21.10.2026): stawkę
+   *  zmienia się w zamówieniu — okno nie przyjmuje kwoty, ruch idzie bez niej. */
+  orderLock?: ClientRateOrderLock | null;
 }
 
 const UNIT_LABELS: Record<RateUnit, string> = {
@@ -65,6 +69,7 @@ export function ClientRateModal({
   required = false,
   candidateRateLabel = null,
   initialRate = null,
+  orderLock = null,
 }: Props) {
   const [rate, setRate] = useState<string>(initialRate ? String(initialRate.value) : "");
   // Wymagana stawka (przegląd DL) jest godzinowa jak w makiecie; stary
@@ -111,44 +116,56 @@ export function ClientRateModal({
               {candidateRateLabel ?? "nie podano przy weryfikacji"}
             </span>
           </p>
-          <FormField label="Stawka do klienta" required={required}>
-            <input
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="0"
-              value={rate}
-              onChange={(e) => setRate(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && isValid) handleConfirm();
-              }}
-              placeholder={unit === "hourly" ? "np. 175" : unit === "daily" ? "np. 1400" : "np. 25000"}
-              className="w-full h-10 px-3 rounded-md border border-border bg-card focus:outline-hidden focus:ring-2 focus:ring-primary"
-              autoFocus
-            />
-          </FormField>
-          <FormField label="Jednostka">
-            <Select value={unit} onValueChange={(v) => setUnit(v as RateUnit)}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(UNIT_LABELS) as RateUnit[]).map((u) => (
-                  <SelectItem key={u} value={u}>
-                    {UNIT_LABELS[u]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FormField>
-          <p className="text-xs text-muted-foreground">
-            {required
-              ? "Bez stawki nie przeniesiesz na „CV wysłane”. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata."
-              : "Możesz pominąć i uzupełnić stawkę później z profilu kandydata (zakładka „Rekrutacje”)."}
-          </p>
+          {orderLock ? (
+            <p
+              role="alert"
+              className="rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+            >
+              Ta osoba ma już zamówienie „{orderLock.title}”. Stawkę do klienta zmień
+              w zamówieniu, nie w rekrutacji.
+            </p>
+          ) : (
+            <>
+              <FormField label="Stawka do klienta" required={required}>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={rate}
+                  onChange={(e) => setRate(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && isValid) handleConfirm();
+                  }}
+                  placeholder={unit === "hourly" ? "np. 175" : unit === "daily" ? "np. 1400" : "np. 25000"}
+                  className="w-full h-10 px-3 rounded-md border border-border bg-card focus:outline-hidden focus:ring-2 focus:ring-primary"
+                  autoFocus
+                />
+              </FormField>
+              <FormField label="Jednostka">
+                <Select value={unit} onValueChange={(v) => setUnit(v as RateUnit)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(UNIT_LABELS) as RateUnit[]).map((u) => (
+                      <SelectItem key={u} value={u}>
+                        {UNIT_LABELS[u]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <p className="text-xs text-muted-foreground">
+                {required
+                  ? "Bez stawki nie przeniesiesz na „CV wysłane”. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata."
+                  : "Możesz pominąć i uzupełnić stawkę później z profilu kandydata (zakładka „Rekrutacje”)."}
+              </p>
+            </>
+          )}
         </DialogBody>
         <DialogFooter>
-          {required ? (
+          {orderLock || required ? (
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Anuluj
             </Button>
@@ -157,9 +174,13 @@ export function ClientRateModal({
               Przesuń bez stawki
             </Button>
           )}
-          <Button onClick={handleConfirm} disabled={!isValid}>
-            Przesuń i zapisz
-          </Button>
+          {orderLock ? (
+            <Button onClick={handleSkip}>Przesuń bez zmiany stawki</Button>
+          ) : (
+            <Button onClick={handleConfirm} disabled={!isValid}>
+              Przesuń i zapisz
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

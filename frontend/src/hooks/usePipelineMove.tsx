@@ -51,6 +51,8 @@ import {
 } from "@/components/ui/dialog";
 import { VerifiedRateModal } from "@/components/v2/modals/VerifiedRateModal";
 import { ClientRateModal } from "@/components/v2/modals/ClientRateModal";
+import { useClientRateHistory } from "@/lib/api/clientRateHistory";
+import { canViewClientRate } from "@/lib/client-rate-access";
 import { RejectionV2, type EndedBy } from "@/components/v2/modals/RejectionV2";
 import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
 import {
@@ -472,6 +474,13 @@ export function usePipelineMove({
     srcColId: string;
   } | null>(null);
   const [clientRateQueue, setClientRateQueue] = useState<MoveEntry[]>([]);
+  // Para z zamówieniem: stawkę zmienia się w zamówieniu (`order_lock`), więc
+  // okno nie przyjmuje kwoty — serwer i tak oddałby 409 (21.10.2026).
+  const clientRateHistory = useClientRateHistory(
+    clientRatePrompt?.item.candidate_id ?? null,
+    jobId,
+    clientRatePrompt != null && canViewClientRate(authUser),
+  );
   // Pipeline v4: 409 DEBRIEF_REQUIRED — najpierw telefon po rozmowie u klienta
   // i pytania klienta, potem TEN SAM ruch.
   const [debriefRequired, setDebriefRequired] = useState<{
@@ -1795,6 +1804,7 @@ export function usePipelineMove({
           required={!cproEnabled}
           candidateRateLabel={formatExpectedRate(clientRatePrompt.item)}
           initialRate={knownClientRate(clientRatePrompt.item)}
+          orderLock={clientRateHistory.data?.order_lock ?? null}
         />
       )}
 

@@ -36,6 +36,15 @@ zamówieniu, zapis jak dotąd. Kod: `services/client_rate_correction.py`,
 - **„Stara” kwota w audycie to stawka PARY sprzed zmiany**, nie wiersza:
   ruch na kolejny etap zaczyna wiersz bez stawki, więc po „Rozmowie” stara
   kwota z samego wiersza byłaby pusta.
+- **Ruch karty z kwotą też jest zapisem stawki** (audyt 21.10.2026):
+  `/api/pipeline/move` i `/bulk-move` z `client_rate_value` wołają
+  `order_lock` (także przy pierwszej wysyłce) i oddają 409 z
+  `order_lock_message` — wcześniej powrót na „CV wysłane” z nową kwotą
+  omijał blokadę. Audyt `client_rate_changed` z ruchu niesie
+  `old_client_rate*` = stawka pary sprzed ruchu (`latest_client_rates`), żeby
+  historia nie pokazywała „brak stawki → X” ani nie gubiła kwoty wysyłki.
+  Okno stawki przy ruchu (`ClientRateModal`, `orderLock` z historii stawki)
+  przy zamówieniu nie przyjmuje kwoty i daje „Przesuń bez zmiany stawki”.
 - **Historia:** kwota wysyłki = „stara” kwota pierwszej zmiany po pierwszym
   wierszu „CV wysłane” (wiersz mógł zostać nadpisany), bez zmian — bieżąca
   stawka. Zmiany sprzed wysyłki nie są historią po wysyłce.
