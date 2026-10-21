@@ -74,6 +74,7 @@ import {
   Repeat2,
   Sparkles,
   Undo2,
+  RotateCcw,
   X,
 } from "lucide-react";
 
@@ -91,7 +92,8 @@ import {
 import { withDownloadIntent, type CvDownloadSurface } from "@/lib/cv-download-intent";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
 import { countForm } from "@/lib/cv-qc";
-import { cvAiSourcesQueryKey } from "@/lib/cv-ai-sources";
+import { cvAiSourcesQueryKey, fetchCvAiSources } from "@/lib/cv-ai-sources";
+import { sourceCvWarning } from "@/lib/cv-generate-confirm";
 import type { CvEditorHandoff } from "@/lib/cv-editor-handoff";
 import {
   cvToClientIssuesQueryKey,
@@ -128,6 +130,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
 import { CvRewriteForm, REWRITE_MAX } from "@/components/v2/recruitment/CvRewriteForm";
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
@@ -604,6 +607,44 @@ export function CvToClientCard({
       showError(apiErrorMessage(error, "Nie udało się przywrócić poprzedniej wersji. Odśwież i spróbuj ponownie.")),
   });
 
+  // „Odrzuć to CV i zacznij od nowa” (21.10.2026): karta wraca do potwierdzeń,
+  // treść idzie do historii wersji — nic nie jest kasowane.
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const discardMut = useMutation({
+    mutationFn: (target: { stageId: number; revision: number }) =>
+      candidateStageCvApi.branded.discard(target.stageId, target.revision),
+    onSuccess: (response, target) => {
+      queryClient.setQueryData(stageBrandedQueryKey(target.stageId), response.data);
+      setRewriteResult(null);
+      refresh();
+      setEditorOpen(false);
+      setGenerateOpen(true);
+      showSuccess("CV odrzucone. Potwierdź, z czego zrobić nowe.");
+    },
+    onError: (error) =>
+      showError(apiErrorMessage(error, "Nie udało się odrzucić CV — odśwież i spróbuj ponownie.")),
+  });
+  const discardCv = async () => {
+    if (!branded) return;
+    const ok = await askConfirm({
+      title: "Odrzucić to CV do klienta?",
+      description:
+        "Karta wróci do wyboru pliku, odpowiedzi i notatek. To CV zostaje w historii wersji i w plikach kandydata — nic nie jest kasowane.",
+      confirmLabel: "Odrzuć i zacznij od nowa",
+    });
+    if (ok) discardMut.mutate({ stageId: cvStageId, revision: branded.edit_revision ?? 0 });
+  };
+
+  // „Powstało z: <plik>” — źródło bieżącej wersji (ten sam odczyt co panel).
+  const sourcesQuery = useQuery({
+    queryKey: cvAiSourcesQueryKey(cvStageId),
+    queryFn: () => fetchCvAiSources(cvStageId),
+    enabled: state.kind === "ready",
+    retry: false,
+  });
+  const usedFile = state.kind === "ready" ? (sourcesQuery.data?.last_source_cv ?? null) : null;
+  const sourceWarning = state.kind === "ready" ? sourceCvWarning(sourcesQuery.data) : null;
+
   /** „Użyj nowej wersji” — wersja szkicu z chwili kliknięcia. */
   const attachNewVersion = (generatedId: number) =>
     attachVersionMut.mutate({ stageId: cvStageId, generatedId, revision: branded?.edit_revision ?? 0 });
@@ -826,6 +867,11 @@ export function CvToClientCard({
                 {finalized ? `wersja ${branded.version}` : "szkic"}
               </Badge>
               {facts.length > 0 ? <p>{facts.join(" · ")}</p> : null}
+              {usedFile ? (
+                <p data-testid="cv-source-file" className="[overflow-wrap:anywhere]">
+                  Powstało z: <span className="font-medium text-foreground">{usedFile.filename ?? "plik CV"}</span>
+                </p>
+              ) : null}
             </div>
             {state.needsReview || origin ? (
               <div className="flex flex-wrap items-center gap-1.5">
@@ -853,6 +899,20 @@ export function CvToClientCard({
               </p>
             ) : null}
             {origin ? <p className="text-[11px] text-muted-foreground">{origin.sentence}</p> : null}
+            {sourceWarning ? (
+              <div
+                role="note"
+                data-testid="cv-source-warning"
+                className="space-y-1.5 rounded-md border border-warning/30 bg-warning-muted px-2.5 py-2 text-xs text-warning-muted-foreground"
+              >
+                <p className="[overflow-wrap:anywhere]">{sourceWarning}</p>
+                {canReplace && !generateOpen ? (
+                  <Button size="sm" variant="outline" onClick={openGenerator}>
+                    <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj z innego pliku
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-1.5">
               {!readOnly ? (
                 <Button size="sm" variant="outline" onClick={() => openEditor()}>
@@ -910,6 +970,14 @@ export function CvToClientCard({
                   {canReplace && !generateOpen ? (
                     <DropdownMenuItem onSelect={afterMenuCloses(openGenerator)}>
                       <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj ponownie
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canReplace && !generateOpen && !pending ? (
+                    <DropdownMenuItem
+                      disabled={discardMut.isPending}
+                      onSelect={afterMenuCloses(() => void discardCv())}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Odrzuć to CV i zacznij od nowa
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuContent>
@@ -1157,6 +1225,7 @@ export function CvToClientCard({
       className="space-y-3 rounded-xl border border-border bg-card p-3"
     >
       <h3 className="text-sm font-semibold text-foreground">CV do klienta</h3>
+      {confirmDialog}
       {progress ? (
         <ForwardProgressBlock {...progress} next={nextInScreening} onOpenPerson={onOpenPerson} />
       ) : null}

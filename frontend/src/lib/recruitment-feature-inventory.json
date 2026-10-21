@@ -1206,6 +1206,14 @@
    "v3_home": "panel → CV → karta „CV do klienta” → Generuj CV"
   },
   {
+   "id": "cv.to-client-source-and-discard",
+   "area": "cv",
+   "opis": "Gotowe CV w karcie „CV do klienta” (21.10.2026): „Powstało z: <plik>”, żółta ramka, gdy źródło to plik „CV dla klienta”, nieaktualny, usunięty albo inny niż Oryginał CV rekrutacji, z „Wygeneruj z innego pliku”; w „⋯” „Odrzuć to CV i zacznij od nowa” — karta wraca do potwierdzeń, CV zostaje w historii wersji",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Odrzuć to CV i zacznij od nowa",
+   "v3_home": "panel → CV → karta „CV do klienta” → ⋯"
+  },
+  {
    "id": "cv.to-client-checks",
    "area": "cv",
    "opis": "Jedna liczba „N rzeczy do sprawdzenia przed wysłaniem” na karcie „CV do klienta” (QC bez zapisu przebiegu, uwagi generatora i kontrola AI, po pominięciach — ta sama co „Do poprawy (N)” w edytorze) z „Sprawdź i popraw”, które otwiera edytor na panelu „Do poprawy”; awaria nie wygląda jak zero",

@@ -19,6 +19,7 @@ szablon „CV firmowe" wycofany (GET `none` = pusty stan, zmiana szablonu 410):
 
 Wybór gotowego CV z profilu kandydata (09.10.2026):
   POST   /api/candidates/stages/{stage_id}/cv/branded/select-generated
+  POST   /api/candidates/stages/{stage_id}/cv/branded/discard
          (CV z generatora, także z innej rekrutacji tej osoby)
   POST   /api/candidates/stages/{stage_id}/cv/branded/select-document
          (plik Word z profilu, wczytany do edytora bez AI)
@@ -130,6 +131,7 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedSelectDocument,
     CVEditorDismissRequest,
     CVEditorIssues,
+    CVBrandedDiscard,
     CVBrandedRestorePrevious,
     CVBrandedRewrite,
     CVBrandedSelectGenerated,
@@ -1573,6 +1575,40 @@ async def restore_previous_branded_draft(
     await db.commit()
     await db.refresh(csv)
     _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)
+    return _build_branded_response(csv)
+
+
+DISCARD_ACTION = "branded_cv_discarded"
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/discard",
+    response_model=CVBrandedResponse,
+)
+async def discard_branded_cv(
+    stage_id: int,
+    payload: CVBrandedDiscard,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVBrandedResponse:
+    """„Odrzuć to CV i zacznij od nowa” (21.10.2026, zgłoszenie zespołu).
+
+    CV do klienta powstało z błędnego pliku albo bez notatki — karta wraca do
+    stanu „brak” i do potwierdzeń przed generacją. Nic nie jest kasowane:
+    treść idzie do migawki (`replaced`, „Historia wersji” i „Wróć do
+    poprzedniej”), zatwierdzone wersje zostają w `cv_document_versions`,
+    dokument generatora zostaje w plikach kandydata. Od „CV wysłane” klient ma
+    już to CV — 409 jak przy każdej podmianie.
+    """
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    check_revision(csv, payload.expected_revision)
+    if csv.branded_status == "none":
+        raise HTTPException(409, "Ta rekrutacja nie ma CV do klienta do odrzucenia.")
+    await _ensure_client_cv_replaceable(db, csv)
+    snapshot_draft(db, csv, user_id=current_user.id, reason="replaced")
+    _clear_stage_draft(db, csv, user_id=current_user.id, action=DISCARD_ACTION)
+    await db.commit()
+    await db.refresh(csv)
     return _build_branded_response(csv)
 
 

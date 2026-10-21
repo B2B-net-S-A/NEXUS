@@ -1,5 +1,5 @@
 # CV po potwierdzeniu — bez auto-CV po „Zweryfikowany” (21.10.2026)
-<!-- indeks: trzy potwierdzenia w karcie, plik z kopii „Oryginał CV”, `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION` -->
+<!-- indeks: trzy potwierdzenia w karcie, plik z kopii „Oryginał CV”, `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`, „Powstało z”, „Odrzuć to CV” -->
 
 Zgłoszenie zespołu z 21.10.2026: „jak usunąć CV, które wygenerowało się z błędnego
 pliku, i wygenerować poprawne?” oraz „CV generuje się samo po kliknięciu
@@ -45,6 +45,26 @@ i dodatkowych notatek; domyślny plik = kopia „Oryginał CV” rekrutacji.
 - Awaria `…/ai-sources` nie blokuje: lista plików z `cv-sources` generatora,
   krok odpowiedzi mówi „nie udało się sprawdzić”, potwierdzenia działają.
 
+## Gotowe CV: „Powstało z”, ramka i „Odrzuć to CV” (PR 2)
+
+- **Generacja zapisuje plik źródłowy** w `render_payload["source_cv"]`
+  (`_record_ai_sources` w `api/cv_generator_b2b.py`; klient go nie widzi —
+  `public_view` wybiera pola dokumentu). `…/cv/ai-sources` podaje
+  `last_source_cv` (plik, `outdated`, `stage_original`, `removed`). CV sprzed
+  21.10.2026 nie ma tej informacji — karta wtedy nic nie mówi i nie zgaduje.
+- **Karta przy gotowym CV:** „Powstało z: <plik>” i żółta ramka
+  (`sourceCvWarning` w `lib/cv-generate-confirm.ts`), gdy źródło to plik
+  „CV dla klienta” („…B2B…”), nieaktualny, usunięty z profilu albo inny niż
+  kopia „Oryginał CV” rekrutacji. W ramce „Wygeneruj z innego pliku” otwiera
+  potwierdzenia (plik domyślny = oryginał).
+- **„Odrzuć to CV i zacznij od nowa”** w „⋯” (`POST …/cv/branded/discard`
+  z `expected_revision`, `CandidateWriteAccess`): migawka szkicu `replaced`
+  (wraca przez historię), `_clear_stage_draft` z wpisem `branded_cv_discarded`,
+  karta wraca do potwierdzeń. Zatwierdzone wersje zostają w
+  `cv_document_versions`, dokument generatora w plikach kandydata. 409 przy
+  innej rewizji, przy etapie bez CV i od „CV wysłane”
+  (`client_cv_locked_after_send`). Pytanie przez `useConfirmV2`.
+
 ## Czego nie zmienia
 
 - Inne wejścia do generatora (okno z profilu, dok, okno QC) — mają własny wybór
@@ -53,6 +73,7 @@ i dodatkowych notatek; domyślny plik = kopia „Oryginał CV” rekrutacji.
   generatora (`sources[0]`).
 
 Testy: `backend/tests/test_cv_confirm_before_generate.py`,
+`backend/tests/test_cv_discard_and_source.py`,
 `frontend/src/lib/__tests__/cv-generate-confirm.test.ts`,
 `CvToClientCard.test.tsx` (sekcje „brak CV” i „po przekazaniu”), harness
 `/preview/cv-to-client` (osoba „Po przekazaniu — potwierdź, z czego zrobić CV”).

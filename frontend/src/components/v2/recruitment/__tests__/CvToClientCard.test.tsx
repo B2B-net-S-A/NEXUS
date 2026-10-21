@@ -22,7 +22,7 @@ import { act, configure, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CvAiSourceFile } from "@/lib/cv-ai-sources";
+import type { CvAiSourceFile, CvAiSourceUsedFile } from "@/lib/cv-ai-sources";
 
 import { useAuthStore } from "@/store/auth";
 
@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   originalGet: vi.fn(),
   selectGenerated: vi.fn(),
   restorePrevious: vi.fn(),
+  discard: vi.fn(),
   selectStageCv: vi.fn(),
   selectDocument: vi.fn(),
   sources: vi.fn(),
@@ -65,6 +66,7 @@ vi.mock("@/lib/api", () => ({
       get: (...a: unknown[]) => mocks.brandedGet(...a),
       selectGenerated: (...a: unknown[]) => mocks.selectGenerated(...a),
       restorePrevious: (...a: unknown[]) => mocks.restorePrevious(...a),
+      discard: (...a: unknown[]) => mocks.discard(...a),
       selectStageCv: (...a: unknown[]) => mocks.selectStageCv(...a),
       selectDocument: (...a: unknown[]) => mocks.selectDocument(...a),
       sources: (...a: unknown[]) => mocks.sources(...a),
@@ -161,7 +163,7 @@ const AI_SOURCES = {
   defaults: { answers: true, notes: true, transcripts: false, prep: false },
   last_used: null as null | Record<string, boolean>,
 };
-let aiSources: typeof AI_SOURCES & { cv_files?: CvAiSourceFile[] } = AI_SOURCES;
+let aiSources: typeof AI_SOURCES & { cv_files?: CvAiSourceFile[]; last_source_cv?: CvAiSourceUsedFile | null } = AI_SOURCES;
 // Liczba rzeczy do sprawdzenia: QC karty (bez zapisu przebiegu) i uwagi edytora.
 let qcChecks: unknown[] = [];
 let qcError: unknown = null;
@@ -1465,7 +1467,47 @@ describe("CvToClientCard — miniatura i menu „⋯” (Edytor CV 3, „Ekran 5
       "Użyj innego CV",
       "Historia wersji",
       "Wygeneruj ponownie",
+      "Odrzuć to CV i zacznij od nowa",
     ]);
+  });
+
+  it("21.10.2026: „Powstało z” i ramka przy CV z pliku „CV dla klienta”; „Wygeneruj z innego pliku” otwiera potwierdzenia", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    aiSources = {
+      ...AI_SOURCES,
+      cv_files: [
+        { document_id: 31, filename: "Jan_Kowalski_CV.pdf", uploaded_at: null, is_primary: false, outdated: false, stage_original: true },
+        { document_id: 30, filename: "Jan_Kowalski_B2B_Orlen.docx", uploaded_at: null, is_primary: true, outdated: false, stage_original: false },
+      ],
+      last_source_cv: { document_id: 30, filename: "Jan_Kowalski_B2B_Orlen.docx", outdated: false, stage_original: false, removed: false },
+    } as typeof aiSources;
+    renderCard();
+    expect(await screen.findByTestId("cv-source-file")).toHaveTextContent("Powstało z: Jan_Kowalski_B2B_Orlen.docx");
+    const warning = await screen.findByTestId("cv-source-warning");
+    expect(warning).toHaveTextContent("to „CV dla klienta”, nie CV kandydata");
+    expect(warning).toHaveTextContent("Oryginał CV w tej rekrutacji to Jan_Kowalski_CV.pdf");
+    await userEvent.click(within(warning).getByRole("button", { name: /Wygeneruj z innego pliku/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    expect(within(await within(panel).findByTestId("cv-confirm-file")).getByRole("radio", { name: /Jan_Kowalski_CV\.pdf/ })).toBeChecked();
+  });
+
+  it("21.10.2026: „Odrzuć to CV” pyta, wysyła wersję szkicu i wraca do potwierdzeń", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    mocks.discard.mockImplementation(async () => {
+      mocks.brandedGet.mockResolvedValue({ data: { status: "none", edit_revision: 4, version: 1 } });
+      rows = [];
+      return { data: { status: "none", edit_revision: 4, version: 1 } };
+    });
+    renderCard();
+    await chooseFromMore("Odrzuć to CV i zacznij od nowa");
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("nic nie jest kasowane");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Odrzuć i zacznij od nowa" }));
+    await waitFor(() => expect(mocks.discard).toHaveBeenCalledWith(21, READY.edit_revision));
+    expect(mocks.showSuccess).toHaveBeenCalledWith("CV odrzucone. Potwierdź, z czego zrobić nowe.");
+    expect(await screen.findByTestId("cv-generate-panel")).toBeInTheDocument();
   });
 
   it("tylko do odczytu: bez „Otwórz i popraw”; w „⋯” zostaje samo „Pobierz PDF”", async () => {

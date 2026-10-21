@@ -7,6 +7,7 @@ import {
   cvFileChoices,
   cvFileDetail,
   NO_CONFIRMATIONS,
+  sourceCvWarning,
 } from "@/lib/cv-generate-confirm";
 import type { CvAiSourceFile } from "@/lib/cv-ai-sources";
 
@@ -67,5 +68,45 @@ describe("pliki do wyboru", () => {
     ]);
     expect(cvFileChoices({ original_cv: null, cv_files: [] })).toEqual([]);
     expect(cvFileChoices({ original_cv: null, cv_files: [FILE] })).toEqual([FILE]);
+  });
+});
+
+describe("„Powstało z” — kiedy źródło gotowego CV jest podejrzane", () => {
+  const original = { ...FILE };
+  const used = (extra: Partial<{ document_id: number; filename: string; outdated: boolean; stage_original: boolean; removed: boolean }> = {}) => ({
+    document_id: 7,
+    filename: "Jan_Kowalski_CV.pdf",
+    outdated: false,
+    stage_original: true,
+    removed: false,
+    ...extra,
+  });
+
+  it("oryginał rekrutacji i CV sprzed zmiany — bez ramki", () => {
+    expect(sourceCvWarning({ original_cv: null, cv_files: [original], last_source_cv: used() })).toBeNull();
+    expect(sourceCvWarning({ original_cv: null, cv_files: [original], last_source_cv: null })).toBeNull();
+    expect(sourceCvWarning(undefined)).toBeNull();
+  });
+
+  it("CV dla klienta, nieaktualne, usunięte i inny plik niż oryginał — ramka z nazwą oryginału", () => {
+    const b2b = used({ document_id: 9, filename: "Jan_Kowalski_B2B_Orlen.docx", stage_original: false });
+    expect(sourceCvWarning({ original_cv: null, cv_files: [original], last_source_cv: b2b })).toBe(
+      "CV powstało z Jan_Kowalski_B2B_Orlen.docx — to „CV dla klienta”, nie CV kandydata. Oryginał CV w tej rekrutacji to Jan_Kowalski_CV.pdf.",
+    );
+    expect(
+      sourceCvWarning({ original_cv: null, cv_files: [original], last_source_cv: used({ document_id: 8, filename: "stare.docx", stage_original: false, outdated: true }) }),
+    ).toBe("CV powstało z pliku stare.docx, oznaczonego jako nieaktualny. Oryginał CV w tej rekrutacji to Jan_Kowalski_CV.pdf.");
+    expect(
+      sourceCvWarning({ original_cv: null, cv_files: [original], last_source_cv: used({ document_id: 8, filename: "x.pdf", stage_original: false, removed: true }) }),
+    ).toMatch(/którego nie ma już w profilu/);
+    expect(
+      sourceCvWarning({ original_cv: null, cv_files: [original], last_source_cv: used({ document_id: 8, filename: "inne.pdf", stage_original: false }) }),
+    ).toBe("CV powstało z inne.pdf, a nie z Oryginału CV tej rekrutacji. Oryginał CV w tej rekrutacji to Jan_Kowalski_CV.pdf.");
+  });
+
+  it("bez kopii oryginału w rekrutacji zwykły plik nie budzi ramki", () => {
+    expect(
+      sourceCvWarning({ original_cv: null, cv_files: [{ ...original, stage_original: false }], last_source_cv: used({ stage_original: false }) }),
+    ).toBeNull();
   });
 });

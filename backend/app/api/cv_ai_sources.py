@@ -44,6 +44,17 @@ class AiSourceFile(BaseModel):
     stage_original: bool = False
 
 
+class AiSourceUsedFile(BaseModel):
+    """Plik, z którego powstała bieżąca wersja CV etapu (21.10.2026)."""
+
+    document_id: int
+    filename: Optional[str] = None
+    outdated: bool = False
+    stage_original: bool = False
+    # Pliku nie ma już wśród plików CV osoby (usunięty z profilu).
+    removed: bool = False
+
+
 class AiSourceCount(BaseModel):
     count: int = 0
     # Odpowiedzi: ile przeczy pytaniu (nie są dowodem). Transkrypty: ile
@@ -65,6 +76,9 @@ class AiSourcesResponse(BaseModel):
     defaults: dict[str, bool]
     # Wybór, z którego powstała bieżąca wersja CV etapu (None = sprzed zmiany).
     last_used: Optional[dict[str, bool]] = None
+    # Plik CV bieżącej wersji („Powstało z”); None = CV sprzed 21.10.2026
+    # albo spoza generatora.
+    last_source_cv: Optional[AiSourceUsedFile] = None
 
 
 @router.get(
@@ -199,6 +213,7 @@ async def get_stage_cv_ai_sources(
             key: bool(payload["ai_sources"].get(key, default))
             for key, default in AI_SOURCE_DEFAULTS.items()
         }
+    last_source_cv = _used_file(payload, cv_files)
 
     return AiSourcesResponse(
         original_cv=original,
@@ -211,6 +226,7 @@ async def get_stage_cv_ai_sources(
         rate_notes=rate_notes,
         defaults=dict(AI_SOURCE_DEFAULTS),
         last_used=last_used,
+        last_source_cv=last_source_cv,
     )
 
 
@@ -288,3 +304,24 @@ async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFil
             )
         )
     return files
+
+
+def _used_file(
+    payload: object, cv_files: list[AiSourceFile]
+) -> Optional[AiSourceUsedFile]:
+    """„Powstało z”: plik zapisany przy generacji (`render_payload["source_cv"]`)."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("source_cv"), dict):
+        return None
+    raw = payload["source_cv"]
+    try:
+        document_id = int(raw.get("document_id"))
+    except (TypeError, ValueError):
+        return None
+    current = next((f for f in cv_files if f.document_id == document_id), None)
+    return AiSourceUsedFile(
+        document_id=document_id,
+        filename=(current.filename if current else None) or raw.get("filename"),
+        outdated=bool(current and current.outdated),
+        stage_original=bool(current and current.stage_original),
+        removed=current is None,
+    )

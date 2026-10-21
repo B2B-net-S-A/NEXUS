@@ -54,6 +54,12 @@ class CVBrandedRestorePrevious(BaseModel):
     expected_revision: int = Field(ge=0)
 
 
+class CVBrandedDiscard(BaseModel):
+    """„Odrzuć to CV i zacznij od nowa” (21.10.2026) — wersja, którą rekruter widział."""
+
+    expected_revision: int = Field(ge=0)
+
+
 class CVBrandedRewrite(BaseModel):
     """Wynik podmiany szkicu nową generacją — zdanie i „Wróć do poprzedniej” w karcie."""
 
