@@ -48,6 +48,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services import cpro_sender, recommendation_cards
+from app.services.stage_verifier import first_verifier
 from app.services.board_stage_badges import (
     cpro_enabled_for_client,
     foreign_stage_target,
@@ -583,10 +584,12 @@ async def _attach_dl_review_details(
 ) -> None:
     """Dla przeglądu DL: wiersz weryfikacji (kto, kiedy, stawka) i screening.
 
-    Najnowszy wiersz pary to etap QC CV, więc weryfikację szukamy wstecz
-    w historii pary — ostatni wiersz, który na
-    tablicy tej rekrutacji stoi na etapie ``verified``. Arkusz screeningu leży
-    na wierszu, na którym go wypełniono (zwykle „Screening").
+    Najnowszy wiersz pary to etap QC CV, więc weryfikację szukamy w historii
+    pary — wśród wierszy, które na tablicy tej rekrutacji stoją na etapie
+    ``verified``, pierwszy weryfikujący (``stage_verifier.first_verifier``,
+    jak premia rekrutera; cofnięcie karty przez DL to nie weryfikacja).
+    Arkusz screeningu leży na wierszu, na którym go wypełniono (zwykle
+    „Screening").
     """
 
     review = [t for t in tasks if t.kind == KIND_DL_REVIEW]
@@ -602,6 +605,7 @@ async def _attach_dl_review_details(
                 CandidateStage.stage_def_id,
                 CandidateStage.moved_at,
                 CandidateStage.moved_by,
+                CandidateStage.approved_at,
                 CandidateStage.expected_rate_value,
                 CandidateStage.expected_rate_unit,
                 CandidateStage.expected_rate_currency,
@@ -619,6 +623,7 @@ async def _attach_dl_review_details(
     for t in review:
         stages = catalog.stages.get(t.template_id) if t.template_id else None
         rate_found = False
+        verified_row = None
         for row in history.get((t.candidate_id, t.job_id), []):
             # Stawka = NAJNOWSZA niepusta w parze (0418, 04.10.2026). Korekta
             # stawki zapisuje się na najnowszym wierszu (np. QC CV), więc
@@ -629,18 +634,17 @@ async def _attach_dl_review_details(
                 t.expected_rate_unit = row.expected_rate_unit
                 t.expected_rate_currency = row.expected_rate_currency
             if (
-                t.verified_at is None
-                and stages is not None
+                stages is not None
                 and row.stage_def_id is not None
                 and catalog.effective_def_id(t.template_id, row.stage_def_id)
                 in stages.verified_ids
             ):
-                t.verified_by_id = row.moved_by
-                t.verified_at = row.moved_at
+                verified_row = first_verifier(verified_row, row)
             if t.screening_stage_id is None and row.has_screening:
                 t.screening_stage_id = row.id
-            if t.verified_at is not None and t.screening_stage_id is not None:
-                break
+        if verified_row is not None:
+            t.verified_by_id = verified_row.moved_by
+            t.verified_at = verified_row.moved_at
 
 
 async def dl_portfolio_client_ids(db: AsyncSession, user_id: int) -> frozenset[int]:

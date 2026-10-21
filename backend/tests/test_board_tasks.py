@@ -945,6 +945,31 @@ async def test_dl_review_lists_people_in_the_qc_column_not_in_verified(
         assert row["qc_status"] == "unchecked"
         assert queue["dl_review_window_days"] == svc.DL_REVIEW_WINDOW_DAYS
 
+        # DL cofa kartę z „QC CV” na „Zweryfikowany”, rekruter oddaje ją
+        # z powrotem do QC: nowszy wiersz „Zweryfikowany” to cofnięcie, nie
+        # weryfikacja — przegląd dalej wskazuje pierwszego weryfikującego,
+        # jak premia rekrutera (zgłoszenie 21.10.2026).
+        async with AsyncSessionLocal() as db:
+            now = datetime.now(timezone.utc)
+            for key, legacy, mover, seconds in (
+                ("verified", "verified", dl_in_id, 1),
+                ("qc", "interview", rec_id, 2),
+            ):
+                db.add(
+                    CandidateStage(
+                        candidate_id=cid,
+                        job_id=jid,
+                        stage=legacy,
+                        stage_def_id=defs[key],
+                        moved_by=mover,
+                        moved_at=now + timedelta(seconds=seconds),
+                    )
+                )
+            await db.commit()
+        queue = (await api_client.get("/api/board-tasks", headers=dl_in)).json()
+        (row,) = _rows(queue, "dl_review", cid)
+        assert row["verified_by_id"] == hor_id
+
         assert (
             _rows(
                 (await api_client.get("/api/board-tasks", headers=rec)).json(),

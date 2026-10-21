@@ -134,6 +134,7 @@ from app.services.recruitment_move_policy import (
 )
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
+from app.services.stage_verifier import first_verifier
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.services.consultant_elsewhere_notifications import (
     employed_elsewhere_client_ids,
@@ -756,9 +757,9 @@ def _stage_response(
     mover on the *earliest* stage of this candidate/job pair, not the
     current-stage mover. Also populated by the Kanban endpoint (NULL elsewhere).
 
-    ``verified_by_name`` / ``verified_by_id`` / ``verified_at`` — the mover on
-    the NEWEST „Zweryfikowany” row of the pair (the same rule as the DL review,
-    `board_tasks`). Kanban only.
+    ``verified_by_name`` / ``verified_by_id`` / ``verified_at`` — the FIRST
+    verifier of the pair (``stage_verifier.first_verifier``, the same rule as
+    the recruiter bonus and the DL review). Kanban only.
     """
     return {
         "id": stage.id,
@@ -3049,8 +3050,10 @@ async def build_kanban_view(
     # (wiersze sprzed 0451 też nie — wtedy najnowszy wiersz akceptacji).
     latest_acceptance: dict[int, CandidateStage] = {}
     latest_any_acceptance: dict[int, CandidateStage] = {}
-    # Kto zweryfikował (20.10.2026): najnowszy wiersz „Zweryfikowany” pary.
-    latest_verified: dict[int, CandidateStage] = {}
+    # Kto zweryfikował: pierwszy weryfikujący pary, jak premia rekrutera.
+    # Najnowszy wiersz „Zweryfikowany” bywa cofnięciem karty przez DL z „QC
+    # CV” (21.10.2026: karta pokazywała DL-a zamiast rekruterki).
+    first_verified: dict[int, CandidateStage] = {}
     for s in all_stages:
         if s.candidate_id not in seen:
             seen[s.candidate_id] = s
@@ -3064,7 +3067,9 @@ async def build_kanban_view(
         if s.client_rate_value is not None:
             carried_client_rate.setdefault(s.candidate_id, s)
         if s.stage == PipelineStage.verified:
-            latest_verified.setdefault(s.candidate_id, s)
+            first_verified[s.candidate_id] = first_verifier(
+                first_verified.get(s.candidate_id), s
+            )
         if s.stage == PipelineStage.acceptance:
             latest_any_acceptance.setdefault(s.candidate_id, s)
             if s.client_accepted_on is not None:
@@ -3148,7 +3153,7 @@ async def build_kanban_view(
     # job (mover on the earliest stage). One query, no per-card N+1.
     added_by_user_ids = (
         {e.moved_by for e in earliest.values() if e.moved_by is not None}
-        | {v.moved_by for v in latest_verified.values() if v.moved_by is not None}
+        | {v.moved_by for v in first_verified.values() if v is not None}
         | {
             creator
             for _, _, creator in added_to_base_by_id.values()
@@ -3461,7 +3466,7 @@ async def build_kanban_view(
             else None
         )
         added_at = first.moved_at if first is not None else None
-        verified = latest_verified.get(e.candidate_id)
+        verified = first_verified.get(e.candidate_id)
         payload = _stage_response(
             e,
             show_client_rate=show_client_rate,
