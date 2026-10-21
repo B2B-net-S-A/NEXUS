@@ -10,7 +10,7 @@
  */
 
 import { eligibilityWarningBadges } from "@/lib/eligibility-reason-labels";
-import { cvStateBadge, type CardBadgeTone } from "@/lib/board-card-badges";
+import { cvStateBadge, offLimitsCardBadge, type CardBadgeTone } from "@/lib/board-card-badges";
 import { placeStage } from "@/lib/board-stages";
 import {
   colId,
@@ -252,7 +252,14 @@ export function buildProcessRows(
 export type RowBadgeTone = "warning" | "danger" | "info";
 
 export interface RowBadge {
-  key: "over-budget" | "screening" | "scorecard" | "hm-veto" | "auto-cv" | `warning:${string}`;
+  key:
+    | "over-budget"
+    | "screening"
+    | "scorecard"
+    | "hm-veto"
+    | "auto-cv"
+    | "off-limits"
+    | `warning:${string}`;
   label: string;
   tone: RowBadgeTone;
   title: string;
@@ -302,6 +309,16 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
       label: warning.label,
       tone: warning.tone,
       title: warning.title,
+    });
+  }
+  // Off-limits (21.10.2026): ślad potwierdzenia „sam(a) się zgłosił(a)”.
+  const offLimits = offLimitsCardBadge(item.entry_off_limits);
+  if (offLimits) {
+    out.push({
+      key: "off-limits",
+      label: offLimits.label,
+      tone: "warning",
+      title: offLimits.title ?? offLimits.label,
     });
   }
   // Stan CV firmowego (14.10.2026) — ta sama reguła co karta Tablicy

@@ -21,6 +21,10 @@ from app.core.integer_range import OUT_OF_RANGE, is_integer_out_of_range
 from app.core.null_character_guard import NullCharacterGuardMiddleware
 from app.core.body_size_limit import BodySizeLimitMiddleware
 from app.core.request_correlation import RequestCorrelationMiddleware
+from app.services.client_off_limits import (
+    OffLimitsConfirmationMiddleware,
+    OffLimitsConfirmationRequired,
+)
 from app.core.sentry_privacy import scrub_event
 
 # Eager-import the models package so every ORM class is registered in the
@@ -1081,11 +1085,29 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # a kopertę `{"error": …}` oddaje ten handler (`integrations_v1.common`).
 app.add_exception_handler(IntegrationApiError, integration_error_handler)
 
+
+async def _off_limits_confirmation_handler(
+    request: Request, exc: OffLimitsConfirmationRequired
+) -> JSONResponse:
+    """409 z listą osób do potwierdzenia „sama się zgłosiła” (21.10.2026).
+
+    Wyjątek, nie odpowiedź z trasy: sesja żądania robi rollback, więc
+    przerwana partia nie zostawia połowy kart."""
+    return JSONResponse(status_code=409, content={"detail": exc.detail()})
+
+
+app.add_exception_handler(
+    OffLimitsConfirmationRequired, _off_limits_confirmation_handler
+)
+
 # KOLEJNOŚĆ MA ZNACZENIE: `add_middleware` dokłada na zewnątrz, więc dodane
 # jako PIERWSZE jest najgłębiej. `UnhandledErrorMiddleware` musi być pod
 # `CORSMiddleware`, żeby zwrócone przez nie 500 przeszło przez CORS i dotarło
 # do przeglądarki z nagłówkami (inaczej wraca „Network Error" — patrz docstring).
 app.add_middleware(UnhandledErrorMiddleware)
+# Potwierdzenie „sama się zgłosiła” z nagłówka do kontekstu żądania — bramkę
+# off-limits sprawdza serwis procesu, nie trasa (``client_off_limits``).
+app.add_middleware(OffLimitsConfirmationMiddleware)
 # NUL (U+0000) w query, ścieżce albo ciele JSON → 422 zanim dotknie PostgreSQL-a
 # (asyncpg odrzuca NUL w `text`, bez tego każdy taki parametr kończył się 500).
 # Nad `UnhandledErrorMiddleware`, ale pod CORS: odrzucenie musi dostać nagłówki
@@ -1151,6 +1173,8 @@ app.add_middleware(
         "sentry-trace",
         "baggage",
         "X-Operation-Id",
+        # Off-limits: „sama się zgłosiła” przy dodaniu do rekrutacji.
+        "X-Off-Limits-Confirmation",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but

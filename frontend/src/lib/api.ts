@@ -13,6 +13,13 @@ import type { RequestStatus } from "./request-status";
 import type { RequestStage } from "./request-stage";
 import type { CompanyVerification } from "./b2b-registry-check";
 import { recordRefusal, refusalCode } from "./help/refusal-tracker";
+import {
+  askOffLimits,
+  OFF_LIMITS_HEADER,
+  offLimitsDeclinedMessage,
+  offLimitsHeaderValue,
+  offLimitsPeopleFrom,
+} from "./off-limits";
 import type {
   AdminPermissionsSnapshot,
   AdminUserPermissionsResponse,
@@ -239,6 +246,36 @@ api.interceptors.response.use(
     await new Promise((r) => setTimeout(r, delay));
     return api.request(config);
   }
+);
+
+// Off-limits (21.10.2026): osoba z firmy, z której nie wyciągamy ludzi →
+// okno „Czy sama się do nas zgłosiła?” i jedno ponowienie TEGO SAMEGO żądania
+// z odpowiedziami w nagłówku. „Nie, to my” = błąd z czytelnym zdaniem,
+// które wołający pokazuje jak każdy inny (`apiErrorMessage`).
+type OffLimitsConfig = { _offLimitsAsked?: boolean };
+
+api.interceptors.response.use(
+  (res) => res,
+  async (err: AxiosError) => {
+    const config = err.config as (typeof err.config & OffLimitsConfig) | undefined;
+    const people = offLimitsPeopleFrom(err);
+    if (!config || !people || config._offLimitsAsked || typeof window === "undefined") {
+      return Promise.reject(err);
+    }
+    const answers = await askOffLimits(people);
+    const header = answers ? offLimitsHeaderValue(answers) : null;
+    if (!header) {
+      if (err.response) {
+        err.response.data = {
+          detail: { code: "off_limits_declined", message: offLimitsDeclinedMessage(people) },
+        };
+      }
+      return Promise.reject(err);
+    }
+    config._offLimitsAsked = true;
+    config.headers[OFF_LIMITS_HEADER] = header;
+    return api.request(config);
+  },
 );
 
 // Session-expired auto-redirect.

@@ -360,6 +360,10 @@ class CandidateStageResponse(BaseModel):
     # 0404: przegląd zgłoszenia z linku rekrutacji — {"verdict", "assessed",
     # "must_found", "must_total", "overridden"}; `None` = wejście bez przeglądu.
     entry_ai_screening: Optional[dict] = None
+    # Off-limits (21.10.2026): osoba z firmy z aktywnym zamówieniem dodana
+    # po potwierdzeniu „sama się zgłosiła” — {"client_name", "company", "how",
+    # "how_label", "confirmed_by_id", "confirmed_by_name", "confirmed_at"}.
+    entry_off_limits: Optional[dict] = None
     # Etap 2 linków (19.10.2026): właściciel linku rekrutacji, z którego
     # osoba się zgłosiła — plakietka „Z Twojego linku” / „Z linku Marty N.”.
     entry_link_owner_id: Optional[int] = None

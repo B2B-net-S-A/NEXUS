@@ -31,6 +31,7 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
 from app.services import board_tasks as board_tasks_svc
 from app.services import candidate_audit, candidate_claim, pipeline_move_rules
+from app.services.client_off_limits import off_limits_badge
 from app.services.process_entry_meta import (
     application_link_owner_id,
     application_screening_badge,
@@ -3577,6 +3578,9 @@ async def build_kanban_view(
             payload["entry_source"] = v4.entry_source
             payload["entry_auto_match"] = auto_match_badge(v4.entry_meta)
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
+            payload["entry_off_limits"] = off_limits_badge(
+                v4.entry_meta, user_name_by_id
+            )
             link_owner = link_owner_by_candidate.get(e.candidate_id)
             if link_owner is not None:
                 payload["entry_link_owner_id"] = link_owner

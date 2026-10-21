@@ -42,7 +42,7 @@ from app.models.recruitment_pipeline import (
 )
 from app.models.recruitment_priority import PriorityChannel
 from app.models.recruitment_process import RecruitmentProcess
-from app.services import candidate_claim
+from app.services import candidate_claim, client_off_limits
 from app.services.process_entry_meta import auto_match_entry_meta
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
@@ -70,6 +70,9 @@ SkipReason = Literal[
     "blacklisted",
     "candidate_not_found",
     "rejected_by_hiring_manager",
+    # 21.10.2026: osoba z firmy off-limits, a w oknie potwierdzenia padło
+    # „Nie, to my się odezwaliśmy” (``client_off_limits``).
+    "off_limits_declined",
 ]
 # Client conflicts (blacklist / NDA / competitor) are soft warnings since
 # 17.09.2026: the candidate IS added and the reason rides in ``warnings``.
@@ -636,6 +639,29 @@ class IntakeResult:
     cv_carried: list[int] = field(default_factory=list)
 
 
+async def _off_limits_declined(
+    db: AsyncSession, *, job: Job, candidates: list[Candidate], human: bool
+) -> dict[int, str]:
+    """Off-limits (21.10.2026): jedno pytanie o całą partię, zanim cokolwiek
+    się zapisze — bez potwierdzenia 409 z listą osób. Zwraca osoby, przy
+    których padło „Nie, to my się odezwaliśmy” (id → nazwa firmy); te
+    wypadają z partii, reszta się dodaje. Automat i integracja nie pytają."""
+    if not human or not candidates:
+        return {}
+    people = await client_off_limits.people_needing_confirmation(
+        db, job_id=job.id, candidates=candidates
+    )
+    confirmations = client_off_limits.current_confirmations()
+    missing = [p for p in people if p.candidate_id not in confirmations]
+    if missing:
+        raise client_off_limits.OffLimitsConfirmationRequired(missing)
+    return {
+        p.candidate_id: p.hit.client_name
+        for p in people
+        if confirmations[p.candidate_id] == client_off_limits.SKIP
+    }
+
+
 async def add_candidates_to_job(
     db: AsyncSession,
     *,
@@ -749,6 +775,20 @@ async def add_candidates_to_job(
     skipped: list[BulkSkippedRow] = []
     warnings: list[BulkWarningRow] = []
     reassign_sources = await _reassign_sources(db, job.id, lock_ordered_ids)
+    off_limits_declined = await _off_limits_declined(
+        db,
+        job=job,
+        candidates=[
+            candidates_by_id[cid]
+            for cid in lock_ordered_ids
+            if cid in candidates_by_id
+            and decisions[cid].assignment_allowed
+            and cid not in reassign_sources
+        ],
+        human=claim
+        and entry_source in candidate_claim.HUMAN_ENTRY_SOURCES
+        and entry_source != candidate_claim.ENTRY_REASSIGN,
+    )
 
     # Jeden skan progresu assignmentu na cały batch: bez tego każda
     # iteracja powtarza pełne zapytanie KPI trzymając blokadę wiersza joba.
@@ -791,6 +831,19 @@ async def add_candidates_to_job(
                         ),
                         reason_label=detail_for(
                             decision, manager_verdicts.get(candidate_id)
+                        ),
+                    )
+                )
+                continue
+
+            declined = off_limits_declined.get(candidate_id)
+            if declined is not None:
+                skipped.append(
+                    BulkSkippedRow(
+                        candidate_id=candidate_id,
+                        reason="off_limits_declined",
+                        reason_label=(
+                            f"pracuje w firmie {declined} — stamtąd nie wyciągamy ludzi"
                         ),
                     )
                 )
