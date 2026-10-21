@@ -288,6 +288,14 @@ def _unmatched_reason(
         or row.cost_status == COST_ROW_APPLIED
     ):
         return None
+    if row.cost_status == COST_ROW_MANUAL_KEPT:
+        # 0493: zamówienie i osoba się zgadzają — za ten miesiąc ktoś wpisał
+        # kwotę ręcznie w zakładce „Zużycie”, a import jej nie nadpisuje.
+        return _REASON_TO_VERIFY, (
+            f"Zamówienie kosztowe nr {row.order_number_hint or '—'} ma ręczny "
+            f"wpis za {format_period_month(period_month)} — faktura z arkusza "
+            "została pominięta. Porównaj kwoty w zakładce „Zużycie” osoby."
+        )
     if row.cost_status == COST_ROW_ORDER_EXHAUSTED:
         # Runda 10 (R10-N5-6): zamówienie istnieje — skończył się jego budżet.
         return _REASON_TO_VERIFY, (

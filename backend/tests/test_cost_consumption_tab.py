@@ -100,7 +100,9 @@ async def _cost_group(app_client, headers, monkeypatch, *, people: int, budget: 
 
 
 async def _group_row(app_client, headers, client_id: int, group_id: int) -> dict:
-    resp = await app_client.get(f"/api/clients/{client_id}/order-groups", headers=headers)
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=headers
+    )
     assert resp.status_code == 200, resp.text
     return next(g for g in resp.json()["groups"] if g["id"] == group_id)
 
@@ -210,10 +212,15 @@ async def test_finance_import_does_not_overwrite_the_manual_entry(
     assert resp.status_code == 200, resp.text
     finance = await _finance_headers(app_client)
 
-    detail = await _import_sheet(app_client, finance, _sheet([(names[0], 0, number, 9999)]))
+    # 1,75 MD jak w realnym wierszu arkusza: osoba bez linii MD, więc wiersz
+    # jest „niedopasowany” po MD i dostaje opis z dopasowania kosztowego.
+    detail = await _import_sheet(
+        app_client, finance, _sheet([(names[0], 1.75, number, 9999)])
+    )
 
     [import_row] = detail["rows"]
     assert import_row["cost_status"] == "manual_kept", detail
+    assert "ręczny wpis" in (import_row["status_reason"] or ""), detail
     view = await app_client.get(_url(client_id, group, line), headers=app_auth_headers)
     assert view.status_code == 200, view.text
     [row] = view.json()["rows"]

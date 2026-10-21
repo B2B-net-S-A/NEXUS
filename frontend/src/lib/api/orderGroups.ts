@@ -827,7 +827,9 @@ export type ImportCostStatus =
   | "invoice_unreadable"
   /** Runda 10: numer wskazuje wyczerpane zamówienie kosztowe — faktura
    *  nierozliczona. */
-  | "order_exhausted";
+  | "order_exhausted"
+  /** 0493: za ten miesiąc jest ręczny wpis kwoty — import go nie nadpisał. */
+  | "manual_kept";
 
 export interface ImportLineOption {
   order_id: number;
