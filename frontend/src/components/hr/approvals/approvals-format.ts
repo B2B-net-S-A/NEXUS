@@ -25,7 +25,7 @@ export const KIND_OPTIONS: {
     label: "Subskrypcja",
     hint: "narzędzie, licencja, abonament",
   },
-  { value: "trip", label: "Delegacja", hint: "podróż, hotel, diety" },
+  { value: "trip", label: "Koszty podróży", hint: "bilety, hotel, dojazdy" },
   { value: "gift", label: "Prezent", hint: "klient, kandydat, zespół" },
   {
     value: "training",
@@ -78,8 +78,8 @@ export function stageLine(row: ApprovalRequestRow): string {
   switch (row.status) {
     case "pending_supervisor":
       return row.needs_final
-        ? `U przełożonego (${row.supervisor_name ?? "—"}), potem ${finals}`
-        : `U przełożonego (${row.supervisor_name ?? "—"})`;
+        ? `U koordynatora (${row.supervisor_name ?? "—"}), potem ${finals}`
+        : `U koordynatora (${row.supervisor_name ?? "—"})`;
     case "pending_final":
       return `Czeka na: ${finals}`;
     case "approved":
@@ -158,8 +158,8 @@ export function timeline(row: ApprovalRequestRow): TimelineStep[] {
       title: endorsed
         ? `Poparł(a) ${row.endorsed_by_name}`
         : supervisorClosed
-          ? `Przełożony: ${row.supervisor_name}`
-          : `U przełożonego: ${row.supervisor_name}`,
+          ? `Koordynator: ${row.supervisor_name}`
+          : `U koordynatora: ${row.supervisor_name}`,
       detail: endorsed
         ? [formatMomentPl(row.endorsed_at), row.endorse_note].filter(Boolean).join(" · ")
         : null,
@@ -178,7 +178,7 @@ export function timeline(row: ApprovalRequestRow): TimelineStep[] {
       ? `${row.status === "approved" ? "Zatwierdził(a)" : row.status === "rejected" ? "Odrzucił(a)" : "Pytanie od"} ${row.decided_by_name ?? "—"}`
       : row.status === "withdrawn"
         ? "Wycofana"
-        : `Decyzja: ${row.needs_final ? row.final_approver_names.join(", ") || "zatwierdzający" : (row.supervisor_name ?? "przełożony")}`,
+        : `Decyzja: ${row.needs_final ? row.final_approver_names.join(", ") || "zatwierdzający" : (row.supervisor_name ?? "koordynator")}`,
     detail: decided
       ? [formatMomentPl(row.decided_at), row.decision_note].filter(Boolean).join(" · ")
       : null,

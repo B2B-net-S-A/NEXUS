@@ -102,7 +102,7 @@ export function HolderPicker({ value, onChange, academy: withAcademy = false }: 
         <div role="group" aria-label="Kogo szukasz" className="flex gap-1">
           {(
             [
-              ["registry", "Pracownik, konsultant, osoba spoza"],
+              ["registry", "Konsultant/kontraktor, osoba spoza"],
               ["academy", "Uczestnik Akademii"],
             ] as const
           ).map(([key, label]) => (
@@ -132,7 +132,7 @@ export function HolderPicker({ value, onChange, academy: withAcademy = false }: 
           placeholder={
             academyMode
               ? "Imię i nazwisko uczestnika Akademii…"
-              : "Imię i nazwisko pracownika albo konsultanta…"
+              : "Imię i nazwisko konsultanta/kontraktora…"
           }
           value={query}
           onChange={(event) => setQuery(event.target.value)}

@@ -92,14 +92,14 @@ describe("InsightsPerformanceFlags", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("chip „były pracownik” pokazuje się także bez ostrzeżeń", () => {
+  it("chip „był(a) w zespole” pokazuje się także bez ostrzeżeń", () => {
     render(<InsightsPerformanceFlags flags={[]} isFormerEmployee />);
-    expect(screen.getByText("były pracownik")).toBeInTheDocument();
+    expect(screen.getByText("był(a) w zespole")).toBeInTheDocument();
   });
 
   it("chip stoi OBOK ostrzeżenia, nie zamiast niego", () => {
     render(<InsightsPerformanceFlags flags={[flag()]} isFormerEmployee />);
-    expect(screen.getByText("były pracownik")).toBeInTheDocument();
+    expect(screen.getByText("był(a) w zespole")).toBeInTheDocument();
     expect(screen.getByText("Słabe wyniki")).toBeInTheDocument();
   });
 

@@ -87,7 +87,7 @@ import {
   statusLabel,
 } from "./leave-format";
 
-/** Plakietka źródła wniosku („Z Outlooka”, „Wpis za pracownika”, „Import z Compassa”). */
+/** Plakietka źródła wniosku („Z Outlooka”, „Wpis za konsultanta/kontraktora”, „Import z Compassa”). */
 function SourceBadge({ row }: { row: LeaveRequestRow }) {
   const label = sourceBadge(row.source);
   if (!label) return null;
@@ -357,7 +357,7 @@ function LeaveDetail({ item, viewerIsHr }: { item: InboxItem; viewerIsHr: boolea
                 row.department,
                 daysLabel(row.days_total),
                 row.half_day ? HALF_DAY_LABELS[row.half_day] : null,
-                viewerIsHr && row.manager_name ? `przełożony: ${row.manager_name}` : null,
+                viewerIsHr && row.manager_name ? `koordynator: ${row.manager_name}` : null,
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -842,7 +842,7 @@ function LeaveAndTimeApprovals({ config }: { config: HrConfig }) {
             onClick={() => setEntering(true)}
           >
             <CalendarPlus className="h-4 w-4" aria-hidden />
-            Wpisz nieobecność za pracownika
+            Wpisz nieobecność za konsultanta/kontraktora
           </Button>
         ) : null}
       </div>

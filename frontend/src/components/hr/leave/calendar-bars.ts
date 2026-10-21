@@ -333,7 +333,7 @@ export function weekAbsentees(
       .sort();
     if (trips.length > 0) {
       if (trips[0] < first) first = trips[0];
-      parts.push(`${trips.map(weekdayName).join(", ")} · delegacja`);
+      parts.push(`${trips.map(weekdayName).join(", ")} · wyjazd`);
     }
     if (parts.length > 0) {
       result.push({ user_id: person.user_id, name: person.name, text: parts.join("; "), pending, first });

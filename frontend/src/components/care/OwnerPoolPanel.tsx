@@ -90,8 +90,8 @@ function PoolEditor({
           value={draft.managerId ? String(draft.managerId) : ""}
           onValueChange={(value) => setDraft((current) => ({ ...current, managerId: Number(value) }))}
         >
-          <SelectTrigger aria-label="Przełożony puli opiekunów" className="h-8 w-56">
-            <SelectValue placeholder="Wybierz przełożonego…" />
+          <SelectTrigger aria-label="Koordynator puli opiekunów" className="h-8 w-56">
+            <SelectValue placeholder="Wybierz koordynatora…" />
           </SelectTrigger>
           <SelectContent>
             {managers.map((manager) => (
@@ -150,7 +150,7 @@ function PoolEditor({
         <p className="text-sm text-muted-foreground">
           {draft.managerId
             ? "Pod tą osobą nikt nie pracuje w kartotece (Ludzie → Struktura)."
-            : "Wskaż przełożonego — jego bezpośredni podwładni z kartoteki będą opiekunami."}
+            : "Wskaż koordynatora — osoby z jego zespołu w kartotece będą opiekunami."}
         </p>
       )}
       <label className="flex items-center gap-2 text-sm">

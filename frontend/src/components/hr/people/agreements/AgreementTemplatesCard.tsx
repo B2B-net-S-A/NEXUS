@@ -280,7 +280,7 @@ export function AgreementTemplatesCard({ isAdmin }: { isAdmin: boolean }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 id="agreement-templates-title" className="text-base font-semibold text-foreground">
-            Wzory umów z pracownikami
+            Wzory umów
           </h2>
           <p className="text-sm text-muted-foreground">
             B2B biura, zlecenie, umowa o pracę i aneks — pliki Word od Kadr z wersjami.

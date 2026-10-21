@@ -110,7 +110,7 @@ export function TasksTab({ onIssue, onReturn, onOpenProtocol }: TasksTabProps) {
   if (state === "empty") {
     return (
       <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-        Nic do zrobienia. Zadania zakłada NEXUS: wejście i odejście pracownika, start i koniec
+        Nic do zrobienia. Zadania zakłada NEXUS: wejście i odejście osoby, start i koniec
         współpracy konsultanta, niepodpisany protokół.
       </div>
     );

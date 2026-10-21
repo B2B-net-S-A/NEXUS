@@ -77,7 +77,7 @@ from app.services.hr_approvals_schema import (
 KIND_LABELS: dict[str, str] = {
     "bonus": "Premia poza umową",
     "subscription": "Subskrypcja",
-    "trip": "Delegacja",
+    "trip": "Koszty podróży",
     "gift": "Prezent",
     "training": "Szkolenie",
     "other": "Inny wydatek",
@@ -433,7 +433,7 @@ async def _assert_bonus_allowed(
     viewer = await payroll_access.load_viewer(db, actor)
     if not viewer.manages_bonuses_of(data.beneficiary_user_id or 0):
         raise ApprovalForbidden(
-            "O premię poza umową prosi przełożony tej osoby albo Płace."
+            "O premię poza umową prosi koordynator tej osoby albo Płace."
         )
     profile = (
         await db.execute(

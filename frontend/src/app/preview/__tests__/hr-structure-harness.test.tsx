@@ -47,7 +47,7 @@ describe("/preview/hr-structure", () => {
     expect(screen.getByTestId(`org-card-${105}`)).toHaveTextContent("Marta Fikcyjna");
     expect(screen.getAllByText("head: Kamil Testowy").length).toBeGreaterThan(0);
     const todo = screen.getByLabelText("Do uporządkowania");
-    expect(within(todo).getByText(/kończy pracę/)).toBeInTheDocument();
+    expect(within(todo).getByText(/kończy współpracę/)).toBeInTheDocument();
     expect(within(todo).getByRole("button", { name: "Przyjmij z M365" })).toBeInTheDocument();
     expect(within(todo).getByRole("button", { name: "Przyjmij: Kamil T." })).toBeInTheDocument();
 
@@ -72,7 +72,7 @@ describe("/preview/hr-structure", () => {
       "head: Piotr Finansowy",
     );
     expect(screen.getByRole("heading", { name: /^Bez pionu/ })).toBeInTheDocument();
-    expect(screen.getByText(/Marta Fikcyjna kończy pracę/)).toHaveTextContent(
+    expect(screen.getByText(/Marta Fikcyjna kończy współpracę/)).toHaveTextContent(
       "przejmie ich Kamil Testowy",
     );
     expect(screen.getByText(/Podpowiedź: koordynator = Kamil Testowy/)).toBeInTheDocument();
@@ -109,7 +109,7 @@ describe("/preview/hr-structure", () => {
     expect(screen.queryByText(/Zlecenie · student/)).not.toBeInTheDocument();
     expect(screen.queryByText(/składki od/)).not.toBeInTheDocument();
     expect(
-      screen.getByText(/forma do uzupełnienia · przełożony do uzupełnienia/),
+      screen.getByText(/forma do uzupełnienia · koordynator do uzupełnienia/),
     ).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });

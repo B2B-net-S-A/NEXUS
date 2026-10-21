@@ -258,7 +258,7 @@ describe("InsightsTeamTable", () => {
 
     const name = await screen.findByText("Aleksandra Nałęcz");
     const personCell = name.closest("td")!;
-    expect(within(personCell).getByText("były pracownik")).toBeInTheDocument();
+    expect(within(personCell).getByText("był(a) w zespole")).toBeInTheDocument();
     // Jej liczby zostają w tabeli — offboarding nie kasuje historii wstecz.
     const tableRow = name.closest("tr")!;
     expect(within(tableRow).getAllByRole("cell")[2]).toHaveTextContent("15");
@@ -307,8 +307,8 @@ describe("InsightsTeamTable", () => {
     expect(
       await screen.findByText("Nieznany użytkownik (#99)"),
     ).toBeInTheDocument();
-    // Brak konta ≠ były pracownik — nie wiemy, więc nie twierdzimy.
-    expect(screen.queryByText("były pracownik")).not.toBeInTheDocument();
+    // Brak konta ≠ był(a) w zespole — nie wiemy, więc nie twierdzimy.
+    expect(screen.queryByText("był(a) w zespole")).not.toBeInTheDocument();
   });
 
   it("renderuje plakietki ostrzeżeń wstrzyknięte przez integratora", async () => {

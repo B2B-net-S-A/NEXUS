@@ -134,7 +134,7 @@ export function cancelReasonLabel(
     case "rule_no_longer_applies":
       return "zmieniły się warunki premii";
     case "manual":
-      return "anulowana przez Płace albo przełożonego";
+      return "anulowana przez Płace albo koordynatora";
     default:
       return null;
   }

@@ -231,7 +231,7 @@ export function LeaveRequestDialog({
       open={open}
       onOpenChange={close}
       size="xl"
-      title={onBehalf ? "Wpisz nieobecność za pracownika" : words.dialog_title}
+      title={onBehalf ? "Wpisz nieobecność za konsultanta/kontraktora" : words.dialog_title}
       description={
         onBehalf
           ? "Wpis jest od razu zatwierdzony. Zgodę na przekierowanie poczty daje tylko sama osoba."
@@ -344,7 +344,7 @@ export function LeaveRequestDialog({
           <FormField
             label={report ? "Kto przejmie bieżące sprawy" : "Zastępca"}
             htmlFor="leave-substitute"
-            description="Najpierw osoby z Twojego działu, które są w pracy przez cały okres."
+            description="Najpierw osoby z Twojego działu, które są dostępne przez cały okres."
           >
             <Select value={substitute} onValueChange={setSubstitute}>
               <SelectTrigger id="leave-substitute">

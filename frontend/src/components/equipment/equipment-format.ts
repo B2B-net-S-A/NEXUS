@@ -127,7 +127,7 @@ export const DECISION_LABELS: Record<ImportDecision, string> = {
 };
 
 export const HOLDER_KIND_LABELS: Record<EquipmentHolderKind, string> = {
-  user: "Pracownik",
+  user: "Konsultant/kontraktor",
   contract: "Kontraktor",
   external: "Spoza NEXUSA",
   academy: "Uczestnik Akademii",

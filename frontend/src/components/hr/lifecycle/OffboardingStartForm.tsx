@@ -62,13 +62,13 @@ export function OffboardingStartForm({
   const submit = async (start: boolean) => {
     setError(null);
     if (!lastDay) {
-      setError("Podaj ostatni dzień pracy.");
+      setError("Podaj ostatni dzień współpracy.");
       return;
     }
     if (start) {
       const ok = await askConfirm({
         title: "Rozpocząć odejście?",
-        description: `Przełożony, Kadry, recepcja i IT dostaną zadania. Praca przejdzie na przejmujących ${formatWeekdayDayPl(lastDay)} o 18:00, konto wyłączy się następnego dnia. Do tego czasu można cofnąć odejście.`,
+        description: `Koordynator, Kadry, recepcja i IT dostaną zadania. Zadania przejdą na przejmujących ${formatWeekdayDayPl(lastDay)} o 18:00, konto wyłączy się następnego dnia. Do tego czasu można cofnąć odejście.`,
         confirmLabel: "Rozpocznij",
       });
       if (!ok) return;
@@ -96,7 +96,7 @@ export function OffboardingStartForm({
   return (
     <Card className="max-w-3xl space-y-4 p-5">
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Ostatni dzień pracy" htmlFor="off-last-day" required>
+        <FormField label="Ostatni dzień współpracy" htmlFor="off-last-day" required>
           <Input
             id="off-last-day"
             type="date"
@@ -104,13 +104,13 @@ export function OffboardingStartForm({
             onChange={(event) => setLastDay(event.target.value)}
           />
         </FormField>
-        <FormField label="Przełożony" htmlFor="off-manager" description="Domyślnie przejmuje pracę.">
+        <FormField label="Koordynator" htmlFor="off-manager" description="Domyślnie przejmuje zadania.">
           <Select value={managerId} onValueChange={setManagerId}>
             <SelectTrigger id="off-manager">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NONE}>Bez przełożonego</SelectItem>
+              <SelectItem value={NONE}>Bez koordynatora</SelectItem>
               {managers.map((row) => (
                 <SelectItem key={row.user_id} value={String(row.user_id)}>
                   {row.name}
@@ -167,7 +167,7 @@ export function OffboardingStartForm({
         <FormField
           label="Notatka"
           htmlFor="off-note"
-          description="Widzą ją Kadry i przełożony. Bez informacji o zdrowiu."
+          description="Widzą ją Kadry i koordynator. Bez informacji o zdrowiu."
           className="sm:col-span-2"
         >
           <Textarea

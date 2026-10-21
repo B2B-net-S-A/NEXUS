@@ -205,7 +205,7 @@ describe("„W tym tygodniu nie ma”", () => {
     );
     expect(items.map((item) => [item.name, item.text])).toEqual([
       ["Julia Próbna", "do śr 21.10"],
-      ["Tomasz Podglądowy", "pon · delegacja"],
+      ["Tomasz Podglądowy", "pon · wyjazd"],
       ["Ola Przykładowa", "śr–pt · wniosek czeka"],
     ]);
     expect(items.find((item) => item.name === "Julia Próbna")?.text).not.toMatch(/urlop/i);

@@ -78,7 +78,7 @@ from app.services.hr.time_entries import (
 router = APIRouter()
 
 MODULE = HrModule.time
-NOT_APPROVER_DETAIL = "Timesheety akceptuje przełożony, Kadry albo administrator."
+NOT_APPROVER_DETAIL = "Godziny potwierdza koordynator, Kadry albo administrator."
 NOT_PAYROLL_DETAIL = "Godziny całego miesiąca (paczkę i CSV) pobierają Płace i Kadry."
 NOT_ADMIN_DETAIL = "Domyślne opisy ustawiają Kadry."
 NOT_REMINDER_DETAIL = (
