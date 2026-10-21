@@ -161,3 +161,52 @@ describe("agreementProjectDescription", () => {
     expect(agreementProjectDescription(null)).toBeNull();
   });
 });
+
+describe("plakietka umowy w podpisie w NEXUSIE (etap 1b)", () => {
+  const esign = (extra: Partial<NonNullable<CardAgreement["esign"]>> = {}) =>
+    agreement({
+      esign: {
+        status: "sent",
+        expires_at: "2026-10-18T10:00:00Z",
+        contractor_signed_at: null,
+        ...extra,
+      },
+    });
+
+  it("u kontraktora z datą ważności linku", () => {
+    expect(agreementBadge(esign(), NOW)).toMatchObject({
+      label: "U kontraktora · link do 18.10",
+      tone: "info",
+    });
+  });
+
+  it("po podpisie kontraktora czeka na firmę", () => {
+    expect(
+      agreementBadge(esign({ status: "contractor_signed" }), NOW),
+    ).toMatchObject({ label: "Czeka na podpis firmy", tone: "warning" });
+  });
+
+  it("wygasły link — także zanim zamiatacz zmieni stan", () => {
+    expect(agreementBadge(esign({ status: "expired" }), NOW)?.label).toBe(
+      "Link wygasł — wyślij ponownie",
+    );
+    expect(
+      agreementBadge(esign({ expires_at: "2026-10-03T10:00:00Z" }), NOW)?.label,
+    ).toBe("Link wygasł — wyślij ponownie");
+  });
+
+  it("wycofana wysyłka wraca do zwykłej plakietki", () => {
+    expect(agreementBadge(esign({ status: "withdrawn" }), NOW)?.label).toBe(
+      "Do podpisu · 2 d",
+    );
+  });
+
+  it("podpisana obustronnie wygrywa z wysyłką", () => {
+    expect(
+      agreementBadge(
+        { ...esign({ status: "completed" }), signature_status: "signed_both" },
+        NOW,
+      )?.label,
+    ).toBe("Umowa podpisana");
+  });
+});

@@ -278,8 +278,20 @@ export function BoardFlowSections({
                   Umowa {row.contract_number}
                   {row.partner_name ? ` · ${row.partner_name}` : ""}
                 </Link>
-                {row.client_name ? (
-                  <p className="truncate text-xs text-muted-foreground">{row.client_name}</p>
+                {row.client_name || row.esign_status ? (
+                  <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                    {row.client_name ? <span className="truncate">{row.client_name}</span> : null}
+                    {row.esign_status ? (
+                      <span
+                        className="shrink-0 rounded-full bg-primary/10 px-1.5 py-px text-[11px] font-semibold text-primary"
+                        title="Umowa jest w podpisie w NEXUSIE — przypomnienia idą same."
+                      >
+                        {row.esign_status === "contractor_signed"
+                          ? "NEXUS · czeka na firmę"
+                          : "NEXUS · u kontraktora"}
+                      </span>
+                    ) : null}
+                  </p>
                 ) : null}
               </div>
               <Since since={row.created_at} />

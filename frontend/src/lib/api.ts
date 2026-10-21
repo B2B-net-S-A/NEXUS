@@ -3849,6 +3849,10 @@ export interface B2BStatusEvent {
   client_name: string | null;
   changed_by_name: string | null;
   created_at: string | null;
+  /** Etap 1b (21.10.2026): `esign` = wpis z wysyłki do podpisu w NEXUSIE,
+   *  treść w `label`, `id` ujemne. */
+  kind?: "status" | "esign";
+  label?: string | null;
   /** Zmiana wykonana przez zakończenie kontraktu (0367): kontrakt, koniec
    *  projektu i dane rozwiązania umowy. `null` dla ręcznych zmian. */
   details?: {

@@ -8,7 +8,14 @@
 
 import type { B2BAgreementPrefill } from "@/lib/api";
 import { BOARD_COLUMN_LABEL, type BoardColumnKey } from "@/lib/board-stages";
-import { formatIsoDatePl } from "@/lib/date-pl";
+import { formatDayMonthPl, formatIsoDatePl } from "@/lib/date-pl";
+
+/** Ostatnia wysyłka umowy do podpisu w NEXUSIE (etap 1b, 21.10.2026). */
+export interface CardAgreementEsign {
+  status: "sent" | "contractor_signed" | "completed" | "withdrawn" | "expired";
+  expires_at: string | null;
+  contractor_signed_at: string | null;
+}
 
 /** Pole `agreement` karty Tablicy (`services/agreement_status.py`). */
 export interface CardAgreement {
@@ -20,6 +27,7 @@ export interface CardAgreement {
   signed_at: string | null;
   signature_requested_at: string | null;
   contract_id: number | null;
+  esign?: CardAgreementEsign | null;
 }
 
 export type AgreementTone = "info" | "warning" | "success";
@@ -57,6 +65,8 @@ export function agreementBadge(
     };
   }
   if (agreement.contract_status !== "in_progress") return null;
+  const esign = esignBadge(agreement, now);
+  if (esign) return esign;
   if (agreement.signature_requested_at) {
     return {
       label: "Prośba o podpis",
@@ -70,6 +80,49 @@ export function agreementBadge(
     tone: days >= 7 ? "warning" : "info",
     title: `Umowa ${agreement.number} wygenerowana, czeka na podpis.`,
   };
+}
+
+/**
+ * Umowa w podpisie w NEXUSIE: gdzie teraz jest. Wycofana wysyłka wraca
+ * do zwykłej plakietki — dalej idzie droga mailowa.
+ */
+function esignBadge(agreement: CardAgreement, now: Date): AgreementBadge | null {
+  const esign = agreement.esign;
+  if (!esign) return null;
+  const expired =
+    esign.status === "expired" ||
+    (esign.status === "sent" &&
+      !!esign.expires_at &&
+      new Date(esign.expires_at).getTime() <= now.getTime());
+  if (expired) {
+    return {
+      label: "Link wygasł — wyślij ponownie",
+      tone: "warning",
+      title: `Umowa ${agreement.number}: link do podpisu w NEXUSIE wygasł. Wyślij ponownie albo przejdź na zwykłą drogę.`,
+    };
+  }
+  if (esign.status === "sent") {
+    const until = formatDayMonthPl(esign.expires_at);
+    return {
+      label: until === "—" ? "U kontraktora" : `U kontraktora · link do ${until}`,
+      tone: "info",
+      title: `Umowa ${agreement.number} wysłana do podpisu w NEXUSIE — czeka na podpis kontraktora.`,
+    };
+  }
+  if (esign.status === "contractor_signed") {
+    return {
+      label: "Czeka na podpis firmy",
+      tone: "warning",
+      title: `Kontraktor podpisał umowę ${agreement.number} — czeka na podpis za B2B Network.`,
+    };
+  }
+  return null;
+}
+
+/** Umowa w podpisie w NEXUSIE — ręczne „Oznacz jako podpisaną” i „Popraw” czekają. */
+export function agreementInEsign(agreement: CardAgreement | null | undefined): boolean {
+  const status = agreement?.esign?.status;
+  return status === "sent" || status === "contractor_signed";
 }
 
 const RATE_SOURCE_LABEL: Record<NonNullable<B2BAgreementPrefill["rate"]>["source"], string> = {

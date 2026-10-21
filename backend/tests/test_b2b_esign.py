@@ -822,3 +822,113 @@ async def test_open_request_blocks_manual_confirm_requests_and_manual_hire(
     )
     assert moved.status_code == 409, moved.text
     assert moved.json()["detail"]["code"] == "ESIGN_IN_PROGRESS"
+
+
+def test_history_lists_the_sending_signatures_and_how_it_ended():
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.history import esign_history
+
+    t0 = datetime(2026, 10, 21, 13, 0, tzinfo=timezone.utc)
+    base = dict(
+        sent_by=7,
+        last_reminder_at=None,
+        contractor_signed_at=None,
+        completed_at=None,
+        closed_at=None,
+        closed_by=None,
+        close_reason=None,
+        company_signer_id=9,
+    )
+    withdrawn = SimpleNamespace(
+        id=1,
+        status="withdrawn",
+        sent_at=t0,
+        **{
+            **base,
+            "closed_at": t0 + timedelta(hours=1),
+            "closed_by": 7,
+            "close_reason": "Przejście na drogę zwykłą",
+        },
+    )
+    completed = SimpleNamespace(
+        id=2,
+        status="completed",
+        sent_at=t0 + timedelta(days=1),
+        **{
+            **base,
+            "last_reminder_at": t0 + timedelta(days=4),
+            "contractor_signed_at": t0 + timedelta(days=5),
+            "completed_at": t0 + timedelta(days=6),
+        },
+    )
+    expired = SimpleNamespace(
+        id=3,
+        status="expired",
+        sent_at=t0 + timedelta(days=7),
+        **{**base, "closed_at": t0 + timedelta(days=21)},
+    )
+
+    entries = esign_history([completed, expired, withdrawn])
+
+    assert [e.label for e in entries] == [
+        "Wysłana do podpisu w NEXUSIE",
+        "Wysyłka wycofana — Przejście na drogę zwykłą",
+        "Wysłana do podpisu w NEXUSIE",
+        "Przypomnienie do kontraktora",
+        "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
+        "Podpis za B2B Network — umowa podpisana przez obie strony",
+        "Wysłana do podpisu w NEXUSIE",
+        "Link do podpisu wygasł",
+    ]
+    assert entries[5].user_id == 9
+    assert len({e.key for e in entries}) == len(entries)
+
+
+@pytest.mark.asyncio
+async def test_card_history_and_signer_list_know_the_contract_is_in_signing(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from app.core.database import AsyncSessionLocal
+    from app.services.agreement_status import agreement_status_for_pairs
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    generated_id = scenario["generated_id"]
+    partner = await _partner(generated_id)
+    sent = await _send(
+        app_client, app_auth_headers, generated_id, esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+
+    async with AsyncSessionLocal() as db:
+        cards = await agreement_status_for_pairs(
+            db, job_id=scenario["job_id"], candidate_ids=[scenario["candidate_id"]]
+        )
+    esign = cards[scenario["candidate_id"]]["esign"]
+    assert esign["status"] == "sent" and esign["expires_at"]
+
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+    signed = await app_client.post(
+        f"/api/public/b2b-sign/{_token(sent.json()['sign_url'])}",
+        files={"file": ("u.pdf", SOURCE + b"% podpis\n", "application/pdf")},
+    )
+    assert signed.status_code == 200, signed.text
+
+    mine = await app_client.get(
+        "/api/b2b-generator/esign/mine", headers=esign_env["signer_headers"]
+    )
+    assert mine.status_code == 200, mine.text
+    waiting = [r for r in mine.json() if r["generated_contract_id"] == generated_id]
+    assert waiting and waiting[0]["contract_number"]
+
+    history = await app_client.get(
+        f"/api/b2b-generator/generated/{generated_id}/status-history",
+        headers=app_auth_headers,
+    )
+    assert history.status_code == 200, history.text
+    esign_labels = [e["label"] for e in history.json() if e["kind"] == "esign"]
+    assert esign_labels == [
+        "Wysłana do podpisu w NEXUSIE",
+        "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
+    ]

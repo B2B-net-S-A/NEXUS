@@ -497,6 +497,12 @@ const PREVIEW_AGREEMENT = {
   signed_at: null,
   signature_requested_at: null,
   contract_id: null,
+  // 21.10.2026 (etap 1b): umowa wysłana do podpisu w NEXUSIE.
+  esign: {
+    status: "sent",
+    expires_at: new Date(Date.now() + 11 * 24 * HOUR).toISOString(),
+    contractor_signed_at: null,
+  },
 };
 
 /** Dane ze znacznikiem dzień w przód — zapytanie z własnym `staleTime` nie odświeża ich. */
@@ -1120,10 +1126,19 @@ function seededClient(championMode: HarnessChampionMode = "none"): QueryClient {
       created_at: PREVIEW_AGREEMENT.created_at,
       created_by_name: "Marta Nowak",
       can_confirm_signed: false,
-      can_edit: true,
+      can_edit: false, // wysłana do podpisu — „Popraw” po wycofaniu
       can_download: true,
       partner_name: "Karol Wzorcowy",
       client_name: "Bank Przykładowy",
+      esign: {
+        request_id: 31,
+        status: "sent",
+        contractor_signed_at: null,
+        completed_at: null,
+        expires_at: PREVIEW_AGREEMENT.esign.expires_at,
+        company_signer_name: "Osoba Testowa",
+      },
+      can_withdraw_esign: true,
     },
   ]);
   // 0404: „Odrzuceni przez AI” — pusta lista.
