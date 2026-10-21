@@ -87,6 +87,20 @@ from app.services.job_working_title import cv_role_title
             ["Bank Północny"],
             "Data Platform Developer",
         ),
+        # 21.10.2026: nazwa roli zapisana jako numer u klienta — nagłówek był
+        # samym „(43020)”. Bez liter to nie rola: liczymy z pełnej nazwy.
+        (
+            "PL_IT_Developer_expert_TP#40379 (43020)",
+            "PL_IT_Developer_expert_TP#40379",
+            ["Bank Północny"],
+            "PL_IT_Developer_expert_TP#40379",
+        ),
+        (
+            "PL_IT_Developer_expert_TP#40379 (43020)",
+            "43020",
+            ["Bank Północny"],
+            "PL_IT_Developer_expert_TP#40379",
+        ),
     ],
 )
 def test_client_codes_and_process_notes_leave_the_header(

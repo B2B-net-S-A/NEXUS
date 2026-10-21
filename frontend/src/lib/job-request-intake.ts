@@ -557,6 +557,28 @@ export function niceOf(form: IntakeForm): string[] {
 }
 
 const ZOB = /\bZOB[\s_-]*(\d+)\b/gi;
+const PAREN_NUMBER = /\(\s*(\d{4,6})\s*\)/g;
+const LETTER = /\p{L}/u;
+
+/**
+ * Numer z odczytu, po którego wycięciu z nazwy nie zostaje żadna litera, to
+ * nazwa roli, nie numer (lustro `reference_swallows_role`). 20.10.2026:
+ * „PL_IT_Developer_expert_TP#40379 (43020)” z numerem
+ * „PL_IT_Developer_expert_TP#40379” — CV dostały nagłówek „(43020)”.
+ */
+function referenceSwallowsRole(title: string, reference: string): boolean {
+  return LETTER.test(title) && !LETTER.test(title.split(reference).join(" "));
+}
+
+/** „(43020)” z nazwy; cztery cyfry 1900–2099 to rok (lustro `reference_from_title`). */
+function parenNumbers(clientTitle: string): string {
+  const numbers = new Set<string>();
+  for (const match of clientTitle.matchAll(PAREN_NUMBER)) {
+    const year = match[1].length === 4 && Number(match[1]) >= 1900 && Number(match[1]) <= 2099;
+    if (!year) numbers.add(match[1]);
+  }
+  return [...numbers].join(", ");
+}
 
 /**
  * Numer u klienta (02.10.2026 — bez osobnego pola): numer z odczytu maila,
@@ -570,7 +592,12 @@ export function clientReferenceFor(form: IntakeForm): string {
   const hint = form.referenceHint.replace(/\s+/g, " ").trim();
   // P9 (06.10.2026): bez nazwy od klienta numer z odczytu obowiązuje wprost.
   if (!title.trim()) return hint;
-  if (hint && title.includes(hint.toLocaleLowerCase("pl"))) return hint;
+  const hintLower = hint.toLocaleLowerCase("pl");
+  if (hint && title.includes(hintLower)) {
+    if (!referenceSwallowsRole(title, hintLower)) return hint;
+    const fromParens = parenNumbers(form.clientTitle);
+    if (fromParens) return fromParens;
+  }
   const found = new Set<string>();
   for (const match of form.clientTitle.matchAll(ZOB)) found.add(match[1]);
   return found.size === 1 ? `ZOB ${[...found][0]}` : "";
