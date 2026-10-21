@@ -1,7 +1,7 @@
 """Zakładka „Zużycie” przy zamówieniu kosztowym — ręczny wpis kwoty za miesiąc.
 
 Revision ID: 0493_cost_consumption_manual_entry
-Revises: 0491_approval_contract_basis
+Revises: 0492_md_import_awaiting_order
 
 * ``client_order_invoice_consumptions.status`` / ``note`` — lustro pól
   ``client_order_md_consumptions`` (0313): formularz „Nowy wpis miesięczny”
@@ -16,7 +16,7 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 from alembic import op
 
 revision = "0493_cost_consumption_manual_entry"
-down_revision = "0491_approval_contract_basis"
+down_revision = "0492_md_import_awaiting_order"
 branch_labels = None
 depends_on = None
 
