@@ -21,6 +21,7 @@ import { qcCountsText } from "@/lib/cv-qc";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
 import { warsawToday } from "@/lib/warsaw-date";
 import { addedToBaseTitle, addedToBaseView, newInBaseDaysText } from "@/lib/added-to-base";
+import type { PreContractTone } from "@/lib/api/preContracts";
 import { offLimitsConfirmedDay } from "@/lib/off-limits";
 
 export type CardBadgeTone =
@@ -407,6 +408,30 @@ export function offLimitsCardBadge(meta: KanbanItem["entry_off_limits"]): CardBa
   };
 }
 
+const PRE_CONTRACT_CARD_TONE: Record<PreContractTone, CardBadgeTone> = {
+  missing: "wait",
+  late: "urgent",
+  wait: "info",
+  signer: "neutral",
+  ok: "ok",
+  closed: "neutral",
+};
+
+/**
+ * Umowa przedwstępna pary (0504, 21.10.2026) — napis i ton liczy serwer
+ * (`services/pre_contracts.badge`), karta tylko mapuje ton na swój.
+ * W każdej kolumnie: o umowę proszą przed CV, przed rozmową albo przed B2B.
+ */
+export function preContractCardBadge(meta: KanbanItem["pre_contract"]): CardBadge | null {
+  if (!meta) return null;
+  return {
+    key: "pre_contract",
+    label: meta.label,
+    tone: PRE_CONTRACT_CARD_TONE[meta.tone] ?? "neutral",
+    title: meta.detail,
+  };
+}
+
 function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
   switch (item.entry_source) {
     case "added_manual": {
@@ -535,6 +560,8 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   }
   const offLimits = offLimitsCardBadge(item.entry_off_limits);
   if (offLimits) out.push(offLimits);
+  const preContract = preContractCardBadge(item.pre_contract);
+  if (preContract) out.push(preContract);
   if (column === "new" || column === "screening") {
     const link = linkOwnerBadge(item, ctx);
     if (link) out.push(link);

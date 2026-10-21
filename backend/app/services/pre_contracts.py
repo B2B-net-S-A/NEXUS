@@ -483,6 +483,73 @@ def b2b_term_days(document_type: Optional[str]) -> Optional[int]:
     return days if days is not None else _B2B_TERM_FALLBACK.get(document_type)
 
 
+async def start_b2b_deadline(
+    db: AsyncSession,
+    req: PreContractRequest,
+    *,
+    accepted_on: date,
+    actor_id: Optional[int],
+) -> None:
+    """Termin umowy B2B z przedwstępnej od akceptacji klienta (albo od dziś,
+    gdy umowę podpisano już po akceptacji). Nic, gdy wzór terminu nie zna."""
+    from app.models.b2b_contract_document import B2BContractDocument  # noqa: PLC0415
+    from app.services.candidate_followups import add_business_days  # noqa: PLC0415
+
+    if req.b2b_deadline is not None or not is_signed(req):
+        return
+    doc_type = (
+        await db.scalar(
+            select(B2BContractDocument.document_type).where(
+                B2BContractDocument.id == req.document_id
+            )
+        )
+        if req.document_id
+        else None
+    )
+    days = b2b_term_days(doc_type)
+    if not days:
+        return
+    start = max(accepted_on, today())
+    req.b2b_deadline = add_business_days(
+        datetime.combine(start, time(12), tzinfo=_TZ), days
+    )
+    event = await add_event(
+        db,
+        req,
+        "b2b_deadline",
+        actor_id=actor_id,
+        payload={"accepted_on": accepted_on.isoformat(), "days": days},
+    )
+    await notify(
+        db,
+        req,
+        event,
+        message=(
+            f"Klient zaakceptował osobę. Umowę B2B trzeba zawrzeć do "
+            f"{req.b2b_deadline:%d.%m.%Y} ({days} dni roboczych z przedwstępnej) "
+            "— po terminie kara dla firmy."
+        ),
+        actor_id=None,
+    )
+
+
+async def latest_acceptance(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> Optional[date]:
+    from app.models.recruitment_pipeline import CandidateStage  # noqa: PLC0415
+
+    return await db.scalar(
+        select(CandidateStage.client_accepted_on)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+            CandidateStage.client_accepted_on.is_not(None),
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+
+
 async def on_move(
     db: AsyncSession,
     *,
@@ -500,8 +567,6 @@ async def on_move(
       terminem (CeZ: 5 dni roboczych) → ``b2b_deadline`` i dzwonek.
     * Pierwszy ruch na etap, przed którym umowa miała być podpisana, bez
       podpisu → zdarzenie ``moved_without`` i dzwonek do proszących."""
-    from app.models.b2b_contract_document import B2BContractDocument  # noqa: PLC0415
-    from app.services.candidate_followups import add_business_days  # noqa: PLC0415
 
     req = await db.scalar(
         select(PreContractRequest)
@@ -514,39 +579,8 @@ async def on_move(
     )
     if req is None:
         return
-    if accepted_on is not None and is_signed(req) and req.b2b_deadline is None:
-        doc_type = (
-            await db.scalar(
-                select(B2BContractDocument.document_type).where(
-                    B2BContractDocument.id == req.document_id
-                )
-            )
-            if req.document_id
-            else None
-        )
-        days = b2b_term_days(doc_type)
-        if days:
-            req.b2b_deadline = add_business_days(
-                datetime.combine(accepted_on, time(12), tzinfo=_TZ), days
-            )
-            event = await add_event(
-                db,
-                req,
-                "b2b_deadline",
-                actor_id=actor_id,
-                payload={"accepted_on": accepted_on.isoformat(), "days": days},
-            )
-            await notify(
-                db,
-                req,
-                event,
-                message=(
-                    f"Klient zaakceptował osobę. Umowę B2B trzeba zawrzeć do "
-                    f"{req.b2b_deadline:%d.%m.%Y} ({days} dni roboczych z przedwstępnej) "
-                    "— po terminie kara dla firmy."
-                ),
-                actor_id=None,
-            )
+    if accepted_on is not None:
+        await start_b2b_deadline(db, req, accepted_on=accepted_on, actor_id=actor_id)
     needed = NEEDED_COLUMN.get(req.needed_before)
     if (
         needed is None

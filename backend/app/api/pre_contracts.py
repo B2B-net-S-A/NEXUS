@@ -917,6 +917,10 @@ async def company_signed(
     event = await svc.add_event(
         db, req, "company_signed", actor_id=current_user.id, payload={"file_name": name}
     )
+    # Klient zaakceptował osobę przed podpisem umowy — termin B2B startuje teraz.
+    accepted_on = await svc.latest_acceptance(
+        db, candidate_id=req.candidate_id, job_id=req.job_id
+    )
     until = f" Ważna do {req.valid_until:%d.%m.%Y}." if req.valid_until else ""
     await svc.notify(
         db,
@@ -925,6 +929,10 @@ async def company_signed(
         message=f"Umowa przedwstępna podpisana obustronnie.{until}",
         actor_id=current_user.id,
     )
+    if accepted_on is not None:
+        await svc.start_b2b_deadline(
+            db, req, accepted_on=accepted_on, actor_id=current_user.id
+        )
     await db.commit()
     return await _one(db, current_user, req)
 

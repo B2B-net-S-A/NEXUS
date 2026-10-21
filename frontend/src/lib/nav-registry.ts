@@ -406,6 +406,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inSidebar: false,
   },
   {
+    // Umowy przedwstępne (0504, 21.10.2026): prośby DL / HoR / rekrutera przy
+    // osobach — stan, ważność, termin B2B, decyzje o karze. W menu nie stoi
+    // (wejście z listy rekrutacji i kafelka), paleta ma skrót.
+    id: "pre-contracts",
+    href: "/jobs/umowy-przedwstepne",
+    label: "Umowy przedwstępne",
+    icon: Briefcase,
+    section: "pipeline",
+    placement: "primary",
+    paletteKeywords: ["przedwstępna", "umowa przedwstępna", "kara", "wyłączność", "podpis"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
     // Daily (04.10.2026): pulpit „Requesty i obłożenie” na całą stronę —
     // „Zmiany od wczoraj” na górze i kategorie po kolei. Ta sama bramka co
     // „Rekrutacje” (sekcja Pipeline); w menu nie stoi, wejście jest z kafelka.

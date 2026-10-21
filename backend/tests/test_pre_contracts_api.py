@@ -488,3 +488,55 @@ async def test_automation_account_cannot_open_pre_contract_files(
         headers=await _headers(app_client, who),
     )
     assert resp.status_code == 403
+
+
+async def test_signing_after_client_acceptance_starts_b2b_deadline_from_today() -> None:
+    from app.services import pre_contracts
+
+    pair = await _pair()
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=pair["candidate_id"],
+                job_id=pair["job_id"],
+                stage=PipelineStage.acceptance,
+                moved_by=pair["recruiter"][0],
+                client_accepted_on=date(2026, 10, 1),
+            )
+        )
+        doc = B2BContractDocument(
+            document_type="preliminary_cez",
+            language="pl",
+            candidate_id=pair["candidate_id"],
+            job_id=pair["job_id"],
+            document_date=date(2026, 10, 1),
+            render_payload={"values": {}},
+            template_key="preliminary_cez_pl",
+        )
+        db.add(doc)
+        await db.flush()
+        now = pre_contracts.now_utc()
+        req = PreContractRequest(
+            candidate_id=pair["candidate_id"],
+            job_id=pair["job_id"],
+            needed_before="b2b_contract",
+            requested_by=pair["dl"][0],
+            assignee_id=pair["recruiter"][0],
+            document_id=doc.id,
+            sent_at=now,
+            candidate_signed_at=now,
+            company_signed_at=now,
+        )
+        db.add(req)
+        await db.flush()
+        accepted = await pre_contracts.latest_acceptance(
+            db, candidate_id=pair["candidate_id"], job_id=pair["job_id"]
+        )
+        assert accepted == date(2026, 10, 1)
+        await pre_contracts.start_b2b_deadline(
+            db, req, accepted_on=accepted, actor_id=None
+        )
+        # Akceptacja sprzed podpisu: 5 dni roboczych liczone od dziś.
+        assert req.b2b_deadline is not None
+        assert req.b2b_deadline > business_today()
+        await db.rollback()

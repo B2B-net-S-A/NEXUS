@@ -23,6 +23,7 @@ export const TILE_TYPES = [
   "my_recruitments",
   "closing_candidates",
   "to_complete",
+  "pre_contracts",
   "recruitment_activity",
   "recruitment_competence",
   "team_workload",

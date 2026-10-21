@@ -20,6 +20,7 @@ import { Loader2 } from "lucide-react";
 
 import { ClientQuestions } from "@/components/calendar/cycle/ClientQuestions";
 import { TabbedNav } from "@/components/ds";
+import { PreContractSection } from "@/components/v2/person/pre-contract/PreContractSection";
 import { AgreementPanelTab } from "@/components/v2/b2b-generator/AgreementPanelTab";
 import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
@@ -506,6 +507,14 @@ export function PersonWorkbenchTabs({
             />
             {/* 04.10.2026: rekruter generuje umowę tu — ten sam formularz
                 i ten sam wiersz rejestru co w Generatorze. */}
+            {/* 0504 (21.10.2026): umowa przedwstępna — prośba DL / HoR /
+                rekrutera, kroki podpisu i ważność przy tej osobie. */}
+            <PreContractSection
+              candidateId={candidateId}
+              jobId={jobId}
+              personLabel={[[row.item.name, row.item.lastname].filter(Boolean).join(" "), jobLabel].filter(Boolean).join(" · ")}
+              readOnly={readOnly}
+            />
             <AgreementPanelTab
               candidateId={candidateId}
               jobId={jobId}

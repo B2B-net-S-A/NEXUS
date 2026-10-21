@@ -2,6 +2,7 @@
 
 import * as React from"react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from"react";
+import { invalidatePreContract, preContractsApi } from "@/lib/api/preContracts";
 import { useQueryClient } from"@tanstack/react-query";
 import Link from"next/link";
 import { Alert } from"@/components/ui/alert";
@@ -2651,6 +2652,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  clientAcceptance: { acceptedOn: values.acceptedOn, plannedStartOn: values.plannedStartOn },
  onMoved: () => {
  showSuccess(acceptedToast(name, recipients));
+ if (values.requestPreContract) {
+ // 0504: prośba o przedwstępną „przed umową B2B” z okna akceptacji.
+ preContractsApi
+ .create({ candidate_id: item.candidate_id, job_id: jobId, needed_before: "b2b_contract" })
+ .then(() => invalidatePreContract(queryClient, jobId))
+ .catch((e) =>
+ showError(`Akceptacja zapisana, ale prośba o przedwstępną nie: ${apiErrorMessage(e, "poproś w panelu osoby.")}`)
+ );
+ }
  hiringManagerFeedbackApi
  .record(jobId, {
  candidate_id: item.candidate_id,
@@ -3490,6 +3500,16 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  "_blank",
  "noopener"
  );
+ }
+ return;
+ case "open_pre_contract":
+ // 0504: umowa przedwstępna niepodpisana — sekcja w zakładce „Umowa”.
+ // Ruch „Przesuń mimo braku” zostaje (ostrzeżenie, nie bramka).
+ if (workbenchContext) {
+ suspendMoveNext();
+ openWorkbench(item.candidate_id, "contract");
+ } else {
+ window.open(`/jobs/${jobId}?candidate=${item.candidate_id}`, "_blank", "noopener");
  }
  return;
  case "open_debrief":

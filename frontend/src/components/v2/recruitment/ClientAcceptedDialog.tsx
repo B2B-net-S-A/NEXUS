@@ -29,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,6 +42,8 @@ export interface ClientAcceptanceValues {
   acceptedOn: string;
   plannedStartOn: string | null;
   clientNote: string | null;
+  /** 0504: po zapisie — prośba o umowę przedwstępną „przed umową B2B”. */
+  requestPreContract?: boolean;
 }
 
 export interface ClientAcceptedDialogProps {
@@ -82,6 +85,7 @@ export function ClientAcceptedDialog({
   const [acceptedOn, setAcceptedOn] = useState(() => warsawToday());
   const [plannedStartOn, setPlannedStartOn] = useState("");
   const [clientNote, setClientNote] = useState("");
+  const [requestPreContract, setRequestPreContract] = useState(false);
   // Otwarte okno pytań: `eventId = null` — rozmowy nie ma w kalendarzu
   // (para bez terminu, 20.10.2026), okno pyta, kiedy była.
   const [debriefFor, setDebriefFor] = useState<{ eventId: number | null } | null>(null);
@@ -152,6 +156,7 @@ export function ClientAcceptedDialog({
         acceptedOn,
         plannedStartOn: plannedStartOn || null,
         clientNote: clientNote.trim() || null,
+        requestPreContract,
       },
       recipients.data ?? [],
     );
@@ -272,6 +277,20 @@ export function ClientAcceptedDialog({
               />
               <p className="text-xs text-muted-foreground">Zapisze się w werdykcie klienta („Akceptuje”).</p>
             </div>
+
+            <label className="flex items-start gap-2 text-sm" data-testid="client-accepted-pre-contract">
+              <Checkbox
+                checked={requestPreContract}
+                onCheckedChange={(v) => setRequestPreContract(v === true)}
+                className="mt-0.5"
+              />
+              <span>
+                Potrzebna umowa przedwstępna przed umową B2B
+                <span className="block text-xs text-muted-foreground">
+                  Prośba trafi do rekrutera prowadzącego osobę; dostaniesz dzwonek przy każdym kroku.
+                </span>
+              </span>
+            </label>
 
             <section aria-label="Kto dostanie powiadomienie" className="space-y-2 rounded-md border border-border p-3">
               <h3 className="text-sm font-semibold">Dostaną powiadomienie „Klient zaakceptował”</h3>

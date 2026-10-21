@@ -214,6 +214,17 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     ownChrome: false,
     availability: needsSection("pipeline", "Rekrutacje"),
   },
+  pre_contracts: {
+    type: "pre_contracts",
+    label: "Umowy przedwstępne",
+    description:
+      "Prośby o umowę przedwstępną do wystawienia i podpisu, umowy wygasające, terminy umowy B2B i decyzje o karze.",
+    category: "my_work",
+    defaultSize: { w: 4, h: 4 },
+    minSize: { w: 3, h: 3 },
+    ownChrome: false,
+    availability: needsSection("pipeline", "Rekrutacje"),
+  },
   recruitment_activity: {
     type: "recruitment_activity",
     label: "Aktywność rekrutacyjna",
