@@ -32,6 +32,7 @@
   "DELETE /api/clients/{client_id}/order-groups/{group_id}/file": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
   "DELETE /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
   "DELETE /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}/consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
+  "DELETE /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}/cost-consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
   "DELETE /api/clients/{client_id}/order-groups/{group_id}/md-consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
   "GET /api/clients/{client_id}/order-groups": "PPDBPDDDBBBDPPPPDPPPDDDDDD",
   "GET /api/clients/{client_id}/order-groups/consultant-options": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
@@ -39,6 +40,7 @@
   "GET /api/clients/{client_id}/order-groups/{group_id}/file": "PPDBDDDDBBBDDDDDDPPDDDDDDD",
   "GET /api/clients/{client_id}/order-groups/{group_id}/history": "PPDBPDDDBBBDPPPPDPPPDDDDDD",
   "GET /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}/consumptions": "PPDBPDDDBBBDPPPPDPPPDDDDDD",
+  "GET /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}/cost-consumptions": "PPDBPDDDBBBDPPPPDPPPDDDDDD",
   "GET /api/clients/{client_id}/order-groups/{group_id}/md-consumptions": "PPDBPDDDBBBDPPPPDPPPDDDDDD",
   "PATCH /api/clients/{client_id}/order-groups/{group_id}": "PPDBDDDDBBBDDPDDDDPDDDDDDD",
   "PATCH /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}": "PPDBDDDDBBBDDPDDDDPDDDDDDD",
@@ -58,6 +60,7 @@
   "POST /api/clients/{client_id}/order-groups/{group_id}/takeover": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
   "PUT /api/clients/{client_id}/order-groups/{group_id}/file": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
   "PUT /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}/consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}/cost-consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDDDDDDDDD",
   "PUT /api/clients/{client_id}/order-groups/{group_id}/md-consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDDDDDDDDD"
  }
 }

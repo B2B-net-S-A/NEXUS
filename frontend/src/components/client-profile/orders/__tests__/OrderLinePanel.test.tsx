@@ -22,6 +22,17 @@ vi.mock("@/lib/api/orderGroups", () => ({
   orderGroupsApi: {
     history: vi.fn().mockResolvedValue({ data: { entries: [], people: [] } }),
     listConsumptions: vi.fn().mockResolvedValue({ data: { rows: [] } }),
+    listCostConsumptions: vi.fn().mockResolvedValue({
+      data: {
+        order_number: "445",
+        budget_pool: 1000,
+        budget_used: 0,
+        budget_remaining: 1000,
+        rows: [],
+        people: [],
+        group_rows: [],
+      },
+    }),
   },
 }));
 
@@ -87,7 +98,7 @@ describe("OrderLinePanel — osoba w obsadzie", () => {
     expect(handlers.onSelectGroup).toHaveBeenCalledWith(15);
   });
 
-  it("zamówienie kosztowe nie ma zakładki zużycia MD", () => {
+  it("zamówienie kosztowe otwiera się na „Zużyciu” w złotych, bez zużycia MD", async () => {
     const value = group({
       is_cost_based: true,
       budget_amount: 1000,
@@ -97,8 +108,23 @@ describe("OrderLinePanel — osoba w obsadzie", () => {
     });
     renderPanel(value, value.lines[0]);
     expect(screen.queryByRole("tab", { name: "Zużycie MD" })).toBeNull();
-    expect(screen.getByRole("tab", { name: "Szczegóły" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Zużycie" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText("Budżet zamówienia")).toBeInTheDocument();
     expect(orderGroupsApi.listConsumptions).not.toHaveBeenCalled();
+    expect(orderGroupsApi.listCostConsumptions).toHaveBeenCalledWith(18, value.id, value.lines[0].id);
+  });
+
+  it("zamówienie kosztowe bez dostępu do kwot nie ma zakładki „Zużycie”", () => {
+    // Serwer redaguje budżet grupy roli bez finansów — zakładka byłaby samym 403.
+    const value = group({
+      is_cost_based: true,
+      budget_amount: null,
+      lines: [line({ md_total: null, md_remaining: null })],
+    });
+    renderPanel(value, value.lines[0]);
+    expect(screen.queryByRole("tab", { name: "Zużycie" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Szczegóły" })).toHaveAttribute("aria-selected", "true");
+    expect(orderGroupsApi.listCostConsumptions).not.toHaveBeenCalled();
   });
 
   it("osoba dodana do zamówienia ma swoją historię w szczegółach (bez „Dodany ręcznie”)", async () => {

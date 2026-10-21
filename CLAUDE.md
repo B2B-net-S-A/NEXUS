@@ -346,6 +346,7 @@ Poczta zamówień i odczyt PDF per klient, zamówienia MD, kosztowe i okresowe, 
 - `zamowienia-z-maila-zamowienia-b2bnetwork-pl-czytnik.md` — Zamówienia z maila `zamowienia@b2bnetwork.pl` — czytnik app-only, skrzynka współdzielona
 - `zamowienie-md-i-zamowienie-okresowe-to-dwa.md` — Zamówienie MD i zamówienie okresowe to DWA niezależne byty
 - `zapis-zamowienia-network-error-znaczy-nieobsluzone.md` — Zapis zamówienia: „Network Error" znaczy nieobsłużone 500
+- `zuzycie-zamowienia-kosztowego.md` — Zakładka „Zużycie” przy zamówieniu kosztowym (0493, 21.10.2026)
 
 ### Finanse i Insights — `docs/claude/finanse-insights/`
 
