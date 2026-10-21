@@ -1,7 +1,7 @@
 """Karta klienta: pola wymagane przed „Zweryfikowany” (decyzja Artura 21.10.2026, D3).
 
 Revision ID: 0495_playbook_verified_required
-Revises: 0493_cost_consumption_manual_entry
+Revises: 0494_contract_document_folders
 
 ``client_playbooks.verified_required_fields`` — lista kluczy pól karty
 rekomendacji (np. ``["motivation"]`` u Nordei), które Delivery Lead klienta
@@ -12,7 +12,7 @@ dokłada do minimum przed „Zweryfikowany”. Lustro 1:1 w ``entrypoint.sh``
 from alembic import op
 
 revision = "0495_playbook_verified_required"
-down_revision = "0493_cost_consumption_manual_entry"
+down_revision = "0494_contract_document_folders"
 branch_labels = None
 depends_on = None
 
