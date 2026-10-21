@@ -50,7 +50,7 @@ import { EditProfileDialog } from "./EditProfileDialog";
 import { EmploymentTypeDialog } from "./EmploymentTypeDialog";
 import { EntitlementDialog } from "./EntitlementDialog";
 import { poolAllowed } from "./form-rules";
-import { formLabel, tenureLabel, todayChips } from "./directory-view";
+import { formLabel, tenureLabel, todayChips, todayKnown } from "./directory-view";
 import { STATUS_TONE, formatDays } from "./hr-format";
 import { PersonAvatar } from "./PersonAvatar";
 import { TonePill } from "./people-ui";
@@ -383,7 +383,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
     ? todayChips(
         { ...data, today: fromDirectory.today ?? null },
         today,
-        config.open_modules.leave || config.open_modules.time,
+        todayKnown(config.open_modules),
       )
     : [];
 

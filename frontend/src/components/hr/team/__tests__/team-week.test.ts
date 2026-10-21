@@ -127,6 +127,29 @@ describe("pasek „Dziś”", () => {
   });
 });
 
+describe("sam moduł czasu — bez nieobecności nie ma „w pracy” (audyt 21.10.2026)", () => {
+  // Urlopy zamknięte dla patrzącego: serwer nie czyta nieobecności, więc
+  // `today` jest `null`, a dzień bez wpisu w „Moim miesiącu” to „unknown”.
+  const timeOnly = (state: "unknown" | "remote" | "business_trip") =>
+    person({ today: null, week: [{ date: TODAY, state, half_day: null }] });
+
+  it("dzień bez wpisu to „—”, zdalnie i delegacja zostają", () => {
+    expect(todayStatus(timeOnly("unknown"), TODAY)).toEqual({ kind: "unknown", text: "—" });
+    expect(todayStatus(timeOnly("remote"), TODAY)).toEqual({ kind: "remote", text: "zdalnie" });
+    expect(todayStatus(timeOnly("business_trip"), TODAY)).toEqual({ kind: "trip", text: "delegacja" });
+  });
+
+  it("podsumowanie nie liczy „—” jako w pracy", () => {
+    expect(todaySummary([timeOnly("unknown"), timeOnly("remote")], TODAY)).toBe("1 w pracy");
+  });
+
+  it("komórka mini-tygodnia mówi „brak danych”, nie „w pracy”", () => {
+    const [cell] = weekCells(timeOnly("unknown"), TODAY) ?? [];
+    expect(cell.mark).toBe("pt");
+    expect(cell.title).toBe("pt 23.10: brak danych o nieobecności");
+  });
+});
+
 describe("pasek godzin miesiąca", () => {
   it("godziny do normy, procent paska i status", () => {
     expect(monthProgress(person(), team())).toMatchObject({

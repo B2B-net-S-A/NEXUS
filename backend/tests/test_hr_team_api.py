@@ -406,6 +406,17 @@ async def test_week_shows_day_states_without_leave_type(app_client, modules) -> 
     assert no_time_states[remote_day.isoformat()] == "work"
     assert no_time_states[pending_day.isoformat()] == "pending"
 
+    # Sam moduł czasu (audyt 21.10.2026): nieobecności nie są czytane, więc
+    # dzień bez wpisu to „unknown”, nie „work”; zdalnie i delegacja zostają.
+    await modules(leave=False)
+    no_leave = (await app_client.get(BASE, headers=_headers(world["boss"]))).json()
+    row = next(item for item in no_leave["people"] if item["user_id"] == tripper.id)
+    no_leave_states = {item["date"]: item["state"] for item in row["week"]}
+    assert no_leave_states[trip_day.isoformat()] == "business_trip"
+    assert no_leave_states[remote_day.isoformat()] == "remote"
+    assert no_leave_states[pending_day.isoformat()] == "unknown"
+    assert "work" not in no_leave_states.values()
+
     await modules(time=False, leave=False)
     closed = (await app_client.get(BASE, headers=_headers(world["boss"]))).json()
     assert closed["week"] is None

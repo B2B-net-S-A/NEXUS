@@ -3,7 +3,7 @@
 // testy bez zapytań (`__tests__/directory-view.test.ts`).
 
 import { shortName } from "@/components/hr/leave/leave-format";
-import { isFullPerson, type EmploymentType, type Person } from "@/lib/api/hr";
+import { isFullPerson, type EmploymentType, type HrConfig, type Person } from "@/lib/api/hr";
 import { formatDayMonthPl, formatWeekdayDayPl } from "@/lib/date-pl";
 import { EMPLOYMENT_TERMS } from "@/lib/hr-employment-terms";
 import { countPl } from "@/lib/plural-pl";
@@ -16,10 +16,19 @@ export interface TodayChip {
 }
 
 /**
+ * Czy wolno powiedzieć „w pracy”: tylko z modułem urlopów otwartym dla
+ * patrzącego. Sam moduł czasu daje zdalnie i delegację, ale nieobecności
+ * serwer wtedy nie czyta — „w pracy” byłoby zgadywaniem (audyt 21.10.2026).
+ */
+export function todayKnown(openModules: Pick<HrConfig["open_modules"], "leave" | "time">): boolean {
+  return openModules.leave;
+}
+
+/**
  * Co dziś z osobą. Nieobecność bez rodzaju (D6 — katalog widzi cała firma);
  * słowo formy („przerwa”, „urlop”) tylko, gdy patrzący widzi formę (serwer
  * zwrócił `employment_type`), inaczej „nieobecność”. „W pracy” tylko, gdy
- * patrzący ma otwarty moduł urlopów albo czasu (`known`) — bez nich nie wiemy.
+ * nieobecności są znane (`known` = `todayKnown(...)`) — bez nich nie wiemy.
  */
 export function todayChips(person: Person, today: string, known: boolean): TodayChip[] {
   const full = isFullPerson(person) ? person : null;

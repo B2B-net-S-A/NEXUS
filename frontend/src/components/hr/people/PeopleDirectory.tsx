@@ -43,6 +43,7 @@ import {
   isAwayToday,
   tenureLabel,
   todayChips,
+  todayKnown as absencesKnown,
 } from "./directory-view";
 import { PersonAvatar } from "./PersonAvatar";
 import { FilterChip, TonePill } from "./people-ui";
@@ -96,8 +97,8 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
   const canBulk = canAdd;
   // Rozjazdy kartoteka ↔ konto: admin, Finanse i Kadry (19.10.2026).
   const seesAccounts = config.me.people_admin || config.me.payroll || config.me.is_admin;
-  // „W pracy” wiemy tylko z urlopów albo czasu otwartych dla patrzącego.
-  const todayKnown = config.open_modules.leave || config.open_modules.time;
+  // „W pracy” i „Dziś nieobecni” tylko przy urlopach otwartych dla patrzącego.
+  const todayKnown = absencesKnown(config.open_modules);
   const today = warsawToday();
 
   const rows = useMemo(() => people.data?.items ?? [], [people.data]);

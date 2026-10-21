@@ -227,6 +227,7 @@ const WEEK_CELL: Record<string, string> = {
   pending: "border border-dashed border-primary/60 bg-card text-primary",
   business_trip: "bg-warning-muted text-warning-muted-foreground",
   remote: "bg-info-muted text-info-muted-foreground",
+  unknown: "border border-border bg-card text-muted-foreground",
 };
 
 /** Mini-tydzień pn–pt; dziś obrysowane. */

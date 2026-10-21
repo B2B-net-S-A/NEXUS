@@ -10,6 +10,7 @@ import {
   isAwayToday,
   tenureLabel,
   todayChips,
+  todayKnown,
 } from "../directory-view";
 
 const TODAY = "2026-10-19";
@@ -185,5 +186,26 @@ describe("groupByDepartment", () => {
     expect(departmentDot("Administracja", names)).toBe("bg-chart-1");
     expect(departmentDot("Delivery", names)).toBe("bg-chart-2");
     expect(departmentDot(NO_DEPARTMENT, names)).toBe("bg-muted-foreground/40");
+  });
+});
+
+describe("todayKnown — „w pracy” tylko przy module urlopów (audyt 21.10.2026)", () => {
+  it("sam moduł czasu nie wystarcza: nieobecności nie są czytane", () => {
+    expect(todayKnown({ leave: false, time: true })).toBe(false);
+    expect(todayKnown({ leave: true, time: false })).toBe(true);
+    expect(todayKnown({ leave: false, time: false })).toBe(false);
+  });
+
+  it("sam moduł czasu: zdalnie i delegacja zostają, reszta bez „w pracy”", () => {
+    const known = todayKnown({ leave: false, time: true });
+    expect(todayChips(card(), TODAY, known)).toEqual([]);
+    const remote = card({
+      today: { absent_until: null, half_day: null, substitute_name: null, presence: "remote" },
+    });
+    expect(todayChips(remote, TODAY, known)).toEqual([{ tone: "success", label: "zdalnie" }]);
+    const trip = card({
+      today: { absent_until: null, half_day: null, substitute_name: null, presence: "business_trip" },
+    });
+    expect(todayChips(trip, TODAY, known)).toEqual([{ tone: "neutral", label: "delegacja" }]);
   });
 });

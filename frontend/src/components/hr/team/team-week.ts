@@ -29,6 +29,7 @@ export const WEEK_STATE_LABELS: Record<TeamWeekState, string> = {
   pending: "wniosek czeka",
   business_trip: "delegacja",
   remote: "praca zdalna",
+  unknown: "brak danych o nieobecności",
 };
 
 export interface WeekCell {
@@ -112,7 +113,8 @@ export function todayStatus(person: TeamPerson, today: string): TodayStatus {
       text: `zastępuje: ${person.covering_for.map(firstName).join(", ")}`,
     };
   }
-  if (!person.today && !day) return { kind: "unknown", text: "—" };
+  // Bez modułu urlopów (`unknown`) nieobecności nie znamy — nie mówimy „w pracy”.
+  if (day?.state === "unknown" || (!person.today && !day)) return { kind: "unknown", text: "—" };
   return { kind: "work", text: "w pracy" };
 }
 
