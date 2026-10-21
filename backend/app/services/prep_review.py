@@ -12,7 +12,8 @@ Decyzje Artura 23.09.2026. Każdy prep oceniany osobno według trzech kryteriów
 Listy punktów buduje kod, model (GPT-6 Luna, zapas Sonnet 5) wskazuje status
 i cytat. Cytat nieobecny w transkrypcie = punkt „nie było” z adnotacją
 „bez dowodu” — model nie może zaliczyć punktu, którego nie ma w rozmowie.
-Poziom oceny (słaby / OK / dobry) liczy kod z progów ``PREP_REVIEW_*``.
+Poziom oceny (słaby / OK / dobry) liczy kod z progów z Ustawienia → Ocena
+prepów (``services/prep_review_config``, 0505; startowe = ``PREP_REVIEW_*``).
 
 W Prepie 2 punkt zaliczony już w Prepie 1 ma status ``covered_in_prep1``
 i nie liczy się do mianownika — Prep 2 skupiony na brakach nie może wyjść
@@ -49,6 +50,9 @@ from app.models.interview_question import (
 from app.models.job import Job
 from app.models.note import Note, NoteType
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
+from app.services.prep_review_config import PrepReviewConfig
+from app.services.prep_review_config import current as current_config
+from app.services.prep_review_config import defaults as default_config
 from app.services.prompt_fencing import fence, json_for_prompt
 
 logger = logging.getLogger(__name__)
@@ -115,8 +119,13 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip().casefold()
 
 
-async def build_items(db: AsyncSession, job: Job) -> list[Item]:
-    """Punkty oceny: must-have (pisownia DL-a) + pytania tego klienta."""
+async def build_items(
+    db: AsyncSession, job: Job, *, max_questions: int = MAX_QUESTIONS
+) -> list[Item]:
+    """Punkty oceny: must-have (pisownia DL-a) + pytania tego klienta.
+
+    ``max_questions`` — najwięcej pytań klienta (Ustawienia → Ocena prepów).
+    """
     from app.services.dz_review import job_requirements
 
     must, _nice = job_requirements(job)
@@ -167,7 +176,7 @@ async def build_items(db: AsyncSession, job: Job) -> list[Item]:
         entries.append((qid, suggested.text or ""))
     items.extend(
         Item(key=f"q:{qid}", label=text.strip(), kind="question")
-        for qid, text in entries[:MAX_QUESTIONS]
+        for qid, text in entries[:max_questions]
         if text.strip()
     )
     return items
@@ -311,7 +320,15 @@ def grade(
     talk_share: Optional[float],
     duration_seconds: int,
     own_projects_told: bool,
+    config: Optional[PrepReviewConfig] = None,
 ) -> Grade:
+    cfg = config or default_config()
+    good_coverage = cfg.good_threshold / 100
+    weak_coverage = cfg.weak_threshold / 100
+    good_talk = cfg.talk_share_target / 100 if cfg.talk_share_enabled else None
+    # Dolny próg udziału kandydata nie ma jeszcze pola w ustawieniach (0505):
+    # zostaje z env, wyłączony razem z kryterium.
+    weak_talk = settings.PREP_REVIEW_WEAK_TALK_SHARE if cfg.talk_share_enabled else None
     scored = [i for i in items if i["status"] in _POINTS]
     coverage = (
         round(sum(_POINTS[i["status"]] for i in scored) / len(scored), 3)
@@ -319,19 +336,17 @@ def grade(
         else None
     )
     remaining = [i["label"] for i in scored if i["status"] != "covered"]
-    too_short = duration_seconds < settings.PREP_REVIEW_MIN_MINUTES * 60
+    too_short = cfg.min_minutes_enabled and duration_seconds < cfg.min_minutes * 60
     weak = (
         too_short
-        or (coverage is not None and coverage < settings.PREP_REVIEW_WEAK_COVERAGE)
-        or (
-            talk_share is not None and talk_share < settings.PREP_REVIEW_WEAK_TALK_SHARE
-        )
+        or (coverage is not None and coverage < weak_coverage)
+        or (talk_share is not None and weak_talk is not None and talk_share < weak_talk)
     )
     if weak:
         return Grade("weak", coverage, remaining)
     good = (
-        (coverage is None or coverage >= settings.PREP_REVIEW_GOOD_COVERAGE)
-        and (talk_share is None or talk_share >= settings.PREP_REVIEW_GOOD_TALK_SHARE)
+        (coverage is None or coverage >= good_coverage)
+        and (talk_share is None or good_talk is None or talk_share >= good_talk)
         and own_projects_told
     )
     return Grade("good" if good else "ok", coverage, remaining)
@@ -460,7 +475,8 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         # Pusty transkrypt nie jest oceną — pętla oznacza go jako „bez nagrania”.
         return None
 
-    items = await build_items(db, job)
+    config, config_version = await current_config(db)
+    items = await build_items(db, job, max_questions=config.max_client_questions)
     text = transcript.plain_text
     too_long = len(text) > MAX_TRANSCRIPT_CHARS
     chain = model_chain_for(FEATURE)
@@ -469,6 +485,7 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         "prep_no": prep.prep_no,
         "items": [[i.key, i.label] for i in items],
         "transcript": text,
+        "config_version": config_version,
     }
     digest = input_hash(material, chain[0])
     review = await db.scalar(
@@ -561,6 +578,7 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
             talk_share=talk_share,
             duration_seconds=transcript.duration_seconds,
             own_projects_told=parsed["own_projects"]["told"],
+            config=config,
         )
         level, remaining, summary = g.level, g.remaining, parsed["summary"]
         review.status = "ok"
@@ -572,6 +590,7 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         review.input_hash = digest
     review.model = model_used
     review.prompt_version = PROMPT_VERSION
+    review.config_version = config_version
 
     await _upsert_note(
         db,

@@ -125,6 +125,23 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   dowodu)”. Poziom liczy kod (`PREP_REVIEW_*`); w Prepie 2 punkt zaliczony
   w Prepie 1 = `covered_in_prep1` poza mianownikiem. **Awaria modelu = `level
   NULL`, nigdy „słaby”.** Pomiar Luny: `scripts/eval_prep_review.py`.
+- **Ustawienia → Ocena prepów (0505, 22.10.2026, makiety
+  https://claude.ai/artifact/1h38jS5LMc1673CENvUejR, plansza 5).** Head of
+  Recruitment i admin publikują wersję ustawień (`PUT /api/prep-review-config`,
+  `HeadOfRecruitmentPlus`); rekruter, DL, HoR i admin czytają (`ConfigReader`,
+  sekcja Pipeline). Każda publikacja = nowy wiersz `prep_review_configs`,
+  obowiązuje najnowszy, `prep_reviews.config_version` mówi, według której
+  wersji powstała ocena; zmiana działa od NASTĘPNEJ oceny (starych nie
+  przeliczamy). Brak wierszy = ustawienia startowe z kodu
+  (`prep_review_config.defaults()`), które odtwarzają ocenę sprzed 0505: progi
+  z `PREP_REVIEW_*` i do 20 pytań klienta — env zostaje tylko jako start.
+  Wersja z bazy czyta się na tle startowej (nowy klucz dostaje wartość
+  startową); nieczytelna = startowa + log, ocena nie staje. Progi, minimalna
+  długość, udział kandydata i limit pytań działają od 0505; wagi kryteriów,
+  tematy prowadzącego, skala odpowiedzi, notatka na Prep 2 i wskazówki dla AI
+  czyta nowa ocena (PR 2 planu). W menu Ustawień pozycja jest dla admina, HoR
+  i DL-a — rekruter ma w Ustawieniach samo „Moje konto”, stronę otwiera
+  linkiem „Jak liczona jest ocena” z oceny prepu (middleware go wpuszcza).
 - **Bramki MIĘKKIE** (nic nie blokuje): Prep 2 wymagany zawsze, gdy rozmowa
   u klienta jest w przyszłości (`PREP2_HINT_DAYS` usunięte); jedyny wyjątek
   z powodem i telefonem przed rozmową — `rozmowa-bez-prepu-2.md` (0482); todo

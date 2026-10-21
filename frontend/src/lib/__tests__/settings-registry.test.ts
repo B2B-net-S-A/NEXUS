@@ -376,7 +376,12 @@ describe("settings-registry — grupy w obszarze (lewa kolumna, 20.10.2026)", ()
   it("Rekrutacja: grupy w kolejności rejestru, pozycje w swoich grupach", () => {
     const groups = groupedAreaItems(accessSnapshot("admin"), "rec");
     expect(groups.map((g) => g.name)).toEqual(["Proces", "Klienci", "Teksty", "Wiedza"]);
-    expect(groups[0].items.map((i) => i.id)).toEqual(["stages", "ranking", "kpi-targets"]);
+    expect(groups[0].items.map((i) => i.id)).toEqual([
+      "stages",
+      "ranking",
+      "prep-review",
+      "kpi-targets",
+    ]);
     expect(groups.find((g) => g.name === "Teksty")!.items.map((i) => i.id)).toEqual([
       "mail",
       "job-ad-blocks",

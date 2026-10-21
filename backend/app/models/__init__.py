@@ -764,6 +764,7 @@ from app.models.trainee import (  # noqa: F401
 from app.models.prep_meeting import (  # noqa: F401
     PrepMeeting,
     PrepReview,
+    PrepReviewConfigVersion,
     PrepTranscript,
 )
 
