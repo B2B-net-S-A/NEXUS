@@ -1,7 +1,7 @@
 """Podpisany plik umowy B2B przy wierszu rejestru Generatora.
 
 Revision ID: 0496_b2b_generated_signed_file
-Revises: 0494_contract_document_folders
+Revises: 0495_playbook_verified_required
 
 * ``b2b_generated_contracts.signed_document_id`` — dokument kontraktu
   (``contract_documents``) z podpisanym egzemplarzem umowy, dołączony przy
@@ -16,7 +16,7 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 from alembic import op
 
 revision = "0496_b2b_generated_signed_file"
-down_revision = "0494_contract_document_folders"
+down_revision = "0495_playbook_verified_required"
 branch_labels = None
 depends_on = None
 
