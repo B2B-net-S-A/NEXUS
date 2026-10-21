@@ -74,6 +74,7 @@ import {
   Repeat2,
   Sparkles,
   Undo2,
+  RotateCcw,
   X,
 } from "lucide-react";
 
@@ -91,7 +92,8 @@ import {
 import { withDownloadIntent, type CvDownloadSurface } from "@/lib/cv-download-intent";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
 import { countForm } from "@/lib/cv-qc";
-import { cvAiSourcesQueryKey } from "@/lib/cv-ai-sources";
+import { cvAiSourcesQueryKey, fetchCvAiSources } from "@/lib/cv-ai-sources";
+import { sourceCvWarning } from "@/lib/cv-generate-confirm";
 import type { CvEditorHandoff } from "@/lib/cv-editor-handoff";
 import {
   cvToClientIssuesQueryKey,
@@ -128,6 +130,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
 import { CvRewriteForm, REWRITE_MAX } from "@/components/v2/recruitment/CvRewriteForm";
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
@@ -498,20 +501,12 @@ export function CvToClientCard({
   ) : null;
   const origin = stageCvOrigin(branded);
 
-  // Po „Zapisz i przekaż dalej” (14.10.2026): automat CV rusza po ruchu, ale
-  // jego wiersz pojawia się chwilę później. Do tego czasu karta pyta sama —
-  // aż do wiersza CV, powodu pominięcia z „Pracy w tle” albo sufitu 5 minut.
+  // Po „Zapisz i przekaż dalej” (14.10.2026). Od 21.10.2026 ruch nie generuje
+  // CV — karta nie czeka na automat. Powód pominięcia z „Pracy w tle” liczy się
+  // tylko w trybie z flagą `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`.
   const [forwardedAt, setForwardedAt] = useState<number | null>(() => (forwarded ? Date.now() : null));
-  const [forwardExpired, setForwardExpired] = useState(false);
   useEffect(() => {
-    if (!forwarded) {
-      setForwardedAt(null);
-      return;
-    }
-    setForwardedAt(Date.now());
-    setForwardExpired(false);
-    const timer = setTimeout(() => setForwardExpired(true), PENDING_TIMEOUT_MS);
-    return () => clearTimeout(timer);
+    setForwardedAt(forwarded ? Date.now() : null);
   }, [forwarded]);
   const skip = useAutoCvSkip(jobId, candidateId);
   // Stare pominięcie (np. z poprzedniej weryfikacji) nie jest odpowiedzią na
@@ -520,14 +515,11 @@ export function CvToClientCard({
     forwarded && skip && (forwardedAt == null || !skip.created_at || Date.parse(skip.created_at) >= forwardedAt - 120_000)
       ? skip
       : null;
-  const awaitingAuto = forwarded && !forwardExpired && freshSkip == null;
 
   // Odpytywanie: generacja w toku albo czekamy na podpięcie zleconej z karty.
   // Sufit czasu — etap ze starym szkicem nie dostanie podpięcia nigdy, a karta
   // i tak pokazuje wtedy „Użyj tej wersji”.
-  const polling =
-    (cvToClientShouldPoll(state, pendingId) && pending?.expired !== true) ||
-    cvToClientShouldPoll(state, null, { awaitingAuto });
+  const polling = cvToClientShouldPoll(state, pendingId) && pending?.expired !== true;
   useEffect(() => {
     if (!polling) return;
     const id = setInterval(() => {
@@ -538,13 +530,25 @@ export function CvToClientCard({
       if (pairStageId != null) {
         void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(pairStageId) });
       }
-      // Powód pominięcia auto-CV przychodzi z „Pracy w tle”.
-      if (awaitingAuto) {
-        void queryClient.invalidateQueries({ queryKey: jobBackgroundEventsQueryKey(jobId, BACKGROUND_EVENTS_STEP) });
-      }
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [polling, awaitingAuto, queryClient, candidateId, jobId, stageId, pairStageId]);
+  }, [polling, queryClient, candidateId, jobId, stageId, pairStageId]);
+
+  // 21.10.2026: po przekazaniu do „Zweryfikowany” potwierdzenia otwierają się
+  // same — CV powstaje dopiero po nich. Raz na przekazanie, bez wymuszania
+  // po „Anuluj”.
+  const openedAfterForward = useRef(false);
+  const settledNone =
+    !brandedQuery.isLoading && !rowsQuery.isLoading && !brandedQuery.isError && state.kind === "none";
+  useEffect(() => {
+    if (!forwarded) {
+      openedAfterForward.current = false;
+      return;
+    }
+    if (openedAfterForward.current || !canReplace || !settledNone) return;
+    openedAfterForward.current = true;
+    setGenerateOpen(true);
+  }, [forwarded, canReplace, settledNone]);
 
   // Koniec czekania: serwer podpiął CV (etap ma treść) albo generacja padła.
   useEffect(() => {
@@ -602,6 +606,44 @@ export function CvToClientCard({
     onError: (error) =>
       showError(apiErrorMessage(error, "Nie udało się przywrócić poprzedniej wersji. Odśwież i spróbuj ponownie.")),
   });
+
+  // „Odrzuć to CV i zacznij od nowa” (21.10.2026): karta wraca do potwierdzeń,
+  // treść idzie do historii wersji — nic nie jest kasowane.
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const discardMut = useMutation({
+    mutationFn: (target: { stageId: number; revision: number }) =>
+      candidateStageCvApi.branded.discard(target.stageId, target.revision),
+    onSuccess: (response, target) => {
+      queryClient.setQueryData(stageBrandedQueryKey(target.stageId), response.data);
+      setRewriteResult(null);
+      refresh();
+      setEditorOpen(false);
+      setGenerateOpen(true);
+      showSuccess("CV odrzucone. Potwierdź, z czego zrobić nowe.");
+    },
+    onError: (error) =>
+      showError(apiErrorMessage(error, "Nie udało się odrzucić CV — odśwież i spróbuj ponownie.")),
+  });
+  const discardCv = async () => {
+    if (!branded) return;
+    const ok = await askConfirm({
+      title: "Odrzucić to CV do klienta?",
+      description:
+        "Karta wróci do wyboru pliku, odpowiedzi i notatek. To CV zostaje w historii wersji i w plikach kandydata — nic nie jest kasowane.",
+      confirmLabel: "Odrzuć i zacznij od nowa",
+    });
+    if (ok) discardMut.mutate({ stageId: cvStageId, revision: branded.edit_revision ?? 0 });
+  };
+
+  // „Powstało z: <plik>” — źródło bieżącej wersji (ten sam odczyt co panel).
+  const sourcesQuery = useQuery({
+    queryKey: cvAiSourcesQueryKey(cvStageId),
+    queryFn: () => fetchCvAiSources(cvStageId),
+    enabled: state.kind === "ready",
+    retry: false,
+  });
+  const usedFile = state.kind === "ready" ? (sourcesQuery.data?.last_source_cv ?? null) : null;
+  const sourceWarning = state.kind === "ready" ? sourceCvWarning(sourcesQuery.data) : null;
 
   /** „Użyj nowej wersji” — wersja szkicu z chwili kliknięcia. */
   const attachNewVersion = (generatedId: number) =>
@@ -772,8 +814,7 @@ export function CvToClientCard({
           state,
           origin,
           skipReason: freshSkip ? autoCvSkipReason(freshSkip) : null,
-          expired: forwardExpired,
-          manual: pending != null,
+          manual: pending != null || state.generating?.origin !== "auto",
           checks,
         })
       : null;
@@ -826,6 +867,11 @@ export function CvToClientCard({
                 {finalized ? `wersja ${branded.version}` : "szkic"}
               </Badge>
               {facts.length > 0 ? <p>{facts.join(" · ")}</p> : null}
+              {usedFile ? (
+                <p data-testid="cv-source-file" className="[overflow-wrap:anywhere]">
+                  Powstało z: <span className="font-medium text-foreground">{usedFile.filename ?? "plik CV"}</span>
+                </p>
+              ) : null}
             </div>
             {state.needsReview || origin ? (
               <div className="flex flex-wrap items-center gap-1.5">
@@ -853,6 +899,20 @@ export function CvToClientCard({
               </p>
             ) : null}
             {origin ? <p className="text-[11px] text-muted-foreground">{origin.sentence}</p> : null}
+            {sourceWarning ? (
+              <div
+                role="note"
+                data-testid="cv-source-warning"
+                className="space-y-1.5 rounded-md border border-warning/30 bg-warning-muted px-2.5 py-2 text-xs text-warning-muted-foreground"
+              >
+                <p className="[overflow-wrap:anywhere]">{sourceWarning}</p>
+                {canReplace && !generateOpen ? (
+                  <Button size="sm" variant="outline" onClick={openGenerator}>
+                    <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj z innego pliku
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-1.5">
               {!readOnly ? (
                 <Button size="sm" variant="outline" onClick={() => openEditor()}>
@@ -910,6 +970,14 @@ export function CvToClientCard({
                   {canReplace && !generateOpen ? (
                     <DropdownMenuItem onSelect={afterMenuCloses(openGenerator)}>
                       <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj ponownie
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canReplace && !generateOpen && !pending ? (
+                    <DropdownMenuItem
+                      disabled={discardMut.isPending}
+                      onSelect={afterMenuCloses(() => void discardCv())}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Odrzuć to CV i zacznij od nowa
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuContent>
@@ -1136,8 +1204,8 @@ export function CvToClientCard({
               {readyHint ? null : useOtherButton}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Pokaże, z czego powstanie CV tej osoby w tej rekrutacji. CV wybrane albo wgrane tutaj
-              nie zostanie nadpisane przez automat po ruchu na „Zweryfikowany”.
+              Najpierw potwierdzisz plik CV, odpowiedzi ze screeningu i dodatkowe notatki — CV powstaje
+              dopiero po „Generuj”, nie samo po ruchu na „Zweryfikowany”.
             </p>
           </div>
         ) : (
@@ -1157,6 +1225,7 @@ export function CvToClientCard({
       className="space-y-3 rounded-xl border border-border bg-card p-3"
     >
       <h3 className="text-sm font-semibold text-foreground">CV do klienta</h3>
+      {confirmDialog}
       {progress ? (
         <ForwardProgressBlock {...progress} next={nextInScreening} onOpenPerson={onOpenPerson} />
       ) : null}

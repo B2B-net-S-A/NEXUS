@@ -266,6 +266,7 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 
 - `automaty-rekrutacji-v3.md` — Automaty rekrutacji v3 (21.09.2026, migracja 0335)
 - `autonomiczny-przeplyw-cv.md` — Autonomiczny przepływ CV (17.09.2026)
+- `cv-po-potwierdzeniu.md` — CV po potwierdzeniu — bez auto-CV po „Zweryfikowany” (21.10.2026) · trzy potwierdzenia w karcie, plik z kopii „Oryginał CV”, `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`, „Powstało z”, „Odrzuć to CV”
 - `cv-w-procesie.md` — CV w procesie (13.10.2026, D4) · źródła AI w karcie, jedna lista „Do poprawy”
 - `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML ↔ Word, klauzula RODO, „Do poprawy”, AI na zaznaczeniu i dla całego CV, historia wersji
 - `generator-cv-domyslnie-sciezka-sprzed-przebudowy.md` — Generator CV — domyślnie ścieżka sprzed przebudowy (`legacy_v7`, 10.09.2026)

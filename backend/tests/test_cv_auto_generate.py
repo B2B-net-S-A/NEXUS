@@ -867,3 +867,15 @@ def test_entrypoint_mirrors_migration_0335():
         _BACKEND / "alembic" / "versions" / "0335_recruitment_automations.py"
     ).read_text("utf-8")
     assert 'down_revision = "0334_my_people"' in migration
+
+
+@pytest.fixture(autouse=True)
+def _generation_without_confirmation(monkeypatch):
+    """Ten moduł sprawdza tryb sprzed 21.10.2026 (generacja zaraz po ruchu).
+
+    Domyślnie ruch na „Zweryfikowany” już nie generuje CV — patrz
+    `test_cv_confirm_before_generate.py`.
+    """
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "CV_AUTO_GENERATE_WITHOUT_CONFIRMATION", True)

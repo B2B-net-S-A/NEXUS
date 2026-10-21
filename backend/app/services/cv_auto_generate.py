@@ -1,5 +1,11 @@
 """Auto-CV w szablonie firmowym po ruchu na „Zweryfikowany" (21.09.2026).
 
+21.10.2026: generacja po ruchu jest WYŁĄCZONA (`CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`,
+domyślnie False). Zespół: CV powstawało, zanim rekruter dopisał notatkę do CV,
+z pliku wybranego przez system, bez cofnięcia. Teraz rekruter potwierdza w karcie
+„CV do klienta” plik, odpowiedzi i dodatkowe notatki. Po ruchu zostaje tylko QC
+istniejącego CV pary. Reguły niżej dotyczą trybu z flagą True.
+
 Po COMMICIE pojedynczego ruchu kandydata na etap „Zweryfikowany" endpoint ruchu
 odpala :func:`generate_after_verified` jako zadanie w tle (własna sesja bazy).
 Zadanie nigdy nie zmienia statusu ani czasu odpowiedzi ruchu i nigdy nie rzuca.
@@ -248,11 +254,16 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
     base = dict(
         job_id=job.id, stage_id=stage.id, candidate_id=candidate.id, user_id=user_id
     )
-    if job.client_id is None:
+    # 21.10.2026: CV powstaje po potwierdzeniu w karcie, nie po ruchu. Wtedy
+    # automat tylko liczy QC istniejącego CV pary — bez wpisów w „Pracy w tle”
+    # i bez dzwonka „Automat nie zrobił CV” (nikt go nie prosił o CV).
+    generates = bool(getattr(settings, "CV_AUTO_GENERATE_WITHOUT_CONFIRMATION", False))
+    if generates and job.client_id is None:
         await _record(db, action=ACTION_SKIPPED, reason="no_client", **base)
         return None
     if not user.has_any_role(*CANDIDATE_WRITE_ROLES):
-        await _record(db, action=ACTION_SKIPPED, reason="no_permission", **base)
+        if generates:
+            await _record(db, action=ACTION_SKIPPED, reason="no_permission", **base)
         return None
     # 09.10.2026: para ma już CV firmowe (wybrane z profilu w screeningu albo
     # wygenerowane ręcznie na wcześniejszym etapie). Nowy dokument podpięty do
@@ -270,10 +281,13 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
         .limit(1)
     )
     if pair_cv_stage_id is not None:
-        await _record(db, action=ACTION_SKIPPED, reason="pair_cv_exists", **base)
+        if generates:
+            await _record(db, action=ACTION_SKIPPED, reason="pair_cv_exists", **base)
         # 14.10.2026: istniejące CV pary dostaje to samo co szkic automatu —
         # QC i poprawki AI od razu, bez dzwonka (CV nikt teraz nie robił).
         await qc_after_attach(pair_cv_stage_id, user_id)
+        return None
+    if not generates:
         return None
     sources = await list_candidate_cv_sources(db, candidate.id)
     if not sources:

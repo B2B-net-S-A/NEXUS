@@ -578,6 +578,11 @@ class Settings(BaseSettings):
     # wejścia = pominięcie z Activity `cv_auto_generate_skipped`. False = brak
     # jakiegokolwiek efektu po ruchu (stan sprzed 21.09).
     CV_AUTO_GENERATE_ON_VERIFIED: bool = True
+    # 21.10.2026 (zgłoszenie zespołu, decyzja Artura): ruch na „Zweryfikowany”
+    # nie generuje CV — rekruter potwierdza w karcie plik, odpowiedzi
+    # i dodatkowe notatki, potem klika „Generuj CV”. Automat zostaje przy QC
+    # istniejącego CV pary. True = generacja od razu po ruchu (stan 21.09–21.10).
+    CV_AUTO_GENERATE_WITHOUT_CONFIRMATION: bool = False
     # Pobranie CV klienta, którego centralna polityka wymaga zrzutu zgody RODO
     # (PKO BP), jest zablokowane (409 `consent_required`), dopóki zrzut nie jest
     # dołączony — generacja przechodzi, zgodę można dołączyć po niej. False =

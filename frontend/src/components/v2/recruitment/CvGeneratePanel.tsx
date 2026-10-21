@@ -17,6 +17,13 @@
  * „Zmień” rozwija przełączniki, obróbkę, język i opcje zaawansowane. Panel
  * rozwija się sam, gdy czegoś brakuje albo serwer odmówił; zgoda RODO, lista
  * braków, błąd i „Generuj” są widoczne zawsze.
+ *
+ * 21.10.2026 (zgłoszenie zespołu, decyzja Artura): ruch na „Zweryfikowany” nie
+ * generuje już CV. Przed „Generuj” rekruter potwierdza trzy rzeczy
+ * (`CvGenerateConfirm`): plik CV (domyślnie kopia „Oryginał CV” rekrutacji, do
+ * wyboru każdy plik CV osoby), odpowiedzi ze screeningu i dodatkowe notatki do
+ * CV (pole z okna generatora — zapisuje się w rekrutacji przed generacją).
+ * „Napisz od nowa” potwierdzeń nie ma: poprawia CV, które już powstało.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -33,6 +40,7 @@ import {
   type CvLanguageChoice,
 } from "@/components/v2/cv-generator/cv-generator-form";
 import { useCvGenerator } from "@/components/v2/cv-generator/useCvGenerator";
+import { CvGenerateConfirm } from "@/components/v2/recruitment/CvGenerateConfirm";
 import {
   aiSourceRows,
   CV_AI_SOURCE_KEYS,
@@ -41,6 +49,14 @@ import {
   type CvAiSourceToggles,
 } from "@/lib/cv-ai-sources";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
+import {
+  confirmationsLeft,
+  confirmedCountLabel,
+  confirmLeftSentence,
+  cvFileChoices,
+  NO_CONFIRMATIONS,
+  type CvConfirmations,
+} from "@/lib/cv-generate-confirm";
 import { canMutateSection } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -133,10 +149,29 @@ function CvGeneratePanelForm({
   });
   const { setSourceChoice } = g;
   const originalId = g.aiSourcesQuery.data?.original_cv?.document_id ?? null;
-  // Plik CV do generacji = oryginał z „Z czego powstało” (plik główny osoby).
+  // Plik CV do generacji: na start ten z „Z czego powstało” (kopia „Oryginał CV”
+  // rekrutacji), potem wybór rekrutera w kroku „Plik CV”.
+  const [chosenFile, setChosenFile] = useState<number | null>(null);
+  // Bez `…/ai-sources` (awaria) plik domyślny i lista idą z generatora.
+  const fileChoices = g.aiSourcesQuery.data
+    ? cvFileChoices(g.aiSourcesQuery.data)
+    : g.sources.map((source) => ({
+        document_id: source.id,
+        filename: source.filename,
+        uploaded_at: source.uploaded_at,
+        is_primary: source.is_primary,
+        outdated: false,
+        stage_original: false,
+      }));
+  const fileId = chosenFile ?? originalId ?? (g.aiSourcesQuery.isError ? g.cvDocumentId : null);
   useEffect(() => {
-    if (originalId != null) setSourceChoice(originalId);
-  }, [originalId, setSourceChoice]);
+    if (fileId != null) setSourceChoice(fileId);
+  }, [fileId, setSourceChoice]);
+
+  // Potwierdzenia (21.10.2026) — tylko przy generacji, nie przy „Napisz od nowa”.
+  const confirming = rewrite === undefined;
+  const [confirmed, setConfirmed] = useState<CvConfirmations>(NO_CONFIRMATIONS);
+  const left = confirming ? confirmationsLeft(confirmed, { fileId, noteDraft: g.noteDraft }) : [];
 
   // Karta należy do JEDNEJ rekrutacji. Osoba z jednym innym procesem dostałaby
   // go z automatu — tu generujemy wyłącznie do tej rekrutacji.
@@ -146,7 +181,9 @@ function CvGeneratePanelForm({
   const missing = notListed
     ? ["Rekrutacja — tej rekrutacji nie ma na liście procesów osoby (karta zamknięta?)"]
     : g.missing;
-  const ready = missing.length === 0 && !otherProcess && !g.generating;
+  // Żądanie idzie z pliku z kroku „Plik CV” — lista generatora mogła jeszcze go nie znać.
+  const fileInRequest = fileId == null || g.cvDocumentId === fileId;
+  const ready = missing.length === 0 && !otherProcess && !g.generating && left.length === 0 && fileInRequest;
 
   // Dane panelu się ustaliły: proces wybrany, pliki, zasady klienta i źródła
   // wczytane. Wcześniej lista braków niesie „wczytuję…”, a nie decyzje.
@@ -196,10 +233,24 @@ function CvGeneratePanelForm({
     submit();
   }, [armed, quiet, submit]);
 
+  // Wiersz „Oryginalne CV” mówi o pliku wybranym w kroku „Plik CV”.
+  const sourcesData = g.aiSourcesQuery.data;
+  const chosenFileRow = fileChoices.find((file) => file.document_id === fileId) ?? null;
+  const shownSources =
+    sourcesData && chosenFileRow
+      ? {
+          ...sourcesData,
+          original_cv: {
+            document_id: chosenFileRow.document_id,
+            filename: chosenFileRow.filename,
+            uploaded_at: chosenFileRow.uploaded_at,
+          },
+        }
+      : sourcesData;
   const sourcesRows = (
     <AiSourcesRows
       title="Z czego powstało"
-      data={g.aiSourcesQuery.data}
+      data={shownSources}
       loading={sourcesLoading}
       error={g.aiSourcesQuery.isError}
       onRetry={() => void g.aiSourcesQuery.refetch()}
@@ -290,6 +341,37 @@ function CvGeneratePanelForm({
 
   return (
     <section aria-label="Generowanie CV" className={PANEL_CLASS} data-testid="cv-generate-panel">
+      {confirming ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-foreground">Z czego zrobić CV?</p>
+          <span
+            data-testid="cv-confirm-count"
+            className={cn(
+              "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+              left.length === 0 ? "bg-success-muted text-success-muted-foreground" : "bg-primary/10 text-primary",
+            )}
+          >
+            {confirmedCountLabel(left)}
+          </span>
+        </div>
+      ) : null}
+      {confirming && (g.aiSourcesQuery.data || g.aiSourcesQuery.isError) ? (
+        <CvGenerateConfirm
+          candidateId={candidateId}
+          jobId={jobId}
+          files={fileChoices}
+          answers={g.aiSourcesQuery.data?.answers ?? null}
+          existingNotes={g.aiSourcesQuery.data?.notes.count ?? 0}
+          fileId={fileId}
+          onFileChange={setChosenFile}
+          noteDraft={g.noteDraft}
+          onNoteDraftChange={g.setNoteDraft}
+          confirmed={confirmed}
+          onConfirm={setConfirmed}
+          left={left}
+          disabled={g.generating}
+        />
+      ) : null}
       {choices}
       {g.recruitment && g.consentBlocksGeneration ? (
         <ConsentScreenshotField
@@ -329,6 +411,11 @@ function CvGeneratePanelForm({
             ? "Ok. 40 s. Nowa wersja zastąpi bieżący szkic, gdy będzie gotowa — zatwierdzone wersje zostają."
             : "Ok. 40 s. Gotowe CV pojawi się tutaj jako CV do klienta."}
       </p>
+      {confirmLeftSentence(left) ? (
+        <p className="text-xs text-muted-foreground" data-testid="cv-confirm-left">
+          {confirmLeftSentence(left)}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-1.5">
         <Button size="sm" onClick={g.submit} disabled={!ready} loading={g.generating}>
           <Sparkles className="h-3.5 w-3.5" aria-hidden /> {rewrite !== undefined ? "Napisz od nowa" : "Generuj"}

@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import app.models  # noqa: F401
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -82,3 +84,15 @@ async def test_without_central_policies_consent_is_a_generation_input(monkeypatc
 
     assert await _run_automation(world) is None
     await _assert_skipped(world, seen, reason="consent_screenshot_required")
+
+
+@pytest.fixture(autouse=True)
+def _generation_without_confirmation(monkeypatch):
+    """Ten moduł sprawdza tryb sprzed 21.10.2026 (generacja zaraz po ruchu).
+
+    Domyślnie ruch na „Zweryfikowany” już nie generuje CV — patrz
+    `test_cv_confirm_before_generate.py`.
+    """
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "CV_AUTO_GENERATE_WITHOUT_CONFIRMATION", True)

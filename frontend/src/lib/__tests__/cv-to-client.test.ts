@@ -285,29 +285,23 @@ describe("cvChecksBeforeSending — jedna liczba na karcie (13.10.2026)", () => 
 describe("po „Zapisz i przekaż dalej” (14.10.2026)", () => {
   const none = resolveCvToClient({ branded: { status: "none" }, rows: [] });
 
-  it("karta pyta dalej w stanie „brak”, dopóki czeka na automat", () => {
+  it("21.10.2026: karta w stanie „brak” nie czeka na automat", () => {
     expect(cvToClientShouldPoll(none, null)).toBe(false);
-    expect(cvToClientShouldPoll(none, null, { awaitingAuto: true })).toBe(true);
-    const ready = resolveCvToClient({ branded: { status: "draft", from_generator: true }, rows: [] });
-    expect(cvToClientShouldPoll(ready, null, { awaitingAuto: true })).toBe(false);
   });
 
   const LOADING = { status: "loading" as const, count: 0 };
-  const base = { origin: null, skipReason: null, expired: false, checks: LOADING };
+  const base = { origin: null, skipReason: null, checks: LOADING };
 
-  it("brak CV: generuje się, potem powód pominięcia albo prośba po suficie czasu", () => {
+  it("brak CV: CV czeka na rekrutera; powód pominięcia tylko w trybie automatu", () => {
     expect(forwardProgress({ ...base, state: none })).toEqual({
-      cv: { tone: "busy", text: "CV generuje się (ok. 40 s)" },
+      cv: { tone: "pending", text: "CV czeka na Ciebie — potwierdź niżej, z czego je zrobić" },
       qc: { tone: "pending", text: "QC — po CV" },
-      waiting: true,
+      waiting: false,
     });
     expect(forwardProgress({ ...base, state: none, skipReason: "reguła klienta wymaga zrzutu zgody RODO" }).cv).toEqual({
       tone: "info",
       text: "CV nie powstało automatycznie: reguła klienta wymaga zrzutu zgody RODO",
     });
-    const late = forwardProgress({ ...base, state: none, expired: true });
-    expect(late.cv.tone).toBe("warn");
-    expect(late.waiting).toBe(false);
   });
 
   it("gotowe CV: źródło gotowego CV i stan QC", () => {

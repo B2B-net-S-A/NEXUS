@@ -914,8 +914,16 @@ def _record_ai_sources(source: CandidateGenerationSource, result: Any) -> None:
     wyłącznie pola dokumentu.
     """
     payload = getattr(result, "render_payload", None)
-    if source.ai_sources and isinstance(payload, dict):
+    if not isinstance(payload, dict):
+        return
+    if source.ai_sources:
         payload["ai_sources"] = dict(source.ai_sources)
+    # 21.10.2026: „Powstało z: <plik>” — z którego pliku CV powstała ta wersja.
+    if source.cv_document_id is not None:
+        payload["source_cv"] = {
+            "document_id": source.cv_document_id,
+            "filename": source.cv_filename,
+        }
 
 
 @terminal_operation("cv-generation")
