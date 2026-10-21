@@ -1,4 +1,4 @@
 {
-  "sha256": "4579867d248f774592b44cd8fa27ac320ae012f29608fa8d7c9c41895ec35b18",
+  "sha256": "bdcef7e039d6d2f07e1140dc9004640e239891f431f52bdbe8dc865a8acdc597",
   "source": "backend/app/tasks/contract_alerts.py"
 }

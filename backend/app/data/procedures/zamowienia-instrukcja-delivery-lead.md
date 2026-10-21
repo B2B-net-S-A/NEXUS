@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 09.10.2026
+> **Zgodność z systemem sprawdzona:** 21.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -540,8 +540,9 @@ stawki i notatkę. Zapisuje się zawsze typ wybrany w chwili zapisu.
 > masz wgrać plik ponownie przez edycję — **nie zakładaj zamówienia drugi raz**.
 
 Wgrany PDF pojawia się nie tylko w panelu zamówienia: znajdziesz go też
-w sekcji **„Dokumenty zamówień"** w dokumentach umowy konsultanta i w jego
-plikach. Rola bez dostępu do zamówień tego klienta tej sekcji po prostu nie
+w automatycznym folderze **„Zamówienia"** w zakładce Dokumenty umowy konsultanta
+(razem z zamówieniami z SharePointa i dodanymi tam ręcznie) i w jego plikach.
+Rola bez dostępu do zamówień tego klienta tych plików po prostu nie
 zobaczy — bez żadnego komunikatu.
 
 **Dokładanie konsultanta do istniejącego zamówienia.** Kliknij wiersz

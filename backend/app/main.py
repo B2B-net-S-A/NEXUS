@@ -293,6 +293,7 @@ from app.api import oauth_token as oauth_token_api
 from app.api import service_accounts as service_accounts_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
+from app.api import contract_document_folders as contract_document_folders_api
 from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
 from app.api import candidates_bulk as candidates_bulk_api
@@ -1465,6 +1466,10 @@ app.include_router(job_board_connection_api.router, prefix="/api", tags=["job-po
 # Przepięcie kontraktu na innego klienta (admin) — jedyna droga zmiany klienta.
 app.include_router(
     contract_client_reassign_api.router, prefix="/api/contracts", tags=["contracts"]
+)
+# Foldery w zakładce Dokumenty kontraktu (0492).
+app.include_router(
+    contract_document_folders_api.router, prefix="/api/contracts", tags=["contracts"]
 )
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
@@ -3203,7 +3208,7 @@ async def api_health_deep_check():
     from app.models.b2b_contract_document import B2BContractDocument
     from app.models.b2b_register_import import B2BRegisterImportRun
     from app.models.contract_doc_sharepoint import ContractDocSpItem, ContractDocSpRun
-    from app.models.contract_document import ContractDocument
+    from app.models.contract_document import ContractDocument, ContractDocumentFolder
     from app.models.cv_qc_run import CvQcRun
     from app.models.application_screening import ApplicationScreening
     from app.models.requirement_cleanup import RequirementCleanupDecision
@@ -3280,6 +3285,9 @@ async def api_health_deep_check():
         ("contract_documents", ContractDocument),
         ("contract_doc_sp_runs", ContractDocSpRun),
         ("contract_doc_sp_items", ContractDocSpItem),
+        # Foldery zakładki Dokumenty (0492); sonda ``contract_documents`` wyżej
+        # sprawdza przy okazji kolumnę ``folder_id``.
+        ("contract_document_folders", ContractDocumentFolder),
         # Zamówienia wielo-konsultantowe (0227). Bez tych sond zakładka
         # „Zamówienia" trzech klientów rozliczanych na MD wywalałaby
         # UndefinedTable przy zielonym deployu — dokładnie tryb awarii

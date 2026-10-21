@@ -29,6 +29,14 @@ vi.mock("@/lib/api", () => ({
     documents: (...args: unknown[]) => mocks.documents(...args),
     uploadDocument: vi.fn(),
     deleteDocument: vi.fn(),
+    documentFolders: vi.fn().mockResolvedValue({
+      data: {
+        folders: [],
+        orders_folder_name: "Zamówienia",
+        current_contract_number: null,
+        suggestions: [],
+      },
+    }),
   },
   CONTRACT_FIELD_LABELS: {},
   CONTRACT_TERMINATION_REASONS: [],
@@ -36,10 +44,17 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast: vi.fn(), showError: vi.fn() }),
+  useOptionalToast: () => null,
 }));
 
 vi.mock("@/components/OrderDocumentsSection", () => ({
   OrderDocumentsSection: () => null,
+}));
+
+vi.mock("@/lib/api/dlPortal", () => ({
+  dlPortalApi: {
+    listContractOrderDocuments: vi.fn().mockResolvedValue({ data: { documents: [] } }),
+  },
 }));
 
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
@@ -123,7 +138,7 @@ describe("zakładki kontraktu — zapis rozstrzyga `readOnly`, nie rola", () => 
     renderWith(<ContractDocumentsTab contractId={3} />);
 
     expect(await screen.findByText("umowa.pdf")).toBeInTheDocument();
-    expect(screen.getByText("Wgraj plik")).toBeInTheDocument();
+    expect(screen.getByText("Dodaj plik")).toBeInTheDocument();
     expect(screen.getByTitle("Usuń")).toBeInTheDocument();
   });
 
@@ -133,7 +148,7 @@ describe("zakładki kontraktu — zapis rozstrzyga `readOnly`, nie rola", () => 
 
     expect(await screen.findByText("umowa.pdf")).toBeInTheDocument();
     expect(screen.getByTitle("Pobierz")).toBeInTheDocument();
-    expect(screen.queryByText("Wgraj plik")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dodaj plik")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Usuń")).not.toBeInTheDocument();
   });
 
