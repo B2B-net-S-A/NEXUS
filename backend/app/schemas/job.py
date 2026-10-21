@@ -374,6 +374,7 @@ class JobResponse(BaseModel):
     closed_at: Optional[datetime] = None
     close_reason: Optional[JobCloseReason] = None
     close_notes: Optional[str] = None
+    duplicate_of_job_id: Optional[int] = None
     # Phase 15 / Phase D: programme tag surfaced to UI for autocomplete.
     train_name: Optional[str] = None
     # Hydrated ownership data added by api/jobs.get_job and assign/release
@@ -520,9 +521,20 @@ class JobCloseRequest(BaseModel):
 
     reason: JobCloseReason
     notes: Optional[str] = None
+    # 21.10.2026: przy `duplicate` — rekrutacja, która zostaje (opcjonalnie).
+    duplicate_of_job_id: Optional[int] = None
     # 13.10.2026: zamknięcie przy osobach w toku wymaga potwierdzenia —
     # bez niego trasa odpowiada 409 `active_cards_warning` z liczbami.
     acknowledge_active_cards: bool = False
+
+
+class JobCloseReasonUpdate(BaseModel):
+    """Body `PATCH /api/jobs/{id}/close-reason` — zmiana powodu zamkniętej
+    rekrutacji (21.10.2026). Data zamknięcia zostaje."""
+
+    reason: JobCloseReason
+    notes: Optional[str] = None
+    duplicate_of_job_id: Optional[int] = None
 
 
 class JobManageInNexusRequest(BaseModel):

@@ -66,7 +66,7 @@ async def test_close_expires_open_proposals_and_keeps_human_decisions(
 
     closed = await app_client.post(
         f"/api/jobs/{job_id}/close",
-        json={"reason": "budget"},
+        json={"reason": "competitor"},
         headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text

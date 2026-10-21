@@ -588,7 +588,7 @@ export function JobContractTab({
         jobId={jobId}
         jobTitle={jobTitle}
         clientId={clientId}
-        defaultReason={hiredCount > 0 ? "filled_by_us" : "other"}
+        defaultReason={hiredCount > 0 ? "filled_by_us" : null}
       />
   );
 

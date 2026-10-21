@@ -249,3 +249,160 @@ async def test_tenders_win_rate_skips_neutral_closures() -> None:
     assert result["closed_total"] == 2
     assert result["won"] == 1
     assert result["win_rate_pct"] == 100.0
+
+
+# ── Okno zamykania: wybór powodu i „Zmień powód” (PR 2, CI) ───────────────
+
+
+async def _job_via_api(app_client: AsyncClient, headers: dict[str, str]) -> int:
+    from tests.test_job_close import _create_draft_job
+
+    return await _create_draft_job(app_client, headers, "pytest-hit-ratio-choice")
+
+
+def _code(resp) -> str:
+    return resp.json()["detail"]["code"]
+
+
+@pytest.mark.asyncio
+async def test_neutral_close_requires_notes_and_other_is_retired(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    job_id = await _job_via_api(app_client, app_auth_headers)
+    url = f"/api/jobs/{job_id}/close"
+    no_notes = await app_client.post(
+        url, json={"reason": "duplicate", "notes": "  "}, headers=app_auth_headers
+    )
+    assert no_notes.status_code == 422, no_notes.text
+    assert _code(no_notes) == "close_notes_required"
+    other = await app_client.post(
+        url, json={"reason": "other"}, headers=app_auth_headers
+    )
+    assert other.status_code == 422
+    assert _code(other) == "close_reason_other_retired"
+    wrong_pair = await app_client.post(
+        url,
+        json={"reason": "competitor", "duplicate_of_job_id": job_id},
+        headers=app_auth_headers,
+    )
+    assert wrong_pair.status_code == 422
+    assert _code(wrong_pair) == "duplicate_of_requires_duplicate"
+    itself = await app_client.post(
+        url,
+        json={"reason": "duplicate", "notes": "x", "duplicate_of_job_id": job_id},
+        headers=app_auth_headers,
+    )
+    assert itself.status_code == 422
+    assert _code(itself) == "duplicate_of_self"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_close_keeps_the_remaining_job(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    keep_id = await _job_via_api(app_client, app_auth_headers)
+    dup_id = await _job_via_api(app_client, app_auth_headers)
+    resp = await app_client.post(
+        f"/api/jobs/{dup_id}/close",
+        json={
+            "reason": "duplicate",
+            "notes": "Ten sam request z maila klienta",
+            "duplicate_of_job_id": keep_id,
+            "acknowledge_active_cards": True,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["close_reason"] == "duplicate"
+    assert body["duplicate_of_job_id"] == keep_id
+    assert body["close_notes"] == "Ten sam request z maila klienta"
+
+
+@pytest.mark.asyncio
+async def test_neutral_close_refused_when_we_hired_someone(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    job_id = await _job_via_api(app_client, app_auth_headers)
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(name="Hit", lastname=f"Ratio-{uuid.uuid4().hex[:8]}")
+        db.add(cand)
+        await db.flush()
+        db.add(
+            CandidateStage(
+                candidate_id=cand.id,
+                job_id=job_id,
+                stage=PipelineStage.hired,
+                moved_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+    resp = await app_client.post(
+        f"/api/jobs/{job_id}/close",
+        json={
+            "reason": "budget",
+            "notes": "Klient zamknął projekt",
+            "acknowledge_active_cards": True,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert _code(resp) == "close_reason_has_hire"
+
+
+@pytest.mark.asyncio
+async def test_change_close_reason_keeps_the_close_date_and_logs_it(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+
+    job_id = await _job_via_api(app_client, app_auth_headers)
+    url = f"/api/jobs/{job_id}/close-reason"
+    still_open = await app_client.patch(
+        url, json={"reason": "competitor"}, headers=app_auth_headers
+    )
+    assert still_open.status_code == 409
+    assert _code(still_open) == "job_not_closed"
+
+    closed = await app_client.post(
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "competitor", "acknowledge_active_cards": True},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+    closed_at = closed.json()["closed_at"]
+
+    no_notes = await app_client.patch(
+        url, json={"reason": "internal_hire"}, headers=app_auth_headers
+    )
+    assert no_notes.status_code == 422
+    assert _code(no_notes) == "close_notes_required"
+
+    changed = await app_client.patch(
+        url,
+        json={"reason": "internal_hire", "notes": "Klient przesunął swoją osobę"},
+        headers=app_auth_headers,
+    )
+    assert changed.status_code == 200, changed.text
+    body = changed.json()
+    assert body["close_reason"] == "internal_hire"
+    assert body["closed_at"] == closed_at
+    async with AsyncSessionLocal() as db:
+        logged = (
+            await db.execute(
+                select(Activity.details).where(
+                    Activity.entity_type == "job",
+                    Activity.entity_id == job_id,
+                    Activity.action == "close_reason_changed",
+                )
+            )
+        ).scalar_one()
+    assert logged["from"]["reason"] == "competitor"
+    assert logged["to"]["reason"] == "internal_hire"

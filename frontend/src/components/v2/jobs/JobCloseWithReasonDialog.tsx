@@ -22,7 +22,14 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
 import { extractErrorMsg, jobsApi } from "@/lib/api";
 import { activeCardsWarningFrom, type ActiveCardsWarning } from "@/lib/job-close";
-import { JOB_CLOSE_REASONS, type JobCloseReason } from "@/types/client-profile";
+import { isSelectableCloseReason } from "@/lib/job-close-reasons";
+import type { JobCloseReason } from "@/types/client-profile";
+
+import {
+  CloseReasonFields,
+  closeReasonReady,
+  type CloseReasonValue,
+} from "./CloseReasonFields";
 
 export interface JobCloseWithReasonDialogProps {
   open: boolean;
@@ -33,10 +40,36 @@ export interface JobCloseWithReasonDialogProps {
   /**
    * Powód zaproponowany na starcie. Krok 08 podpowiada „Obsadzone przez nas",
    * gdy ktoś jest już zatrudniony — ale wyboru NIE dokonuje za człowieka
-   * (automatu zamykania rekrutacji celowo nie ma).
+   * (automatu zamykania rekrutacji celowo nie ma). `null` = nic nie wybrane.
    */
-  defaultReason?: JobCloseReason;
+  defaultReason?: JobCloseReason | null;
+  /**
+   * `change` (21.10.2026): „Zmień powód zamknięcia” zamkniętej rekrutacji —
+   * `PATCH /close-reason`, data zamknięcia zostaje. `initial` = obecny wybór;
+   * „Inny” i brak powodu startują bez zaznaczenia.
+   */
+  mode?: "close" | "change";
+  initial?: { reason: JobCloseReason | null; notes: string | null; duplicateOfJobId: number | null };
   onClosed?: () => void;
+}
+
+function startValue(
+  mode: "close" | "change",
+  defaultReason: JobCloseReason | null,
+  initial: JobCloseWithReasonDialogProps["initial"],
+): CloseReasonValue {
+  if (mode === "change" && initial) {
+    return {
+      reason: isSelectableCloseReason(initial.reason) ? initial.reason : null,
+      notes: initial.notes ?? "",
+      duplicateOfJobId: initial.duplicateOfJobId,
+    };
+  }
+  return {
+    reason: isSelectableCloseReason(defaultReason) ? defaultReason : null,
+    notes: "",
+    duplicateOfJobId: null,
+  };
 }
 
 export function JobCloseWithReasonDialog({
@@ -46,10 +79,13 @@ export function JobCloseWithReasonDialog({
   jobTitle,
   clientId,
   defaultReason = "filled_by_us",
+  mode = "close",
+  initial,
   onClosed,
 }: JobCloseWithReasonDialogProps) {
-  const [reason, setReason] = useState<JobCloseReason>(defaultReason);
-  const [notes, setNotes] = useState("");
+  const [value, setValue] = useState<CloseReasonValue>(() =>
+    startValue(mode, defaultReason, initial),
+  );
   // Inicjalizator `useState` odpala się raz, przy montażu zakładki — a
   // `defaultReason` („obsadzone przez nas" przy zatrudnionych) zależy od
   // kanbana, który przy wejściu deep-linkiem `?tab=contract` jeszcze się
@@ -59,18 +95,29 @@ export function JobCloseWithReasonDialog({
   const [activeCards, setActiveCards] = useState<ActiveCardsWarning | null>(null);
   useEffect(() => {
     if (open) {
-      setReason(defaultReason);
+      setValue(startValue(mode, defaultReason, initial));
       setActiveCards(null);
     }
-  }, [open, defaultReason]);
+    // `initial` to nowy obiekt przy każdym renderze rodzica — wybór startowy
+    // liczy się przy otwarciu, nie przy każdej zmianie referencji.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultReason, mode]);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
   const mutation = useMutation({
-    mutationFn: () =>
-      activeCards
-        ? jobsApi.close(jobId, reason, notes, true)
-        : jobsApi.close(jobId, reason, notes),
+    mutationFn: async (): Promise<void> => {
+      const reason = value.reason as JobCloseReason;
+      if (mode === "change") {
+        await jobsApi.changeCloseReason(jobId, {
+          reason,
+          notes: value.notes,
+          duplicateOfJobId: value.duplicateOfJobId,
+        });
+        return;
+      }
+      await jobsApi.close(jobId, reason, value.notes, activeCards != null, value.duplicateOfJobId);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["job", jobId] });
@@ -78,7 +125,7 @@ export function JobCloseWithReasonDialog({
       if (clientId != null) {
         queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
       }
-      showSuccess("Rekrutacja zamknięta z powodem.");
+      showSuccess(mode === "change" ? "Powód zamknięcia zmieniony." : "Rekrutacja zamknięta.");
       onOpenChange(false);
       onClosed?.();
     },
@@ -88,15 +135,20 @@ export function JobCloseWithReasonDialog({
         setActiveCards(warning);
         return;
       }
-      showError(extractErrorMsg(e) || "Nie udało się zamknąć rekrutacji");
+      showError(
+        extractErrorMsg(e) ||
+          (mode === "change" ? "Nie udało się zmienić powodu" : "Nie udało się zamknąć rekrutacji"),
+      );
     },
   });
+
+  const ready = closeReasonReady(value);
 
   return (
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      title="Zamknij rekrutację z powodem"
+      title={mode === "change" ? "Zmień powód zamknięcia" : "Zamknij rekrutację"}
       description={jobTitle}
       footer={
         <>
@@ -111,60 +163,31 @@ export function JobCloseWithReasonDialog({
             type="button"
             onClick={() => mutation.mutate()}
             loading={mutation.isPending}
+            disabled={!ready}
           >
-            {activeCards ? "Zamknij mimo to" : "Zamknij rekrutację"}
+            {mode === "change"
+              ? "Zapisz powód"
+              : activeCards
+                ? "Zamknij mimo to"
+                : "Zamknij rekrutację"}
           </Button>
         </>
       }
     >
       <div className="space-y-3">
         {activeCards ? <ActiveCardsNotice warning={activeCards} /> : null}
-        <div className="space-y-1">
-          <label
-            htmlFor="job-close-reason"
-            className="text-xs font-semibold text-foreground"
-          >
-            Powód zamknięcia
-          </label>
-          <select
-            id="job-close-reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value as JobCloseReason)}
-            className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:outline-hidden"
-          >
-            {JOB_CLOSE_REASONS.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-          </select>
+        <CloseReasonFields value={value} onChange={setValue} jobId={jobId} clientId={clientId} />
+        {mode === "close" ? (
           <p className="text-[11px] text-muted-foreground">
-            Powód zasila raport wygranych i przegranych. Zamknięcie BEZ powodu
-            (przez edycję statusu) zostawia go pustym.
+            Zamknięcie nie rusza pipeline'u ani kontraktów — zmienia status
+            rekrutacji i zdejmuje ją z alertów terminów oraz digestu dopasowań.
           </p>
-        </div>
-
-        <div className="space-y-1">
-          <label
-            htmlFor="job-close-notes"
-            className="text-xs font-semibold text-foreground"
-          >
-            Notatka (opcjonalnie)
-          </label>
-          <textarea
-            id="job-close-notes"
-            rows={3}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Kontekst — co konkretnie się wydarzyło…"
-            className="w-full resize-none rounded-md border border-border bg-card px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:outline-hidden"
-          />
-        </div>
-
-        <p className="text-[11px] text-muted-foreground">
-          Zamknięcie nie rusza pipeline'u ani kontraktów — zmienia status
-          rekrutacji i zdejmuje ją z alertów terminów oraz digestu dopasowań.
-        </p>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            Data zamknięcia zostaje. Zmiana trafia do historii rekrutacji; rozliczony
+            kwartał Ligi się nie zmienia.
+          </p>
+        )}
       </div>
     </AppModal>
   );

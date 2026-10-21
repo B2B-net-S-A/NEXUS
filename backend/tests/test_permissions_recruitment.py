@@ -580,7 +580,7 @@ async def test_granted_recruiter_runs_the_recruitment_lifecycle(
     assert readiness.status_code == 200, readiness.text
 
     closed = await app_client.post(
-        f"/api/jobs/{job_id}/close", headers=headers, json={"reason": "budget"}
+        f"/api/jobs/{job_id}/close", headers=headers, json={"reason": "competitor"}
     )
     assert closed.status_code == 200, closed.text
     assert closed.json()["status"] == "closed"
@@ -593,7 +593,7 @@ async def test_recruiter_without_the_permission_gets_named_refusals(
     job_id = await _seed_job(recruiter_id=user_id)
 
     for method, path, body in (
-        ("POST", f"/api/jobs/{job_id}/close", {"reason": "budget"}),
+        ("POST", f"/api/jobs/{job_id}/close", {"reason": "competitor"}),
         ("POST", f"/api/jobs/{job_id}/publish", None),
         ("GET", f"/api/jobs/{job_id}/readiness", None),
         ("POST", f"/api/jobs/{job_id}/handoff", {"assignment_mode": "automatic"}),
@@ -641,7 +641,7 @@ async def test_delivery_lead_without_the_permission_edits_content_only(
                 await app_client.post(
                     f"/api/jobs/{job_id}/close",
                     headers=headers,
-                    json={"reason": "budget"},
+                    json={"reason": "competitor"},
                 )
             )
             _assert_named_denial(
@@ -680,7 +680,7 @@ async def test_delivery_lead_without_the_permission_edits_content_only(
         closed = await app_client.post(
             f"/api/jobs/{job_id}/close",
             headers=headers,
-            json={"reason": "budget", "acknowledge_active_cards": True},
+            json={"reason": "competitor", "acknowledge_active_cards": True},
         )
         assert closed.status_code == 200, closed.text
     finally:

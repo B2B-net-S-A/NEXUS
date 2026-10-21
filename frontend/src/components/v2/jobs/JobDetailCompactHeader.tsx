@@ -209,6 +209,8 @@ interface JobDetailCompactHeaderProps {
    * nie robi.
    */
   onReopenJob?: () => void;
+  /** „Zmień powód zamknięcia…” — zamknięta rekrutacja (21.10.2026). */
+  onChangeCloseReason?: () => void;
   /** „Dokończ i opublikuj…” — stary szkic albo rekrutacja bez przekazania. */
   onFinishJob?: () => void;
 }
@@ -300,6 +302,7 @@ export function JobDetailCompactHeader({
   onCopyLink,
   onCloseJob,
   onReopenJob,
+  onChangeCloseReason,
   onFinishJob,
 }: JobDetailCompactHeaderProps) {
   const unreadLabel =
@@ -471,7 +474,7 @@ export function JobDetailCompactHeader({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
-              {onFinishJob || onReopenJob ? (
+              {onFinishJob || onReopenJob || onChangeCloseReason ? (
                 <>
                   {onFinishJob ? (
                     <DropdownMenuItem
@@ -489,6 +492,15 @@ export function JobDetailCompactHeader({
                     >
                       <RotateCcw className="h-4 w-4" />
                       Otwórz ponownie…
+                    </DropdownMenuItem>
+                  ) : null}
+                  {onChangeCloseReason ? (
+                    <DropdownMenuItem
+                      onSelect={() => deferMenuAction(onChangeCloseReason)}
+                      data-testid="change-close-reason"
+                    >
+                      <PencilLine className="h-4 w-4" />
+                      Zmień powód zamknięcia…
                     </DropdownMenuItem>
                   ) : null}
                   <DropdownMenuSeparator />

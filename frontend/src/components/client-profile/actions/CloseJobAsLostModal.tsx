@@ -3,12 +3,17 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import api from "@/lib/api";
+import { jobsApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { activeCardsWarningFrom, type ActiveCardsWarning } from "@/lib/job-close";
 import { useToast } from "@/components/Toast";
+import {
+  CloseReasonFields,
+  closeReasonReady,
+  type CloseReasonValue,
+} from "@/components/v2/jobs/CloseReasonFields";
 import { ActiveCardsNotice } from "@/components/v2/jobs/JobCloseWithReasonDialog";
-import { JOB_CLOSE_REASONS, type JobCloseReason } from "@/types/client-profile";
+import type { JobCloseReason } from "@/types/client-profile";
 
 interface Props {
   jobId: number;
@@ -17,9 +22,19 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * „Zamknij rekrutację” z profilu klienta (Projekty). Do 21.10.2026 „Zamknij
+ * jako przegraną” — każde zamknięcie stąd liczyło się jako przegrana, także
+ * duplikat. Teraz te same trzy grupy co na stronie rekrutacji
+ * (`CloseReasonFields`); start na „Przegraliśmy”, bo stąd zamyka się zwykle
+ * rekrutacje bez wyniku.
+ */
 export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Props) {
-  const [reason, setReason] = useState<JobCloseReason>("budget");
-  const [notes, setNotes] = useState("");
+  const [value, setValue] = useState<CloseReasonValue>({
+    reason: "competitor",
+    notes: "",
+    duplicateOfJobId: null,
+  });
   // Osoby w toku: pierwsze zamknięcie serwer zatrzymuje ostrzeżeniem.
   const [activeCards, setActiveCards] = useState<ActiveCardsWarning | null>(null);
   const queryClient = useQueryClient();
@@ -27,15 +42,17 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
 
   const mutation = useMutation({
     mutationFn: () =>
-      api.post(`/api/jobs/${jobId}/close`, {
-        reason,
-        notes: notes.trim() || null,
-        ...(activeCards ? { acknowledge_active_cards: true } : {}),
-      }),
+      jobsApi.close(
+        jobId,
+        value.reason as JobCloseReason,
+        value.notes,
+        activeCards != null,
+        value.duplicateOfJobId,
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
       queryClient.invalidateQueries({ queryKey: ["client-jobs", clientId] });
-      showSuccess("Rekrutacja zamknięta jako przegrana");
+      showSuccess("Rekrutacja zamknięta");
       onClose();
     },
     onError: (e) => {
@@ -49,57 +66,30 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
   });
 
   return (
-    <ModalShell onClose={onClose} title="Zamknij jako przegraną">
-      <p className="text-xs text-muted-foreground dark:text-muted-foreground">
-        Rekrutacja:{" "}
-        <span className="font-medium text-foreground dark:text-muted-foreground">{jobTitle}</span>
+    <ModalShell onClose={onClose} title="Zamknij rekrutację">
+      <p className="text-xs text-muted-foreground">
+        Rekrutacja: <span className="font-medium text-foreground">{jobTitle}</span>
       </p>
 
       {activeCards ? <ActiveCardsNotice warning={activeCards} /> : null}
 
-      <div>
-        <label className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground block mb-1">
-          Powód zamknięcia *
-        </label>
-        <select
-          value={reason}
-          onChange={(e) => setReason(e.target.value as JobCloseReason)}
-          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
-        >
-          {JOB_CLOSE_REASONS.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground block mb-1">
-          Notatki (opcjonalnie)
-        </label>
-        <textarea
-          rows={3}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Kontekst, co konkretnie się wydarzyło..."
-          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500 resize-none"
-        />
-      </div>
+      <CloseReasonFields value={value} onChange={setValue} jobId={jobId} clientId={clientId} />
 
       <div className="flex justify-end gap-2 pt-2">
         <button
+          type="button"
           onClick={onClose}
-          className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-muted-foreground"
+          className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           Anuluj
         </button>
         <button
+          type="button"
           onClick={() => mutation.mutate()}
-          disabled={mutation.isPending}
-          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+          disabled={mutation.isPending || !closeReasonReady(value)}
+          className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
-          {mutation.isPending ? "Zamykam..." : activeCards ? "Zamknij mimo to" : "Zamknij jako lost"}
+          {mutation.isPending ? "Zamykam..." : activeCards ? "Zamknij mimo to" : "Zamknij rekrutację"}
         </button>
       </div>
     </ModalShell>

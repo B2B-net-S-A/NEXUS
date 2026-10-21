@@ -1640,6 +1640,22 @@
    "v3_home": "nagłówek rekrutacji → „⋯”"
   },
   {
+   "id": "job.change-close-reason",
+   "area": "zlecenie",
+   "opis": "„Zmień powód zamknięcia” zamkniętej rekrutacji — trzy grupy: wygrana, przegrana (inna firma), nie liczy się do hit ratio (21.10.2026)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "onChangeCloseReason",
+   "v3_home": "nagłówek rekrutacji → „⋯”"
+  },
+  {
+   "id": "job.close-reason-groups",
+   "area": "zlecenie",
+   "opis": "Okno zamykania: „Jak się skończyła?” — Wygraliśmy / Przegraliśmy / Nie liczy się z uzasadnieniem i rekrutacją, która zostaje przy duplikacie (21.10.2026)",
+   "file": "components/v2/jobs/CloseReasonFields.tsx",
+   "marker": "Jak się skończyła?",
+   "v3_home": "nagłówek rekrutacji → „⋯” → Zamknij rekrutację"
+  },
+  {
    "id": "job.reopen-priority",
    "area": "zlecenie",
    "opis": "„Priorytet po otwarciu” w oknie „Otwórz ponownie” (domyślnie P1) i zdanie, kto z poprzednich rekruterów wraca (14.10.2026)",

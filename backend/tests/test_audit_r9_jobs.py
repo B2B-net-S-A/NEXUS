@@ -195,7 +195,7 @@ async def test_closing_a_closed_job_is_refused_and_keeps_closed_at(
     try:
         response = await app_client.post(
             f"/api/jobs/{job_id}/close",
-            json={"reason": "budget"},
+            json={"reason": "competitor"},
             headers=app_auth_headers,
         )
         assert response.status_code == 409, response.text
