@@ -32,6 +32,7 @@
   "GET /api/b2b-generator/document-types": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/documents": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/documents/prefill": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/b2b-generator/documents/preliminary-options": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/documents/subjects": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/documents/{doc_id}/effects": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/documents/{doc_id}/form": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
@@ -44,6 +45,7 @@
   "POST /api/b2b-generator/documents/{doc_id}/confirm-signed": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/documents/{doc_id}/docx": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/documents/{doc_id}/link-contract": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/b2b-generator/documents/{doc_id}/pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/documents/{doc_id}/rerender": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/documents/{doc_id}/restore": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/documents/{doc_id}/signed-scan": "PPPBPPDDPPPPPPPPPPPDDPPPPD"

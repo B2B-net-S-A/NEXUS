@@ -329,7 +329,7 @@ def contract_effect_permission(doc_type: DocumentType) -> ProductAction | None:
       a umowa przedwstępna niczego w kontraktach nie zmienia.
     """
 
-    if doc_type.key in ("preliminary_cez", "annex_rate_change"):
+    if doc_type.family == "preliminary" or doc_type.key == "annex_rate_change":
         return None
     if doc_type.family == "termination":
         return ProductAction.contract_status
@@ -423,7 +423,7 @@ async def describe(
     if (
         contract is not None
         and contract.status == ContractStatus.void
-        and doc_type.key != "preliminary_cez"
+        and doc_type.family != "preliminary"
     ):
         # Unieważniony kontrakt nie przyjmuje zakończenia ani aneksu — odmowa
         # czytelna zamiast 409 z maszyny stanów w połowie zapisu (runda 6
@@ -442,9 +442,7 @@ async def describe(
     ):
         plan.blockers.append(contract_effect_blocker(required))
     elif (
-        not delivery_write
-        and contract is not None
-        and doc_type.key != "preliminary_cez"
+        not delivery_write and contract is not None and doc_type.family != "preliminary"
     ):
         plan.blockers.append(DELIVERY_WRITE_BLOCKER)
     no_contract = (
@@ -583,7 +581,7 @@ async def describe(
                 "Kontrakt przywróć przyciskiem „Cofnij zakończenie” w module "
                 "Kontrakty — przywraca też zamówienia skrócone wypowiedzeniem."
             )
-    elif key == "preliminary_cez":
+    elif doc_type.family == "preliminary":
         plan.changes.append("Brak zmian w kontraktach.")
     if doc_type.sensitive_keys and contract is not None:
         plan.warnings.append(

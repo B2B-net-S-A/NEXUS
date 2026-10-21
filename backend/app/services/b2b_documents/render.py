@@ -13,6 +13,7 @@ dostałby klauzule umowy albo ``ClauseOverrideError``.
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
 from docxtpl import DocxTemplate
@@ -25,8 +26,33 @@ from app.services.b2b_contract_generator.formatting import pl_date
 TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "templates" / "documents"
 
 
-def template_key(doc_type_key: str, language: str) -> str:
+def template_key(doc_type_key: str, language: str, revision: str = "") -> str:
+    """Klucz pliku szablonu: ``<typ>[_<rewizja>]_<język>``.
+
+    Rewizja (``DocumentType.template_revision``) zmienia się razem z treścią
+    wzoru — wydany dokument zapisuje swój klucz i pobiera się tym samym
+    tekstem (``stored_or_current_key``)."""
+    if revision:
+        return f"{doc_type_key}_{revision}_{language}"
     return f"{doc_type_key}_{language}"
+
+
+#: Klucz zapisany w wierszu idzie do ścieżki pliku — tylko nazwa, bez ścieżek.
+_SAFE_KEY = re.compile(r"[a-z0-9_]{1,80}")
+
+
+def stored_or_current_key(stored: str | None, current: str) -> str:
+    """Szablon wydanego dokumentu: zapisany klucz, gdy jego plik jest w repo;
+    inaczej bieżący (plik sprzed rewizji usunięty albo klucz nieczytelny)."""
+    if (
+        stored
+        and stored != current
+        and _SAFE_KEY.fullmatch(stored)
+        and docx_path(stored).is_file()
+        and html_path(stored).is_file()
+    ):
+        return stored
+    return current
 
 
 def docx_path(key: str) -> Path:

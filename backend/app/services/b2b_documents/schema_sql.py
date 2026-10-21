@@ -98,3 +98,27 @@ ANNEX_GENERATOR_DDL: list[str] = [
     """ALTER TABLE b2b_generated_contracts
        ADD COLUMN IF NOT EXISTS annex_rates JSONB NULL""",
 ]
+
+
+def type_check_ddl(types: tuple[str, ...] = B2B_DOCUMENT_TYPES) -> str:
+    """CHECK typów dokumentu na nowo (DROP+ADD w jednym bloku).
+
+    ``CREATE TABLE IF NOT EXISTS`` nie poszerza więzu istniejącej tabeli —
+    nowy typ dokumentu (0503: umowa o udziale w procesie rekrutacyjnym)
+    potrzebuje jawnej wymiany. Biegnie w migracji i przy każdym starcie
+    w ``entrypoint.sh`` (zbieżne: drugi przebieg odtwarza ten sam więz)."""
+    return f"""DO $$ BEGIN
+        ALTER TABLE b2b_contract_documents
+            DROP CONSTRAINT IF EXISTS ck_b2b_contract_documents_type;
+        ALTER TABLE b2b_contract_documents
+            ADD CONSTRAINT ck_b2b_contract_documents_type
+            CHECK (document_type IN ({_in_list(types)}));
+    END $$"""
+
+
+#: Typy dokumentów sprzed 0503 — downgrade wraca do tej listy.
+TYPES_BEFORE_0503: tuple[str, ...] = tuple(
+    t for t in B2B_DOCUMENT_TYPES if not t.startswith("preliminary_participation_")
+)
+
+TYPE_CHECK_DDL: list[str] = [type_check_ddl()]

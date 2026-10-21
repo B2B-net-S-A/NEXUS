@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   effects: vi.fn(),
   confirmSigned: vi.fn(),
   redownload: vi.fn(),
+  pdf: vi.fn(),
+  preliminaryOptions: vi.fn(),
+  searchCandidates: vi.fn(),
+  candidateRecruitments: vi.fn(),
   prefill: vi.fn(),
   create: vi.fn(),
   partnerNotice: vi.fn(),
@@ -30,6 +34,10 @@ vi.mock("@/lib/api/b2bDocuments", async (importOriginal) => {
       effects: (...a: unknown[]) => mocks.effects(...a),
       confirmSigned: (...a: unknown[]) => mocks.confirmSigned(...a),
       redownload: (...a: unknown[]) => mocks.redownload(...a),
+      pdf: (...a: unknown[]) => mocks.pdf(...a),
+      preliminaryOptions: (...a: unknown[]) => mocks.preliminaryOptions(...a),
+      searchCandidates: (...a: unknown[]) => mocks.searchCandidates(...a),
+      candidateRecruitments: (...a: unknown[]) => mocks.candidateRecruitments(...a),
       prefill: (...a: unknown[]) => mocks.prefill(...a),
       create: (...a: unknown[]) => mocks.create(...a),
       partnerNotice: (...a: unknown[]) => mocks.partnerNotice(...a),
@@ -216,6 +224,128 @@ describe("Ponowne pobranie z danymi wrażliwymi", () => {
     await userEvent.click(screen.getByRole("button", { name: "Pobierz DOCX" }));
     await waitFor(() => expect(mocks.redownload).toHaveBeenLastCalledWith(5, { pesel: "90010112345" }));
     await waitFor(() => expect(mocks.downloadBlob).toHaveBeenCalled());
+  });
+
+  it("umowę przedwstępną pobiera też jako PDF, z tymi samymi danymi", async () => {
+    const blob = new Blob(["%PDF"]);
+    mocks.pdf.mockResolvedValueOnce({ data: blob, headers: {} });
+    renderWith(<RedownloadDialog item={item()} type={PRELIMINARY} onClose={() => {}} />);
+    await userEvent.type(screen.getByLabelText(/PESEL/), "90010112345");
+    await userEvent.click(screen.getByRole("button", { name: "Pobierz PDF" }));
+    await waitFor(() => expect(mocks.pdf).toHaveBeenCalledWith(5, { pesel: "90010112345" }));
+    await waitFor(() =>
+      expect(mocks.downloadBlob).toHaveBeenCalledWith(blob, "Umowa przedwstępna.pdf"),
+    );
+    expect(mocks.redownload).not.toHaveBeenCalled();
+  });
+
+  it("503 z PDF pokazuje komunikat serwera", async () => {
+    mocks.pdf.mockRejectedValueOnce(
+      blobError(503, "Nie udało się przygotować PDF — pobierz DOCX."),
+    );
+    renderWith(<RedownloadDialog item={item()} type={PRELIMINARY} onClose={() => {}} />);
+    await userEvent.type(screen.getByLabelText(/PESEL/), "90010112345");
+    await userEvent.click(screen.getByRole("button", { name: "Pobierz PDF" }));
+    expect(
+      await screen.findByText("Nie udało się przygotować PDF — pobierz DOCX."),
+    ).toBeInTheDocument();
+  });
+
+  it("rozwiązanie umowy nie ma PDF", () => {
+    renderWith(
+      <RedownloadDialog
+        item={item({ family: "termination", document_type: "termination_agreement" })}
+        type={TERMINATION}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Pobierz PDF" })).toBeNull();
+  });
+});
+
+describe("Kreator — umowa przedwstępna wg klienta rekrutacji", () => {
+  const JDG: DocumentTypeDef = {
+    ...PRELIMINARY,
+    key: "preliminary_participation_jdg",
+    label: "Umowa o udziale w rekrutacji — kandydat z działalnością",
+    preliminary_scope: "general",
+  };
+  const PERSON: DocumentTypeDef = {
+    ...PRELIMINARY,
+    key: "preliminary_participation_person",
+    label: "Umowa o udziale w rekrutacji — osoba fizyczna",
+    preliminary_scope: "general",
+  };
+  const CEZ: DocumentTypeDef = {
+    ...PRELIMINARY,
+    label: "Umowa przedwstępna — Centrum e-Zdrowia",
+    preliminary_scope: "cez",
+  };
+  const typesData = {
+    types: [CEZ, JDG, PERSON],
+    ref_labels: {},
+    ref_defaults: {},
+    mandate_forms: [],
+  };
+  const option = (t: DocumentTypeDef) => ({
+    key: t.key,
+    label: t.label,
+    default_validity_days: 60,
+    b2b_term_business_days: null,
+  });
+
+  async function pickCandidateAndJob() {
+    mocks.searchCandidates.mockResolvedValue([
+      { id: 7, name: "Ewa", lastname: "Próbna", full_name: "Ewa Próbna" },
+    ]);
+    mocks.candidateRecruitments.mockResolvedValue([
+      { stage_id: 1, job_id: 9, job_title: "Analityk", stage: "verified" },
+    ]);
+    await userEvent.type(screen.getByLabelText(/Kandydat/), "Ewa");
+    await userEvent.click(await screen.findByRole("button", { name: /Ewa Próbna/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Analityk/ }));
+  }
+
+  it("u innego klienta niż CeZ proponuje dwie umowy o udziale w rekrutacji", async () => {
+    mocks.preliminaryOptions.mockResolvedValue({
+      client_id: 3,
+      types: [option(JDG), option(PERSON)],
+      default_validity_days: 60,
+      b2b_term_business_days: null,
+    });
+    renderWith(
+      <DocumentWizard typesData={typesData} initialType="preliminary_cez" onClose={() => {}} />,
+    );
+    expect(screen.queryByText(/wyłącznie rekrutacji Centrum e-Zdrowia/)).toBeNull();
+    await pickCandidateAndJob();
+    const person = await screen.findByRole("button", { name: PERSON.label });
+    expect(mocks.preliminaryOptions).toHaveBeenCalledWith(7, 9);
+    expect(screen.queryByRole("button", { name: CEZ.label })).toBeNull();
+    // Wybrany wcześniej wzór CeZ nie pasuje — „Dalej” czeka na wybór.
+    expect(screen.getByRole("button", { name: "Dalej" })).toBeDisabled();
+    await userEvent.click(person);
+    expect(person).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Dalej" })).toBeEnabled();
+  });
+
+  it("w rekrutacji CeZ sam wybiera wzór Centrum e-Zdrowia", async () => {
+    mocks.preliminaryOptions.mockResolvedValue({
+      client_id: 115,
+      types: [option(CEZ)],
+      default_validity_days: 60,
+      b2b_term_business_days: 5,
+    });
+    renderWith(
+      <DocumentWizard
+        typesData={typesData}
+        initialType="preliminary_participation_jdg"
+        onClose={() => {}}
+      />,
+    );
+    await pickCandidateAndJob();
+    const cez = await screen.findByRole("button", { name: CEZ.label });
+    await waitFor(() => expect(cez).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("button", { name: "Dalej" })).toBeEnabled();
   });
 });
 

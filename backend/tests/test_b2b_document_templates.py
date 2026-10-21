@@ -24,6 +24,7 @@ from datetime import date
 
 import pytest
 
+from app.services.b2b_documents.company_party import COMPANY_PL
 from app.services.b2b_documents.context import BaseContractInfo, build_document_context
 from app.services.b2b_documents.registry import TYPES, DocumentType
 from app.services.b2b_documents.render import (
@@ -96,6 +97,8 @@ OVERRIDES = {
     "project_number": "CEZ/77/2026",
     "hourly_rate": 160,
     "valid_until": "2026-12-04",
+    "project_label": "Klient Testowy — Programista Java",
+    "penalty_amount": 10000,
 }
 
 
@@ -167,7 +170,7 @@ CASES = [
 def _render(doc_type: DocumentType, lang: str, gender: str, extra: dict):
     values = _values(doc_type, gender, **extra)
     ctx = build_document_context(doc_type, values, language=lang, base=BASE, refs=None)
-    key = template_key(doc_type.key, lang)
+    key = template_key(doc_type.key, lang, doc_type.template_revision)
     return values, render_docx(key, ctx), render_html(key, ctx)
 
 
@@ -254,7 +257,50 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
     elif key == "notice_withdrawal":
         out.append("10.09.2026")
     elif key == "preliminary_cez":
-        out += ["CEZ/77/2026", "90010112345", "ABC123456", "04.12.2026", "0000387063"]
+        out += [
+            "CEZ/77/2026",
+            "90010112345",
+            "ABC123456",
+            "04.12.2026",
+            "0000387063",
+            "160 zł netto",
+            # v2 (21.10.2026): każda forma podpisu.
+            "podpisem zaufanym lub podpisem osobistym",
+        ]
+    elif key.startswith("preliminary_participation_"):
+        out += [
+            "Umowa o udziale w procesie rekrutacyjnym",
+            "Zawarta w dniu 05.10.2026 r. w Warszawie",
+            "0000387063",
+            f"reprezentowaną przez {COMPANY_PL['representative']}, zwaną dalej",
+            "na rzecz klienta Zlecającego Klient Testowy — Programista Java "
+            "(dalej „Klient”)",
+            "wynagrodzenie w wysokości 160 zł netto za każdą godzinę",
+            "kary umownej w wysokości 10000 zł (słownie: dziesięć tysięcy złotych).",
+            "nie dłużej jednak niż do dnia 04.12.2026 r.",
+            "z wykorzystaniem podpisu zaufanego lub podpisu osobistego",
+            "W przypadku zawarcia Umowy w formie elektronicznej albo dokumentowej",
+            "dalej „Kandydatem”",
+        ]
+        if key.endswith("_jdg"):
+            out += [
+                "jednoosobową działalność gospodarczą pod firmą Próbna Firma IT",
+                "1234563218",
+                "123456785",
+                "ul. Testowa 1, 00-001 Warszawa",
+                "do Centralnej Ewidencji i Informacji o Działalności Gospodarczej",
+                "sądu właściwego miejscowo dla siedziby Zlecającego",
+            ]
+        else:
+            out += [
+                "90010112345",
+                "ABC123456",
+                "ul. Domowa 2, 00-002 Kraków",
+                "następcą prawnym B2B.net S.A.",
+                "pod warunkiem rozpoczęcia przez Kandydata działalności gospodarczej",
+                "Właściwość sądu określają przepisy ogólne.",
+                "zostały indywidualnie uzgodnione przez Strony",
+            ]
     return out
 
 
@@ -342,16 +388,27 @@ def test_empty_values_render_placeholders_not_none():
     assert "…" in text
 
 
+def _template_keys(doc_type: DocumentType) -> list[str]:
+    """Bieżąca rewizja i rewizje wydanych dokumentów, w każdym języku."""
+    return [
+        template_key(doc_type.key, lang, revision)
+        for lang in (*doc_type.languages, *doc_type.legacy_languages)
+        for revision in (
+            doc_type.template_revision,
+            *doc_type.legacy_template_revisions,
+        )
+    ]
+
+
 def test_every_registry_type_has_a_template_per_language():
     for doc_type in TYPES.values():
-        for lang in (*doc_type.languages, *doc_type.legacy_languages):
-            key = template_key(doc_type.key, lang)
+        for key in _template_keys(doc_type):
             assert docx_path(key).is_file(), f"brak {key}.docx"
             assert html_path(key).is_file(), f"brak {key}.html"
     expected = {
-        f"{template_key(t.key, lang)}.{ext}"
+        f"{key}.{ext}"
         for t in TYPES.values()
-        for lang in (*t.languages, *t.legacy_languages)
+        for key in _template_keys(t)
         for ext in ("docx", "html")
     }
     assert {
@@ -601,3 +658,58 @@ def test_document_file_carries_no_author_from_the_template(doc_type, lang):
     assert _file_properties(data) == dict.fromkeys(
         ("author", "last_modified_by", "company", "manager"), ""
     )
+
+
+# ── Rewizje wzoru: wydany dokument pobiera się swoim tekstem (21.10.2026) ──
+
+
+def test_cez_revision_key_and_legacy_file():
+    doc_type = TYPES["preliminary_cez"]
+    assert template_key(doc_type.key, "pl", doc_type.template_revision) == (
+        "preliminary_cez_v2_pl"
+    )
+    assert template_key(doc_type.key, "pl") == "preliminary_cez_pl"
+
+
+@pytest.mark.parametrize(
+    ("revision", "present", "absent"),
+    [
+        ("v2", "podpisem zaufanym lub podpisem osobistym", None),
+        ("", "w formie pisemnej albo w formie elektronicznej", "podpisem zaufanym"),
+    ],
+)
+def test_cez_issued_before_v2_keeps_its_clause(revision, present, absent):
+    doc_type = TYPES["preliminary_cez"]
+    values = _values(doc_type, "k")
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    key = template_key(doc_type.key, "pl", revision)
+    _, text = _docx_text(render_docx(key, ctx))
+    html = _html_unescape(render_html(key, ctx))
+    assert present in text and present in html
+    if absent:
+        assert absent not in text and absent not in html
+
+
+def test_stored_key_wins_only_when_its_file_exists():
+    from app.services.b2b_documents.render import stored_or_current_key
+
+    current = "preliminary_cez_v2_pl"
+    assert stored_or_current_key("preliminary_cez_pl", current) == "preliminary_cez_pl"
+    assert stored_or_current_key(None, current) == current
+    assert stored_or_current_key("preliminary_cez_v9_pl", current) == current
+    assert stored_or_current_key("../../etc/passwd", current) == current
+
+
+def test_participation_jdg_and_person_differ_only_where_the_source_does():
+    jdg = TYPES["preliminary_participation_jdg"]
+    person = TYPES["preliminary_participation_person"]
+    _, jdg_docx, _ = _render(jdg, "pl", "m", {})
+    _, person_docx, _ = _render(person, "pl", "m", {})
+    _, jdg_text = _docx_text(jdg_docx)
+    _, person_text = _docx_text(person_docx)
+    assert "PESEL" not in jdg_text and "PESEL" in person_text
+    assert "CEIDG" in jdg_text and "CEIDG" not in person_text
+    assert "wpisanym do Centralnej Ewidencji" in jdg_text
+    assert "legitymującym się dowodem osobistym" in person_text
+    # Bez cyfr kary wpisanych na sztywno — kwota z formularza.
+    assert "10.000" not in jdg_text and "10.000" not in person_text

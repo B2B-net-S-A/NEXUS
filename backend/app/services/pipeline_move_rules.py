@@ -304,6 +304,45 @@ def assert_hired_signed_via(
         )
 
 
+async def assert_no_esign_in_progress(
+    db: AsyncSession, *, target: PipelineStage, candidate_id: int, job_id: int
+) -> None:
+    """409 ``ESIGN_IN_PROGRESS``: ręczny „Zatrudniony”, gdy umowa pary jest
+    w podpisie w NEXUSIE (etap 1b, 22.10.2026).
+
+    Link kontraktora dalej by działał, a późniejszy podpis obu stron zrobiłby
+    zatrudnienie drugi raz. Najpierw „Przejdź na zwykłą drogę” w rejestrze."""
+    if target != PipelineStage.hired:
+        return
+    from app.models.b2b_generated_contract import (  # noqa: PLC0415
+        B2BGeneratedContract,
+    )
+    from app.services.b2b_esign import service as esign_service  # noqa: PLC0415
+
+    number = await db.scalar(
+        select(B2BGeneratedContract.contract_number)
+        .where(
+            B2BGeneratedContract.candidate_id == candidate_id,
+            B2BGeneratedContract.job_id == job_id,
+            esign_service.open_request_exists(),
+        )
+        .limit(1)
+    )
+    if number is None:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "ESIGN_IN_PROGRESS",
+            "message": (
+                f"Umowa {number} jest w podpisie w NEXUSIE — „Zatrudniony” "
+                "ustawi się sam po podpisie obu stron. Chcesz przesunąć ręcznie? "
+                "Najpierw w rejestrze umów „Przejdź na zwykłą drogę”."
+            ),
+        },
+    )
+
+
 async def assert_debrief_before_contract(
     db: AsyncSession, *, candidate_id: int, job_id: int, target_column: str
 ) -> None:

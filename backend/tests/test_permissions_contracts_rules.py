@@ -795,6 +795,8 @@ def test_every_document_kind_names_its_contract_permission() -> None:
         "notice_withdrawal": CS,
         # Umowa przedwstępna niczego w kontraktach nie zmienia.
         "preliminary_cez": None,
+        "preliminary_participation_jdg": None,
+        "preliminary_participation_person": None,
     }
 
 
@@ -923,6 +925,7 @@ async def test_contract_effects_need_delivery_write(
 async def test_delivery_read_only_does_not_block_a_document_without_effects() -> None:
     limited = _limited_to_delivery_read(_holder("b2b_signature_confirmation"))
     assert await _blockers("preliminary_cez", limited) == []
+    assert await _blockers("preliminary_participation_person", limited) == []
     assert (
         await _blockers(
             "termination_agreement",

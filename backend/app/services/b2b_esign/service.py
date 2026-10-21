@@ -112,6 +112,28 @@ async def open_request_for(
     )
 
 
+def open_request_exists():
+    """Warunek SQL: wiersz rejestru ma wniosek o podpis w NEXUSIE w toku.
+
+    Dla ekranów, które podsuwają ręczne kroki podpisu (pulpit, prośba
+    o potwierdzenie) — przy umowie u kontraktora albo u reprezentanta nikt nie
+    ma nic do potwierdzenia, NEXUS potwierdzi sam po podpisie obu stron."""
+    return (
+        select(B2BSigningRequest.id)
+        .where(
+            B2BSigningRequest.generated_contract_id == B2BGeneratedContract.id,
+            B2BSigningRequest.status.in_(OPEN_STATUSES),
+        )
+        .exists()
+    )
+
+
+MSG_REQUEST_WHILE_OPEN = (
+    "Umowa jest w podpisie w NEXUSIE — NEXUS potwierdzi podpis sam, gdy podpiszą "
+    "obie strony. Chcesz potwierdzić ręcznie? Najpierw „Przejdź na zwykłą drogę”."
+)
+
+
 def row_still_signable(row: B2BGeneratedContract | None) -> bool:
     """Umowa nadal czeka na podpis — nie oznaczona ręcznie, nie anulowana."""
     return (
