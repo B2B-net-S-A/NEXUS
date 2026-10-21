@@ -371,7 +371,7 @@ Ikony paska, kategorie i wyciszenia, powiadomienia dla ról, maile do zespołu.
 - `okienko-rozmowy-w-gornym-pasku.md` — Okienko „Rozmowy” w górnym pasku (13.10.2026) · zadania z cyklu (`mine`), czas z agendy, gaszenie osobną trasą, pigułka telefonu
 - `pasek-tematy-bez-dzwonka.md` — Pasek bez dzwonka: ikony z jednym tematem (16.10.2026)
 - `powiadomienia-dla-rol-i-jeden-ekran-powiadomienia.md` — Powiadomienia dla ról i jeden ekran „Powiadomienia” (0425, 09.10.2026)
-- `zmiana-notatki-i-terminu-rozmowy.md` — Zmieniona notatka z oznaczeniem i przełożona rozmowa u klienta (21.10.2026) · „Powiadom oznaczonych o zmianie” (`notify_mentions`), `interview_changed` (0495) w „Kalendarzu”, kto dostaje, czego nie wysyłamy
+- `zmiana-notatki-i-terminu-rozmowy.md` — Zmieniona notatka z oznaczeniem i przełożona rozmowa u klienta (21.10.2026) · „Powiadom oznaczonych o zmianie” (`notify_mentions`), `interview_changed` (0498) w „Kalendarzu”, kto dostaje, czego nie wysyłamy
 
 ### Integracje — `docs/claude/integracje/`
 

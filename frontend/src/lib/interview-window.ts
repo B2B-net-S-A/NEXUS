@@ -459,7 +459,7 @@ export function buildInterviewWindow({
       case "prep2_skip_threshold":
         icon = "alert";
         break;
-      // 0495: rozmowa u klienta przełożona albo odwołana — tytuł mówi co i kiedy.
+      // 0498: rozmowa u klienta przełożona albo odwołana — tytuł mówi co i kiedy.
       case "interview_changed":
         icon = "calendar";
         break;

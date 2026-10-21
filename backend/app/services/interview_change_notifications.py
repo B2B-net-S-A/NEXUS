@@ -1,4 +1,4 @@
-"""Rozmowa u klienta przełożona albo odwołana — powiadomienie ludzi pary (0495).
+"""Rozmowa u klienta przełożona albo odwołana — powiadomienie ludzi pary (0498).
 
 Zgłoszenie rekruterki (21.10.2026): terminy rozmów u klienta często się
 zmieniają, a Delivery Lead nie dowiadywał się o zmianie w NEXUSIE — przy

@@ -215,7 +215,7 @@ const DELIVERY_LEAD = buildInterviewWindow({
       title: "Nowy Prep 1 w Twoim kalendarzu · 21.10, 10:00",
       message: "Dawid Wzorcowy — Tester automatyzujący: prep zaplanowany przez: Ola Rekruter.",
     }),
-    // 0495: rozmowa u klienta przełożona przez kogoś z pary.
+    // 0498: rozmowa u klienta przełożona przez kogoś z pary.
     notif("interview_changed", CELINA, 2, {
       title: "Rozmowa u klienta przełożona na 24.10, 14:00",
       message: "Celina Fikcyjna — Analityk danych: zmiana od: Ola Rekruter, było pt 24.10.2026, godz. 11:00.",

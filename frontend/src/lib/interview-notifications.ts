@@ -28,7 +28,7 @@ export const INTERVIEW_NOTIFICATION_TYPES = [
   // 0482 (20.10.2026): rozmowa bez Prepu 2 (do DL) i próg pominięć (do HoR).
   "prep2_skipped",
   "prep2_skip_threshold",
-  // 0495 (21.10.2026): rozmowa u klienta przełożona albo odwołana — z dymkiem.
+  // 0498 (21.10.2026): rozmowa u klienta przełożona albo odwołana — z dymkiem.
   "interview_changed",
 ] as const;
 

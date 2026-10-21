@@ -1,5 +1,5 @@
 # Zmieniona notatka z oznaczeniem i przełożona rozmowa u klienta (21.10.2026)
-<!-- indeks: „Powiadom oznaczonych o zmianie” (`notify_mentions`), `interview_changed` (0495) w „Kalendarzu”, kto dostaje, czego nie wysyłamy -->
+<!-- indeks: „Powiadom oznaczonych o zmianie” (`notify_mentions`), `interview_changed` (0498) w „Kalendarzu”, kto dostaje, czego nie wysyłamy -->
 
 Zgłoszenie rekruterki: terminy prepów i rozmów często się zmieniają, a gdy
 rekruter poprawiał notatkę, w której oznaczył Delivery Leada, DL nic nie
@@ -29,7 +29,7 @@ https://claude.ai/artifact/3zTatChF7unCnUcYXkxLAN.
 - Pierwsza wersja nie ma dopisku „edytowano · powiadomiono” przy notatce
   (był na makiecie jako propozycja).
 
-## Rozmowa u klienta przełożona albo odwołana — `interview_changed` (0495)
+## Rozmowa u klienta przełożona albo odwołana — `interview_changed` (0498)
 
 - **Kiedy:** wydarzenie `client_interview` z parą (kandydat + rekrutacja),
   przed nami — `PATCH` zmieniający początek (`moved`), `PATCH status=cancelled`,
@@ -49,5 +49,5 @@ https://claude.ai/artifact/3zTatChF7unCnUcYXkxLAN.
   `INTERVIEW_NOTIFICATION_TYPES`, ikona `calendar` w `interview-window.ts`.
 - **Poza zakresem:** przełożenie rozmowy w samym Outlooku (synchronizacja
   M365) — ta ścieżka powiadomienia nie wysyła.
-- Nowy typ = migracja 0495 i lustro `ALTER TYPE` w `entrypoint.sh`
+- Nowy typ = migracja 0498 i lustro `ALTER TYPE` w `entrypoint.sh`
   (`test_interview_change_notifications.py`).
