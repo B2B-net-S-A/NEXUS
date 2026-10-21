@@ -172,6 +172,17 @@ describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () =>
     ]);
     expect(rowOf(1)).not.toHaveTextContent(/ręcznie/i);
   });
+
+  it("MD czekające na kolejne zamówienie stoją przy osobie z poprzedniego zamówienia (21.10.2026)", () => {
+    renderTable([
+      group({
+        lines: [line({ awaiting_md: [{ period_month: "2026-09", md: 12.25 }] })],
+      }),
+    ]);
+    expect(rowOf(1)).toHaveTextContent(
+      "Pozostało do zafakturowania za wrzesień 2026: 12,25 MD – oczekuje na kolejne zamówienie",
+    );
+  });
 });
 
 describe("OrdersTable — podział obsady", () => {

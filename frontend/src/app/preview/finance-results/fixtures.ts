@@ -457,6 +457,29 @@ const SEPTEMBER_MD_ROWS: ImportRow[] = [
     matched_order_id: 5013,
     matched: option(5013, "4599050007", 11, "Bank Przykładowy S.A.", "Kinga Modelowa", 9),
   }),
+  // Ta sama osoba: wiersz z numerem schodzi sam, wiersz bez numeru czeka na
+  // kolejne zamówienie (21.10.2026).
+  importRow({
+    id: 10,
+    consultant_name: "Leon Przykładowy",
+    md_reported: 11.625,
+    invoice_amount: 15_400,
+    order_number_hint: "4599050009",
+    matched_order_id: 5014,
+    matched: option(5014, "4599050009", 11, "Bank Przykładowy S.A.", "Leon Przykładowy", 3.375),
+    awaiting_md: 12.25,
+  }),
+  importRow({
+    id: 11,
+    consultant_name: "Leon Przykładowy",
+    md_reported: 12.25,
+    invoice_amount: 16_600,
+    status: "awaiting_order",
+    status_label: "Oczekuje na zamówienie",
+    md_pending: 12.25,
+    awaiting_md: 12.25,
+    awaiting_order: option(5014, "4599050009", 11, "Bank Przykładowy S.A.", "Leon Przykładowy", 3.375),
+  }),
 ];
 
 const AUGUST_MD_ROWS: ImportRow[] = [

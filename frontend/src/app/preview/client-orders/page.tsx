@@ -179,6 +179,8 @@ const MD_GROUP = group({
       contract_id: 802,
       candidate_id: 42,
       consultant_name: "Bartosz Wzorcowy",
+      // Wiersz arkusza bez numeru — MD czekają na kolejne zamówienie (21.10.2026).
+      awaiting_md: [{ period_month: "2026-09", md: 12.25 }],
       start_date: "2026-07-01",
       md_total: 40,
       md_remaining: 31,

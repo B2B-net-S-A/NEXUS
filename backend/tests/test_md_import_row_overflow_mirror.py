@@ -48,10 +48,11 @@ def test_overflow_column_is_mirrored_in_entrypoint():
     assert _collapse(_migration_module().ADD_OVERFLOW_MD) in _entrypoint_text()
 
 
-def test_migration_statuses_match_the_model():
+def test_migration_statuses_are_known_to_the_model():
+    """Późniejsze migracje (0492) dokładają statusy — 0375 jest podzbiorem."""
     from app.models.md_consumption import IMPORT_ROW_STATUSES
 
-    assert _statuses(_migration_module().STATUSES) == set(IMPORT_ROW_STATUSES)
+    assert _statuses(_migration_module().STATUSES) <= set(IMPORT_ROW_STATUSES)
 
 
 def test_entrypoint_widens_the_status_check_after_dropping_it():

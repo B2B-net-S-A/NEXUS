@@ -43,6 +43,19 @@ export function monthLabelPl(period: string): string {
   return `${MONTHS_PL[parsed[1]]} ${parsed[0]}`;
 }
 
+/**
+ * MD z importu, które czekają na kolejne zamówienie tej osoby (wiersz arkusza
+ * bez numeru obok wiersza z numerem, 21.10.2026) — ten sam tekst w wynikach
+ * importu i na karcie zamówienia.
+ */
+export function awaitingMdNote(period: string, md: number): string {
+  const amount = new Intl.NumberFormat("pl-PL", {
+    maximumFractionDigits: 3,
+    useGrouping: false,
+  }).format(md);
+  return `Pozostało do zafakturowania za ${monthLabelPl(period)}: ${amount} MD – oczekuje na kolejne zamówienie`;
+}
+
 export interface MonthOption {
   value: string;
   label: string;
