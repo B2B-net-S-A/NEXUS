@@ -181,7 +181,9 @@ function CvGeneratePanelForm({
   const missing = notListed
     ? ["Rekrutacja — tej rekrutacji nie ma na liście procesów osoby (karta zamknięta?)"]
     : g.missing;
-  const ready = missing.length === 0 && !otherProcess && !g.generating && left.length === 0;
+  // Żądanie idzie z pliku z kroku „Plik CV” — lista generatora mogła jeszcze go nie znać.
+  const fileInRequest = fileId == null || g.cvDocumentId === fileId;
+  const ready = missing.length === 0 && !otherProcess && !g.generating && left.length === 0 && fileInRequest;
 
   // Dane panelu się ustaliły: proces wybrany, pliki, zasady klienta i źródła
   // wczytane. Wcześniej lista braków niesie „wczytuję…”, a nie decyzje.
