@@ -405,6 +405,8 @@ html:has(.kr-scope[data-kr-light]) body {
 }
 
 /* ── formularz ─────────────────────────────────────────────────── */
+/* Cel kotwicy „Aplikuj” (`tabIndex={-1}`) — fokus programowy, bez obwódki. */
+.kr-form-box:focus { outline: none; }
 .kr-form-box {
   margin: 0 12px;
   border: 1px solid var(--kr-line-strong);
@@ -1368,3 +1370,10 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
   .kr-fit-card,
   .kr-fit-bar i { transition: none; }
 }
+
+/* Lenis (płynny scroll od 1024 px, `CareerMotion.tsx`) — klasy na <html>
+   dodaje sam Lenis, tylko gdy działa. */
+html.lenis,
+html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: hidden; }

@@ -403,3 +403,23 @@ Reguły, które łatwo cofnąć:
   dole od zniknięcia hero do pokazania formularza (`ApplyDock.tsx`).
   ScrollTrigger rejestruje się w efekcie, nie przy imporcie — przy imporcie
   czyta `matchMedia`, którego nie ma w jsdom.
+- **Moment otwarcia i płynny scroll (etap 7, PR D, D3 = A, 21.10.2026):**
+  `CareerMotion.tsx` (montują go widoki tablicy, rekrutacji i rekrutera, nie
+  układ `/kariera` — strona za `loading.tsx` dochodzi strumieniem i efekt
+  w układzie ruszał przed hydratacją tytułu; po jednym na korzeń `.kr-root`) przy każdym adresie wysuwa linie tytułu `.kr-title` spod maski
+  (SplitText) i raz rozszyfrowuje komendę z `data-kr-scramble` (ScrambleText).
+  Po animacji SplitText przywraca oryginalny tytuł, a sprzątanie efektu
+  (StrictMode, zmiana adresu) zabija animacje, cofa podział i odtwarza tekst
+  komendy — inaczej tytuł zostawał podzielony dwa razy i schowany pod maską.
+  Dzielenie czeka na `document.fonts.ready`. Lenis działa tylko od 1024 px
+  z myszą i bez „ograniczonego ruchu”, jeden na dokument (harness ma wiele
+  korzeni), napędza ScrollTrigger i przewija kotwice `#…`, a po przewinięciu
+  przenosi fokus na cel (`#aplikuj` ma `tabIndex={-1}`). Zrzut przed hydratacją w Playwright wstrzykuje
+  `caret-color` i daje fałszywy błąd hydratacji — sprawdzaj po `networkidle`.
+- **Jedna oferta w Google na rekrutację (audyt etapu 7, 21.10.2026):** każdy
+  link `/r/<slug>` tej samej rekrutacji ma ten sam `canonical` i `identifier`
+  JobPosting — link z tablicy (`career_board.canonical_job_slug`, pole
+  `canonical_slug` w odpowiedzi `/r/{slug}`). Inaczej linki rekruterów dawały
+  w Google kilka kopii tej samej oferty. JobPosting bez miasta i bez pracy
+  zdalnej nie powstaje (Google odrzuca ofertę bez lokalizacji), a
+  `TELECOMMUTE` stoi tylko przy `remote`.

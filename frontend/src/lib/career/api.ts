@@ -46,6 +46,9 @@ export interface CareerJobResponse {
   theme?: string;
   /** Data zatwierdzenia opisu `RRRR-MM-DD` (tylko `open`) — „datePosted” JobPosting. */
   published_at?: string | null;
+  /** Slug linku, pod którym rekrutacja stoi na tablicy (canonical i identyfikator
+   *  oferty w Google — jedna rekrutacja, wiele linków; audyt 21.10.2026). */
+  canonical_slug?: string | null;
   /** Tylko przy `closed` (etap 5): inne otwarte rekrutacje tej osoby. */
   other_jobs?: CareerRecruiterJob[];
 }

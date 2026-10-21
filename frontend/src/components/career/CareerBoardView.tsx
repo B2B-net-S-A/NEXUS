@@ -22,6 +22,7 @@ import { careerHref, type CareerBase } from "@/lib/career/host";
 import { BoardGlyph, BoardPreviewScene } from "./BoardPreview";
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
 import { TwoToneTitle } from "./CareerHero";
+import { CareerMotion } from "./CareerMotion";
 import { CareerSubmitGate } from "./CareerSubmitGate";
 import { TerminalChrome } from "./TerminalChrome";
 
@@ -73,6 +74,7 @@ export function CareerBoardView({
       }}
     >
       <TerminalChrome path={CHROME_PATH} />
+      <CareerMotion />
       {data ? (
         <Board data={data} base={base} formPreview={formPreview} />
       ) : (
@@ -175,7 +177,7 @@ function Board({
           <span className="kr-r" aria-hidden="true">
             ${" "}
           </span>
-          ls ~/rekrutacje --open
+          <span data-kr-scramble="">ls ~/rekrutacje --open</span>
         </span>
         <TwoToneTitle className="kr-title kr-board-h1" first="Otwarte rekrutacje IT" second="B2B Network." />
         <span className="kr-g">

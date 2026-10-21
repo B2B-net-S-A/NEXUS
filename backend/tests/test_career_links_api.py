@@ -280,7 +280,16 @@ async def test_public_page_never_leaks_client_or_rate(api):
     assert body["status"] == "open"
     # Kształt odpowiedzi jest zamknięty — nowe pole = świadoma decyzja.
     # „theme” (0478): sam identyfikator szablonu graficznego.
-    assert set(body) == {"status", "recruiter", "theme", "published_at", "job"}
+    assert set(body) == {
+        "status",
+        "recruiter",
+        "theme",
+        "published_at",
+        "canonical_slug",
+        "job",
+    }
+    # Jedyny link rekrutacji jest też jej linkiem kanonicznym (audyt 21.10.2026).
+    assert body["canonical_slug"] == link["slug"]
     assert body["theme"] == "terminal"  # „Senior Java Developer” → Terminal
     # Data zatwierdzenia (bez godziny) — „datePosted” w danych JobPosting dla
     # Google (etap 6, decyzja D3 Artura 20.10.2026).
@@ -1809,3 +1818,22 @@ async def test_pick_board_link_rules():
     assert _pick_link([link(1, "x", expired=True)], 1, now) == (None, False)
     assert _pick_link([other_new, lead_old], None, now) == (other_new, False)
     assert _pick_link([], None, now) == (None, False)
+
+
+async def test_every_link_of_a_job_points_google_to_one_canonical_slug(api, board):
+    """Audyt 21.10.2026: kilka linków jednej rekrutacji (każdy rekruter swój,
+    link tablicy) to w Google jedna oferta — canonical i identyfikator JobPosting
+    biorą slug linku z tablicy, a nie slug otwartej strony."""
+    _, headers, job_id = await _owner_with_job(api)
+    first = await _create_job_link(api, headers, job_id)
+    second = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    card = next(
+        j
+        for j in (await board())["jobs"]
+        if j["slug"] in {first["slug"], second["slug"]}
+    )
+    for link in (first, second):
+        page = await api.get(f"/api/public/career/r/{link['slug']}")
+        assert page.status_code == 200, page.text
+        assert page.json()["canonical_slug"] == card["slug"]

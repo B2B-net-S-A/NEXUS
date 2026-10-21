@@ -51,7 +51,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     // zamknięta wypada z indeksu.
     robots:
       status === "open" ? { index: true, follow: true } : { index: false, follow: true },
-    alternates: { canonical: canonicalUrl(slug) },
+    // Kilka linków jednej rekrutacji = jedna oferta w Google: canonical na link z tablicy.
+    alternates: { canonical: canonicalUrl(result.data.canonical_slug ?? slug) },
     openGraph: { title: job.title, description, type: "website", locale: "pl_PL" },
     twitter: { card: "summary_large_image", title: job.title, description },
   };
@@ -61,7 +62,7 @@ export default async function CareerJobPage({ params }: PageProps) {
   const { slug } = await params;
   const data = await load(slug);
   const { base, host } = await careerRequestContext();
-  const posting = jobPostingJsonLd(data, canonicalUrl(slug));
+  const posting = jobPostingJsonLd(data, canonicalUrl(data.canonical_slug ?? slug));
   return (
     <>
       {posting ? (
