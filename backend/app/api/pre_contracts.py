@@ -3,8 +3,10 @@
 Reguły: ``app/services/pre_contracts.py`` i
 ``docs/claude/kontrakty/generator-umow-b2b-trzy-zakladki-cyklu-zycia-umowy.md (sekcja „Umowa przedwstępna w rekrutacji”)``.
 
-Dostęp jak do Tablicy: sekcja „Rekrutacje” i członkostwo w rekrutacji
-(``ensure_job_read_access`` — admin i Head of Recruitment zawsze). Kto widzi
+Dostęp: sekcja „Rekrutacje” i członkostwo w rekrutacji
+(``ensure_job_membership`` — admin i Head of Recruitment zawsze). Nie
+``ensure_job_read_access``: ten przepuszcza Finanse do każdej rekrutacji,
+a pliki mają PESEL, a trasy zmieniają stan (przegląd bezpieczeństwa 21.10.2026). Kto widzi
 Tablicę, może poprosić o umowę i prowadzić jej kroki (decyzja „Kanban bez
 bramek”). Wycofanie prośby — proszący albo Head of Recruitment; decyzja
 o karze — Head of Recruitment albo admin. Podpisane pliki mają PESEL, ale
@@ -23,7 +25,7 @@ from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess
-from app.api.recruitment_access import ensure_job_read_access
+from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
@@ -66,6 +68,11 @@ MSG_ONLY_REQUESTER = (
 )
 MSG_ONLY_HOR = "O karze decyduje Head of Recruitment."
 MSG_NO_FILE = "Ten plik nie jest zapisany przy umowie."
+MSG_LOCKED = (
+    "Umowa jest podpisana obustronnie — plików nie podmieniamy (dowód do decyzji "
+    "o karze). Anuluj prośbę i wystaw nową umowę, jeśli trzeba."
+)
+MSG_ASSIGNEE = "Wybierz aktywne konto."
 
 _OVERSIGHT = (UserRole.admin, UserRole.head_of_recruitment)
 
@@ -228,7 +235,7 @@ async def _load_for(
     db: AsyncSession, user: User, request_id: int, *, lock: bool = True
 ) -> PreContractRequest:
     req = await _load(db, request_id, lock=lock)
-    await ensure_job_read_access(db, user, req.job_id)
+    await ensure_job_membership(db, user, req.job_id)
     return req
 
 
@@ -366,7 +373,7 @@ async def _serialize(
         can_decide = (
             r.close_reason == "candidate_withdrew"
             and not (withdrawal or {}).get("decision")
-            and (_sees_all(user) or decision_user == user.id)
+            and _sees_all(user)
         )
         out.append(
             RequestOut(
@@ -458,7 +465,7 @@ async def create_request(
 ):
     """Poproś o przedwstępną dla osoby. Gdy prośba w toku już jest — dopisz się
     do obserwujących (druga prośba nie tworzy drugiej umowy)."""
-    await ensure_job_read_access(db, current_user, body.job_id)
+    await ensure_job_membership(db, current_user, body.job_id)
     job = await db.get(Job, body.job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Nie ma takiej rekrutacji.")
@@ -499,6 +506,10 @@ async def create_request(
         await db.commit()
         return await _one(db, current_user, existing)
 
+    if body.assignee_id is not None:
+        chosen = await db.get(User, body.assignee_id)
+        if chosen is None or not chosen.is_active:
+            raise HTTPException(status_code=422, detail=MSG_ASSIGNEE)
     assignee = body.assignee_id or await pair_recruiter_id(
         db, candidate_id=body.candidate_id, job_id=body.job_id
     )
@@ -592,7 +603,7 @@ async def pair_requests(
     db: AsyncSession = Depends(get_db),
 ):
     """Prośba w toku i zamknięte — sekcja „Umowa przedwstępna” w panelu osoby."""
-    await ensure_job_read_access(db, current_user, job_id)
+    await ensure_job_membership(db, current_user, job_id)
     rows = (
         await db.scalars(
             select(PreContractRequest)
@@ -819,8 +830,9 @@ async def candidate_signed(
     _require_open(req)
     if req.document_id is None:
         raise HTTPException(status_code=409, detail=MSG_NO_DOC)
+    if req.company_signed_at is not None:
+        raise HTTPException(status_code=409, detail=MSG_LOCKED)
     name, path, _ = await _store(db, req, file)
-    old = req.candidate_file_path
     req.sent_at = req.sent_at or svc.now_utc()
     req.candidate_signed_at = svc.now_utc()
     req.candidate_signature_form = signature_form
@@ -842,8 +854,6 @@ async def candidate_signed(
         actor_id=current_user.id,
     )
     await db.commit()
-    if old and old != path:
-        storage_service.delete_pre_contract_file(old)
     return await _one(db, current_user, req)
 
 
@@ -854,29 +864,21 @@ async def company_signed(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Plik podpisany obustronnie. Umowa w Generatorze przechodzi na
-    „podpisana” (przedwstępna niczego w kontraktach nie zmienia)."""
+    """Plik podpisany obustronnie.
+
+    Stanu dokumentu w Generatorze NIE zmienia — tam „Oznacz jako podpisany”
+    ma własne bramki (autor, podpis); prośba trzyma stan podpisu sama."""
     req = await _load_for(db, current_user, request_id)
     _require_open(req)
     if req.candidate_signed_at is None:
         raise HTTPException(status_code=409, detail=MSG_NO_CANDIDATE_SIGNATURE)
+    if req.company_signed_at is not None:
+        raise HTTPException(status_code=409, detail=MSG_LOCKED)
     name, path, _ = await _store(db, req, file)
-    old = req.company_file_path
     now = svc.now_utc()
     req.company_signed_at = now
     req.company_file_path = path
     req.company_file_name = name
-    if req.document_id is not None:
-        doc = await db.get(B2BContractDocument, req.document_id, with_for_update=True)
-        if (
-            doc is not None
-            and doc.signature_status != "signed_both"
-            and doc.status != "cancelled"
-        ):
-            doc.signature_status = "signed_both"
-            doc.status = "signed"
-            doc.signed_at = now
-            doc.signed_by_user_id = current_user.id
     event = await svc.add_event(
         db, req, "company_signed", actor_id=current_user.id, payload={"file_name": name}
     )
@@ -889,8 +891,6 @@ async def company_signed(
         actor_id=current_user.id,
     )
     await db.commit()
-    if old and old != path:
-        storage_service.delete_pre_contract_file(old)
     return await _one(db, current_user, req)
 
 
@@ -968,20 +968,10 @@ async def _close(
     actor: User,
     message: str,
     payload: Optional[dict[str, Any]] = None,
-    cancel_document: bool = False,
 ) -> None:
     req.closed_at = svc.now_utc()
     req.close_reason = reason
     req.closed_by = actor.id
-    if cancel_document and req.document_id is not None:
-        doc = await db.get(B2BContractDocument, req.document_id, with_for_update=True)
-        if (
-            doc is not None
-            and doc.signature_status != "signed_both"
-            and doc.status == "issued"
-        ):
-            doc.status = "cancelled"
-            doc.cancelled_reason = (payload or {}).get("reason") or "Prośba zamknięta."
     event = await svc.add_event(db, req, reason, actor_id=actor.id, payload=payload)
     await svc.notify(db, req, event, message=message, actor_id=actor.id)
 
@@ -1005,7 +995,6 @@ async def withdraw_request(
         reason="withdrawn",
         actor=current_user,
         message=f"{current_user.name} wycofał(a) prośbę o umowę przedwstępną.",
-        cancel_document=True,
     )
     await db.commit()
     return await _one(db, current_user, req)
@@ -1027,7 +1016,6 @@ async def cancel_request(
         actor=current_user,
         message=f"{current_user.name} anulował(a) umowę przedwstępną: {body.reason}",
         payload={"reason": body.reason},
-        cancel_document=True,
     )
     await db.commit()
     return await _one(db, current_user, req)
@@ -1054,7 +1042,6 @@ async def candidate_refused(
         actor=current_user,
         message=f"Kandydat odmówił podpisu umowy przedwstępnej: {body.reason}",
         payload={"reason": body.reason},
-        cancel_document=True,
     )
     await db.commit()
     return await _one(db, current_user, req)
@@ -1150,9 +1137,9 @@ async def penalty_decision(
     withdrawal = dict(req.withdrawal or {})
     if req.close_reason != "candidate_withdrew" or withdrawal.get("decision"):
         raise HTTPException(status_code=409, detail="Tu nie ma decyzji do podjęcia.")
-    if not (
-        _sees_all(current_user) or withdrawal.get("decision_user_id") == current_user.id
-    ):
+    # Decyduje wyłącznie Head of Recruitment / admin — wskazana osoba dostaje
+    # tylko dzwonek (inaczej rekruter mógłby wskazać siebie i darować karę).
+    if not _sees_all(current_user):
         raise HTTPException(status_code=403, detail=MSG_ONLY_HOR)
     withdrawal["decision"] = body.decision
     withdrawal["decision_note"] = body.note

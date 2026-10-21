@@ -208,9 +208,19 @@ async def test_dl_request_goes_to_pair_recruiter_and_tracks_every_step(
     # Każdy krok rekrutera = dzwonek u Delivery Leada (4 kroki, ten sam dzień).
     assert len(await _bells(pair["dl"][0])) == 4
 
+    # Stan dokumentu w Generatorze zostaje — tam podpis ma własne bramki.
     async with AsyncSessionLocal() as db:
         doc = await db.get(B2BContractDocument, doc_id)
-        assert doc.signature_status == "signed_both" and doc.status == "signed"
+        assert doc.signature_status == "unsigned"
+
+    # Podpisanych plików nie podmieniamy — to dowód do decyzji o karze.
+    locked = await app_client.post(
+        f"/api/pre-contracts/{request_id}/candidate-signed",
+        headers=rec_h,
+        data={"signature_form": "other"},
+        files={"file": ("inna.pdf", PDF, "application/pdf")},
+    )
+    assert locked.status_code == 409
 
     resp = await app_client.get(
         f"/api/pre-contracts/{request_id}/files/candidate", headers=dl_h
@@ -309,7 +319,13 @@ async def test_candidate_withdrawal_needs_signed_contract_and_waits_for_decision
     resp = await app_client.post(
         f"/api/pre-contracts/{request_id}/candidate-withdrew",
         headers=rec_h,
-        json={"kind": "no_show", "event_on": "2026-10-28", "note": "Nie dołączył."},
+        json={
+            "kind": "no_show",
+            "event_on": "2026-10-28",
+            "note": "Nie dołączył.",
+            # Rekruter wskazuje siebie — dostaje dzwonek, ale nie decyduje.
+            "decision_user_id": pair["recruiter"][0],
+        },
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -424,3 +440,30 @@ async def test_moving_past_needed_column_without_signature_tells_requester_once(
     bells = await _bells(pair["dl"][0])
     assert len(bells) == 1
     assert "bez podpisanej umowy przedwstępnej" in bells[0].message
+
+
+async def test_finance_outside_the_job_cannot_read_files_or_change_state(
+    app_client: AsyncClient,
+) -> None:
+    pair = await _pair()
+    rec_h = await _headers(app_client, pair["recruiter"])
+    created = await app_client.post(
+        "/api/pre-contracts",
+        headers=rec_h,
+        json={"candidate_id": pair["candidate_id"], "job_id": pair["job_id"]},
+    )
+    request_id = created.json()["id"]
+    async with AsyncSessionLocal() as db:
+        finance, pwd = await _user(db, UserRole.finance)
+        await db.commit()
+        who = (finance.id, finance.email, pwd)
+    fin_h = await _headers(app_client, who)
+    for method, url, body in (
+        ("get", f"/api/pre-contracts/{request_id}", None),
+        ("get", f"/api/pre-contracts/{request_id}/files/candidate", None),
+        ("post", f"/api/pre-contracts/{request_id}/cancel", {"reason": "test test"}),
+    ):
+        resp = await getattr(app_client, method)(
+            url, headers=fin_h, **({"json": body} if body else {})
+        )
+        assert resp.status_code == 403, (url, resp.status_code)
