@@ -20,6 +20,7 @@ from app.models.user import User, UserRole
 from app.services import competitions
 from app.services.insights_scoring_config import SCORING_DEFAULTS
 
+
 @pytest.fixture(autouse=True)
 def _periods_are_open(monkeypatch):
     """Od 15.10.2026 okres zamknięty `/current` i `/monthly-races` pokazują
@@ -92,6 +93,10 @@ def league(monkeypatch):
         )
     )
     monkeypatch.setattr(competitions, "dl_portfolio_counts", counts)
+    # Zamknięcia „nie liczy się” (21.10.2026): DL 22 ma jedno.
+    monkeypatch.setattr(
+        competitions, "dl_neutral_closed_counts", AsyncMock(return_value={22: 1})
+    )
     yield counts
     cache_module._cache.clear()
 
@@ -166,6 +171,7 @@ async def test_delivery_lead_in_the_league(league) -> None:
     assert data["dl"] == {
         "placements": 4,
         "closed_requests": 11,
+        "closed_neutral": 1,
         "hit_ratio": 36.4,
         "hit_ratio_target": 30.0,
         "min_placements": 3,

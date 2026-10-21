@@ -192,6 +192,17 @@ describe("buildLeagueTopbarModel — Delivery Lead", () => {
     expect(model?.spoken).toBe("Liga Mistrzów DL, Q4 2026: 2. miejsce, 4 placementy.");
   });
 
+  it("zamknięcia „nie liczy się” dopisane do zdania o hit ratio (21.10.2026)", () => {
+    const one = buildLeagueTopbarModel({ ...LEAGUE_DL_SECOND, dl: { ...LEAGUE_DL_SECOND.dl!, closed_neutral: 1 } });
+    expect(texts(one)[1]).toBe(
+      "Hit ratio 36,4% (4 z 11 zamkniętych rekrutacji). Jedna zamknięta nie liczy się (duplikat, anulowana, wewnętrzna…).",
+    );
+    const three = buildLeagueTopbarModel({ ...LEAGUE_DL_SECOND, dl: { ...LEAGUE_DL_SECOND.dl!, closed_neutral: 3 } });
+    expect(texts(three)[1]).toContain("3 zamknięte nie liczą się");
+    const five = buildLeagueTopbarModel({ ...LEAGUE_DL_SECOND, dl: { ...LEAGUE_DL_SECOND.dl!, closed_neutral: 5 } });
+    expect(texts(five)[1]).toContain("5 zamkniętych nie liczy się");
+  });
+
   it("poza ligą: droga do progu", () => {
     const model = buildLeagueTopbarModel(LEAGUE_DL_OUTSIDE);
     expect(model?.medal).toEqual({ text: "–", tone: "warn" });

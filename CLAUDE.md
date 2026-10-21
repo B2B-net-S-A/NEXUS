@@ -216,7 +216,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `sciezka-kandydata-przekazania-zweryfikowany-jeden.md` — Ścieżka kandydata: przekazania, „Zweryfikowany”, jeden panel osoby (04.10.2026)
 - `stawka-do-klienta-po-wysylce.md` — Zmiana stawki do klienta po wysyłce CV (20.10.2026)
 - `twoje-cv-w-drodze-na-pulpicie-domyslnie-u-kazdego-z.md` — „Twoje CV w drodze” na pulpicie — domyślnie u każdego, z „Usuń z pulpitu” (02.10.2026)
-- `zamkniecie-rekrutacji-osoby-w-toku.md` — Zamknięcie rekrutacji ostrzega o osobach w toku (13.10.2026) · 409 `active_cards_warning`, `acknowledge_active_cards`, trzy okna zamykania
+- `zamkniecie-rekrutacji-osoby-w-toku.md` — Zamknięcie rekrutacji ostrzega o osobach w toku (13.10.2026) · 409 `active_cards_warning`, `acknowledge_active_cards`, powody i hit ratio
 - `zatrudniony-kto-i-co-jest-potrzebne.md` — „Zatrudniony”: kto przesuwa i co jest potrzebne (20.10.2026)
 
 ### Screening, notatki, stawki kandydata — `docs/claude/screening-notatki/`

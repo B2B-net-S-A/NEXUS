@@ -43,6 +43,7 @@ from app.models.contract import Contract
 from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.services.client_identity import client_display_name_expression
+from app.services.metric_definitions import HIT_RATIO_NEUTRAL_CLOSE_REASONS
 from app.services.contract_rates import (
     RATE_SCHEDULE_LOADS,
     REVENUE_BEARING_STATUSES,
@@ -476,11 +477,18 @@ async def tenders(
     outcomes.sort(key=lambda o: -o["count"])
     won = sum(o["count"] for o in outcomes if o["outcome"] == "filled_by_us")
     total = sum(o["count"] for o in outcomes)
+    # Zamknięcia „nie liczy się” (21.10.2026) zostają w `outcomes`, ale nie
+    # w mianowniku wygranych — ta sama reguła co hit ratio.
+    counted = sum(
+        o["count"]
+        for o in outcomes
+        if o["outcome"] not in HIT_RATIO_NEUTRAL_CLOSE_REASONS
+    )
     return {
         "outcomes": outcomes,
         "closed_total": total,
         "won": won,
-        "win_rate_pct": round(100.0 * won / total, 1) if total else 0.0,
+        "win_rate_pct": round(100.0 * won / counted, 1) if counted else 0.0,
     }
 
 

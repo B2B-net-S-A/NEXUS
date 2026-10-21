@@ -445,7 +445,7 @@ async def test_closing_parks_the_team_quietly_and_keeps_history(
 
     closed = await app_client.post(
         f"/api/jobs/{job_id}/close",
-        json={"reason": "other", "acknowledge_active_cards": True},
+        json={"reason": "competitor", "acknowledge_active_cards": True},
         headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text
@@ -530,7 +530,7 @@ async def test_reopening_restores_the_team_only_at_p1(
     job_id, owner, collaborator, assignee = await _team_job()
     closed = await app_client.post(
         f"/api/jobs/{job_id}/close",
-        json={"reason": "other", "acknowledge_active_cards": True},
+        json={"reason": "competitor", "acknowledge_active_cards": True},
         headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text

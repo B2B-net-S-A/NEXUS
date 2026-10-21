@@ -700,6 +700,8 @@ export interface MyKpiGoals {
   goals: KpiGoal[];
   /** Delivery Lead: rekrutacje zamknięte w kwartale (podstawa celu placementów). */
   closed_requests?: number | null;
+  /** Delivery Lead: zamknięte jako „nie liczy się” — poza podstawą celu (21.10.2026). */
+  closed_neutral?: number | null;
 }
 
 /** Liczniki „Moje KPI" — dzień, tydzień i miesiąc kalendarzowy. */
@@ -1736,11 +1738,27 @@ export const jobsApi = {
     notes?: string | null,
     /** Potwierdzenie ostrzeżenia o osobach w toku (409 `active_cards_warning`). */
     acknowledgeActiveCards = false,
+    /** Przy „Duplikat”: rekrutacja, która zostaje (21.10.2026). */
+    duplicateOfJobId: number | null = null,
   ) =>
     api.post(`/api/jobs/${id}/close`, {
       reason,
       notes: notes?.trim() || null,
+      ...(duplicateOfJobId != null ? { duplicate_of_job_id: duplicateOfJobId } : {}),
       ...(acknowledgeActiveCards ? { acknowledge_active_cards: true } : {}),
+    }),
+  /**
+   * „Zmień powód zamknięcia” zamkniętej rekrutacji (21.10.2026). Ta sama
+   * walidacja co zamknięcie: 422 `close_notes_required`, `close_reason_has_hire`…
+   */
+  changeCloseReason: (
+    id: number,
+    body: { reason: string; notes?: string | null; duplicateOfJobId?: number | null },
+  ) =>
+    api.patch(`/api/jobs/${id}/close-reason`, {
+      reason: body.reason,
+      notes: body.notes?.trim() || null,
+      duplicate_of_job_id: body.duplicateOfJobId ?? null,
     }),
   /**
    * „Otwórz ponownie” zamkniętą rekrutację albo „Dokończ i opublikuj” stary
