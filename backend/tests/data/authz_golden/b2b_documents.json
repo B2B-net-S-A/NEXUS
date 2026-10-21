@@ -36,6 +36,7 @@
   "GET /api/b2b-generator/documents/{doc_id}/effects": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/documents/{doc_id}/form": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/documents/{doc_id}/history": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/b2b-generator/mandate-forms/{form_key}": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/documents": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/documents/partner-notice": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/documents/preview": "PPPBPPDDPPPPPPPPPPPDDPPPPD",

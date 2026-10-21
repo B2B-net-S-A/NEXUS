@@ -81,10 +81,20 @@ export interface DocumentTypeDef {
   legacy_languages: string[];
 }
 
+/** Pusty wzór do umowy zlecenie (`mandate_forms.py`) — wypełnia zleceniobiorca. */
+export interface MandateFormDef {
+  key: string;
+  label: string;
+  description: string;
+  download_name: string;
+  format: "PDF" | "DOCX";
+}
+
 export interface DocumentTypesResponse {
   types: DocumentTypeDef[];
   ref_labels: Record<string, string>;
   ref_defaults: Record<string, string>;
+  mandate_forms: MandateFormDef[];
 }
 
 export interface DocumentBaseInfo {
@@ -432,6 +442,10 @@ export const b2bDocumentsApi = {
     api
       .get<DocumentForm>(`/api/b2b-generator/documents/${id}/form`)
       .then((r) => r.data),
+  mandateForm: (key: string) =>
+    api.get(`/api/b2b-generator/mandate-forms/${encodeURIComponent(key)}`, {
+      responseType: "blob",
+    }),
   /** Ponowne pobranie; `values` = tylko pola wrażliwe (nie przechowujemy ich). */
   redownload: (id: number, values: DocumentValues = {}) =>
     api.post(

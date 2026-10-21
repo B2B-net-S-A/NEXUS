@@ -9,7 +9,9 @@ Baza wspólna i nieczyszczona — asercje wyłącznie na własnych wierszach.
 
 from __future__ import annotations
 
+import io
 import uuid
+import zipfile
 from datetime import date
 from decimal import Decimal
 
@@ -19,6 +21,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.services.b2b_documents.contract_versions import default_refs, notice_end_date
+from app.services.b2b_documents.mandate_forms import FORMS_BY_KEY, MANDATE_FORMS
 from app.services.b2b_documents.registry import TYPES, missing_required, strip_sensitive
 from tests.test_b2b_generated_contract_status import (
     _admin_user_id,
@@ -149,6 +152,48 @@ async def test_document_types_endpoint(app_client, app_auth_headers):
     body = resp.json()
     assert {t["key"] for t in body["types"]} == set(TYPES)
     assert body["ref_defaults"]["non_compete_paragraph"] == "§ 10 ust. 1"
+    assert {f["key"] for f in body["mandate_forms"]} == set(FORMS_BY_KEY)
+    assert all("filename" not in f for f in body["mandate_forms"])
+
+
+# ── Oświadczenia i deklaracje do umowy zlecenie ──────────────────────────────
+
+
+def test_every_mandate_form_file_exists_without_author_metadata():
+    for form in MANDATE_FORMS:
+        data = form.path.read_bytes()
+        assert data, form.key
+        if form.media_type == "application/pdf":
+            assert data.startswith(b"%PDF"), form.key
+            # Repo jest publiczne: XMP z autorem wzoru nie może zostać w pliku.
+            assert b"<dc:creator>" not in data, form.key
+        else:
+            with zipfile.ZipFile(io.BytesIO(data)) as docx:
+                core = docx.read("docProps/core.xml").decode("utf-8")
+            assert "<dc:creator></dc:creator>" in core, form.key
+            assert "<cp:lastModifiedBy></cp:lastModifiedBy>" in core, form.key
+
+
+async def test_mandate_form_download(app_client, app_auth_headers):
+    resp = await app_client.get(
+        f"{BASE}/mandate-forms/ppk_resignation", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content == FORMS_BY_KEY["ppk_resignation"].path.read_bytes()
+    assert "attachment" in resp.headers["content-disposition"]
+
+
+async def test_mandate_form_unknown_key_is_404(app_client, app_auth_headers):
+    resp = await app_client.get(
+        f"{BASE}/mandate-forms/../../main.py", headers=app_auth_headers
+    )
+    assert resp.status_code == 404
+    resp = await app_client.get(
+        f"{BASE}/mandate-forms/nie_ma", headers=app_auth_headers
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Nie ma takiego wzoru."
 
 
 async def test_prefill_uses_the_base_contract(app_client, app_auth_headers):

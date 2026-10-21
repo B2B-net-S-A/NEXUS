@@ -68,6 +68,7 @@ import {
   type AnnexSubjectChoice,
 } from "./AnnexSubjectPicker";
 import { DocumentFieldsForm, DocumentRefsFields } from "./DocumentFieldsForm";
+import { MandateFormsSection } from "./MandateFormsSection";
 import { saveDocx } from "./DocumentDialogs";
 
 /** Etykieta braku numerów paragrafów w `missing[]` serwera. */
@@ -479,6 +480,9 @@ export function DocumentWizard({
             contractMissing={byContract.isSuccess && !byContract.data}
             contractError={byContract.isError ? byContract.error : null}
           />
+        ) : null}
+        {step === "type" && !annexMode ? (
+          <MandateFormsSection forms={typesData.mandate_forms ?? []} />
         ) : null}
 
         {step === "subject" && type ? (

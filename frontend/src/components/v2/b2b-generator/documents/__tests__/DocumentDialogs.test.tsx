@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   prefill: vi.fn(),
   create: vi.fn(),
   partnerNotice: vi.fn(),
+  mandateForm: vi.fn(),
   downloadBlob: vi.fn(),
 }));
 
@@ -32,6 +33,7 @@ vi.mock("@/lib/api/b2bDocuments", async (importOriginal) => {
       prefill: (...a: unknown[]) => mocks.prefill(...a),
       create: (...a: unknown[]) => mocks.create(...a),
       partnerNotice: (...a: unknown[]) => mocks.partnerNotice(...a),
+      mandateForm: (...a: unknown[]) => mocks.mandateForm(...a),
     },
   };
 });
@@ -52,6 +54,7 @@ import type {
   DocumentFieldDef,
   DocumentItem,
   DocumentTypeDef,
+  MandateFormDef,
 } from "@/lib/api/b2bDocuments";
 
 function field(key: string, label: string, extra: Partial<DocumentFieldDef> = {}): DocumentFieldDef {
@@ -235,7 +238,7 @@ describe("Kreator — błąd 422 z serwera", () => {
     );
     renderWith(
       <DocumentWizard
-        typesData={{ types: [TERMINATION], ref_labels: {}, ref_defaults: {} }}
+        typesData={{ types: [TERMINATION], ref_labels: {}, ref_defaults: {}, mandate_forms: [] }}
         initialType="termination_agreement"
         initialParentId={12}
         onClose={() => {}}
@@ -265,7 +268,7 @@ describe("Kreator — błąd 422 z serwera", () => {
     });
     renderWith(
       <DocumentWizard
-        typesData={{ types: [TERMINATION], ref_labels: {}, ref_defaults: {} }}
+        typesData={{ types: [TERMINATION], ref_labels: {}, ref_defaults: {}, mandate_forms: [] }}
         initialType="termination_agreement"
         initialParentId={12}
         onClose={() => {}}
@@ -275,6 +278,58 @@ describe("Kreator — błąd 422 z serwera", () => {
     await userEvent.click(screen.getByRole("button", { name: /Pobierz DOCX/ }));
     expect(await screen.findByText("Uzupełnij: Imię i nazwisko.")).toBeInTheDocument();
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("Kreator — oświadczenia i deklaracje do umowy zlecenie", () => {
+  const FORMS: MandateFormDef[] = [
+    {
+      key: "pit_2",
+      label: "PIT-2",
+      description: "Zaliczki na podatek.",
+      download_name: "PIT-2.pdf",
+      format: "PDF",
+    },
+    {
+      key: "ppk_resignation",
+      label: "Deklaracja rezygnacji z wpłat do PPK",
+      description: "Rezygnacja z PPK.",
+      download_name: "Deklaracja rezygnacji z PPK.pdf",
+      format: "PDF",
+    },
+  ];
+  const typesData = {
+    types: [TERMINATION],
+    ref_labels: {},
+    ref_defaults: {},
+    mandate_forms: FORMS,
+  };
+
+  it("przy wyborze rodzaju pobiera pusty wzór pod polską nazwą", async () => {
+    const blob = new Blob(["%PDF"]);
+    mocks.mandateForm.mockResolvedValue({ data: blob, headers: {} });
+    renderWith(<DocumentWizard typesData={typesData} onClose={() => {}} />);
+    expect(
+      screen.getByRole("heading", { name: /Oświadczenia i deklaracje — umowa zlecenie/ }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Pobierz: PIT-2 (PDF)" }));
+    await waitFor(() => expect(mocks.downloadBlob).toHaveBeenCalledWith(blob, "PIT-2.pdf"));
+    expect(mocks.mandateForm).toHaveBeenCalledWith("pit_2");
+  });
+
+  it("błąd pobrania pokazuje komunikat serwera", async () => {
+    mocks.mandateForm.mockRejectedValue(blobError(404, "Nie ma takiego wzoru."));
+    renderWith(<DocumentWizard typesData={typesData} onClose={() => {}} />);
+    await userEvent.click(
+      screen.getByRole("button", { name: /Pobierz: Deklaracja rezygnacji z wpłat do PPK/ }),
+    );
+    expect(await screen.findByText("Nie ma takiego wzoru.")).toBeInTheDocument();
+    expect(mocks.downloadBlob).not.toHaveBeenCalled();
+  });
+
+  it("w generatorze aneksów wzorów nie ma", () => {
+    renderWith(<DocumentWizard mode="annexes" typesData={typesData} onClose={() => {}} />);
+    expect(screen.queryByText(/Oświadczenia i deklaracje/)).not.toBeInTheDocument();
   });
 });
 

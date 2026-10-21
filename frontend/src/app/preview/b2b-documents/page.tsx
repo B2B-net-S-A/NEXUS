@@ -354,6 +354,45 @@ const TYPES_RESPONSE: DocumentTypesResponse = {
     non_compete_paragraph: "§ 9",
     notice_paragraph: "§ 12",
   },
+  mandate_forms: [
+    {
+      key: "contractor_statement_pl",
+      label: "Oświadczenie zleceniobiorcy",
+      description:
+        "Dane do kadr, PIT i ZUS: adresy, urząd skarbowy, NFZ, konto, status (student, inne zatrudnienie, emerytura). Wzór na 2026.",
+      download_name: "Oświadczenie zleceniobiorcy 2026.docx",
+      format: "DOCX",
+    },
+    {
+      key: "contractor_statement_pl_en",
+      label: "Oświadczenie zleceniobiorcy (PL/EN)",
+      description: "To samo oświadczenie z tłumaczeniem na angielski.",
+      download_name: "Oświadczenie zleceniobiorcy 2026 PL-EN.docx",
+      format: "DOCX",
+    },
+    {
+      key: "pit_2",
+      label: "PIT-2",
+      description:
+        "Oświadczenia i wnioski do zaliczek na podatek, m.in. kwota zmniejszająca podatek (dla osób powyżej 26 lat).",
+      download_name: "PIT-2.pdf",
+      format: "PDF",
+    },
+    {
+      key: "ppk_resignation",
+      label: "Deklaracja rezygnacji z wpłat do PPK",
+      description: "Dla zleceniobiorcy, który nie chce oszczędzać w PPK.",
+      download_name: "Deklaracja rezygnacji z PPK.pdf",
+      format: "PDF",
+    },
+    {
+      key: "foreigner_tax_statement",
+      label: "Oświadczenie do celów podatkowych — cudzoziemcy",
+      description: "Rezydencja podatkowa cudzoziemca; z kopią paszportu.",
+      download_name: "Oświadczenie do celów podatkowych - cudzoziemcy.pdf",
+      format: "PDF",
+    },
+  ],
 };
 
 const PARENT_ID = 101;
