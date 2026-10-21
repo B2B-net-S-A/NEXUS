@@ -595,8 +595,8 @@
         "anchor": "contracts.b2b_generator.docx"
       },
       {
-        "q": "Umowa jest podpisana — co dalej?",
-        "a": "W „Umowy bieżące” kliknij „Oznacz jako podpisaną” — bez uprawnienia „Podpis B2B” poproś Delivery Leada. Dopiero wtedy powstaje kontrakt i szkic zamówienia, a kandydat przechodzi na „Zatrudniony”. W tym oknie dołącz podpisany plik (albo później: „Dołącz podpisaną umowę”) — trafi do Dokumentów kontraktu.",
+        "q": "Jak podpisać umowę i co dalej?",
+        "a": "„Wyślij do podpisu” (gdy włączony podpis w NEXUSIE): link do kontraktora, potem podpis za B2B Network — kontrakt i plik powstaną same. Droga mailowa: po podpisie „Oznacz jako podpisaną” (bez uprawnienia „Podpis B2B” poproś DL) i dołącz plik. Wtedy powstaje kontrakt, szkic zamówienia, a kandydat przechodzi na „Zatrudniony”.",
         "anchor": "contracts.b2b_generator.tabs"
       },
       {

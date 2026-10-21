@@ -3976,6 +3976,17 @@ export interface B2BGeneratedContractRow {
   signed_document_id?: number | null;
   /** Czy to konto dołączy albo podmieni podpisany plik (jak oznaczenie podpisu). */
   can_attach_signed_file?: boolean;
+  /** Podpis w NEXUSIE (0497): ostatnia wysyłka i co to konto może zrobić. */
+  esign?: {
+    request_id: number;
+    status: "sent" | "contractor_signed" | "completed" | "withdrawn" | "expired";
+    contractor_signed_at: string | null;
+    completed_at: string | null;
+    expires_at: string;
+    company_signer_name: string | null;
+  } | null;
+  can_send_esign?: boolean;
+  can_withdraw_esign?: boolean;
   can_delete: boolean;
   can_edit: boolean;
   can_download: boolean;

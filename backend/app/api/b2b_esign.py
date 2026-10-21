@@ -19,8 +19,10 @@ Bez ``from __future__ import annotations``: router publiczny ma
 ``@limiter.limit`` (ciało żądania lądowałoby jako parametr query → 422).
 """
 
+import html
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Literal, Optional
 
 from fastapi import (
@@ -54,6 +56,8 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import B2BSigningRequest
+from app.models.candidate import Candidate
+from app.models.m365 import M365Connection
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.schemas.b2b_contract_generator import B2BConfirmFullySignedRequest
@@ -64,9 +68,11 @@ from app.services.b2b_contract_generator import signed_file
 from app.services.b2b_esign.qualified import QualifiedValidator
 from app.services.notification_triggers import emit as emit_notification
 from app.services.cv_pdf_preview import PdfPreviewUnavailable, pdf_from_docx
+from app.services.m365 import sender as m365_sender
 from app.services.signing.validation import ValidationService
 
 logger = logging.getLogger(__name__)
+_WARSAW = ZoneInfo("Europe/Warsaw")
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 public_router = APIRouter()
@@ -141,9 +147,18 @@ class EsignRequestOut(BaseModel):
 
 class EsignSendOut(BaseModel):
     request: EsignRequestOut
-    # Link do podpisu dla kontraktora. Mail z linkiem wysyła NEXUS (PR 4);
-    # do tego czasu nadawca przekazuje link sam.
+    # Link do podpisu dla kontraktora. Mail idzie ze skrzynki nadawcy (M365);
+    # bez połączonej skrzynki ``mail_sent=False`` i nadawca przekazuje link sam.
     sign_url: str
+    mail_sent: bool = False
+    mail_problem: Optional[str] = None
+
+
+class EsignDefaultsOut(BaseModel):
+    contractor_name: Optional[str]
+    contractor_email: Optional[str]
+    company_signers: list[EsignPerson]
+    mailbox_connected: bool
 
 
 class EsignWithdrawIn(BaseModel):
@@ -318,7 +333,96 @@ async def send_for_esign(
         now=_now(),
     )
     await db.commit()
-    return EsignSendOut(request=await _out(db, request), sign_url=_sign_url(token))
+    url = _sign_url(token)
+    out = await _out(db, request)
+    mail_sent, problem = await _mail_link(
+        db, sender_id=current_user.id, request=out, row=row, url=url
+    )
+    return EsignSendOut(
+        request=out, sign_url=url, mail_sent=mail_sent, mail_problem=problem
+    )
+
+
+async def _mail_link(
+    db: AsyncSession,
+    *,
+    sender_id: int,
+    request: EsignRequestOut,
+    row: B2BGeneratedContract,
+    url: str,
+) -> tuple[bool, Optional[str]]:
+    """Mail z linkiem ze skrzynki nadawcy — kontraktor zna ten adres.
+
+    Awaria nie cofa wysyłki: okno pokazuje link do skopiowania."""
+    connection = await db.scalar(
+        select(M365Connection).where(M365Connection.user_id == sender_id)
+    )
+    if connection is None or not connection.is_active:
+        return False, "Twoja skrzynka Microsoft 365 nie jest połączona z NEXUSEM."
+    number = html.escape(row.contract_number)
+    name = html.escape(request.contractor_name)
+    deadline = request.expires_at.astimezone(_WARSAW).strftime("%d.%m.%Y")
+    body = (
+        f"<p>Dzień dobry {name},</p>"
+        f"<p>przesyłamy do podpisu umowę o współpracy B2B nr {number}.</p>"
+        f'<p><a href="{html.escape(url)}">Otwórz umowę do podpisu</a></p>'
+        "<p>Umowa przenosi autorskie prawa majątkowe, dlatego wymaga "
+        "<b>kwalifikowanego podpisu elektronicznego</b>. Na stronie pobierzesz "
+        "PDF, podpiszesz go swoim podpisem kwalifikowanym i wgrasz z powrotem. "
+        f"Link jest ważny do {deadline}.</p>"
+        "<p>Pozdrawiamy<br>B2B Network</p>"
+    )
+    try:
+        await m365_sender.send_new(
+            db,
+            connection,
+            to=[request.contractor_email or ""],
+            subject=f"Umowa B2B nr {row.contract_number} do podpisu",
+            body_html=body,
+            candidate_id=row.candidate_id,
+            client_request_id=f"b2b-esign-{request.id}",
+            commit_reservation=True,
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001 — wysyłka zapisana, link do skopiowania
+        logger.exception(
+            "[b2b_esign] mail z linkiem nie wyszedł request=%d", request.id
+        )
+        await db.rollback()
+        return False, "Nie udało się wysłać maila — wyślij link sam."
+    return True, None
+
+
+@router.get("/generated/{generated_id}/esign/defaults", response_model=EsignDefaultsOut)
+async def esign_defaults(
+    generated_id: int,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> EsignDefaultsOut:
+    """Podpowiedzi okna „Wyślij do podpisu” — dla tego, kto może wysłać."""
+    row = await db.get(B2BGeneratedContract, generated_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    await _assert_row_sender(db, current_user, row)
+    email = (row.render_payload or {}).get("partner_email")
+    if not email and row.candidate_id:
+        candidate = await db.get(Candidate, row.candidate_id)
+        email = candidate.email if candidate else None
+    current = await esign_settings.load(db)
+    names = await _names(db, list(current.company_signer_ids))
+    connection = await db.scalar(
+        select(M365Connection).where(M365Connection.user_id == current_user.id)
+    )
+    return EsignDefaultsOut(
+        contractor_name=row.partner_name,
+        contractor_email=email if isinstance(email, str) else None,
+        company_signers=[
+            EsignPerson(id=uid, name=names[uid])
+            for uid in current.company_signer_ids
+            if uid in names
+        ],
+        mailbox_connected=bool(connection and connection.is_active),
+    )
 
 
 @router.get("/generated/{generated_id}/esign", response_model=Optional[EsignRequestOut])

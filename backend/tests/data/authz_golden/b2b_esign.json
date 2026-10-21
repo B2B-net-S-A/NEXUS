@@ -33,6 +33,7 @@
   "GET /api/b2b-generator/esign/{request_id}/pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/esign/{request_id}/signed-pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/generated/{generated_id}/esign": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/b2b-generator/generated/{generated_id}/esign/defaults": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
   "GET /api/public/b2b-sign/{token}/pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
   "POST /api/b2b-generator/esign/{request_id}/company-sign": "PPPBPPDDPPPPPPPPPPPDDPPPPD",

@@ -253,6 +253,16 @@ async def test_contractor_then_company_sign_and_the_request_completes(
     )
     assert sent.status_code == 200, sent.text
     assert sent.json()["request"]["contractor_name"] == partner
+    # Konto testowe nie ma połączonej skrzynki M365 — link do skopiowania.
+    assert sent.json()["mail_sent"] is False
+    assert "skrzynka" in (sent.json()["mail_problem"] or "")
+    defaults = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/defaults",
+        headers=app_auth_headers,
+    )
+    assert defaults.status_code == 200, defaults.text
+    assert defaults.json()["contractor_name"] == partner
+    assert defaults.json()["mailbox_connected"] is False
     token = _token(sent.json()["sign_url"])
     again = await _send(
         app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
