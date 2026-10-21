@@ -246,7 +246,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/search/"),
     ("GET", "/api/search/global"),
     ("GET", "/api/settings/candidates-columns"),
-    ("GET", "/api/signing/health"),
     ("GET", "/api/skills"),
     ("GET", "/api/skills/autocomplete"),
     ("GET", "/api/user-email-templates"),

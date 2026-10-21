@@ -2,6 +2,12 @@
 
 # In-house QES e-signature — raport postępu (Faza 0 + Faza 1)
 
+> **Usunięte 21.10.2026.** Tor opisany w tym pliku (`/api/signing/*`, `/sign/{token}`,
+> KIR Szafir/mSzafir, `SIGNING_*`/`QTSP_*`) był wyłączony od 22.09.2026 i został usunięty
+> z kodu. Zastąpił go podpis umowy B2B w NEXUSIE (0499) — reguły w
+> [`docs/claude/kontrakty/podpis-umowy-b2b-w-nexusie.md`](./claude/kontrakty/podpis-umowy-b2b-w-nexusie.md).
+> Dokument zostaje jako historia decyzji.
+
 **Data:** 2026-06-16 (zaktualizowano 2026-06-17) · **Status:** Faza 0 ✅, Faza 1 ✅, **Faza 2 + 3 ścieżki podpisu (link / oznacz wysłaną / wgraj podpisaną) WDROŻONE NA PRODZIE ✅** — patrz sekcja „WDROŻONE NA PRODZIE" na końcu. Fazy 3–5 (Szafir/mSzafir KIR, B-LTA) ⏳ gated na onboarding KIR — upload-validate ich nie wymaga.
 
 Plan referencyjny: [in-house-qes-signature-plan.md](./in-house-qes-signature-plan.md).

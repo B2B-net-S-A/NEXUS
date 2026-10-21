@@ -324,25 +324,6 @@ _CHECKS: list[tuple[str, str, str, str]] = [
         """,
     ),
     (
-        "orphan_active_signature_link",
-        "P2",
-        "Aktywny (nieużyty, nieodwołany, nieprzeterminowany) link podpisu, "
-        "którego DocumentSignature jest już terminalny — martwy link wciąż "
-        "podpisywalny (P0.2). Sample = signature_id, nigdy surowy token.",
-        """
-        SELECT l.signature_id AS signature_id,
-               COUNT(*) OVER () AS total_count
-        FROM signature_links l
-        JOIN document_signatures s ON s.id = l.signature_id
-        WHERE l.used_at IS NULL
-          AND l.revoked IS FALSE
-          AND l.expires_at > NOW()
-          AND s.status IN ('withdrawn', 'completed', 'rejected', 'failed', 'expired')
-        ORDER BY l.signature_id DESC
-        LIMIT :sample_limit
-        """,
-    ),
-    (
         "ended_with_assigned_equipment",
         "P2",
         "Kontrakt ended ze sprzętem wydanym i nadal nierozliczonym "

@@ -8,8 +8,6 @@ Locks the single guarded state machine (``app.services.contract_lifecycle``):
   ``ready_for_signature``/``void`` stay exclusive to lifecycle routes;
 * finalizing an unsigned HTML draft ends at ``ready_for_signature`` (never
   ``active``), and emits no ``contract_signed`` side effect;
-* a QES lane with ``DSS_VALIDATION_URL`` unset — or a timed-out / INDETERMINATE
-  DSS verdict — does NOT complete the document or advance the pipeline;
 * DELETE usuwa kontrakt w każdym statusie (decyzja 2026-08-25 — błędny/
   zdublowany wpis musi dać się skasować); blokują wyłącznie PODPISANE dowody
   (ukończony podpis kwalifikowany / umowa B2B ``signed_both``) → 409 + oferta
@@ -28,7 +26,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.contract import (
@@ -39,8 +36,6 @@ from app.models.contract import (
 )
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.services import contract_lifecycle as lifecycle
-from app.services.signing import sender as signing_sender
-from app.services.signing.provider import ValidationReport
 from app.core.scheduling import business_today
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -325,9 +320,8 @@ async def test_activate_ignores_inflight_signature() -> None:
 
 
 @pytest.mark.asyncio
-async def test_activate_manual_path_when_signing_disabled(monkeypatch) -> None:
-    """No signing rail + no signatures → activation proceeds on fields alone."""
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", False)
+async def test_activate_manual_path_without_signatures() -> None:
+    """No signatures → activation proceeds on fields alone."""
     uid = await _seed_user()
     cid = await _seed_contract(status=ContractStatus.draft, complete=True)
 
@@ -342,7 +336,7 @@ async def test_activate_manual_path_when_signing_disabled(monkeypatch) -> None:
 async def test_create_active_in_manual_register_never_queries_signature_state(
     app_client, app_auth_headers, monkeypatch
 ) -> None:
-    """Manual POST accepts an offline agreement even with signing enabled."""
+    """Manual POST accepts an offline agreement without any signature state."""
 
     async def unexpected_signature_lookup(*_args, **_kwargs):
         raise AssertionError("manual contract create queried DocumentSignature")
@@ -372,9 +366,9 @@ async def test_create_active_in_manual_register_never_queries_signature_state(
 
 @pytest.mark.asyncio
 async def test_patch_active_does_not_require_qualified_signature(
-    app_client, app_auth_headers, monkeypatch
+    app_client, app_auth_headers
 ) -> None:
-    """PATCH can save Active even when signing is enabled and no proof exists."""
+    """PATCH can save Active even when no signature proof exists."""
 
     cand_id, cli_id = await _seed_candidate_and_client()
     created = await app_client.post(
@@ -393,7 +387,6 @@ async def test_patch_active_does_not_require_qualified_signature(
     )
     assert created.status_code == 201, created.text
 
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
     response = await app_client.patch(
         f"/api/contracts/{created.json()['id']}",
         json={"status": "active"},
@@ -452,10 +445,9 @@ async def test_finalize_unsigned_html_ends_ready_for_signature(
 
 
 @pytest.mark.asyncio
-async def test_activate_finalized_does_not_require_signature_when_signing_on(
-    app_client, app_auth_headers, monkeypatch
+async def test_activate_finalized_does_not_require_signature(
+    app_client, app_auth_headers
 ) -> None:
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
     cid = await _seed_contract(status=ContractStatus.ready_for_signature, complete=True)
     resp = await app_client.post(
         f"/api/contracts/{cid}/activate", json={}, headers=app_auth_headers
@@ -969,99 +961,3 @@ async def test_reopen_reverts_active_to_draft(app_client, app_auth_headers) -> N
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "draft"
-
-
-# ── QES fail-closed (service) ─────────────────────────────────────────────────
-
-
-class _FakeProvider:
-    def __init__(self, report: ValidationReport) -> None:
-        self._report = report
-
-    async def validate(self, pdf: bytes) -> ValidationReport:
-        return self._report
-
-
-async def _run_finalize(monkeypatch, *, dss_url: str, report: ValidationReport):
-    uid = await _seed_user()
-    cid = await _seed_contract(status=ContractStatus.ready_for_signature, complete=True)
-    sig_id = await _seed_signature(cid, uid, SignatureStatus.sent)
-    monkeypatch.setattr(settings, "DSS_VALIDATION_URL", dss_url)
-    monkeypatch.setattr(
-        signing_sender, "get_provider", lambda name: _FakeProvider(report)
-    )
-    async with AsyncSessionLocal() as db:
-        sig = await db.get(DocumentSignature, sig_id)
-        return db, sig
-
-
-@pytest.mark.asyncio
-async def test_qes_failclosed_when_dss_unset(monkeypatch) -> None:
-    # DSS unset + non-authoritative fallback report → must NOT complete.
-    db, sig = await _run_finalize(
-        monkeypatch,
-        dss_url="",
-        report=ValidationReport(is_qes=False, indication="TOTAL-PASSED"),
-    )
-    async with db:
-        with pytest.raises(HTTPException) as exc:
-            await signing_sender.finalize_signed_pdf(
-                db, sig, b"%PDF-fake", moved_by=sig.sender_user_id
-            )
-        assert exc.value.status_code == 422
-        assert sig.status == SignatureStatus.sent  # unchanged
-        assert sig.signed_document_id is None
-
-
-@pytest.mark.asyncio
-async def test_qes_failclosed_on_indeterminate_dss(monkeypatch) -> None:
-    # DSS set but timed-out / INDETERMINATE → must NOT complete.
-    db, sig = await _run_finalize(
-        monkeypatch,
-        dss_url="http://dss.internal/validate",
-        report=ValidationReport(
-            is_qes=False, indication="INDETERMINATE", sub_indication="DSS_ERROR"
-        ),
-    )
-    async with db:
-        with pytest.raises(HTTPException) as exc:
-            await signing_sender.finalize_signed_pdf(
-                db, sig, b"%PDF-fake", moved_by=sig.sender_user_id
-            )
-        assert exc.value.status_code == 422
-        assert sig.status == SignatureStatus.sent
-
-
-@pytest.mark.asyncio
-async def test_qes_authoritative_pass_completes(monkeypatch) -> None:
-    # DSS set + authoritative QES verdict → the document DOES complete.
-    monkeypatch.setattr(
-        signing_sender.storage_service,
-        "save_contract_document",
-        lambda *a, **k: ("signed/fake.pdf", 9),
-    )
-    db, sig = await _run_finalize(
-        monkeypatch,
-        dss_url="http://dss.internal/validate",
-        report=ValidationReport(
-            is_qes=True,
-            indication="TOTAL-PASSED",
-            signature_level="QESIG",
-            signature_count=1,
-            signers=["Jan Podpisujacy"],
-            signature_results=[
-                {"signer": "Jan Podpisujacy", "indication": "TOTAL_PASSED"}
-            ],
-        ),
-    )
-    source = b"%PDF-source-contract"
-    async with db:
-        # SIG-02: plik musi zaczynać się bajtami PDF-u wydanego do podpisu.
-        signing_sender.record_source_pdf(sig, source)
-        result = await signing_sender.finalize_signed_pdf(
-            db, sig, source + b"\n%incremental-signature", moved_by=sig.sender_user_id
-        )
-        assert result["status"] == "ok"
-        assert result["pipeline_moved"] is False
-        assert sig.status == SignatureStatus.completed
-        assert sig.validation_report[signing_sender.SOURCE_PDFS_KEY]
