@@ -24,10 +24,18 @@ Porównywane kolejności:
   w trakcie procesu, więc to etykieta, nie dane, które rekruter miał na starcie.
   ``--include-reviewed-evidence`` je przywraca (pomiar przecieku).
 
+* ``--weights semantic=60,skills=30,location=5[,threshold=70]`` (21.10.2026)
+  — pomiar szkicu wag z panelu „Ranking kandydatów”: opublikowane wagi
+  i szkic na tych samych zamkniętych rekrutacjach, kolejność produkcji
+  (wektor „Dop.” → 200 pierwszych wg „Dop.”). Ten sam kod co zadanie w tle
+  z trasy ``POST /api/scoring-weights/panel/measurements``
+  (``services/ranking_lab.py``).
+
 Nic nie zapisuje: wektor zapytania idzie prosto do Voyage (bez tabeli
 ``embedding_cache``), baza w ``SET TRANSACTION READ ONLY``::
 
     cd /app && python -m scripts.eval_manual_search_order --jobs 120
+    cd /app && python -m scripts.eval_manual_search_order --weights skills=30
 """
 
 from __future__ import annotations
@@ -489,6 +497,60 @@ async def main(
             print(f"| {key} | {value} |")
 
 
+def _parse_weights(raw: str, published: dict) -> dict:
+    values = dict(published)
+    for part in raw.split(","):
+        if not part.strip():
+            continue
+        name, _, value = part.partition("=")
+        name = name.strip()
+        if name not in values:
+            raise SystemExit(
+                f"nieznana waga {name!r} — dozwolone: {', '.join(sorted(values))}"
+            )
+        values[name] = int(value)
+    return values
+
+
+async def measure_weights(raw: str, max_jobs: int) -> None:
+    """Szkic z ``--weights`` kontra opublikowane — miary panelu."""
+    from app.core.database import AsyncSessionLocal
+    from app.services import ranking_lab
+    from app.services import ranking_weights as rw
+    from app.services.ranking_publish import current_baseline
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("SET TRANSACTION READ ONLY"))
+        baseline = await current_baseline(db)
+    draft = rw.PanelWeights.from_dict(_parse_weights(raw, baseline["panel"]))
+    error = rw.validation_error(draft)
+    if error:
+        raise SystemExit(error)
+
+    async def progress(done: int, target: int) -> None:
+        print(f"\r{done}/{target}", end="", flush=True)
+
+    result = await ranking_lab.measure(
+        baseline["weights"],
+        float(baseline["threshold"]),
+        draft,
+        target=max_jobs,
+        progress=progress,
+    )
+    print(
+        f"\n\nRekrutacje: {result['jobs']}, czas {result['duration_s']} s; "
+        f"opublikowane {baseline['panel']} → szkic {draft.as_dict()}\n"
+    )
+    print("| miara | teraz | szkic |")
+    print("|---|---:|---:|")
+    for key in ("page1_hit", "median_first", "top50_share", "mrr", "proposals"):
+        print(f"| {key} | {result['before'][key]} | {result['after'][key]} |")
+    print(
+        f"\nNajwiększy spadek: {result['max_drop_pt']} pkt; "
+        f"powód wymagany: {result['needs_reason']}"
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--jobs", type=int, default=120)
@@ -500,7 +562,16 @@ if __name__ == "__main__":
         action="store_true",
         help="dziś (grupy „Mile widziane”) i B (grupy must) obok samego „Dop.” — wymaga --rerank-top",
     )
+    parser.add_argument(
+        "--weights",
+        default="",
+        help="szkic panelu, np. semantic=60,skills=30,location=5,threshold=70 — "
+        "pomiar szkicu kontra opublikowane (zamknięte rekrutacje)",
+    )
     args = parser.parse_args()
+    if args.weights:
+        asyncio.run(measure_weights(args.weights, args.jobs))
+        raise SystemExit(0)
     asyncio.run(
         main(
             args.jobs,

@@ -551,8 +551,13 @@ async def attach_gate_evidence(
     must: Sequence[str],
     *,
     options: GateOptions = None,
+    before=None,
 ) -> None:
     """Dołącz ``_must_text_evidence`` do kandydatów przed ``apply_dealbreakers``.
+
+    ``before`` (pomiar na historii, ``ranking_lab``) bierze tylko notatki
+    sprzed tej chwili — notatki ze screeningu tej samej rekrutacji byłyby
+    przeciekiem etykiety.
 
     Dwa zapytania na paczkę: kto ma notatki-dowody, i treść tych notatek,
     które wymieniają którąś z technologii. Nigdy nie rzuca dalej — błąd bazy
@@ -570,7 +575,7 @@ async def attach_gate_evidence(
         # Savepoint: błąd zapytania (np. regex, timeout) nie może zostawić
         # transakcji wywołującego w stanie „aborted”.
         async with db.begin_nested():
-            has_notes, note_texts = await _load_notes(db, ids, pattern)
+            has_notes, note_texts = await _load_notes(db, ids, pattern, before=before)
     except Exception:  # noqa: BLE001 — dowód z notatek jest dodatkiem
         import logging
 
@@ -595,17 +600,25 @@ async def attach_gate_evidence(
         )
 
 
-async def _load_notes(db, ids: list[int], pattern: Optional[str]):
+async def _load_notes(db, ids: list[int], pattern: Optional[str], *, before=None):
     from sqlalchemy import text
 
     note_texts: dict[int, list[str]] = {}
+    # Notatki z Traffita mają datę źródła; `created_at` to chwila importu.
+    when = (
+        " AND coalesce(source_created_at, created_at) < :before"
+        if before is not None
+        else ""
+    )
+    extra = {"before": before} if before is not None else {}
     rows = await db.execute(
         text(
             "SELECT DISTINCT candidate_id FROM notes "
             "WHERE candidate_id = ANY(:ids) AND source_deleted_at IS NULL "
             f"AND note_type::text = ANY(:types) AND {note_kinds.ai_readable_sql()}"
+            f"{when}"
         ),
-        {"ids": ids, "types": list(EVIDENCE_NOTE_TYPES)},
+        {"ids": ids, "types": list(EVIDENCE_NOTE_TYPES), **extra},
     )
     has_notes = {row[0] for row in rows}
     if pattern and has_notes:
@@ -614,12 +627,13 @@ async def _load_notes(db, ids: list[int], pattern: Optional[str]):
                 "SELECT candidate_id, content, kind FROM notes "
                 "WHERE candidate_id = ANY(:ids) AND source_deleted_at IS NULL "
                 "AND note_type::text = ANY(:types) AND content ~* :pattern "
-                f"AND {note_kinds.ai_readable_sql()}"
+                f"AND {note_kinds.ai_readable_sql()}{when}"
             ),
             {
                 "ids": sorted(has_notes),
                 "types": list(EVIDENCE_NOTE_TYPES),
                 "pattern": pattern,
+                **extra,
             },
         )
         for candidate_id, content, kind in rows:

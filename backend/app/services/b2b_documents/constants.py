@@ -17,6 +17,9 @@ B2B_DOCUMENT_TYPES: tuple[str, ...] = (
     "termination_notice",
     "notice_withdrawal",
     "preliminary_cez",
+    # Umowa o udziale w procesie rekrutacyjnym (0503, 21.10.2026).
+    "preliminary_participation_jdg",
+    "preliminary_participation_person",
 )
 
 B2B_DOCUMENT_STATUSES: tuple[str, ...] = ("issued", "signed", "cancelled")

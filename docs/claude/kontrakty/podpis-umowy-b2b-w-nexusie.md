@@ -59,6 +59,26 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
 - **Pliki przed podpisem leżą w `b2b_signing/{id}/`**, nie w Dokumentach
   kontraktu — kontraktu jeszcze nie ma.
 
+## Reszta systemu przy umowie w podpisie (etap 1b, 22.10.2026)
+
+- **Dzwonki `signature_*` stoją za sekcją Sourcing** (bramka Generatora), nie
+  Delivery — inaczej rekruter, który wysłał umowę, nie dostawał żadnego.
+- **Umowa w podpisie nie jest zadaniem „Potwierdź podpis”**: pulpit
+  (`agreement_tasks`) ją pomija (`esign_service.open_request_exists()`),
+  „Poproś o potwierdzenie” odmawia 409, panel osoby pokazuje kroki zamiast
+  „Oznacz jako podpisaną”.
+- **Ręczny ruch na „Zatrudniony” przy umowie w podpisie = 409
+  `ESIGN_IN_PROGRESS`** (`pipeline_move_rules.assert_no_esign_in_progress`) —
+  najpierw „Przejdź na zwykłą drogę”, bo link działałby dalej, a podpis obu
+  stron zatrudniłby drugi raz.
+- **Walidator czyta PDF w trybie nieścisłym** (`strict=False`): Word, część
+  narzędzi do podpisu i Dziennik Ustaw robią „mieszany” spis obiektów, który
+  tryb ścisły odrzucał w całości — prawdziwy podpis kwalifikowany dostawał
+  „nie przeszedł” (test na akcie z Dz.U. 2025 poz. 1, 22.10.2026). Ukrytą
+  treść łapie analiza zmian po podpisie i porównanie z wysłanym plikiem.
+  Połączenia OCSP/CRL: jeden backend na walidację, zamykany w `finally`.
+  Lista UE wczytywana przy starcie pętli przypomnień (pierwsze pobranie ok. 20 s).
+
 ## Stary tor z czerwca — usunięty 21.10.2026 (PR 2b)
 
 Tor „in-house QES” z czerwca 2026 (PR-y #506–#516: `/api/signing/*`,

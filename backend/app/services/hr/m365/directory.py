@@ -28,6 +28,10 @@ from app.services.hr.m365.simulated import SimulatedMailboxOps
 #: Pola konta, które czytamy — tylko te, które kartoteka ma (plus stan konta).
 USER_SELECT = "jobTitle,department,mobilePhone,businessPhones,accountEnabled"
 
+#: Stan konta po ``id`` (``azure_oid``) — przegląd usuniętych kont
+#: (``app/services/m365_account_sweep.py``).
+ACCOUNT_SELECT = "id,accountEnabled"
+
 #: Przełożony z katalogu — sam UPN (kolumna ``m365_manager_upn``, 255 znaków).
 MANAGER_SELECT = "userPrincipalName"
 MANAGER_UPN_LIMIT = 255
@@ -64,6 +68,14 @@ class GraphDirectoryOps(GraphMailboxOps):
                 return None
             raise
         return manager_upn(data)
+
+    async def get_account(self, object_id: str) -> dict[str, Any]:
+        """Konto po ``id`` obiektu Entra; usunięte konto = ``MailboxError`` 404."""
+
+        data = await self._send(
+            "GET", user_path(object_id), params={"$select": ACCOUNT_SELECT}
+        )
+        return data if isinstance(data, dict) else {}
 
 
 class SimulatedDirectoryOps(SimulatedMailboxOps, GraphDirectoryOps):

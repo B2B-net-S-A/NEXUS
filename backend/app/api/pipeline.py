@@ -1574,6 +1574,13 @@ async def apply_move(
     pipeline_move_rules.assert_hired_signed_via(
         legacy_enum, data.hired_signed_via, data.hired_signed_note
     )
+    # Etap 1b (22.10.2026): umowa w podpisie w NEXUSIE zatrudnia sama.
+    await pipeline_move_rules.assert_no_esign_in_progress(
+        db,
+        target=legacy_enum,
+        candidate_id=data.candidate_id,
+        job_id=data.job_id,
+    )
     # 16.10.2026 (D1): okno „Klient zaakceptował” — data akceptacji i start.
     pipeline_move_rules.assert_client_acceptance_dates(
         legacy_enum,

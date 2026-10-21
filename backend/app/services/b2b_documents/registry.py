@@ -80,6 +80,22 @@ class DocumentType:
     #: Języki, w których nowego dokumentu już się nie wystawia, ale zapisany
     #: wcześniej dokument pobiera się ponownie (szablon zostaje w repo).
     legacy_languages: tuple[str, ...] = ()
+    #: Rewizja treści szablonu (``preliminary_cez_v2_pl``). Zmiana treści wzoru
+    #: = nowa rewizja i nowe pliki; wydany dokument pamięta swój klucz
+    #: (``b2b_contract_documents.template_key``) i pobiera się tym samym
+    #: tekstem, który poszedł do podpisu (decyzja Artura, 21.10.2026).
+    template_revision: str = ""
+    #: Rewizje sprzed obecnej, których pliki zostają w repo dla starych wierszy
+    #: (``""`` = klucz bez rewizji, np. ``preliminary_cez_pl``).
+    legacy_template_revisions: tuple[str, ...] = ()
+    #: Umowa przedwstępna: dla jakich klientów (``cez`` = wyłącznie Centrum
+    #: e-Zdrowia, ``general`` = każdy inny klient). ``None`` = nie dotyczy.
+    preliminary_scope: Literal["cez", "general"] | None = None
+    #: Ile dni od zawarcia obowiązuje umowa przedwstępna (podpowiedź „do dnia”).
+    default_validity_days: int | None = None
+    #: W ilu dniach roboczych od akceptacji Klienta zawiera się umowę B2B
+    #: (CeZ: § 2 ust. 3). ``None`` = wzór takiego terminu nie ma.
+    b2b_term_business_days: int | None = None
 
     @property
     def carries_money(self) -> bool:
@@ -499,6 +515,118 @@ def _non_compete_fields() -> tuple[FieldDef, ...]:
     )
 
 
+# ── Umowa o udziale w procesie rekrutacyjnym (21.10.2026) ────────────────────
+
+#: Każdy klient poza Centrum e-Zdrowia — jeden wzór w dwóch wariantach:
+#: kandydat z jednoosobową działalnością albo osoba fizyczna.
+_PARTICIPATION_LABELS = {
+    "jdg": "Umowa o udziale w rekrutacji — kandydat z działalnością",
+    "person": "Umowa o udziale w rekrutacji — osoba fizyczna",
+}
+
+
+def _participation_type(variant: Literal["jdg", "person"]) -> DocumentType:
+    if variant == "jdg":
+        party: tuple[FieldDef, ...] = (
+            FieldDef(
+                "partner_nip",
+                "NIP działalności",
+                required=True,
+                help="„Pobierz z rejestru” uzupełni firmę, adres i REGON.",
+                group="partner",
+                lookup="registry",
+                lookup_fills=_REGISTRY_FILLS_JDG,
+            ),
+            FieldDef(
+                "partner_legal_name",
+                "Firma (nazwa działalności)",
+                required=True,
+                group="partner",
+            ),
+            FieldDef(
+                "partner_business_address",
+                "Adres działalności (z CEIDG)",
+                required=True,
+                group="partner",
+            ),
+            FieldDef("partner_regon", "REGON", required=True, group="partner"),
+        )
+        who = "kandydatem prowadzącym jednoosobową działalność gospodarczą"
+    else:
+        party = (
+            FieldDef(
+                "partner_home_address",
+                "Adres zamieszkania",
+                required=True,
+                sensitive=True,
+                group="partner",
+            ),
+            FieldDef(
+                "id_document",
+                "Numer dowodu osobistego",
+                required=True,
+                sensitive=True,
+                group="partner",
+            ),
+            FieldDef("pesel", "PESEL", required=True, sensitive=True, group="partner"),
+        )
+        who = "kandydatem — osobą fizyczną bez działalności gospodarczej"
+    return DocumentType(
+        key=f"preliminary_participation_{variant}",
+        label=_PARTICIPATION_LABELS[variant],
+        family="preliminary",
+        languages=("pl",),
+        parent="none",
+        uses_refs=False,
+        signatories="partner_and_company",
+        preliminary_scope="general",
+        default_validity_days=60,
+        description=(
+            f"Umowa o udziale w procesie rekrutacyjnym z {who}: test i rozmowa "
+            "online, kara umowna za rezygnację bez przyczyny, stawka "
+            "w ofercie B2B."
+        ),
+        effect_label=(
+            "Brak zmian w kontraktach. Umowa wygasa po teście i rozmowie "
+            "albo z upływem terminu."
+        ),
+        fields=(
+            DOCUMENT_DATE,
+            FieldDef(
+                "gender", "Płeć kandydata", "gender", required=True, group="partner"
+            ),
+            FieldDef("partner_name", "Imię i nazwisko", required=True, group="partner"),
+            FieldDef(
+                "partner_instrumental",
+                "Imię i nazwisko — narzędnik",
+                help="„z Panem/Panią …”. Puste = mianownik.",
+                group="partner",
+            ),
+            *party,
+            FieldDef(
+                "project_label",
+                "Klient / nazwa projektu",
+                required=True,
+                help="Podpowiadamy klienta i nazwę rekrutacji — możesz zmienić.",
+            ),
+            FieldDef(
+                "hourly_rate",
+                "Stawka netto za godzinę w ofercie B2B",
+                "money",
+                required=True,
+            ),
+            FieldDef("penalty_amount", "Kara umowna", "money", required=True),
+            FieldDef(
+                "valid_until",
+                "Umowa obowiązuje najdłużej do",
+                "date",
+                required=True,
+                help="Domyślnie 60 dni od daty zawarcia.",
+            ),
+        ),
+    )
+
+
 TYPES: dict[str, DocumentType] = {
     t.key: t
     for t in (
@@ -706,6 +834,13 @@ TYPES: dict[str, DocumentType] = {
             parent="none",
             uses_refs=False,
             signatories="partner_and_company",
+            # v2 (21.10.2026): każda forma podpisu — także podpis zaufany
+            # i osobisty. Wiersze sprzed v2 pobierają się wzorem bez rewizji.
+            template_revision="v2",
+            legacy_template_revisions=("",),
+            preliminary_scope="cez",
+            default_validity_days=60,
+            b2b_term_business_days=5,
             description=(
                 "Umowa przedwstępna z kandydatem przed rozstrzygnięciem "
                 "rekrutacji w Centrum e-Zdrowia (wyłączność na kandydaturę, "
@@ -767,6 +902,8 @@ TYPES: dict[str, DocumentType] = {
                 ),
             ),
         ),
+        _participation_type("jdg"),
+        _participation_type("person"),
     )
 }
 

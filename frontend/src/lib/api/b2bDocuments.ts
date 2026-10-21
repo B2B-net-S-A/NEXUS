@@ -1,6 +1,6 @@
 /**
- * Generator dokumentów pochodnych umowy B2B: aneksy, rozwiązania, umowa
- * przedwstępna. Lustro `backend/app/api/b2b_documents.py` (prefiks
+ * Generator dokumentów pochodnych umowy B2B: aneksy, rozwiązania, umowy
+ * przedwstępne. Lustro `backend/app/api/b2b_documents.py` (prefiks
  * `/api/b2b-generator`). Definicje typów i pól przychodzą z serwera
  * (`GET /document-types`) — front buduje z nich jeden formularz, zamiast
  * dziesięciu ręcznych.
@@ -79,6 +79,25 @@ export interface DocumentTypeDef {
   allows_external: boolean;
   /** Języki tylko do ponownego pobrania starych dokumentów. */
   legacy_languages: string[];
+  /** Umowa przedwstępna: `cez` = tylko Centrum e-Zdrowia, `general` = inni klienci. */
+  preliminary_scope?: "cez" | "general" | null;
+  /** Ile dni od zawarcia obowiązuje umowa przedwstępna. */
+  default_validity_days?: number | null;
+  /** W ilu dniach roboczych od akceptacji Klienta zawiera się umowę B2B. */
+  b2b_term_business_days?: number | null;
+}
+
+/** Umowy przedwstępne dozwolone w rekrutacji (po jej kliencie). */
+export interface PreliminaryOptions {
+  client_id: number | null;
+  types: {
+    key: string;
+    label: string;
+    default_validity_days: number | null;
+    b2b_term_business_days: number | null;
+  }[];
+  default_validity_days: number | null;
+  b2b_term_business_days: number | null;
 }
 
 /** Pusty wzór do umowy zlecenie (`mandate_forms.py`) — wypełnia zleceniobiorca. */
@@ -360,6 +379,8 @@ export const b2bDocumentsKeys = {
     ] as const,
   effects: (id: number) => [B2B_DOCUMENTS_KEY, "effects", id] as const,
   history: (id: number) => [B2B_DOCUMENTS_KEY, "history", id] as const,
+  preliminaryOptions: (candidateId: number, jobId: number) =>
+    [B2B_DOCUMENTS_KEY, "preliminary-options", candidateId, jobId] as const,
   subjects: (documentType: string, q: string, contractId: number | null = null) =>
     [B2B_DOCUMENTS_KEY, "subjects", documentType, q, contractId ?? 0] as const,
 };
@@ -453,6 +474,23 @@ export const b2bDocumentsApi = {
       { values },
       { responseType: "blob" },
     ),
+  /** PDF wydanego dokumentu (ten sam plik Word co DOCX); 503 = PDF chwilowo niedostępny. */
+  pdf: (id: number, values: DocumentValues = {}) =>
+    api.post(
+      `/api/b2b-generator/documents/${id}/pdf`,
+      { values },
+      { responseType: "blob" },
+    ),
+  /**
+   * Umowy przedwstępne dla klienta rekrutacji: Centrum e-Zdrowia — własny
+   * wzór, inni klienci — umowa o udziale w procesie rekrutacyjnym.
+   */
+  preliminaryOptions: (candidateId: number, jobId: number) =>
+    api
+      .get<PreliminaryOptions>("/api/b2b-generator/documents/preliminary-options", {
+        params: { candidate_id: candidateId, job_id: jobId },
+      })
+      .then((r) => r.data),
   rerender: (id: number, body: DocumentRequestBody) =>
     api.post(`/api/b2b-generator/documents/${id}/rerender`, body, {
       responseType: "blob",

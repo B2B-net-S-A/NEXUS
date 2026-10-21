@@ -157,9 +157,18 @@ class QualifiedValidator:
         from pyhanko.sign.validation.qualified.assess import QualificationAssessor
         from pyhanko.sign.validation.qualified.tsp import TSPTrustManager
         from pyhanko_certvalidator import ValidationContext
+        from pyhanko_certvalidator.fetchers.aiohttp_fetchers import (
+            AIOHttpFetcherBackend,
+        )
 
         try:
-            reader = PdfFileReader(BytesIO(signed_pdf))
+            # strict=False: PDF-y z „mieszanym” spisem obiektów (Word, część
+            # narzędzi do podpisu, Dziennik Ustaw) w trybie ścisłym pyHanko
+            # odrzuca w całości — prawdziwy podpis kwalifikowany dostawał
+            # „nie przeszedł” (test 21.10.2026). Ukrytą treść łapie nadal
+            # analiza zmian po podpisie (``_passed``) i porównanie początku
+            # pliku z wysłanym (``verdict.builds_on``).
+            reader = PdfFileReader(BytesIO(signed_pdf), strict=False)
             approvals = approval_signatures(reader) or []
         except Exception as exc:  # noqa: BLE001 — uszkodzony PDF = brak podpisu
             logger.info("[b2b_esign] PDF nie do odczytu: %s", exc)
@@ -167,21 +176,32 @@ class QualifiedValidator:
 
         assessor = QualificationAssessor(self._registry)
         results: list[dict[str, Any]] = []
-        for embedded, _name in approvals:
-            context = ValidationContext(
-                trust_manager=TSPTrustManager(self._registry),
-                allow_fetching=True,
-                revocation_mode="hard-fail",
-            )
-            try:
-                status = await async_validate_pdf_signature(
-                    embedded, signer_validation_context=context
+        # Jedno połączenie OCSP/CRL na całą walidację, zamykane w ``finally``
+        # — domyślny backend pyHanko zostawiał otwartą sesję na każde wgranie.
+        fetchers = AIOHttpFetcherBackend()
+        try:
+            statuses = []
+            for embedded, _name in approvals:
+                context = ValidationContext(
+                    trust_manager=TSPTrustManager(self._registry),
+                    allow_fetching=True,
+                    revocation_mode="hard-fail",
+                    fetcher_backend=fetchers,
                 )
-            except Exception:  # noqa: BLE001 — podpis nie do sprawdzenia = negatywny
-                logger.warning(
-                    "[b2b_esign] walidacja podpisu nie powiodła się", exc_info=True
-                )
-                status = None
+                try:
+                    statuses.append(
+                        await async_validate_pdf_signature(
+                            embedded, signer_validation_context=context
+                        )
+                    )
+                except Exception:  # noqa: BLE001 — nie do sprawdzenia = negatywny
+                    logger.warning(
+                        "[b2b_esign] walidacja podpisu nie powiodła się", exc_info=True
+                    )
+                    statuses.append(None)
+        finally:
+            await fetchers.close()
+        for status in statuses:
             passed = _passed(status)
             level = None
             if passed and status is not None and status.validation_path is not None:

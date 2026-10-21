@@ -1,0 +1,60 @@
+<p><strong>Umowa o udziale w procesie rekrutacyjnym</strong></p>
+<p>(poprzedzająca ewentualną współpracę w modelu B2B)</p>
+<p>Zawarta w dniu {{ document_date }} r. w Warszawie pomiędzy:</p>
+<p><strong>{{ company.name }}</strong>, {{ company.address }}, wpisaną do Rejestru Przedsiębiorców prowadzonego przez {{ company.court }}, pod nr {{ company.krs }}, NIP: {{ company.nip }}, reprezentowaną przez {{ company.representative }}, zwaną dalej „Zlecającym”</p>
+<p>a</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong>, {{ g.g_prowadzacy }} jednoosobową działalność gospodarczą pod firmą {{ partner.legal_name or '…' }}, adres: {{ partner.business_address or '…' }}, NIP: {{ partner.nip or '…' }}, REGON: {{ partner.regon or '…' }}, {{ g.g_wpisany }} do Centralnej Ewidencji i Informacji o Działalności Gospodarczej (CEIDG), {{ g.g_zwanym }} dalej „Kandydatem”</p>
+<p>Zlecający i Kandydat zwani są w dalszej części Umowy łącznie „Stronami”, a każde z osobna „Stroną”.</p>
+<h2>§1. Przedmiot Umowy</h2>
+<ol>
+<li>Zlecający prowadzi proces rekrutacyjny mający na celu wyłonienie specjalisty do świadczenia usług informatycznych na rzecz klienta Zlecającego {{ doc.project_label or '…' }} (dalej „Klient”), z docelowym modelem współpracy w formule business-to-business (B2B).</li>
+<li>Kandydat jest zainteresowany udziałem w tym procesie rekrutacyjnym i wyraża wolę wzięcia w nim udziału na zasadach określonych w niniejszej Umowie.</li>
+<li>Celem Umowy jest zapewnienie, że Kandydat — po przystąpieniu do procesu rekrutacyjnego — weźmie w nim rzetelny udział aż do zakończenia etapów wskazanych w §2 ust. 1.</li>
+<li>Strony zgodnie oświadczają, że niniejsza Umowa nie stanowi umowy o pracę ani zobowiązania do jej zawarcia, a udział w procesie rekrutacyjnym oraz ewentualna przyszła współpraca będą realizowane na zasadach właściwych dla relacji pomiędzy niezależnymi przedsiębiorcami, bez podporządkowania charakterystycznego dla stosunku pracy, o którym mowa w art. 22 §1 Kodeksu pracy.</li>
+</ol>
+<h2>§2. Zobowiązania Kandydata</h2>
+<ol>
+<li>Kandydat zobowiązuje się wziąć udział w procesie rekrutacyjnym prowadzonym przez Zlecającego na potrzeby projektu Klienta, obejmującym w szczególności następujące etapy:<ol type="a"><li>rozwiązanie testu online (testu kompetencyjnego / technicznego) udostępnionego przez Zlecającego lub Klienta — w wyznaczonym terminie;</li><li>przystąpienie do rozmowy rekrutacyjnej online przeprowadzanej przez Zlecającego lub Klienta — w umówionym terminie.</li></ol></li>
+<li>Kandydat zobowiązuje się uczestniczyć w procesie rekrutacyjnym w sposób lojalny i zgodny z zasadami dobrej wiary, w tym potwierdzać wyznaczone terminy, stawiać się w umówionych terminach oraz informować Zlecającego — z odpowiednim wyprzedzeniem — o okolicznościach uniemożliwiających udział.</li>
+<li>Zobowiązania, o których mowa w ust. 1, uważa się za wykonane z chwilą rozwiązania testu online oraz odbycia rozmowy online.</li>
+<li>Obowiązek Kandydata dotyczy wyłącznie przystąpienia do etapów wskazanych w ust. 1 i nie obejmuje osiągnięcia określonego wyniku ani zawarcia jakiejkolwiek dalszej umowy. Umowa nie zobowiązuje Kandydata do przyjęcia oferty współpracy ani do nawiązania współpracy z Zlecającym lub Klientem.</li>
+</ol>
+<h2>§3. Zobowiązania Zlecającego</h2>
+<ol>
+<li>Zlecający zobowiązuje się umożliwić Kandydatowi udział w procesie rekrutacyjnym, w szczególności udostępnić Kandydatowi dostęp do testu online oraz link lub dostęp do rozmowy online, a także wskazać terminy poszczególnych etapów z wyprzedzeniem co najmniej 2 (dwóch) dni roboczych.</li>
+<li>Na żądanie Kandydata Zlecający poinformuje go o wyniku danego etapu procesu rekrutacyjnego.</li>
+<li>W przypadku pozytywnego zakończenia procesu rekrutacyjnego i wyboru Kandydata przez Klienta, Zlecający zobowiązuje się zaproponować Kandydatowi nawiązanie współpracy w modelu B2B na warunkach obejmujących wynagrodzenie w wysokości {{ doc.hourly_rate }} zł netto za każdą godzinę świadczenia usług, powiększone o należny podatek VAT.</li>
+<li>Zaproponowanie współpracy zgodnie z ust. 3 nie zobowiązuje żadnej ze Stron do zawarcia umowy o współpracy; jej ostateczne warunki zostaną określone w odrębnej umowie. Postanowienia niniejszego paragrafu nie tworzą stosunku pracy w rozumieniu art. 22 §1 Kodeksu pracy.</li>
+</ol>
+<h2>§4. Kara umowna</h2>
+<ol>
+<li>W przypadku gdy Kandydat, bez uzasadnionej przyczyny:<ol type="a"><li>nie przystąpi do testu online w wyznaczonym terminie, lub</li><li>nie przystąpi do rozmowy online w umówionym terminie, lub</li><li>w inny sposób zaprzestanie udziału w procesie rekrutacyjnym przed wykonaniem zobowiązań, o których mowa w §2 ust. 1,</li></ol>Zlecający będzie uprawniony do żądania od Kandydata zapłaty kary umownej w wysokości {{ doc.penalty_amount }} zł (słownie: {{ doc.penalty_amount_words }}).</li>
+<li>Kara umowna, o której mowa w ust. 1, przysługuje jednorazowo, niezależnie od liczby niewykonanych etapów procesu rekrutacyjnego.</li>
+<li>Kara umowna będzie płatna w terminie 14 dni od dnia doręczenia Kandydatowi wezwania do zapłaty.</li>
+<li>Kara umowna nie należy się w szczególności wówczas, gdy niewykonanie zobowiązań wynika z:<ol type="a"><li>choroby, zdarzenia losowego lub siły wyższej,</li><li>nieudostępnienia przez Zlecającego lub Klienta narzędzi, dostępu lub terminu niezbędnych do wykonania danego etapu,</li><li>zmiany terminu dokonanej przez Zlecającego lub Klienta,</li><li>innych uzasadnionych okoliczności niezależnych od Kandydata — pod warunkiem poinformowania Zlecającego przed wyznaczonym terminem, o ile było to możliwe.</li></ol></li>
+<li>Zapłata kary umownej wyczerpuje roszczenia Zlecającego z tytułu nieuczestniczenia Kandydata w procesie rekrutacyjnym.</li>
+</ol>
+<h2>§5. Czas trwania Umowy</h2>
+<ol>
+<li>Umowa wchodzi w życie z dniem jej podpisania i obowiązuje do dnia wykonania zobowiązań, o których mowa w §2 ust. 1, nie dłużej jednak niż do dnia {{ doc.valid_until }} r.</li>
+<li>Po odbyciu testu online oraz rozmowy online zobowiązania Kandydata określone w §2 wygasają. Brak wyłonienia Kandydata w procesie rekrutacyjnym lub niepodjęcie dalszej współpracy nie rodzi po żadnej ze Stron jakichkolwiek roszczeń.</li>
+</ol>
+<h2>§6. Dane osobowe</h2>
+<ol>
+<li>Administratorem danych osobowych Kandydata jest B2B.net S.A. z siedzibą w Warszawie przy Al. Jerozolimskich 180, 02-486 Warszawa.</li>
+<li>Dane osobowe Kandydata będą przetwarzane w celu przeprowadzenia procesu rekrutacyjnego, realizacji niniejszej Umowy oraz podjęcia działań zmierzających do ewentualnego nawiązania przyszłej współpracy.</li>
+<li>Podstawą przetwarzania danych osobowych jest art. 6 ust. 1 lit. b RODO (czynności zmierzające do zawarcia i wykonanie niniejszej Umowy) oraz art. 6 ust. 1 lit. f RODO (prawnie uzasadniony interes administratora polegający na prowadzeniu rekrutacji na rzecz Klienta oraz ustaleniu, dochodzeniu lub obronie roszczeń).</li>
+<li>Dane kontaktowe Inspektora Ochrony Danych: iod@b2bnetwork.pl.</li>
+<li>Dane osobowe mogą być udostępniane: (a) podmiotom świadczącym na rzecz administratora usługi księgowe, prawne, IT oraz rekrutacyjne, a także (b) Klientowi Zlecającego — wyłącznie w zakresie niezbędnym do przeprowadzenia procesu rekrutacyjnego.</li>
+<li>Kandydatowi przysługują prawa przewidziane w RODO, w szczególności prawo dostępu do danych, ich sprostowania, usunięcia, ograniczenia przetwarzania, a także prawo wniesienia skargi do Prezesa Urzędu Ochrony Danych Osobowych.</li>
+<li>Dane osobowe będą przechowywane przez okres niezbędny do realizacji celów wskazanych w ust. 2 oraz przez okres przedawnienia ewentualnych roszczeń.</li>
+</ol>
+<h2>§7. Postanowienia końcowe</h2>
+<ol>
+<li>Umowa może zostać zawarta w formie pisemnej, w formie elektronicznej z wykorzystaniem kwalifikowanego podpisu elektronicznego, zgodnie z art. 78¹ §1 Kodeksu cywilnego, albo w formie dokumentowej, w szczególności z wykorzystaniem podpisu zaufanego lub podpisu osobistego. Strony uznają, że kwalifikowany podpis elektroniczny użyty przez Stronę jest równoważny z podpisem własnoręcznym dla celów prawnych i dowodowych.</li>
+<li>Wszelkie zmiany Umowy wymagają formy dokumentowej pod rygorem nieważności.</li>
+<li>W sprawach nieuregulowanych Umową zastosowanie mają przepisy prawa polskiego, w szczególności Kodeksu cywilnego. Ewentualne spory Strony poddają pod rozstrzygnięcie sądu właściwego miejscowo dla siedziby Zlecającego.</li>
+<li>Umowa została sporządzona w dwóch jednobrzmiących egzemplarzach, po jednym dla każdej ze Stron. W przypadku zawarcia Umowy w formie elektronicznej albo dokumentowej Umowa zostaje sporządzona w jednym egzemplarzu w postaci elektronicznej, dostępnym dla obu Stron.</li>
+</ol>
+<p>________________________________     ________________________________</p>
+<p>Zlecający                                    Kandydat</p>

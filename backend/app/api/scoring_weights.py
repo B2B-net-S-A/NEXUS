@@ -28,6 +28,8 @@ from app.api.deps import HeadOfRecruitmentPlus, require_roles
 from app.core.database import get_db
 from app.models.scoring_weight_profile import ScoringWeightProfile
 from app.models.user import User, UserRole
+from app.services import ranking_lab
+from app.services import ranking_publish as lab
 from app.services import ranking_weights as panel
 from app.services.match_score_cache import mark_stale_for_profile
 
@@ -131,17 +133,103 @@ def _snapshot(row: ScoringWeightProfile) -> dict:
 # ── Panel „Ranking kandydatów” ───────────────────────────────────────────────
 
 
+class PublishIn(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+async def _state(db: AsyncSession, user: User) -> dict:
+    state = await panel.panel_state(db)
+    state["measurement"] = await lab.measurement_state(db)
+    state["can_edit"] = user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
+    return state
+
+
+def _raise(error: lab.PanelError):
+    raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+
+
 @router.get("/panel")
 async def get_panel(
     current_user: User = Depends(WeightsReader),
     db: AsyncSession = Depends(get_db),
 ):
-    """Opublikowane ważności, szkic, próg, profile klienta/osoby i historia."""
-    state = await panel.panel_state(db)
-    state["can_edit"] = current_user.has_any_role(
-        UserRole.admin, UserRole.head_of_recruitment
-    )
-    return state
+    """Opublikowane ważności, szkic, próg, pomiar, profile klienta/osoby i historia."""
+    return await _state(db, current_user)
+
+
+@router.get("/panel/measurement")
+async def get_panel_measurement(
+    current_user: User = Depends(WeightsReader),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lekki odczyt stanu pomiaru do odpytywania w trakcie."""
+    return {"measurement": await lab.measurement_state(db)}
+
+
+@router.post("/panel/measurements", status_code=status.HTTP_202_ACCEPTED)
+async def start_panel_measurement(
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sprawdza szkic na zamkniętych rekrutacjach w tle (tylko odczyt, ok. 5 min)."""
+    try:
+        await lab.start(db, actor_id=current_user.id)
+    except lab.PanelError as error:
+        _raise(error)
+    return {"measurement": await lab.measurement_state(db)}
+
+
+@router.post("/panel/publish")
+async def publish_panel(
+    payload: PublishIn,
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Szkic → wagi dla wszystkich rekrutacji. Bez aktualnego pomiaru 409."""
+    try:
+        await lab.publish(db, actor_id=current_user.id, reason=payload.reason)
+    except lab.PanelError as error:
+        _raise(error)
+    return await _state(db, current_user)
+
+
+@router.post("/panel/history/{change_id}/restore")
+async def restore_panel_change(
+    change_id: int,
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Nowy szkic z wagami tamtej zmiany — też przechodzi pomiar."""
+    try:
+        await lab.restore(db, change_id, actor_id=current_user.id)
+    except lab.PanelError as error:
+        _raise(error)
+    return await _state(db, current_user)
+
+
+@router.get("/panel/preview/jobs")
+async def get_preview_jobs(
+    current_user: User = Depends(WeightsReader),
+    db: AsyncSession = Depends(get_db),
+):
+    """Zamknięte rekrutacje, na których da się podejrzeć zmianę kolejności."""
+    return {"jobs": await ranking_lab.preview_jobs(db)}
+
+
+@router.get("/panel/preview/{job_id}")
+async def get_preview(
+    job_id: int,
+    current_user: User = Depends(WeightsReader),
+    db: AsyncSession = Depends(get_db),
+):
+    """Składniki oceny 200 pierwszych osób — front liczy kolejność sam."""
+    payload = await ranking_lab.preview(db, job_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Tej rekrutacji nie da się odtworzyć — wybierz inną z listy.",
+        )
+    return payload
 
 
 @router.put("/panel/draft")
@@ -157,9 +245,7 @@ async def put_panel_draft(
         raise HTTPException(status_code=422, detail=error)
     await panel.save_draft(db, draft, actor_id=current_user.id)
     await db.commit()
-    state = await panel.panel_state(db)
-    state["can_edit"] = True
-    return state
+    return await _state(db, current_user)
 
 
 @router.delete("/panel/draft", status_code=status.HTTP_204_NO_CONTENT)
