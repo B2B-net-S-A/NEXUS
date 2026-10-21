@@ -10,9 +10,9 @@
  *
  * Do kontraktu prowadzi odtąd JEDNA droga: „Oznacz jako podpisaną"
  * (`confirm-fully-signed`), która zakłada kontrakt od razu jako `active`.
- * Test czyta ŹRÓDŁO komponentu — mock `signingApi: {}` w sąsiednich testach
- * sprawia, że wywołanie nie wysypałoby renderu, więc zwykły test nic by nie
- * złapał.
+ * Test czyta ŹRÓDŁO komponentu — zwykły test renderu nie złapałby wywołania
+ * z zamockowanym API. `signingApi` (stary tor podpisu z czerwca 2026) usunięto
+ * 21.10.2026; strażnik pilnuje, żeby nie wrócił do generatora.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

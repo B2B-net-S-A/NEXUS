@@ -47,6 +47,9 @@ TileType = Literal[
     "my_onboarding",
     "my_recruitments",
     "closing_candidates",
+    # „Do uzupełnienia” (21.10.2026): umowy do zamknięcia, rekrutacje do
+    # dokończenia i wymagania do poprawy z `/api/board-tasks` w kafelku.
+    "to_complete",
     "recruitment_activity",
     "recruitment_competence",
     "team_workload",

@@ -96,10 +96,48 @@ class ContractDocument(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
+    # Folder w zakładce Dokumenty (0494). NULL = sekcja „Aktualna umowa”.
+    # Zamówienia (``doc_type = order``) leżą w folderze „Zamówienia” bez
+    # względu na to pole — decyduje typ, nie zapis przy pliku.
+    folder_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contract_document_folders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     contract = relationship("Contract", back_populates="documents_rel")
 
     def __repr__(self) -> str:
         return (
             f"<ContractDocument id={self.id} contract={self.contract_id} "
             f"type={self.doc_type} filename={self.filename!r}>"
+        )
+
+
+class ContractDocumentFolder(Base, TimestampMixin):
+    """Folder w zakładce Dokumenty kontraktu (0494).
+
+    ``kind = 'user'`` — folder założony ręcznie („Poprzednia umowa…”).
+    ``kind = 'orders'`` — tylko własna nazwa folderu „Zamówienia” na tym
+    kontrakcie; wiersz powstaje przy pierwszej zmianie nazwy.
+    """
+
+    __tablename__ = "contract_document_folders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    contract_id: Mapped[int] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="user", server_default="user"
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ContractDocumentFolder id={self.id} contract={self.contract_id} "
+            f"kind={self.kind} name={self.name!r}>"
         )

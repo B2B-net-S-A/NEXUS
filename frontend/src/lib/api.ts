@@ -12,7 +12,15 @@ import type { CallFactsPatch } from "./candidate-call-facts";
 import type { RequestStatus } from "./request-status";
 import type { RequestStage } from "./request-stage";
 import type { CompanyVerification } from "./b2b-registry-check";
+import type { DocumentFolder, DocumentFoldersResponse } from "./contract-document-folders";
 import { recordRefusal, refusalCode } from "./help/refusal-tracker";
+import {
+  askOffLimits,
+  OFF_LIMITS_HEADER,
+  offLimitsDeclinedMessage,
+  offLimitsHeaderValue,
+  offLimitsPeopleFrom,
+} from "./off-limits";
 import type {
   AdminPermissionsSnapshot,
   AdminUserPermissionsResponse,
@@ -239,6 +247,36 @@ api.interceptors.response.use(
     await new Promise((r) => setTimeout(r, delay));
     return api.request(config);
   }
+);
+
+// Off-limits (21.10.2026): osoba z firmy, z której nie wyciągamy ludzi →
+// okno „Czy sama się do nas zgłosiła?” i jedno ponowienie TEGO SAMEGO żądania
+// z odpowiedziami w nagłówku. „Nie, to my” = błąd z czytelnym zdaniem,
+// które wołający pokazuje jak każdy inny (`apiErrorMessage`).
+type OffLimitsConfig = { _offLimitsAsked?: boolean };
+
+api.interceptors.response.use(
+  (res) => res,
+  async (err: AxiosError) => {
+    const config = err.config as (typeof err.config & OffLimitsConfig) | undefined;
+    const people = offLimitsPeopleFrom(err);
+    if (!config || !people || config._offLimitsAsked || typeof window === "undefined") {
+      return Promise.reject(err);
+    }
+    const answers = await askOffLimits(people);
+    const header = answers ? offLimitsHeaderValue(answers) : null;
+    if (!header) {
+      if (err.response) {
+        err.response.data = {
+          detail: { code: "off_limits_declined", message: offLimitsDeclinedMessage(people) },
+        };
+      }
+      return Promise.reject(err);
+    }
+    config._offLimitsAsked = true;
+    config.headers[OFF_LIMITS_HEADER] = header;
+    return api.request(config);
+  },
 );
 
 // Session-expired auto-redirect.
@@ -2253,6 +2291,25 @@ export const contractsApi = {
     }),
   deleteDocument: (contractId: number, documentId: number) =>
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
+  // 0494: foldery w zakładce Dokumenty (`lib/contract-document-folders.ts`).
+  documentFolders: (id: number) =>
+    api.get<DocumentFoldersResponse>(`/api/contracts/${id}/document-folders`),
+  createDocumentFolder: (id: number, payload: { name: string; document_ids?: number[] }) =>
+    api.post<{ folder: DocumentFolder; moved: number }>(
+      `/api/contracts/${id}/document-folders`,
+      payload,
+    ),
+  renameDocumentFolder: (id: number, folderId: number, name: string) =>
+    api.patch<DocumentFolder>(`/api/contracts/${id}/document-folders/${folderId}`, { name }),
+  renameOrdersFolder: (id: number, name: string) =>
+    api.patch<{ orders_folder_name: string }>(
+      `/api/contracts/${id}/document-folders/orders`,
+      { name },
+    ),
+  deleteDocumentFolder: (id: number, folderId: number) =>
+    api.delete<{ released: number }>(`/api/contracts/${id}/document-folders/${folderId}`),
+  moveDocuments: (id: number, payload: { document_ids: number[]; folder_id: number | null }) =>
+    api.post<{ moved: number }>(`/api/contracts/${id}/documents/move`, payload),
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
   // „Cofnij zakończenie" (pomyłka) — podgląd i wykonanie (0368).
@@ -3366,42 +3423,6 @@ export interface B2BGenerateResult {
   language: string;
 }
 
-// ── In-house QES signing (drop Autenti) ─────────────────────────────────────
-export interface SignForSignatureResult {
-  signature_id: number;
-  contract_id: number;
-  status: string;
-  sign_url: string;
-}
-
-export const signingApi = {
-  sendForSignature: (
-    contractId: number,
-    body?: {
-      provider?: "szafir_sdk" | "mszafir_oneshot" | "upload_validate";
-      signature_type?: "SES" | "AdES" | "QES";
-      expires_in_days?: number;
-      company_signer_user_id?: number;
-      message_pl?: string;
-    },
-  ) =>
-    api
-      .post<SignForSignatureResult>(
-        `/api/signing/contracts/${contractId}/send-for-signature`,
-        body ?? {},
-      )
-      .then((r) => r.data),
-  listSignatures: (contractId: number) =>
-    api
-      .get(`/api/signing/contracts/${contractId}/signatures`)
-      .then((r) => r.data),
-  // Offline (e-mail) flow: record the contract as sent → pipeline "Umowa wysłana".
-  markSentOffline: (contractId: number) =>
-    api
-      .post(`/api/signing/contracts/${contractId}/mark-sent-offline`, {})
-      .then((r) => r.data),
-};
-
 export type B2BContractVariant = "jdg" | "company";
 
 export interface B2BCompanyRepresentative {
@@ -3659,6 +3680,18 @@ export const b2bGeneratorApi = {
         body,
       )
       .then((r) => r.data),
+  /** Podpisany egzemplarz umowy (PDF, JPG, PNG) → Dokumenty kontraktu (0496). */
+  attachSignedFile: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<B2BGeneratedContractRow>(
+        `/api/b2b-generator/generated/${id}/signed-file`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      )
+      .then((r) => r.data);
+  },
   /** Podpowiedzi formularza umowy z rekrutacji (panel osoby i Generator). */
   prefill: (candidateId: number, jobId: number) =>
     api
@@ -3919,6 +3952,21 @@ export interface B2BGeneratedContractRow {
   signed_by_name: string | null;
   can_confirm_signed: boolean;
   blocked_reason: string | null;
+  /** 0496: podpisany egzemplarz w Dokumentach kontraktu (`null` = brak). */
+  signed_document_id?: number | null;
+  /** Czy to konto dołączy albo podmieni podpisany plik (jak oznaczenie podpisu). */
+  can_attach_signed_file?: boolean;
+  /** Podpis w NEXUSIE (0499): ostatnia wysyłka i co to konto może zrobić. */
+  esign?: {
+    request_id: number;
+    status: "sent" | "contractor_signed" | "completed" | "withdrawn" | "expired";
+    contractor_signed_at: string | null;
+    completed_at: string | null;
+    expires_at: string;
+    company_signer_name: string | null;
+  } | null;
+  can_send_esign?: boolean;
+  can_withdraw_esign?: boolean;
   can_delete: boolean;
   can_edit: boolean;
   can_download: boolean;

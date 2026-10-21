@@ -906,6 +906,76 @@ class LineConsumptionUpsert(BaseModel):
         return cleaned or None
 
 
+# ── Zakładka „Zużycie” zamówienia kosztowego (21.10.2026) ────────────────────
+
+
+class CostConsumptionUpsert(BaseModel):
+    """Ręczny wpis kwoty za miesiąc (``PUT …/cost-consumptions/{RRRR-MM}``).
+
+    Ten sam klucz idempotencji co import faktur (``UNIQUE (order_id,
+    period_month)``): powtórny PUT nadpisuje miesiąc, nigdy nie dokłada.
+    Przekroczenie budżetu jest dozwolone — ``settle_group`` zapisze nadwyżkę
+    jako nierozliczoną na tej linii.
+    """
+
+    invoice_amount: Decimal = Field(..., ge=0, max_digits=15, decimal_places=2)
+    status: Optional[Literal["accepted", "protocol"]] = None
+    note: Optional[str] = Field(None, max_length=255)
+
+    @field_validator("note")
+    @classmethod
+    def _strip_note(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class CostConsumptionRow(BaseModel):
+    """Jeden miesiąc osoby na zamówieniu kosztowym."""
+
+    period_month: str
+    invoice_amount: MoneyPLN
+    settled_amount: MoneyPLN
+    unsettled_amount: MoneyPLN
+    """Część kwoty, która nie zmieściła się w budżecie zamówienia."""
+    source: Literal["import", "manual"]
+    status: Optional[Literal["accepted", "protocol"]] = None
+    note: Optional[str] = None
+    import_id: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    balance_after: MoneyPLN
+    """Saldo ZAMÓWIENIA po tym miesiącu — po wpisach wszystkich osób."""
+
+
+class CostConsumptionPerson(BaseModel):
+    """Udział jednej osoby we wspólnym budżecie (legenda pod paskiem)."""
+
+    order_id: int
+    name: str
+    invoiced: MoneyPLN
+
+
+class CostConsumptionGroupRow(BaseModel):
+    """Kwota dowolnej osoby zamówienia — do podglądu „po zapisie” na froncie."""
+
+    order_id: int
+    period_month: str
+    invoice_amount: MoneyPLN
+
+
+class CostConsumptionsResponse(BaseModel):
+    order_number: str
+    budget_pool: MoneyPLN
+    """Budżet zamówienia z ręczną korektą — punkt startu rozliczenia."""
+    budget_used: MoneyPLN
+    budget_remaining: MoneyPLN
+    rows: list[CostConsumptionRow] = Field(default_factory=list)
+    people: list[CostConsumptionPerson] = Field(default_factory=list)
+    group_rows: list[CostConsumptionGroupRow] = Field(default_factory=list)
+
+
 class SharedMdConsumptionPerson(BaseModel):
     """MD jednego konsultanta w miesięcznym zejściu wspólnej puli."""
 

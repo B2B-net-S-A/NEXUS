@@ -64,7 +64,7 @@ EXEMPT: dict[str, str] = {
     "job_ad_prepare": "nocne przygotowanie treści ogłoszeń; brak = rekruter klika „Przygotuj treść” w kolejce, nic nie publikuje się samo",
     "recommendation_card_import": "karty rekomendacji z notatek; opóźnienie nieszkodliwe, notatka z NEXUSA przelicza kartę w żądaniu",
     "chat_email_fallback": "fallback mailowy czatu; nie ścieżka krytyczna",
-    "signature_reconciler": "uzgadnianie podpisów; sweeper podpisów jest objęty",
+    "signature_reconciler": "uzgadnianie utkniętych wysyłek Autenti; sweepery autenti_sweeper i b2b_esign_sweeper są objęte",
     "dl_portal_expiry": "dzienny skaner; zastępowany przez objęte dl_alerts",
     "job_deadline_alerts": "dzienny skaner terminów; do objęcia po tygodniu obserwacji",
     "insights_seniority_journal": "dziennik analityczny; opóźnienie nieszkodliwe",

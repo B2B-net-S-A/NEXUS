@@ -93,7 +93,8 @@ async function renderProfile(config: HrConfig, hash = "") {
   await screen.findByRole("heading", { level: 1, name: /Ola Przykładowa/ });
 }
 
-const payrollTab = () => screen.queryByRole("tab", { name: /Płace i premie/ });
+// Osoba bez formy w odpowiedzi: słowa neutralne jak B2B (21.10.2026).
+const payrollTab = () => screen.queryByRole("tab", { name: /Płace i wynagrodzenie dodatkowe/ });
 
 describe("PersonProfile — zakładka „Płace i premie”", () => {
   beforeEach(() => {

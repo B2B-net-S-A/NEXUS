@@ -33,6 +33,7 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.hr_time import Timesheet, TimesheetEntry
 from app.services.hr import time_leave_bridge as bridge
 from app.services.hr import time_retention
+from app.services.hr.employment_terms import capitalize, terms
 from app.services.hr.time_access import Actor
 from app.services.hr.time_calendar import month_range
 from app.services.hr.time_hash import HashEntry, compute_timesheet_hash
@@ -352,8 +353,10 @@ def _decide_overtime(
     occupied: Decimal,
     reason: Optional[str],
     work_date: date,
+    form: Optional[str],
 ) -> OvertimeDecision:
     total = other_hours + hours + occupied
+    words = terms(form)
     if total <= STANDARD:
         return OvertimeDecision(False, None)
     if not actor.overtime_allowed:
@@ -364,8 +367,8 @@ def _decide_overtime(
             )
         raise TimeForbidden(
             f"Suma godzin {work_date.isoformat()} przekroczyłaby {STANDARD_DAY_HOURS} h "
-            f"(już wpisane: {_fmt(other_hours)} h). Nadgodziny wpisuje osoba "
-            "z uprawnieniem do nadgodzin albo Kadry."
+            f"(już wpisane: {_fmt(other_hours)} h). {capitalize(words['overtime'])} "
+            f"wpisuje osoba z uprawnieniem do {words['overtime_genitive']} albo Kadry."
         )
     if total > OVERTIME_MAX:
         raise TimeError(
@@ -375,8 +378,8 @@ def _decide_overtime(
     text = (reason or "").strip()
     if len(text) < OVERTIME_REASON_MIN_LENGTH:
         raise TimeError(
-            f"Nadgodziny wymagają uzasadnienia (co najmniej {OVERTIME_REASON_MIN_LENGTH} "
-            "znaków)."
+            f"{words['overtime_reason_required']} (co najmniej "
+            f"{OVERTIME_REASON_MIN_LENGTH} znaków)."
         )
     if len(text) > MAX_OVERTIME_REASON:
         raise TimeError(
@@ -454,6 +457,7 @@ async def add_entry(
         occupied=occupied,
         reason=data.overtime_reason,
         work_date=data.work_date,
+        form=subject.employment_type,
     )
     entry = TimesheetEntry(
         timesheet_id=timesheet.id,
@@ -515,6 +519,7 @@ async def update_entry(
             occupied=occupied,
             reason=changes.get("overtime_reason", entry.overtime_reason),
             work_date=work_date,
+            form=subject.employment_type,
         )
     entry.work_date = work_date
     entry.hours = hours

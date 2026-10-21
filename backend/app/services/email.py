@@ -158,8 +158,12 @@ def send_mention_email(
     deep_link_path: str,
     context_label: str,
     event_at: datetime | None = None,
+    edited: bool = False,
 ) -> bool:
     """Wysyła notyfikację email gdy ktoś @mention'uje usera w notatce.
+
+    ``edited``: autor zmienił notatkę, w której ta osoba już była oznaczona,
+    i zaznaczył „Powiadom oznaczonych o zmianie” (21.10.2026).
 
     Args:
         to_email: adres email odbiorcy
@@ -180,11 +184,18 @@ def send_mention_email(
     base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
     link = f"{base}{deep_link_path}" if base else deep_link_path
 
-    subject = f"[Nexus] {author_name} oznaczył(a) Cię w notatce"
+    if edited:
+        subject = f"[Nexus] {author_name} zmienił(a) notatkę, w której Cię oznaczył(a)"
+        lead = (
+            f"zmienił(a) treść w {context_label}, w której Cię oznaczył(a). Nowa treść"
+        )
+    else:
+        subject = f"[Nexus] {author_name} oznaczył(a) Cię w notatce"
+        lead = f"oznaczył(a) Cię w {context_label}"
 
     text_body = (
         f"Cześć {recipient_name},\n\n"
-        f"{author_name} oznaczył(a) Cię w {context_label}:\n\n"
+        f"{author_name} {lead}:\n\n"
         f"{snippet}\n\n"
         f"Otwórz w Nexusie: {link}\n\n"
         "— Nexus ATS"
@@ -193,12 +204,12 @@ def send_mention_email(
     safe_author = html.escape(author_name)
     safe_recipient = html.escape(recipient_name)
     safe_snippet = html.escape(snippet)
-    safe_context = html.escape(context_label)
+    safe_lead = html.escape(lead)
     safe_link = html.escape(link, quote=True)
 
     html_body = (
         f"<p>Cześć {safe_recipient},</p>"
-        f"<p><strong>{safe_author}</strong> oznaczył(a) Cię w {safe_context}:</p>"
+        f"<p><strong>{safe_author}</strong> {safe_lead}:</p>"
         f'<blockquote style="border-left:3px solid #3b82f6;padding-left:12px;'
         f'color:#374151;margin:16px 0">{safe_snippet}</blockquote>'
         f'<p><a href="{safe_link}" style="display:inline-block;background:#2563eb;'

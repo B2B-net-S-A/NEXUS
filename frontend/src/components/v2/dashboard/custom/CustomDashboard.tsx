@@ -56,6 +56,7 @@ import {
   removeTile,
 } from "@/lib/dashboard-tiles/layout"
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature"
+import { TO_COMPLETE_TILE_TYPE } from "@/lib/dashboard-to-complete"
 import { useAuthStore } from "@/store/auth"
 import {
   canCustomizeBoardPanel,
@@ -423,6 +424,30 @@ export function CustomDashboard() {
   }
   const dropped = query.data?.dropped_tiles ?? []
 
+  // „Do uzupełnienia” (prośba Olafa, 21.10.2026): kafelek na pulpicie zabiera
+  // trzy listy z „Czeka na Ciebie”; bez niego panel proponuje „Przenieś na
+  // pulpit”, a „Zostaw tutaj” chowa propozycję jak ogłoszenie kafelka.
+  // Kafelek bez dostępu do sekcji pokazuje tylko „Brak dostępu” — listy
+  // zostają wtedy w panelu, inaczej nie byłoby ich nigdzie.
+  const toCompleteAvailable = TILE_DEFINITIONS.to_complete.availability(user).ok
+  const toCompleteOnGrid =
+    toCompleteAvailable && saved.some((t) => t.type === TO_COMPLETE_TILE_TYPE)
+  const toCompleteTemplate = TILE_TEMPLATES.find((t) => t.type === TO_COMPLETE_TILE_TYPE)
+  const offerToComplete =
+    dismissedLoaded &&
+    query.isSuccess &&
+    toCompleteAvailable &&
+    !saved.some((t) => t.type === TO_COMPLETE_TILE_TYPE) &&
+    !dismissed.has(TO_COMPLETE_TILE_TYPE)
+  const moveToComplete = () => {
+    if (!toCompleteTemplate) return
+    if (tiles.length >= MAX_TILES) {
+      showError(`Pulpit mieści najwyżej ${MAX_TILES} kafelków.`)
+      return
+    }
+    commit(prependTemplate(tiles, toCompleteTemplate), "Kafelek „Do uzupełnienia” stoi na górze pulpitu.")
+  }
+
   return (
     // Powłoka (`<main>`) daje już `p-4 md:p-6` — bez drugiego marginesu.
     <div className="flex flex-col gap-5">
@@ -476,7 +501,18 @@ export function CustomDashboard() {
           pulpitu nie układała. Pas pierwszy i na całą szerokość — w kolumnie
           panelu gotowi do wysyłki ginęli między innymi listami. */}
       {editing ? null : <DlSendQueueBand hiddenPanels={hiddenPanels} />}
-      {editing ? null : <BoardTasksPanel hiddenPanels={hiddenPanels} dlSendBand={dlSendBand} />}
+      {/* Panel czeka na układ pulpitu: inaczej listy „Do uzupełnienia” mignęłyby
+          w nim, zanim okaże się, że stoją w kafelku. */}
+      {editing || query.isPending ? null : (
+        <BoardTasksPanel
+          hiddenPanels={hiddenPanels}
+          dlSendBand={dlSendBand}
+          toCompleteOnGrid={toCompleteOnGrid}
+          onMoveToComplete={offerToComplete ? moveToComplete : undefined}
+          onKeepToComplete={() => dismissAnnounced(TO_COMPLETE_TILE_TYPE)}
+          moveBusy={busy}
+        />
+      )}
 
       {editing ? (
         <div

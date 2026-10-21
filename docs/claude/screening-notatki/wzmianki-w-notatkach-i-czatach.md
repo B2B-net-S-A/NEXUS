@@ -32,3 +32,6 @@ listy poprawnie; zawodził ekran i stara reguła „tylko zespół”.
   stoi podpowiedź „Oznaczyć też zastępcę?” — `components/v2/forms/mention-absence.ts`,
   reguły w `ludzie/urlopy-czas-place-wejscie-odejscie.md`. Moduł urlopów wyłączony albo
   awaria zapytania = wzmianki jak dawniej.
+- Edycja notatki z oznaczeniem (21.10.2026): pole „Powiadom oznaczonych
+  o zmianie” (domyślnie zaznaczone) i `notify_mentions` w `PATCH /api/notes/{id}`
+  — `powiadomienia/zmiana-notatki-i-terminu-rozmowy.md`.

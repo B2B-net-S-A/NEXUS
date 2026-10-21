@@ -33,6 +33,7 @@ import type {
 } from "@/lib/interview-cycle";
 import type { InterviewPhase } from "@/lib/pipeline-next-action";
 import type { RateChangeBadge } from "@/lib/rate-change";
+import type { OffLimitsBadge } from "@/lib/off-limits";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -118,6 +119,10 @@ export interface KanbanItem {
  // jest „Dlaczego ten kandydat” — `screening_done` znaczy wtedy „ocena
  // wpisana”. Brak pola albo `null` = zwykły arkusz.
  screening_requirement?: "why_candidate" | null;
+ // Minimum dla Delivery Leada (21.10.2026): klucze pól karty bez treści —
+ // lokalizacja, tryb pracy, dostępność, „Dlaczego ten kandydat”, pola
+ // klienta. Ta sama reguła co bramka „Zweryfikowany”. Brak pola = nie wiadomo.
+ minimum_missing?: string[] | null;
  scorecard_done?: boolean;
  // Automaty (21.09.2026): na TYM etapie leży gotowe auto-CV czekające na
  // przegląd człowieka. Brak pola (starsza odpowiedź) = brak odznaki.
@@ -200,6 +205,11 @@ export interface KanbanItem {
   must_total: number | null;
   overridden: boolean;
  } | null;
+ /**
+  * Off-limits (21.10.2026): osoba z firmy z aktywnym zamówieniem dodana po
+  * potwierdzeniu „sam(a) się zgłosił(a)” — kto, kiedy i jak.
+  */
+ entry_off_limits?: OffLimitsBadge | null;
  /**
   * Etap 2 linków (19.10.2026): właściciel linku rekrutacji, z którego osoba
   * się zgłosiła — plakietka „Z Twojego linku” / „Z linku Marty”.

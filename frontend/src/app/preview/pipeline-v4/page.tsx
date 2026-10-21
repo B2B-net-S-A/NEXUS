@@ -171,7 +171,16 @@ function columns(
           ? Array.from({ length: 20 }, (_, i) =>
               card("Osoba", `Próbna ${i + 1}`, { days_in_stage: i % 4, screening_done: false }),
             )
-          : [],
+          : [
+              card("Tomasz", "Minimum", {
+                days_in_stage: 1,
+                screening_done: true,
+                minimum_missing: ["location", "work_mode"],
+                expected_rate_value: 140,
+                expected_rate_unit: "hourly",
+                expected_rate_currency: "PLN",
+              }),
+            ],
     ),
     col("verified", "Zweryfikowany", "internal", 13, [
       card("Anna", "Kowalczyk", {
@@ -406,6 +415,8 @@ const FORM_LABELS = {
 /** Stan formularza screeningu pary — to, co oddaje serwer dla widoku tylko do odczytu. */
 function screeningFormOf(item: KanbanItem, sheet: ScreeningAnswers | null): ScreeningFormState {
   const filled = sheet != null;
+  // 21.10.2026: brakuje tylko minimum dla DL — lokalizacja przyjdzie z innej rekrutacji.
+  const minimum = item.lastname === "Minimum";
   return {
     candidate_id: item.candidate_id,
     job_id: JOB_ID,
@@ -449,9 +460,20 @@ function screeningFormOf(item: KanbanItem, sheet: ScreeningAnswers | null): Scre
               by_name: "Marta Testowa",
             },
           }
-        : {},
+        : minimum
+          ? {
+              availability: { raw: "od zaraz", source: "manual", by_name: "Marta Testowa" },
+              recommendation: { raw: "Pięć lat w Javie, zna procesy KYC.", source: "manual", by_name: "Marta Testowa" },
+            }
+          : {},
       previous: {},
       suggestions: {},
+      required: ["location", "work_mode", "availability", "recommendation"],
+      carried: minimum
+        ? {
+            location: { raw: "Gdańsk", at: "2026-10-18T09:00:00Z", job_id: 9101, job_title: "Analityk — Bank Kappa" },
+          }
+        : undefined,
       completeness: filled
         ? { status: "partial", filled: 5, total: 8, missing: ["location", "motivation", "red_flags"] }
         : { status: "empty", filled: 0, total: 8, missing: Object.keys(FORM_LABELS) },

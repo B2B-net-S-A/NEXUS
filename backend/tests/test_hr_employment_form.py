@@ -27,10 +27,17 @@ from app.models.hr_payroll import EmployeeRate
 from app.models.hr_profile import EmployeeProfile
 from app.models.hr_time import Timesheet, TimesheetEntry
 from app.models.notification import Notification, NotificationType
-from app.services.hr import student_reminders, time_entries, time_hooks, time_retention
+from app.services.hr import (
+    student_reminders,
+    time_entries,
+    time_fill,
+    time_hooks,
+    time_retention,
+)
 from app.services.hr.employment_terms import (
     BACKEND_TERMS,
     EMPLOYMENT_TERMS,
+    bonus_message,
     form_of,
     reports_absence,
     terms,
@@ -74,9 +81,42 @@ def test_every_form_has_the_same_words_and_no_form_means_uop() -> None:
     for form in ("b2b", "zlecenie"):
         text = " ".join(terms(form).values()).lower()
         assert "urlop" not in text and "wniosek" not in text and "przełożon" not in text
+        # Ani „nadgodzin”, ani „premii” (decyzja Artura 21.10.2026).
+        assert "nadgodzin" not in text and "premi" not in text
 
 
-def _sheet(form: str) -> PdfTimesheet:
+def test_overtime_and_bonus_words_follow_the_contract() -> None:
+    assert terms("uop")["overtime"] == "nadgodziny"
+    assert (
+        terms("b2b")["overtime"] == terms("zlecenie")["overtime"] == "godziny ponad 8 h"
+    )
+    assert terms("uop")["bonus_new_title"] == "Masz nową premię"
+    assert terms("b2b")["bonus_new_title"] == "Masz nowe wynagrodzenie dodatkowe"
+    assert bonus_message("uop", "październik 2026") == (
+        "Premia za październik 2026. Szczegóły w „Moim czasie” → Premie."
+    )
+    assert bonus_message("b2b", "październik 2026", cancelled=True) == (
+        "Wynagrodzenie dodatkowe za październik 2026 zostało anulowane. "
+        "Szczegóły w „Moim czasie” → Wynagrodzenie dodatkowe."
+    )
+    assert bonus_message(None, "maj 2026", cancelled=True) == (
+        "Premia za maj 2026 została anulowana. Szczegóły w „Moim czasie” → Premie."
+    )
+    assert time_fill_hours_error("b2b").endswith(
+        "godziny ponad 8 h wpisuje się w dniu, z krótkim opisem."
+    )
+    assert time_fill_hours_error("uop").endswith(
+        "nadgodziny wpisuje się w dniu, z uzasadnieniem."
+    )
+
+
+def time_fill_hours_error(form: str) -> str:
+    with pytest.raises(time_entries.TimeError) as caught:
+        time_fill.fill_hours(Decimal("9"), form=form)
+    return str(caught.value)
+
+
+def _sheet(form: str, *, overtime: bool = False) -> PdfTimesheet:
     return PdfTimesheet(
         person_name="Anna Przykładowa",
         person_email="anna@example.com",
@@ -86,7 +126,7 @@ def _sheet(form: str) -> PdfTimesheet:
         pdf_hash="a" * 64,
         approved_at=datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc),
         approved_by_name="Jan Przykładowy",
-        entries=[PdfEntry("2026-09-01", Decimal("8"), None, "Sourcing", False)],
+        entries=[PdfEntry("2026-09-01", Decimal("8"), None, "Sourcing", overtime)],
     )
 
 
@@ -100,6 +140,11 @@ def test_timesheet_pdf_speaks_the_language_of_the_contract() -> None:
     assert "<h1>Potwierdzenie liczby godzin</h1>" in mandate
     assert "art. 8b ustawy o minimalnym wynagrodzeniu" in mandate
     assert "Zleceniobiorca" in mandate and "Pracownik" not in mandate
+    # Godziny ponad 8 h: przy UoP „nadgodziny”, przy B2B i zleceniu bez tego słowa.
+    assert "Dni z nadgodzinami" in render_html(_sheet("uop", overtime=True))
+    for form in ("b2b", "zlecenie"):
+        html = render_html(_sheet(form, overtime=True))
+        assert "nadgodzin" not in html and "Dni z godzinami ponad 8 h" in html
 
 
 # ── D6, D8, D9: kartoteka i pula ──────────────────────────────────────────────

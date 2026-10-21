@@ -459,6 +459,10 @@ export function buildInterviewWindow({
       case "prep2_skip_threshold":
         icon = "alert";
         break;
+      // 0500: rozmowa u klienta przełożona albo odwołana — tytuł mówi co i kiedy.
+      case "interview_changed":
+        icon = "calendar";
+        break;
       case "interview_scheduled": {
         // Po starcie wydarzenia przypomnienie nic już nie mówi. Wydarzenie
         // spoza agendy cyklu (screening, zwykła rozmowa, termin) nie ma tu

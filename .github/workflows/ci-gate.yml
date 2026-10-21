@@ -189,6 +189,14 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # 21.10.2026: `alembic upgrade heads` niżej przyjmuje dwie głowy bez
+      # błędu, więc kolizję migracji łapał dopiero pytest w kolejce (~25 min;
+      # #2520 wypadł tak 6× jednego dnia). Ten krok (stdlib, przed instalacją
+      # zależności) czerwieni wymagany kontekst po ~1 min. Push na maina
+      # (bramka deployu) pomijamy — tam dwie głowy nie mają jak trafić.
+      - name: Jedna głowa Alembica
+        if: ${{ github.event_name != 'push' }}
+        run: python3 scripts/rechain_migration.py --check-heads
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"

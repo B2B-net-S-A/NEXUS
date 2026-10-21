@@ -1,9 +1,8 @@
 """Restart-safe reconciliation for stuck signature dispatch (M5-P0.9).
 
-Every signature sender — :mod:`app.services.autenti.sender` (contracts),
+Every Autenti sender — :mod:`app.services.autenti.sender` (contracts) and
 :mod:`app.services.autenti.client_contracts_sender` (framework contracts +
-amendments) and :mod:`app.services.signing.sender` (in-house rail) — persists a
-``document_signatures`` row in ``status=draft`` and hands the actual dispatch to
+amendments) — persists a ``document_signatures`` row in ``status=draft`` and hands the actual dispatch to
 a background task (``asyncio.create_task`` / FastAPI ``BackgroundTasks``). A
 container restart (Coolify rebuilds on every push) between the HTTP 202 and
 completion orphans that row at ``draft``/``sending`` **forever**: the expiry
@@ -22,13 +21,16 @@ We deliberately **mark-failed rather than re-dispatch**: a ``sending`` row may
 already hold a partially-created provider process, and the senders' own
 idempotency guard (``status != draft`` → skip) would no-op a re-dispatch anyway.
 Marking failed surfaces reality in the UI and hands control back to the
-recruiter uniformly for every rail.
+recruiter.
 
 Restart-safe: the only state is the DB row + its ``updated_at`` — a rebuild
 never re-triggers work. Idempotent + cancellation-aware. Exits immediately
-unless at least one signing rail is enabled; each row is gated by its own
-provider's kill-switch (``AUTENTI_ENABLED`` for ``autenti`` rows,
-``SIGNING_ENABLED`` for the rest).
+unless ``AUTENTI_ENABLED`` and only touches ``provider='autenti'`` rows.
+
+The in-house QES rail from June 2026 (``SIGNING_ENABLED``, ``/api/signing``)
+was removed on 21.10.2026; its leftover ``document_signatures`` rows stay as
+history and are never swept. Podpis umowy B2B w NEXUSIE (0499) keeps its own
+state in ``b2b_signing_requests`` and its own sweeper.
 """
 
 from __future__ import annotations
@@ -38,7 +40,6 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
-from sqlalchemy.sql import ColumnElement
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -66,44 +67,24 @@ def _interval_seconds() -> int:
     return max(300, int(raw))
 
 
-def _provider_filter() -> ColumnElement[bool] | None:
-    """Restrict the sweep to rows whose provider rail is enabled.
-
-    ``None`` means "no restriction" (both rails on). Only called when at least
-    one rail is enabled — the neither-enabled case is short-circuited by the
-    loop's top-level guard.
-    """
-    autenti_on = bool(settings.AUTENTI_ENABLED)
-    signing_on = bool(settings.SIGNING_ENABLED)
-    if autenti_on and signing_on:
-        return None
-    if autenti_on:
-        return DocumentSignature.provider == "autenti"
-    # signing_on only
-    return DocumentSignature.provider != "autenti"
-
-
 async def _reconcile_stuck() -> int:
     """Mark orphaned draft/sending rows failed + notify. Returns rows touched."""
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=_grace_seconds())
 
     async with AsyncSessionLocal() as db:
-        conditions = [
-            DocumentSignature.status.in_(_STUCK_STATES),
-            DocumentSignature.updated_at < cutoff,
-        ]
-        provider_clause = _provider_filter()
-        if provider_clause is not None:
-            conditions.append(provider_clause)
-
-        result = await db.execute(select(DocumentSignature).where(*conditions))
+        result = await db.execute(
+            select(DocumentSignature).where(
+                DocumentSignature.provider == "autenti",
+                DocumentSignature.status.in_(_STUCK_STATES),
+                DocumentSignature.updated_at < cutoff,
+            )
+        )
         rows = list(result.scalars().all())
         if not rows:
             return 0
 
         for sig in rows:
             stuck_at = sig.status.value
-            source = "autenti" if sig.provider == "autenti" else "signing"
             sig.status = SignatureStatus.failed
             sig.last_error = (
                 f"Reconciler: wysyłka przerwana (restart usługi) — utknęła w "
@@ -117,7 +98,7 @@ async def _reconcile_stuck() -> int:
                     entity_id=sig.id,
                     action="signature_send_failed",
                     user_id=sig.sender_user_id,
-                    external_source=source,
+                    external_source="autenti",
                     details={"reason": "reconciler_stuck", "stuck_at": stuck_at},
                 )
             )
@@ -147,14 +128,11 @@ async def _reconcile_stuck() -> int:
 async def signature_reconciler_loop() -> None:
     """Periodic recovery of dispatch orphaned by a mid-flight restart.
 
-    No-op unless at least one signing rail is enabled. Registered in
+    No-op unless Autenti is enabled. Registered in
     ``app.main:lifespan`` alongside the other background tasks.
     """
-    if not (settings.AUTENTI_ENABLED or settings.SIGNING_ENABLED):
-        logger.info(
-            "signature_reconciler: both rails disabled "
-            "(AUTENTI_ENABLED=false, SIGNING_ENABLED=false) — loop exiting"
-        )
+    if not settings.AUTENTI_ENABLED:
+        logger.info("signature_reconciler: AUTENTI_ENABLED=false — loop exiting")
         return
 
     interval = _interval_seconds()

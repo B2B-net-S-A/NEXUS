@@ -131,6 +131,9 @@ def test_b2b_items_split_paid_days_and_sum_to_the_line() -> None:
     assert items[0].hours == Decimal("160.00")
     assert "1 dzień" in items[1].label
     assert sum(item.amount for item in items) == hours_amount + Decimal("1200.00")
+    # Pozycja do faktury B2B: „wynagrodzenie dodatkowe”, nie „premia” (21.10.2026).
+    assert items[2].label.startswith("Wynagrodzenie dodatkowe · ")
+    assert "Premia" not in items[2].label
 
 
 def test_mandate_has_no_paid_days_and_no_hours_without_rate() -> None:

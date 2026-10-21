@@ -1,7 +1,9 @@
 "use client";
 
+import type { EmploymentType } from "@/lib/api/hr";
 import { useMyPayroll } from "@/lib/api/hr-payroll";
 import { formatDayMonthPl } from "@/lib/date-pl";
+import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 import { formatMoney } from "@/lib/money";
 
 import { bonusAmountLabel } from "../BonusStagesTable";
@@ -14,20 +16,34 @@ import {
 } from "../overview-format";
 import { Loading, OverviewCard, PartError, stateOf } from "./OverviewCard";
 
-export function BonusCard({ today, onOpenTab }: { today: string; onOpenTab: (value: string) => void }) {
+/** Karta premii w „Przeglądzie”; przy B2B i zleceniu „Wynagrodzenie dodatkowe” (21.10.2026). */
+export function BonusCard({
+  form,
+  today,
+  onOpenTab,
+}: {
+  form?: EmploymentType | null;
+  today: string;
+  onOpenTab: (value: string) => void;
+}) {
+  const words = employmentTerms(form);
+  const title = capitalize(words.bonuses);
   const me = useMyPayroll();
   const state = stateOf(me);
   if (state === "loading") {
     return (
-      <OverviewCard title="Premie">
+      <OverviewCard title={title}>
         <Loading />
       </OverviewCard>
     );
   }
   if (state !== "ready" || !me.data) {
     return (
-      <OverviewCard title="Premie">
-        <PartError label="Nie udało się wczytać premii." onRetry={() => me.refetch()} />
+      <OverviewCard title={title}>
+        <PartError
+          label={`Nie udało się wczytać ${words.bonuses_genitive}.`}
+          onRetry={() => me.refetch()}
+        />
       </OverviewCard>
     );
   }
@@ -38,7 +54,7 @@ export function BonusCard({ today, onOpenTab }: { today: string; onOpenTab: (val
   const rate = data.current_rate;
   return (
     <OverviewCard
-      title="Premie"
+      title={title}
       aside={
         rate
           ? `stawka ${formatMoney(rate.hourly_rate, rate.currency)}/h od ${formatDayMonthPl(rate.effective_from)}`
@@ -51,7 +67,7 @@ export function BonusCard({ today, onOpenTab }: { today: string; onOpenTab: (val
           <span className="text-sm font-normal text-muted-foreground">w drodze</span>
         </p>
       ) : (
-        <p className="text-sm text-muted-foreground">Nie ma premii w drodze.</p>
+        <p className="text-sm text-muted-foreground">Nie ma {words.bonuses_genitive} w drodze.</p>
       )}
       {items.length > 0 ? (
         <ul className="space-y-2.5">
@@ -69,7 +85,7 @@ export function BonusCard({ today, onOpenTab }: { today: string; onOpenTab: (val
               {item.progress !== null ? (
                 <div
                   role="progressbar"
-                  aria-label={`Dni do terminu premii: ${item.title}`}
+                  aria-label={`Dni do terminu: ${item.title}`}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={item.progress}

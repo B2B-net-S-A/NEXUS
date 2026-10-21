@@ -233,7 +233,7 @@ function inboxRows(): ApprovalRequestRow[] {
     row({
       id: 1,
       kind: "bonus",
-      kind_label: "Premia poza umową",
+      kind_label: "Wynagrodzenie dodatkowe",
       title: "Trzy przejęte rekrutacje",
       purpose:
         "Przejęła 3 rekrutacje po odejściu kolegi i domknęła je w 2 tygodnie. Standardowa premia z placementu dotyczy tylko jednej z nich.",
@@ -567,7 +567,7 @@ export default function HrConsentsPreviewPage() {
           title={mine ? "Moje zgody" : "Akceptacje"}
           description={
             mine
-              ? "Wydatki i premie poza umową, o które prosisz — i kto o nich decyduje."
+              ? "Wydatki i wynagrodzenie dodatkowe, o które prosisz — i kto o nich decyduje."
               : "Wnioski, timesheety i zgody do decyzji."
           }
           density="compact"

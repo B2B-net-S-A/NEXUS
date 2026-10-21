@@ -46,7 +46,11 @@ from app.models.candidate_pin import CandidatePin
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.note import Note
 from app.models.contract import Contract, ContractTerminationReason
-from app.models.contract_document import ContractDocument, ContractDocumentType
+from app.models.contract_document import (
+    ContractDocument,
+    ContractDocumentFolder,
+    ContractDocumentType,
+)
 from app.models.contract_equipment import (
     ContractEquipment,
     EquipmentItemType,
@@ -68,6 +72,7 @@ from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_role import B2BContractRole, B2BRoleCategory
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_signing_request import B2BSigningRequest
 from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_register_import import B2BRegisterImportRow, B2BRegisterImportRun
 from app.models.contract_doc_sharepoint import (
@@ -181,6 +186,10 @@ from app.models.champion_suggestion import (
     SuggestionStatus,
 )
 from app.models.app_setting import AppSetting
+from app.models.scoring_weight_change import (
+    ScoringWeightChange,
+    ScoringWeightMeasurement,
+)
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.kpi_target_event import KpiTargetEvent
 from app.models.kpi_email_report_run import KpiEmailReportRun
@@ -286,7 +295,6 @@ from app.models.client_required_document import (
 )
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.document_signature_event import DocumentSignatureEvent
-from app.models.signature_link import SignatureLink
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractSignedVia,
@@ -379,6 +387,7 @@ __all__ = [
     "Contract",
     "ContractTerminationReason",
     "ContractDocument",
+    "ContractDocumentFolder",
     "ContractDocumentType",
     "ContractEquipment",
     "EquipmentItemType",
@@ -399,6 +408,7 @@ __all__ = [
     "B2BRoleCategory",
     "B2BContractDetail",
     "B2BGeneratedContract",
+    "B2BSigningRequest",
     "B2BContractDocument",
     "B2BRegisterImportRow",
     "B2BRegisterImportRun",
@@ -497,6 +507,8 @@ __all__ = [
     "SuggestionSource",
     "SuggestionStatus",
     "AppSetting",
+    "ScoringWeightChange",
+    "ScoringWeightMeasurement",
     "KpiRoleDefault",
     "UserKpiTarget",
     "KpiTargetEvent",
@@ -583,7 +595,6 @@ __all__ = [
     "ClientDocStatus",
     "DocumentSignature",
     "DocumentSignatureEvent",
-    "SignatureLink",
     "SignatureStatus",
     "ClientFrameworkContract",
     "FrameworkContractStatus",

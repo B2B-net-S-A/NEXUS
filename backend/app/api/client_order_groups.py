@@ -121,6 +121,11 @@ from app.schemas.client_order import RecruitmentRateRead
 from app.schemas.client_order_group import (
     ConsultantOptionRead,
     ConsultantOptionsResponse,
+    CostConsumptionGroupRow,
+    CostConsumptionPerson,
+    CostConsumptionRow,
+    CostConsumptionsResponse,
+    CostConsumptionUpsert,
     LineConsumptionCorrection,
     LineConsumptionForeignWarning,
     LineConsumptionImportRef,
@@ -170,6 +175,7 @@ from app.services.md_consumption_view import (
     build_consumption_view,
 )
 from app.services.order_history import (
+    COST_CONSUMPTION_EDIT_LABEL,
     FINANCE_CHANGE_LABELS,
     HistoryEntry,
     RawEvent,
@@ -205,10 +211,15 @@ from app.services.client_access import (
 from app.services.candidate_identity_quarantine import normalize_person_name_part
 from app.services.cost_orders import (
     assert_cost_order_client,
+    balance_after_months,
+    delete_invoice,
+    format_pln,
+    group_invoice_rows,
     hides_standard_drafts_from_order_group_registry,
     lock_group_for_settlement,
     quantize_money,
     settle_group,
+    upsert_invoice,
 )
 from app.services.contract_lifecycle import (
     lock_contract_then_orders,
@@ -7370,6 +7381,317 @@ def _shared_people(
         )
         for order_id, md in rows
     ]
+
+
+# ── Zakładka „Zużycie” zamówienia kosztowego (ticket 21.10.2026) ─────────────
+
+
+async def _cost_line_for_consumptions(
+    db: AsyncSession,
+    *,
+    group: ClientOrderGroup,
+    line_id: int,
+    for_update: bool,
+) -> ClientOrder:
+    """Linia zamówienia KOSZTOWEGO — lustro ``_md_line_for_consumptions``.
+
+    Kwota schodzi ze wspólnego budżetu grupy, ale wpis zostaje przy osobie,
+    bo to jej faktura (kolumna „Zafakturowano” i „której osobie zabrakło”).
+    """
+    query = _line_query().where(
+        ClientOrder.id == line_id,
+        ClientOrder.order_group_id == group.id,
+        ClientOrder.client_id == group.client_id,
+    )
+    if for_update:
+        await lock_contract_then_orders(db, order_ids=[line_id])
+        query = query.with_for_update()
+    line = await db.scalar(query)
+    if line is None:
+        raise HTTPException(404, detail="Linia nie istnieje w tym zamówieniu")
+    if not group.is_cost_based or group.budget_amount is None:
+        raise HTTPException(
+            422,
+            detail=(
+                "To nie jest zamówienie kosztowe — zejścia MD wpisuje się "
+                "w zakładce „Zużycie MD”"
+            ),
+        )
+    return line
+
+
+async def _require_cost_amounts_read(
+    db: AsyncSession, user: User, client_id: int
+) -> None:
+    # Każda liczba w tej zakładce jest kwotą (budżet, faktury, saldo) — inaczej
+    # niż przy „Zużyciu MD”, gdzie liczby MD są operacyjne.
+    if not await _can_see_finance(db, user, client_id):
+        raise HTTPException(
+            403, detail="Kwoty zamówienia widzą osoby z dostępem do finansów klienta."
+        )
+
+
+async def _cost_consumptions_read(
+    db: AsyncSession, *, group: ClientOrderGroup, line_id: int
+) -> CostConsumptionsResponse:
+    rows = await group_invoice_rows(db, group.id)
+    pool = quantize_money(group.budget_amount or 0) + quantize_money(
+        group.budget_manual_adjustment or 0
+    )
+    pool = pool if pool > 0 else quantize_money(0)
+    balances = balance_after_months(pool, rows)
+    lines = list(
+        (
+            await db.scalars(
+                _line_query().where(ClientOrder.order_group_id == group.id)
+            )
+        ).all()
+    )
+    names = {line.id: consultant_display_name(line) for line in lines}
+    invoiced: dict[int, Decimal] = {}
+    for row in rows:
+        invoiced[row.order_id] = invoiced.get(row.order_id, quantize_money(0)) + (
+            quantize_money(row.invoice_amount)
+        )
+    authors = {
+        user_id: name
+        for user_id, name in (
+            await db.execute(
+                select(User.id, User.name).where(
+                    User.id.in_(
+                        {
+                            r.created_by_user_id
+                            for r in rows
+                            if r.order_id == line_id and r.created_by_user_id
+                        }
+                        or {-1}
+                    )
+                )
+            )
+        ).all()
+    }
+    used = sum((quantize_money(r.settled_amount) for r in rows), quantize_money(0))
+    return CostConsumptionsResponse(
+        order_number=group.order_number,
+        budget_pool=pool,
+        budget_used=used,
+        budget_remaining=quantize_money(group.budget_remaining or 0),
+        rows=[
+            CostConsumptionRow(
+                period_month=r.period_month,
+                invoice_amount=r.invoice_amount,
+                settled_amount=r.settled_amount,
+                unsettled_amount=r.unsettled_amount,
+                source=r.source,  # type: ignore[arg-type]
+                status=r.status,  # type: ignore[arg-type]
+                note=r.note,
+                import_id=r.import_id,
+                created_by_name=authors.get(r.created_by_user_id or -1),
+                updated_at=r.updated_at,
+                balance_after=balances[r.period_month],
+            )
+            for r in rows
+            if r.order_id == line_id
+        ],
+        people=[
+            CostConsumptionPerson(
+                order_id=line.id,
+                name=names[line.id],
+                invoiced=invoiced.get(line.id, quantize_money(0)),
+            )
+            for line in sorted(lines, key=lambda item: item.id)
+            if line.id == line_id or line.id in invoiced
+        ],
+        group_rows=[
+            CostConsumptionGroupRow(
+                order_id=r.order_id,
+                period_month=r.period_month,
+                invoice_amount=r.invoice_amount,
+            )
+            for r in rows
+        ],
+    )
+
+
+async def _settle_after_manual_cost_write(
+    db: AsyncSession, *, group: ClientOrderGroup, period_month: str, user: User
+) -> ClientOrderGroup:
+    """Przelicz pulę po ręcznym wpisie; wyczerpanie = wpis i alert jak przy imporcie."""
+    group = await lock_group_for_settlement(db, group, flush_local_changes=False)
+    was_exhausted = group.status == GROUP_STATUS_EXHAUSTED
+    await settle_group(db, group)
+    if not was_exhausted and group.status == GROUP_STATUS_EXHAUSTED:
+        record_event(
+            db,
+            group_id=group.id,
+            event_type=EVENT_BUDGET_EXHAUSTED,
+            description=(
+                f"Budżet zamówienia {group.order_number} wyczerpany po ręcznym "
+                f"wpisie za {format_period_month(period_month)}."
+            ),
+            user_id=user.id,
+        )
+        await emit_cost_order_exhausted(db, group)
+    return group
+
+
+@router.get(
+    "/{client_id}/order-groups/{group_id}/lines/{line_id}/cost-consumptions",
+    response_model=CostConsumptionsResponse,
+)
+async def list_line_cost_consumptions(
+    client_id: int,
+    group_id: int,
+    line_id: int,
+    user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Zakładka „Zużycie” osoby na zamówieniu kosztowym: jej miesiące,
+    saldo całego zamówienia po każdym z nich i podział puli na osoby."""
+    await _require_safe_group_read(db, user, client_id)
+    _assert_multi_client(client_id)
+    await _require_cost_amounts_read(db, user, client_id)
+    group = await _load_group(db, client_id, group_id)
+    await _cost_line_for_consumptions(
+        db, group=group, line_id=line_id, for_update=False
+    )
+    return await _cost_consumptions_read(db, group=group, line_id=line_id)
+
+
+@router.put(
+    "/{client_id}/order-groups/{group_id}/lines/{line_id}/cost-consumptions/{period_month}",
+    response_model=CostConsumptionsResponse,
+)
+async def upsert_line_cost_consumption(
+    client_id: int,
+    group_id: int,
+    line_id: int,
+    period_month: str,
+    payload: CostConsumptionUpsert,
+    user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ręczny wpis kwoty za miesiąc (nowy albo nadpisanie).
+
+    Uprawnienia jak przy „Zużyciu MD” plus prawo do kwot zamówień klienta —
+    wpis jest kwotą. Wpis ręczny nie jest potem nadpisywany importem Finansów
+    (decyzja Artura 21.10.2026, ``COST_ROW_MANUAL_KEPT``).
+    """
+    await _require_order_lifecycle(db, user, client_id)
+    _assert_multi_client(client_id)
+    if not await _can_write_amounts(db, user, client_id):
+        from app.api.client_orders import amount_fields_forbidden
+
+        raise amount_fields_forbidden(user, ["invoice_amount"])
+    period_month = _validated_period_month(period_month)
+    group = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(group)
+    line = await _cost_line_for_consumptions(
+        db, group=group, line_id=line_id, for_update=True
+    )
+    previous = await db.scalar(
+        select(ClientOrderInvoiceConsumption.invoice_amount).where(
+            ClientOrderInvoiceConsumption.order_id == line.id,
+            ClientOrderInvoiceConsumption.period_month == period_month,
+        )
+    )
+    value = quantize_money(payload.invoice_amount)
+    await upsert_invoice(
+        db,
+        order=line,
+        period_month=period_month,
+        invoice_amount=value,
+        source=CONSUMPTION_SOURCE_MANUAL,
+        user_id=user.id,
+        status=payload.status,
+        note=payload.note,
+    )
+    await db.flush()
+    group = await _settle_after_manual_cost_write(
+        db, group=group, period_month=period_month, user=user
+    )
+    overwritten = (
+        f", nadpisano wcześniejsze {format_pln(previous)}"
+        if previous is not None and quantize_money(previous) != value
+        else ""
+    )
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=line.id,
+        event_type=EVENT_MANUAL_EDIT,
+        description=(
+            f"{consultant_display_name(line)} — zejście za "
+            f"{format_period_month(period_month)}: {format_pln(value)}"
+            f"{overwritten}. Pozostało na zamówieniu "
+            f"{format_pln(group.budget_remaining or 0)}."
+        ),
+        payload={
+            "changed": [COST_CONSUMPTION_EDIT_LABEL],
+            "period_month": period_month,
+            "invoice_amount": str(value),
+            "previous": str(previous) if previous is not None else None,
+            "status": payload.status,
+            "note": payload.note,
+            "budget_remaining": str(group.budget_remaining),
+        },
+        user_id=user.id,
+    )
+    await commit_order_write(db)
+    return await _cost_consumptions_read(db, group=group, line_id=line.id)
+
+
+@router.delete(
+    "/{client_id}/order-groups/{group_id}/lines/{line_id}/cost-consumptions/{period_month}",
+    response_model=CostConsumptionsResponse,
+)
+async def delete_line_cost_consumption(
+    client_id: int,
+    group_id: int,
+    line_id: int,
+    period_month: str,
+    user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Usunięcie kwoty za miesiąc — budżet przeliczany od zera."""
+    await _require_order_lifecycle(db, user, client_id)
+    _assert_multi_client(client_id)
+    if not await _can_write_amounts(db, user, client_id):
+        from app.api.client_orders import amount_fields_forbidden
+
+        raise amount_fields_forbidden(user, ["invoice_amount"])
+    period_month = _validated_period_month(period_month)
+    group = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(group)
+    line = await _cost_line_for_consumptions(
+        db, group=group, line_id=line_id, for_update=True
+    )
+    removed = await delete_invoice(db, order=line, period_month=period_month)
+    if removed is None:
+        raise HTTPException(404, detail="Brak wpisu za ten miesiąc")
+    group = await _settle_after_manual_cost_write(
+        db, group=group, period_month=period_month, user=user
+    )
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=line.id,
+        event_type=EVENT_MANUAL_EDIT,
+        description=(
+            f"{consultant_display_name(line)} — usunięto zejście za "
+            f"{format_period_month(period_month)} ({format_pln(removed)}). "
+            f"Pozostało na zamówieniu {format_pln(group.budget_remaining or 0)}."
+        ),
+        payload={
+            "changed": [COST_CONSUMPTION_EDIT_LABEL],
+            "period_month": period_month,
+            "removed_amount": str(removed),
+            "budget_remaining": str(group.budget_remaining),
+        },
+        user_id=user.id,
+    )
+    await commit_order_write(db)
+    return await _cost_consumptions_read(db, group=group, line_id=line.id)
 
 
 async def _shared_md_consumptions_read(

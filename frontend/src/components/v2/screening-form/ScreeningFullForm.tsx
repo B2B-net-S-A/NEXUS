@@ -100,6 +100,8 @@ import {
   buildSavePayload,
   cardAssessmentKeys,
   cardOriginAfterEdit,
+  carriedCaption,
+  carriedPrefill,
   cardTermsKeys,
   editableCardKeys,
   fillPatches,
@@ -111,6 +113,7 @@ import {
   missingAnswersForForward,
   lowerKnownRate,
   lowerKnownRateText,
+  minimumMissingForForward,
   ratePrefill,
   ratePrefillCaption,
   rateFromValues,
@@ -123,6 +126,7 @@ import {
   type RatePrefill,
   type ScreeningFullFormValues,
 } from "@/lib/screening-form";
+import type { CarriedCardField } from "@/lib/api/screeningForm";
 import { onsiteText } from "@/lib/person-facts";
 import { notedAtDateLabel, rateSuggestionFill, type ScreeningSuggestions } from "@/lib/screening-suggestions";
 import {
@@ -141,6 +145,26 @@ import { NoteFillBar } from "./NoteFillBar";
 import { MemoryPendingNote } from "./ScreeningMemoryNotes";
 import { ScreeningFormHistory } from "./ScreeningFormHistory";
 import { ScreeningLegacyText, ScreeningSummaryView } from "./ScreeningSummaryView";
+
+/** D3 (21.10.2026): pole dołożone do minimum w karcie klienta — „Wymaga Nordea przed „Zweryfikowany””. */
+function requiredByClient(state: ScreeningFormState, key: string): string | undefined {
+  const extra = state.card?.required_by_client;
+  if (!extra || !extra.fields.includes(key)) return undefined;
+  return `Wymaga ${extra.client_name ?? "klient"} przed „Zweryfikowany”`;
+}
+
+/** Brudne pola bez wpisów z innej rekrutacji (D2) — to podpowiedź, nie wpis rekrutera. */
+function withoutCarried(
+  dirty: SingleDirty,
+  card: Record<string, string> | undefined,
+  carried: Record<string, CarriedCardField>,
+): SingleDirty {
+  if (!dirty.card) return dirty;
+  const kept = Object.fromEntries(
+    Object.entries(dirty.card).filter(([key]) => !(carried[key] && (card?.[key] ?? "") === carried[key].raw)),
+  );
+  return { ...dirty, card: kept };
+}
 
 const EMPTY_VALUES: ScreeningFullFormValues = {
   answers: {},
@@ -200,6 +224,11 @@ export interface ScreeningFormModel {
   /** Rekruter sam ruszył stawkę — formularz nie wpisze jej ponownie. */
   touchRate: () => void;
   /**
+   * D2 (21.10.2026): pola o osobie wpisane z jej innej rekrutacji — pod polem
+   * stoi, skąd są, dopóki pole ma tę wartość. Zapisują się z „Zapisz”.
+   */
+  carriedPrefilled: Record<string, CarriedCardField>;
+  /**
    * Zmiany rekrutera (albo wypełnienie z notatki) czekają na zapis. Sama stawka
    * na start się nie liczy: zapisze się z „Zapisz”, ale stopka nie mówi
    * „Niezapisane zmiany” zaraz po otwarciu (przeklikanie 18.10.2026).
@@ -248,6 +277,28 @@ export function useScreeningFormModel(
   const rateTouched = useRef<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const questions = useMemo(() => (state ? formQuestions(state) : []), [state]);
+  const [carriedPrefilled, setCarriedPrefilledState] = useState<Record<string, CarriedCardField>>({});
+  const carriedPrefilledRef = useRef<Record<string, CarriedCardField>>({});
+  // Pola, które rekruter ruszył po wpisaniu z innej rekrutacji (klucz pary →
+  // pola) — formularz nie wpisze ich ponownie po zapisie ani odświeżeniu.
+  const carriedTouched = useRef<{ key: string; fields: Set<string> } | null>(null);
+
+  // D2 (21.10.2026): jak stawka na start — po `reset`, jako zmiana formularza.
+  const prefillCarried = useCallback(
+    (next: ScreeningFormState) => {
+      const key = `${next.candidate_id}:${next.job_id}`;
+      const touched = carriedTouched.current?.key === key ? carriedTouched.current.fields : new Set<string>();
+      const placed: Record<string, CarriedCardField> = {};
+      for (const [field, value] of Object.entries(carriedPrefill(next))) {
+        if (touched.has(field) || (methods.getValues(`card.${field}`) ?? "").trim()) continue;
+        methods.setValue(`card.${field}`, value.raw, SET);
+        placed[field] = value;
+      }
+      carriedPrefilledRef.current = placed;
+      setCarriedPrefilledState(placed);
+    },
+    [methods],
+  );
 
   // D2 (14.10.2026): etap bez stawki — pole dostaje stawkę z notatki, karty
   // albo „Stawkę od” jako zmianę formularza, więc zapisze się z „Zapisz”.
@@ -319,7 +370,7 @@ export function useScreeningFormModel(
         anchorJobId: base.job_id,
         state: base,
         values,
-        dirty: dirtyFields as SingleDirty,
+        dirty: withoutCarried(dirtyFields as SingleDirty, values.card, carriedPrefilledRef.current),
         rateTouched: rateByRecruiter,
         note: current ? { source: current.source, filled: current.filled } : null,
         now: Date.now(),
@@ -361,8 +412,10 @@ export function useScreeningFormModel(
       clearNote();
       setNotice(null);
       rateTouched.current = null;
+      carriedTouched.current = null;
     }
     prefillRate(state);
+    prefillCarried(state);
     if (!fresh) return;
     // Wpisy tej pary z rozmowy (także z formularza wspólnego) — jako zmiany rekrutera.
     const link = memoryRef.current;
@@ -383,7 +436,7 @@ export function useScreeningFormModel(
     }
     memoryReady.current = key;
     persist();
-  }, [state, methods, clearNote, prefillRate, setRatePrefilled, persist]);
+  }, [state, methods, clearNote, prefillRate, prefillCarried, setRatePrefilled, persist]);
 
   useEffect(() => {
     const subscription = methods.watch(() => persist());
@@ -404,8 +457,9 @@ export function useScreeningFormModel(
       clearNote();
       setNotice(null);
       prefillRate(result);
+      prefillCarried(result);
     },
-    [methods, clearNote, prefillRate],
+    [methods, clearNote, prefillRate, prefillCarried],
   );
 
   const baseState = useCallback(() => hydrated.current?.state ?? null, []);
@@ -430,6 +484,12 @@ export function useScreeningFormModel(
       const card = /^card\.(.+)$/.exec(name);
       if (card) {
         const key = card[1];
+        const base = hydrated.current?.state;
+        if (base && carriedPrefilledRef.current[key]) {
+          const pair = `${base.candidate_id}:${base.job_id}`;
+          if (carriedTouched.current?.key !== pair) carriedTouched.current = { key: pair, fields: new Set() };
+          carriedTouched.current.fields.add(key);
+        }
         const verdict = cardOriginAfterEdit(
           methods.getValues(`card_origins.${key}`),
           methods.getValues(`card.${key}`) ?? "",
@@ -502,15 +562,22 @@ export function useScreeningFormModel(
   // `watch` subskrybuje pola stawki — inna kwota wpisana ręcznie zmienia wynik,
   // choć `dirtyFields` zostaje to samo.
   const watchedRate = methods.watch(["rate_amount", "rate_unit", "rate_currency"]);
-  const dirtyKeys = Object.keys(methods.formState.dirtyFields);
+  const watchedCard = methods.watch("card");
+  const dirtyFields = methods.formState.dirtyFields;
+  const rateDirty = Boolean(dirtyFields.rate_amount || dirtyFields.rate_unit || dirtyFields.rate_currency);
   const onlyPrefilledRate =
-    ratePrefilled != null &&
-    dirtyKeys.every((k) => k.startsWith("rate_")) &&
-    sameRate(
-      rateFromValues({ rate_amount: watchedRate[0], rate_unit: watchedRate[1], rate_currency: watchedRate[2] }),
-      ratePrefilled.rate,
-    );
-  const unsaved = (dirty && !onlyPrefilledRate) || note != null;
+    !rateDirty ||
+    (ratePrefilled != null &&
+      sameRate(
+        rateFromValues({ rate_amount: watchedRate[0], rate_unit: watchedRate[1], rate_currency: watchedRate[2] }),
+        ratePrefilled.rate,
+      ));
+  // Pola wpisane z innej rekrutacji (D2) też nie zapalają „Niezapisanych zmian”.
+  const onlyCarriedCard = Object.entries(dirtyFields.card ?? {}).every(
+    ([key, isDirty]) => !isDirty || (watchedCard?.[key] ?? "") === carriedPrefilled[key]?.raw,
+  );
+  const otherDirty = Object.keys(dirtyFields).some((k) => !k.startsWith("rate_") && k !== "card");
+  const unsaved = (dirty && (otherDirty || !onlyPrefilledRate || !onlyCarriedCard)) || note != null;
 
   return {
     methods,
@@ -521,6 +588,7 @@ export function useScreeningFormModel(
     rateFromNote,
     ratePrefilled,
     touchRate,
+    carriedPrefilled,
     unsaved,
     notice,
     setNotice,
@@ -734,9 +802,12 @@ export function ScreeningFullFormView({
     const origin = values.card_origins?.[key] ?? null;
     const offer = offerById.get(`card:${key}`);
     const hint = state.card?.previous?.[key]?.raw ?? state.card?.suggestions?.[key];
+    const carried = model.carriedPrefilled[key];
     const caption = origin
       ? `${ORIGIN_CAPTION[origin.origin] ?? "z notatki"} — zapisz formularz`
-      : value.trim() === String(fields[key]?.raw ?? "").trim()
+      : carried && value === carried.raw
+        ? `${carriedCaption(carried)} — sprawdź i zapisz`
+        : value.trim() === String(fields[key]?.raw ?? "").trim()
         ? cardFieldSource(fields[key])
         : null;
     const keepsNoteValue = !value.trim() && fields[key]?.source === "note";
@@ -764,7 +835,11 @@ export function ScreeningFullFormView({
           name={name}
           label={label}
           // 12.10.2026: to, co już wiemy, stoi pod polem, którego dotyczy.
-          description={key === "work_mode" && profileWorkMode ? `W profilu: ${profileWorkMode}` : undefined}
+          description={
+            key === "work_mode" && profileWorkMode
+              ? `W profilu: ${profileWorkMode}`
+              : requiredByClient(state, key)
+          }
         >
           {multiline ? (
             <TextareaField
@@ -1337,6 +1412,19 @@ export function ScreeningFullForm({
     if (result && closeOnSave) onCancel?.();
   };
 
+  const markMinimumGaps = (keys: readonly string[], announce = true) => {
+    for (const key of keys) {
+      methods.setError(`card.${key}`, { type: "required", message: "Delivery Lead potrzebuje tego pola" });
+    }
+    methods.setFocus(`card.${keys[0]}`);
+    setError(null);
+    if (announce && state) {
+      showError(
+        `Przed przekazaniem dalej uzupełnij: ${keys.map((key) => formFieldLabel(state, key)).join(", ")}.`,
+      );
+    }
+  };
+
   const onForward = async () => {
     if (!state || !forward) return;
     const values = methods.getValues();
@@ -1363,6 +1451,12 @@ export function ScreeningFullForm({
       );
       return;
     }
+    // Minimum dla DL (21.10.2026) — ta sama reguła co bramka serwera.
+    const minimum = minimumMissingForForward(state, model.questions, values);
+    if (minimum.length > 0) {
+      markMinimumGaps(minimum);
+      return;
+    }
     setForwarding(true);
     try {
       const saved = await saveNow();
@@ -1385,7 +1479,13 @@ export function ScreeningFullForm({
             : {}),
           expected_state_version: current.process_state_version,
         },
-        { candidateName },
+        {
+          candidateName,
+          // Serwer wie więcej (np. pola dołożone przez klienta) — podświetl je.
+          onVerifiedMissing: (info) => {
+            if (info.cardFields.length > 0) markMinimumGaps(info.cardFields, false);
+          },
+        },
       );
       void queryClient.invalidateQueries({ queryKey: screeningFormQueryKey(jobId, candidateId) });
       if (outcome.ok) {
@@ -1542,6 +1642,11 @@ export function ScreeningFullForm({
 
   const claimedByOther = state.claim && !state.claim.mine ? state.claim : null;
   const busy = save.isPending || forwarding || handingBack || rejectMut.isPending;
+  // Minimum dla DL (21.10.2026) — przy „Zapisz i przekaż dalej” widać, czego brakuje.
+  const minimumGaps = forward
+    ? minimumMissingForForward(state, model.questions, { card: methods.watch("card") ?? {} })
+    : [];
+  const minimumRequired = forward ? (state.card?.required ?? []).length > 0 : false;
 
   const footer = (
     <div
@@ -1552,6 +1657,19 @@ export function ScreeningFullForm({
         <div className="basis-full">
           <MemoryPendingNote scope="tylko tę rekrutację" items={pendingMemory} onReselect={onReselect} />
         </div>
+      ) : null}
+      {minimumRequired ? (
+        <p
+          className={cn(
+            "basis-full text-[11px]",
+            minimumGaps.length > 0 ? "text-warning-muted-foreground" : "text-muted-foreground",
+          )}
+          data-testid="screening-form-minimum"
+        >
+          {minimumGaps.length > 0
+            ? `Minimum dla Delivery Leada — brakuje: ${minimumGaps.map((key) => formFieldLabel(state, key)).join(", ")}`
+            : "Minimum dla Delivery Leada: komplet"}
+        </p>
       ) : null}
       <p className="mr-auto flex items-center gap-1 text-[11px] text-muted-foreground" role="status">
         {dirty ? (

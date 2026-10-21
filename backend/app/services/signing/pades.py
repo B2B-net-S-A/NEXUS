@@ -1,9 +1,8 @@
-"""PAdES validation + (Faza 5) archival timestamp via pyHanko.
+"""PAdES validation via pyHanko.
 
-In the in-house QES rail the cryptographic *signing* is done outside NEXUS
-(the consultant signs offline with their own qualified tool, then uploads the
-signed PDF — Option B; or KIR Szafir/mSzafir for the embedded pasy). pyHanko's
-role here is **validation** on the PDF we receive back.
+In podpis umowy B2B w NEXUSIE the cryptographic *signing* is done outside
+NEXUS (each party signs with their own qualified tool, then uploads the signed
+PDF). pyHanko's role here is **validation** on the PDF we receive back.
 
 Division of labour (both open-source, **zero KIR dependency**):
 - **pyHanko** (this module) — fast, local, network-free *pre-check*: parses the
@@ -16,8 +15,6 @@ Division of labour (both open-source, **zero KIR dependency**):
 ``pyhanko`` is verified compatible with the repo's ``cryptography==44.0.0`` pin
 at ``pyhanko[etsi]==0.34.1`` (newer pyHanko needs cryptography>=48). Imported
 lazily so unrelated paths don't pay the cost.
-
-Plan: ``docs/in-house-qes-signature-plan.md`` §4, §7.
 """
 
 from __future__ import annotations
@@ -227,18 +224,3 @@ async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
         "signers": signer_names,
         "signature_results": signature_results,
     }
-
-
-def add_archival_timestamp(signed_pdf: bytes) -> bytes:
-    """Add a PAdES B-LTA archival document timestamp (Faza 5).
-
-    Re-stamps long-lived contracts before their existing timestamps expire so
-    the signature stays provably valid for the (potentially decades-long) IP
-    retention horizon. pyHanko ``PdfTimeStamper`` against a qualified TSA.
-
-    Raises:
-        NotImplementedError: lands in Faza 5 (needs a qualified TSA endpoint).
-    """
-    raise NotImplementedError(
-        "add_archival_timestamp: B-LTA re-stamping lands in Faza 5 (qualified TSA)."
-    )

@@ -11,7 +11,7 @@ and commit behaviour.  Commands flush, but never commit.
 
 from __future__ import annotations
 
-from app.services import candidate_claim
+from app.services import candidate_claim, client_off_limits
 from app.services.operational_tasks import nominal_task_owner
 
 from collections.abc import Iterable
@@ -1053,6 +1053,36 @@ async def transition_process(
         # zdecydowanej większości nikt nie przekazał do searchu.
         job_is_open=job.is_open,
     )
+    # Off-limits (21.10.2026): człowiek otwiera NOWY proces osobie z firmy
+    # z aktywnym zamówieniem — tylko z potwierdzeniem „sama się zgłosiła”.
+    # Przed zapisem etapu; przepięcie z naszej rekrutacji pytania nie ma.
+    off_limits_meta: Optional[dict] = None
+    if (
+        not continuation_exists
+        and source_authority == "live_command"
+        and entry_source in candidate_claim.HUMAN_ENTRY_SOURCES
+        and entry_source != candidate_claim.ENTRY_REASSIGN
+        and reassign_from_job_id is None
+    ):
+        try:
+            off_limits_meta = await client_off_limits.confirm_or_raise(
+                db,
+                candidate_id=candidate_id,
+                job_id=job_id,
+                actor_user_id=actor_user_id,
+            )
+        except client_off_limits.OffLimitsConfirmationRequired:
+            # Ruch ``/move`` nie wie z góry o przepięciu (wykrywa je niżej).
+            reassign = await open_reassign_sources(
+                db, job_id=job_id, candidate_ids=[candidate_id]
+            )
+            if candidate_id not in reassign:
+                raise
+        if off_limits_meta is not None:
+            entry_meta = {
+                **(entry_meta or {}),
+                client_off_limits.OFF_LIMITS_META_KEY: off_limits_meta,
+            }
 
     values = dict(candidate_stage_values)
     # The command owns identity/timestamp fields; silently accepting duplicates

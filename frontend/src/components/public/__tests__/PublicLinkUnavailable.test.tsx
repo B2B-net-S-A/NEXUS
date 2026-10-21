@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/app/sign/[token]/SignForm", () => ({ default: () => null }));
+vi.mock("@/app/sign/b2b/[token]/B2BSignForm", () => ({ default: () => null }));
 
-import SignPage from "@/app/sign/[token]/page";
+import SignPage from "@/app/sign/b2b/[token]/page";
 import PublicChampionCardPage from "@/app/share/champion-card/[token]/page";
 import { publicLinkFailure } from "@/lib/public-link-state";
 

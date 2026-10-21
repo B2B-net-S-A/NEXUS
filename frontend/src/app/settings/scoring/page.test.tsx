@@ -134,7 +134,7 @@ describe("ScoringWeightsPage — Insights RBAC", () => {
     await waitFor(() => expect(mocks.list).not.toHaveBeenCalled());
   });
 
-  it("wagi domyślne po ludzku, od najważniejszej — bez nazw pól z kodu (21.10.2026)", async () => {
+  it("„Dop.” po ludzku i z udziałem, jaki liczy silnik — bez nazw pól z kodu (21.10.2026)", async () => {
     mocks.user = {
       role: "delivery_lead",
       roles: ["delivery_lead"],
@@ -142,17 +142,22 @@ describe("ScoringWeightsPage — Insights RBAC", () => {
     };
     renderPage();
 
-    const section = await screen.findByRole("region", { name: "Wagi domyślne — dla wszystkich rekrutacji" });
-    const labels = Array.from(section.querySelectorAll("li p:first-child")).map((node) => node.textContent);
-    expect(labels).toEqual([
-      "Dopasowanie do opisu",
-      "Umiejętności",
-      "Stawka",
-      "Profil Championa",
-      "Lokalizacja",
-      "Dostępność",
+    const section = await screen.findByRole("region", {
+      name: "Z czego składa się „Dop.” — dla wszystkich rekrutacji",
+    });
+    const rows = Array.from(section.querySelectorAll("li")).map((li) => [
+      li.querySelector("p")?.textContent,
+      li.querySelector("span.tabular-nums")?.textContent,
     ]);
-    expect(section).toHaveTextContent("35%");
+    // 60/10/15/5/0 z 90 (bez wyniku screeningu) — jak base_fit_profile w backendzie.
+    expect(rows).toEqual([
+      ["Podobieństwo CV do rekrutacji", "67%"],
+      ["Umiejętności", "11%"],
+      ["Lokalizacja i tryb pracy", "6%"],
+      ["Stawka", "17%"],
+      ["Dostępność", "0%"],
+    ]);
+    expect(section).toHaveTextContent("wynik screeningu nie wchodzi do „Dop.”");
     expect(screen.queryByText(/semantic|boost|tunowanie/)).toBeNull();
   });
 });
