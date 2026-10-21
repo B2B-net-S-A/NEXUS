@@ -782,6 +782,8 @@ _ENUM_STATEMENTS = [
     # 0482: rozmowa u klienta bez Prepu 2 (do DL) i próg pominięć (do HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skipped'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skip_threshold'",
+    # 0500: rozmowa u klienta przełożona albo odwołana (do ludzi pary).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_changed'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",

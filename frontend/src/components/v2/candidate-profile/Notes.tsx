@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { ConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import type { CandidateCardNoteLink } from "@/lib/api/candidateCards";
@@ -30,6 +31,7 @@ import { noteLinkSummary } from "@/lib/candidate-card-facts";
 import { detectNotePersonMismatch } from "@/lib/note-person-mismatch";
 import { useMentionableUsers, type MentionScope } from "@/hooks/useMentionableUsers";
 import { buildUsersByEmail, renderWithMentions } from "@/lib/renderMentions";
+import { notifyOnEditRecipients, recipientsLabel } from "@/lib/note-edit-notify";
 import type { PresenceViewer } from "@/hooks/usePresence";
 import { noteTypeLabel } from "@/components/v2/pages/candidate-timeline-labels";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -296,7 +298,12 @@ export function NotesList({
 }: {
   notes: any[];
   recruitments?: any[];
-  onEdit: (noteId: number, content: string) => Promise<boolean>;
+  /** `notifyMentions` — „Powiadom oznaczonych o zmianie” (osoby już oznaczone). */
+  onEdit: (
+    noteId: number,
+    content: string,
+    options?: { notifyMentions?: boolean },
+  ) => Promise<boolean>;
   onDelete: (noteId: number) => Promise<boolean>;
   /** Przypnij/odepnij (wspólnie dla zespołu). Brak = bez przycisku. */
   onPin?: (noteId: number, pinned: boolean) => Promise<boolean>;
@@ -391,6 +398,10 @@ export function NotesList({
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
+  const [editOriginal, setEditOriginal] = useState("");
+  // 21.10.2026: zmieniony termin w notatce do DL-a nie docierał — domyślnie
+  // oznaczeni dostają powiadomienie o zmianie; przy literówce autor odznacza.
+  const [notifyMentions, setNotifyMentions] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
@@ -464,6 +475,14 @@ export function NotesList({
 
   const renderEditor = (n: any) => {
     const isBusy = busyId != null && busyId === n.id;
+    const recipients = notifyOnEditRecipients(
+      editOriginal,
+      editText,
+      usersByEmail,
+      currentUserId,
+    );
+    const notify = recipients.length > 0 && notifyMentions;
+    const checkboxId = `note-${n.id}-notify-mentions`;
     return (
       <div className="mt-2 space-y-2">
         <MentionTextarea
@@ -478,6 +497,31 @@ export function NotesList({
           rows={3}
           ariaLabel="Edytuj treść notatki"
         />
+        {recipients.length > 0 ? (
+          <div
+            className={cn(
+              "flex items-start gap-2 rounded-md border px-2.5 py-2",
+              notify ? "border-primary/30 bg-primary/5" : "border-border bg-muted/40",
+            )}
+          >
+            <Checkbox
+              id={checkboxId}
+              checked={notifyMentions}
+              onCheckedChange={(v) => setNotifyMentions(v === true)}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 text-xs">
+              <label htmlFor={checkboxId} className="cursor-pointer text-sm font-medium text-foreground">
+                Powiadom oznaczonych o zmianie
+              </label>
+              <p className="mt-0.5 text-muted-foreground">
+                {notify
+                  ? `${recipientsLabel(recipients)} ${recipients.length > 1 ? "zobaczą" : "zobaczy"} zmianę w „Wiadomościach” i w dymku na ekranie.`
+                  : "Bez powiadomienia — dobre przy poprawce literówki."}
+              </p>
+            </div>
+          </div>
+        ) : null}
         <div className="flex items-center justify-end gap-2">
           <Button
             size="sm"
@@ -498,7 +542,9 @@ export function NotesList({
             disabled={!editText.trim() || isBusy}
             onClick={async () => {
               setBusyId(n.id);
-              const ok = await onEdit(n.id, editText.trim());
+              const ok = await onEdit(n.id, editText.trim(), {
+                notifyMentions: notify,
+              });
               setBusyId(null);
               if (ok) {
                 setEditingId(null);
@@ -506,7 +552,7 @@ export function NotesList({
               }
             }}
           >
-            Zapisz
+            {notify ? "Zapisz i powiadom" : "Zapisz"}
           </Button>
         </div>
       </div>
@@ -591,8 +637,11 @@ export function NotesList({
             <button
               type="button"
               onClick={() => {
+                const content = unwrapNoteContent(n.content);
                 setEditingId(n.id);
-                setEditText(unwrapNoteContent(n.content));
+                setEditText(content);
+                setEditOriginal(content);
+                setNotifyMentions(true);
               }}
               className={iconButton}
               title={isReply ? "Edytuj odpowiedź" : "Edytuj notatkę"}

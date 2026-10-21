@@ -56,6 +56,7 @@ from app.services.candidate_contact_hooks import (
 )
 from app.services import loop_heartbeat
 from app.services.calendar_all_day import normalize_all_day
+from app.services.interview_change_notifications import notify_client_interview_change
 
 logger = logging.getLogger(__name__)
 
@@ -716,6 +717,7 @@ async def update_event(
     await _reject_teams_meeting_relink(db, event, changes)
     outlook_fields = _outlook_changed_fields(event, changes)
     previous_start = event.start_time
+    previous_status = event.status
     if outlook_fields:
         await _push_outlook_changes(db, event, changes, outlook_fields)
     for field, value in changes.items():
@@ -726,6 +728,9 @@ async def update_event(
         event.start_time, event.end_time = normalize_all_day(
             event.start_time, event.end_time
         )
+    await _notify_client_interview_patch(
+        db, event, current_user, previous_start, previous_status
+    )
 
     current_handoff = (
         event.candidate_id,
@@ -765,6 +770,41 @@ async def update_event(
     await db.commit()
     await db.refresh(event)
     return await _event_response(db, event, current_user)
+
+
+def _upcoming(*starts: Optional[datetime]) -> bool:
+    now = datetime.now(timezone.utc)
+    return any(
+        s is not None
+        and (s if s.tzinfo is not None else s.replace(tzinfo=timezone.utc)) > now
+        for s in starts
+    )
+
+
+async def _notify_client_interview_patch(
+    db: AsyncSession,
+    event: CalendarEvent,
+    actor: User,
+    previous_start: Optional[datetime],
+    previous_status: EventStatus,
+) -> None:
+    """Rozmowa u klienta przełożona albo odwołana z edycji (0500, 21.10.2026).
+
+    Tylko rozmowa przed nami — poprawka godziny rozmowy, która już się odbyła,
+    nikomu nic nie zmienia.
+    """
+    if event.status == EventStatus.cancelled:
+        if previous_status != EventStatus.cancelled and _upcoming(event.start_time):
+            await notify_client_interview_change(
+                db, actor=actor, event=event, kind="cancelled"
+            )
+        return
+    if event.start_time != previous_start and _upcoming(
+        previous_start, event.start_time
+    ):
+        await notify_client_interview_change(
+            db, actor=actor, event=event, kind="moved", previous_start=previous_start
+        )
 
 
 async def _notify_prep_moved(
@@ -1110,6 +1150,10 @@ async def cancel_event(
             occurred_at=datetime.now(timezone.utc),
         )
     event.status = EventStatus.cancelled
+    if _upcoming(event.start_time):
+        await notify_client_interview_change(
+            db, actor=current_user, event=event, kind="cancelled"
+        )
     record_calendar_audit(
         db,
         action=CALENDAR_EVENT_CANCELLED,
@@ -1155,6 +1199,10 @@ async def delete_event(
             event_id=event.id,
             actor_user_id=current_user.id,
             occurred_at=datetime.now(timezone.utc),
+        )
+    if event.status != EventStatus.cancelled and _upcoming(event.start_time):
+        await notify_client_interview_change(
+            db, actor=current_user, event=event, kind="cancelled"
         )
     record_calendar_audit(
         db,
