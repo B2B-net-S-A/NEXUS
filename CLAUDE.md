@@ -196,6 +196,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `nordea-akceptacja-dl-przed-cpro.md` — Nordea: do kolejki Cpro dopiero po akceptacji Delivery Leada (13.10.2026) · „Akceptuj — do Cpro” ze stawką, bramka serwera dla rekrutera, dzwonek od Cpro po akceptacji
 - `nowe-cv-w-rekrutacji.md` — Nowe CV w rekrutacji — kafelek w panelu osoby i „Dodaj do rekrutacji z tym CV” (13.10.2026) · „Wgraj nowe CV” w panelu osoby, trasa `…/cv/original/upload`, „Użyj w tej rekrutacji”, „Dodaj z CV” przy osobie z bazy
 - `odrzucenie-z-uzasadnieniem.md` — Odrzucenie z uzasadnieniem i rozmowa u tego samego managera (20.10.2026)
+- `off-limits-sam-sie-zglosil.md` — Off-limits: „Czy sam(a) się do nas zgłosił(a)?” przy dodaniu do rekrutacji (21.10.2026)
 - `pipeline-rekrutacji-bramka-ruchu-przekazanie-cv.md` — Pipeline rekrutacji — bramka ruchu, przekazanie CV, spójność ekranów (11.09.2026)
 - `pipeline-v4-6-kolumn-blokada-12-h-przeglad-dl.md` — Pipeline v4 — 6 kolumn, blokada 12 h, przegląd DL (0352, 23.09.2026)
 - `podobne-rekrutacje-przepiecia-i-status-requestu.md` — Podobne rekrutacje, przepięcia i status requestu (0341, 22.09.2026)
