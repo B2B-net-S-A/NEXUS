@@ -1067,6 +1067,16 @@ except Exception as _contract_doc_folders_err:  # noqa: BLE001
     print(f"contract document folders DDL unavailable: {_contract_doc_folders_err!r}")
     _CONTRACT_DOC_FOLDERS_DDL = []
 
+# Historia zmian wag rankingu (migracja 0501) — JEDNO źródło z migracją
+# (`app/services/ranking_weights_schema.py`).
+try:
+    from app.services import ranking_weights_schema as _ranking_weights_schema
+
+    _RANKING_WEIGHT_CHANGES_DDL = list(_ranking_weights_schema.TABLE_DDL)
+except Exception as _ranking_weights_err:  # noqa: BLE001
+    print(f"ranking weight changes DDL unavailable: {_ranking_weights_err!r}")
+    _RANKING_WEIGHT_CHANGES_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1115,6 +1125,7 @@ _COLUMN_STATEMENTS = [
     *_B2B_REGISTER_DDL,
     *_CONTRACT_DOCS_SP_DDL,
     *_CONTRACT_DOC_FOLDERS_DDL,
+    *_RANKING_WEIGHT_CHANGES_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (

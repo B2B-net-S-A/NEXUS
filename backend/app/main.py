@@ -3233,6 +3233,10 @@ async def api_health_deep_check():
     from app.models.b2b_register_import import B2BRegisterImportRun
     from app.models.contract_doc_sharepoint import ContractDocSpItem, ContractDocSpRun
     from app.models.contract_document import ContractDocument, ContractDocumentFolder
+    from app.models.scoring_weight_change import (
+        ScoringWeightChange,
+        ScoringWeightMeasurement,
+    )
     from app.models.cv_qc_run import CvQcRun
     from app.models.application_screening import ApplicationScreening
     from app.models.requirement_cleanup import RequirementCleanupDecision
@@ -3312,6 +3316,9 @@ async def api_health_deep_check():
         # Foldery zakładki Dokumenty (0494); sonda ``contract_documents`` wyżej
         # sprawdza przy okazji kolumnę ``folder_id``.
         ("contract_document_folders", ContractDocumentFolder),
+        # Panel „Ranking kandydatów” (0501): historia zmian i pomiary.
+        ("scoring_weight_changes", ScoringWeightChange),
+        ("scoring_weight_measurements", ScoringWeightMeasurement),
         # Zamówienia wielo-konsultantowe (0227). Bez tych sond zakładka
         # „Zamówienia" trzech klientów rozliczanych na MD wywalałaby
         # UndefinedTable przy zielonym deployu — dokładnie tryb awarii

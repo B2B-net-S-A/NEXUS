@@ -218,7 +218,13 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     description: "Co liczy się najbardziej przy dopasowaniu kandydata.",
     keywords: "scoring wagi dopasowanie ranking profile",
     route: "/settings/scoring",
-    gate: { roles: ["admin", "delivery_lead"], section: "insights", required: "read" },
+    // Lustro `WeightsReader` (scoring_weights.py) + middleware. Szkic i
+    // publikację wag robi admin albo HoR z zapisem Insights (decyzja D1).
+    gate: {
+      roles: ["admin", "delivery_lead", "head_of_recruitment"],
+      section: "insights",
+      required: "read",
+    },
   },
   {
     id: "kpi-targets", area: "rec", title: "Cele KPI", group: "Proces",

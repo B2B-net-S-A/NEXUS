@@ -419,6 +419,21 @@ describe("zawężenia ról nadal obowiązują", () => {
       "pass",
     )
 
+    const headOfRecruitment = makeToken({
+      role: "head_of_recruitment",
+      roles: ["head_of_recruitment"],
+      exp: now() + HOUR,
+      sa: {
+        sourcing: "write",
+        pipeline: "write",
+        delivery: "read",
+        insights: "write",
+        finance: "none",
+        system_admin: "none",
+      },
+    })
+    expect(destination("/settings/scoring", headOfRecruitment)).toBe("pass")
+
     const readOnlyFinance = makeToken({
       role: "finance",
       roles: ["finance"],
