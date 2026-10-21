@@ -457,7 +457,9 @@ async def test_employment_and_mandate_bonus_need_no_contract_basis(
     async with AsyncSessionLocal() as db:
         request = await db.get(ApprovalRequest, created.json()["id"])
         bonus = await db.get(HrBonus, request.bonus_id)
-    assert bonus.description == "Premia poza umową"
+    # Ostatnia zgoda jest dla osoby na zleceniu: „wynagrodzenie dodatkowe”,
+    # nie „premia poza umową” (decyzja Artura 21.10.2026).
+    assert bonus.description == "Wynagrodzenie dodatkowe"
     assert bonus.rule_snapshot == {"approval_request_id": request.id}
 
 
