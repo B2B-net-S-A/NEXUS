@@ -157,7 +157,12 @@ async def publish(db: AsyncSession, job: Job, ad: JobAd, *, user_id: int) -> Non
     text = career_text(ad.content, ad.lang)
     if not text.subtitle and not text.about:
         raise NothingToPublish()
-    profile = await db.get(JobPublicProfile, job.id, with_for_update=True)
+    # `populate_existing`: ta sesja wczytała już opis bez blokady (stan okna),
+    # a bez odświeżenia zatwierdzenie nadpisałoby przełączniki i tytuł,
+    # które ktoś zapisał w oknie „Udostępnij” w międzyczasie.
+    profile = await db.get(
+        JobPublicProfile, job.id, with_for_update=True, populate_existing=True
+    )
     if profile is None:
         profile = JobPublicProfile(job_id=job.id, sections=jpp.normalize_sections(None))
         db.add(profile)

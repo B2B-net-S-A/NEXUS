@@ -32,8 +32,9 @@ from app.models.app_setting import AppSetting
 from app.models.client import Client
 from app.models.job import Job
 from app.models.job_ad import JobAd
+from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User, UserRole
-from app.services.job_ad import fixed_blocks, generate
+from app.services.job_ad import career, fixed_blocks, generate
 from app.services.job_ad_schema import SOURCE_AI, SOURCE_TEMPLATE
 from tests.test_career_links_api import _login, _owner_with_job
 
@@ -821,6 +822,41 @@ async def test_career_page_refuses_blocked_stale_or_internal_content(
     assert internal.json()["detail"]["code"] == "PUBLIC_PROFILE_FINDINGS"
     profile = await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
     assert profile.json()["status"] == "none"
+
+
+async def test_career_publish_keeps_section_toggles_saved_meanwhile(
+    api: AsyncClient, monkeypatch
+):
+    """Opis wczytany przed blokadą wiersza nie może nadpisać przełączników,
+    które ktoś zapisał w oknie „Udostępnij” w tym samym czasie."""
+    owner_id, headers, job_id = await _owner_with_job(api)
+    await _generated(api, headers, job_id, monkeypatch)
+    sections = {"must": True, "nice": True, "params": True, "process": True}
+    first = await api.put(
+        f"/api/jobs/{job_id}/public-profile",
+        json={"subtitle": "Stary podtytuł", "sections": sections},
+        headers=headers,
+    )
+    assert first.status_code == 200, first.text
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        ad = await db.get(JobAd, job_id)
+        # Ta sesja widzi opis sprzed zmiany drugiej osoby.
+        assert await db.get(JobPublicProfile, job_id) is not None
+        toggled = await api.put(
+            f"/api/jobs/{job_id}/public-profile",
+            json={"sections": {**sections, "nice": False}},
+            headers=headers,
+        )
+        assert toggled.status_code == 200, toggled.text
+        await career.publish(db, job, ad, user_id=owner_id)
+        await db.commit()
+
+    profile = await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
+    body = profile.json()
+    assert body["sections"]["nice"] is False
+    assert body["status"] == "approved"
 
 
 # ── Dostęp ──────────────────────────────────────────────────────────────────
