@@ -21,8 +21,10 @@ dziennie. Juniorzy 12.10 pojedynczo nie przekroczyli tych liczb (najwięcej
 zaczęło ich naraz dziewięć. Stąd niższe progi dla konta młodszego niż 14 dni
 i osobny alarm „kilka nowych kont naraz”.
 
-Jeden alarm dziennie na osobę i odbiorcę (dzienny dedup ``emit`` po
-``related_entity=("user", id)``), alarm „nowe konta naraz” raz dziennie.
+Jeden alarm dziennie na osobę i odbiorcę: dzienny dedup ``emit``
+(``ix_notif_dedup_daily``) patrzy na odbiorcę, typ i ``related_entity_id`` —
+BEZ ``related_entity_type``. Alarm o osobie niesie id konta (od 1), a alarm
+„nowe konta naraz” ``BURST_ENTITY_ID = 0``, żeby nie zdusił alarmu o koncie 1.
 """
 
 from __future__ import annotations
@@ -64,6 +66,8 @@ WATCHED_ACTIONS: tuple[str, ...] = (
 )
 
 BURST_ENTITY = "data_access_burst"
+#: Id kont zaczynają się od 1 — zero nie zderzy się w dedupie z alarmem o osobie.
+BURST_ENTITY_ID = 0
 LINK = "/settings?tab=people"
 
 
@@ -335,7 +339,7 @@ async def scan_once(db: AsyncSession, now: Optional[datetime] = None) -> int:
             title=title,
             message=message,
             entity_type=BURST_ENTITY,
-            entity_id=1,
+            entity_id=BURST_ENTITY_ID,
         )
     await db.commit()
     return sent

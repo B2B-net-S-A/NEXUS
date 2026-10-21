@@ -9,10 +9,19 @@ złapać ich muszą niższe progi nowych kont i alarm „nowe konta naraz”.
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.models.notification import NotificationType
+import pytest
+from sqlalchemy import delete, select
+
+import app.models  # noqa: F401
+from app.core.database import AsyncSessionLocal
+from app.core.security import hash_password
+from app.models.activity import Activity
+
+from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.services import candidate_data_access_alerts as alerts
 from app.services.notification_access import (
@@ -179,3 +188,137 @@ def test_new_type_is_mirrored_in_entrypoint() -> None:
         "'candidate_data_access_alert'"
     )
     assert re.search(re.escape(f'"{statement}"'), entrypoint)
+
+
+# ── Z bazą: zapytanie i przebieg skanera (sprawdza CI) ───────────────────────
+
+# Okno w przyszłości: wspólna baza testowa nie ma w nim cudzych zdarzeń.
+DB_NOW = datetime(2030, 1, 15, 10, 0, tzinfo=timezone.utc)
+
+
+async def _account(db, label: str, role: UserRole, created_at: datetime) -> User:
+    tag = uuid.uuid4().hex[:8]
+    user = User(
+        email=f"data-access-{label}-{tag}@example.com",
+        password_hash=hash_password(f"T3st_{tag}!Access"),
+        name=f"Dostęp {label} {tag}",
+        role=role,
+        roles=[role.value],
+        is_active=True,
+        created_at=created_at,
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
+def _event(user: User, action: str, entity_id: int, minutes_ago: int, **details):
+    return Activity(
+        entity_type="candidate",
+        entity_id=entity_id,
+        action=action,
+        user_id=user.id,
+        details=details,
+        external_source="audit",
+        created_at=DB_NOW - timedelta(minutes=minutes_ago),
+    )
+
+
+@pytest.mark.asyncio
+async def test_scan_alerts_admin_once_per_person_and_burst_does_not_collide() -> None:
+    old = DB_NOW - timedelta(days=400)
+    async with AsyncSessionLocal() as db:
+        admin = await _account(db, "admin", UserRole.admin, old)
+        heavy = await _account(db, "godzina", UserRole.recruiter, old)
+        zipper = await _account(db, "zip", UserRole.recruiter, old)
+        exporter = await _account(db, "eksport", UserRole.recruiter, old)
+        quiet = await _account(db, "spokojny", UserRole.recruiter, old)
+        juniors = [
+            await _account(
+                db, f"junior{i}", UserRole.recruiter, DB_NOW - timedelta(days=1)
+            )
+            for i in range(3)
+        ]
+        events = [
+            _event(heavy, "document_downloaded", 900_000 + i, 10, disposition="inline")
+            for i in range(alerts.HOUR_CANDIDATES + 1)
+        ]
+        # Wczoraj (przed północą Warszawy) się nie liczy do „dziś”.
+        events += [
+            _event(
+                quiet,
+                "document_downloaded",
+                910_000 + i,
+                60 * 12,
+                disposition="attachment",
+            )
+            for i in range(alerts.DAY_DISK_FILES + 5)
+        ]
+        events += [
+            _event(quiet, "document_downloaded", 920_000, 5, disposition="attachment")
+        ]
+        events.append(
+            _event(
+                zipper,
+                "bulk_cv_downloaded",
+                0,
+                30,
+                included_count=alerts.DAY_DISK_FILES + 1,
+            )
+        )
+        events.append(
+            _event(
+                exporter,
+                "export_requested",
+                0,
+                30,
+                row_count=alerts.DAY_EXPORT_ROWS + 1,
+            )
+        )
+        events += [
+            _event(j, "cv_downloaded", 930_000 + n, 5) for n, j in enumerate(juniors)
+        ]
+        db.add_all(events)
+        await db.commit()
+        everyone = [admin, heavy, zipper, exporter, quiet, *juniors]
+
+    try:
+        async with AsyncSessionLocal() as db:
+            usages = {u.user_id: u for u in await alerts.collect(db, DB_NOW)}
+        assert usages[heavy.id].candidates_last_hour == alerts.HOUR_CANDIDATES + 1
+        assert usages[zipper.id].disk_files_today == alerts.DAY_DISK_FILES + 1
+        assert usages[exporter.id].export_rows_today == alerts.DAY_EXPORT_ROWS + 1
+        assert usages[quiet.id].disk_files_today == 1
+        assert usages[quiet.id].candidates_today == 1
+
+        async with AsyncSessionLocal() as db:
+            await alerts.scan_once(db, DB_NOW)
+        async with AsyncSessionLocal() as db:
+            rows = (
+                await db.execute(
+                    select(Notification.related_entity_id, Notification.title).where(
+                        Notification.user_id == admin.id,
+                        Notification.notification_type
+                        == NotificationType.candidate_data_access_alert,
+                    )
+                )
+            ).all()
+        about = {entity for entity, _ in rows}
+        assert {heavy.id, zipper.id, exporter.id, alerts.BURST_ENTITY_ID} <= about
+        assert quiet.id not in about
+        assert len(rows) == len(about)
+
+        # Drugi przebieg tego samego dnia nie dokłada wpisów.
+        async with AsyncSessionLocal() as db:
+            assert await alerts.scan_once(db, DB_NOW) == 0
+    finally:
+        ids = [u.id for u in everyone]
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Notification).where(
+                    Notification.notification_type
+                    == NotificationType.candidate_data_access_alert
+                )
+            )
+            await db.execute(delete(Activity).where(Activity.user_id.in_(ids)))
+            await db.commit()

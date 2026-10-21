@@ -140,8 +140,9 @@ zmienia się je wyłącznie workflowem „Coolify set env”.
 - **Bez blokady.** Alarm niczego nie wstrzymuje. Wstrzymanie pobierania to
   osobna decyzja Artura, która jeszcze nie zapadła.
 - **Najwyżej jeden alarm dziennie na osobę i odbiorcę.** Dzienny dedup `emit`
-  po `related_entity=("user", id)`. Alarm „nowe konta naraz” wychodzi raz
-  dziennie (`data_access_burst`, id 1).
+  (`ix_notif_dedup_daily`) patrzy na odbiorcę, typ i `related_entity_id`, ale
+  nie na `related_entity_type`. Alarm o osobie niesie więc id konta, a alarm
+  „nowe konta naraz” (raz dziennie) ma id 0. Przy id 1 zdusiłby alarm o koncie 1.
 - **Bez nazwisk kandydatów w treści**, bo idzie mailem. Treść zawiera imię
   i nazwisko osoby, liczby, datę założenia konta (gdy jest nowe) i zdanie, że
   NEXUS niczego nie zablokował. Link prowadzi do Ustawienia → Osoby i role.
