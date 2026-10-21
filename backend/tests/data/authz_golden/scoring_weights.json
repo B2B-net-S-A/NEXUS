@@ -28,9 +28,12 @@
   "board"
  ],
  "routes": {
+  "DELETE /api/scoring-weights/panel/draft": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "DELETE /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/scoring-weights": "PDDPDDDDPPPDDDDDDDDDDDDDDD",
+  "GET /api/scoring-weights": "PDPPDDDDPPPPDDDDDDDDDDDDDD",
+  "GET /api/scoring-weights/panel": "PDPPDDDDPPPPDDDDDDDDDDDDDD",
   "PATCH /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/scoring-weights": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "POST /api/scoring-weights": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/scoring-weights/panel/draft": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

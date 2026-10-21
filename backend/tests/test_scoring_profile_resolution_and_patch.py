@@ -31,10 +31,14 @@ class _RecordingDb:
     def __init__(self, row=None):
         self.row = row
         self.statements = []
+        self.added = []
 
     async def scalar(self, stmt):
         self.statements.append(stmt)
         return self.row
+
+    def add(self, obj):
+        self.added.append(obj)
 
     async def commit(self):
         return None
@@ -73,6 +77,8 @@ def _row(**overrides):
     return SimpleNamespace(**base)
 
 
+_ADMIN = SimpleNamespace(id=1)
+
 _WEIGHTS = {
     "semantic": 60,
     "skills": 20,
@@ -94,7 +100,7 @@ async def test_patch_from_screen_keeps_client_binding(monkeypatch):
         {"name": "Bankowość", "weights": _WEIGHTS, "active": True}
     )
 
-    await api.update_profile(5, payload, current_user=None, db=_RecordingDb(row))
+    await api.update_profile(5, payload, current_user=_ADMIN, db=_RecordingDb(row))
 
     assert row.client_id == 42
     assert row.user_id is None
@@ -112,7 +118,7 @@ async def test_patch_can_still_unbind_client_explicitly(monkeypatch):
         {"name": "Bankowość", "client_id": None, "weights": _WEIGHTS, "active": True}
     )
 
-    await api.update_profile(5, payload, current_user=None, db=_RecordingDb(row))
+    await api.update_profile(5, payload, current_user=_ADMIN, db=_RecordingDb(row))
 
     assert row.client_id is None
 

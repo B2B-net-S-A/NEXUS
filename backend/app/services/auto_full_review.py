@@ -615,7 +615,8 @@ async def publish_run_proposals(
     """Wszystkie wyniki przeglądu powyżej progu → `job_proposals` (`full_base`).
 
     Bez limitu liczby (07.10.2026): każda osoba dopuszczona, zmierzona,
-    z wynikiem ≥ `AUTO_FULL_REVIEW_MIN_SCORE` i przechodząca `is_good_match`.
+    z wynikiem ≥ progu (`ranking_weights.nightly_min_score`: panel, a bez
+    zapisu `AUTO_FULL_REVIEW_MIN_SCORE`) i przechodząca `is_good_match`.
     Paczkami po `_PUBLISH_PAGE` wierszy przeglądu, upsert też paczkami
     (`job_proposals._UPSERT_CHUNK`). Bez commitu.
     """
@@ -629,7 +630,10 @@ async def publish_run_proposals(
     # publikacji `reconcile_unpublished` (runda 6 audytu).
     if not await _job_accepts_proposals(db, run.job_id):
         return 0
-    min_score = float(settings.AUTO_FULL_REVIEW_MIN_SCORE)
+    # Próg z panelu „Ranking kandydatów” (21.10.2026), bez zapisu — env.
+    from app.services.ranking_weights import nightly_min_score
+
+    min_score = await nightly_min_score(db)
     require_must = bool(settings.AUTO_MATCH_REQUIRE_MUST)
     # Znani zespołowi (07.10.2026): punkty historii idą do dowodów i ustawiają
     # kolejność listy; o tym, KTO trafia do propozycji, dalej decyduje próg.

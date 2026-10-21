@@ -208,8 +208,10 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    // Odczyt: admin, Delivery Lead, Head of Recruitment; szkic i publikację
+    // wag (admin, HoR + zapis Insights) bramkuje strona i backend.
     prefix: "/settings/scoring",
-    roles: ["admin", "delivery_lead"],
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
     section: "insights",
     required: "read",
     enforceRoles: true,

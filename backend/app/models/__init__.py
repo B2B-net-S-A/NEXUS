@@ -186,6 +186,10 @@ from app.models.champion_suggestion import (
     SuggestionStatus,
 )
 from app.models.app_setting import AppSetting
+from app.models.scoring_weight_change import (
+    ScoringWeightChange,
+    ScoringWeightMeasurement,
+)
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.kpi_target_event import KpiTargetEvent
 from app.models.kpi_email_report_run import KpiEmailReportRun
@@ -503,6 +507,8 @@ __all__ = [
     "SuggestionSource",
     "SuggestionStatus",
     "AppSetting",
+    "ScoringWeightChange",
+    "ScoringWeightMeasurement",
     "KpiRoleDefault",
     "UserKpiTarget",
     "KpiTargetEvent",

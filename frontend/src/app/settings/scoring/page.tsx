@@ -382,7 +382,7 @@ export default function ScoringWeightsPage() {
   const user = useAuthStore((state) => state.user);
   const hydrated = useAuthStore((state) => state.hydrated);
   const isAllowed =
-    hasRole(user, "admin", "delivery_lead") &&
+    hasRole(user, "admin", "delivery_lead", "head_of_recruitment") &&
     hasSectionAccess(user, "insights", "read");
   const canEdit =
     hasRole(user, "admin") && hasSectionAccess(user, "insights", "write");
