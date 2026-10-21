@@ -156,6 +156,15 @@ VERIFIED_REQUIREMENT_LABELS = {
 }
 
 
+def verified_requirement_label(key: str) -> str:
+    """Nazwa braku w komunikacie 409 — pola karty po nazwie z formularza."""
+    from app.services.move_requirements import card_field_label  # noqa: PLC0415
+
+    if key in VERIFIED_REQUIREMENT_LABELS:
+        return VERIFIED_REQUIREMENT_LABELS[key]
+    return f"„{card_field_label(key)}”"
+
+
 async def assert_verified_requirements(
     db: AsyncSession,
     *,
@@ -176,6 +185,9 @@ async def assert_verified_requirements(
     (``move_requirements.screening_requirement``). Stawka = profil,
     wcześniejszy etap pary albo ta w żądaniu (``pending_rate``). Para
     w „Zamkniętych” liczy się kolumną sprzed zamknięcia (``gate_stage_row``).
+    Od 21.10.2026 także minimum dla Delivery Leada — pola karty
+    (``move_requirements.minimum_missing``, wyłącznik
+    ``VERIFIED_MINIMUM_FIELDS_ENABLED``).
     """
     from app.core.config import settings  # noqa: PLC0415
     from app.models.candidate import Candidate  # noqa: PLC0415
@@ -198,14 +210,20 @@ async def assert_verified_requirements(
         missing.append(screening_key)
     if not (facts.candidate_rate or pending_rate):
         missing.append("candidate_rate")
+    # Minimum dla DL (21.10.2026): pola karty — klucze jak w formularzu.
+    card_missing = move_requirements.minimum_missing(facts)
+    missing.extend(card_missing)
     if not missing:
         return
-    labels = [VERIFIED_REQUIREMENT_LABELS[key] for key in missing]
+    labels = [verified_requirement_label(key) for key in missing]
     raise HTTPException(
         status_code=409,
         detail={
             "code": "VERIFIED_REQUIREMENTS_MISSING",
             "missing": missing,
+            # Pola karty z listy `missing` — okno na Tablicy pyta tylko o nie.
+            "card_fields": card_missing,
+            "client_required": list(facts.client_required_fields),
             "screening_stage_id": facts.screening_stage_id,
             "message": "Przed „Zweryfikowany” uzupełnij: " + ", ".join(labels) + ".",
         },

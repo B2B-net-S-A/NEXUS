@@ -366,7 +366,7 @@ describe("usePipelineMove — ruch pojedynczy", () => {
       expect(showError).toHaveBeenCalledWith("Przed „Zweryfikowany” uzupełnij: arkusz screeningu."),
     );
     expect(onMissing).toHaveBeenCalledWith(
-      { missing: ["screening_sheet"], screeningStageId: 77, message: expect.any(String) },
+      { missing: ["screening_sheet"], cardFields: [], screeningStageId: 77, message: expect.any(String) },
       item,
     );
   });

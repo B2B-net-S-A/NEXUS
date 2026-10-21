@@ -777,6 +777,29 @@ async def load_state(
             suggestions["nationality"] = nationality
     # Stawka stoi na wierszu etapu, nie na karcie — pole karty nie jest brakiem.
     present = cards.with_stage_rate(current.fields, current.rate is not None)
+    from app.services.move_requirements import (  # noqa: PLC0415
+        client_required_fields,
+    )
+
+    client_required, client_required_owner = await client_required_fields(
+        db, job.client_id
+    )
+    client_required = tuple(
+        key for key in client_required if key not in cards.VERIFIED_MINIMUM_FIELDS
+    )
+    # D2 (21.10.2026): pola o osobie z jej innych rekrutacji — formularz
+    # wpisuje je w puste pola jak stawkę na start; zapisują się z „Zapisz”.
+    carried = (
+        await cards.carried_fields(
+            db,
+            user=user,
+            candidate_id=candidate.id,
+            job_id=job.id,
+            skip=cards.present_fields(current.fields),
+        )
+        if can_write
+        else {}
+    )
 
     sheet_answers = [
         item
@@ -865,6 +888,21 @@ async def load_state(
             "previous": previous,
             "suggestions": suggestions,
             "completeness": cards.completeness(present),
+            "carried": carried,
+            # Minimum dla DL przed „Zweryfikowany” (21.10.2026) — ta sama lista
+            # co bramka serwera (`move_requirements.required_card_fields`).
+            "required": list(
+                (*cards.VERIFIED_MINIMUM_FIELDS, *client_required)
+                if settings.VERIFIED_MINIMUM_FIELDS_ENABLED
+                else ()
+            ),
+            # D3: kto dołożył pola spoza minimum — podpis „wymaga <klient>”.
+            "required_by_client": (
+                {"fields": list(client_required), "client_name": client_required_owner}
+                if client_required and settings.VERIFIED_MINIMUM_FIELDS_ENABLED
+                else None
+            ),
+            "availability_in_profile": candidate.availability_date is not None,
             "labels": cards.DISPLAY_LABELS,
             "editable_fields": list(rules.FORM_CARD_FIELDS),
         },

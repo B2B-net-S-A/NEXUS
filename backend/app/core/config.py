@@ -614,6 +614,10 @@ class Settings(BaseSettings):
     # `VERIFIED_REQUIREMENTS_MISSING`. Zwrot DL z „QC CV” do poprawy nie jest
     # bramkowany. False = wyłącznik awaryjny: zachowanie sprzed 04.10.2026.
     VERIFIED_GATE_ENABLED: bool = True
+    # Minimum dla Delivery Leada (decyzja Artura 21.10.2026): lokalizacja,
+    # tryb pracy, dostępność, „Dlaczego ten kandydat” i pola dołożone w karcie
+    # klienta. False = wyłącznik awaryjny: bramka liczy tylko arkusz i stawkę.
+    VERIFIED_MINIMUM_FIELDS_ENABLED: bool = True
     # D2 (04.10.2026): ręczny ruch na „Zatrudniony” wymaga pola „jak
     # podpisano” (`hired_signed_via`). False = wyłącznik awaryjny.
     HIRED_SIGNED_VIA_REQUIRED: bool = True
