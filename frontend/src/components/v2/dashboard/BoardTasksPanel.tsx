@@ -53,6 +53,12 @@
  * (`dlSendBand`) panel nie mówi „Nic na Ciebie teraz nie czeka." — pustą
  * kolejkę wysyłki ogłasza pas.
  *
+ * „Do uzupełnienia” (21.10.2026, prośba Olafa): umowy do zamknięcia,
+ * rekrutacje do dokończenia i wymagania do poprawy można przenieść do kafelka
+ * na siatce (`custom/ToCompleteTile`). Gdy kafelek stoi na pulpicie
+ * (`toCompleteOnGrid`), panel tych list nie pokazuje; gdy go nie ma — stoją
+ * tu jak dotąd, z linią „Przenieś na pulpit” (`onMoveToComplete`).
+ *
  * Kolejka „Czeka na DZ" i przegląd DZ (0353) zniknęły — zastąpiło je QC CV.
  * Panel „Czeka na Ciebie" nie renderuje się, gdy nic nie czeka — pusta ramka
  * uczyłaby go ignorować (zostają wtedy najwyżej listy informacyjne: „Nowe
@@ -81,6 +87,7 @@ import {
 import { formatDayLabel, formatTime } from "@/lib/interview-cycle";
 import { countPl } from "@/lib/plural-pl";
 import { withoutHiddenPanels, type DashboardPanelKey } from "@/lib/dashboard-panels";
+import { toCompleteCounts, withoutToCompleteLists } from "@/lib/dashboard-to-complete";
 
 import {
   AgreementTasksSection,
@@ -96,6 +103,7 @@ import { NewJobLeadsSection } from "./NewJobLeadsSection";
 import { PendingJobsSection, hasPendingJobsContent } from "./PendingJobsSection";
 import { RequirementFixesSection } from "./RequirementFixesSection";
 import { TeamLoadSection } from "./TeamLoadSection";
+import { ToCompleteMovePrompt } from "./ToCompleteMovePrompt";
 
 export const BOARD_TASKS_ANCHOR = "czeka-na-ciebie";
 
@@ -133,6 +141,12 @@ interface BoardTasksPanelProps {
    *  kolejkę ogłasza on, a „Nic na Ciebie teraz nie czeka.” tuż pod osobami
    *  gotowymi do wysyłki byłoby nieprawdą. */
   dlSendBand?: boolean;
+  /** Kafelek „Do uzupełnienia” stoi na pulpicie — jego trzech list tu nie ma. */
+  toCompleteOnGrid?: boolean;
+  /** Linia „Przenieś na pulpit” nad listami do uzupełnienia; bez funkcji jej nie ma. */
+  onMoveToComplete?: () => void;
+  onKeepToComplete?: () => void;
+  moveBusy?: boolean;
 }
 
 const NO_HIDDEN_PANELS: ReadonlySet<DashboardPanelKey> = new Set();
@@ -140,6 +154,10 @@ const NO_HIDDEN_PANELS: ReadonlySet<DashboardPanelKey> = new Set();
 export function BoardTasksPanel({
   hiddenPanels = NO_HIDDEN_PANELS,
   dlSendBand = false,
+  toCompleteOnGrid = false,
+  onMoveToComplete,
+  onKeepToComplete,
+  moveBusy = false,
 }: BoardTasksPanelProps = {}) {
   const query = useBoardTasks();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -148,10 +166,11 @@ export function BoardTasksPanel({
   const toggle = (kind: string) => setExpanded((prev) => ({ ...prev, [kind]: !prev[kind] }));
   const shown = <T,>(kind: string, rows: T[]): T[] =>
     expanded[kind] ? rows : rows.slice(0, BOARD_TASKS_ROWS);
-  const data = useMemo(
-    () => (query.data ? withoutHiddenPanels(query.data, hiddenPanels) : undefined),
-    [query.data, hiddenPanels],
-  );
+  const data = useMemo(() => {
+    if (!query.data) return undefined;
+    const visible = withoutHiddenPanels(query.data, hiddenPanels);
+    return toCompleteOnGrid ? withoutToCompleteLists(visible) : visible;
+  }, [query.data, hiddenPanels, toCompleteOnGrid]);
   const hasCpro = (data?.cpro_to_send.length ?? 0) > 0;
   // Osobę od Cpro ustawia admin albo DL Nordei (25.09.2026) — przełącznik
   // stoi u nich także przy pustej kolejce, inaczej martwe konto albo brak
@@ -227,6 +246,14 @@ export function BoardTasksPanel({
   // Admin i Head of Recruitment widzą listę do dokończenia zwiniętą do jednej
   // linii, gdy obok są zadania — to zaległość, nie praca na dziś.
   const collapsePending = data.can_decide_proposals === true;
+  const movePrompt =
+    onMoveToComplete && toCompleteCounts(data).total > 0 ? (
+      <ToCompleteMovePrompt
+        onMove={onMoveToComplete}
+        onKeep={() => onKeepToComplete?.()}
+        busy={moveBusy}
+      />
+    ) : null;
   const flowOthers = hasFlowOthers(data.flow);
   const waitingAgreements = data.agreements?.waiting_on_others ?? [];
   if (
@@ -270,6 +297,7 @@ export function BoardTasksPanel({
         ) : null}
         <NewJobLeadsSection rows={leads} standalone />
         {showLoad ? <TeamLoadSection standalone /> : null}
+        {movePrompt}
         <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} standalone />
         <RequirementFixesSection rows={fixes} standalone />
         {fixesFailed ? <RequirementFixesFailed /> : null}
@@ -325,6 +353,7 @@ export function BoardTasksPanel({
         />
         <NewJobLeadsSection rows={leads} />
         {showLoad ? <TeamLoadSection /> : null}
+        {movePrompt}
         <PendingJobsSection
           pending={data.pending_jobs}
           forms={data.unfinished_forms}

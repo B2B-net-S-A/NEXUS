@@ -139,6 +139,7 @@ Role, dziewięć uprawnień, bramki sekcji i tras, zakres Delivery Leada, kto wi
 Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, pulpit, wygląd tabel.
 
 - `design-system-ui-zawsze-przy-pracy-nad-wygladem.md` — Design system & UI — ZAWSZE przy pracy nad wyglądem
+- `kafelek-do-uzupelnienia.md` — Kafelek „Do uzupełnienia” (21.10.2026)
 - `klienci-kontrakty-finanse-spokojne-tabele.md` — Klienci, Kontrakty, Finanse — spokojne tabele (02.10.2026)
 - `licznik-celow-w-gornym-pasku.md` — Licznik celów w górnym pasku (13.10.2026) · podpisane segmenty, panel po kliknięciu, „poniżej tempa”, cel DL z 30% hit ratio
 - `liga-w-gornym-pasku.md` — Liga Mistrzów w górnym pasku (13.10.2026) · przycisk ligi przed licznikiem celów, `/api/competitions/my-league`, stany przycisku, menu „Wygląd”
