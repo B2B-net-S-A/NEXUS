@@ -407,6 +407,23 @@ async def try_parse_cv(
                 CandidateDocument.source_deleted_at.is_(None),
             )
         )
+    if document is None and attachment.m365_attachment_id:
+        # Plik usunięty z profilu pod STARYM kluczem (`id[:100]`, sprzed
+        # #2447): nowy klucz go nie widzi, a dopasowanie po treści pomija
+        # usunięte, więc wstawiał się nowy dokument i reguła 0435 niżej się
+        # nie odpalała (audyt 21.10.2026). Stary klucz sam nie rozróżnia
+        # załączników jednej skrzynki — dlatego razem z osobą i treścią.
+        document = await db.scalar(
+            select(CandidateDocument)
+            .where(
+                CandidateDocument.external_source == "m365",
+                CandidateDocument.external_id == attachment.m365_attachment_id[:100],
+                CandidateDocument.candidate_id == candidate.id,
+                CandidateDocument.content_sha256 == content_hash,
+                CandidateDocument.removed_at.is_not(None),
+            )
+            .limit(1)
+        )
 
     if document is None:
         document = CandidateDocument(

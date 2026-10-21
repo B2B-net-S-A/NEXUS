@@ -81,6 +81,10 @@ nieaktualne”.
   u tej samej osoby zostaje usunięty; przypisanie załącznika innej osobie
   (rematch) przywraca go u niej normalnie. Ten sam plik przysłany w nowym
   mailu to nowy załącznik i nowy dokument — jak ponowne wgranie.
+  Dokument usunięty z profilu pod STARYM kluczem (`id[:100]`, sprzed #2447)
+  `try_parse_cv` znajduje po starym kluczu + tej osobie + treści i też go
+  nie przywraca (audyt 21.10.2026) — sam nowy klucz i dopasowanie po treści
+  (bez usuniętych) go nie widziały, więc plik wracał jako nowy dokument.
 - **Klucz dokumentu z maila (20.10.2026).** `external_id` dokumentu m365 to
   `m365_document_external_id(id załącznika)` — skrót CAŁEGO id z Graph.
   Do 20.10 klucz był ucinany do 100 znaków, a id ma 176–180 znaków ze

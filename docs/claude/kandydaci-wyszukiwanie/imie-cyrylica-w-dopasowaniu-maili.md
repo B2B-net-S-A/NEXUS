@@ -20,3 +20,8 @@ nie ma po złożeniu do ASCII ani jednej litery.
   Odpina maile `smart_name`/`smart_thread` takich osób, dopasowuje je obecnym
   matcherem, zwalnia załączniki do kolejki odczytu CV i miękko usuwa cudze CV
   z profilu.
+  Odpięty mail prywatny (`is_private_filtered`) albo ze skrzynki osoby bez
+  dostępu do poczty kandydatów (`eligible_m365_owner`) matchera nie widzi
+  i zostaje niedopasowany — te same warunki co zwykły rematch
+  (`microsoft365_sync._rematch_pass`, audyt 21.10.2026). Każde nowe miejsce,
+  które przypina maile matcherem, bierze oba warunki.

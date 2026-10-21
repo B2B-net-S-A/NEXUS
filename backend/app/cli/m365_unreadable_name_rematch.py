@@ -26,7 +26,10 @@ Zasady:
   z CV) — wtedy wątek naprawdę jest jej;
 * każdy odpięty mail przechodzi od razu przez obecny matcher, w kolejności
   przyjścia (odpowiedź w wątku widzi wcześniejsze dopasowanie). Bez trafienia
-  zostaje niedopasowany;
+  zostaje niedopasowany. Mail prywatny (`is_private_filtered`) i mail ze
+  skrzynki osoby bez dostępu do poczty kandydatów (`eligible_m365_owner`)
+  matchera nie widzą i zostają niedopasowane — te same warunki co zwykły
+  rematch (`microsoft365_sync._rematch_pass`, audyt 21.10.2026);
 * załączniki tych maili odczytane do poszkodowanego tracą `parsed_candidate_id`
   i znacznik próby: CV z maila dopasowanego do prawdziwej osoby czyta kolejka
   `m365_cv_parse` (przez bramkę tożsamości), reszta czeka na dopasowanie;
@@ -148,6 +151,7 @@ async def _select_emails(db, victims: list[int]):
                 Email.cc_addresses,
                 Email.subject,
                 Email.m365_conversation_id,
+                Email.is_private_filtered,
             )
             .where(*scope, ~kept_clause)
             .order_by(Email.received_at.asc().nulls_last(), Email.id.asc())
@@ -170,6 +174,7 @@ async def plan_and_stage(db, *, now: Optional[datetime] = None) -> Plan:
     )
     from app.services.cv_source import current_cv_filters, current_cv_ordering
     from app.services.m365 import matcher
+    from app.services.m365.access import eligible_m365_owner
     from app.tasks.microsoft365_sync import _addresses
 
     now = now or datetime.now(timezone.utc)
@@ -195,7 +200,18 @@ async def plan_and_stage(db, *, now: Optional[datetime] = None) -> Plan:
     await db.flush()
 
     mailbox: dict[int, Optional[str]] = {}
+    owner_eligible: dict[int, bool] = {}
     for row in rows:
+        if row.user_id not in owner_eligible:
+            owner_eligible[row.user_id] = (
+                await eligible_m365_owner(db, row.user_id) is not None
+            )
+        if row.is_private_filtered or not owner_eligible[row.user_id]:
+            # Odpięty jak reszta, ale bez matchera — jak w zwykłym rematchu.
+            items.emails.append(
+                (row.id, owner_of[row.id], None, EmailMatchMethod.unmatched.value)
+            )
+            continue
         if row.user_id not in mailbox:
             mailbox[row.user_id] = await db.scalar(
                 select(M365Connection.mailbox_upn).where(
