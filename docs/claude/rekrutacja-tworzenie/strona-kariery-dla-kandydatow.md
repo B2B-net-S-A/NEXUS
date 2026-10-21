@@ -286,15 +286,20 @@ Reguły, które łatwo cofnąć:
     rekrutacji zdejmuje kartę (najpóźniej po 60 s cache).
   - **Czyj link wskazuje karta (D2):** prowadzący (`working_owner_id`:
     `jobs.recruiter_id`, aktywne konto, nie „poprzedni rekruter”) z aktywnym
-    linkiem `job` → ten link; prowadzący, który NIGDY nie miał linku do tej
-    rekrutacji → tablica zakłada mu go przy pierwszym zbudowaniu (etykieta
+    linkiem `job` → ten link; prowadzący bez aktywnego linku, który żadnego
+    nie wyłączył (nigdy nie miał albo mu wygasł) → tablica zakłada mu nowy
+    przy budowaniu (etykieta
     „Tablica kariery”, przypisanie priorytetowe jak `POST /api/invite-links`,
     blokada doradcza `career_board_links` przeciw dublom). Nie przy
     zatwierdzeniu opisu, bo prowadzący zmienia się później — tablica sama
-    dobiera link nowej osoby. Prowadzący, który swój link wyłączył (albo mu
-    wygasł), nowego nie dostaje — karta bierze najnowszy aktywny link innej
-    osoby; bez prowadzącego tak samo; rekrutacja bez żadnego aktywnego linku
-    nie trafia na tablicę. Zgłoszenie z karty idzie zwykłym `/apply` linku,
+    dobiera link nowej osoby. Prowadzący, który swój link WYŁĄCZYŁ, nowego nie
+    dostaje — karta bierze najnowszy aktywny link innej osoby. Bez prowadzącego:
+    najnowszy aktywny link rekrutacji, a bez niego nowy link pierwszego
+    aktywnego Head of Recruitment (najniższe id, jak „Zostaw CV”), chyba że ten
+    swój link do rekrutacji wyłączył. Decyzja Artura 21.10.2026: 20.10 tablica
+    na produkcji była pusta, bo jedyna rekrutacja z linkiem miała go wygasłego
+    od 05.10, a druga nie miała prowadzącego ani linku (`_pick_link`,
+    `_first_hor_id`). Zgłoszenie z karty idzie zwykłym `/apply` linku,
     więc blokada 12 h, „Z linków” i dzwonek należą do właściciela linku.
   - **„Zostaw CV” (bez rekrutacji):** stały link Head of Recruitment
     (`board_cv_link`, w odpowiedzi `cv: {slug, first_name}`), formularz
