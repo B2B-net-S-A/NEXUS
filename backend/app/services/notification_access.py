@@ -84,10 +84,14 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.rejection_email_failed: ProductSection.pipeline,
     NotificationType.marketplace_match: ProductSection.sourcing,
     NotificationType.stage_rule: ProductSection.pipeline,
-    NotificationType.signature_sent: ProductSection.delivery,
-    NotificationType.signature_signed: ProductSection.delivery,
-    NotificationType.signature_rejected: ProductSection.delivery,
-    NotificationType.signature_failed: ProductSection.delivery,
+    # Podpis umów B2B (generator, podpis w NEXUSIE): dzwonki idą do nadawcy —
+    # zwykle rekrutera bez sekcji Delivery — i reprezentanta firmy. Ta sama
+    # bramka co trasy Generatora (Sourcing); do 22.10.2026 była Delivery
+    # i rekruter nie dostawał żadnego dzwonka o swojej umowie.
+    NotificationType.signature_sent: ProductSection.sourcing,
+    NotificationType.signature_signed: ProductSection.sourcing,
+    NotificationType.signature_rejected: ProductSection.sourcing,
+    NotificationType.signature_failed: ProductSection.sourcing,
     NotificationType.framework_contract_expiring_30d: ProductSection.delivery,
     NotificationType.framework_contract_expiring_14d: ProductSection.delivery,
     NotificationType.framework_contract_expiring_7d: ProductSection.delivery,

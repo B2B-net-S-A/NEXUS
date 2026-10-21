@@ -23,6 +23,7 @@ from app.core.scheduling import business_today
 from app.services.b2b_documents.contract_versions import default_refs, notice_end_date
 from app.services.b2b_documents.mandate_forms import FORMS_BY_KEY, MANDATE_FORMS
 from app.services.b2b_documents.registry import TYPES, missing_required, strip_sensitive
+from app.services.b2b_documents.render import template_key
 from tests.test_b2b_generated_contract_status import (
     _admin_user_id,
     _link,
@@ -101,7 +102,7 @@ async def _create(app_client, headers, doc_type: str, parent_id: int | None, **v
 
 
 def test_every_type_declares_fields_and_languages():
-    assert len(TYPES) == 10
+    assert len(TYPES) == 12
     for doc_type in TYPES.values():
         assert doc_type.languages
         assert any(f.key == "document_date" for f in doc_type.fields)
@@ -678,18 +679,16 @@ async def test_documents_list_filters_by_parent(app_client, app_auth_headers):
     assert item["can_edit"] is True
 
 
-async def test_preliminary_requires_a_cez_recruitment(
-    app_client, app_auth_headers, monkeypatch
-):
+async def _seed_recruitment(client_name: str = "Klient") -> tuple[int, int, int]:
+    """Klient, kandydat i rekrutacja z kartą kandydata (klient, kandydat, job)."""
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.job import Job, JobStatus
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-    from app.services import ezdrowie
 
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
-        client = Client(name=f"CeZ test {unique}")
+        client = Client(name=f"{client_name} {unique}")
         cand = Candidate(
             name="Ewa", lastname=f"P-{unique}", email=f"p-{unique}@example.com"
         )
@@ -704,9 +703,11 @@ async def test_preliminary_requires_a_cez_recruitment(
             )
         )
         await db.commit()
-        client_id, cand_id, job_id = client.id, cand.id, job.id
+        return client.id, cand.id, job.id
 
-    body = {
+
+def _cez_body(cand_id: int, job_id: int) -> dict:
+    return {
         "document_type": "preliminary_cez",
         "candidate_id": cand_id,
         "job_id": job_id,
@@ -722,6 +723,46 @@ async def test_preliminary_requires_a_cez_recruitment(
             "valid_until": "2026-11-22",
         },
     }
+
+
+def _participation_body(cand_id: int, job_id: int, variant: str = "jdg") -> dict:
+    values = {
+        "document_date": "2026-10-21",
+        "gender": "k",
+        "partner_name": "Ewa P",
+        "project_label": "Klient — Analityk",
+        "hourly_rate": "150",
+        "penalty_amount": "10000",
+        "valid_until": "2026-12-20",
+    }
+    if variant == "jdg":
+        values.update(
+            partner_legal_name="Ewa P IT",
+            partner_business_address="ul. Firmowa 1",
+            partner_nip="5270103391",
+            partner_regon="012345678",
+        )
+    else:
+        values.update(
+            partner_home_address="ul. Domowa 3",
+            id_document="XYZ000111",
+            pesel="91020212345",
+        )
+    return {
+        "document_type": f"preliminary_participation_{variant}",
+        "candidate_id": cand_id,
+        "job_id": job_id,
+        "values": values,
+    }
+
+
+async def test_preliminary_requires_a_cez_recruitment(
+    app_client, app_auth_headers, monkeypatch
+):
+    from app.services import ezdrowie
+
+    client_id, cand_id, job_id = await _seed_recruitment("CeZ test")
+    body = _cez_body(cand_id, job_id)
     wrong = await app_client.post(
         f"{BASE}/documents", headers=app_auth_headers, json=body
     )
@@ -737,3 +778,171 @@ async def test_preliminary_requires_a_cez_recruitment(
         assert "91020212345" not in str(doc.render_payload)
         assert doc.parent_generated_contract_id is None
         assert doc.client_id == client_id
+        # Nowy dokument zapisuje bieżącą rewizję wzoru.
+        assert doc.template_key == template_key("preliminary_cez", "pl", "v2")
+
+
+@pytest.mark.parametrize("variant", ["jdg", "person"])
+async def test_participation_agreement_for_any_client_but_cez(
+    app_client, app_auth_headers, monkeypatch, variant
+):
+    """Decyzja 21.10.2026: CeZ — tylko własny wzór, inni klienci — tylko
+    umowa o udziale w procesie rekrutacyjnym."""
+    from app.models.b2b_contract_document import B2BContractDocument
+    from app.services import ezdrowie
+
+    client_id, cand_id, job_id = await _seed_recruitment()
+    body = _participation_body(cand_id, job_id, variant)
+    ok = await app_client.post(f"{BASE}/documents", headers=app_auth_headers, json=body)
+    assert ok.status_code == 200, ok.text
+    assert ok.content == f"PK-preliminary_participation_{variant}_pl".encode()
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(B2BContractDocument, int(ok.headers["X-Document-Id"]))
+        assert doc.client_id == client_id
+        assert "91020212345" not in str(doc.render_payload)
+        assert doc.render_payload["values"]["penalty_amount"] == "10000"
+
+    cez = await app_client.post(
+        f"{BASE}/documents", headers=app_auth_headers, json=_cez_body(cand_id, job_id)
+    )
+    assert cez.status_code == 422, cez.text
+
+    monkeypatch.setattr(ezdrowie, "EZDROWIE_CLIENT_ID", client_id)
+    at_cez = await app_client.post(
+        f"{BASE}/documents", headers=app_auth_headers, json=body
+    )
+    assert at_cez.status_code == 422, at_cez.text
+    assert "Centrum e-Zdrowia" in at_cez.json()["detail"]
+
+
+async def test_preliminary_options_follow_the_client(
+    app_client, app_auth_headers, monkeypatch
+):
+    from app.services import ezdrowie
+
+    client_id, cand_id, job_id = await _seed_recruitment()
+    params = {"candidate_id": cand_id, "job_id": job_id}
+    general = await app_client.get(
+        f"{BASE}/documents/preliminary-options", headers=app_auth_headers, params=params
+    )
+    assert general.status_code == 200, general.text
+    body = general.json()
+    assert [t["key"] for t in body["types"]] == [
+        "preliminary_participation_jdg",
+        "preliminary_participation_person",
+    ]
+    assert body["default_validity_days"] == 60
+    assert body["b2b_term_business_days"] is None
+
+    monkeypatch.setattr(ezdrowie, "EZDROWIE_CLIENT_ID", client_id)
+    cez = await app_client.get(
+        f"{BASE}/documents/preliminary-options", headers=app_auth_headers, params=params
+    )
+    assert cez.status_code == 200, cez.text
+    assert [t["key"] for t in cez.json()["types"]] == ["preliminary_cez"]
+    assert cez.json()["b2b_term_business_days"] == 5
+
+    _, other_cand, _ = await _seed_recruitment()
+    unlinked = await app_client.get(
+        f"{BASE}/documents/preliminary-options",
+        headers=app_auth_headers,
+        params={"candidate_id": other_cand, "job_id": job_id},
+    )
+    assert unlinked.status_code == 409, unlinked.text
+
+
+async def test_participation_prefill_suggests_project_penalty_and_term(
+    app_client, app_auth_headers
+):
+    from app.models.client import Client
+
+    client_id, cand_id, job_id = await _seed_recruitment()
+    async with AsyncSessionLocal() as db:
+        client_name = (await db.get(Client, client_id)).name
+    resp = await app_client.get(
+        f"{BASE}/documents/prefill",
+        headers=app_auth_headers,
+        params={
+            "document_type": "preliminary_participation_jdg",
+            "candidate_id": cand_id,
+            "job_id": job_id,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    values = resp.json()["values"]
+    assert values["project_label"] == f"{client_name} — Analityk"
+    assert values["penalty_amount"] == 10000
+    today = business_today()
+    assert values["valid_until"] == date.fromordinal(today.toordinal() + 60).isoformat()
+    assert values["partner_name"].startswith("Ewa P-")
+
+
+async def test_redownload_and_pdf_use_the_stored_template(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Wydany dokument pobiera się wzorem, z którego go wydano — zmiana
+    wzoru (nowa rewizja) nie zmienia tekstu umowy, którą ktoś już ma."""
+    from app.api import b2b_documents
+    from app.models.b2b_contract_document import B2BContractDocument
+    from app.services import ezdrowie
+    from app.services.cv_pdf_preview import PdfPreviewUnavailable
+
+    client_id, cand_id, job_id = await _seed_recruitment("CeZ test")
+    monkeypatch.setattr(ezdrowie, "EZDROWIE_CLIENT_ID", client_id)
+    created = await app_client.post(
+        f"{BASE}/documents", headers=app_auth_headers, json=_cez_body(cand_id, job_id)
+    )
+    assert created.status_code == 200, created.text
+    doc_id = int(created.headers["X-Document-Id"])
+    assert created.content == b"PK-preliminary_cez_v2_pl"
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(B2BContractDocument, doc_id)
+        doc.template_key = template_key("preliminary_cez", "pl")  # sprzed v2
+        await db.commit()
+
+    sensitive = {
+        "values": {
+            "partner_home_address": "ul. Domowa 3",
+            "id_document": "XYZ000111",
+            "pesel": "91020212345",
+        }
+    }
+    again = await app_client.post(
+        f"{BASE}/documents/{doc_id}/docx", headers=app_auth_headers, json=sensitive
+    )
+    assert again.status_code == 200, again.text
+    assert again.content == b"PK-preliminary_cez_pl"
+
+    seen: list[bytes] = []
+
+    async def fake_pdf(data: bytes) -> bytes:
+        seen.append(data)
+        return b"%PDF-fake"
+
+    monkeypatch.setattr(b2b_documents, "pdf_from_docx", fake_pdf)
+    pdf = await app_client.post(
+        f"{BASE}/documents/{doc_id}/pdf", headers=app_auth_headers, json=sensitive
+    )
+    assert pdf.status_code == 200, pdf.text
+    assert pdf.content == b"%PDF-fake"
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert ".pdf" in pdf.headers["content-disposition"]
+    assert seen == [b"PK-preliminary_cez_pl"]
+
+    no_values = await app_client.post(
+        f"{BASE}/documents/{doc_id}/pdf", headers=app_auth_headers, json={"values": {}}
+    )
+    assert no_values.status_code == 422, no_values.text
+    assert no_values.json()["detail"]["code"] == "sensitive_values_required"
+
+    async def broken_pdf(data: bytes) -> bytes:
+        raise PdfPreviewUnavailable("no soffice")
+
+    monkeypatch.setattr(b2b_documents, "pdf_from_docx", broken_pdf)
+    unavailable = await app_client.post(
+        f"{BASE}/documents/{doc_id}/pdf", headers=app_auth_headers, json=sensitive
+    )
+    assert unavailable.status_code == 503, unavailable.text
+    assert (
+        unavailable.json()["detail"] == "Nie udało się przygotować PDF — pobierz DOCX."
+    )

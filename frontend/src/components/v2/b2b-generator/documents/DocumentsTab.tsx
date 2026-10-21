@@ -18,6 +18,7 @@ import {
   Download,
   FilePen,
   FilePlus2,
+  FileText,
   Loader2,
   MoreHorizontal,
   Search,
@@ -73,7 +74,9 @@ import {
   CancelDocumentDialog,
   ConfirmSignedDialog,
   RedownloadDialog,
-  saveDocx,
+  downloadDocumentFile,
+  offersPdf,
+  type DocumentFileFormat,
 } from "./DocumentDialogs";
 import { DocumentWizard } from "./DocumentWizard";
 
@@ -366,11 +369,10 @@ export function DocumentsListView({
   const [redownloadRow, setRedownloadRow] = useState<DocumentItem | null>(null);
   const [cancelRow, setCancelRow] = useState<{ item: DocumentItem; mode: "cancel" | "delete" } | null>(null);
   const download = useMutation({
-    mutationFn: async (item: DocumentItem) => {
-      const res = await b2bDocumentsApi.redownload(item.id);
-      saveDocx(res as { data: unknown; headers: Record<string, unknown> }, `${item.type_label}.docx`);
+    mutationFn: async ({ item, format }: { item: DocumentItem; format: DocumentFileFormat }) => {
+      await downloadDocumentFile(item, format);
     },
-    onError: async (e, item) => {
+    onError: async (e, { item }) => {
       const parsed = await readDocumentError(e, "Nie udało się pobrać dokumentu.");
       // Serwer może wymagać danych wrażliwych, których lista nie przewidziała.
       if (parsed.code === "sensitive_values_required") setRedownloadRow(item);
@@ -440,7 +442,14 @@ export function DocumentsListView({
           <tbody>
             {rows.map((item) => {
               const badge = documentStatusLabel(item);
-              const downloading = download.isPending && download.variables?.id === item.id;
+              const downloading =
+                download.isPending &&
+                download.variables?.item.id === item.id &&
+                download.variables.format === "docx";
+              const downloadingPdf =
+                download.isPending &&
+                download.variables?.item.id === item.id &&
+                download.variables.format === "pdf";
               return (
                 <tr key={item.id} className="border-b border-border align-top">
                   <td className="py-2 pr-4">
@@ -474,7 +483,9 @@ export function DocumentsListView({
                         size="icon-sm"
                         disabled={downloading}
                         onClick={() =>
-                          redownloadNeedsInput(item) ? setRedownloadRow(item) : download.mutate(item)
+                          redownloadNeedsInput(item)
+                            ? setRedownloadRow(item)
+                            : download.mutate({ item, format: "docx" })
                         }
                         title="Pobierz DOCX"
                         aria-label={`Pobierz: ${item.label}`}
@@ -485,6 +496,27 @@ export function DocumentsListView({
                           <Download className="h-4 w-4" />
                         )}
                       </Button>
+                      {offersPdf(item) ? (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          disabled={downloadingPdf}
+                          onClick={() =>
+                            // Okno danych wrażliwych ma też „Pobierz PDF”.
+                            redownloadNeedsInput(item)
+                              ? setRedownloadRow(item)
+                              : download.mutate({ item, format: "pdf" })
+                          }
+                          title="Pobierz PDF"
+                          aria-label={`Pobierz PDF: ${item.label}`}
+                        >
+                          {downloadingPdf ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <FileText className="h-4 w-4" />
+                          )}
+                        </Button>
+                      ) : null}
                       {item.can_edit ? (
                         <Button
                           variant="ghost"

@@ -506,6 +506,50 @@ podatkowych dla cudzoziemców (PDF). W „Generatorze aneksów” sekcji nie ma.
   (4806 zł brutto). Na nowy rok Administracja aktualizuje wzór
   w SharePoincie — wtedy podmień oba pliki DOCX i opis „Wzór na 2026”.
 
+## Umowa przedwstępna — wzory per klient i forma podpisu (21.10.2026)
+
+Decyzje Artura z 21.10.2026 (migracja 0503):
+
+- **Wzór zależy od klienta rekrutacji.** Rekrutacja Centrum e-Zdrowia
+  (`ezdrowie.EZDROWIE_CLIENT_ID`) → wyłącznie `preliminary_cez`. Każdy inny
+  klient (także PANSA) → wyłącznie „Umowa o udziale w procesie
+  rekrutacyjnym” w dwóch wariantach: `preliminary_participation_jdg`
+  (kandydat z jednoosobową działalnością) i `preliminary_participation_person`
+  (osoba fizyczna; adres, dowód i PESEL są wrażliwe — tylko w pliku). Regułę
+  trzyma `DocumentType.preliminary_scope` (`cez` / `general`) i
+  `_preliminary_types_for` w `api/b2b_documents.py`; zły wzór = 422 przy
+  zapisie. Kreator pyta `GET /documents/preliminary-options?candidate_id=&job_id=`
+  po wyborze rekrutacji i pokazuje tylko dozwolone umowy (jedyną — CeZ —
+  wybiera sam). Odpowiedź niesie też `default_validity_days` (60) i
+  `b2b_term_business_days` (5 dla CeZ: § 2 ust. 3; `null` dla umowy
+  o udziale). Prefill umowy o udziale: „Klient / nazwa projektu” = „<klient> —
+  <rekrutacja>”, kara umowna 10 000 zł, ważność +60 dni — wszystko do zmiany
+  w formularzu.
+- **Każda forma podpisu**: pisemna, kwalifikowany podpis, podpis zaufany,
+  podpis osobisty. Wzory działu dopuszczały tylko pisemną albo kwalifikowany
+  podpis — klauzulę zmieniamy w szablonach NEXUSA, nie w plikach Worda działu
+  (CeZ: ostatni ustęp § 4; umowa o udziale: § 7 ust. 1 i drugie zdanie ust. 4).
+- **Wydany dokument pobiera się swoim tekstem.** `DocumentType.template_revision`
+  wchodzi do klucza pliku (`preliminary_cez_v2_pl`); wiersz zapisuje klucz
+  w `b2b_contract_documents.template_key`, a ponowne pobranie (`/docx`, `/pdf`)
+  i plik przy „Oznacz jako podpisany” renderują ze ZAPISANEGO klucza
+  (`render.stored_or_current_key`; brak pliku → bieżąca rewizja). „Popraw”
+  (`/rerender`) wydaje dokument od nowa — bieżącą rewizją. Zmiana treści
+  wzoru = nowa rewizja i nowe pliki, a stara rewizja trafia do
+  `legacy_template_revisions` i jej pliki zostają w repo (pilnuje
+  `test_every_registry_type_has_a_template_per_language`). Nie edytuj pliku
+  wydanej rewizji w miejscu.
+- **Pliki:** `preliminary_cez_pl.*` (v1, stare wiersze),
+  `preliminary_cez_v2_pl.*`, `preliminary_participation_jdg_pl.*`,
+  `preliminary_participation_person_pl.*` — wszystkie z
+  `backend/scripts/build_preliminary_participation_templates.py` (treść umowy
+  o udziale jest w skrypcie, styl z wzoru CeZ; każdy akapit to jeden run na
+  segment formatowania, żeby docxtpl widział znaczniki Jinja).
+- **PDF:** `POST /documents/{id}/pdf` — te same bramki i to samo ciało z danymi
+  wrażliwymi co `/docx`, PDF z LibreOffice (`cv_pdf_preview.pdf_from_docx`);
+  awaria = 503 „Nie udało się przygotować PDF — pobierz DOCX.”. Zakładka
+  „Dokumenty” ma „Pobierz PDF” przy umowach przedwstępnych.
+
 ## Umowa przedwstępna w rekrutacji — prośba przy osobie, stan i dzwonki (0504, 21.10.2026)
 
 Zgłoszenie Artura 21.10.2026: przedwstępne z kandydatami (przed wysłaniem CV

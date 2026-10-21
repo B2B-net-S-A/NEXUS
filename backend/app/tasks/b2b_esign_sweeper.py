@@ -178,10 +178,28 @@ async def sweep(now: datetime | None = None) -> dict[str, int]:
     return counts
 
 
+async def _prewarm_trusted_list() -> None:
+    """Lista zaufanych UE wczytana przy starcie — pierwszy kontraktor nie czeka
+    ok. 20 s na jej pobranie (pomiar 22.10.2026). Awaria = pobierze się przy
+    pierwszej walidacji."""
+    from app.core.config import settings  # noqa: PLC0415
+    from app.services.b2b_esign.qualified import trusted_registry  # noqa: PLC0415
+
+    if settings.B2B_ESIGN_VALIDATOR.strip().lower() == "dss":
+        return
+    try:
+        await trusted_registry()
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "[b2b_esign] wstępne pobranie listy UE nie wyszło", exc_info=True
+        )
+
+
 async def b2b_esign_sweeper_loop() -> None:
     beat = loop_heartbeat.register(
         "b2b_esign_sweeper", max_silence_seconds=INTERVAL_SECONDS + 1800
     )
+    await _prewarm_trusted_list()
     while True:
         beat.tick()
         try:

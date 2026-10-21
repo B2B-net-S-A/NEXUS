@@ -2,6 +2,9 @@
 
 // Kreator „Nowy dokument”: typ → umowa bazowa (albo kandydat i rekrutacja
 // przy umowie przedwstępnej) → formularz z definicji pól → podgląd / DOCX.
+// Umowę przedwstępną wybiera klient rekrutacji (`/preliminary-options`):
+// Centrum e-Zdrowia — własny wzór, inni klienci — umowa o udziale w procesie
+// rekrutacyjnym (kandydat z działalnością albo osoba fizyczna, 21.10.2026).
 // Ten sam komponent obsługuje „Popraw” z listy (ten sam wiersz, `/rerender`)
 // i zakładkę „Generator aneksów” (`mode="annexes"`: tylko aneksy). Podmiot
 // aneksu wybiera jedno wyszukiwanie osoby (`AnnexSubjectPicker`): umowa
@@ -84,6 +87,8 @@ interface Subject extends AnnexSubjectChoice {
   candidateLabel: string | null;
   jobId: number | null;
   jobLabel: string | null;
+  /** Umowy przedwstępne dozwolone w wybranej rekrutacji; `null` = jeszcze nie wiadomo. */
+  allowedTypes: string[] | null;
 }
 
 const EMPTY_SUBJECT: Subject = {
@@ -93,6 +98,7 @@ const EMPTY_SUBJECT: Subject = {
   candidateLabel: null,
   jobId: null,
   jobLabel: null,
+  allowedTypes: null,
 };
 
 /** Aneks do umowy albo kontraktu — podmiot wybiera wyszukiwanie osoby. */
@@ -104,7 +110,11 @@ function subjectReady(type: DocumentTypeDef, subject: Subject): boolean {
   if (usesAnnexPicker(type)) return annexChoiceReady(type, subject);
   if (type.parent === "b2b") return subject.parentId !== null;
   if (type.parent === "mandate") return subject.parentId !== null || subject.noParent;
-  return subject.candidateId !== null && subject.jobId !== null;
+  return (
+    subject.candidateId !== null &&
+    subject.jobId !== null &&
+    (subject.allowedTypes?.includes(type.key) ?? false)
+  );
 }
 
 function registerRowLabel(row: B2BGeneratedContractRow): string {
@@ -229,6 +239,8 @@ export function DocumentWizard({
       clientName: form.client_name ?? null,
       candidateId: form.candidate_id,
       jobId: form.job_id,
+      // „Popraw” nie zmienia rodzaju dokumentu — serwer sprawdził go przy wydaniu.
+      allowedTypes: [form.document_type],
     }));
   }, [savedForm.data]);
 
@@ -423,6 +435,14 @@ export function DocumentWizard({
     setStep(keepParent ? "form" : "subject");
   };
 
+  // Wybór umowy przedwstępnej w kroku rekrutacji — podmiot (kandydat,
+  // rekrutacja) zostaje, zmienia się tylko rodzaj dokumentu.
+  const switchType = (key: string) => {
+    setTypeKey(key);
+    setInitializedFor(null);
+    setSavedId(null);
+  };
+
   const restart = () => {
     setTypeKey(null);
     setSubject({ ...EMPTY_SUBJECT });
@@ -490,6 +510,7 @@ export function DocumentWizard({
             type={type}
             subject={subject}
             onSubject={setSubject}
+            onType={switchType}
             onBack={() => setStep("type")}
             onNext={() => setStep("form")}
             contractResolving={byContract.isFetching}
@@ -736,6 +757,7 @@ function SubjectStep({
   type,
   subject,
   onSubject,
+  onType,
   onBack,
   onNext,
   contractResolving,
@@ -744,6 +766,7 @@ function SubjectStep({
   type: DocumentTypeDef;
   subject: Subject;
   onSubject: (s: Subject) => void;
+  onType: (key: string) => void;
   onBack: () => void;
   onNext: () => void;
   contractResolving: boolean;
@@ -769,7 +792,12 @@ function SubjectStep({
         />
       ) : null}
       {type.parent === "none" ? (
-        <CandidateJobPicker subject={subject} onSubject={onSubject} />
+        <CandidateJobPicker
+          type={type}
+          subject={subject}
+          onSubject={onSubject}
+          onType={onType}
+        />
       ) : usesAnnexPicker(type) ? (
         <AnnexSubjectPicker
           type={type}
@@ -890,12 +918,20 @@ function RegisterPicker({
   );
 }
 
+function sameKeys(a: string[] | null, b: string[]): boolean {
+  return a !== null && a.length === b.length && a.every((k, i) => k === b[i]);
+}
+
 function CandidateJobPicker({
+  type,
   subject,
   onSubject,
+  onType,
 }: {
+  type: DocumentTypeDef;
   subject: Subject;
   onSubject: (s: Subject) => void;
+  onType: (key: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const debounced = useDebouncedValue(query, 300).trim();
@@ -910,94 +946,180 @@ function CandidateJobPicker({
     queryFn: () => b2bDocumentsApi.candidateRecruitments(subject.candidateId as number),
     enabled: subject.candidateId !== null,
   });
+  const options = useQuery({
+    queryKey: b2bDocumentsKeys.preliminaryOptions(
+      subject.candidateId ?? 0,
+      subject.jobId ?? 0,
+    ),
+    queryFn: () =>
+      b2bDocumentsApi.preliminaryOptions(
+        subject.candidateId as number,
+        subject.jobId as number,
+      ),
+    enabled: subject.candidateId !== null && subject.jobId !== null,
+    staleTime: 60_000,
+  });
+  useEffect(() => {
+    const data = options.data;
+    if (!data || subject.jobId === null) return;
+    const keys = data.types.map((t) => t.key);
+    if (sameKeys(subject.allowedTypes, keys)) return;
+    onSubject({ ...subject, allowedTypes: keys });
+    // Jedyny dozwolony wzór (Centrum e-Zdrowia) wybiera się sam.
+    if (keys.length === 1 && keys[0] !== type.key) onType(keys[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options.data, subject.jobId, subject.candidateId]);
+  const allowed = options.data?.types ?? [];
+  const typeAllowed = allowed.some((t) => t.key === type.key);
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <div className="space-y-2">
-        <Label htmlFor="b2b-doc-candidate-search">Kandydat *</Label>
-        <Input
-          id="b2b-doc-candidate-search"
-          placeholder="Imię i nazwisko (min. 2 znaki)"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {candidates.isError ? (
-          <Alert
-            variant="error"
-            title={apiErrorMessage(candidates.error, "Nie udało się wyszukać kandydatów.")}
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="b2b-doc-candidate-search">Kandydat *</Label>
+          <Input
+            id="b2b-doc-candidate-search"
+            placeholder="Imię i nazwisko (min. 2 znaki)"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
           />
-        ) : candidates.isSuccess && candidates.data.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Brak kandydatów o tym nazwisku.</p>
-        ) : (
-          <ul className="max-h-60 divide-y divide-border overflow-y-auto rounded-lg border border-border empty:hidden">
-            {(candidates.data ?? []).map((c) => (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  aria-pressed={subject.candidateId === c.id}
-                  onClick={() =>
-                    onSubject({
-                      ...subject,
-                      candidateId: c.id,
-                      candidateLabel: c.full_name,
-                      jobId: null,
-                      jobLabel: null,
-                    })
-                  }
-                  className={cn(
-                    "w-full px-3 py-2 text-left text-sm hover:bg-muted",
-                    subject.candidateId === c.id && "bg-primary/5",
-                  )}
-                >
-                  {c.full_name}
-                  {c.email ? (
-                    <span className="block text-xs text-muted-foreground">{c.email}</span>
-                  ) : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="space-y-2">
-        <p className="text-sm font-medium">Rekrutacja Centrum e-Zdrowia *</p>
-        {subject.candidateId === null ? (
-          <p className="text-sm text-muted-foreground">Najpierw wybierz kandydata.</p>
-        ) : recruitments.isPending ? (
-          <p className="text-sm text-muted-foreground">Wczytuję rekrutacje…</p>
-        ) : recruitments.isError ? (
-          <Alert
-            variant="error"
-            title={apiErrorMessage(recruitments.error, "Nie udało się wczytać rekrutacji.")}
-          />
-        ) : recruitments.data.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Ten kandydat nie jest w żadnej rekrutacji.
+          {candidates.isError ? (
+            <Alert
+              variant="error"
+              title={apiErrorMessage(candidates.error, "Nie udało się wyszukać kandydatów.")}
+            />
+          ) : candidates.isSuccess && candidates.data.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Brak kandydatów o tym nazwisku.</p>
+          ) : (
+            <ul className="max-h-60 divide-y divide-border overflow-y-auto rounded-lg border border-border empty:hidden">
+              {(candidates.data ?? []).map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    aria-pressed={subject.candidateId === c.id}
+                    onClick={() =>
+                      onSubject({
+                        ...subject,
+                        candidateId: c.id,
+                        candidateLabel: c.full_name,
+                        jobId: null,
+                        jobLabel: null,
+                        allowedTypes: null,
+                      })
+                    }
+                    className={cn(
+                      "w-full px-3 py-2 text-left text-sm hover:bg-muted",
+                      subject.candidateId === c.id && "bg-primary/5",
+                    )}
+                  >
+                    {c.full_name}
+                    {c.email ? (
+                      <span className="block text-xs text-muted-foreground">{c.email}</span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Rekrutacja *</p>
+          {subject.candidateId === null ? (
+            <p className="text-sm text-muted-foreground">Najpierw wybierz kandydata.</p>
+          ) : recruitments.isPending ? (
+            <p className="text-sm text-muted-foreground">Wczytuję rekrutacje…</p>
+          ) : recruitments.isError ? (
+            <Alert
+              variant="error"
+              title={apiErrorMessage(recruitments.error, "Nie udało się wczytać rekrutacji.")}
+            />
+          ) : recruitments.data.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Ten kandydat nie jest w żadnej rekrutacji.
+            </p>
+          ) : (
+            <ul className="max-h-60 divide-y divide-border overflow-y-auto rounded-lg border border-border">
+              {recruitments.data.map((r) => (
+                <li key={r.stage_id}>
+                  <button
+                    type="button"
+                    aria-pressed={subject.jobId === r.job_id}
+                    onClick={() =>
+                      onSubject({
+                        ...subject,
+                        jobId: r.job_id,
+                        jobLabel: r.job_title,
+                        allowedTypes: null,
+                      })
+                    }
+                    className={cn(
+                      "w-full px-3 py-2 text-left text-sm hover:bg-muted",
+                      subject.jobId === r.job_id && "bg-primary/5",
+                    )}
+                  >
+                    {r.job_title}
+                    <span className="block text-xs text-muted-foreground">{r.stage}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Rodzaj umowy podpowiadamy po kliencie rekrutacji.
           </p>
-        ) : (
-          <ul className="max-h-60 divide-y divide-border overflow-y-auto rounded-lg border border-border">
-            {recruitments.data.map((r) => (
-              <li key={r.stage_id}>
-                <button
-                  type="button"
-                  aria-pressed={subject.jobId === r.job_id}
-                  onClick={() => onSubject({ ...subject, jobId: r.job_id, jobLabel: r.job_title })}
-                  className={cn(
-                    "w-full px-3 py-2 text-left text-sm hover:bg-muted",
-                    subject.jobId === r.job_id && "bg-primary/5",
-                  )}
-                >
-                  {r.job_title}
-                  <span className="block text-xs text-muted-foreground">{r.stage}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="text-xs text-muted-foreground">
-          Umowa przedwstępna dotyczy wyłącznie rekrutacji Centrum e-Zdrowia —
-          inną serwer odrzuci.
-        </p>
+        </div>
       </div>
+      {subject.jobId !== null ? (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Rodzaj umowy *</p>
+          {options.isPending ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Sprawdzam, która umowa pasuje do tej rekrutacji…
+            </p>
+          ) : options.isError ? (
+            <Alert
+              variant="error"
+              title={apiErrorMessage(
+                options.error,
+                "Nie udało się sprawdzić, którą umowę wystawić w tej rekrutacji.",
+              )}
+            >
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => void options.refetch()}
+              >
+                Ponów
+              </Button>
+            </Alert>
+          ) : (
+            <>
+              <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Rodzaj umowy">
+                {allowed.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    aria-pressed={type.key === t.key}
+                    onClick={() => onType(t.key)}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:bg-muted",
+                      type.key === t.key ? "border-primary bg-primary/5" : "border-border bg-card",
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {!typeAllowed && allowed.length > 1 ? (
+                <p className="text-xs text-muted-foreground">
+                  W tej rekrutacji wybierz jedną z powyższych umów.
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

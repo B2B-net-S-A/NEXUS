@@ -123,13 +123,39 @@ export function ScanFileField({
   );
 }
 
-/** Zapisz odpowiedź DOCX jako plik. */
+/** Zapisz odpowiedź z plikiem (DOCX albo PDF) na dysku. */
 export function saveDocx(
   res: { data: unknown; headers: Record<string, unknown> },
   fallback: string,
 ) {
   const disposition = String(res.headers?.["content-disposition"] ?? "");
   downloadBlob(res.data as Blob, parseDispositionFilename(disposition, fallback));
+}
+
+export type DocumentFileFormat = "docx" | "pdf";
+
+/**
+ * PDF oferujemy przy umowach przedwstępnych — idą do kandydata, który podpisuje
+ * je dowolną formą (także podpisem zaufanym); pozostałe dokumenty — DOCX.
+ */
+export function offersPdf(item: Pick<DocumentItem, "family">): boolean {
+  return item.family === "preliminary";
+}
+
+/** Pobierz wydany dokument w wybranym formacie (dane wrażliwe tylko w żądaniu). */
+export async function downloadDocumentFile(
+  item: Pick<DocumentItem, "id" | "type_label">,
+  format: DocumentFileFormat,
+  values: DocumentValues = {},
+) {
+  const res =
+    format === "pdf"
+      ? await b2bDocumentsApi.pdf(item.id, values)
+      : await b2bDocumentsApi.redownload(item.id, values);
+  saveDocx(
+    res as { data: unknown; headers: Record<string, unknown> },
+    `${item.type_label}.${format}`,
+  );
 }
 
 // ── Oznacz jako podpisany ───────────────────────────────────────────────────
@@ -316,9 +342,8 @@ export function RedownloadDialog({
   const [errorKeys, setErrorKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const download = useMutation({
-    mutationFn: async () => {
-      const res = await b2bDocumentsApi.redownload(item.id, values);
-      saveDocx(res, `${item.type_label}.docx`);
+    mutationFn: async (format: DocumentFileFormat) => {
+      await downloadDocumentFile(item, format, values);
     },
     onSuccess: () => {
       toast.showSuccess("Dokument pobrany.");
@@ -369,13 +394,26 @@ export function RedownloadDialog({
           <Button variant="ghost" onClick={onClose}>
             Anuluj
           </Button>
+          {offersPdf(item) ? (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setError(null);
+                download.mutate("pdf");
+              }}
+              disabled={download.isPending || !sensitiveType}
+              loading={download.isPending && download.variables === "pdf"}
+            >
+              Pobierz PDF
+            </Button>
+          ) : null}
           <Button
             onClick={() => {
               setError(null);
-              download.mutate();
+              download.mutate("docx");
             }}
             disabled={download.isPending || !sensitiveType}
-            loading={download.isPending}
+            loading={download.isPending && download.variables === "docx"}
           >
             Pobierz DOCX
           </Button>

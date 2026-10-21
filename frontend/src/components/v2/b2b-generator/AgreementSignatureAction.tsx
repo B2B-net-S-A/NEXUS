@@ -15,6 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { EsignRowStatus } from "@/components/v2/b2b-generator/esign/EsignRowStatus";
 import { b2bGeneratorApi, type B2BGeneratedContractRow } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { formatIsoDatePl } from "@/lib/date-pl";
@@ -61,6 +62,20 @@ export function AgreementSignatureAction({
   if (readOnly) return null;
   if (row.signature_status === "signed_both" || row.contract_status !== "in_progress") {
     return null;
+  }
+  // Umowa w podpisie w NEXUSIE (etap 1b, 22.10.2026): ręczne potwierdzenie
+  // i prośba do DL wracają dopiero po „Przejdź na zwykłą drogę” — inaczej
+  // link kontraktora działa dalej, a kontrakt rozjechałby się z PDF-em.
+  if (row.esign && (row.esign.status === "sent" || row.esign.status === "contractor_signed")) {
+    return (
+      <div className="space-y-1">
+        <EsignRowStatus row={row} />
+        <p className="text-[11px] text-muted-foreground">
+          NEXUS potwierdzi podpis sam, gdy podpiszą obie strony. Ręczne „Oznacz jako
+          podpisaną” wróci po przejściu na zwykłą drogę.
+        </p>
+      </div>
+    );
   }
 
   if (row.can_confirm_signed) {

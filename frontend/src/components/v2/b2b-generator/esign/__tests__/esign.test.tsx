@@ -160,3 +160,30 @@ describe("CompanySignaturesPanel", () => {
     expect(mocks.showSuccess).toHaveBeenCalledWith("Umowa podpisana przez obie strony.");
   });
 });
+
+describe("AgreementSignatureAction przy umowie w podpisie w NEXUSIE", () => {
+  it("pokazuje kroki zamiast ręcznego „Oznacz jako podpisaną”", async () => {
+    const { AgreementSignatureAction } = await import("../../AgreementSignatureAction");
+    const row = {
+      id: 9,
+      contract_number: "1610/2026",
+      signature_status: "unsigned",
+      contract_status: "in_progress",
+      can_confirm_signed: true,
+      esign: {
+        request_id: 4,
+        status: "sent",
+        contractor_signed_at: null,
+        completed_at: null,
+        expires_at: "2026-11-04T10:00:00Z",
+        company_signer_name: "Olaf",
+      },
+    } as unknown as B2BGeneratedContractRow;
+    wrap(<AgreementSignatureAction row={row} jobId={20} readOnly={false} />);
+    expect(screen.getByText("W NEXUSIE")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Oznacz jako podpisaną/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/NEXUS potwierdzi podpis sam/)).toBeInTheDocument();
+  });
+});
