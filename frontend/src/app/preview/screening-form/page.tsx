@@ -457,7 +457,7 @@ const CONTRACT_STATE: ScreeningFormState = {
 };
 
 // 21.10.2026: minimum dla Delivery Leada przed „Zweryfikowany” — lokalizacja
-// i tryb pracy przeszły z innej rekrutacji osoby, Nordea dokłada motywację.
+// i tryb pracy przeszły z innej rekrutacji osoby, klient dokłada motywację.
 const MINIMUM_STATE: ScreeningFormState = {
   ...BASE_STATE,
   board_column: "screening",
