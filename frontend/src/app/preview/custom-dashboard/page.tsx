@@ -29,6 +29,10 @@
 // „Wymagania do poprawy” (13.10.2026, D4) — DL, Head i admin, warianty „Układ
 // roli” i „Pulpit z kafelkami”: rekrutacja z propozycją („Pokaż zmiany” otwiera
 // zasiane porównanie) i rekrutacja bez słów do szukania („Uzupełnij”).
+// „Do uzupełnienia” (21.10.2026): wariant z kafelkiem `to_complete` na górze
+// siatki — umowa do zamknięcia, rekrutacje do dokończenia i wymagania stoją
+// w kafelku, a w panelu zostaje umowa do potwierdzenia. W „Pulpicie
+// z kafelkami” (bez kafelka) panel ma linię „Przenieś na pulpit”.
 
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
@@ -145,6 +149,11 @@ const TILES: DashboardTile[] = [
     },
   },
   { id: "t10", type: "closing_candidates", x: 0, y: 10, w: 12, h: 6, config: {} },
+];
+
+const TILES_TO_COMPLETE: DashboardTile[] = [
+  { id: "t0", type: "to_complete", x: 0, y: 0, w: 12, h: 5, config: {} },
+  ...TILES.map((t) => ({ ...t, y: t.y + 5 })),
 ];
 
 const CATALOG: MetricCatalog = {
@@ -709,11 +718,48 @@ const NO_TASKS: BoardTasksResponse = {
   cpro_sent: [],
 };
 
-type Variant = "role" | "filled" | "empty" | "bar" | "bar-empty";
+// Umowy z Generatora: jedna do potwierdzenia (zostaje w panelu) i jedna do
+// zamknięcia (kafelek „Do uzupełnienia”).
+const AGREEMENTS: BoardTasksResponse["agreements"] = {
+  to_confirm: [
+    {
+      generated_id: 901,
+      contract_number: "1702/2026",
+      reason: "requested",
+      candidate_id: 77,
+      candidate_name: "Ewa Przykładowa",
+      job_id: 801,
+      job_title: "Senior Java Developer",
+      client_name: "Bank Północny",
+      since: daysAgo(2),
+      requested_by_name: "Marek Dąb",
+      contract_id: null,
+    },
+  ],
+  to_close: [
+    {
+      generated_id: 902,
+      contract_number: "1645/2026",
+      reason: "closed_signed_active",
+      candidate_id: 78,
+      candidate_name: "Łukasz Testowy",
+      job_id: 802,
+      job_title: "Pega Developer",
+      client_name: "Fintera",
+      since: daysAgo(9),
+      requested_by_name: null,
+      contract_id: 4410,
+    },
+  ],
+  waiting_on_others: [],
+};
+
+type Variant = "role" | "filled" | "todo" | "empty" | "bar" | "bar-empty";
 
 const VARIANT_LABEL: Record<Variant, string> = {
   role: "Układ roli",
   filled: "Pulpit z kafelkami",
+  todo: "Do uzupełnienia",
   empty: "Pusty pulpit",
   bar: "CV w drodze: pasek",
   "bar-empty": "CV w drodze: pusto",
@@ -928,6 +974,19 @@ export default function CustomDashboardPreview() {
           pending_jobs: PENDING_JOBS,
           unfinished_forms: UNFINISHED_FORMS,
           requirement_fixes: REQUIREMENT_FIXES,
+          agreements: AGREEMENTS,
+        },
+        as,
+      ),
+      todo: seededClient(
+        TILES_TO_COMPLETE,
+        {
+          ...BOARD_TASKS,
+          cv_in_transit: TRANSIT_RETURNED,
+          pending_jobs: PENDING_JOBS,
+          unfinished_forms: UNFINISHED_FORMS,
+          requirement_fixes: REQUIREMENT_FIXES,
+          agreements: AGREEMENTS,
         },
         as,
       ),

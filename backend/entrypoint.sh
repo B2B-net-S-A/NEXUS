@@ -5151,6 +5151,9 @@ END $$""",
     "signature_requested_at TIMESTAMPTZ",
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
     "signature_requested_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    # 0496: podpisany plik umowy przy wierszu rejestru Generatora.
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
+    "signed_document_id INTEGER REFERENCES contract_documents(id) ON DELETE SET NULL",
     # 0366: multiposting — kolumny kolejki publikacji w portalach.
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",
@@ -5828,6 +5831,11 @@ END $$""",
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE job_public_profiles "
     "ADD COLUMN IF NOT EXISTS theme VARCHAR(32) NULL",
+    # 0495: pola karty, które klient dokłada do minimum przed „Zweryfikowany”
+    # (decyzja Artura 21.10.2026). Lustro 1:1 z migracją — pilnuje
+    # `test_playbook_verified_required_mirror.py`.
+    "ALTER TABLE client_playbooks "
+    "ADD COLUMN IF NOT EXISTS verified_required_fields JSONB NULL",
     # 0489: „O mnie” rekrutera na stałym linku (najwyżej 280 znaków).
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE candidate_invite_links "

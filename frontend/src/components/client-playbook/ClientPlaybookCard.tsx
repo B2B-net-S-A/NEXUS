@@ -44,6 +44,7 @@ import {
   isPlaybookEmpty,
   useClientPlaybook,
   PLAYBOOK_FIELD_LABELS,
+  VERIFIED_EXTRA_FIELD_OPTIONS,
   type ClientPlaybook,
   type PlaybookDocument,
 } from "@/lib/client-playbooks";
@@ -276,6 +277,7 @@ function FullCard({
         <MarkdownBlock title="Zasady procesu rekrutacji" md={playbook.process_rules_md} />
         <MarkdownBlock title="Onboarding po akceptacji" md={playbook.onboarding_md} />
         <DocumentsBlock documents={playbook.documents} />
+        <VerifiedRequiredBlock fields={playbook.verified_required_fields ?? []} />
       </div>
     </article>
   );
@@ -323,6 +325,18 @@ function MarkdownBlock({ title, md }: { title: string; md: string | null }) {
       <div className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:text-foreground prose-a:text-primary">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown>
       </div>
+    </section>
+  );
+}
+
+/** D3 (21.10.2026): pola, które klient dokłada do minimum przed „Zweryfikowany”. */
+function VerifiedRequiredBlock({ fields }: { fields: string[] }) {
+  const labels = VERIFIED_EXTRA_FIELD_OPTIONS.filter((o) => fields.includes(o.key)).map((o) => o.label);
+  if (labels.length === 0) return null;
+  return (
+    <section>
+      <BlockTitle>{PLAYBOOK_FIELD_LABELS.verified_required_fields}</BlockTitle>
+      <p className="text-sm text-foreground">{labels.join(", ")}</p>
     </section>
   );
 }

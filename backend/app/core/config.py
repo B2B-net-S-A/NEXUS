@@ -528,6 +528,8 @@ class Settings(BaseSettings):
     #   add     — kandydat jest dodawany na etap „Ogłoszenia" (decyzja z 17.09).
     # Puste = `propose`, chyba że ustawiono alias `AUTO_MATCH_DRY_RUN`.
     AUTO_MATCH_MODE: Optional[str] = None
+    # Próg w skali „Dop.” (kanoniczny fit, profil wag bez użytkownika — od
+    # 21.10.2026; wcześniej stary scoring z wagami wbudowanymi).
     AUTO_MATCH_MIN_SCORE: float = 70.0
     AUTO_MATCH_REQUIRE_MUST: bool = True
     AUTO_MATCH_MAX_JOBS_PER_CANDIDATE: int = 3
@@ -551,8 +553,9 @@ class Settings(BaseSettings):
     # NIEUŻYWANE od 07.10.2026 (decyzja Artura: propozycje bez limitu, tylko
     # próg). Zostaje, bo czytają je skrypty audytów w `docs/audits/`.
     AUTO_FULL_REVIEW_TOP_K: int = 60
-    # Osobny próg, bo pełny przegląd punktuje kanonicznym fitem, a auto-match
-    # nowych CV starszym scoringiem — wspólny próg stroiłby dwa różne pomiary.
+    # Ta sama skala co AUTO_MATCH_MIN_SCORE (od 21.10.2026 oba automaty liczą
+    # kanonicznym fitem z profilem bez użytkownika); osobne pokrętła zostają,
+    # bo nocny przegląd i nowe CV stroi się niezależnie.
     AUTO_FULL_REVIEW_MIN_SCORE: float = 70.0
     # Znani zespołowi wyżej w „Propozycjach z bazy” (badanie 06.10.2026,
     # decyzja Artura 07.10.2026; `services/known_people_signal.py`). Procent
@@ -614,6 +617,10 @@ class Settings(BaseSettings):
     # `VERIFIED_REQUIREMENTS_MISSING`. Zwrot DL z „QC CV” do poprawy nie jest
     # bramkowany. False = wyłącznik awaryjny: zachowanie sprzed 04.10.2026.
     VERIFIED_GATE_ENABLED: bool = True
+    # Minimum dla Delivery Leada (decyzja Artura 21.10.2026): lokalizacja,
+    # tryb pracy, dostępność, „Dlaczego ten kandydat” i pola dołożone w karcie
+    # klienta. False = wyłącznik awaryjny: bramka liczy tylko arkusz i stawkę.
+    VERIFIED_MINIMUM_FIELDS_ENABLED: bool = True
     # D2 (04.10.2026): ręczny ruch na „Zatrudniony” wymaga pola „jak
     # podpisano” (`hired_signed_via`). False = wyłącznik awaryjny.
     HIRED_SIGNED_VIA_REQUIRED: bool = True

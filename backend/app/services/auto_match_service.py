@@ -8,7 +8,9 @@ Kolejność każdego zdarzenia:
 
 1. pula — wyszukiwanie semantyczne (Voyage + Qdrant) w przeciwnej kolekcji;
 2. odrzucenie tego, co już jest w pipeline'ie i rekrutacji nieopublikowanych;
-3. ranking tym samym scoringiem co „Sugerowane rekrutacje” i C2;
+3. wynik pary = „Dop.” (`canonical_fit`, profil wag bez użytkownika — globalny
+   albo klienta, jak nocny przegląd bazy; od 21.10.2026, wcześniej stary
+   scoring z wagami wbudowanymi);
 4. dealbreakery rekrutacji (budżet, must-have, biuro) i bramki przypisania;
 5. reguła `auto_match_rules.is_good_match` + sufit liczby dodań;
 6. dodanie przez `proposals_bulk.add_candidates_to_job` — te same bramki co
@@ -27,6 +29,7 @@ jest też dedupem: ta sama wersja profilu nie wraca do tej samej rekrutacji.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
@@ -134,20 +137,61 @@ def decide(
     return decisions
 
 
-def _scored_from_breakdown(breakdown) -> Scored:
-    return Scored(
-        candidate_id=int(breakdown.candidate_id),
-        job_id=int(breakdown.job_id),
-        score=round(float(breakdown.total), 2),
-        matching_must=tuple(breakdown.matching_must or ()),
-        gap_must=tuple(breakdown.gap_must or ()),
-        penalties=tuple(breakdown.penalties or ()),
-        warnings=tuple(
-            w
-            for w in (getattr(breakdown, "warnings", None) or ())
-            if w in _BLOCKING_WARNINGS
-        ),
+async def _fit_context(db: AsyncSession, job: Job):
+    """Request rekrutacji z profilem wag BEZ użytkownika (globalny albo klienta)."""
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import resolve_active_profile
+
+    profile = await resolve_active_profile(db, user_id=None, client_id=job.client_id)
+    return build_request_context(job, profile)
+
+
+async def _canonical_scored(
+    db: AsyncSession, job: Job, candidates: list[Candidate], *, context=None
+) -> tuple[list[Scored], Counter]:
+    """Wynik pary = „Dop.” (21.10.2026): kanoniczny fit z profilem BEZ
+    użytkownika (globalny albo klienta), jak nocny przegląd bazy.
+
+    Do tej daty automat liczył starym scoringiem z wagami wbudowanymi (warstwa
+    screeningu, inna miara semantyki), więc próg `AUTO_MATCH_MIN_SCORE` znaczył
+    co innego niż procent na ekranach, a wagi z `/settings/scoring` go nie
+    dotyczyły. Kanoniczny fit nie niesie kar ani ostrzeżeń — czarną listę,
+    konflikt i wykluczenie klienta sprawdza osobno ta sama funkcja co wcześniej.
+    Para bez pomiaru nie dostaje wyniku; zwracamy licznik statusów pomiaru.
+    """
+    from app.services.canonical_fit import score_candidates
+    from app.services.scoring_service import (
+        _check_penalties_and_warnings,
+        build_job_scoring_context,
     )
+
+    if context is None:
+        context = await _fit_context(db, job)
+    fits = await score_candidates(db, context, list(candidates))
+    measured = [fit for fit in fits if fit.fit_score is not None]
+    unmeasured = Counter(fit.measurement for fit in fits if fit.fit_score is None)
+    by_id = {c.id: c for c in candidates}
+    pair_context = await build_job_scoring_context(
+        db, job, [int(fit.breakdown.candidate_id) for fit in measured]
+    )
+    scored: list[Scored] = []
+    for fit in measured:
+        candidate = by_id[int(fit.breakdown.candidate_id)]
+        penalties, warnings = await _check_penalties_and_warnings(
+            candidate, job, db, context=pair_context
+        )
+        scored.append(
+            Scored(
+                candidate_id=candidate.id,
+                job_id=job.id,
+                score=round(float(fit.fit_score), 2),
+                matching_must=tuple(fit.breakdown.matching_must or ()),
+                gap_must=tuple(fit.breakdown.gap_must or ()),
+                penalties=tuple(penalties),
+                warnings=tuple(w for w in warnings if w in _BLOCKING_WARNINGS),
+            )
+        )
+    return scored, unmeasured
 
 
 async def _logged_pairs(
@@ -502,6 +546,9 @@ def _summary(decisions: list[Decision], notified: int) -> dict:
 
 
 _SCOPED_LIMIT = 300
+# Ile rekrutacji zdarzenia CV dostaje wektory zapytań naraz — połowa pamięci
+# podręcznej `full_search_measurement`, żeby porcja nie wypychała samej siebie.
+_WARM_CHUNK = 64
 
 
 async def scoped_similarity(
@@ -557,11 +604,8 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
     from app.services.dealbreaker_filters import apply_dealbreakers
     from app.services.embedding_service import _build_candidate_text
     from app.services.pipeline_eligibility import filter_eligible_candidates
+    from app.services.full_search_measurement import warm_request_vectors
     from app.services.requirement_contract import search_dealbreaker_inputs
-    from app.services.scoring_service import (
-        build_jobs_scoring_contexts,
-        rank_jobs_for_candidate,
-    )
 
     candidate = await db.get(Candidate, event.candidate_id)
     if candidate is None:
@@ -634,12 +678,25 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
     ineligible = [d for d in ineligible if (d.candidate_id, d.job_id) not in already]
 
     scored: list[Scored] = []
-    if usable:
-        contexts = await build_jobs_scoring_contexts(db, usable, [candidate.id])
-        breakdowns = await rank_jobs_for_candidate(
-            candidate, usable, db, similarity_map=similarity, contexts=contexts
-        )
-        scored = [_scored_from_breakdown(b) for b in breakdowns]
+    unmeasured: Counter = Counter()
+    # Każda rekrutacja ma własny wektor zapytania: liczymy je paczkami, w
+    # porcjach mieszczących się w pamięci podręcznej (zdarzenie CV ocenia
+    # średnio 74 rekrutacje, do 300 — pomiar 21.10.2026).
+    for start in range(0, len(usable), _WARM_CHUNK):
+        chunk = usable[start : start + _WARM_CHUNK]
+        contexts = [await _fit_context(db, job) for job in chunk]
+        await warm_request_vectors([context.query_text for context in contexts])
+        for job, context in zip(chunk, contexts):
+            rows, missed = await _canonical_scored(
+                db, job, [candidate], context=context
+            )
+            if missed.get("unavailable"):
+                # Qdrant/Voyage nie odpowiada: zdarzenie wraca do kolejki.
+                raise AutoMatchUnavailable(f"pomiar kandydata {candidate.id}")
+            # Wektor CV jeszcze nieaktualny (`stale`, `missing_index`): para
+            # bez decyzji — ocenia ją nocny przegląd bazy albo kolejne CV.
+            unmeasured += missed
+            scored += rows
     plan = decide(
         scored,
         min_score=settings.AUTO_MATCH_MIN_SCORE,
@@ -680,7 +737,12 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
         jobs_by_id=jobs_by_id,
         candidates_by_id={candidate.id: candidate},
     )
-    return {**_summary(final, notified), "pool": len(similarity), "run_id": run_id}
+    return {
+        **_summary(final, notified),
+        "pool": len(similarity),
+        "run_id": run_id,
+        "unmeasured": dict(unmeasured),
+    }
 
 
 async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
@@ -689,7 +751,6 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
     from app.services.embedding_service import _build_job_text
     from app.services.pipeline_eligibility import filter_eligible_candidates
     from app.services.requirement_contract import search_dealbreaker_inputs
-    from app.services.scoring_service import rank_candidates_for_job
 
     job = await db.get(Job, event.job_id)
     if job is None or job.status != JobStatus.published:
@@ -744,11 +805,14 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
     kept = [c for c in kept if (c.id, job.id) not in already]
 
     scored: list[Scored] = []
+    unmeasured: Counter = Counter()
     if kept:
-        breakdowns = await rank_candidates_for_job(
-            job, kept, db, similarity_map=similarity
-        )
-        scored = [_scored_from_breakdown(b) for b in breakdowns]
+        scored, unmeasured = await _canonical_scored(db, job, kept)
+        if unmeasured.get("unavailable"):
+            # Awaria choćby jednej paczki pomiaru: całe zdarzenie wraca do
+            # kolejki (przed zapisem czegokolwiek), inaczej ta część osób
+            # zostałaby bez decyzji do następnej zmiany rekrutacji.
+            raise AutoMatchUnavailable("pomiar rekrutacji niedostępny")
     plan = decide(
         scored,
         min_score=settings.AUTO_MATCH_MIN_SCORE,
@@ -787,4 +851,11 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
         jobs_by_id={job.id: job},
         candidates_by_id={c.id: c for c in candidates},
     )
-    return {**_summary(final, notified), "pool": len(similarity), "run_id": run_id}
+    return {
+        **_summary(final, notified),
+        "pool": len(similarity),
+        "run_id": run_id,
+        # Osoby bez pomiaru (wektor nieaktualny) nie dostają decyzji — ocenia
+        # je nocny przegląd bazy albo kolejne zdarzenie.
+        "unmeasured": dict(unmeasured),
+    }

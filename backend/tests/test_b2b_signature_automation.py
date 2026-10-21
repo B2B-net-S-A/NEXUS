@@ -2652,3 +2652,137 @@ async def test_pipeline_hire_reuses_the_persons_contract_without_recruitment(
     assert await _live_contracts_at_client(
         scenario["candidate_id"], scenario["client_id"]
     ) == [manual_id]
+
+
+# ── Podpisany plik przy wierszu rejestru (0496, 21.10.2026) ──────────────────
+
+SIGNED_FILE_PATH = "/api/b2b-generator/generated/{generated_id}/signed-file"
+SIGNED_PDF = b"%PDF-1.7\n% podpisana umowa\n"
+
+
+async def _attach_file(
+    app_client: AsyncClient,
+    headers: dict[str, str],
+    generated_id: int,
+    *,
+    name: str = "umowa-podpisana.pdf",
+    data: bytes = SIGNED_PDF,
+):
+    return await app_client.post(
+        SIGNED_FILE_PATH.format(generated_id=generated_id),
+        files={"file": (name, data, "application/pdf")},
+        headers=headers,
+    )
+
+
+@pytest.mark.asyncio
+async def test_signed_file_waits_for_the_signature_and_lands_in_contract_documents(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Zgłoszenie Administracji 21.10.2026: po „Oznacz jako podpisaną”
+    podpisanej umowy nie było w NEXUSIE. Plik dołącza się po podpisie, trafia do
+    Dokumentów kontraktu jako „Umowa”, a kolejny plik podmienia poprzedni."""
+    from app.models.contract_document import ContractDocument
+
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    headers = app_auth_headers
+
+    unsigned_item = await _listed(app_client, headers, scenario)
+    assert unsigned_item["can_attach_signed_file"] is False
+    assert unsigned_item["signed_document_id"] is None
+    early = await _attach_file(app_client, headers, scenario["generated_id"])
+    assert early.status_code == 409, early.text
+    assert "po oznaczeniu" in early.json()["detail"]
+
+    confirmed = await _confirm(app_client, headers, scenario["generated_id"])
+    assert confirmed.status_code == 200, confirmed.text
+    signed_item = await _listed(app_client, headers, scenario)
+    assert signed_item["can_attach_signed_file"] is True
+    assert signed_item["signed_document_id"] is None
+
+    attached = await _attach_file(app_client, headers, scenario["generated_id"])
+    assert attached.status_code == 200, attached.text
+    first_doc_id = attached.json()["signed_document_id"]
+    assert first_doc_id is not None
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        doc = await db.get(ContractDocument, first_doc_id)
+        assert row is not None and doc is not None
+        assert doc.contract_id == row.contract_id
+        assert getattr(doc.doc_type, "value", doc.doc_type) == "contract"
+        assert doc.filename == "umowa-podpisana.pdf"
+
+    replaced = await _attach_file(
+        app_client,
+        headers,
+        scenario["generated_id"],
+        name="umowa-v2.pdf",
+        data=SIGNED_PDF + b"% druga wersja\n",
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["signed_document_id"] == first_doc_id
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(ContractDocument, first_doc_id)
+        assert doc is not None and doc.filename == "umowa-v2.pdf"
+        await db.delete(doc)
+        await db.commit()
+    after_delete = await _listed(app_client, headers, scenario)
+    assert after_delete["signed_document_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_signed_file_must_be_a_pdf_or_picture(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    headers = app_auth_headers
+    assert (
+        await _confirm(app_client, headers, scenario["generated_id"])
+    ).status_code == 200
+
+    docx = await _attach_file(
+        app_client,
+        headers,
+        scenario["generated_id"],
+        name="umowa.docx",
+        data=b"PK\x03\x04",
+    )
+    assert docx.status_code == 415, docx.text
+    assert docx.json()["detail"].startswith("Podpisana umowa")
+    fake = await _attach_file(
+        app_client, headers, scenario["generated_id"], name="umowa.pdf", data=b"nie pdf"
+    )
+    assert fake.status_code == 415, fake.text
+
+
+@pytest.mark.asyncio
+async def test_signed_file_follows_who_may_confirm_the_signature(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Plik dołącza ten, kto mógłby oznaczyć podpis tego wiersza (19.10.2026):
+    autor tak, rekruter spoza zespołu cudzej umowy — nie (lista i trasa mówią
+    to samo)."""
+    from tests._permission_grants import grant_permissions
+
+    admin_id = await _current_admin_id(app_client)
+    admin_headers = app_auth_headers
+    headers = await _headers_for_role(app_client, UserRole.recruiter)
+    user_id = int(headers["X-Test-User-Id"])
+    await grant_permissions(user_id, "b2b_signature_confirmation")
+    own = await _seed_bound_scenario(created_by=user_id)
+    foreign = await _seed_bound_scenario(created_by=admin_id)
+    for scenario in (own, foreign):
+        confirmed = await _confirm(app_client, admin_headers, scenario["generated_id"])
+        assert confirmed.status_code == 200, confirmed.text
+
+    foreign_item = await _listed(app_client, headers, foreign)
+    assert foreign_item["can_attach_signed_file"] is False
+    denied = await _attach_file(app_client, headers, foreign["generated_id"])
+    assert denied.status_code == 403, denied.text
+
+    own_item = await _listed(app_client, headers, own)
+    assert own_item["can_attach_signed_file"] is True
+    allowed = await _attach_file(app_client, headers, own["generated_id"])
+    assert allowed.status_code == 200, allowed.text

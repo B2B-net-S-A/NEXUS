@@ -332,3 +332,86 @@ def test_note_contributions_say_what_each_note_gave_to_the_card():
         },
         4: {"note_id": 4, "job_id": 2, "fields": ["nationality"], "answers": 0},
     }
+
+
+# ── Minimum dla DL i przenoszenie pól o osobie (21.10.2026) ──────────────────
+
+
+def test_placeholders_are_not_values_except_in_red_flags():
+    """Pomiar 21.10: lokalizacja „-” albo „.” przechodziła jako wypełniona."""
+    assert not rules.has_value("location", {"raw": "-"})
+    assert not rules.has_value("work_mode", {"raw": " . "})
+    assert not rules.has_value("location", {"raw": "?"})
+    assert not rules.has_value("location", None)
+    assert rules.has_value("location", {"raw": "WAW"})
+    assert rules.has_value("english", {"raw": "B2"})
+    # „-” w red flags znaczy „brak uwag”.
+    assert rules.has_value("red_flags", {"raw": "-"})
+    state = rules.completeness({"location": {"raw": "-"}})
+    assert "location" in state["missing"]
+
+
+def test_missing_required_keeps_the_list_order():
+    current = {"work_mode": {"raw": "zdalnie"}, "location": {"raw": "—"}}
+    assert rules.missing_required(current, rules.VERIFIED_MINIMUM_FIELDS) == [
+        "location",
+        "availability",
+        "recommendation",
+    ]
+
+
+NOW = datetime(2026, 10, 21, 12, tzinfo=timezone.utc)
+
+
+def _ago(days_ago: int) -> str:
+    from datetime import timedelta
+
+    return (NOW - timedelta(days=days_ago)).isoformat()
+
+
+def test_carried_values_take_the_newest_fresh_value_of_the_person():
+    cards = [
+        {
+            "job_id": 1,
+            "fields_notes": {
+                "location": {"raw": "Kraków", "at": _ago(40)},
+                "work_mode": {"raw": "zdalnie", "at": _ago(40)},
+            },
+            "fields_manual": {},
+        },
+        {
+            "job_id": 2,
+            "fields_notes": {"location": {"raw": "Warszawa", "at": _ago(5)}},
+            "fields_manual": {
+                "availability": {"raw": "od 1.11", "at": _ago(5)},
+                "work_mode": {"raw": "-", "at": _ago(1)},
+            },
+        },
+    ]
+    carried = rules.carried_values(cards, now=NOW)
+    assert (
+        carried["location"]["raw"] == "Warszawa" and carried["location"]["job_id"] == 2
+    )
+    # „-” nie przechodzi — zostaje starsza prawdziwa wartość.
+    assert (
+        carried["work_mode"]["raw"] == "zdalnie" and carried["work_mode"]["job_id"] == 1
+    )
+    assert carried["availability"]["raw"] == "od 1.11"
+    # „Dlaczego ten kandydat” dotyczy rekrutacji, nie osoby.
+    assert "recommendation" not in carried
+
+
+def test_carried_values_respect_the_age_limit_the_skip_list_and_missing_dates():
+    cards = [
+        {
+            "job_id": 3,
+            "fields_notes": {
+                "availability": {"raw": "od zaraz", "at": _ago(31)},
+                "location": {"raw": "Gdańsk", "at": _ago(200)},
+                "english": {"raw": "C1"},
+                "nationality": {"raw": "polska", "at": _ago(10)},
+            },
+            "fields_manual": {},
+        }
+    ]
+    assert rules.carried_values(cards, now=NOW, skip={"nationality"}) == {}

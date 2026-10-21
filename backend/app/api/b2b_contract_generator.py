@@ -15,7 +15,16 @@ from datetime import date, datetime, timedelta, timezone
 from collections.abc import Callable
 from typing import Any, get_args
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
 from sqlalchemy import Select, and_, func, or_, select, update
@@ -76,7 +85,7 @@ from app.services.access_scope import (
     is_delivery_lead_governed,
     resolve_delivery_lead_assigned_client_ids,
 )
-from app.services.b2b_documents import contract_annexes
+from app.services.b2b_documents import contract_annexes, signed_scan
 from app.services.b2b_documents import effects as document_effects
 from app.services.b2b_documents.contract_versions import version_for_variant
 from app.services.critical_events import audited_deletion
@@ -157,6 +166,7 @@ from app.services.b2b_contract_generator.entity_type import (
     partner_display_lines,
     resolve_partner_entity_type,
 )
+from app.services.b2b_contract_generator import signed_file
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.company_variant import (
     CompanyVariantError,
@@ -1143,6 +1153,7 @@ async def _serialize_generated_contracts(
                 if exc.status_code != 403:
                     raise
                 signature_client_access[client_id] = False
+    live_signed_files = await signed_file.existing_document_ids(db, rows)
     items: list[B2BGeneratedContractItem] = []
     for row in rows:
         is_signed = row.signature_status == "signed_both"
@@ -1228,6 +1239,24 @@ async def _serialize_generated_contracts(
             blocked_reason = _SIGNATURE_ROW_SCOPE_DENIED
             can_confirm = False
 
+        # Plik dołącza ten, kto mógłby oznaczyć podpis — liczone bez warunku
+        # „jeszcze niepodpisana”, bo plik dochodzi właśnie po podpisie.
+        can_attach_file = (
+            is_signed
+            and not from_excel
+            and row.contract_id is not None
+            and generator_access >= ActionAccess.view
+            and can_write_client
+            and _has_signature_permission(current_user)
+            and signature_client_access.get(row.client_id, False)
+            and _may_confirm_row_signature(
+                current_user,
+                created_by=row.created_by,
+                job_id=row.job_id,
+                team_job_ids=scoped_job_ids,
+            )
+        )
+
         linked_status, linked_end = linked_contracts.get(row.contract_id, (None, None))
         job = jobs.get(row.job_id) if row.job_id is not None else None
         # Kolumna „Partner": nazwa firmy z rejestru, a dla spółki dodatkowo
@@ -1304,6 +1333,12 @@ async def _serialize_generated_contracts(
                 signed_by_name=users.get(row.signed_by_user_id),
                 can_confirm_signed=can_confirm,
                 blocked_reason=blocked_reason,
+                signed_document_id=(
+                    row.signed_document_id
+                    if row.signed_document_id in live_signed_files
+                    else None
+                ),
+                can_attach_signed_file=can_attach_file,
                 annex_rates=(
                     list((row.annex_rates or {}).get("items") or [])
                     if row.annex_rates
@@ -4016,6 +4051,62 @@ async def _lock_person_contracts_before_row(
         else []
     )
     await lock_contract_then_orders(db, contract_ids=[*contract_ids, link.contract_id])
+
+
+@router.post(
+    "/generated/{generated_id}/signed-file",
+    response_model=B2BGeneratedContractItem,
+)
+async def attach_generated_contract_signed_file(
+    generated_id: int,
+    current_user: B2BGeneratorAccess,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dołącz podpisany egzemplarz umowy — trafia do Dokumentów kontraktu (0496).
+
+    Okno „Oznacz jako podpisaną” woła najpierw podpis (JSON, bez zmian), potem
+    tę trasę; wiersz podpisany wcześniej bez pliku dołącza go z rejestru.
+    Wchodzi ten, kto mógłby ten podpis oznaczyć (``_may_confirm_row_signature``),
+    bo plik ląduje w kontrakcie, który założył podpis."""
+    _require_signature_confirmation(current_user)
+    row = await db.scalar(
+        select(B2BGeneratedContract)
+        .where(B2BGeneratedContract.id == generated_id)
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    _reject_excel_row(row)
+    await _assert_signature_client_access(db, current_user, row.client_id)
+    team_job_ids = (
+        await _jobs_run_by(db, current_user, {row.job_id})
+        if row.job_id is not None
+        and not current_user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES)
+        else set()
+    )
+    if not _may_confirm_row_signature(
+        current_user,
+        created_by=row.created_by,
+        job_id=row.job_id,
+        team_job_ids=team_job_ids,
+    ):
+        raise HTTPException(status_code=403, detail=_SIGNATURE_ROW_SCOPE_DENIED)
+    name, content_type, data = await signed_scan.read_scan(
+        file, format_msg=signed_file.MSG_FORMAT
+    )
+    replaced_path = await signed_file.attach(
+        db,
+        row=row,
+        filename=name,
+        content_type=content_type,
+        data=data,
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    signed_file.discard(replaced_path)
+    await db.refresh(row)
+    return await _serialize_generated_contract(db, row, current_user)
 
 
 @router.patch("/generated/{generated_id}", response_model=B2BGeneratedContractItem)
