@@ -62,6 +62,13 @@ CLIENT_STAGES: tuple[PipelineStage, ...] = (
     PipelineStage.onboarding,
     PipelineStage.hired,
 )
+# Kolumny Tablicy, w których osoba stoi „u klienta” (`at_client_counts`).
+AT_CLIENT_COLUMNS: tuple[str, ...] = (
+    "cv_sent",
+    "client_interview",
+    "contract",
+    "hired",
+)
 # Przepinamy wysłanych, ale nie zatrudnionych (ci pracują).
 REASSIGN_STAGES: tuple[PipelineStage, ...] = (
     PipelineStage.cv_sent,
@@ -574,19 +581,30 @@ async def at_client_counts(db: AsyncSession, job_ids: Iterable[int]) -> dict[int
     W odróżnieniu od :func:`sent_counts` liczy bieżący etap pary, więc osoba
     wysłana i potem odrzucona już się nie liczy. Na tym stoi kolumna
     „Wysłani” na pulpicie requestów (do 19.10.2026 pokazywała historię:
-    4 przy jednej karcie w „CV wysłane”)."""
+    4 przy jednej karcie w „CV wysłane”).
+
+    „U klienta” = kolumny Tablicy od „CV wysłane” do „Zatrudnionych”, liczone
+    z NAZWY etapu szablonu razem z kodem wiersza (``board_column_for``), nie
+    z samego kodu: „Po Interview” ma kod ``interview``, a „Rezerwa” — kod
+    ``cv_sent`` (21.10.2026)."""
+    from app.services.candidate_stage_column import (  # noqa: PLC0415
+        column_clause,
+        column_rule,
+        load_stage_defs,
+    )
     from app.services.pipeline_latest import latest_stage_ids  # noqa: PLC0415
 
     ids = list(set(job_ids))
     if not ids:
         return {}
+    rule = column_rule(AT_CLIENT_COLUMNS, await load_stage_defs(db))
     latest = latest_stage_ids(job_ids=ids)
     rows = (
         await db.execute(
             select(CandidateStage.job_id, func.count(CandidateStage.candidate_id))
             .where(
                 CandidateStage.id.in_(select(latest.c.latest_id)),
-                CandidateStage.stage.in_(CLIENT_STAGES),
+                column_clause(rule, CandidateStage.stage_def_id, CandidateStage.stage),
             )
             .group_by(CandidateStage.job_id)
         )
