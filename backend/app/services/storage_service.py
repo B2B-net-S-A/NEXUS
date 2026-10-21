@@ -10,6 +10,7 @@ callers — only this module talks to the filesystem directly.
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import re
@@ -33,6 +34,9 @@ CLIENT_ORDER_GROUP_POS_DIR = STORAGE_ROOT / "client_order_groups"
 FINANCE_IMPORTS_DIR = STORAGE_ROOT / "finance_imports"
 ORDER_MAIL_DIR = STORAGE_ROOT / "order_mail"
 JOB_FILES_DIR = STORAGE_ROOT / "job_files"
+# Podpis umowy B2B w NEXUSIE (0497): PDF wydany do podpisu i kolejne podpisane
+# wersje — przed podpisem nie ma jeszcze kontraktu, więc nie Dokumenty kontraktu.
+B2B_SIGNING_DIR = STORAGE_ROOT / "b2b_signing"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -379,6 +383,20 @@ def _delete_relative(relative_path: str, label: str) -> None:
             safe_storage_key(relative_path),
             type(exc).__name__,
         )
+
+
+# ── Podpis umowy B2B w NEXUSIE (0497) ────────────────────────────────────────
+
+
+def save_b2b_signing_pdf(request_id: int, name: str, data: bytes) -> tuple[str, int]:
+    """Zapisz PDF wniosku o podpis pod /b2b_signing/{request_id}/{uuid}-{name}."""
+    rel, size = _save_to(B2B_SIGNING_DIR / str(request_id), name, io.BytesIO(data))
+    logger.info("Saved B2B signing PDF: %s (%d bytes)", safe_storage_key(rel), size)
+    return rel, size
+
+
+def read_b2b_signing_pdf(relative_path: str) -> bytes:
+    return _resolve_under_root(relative_path).read_bytes()
 
 
 # ── Client framework contracts (MSA PDFs) ────────────────────────────────────

@@ -1,0 +1,297 @@
+"""Wysyłka umowy do podpisu w NEXUSIE, podpis kontraktora, podpis firmy, wycofanie.
+
+Kolejność stron jest stała: kontraktor (link z maila, bez konta), potem
+reprezentant B2B Network wskazany przy wysyłce (w NEXUSIE). Każde wgranie:
+
+1. plik musi zaczynać się bajtami poprzedniej wersji (``verdict.builds_on``),
+2. walidacja (EU DSS) i ``verdict.judge`` — BEZ blokady wiersza, bo trwa do 30 s,
+3. blokada wniosku i ponowne sprawdzenie stanu oraz odcisku — wycofanie albo
+   drugie wgranie w czasie walidacji wygrywa (w torze z czerwca wycofanie
+   w trakcie walidacji kończyło się „Zakończona”).
+
+Kontrakt nie powstaje tutaj. Po podpisie obu stron wniosek jest ``completed``,
+a automatykę „Oznacz jako podpisaną” woła warstwa wyżej.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import secrets
+from datetime import datetime, timedelta
+from typing import Protocol
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_signing_request import OPEN_STATUSES, B2BSigningRequest
+from app.services import storage_service
+from app.services.b2b_esign.verdict import (
+    MSG_CHANGED,
+    MSG_NOT_PDF,
+    Fingerprint,
+    builds_on,
+    judge,
+)
+from app.services.signing.provider import ValidationReport
+
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MIN_DAYS, MAX_DAYS = 1, 30
+
+MSG_LINK = "Link jest nieprawidłowy albo wygasł. Poproś o nowy osobę z B2B Network."
+MSG_ALREADY_SIGNED = (
+    "Ta umowa jest już przez Ciebie podpisana — czekamy na podpis B2B Network."
+)
+MSG_CLOSED = "Ta umowa nie czeka już na podpis. Skontaktuj się z osobą z B2B Network."
+MSG_RACE = "Stan umowy zmienił się w trakcie sprawdzania podpisu — odśwież stronę."
+MSG_OPEN_EXISTS = (
+    "Ta umowa jest już wysłana do podpisu w NEXUSIE. Wycofaj tamtą wysyłkę, "
+    "zanim wyślesz ponownie."
+)
+MSG_NOT_SENDABLE = "Do podpisu wysyła się umowę w trakcie, jeszcze niepodpisaną."
+MSG_NOT_COMPANY_SIGNER = "Za B2B Network podpisuje osoba wskazana przy wysyłce."
+MSG_WAITS_FOR_CONTRACTOR = (
+    "Najpierw podpisuje kontraktor — umowa jeszcze na niego czeka."
+)
+MSG_TOO_BIG = "Plik jest za duży — może mieć najwyżej 20 MB."
+
+
+class Validator(Protocol):
+    @property
+    def has_dss(self) -> bool: ...
+
+    async def validate(self, signed_pdf: bytes) -> ValidationReport: ...
+
+
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def new_token() -> tuple[str, str]:
+    """(token do maila, skrót do bazy) — sam token nie trafia do bazy."""
+    token = secrets.token_urlsafe(32)
+    return token, token_hash(token)
+
+
+def is_link_live(request: B2BSigningRequest, now: datetime) -> bool:
+    return request.status == "sent" and request.expires_at > now
+
+
+def check_pdf_upload(data: bytes) -> None:
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=MSG_TOO_BIG)
+    if not data.startswith(b"%PDF-"):
+        raise HTTPException(status_code=415, detail=MSG_NOT_PDF)
+
+
+async def open_request_for(
+    db: AsyncSession, generated_id: int
+) -> B2BSigningRequest | None:
+    return await db.scalar(
+        select(B2BSigningRequest).where(
+            B2BSigningRequest.generated_contract_id == generated_id,
+            B2BSigningRequest.status.in_(OPEN_STATUSES),
+        )
+    )
+
+
+def assert_sendable(row: B2BGeneratedContract) -> None:
+    if (
+        row.source == "excel"
+        or row.signature_status == "signed_both"
+        or row.contract_status != "in_progress"
+    ):
+        raise HTTPException(status_code=409, detail=MSG_NOT_SENDABLE)
+
+
+async def send(
+    db: AsyncSession,
+    *,
+    row: B2BGeneratedContract,
+    pdf: bytes,
+    actor_id: int,
+    contractor_name: str,
+    contractor_email: str,
+    company_signer_id: int,
+    days: int,
+    now: datetime,
+) -> tuple[B2BSigningRequest, str]:
+    """Zamroź PDF i otwórz wniosek. Wołający trzyma blokadę wiersza rejestru
+    i sprawdził uprawnienia oraz przełącznik. Zwraca (wniosek, token linku)."""
+    assert_sendable(row)
+    if await open_request_for(db, row.id) is not None:
+        raise HTTPException(status_code=409, detail=MSG_OPEN_EXISTS)
+    days = max(MIN_DAYS, min(MAX_DAYS, days))
+    token, digest = new_token()
+    source = Fingerprint.of(pdf)
+    request = B2BSigningRequest(
+        generated_contract_id=row.id,
+        status="sent",
+        contractor_name=contractor_name.strip(),
+        contractor_email=contractor_email.strip(),
+        contractor_token_hash=digest,
+        company_signer_id=company_signer_id,
+        # Ścieżka dopiero po flush (katalog z id wniosku).
+        source_pdf_path="",
+        source_sha256=source.sha256,
+        source_size=source.size,
+        sent_by=actor_id,
+        sent_at=now,
+        expires_at=now + timedelta(days=days),
+    )
+    db.add(request)
+    await db.flush()
+    path, _ = storage_service.save_b2b_signing_pdf(
+        request.id, f"umowa_{row.contract_number.replace('/', '_')}.pdf", pdf
+    )
+    request.source_pdf_path = path
+    await db.flush()
+    return request, token
+
+
+async def load_by_token(db: AsyncSession, token: str) -> B2BSigningRequest:
+    request = await db.scalar(
+        select(B2BSigningRequest).where(
+            B2BSigningRequest.contractor_token_hash == token_hash(token)
+        )
+    )
+    if request is None:
+        raise HTTPException(status_code=404, detail=MSG_LINK)
+    return request
+
+
+async def _lock(db: AsyncSession, request_id: int) -> B2BSigningRequest:
+    locked = await db.scalar(
+        select(B2BSigningRequest)
+        .where(B2BSigningRequest.id == request_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if locked is None:
+        raise HTTPException(status_code=404, detail=MSG_LINK)
+    return locked
+
+
+def _with_report(
+    request: B2BSigningRequest, party: str, report: ValidationReport
+) -> dict:
+    # Nowy słownik: zmiana w miejscu nie zostałaby zapisana w kolumnie JSONB.
+    return {**(request.validation or {}), party: report.as_db_report()}
+
+
+async def contractor_submit(
+    db: AsyncSession,
+    *,
+    token: str,
+    data: bytes,
+    validator: Validator,
+    now: datetime,
+) -> B2BSigningRequest:
+    request = await load_by_token(db, token)
+    if request.status in ("contractor_signed", "completed"):
+        raise HTTPException(status_code=409, detail=MSG_ALREADY_SIGNED)
+    if not is_link_live(request, now):
+        raise HTTPException(status_code=410, detail=MSG_CLOSED)
+    check_pdf_upload(data)
+    source = Fingerprint(request.source_sha256, request.source_size)
+    if not builds_on(data, source):
+        raise HTTPException(status_code=422, detail=MSG_CHANGED)
+    report = await validator.validate(data)
+    verdict = judge(
+        report,
+        authoritative=validator.has_dss,
+        required_signers=[request.contractor_name],
+    )
+    if not verdict.accepted:
+        raise HTTPException(status_code=422, detail=verdict.message)
+
+    locked = await _lock(db, request.id)
+    if not is_link_live(locked, now) or locked.source_sha256 != source.sha256:
+        raise HTTPException(status_code=409, detail=MSG_RACE)
+    path, size = storage_service.save_b2b_signing_pdf(
+        locked.id, "podpisana_przez_kontraktora.pdf", data
+    )
+    signed = Fingerprint.of(data)
+    locked.contractor_pdf_path = path
+    locked.contractor_sha256 = signed.sha256
+    locked.contractor_size = size
+    locked.contractor_signed_at = now
+    locked.validation = _with_report(locked, "contractor", report)
+    locked.status = "contractor_signed"
+    await db.flush()
+    return locked
+
+
+async def company_submit(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    actor_id: int,
+    actor_name: str,
+    data: bytes,
+    validator: Validator,
+    now: datetime,
+) -> B2BSigningRequest:
+    request = await db.get(B2BSigningRequest, request_id)
+    if request is None:
+        raise HTTPException(status_code=404, detail="Wniosek o podpis nie istnieje.")
+    if request.company_signer_id != actor_id:
+        raise HTTPException(status_code=403, detail=MSG_NOT_COMPANY_SIGNER)
+    if request.status == "sent":
+        raise HTTPException(status_code=409, detail=MSG_WAITS_FOR_CONTRACTOR)
+    if request.status != "contractor_signed" or request.contractor_sha256 is None:
+        raise HTTPException(status_code=409, detail=MSG_CLOSED)
+    check_pdf_upload(data)
+    contractor_version = Fingerprint(
+        request.contractor_sha256, request.contractor_size or 0
+    )
+    if not builds_on(data, contractor_version):
+        raise HTTPException(status_code=422, detail=MSG_CHANGED)
+    report = await validator.validate(data)
+    verdict = judge(
+        report,
+        authoritative=validator.has_dss,
+        required_signers=[request.contractor_name, actor_name],
+    )
+    if not verdict.accepted:
+        raise HTTPException(status_code=422, detail=verdict.message)
+
+    locked = await _lock(db, request.id)
+    if (
+        locked.status != "contractor_signed"
+        or locked.contractor_sha256 != contractor_version.sha256
+    ):
+        raise HTTPException(status_code=409, detail=MSG_RACE)
+    path, _ = storage_service.save_b2b_signing_pdf(
+        locked.id, "podpisana_przez_obie_strony.pdf", data
+    )
+    locked.final_pdf_path = path
+    locked.completed_at = now
+    locked.validation = _with_report(locked, "company", report)
+    locked.status = "completed"
+    # Link kontraktora nie jest już potrzebny.
+    locked.contractor_token_hash = None
+    await db.flush()
+    return locked
+
+
+async def withdraw(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    actor_id: int,
+    reason: str | None,
+    now: datetime,
+) -> B2BSigningRequest:
+    """Wycofaj wysyłkę (np. przejście na drogę zwykłą). Link przestaje działać."""
+    locked = await _lock(db, request_id)
+    if locked.status not in OPEN_STATUSES:
+        raise HTTPException(status_code=409, detail=MSG_CLOSED)
+    locked.status = "withdrawn"
+    locked.contractor_token_hash = None
+    locked.closed_at = now
+    locked.closed_by = actor_id
+    locked.close_reason = (reason or "").strip()[:500] or None
+    await db.flush()
+    return locked
