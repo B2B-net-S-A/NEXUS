@@ -1,7 +1,7 @@
 """Rozmowa u klienta przełożona albo odwołana — powiadomienie dla pary (21.10.2026).
 
 Revision ID: 0491_interview_changed_notification
-Revises: 0489_career_recruiter_about
+Revises: 0490_board_role
 
 Zgłoszenie rekruterki: terminy rozmów u klienta często się zmieniają, a gdy
 rekruter przełoży albo odwoła rozmowę w NEXUSIE, Delivery Lead nic nie
@@ -14,7 +14,7 @@ Lustro w ``entrypoint.sh`` — pilnuje ``test_interview_change_notifications.py`
 from alembic import op
 
 revision = "0491_interview_changed_notification"
-down_revision = "0489_career_recruiter_about"
+down_revision = "0490_board_role"
 branch_labels = None
 depends_on = None
 
