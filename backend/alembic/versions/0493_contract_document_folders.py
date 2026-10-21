@@ -1,7 +1,7 @@
 """Foldery w zakładce Dokumenty kontraktu (ticket Ani, 21.10.2026).
 
-Revision ID: 0492_contract_document_folders
-Revises: 0491_approval_contract_basis
+Revision ID: 0493_contract_document_folders
+Revises: 0492_md_import_awaiting_order
 
 Tabela ``contract_document_folders`` i kolumna ``contract_documents.folder_id``
 (``ON DELETE SET NULL`` — usunięcie folderu oddaje pliki na listę główną).
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services.contract_document_folders_schema import DOWNGRADE_DDL, TABLE_DDL
 
-revision = "0492_contract_document_folders"
-down_revision = "0491_approval_contract_basis"
+revision = "0493_contract_document_folders"
+down_revision = "0492_md_import_awaiting_order"
 branch_labels = None
 depends_on = None
 

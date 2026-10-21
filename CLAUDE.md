@@ -310,7 +310,7 @@ Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchroni
 - `data-rozpoczecia-umowy-start-zamowienia.md` — Data rozpoczęcia umowy ≠ start zamówienia (korekta 21.09.2026)
 - `dokumenty-kontraktow-z-sharepointa.md` — Dokumenty kontraktów z SharePointa (ticket 9, 0402, 29.09.2026)
 - `domyslny-widok-modulu-kontrakty-aktywne-i-konczace.md` — Domyślny widok modułu Kontrakty: Aktywne **i** Kończące się
-- `foldery-w-dokumentach-kontraktu.md` — Foldery w zakładce Dokumenty kontraktu (0492, 21.10.2026)
+- `foldery-w-dokumentach-kontraktu.md` — Foldery w zakładce Dokumenty kontraktu (0493, 21.10.2026)
 - `generator-umow-b2b-trzy-zakladki-cyklu-zycia-umowy.md` — Generator Umów B2B — trzy zakładki cyklu życia umowy
 - `kafelek-kontraktora-status-zamowienia-musi-zgadzac.md` — Kafelek kontraktora: status zamówienia musi zgadzać się z okresem (29.09.2026)
 - `kontakt-do-konsultanta-na-umowie.md` — Kontakt do konsultanta na umowie (09.2026, migracja 0320)

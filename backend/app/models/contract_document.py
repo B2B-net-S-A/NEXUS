@@ -96,7 +96,7 @@ class ContractDocument(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
-    # Folder w zakładce Dokumenty (0492). NULL = sekcja „Aktualna umowa”.
+    # Folder w zakładce Dokumenty (0493). NULL = sekcja „Aktualna umowa”.
     # Zamówienia (``doc_type = order``) leżą w folderze „Zamówienia” bez
     # względu na to pole — decyduje typ, nie zapis przy pliku.
     folder_id: Mapped[Optional[int]] = mapped_column(
@@ -115,7 +115,7 @@ class ContractDocument(Base, TimestampMixin):
 
 
 class ContractDocumentFolder(Base, TimestampMixin):
-    """Folder w zakładce Dokumenty kontraktu (0492).
+    """Folder w zakładce Dokumenty kontraktu (0493).
 
     ``kind = 'user'`` — folder założony ręcznie („Poprzednia umowa…”).
     ``kind = 'orders'`` — tylko własna nazwa folderu „Zamówienia” na tym

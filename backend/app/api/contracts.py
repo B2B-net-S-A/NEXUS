@@ -5425,7 +5425,7 @@ async def upload_contract_document(
 ):
     contract = await _assert_contract(db, contract_id, current_user)
     await _assert_contract_document_client_access(contract, current_user, db)
-    # 0492: zamówienie zawsze leży w folderze „Zamówienia” — o tym decyduje
+    # 0493: zamówienie zawsze leży w folderze „Zamówienia” — o tym decyduje
     # typ, więc wybrany folder pomijamy. Inny folder musi być tego kontraktu.
     if doc_type == ContractDocumentType.order:
         folder_id = None

@@ -390,7 +390,7 @@ async def _compliance_documents_expiring(db: AsyncSession) -> list[ContractDocum
             ContractDocument.expiry_date.isnot(None),
             ContractDocument.expiry_date <= cutoff,
             ContractDocument.expiry_date >= today,
-            # 0492: plik w folderze (np. „Poprzednia umowa”) to archiwum —
+            # 0493: plik w folderze (np. „Poprzednia umowa”) to archiwum —
             # stara polisa nie alarmuje na aktywnym kontrakcie.
             ContractDocument.folder_id.is_(None),
         )

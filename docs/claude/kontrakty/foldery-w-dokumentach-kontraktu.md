@@ -1,4 +1,4 @@
-# Foldery w zakładce Dokumenty kontraktu (0492, 21.10.2026)
+# Foldery w zakładce Dokumenty kontraktu (0493, 21.10.2026)
 
 Ticket Ani: dokumenty starej i nowej umowy mieszały się na jednej liście.
 Makiety i decyzje Artura 21.10.2026 (https://claude.ai/artifact/DbL73J4pHAd7dWr2Mv4WV5):

@@ -1,4 +1,4 @@
-"""0492: foldery w Dokumentach kontraktu — trasy na prawdziwej bazie.
+"""0493: foldery w Dokumentach kontraktu — trasy na prawdziwej bazie.
 
 Baza testowa jest wspólna i nieczyszczona: każdy test zakłada własny
 kontrakt i sprawdza wyłącznie jego dokumenty.

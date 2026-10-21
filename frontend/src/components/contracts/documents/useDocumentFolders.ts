@@ -10,7 +10,7 @@ export function documentFoldersKey(contractId: number) {
   return ["contract-document-folders", contractId] as const;
 }
 
-/** Foldery, nazwa „Zamówień” i podpowiedzi „Poprzednia umowa” (0492). */
+/** Foldery, nazwa „Zamówień” i podpowiedzi „Poprzednia umowa” (0493). */
 export function useDocumentFoldersQuery(contractId: number) {
   return useQuery<DocumentFoldersResponse>({
     queryKey: documentFoldersKey(contractId),
