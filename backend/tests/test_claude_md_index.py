@@ -46,3 +46,18 @@ def test_core_points_at_the_rules_directory() -> None:
     text = index.CLAUDE_MD.read_text(encoding="utf-8")
     assert "docs/claude/" in text
     assert "build_claude_index.py" in text, "CLAUDE.md ma mówić, jak dopisać regułę bez powiększania go."
+
+
+def test_index_drops_only_trailing_dates_in_parentheses() -> None:
+    strip = index._without_dates
+    assert strip("Pliki rekrutacji (0428, 09.10.2026)") == "Pliki rekrutacji (0428)"
+    assert strip("Kafelek „Do uzupełnienia” (21.10.2026)") == "Kafelek „Do uzupełnienia”"
+    assert strip("Bez typów (decyzja Artura 25.09.2026)") == "Bez typów (decyzja Artura)"
+    assert strip("Audyt (13–15.09.2026)") == "Audyt"
+    assert strip("Kontakt (09.2026, migracja 0320)") == "Kontakt (migracja 0320)"
+    # Data w środku nawiasu albo poza nim jest treścią — zostaje.
+    assert strip("Kategorie (od 24.09.2026 CZTERY)") == "Kategorie (od 24.09.2026 CZTERY)"
+    assert strip("Audyt 22.09.2026 — reguły") == "Audyt 22.09.2026 — reguły"
+    # Nawias bez daty nie zmienia się, łącznie z brakiem spacji przed nim.
+    assert strip("Czy sam(a) się zgłosił(a)?") == "Czy sam(a) się zgłosił(a)?"
+    assert strip("Role (decyzje Artura 19.08 i 31.08)") == "Role (decyzje Artura 19.08 i 31.08)"

@@ -1,5 +1,5 @@
 # CV po potwierdzeniu — bez auto-CV po „Zweryfikowany” (21.10.2026)
-<!-- indeks: trzy potwierdzenia w karcie, plik z kopii „Oryginał CV”, `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`, „Powstało z”, „Odrzuć to CV” -->
+<!-- indeks: trzy potwierdzenia, `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`, „Powstało z”, „Odrzuć to CV” -->
 
 Zgłoszenie zespołu z 21.10.2026: „jak usunąć CV, które wygenerowało się z błędnego
 pliku, i wygenerować poprawne?” oraz „CV generuje się samo po kliknięciu

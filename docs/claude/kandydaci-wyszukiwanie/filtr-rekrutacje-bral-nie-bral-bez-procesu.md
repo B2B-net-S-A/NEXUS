@@ -1,5 +1,5 @@
 # Blok „Rekrutacje” w filtrze „Rekrutacje i historia”: brał / nie brał udziału, bez procesu w toku (12.10.2026)
-<!-- indeks: odpowiednik „Nieprzypisany” z Traffita, zakres klienta, cztery pola stanu -->
+<!-- indeks: odpowiednik „Nieprzypisany” z Traffita, zakres klienta -->
 
 Decyzja Artura 12.10.2026 (makiety: https://claude.ai/artifact/G1EfD1VqGL7oaBET2LDg9a).
 Zespół przechodzi z Traffita i szuka ręcznie; w Traffit jest „Rekrutacje:
