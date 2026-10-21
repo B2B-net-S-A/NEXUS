@@ -294,3 +294,91 @@ def test_cli_reports_error_in_polish(tmp_path: Path, monkeypatch, capsys) -> Non
 
     assert rechain.main(["--base", "main"]) == 1
     assert "Błąd:" in capsys.readouterr().err
+
+
+def test_parent_reference_in_pr_test_follows_new_parent(tmp_path: Path) -> None:
+    # 21.10.2026: testy PR-ów sprawdzają `down_revision` migracji (np.
+    # test_b2b_esign.py). Po przepięciu stary rodzic w teście = czerwone sito.
+    repo = base_repo(tmp_path)
+    add_pr_branch(repo)
+    write(
+        repo,
+        "backend/tests/test_prep_parent.py",
+        "def test_parent(migration):\n"
+        "    assert 'down_revision = \"0368_y\"' in migration\n",
+    )
+    commit(repo, "pr: test rodzica")
+    advance_main_with_collision(repo)
+
+    code, output = run_script(repo)
+    assert code == 0, output
+
+    text = (repo / "backend/tests/test_prep_parent.py").read_text()
+    assert 'down_revision = "0369_academy"' in text
+    assert "0368_y" not in text
+    # Linia maina z tym identyfikatorem nie jest linią PR-a — zostaje.
+    assert "# 0368: y" in (repo / "backend/entrypoint.sh").read_text()
+
+
+def test_branch_without_merged_main_ignores_lines_main_removed(tmp_path: Path) -> None:
+    repo = base_repo(tmp_path)
+    write(repo, "docs/plan.md", "0369 zarezerwowane na Akademię\ninne\n")
+    commit(repo, "main: plan")
+    add_pr_branch(repo)
+    sh(repo, "checkout", "-q", "main")
+    write(
+        repo,
+        f"{VERSIONS}/0369_academy.py",
+        migration("0369_academy", "0368_y", "Akademia"),
+    )
+    write(repo, "docs/plan.md", "inne\n")
+    commit(repo, "main: 0369_academy, plan bez rezerwacji")
+    sh(repo, "checkout", "-q", "pr")  # bez scalania maina — tak robi automat
+
+    code, output = run_script(repo)
+    assert code == 0, output
+
+    moved = (repo / VERSIONS / "0370_prep.py").read_text()
+    assert 'down_revision = "0369_academy"' in moved
+    assert (
+        "# 0370: ocena prepu (0370_prep)"
+        in (repo / "backend/entrypoint.sh").read_text()
+    )
+    # Linia, którą main usunął po rozgałęzieniu, nie jest linią PR-a.
+    assert (
+        repo / "docs/plan.md"
+    ).read_text() == "0369 zarezerwowane na Akademię\ninne\n"
+
+
+def test_check_heads_passes_on_single_head(tmp_path: Path) -> None:
+    repo = base_repo(tmp_path)
+    lines: list[str] = []
+
+    assert rechain.check_heads(str(repo), VERSIONS, out=lines.append) == 0
+    assert "0368_y" in lines[0]
+
+
+def test_check_heads_fails_on_two_heads_with_command(tmp_path: Path) -> None:
+    repo = base_repo(tmp_path)
+    add_pr_branch(repo)
+    # Drzewo grupy w kolejce: main z 0369_academy + PR z 0369_prep, oba na 0368_y.
+    write(
+        repo,
+        f"{VERSIONS}/0369_academy.py",
+        migration("0369_academy", "0368_y", "Akademia"),
+    )
+    lines: list[str] = []
+
+    assert rechain.check_heads(str(repo), VERSIONS, out=lines.append) == 1
+    assert "0369_academy, 0369_prep" in lines[0]
+    assert "rechain_migration.py" in lines[0]
+
+
+def test_cli_check_heads(tmp_path: Path, monkeypatch, capsys) -> None:
+    repo = base_repo(tmp_path)
+    write(repo, f"{VERSIONS}/0369_q.py", migration("0369_q", "0367_x", "q"))
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("HOME", str(repo))
+
+    assert rechain.main(["--check-heads"]) == 1
+    assert "2 głowy" in capsys.readouterr().out
