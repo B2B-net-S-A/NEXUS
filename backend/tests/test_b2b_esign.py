@@ -310,7 +310,8 @@ async def test_contractor_then_company_sign_and_the_request_completes(
         files={"file": ("u.pdf", contractor_pdf + b"% firma\n", "application/pdf")},
         headers=app_auth_headers,
     )
-    assert stranger.status_code == 403, stranger.text
+    # Obcy nie dowiaduje się, że wniosek istnieje (przegląd bezpieczeństwa).
+    assert stranger.status_code == 404, stranger.text
 
     signer = esign_env["signer_headers"]
     mine = await app_client.get("/api/b2b-generator/esign/mine", headers=signer)

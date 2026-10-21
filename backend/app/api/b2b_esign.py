@@ -228,6 +228,18 @@ async def _assert_row_sender(
         )
 
 
+async def _fresh(db: AsyncSession, request_id: int) -> B2BSigningRequest:
+    """Wniosek wczytany na nowo (także gdy obiekt w sesji wygasł po rollbacku)."""
+    request = await db.scalar(
+        select(B2BSigningRequest)
+        .where(B2BSigningRequest.id == request_id)
+        .execution_options(populate_existing=True)
+    )
+    if request is None:
+        raise HTTPException(status_code=404, detail="Wniosek o podpis nie istnieje.")
+    return request
+
+
 async def _may_send(db: AsyncSession, user: User, row: B2BGeneratedContract) -> bool:
     try:
         await _assert_row_sender(db, user, row)
@@ -529,9 +541,11 @@ async def company_sign(
         now=_now(),
     )
     await db.commit()
-    await _after_both_signed(db, updated.id, current_user)
-    refreshed = await db.get(B2BSigningRequest, updated.id)
-    return await _out(db, refreshed or updated)
+    # Same identyfikatory: automatyka po podpisie przy odmowie robi rollback,
+    # który wygasza obiekty sesji (odczyt pola w async = MissingGreenlet).
+    updated_id = updated.id
+    await _after_both_signed(db, updated_id, current_user)
+    return await _out(db, await _fresh(db, updated_id))
 
 
 @router.get("/esign/{request_id}/signed-pdf")
@@ -777,5 +791,4 @@ async def public_sign_submit(
     await db.commit()
     signing_id = signing.id
     await _after_contractor_signed(db, signing_id)
-    refreshed = await db.get(B2BSigningRequest, signing_id)
-    return await _public_view(db, refreshed or signing)
+    return await _public_view(db, await _fresh(db, signing_id))
