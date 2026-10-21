@@ -467,8 +467,14 @@ async def get_career_queue(
     Delivery Leadem. Treść każdej przygotowuje noc (``tasks.job_ad_prepare``);
     publikuje człowiek — ``POST …/portal-ad/career``.
     """
-    from app.models.user import User as UserModel
+    from sqlalchemy.orm import aliased
+
     from app.services.job_team import jobs_worked_by_clause
+
+    # Alias, nie `User`: klauzula „Moje” ma podzapytania po `users` skorelowane
+    # z `Job` — z gołym `User` w zewnętrznym FROM SQLAlchemy skorelowałby je
+    # całe i zostawił bez FROM (500 w CI 21.10.2026).
+    lead = aliased(User)
 
     live = exists().where(
         JobPublicProfile.job_id == Job.id, JobPublicProfile.approved_at.is_not(None)
@@ -491,9 +497,9 @@ async def get_career_queue(
         if limit == 0
         else (
             await db.execute(
-                select(Job, JobAd.source, UserModel.name)
+                select(Job, JobAd.source, lead.name)
                 .outerjoin(JobAd, JobAd.job_id == Job.id)
-                .outerjoin(UserModel, UserModel.id == Job.delivery_lead_id)
+                .outerjoin(lead, lead.id == Job.delivery_lead_id)
                 .where(base, *([mine] if scope == "mine" else []))
                 .order_by(Job.opened_at.desc().nulls_last(), Job.id.desc())
                 .limit(limit)
