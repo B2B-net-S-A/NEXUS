@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import { AbsenceBadge } from "@/components/hr/AbsenceBadge";
-import type { AbsentTodayRow, LeaveBalance, LeaveRequestRow, PendingLeaveRow } from "@/lib/api/hr-leave";
+import type { AbsentTodayRow, LeaveRequestRow, PendingLeaveRow } from "@/lib/api/hr-leave";
 
 import { AbsentTodayPanel } from "../AbsentTodayButton";
 import { inboxItems, substituteAbsent, workSummary } from "../approvals-inbox";
-import { absentRowText, balanceStats, canToggleForward } from "../leave-format";
+import { absentRowText, canToggleForward, yearMonths } from "../leave-format";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -16,85 +16,37 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-const balance = (overrides: Partial<LeaveBalance> = {}): LeaveBalance => ({
-  year: 2026,
-  employment_type: "uop",
-  has_pool: true,
-  entitlement_days: "26.0",
-  carried_over_days: "2.0",
-  used_initial_days: "0.0",
-  has_paid_pool: true,
-  as_of: "2026-10-22",
-  approved_days: "10.0",
-  used_days: "8.0",
-  planned_days: "2.0",
-  pending_days: "5.0",
-  unpaid_days: "0.0",
-  remaining_days: "13.0",
-  on_demand_used: "1.0",
-  on_demand_limit: "4.0",
-  childcare_used: "0.0",
-  childcare_limit: "2.0",
-  allowed_types: ["vacation"],
-  ...overrides,
-});
-
-describe("saldo w „Mój czas → Urlopy”", () => {
-  it("umowa o pracę z pulą: zostało, pula, wykorzystane/zaplanowane/czeka, limity Kodeksu", () => {
-    const stats = balanceStats(balance());
-    expect(stats.map((s) => [s.id, s.value])).toEqual([
-      ["remaining", "13 dni"],
-      ["pool", "28 dni"],
-      ["used", "8 dni"],
-      ["planned", "2 dni"],
-      ["pending", "5 dni"],
-      ["on-demand", "1 / 4"],
-      ["childcare", "0 / 2"],
-    ]);
+describe("„Mój rok” w zakładce nieobecności (runda 2, 21.10.2026)", () => {
+  const row = (id: string, start: string, end: string, status: "approved" | "pending" | "rejected" | "cancelled") => ({
+    id,
+    start_date: start,
+    end_date: end,
+    status,
+    leave_type_label: "Urlop wypoczynkowy",
   });
 
-  it("B2B z umowną pulą: płatne dni bez „urlopu”, bez na żądanie i opieki", () => {
-    const stats = balanceStats(
-      balance({
-        employment_type: "b2b",
-        unpaid_days: "1.0",
-        on_demand_used: null,
-        on_demand_limit: null,
-        childcare_used: null,
-        childcare_limit: null,
-      }),
+  it("12 miesięcy; nieobecność przez przełom miesiąca w obu, odrzucone i anulowane pominięte", () => {
+    const months = yearMonths(
+      [
+        row("a", "2026-07-28", "2026-08-04", "approved"),
+        row("b", "2026-11-12", "2026-11-13", "pending"),
+        row("c", "2026-12-01", "2026-12-02", "rejected"),
+        row("d", "2026-12-21", "2026-12-23", "cancelled"),
+      ],
+      2026,
+      "2026-10-21",
     );
-    expect(stats.map((s) => s.id)).toEqual(["remaining", "pool", "used", "planned", "pending", "unpaid"]);
-    expect(stats.find((s) => s.id === "pool")?.label).toBe("pula z umowy");
-    expect(stats.find((s) => s.id === "unpaid")?.label).toBe("bez wynagrodzenia");
-    expect(stats.map((s) => String(s.label)).join(" ")).not.toMatch(/urlop/i);
+    expect(months).toHaveLength(12);
+    expect(months[6].items.map((i) => i.id)).toEqual(["a"]);
+    expect(months[7].items.map((i) => i.id)).toEqual(["a"]);
+    expect(months[10].items).toEqual([{ id: "b", label: "Urlop wypoczynkowy", status: "pending" }]);
+    expect(months[11].items).toEqual([]);
   });
 
-  it("B2B bez puli i zlecenie: same dni nieobecności, bez „zostało” i puli", () => {
-    for (const form of ["b2b", "zlecenie"] as const) {
-      const stats = balanceStats(
-        balance({
-          employment_type: form,
-          has_pool: false,
-          has_paid_pool: false,
-          entitlement_days: null,
-          remaining_days: null,
-          used_days: "1.0",
-          planned_days: "3.0",
-          pending_days: "1.0",
-          unpaid_days: "4.0",
-          on_demand_used: null,
-          on_demand_limit: null,
-          childcare_used: null,
-          childcare_limit: null,
-        }),
-      );
-      expect(stats.map((s) => [s.id, s.value])).toEqual([
-        ["used", "1 dzień"],
-        ["planned", "3 dni"],
-        ["pending", "1 dzień"],
-      ]);
-    }
+  it("miesiące przed bieżącym są przeszłe, bieżący zaznaczony", () => {
+    const months = yearMonths([], 2026, "2026-10-21");
+    expect(months.filter((m) => m.past).map((m) => m.month)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(months.find((m) => m.current)?.label).toBe("paź");
   });
 });
 
