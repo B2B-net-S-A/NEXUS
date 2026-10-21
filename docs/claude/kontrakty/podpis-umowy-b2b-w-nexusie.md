@@ -30,6 +30,16 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
 - **Kontrakt nie powstaje przy wysyłce** (reguła „jedna droga do kontraktu”,
   17.09.2026). Wniosek `completed` uruchamia tę samą automatykę co „Oznacz jako
   podpisaną” (PR 5).
+- **Kto rozstrzyga „kwalifikowany”** (decyzja Artura 21.10.2026: pyHanko teraz,
+  EU DSS później): `B2B_ESIGN_VALIDATOR=pyhanko` (domyślnie) —
+  `services/b2b_esign/qualified.py`, lista zaufanych UE (LOTL) pobierana
+  w procesie, odświeżana co 12 h, nieudane odświeżenie zostawia poprzednią;
+  bez listy walidator nie jest autorytatywny i nic nie przechodzi. `QESig` =
+  certyfikat kwalifikowany do podpisu (`qct_esign`) z kluczem na QSCD (także
+  zdalnym: SimplySign, mSzafir); pieczęć (`qct_eseal`) nie wystarcza. Zmiany po
+  podpisie dozwolone do poziomu „wypełnianie formularza” (kolejne podpisy).
+  `B2B_ESIGN_VALIDATOR=dss` przełącza na sidecar EU DSS (`DSS_VALIDATION_URL`).
+  Przed pilotażem sprawdzić na prawdziwych plikach (Certum, KIR, mObywatel).
 - **Walidacja bez blokady, zapis pod blokadą.** DSS trwa do 30 s, więc
   walidacja idzie bez blokady wiersza, a potem `SELECT … FOR UPDATE` sprawdza
   stan i odcisk jeszcze raz — wycofanie w trakcie walidacji wygrywa (w torze
@@ -54,6 +64,6 @@ i wymaga kontraktu przed podpisem (audyt 21.10.2026). Z niego zostają:
 ## Plan
 
 PR 1 plik przy „Oznacz jako podpisaną” (#2530) · PR 2 rdzeń (ten plik) ·
-PR 2b usunięcie starego toru · PR 3 sidecar EU DSS · PR 4 ekrany, mail z linkiem,
+PR 2b usunięcie starego toru · PR 3 walidator pyHanko z listą UE (DSS później) · PR 4 ekrany, mail z linkiem,
 przypomnienia · PR 5 automatyka po podpisie i powiadomienia · etap 2 „Podpisz
 w przeglądarce” u dostawcy (SIGNIUS / KIR mSzafir) po ofertach.

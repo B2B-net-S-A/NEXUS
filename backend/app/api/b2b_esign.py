@@ -57,6 +57,7 @@ from app.models.user import User, UserRole
 from app.services import storage_service
 from app.services.b2b_esign import service
 from app.services.b2b_esign import settings as esign_settings
+from app.services.b2b_esign.qualified import QualifiedValidator
 from app.services.cv_pdf_preview import PdfPreviewUnavailable, pdf_from_docx
 from app.services.signing.validation import ValidationService
 
@@ -80,8 +81,11 @@ def _sign_url(token: str) -> str:
     return f"{app_config.PUBLIC_BASE_URL.rstrip('/')}/sign/b2b/{token}"
 
 
-def _validator() -> ValidationService:
-    return ValidationService()
+def _validator() -> QualifiedValidator | ValidationService:
+    """pyHanko z listą UE albo EU DSS — ``B2B_ESIGN_VALIDATOR``."""
+    if app_config.B2B_ESIGN_VALIDATOR.strip().lower() == "dss":
+        return ValidationService()
+    return QualifiedValidator()
 
 
 # ── Schematy ────────────────────────────────────────────────────────────────

@@ -1466,6 +1466,10 @@ class Settings(BaseSettings):
     # EU DSS validation sidecar (autorytatywny "is QES"). Empty = validation
     # falls back to pyHanko trust-chain only (non-authoritative).
     DSS_VALIDATION_URL: str = ""
+    # Podpis umowy B2B w NEXUSIE (0497): kto rozstrzyga „kwalifikowany”.
+    # ``pyhanko`` (domyślnie, decyzja Artura 21.10.2026) — lista zaufanych UE
+    # w procesie backendu; ``dss`` — sidecar EU DSS pod DSS_VALIDATION_URL.
+    B2B_ESIGN_VALIDATOR: str = "pyhanko"
 
     # ── Proxycurl LinkedIn tracking (Phase: LinkedIn sync) ──────────────────
     # Kill-switch: when False OR API key empty, sync loop exits immediately
