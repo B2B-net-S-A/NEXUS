@@ -5,7 +5,7 @@
  * „Ludzie w NEXUSIE”).
  *
  * Prawdziwy `MyTimeScreen` (zakładki Przegląd, Urlopy, Mój miesiąc, Premie
- * i stawka, Kartoteka) na zasianym cache, ZERO zapytań (`hr-harness.tsx`).
+ * i stawka; kartoteka w karcie „Ja w firmie”) na zasianym cache, ZERO zapytań (`hr-harness.tsx`).
  * Zakładkę wybiera sam ekran z adresu (`?tab=`), miesiąc to bieżący miesiąc
  * przeglądarki. Forma zatrudnienia Oli: `?form=` (domyślnie B2B z umowną pulą
  * płatnych dni; `uop` — urlop z limitami Kodeksu; `zlecenie` — bez puli).

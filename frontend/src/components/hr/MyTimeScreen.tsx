@@ -1,11 +1,9 @@
 "use client";
 
 import { type ReactNode } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/ds/PageHeader";
-import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPanel";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { Card } from "@/components/ui/card";
@@ -14,28 +12,18 @@ import {
   type EmploymentType,
   type HrConfig,
   type HrModuleKey,
-  type OwnProfile,
 } from "@/lib/api/hr";
-import { coordinatorLabel, employmentTerms } from "@/lib/hr-employment-terms";
+import { employmentTerms } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState, useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 import type { YearMonth } from "@/lib/date-pl";
 
 import { MyLeaveTab } from "./leave/MyLeaveTab";
 import { MyOverviewTab } from "./me/MyOverviewTab";
-import { formatDays } from "./people/hr-format";
 import { MyBonusesTab } from "./payroll/MyBonusesTab";
 import { MyMonthTab } from "./time/MyMonthTab";
 import { currentYearMonth } from "./time/time-format";
 import { MySettlementTab } from "./me/MySettlementTab";
-
-function warsawYear(): number {
-  return Number(
-    new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Warsaw", year: "numeric" }).format(
-      new Date(),
-    ),
-  );
-}
 
 /** Zakładka „Mój czas” zależna od modułu (widoczna, gdy moduł jest otwarty). */
 export interface MyTimeModuleTab {
@@ -93,12 +81,13 @@ export function yearMonthFromParams(params: Pick<URLSearchParams, "get">): YearM
 }
 
 const OVERVIEW_TAB = { value: "overview", label: "Przegląd" } as const;
-const PROFILE_TAB = { value: "profile", label: "Kartoteka" } as const;
 
 /**
  * Zakładki widoczne dla osoby: „Przegląd” (zawsze pierwszy i domyślny,
- * etap 2 D1), otwarte moduły i kartoteka (zawsze na końcu). Nazwy zakładek
- * modułów mówią językiem umowy osoby (`form`; brak = jak umowa o pracę).
+ * etap 2 D1) i otwarte moduły. Kartoteka nie ma zakładki — stanowisko,
+ * przełożony i link do niej są w karcie „Ja w firmie” na „Przeglądzie”
+ * (makieta 21.10.2026; stary `?tab=profile` otwiera „Przegląd”). Nazwy
+ * zakładek modułów mówią językiem umowy osoby (`form`; brak = jak umowa o pracę).
  */
 export function myTimeTabs(
   config: Pick<HrConfig, "open_modules">,
@@ -113,66 +102,7 @@ export function myTimeTabs(
         value,
         label: labelFor ? labelFor(form) : label,
       })),
-    PROFILE_TAB,
   ];
-}
-
-function ProfileCard({ person, leaveOpen }: { person: OwnProfile; leaveOpen: boolean }) {
-  const year = warsawYear();
-  const pool = person.entitlements?.find((row) => row.year === year);
-  // B2B i zlecenie nie mają urlopu w rozumieniu Kodeksu pracy (17.10.2026).
-  const poolTitle =
-    person.employment_type === "uop" ? `Pula urlopowa ${year}` : `Płatne dni przerwy ${year}`;
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <Card className="space-y-1 p-5">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-          Moja kartoteka
-        </h2>
-        <p className="text-sm text-foreground">
-          {[person.job_title, person.department].filter(Boolean).join(" · ") ||
-            "Stanowisko nieuzupełnione"}
-        </p>
-        {person.manager_name ? (
-          <p className="text-sm text-muted-foreground">
-            {coordinatorLabel(person.employment_type)}: {person.manager_name}
-          </p>
-        ) : null}
-        <Link href={`/people/${person.user_id}`} className="text-sm text-primary hover:underline">
-          Otwórz kartotekę
-        </Link>
-      </Card>
-      <Card className="space-y-1 p-5">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-          {poolTitle}
-        </h2>
-        {!pool ? (
-          <p className="text-sm text-muted-foreground">
-            Pula na {year} nie jest ustawiona — zrobią to Kadry.
-          </p>
-        ) : (
-          <p className="text-sm text-foreground">
-            Pula:{" "}
-            <strong>
-              {pool.entitlement_days == null
-                ? "bez puli"
-                : `${formatDays(pool.entitlement_days)} dni`}
-            </strong>
-            {Number(pool.carried_over_days) > 0
-              ? ` + ${formatDays(pool.carried_over_days)} dni zaległego`
-              : ""}
-          </p>
-        )}
-        {!leaveOpen ? (
-          <p className="text-xs text-muted-foreground">
-            {person.employment_type === "uop"
-              ? "Wnioski o nieobecność ruszą po włączeniu modułu nieobecności."
-              : "Zgłoszenia nieobecności ruszą po włączeniu modułu nieobecności."}
-          </p>
-        ) : null}
-      </Card>
-    </div>
-  );
 }
 
 /**
@@ -244,7 +174,7 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
                 overflow="scroll"
                 tabs={tabs}
                 value={current}
-                onValueChange={setActive}
+                onValueChange={(value) => openTab(value)}
               />
             </div>
           ) : null}
@@ -252,13 +182,7 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
             <MyOverviewTab config={config} person={me.data} onOpenTab={openTab} />
           ) : moduleTab ? (
             moduleTab.render(config, initialMonth)
-          ) : (
-            <div className="space-y-4">
-              <ProfileCard person={me.data} leaveOpen={config.open_modules.leave} />
-              {/* Mój sprzęt (moduł „Sprzęt”) — pusty stan = brak wydanych rzeczy. */}
-              {config.open_modules.equipment ? <PersonEquipmentPanel userId="mine" /> : null}
-            </div>
-          )}
+          ) : null}
         </>
       )}
     </div>
