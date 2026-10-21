@@ -209,6 +209,8 @@ class PrepReview(Base):
     model: Mapped[Optional[str]] = mapped_column(String(80))
     prompt_version: Mapped[Optional[str]] = mapped_column(String(40))
     input_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    # 0505: wersja ustawień oceny (``prep_review_configs.id``); NULL = startowe.
+    config_version: Mapped[Optional[int]] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -218,6 +220,26 @@ class PrepReview(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class PrepReviewConfigVersion(Base):
+    """Opublikowana wersja ustawień oceny prepów (0505, 22.10.2026).
+
+    Obowiązuje wiersz o najwyższym ``id``; treść waliduje
+    ``services/prep_review_config.PrepReviewConfig``.
+    """
+
+    __tablename__ = "prep_review_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text)
 
 
 # Dlaczego rozmowa u klienta odbywa się bez Prepu 2 (0482, 20.10.2026).

@@ -208,6 +208,15 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    // 0505: ustawienia oceny prepów — odczyt rekruter, DL, HoR, admin;
+    // publikację (HoR, admin) bramkuje backend.
+    prefix: "/settings/prep-review",
+    roles: ["admin", "delivery_lead", "head_of_recruitment", "recruiter"],
+    section: "pipeline",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
     // Odczyt: admin, Delivery Lead, Head of Recruitment; szkic i publikację
     // wag (admin, HoR + zapis Insights) bramkuje strona i backend.
     prefix: "/settings/scoring",
@@ -494,6 +503,8 @@ const PUBLIC_PATHS = [
   "/preview/cv-to-client",
   "/preview/cpro-queue",
   "/preview/candidate-followup",
+  // Ustawienia → Ocena prepów (0505): wagi, tematy, skala, historia; `?tryb=odczyt`.
+  "/preview/prep-review-settings",
   "/preview/kpi-targets",
   // Ustawienia → „Osoby i role” (0410): dziewięć przełączników, okno osoby.
   "/preview/permissions",
