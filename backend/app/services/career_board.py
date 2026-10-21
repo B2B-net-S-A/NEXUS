@@ -49,6 +49,9 @@ logger = logging.getLogger(__name__)
 # dwóch linków tej samej osoby do tej samej rekrutacji.
 _LINK_LOCK_KEY = "career_board_links"
 
+# Ile wymagań niesie karta: scena ma najwyżej pięć punktów (``sceneItems``).
+_BOARD_SKILLS = 5
+
 # Cztery kategorie kompetencji → klucz filtra na tablicy. ``data_ai`` jest
 # nieaktywne od 0371 i liczy się jako infra (competence-categories.md).
 _CATEGORY_KEYS = {
@@ -224,12 +227,26 @@ async def board_jobs(db: AsyncSession) -> list[dict[str, Any]]:
                 db, job, profile, names_cache=names_cache
             )
             params = jpp.visible_params(job, version.sections) if version else None
+            # Wymagania do podglądu sceny (etap 7) — z tej samej projekcji co
+            # strona rekrutacji, więc ukryta sekcja daje pustą listę.
+            skills = (
+                jpp.public_job_payload(
+                    job,
+                    title=version.title,
+                    link_slug=None,
+                    subtitle=None,
+                    about=None,
+                    sections=version.sections,
+                )
+                if version
+                else None
+            )
         except SQLAlchemyError:
             raise
         except Exception:
             logger.exception("career_board: pomijam rekrutację %s", job.id)
             continue
-        if version is None or params is None:
+        if version is None or params is None or skills is None:
             continue
         links = links_by_job.get(job.id, [])
         lead_id = await _lead_id(db, job, users)
@@ -274,6 +291,8 @@ async def board_jobs(db: AsyncSession) -> list[dict[str, Any]]:
                 "theme": ct.resolve_theme(profile.theme, version.title, category_slug),
                 "recruiter_first_name": first_name(owner.name if owner else None)
                 or "Zespół",
+                "must": [item["name"] for item in skills["must"]][:_BOARD_SKILLS],
+                "nice": list(skills["nice"])[:_BOARD_SKILLS],
             }
         )
     if locked:

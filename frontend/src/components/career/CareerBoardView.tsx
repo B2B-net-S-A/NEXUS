@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import gsap from "gsap";
+import { Flip } from "gsap/Flip";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { CareerBoardResponse, RemotePolicy } from "@/lib/career/api";
 import {
@@ -17,13 +19,29 @@ import {
 } from "@/lib/career/board";
 import { careerHref, type CareerBase } from "@/lib/career/host";
 
-import { BoardBand } from "./BoardBand";
+import { BoardGlyph, BoardPreviewScene } from "./BoardPreview";
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
 import { TwoToneTitle } from "./CareerHero";
 import { CareerSubmitGate } from "./CareerSubmitGate";
 import { TerminalChrome } from "./TerminalChrome";
 
 const CHROME_PATH = "~/b2bnetwork/kariera — zsh";
+
+gsap.registerPlugin(Flip);
+
+function prefersMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+const ARROW = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+);
 
 /**
  * Strona główna kariery: tablica wszystkich otwartych rekrutacji (D1 = A,
@@ -105,10 +123,13 @@ function Board({
   const jobs = data.jobs;
   const visible = useMemo(() => filterBoard(jobs, filters), [jobs, filters]);
   const counts = useMemo(() => categoryCounts(jobs, filters), [jobs, filters]);
-  const filtered =
-    filters.category !== null || filters.query.trim() !== "" || filters.modes.length > 0;
-
+  // Filtr przestawia wiersze płynnie (GSAP Flip, etap 7): stan sprzed zmiany
+  // zapisany tutaj, animacja po wyrenderowaniu nowej listy.
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const flipState = useRef<Flip.FlipState | null>(null);
   const update = (next: Partial<BoardFilters>) => {
+    const rows = listRef.current?.querySelectorAll(".kr-brow-item");
+    flipState.current = rows && rows.length > 0 && prefersMotion() ? Flip.getState(rows) : null;
     setFilters((f) => ({ ...f, ...next }));
     setShown(BOARD_PAGE);
   };
@@ -126,6 +147,23 @@ function Board({
       cvRef.current?.focus();
     });
   };
+
+  useLayoutEffect(() => {
+    const state = flipState.current;
+    flipState.current = null;
+    const rows = listRef.current?.querySelectorAll(".kr-brow-item");
+    if (!state || !rows) return;
+    Flip.from(state, {
+      targets: rows,
+      duration: 0.5,
+      ease: "power3.inOut",
+      onEnter: (els) => gsap.fromTo(els, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.35, delay: 0.1 }),
+    });
+  }, [visible]);
+
+  // Podgląd: wiersz pod myszą albo z fokusem; bez wskazania — pierwszy na liście.
+  const [activeSlug, setActiveSlug] = useState<string | null>(null);
+  const active = visible.find((j) => j.slug === activeSlug) ?? visible[0] ?? null;
 
   const rest = visible.length - shown;
   const cv = data.cv;
@@ -197,6 +235,9 @@ function Board({
                   onChange={(e) => update({ query: e.target.value })}
                   autoComplete="off"
                 />
+                <output className="kr-board-out" htmlFor={`${uid}-q`} aria-live="polite">
+                  <b>{visible.length}</b> z {jobs.length}
+                </output>
               </label>
               <div className="kr-board-chips" role="group" aria-label="Tryb pracy">
                 {BOARD_MODES.map((m) => (
@@ -212,55 +253,76 @@ function Board({
                 ))}
               </div>
             </div>
-            <p className="kr-board-count kr-g" aria-live="polite">
-              {filtered ? `[${visible.length} z ${jobs.length} pasuje do filtrów]` : null}
-            </p>
           </div>
 
-          {visible.length === 0 ? (
-            <div className="kr-board-empty">
-              <p className="kr-board-empty-title">Nic nie pasuje do filtrów.</p>
-              <button
-                type="button"
-                className="kr-btn-outline kr-board-reset"
-                onClick={() => update(NO_FILTERS)}
-              >
-                $ wyczyść filtry
-              </button>
-            </div>
-          ) : (
-            <ul className="kr-board-grid">
-              {visible.slice(0, shown).map((job) => (
-                <li key={job.slug}>
-                  <a className="kr-board-card" href={careerHref(base, { to: "job", slug: job.slug })}>
-                    <BoardBand theme={job.theme} category={categoryLabel(job.category)} />
-                    <span className="kr-board-body">
-                      <span className="kr-board-title">{job.title}</span>
-                      {job.subtitle ? <span className="kr-board-sub">{job.subtitle}</span> : null}
-                      {boardTagLine(job) ? (
-                        <span className="kr-board-tag">[{boardTagLine(job)}]</span>
-                      ) : null}
-                    </span>
-                    <span className="kr-board-foot">
-                      <span>rekruter: {job.recruiter_first_name}</span>
-                      <span className="kr-r">./aplikuj →</span>
-                    </span>
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div className="kr-board-split">
+            <div className="kr-board-listcol">
+              {visible.length === 0 ? (
+                <div className="kr-board-empty">
+                  <p className="kr-board-empty-title">Nic nie pasuje do filtrów.</p>
+                  <button
+                    type="button"
+                    className="kr-btn-outline kr-board-reset"
+                    onClick={() => update(NO_FILTERS)}
+                  >
+                    $ wyczyść filtry
+                  </button>
+                </div>
+              ) : (
+                <ul className="kr-brows" ref={listRef}>
+                  {visible.slice(0, shown).map((job) => (
+                    <li key={job.slug} className="kr-brow-item">
+                      <a
+                        className="kr-brow"
+                        href={careerHref(base, { to: "job", slug: job.slug })}
+                        data-active={active?.slug === job.slug ? "" : undefined}
+                        onMouseEnter={() => setActiveSlug(job.slug)}
+                        onFocus={() => setActiveSlug(job.slug)}
+                      >
+                        <BoardGlyph theme={job.theme} />
+                        <span className="kr-brow-main">
+                          <span className="kr-brow-title">{job.title}</span>
+                          {job.subtitle ? <span className="kr-brow-sub">{job.subtitle}</span> : null}
+                          <span className="kr-brow-meta">
+                            {[boardTagLine(job), categoryLabel(job.category), `rekruter: ${job.recruiter_first_name}`]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </span>
+                        <span className="kr-brow-go">Zobacz {ARROW}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
 
-          {rest > 0 ? (
-            <button
-              type="button"
-              className="kr-board-more"
-              onClick={() => setShown((n) => n + BOARD_PAGE)}
-            >
-              $ more — pokaż kolejne {Math.min(rest, BOARD_PAGE)}
-              {rest > BOARD_PAGE ? ` z ${rest}` : ""}
-            </button>
-          ) : null}
+              {rest > 0 ? (
+                <button
+                  type="button"
+                  className="kr-board-more"
+                  onClick={() => setShown((n) => n + BOARD_PAGE)}
+                >
+                  $ more — pokaż kolejne {Math.min(rest, BOARD_PAGE)}
+                  {rest > BOARD_PAGE ? ` z ${rest}` : ""}
+                </button>
+              ) : null}
+            </div>
+
+            {active ? (
+              // Podgląd jest dodatkiem dla myszy; klawiatura i czytnik idą
+              // wierszami listy, więc tu nic nie łapie fokusu.
+              <a
+                className="kr-board-preview"
+                href={careerHref(base, { to: "job", slug: active.slug })}
+                tabIndex={-1}
+                aria-hidden="true"
+              >
+                <BoardPreviewScene job={active} />
+                <span className="kr-board-preview-title">{active.title}</span>
+                <span className="kr-board-preview-go">Zobacz rekrutację {ARROW}</span>
+              </a>
+            ) : null}
+          </div>
         </>
       )}
 

@@ -39,7 +39,7 @@ const view = (data: CareerBoardResponse | null) =>
 describe("CareerBoardView", () => {
   it("karty prowadzą na link prowadzącego, 12 na start, potem „pokaż kolejne”", () => {
     view(DATA);
-    const cards = () => screen.getAllByRole("link", { name: /aplikuj/ });
+    const cards = () => screen.getAllByRole("link", { name: /Zobacz/ });
     expect(cards()).toHaveLength(12);
     expect(cards()[0]).toHaveAttribute("href", "/r/rekrutacja-1");
     expect(cards()[0]).toHaveTextContent("rekruter: Marta");
@@ -59,21 +59,54 @@ describe("CareerBoardView", () => {
     // Kategorie bez kart nie zajmują miejsca.
     expect(within(cats).queryByRole("button", { name: /infra/ })).toBeNull();
     fireEvent.click(within(cats).getByRole("button", { name: "qa · 1" }));
-    expect(screen.getAllByRole("link", { name: /aplikuj/ })).toHaveLength(1);
-    expect(screen.getByText("[1 z 15 pasuje do filtrów]")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /Zobacz/ })).toHaveLength(1);
+    expect(document.querySelector(".kr-board-out")).toHaveTextContent("1 z 15");
 
     fireEvent.click(within(cats).getByRole("button", { name: "wszystkie · 15" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Szukaj w rekrutacjach" }), {
       target: { value: "tester" },
     });
-    expect(screen.getAllByRole("link", { name: /aplikuj/ })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: /Zobacz/ })).toHaveLength(1);
     expect(within(cats).getByRole("button", { name: "qa · 1" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "stacjonarnie" }));
     expect(screen.getByText("Nic nie pasuje do filtrów.")).toBeInTheDocument();
     expect(screen.queryByText("Brak otwartych rekrutacji.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "$ wyczyść filtry" }));
-    expect(screen.getAllByRole("link", { name: /aplikuj/ })).toHaveLength(12);
+    expect(screen.getAllByRole("link", { name: /Zobacz/ })).toHaveLength(12);
+  });
+
+  it("podgląd: scena wiersza pod myszą, z wymaganiami; ukryty przed czytnikiem i Tabem", () => {
+    view({
+      ...DATA,
+      jobs: [
+        job(1, { title: "Data Engineer", theme: "konstelacja", must: ["Spark", "Airflow"], nice: ["dbt"] }),
+        job(2, { title: "DevOps Engineer", theme: "topologia", must: ["Kubernetes"] }),
+      ],
+    });
+    const preview = document.querySelector(".kr-board-preview") as HTMLElement;
+    expect(preview).toHaveAttribute("aria-hidden", "true");
+    expect(preview).toHaveAttribute("tabindex", "-1");
+    expect(preview).toHaveTextContent("Data Engineer");
+    expect(preview).toHaveTextContent("Spark");
+    expect(preview).toHaveTextContent(/dbt\s*mile widziane/);
+
+    const rows = screen.getAllByRole("link", { name: /Zobacz/ });
+    fireEvent.mouseEnter(rows[1]);
+    expect(preview).toHaveTextContent("DevOps Engineer");
+    expect(preview).toHaveAttribute("href", "/r/rekrutacja-2");
+    expect(rows[1]).toHaveAttribute("data-active");
+    fireEvent.focus(rows[0]);
+    expect(preview).toHaveTextContent("Data Engineer");
+  });
+
+  it("szukanie po wymaganiach z karty", () => {
+    view({ ...DATA, jobs: [job(1, { must: ["Kafka"] }), job(2)] });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Szukaj w rekrutacjach" }), {
+      target: { value: "kafka" },
+    });
+    expect(screen.getAllByRole("link", { name: /Zobacz/ })).toHaveLength(1);
+    expect(document.querySelector(".kr-board-out")).toHaveTextContent("1 z 2");
   });
 
   it("pusta tablica po udanym odczycie: „Brak otwartych rekrutacji” i „Zostaw CV”", () => {

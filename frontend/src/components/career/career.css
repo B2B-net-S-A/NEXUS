@@ -334,26 +334,40 @@ html:has(.kr-scope[data-kr-light]) body {
   line-height: 1.5;
 }
 .kr-ok > :first-child { flex-shrink: 0; }
-/* Telefon i tablet: kroki jako zwarta lista (makieta 5a, 19.10.2026) — do
-   etapu 5 były ukryte poniżej 1024 px, więc przełącznik „Kroki procesu”
-   w opisie nic nie zmieniał na telefonie. Od 1024 px kafle w siatce. */
-.kr-steps {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--kr-line);
-  font-size: 14px;
+/* Kroki procesu na pionowej osi na każdej szerokości (etap 7, 21.10.2026):
+   cztery kolumny od 1280 px łamały „rozmowa z / Martą”. Oś rysuje się ze
+   scrollem (`ProcessSteps.tsx`), bez ruchu stoi narysowana. */
+.kr-steps { position: relative; padding-left: 30px; }
+.kr-steps-line {
+  position: absolute;
+  left: 6px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--kr-line-strong);
 }
-.kr-step {
-  padding: 12px 14px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 12px;
-  row-gap: 2px;
-  border-bottom: 1px solid var(--kr-line);
+.kr-steps-line i {
+  position: absolute;
+  inset: 0;
+  background: var(--kr-title);
+  transform-origin: top;
 }
-.kr-step:last-child { border-bottom: 0; }
-.kr-step > :nth-child(n + 2) { grid-column: 2; }
-.kr-step .kr-c { font-size: 13px; }
+.kr-steps-list { margin: 0; padding: 0; display: flex; flex-direction: column; gap: 22px; }
+.kr-step { position: relative; display: flex; flex-direction: column; gap: 2px; font-family: var(--kr-sans); }
+.kr-step::before {
+  content: "";
+  position: absolute;
+  left: -30px;
+  top: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--kr-bg);
+  border: 2px solid var(--kr-title);
+}
+.kr-step > .kr-r { font-family: var(--kr-mono); font-size: 12px; }
+.kr-step-title { font-size: 17px; font-weight: 700; color: var(--kr-white); }
+.kr-step-note { font-size: 14px; color: var(--kr-para); }
 /* Tablet pionowo (640–1023 px): bez ograniczenia akapity mono miały ~90
    znaków w linii, a formularz rozciągał się na całą szerokość. */
 @media (min-width: 640px) and (max-width: 1023px) {
@@ -381,19 +395,6 @@ html:has(.kr-scope[data-kr-light]) body {
   .kr-cmd { margin-bottom: 14px; font-size: 16px; }
   .kr-para { font-size: 16px; line-height: 1.8; }
   .kr-ok { font-size: 17px; }
-  .kr-steps {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .kr-step {
-    padding: 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    border-right: 1px solid var(--kr-line);
-  }
-  .kr-step:nth-child(2n) { border-right: 0; }
-  .kr-step:nth-child(n + 3) { border-bottom: 0; }
 }
 @media (min-width: 1280px) {
   .kr-main {
@@ -401,10 +402,6 @@ html:has(.kr-scope[data-kr-light]) body {
     grid-template-columns: minmax(0, 1fr) 500px;
     gap: 72px;
   }
-  .kr-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .kr-step { border-bottom: 0; }
-  .kr-step:nth-child(2n) { border-right: 1px solid var(--kr-line); }
-  .kr-step:last-child { border-right: 0; }
 }
 
 /* ── formularz ─────────────────────────────────────────────────── */
@@ -954,7 +951,7 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
 
 /* ── strona główna: tablica otwartych rekrutacji (etap 6, 20.10.2026) ──
    Makiety 6b (desktop) i 6c (telefon). Kolory wyłącznie z tokenów `--kr-*`;
-   pasek sceny karty maluje paleta szablonu rekrutacji (`BoardBand.tsx`). */
+   znak wiersza i podgląd sceny maluje paleta szablonu (`BoardPreview.tsx`). */
 .kr-board {
   flex-grow: 1;
   display: flex;
@@ -1015,7 +1012,8 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
 }
 /* Fokus widać na całym polu (z „grep”), nie podwójnie na samym inpucie. */
 .kr-board-search:focus-within { outline: 2px solid var(--kr-red); outline-offset: 2px; }
-.kr-root .kr-board-input:focus-visible { outline: none; }
+.kr-root .kr-board-input:focus-visible,
+.kr-root .kr-board-input:focus { outline: none; box-shadow: none; }
 .kr-board-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -1028,80 +1026,48 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
   outline: none;
 }
 .kr-board-input::placeholder { color: var(--kr-gray); }
-.kr-board-count { margin: 0; font-size: 12px; }
-/* Pusty licznik zostaje w drzewie (aria-live), ale nie zajmuje odstępu. */
-.kr-board-count:empty { margin-top: -12px; }
-.kr-board-grid {
+/* Licznik „x z N” w polu szukania — skutek każdego filtra widać tam, gdzie
+   się pisze (etap 7). */
+.kr-board-out { flex: none; font-size: 13px; color: var(--kr-gray); white-space: nowrap; }
+.kr-board-out b { color: var(--kr-text); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* ── lista + podgląd (etap 7, D2 = A) ── */
+.kr-board-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.kr-board-listcol { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.kr-brows {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  border-top: 1px solid var(--kr-line-strong);
 }
-.kr-board-card {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--kr-line-strong);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--kr-form-bg);
+.kr-brow-item { border-bottom: 1px solid var(--kr-line-strong); }
+.kr-brow {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 14px 6px;
+  border-radius: 10px;
   color: var(--kr-text) !important;
   text-decoration: none;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: background-color 0.2s ease;
 }
-.kr-board-card:hover { border-color: var(--kr-title); transform: translateY(-2px); }
-.kr-board-card:focus-visible { outline-offset: 3px; }
-.kr-board-band {
-  position: relative;
-  height: 64px;
-  overflow: hidden;
-  border-bottom: 1px solid;
-}
-.kr-board-art {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.kr-board-scene,
-.kr-board-cat {
-  position: absolute;
-  top: 8px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  line-height: 1.4;
-}
-.kr-board-scene { left: 10px; }
-.kr-board-cat { right: 10px; border: 1px solid; }
-.kr-board-body {
-  flex: 1 1 auto;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.kr-board-title {
-  font-family: var(--font-kr-display), system-ui, sans-serif;
+.kr-brow:hover,
+.kr-brow[data-active] { background: var(--kr-form-bg); }
+.kr-brow-glyph { width: 40px; height: 40px; display: block; }
+.kr-brow-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.kr-brow-title {
+  font-family: var(--kr-sans);
   font-size: 17px;
-  font-weight: 800;
-  line-height: 1.2;
+  font-weight: 700;
+  line-height: 1.25;
   letter-spacing: -0.01em;
   color: var(--kr-white);
 }
-.kr-board-sub { font-size: 13px; line-height: 1.45; color: var(--kr-para); }
-.kr-board-tag { font-size: 12px; color: var(--kr-gray); }
-.kr-board-foot {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  border-top: 1px solid var(--kr-line);
-  font-size: 12px;
-  color: var(--kr-gray);
-}
+.kr-brow-sub { font-family: var(--kr-sans); font-size: 14px; line-height: 1.45; color: var(--kr-para); }
+.kr-brow-meta { font-size: 12px; color: var(--kr-gray); }
+.kr-brow-go { display: none; }
+.kr-board-preview { display: none; }
 .kr-board-more {
   min-height: 46px;
   padding: 10px;
@@ -1188,15 +1154,58 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
   cursor: pointer;
 }
 @media (min-width: 640px) {
-  .kr-board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kr-board-search-row { flex-direction: row; align-items: center; }
-  .kr-board-band { height: 96px; }
+  .kr-brow { grid-template-columns: 44px minmax(0, 1fr) auto; padding: 16px 10px; }
+  .kr-brow-glyph { width: 44px; height: 44px; }
+  .kr-brow-go {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--kr-sans);
+    font-size: 14px;
+    color: var(--kr-gray);
+    white-space: nowrap;
+  }
+  .kr-brow:hover .kr-brow-go,
+  .kr-brow[data-active] .kr-brow-go { color: var(--kr-title); }
+  .kr-brow-go svg { transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+  .kr-brow:hover .kr-brow-go svg { transform: translateX(4px); }
 }
 @media (min-width: 1024px) {
   .kr-board { padding: 44px 64px 48px; gap: 20px; }
   .kr-board-h1 { font-size: 56px; line-height: 1; }
-  .kr-board-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-  .kr-board-title { font-size: 19px; }
+  /* Podgląd przyklejony obok listy — tylko tam, gdzie jest mysz i miejsce. */
+  .kr-board-split { grid-template-columns: minmax(0, 1fr) 380px; gap: 40px; align-items: start; }
+  .kr-board-preview {
+    position: sticky;
+    top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    color: var(--kr-text) !important;
+    text-decoration: none;
+  }
+  .kr-board-preview-title {
+    font-family: var(--kr-sans);
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--kr-white);
+  }
+  .kr-board-preview-go {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    border-radius: 10px;
+    background: var(--kr-btn);
+    color: var(--kr-btn-text);
+    font-family: var(--kr-sans);
+    font-weight: 700;
+  }
+  .kr-brow-title { font-size: 19px; }
   .kr-board-cv { padding: 22px 24px; }
   .kr-board-cv-head { flex-direction: row; justify-content: space-between; align-items: center; }
   .kr-board-cv-btn { flex: none; min-height: 46px; padding: 0 20px; }
@@ -1205,9 +1214,14 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
 @media (min-width: 1280px) {
   .kr-board-h1 { font-size: 56px; }
 }
+.kr-bp-stage { border: 1px solid; border-radius: 16px; overflow: hidden; aspect-ratio: 4 / 3; max-width: 100%; }
+.kr-bp-stage svg { display: block; width: 100%; height: 100%; }
+.kr-bp-label { font-family: var(--kr-mono); font-size: 12px; }
+.kr-bp-cmd { font-family: var(--kr-mono); font-size: 12px; }
 @media (prefers-reduced-motion: reduce) {
-  .kr-board-card { transition: none; }
-  .kr-board-card:hover { transform: none; }
+  .kr-brow,
+  .kr-brow-go svg { transition: none; }
+  .kr-brow:hover .kr-brow-go svg { transform: none; }
 }
 
 /* ── krój tekstu do czytania (etap 7, D4 = A, 21.10.2026) ──────────
@@ -1219,7 +1233,9 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
 .kr-alert,
 .kr-chip,
 .kr-board-input,
-.kr-board-sub,
+.kr-board-cv-note,
+.kr-board-cv-btn,
+.kr-board-sticky-btn,
 .kr-doc,
 .kr-footer,
 .kr-log-text,
@@ -1237,4 +1253,118 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
 .kr-hz-n .kr-nice-mark,
 .kr-board-t .kr-nice-mark {
   display: block;
+}
+
+/* ── „Sprawdź się” na stronie rekrutacji (etap 7, PR C) ──────────── */
+.kr-fit { display: flex; flex-direction: column; gap: 12px; }
+.kr-fit .kr-cmd { margin-bottom: 0; }
+.kr-fit-title {
+  margin: 0;
+  font-family: var(--kr-sans);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--kr-white);
+}
+.kr-fit-lead { margin: 0; font-family: var(--kr-sans); font-size: 15px; line-height: 1.55; color: var(--kr-para); max-width: 60ch; }
+/* Pasek ze szkicem i wynikiem stoi przy górnej krawędzi, gdy karty płyną. */
+.kr-fit-stage {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 10px 0;
+  background: var(--kr-bg);
+  border-bottom: 1px solid var(--kr-line);
+}
+.kr-fit-score { display: flex; flex-direction: column; gap: 4px; font-family: var(--kr-sans); color: var(--kr-gray); font-size: 13px; }
+.kr-fit-score strong {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--kr-white);
+  font-variant-numeric: tabular-nums;
+}
+.kr-fit-bar { display: grid; grid-auto-flow: column; gap: 4px; margin-top: 4px; }
+.kr-fit-bar i { height: 5px; border-radius: 3px; background: var(--kr-line-strong); transition: background-color 0.3s ease; }
+.kr-fit-bar i[data-on] { background: var(--kr-title); }
+.kr-fit-note { font-size: 12px; color: var(--kr-comment); }
+.kr-fit-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.kr-fit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border: 1px solid var(--kr-line-strong);
+  border-radius: 14px;
+  background: var(--kr-form-bg);
+  font-family: var(--kr-sans);
+  transition: border-color 0.3s ease;
+}
+.kr-fit-card[data-reading] { border-color: var(--kr-gray); }
+.kr-fit-kind { font-family: var(--kr-mono); font-size: 12px; color: var(--kr-gray); }
+.kr-fit-name { font-size: 19px; font-weight: 700; line-height: 1.25; color: var(--kr-white); overflow-wrap: anywhere; }
+.kr-fit-text { font-size: 14.5px; line-height: 1.5; color: var(--kr-para); }
+.kr-fit-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--kr-line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--kr-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.kr-fit-btn:hover { border-color: var(--kr-gray); }
+.kr-fit-btn[aria-pressed="true"] { background: var(--kr-btn); border-color: var(--kr-btn); color: var(--kr-btn-text); }
+@media (min-width: 1024px) {
+  .kr-fit-stage { grid-template-columns: 210px minmax(0, 1fr); gap: 20px; }
+  .kr-fit-score strong { font-size: 36px; }
+}
+
+/* Telefon: „Aplikuj” przy dolnej krawędzi między hero a formularzem. */
+.kr-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(transparent, var(--kr-bg) 40%);
+  transform: translateY(110%);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+.kr-dock[data-shown] { transform: none; pointer-events: auto; }
+.kr-dock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  border-radius: 10px;
+  background: var(--kr-btn);
+  color: var(--kr-btn-text) !important;
+  font-family: var(--kr-sans);
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+}
+@media (min-width: 1024px) {
+  .kr-dock { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kr-dock,
+  .kr-fit-card,
+  .kr-fit-bar i { transition: none; }
 }

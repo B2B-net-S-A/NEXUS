@@ -9,21 +9,24 @@ import {
 } from "@/lib/career/format";
 import { careerHref, careerVisibleUrl, type CareerBase } from "@/lib/career/host";
 
+import { ApplyDock } from "./ApplyDock";
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
 import { CareerFooter } from "./CareerFooter";
 import { CareerHero, Cmd } from "./CareerHero";
 import { CareerSubmitGate } from "./CareerSubmitGate";
 import { CareerThemeScope } from "./CareerThemeScope";
 import { ClosedNotice } from "./ClosedNotice";
+import { FitSection } from "./FitSection";
 import { ParamsPanel } from "./ParamsPanel";
 import { ProcessSteps } from "./ProcessSteps";
-import { RequirementsCheck } from "./RequirementsCheck";
 import { CareerScene, CareerSceneScore } from "./scenes/CareerScene";
 import { hasCareerScene, leftoverNice, processSteps, sceneItems } from "./scenes/model";
 import { CareerSceneProvider } from "./scenes/SceneContext";
 import { GlitchBug } from "./scenes/SceneParts";
 import { TerminalChrome } from "./TerminalChrome";
 import { DEFAULT_CAREER_THEME, isCareerThemeId } from "./themes";
+
+const HERO_ID = "rekrutacja";
 
 /**
  * Strona rekrutacji (`/r/<slug>`): hero, parametry, opis, wymagania, proces,
@@ -111,7 +114,7 @@ export function CareerJobView({
           handle={handle}
         >
           <TerminalChrome path={chromePath} />
-          <section className="kr-top" aria-label="Rekrutacja" data-kr-with-scene={withScene ? "" : undefined}>
+          <section id={HERO_ID} className="kr-top" aria-label="Rekrutacja" data-kr-with-scene={withScene ? "" : undefined}>
             <div className="kr-stage">
               <CareerHero
                 login={login}
@@ -136,7 +139,6 @@ export function CareerJobView({
               )}
             </div>
           </section>
-        </CareerSceneProvider>
 
         <main className="kr-main">
           <div className="kr-col">
@@ -150,7 +152,8 @@ export function CareerJobView({
                 ))}
               </section>
             ) : null}
-            <RequirementsCheck must={must} nice={nice} />
+            {/* „Sprawdź się” (etap 7): karty wymagań połączone ze sceną hero. */}
+            <FitSection must={must} />
             {/* Kroki także na telefonie (etap 5). */}
             {show.process ? (
               <ProcessSteps
@@ -187,6 +190,8 @@ export function CareerJobView({
             />
           </aside>
         </main>
+        </CareerSceneProvider>
+        <ApplyDock heroId={HERO_ID} formId="aplikuj" />
 
         <CareerFooter rodoHref={rodoHref} hostLabel={visibleUrl} />
       </CareerSubmitGate>
