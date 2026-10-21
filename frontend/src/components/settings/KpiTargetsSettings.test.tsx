@@ -167,6 +167,17 @@ describe("KpiExceptions — wyjątki zamiast tabeli wszystkich osób (20.10.2026
     );
   });
 
+  it("„Usuń” z błędem zapisu mówi o nim w wierszu", async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error("Network Error"));
+    render(<KpiExceptions data={MATRIX} busy={false} onSave={onSave} />);
+    fireEvent.click(screen.getByRole("button", { name: "Usuń wyjątek: Weryfikacje dziś — Anna" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nie udało się usunąć wyjątku.");
+    expect(alert.closest("tr")).toBe(
+      screen.getByLabelText("Weryfikacje dziś — Anna").closest("tr"),
+    );
+  });
+
   it("„Dodaj wyjątek” zapisuje cel wybranej osoby", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<KpiExceptions data={WITH_BOLEK} busy={false} onSave={onSave} />);

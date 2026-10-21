@@ -58,3 +58,10 @@ z numerami problemów). Strona startowa z kafelkami zostaje bez zmian.
   „Powody odrzucenia” i „Branża” nie mają czytelnika poza tym ekranem
   (`docs/settings-rejection-reasons-audit.md`). Powody odrzucenia edytuje się
   w Procesach rekrutacyjnych. `/settings/dictionaries` dalej się otwiera.
+- **Błędy zapisu i odczytu w Ustawieniach są widoczne (audyt 21.10.2026):**
+  „Usuń” wyjątku KPI (`KpiExceptions` → `RemoveException`) łapie odrzucenie
+  zapisu i pokazuje komunikat w wierszu (`role="alert"`, `apiErrorMessage`),
+  jak pole celu (`TargetCell`). Lista „Do kandydatów”
+  (`CandidateEmailTemplates`) przy błędzie `GET /api/email-templates`
+  pokazuje `QueryStateNotice` z ponowieniem; „Brak szablonów” i „Dodaj
+  domyślne” wiszą na `isSuccess`, bo awaria nie może wyglądać jak pusta lista.

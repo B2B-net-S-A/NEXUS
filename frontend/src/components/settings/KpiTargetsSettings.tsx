@@ -247,15 +247,11 @@ export function KpiExceptions({
                     {roleTargetFor(data, user.roles, kpi.kpi_id) ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <button
-                      type="button"
+                    <RemoveException
+                      label={label}
                       disabled={busy}
-                      onClick={() => void onSave(user.user_id, kpi.kpi_id, null)}
-                      aria-label={`Usuń wyjątek: ${label}`}
-                      className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
-                    >
-                      Usuń
-                    </button>
+                      onRemove={() => onSave(user.user_id, kpi.kpi_id, null)}
+                    />
                   </td>
                 </tr>
               );
@@ -263,6 +259,42 @@ export function KpiExceptions({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** „Usuń” wyjątku — błąd zapisu zostaje w wierszu, jak w polu celu. */
+function RemoveException({
+  label,
+  disabled,
+  onRemove,
+}: {
+  label: string;
+  disabled: boolean;
+  onRemove: () => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          setError(null);
+          void onRemove().catch((err) =>
+            setError(apiErrorMessage(err, "Nie udało się usunąć wyjątku.")),
+          );
+        }}
+        aria-label={`Usuń wyjątek: ${label}`}
+        className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+      >
+        Usuń
+      </button>
+      {error ? (
+        <span role="alert" className="text-xs text-destructive">
+          {error}
+        </span>
+      ) : null}
     </div>
   );
 }

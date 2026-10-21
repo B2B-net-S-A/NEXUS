@@ -23,6 +23,8 @@ import { hasRole, useAuthStore } from "@/store/auth";
 import { AppModal } from "@/components/ds/AppModal";
 import { splitTemplateVariables } from "@/lib/template-variables";
 import { apiErrorMessage } from "@/lib/api-error";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { isForbiddenError } from "@/lib/view-state";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -552,10 +554,13 @@ export function CandidateEmailTemplates() {
   // usunięcie i domyślne szablony = `AdminUser` (backend/app/api/emails.py).
   const isAdmin = useAuthStore((s) => hasRole(s.user, "admin"));
 
-  const { data: allTemplates = [], isLoading } = useQuery<EmailTemplate[]>({
+  // Pusty stan wisi na `isSuccess`: awaria pobrania nie może wyglądać jak
+  // „Brak szablonów” z propozycją dodania domyślnych (21.10.2026).
+  const templatesQuery = useQuery<EmailTemplate[]>({
     queryKey: ["email-templates"],
     queryFn: () => api.get("/api/email-templates").then((r) => r.data),
   });
+  const { data: allTemplates = [], isLoading } = templatesQuery;
 
   const filteredTemplates = activeCategory === "all"
     ? allTemplates
@@ -601,7 +606,7 @@ export function CandidateEmailTemplates() {
     <div className="lg:h-[calc(100dvh-16rem)] lg:min-h-[28rem] flex flex-col space-y-4">
       <div className="flex flex-wrap items-start justify-end gap-3 shrink-0">
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin && allTemplates.length === 0 && !isLoading && (
+          {isAdmin && templatesQuery.isSuccess && allTemplates.length === 0 && (
             <button
               onClick={handleSeedTemplates}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
@@ -670,7 +675,21 @@ export function CandidateEmailTemplates() {
                 <Loader2 className="w-5 h-5 animate-spin" />
                 <span className="text-sm">Ładowanie...</span>
               </div>
-            ) : filteredTemplates.length === 0 ? (
+            ) : templatesQuery.isError ? (
+              <QueryStateNotice
+                className="m-3"
+                state={isForbiddenError(templatesQuery.error) ? "forbidden" : "error"}
+                description={
+                  isForbiddenError(templatesQuery.error)
+                    ? undefined
+                    : apiErrorMessage(
+                        templatesQuery.error,
+                        "Nie udało się pobrać szablonów maili.",
+                      )
+                }
+                onRetry={() => void templatesQuery.refetch()}
+              />
+            ) : !templatesQuery.isSuccess ? null : filteredTemplates.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Mail className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <p className="text-sm">Brak szablonów</p>
