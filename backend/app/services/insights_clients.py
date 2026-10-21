@@ -59,6 +59,7 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
+from app.services.hit_ratio_scope import counts_in_hit_ratio
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.contractor_identity import (
     count_unique_contractors,
@@ -542,6 +543,8 @@ async def compute_client_hit_ratio(
             Job.closed_at >= start,
             Job.closed_at < end,
             *visible_client_predicates(),
+            # Zamknięcia „nie liczy się” (21.10.2026) — poza hit ratio zawsze.
+            counts_in_hit_ratio(),
         )
     )
     if exclude_reasons:

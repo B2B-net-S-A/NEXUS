@@ -34,6 +34,7 @@ from app.services import competition_history, job_data_trust
 from app.services.client_identity import client_display_name_expression
 from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
+from app.services.hit_ratio_scope import counts_in_hit_ratio
 from app.services.job_delivery_lead_fill import _HEADS as _DL_HEADS_SQL
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 from app.services.metric_definitions import (
@@ -803,6 +804,8 @@ async def _compute_dl_metrics(
         jobs_q = jobs_q.where(
             func.coalesce(Job.opened_at, Job.created_at) >= period_start
         )
+    # Zamknięcia „nie liczy się” (21.10.2026) nie są zapytaniem — jak portfele DL.
+    jobs_q = jobs_q.where((Job.status != JobStatus.closed) | counts_in_hit_ratio())
     jobs_rows = (await db.execute(jobs_q)).all()
 
     # Map job_id → resolved_dl_id
@@ -1198,6 +1201,9 @@ async def _compute_client_hit_ratio(
         jobs_q = jobs_q.where(Job.closed_at < period_end)
     if only_client_id is not None:
         jobs_q = jobs_q.where(Job.client_id == only_client_id)
+    # Zamknięcia „nie liczy się” (21.10.2026) nigdy nie wchodzą do hit ratio;
+    # `exclude_reasons` wycina dodatkowo to, o co prosi wołający.
+    jobs_q = jobs_q.where(counts_in_hit_ratio())
     if exclude_reasons:
         jobs_q = jobs_q.where(
             (Job.close_reason.is_(None)) | (Job.close_reason.notin_(exclude_reasons))

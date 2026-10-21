@@ -1371,6 +1371,12 @@ async def publish_core(
         # Runda 9 (R9-N4-1): jak PATCH — klient usunięty/scalony = 422.
         await assert_client_assignable(db, job.client_id)
         job.closed_at = None
+        # Powód zamknięcia należy do zamknięcia. Zostawiony przy otwartej
+        # rekrutacji wyciąłby ją z hit ratio po ponownym zamknięciu z PATCH
+        # (bez powodu) — 21.10.2026.
+        job.close_reason = None
+        job.close_notes = None
+        job.duplicate_of_job_id = None
         api._take_over_reopened_traffit_job(db, job, current_user)
         if job.work_state == WORK_STATE_FINISHED:
             await set_work_state(
