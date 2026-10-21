@@ -105,7 +105,7 @@ kodu sprzed 10.10.2026 odnoszą się do plików z tego indeksu.
 
 Deploy przez Coolify, `/api/health`, zmienne środowiskowe, CI i kolejka merge'ów, obciążenie, klucze API kont serwisowych, obsługa błędów API.
 
-- `ci-gotchas.md` — CI gotchas · kolejka merge'ów, sito na PR, shardy pytest, pokrycie, Trivy, E2E, minuty Actions, „dziś” = Europe/Warsaw
+- `ci-gotchas.md` — CI gotchas · kolejka merge'ów, kolizje migracji, sito na PR, shardy, pokrycie, Trivy, E2E, minuty Actions, „dziś” = Europe/Warsaw
 - `deploy.md` — Deploy
 - `env-vars-build-time-vs-runtime.md` — Env vars (build-time vs runtime)
 - `healthcheck-endpoint.md` — Healthcheck endpoint
