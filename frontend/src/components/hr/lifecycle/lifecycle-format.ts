@@ -101,15 +101,15 @@ export function reportsSummary(rows: readonly ReportsRowLike[]): string | null {
   if (row.status === "done") {
     const moved = row.result?.people ?? row.planned_count ?? 0;
     if (!moved) return null;
-    return `Podwładni przekazani (${peopleCount(moved)}) — ich przełożonym jest ${
+    return `Zespół przekazany (${peopleCount(moved)}) — koordynatorem jest ${
       row.receiver_name ?? "wskazana osoba"
     }.`;
   }
   if (!row.count) return null;
   if (!row.receiver_name) {
-    return `Podwładni: ${peopleCount(row.count)}. Wskaż, kto zostanie ich przełożonym — bez tego przekazanie nie przejdzie, a konto nie wyłączy się samo.`;
+    return `Osoby w zespole: ${peopleCount(row.count)}. Wskaż, kto zostanie ich koordynatorem — bez tego przekazanie nie przejdzie, a konto nie wyłączy się samo.`;
   }
-  return `Podwładni: ${peopleCount(row.count)}. Po przekazaniu ich przełożonym będzie ${row.receiver_name} — od tej chwili wnioski i timesheety idą do tej osoby.`;
+  return `Osoby w zespole: ${peopleCount(row.count)}. Po przekazaniu ich koordynatorem będzie ${row.receiver_name} — od tej chwili wnioski i timesheety idą do tej osoby.`;
 }
 
 const CONDITION_FORM_LABELS: Record<string, string> = {

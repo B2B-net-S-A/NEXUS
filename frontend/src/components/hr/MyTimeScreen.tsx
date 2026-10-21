@@ -162,7 +162,7 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
         />
       ) : !me.data.has_profile ? (
         <Card className="p-5 text-sm text-muted-foreground">
-          Nie masz jeszcze kartoteki pracownika. Poproś Kadry o jej założenie —
+          Nie masz jeszcze kartoteki w NEXUSIE. Poproś Kadry o jej założenie —
           bez niej nie zgłosisz nieobecności ani nie wyślesz raportu godzin.
         </Card>
       ) : (

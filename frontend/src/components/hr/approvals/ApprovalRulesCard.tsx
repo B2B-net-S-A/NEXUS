@@ -138,7 +138,7 @@ export function ApprovalRulesCard() {
           <thead>
             <tr className="text-left text-xs text-muted-foreground">
               <th className="py-1.5 pr-3 font-medium">Rodzaj</th>
-              <th className="py-1.5 font-medium">Przełożony zatwierdza sam do (zł)</th>
+              <th className="py-1.5 font-medium">Koordynator potwierdza sam do (zł)</th>
             </tr>
           </thead>
           <tbody>
@@ -147,7 +147,7 @@ export function ApprovalRulesCard() {
                 <td className="py-2 pr-3 font-medium text-foreground">{label}</td>
                 <td className="py-2">
                   <Input
-                    aria-label={`${label} — próg przełożonego`}
+                    aria-label={`${label} — próg koordynatora`}
                     inputMode="numeric"
                     placeholder="nigdy — zawsze zatwierdzający"
                     className="max-w-[260px]"

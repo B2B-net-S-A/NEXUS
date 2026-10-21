@@ -109,7 +109,7 @@ export function TeamScreen({
         replaceUrl(next ? `?manager=${next}` : window.location.pathname);
       }}
     >
-      <SelectTrigger className="h-9 w-full max-w-xs" aria-label="Zespół przełożonego">
+      <SelectTrigger className="h-9 w-full max-w-xs" aria-label="Zespół koordynatora">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -151,8 +151,8 @@ export function TeamScreen({
       {state === "empty" ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           {data.is_own
-            ? "Nikt nie ma Cię wpisanego jako przełożonego ani koordynatora."
-            : `${data.manager.name} nie ma podwładnych z kartoteką.`}
+            ? "Nikt nie ma Cię wpisanego jako koordynatora."
+            : `${data.manager.name} nie ma w zespole osób z kartoteką.`}
         </div>
       ) : (
         <>

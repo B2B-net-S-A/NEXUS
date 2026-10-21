@@ -531,7 +531,7 @@ async def test_settlement_without_own_profile_is_forbidden(
     # Płace bez własnej kartoteki przechodzą bramkę, ale nie mają rozliczenia.
     payroll = await app_client.get(SETTLEMENT, headers=_headers(finance))
     assert payroll.status_code == 403
-    assert payroll.json()["detail"] == "Rozliczenie widzą osoby z kartoteką pracownika."
+    assert payroll.json()["detail"] == "Rozliczenie widzą osoby z kartoteką w NEXUSIE."
     bad_year = await app_client.get(
         SETTLEMENT, params={"year": 1999}, headers=_headers(finance)
     )

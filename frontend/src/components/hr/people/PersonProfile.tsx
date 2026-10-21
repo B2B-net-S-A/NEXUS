@@ -373,7 +373,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
 
   const data = person.data;
   const full = isFullPerson(data) ? data : null;
-  // Słowa formy (D4); wizytówka i forma ukryta (Kadry bez Płac) mówią oba słowa.
+  // Słowa formy (D4); wizytówka i forma ukryta (Kadry bez Płac) mówią „koordynator” (PIP, 21.10.2026).
   const words = full?.employment_type ? employmentTerms(full.employment_type) : null;
   const directoryRows = directory.data?.items ?? [];
   const managers = directoryRows.map((row) => ({ user_id: row.user_id, name: row.name }));
@@ -541,7 +541,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
                 "Stanowisko nieuzupełnione"}
               {data.manager_name ? (
                 <>
-                  {` · ${words ? words.coordinator : "przełożony / koordynator"} `}
+                  {` · ${words ? words.coordinator : "koordynator"} `}
                   <Link
                     className="inline-flex items-center gap-1 align-middle text-foreground hover:underline"
                     href={`/people/${data.manager_user_id}`}
@@ -856,7 +856,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
               <Fact label="Forma">{EMPLOYMENT_TYPE_LABELS[full.employment_type]}</Fact>
             ) : null}
             {full.manager_pending ? (
-              <Fact label="Przełożony">
+              <Fact label="Koordynator">
                 <span className="text-warning-muted-foreground">do uzupełnienia</span>
               </Fact>
             ) : null}

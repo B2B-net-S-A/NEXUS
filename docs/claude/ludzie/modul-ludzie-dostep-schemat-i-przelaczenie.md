@@ -152,8 +152,20 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
 - **Koordynator czy przełożony**: przy B2B i zleceniu ekrany mówią
   „koordynator”, przy UoP „przełożony” (`managerWords` w `lib/api/hr-structure.ts`) —
   tylko etykieta, pole to dalej `manager_user_id`. Przy osobie forma (UoP /
-  B2B / Zlecenie) — tylko dla admina i Finansów (19.10.2026, niżej); Kadry bez
-  Płac widzą Strukturę bez formy i mówią oba słowa.
+  B2B / Zlecenie) — tylko dla admina i Finansów (19.10.2026, niżej).
+- **Słowa zgodne z PIP na ekranach wielu osób** (decyzja Artura 21.10.2026):
+  „przełożony”, „podwładni”, „pracownik”, „w pracy” i „delegacja” to język
+  stosunku pracy, a inspektor PIP może sam go stwierdzić. Ekran jednej osoby
+  bierze słowo z jej formy (`hr-employment-terms`); ekran wielu osób
+  (Akceptacje, Katalog, Struktura, kreatory wejścia i odejścia, Zgody, Płace,
+  Opieka, puste stany) mówi neutralnie: „koordynator” (też zbiór mieszany
+  i pusty w `managerWords` — słowo nie zdradza formy Kadrom bez Płac),
+  „osoby w zespole”, „konsultant/kontraktor” (rola `employee`, „Wpisz
+  nieobecność za konsultanta/kontraktora”), „kartoteka w NEXUSIE”, „dostępny(a)”,
+  „wyjazd” (litera „W” w kalendarzu), „ostatni dzień współpracy”, „Koszty
+  podróży” zamiast „Delegacji”. Bez zmian: pola w bazie, słowa UoP na ekranach
+  osoby na UoP, nazwa folderu „Umowy pracowników” w SharePoincie, etap
+  „Zatrudniony” w rekrutacji. Nie wpisuj tych słów na sztywno w nowych ekranach.
 - **„Ludzie → Mój zespół”** (`/people/team`, `api/hr_team.py`,
   `services/hr/team.py`, bramka `require_hr_team_reader`: moduł „Ludzie” +
   podwładni z kartoteką albo Kadry/admin). Wiersz na bezpośredniego

@@ -17,7 +17,7 @@ from app.services.hr.approvals.service import (
 from app.services.hr_approvals_schema import PENDING_STATUSES
 
 STATUS_LABELS: dict[str, str] = {
-    "pending_supervisor": "U przełożonego",
+    "pending_supervisor": "U koordynatora",
     "pending_final": "Czeka na zatwierdzającego",
     "approved": "Zatwierdzona",
     "rejected": "Odrzucona",

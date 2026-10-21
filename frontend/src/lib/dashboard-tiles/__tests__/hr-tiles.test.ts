@@ -94,10 +94,10 @@ describe("kafelki „Ludzi w NEXUSIE” w katalogu", () => {
 
   it("„Mój czas” wymaga kartoteki, „Do akceptacji” — przełożonego, Kadr albo admina", () => {
     const noProfile = hrTileGate("hr_my_time", hr(ON));
-    expect(noProfile).toEqual({ ok: false, reason: "Dla osób z kartoteką pracownika — założą ją Kadry" });
+    expect(noProfile).toEqual({ ok: false, reason: "Dla osób z kartoteką w NEXUSIE — założą ją Kadry" });
     expect(hrTileGate("hr_approvals", hr(ON, { has_profile: true }))).toEqual({
       ok: false,
-      reason: "Dla przełożonych i Kadr",
+      reason: "Dla koordynatorów i Kadr",
     });
     for (const me of [{ is_manager: true }, { people_admin: true }, { is_admin: true }]) {
       expect(hrTileGate("hr_approvals", hr(ON, me))).toEqual({ ok: true });

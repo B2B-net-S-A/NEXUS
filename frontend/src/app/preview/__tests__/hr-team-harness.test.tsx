@@ -50,7 +50,7 @@ describe("/preview/hr-team", () => {
     const today = await screen.findByRole("region", { name: "Dziś" });
     expect(today).toHaveTextContent("przerwa w świadczeniu usług do");
     expect(today).toHaveTextContent("zastępuje: Ewa");
-    if (TODAY_IS_WORKDAY) expect(today).toHaveTextContent("delegacja");
+    if (TODAY_IS_WORKDAY) expect(today).toHaveTextContent("wyjazd");
 
     // „Do Twojej decyzji”: wniosek Julii i timesheet Tomasza z akcjami, premia Oli do wiadomości.
     const decisions = screen.getByRole("region", { name: "Do Twojej decyzji" });
@@ -98,7 +98,7 @@ describe("/preview/hr-team", () => {
     );
     expect(screen.queryByRole("columnheader", { name: "Premie w drodze" })).toBeNull();
     expect(screen.queryByText("premia · do wiadomości")).toBeNull();
-    expect(screen.getByRole("combobox", { name: "Zespół przełożonego" })).toHaveTextContent(
+    expect(screen.getByRole("combobox", { name: "Zespół koordynatora" })).toHaveTextContent(
       "Marta Fikcyjna",
     );
     expect(attempted()).toEqual([]);

@@ -198,10 +198,10 @@ describe("PeopleDirectory — makieta 19.10.2026", () => {
     expect(within(ewa).getByText(/^nieobecność do/)).toBeInTheDocument();
     expect(within(ewa).getByText("Ola P.")).toBeInTheDocument();
     const kamil = screen.getByText("Kamil Testowy").closest("tr") as HTMLElement;
-    expect(within(kamil).getByText("delegacja")).toBeInTheDocument();
+    expect(within(kamil).getByText("wyjazd")).toBeInTheDocument();
     // Moduł urlopów otwarty w konfiguracji testu → reszta „w pracy”.
     const ola = screen.getByText("Ola Przykładowa", { selector: "span" }).closest("tr") as HTMLElement;
-    expect(within(ola).getByText("w pracy")).toBeInTheDocument();
+    expect(within(ola).getByText("dostępny(a)")).toBeInTheDocument();
   });
 
   it("sam moduł czasu: delegacja zostaje, reszta „—” i bez „Dziś nieobecni”", async () => {
@@ -210,10 +210,10 @@ describe("PeopleDirectory — makieta 19.10.2026", () => {
     renderDirectory(false, { leave: false });
     await screen.findByText("Kamil Testowy");
     const kamil = screen.getByText("Kamil Testowy").closest("tr") as HTMLElement;
-    expect(within(kamil).getByText("delegacja")).toBeInTheDocument();
+    expect(within(kamil).getByText("wyjazd")).toBeInTheDocument();
     const ola = screen.getByText("Ola Przykładowa", { selector: "span" }).closest("tr") as HTMLElement;
-    expect(within(ola).queryByText("w pracy")).toBeNull();
-    expect(screen.queryByText("w pracy")).toBeNull();
+    expect(within(ola).queryByText("dostępny(a)")).toBeNull();
+    expect(screen.queryByText("dostępny(a)")).toBeNull();
     const filters = screen.getByRole("group", { name: "Filtry katalogu" });
     expect(within(filters).queryByRole("button", { name: /Dziś nieobecni/ })).toBeNull();
   });

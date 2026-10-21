@@ -46,7 +46,7 @@ const row = (overrides: Partial<LeaveRequestRow> = {}): LeaveRequestRow => ({
 
 describe("plakietka źródła i liczniki statusów", () => {
   it("nazywa wpis za pracownika, Outlook i import; zwykły wniosek bez plakietki", () => {
-    expect(sourceBadge("on_behalf")).toBe("Wpis za pracownika");
+    expect(sourceBadge("on_behalf")).toBe("Wpis za konsultanta/kontraktora");
     expect(sourceBadge("outlook_oof")).toBe("Z Outlooka");
     expect(sourceBadge("compass_import")).toBe("Import z Compassa");
     expect(sourceBadge("self")).toBeNull();
@@ -111,7 +111,7 @@ const person = (overrides: Partial<TeamCalendarPerson> = {}): TeamCalendarPerson
   ...overrides,
 });
 
-describe("kalendarz zespołu: zdalnie, delegacja, filtr", () => {
+describe("kalendarz zespołu: zdalnie, wyjazd, filtr", () => {
   it("dzień → wyjątek obecności", () => {
     const map = presenceByDay([
       { date: "2026-11-03", kind: "remote" },

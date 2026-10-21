@@ -92,7 +92,7 @@ describe("/preview/hr-offboarding", () => {
     expect(
       await screen.findByRole("heading", { name: "Odejście · Tomasz Podglądowy" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText(/Ostatni dzień pracy/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Ostatni dzień współpracy/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zapisz szkic" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rozpocznij odejście" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
