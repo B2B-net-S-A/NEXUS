@@ -1,6 +1,6 @@
 """Powody zamknięcia „nie liczy się do hit ratio” (21.10.2026).
 
-Revision ID: 0491_job_close_neutral
+Revision ID: 0492_job_close_neutral
 Revises: 0489_career_recruiter_about
 
 Decyzja Artura 21.10.2026: przegraną w hit ratio jest tylko rekrutacja, którą
@@ -19,7 +19,7 @@ Lustro w safety-net ``entrypoint.sh`` — prod alembic bywa osierocony.
 
 from alembic import op
 
-revision = "0491_job_close_neutral"
+revision = "0492_job_close_neutral"
 down_revision = "0489_career_recruiter_about"
 branch_labels = None
 depends_on = None

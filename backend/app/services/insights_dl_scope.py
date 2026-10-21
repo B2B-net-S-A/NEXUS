@@ -58,9 +58,10 @@ DL_HEAD_CTE = f"""
 # więc 3859 z 4229 rekrutacji „powstało" w maju 2026 i zapytania DL wypadały
 # z każdego innego okna (runda 6 audytu).
 #
-# Zamknięcia „nie liczy się” (duplikat, anulowany projekt… — 21.10.2026) nie
-# są zapytaniem portfela: wypadają z mianownika jak w lidze. Warunek dotyczy
-# tylko zamkniętych — otwarta rekrutacja liczy się zawsze.
+# `in_demand` (21.10.2026): zamknięcia „nie liczy się” (duplikat, anulowany
+# projekt…) nie są zapytaniem portfela i wypadają z mianownika jak w lidze.
+# Kolumna, nie WHERE — zatrudnienia z takiej rekrutacji dalej się liczą,
+# tak jak w lidze; filtrują ją tylko zapytania o requesty i wakaty.
 JOBS_SCOPED_CTE = f"""
     jobs_scoped AS (
         SELECT j.id,
@@ -68,13 +69,14 @@ JOBS_SCOPED_CTE = f"""
                j.status,
                j.client_id,
                COALESCE(j.headcount, 1) AS headcount,
-               COALESCE(jdl.id, h.delivery_lead_user_id) AS dl_id
+               COALESCE(jdl.id, h.delivery_lead_user_id) AS dl_id,
+               (j.status::text <> 'closed'
+                OR {counts_in_hit_ratio_sql("j")}) AS in_demand
         FROM jobs j
         LEFT JOIN users jdl ON jdl.id = j.delivery_lead_id AND jdl.is_active
              AND (CAST(jdl.role AS text) = 'delivery_lead'
                   OR jdl.roles @> CAST('["delivery_lead"]' AS jsonb))
         LEFT JOIN dl_head h ON h.client_id = j.client_id
-        WHERE j.status::text <> 'closed' OR {counts_in_hit_ratio_sql("j")}
     )
 """
 

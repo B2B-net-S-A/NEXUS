@@ -88,6 +88,20 @@ def test_orm_condition_keeps_null_and_drops_every_neutral_reason() -> None:
     assert "'competitor'" not in compiled
 
 
+def test_dl_portfolio_scope_keeps_placements_of_neutral_closures() -> None:
+    """Neutralne wypadają z requestów, nie z zatrudnień — jak w lidze.
+
+    `jobs_scoped` łączą też zapytania o placementy; WHERE w CTE wyciąłby
+    zatrudnienie z rekrutacji zamkniętej jako „wstrzymana” tylko w Portfelach
+    DL, a liga by je liczyła.
+    """
+    from app.services.insights_dl_scope import JOBS_SCOPED_CTE
+
+    assert "AS in_demand" in JOBS_SCOPED_CTE
+    assert "WHERE" not in JOBS_SCOPED_CTE
+    assert "'duplicate'" in JOBS_SCOPED_CTE
+
+
 # ── Na bazie (CI) ─────────────────────────────────────────────────────────
 
 
@@ -211,3 +225,27 @@ async def test_reopening_clears_the_close_reason(
     assert body["status"] == "published"
     assert body["close_reason"] is None
     assert body["close_notes"] is None
+
+
+@pytest.mark.asyncio
+async def test_tenders_win_rate_skips_neutral_closures() -> None:
+    from app.analytics import metrics
+    from app.analytics.periods import Period, PeriodKind
+    from app.core.database import AsyncSessionLocal
+
+    year = _year()
+    async with AsyncSessionLocal() as db:
+        await _closed_jobs(
+            db,
+            year=year,
+            reasons=[JobCloseReason.filled_by_us, JobCloseReason.duplicate],
+        )
+        await db.commit()
+        result = await metrics.tenders(
+            db,
+            Period(PeriodKind.custom, _at(year, 8, 1), _at(year, 9, 1)),
+            include_values=False,
+        )
+    assert result["closed_total"] == 2
+    assert result["won"] == 1
+    assert result["win_rate_pct"] == 100.0

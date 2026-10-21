@@ -135,6 +135,7 @@ async def insights_delivery_leads(
                 LEFT JOIN clients c
                   ON c.id = js.client_id AND {_CLIENT_VISIBLE_SQL}
                 WHERE js.opened_at >= :start AND js.opened_at < :end
+                  AND js.in_demand
                 GROUP BY js.dl_id
                 """
                 ),
@@ -502,6 +503,7 @@ async def insights_delivery_lead_trend(
                     WHERE js.dl_id = :dl_id
                       AND js.opened_at >= m.m_start
                       AND js.opened_at < m.m_end
+                      AND js.in_demand
                 ) d ON TRUE
                 LEFT JOIN LATERAL (
                     SELECT count(*) AS placements
