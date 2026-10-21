@@ -1198,16 +1198,23 @@ export function ChampionProfileEditor({
           </p>
         ) : null}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Labeled label="Nazwa roli" field="basics.role_name">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.basics.role_name ?? ""}
-              onChange={(e) => patchBasics({ role_name: e.target.value })}
-              placeholder="np. Senior Java Developer"
-              className={inputClass}
-            />
-          </Labeled>
+          <div>
+            <Labeled label="Nazwa roli" field="basics.role_name">
+              <input
+                type="text"
+                disabled={disabled}
+                value={draft.basics.role_name ?? ""}
+                onChange={(e) => patchBasics({ role_name: e.target.value })}
+                placeholder="np. Senior Java Developer"
+                className={inputClass}
+              />
+            </Labeled>
+            {/* Mylona z „Nazwą od klienta” (zgłoszenie 21.10.2026) — ta jest
+                kolumną rekrutacji i zmienia się w oknie edycji rekrutacji. */}
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Nazwa w profilu. Nazwę od klienta zmienisz w rekrutacji: ⋯ → Edytuj.
+            </p>
+          </div>
           <Labeled label="Doświadczenie łącznie w IT (lata)" field="basics.seniority_min_years">
             <input
               type="number"

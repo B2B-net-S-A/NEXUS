@@ -192,6 +192,12 @@ function ConsentDetail({
               <span className="font-medium text-foreground">{payout}</span>
             </p>
           ) : null}
+          {full.contract_basis ? (
+            <p className="text-sm">
+              <span className="text-muted-foreground">Podstawa w umowie: </span>
+              <span className="font-medium text-foreground">{full.contract_basis}</span>
+            </p>
+          ) : null}
           {full.endorsed_by_name ? (
             <p className="text-sm">
               <span className="text-muted-foreground">Poparł(a): </span>

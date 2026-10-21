@@ -176,6 +176,27 @@ export interface JobAdState {
   publications: AdPublication[];
 }
 
+/** Otwarta rekrutacja bez strony kariery — kolejka „Opublikuj i następna” (21.10.2026). */
+export interface CareerQueueItem {
+  job_id: number;
+  title: string;
+  city: string | null;
+  remote_policy: string | null;
+  delivery_lead_name: string | null;
+  opened_at: string | null;
+  /** `ready` = treść czeka, `template` = złożona bez modelu, `missing` = brak treści. */
+  ad: "ready" | "template" | "missing";
+}
+
+export type CareerQueueScope = "mine" | "all";
+
+export interface CareerQueue {
+  scope: CareerQueueScope;
+  mine_count: number;
+  all_count: number;
+  items: CareerQueueItem[];
+}
+
 export type TitleSuffix = "kmx" | "km" | "none";
 
 export interface FixedLangBlocks {
@@ -194,6 +215,8 @@ export interface FixedBlocks {
 
 export const jobAdQueryKey = (jobId: number) => ["job-ad", jobId] as const;
 export const jobAdFixedBlocksQueryKey = () => ["job-ad", "fixed-blocks"] as const;
+export const careerQueueQueryKey = (scope: CareerQueueScope, limit?: number) =>
+  ["job-ad", "career-queue", scope, limit ?? "all"] as const;
 
 // ── Klient ───────────────────────────────────────────────────────────────
 
@@ -277,6 +300,18 @@ export const jobAdApi = {
   markRemoved: async (jobId: number, portal: AdPortal): Promise<JobAdState> => {
     const res = await api.delete(`/api/jobs/${jobId}/portal-ad/publications/${portal}`);
     return normalize(res.data);
+  },
+  /** `limit: 0` = same liczby (przycisk na liście rekrutacji). */
+  careerQueue: async (scope: CareerQueueScope, limit?: number): Promise<CareerQueue> => {
+    const res = await api.get<CareerQueue>("/api/job-ads/career-queue", {
+      params: limit == null ? { scope } : { scope, limit },
+    });
+    return {
+      scope: res.data?.scope ?? scope,
+      mine_count: res.data?.mine_count ?? 0,
+      all_count: res.data?.all_count ?? 0,
+      items: Array.isArray(res.data?.items) ? res.data.items : [],
+    };
   },
   getFixedBlocks: async (): Promise<FixedBlocks> => {
     const res = await api.get<FixedBlocks>("/api/job-ads/fixed-blocks");

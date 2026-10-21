@@ -150,6 +150,7 @@ const form = (overrides: Partial<FormState> = {}): FormState => ({
   payout: "2026-10",
   client: null,
   sellerNip: "",
+  contractBasis: "",
   ...overrides,
 });
 
@@ -191,6 +192,20 @@ describe("ciało formularza zgody", () => {
     expect(toInput(form({ kind: "training", client }))).toMatchObject({ client_id: null, seller_nip: null });
     expect(toInput(form({ kind: "bonus", sellerNip: "1234563218", beneficiary: "7" }))).toMatchObject({
       seller_nip: null,
+    });
+  });
+});
+
+describe("podstawa w umowie przy premii (0491)", () => {
+  it("tylko przy premii, przycięta, pusta jako null", () => {
+    expect(
+      toInput(form({ kind: "bonus", beneficiary: "7", contractBasis: "  § 6 ust. 2 umowy " })),
+    ).toMatchObject({ contract_basis: "§ 6 ust. 2 umowy" });
+    expect(toInput(form({ kind: "bonus", beneficiary: "7", contractBasis: "  " }))).toMatchObject({
+      contract_basis: null,
+    });
+    expect(toInput(form({ kind: "training", contractBasis: "§ 6" }))).toMatchObject({
+      contract_basis: null,
     });
   });
 });

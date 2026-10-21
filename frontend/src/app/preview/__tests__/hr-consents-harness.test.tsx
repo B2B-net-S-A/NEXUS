@@ -4,6 +4,7 @@
  * otwarciu okna decyzji z linku maila i formularza „Poproś o zgodę”.
  */
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Axios } from "axios";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -38,6 +39,8 @@ describe("/preview/hr-consents", () => {
     render(<HrConsentsPreviewPage />);
     expect(await screen.findByText(/z umowy i reguł 9400 zł/)).toBeInTheDocument();
     expect(screen.getByText(/Wynagrodzenie dodatkowe trafi do Płac jako przyznane/)).toBeInTheDocument();
+    // Premia dla B2B ma podstawę w umowie (0491).
+    expect(screen.getByText("§ 6 ust. 2 umowy z 01.03.2025")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Zatwierdź inną kwotę/ })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
@@ -105,6 +108,16 @@ describe("/preview/hr-consents", () => {
     render(<HrConsentsPreviewPage />);
     expect(await screen.findByText("Na co potrzebujesz zgody?")).toBeInTheDocument();
     expect(screen.getByText(/pokażę, kto zdecyduje/)).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("formularz: premia ma pole „Podstawa w umowie”", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-consents?state=form&new=1");
+    render(<HrConsentsPreviewPage />);
+    expect(screen.queryByLabelText(/Podstawa w umowie/)).toBeNull();
+    await user.click(await screen.findByRole("button", { name: /Wynagrodzenie dodatkowe/ }));
+    expect(screen.getByLabelText(/Podstawa w umowie/)).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 });

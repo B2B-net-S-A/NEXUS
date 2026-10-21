@@ -514,7 +514,10 @@ z odnośnikiem `hr_documents.leave_request_id`.
   bez płatnej puli → „Nieobecności RRRR” bez „zostało”. Karta miesiąca:
   UoP „Ewidencja czasu pracy”, B2B „Raport godzin”, zlecenie „Potwierdzenie
   godzin” ze zdaniem o art. 8b ustawy o minimalnym wynagrodzeniu. Te same
-  reguły w saldzie zakładki „Urlopy” (`balanceStats`). Funkcje:
+  reguły w saldzie zakładki „Urlopy” — od 21.10.2026 (runda 2 makiet) zakładka
+  pokazuje tę samą kartę `AbsenceCard` co „Przegląd” i obok „Mój rok”
+  (`yearMonths`: 12 miesięcy z moimi zatwierdzonymi i czekającymi
+  nieobecnościami; święta i dni firmy czyta tylko trasa Kadr). Funkcje:
   `components/hr/me/overview-format.ts`.
 - **Saldo rozbite** (`GET /api/hr/leave/balance`, `leave_balance.day_split`):
   `used_days` = dni sprzed NEXUSA + zatwierdzone do dziś włącznie (dzień

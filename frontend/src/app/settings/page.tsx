@@ -42,6 +42,7 @@ import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import JobAdFixedBlocksCard from "@/components/settings/JobAdFixedBlocksCard";
 import JobBoardsCard from "@/components/settings/JobBoardsCard";
+import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings";
 import { useHrProgram } from "@/lib/api/hr";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { resetScreenSeen } from "@/lib/jarvis/bubble-budget";
@@ -423,6 +424,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       return <RoleLibraryTab />;
     case "traffit":
       return <TraffitSyncCard />;
+    case "integrations":
+      return <IntegrationsSettings />;
     case "job-boards":
       return <JobBoardsCard />;
     case "teams-prep":

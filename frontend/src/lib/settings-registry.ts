@@ -67,6 +67,7 @@ export type SettingsItemId =
   | "history"
   | "placements"
   | "imports"
+  | "integrations"
   | "notifications"
   // Ukryte — tylko pod adresem.
   | "teams"
@@ -302,7 +303,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin"] },
   },
   {
-    id: "notifications", area: "sys", title: "Powiadomienia", group: "Firma",
+    // „firmy” od 21.10.2026 — własne powiadomienia są w „Moje konto”.
+    id: "notifications", area: "sys", title: "Powiadomienia firmy", group: "Firma",
     description: "Która rola dostaje które powiadomienia i które maile wychodzą do całej firmy.",
     keywords: "powiadomienia email maile wysylka nadawca odbiorcy kolejka rola role kto dostaje",
     wide: true,
@@ -325,11 +327,23 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {
+    // Runda 2 (21.10.2026): jedna pozycja ze stanem wszystkich połączeń zamiast
+    // trzech w różnych układach; „Klucze API”, „Portale ogłoszeniowe” i „Prepy
+    // w Teams” są ukryte z menu, ich adresy działają.
+    id: "integrations", area: "sys", title: "Integracje", group: "Integracje",
+    description: "Połączenia NEXUSA z innymi systemami — stan i następny krok w jednym miejscu.",
+    keywords:
+      "integracje integracja polaczenia klucz klucze api x-api-key konto serwisowe n8n portale ogloszenia rocketjobs justjoinit jjit oauth teams prep transkrypcja",
+    gate: { roles: ["admin"] },
+  },
+  {
     id: "api-keys", area: "sys", title: "Klucze API", group: "Integracje",
     description: "Konta serwisowe i klucze X-API-Key dla automatyzacji, np. rozliczeń w n8n.",
     keywords: "klucz klucze api x-api-key konto serwisowe integracje integracja automatyzacja n8n power automate make skrypt token",
     route: "/settings/api-keys",
     // `/api/settings/service-accounts` = `AdminUser`; middleware jak `/settings/api-integration`.
+    // Z menu od 21.10.2026 — wejście przez „Integracje → Zarządzaj”.
+    hidden: true,
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {
@@ -344,12 +358,16 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     id: "job-boards", area: "sys", title: "Portale ogłoszeniowe", group: "Integracje",
     description: "Konto firmy na RocketJobs i JustJoin.IT — połączenie i saldo ogłoszeń.",
     keywords: "portale ogloszenia rocketjobs justjoinit jjit multiposting publikacja oauth",
+    // W „Integracjach” od 21.10.2026; `?item=job-boards` (powrót z OAuth) działa.
+    hidden: true,
     gate: { roles: ["admin"] },
   },
   {
     id: "teams-prep", area: "sys", title: "Prepy w Teams", group: "Integracje",
     description: "Transkrypty prepów z Teams, notatki i ocena prepu.",
     keywords: "teams prep transkrypcja spotkania notatki fireflies",
+    // W „Integracjach” od 21.10.2026; adres działa.
+    hidden: true,
     gate: { roles: ["admin"] },
   },
   {
@@ -383,9 +401,10 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   },
   {
     id: "history", area: "sys", title: "Historia zdarzeń", group: "Nadzór",
-    description: "Kto co usunął i które próby zostały zablokowane.",
+    description: "Usunięcia i ważne zmiany w systemie — także próby zablokowane. Wpisów nie da się usunąć.",
     keywords: "zdarzenia audyt log historia usuniecia",
-    wide: true, ownHeader: true,
+    // Nagłówek z układu Ustawień jak na innych ekranach (runda 2, 21.10.2026) — dotąd tytuł w karcie.
+    wide: true,
     // `GET /api/settings/event-history` = `FinanceModuleUser` („Moduł Finanse”).
     gate: { permission: "finance_module", section: "finance", finance: true },
   },

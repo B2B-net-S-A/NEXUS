@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { CalendarPlus } from "lucide-react";
 
-import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
@@ -27,9 +26,11 @@ import {
 } from "@/lib/api/hr-leave";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { employmentTerms, reportsAbsence } from "@/lib/hr-employment-terms";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { warsawToday } from "@/lib/warsaw-date";
 
+import { AbsenceCard } from "../me/cards/AbsenceCard";
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
 import { MyProofsCell } from "./LeaveProofs";
 import {
@@ -40,9 +41,74 @@ import {
   formatRange,
   leaveToast,
   statusLabel,
-  balanceStats,
   canToggleForward,
+  yearMonths,
 } from "./leave-format";
+
+/**
+ * „Mój rok”: 12 miesięcy z moimi nieobecnościami (zatwierdzone i czekające).
+ * Święta i dni wolne firmy czyta tylko trasa Kadr — tu ich nie ma.
+ */
+function MyYearCard({
+  rows,
+  year,
+  today,
+}: {
+  rows: readonly LeaveRequestRow[];
+  year: number;
+  today: string;
+}) {
+  const months = yearMonths(rows, year, today);
+  return (
+    <section className="space-y-2 rounded-xl border border-border bg-card p-4" aria-labelledby="my-year-title">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2
+          id="my-year-title"
+          className="flex-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground"
+        >
+          Mój rok {year}
+        </h2>
+        <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] text-primary">zatwierdzone</span>
+        <span className="rounded-full bg-warning-muted px-2 py-0.5 text-[11px] text-warning-muted-foreground">
+          czeka
+        </span>
+      </div>
+      <ol className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 lg:grid-cols-6">
+        {months.map((cell) => (
+          <li
+            key={cell.month}
+            data-testid={`my-year-${cell.month}`}
+            aria-current={cell.current ? "date" : undefined}
+            className={cn(
+              "min-h-12 rounded-lg border px-2 py-1.5",
+              cell.current ? "border-primary" : "border-border",
+              cell.past ? "bg-muted/40" : "bg-card",
+            )}
+          >
+            <span className={cn("block text-[11px] font-semibold", cell.past ? "text-muted-foreground" : "text-foreground")}>
+              {cell.label}
+            </span>
+            <span className="mt-0.5 flex flex-wrap gap-1">
+              {cell.items.map((item) => (
+                <span
+                  key={item.id}
+                  className={cn(
+                    "rounded-full px-1.5 text-[10px]",
+                    item.status === "approved"
+                      ? "bg-primary/15 text-primary"
+                      : "bg-warning-muted text-warning-muted-foreground",
+                  )}
+                >
+                  {item.label}
+                </span>
+              ))}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
 
 /**
  * „Mój czas → Urlop / Przerwy / Nieobecności” (nazwa według formy, D4): saldo,
@@ -112,17 +178,24 @@ export function MyLeaveTab() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
-        {balance.data ? (
-          <InlineStats stats={balanceStats(balance.data)} />
-        ) : balance.isError ? (
-          <span className="text-sm text-muted-foreground">Nie udało się pobrać salda.</span>
-        ) : (
-          <span className="text-sm text-muted-foreground">Liczę saldo…</span>
-        )}
+        <span className="text-sm text-muted-foreground">
+          {report ? "Moje zgłoszenia i płatne dni z umowy." : "Mój urlop, plan roku i wnioski."}
+        </span>
         <Button className="ml-auto" data-help="hr.my_time.leave_submit" onClick={() => setDialogOpen(true)}>
           <CalendarPlus className="h-4 w-4" aria-hidden />
           {report ? words.submit_action : "Złóż wniosek"}
         </Button>
+      </div>
+      {/* Saldo tą samą kartą co „Przegląd” zamiast 7 liczb w rzędzie; obok rok (runda 2, 21.10.2026). */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
+        {form ? (
+          <AbsenceCard form={form} year={year} today={today} />
+        ) : (
+          <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+            {balance.isError ? "Nie udało się pobrać salda." : "Liczę saldo…"}
+          </p>
+        )}
+        <MyYearCard rows={rows} year={year} today={today} />
       </div>
 
       {state === "loading" ? (

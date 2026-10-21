@@ -183,6 +183,54 @@ def test_who_decides_at_each_stage() -> None:
         assert service.deciders_now(_request(status=closed), finals) == []
 
 
+def test_contract_basis_is_required_for_b2b_and_pending_form_only() -> None:
+    assert service.needs_contract_basis("b2b", False) is True
+    # Forma „do uzupełnienia” (kartoteka z konta) liczy się jak B2B.
+    assert service.needs_contract_basis("uop", True) is True
+    assert service.needs_contract_basis("uop", False) is False
+    assert service.needs_contract_basis("zlecenie", False) is False
+
+
+def test_contract_basis_is_a_point_or_annex_number_on_a_bonus() -> None:
+    bonus = dict(
+        kind="bonus",
+        title="Trzy przejęte rekrutacje",
+        purpose="Domknęła w 2 tyg.",
+        amount=Decimal("1500"),
+        beneficiary_user_id=5,
+        payout_year=2026,
+        payout_month=10,
+    )
+    cleaned = service.clean_input(
+        RequestInput(**bonus, contract_basis="  Aneks nr 3\n z 15.10.2026 "),
+        today=TODAY,
+    )
+    assert cleaned.contract_basis == "Aneks nr 3 z 15.10.2026"
+    assert service.clean_input(
+        RequestInput(**bonus, contract_basis="  "), today=TODAY
+    ).contract_basis is None
+    for bad in ("zgodnie z umową", "x" * 199 + "1" * 2):
+        with pytest.raises(service.ApprovalError):
+            service.clean_input(RequestInput(**bonus, contract_basis=bad), today=TODAY)
+    with pytest.raises(service.ApprovalError):
+        service.clean_input(_spend(contract_basis="§ 6 umowy"), today=TODAY)
+
+
+def test_bonus_description_carries_the_contract_basis() -> None:
+    assert service.bonus_description(None) == "Premia poza umową"
+    assert (
+        service.bonus_description("§ 6 ust. 2")
+        == "Premia poza umową · podstawa: § 6 ust. 2"
+    )
+    # B2B i zlecenie: „wynagrodzenie dodatkowe”, nie „premia poza umową” (21.10.2026).
+    for form in ("b2b", "zlecenie"):
+        assert (
+            service.bonus_description("§ 6 ust. 2", form)
+            == "Wynagrodzenie dodatkowe · podstawa: § 6 ust. 2"
+        )
+    assert service.bonus_description(None, "uop") == "Premia poza umową"
+
+
 def test_nobody_decides_about_own_bonus() -> None:
     bonus = _request(
         status="pending_final", supervisor_user_id=None, beneficiary_user_id=9
