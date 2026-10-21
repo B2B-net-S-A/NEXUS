@@ -58,6 +58,7 @@ from app.models.hr_leave import LeaveRequest
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction
 from app.services.hr import absence as absence_service
+from app.services.hr import audit
 from app.services.hr import documents, leave_proofs
 from app.services.hr import leave_edit
 from app.services.hr import leave_service as service
@@ -386,11 +387,23 @@ def _proof_error(exc: documents.HrDocumentError) -> HTTPException:
     return HTTPException(exc.status_code, exc.message)
 
 
-def _proof_file(document: HrDocument) -> FileResponse:
+def _proof_file(db: AsyncSession, document: HrDocument, actor: User) -> FileResponse:
     try:
         path = documents.file_of(document)
     except documents.HrDocumentError as exc:
         raise _proof_error(exc) from None
+    # Ten sam ślad co pobranie z e-teczki (`hr_documents.document_file`, audyt
+    # 21.10.2026); zapisuje go commit sesji żądania przed wysłaniem pliku.
+    audit.record(
+        db,
+        actor_user_id=actor.id,
+        subject_user_id=document.user_id,
+        entity_type="hr_document",
+        entity_id=document.id,
+        action="document_downloaded",
+        details={"kind": document.kind},
+        sensitivity="health" if document.kind == documents.ABSENCE_PROOF else "general",
+    )
     return FileResponse(
         path,
         media_type=document.mime,
@@ -439,7 +452,7 @@ async def own_proof_file(
         document = await leave_proofs.proof_of(db, request, document_id)
     except documents.HrDocumentError as exc:
         raise _proof_error(exc) from None
-    return _proof_file(document)
+    return _proof_file(db, document, current_user)
 
 
 @router.post("/requests/{request_id}/proofs/{document_id}/remove")
@@ -756,7 +769,7 @@ async def team_proof_file(
         document = await leave_proofs.proof_of(db, request, document_id)
     except documents.HrDocumentError as exc:
         raise _proof_error(exc) from None
-    return _proof_file(document)
+    return _proof_file(db, document, current_user)
 
 
 @router.post("/{request_id}/conflict")

@@ -20,7 +20,7 @@ import { PeopleDirectory, timesheetRequired } from "../PeopleDirectory";
 
 const MODULES = {
   people: true,
-  leave: false,
+  leave: true,
   time: true,
   payroll: false,
   lifecycle: false,
@@ -79,11 +79,13 @@ const PEOPLE = [
   person(9, "Ewa Fikcyjna", true),
 ];
 
-function renderDirectory(peopleAdmin = true) {
+function renderDirectory(peopleAdmin = true, modules: Partial<typeof MODULES> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const base = config(peopleAdmin);
+  const open = { ...MODULES, ...modules };
   render(
     <QueryClientProvider client={client}>
-      <PeopleDirectory config={config(peopleAdmin)} />
+      <PeopleDirectory config={{ ...base, modules: open, open_modules: open }} />
     </QueryClientProvider>,
   );
 }
@@ -197,9 +199,23 @@ describe("PeopleDirectory — makieta 19.10.2026", () => {
     expect(within(ewa).getByText("Ola P.")).toBeInTheDocument();
     const kamil = screen.getByText("Kamil Testowy").closest("tr") as HTMLElement;
     expect(within(kamil).getByText("delegacja")).toBeInTheDocument();
-    // Moduł czasu otwarty w konfiguracji testu → reszta „w pracy”.
+    // Moduł urlopów otwarty w konfiguracji testu → reszta „w pracy”.
     const ola = screen.getByText("Ola Przykładowa", { selector: "span" }).closest("tr") as HTMLElement;
     expect(within(ola).getByText("w pracy")).toBeInTheDocument();
+  });
+
+  it("sam moduł czasu: delegacja zostaje, reszta „—” i bez „Dziś nieobecni”", async () => {
+    // Bez urlopów serwer nie czyta nieobecności — „w pracy” byłoby zgadywaniem
+    // (audyt 21.10.2026). Wiersz Ewy niesie nieobecność tylko w atrapie.
+    renderDirectory(false, { leave: false });
+    await screen.findByText("Kamil Testowy");
+    const kamil = screen.getByText("Kamil Testowy").closest("tr") as HTMLElement;
+    expect(within(kamil).getByText("delegacja")).toBeInTheDocument();
+    const ola = screen.getByText("Ola Przykładowa", { selector: "span" }).closest("tr") as HTMLElement;
+    expect(within(ola).queryByText("w pracy")).toBeNull();
+    expect(screen.queryByText("w pracy")).toBeNull();
+    const filters = screen.getByRole("group", { name: "Filtry katalogu" });
+    expect(within(filters).queryByRole("button", { name: /Dziś nieobecni/ })).toBeNull();
   });
 
   it("chip działu i „Dziś nieobecni” filtrują listę", async () => {

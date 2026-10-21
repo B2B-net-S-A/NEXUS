@@ -31,6 +31,9 @@ const request = vi.spyOn(Axios.prototype, "request").mockImplementation((config)
   if (method?.toLowerCase() === "post" && url?.endsWith("/approve")) {
     return Promise.resolve({ data: { id: "approved", status: "approved", payroll_warning: null } });
   }
+  if (method?.toLowerCase() === "post" && url?.endsWith("/reject")) {
+    return Promise.resolve({ data: { id: "rejected", status: "rejected", payroll_warning: null } });
+  }
   if (url?.endsWith("/approvals/pending")) {
     return Promise.resolve({ data: { items: [], total: 0, covering: [], reported: [] } });
   }
@@ -54,6 +57,23 @@ describe("/preview/hr-approvals — potwierdzenie decyzji", () => {
     await user.click(within(detail).getByRole("button", { name: "Akceptuj" }));
 
     expect(await screen.findByText("Wniosek zaakceptowany")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Szczegóły: Kamil Testowy" })).toBeNull();
+  });
+
+  it("po „Odrzuć wniosek” toast „Wniosek odrzucony”, choć okno znika razem ze sprawą", async () => {
+    // Okno odrzucenia siedzi w szczególe sprawy: po odrzuceniu szczegół się
+    // odmontowuje, a callback `mutate()` z okna przepadał (audyt 21.10.2026).
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-approvals");
+    render(<HrApprovalsPreviewPage />);
+
+    const detail = await screen.findByRole("region", { name: "Szczegóły: Kamil Testowy" });
+    await user.click(within(detail).getByRole("button", { name: "Odrzuć" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/Powód/), "Termin koliduje z wdrożeniem");
+    await user.click(within(dialog).getByRole("button", { name: "Odrzuć wniosek" }));
+
+    expect(await screen.findByText("Wniosek odrzucony")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Szczegóły: Kamil Testowy" })).toBeNull();
   });
 });

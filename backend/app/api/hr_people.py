@@ -193,12 +193,21 @@ async def account_mismatches(
 async def align_with_accounts(
     payload: AlignIn, current_user: HrPeopleRecords, db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """„Wyrównaj wg konta” — konto decyduje (decyzja Artura 19.10.2026)."""
+    """„Wyrównaj wg konta” — konto decyduje (decyzja Artura 19.10.2026).
 
+    „Nie sobie” jak każdy zapis kartoteki (audyt 21.10.2026): własne id w liście
+    = 403, a „wszystkie rozjazdy” pomijają własną kartotekę. Admin przechodzi.
+    """
+
+    if payload.user_ids is not None:
+        refuse_self_edit(current_user, payload.user_ids)
     counts = await account_profiles.align(
         db,
         actor=current_user,
         user_ids=set(payload.user_ids) if payload.user_ids is not None else None,
+        skip_user_ids=(
+            set() if current_user.has_role(UserRole.admin) else {current_user.id}
+        ),
     )
     await db.commit()
     return {"aligned": counts}

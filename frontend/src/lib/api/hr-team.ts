@@ -79,7 +79,16 @@ export interface TeamTimesheetDecision {
  * Stan dnia w mini-tygodniu (pn–pt, 19.10.2026) — bez rodzaju nieobecności (D6).
  * `pending` = wniosek czeka (tylko krąg D6), `off` = święto albo dzień wolny firmy.
  */
-export type TeamWeekState = "work" | "off" | "absent" | "pending" | "business_trip" | "remote";
+export type TeamWeekState =
+  | "work"
+  | "off"
+  | "absent"
+  | "pending"
+  | "business_trip"
+  | "remote"
+  // Urlopy zamknięte dla patrzącego: nieobecności nie są czytane, więc dzień
+  // bez wpisu w „Moim miesiącu” nie jest „w pracy” (audyt 21.10.2026).
+  | "unknown";
 
 export interface TeamWeekDay {
   date: string;

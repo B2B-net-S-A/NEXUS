@@ -389,10 +389,15 @@ async def mismatches(db: AsyncSession) -> list[Mismatch]:
 
 
 async def align(
-    db: AsyncSession, *, actor: User, user_ids: Optional[set[int]] = None
+    db: AsyncSession,
+    *,
+    actor: User,
+    user_ids: Optional[set[int]] = None,
+    skip_user_ids: frozenset[int] | set[int] = frozenset(),
 ) -> dict[str, int]:
     """„Wyrównaj wg konta” — wszystkie rozjazdy albo tylko ``user_ids``.
 
+    ``skip_user_ids`` — kartoteki, których wołający nie rusza („nie sobie”).
     Wołający commituje. Zwraca liczby (bez nazwisk — wynik trafia też do logów
     przebiegu na produkcji).
     """
@@ -401,6 +406,8 @@ async def align(
     now = local_now()
     for item in await mismatches(db):
         if user_ids is not None and item.user_id not in user_ids:
+            continue
+        if item.user_id in skip_user_ids:
             continue
         if item.kind == "missing":
             user = await db.get(User, item.user_id)

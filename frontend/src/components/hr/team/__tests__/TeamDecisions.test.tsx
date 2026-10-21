@@ -6,20 +6,21 @@
  */
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const post = vi.fn();
+const get = vi.fn();
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   api: {
     post: (...args: unknown[]) => post(...args),
-    get: vi.fn(),
+    get: (...args: unknown[]) => get(...args),
   },
 }));
 
 import { ToastProvider } from "@/components/Toast";
-import type { MyTeam, TeamPerson } from "@/lib/api/hr-team";
+import { teamKeys, useMyTeam, type MyTeam, type TeamPerson } from "@/lib/api/hr-team";
 
 import { TeamDecisions } from "../TeamDecisions";
 
@@ -112,7 +113,67 @@ function card(name: RegExp): HTMLElement {
 beforeEach(() => {
   post.mockReset();
   post.mockResolvedValue({ data: {} });
+  get.mockReset();
 });
+
+/** Zespół z jednym wnioskiem do decyzji (bez timesheetów i premii). */
+function teamWithLeave(id: string, name: string): MyTeam {
+  const julia = TEAM.people[0];
+  return {
+    ...TEAM,
+    people: [
+      {
+        ...julia,
+        name,
+        to_decide: {
+          leave_requests: [{ ...julia.to_decide.leave_requests[0], id }],
+          timesheets: [],
+        },
+      },
+    ],
+    stats: { ...TEAM.stats, leave_requests: 1, timesheets: 0, bonus_proposals: 0 },
+  };
+}
+
+const EMPTY_TEAM: MyTeam = {
+  ...TEAM,
+  people: [],
+  stats: { people: 0, absent_today: 0, leave_requests: 0, timesheets: 0, bonus_proposals: 0 },
+};
+
+/**
+ * Karty z prawdziwego zapytania „Mojego zespołu”, jak na ekranie: decyzja
+ * odświeża zespół i karta znika. Druga, wolniejsza lista pod tym samym
+ * kluczem (`teamKeys.managers`) sprawia, że odświeżenie zespołu kończy się
+ * przed końcem mutacji — jak na produkcji, gdzie odświeża się kilka list.
+ */
+function LiveDecisions() {
+  const team = useMyTeam(null);
+  useQuery({ queryKey: teamKeys.managers, queryFn: () => get("managers") });
+  return team.data ? <TeamDecisions team={team.data} /> : null;
+}
+
+function renderLive(server: { team: MyTeam }) {
+  let managerCalls = 0;
+  get.mockImplementation((url: string) => {
+    if (url === "managers") {
+      managerCalls += 1;
+      return managerCalls === 1
+        ? Promise.resolve([])
+        : new Promise((resolve) => setTimeout(() => resolve([]), 100));
+    }
+    return Promise.resolve({ data: server.team });
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <ToastProvider>
+        <LiveDecisions />
+      </ToastProvider>
+    </QueryClientProvider>,
+  );
+  return client;
+}
 
 describe("„Do Twojej decyzji”", () => {
   it("licznik liczy wniosek i timesheet, premia jest do wiadomości bez przycisków", () => {
@@ -167,5 +228,54 @@ describe("„Do Twojej decyzji”", () => {
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/hr/time/timesheets/77/approve", undefined),
     );
+  });
+
+  it("odrzucenie ostatniej sprawy: toast „Wniosek odrzucony”, choć sekcja znika", async () => {
+    // Bez kart sekcja zwraca `null` przed oknem — okno się odmontowuje, a
+    // callback `mutate()` z okna przepadał (audyt 21.10.2026).
+    const user = userEvent.setup();
+    const server = { team: teamWithLeave("lv-1", "Julia Próbna") };
+    post.mockImplementation(async () => {
+      server.team = EMPTY_TEAM;
+      return { data: {} };
+    });
+    renderLive(server);
+    await user.click(
+      within(await screen.findByText(/^Julia Próbna · /).then((el) => el.closest("li")!)).getByRole(
+        "button",
+        { name: "Odrzuć" },
+      ),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/Powód/), "Termin koliduje z wdrożeniem");
+    await user.click(within(dialog).getByRole("button", { name: "Odrzuć wniosek" }));
+
+    expect(await screen.findByText("Wniosek odrzucony")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Do Twojej decyzji" })).toBeNull();
+  });
+
+  it("sprawa znika przy otwartym oknie: nowa karta nie otwiera okna sama", async () => {
+    const user = userEvent.setup();
+    const server = { team: teamWithLeave("lv-1", "Julia Próbna") };
+    const client = renderLive(server);
+    await user.click(
+      within(await screen.findByText(/^Julia Próbna · /).then((el) => el.closest("li")!)).getByRole(
+        "button",
+        { name: "Odrzuć" },
+      ),
+    );
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    // Ktoś inny zdecydował — karty nie ma.
+    server.team = EMPTY_TEAM;
+    await client.invalidateQueries({ queryKey: teamKeys.team(null) });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // Nowy wniosek innej osoby — okno odrzucenia nie wraca samo.
+    server.team = teamWithLeave("lv-2", "Kamil Testowy");
+    await client.invalidateQueries({ queryKey: teamKeys.team(null) });
+    expect(await screen.findByText(/^Kamil Testowy · /)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(post).not.toHaveBeenCalled();
   });
 });

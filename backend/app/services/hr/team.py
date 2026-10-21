@@ -63,7 +63,32 @@ from app.services.hr.time_month import team_queue
 BONUS_IN_FLIGHT = ("proposed", "assigned")
 
 #: Stan dnia w mini-tygodniu (pn–pt) — bez rodzaju nieobecności (D6).
-WEEK_STATES = ("work", "off", "absent", "pending", "business_trip", "remote")
+#: ``unknown`` — urlopy zamknięte dla patrzącego: nieobecności nie są czytane,
+#: więc dzień bez wpisu obecności nie jest „w pracy” (audyt 21.10.2026).
+WEEK_STATES = ("work", "off", "absent", "pending", "business_trip", "remote", "unknown")
+
+
+def day_state(
+    *,
+    working_day: bool,
+    approved: Any,
+    waiting: Any,
+    presence: Optional[str],
+    absences_known: bool,
+) -> tuple[str, Optional[str]]:
+    """Stan dnia i pół dnia. Pierwszeństwo: dzień wolny firmy, nieobecność,
+    wniosek czeka, delegacja/zdalnie, w pracy — „w pracy” tylko, gdy
+    nieobecności są znane (moduł urlopów otwarty dla patrzącego)."""
+
+    if not working_day:
+        return "off", None
+    if approved is not None:
+        return "absent", approved.half_day
+    if waiting is not None:
+        return "pending", waiting.half_day
+    if presence is not None:
+        return presence, None
+    return ("work" if absences_known else "unknown"), None
 
 
 def _iso(value: Optional[date]) -> Optional[str]:
@@ -219,7 +244,8 @@ async def _week(
     Nieobecność bez rodzaju (D6 — mini-tydzień mówi „nieobecność”, nawet gdy
     patrzący jest w kręgu); wniosek oczekujący tylko dla kręgu D6, jak
     w kalendarzu zespołu. Pierwszeństwo: dzień wolny firmy, nieobecność,
-    wniosek czeka, delegacja, zdalnie, w pracy.
+    wniosek czeka, delegacja, zdalnie, w pracy (``day_state``); bez modułu
+    urlopów zamiast „w pracy” — ``unknown``.
     """
 
     monday = today - timedelta(days=today.weekday())
@@ -251,17 +277,13 @@ async def _week(
         row: list[dict[str, Any]] = []
         for day in days:
             covering = [item for item in own if item.start <= day <= item.end]
-            approved = next((a for a in covering if a.status == "approved"), None)
-            waiting = next((a for a in covering if a.status == "pending"), None)
-            half_day: Optional[str] = None
-            if not calendar.is_working_day(day):
-                state = "off"
-            elif approved is not None:
-                state, half_day = "absent", approved.half_day
-            elif waiting is not None:
-                state, half_day = "pending", waiting.half_day
-            else:
-                state = marks.get(day.isoformat(), "work")
+            state, half_day = day_state(
+                working_day=calendar.is_working_day(day),
+                approved=next((a for a in covering if a.status == "approved"), None),
+                waiting=next((a for a in covering if a.status == "pending"), None),
+                presence=marks.get(day.isoformat()),
+                absences_known=with_absences,
+            )
             row.append({"date": day.isoformat(), "state": state, "half_day": half_day})
         result[user_id] = row
     week_days = [{"date": day.isoformat(), "kind": calendar.kind(day)} for day in days]
@@ -559,6 +581,7 @@ __all__ = [
     "BONUS_IN_FLIGHT",
     "WEEK_STATES",
     "can_view_any_team",
+    "day_state",
     "managers",
     "reports_of",
     "sees_bonuses_of",
