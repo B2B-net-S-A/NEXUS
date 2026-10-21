@@ -85,7 +85,7 @@ wszystkich). Makiety: https://claude.ai/artifact/TRKAAZX3RcB8AA7LVohkT8, raport
   `clean_role_mutes`) — zostawione wyłączenie ucinałoby powiadomienia adminom
   w cudzych testach. Harness `/preview/notification-settings`.
 
-## Alarm o masowym przeglądaniu CV kandydatów (0504, 22.10.2026)
+## Alarm o masowym przeglądaniu CV kandydatów (0505, 22.10.2026)
 
 **Skąd.** 12.10.2026 dziewięciu kursantów Akademii Sourcera zalogowało się
 pierwszy raz Microsoftem. SSO dawało wtedy rolę Rekruter (od #2339, 19.10,

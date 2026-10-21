@@ -1,4 +1,4 @@
-"""Alarm o masowym przeglądaniu CV kandydatów — bez blokady (0504, 22.10.2026).
+"""Alarm o masowym przeglądaniu CV kandydatów — bez blokady (0505, 22.10.2026).
 
 12.10.2026 dziewięć nowych kont (kursanci Akademii Sourcera, rola Rekruter
 nadana automatycznie przy pierwszym logowaniu) otworzyło w trzy godziny pliki

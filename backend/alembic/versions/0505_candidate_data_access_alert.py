@@ -1,7 +1,7 @@
 """Alarm o masowym przeglądaniu CV kandydatów (22.10.2026).
 
-Revision ID: 0504_candidate_data_access_alert
-Revises: 0503_b2b_document_participation_types
+Revision ID: 0505_candidate_data_access_alert
+Revises: 0504_job_close_neutral
 
 12.10.2026 dziewięć nowych kont otworzyło w trzy godziny pliki 181 kandydatów
 i nikt się o tym nie dowiedział. Decyzja Artura 22.10.2026: alarm bez blokady
@@ -13,8 +13,8 @@ Lustro w ``entrypoint.sh`` — pilnuje ``test_candidate_data_access_alerts.py``.
 
 from alembic import op
 
-revision = "0504_candidate_data_access_alert"
-down_revision = "0503_b2b_document_participation_types"
+revision = "0505_candidate_data_access_alert"
+down_revision = "0504_job_close_neutral"
 branch_labels = None
 depends_on = None
 
@@ -30,7 +30,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'candidate_data_access_alert'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0504 odmawia: notifications ma alarmy o przeglądaniu CV, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0505 odmawia: notifications ma alarmy o przeglądaniu CV, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
