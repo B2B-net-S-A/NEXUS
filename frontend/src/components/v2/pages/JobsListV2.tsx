@@ -34,6 +34,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { useCapabilities } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
+import { CareerQueueLink } from "@/components/v2/job-ad/CareerQueueLink";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1135,6 +1136,7 @@ export function JobsListV2({
               <Link href="/jobs/review-states">Porządek w requestach</Link>
             </Button>
           )}
+          <CareerQueueLink />
           {/* Capability `job.create` = backendowy TacPlus (POST /api/jobs). */}
           {canCreateJob && (
             <Button size="sm" variant="primary" onClick={() => router.push("/jobs/new")} data-help="jobs.list.new">

@@ -389,6 +389,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/plain-brief`, `/preview/permissions`,
 //   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
 //   `/preview/job-team-panel`, `/preview/champion-workspace`, `/preview/job-ad`,
+//   `/preview/career-queue`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -500,6 +501,8 @@ const PUBLIC_PATHS = [
   // Okno „Dodaj kandydatów do pipeline”: imiennicy, telefon, „Już w tej rekrutacji”.
   "/preview/add-candidates",
   "/preview/job-ad",
+  // „Strona kariery do uzupełnienia” (21.10.2026) — kolejka na danych w pamięci.
+  "/preview/career-queue",
   "/preview/job-portals",
   "/preview/academy",
   "/preview/request-allocation",

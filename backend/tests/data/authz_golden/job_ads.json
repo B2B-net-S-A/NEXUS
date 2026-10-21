@@ -28,6 +28,7 @@
  ],
  "routes": {
   "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/job-ads/career-queue": "PPPPPPDDPPPPPPPPPPPDDPPPP",
   "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDD",
   "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPPDPPPP",
   "POST /api/jobs/{job_id}/portal-ad/career": "PPPPPPDDPPPPPPPPPPPDDPPPP",

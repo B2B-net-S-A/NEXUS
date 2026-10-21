@@ -391,6 +391,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inSidebar: false,
   },
   {
+    // Strona kariery do uzupełnienia (21.10.2026): otwarte rekrutacje bez
+    // strony kariery, „Opublikuj i następna”. W menu nie stoi (wejście jest
+    // na liście rekrutacji), paleta ma skrót.
+    id: "career-queue",
+    href: "/jobs/strona-kariery",
+    label: "Strona kariery do uzupełnienia",
+    icon: Briefcase,
+    section: "pipeline",
+    placement: "primary",
+    paletteKeywords: ["kariera", "ogłoszenie", "strona kariery", "opublikuj", "link"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
     // Daily (04.10.2026): pulpit „Requesty i obłożenie” na całą stronę —
     // „Zmiany od wczoraj” na górze i kategorie po kolei. Ta sama bramka co
     // „Rekrutacje” (sekcja Pipeline); w menu nie stoi, wejście jest z kafelka.

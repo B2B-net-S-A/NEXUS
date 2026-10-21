@@ -159,7 +159,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 - `jobs-new-jeden-ekran-i-odczyt-pustych-pol.md` — `/jobs/new`: jeden ekran, „Wypełnij z…” i odczyt tylko pustych pól (D1–D4, 10.10.2026)
 - `jobs-new-w-szesciu-sekcjach-wiersze-wymagan-deal.md` — `/jobs/new` w sześciu sekcjach: wiersze wymagań, deal breaker, kategoria i prowadzący (02.10.2026)
 - `nowa-rekrutacja-strona-jobs-new-z-requestu-klienta.md` — Nowa rekrutacja = strona `/jobs/new` z requestu klienta (22.09.2026)
-- `ogloszenie-jedna-tresc-strona-kariery.md` — Ogłoszenie = jedna treść; strona kariery jednym kliknięciem (21.10.2026) · „Opublikuj na stronie”, ogłoszenie zasila opis publiczny, kropki „Ogłoszenie” w nagłówku, plakietka „Kariera” na liście
+- `ogloszenie-jedna-tresc-strona-kariery.md` — Ogłoszenie = jedna treść; strona kariery jednym kliknięciem (21.10.2026) · „Opublikuj na stronie”, ogłoszenie zasila opis publiczny, kropki w nagłówku, „Kariera” na liście, kolejka zaległych, nocne przygotowanie
 - `ogloszenie-na-portale-kopiuj-wklej.md` — Ogłoszenie na portale — treść do wklejenia w Pracuj.pl i JustJoin.IT (0430 i 0432, 12–13.10.2026) · jedna treść w dwóch formatach, kontrola przed skopiowaniem, „Oznacz jako opublikowane”
 - `pliki-rekrutacji.md` — Pliki rekrutacji (0428, 09.10.2026)
 - `profil-championa-sekcje-4-i-8-propozycja-luny-z.md` — Profil Championa: sekcje 4 i 8 + propozycja Luny z maila (23.09.2026)

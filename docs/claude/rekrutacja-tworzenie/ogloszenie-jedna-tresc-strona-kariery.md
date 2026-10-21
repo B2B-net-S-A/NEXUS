@@ -1,6 +1,6 @@
 # Ogłoszenie = jedna treść; strona kariery jednym kliknięciem (21.10.2026)
 
-<!-- indeks: „Opublikuj na stronie”, ogłoszenie zasila opis publiczny, kropki „Ogłoszenie” w nagłówku, plakietka „Kariera” na liście -->
+<!-- indeks: „Opublikuj na stronie”, ogłoszenie zasila opis publiczny, kropki w nagłówku, „Kariera” na liście, kolejka zaległych, nocne przygotowanie -->
 
 Decyzje Artura 21.10.2026 (makiety https://claude.ai/artifact/1wcS1zr1hc73nFMKSPwm7P).
 Pomiar tego dnia: 203 z 205 otwartych rekrutacji bez strony kariery, 3 opisy
@@ -63,9 +63,25 @@ Harness `/preview/job-ad?state=ready|published`.
   opisem, jedno zapytanie na stronę — przybliżenie bez sprawdzania migawki
   klienta) daje plakietkę „Kariera” przed portalami; plakietki stoją w wierszu
   z zawijaniem, żeby nie podnosić wiersza listy.
-- **Kolejne kroki (decyzje Artura 21.10.2026):** zaległe otwarte rekrutacje —
-  treść przygotowana w nocy + kolejka „Opublikuj i następna” (człowiek czyta
-  każdą, bez publikacji hurtem); portale publikuje Delivery Lead rekrutacji,
+- **Zaległe rekrutacje — kolejka „Strona kariery do uzupełnienia”**
+  (`/jobs/strona-kariery`, `CareerQueue.tsx`, `GET /api/job-ads/career-queue`):
+  otwarte rekrutacje bez zatwierdzonego opisu, od najnowszej. „Wszystkie” =
+  te, w których osoba może publikować (`job_scope_clause`, ten sam zakres co
+  `ensure_job_membership` przy `POST …/career`), „Moje” = Rekruter albo
+  Delivery Lead rekrutacji; bez „swoich” ekran sam przechodzi na „Wszystkie”
+  (HoR, admin). `limit=0` = same liczby — przycisk „Strona kariery · N” na
+  liście rekrutacji (`CareerQueueLink`, 403 albo zero = brak przycisku).
+  Publikuje zawsze człowiek, po jednej rekrutacji, wersją z ekranu; pasek
+  akcji jest przyklejony do dołu panelu (laptop 720 px). Harness
+  `/preview/career-queue`.
+- **Nocne przygotowanie treści** (`tasks/job_ad_prepare.py`,
+  `services/job_ad/prepare.py`): między 0:00 a 6:00 czasu firmy otwarte
+  rekrutacje bez ogłoszenia, od najnowszej, po 40 na przebudzenie co 30 min,
+  każda we własnej transakcji. Zapis jak pierwsze „Przygotuj”: model albo
+  złożenie z pól (`template`), `INSERT … ON CONFLICT DO NOTHING`,
+  `generated_by` puste = przygotował NEXUS. Nic nie publikuje. Pętla jest
+  w `loop_heartbeat.EXEMPT` (brak = przycisk „Przygotuj treść” w kolejce).
+- **Kolejne kroki (decyzje Artura 21.10.2026):** portale publikuje Delivery Lead rekrutacji,
   admin i Head of Recruitment, rekruter tylko stronę kariery („Poproś DL”);
   Pracuj.pl = mail z całym ogłoszeniem do opiekuna Pracuj.pl ze skrzynki M365
   DL; JustJoin.IT przez API (adapter jest, brak klucza na produkcji).
