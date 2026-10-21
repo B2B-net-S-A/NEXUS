@@ -138,6 +138,8 @@ export interface ApprovalRequestRow {
   beneficiary_name: string | null;
   payout_year: number | null;
   payout_month: number | null;
+  /** 0491: punkt umowy albo numer aneksu — wymagany przy premii dla B2B. */
+  contract_basis?: string | null;
   requester_user_id: number;
   requester_name: string | null;
   supervisor_user_id: number | null;
@@ -185,6 +187,14 @@ export interface ApprovalRequestInput {
   payout_month: number | null;
   client_id?: number | null;
   seller_nip?: string | null;
+  contract_basis?: string | null;
+}
+
+/** Osoba, dla której czytający prosi o premię; B2B wymaga podstawy w umowie. */
+export interface ApprovalBeneficiary {
+  user_id: number;
+  name: string;
+  needs_contract_basis: boolean;
 }
 
 export interface ApprovalRoutePreview {
@@ -258,8 +268,7 @@ export function useApprovalBeneficiaries(enabled: boolean) {
   return useQuery({
     queryKey: approvalKeys.beneficiaries,
     queryFn: async () =>
-      (await api.get<{ items: { user_id: number; name: string }[] }>(`${ROOT}/beneficiaries`)).data
-        .items,
+      (await api.get<{ items: ApprovalBeneficiary[] }>(`${ROOT}/beneficiaries`)).data.items,
     enabled,
     staleTime: 5 * 60 * 1000,
   });

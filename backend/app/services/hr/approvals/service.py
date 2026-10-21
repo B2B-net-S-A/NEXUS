@@ -20,6 +20,11 @@ Zatwierdzona premia staje się przyznaną premią w Płacach (``hr_bonuses``,
 ``source='manual'``, kategoria „Inna”, ``assigned_by`` = zatwierdzający,
 ``rule_snapshot.approval_request_id``) na miesiąc wypłaty z wniosku — bez
 drugiej akceptacji Płac. Zamknięty miesiąc = 409, zgoda zostaje do decyzji.
+
+Premia dla osoby na B2B (także z formą „do uzupełnienia”) wymaga podstawy
+w umowie — punktu umowy albo numeru aneksu (``contract_basis``, decyzja
+Artura 21.10.2026): uznaniowa nagroda od koordynatora to dla PIP cecha
+stosunku pracy. Umowa o pracę i zlecenie bez zmian.
 """
 
 from __future__ import annotations
@@ -49,6 +54,7 @@ from app.services.hr import (
 )
 from app.services.hr.approvals import rules as approval_rules
 from app.services.hr.approvals.rules import ApprovalRules
+from app.services.hr_approval_basis_schema import CONTRACT_BASIS_MAX_LENGTH
 from app.services.hr.notify import notify_each
 from app.services.hr import payroll_bonuses
 from app.services.hr.payroll_errors import PayrollConflict, PayrollError
@@ -129,6 +135,8 @@ class RequestInput:
     #: sprzedawcy, jeśli autor go zna (faktura z KSeF przypnie się sama).
     client_id: Optional[int] = None
     seller_nip: Optional[str] = None
+    #: 0491: punkt umowy albo numer aneksu — wymagany przy premii dla B2B.
+    contract_basis: Optional[str] = None
 
 
 # ── walidacja ────────────────────────────────────────────────────────────
@@ -174,7 +182,15 @@ def field_label(field: str) -> str:
         "title": "Co dokładnie",
         "purpose": "Po co",
         "note": "Uwaga",
+        "contract_basis": "Podstawa w umowie",
     }.get(field, field)
+
+
+def needs_contract_basis(employment_type: Optional[str], pending: bool) -> bool:
+    """Premia dla tej osoby wymaga podstawy w umowie: B2B albo forma
+    „do uzupełnienia” (prawie cała firma jest na B2B)."""
+
+    return pending or employment_type == "b2b"
 
 
 def clean_input(data: RequestInput, *, today: date) -> RequestInput:
@@ -205,6 +221,20 @@ def clean_input(data: RequestInput, *, today: date) -> RequestInput:
         amount = clean_amount(data.amount)
     if data.client_id is not None and data.kind != "gift":
         raise ApprovalError("Klienta wskazuje się przy prezencie dla klienta.")
+    contract_basis = _text(
+        data.contract_basis,
+        limit=CONTRACT_BASIS_MAX_LENGTH,
+        field="contract_basis",
+        required=False,
+    )
+    if contract_basis is not None:
+        if data.kind != "bonus":
+            raise ApprovalError("Podstawę w umowie podaje się przy premii.")
+        if not any(char.isdigit() for char in contract_basis):
+            raise ApprovalError(
+                "Podstawa w umowie: wpisz punkt umowy albo numer aneksu, "
+                "np. „§ 6 ust. 2 umowy z 01.03.2025”."
+            )
     seller_nip = None
     if data.seller_nip and data.kind != "bonus":
         try:
@@ -239,6 +269,7 @@ def clean_input(data: RequestInput, *, today: date) -> RequestInput:
             beneficiary_user_id=data.beneficiary_user_id,
             payout_year=data.payout_year,
             payout_month=data.payout_month,
+            contract_basis=contract_basis,
         )
     return RequestInput(
         kind=data.kind,
@@ -404,13 +435,23 @@ async def _assert_bonus_allowed(
         raise ApprovalForbidden(
             "O premię poza umową prosi koordynator tej osoby albo Płace."
         )
-    has_profile = await db.scalar(
-        select(EmployeeProfile.id).where(
-            EmployeeProfile.user_id == data.beneficiary_user_id
+    profile = (
+        await db.execute(
+            select(
+                EmployeeProfile.employment_type,
+                EmployeeProfile.employment_type_pending,
+            ).where(EmployeeProfile.user_id == data.beneficiary_user_id)
         )
-    )
-    if has_profile is None:
+    ).first()
+    if profile is None:
         raise ApprovalNotFound("Ta osoba nie ma kartoteki pracownika.")
+    if data.contract_basis is None and needs_contract_basis(
+        profile.employment_type, bool(profile.employment_type_pending)
+    ):
+        raise ApprovalError(
+            "Ta osoba współpracuje na B2B — podaj podstawę w umowie: "
+            "punkt umowy albo numer aneksu, który przewiduje to wynagrodzenie."
+        )
     await _assert_payout_open(db, data.payout_year, data.payout_month)
 
 
@@ -444,6 +485,7 @@ def _apply(request: ApprovalRequest, data: RequestInput) -> None:
         "payout_month",
         "client_id",
         "seller_nip",
+        "contract_basis",
     ):
         setattr(request, field_name, getattr(data, field_name))
 
@@ -696,6 +738,15 @@ async def _conditional_update(
     return request
 
 
+def bonus_description(contract_basis: Optional[str]) -> str:
+    """Opis przyznanej premii w Płacach i w „Moim czasie” osoby — z podstawą
+    w umowie, jeśli jest (osoba widzi punkt własnej umowy)."""
+
+    if contract_basis:
+        return f"Premia poza umową · podstawa: {contract_basis}"
+    return "Premia poza umową"
+
+
 async def _create_bonus(
     db: AsyncSession, request: ApprovalRequest, actor: User
 ) -> None:
@@ -713,12 +764,19 @@ async def _create_bonus(
         period_month=request.payout_month,
         status="assigned",
         source="manual",
-        # Stały opis: osoba z premii widzi go w „Moim czasie”, a treść prośby
-        # (tytuł, „po co”) zostaje przy zgodzie — prośby osoba nie widzi.
-        description="Premia poza umową",
+        # Stały opis (plus podstawa w umowie): osoba z premii widzi go w „Moim
+        # czasie”, a treść prośby (tytuł, „po co”) zostaje przy zgodzie.
+        description=bonus_description(request.contract_basis),
         assigned_by=actor.id,
         assigned_at=local_now(),
-        rule_snapshot={"approval_request_id": request.id},
+        rule_snapshot={
+            "approval_request_id": request.id,
+            **(
+                {"contract_basis": request.contract_basis}
+                if request.contract_basis
+                else {}
+            ),
+        },
     )
     db.add(bonus)
     await db.flush()

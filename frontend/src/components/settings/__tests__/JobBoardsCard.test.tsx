@@ -83,7 +83,10 @@ describe("JobBoardsCard", () => {
 
   it("niepołączone bez OAuth — przycisk wyłączony i ostrzeżenie", () => {
     renderCard({ ...ACTIVE, status: "not_connected", oauth_configured: false, boards: [] });
-    expect(screen.getByText("Brak konfiguracji OAuth na serwerze")).toBeInTheDocument();
+    expect(screen.getByText("Konto jeszcze nie do połączenia")).toBeInTheDocument();
+    // Kto ma to zrobić — po ludzku; nazwy zmiennych serwera zwinięte w „Szczegóły techniczne”.
+    expect(screen.getByText(/Ustawia je administrator serwera/)).toBeInTheDocument();
+    expect(screen.getByText("Szczegóły techniczne")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Połącz konto/ })).toBeDisabled();
   });
 
@@ -128,7 +131,7 @@ describe("JobBoardsCard", () => {
     expect(screen.getByText("Klucz API wkrótce wygaśnie")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Połącz konto/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Rozłącz/ })).toBeNull();
-    expect(screen.queryByText("Brak konfiguracji OAuth na serwerze")).toBeNull();
+    expect(screen.queryByText("Konto jeszcze nie do połączenia")).toBeNull();
     expect(screen.queryByText(/Połączył\(a\)/)).toBeNull();
   });
 });

@@ -51,6 +51,8 @@ export interface FormState {
   /** Etap 3 (0486): klient prezentu i NIP sprzedawcy, jeśli autor go zna. */
   client: ClientRef | null;
   sellerNip: string;
+  /** 0491: punkt umowy albo numer aneksu (premia dla B2B). */
+  contractBasis: string;
 }
 
 function initialState(row: ApprovalRequestRow | null, currentMonth: string): FormState {
@@ -74,6 +76,7 @@ function initialState(row: ApprovalRequestRow | null, currentMonth: string): For
     client:
       row?.client_id && row.client_name ? ({ id: row.client_id, name: row.client_name } as ClientRef) : null,
     sellerNip: row?.seller_nip ?? "",
+    contractBasis: row?.contract_basis ?? "",
   };
 }
 
@@ -99,6 +102,7 @@ export function toInput(form: FormState): ApprovalRequestInput {
     payout_month: bonus ? month : null,
     client_id: form.kind === "gift" && form.client ? form.client.id : null,
     seller_nip: bonus ? null : form.sellerNip.replace(/[\s-]/g, "") || null,
+    contract_basis: bonus ? form.contractBasis.trim() || null : null,
   };
 }
 
@@ -128,11 +132,18 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
     [currentMonth],
   );
   const input = toInput(form);
+  // Premia dla B2B (i formy „do uzupełnienia”) wymaga podstawy w umowie — 422 bez niej.
+  const needsBasis =
+    bonus &&
+    (beneficiaries.data ?? []).some(
+      (person) => String(person.user_id) === form.beneficiary && person.needs_contract_basis,
+    );
   const ready =
     input.title.length > 0 &&
     input.purpose.length > 0 &&
     Number(input.amount) > 0 &&
     (!bonus || input.beneficiary_user_id !== null);
+  const basisMissing = needsBasis && !input.contract_basis;
   const previewKey = ready ? JSON.stringify(input) : "";
 
   // „Kto zdecyduje” liczy serwer tą samą drogą co przy wysłaniu.
@@ -155,6 +166,10 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
           ? "Wybierz osobę i uzupełnij kwotę, za co i po co."
           : "Uzupełnij: co dokładnie, kwotę i po co.",
       );
+      return;
+    }
+    if (basisMissing) {
+      setError("Ta osoba współpracuje na B2B — wpisz podstawę w umowie: punkt umowy albo numer aneksu.");
       return;
     }
     setError(null);
@@ -243,6 +258,27 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
               </Select>
             </FormField>
           </div>
+        ) : null}
+
+        {bonus ? (
+          <FormField
+            label="Podstawa w umowie"
+            htmlFor="consent-contract-basis"
+            description={
+              needsBasis
+                ? "Punkt umowy albo numer aneksu, który przewiduje to wynagrodzenie. Bez podstawy dla B2B nie wyślesz."
+                : "Punkt umowy albo numer aneksu — przy umowie o pracę i zleceniu nieobowiązkowe."
+            }
+            required={needsBasis}
+          >
+            <Input
+              id="consent-contract-basis"
+              maxLength={200}
+              placeholder="np. § 6 ust. 2 umowy z 01.03.2025 albo aneks nr 3 z 15.10.2026"
+              value={form.contractBasis}
+              onChange={(event) => set("contractBasis", event.target.value)}
+            />
+          </FormField>
         ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">

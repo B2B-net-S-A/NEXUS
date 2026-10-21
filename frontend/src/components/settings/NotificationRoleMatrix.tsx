@@ -179,7 +179,10 @@ function CategoryRows({
       <tr className="border-t border-border/60 align-top">
         <th scope="row" className={cn(STICKY_FIRST, "min-w-40 max-w-72 sm:min-w-52 px-4 py-2 text-left font-normal")}>
           <span className="block text-sm font-medium text-foreground">{category.label}</span>
-          <span className="block text-xs text-muted-foreground">{category.description}</span>
+          {/* Opis w dwóch liniach — dłuższy rozpychał wiersze; pełny w podpowiedzi. */}
+          <span className="block line-clamp-2 text-xs text-muted-foreground" title={category.description}>
+            {category.description}
+          </span>
           {split ? (
             <button
               type="button"
@@ -356,9 +359,14 @@ function RoleMatrixEditor({
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Wyłącz kategorię dla całej roli. Osoba z tej roli przestaje ją
-            dostawać w ikonach paska i dymkach; resztę każdy doprecyzuje sobie w zakładce
-            „Moje”. Kategorii z kłódką nie da się wyłączyć, bo ktoś czeka w nich
+            dostawać w ikonach paska i dymkach; resztę każdy doprecyzuje sobie w „Moje
+            konto”. Kategorii z kłódką nie da się wyłączyć, bo ktoś czeka w nich
             na konkretną osobę.
+          </p>
+          {/* Liczby pod przełącznikami miały dotąd brak podpisu (runda 2, 21.10.2026). */}
+          <p className="mt-1 text-xs text-muted-foreground">
+            Liczba pod przełącznikiem — ile powiadomień z tej kategorii dostały konta tej roli
+            w ostatnich {view.window_days} dniach.
           </p>
           {!canWrite ? (
             <p className="mt-2 text-sm text-muted-foreground">Masz dostęp tylko do odczytu.</p>

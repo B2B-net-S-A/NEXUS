@@ -35,8 +35,15 @@ const TAB_ORDER: readonly NotificationsSubTab[] = ["moje", "role", "maile", "eta
 
 type SettingsUser = Parameters<typeof canSeeSettingsItem>[0];
 
-/** Zakładki, które konto widzi — „Moje” zawsze, reszta lustrem bramek backendu. */
-export function availableNotificationTabs(user: SettingsUser): NotificationsSubTab[] {
+/**
+ * Zakładki, które konto widzi — lustro bramek backendu. „Moje” tylko na
+ * życzenie (`includeMine`): od rundy 2 (21.10.2026) własne powiadomienia są
+ * w „Moje konto”, a System › Powiadomienia firmy ich nie powtarza.
+ */
+export function availableNotificationTabs(
+  user: SettingsUser,
+  { includeMine = true }: { includeMine?: boolean } = {},
+): NotificationsSubTab[] {
   // Ta sama reguła co `NotificationDeliverySettings` i trasy `/api/settings/*`.
   const companyWide =
     hasRole(user, "admin") && hasSectionAccess(user, "system_admin", "read");
@@ -46,7 +53,7 @@ export function availableNotificationTabs(user: SettingsUser): NotificationsSubT
   return TAB_ORDER.filter((tab) => {
     if (tab === "role" || tab === "maile") return companyWide;
     if (tab === "etapy") return stageRules;
-    return true;
+    return includeMine;
   });
 }
 
@@ -83,7 +90,12 @@ export function NotificationsSettings({ defaultTab }: NotificationsSettingsProps
   const user = useAuthStore((state) => state.user);
   const hydrated = useAuthStore((state) => state.hydrated);
   const searchParams = useSearchParams();
-  const available = useMemo(() => availableNotificationTabs(user), [user]);
+  // „Moje” tylko tam, gdzie ekran startuje na nich (harness); System — bez nich.
+  const includeMine = defaultTab === "moje";
+  const available = useMemo(
+    () => availableNotificationTabs(user, { includeMine }),
+    [user, includeMine],
+  );
   const [tab, selectTab] = useNotificationsSubTab(
     searchParams?.get(NOTIFICATIONS_SUBTAB_PARAM) ?? null,
     available,
@@ -110,10 +122,21 @@ export function NotificationsSettings({ defaultTab }: NotificationsSettingsProps
           ariaLabel="Powiadomienia"
         />
       ) : null}
-      {tab === "moje" ? <NotificationPreferencesPanel /> : null}
+      {tab === "moje" && includeMine ? <NotificationPreferencesPanel /> : null}
       {tab === "role" ? <NotificationRoleMatrix /> : null}
+      {available.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Swoje powiadomienia ustawisz w{" "}
+          <Link href="/settings?item=my-notifications" className="font-medium text-primary hover:underline">
+            Moje konto
+          </Link>
+          .
+        </p>
+      ) : null}
       {tab === "maile" ? (
-        <NotificationDeliverySettings onGoToMine={() => selectTab("moje")} />
+        <NotificationDeliverySettings
+          onGoToMine={includeMine ? () => selectTab("moje") : undefined}
+        />
       ) : null}
       {tab === "etapy" ? <StageRulesCard /> : null}
     </div>

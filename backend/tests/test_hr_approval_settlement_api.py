@@ -579,6 +579,8 @@ async def test_finance_summary_shows_bonuses_only_as_a_sum(client, team) -> None
             "beneficiary_user_id": team["worker"].id,
             "payout_year": today.year,
             "payout_month": today.month,
+            # Kartoteka testowa ma domyślnie formę B2B — premia wymaga podstawy.
+            "contract_basis": "§ 6 ust. 2 umowy z 01.03.2025",
         },
         headers=_headers(team["boss"]),
     )
