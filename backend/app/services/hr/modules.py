@@ -57,13 +57,22 @@ async def load_modules(db: AsyncSession) -> dict[str, bool]:
     return normalize(raw)
 
 
+#: Moduły bez podglądu admina: wyłączony = ukryty także dla admina. „Zgody”
+#: (decyzja Artura 21.10.2026) — wydatki i premie na razie idą mailem, więc
+#: ekran, ikona w pasku, „Wydatki ze zgodą” w Finansach i zasady w Ustawieniach
+#: znikają, dopóki ktoś nie włączy modułu w Ustawienia → Kadry → Moduły.
+NO_ADMIN_PREVIEW = frozenset({HrModule.approvals})
+
+
 def module_open_for(user: User, modules: Mapping[str, bool], key: str) -> bool:
     """Czy moduł działa dla tej osoby (przy włączonym programie admin widzi
-    ekrany zawsze)."""
+    ekrany zawsze, poza modułami z ``NO_ADMIN_PREVIEW``)."""
 
     if not program_enabled():
         return False
-    return bool(modules.get(key)) or user.has_role(UserRole.admin)
+    if modules.get(key):
+        return True
+    return user.has_role(UserRole.admin) and key not in NO_ADMIN_PREVIEW
 
 
 class UnknownModuleError(ValueError):

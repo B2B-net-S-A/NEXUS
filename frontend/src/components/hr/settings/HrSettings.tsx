@@ -376,8 +376,10 @@ export function HrSettings({ config }: { config: HrConfig }) {
       {tab === "moduly" ? (
         <div className="max-w-2xl space-y-4">
           <ModulesCard config={config} />
-          {/* Zgody (0483): progi przełożonego i zatwierdzający — tylko admin. */}
-          {me.is_admin ? <ApprovalRulesCard /> : null}
+          {/* Zgody (0483): progi przełożonego i zatwierdzający — tylko admin
+              i tylko przy włączonym module (21.10.2026: wyłączone „Zgody” są
+              ukryte także dla admina, trasy zasad odpowiadają wtedy 404). */}
+          {me.is_admin && config.modules.approvals ? <ApprovalRulesCard /> : null}
         </div>
       ) : null}
     </div>

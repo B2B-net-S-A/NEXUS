@@ -225,3 +225,15 @@ w `api/hr_approval_finance.py` (`/api/finance/approved-expenses`).
   delegacja dłuższa niż 62 dni nie trafia do obecności (pomyłka w datach).
 - **Poza etapem 3**: „Zapytaj, kto kupił” przy fakturze bez zgody, „nieużywane
   60 dni” przy subskrypcji, sprzęt z zakupu w module Sprzęt.
+
+## Ukryte do odwołania — także dla admina (decyzja Artura 21.10.2026)
+
+Wydatki i premie poza umową na razie idą mailem, jak przed NEXUSEM. Moduł
+`approvals` jest wyłączony, a w przeciwieństwie do innych modułów „Ludzi”
+admin nie ma podglądu wyłączonych „Zgód” (`NO_ADMIN_PREVIEW` w
+`services/hr/modules.py`). Znikają: Akceptacje › Zgody, „Moje zgody”, ikona
+w pasku, Finanse › „Wydatki ze zgodą”, karta „Zasady zgód” w Ustawieniach,
+trasy `/api/hr/approval-requests` i `/api/finance/approved-expenses` (404).
+Powrót = włączenie „Zgód” w Ustawienia → Kadry → Moduły; nic nie trzeba
+wdrażać. Nie przywracaj podglądu admina „przy okazji” — to on pokazywał moduł
+Arturowi mimo wyłączonego przełącznika.
