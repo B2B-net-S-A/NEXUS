@@ -22,11 +22,17 @@ from app.services.kpi_targets import resolve_kpi_targets_bulk, resolve_org_targe
 NOW = datetime(2026, 9, 10, tzinfo=timezone.utc)
 
 
+async def _no_neutral(db, *, start, end):
+    # Zamknięcia „nie liczy się” (21.10.2026) — tu żadnych.
+    return {}
+
+
 async def _dl_goals(monkeypatch, *, placements: int, closed: int):
     async def fake_counts(db, *, start, end):
         return ({7: placements} if placements else {}), ({7: closed} if closed else {})
 
     monkeypatch.setattr(competitions, "dl_portfolio_counts", fake_counts)
+    monkeypatch.setattr(competitions, "dl_neutral_closed_counts", _no_neutral)
     return await kpi_goals._delivery_lead_goals(
         None, user=SimpleNamespace(id=7), now=NOW
     )
@@ -106,6 +112,7 @@ async def test_dl_without_closed_recruitments_has_no_target_yet(monkeypatch):
         return {7: 2}, {}
 
     monkeypatch.setattr(competitions, "dl_portfolio_counts", fake_counts)
+    monkeypatch.setattr(competitions, "dl_neutral_closed_counts", _no_neutral)
     result = await kpi_goals._delivery_lead_goals(
         None, user=SimpleNamespace(id=7), now=NOW
     )
