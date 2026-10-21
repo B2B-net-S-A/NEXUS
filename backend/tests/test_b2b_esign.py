@@ -680,3 +680,88 @@ async def test_sweeper_reminds_after_three_days_then_expires_the_link(
     assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
     titles = await _notices(esign_env["admin_id"], request_id)
     assert any("wygasł" in t for t in titles), titles
+
+
+# ── wniosek w toku a zmiany umowy (code review 21.10.2026) ───────────────────
+
+
+def test_only_an_exact_qualified_signature_level_counts():
+    for level in ("QESeal", "Indeterminate QESig", "QESig?", "AdESig-QC"):
+        verdict = judge(
+            _report(("CN=Jan Kowalski", "TOTAL_PASSED", level)),
+            authoritative=True,
+            required_signers=["Jan Kowalski"],
+        )
+        assert verdict.code == "not_qualified", level
+
+
+@pytest.mark.asyncio
+async def test_open_request_blocks_correction_and_closes_on_manual_paths(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Po wysyłce PDF jest zamrożony: „Popraw” odmawia, a „Oznacz jako
+    podpisaną” i „Anulowana” zamykają wniosek — link przestaje działać."""
+    from tests.test_b2b_signature_automation import _confirm, _seed_bound_scenario
+
+    scenario = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    token = _token(sent.json()["sign_url"])
+    form = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/form",
+        headers=app_auth_headers,
+    )
+    assert form.status_code == 409, form.text
+    assert "zwykłą drogę" in form.json()["detail"]
+
+    confirmed = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert confirmed.status_code == 200, confirmed.text
+    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
+
+    other = await _seed_bound_scenario(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client, app_auth_headers, other["generated_id"], esign_env["signer_id"]
+    )
+    token = _token(sent.json()["sign_url"])
+    cancelled = await app_client.patch(
+        f"/api/b2b-generator/generated/{other['generated_id']}",
+        json={"contract_status": "cancelled"},
+        headers=app_auth_headers,
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_unexpected_confirm_failure_still_tells_the_sender(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Błąd automatyki inny niż HTTP nie daje 500 po zapisanym podpisie —
+    nadawca dostaje „oznacz ją w rejestrze”."""
+    from app.api import b2b_esign
+    from app.core.database import AsyncSessionLocal
+    from tests.test_b2b_signature_automation import _seed_bound_scenario
+
+    async def _boom(**kwargs):
+        raise RuntimeError("employment automation returned no ClientOrder")
+
+    monkeypatch.setattr(b2b_esign, "confirm_generated_contract_fully_signed", _boom)
+    admin_id = esign_env["admin_id"]
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db,
+            esign_settings.EsignSettings(mode="all", company_signer_ids=(admin_id,)),
+            actor_id=admin_id,
+        )
+        await db.commit()
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    request_id = await _sign_both(
+        app_client,
+        app_auth_headers,
+        app_auth_headers,
+        scenario["generated_id"],
+        admin_id,
+    )
+    titles = await _notices(admin_id, request_id)
+    assert any("oznacz ją w rejestrze" in t for t in titles), titles

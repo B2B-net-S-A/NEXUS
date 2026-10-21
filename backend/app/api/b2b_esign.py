@@ -648,6 +648,10 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
             else "brak uprawnienia albo różnice warunków"
         )
         await db.rollback()
+    except Exception:  # noqa: BLE001 — podpis jest zapisany; człowiek dokończy
+        logger.exception("[b2b_esign] automatyka po podpisie padła row=%d", row_id)
+        reason = "błąd automatyki (szczegóły w logu serwera)."
+        await db.rollback()
     if reason is None and final_path:
         try:
             locked = await db.scalar(

@@ -172,6 +172,7 @@ from app.services.b2b_contract_generator.entity_type import (
     resolve_partner_entity_type,
 )
 from app.services.b2b_contract_generator import signed_file
+from app.services.b2b_esign import service as esign_service
 from app.services.b2b_esign import settings as esign_settings
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.company_variant import (
@@ -1292,6 +1293,8 @@ async def _serialize_generated_contracts(
         # Kto wysyła i wycofuje podpis w NEXUSIE — jak trasy w api/b2b_esign.py.
         esign = latest_esign.get(row.id)
         esign_open = esign is not None and esign.status in ESIGN_OPEN_STATUSES
+        # Wysłany do podpisu PDF jest zamrożony — „Popraw” dopiero po wycofaniu.
+        can_correct = can_correct and not esign_open
         may_run_esign = (
             esign_allowed
             and not from_excel
@@ -3332,6 +3335,8 @@ async def _load_row_for_correction(
                 "podpisany dokument jest zapisem tego, co strony podpisały."
             ),
         )
+    # Po wysyłce do podpisu w NEXUSIE PDF jest zamrożony (code review 21.10).
+    await esign_service.assert_no_open_request(db, row.id)
     return row
 
 
@@ -3875,6 +3880,15 @@ async def confirm_generated_contract_fully_signed(
                 extra={"generated_contract_id": row.id},
             )
         row.signature_status = "signed_both"
+        # Ręczne oznaczenie podpisu kończy drogę NEXUSOWĄ: link kontraktora
+        # i przypomnienia przestają działać (code review 21.10.2026).
+        await esign_service.close_open_requests(
+            db,
+            row_id=row.id,
+            actor_id=current_user.id,
+            reason="Podpis oznaczony ręcznie w rejestrze",
+            now=datetime.now(timezone.utc),
+        )
         row.signature_source = "manual_confirmation"
         # Podpis obustronny to JEDYNE przejście `in_progress` → `active`.
         # WARUNKOWO: „Zakończona”/„Bez projektu”/„Anulowana” odmawiają wyżej
@@ -4271,6 +4285,10 @@ async def update_generated_contract(
         )
 
     if wants_client_name:
+        # Nazwa Klienta jest w treści PDF-u wysłanego do podpisu w NEXUSIE.
+        await esign_service.assert_no_open_request(db, row.id)
+
+    if wants_client_name:
         old_client = row.client_name
         new_client = (payload.client_name or "").strip() or None
         row.client_name = new_client
@@ -4319,6 +4337,15 @@ async def update_generated_contract(
     if wants_status:
         old_status = row.contract_status
         new_status = payload.contract_status
+        if new_status != "in_progress":
+            # Umowa przestaje czekać na podpis — wysyłka w NEXUSIE też.
+            await esign_service.close_open_requests(
+                db,
+                row_id=row.id,
+                actor_id=current_user.id,
+                reason=f"Status umowy zmieniony na „{new_status}”",
+                now=datetime.now(timezone.utc),
+            )
         # ŚWIADOMA ASYMETRIA: projektu i notatki wymaga wyłącznie powrót
         # z ZAWIESZENIA, nie każde przejście na „Aktywna".
         #
