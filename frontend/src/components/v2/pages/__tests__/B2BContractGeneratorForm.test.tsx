@@ -84,7 +84,6 @@ vi.mock("@/lib/api", () => ({
   },
   extractErrorMsg: (error: unknown) =>
     error instanceof Error ? error.message : "Błąd",
-  signingApi: {},
 }));
 
 import { GeneratorForm } from "@/components/v2/pages/B2BContractGeneratorV2";

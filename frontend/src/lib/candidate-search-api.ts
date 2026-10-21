@@ -346,7 +346,9 @@ export type BulkSkipReason =
   | "closed_in_job"
   | "blacklisted"
   | "candidate_not_found"
-  | "rejected_by_hiring_manager";
+  | "rejected_by_hiring_manager"
+  // Off-limits (21.10.2026): w oknie padło „Nie, to my się odezwaliśmy”.
+  | "off_limits_declined";
 
 /**
  * Candidates that WERE added but carry a soft warning. Client conflicts

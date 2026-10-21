@@ -119,7 +119,7 @@ from app.schemas.contract_onboarding import (
     OnboardingItemResponse,
     OnboardingItemUpdate,
 )
-from app.services import storage_service
+from app.services import contract_document_folders, storage_service
 from app.services.b2b_contract_end_date import (
     B2B_END_DATE_MESSAGE,
     B2B_END_DATE_REASON,
@@ -5385,6 +5385,7 @@ async def _document_to_response(
         sharepoint_item_id=doc.sharepoint_item_id,
         sharepoint_push_status=doc.sharepoint_push_status,
         sharepoint_push_error=doc.sharepoint_push_error,
+        folder_id=doc.folder_id,
     )
 
 
@@ -5420,9 +5421,16 @@ async def upload_contract_document(
     file: UploadFile = File(...),
     doc_type: ContractDocumentType = Form(ContractDocumentType.other),
     expiry_date: Optional[date] = Form(None),
+    folder_id: Optional[int] = Form(None),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
     await _assert_contract_document_client_access(contract, current_user, db)
+    # 0494: zamówienie zawsze leży w folderze „Zamówienia” — o tym decyduje
+    # typ, więc wybrany folder pomijamy. Inny folder musi być tego kontraktu.
+    if doc_type == ContractDocumentType.order:
+        folder_id = None
+    if folder_id is not None:
+        await contract_document_folders.get_user_folder(db, contract_id, folder_id)
 
     # Rudimentary size guard — FastAPI's UploadFile is a SpooledTemporaryFile,
     # so we only know the true size after reading. We read via storage_service
@@ -5454,6 +5462,7 @@ async def upload_contract_document(
         # drugiej kopii tego samego pliku.
         content_sha256=_stored_file_sha256(relative_path),
         source="upload",
+        folder_id=folder_id,
     )
     db.add(doc)
     db.add(

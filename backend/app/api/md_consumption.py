@@ -62,6 +62,7 @@ from app.models.md_consumption import (
     ClientOrderMdConsumption,
     COST_ROW_APPLIED,
     COST_ROW_INVOICE_UNREADABLE,
+    COST_ROW_MANUAL_KEPT,
     COST_ROW_NON_POSITIVE,
     COST_ROW_ORDER_EXHAUSTED,
     COST_ROW_STATUS_LABELS,
@@ -287,6 +288,14 @@ def _unmatched_reason(
         or row.cost_status == COST_ROW_APPLIED
     ):
         return None
+    if row.cost_status == COST_ROW_MANUAL_KEPT:
+        # 0493: zamówienie i osoba się zgadzają — za ten miesiąc ktoś wpisał
+        # kwotę ręcznie w zakładce „Zużycie”, a import jej nie nadpisuje.
+        return _REASON_TO_VERIFY, (
+            f"Zamówienie kosztowe nr {row.order_number_hint or '—'} ma ręczny "
+            f"wpis za {format_period_month(period_month)} — faktura z arkusza "
+            "została pominięta. Porównaj kwoty w zakładce „Zużycie” osoby."
+        )
     if row.cost_status == COST_ROW_ORDER_EXHAUSTED:
         # Runda 10 (R10-N5-6): zamówienie istnieje — skończył się jego budżet.
         return _REASON_TO_VERIFY, (
@@ -1520,8 +1529,23 @@ async def run_md_import(
         else:
             await savepoint.commit()
 
+    written_groups: set[int] = set()
     for order_id in sorted(pending_invoices):
         amount = pending_invoices[order_id]
+        # Decyzja Artura 21.10.2026: ręczny wpis z zakładki „Zużycie” wygrywa
+        # z importem za ten sam miesiąc. Wiersze arkusza zostają widoczne
+        # z własnym statusem, żeby Finanse rozstrzygnęły różnicę świadomie.
+        manual_id = await db.scalar(
+            select(ClientOrderInvoiceConsumption.id).where(
+                ClientOrderInvoiceConsumption.order_id == order_id,
+                ClientOrderInvoiceConsumption.period_month == period_month,
+                ClientOrderInvoiceConsumption.source == CONSUMPTION_SOURCE_MANUAL,
+            )
+        )
+        if manual_id is not None:
+            for held in cost_rows.get(order_id, []):
+                held.cost_status = COST_ROW_MANUAL_KEPT
+            continue
         await upsert_invoice(
             db,
             order=invoice_orders[order_id],
@@ -1530,9 +1554,14 @@ async def run_md_import(
             import_id=batch.id,
             user_id=user_id,
         )
+        group_id = invoice_orders[order_id].order_group_id
+        if group_id is not None:
+            written_groups.add(group_id)
 
     await db.flush()
     for group_id in sorted(touched_groups):
+        if group_id not in written_groups:
+            continue
         await _settle_and_record(
             db,
             group=touched_groups[group_id],

@@ -410,7 +410,7 @@ const TIMELINE = {
       id: 71,
       timestamp: daysAgo(0),
       author_name: "Ola Nowak",
-      content: "Potwierdziła dostępność od 01.10. Druga rozmowa w czwartek.",
+      content: "Potwierdziła dostępność od 01.10. Druga rozmowa w czwartek. @piotr@example.com",
     },
     // Trzy pobrania z jednego dnia zwijają się do „Pobrano pliki · 3” (E4).
     ...[0, 4, 9].map((minutes, i) => ({
@@ -466,7 +466,7 @@ const NOTES = {
       created_at: daysAgo(0),
       author_id: 1,
       author_name: "Ola Nowak",
-      content: "Potwierdziła dostępność od 01.10. Druga rozmowa w czwartek.",
+      content: "Potwierdziła dostępność od 01.10. Druga rozmowa w czwartek. @piotr@example.com",
       job_id: 501,
       job_title: "Java Developer",
       job_working_title: "Java Developer · Spring, Kafka · 5+ lat",

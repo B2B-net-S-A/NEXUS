@@ -1,4 +1,4 @@
 {
-  "sha256": "44e5eff94a7cde359c0968a95470720da08b5956ad51714f1761afc54100898d",
+  "sha256": "2b02fd1ac5307415b3736e2c4e9e5fe15b3b11d54b316ca37d3fdba9a7bf02b7",
   "source": "backend/app/services/cost_orders.py"
 }

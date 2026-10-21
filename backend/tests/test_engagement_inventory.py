@@ -175,26 +175,6 @@ async def _seed_signature(
     return sig_id
 
 
-async def _seed_signature_link(signature_id: int) -> None:
-    from app.core.database import AsyncSessionLocal
-    from app.models.signature_link import SignatureLink
-
-    uid = await _any_user_id()
-    async with AsyncSessionLocal() as db:
-        db.add(
-            SignatureLink(
-                token=f"tok-{uuid.uuid4().hex}",
-                signature_id=signature_id,
-                party="company",
-                purpose="sign",
-                created_by=uid,
-                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
-                revoked=False,
-            )
-        )
-        await db.commit()
-
-
 async def _seed_client_order(
     contract_id: int, client_id: int, end_date: date, status_value: str = "active"
 ) -> None:
@@ -481,9 +461,6 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
     c_draft = await _seed_contract(status=ContractStatus.draft)
     sig_completed = await _seed_signature(c_draft, "completed")
 
-    # completed signature na terminalu + aktywny link → orphan_active_signature_link
-    await _seed_signature_link(sig_completed)
-
     # stuck signature (sent, >24h)
     c_stuck = await _seed_contract(client_id=client_id, job_id=job_id)
     await _seed_document(c_stuck)
@@ -550,9 +527,6 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
     assert sig_completed in _signature_ids(_check(report, "signed_without_activation"))
     assert sig_completed in _signature_ids(
         _check(report, "completed_signature_without_artifact")
-    )
-    assert sig_completed in _signature_ids(
-        _check(report, "orphan_active_signature_link")
     )
     assert sig_stuck in _signature_ids(_check(report, "stuck_signature"))
     assert c_asset in _contract_ids(_check(report, "ended_with_assigned_equipment"))

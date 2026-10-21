@@ -22,6 +22,10 @@ class NoteCreate(BaseModel):
 class NoteUpdate(BaseModel):
     content: Optional[str] = Field(default=None, min_length=1)
     note_type: Optional[NoteType] = None
+    # 21.10.2026: „Powiadom oznaczonych o zmianie” — osoby, które były już
+    # oznaczone i zostają w nowej treści, dostają powiadomienie o zmianie.
+    # Domyślnie nie (literówka, przypięcie, stary klient bez pola).
+    notify_mentions: bool = False
 
     # Runda 10 (R10-N6-5): pole pominięte = bez zmian, ale jawne `null` szło
     # przez `exclude_unset` do kolumn NOT NULL i kończyło się 500 przy commicie.

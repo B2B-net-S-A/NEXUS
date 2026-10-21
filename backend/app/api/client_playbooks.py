@@ -76,6 +76,7 @@ PLAYBOOK_FIELDS: tuple[str, ...] = (
     "process_rules_md",
     "onboarding_md",
     "documents",
+    "verified_required_fields",
 )
 
 _CLIENT_DISPLAY_NAME = func.coalesce(
@@ -119,6 +120,22 @@ class ClientPlaybookPayload(BaseModel):
     process_rules_md: Optional[str] = Field(default=None, max_length=20000)
     onboarding_md: Optional[str] = Field(default=None, max_length=20000)
     documents: list[PlaybookDocument] = Field(default_factory=list, max_length=50)
+    # 0495 (D3, 21.10.2026): pola karty rekomendacji, które klient dokłada do
+    # minimum przed „Zweryfikowany”. Tylko z `CLIENT_EXTRA_FIELDS`.
+    verified_required_fields: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("verified_required_fields")
+    @classmethod
+    def _known_card_fields(cls, value: list[str]) -> list[str]:
+        from app.services.move_requirements import (  # noqa: PLC0415
+            CLIENT_EXTRA_FIELDS,
+        )
+
+        unknown = [key for key in value if key not in CLIENT_EXTRA_FIELDS]
+        if unknown:
+            raise ValueError(f"Nieznane pole karty: {', '.join(unknown)}.")
+        # Kolejność i bez powtórzeń — jak w formularzu.
+        return [key for key in CLIENT_EXTRA_FIELDS if key in value]
 
     @field_validator(
         "rate_policy",
@@ -162,6 +179,7 @@ class ClientPlaybookRead(BaseModel):
     process_rules_md: Optional[str] = None
     onboarding_md: Optional[str] = None
     documents: list[dict[str, str]] = Field(default_factory=list)
+    verified_required_fields: list[str] = Field(default_factory=list)
     seed_key: Optional[str] = None
     updated_at: Optional[str] = None
     updated_by_name: Optional[str] = None
@@ -234,7 +252,7 @@ def _state(row: Optional[ClientPlaybook]) -> dict[str, Any]:
     state: dict[str, Any] = {}
     for field in PLAYBOOK_FIELDS:
         value = getattr(row, field, None) if row is not None else None
-        if field == "documents":
+        if field in ("documents", "verified_required_fields"):
             value = list(value or [])
         state[field] = value
     return state
@@ -293,6 +311,7 @@ def _apply_payload(row: ClientPlaybook, payload: ClientPlaybookPayload) -> None:
     row.documents = [
         {"name": doc.name, "url": doc.url} for doc in payload.documents
     ] or None
+    row.verified_required_fields = list(payload.verified_required_fields) or None
 
 
 def _payload_from_seed(entry: dict[str, Any]) -> ClientPlaybookPayload:
@@ -342,6 +361,7 @@ def _to_read(
         process_rules_md=row.process_rules_md,
         onboarding_md=row.onboarding_md,
         documents=list(row.documents or []),
+        verified_required_fields=list(row.verified_required_fields or []),
         seed_key=row.seed_key,
         updated_at=_iso(row.updated_at),
         updated_by_name=updated_by_name,

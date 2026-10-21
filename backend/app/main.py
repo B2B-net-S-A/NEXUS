@@ -21,6 +21,10 @@ from app.core.integer_range import OUT_OF_RANGE, is_integer_out_of_range
 from app.core.null_character_guard import NullCharacterGuardMiddleware
 from app.core.body_size_limit import BodySizeLimitMiddleware
 from app.core.request_correlation import RequestCorrelationMiddleware
+from app.services.client_off_limits import (
+    OffLimitsConfirmationMiddleware,
+    OffLimitsConfirmationRequired,
+)
 from app.core.sentry_privacy import scrub_event
 
 # Eager-import the models package so every ORM class is registered in the
@@ -167,6 +171,7 @@ from app.api import public_engagement
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
+from app.api import b2b_esign
 from app.api import b2b_register_import
 from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
@@ -284,8 +289,6 @@ from app.api import candidate_chat as candidate_chat_api
 from app.api import admin_chats as admin_chats_api
 from app.api import stage_notification_rules as stage_notification_rules_api
 from app.api import autenti as autenti_api
-from app.api import public_signing as public_signing_api
-from app.api import signing as signing_api
 from app.api import ai_settings as ai_settings_api
 from app.api import integrations_companies as integrations_companies_api
 from app.api import oauth_clients as oauth_clients_api
@@ -293,6 +296,7 @@ from app.api import oauth_token as oauth_token_api
 from app.api import service_accounts as service_accounts_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
+from app.api import contract_document_folders as contract_document_folders_api
 from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
 from app.api import candidates_bulk as candidates_bulk_api
@@ -756,8 +760,8 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_rate_from import candidate_rate_from_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
-    from app.tasks.signing_sweeper import signing_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
+    from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
@@ -902,8 +906,8 @@ async def lifespan(app: FastAPI):
         "candidate_rate_from": asyncio.create_task(candidate_rate_from_loop()),
         "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
-        "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
+        "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
         # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
@@ -1081,11 +1085,29 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # a kopertę `{"error": …}` oddaje ten handler (`integrations_v1.common`).
 app.add_exception_handler(IntegrationApiError, integration_error_handler)
 
+
+async def _off_limits_confirmation_handler(
+    request: Request, exc: OffLimitsConfirmationRequired
+) -> JSONResponse:
+    """409 z listą osób do potwierdzenia „sama się zgłosiła” (21.10.2026).
+
+    Wyjątek, nie odpowiedź z trasy: sesja żądania robi rollback, więc
+    przerwana partia nie zostawia połowy kart."""
+    return JSONResponse(status_code=409, content={"detail": exc.detail()})
+
+
+app.add_exception_handler(
+    OffLimitsConfirmationRequired, _off_limits_confirmation_handler
+)
+
 # KOLEJNOŚĆ MA ZNACZENIE: `add_middleware` dokłada na zewnątrz, więc dodane
 # jako PIERWSZE jest najgłębiej. `UnhandledErrorMiddleware` musi być pod
 # `CORSMiddleware`, żeby zwrócone przez nie 500 przeszło przez CORS i dotarło
 # do przeglądarki z nagłówkami (inaczej wraca „Network Error" — patrz docstring).
 app.add_middleware(UnhandledErrorMiddleware)
+# Potwierdzenie „sama się zgłosiła” z nagłówka do kontekstu żądania — bramkę
+# off-limits sprawdza serwis procesu, nie trasa (``client_off_limits``).
+app.add_middleware(OffLimitsConfirmationMiddleware)
 # NUL (U+0000) w query, ścieżce albo ciele JSON → 422 zanim dotknie PostgreSQL-a
 # (asyncpg odrzuca NUL w `text`, bez tego każdy taki parametr kończył się 500).
 # Nad `UnhandledErrorMiddleware`, ale pod CORS: odrzucenie musi dostać nagłówki
@@ -1151,6 +1173,8 @@ app.add_middleware(
         "sentry-trace",
         "baggage",
         "X-Operation-Id",
+        # Off-limits: „sama się zgłosiła” przy dodaniu do rekrutacji.
+        "X-Off-Limits-Confirmation",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but
@@ -1466,6 +1490,10 @@ app.include_router(job_board_connection_api.router, prefix="/api", tags=["job-po
 app.include_router(
     contract_client_reassign_api.router, prefix="/api/contracts", tags=["contracts"]
 )
+# Foldery w zakładce Dokumenty kontraktu (0494).
+app.include_router(
+    contract_document_folders_api.router, prefix="/api/contracts", tags=["contracts"]
+)
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
 app.include_router(
@@ -1487,6 +1515,15 @@ app.include_router(
     b2b_documents.router,
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
+)
+# Podpis umowy B2B w NEXUSIE (0499) — za przełącznikiem app_settings['b2b_esign'].
+app.include_router(
+    b2b_esign.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
+app.include_router(
+    b2b_esign.public_router, prefix="/api/public", tags=["public-b2b-sign"]
 )
 app.include_router(
     b2b_register_import.router,
@@ -2064,14 +2101,6 @@ if settings.M365_INTEGRATION_ENABLED:
 # Each write/IO handler invokes _require_enabled() internally; read-only
 # GETs stay live so the FE can show empty timelines.
 app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
-
-# In-house QES signing (drop Autenti, single-vendor KIR + OSS upload-validate).
-# Router mounted unconditionally; write/IO handlers call _require_enabled()
-# (503 when SIGNING_ENABLED=false). Public signing page under /api/public.
-app.include_router(signing_api.router, prefix="/api/signing", tags=["signing"])
-app.include_router(
-    public_signing_api.router, prefix="/api/public", tags=["public-signing"]
-)
 
 # AI features panel (Settings → AI). Admin-only. Routes mounted at
 # /api/settings/ai (prefix is declared on the router itself; we add /api here).
@@ -3203,7 +3232,11 @@ async def api_health_deep_check():
     from app.models.b2b_contract_document import B2BContractDocument
     from app.models.b2b_register_import import B2BRegisterImportRun
     from app.models.contract_doc_sharepoint import ContractDocSpItem, ContractDocSpRun
-    from app.models.contract_document import ContractDocument
+    from app.models.contract_document import ContractDocument, ContractDocumentFolder
+    from app.models.scoring_weight_change import (
+        ScoringWeightChange,
+        ScoringWeightMeasurement,
+    )
     from app.models.cv_qc_run import CvQcRun
     from app.models.application_screening import ApplicationScreening
     from app.models.requirement_cleanup import RequirementCleanupDecision
@@ -3280,6 +3313,12 @@ async def api_health_deep_check():
         ("contract_documents", ContractDocument),
         ("contract_doc_sp_runs", ContractDocSpRun),
         ("contract_doc_sp_items", ContractDocSpItem),
+        # Foldery zakładki Dokumenty (0494); sonda ``contract_documents`` wyżej
+        # sprawdza przy okazji kolumnę ``folder_id``.
+        ("contract_document_folders", ContractDocumentFolder),
+        # Panel „Ranking kandydatów” (0501): historia zmian i pomiary.
+        ("scoring_weight_changes", ScoringWeightChange),
+        ("scoring_weight_measurements", ScoringWeightMeasurement),
         # Zamówienia wielo-konsultantowe (0227). Bez tych sond zakładka
         # „Zamówienia" trzech klientów rozliczanych na MD wywalałaby
         # UndefinedTable przy zielonym deployu — dokładnie tryb awarii

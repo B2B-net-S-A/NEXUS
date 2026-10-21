@@ -8,6 +8,7 @@ Pokrywa scenariusze:
     5. post_note_does_not_email_self
     6. patch_note_only_emails_new_mentions
     7. job_note_mentions_a_person_outside_the_job_team
+    8. patch_note_notify_mentions_* — „Powiadom oznaczonych o zmianie”
 """
 
 from __future__ import annotations
@@ -440,3 +441,130 @@ async def test_mentionable_list_has_everyone_who_can_read_and_team_first(
     )
     ids = [row["id"] for row in by_job.json()]
     assert ids.index(setup_users["author_id"]) < ids.index(hor_id)
+
+
+# ── PATCH z „Powiadom oznaczonych o zmianie” (21.10.2026) ───────────────────
+
+
+async def _note_with_read_mention(app_client: AsyncClient, setup_users) -> int:
+    """Notatka z wzmianką target, której powiadomienie target już przeczytał."""
+    headers = await _login(
+        app_client, setup_users["author_email"], setup_users["author_password"]
+    )
+    resp = await app_client.post(
+        "/api/notes",
+        headers=headers,
+        json={
+            "content": f"Prep 2 śr 10:00 @{setup_users['target_email']}",
+            "candidate_id": setup_users["candidate_id"],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    note_id = resp.json()["id"]
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(Notification).where(
+                    Notification.user_id == setup_users["target_id"],
+                    Notification.related_entity_id == note_id,
+                )
+            )
+        ).all()
+        assert len(rows) == 1
+        rows[0].is_read = True
+        await db.commit()
+    return note_id
+
+
+async def _patch(app_client: AsyncClient, setup_users, note_id: int, body: dict):
+    headers = await _login(
+        app_client, setup_users["author_email"], setup_users["author_password"]
+    )
+    with patch("app.services.email.smtplib.SMTP") as smtp_cls:
+        instance = smtp_cls.return_value.__enter__.return_value
+        resp = await app_client.patch(
+            f"/api/notes/{note_id}", headers=headers, json=body
+        )
+        assert resp.status_code == 200, resp.text
+        return instance.send_message.call_args_list
+
+
+async def test_patch_note_notify_mentions_tells_already_mentioned_person(
+    app_client: AsyncClient, setup_users, monkeypatch
+):
+    """DL oznaczony od początku nie dowiadywał się o zmianie terminu w notatce."""
+    from app.services import email as email_module
+
+    monkeypatch.setattr(email_module.settings, "SMTP_ENABLED", True)
+    monkeypatch.setattr(email_module.settings, "SMTP_HOST", "smtp.test.local")
+    note_id = await _note_with_read_mention(app_client, setup_users)
+
+    sent = await _patch(
+        app_client,
+        setup_users,
+        note_id,
+        {
+            "content": f"Prep 2 czw 14:00 @{setup_users['target_email']}",
+            "notify_mentions": True,
+        },
+    )
+
+    _, notifs = await _mention_rows(note_id, setup_users["target_id"])
+    assert len(notifs) == 1
+    assert notifs[0].is_read is False
+    assert "zmienił(a) notatkę, w której Cię oznaczył(a)" in notifs[0].title
+    assert "czw 14:00" in notifs[0].message
+    assert len(sent) == 1
+    assert "zmienił(a) notatkę" in sent[0].args[0]["Subject"]
+
+
+async def test_patch_note_without_notify_mentions_stays_silent(
+    app_client: AsyncClient, setup_users, monkeypatch
+):
+    """Bez pola (literówka) — fragment się odświeża, ale nic nie wraca."""
+    from app.services import email as email_module
+
+    monkeypatch.setattr(email_module.settings, "SMTP_ENABLED", True)
+    monkeypatch.setattr(email_module.settings, "SMTP_HOST", "smtp.test.local")
+    note_id = await _note_with_read_mention(app_client, setup_users)
+
+    sent = await _patch(
+        app_client,
+        setup_users,
+        note_id,
+        {"content": f"Prep 2 śr 10:00, poprawka @{setup_users['target_email']}"},
+    )
+
+    _, notifs = await _mention_rows(note_id, setup_users["target_id"])
+    assert len(notifs) == 1
+    assert notifs[0].is_read is True
+    assert "poprawka" in notifs[0].message
+    assert sent == []
+
+
+async def test_patch_note_notify_mentions_skips_unchanged_text_and_removed_person(
+    app_client: AsyncClient, setup_users
+):
+    """Pole bez zmiany treści nic nie wysyła; osoba wycięta z treści też nie."""
+    note_id = await _note_with_read_mention(app_client, setup_users)
+
+    await _patch(
+        app_client,
+        setup_users,
+        note_id,
+        {
+            "content": f"Prep 2 śr 10:00 @{setup_users['target_email']}",
+            "notify_mentions": True,
+        },
+    )
+    _, notifs = await _mention_rows(note_id, setup_users["target_id"])
+    assert [n.is_read for n in notifs] == [True]
+
+    await _patch(
+        app_client,
+        setup_users,
+        note_id,
+        {"content": "Prep 2 czw 14:00 — bez oznaczenia", "notify_mentions": True},
+    )
+    _, notifs = await _mention_rows(note_id, setup_users["target_id"])
+    assert [n.is_read for n in notifs] == [True]

@@ -303,6 +303,50 @@ async def test_put_rejects_out_of_range_numbers_and_bad_document_urls(
         await _cleanup([cid])
 
 
+@pytest.mark.asyncio
+async def test_put_stores_verified_required_fields_and_gate_reads_them(
+    app_client: AsyncClient,
+):
+    """D3 (21.10.2026): pola dołożone do minimum przed „Zweryfikowany”."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.move_requirements import client_required_fields
+
+    cid = await _make_client(_unique("Playbook minimum"))
+    try:
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=cid
+        )
+        bad = await app_client.put(
+            URL.format(cid=cid),
+            json=_full_payload(verified_required_fields=["location", "salary"]),
+            headers=headers,
+        )
+        assert bad.status_code == 422, bad.text
+
+        r = await app_client.put(
+            URL.format(cid=cid),
+            json=_full_payload(
+                verified_required_fields=["english", "motivation", "english"]
+            ),
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["verified_required_fields"] == ["motivation", "english"]
+
+        async with AsyncSessionLocal() as db:
+            fields, name = await client_required_fields(db, cid)
+        assert fields == ("motivation", "english")
+        assert name
+
+        h = await app_client.get(URL.format(cid=cid) + "/history", headers=headers)
+        assert h.json()[0]["changes"]["verified_required_fields"] == {
+            "from": [],
+            "to": ["motivation", "english"],
+        }
+    finally:
+        await _cleanup([cid])
+
+
 # ── Uprawnienia ─────────────────────────────────────────────────────────────
 
 

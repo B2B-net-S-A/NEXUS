@@ -84,16 +84,6 @@ def test_client_conflict_warning_blocks_the_autonomous_add():
     [decision] = decide([row], min_score=70, require_must=True, cap=3)
     assert decision.decision == "penalized"
     assert "active_conflict" in decision.reason
-    breakdown = SimpleNamespace(
-        candidate_id=1,
-        job_id=9,
-        total=95,
-        matching_must=["Python"],
-        gap_must=[],
-        penalties=[],
-        warnings=["active_conflict", "something_else"],
-    )
-    assert ams._scored_from_breakdown(breakdown).warnings == ("active_conflict",)
 
 
 def test_jjit_and_auto_match_share_one_rule():
@@ -156,10 +146,10 @@ def _breakdown(candidate_id, job_id, total=86.0):
 
 def _stub_ranking(monkeypatch, *, job_hits, candidate_hits, total=86.0):
     from app.services import (
+        canonical_fit,
         dealbreaker_filters,
         embedding_service,
         pipeline_eligibility,
-        scoring_service,
     )
 
     seen_ids: dict[str, list[list[int]]] = {"jobs": [], "candidates": []}
@@ -170,8 +160,10 @@ def _stub_ranking(monkeypatch, *, job_hits, candidate_hits, total=86.0):
         return {k: v for k, v in hits.items() if k in ids}
 
     monkeypatch.setattr(ams, "scoped_similarity", scoped)
-    monkeypatch.setattr(embedding_service, "_build_candidate_text", lambda c: "cv")
-    monkeypatch.setattr(embedding_service, "_build_job_text", lambda j: "job")
+    monkeypatch.setattr(
+        embedding_service, "_build_candidate_text", lambda c, **kw: "cv"
+    )
+    monkeypatch.setattr(embedding_service, "_build_job_text", lambda j, **kw: "job")
 
     async def eligible(db, *, job, candidates, now):
         return list(candidates)
@@ -183,18 +175,18 @@ def _stub_ranking(monkeypatch, *, job_hits, candidate_hits, total=86.0):
         lambda cands, **kw: SimpleNamespace(kept=list(cands), exclusion_reasons={}),
     )
 
-    async def rank_jobs(candidate, jobs, db, *, similarity_map=None, contexts=None):
-        return [_breakdown(candidate.id, j.id, total) for j in jobs]
+    # Wynik pary = kanoniczny fit (21.10.2026); pomiar wektorowy podstawiony.
+    async def score(db, context, candidates):
+        return [
+            SimpleNamespace(
+                breakdown=_breakdown(c.id, context.job_data["id"], total),
+                measurement="measured",
+                fit_score=total,
+            )
+            for c in candidates
+        ]
 
-    async def rank_candidates(job, candidates, db, *, similarity_map=None):
-        return [_breakdown(c.id, job.id, total) for c in candidates]
-
-    async def contexts(db, jobs, ids):
-        return {}
-
-    monkeypatch.setattr(scoring_service, "rank_jobs_for_candidate", rank_jobs)
-    monkeypatch.setattr(scoring_service, "rank_candidates_for_job", rank_candidates)
-    monkeypatch.setattr(scoring_service, "build_jobs_scoring_contexts", contexts)
+    monkeypatch.setattr(canonical_fit, "score_candidates", score)
     return seen_ids
 
 

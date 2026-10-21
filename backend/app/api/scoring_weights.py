@@ -1,14 +1,20 @@
-"""Scoring weight profiles API (Phase D1).
+"""Scoring weight profiles API (Phase D1) + panel „Ranking kandydatów”.
 
-Admin-only CRUD. Profiles are validated so the layers sum to 100 (six layers;
-``champion_fit`` optional and defaults to 0 for backward-compatible payloads).
-Scope resolution (user → client → global) is done by the scoring engine; this
-module just persists, lists, and returns profiles.
+CRUD profili zostaje dla administratora. Profiles are validated so the layers
+sum to 100 (six layers; ``champion_fit`` optional and defaults to 0 for
+backward-compatible payloads). Scope resolution (user → client → global) is
+done by the scoring engine. Każda zmiana profilu trafia do historii
+(``scoring_weight_changes``).
+
+Panel (21.10.2026, decyzje Artura D1–D3): Head of Recruitment i admin
+zapisują szkic trzech ważności i progu nocnych propozycji; publikacja idzie
+przez pomiar na historii. Odczyt panelu ma też Delivery Lead. Bramka sekcji
+Insights na routerze: zapis wymaga zapisu w Insights.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,13 +24,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
-from app.api.deps import require_roles
+from app.api.deps import HeadOfRecruitmentPlus, require_roles
 from app.core.database import get_db
 from app.models.scoring_weight_profile import ScoringWeightProfile
 from app.models.user import User, UserRole
+from app.services import ranking_weights as panel
 from app.services.match_score_cache import mark_stale_for_profile
 
 router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
+
+# Odczyt wag: admin (zawsze), Delivery Lead, Head of Recruitment.
+WeightsReader = require_roles(UserRole.head_of_recruitment, UserRole.delivery_lead)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -93,9 +103,80 @@ class ScoringWeightProfileResponse(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
+class PanelDraftIn(BaseModel):
+    semantic: int
+    skills: int
+    location: int
+    threshold: int
+
+    def to_panel(self) -> panel.PanelWeights:
+        return panel.PanelWeights(
+            semantic=self.semantic,
+            skills=self.skills,
+            location=self.location,
+            threshold=self.threshold,
+        )
+
+
+def _snapshot(row: ScoringWeightProfile) -> dict:
+    return {
+        "name": row.name,
+        "user_id": row.user_id,
+        "client_id": row.client_id,
+        "active": row.active,
+        "weights": dict(row.weights or {}),
+    }
+
+
+# ── Panel „Ranking kandydatów” ───────────────────────────────────────────────
+
+
+@router.get("/panel")
+async def get_panel(
+    current_user: User = Depends(WeightsReader),
+    db: AsyncSession = Depends(get_db),
+):
+    """Opublikowane ważności, szkic, próg, profile klienta/osoby i historia."""
+    state = await panel.panel_state(db)
+    state["can_edit"] = current_user.has_any_role(
+        UserRole.admin, UserRole.head_of_recruitment
+    )
+    return state
+
+
+@router.put("/panel/draft")
+async def put_panel_draft(
+    payload: PanelDraftIn,
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Szkic nic nie zmienia dla zespołu — obowiązuje dopiero po publikacji."""
+    draft = payload.to_panel()
+    error = panel.validation_error(draft)
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    await panel.save_draft(db, draft, actor_id=current_user.id)
+    await db.commit()
+    state = await panel.panel_state(db)
+    state["can_edit"] = True
+    return state
+
+
+@router.delete("/panel/draft", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_panel_draft(
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    await panel.discard_draft(db)
+    await db.commit()
+
+
+# ── Profile (administrator) ──────────────────────────────────────────────────
+
+
 @router.get("", response_model=list[ScoringWeightProfileResponse])
 async def list_profiles(
-    current_user: User = Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
+    current_user: User = Depends(WeightsReader),
     db: AsyncSession = Depends(get_db),
 ):
     rows = (
@@ -132,9 +213,18 @@ async def create_profile(
     db.add(row)
     # The name check above is racy: two concurrent creates both pass it, then
     # the UNIQUE constraint (uq_scoring_weight_profiles_name) rejects the second
-    # at commit. Catch it so the loser gets the same 409 as the read path,
-    # never a 500.
+    # at flush/commit. Catch it so the loser gets the same 409 as the read
+    # path, never a 500.
     try:
+        await db.flush()
+        await panel.record_change(
+            db,
+            kind="admin_edit",
+            actor_id=current_user.id,
+            profile_id=row.id,
+            before={},
+            after=_snapshot(row),
+        )
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -157,11 +247,28 @@ async def update_profile(
     )
     if not row:
         raise HTTPException(status_code=404, detail="not found")
+    before = _snapshot(row)
     row.name = payload.name
-    row.user_id = payload.user_id
-    row.client_id = payload.client_id
+    # Ekran wysyła tylko {name, weights, active}. Przypięcie do osoby albo
+    # klienta zmienia się wyłącznie, gdy pole przyszło w żądaniu — inaczej
+    # edycja z ekranu po cichu robiła z profilu klienta profil ogólny.
+    if "user_id" in payload.model_fields_set:
+        row.user_id = payload.user_id
+    if "client_id" in payload.model_fields_set:
+        row.client_id = payload.client_id
     row.weights = payload.weights.model_dump()
     row.active = payload.active
+    # Kolumna nie ma `onupdate` — bez tego „opublikowane” na ekranie
+    # pokazywało datę założenia profilu.
+    row.updated_at = datetime.now(timezone.utc)
+    await panel.record_change(
+        db,
+        kind="admin_edit",
+        actor_id=current_user.id,
+        profile_id=row.id,
+        before=before,
+        after=_snapshot(row),
+    )
     # Editing weights in place would otherwise keep serving old-weight cached
     # scores for this profile_id (AI-P0-06 a) — invalidate them in the same txn.
     await mark_stale_for_profile(db, profile_id)
@@ -184,5 +291,13 @@ async def delete_profile(
     # Drop any cached scores computed under this profile before it disappears
     # (AI-P0-06 a) — otherwise they linger as dead, un-recomputable rows.
     await mark_stale_for_profile(db, profile_id)
+    await panel.record_change(
+        db,
+        kind="admin_edit",
+        actor_id=current_user.id,
+        profile_id=row.id,
+        before=_snapshot(row),
+        after={},
+    )
     await db.delete(row)
     await db.commit()

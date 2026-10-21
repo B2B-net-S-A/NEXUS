@@ -61,7 +61,8 @@ async def test_overtime_is_decided_by_the_day_sum_not_one_entry(app_client) -> N
     ).status_code == 201
     silent = await app_client.post(f"{BASE}/entries", json=_entry(1, 5), headers=h)
     assert silent.status_code == 422
-    assert "uzasadnienia" in silent.json()["detail"]
+    # Osoba na B2B (forma domyślna): opis godzin ponad 8 h, bez „nadgodzin” (21.10.2026).
+    assert "czego dotyczyły godziny ponad 8 h" in silent.json()["detail"]
     justified = await app_client.post(
         f"{BASE}/entries",
         json=_entry(1, 5, overtime_reason="Wdrożenie kandydata u klienta"),

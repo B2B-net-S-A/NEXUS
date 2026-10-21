@@ -33,6 +33,7 @@ import {
   PLAYBOOK_EVENT_LABELS,
   PLAYBOOK_FIELD_LABELS,
   PLAYBOOK_LIMITS,
+  VERIFIED_EXTRA_FIELD_OPTIONS,
   type ClientPlaybook,
   type PlaybookEvent,
   type PlaybookForm,
@@ -303,6 +304,34 @@ export function ClientPlaybookForm({ clientId, onSaved }: ClientPlaybookFormProp
         <p className="text-xs text-muted-foreground">
           Wiersz bez nazwy albo bez linku nie zostanie zapisany.
         </p>
+      </fieldset>
+
+      <fieldset className="space-y-1.5" data-testid="playbook-verified-required">
+        <legend className="text-xs font-medium">{PLAYBOOK_FIELD_LABELS.verified_required_fields}</legend>
+        <p className="text-xs text-muted-foreground">
+          Lokalizację, tryb pracy, dostępność i „Dlaczego ten kandydat” rekruter wpisuje zawsze. Zaznaczone
+          pola też zatrzymają przekazanie osoby na „Zweryfikowany”, dopóki ich nie wpisze.
+        </p>
+        {VERIFIED_EXTRA_FIELD_OPTIONS.map((option) => {
+          const checked = form.verified_required_fields.includes(option.key);
+          return (
+            <label key={option.key} className="flex items-center gap-2 text-sm pointer-coarse:min-h-10">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() =>
+                  set(
+                    "verified_required_fields",
+                    checked
+                      ? form.verified_required_fields.filter((key) => key !== option.key)
+                      : [...form.verified_required_fields, option.key],
+                  )
+                }
+              />
+              {option.label}
+            </label>
+          );
+        })}
       </fieldset>
 
       {error ? (

@@ -61,6 +61,9 @@ EDIT_WINDOW = timedelta(minutes=15)
 
 #: Etykieta ręcznego zejścia MD w ``payload.changed`` (``upsert_line_consumption``).
 CONSUMPTION_EDIT_LABEL = "zejście MD"
+#: Ręczny wpis kwoty na zamówieniu kosztowym (``upsert_line_cost_consumption``).
+#: W odróżnieniu od zejścia MD zostaje w historii — to zmiana kwot zamówienia.
+COST_CONSUMPTION_EDIT_LABEL = "zejście kosztowe"
 
 #: Polskie nazwy pól technicznych. Klucze po lewej to SUROWE nazwy kolumn, które
 #: ``update_line`` wpisywał do ``payload.changed`` do 25.09.2026 — historia ich
@@ -270,6 +273,10 @@ def _edit_detail_text(ev: RawEvent, person: Optional[str]) -> str:
     remaining = _decimal(payload.get("md_remaining"))
     tail = f" Pozostało {format_md(remaining)} MD." if remaining is not None else ""
     changed = _changed(payload)
+    if changed == [COST_CONSUMPTION_EDIT_LABEL]:
+        # Opis zapisany przy wpisie niesie kwoty; rolom bez finansów redaguje
+        # je ``_redact_amounts`` w API, jak każdy inny opis historii.
+        return ev.description
     if changed == [CONSUMPTION_EDIT_LABEL]:
         month = payload.get("period_month")
         month_label = format_period_month(month) if isinstance(month, str) else "?"

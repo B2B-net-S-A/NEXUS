@@ -1,97 +1,41 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, FolderPlus, Loader2, Plus } from "lucide-react";
+
+import { DocumentFileRow } from "@/components/contracts/documents/DocumentFileRow";
+import { FolderHeaderRow } from "@/components/contracts/documents/FolderHeaderRow";
+import { FolderSuggestionBanner } from "@/components/contracts/documents/FolderSuggestionBanner";
+import { NewFolderDialog } from "@/components/contracts/documents/NewFolderDialog";
+import { SelectionBar } from "@/components/contracts/documents/SelectionBar";
+import {
+  UploadDocumentDialog,
+  type UploadRequest,
+} from "@/components/contracts/documents/UploadDocumentDialog";
+import {
+  useDocumentFolderMutations,
+  useDocumentFoldersQuery,
+  useOrderFilesQuery,
+} from "@/components/contracts/documents/useDocumentFolders";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { useOptionalToast } from "@/components/Toast";
+import { Button } from "@/components/ui/button";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { contractsApi } from "@/lib/api";
-import {
-  openContractDocument,
-  downloadContractDocument,
-} from "@/lib/contract-documents";
-import { OrderDocumentsSection } from "@/components/OrderDocumentsSection";
-import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { apiErrorMessage } from "@/lib/api-error";
-import { sharePointBadge } from "@/lib/contract-docs-sharepoint";
-import { Badge } from "@/components/ui/badge";
 import {
-  Upload,
-  Trash2,
-  Download,
-  FileText,
-  FileCheck,
-  FileSignature,
-  FileWarning,
-  ClipboardList,
-  Loader2,
-  AlertCircle,
-  X,
-} from "lucide-react";
+  buildDocumentSections,
+  complianceRelevantDocs,
+  filesLabel,
+  folderNameSuggestions,
+  pluralForm,
+  type ContractDocument,
+  type FolderSection,
+} from "@/lib/contract-document-folders";
 
-// Matches backend ContractDocumentType enum
-const DOC_TYPES: { value: string; label: string }[] = [
-  { value: "contract", label: "Umowa" },
-  { value: "annex", label: "Aneks" },
-  { value: "nda", label: "NDA" },
-  { value: "nip", label: "NIP" },
-  { value: "zus_certificate", label: "Zaświadczenie ZUS" },
-  { value: "oc_policy", label: "Polisa OC" },
-  { value: "order", label: "Zamówienie" },
-  // 0367: załącznik z okna „Zakończ współpracę" (rozwiązanie umowy B2B).
-  { value: "termination_notice", label: "Wypowiedzenie" },
-  { value: "termination_agreement", label: "Porozumienie" },
-  { value: "other", label: "Inne" },
-];
-
-export const DOC_TYPE_LABEL: Record<string, string> = Object.fromEntries(
-  DOC_TYPES.map((d) => [d.value, d.label]),
-);
-
-const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  contract: FileSignature,
-  annex: FileSignature,
-  nda: FileCheck,
-  nip: FileText,
-  zus_certificate: FileCheck,
-  oc_policy: FileWarning,
-  order: ClipboardList,
-  termination_notice: FileWarning,
-  termination_agreement: FileSignature,
-  other: FileText,
-};
-
-export interface ContractDocument {
-  id: number;
-  contract_id: number;
-  filename: string;
-  doc_type: string;
-  content_type: string | null;
-  size_bytes: number | null;
-  expiry_date: string | null;
-  uploaded_by: number | null;
-  uploaded_by_email: string | null;
-  created_at: string;
-  // Ticket 9 (0402): pochodzenie i kopia w folderze „Umowy pracowników”.
-  source?: string | null;
-  sharepoint_item_id?: string | null;
-  sharepoint_push_status?: string | null;
-  sharepoint_push_error?: string | null;
-}
-
-function SharePointBadge({ doc }: { doc: ContractDocument }) {
-  const badge = sharePointBadge(doc);
-  if (!badge) return null;
-  return (
-    <Badge variant={badge.tone} size="sm" className="ml-2" title={badge.title}>
-      {badge.label}
-    </Badge>
-  );
-}
-
-function formatBytes(n: number | null | undefined): string {
-  if (!n) return "";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
+export { DOC_TYPE_LABEL } from "@/components/contracts/documents/doc-types";
+export type { ContractDocument } from "@/lib/contract-document-folders";
 
 interface Props {
   contractId: number;
@@ -110,7 +54,8 @@ const COMPLIANCE_TYPES = new Set(["nip", "zus_certificate", "oc_policy"]);
 /**
  * Inspect the list of documents and return the soonest compliance-related
  * expiry that's already past or less than 30 days away. Used by consumers
- * that want to render a "Compliance risk" badge.
+ * that want to render a "Compliance risk" badge. Pliki w folderach (np.
+ * „Poprzednia umowa”) to archiwum i alarmu nie zapalają (0494).
  */
 export function summariseComplianceRisk(docs: ContractDocument[] | undefined): {
   risk: "overdue" | "soon" | "ok";
@@ -122,7 +67,7 @@ export function summariseComplianceRisk(docs: ContractDocument[] | undefined): {
   }
   const now = Date.now();
   let soonest: { ts: number; date: string; type: string } | null = null;
-  for (const d of docs) {
+  for (const d of complianceRelevantDocs(docs)) {
     if (!d.expiry_date) continue;
     if (!COMPLIANCE_TYPES.has(d.doc_type)) continue;
     const ts = new Date(d.expiry_date).getTime();
@@ -140,303 +85,508 @@ export function summariseComplianceRisk(docs: ContractDocument[] | undefined): {
   };
 }
 
+function dismissedKey(contractId: number) {
+  return `nexus.contractDocs.dismissedSuggestions.${contractId}`;
+}
+
+function readDismissed(contractId: number): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(dismissedKey(contractId));
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeDismissed(contractId: number, values: Set<string>) {
+  try {
+    window.localStorage.setItem(dismissedKey(contractId), JSON.stringify([...values]));
+  } catch {
+    // Prywatne okno albo zablokowany magazyn — podpowiedź wróci po odświeżeniu.
+  }
+}
+
+function sectionKey(folder: FolderSection): string {
+  return String(folder.id);
+}
+
+const TH = "px-4 py-2 text-left";
+
 export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
   const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [docType, setDocType] = useState<string>("contract");
-  const [expiryDate, setExpiryDate] = useState<string>("");
-  const [error, setError] = useState<string>("");
-  const [busyId, setBusyId] = useState<number | null>(null);
-  // Potwierdzenie usunięcia w wierszu zamiast `window.confirm` (audyt
-  // 24.09, N7) — natywne okno zamraża automatyzację przeglądarki.
-  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const toast = useOptionalToast();
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [newFolderFiles, setNewFolderFiles] = useState<number[] | null>(null);
+  const [newFolderError, setNewFolderError] = useState("");
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [dismissed, setDismissed] = useState<Set<string>>(() => readDismissed(contractId));
 
-  const { data, isLoading } = useQuery<ContractDocument[]>({
+  const docsQuery = useQuery<ContractDocument[]>({
     queryKey: ["contract-documents", contractId],
     queryFn: () => contractsApi.documents(contractId).then((r) => r.data),
   });
+  const foldersQuery = useDocumentFoldersQuery(contractId);
+  const orderFilesQuery = useOrderFilesQuery(contractId);
+  const mutations = useDocumentFolderMutations(contractId);
+
+  const orderFilesStatus = (
+    orderFilesQuery.error as { response?: { status?: number } } | null
+  )?.response?.status;
+
+  const docs = useMemo(() => docsQuery.data ?? [], [docsQuery.data]);
+  const folders = useMemo(() => foldersQuery.data?.folders ?? [], [foldersQuery.data]);
+  const ordersName = foldersQuery.data?.orders_folder_name ?? "Zamówienia";
+  const sections = useMemo(
+    () => buildDocumentSections(docs, folders, orderFilesQuery.data ?? [], ordersName),
+    [docs, folders, orderFilesQuery.data, ordersName],
+  );
+  const docsById = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
+  const suggestion = (foldersQuery.data?.suggestions ?? []).find(
+    (s) => !dismissed.has(s.number),
+  );
+  const nameSuggestions = useMemo(
+    () =>
+      folderNameSuggestions(foldersQuery.data?.suggestions ?? [], [
+        ...folders.map((f) => f.name),
+        ordersName,
+      ]),
+    [foldersQuery.data, folders, ordersName],
+  );
+
+  const refreshDocs = () => {
+    queryClient.invalidateQueries({ queryKey: ["contract-documents", contractId] });
+    queryClient.invalidateQueries({ queryKey: ["contract-document-folders", contractId] });
+    queryClient.invalidateQueries({ queryKey: ["contract-activities", contractId] });
+  };
+
+  const notify = (message: string) => {
+    if (toast) toast.showToast(message, "success");
+  };
 
   const uploadMutation = useMutation({
     mutationFn: (fd: FormData) => contractsApi.uploadDocument(contractId, fd),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["contract-documents", contractId] });
-      queryClient.invalidateQueries({ queryKey: ["contract-activities", contractId] });
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      setExpiryDate("");
-      setError("");
+      refreshDocs();
+      setUploadOpen(false);
+      setUploadError("");
     },
     onError: (err: unknown) => {
-      setError(apiErrorMessage(err, "Nie udało się wgrać pliku."));
+      setUploadError(apiErrorMessage(err, "Nie udało się wgrać pliku."));
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (documentId: number) =>
-      contractsApi.deleteDocument(contractId, documentId),
-    onSuccess: () => {
-      setConfirmDeleteId(null);
+  const deleteDocument = async (documentId: number) => {
+    try {
+      await contractsApi.deleteDocument(contractId, documentId);
       setError("");
-      queryClient.invalidateQueries({ queryKey: ["contract-documents", contractId] });
-      queryClient.invalidateQueries({ queryKey: ["contract-activities", contractId] });
-    },
-    // Odmowa usunięcia nie może kończyć się ciszą (audyt 24.09, N10).
-    onError: (err: unknown) => {
-      setConfirmDeleteId(null);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(documentId);
+        return next;
+      });
+      refreshDocs();
+    } catch (err) {
+      // Odmowa usunięcia nie może kończyć się ciszą (audyt 24.09, N10).
       setError(apiErrorMessage(err, "Nie udało się usunąć pliku."));
-    },
-  });
+    }
+  };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleUpload = (request: UploadRequest) => {
     const fd = new FormData();
-    fd.append("file", file);
-    fd.append("doc_type", docType);
-    if (expiryDate) fd.append("expiry_date", expiryDate);
+    fd.append("file", request.file);
+    fd.append("doc_type", request.docType);
+    if (request.expiryDate) fd.append("expiry_date", request.expiryDate);
+    if (request.folderId != null) fd.append("folder_id", String(request.folderId));
     uploadMutation.mutate(fd);
   };
 
+  const toggleSelected = (documentId: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(documentId)) next.delete(documentId);
+      else next.add(documentId);
+      return next;
+    });
 
-  const handleOpen = async (doc: ContractDocument) => {
-    setBusyId(doc.id);
-    setError("");
+  const toggleExpanded = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const expand = (key: string) => setExpanded((prev) => new Set(prev).add(key));
+
+  const moveSelected = (folderId: number | null) => {
+    const ids = [...selected];
+    mutations.moveDocuments.mutate(
+      { document_ids: ids, folder_id: folderId },
+      {
+        onSuccess: (res) => {
+          setSelected(new Set());
+          setError("");
+          if (folderId != null) expand(String(folderId));
+          const target =
+            folderId == null
+              ? "„Aktualnej umowy”"
+              : `folderu „${folders.find((f) => f.id === folderId)?.name ?? ""}”`;
+          notify(`Przeniesiono ${filesLabel(res.moved)} do ${target}`);
+        },
+        onError: (err) => setError(apiErrorMessage(err, "Nie udało się przenieść plików.")),
+      },
+    );
+  };
+
+  const createFolder = (name: string) => {
+    const ids = newFolderFiles ?? [];
+    mutations.createFolder.mutate(
+      { name, document_ids: ids },
+      {
+        onSuccess: (res) => {
+          setNewFolderFiles(null);
+          setNewFolderError("");
+          setSelected(new Set());
+          expand(String(res.folder.id));
+          notify(
+            res.moved > 0
+              ? `Utworzono folder „${res.folder.name}” i przeniesiono ${filesLabel(res.moved)}`
+              : `Utworzono folder „${res.folder.name}”`,
+          );
+        },
+        onError: (err) =>
+          setNewFolderError(apiErrorMessage(err, "Nie udało się utworzyć folderu.")),
+      },
+    );
+  };
+
+  const renameFolder = async (folder: FolderSection, name: string): Promise<boolean> => {
     try {
-      await openContractDocument(contractId, doc);
-    } catch {
-      setError(`Nie udało się otworzyć pliku "${doc.filename}".`);
-    } finally {
-      setBusyId(null);
+      if (folder.auto) await mutations.renameOrdersFolder.mutateAsync(name);
+      else await mutations.renameFolder.mutateAsync({ folderId: Number(folder.id), name });
+      setError("");
+      return true;
+    } catch (err) {
+      setError(apiErrorMessage(err, "Nie udało się zmienić nazwy folderu."));
+      return false;
     }
   };
 
-  const handleDownload = async (doc: ContractDocument) => {
-    setBusyId(doc.id);
-    setError("");
-    try {
-      await downloadContractDocument(contractId, doc);
-    } catch {
-      setError(`Nie udało się pobrać pliku "${doc.filename}".`);
-    } finally {
-      setBusyId(null);
-    }
+  const deleteFolder = async (folder: FolderSection) => {
+    const docIds = folder.rows.flatMap((r) => (r.kind === "doc" ? [r.doc.id] : []));
+    const ok = await askConfirm({
+      title: `Usunąć folder „${folder.name}”?`,
+      description:
+        docIds.length > 0
+          ? `Usuwasz tylko folder. ${filesLabel(docIds.length)} ${pluralForm(docIds.length, "zostaje i wraca", "zostają i wracają", "zostaje i wraca")} do sekcji „Aktualna umowa”. Niczego nie kasujemy w SharePoincie.`
+          : "Folder jest pusty. Niczego nie kasujemy w SharePoincie.",
+      confirmLabel: "Usuń folder",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    mutations.deleteFolder.mutate(Number(folder.id), {
+      onSuccess: (res) => {
+        setError("");
+        const message =
+          res.released > 0
+            ? `Folder usunięty · ${filesLabel(res.released)} ${pluralForm(res.released, "wrócił", "wróciły", "wróciło")} do „Aktualnej umowy”`
+            : "Folder usunięty";
+        if (toast) {
+          toast.showActionToast(message, {
+            actionLabel: "Cofnij",
+            onAction: () =>
+              mutations.createFolder.mutate(
+                { name: folder.name, document_ids: docIds },
+                {
+                  onError: (err) =>
+                    setError(apiErrorMessage(err, "Nie udało się przywrócić folderu.")),
+                },
+              ),
+          });
+        }
+      },
+      onError: (err) => setError(apiErrorMessage(err, "Nie udało się usunąć folderu.")),
+    });
   };
 
-  const docs = data ?? [];
+  const applySuggestion = () => {
+    if (!suggestion) return;
+    const onError = (err: unknown) =>
+      setError(apiErrorMessage(err, "Nie udało się przenieść plików."));
+    if (suggestion.folder_id != null) {
+      const folderId = suggestion.folder_id;
+      mutations.moveDocuments.mutate(
+        { document_ids: suggestion.document_ids, folder_id: folderId },
+        {
+          onSuccess: (res) => {
+            expand(String(folderId));
+            notify(`Przeniesiono ${filesLabel(res.moved)} do folderu „${suggestion.folder_name}”`);
+          },
+          onError,
+        },
+      );
+      return;
+    }
+    mutations.createFolder.mutate(
+      { name: suggestion.folder_name, document_ids: suggestion.document_ids },
+      {
+        onSuccess: (res) => {
+          expand(String(res.folder.id));
+          notify(`Utworzono folder „${res.folder.name}” i przeniesiono ${filesLabel(res.moved)}`);
+        },
+        onError,
+      },
+    );
+  };
+
+  const dismissSuggestion = () => {
+    if (!suggestion) return;
+    const next = new Set(dismissed).add(suggestion.number);
+    setDismissed(next);
+    writeDismissed(contractId, next);
+  };
+
+  const showSelect = !readOnly;
+  const colCount = showSelect ? 7 : 6;
+  const hasAnything = sections.current.length > 0 || sections.folders.length > 0;
+  const selectedNames = (newFolderFiles ?? []).map((id) => docsById.get(id)?.filename ?? "");
 
   return (
     <div className="space-y-4">
-      {/* W trybie odczytu nie ma panelu wgrywania, a z nim miejsca na błąd —
-          nieudane otwarcie/pobranie kończyło się ciszą. */}
-      {readOnly && error && (
+      {error && (
         <div
           role="alert"
-          className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2 flex items-center gap-2"
+          className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
-          <AlertCircle className="w-4 h-4" /> {error}
+          <AlertCircle className="h-4 w-4" /> {error}
         </div>
       )}
-      {!readOnly && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
-                Typ dokumentu
-              </label>
-              <select
-                value={docType}
-                onChange={(e) => setDocType(e.target.value)}
-                className="px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+
+      <div className="rounded-2xl bg-card shadow-xs dark:bg-muted">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+          <h3 className="text-sm font-semibold">Dokumenty</h3>
+          {!readOnly && (
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setNewFolderError("");
+                  setNewFolderFiles([]);
+                }}
               >
-                {DOC_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
-                Data ważności (opcjonalnie)
-              </label>
-              <input
-                type="date"
-                value={expiryDate}
-                onChange={(e) => setExpiryDate(e.target.value)}
-                className="px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadMutation.isPending}
-              className="flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
-            >
-              {uploadMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Upload className="w-4 h-4" />
-              )}
-              Wgraj plik
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-              onChange={handleFileChange}
-            />
-          </div>
-          {error && (
-            <div className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" /> {error}
+                <FolderPlus className="h-4 w-4" /> Nowy folder
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setUploadError("");
+                  setUploadOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" /> Dodaj plik
+              </Button>
             </div>
           )}
-          <div className="text-xs text-muted-foreground dark:text-muted-foreground">
-            Maks. 20 MB. PDF / DOCX / JPG / PNG. Dla OC i NIP ustaw datę ważności —
-            system powiadomi o wygaśnięciu.
-          </div>
         </div>
-      )}
 
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-x-auto">
-        {isLoading ? (
-          <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
-            <Loader2 className="w-5 h-5 inline-block animate-spin mr-2" />
-            Ładowanie dokumentów…
+        {foldersQuery.isError && (
+          <div className="px-4 pb-3">
+            <QueryStateNotice
+              state="error"
+              description="Nie udało się wczytać folderów — pliki widać na jednej liście."
+              onRetry={() => foldersQuery.refetch()}
+            />
           </div>
-        ) : docs.length === 0 ? (
-          <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
-            Brak załączonych dokumentów.
+        )}
+        {orderFilesQuery.isError && orderFilesStatus !== 403 && (
+          <div className="px-4 pb-3">
+            <QueryStateNotice
+              state="error"
+              description="Nie udało się wczytać plików z zakładki Zamówienia."
+              onRetry={() => orderFilesQuery.refetch()}
+            />
           </div>
-        ) : (
-          <table className="w-full min-w-[36rem] text-sm">
-            <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
-              <tr>
-                <th className="sticky left-0 z-10 bg-muted text-left px-4 py-2">Plik</th>
-                <th className="text-left px-4 py-2">Typ</th>
-                <th className="text-left px-4 py-2">Rozmiar</th>
-                <th className="text-left px-4 py-2">Ważny do</th>
-                <th className="text-left px-4 py-2">Dodano</th>
-                <th className="text-right px-4 py-2">Akcje</th>
-              </tr>
-            </thead>
-            <tbody>
-              {docs.map((d) => {
-                const Icon = TYPE_ICON[d.doc_type] ?? FileText;
-                const isExpiringSoon =
-                  d.expiry_date &&
-                  new Date(d.expiry_date).getTime() - Date.now() <=
-                    30 * 24 * 60 * 60 * 1000;
-                return (
-                  <tr
-                    key={d.id}
-                    className="border-t border-border dark:border-border"
+        )}
+
+        {suggestion && (
+          <FolderSuggestionBanner
+            suggestion={suggestion}
+            currentNumber={foldersQuery.data?.current_contract_number ?? null}
+            readOnly={readOnly}
+            pending={mutations.createFolder.isPending || mutations.moveDocuments.isPending}
+            onApply={applySuggestion}
+            onSelect={() => setSelected(new Set(suggestion.document_ids))}
+            onDismiss={dismissSuggestion}
+          />
+        )}
+
+        {!readOnly && selected.size > 0 && (
+          <SelectionBar
+            count={selected.size}
+            folders={folders}
+            pending={mutations.moveDocuments.isPending}
+            onMove={moveSelected}
+            onNewFolder={() => {
+              setNewFolderError("");
+              setNewFolderFiles([...selected]);
+            }}
+            onCancel={() => setSelected(new Set())}
+          />
+        )}
+
+        <div className="relative overflow-x-auto">
+          {docsQuery.isLoading || foldersQuery.isLoading ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              <Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />
+              Ładowanie dokumentów…
+            </div>
+          ) : docsQuery.isError ? (
+            <div className="p-4">
+              <QueryStateNotice
+                state="error"
+                description="Nie udało się wczytać dokumentów."
+                onRetry={() => docsQuery.refetch()}
+              />
+            </div>
+          ) : docsQuery.isSuccess && !hasAnything ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              Brak załączonych dokumentów.
+            </div>
+          ) : (
+            <table className="w-full min-w-[44rem] text-sm">
+              <thead className="bg-muted text-xs uppercase text-muted-foreground dark:bg-muted/40">
+                <tr>
+                  {showSelect && (
+                    <th className="w-10 pl-4 pr-0">
+                      <span className="sr-only">Zaznacz</span>
+                    </th>
+                  )}
+                  <th className={`sticky left-0 z-10 bg-muted ${TH}`}>Plik</th>
+                  <th className={TH}>Typ</th>
+                  <th className={TH}>Rozmiar</th>
+                  <th className={TH}>Ważny do</th>
+                  <th className={TH}>Dodano</th>
+                  <th className="px-4 py-2 text-right">Akcje</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th
+                    scope="colgroup"
+                    colSpan={colCount}
+                    className="px-4 pb-1.5 pt-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                   >
-                    <td className="sticky left-0 z-10 bg-card dark:bg-muted px-4 py-2">
-                      <div className="flex max-w-[14rem] items-center gap-2 sm:max-w-none">
-                        <Icon className="w-4 h-4 shrink-0 text-muted-foreground" />
-                        <button
-                          type="button"
-                          onClick={() => handleOpen(d)}
-                          disabled={busyId === d.id}
-                          className="min-w-0 break-words text-primary hover:underline dark:text-primary text-left disabled:opacity-60"
-                          title="Otwórz"
-                        >
-                          {d.filename}
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-4 py-2">
-                      {DOC_TYPE_LABEL[d.doc_type] ?? d.doc_type}
-                      <SharePointBadge doc={d} />
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground dark:text-muted-foreground">
-                      {formatBytes(d.size_bytes)}
-                    </td>
-                    <td className="px-4 py-2">
-                      {d.expiry_date ? (
-                        <span
-                          className={
-                            isExpiringSoon
-                              ? "text-orange-600 font-medium"
-                              : "text-muted-foreground dark:text-muted-foreground"
-                          }
-                        >
-                          {formatDate(d.expiry_date)}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground dark:text-muted-foreground">
-                      {formatDate(d.created_at)}
-                      {d.uploaded_by_email && (
-                        <span className="block opacity-70">
-                          {d.uploaded_by_email}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <div className="inline-flex gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleDownload(d)}
-                          disabled={busyId === d.id}
-                          className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground dark:text-muted-foreground disabled:opacity-50"
-                          title="Pobierz"
-                          aria-label={`Pobierz ${d.filename}`}
-                        >
-                          {busyId === d.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Download className="w-4 h-4" />
-                          )}
-                        </button>
-                        {!readOnly &&
-                          (confirmDeleteId === d.id ? (
-                            <span className="inline-flex items-center gap-1 text-xs">
-                              <span className="text-muted-foreground">Usunąć?</span>
-                              <button
-                                type="button"
-                                onClick={() => deleteMutation.mutate(d.id)}
-                                disabled={deleteMutation.isPending}
-                                aria-label={`Potwierdź usunięcie ${d.filename}`}
-                                className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
-                              >
-                                Usuń
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteId(null)}
-                                aria-label="Anuluj usuwanie"
-                                className="rounded p-1 hover:bg-muted"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => setConfirmDeleteId(d.id)}
-                              disabled={deleteMutation.isPending}
-                              className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
-                              title="Usuń"
-                              aria-label={`Usuń ${d.filename}`}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          ))}
-                      </div>
+                    Aktualna umowa
+                    <span className="ml-2 font-normal normal-case tracking-normal">
+                      pliki poza folderami
+                    </span>
+                  </th>
+                </tr>
+                {sections.current.length === 0 && (
+                  <tr className="border-t border-border">
+                    <td colSpan={colCount} className="px-4 py-3 text-sm text-muted-foreground">
+                      Wszystkie pliki są w folderach.
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+                )}
+                {sections.current.map((row) => (
+                  <DocumentFileRow
+                    key={row.key}
+                    row={row}
+                    contractId={contractId}
+                    indented={false}
+                    readOnly={readOnly}
+                    selected={row.kind === "doc" && selected.has(row.doc.id)}
+                    onToggle={toggleSelected}
+                    onDelete={deleteDocument}
+                    onError={setError}
+                  />
+                ))}
+              </tbody>
+              {sections.folders.length > 0 && (
+                <tbody>
+                  <tr>
+                    <th
+                      scope="colgroup"
+                      colSpan={colCount}
+                      className="border-t border-border px-4 pb-1.5 pt-4 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      Foldery
+                    </th>
+                  </tr>
+                  {sections.folders.map((folder) => {
+                    const key = sectionKey(folder);
+                    const isOpen = expanded.has(key);
+                    return (
+                      <Fragment key={key}>
+                        <FolderHeaderRow
+                          folder={folder}
+                          expanded={isOpen}
+                          readOnly={readOnly}
+                          onToggle={() => toggleExpanded(key)}
+                          onRename={(name) => renameFolder(folder, name)}
+                          onDelete={() => void deleteFolder(folder)}
+                        />
+                        {isOpen &&
+                          folder.rows.map((row) => (
+                            <DocumentFileRow
+                              key={row.key}
+                              row={row}
+                              contractId={contractId}
+                              indented
+                              readOnly={readOnly}
+                              selected={row.kind === "doc" && selected.has(row.doc.id)}
+                              onToggle={toggleSelected}
+                              onDelete={deleteDocument}
+                              onError={setError}
+                            />
+                          ))}
+                        {isOpen && folder.rows.length === 0 && (
+                          <tr className="border-t border-border">
+                            <td
+                              colSpan={colCount}
+                              className="py-3 pl-16 pr-4 text-sm text-muted-foreground"
+                            >
+                              Pusty folder — zaznacz pliki na liście i wybierz „Przenieś do”.
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              )}
+            </table>
+          )}
+        </div>
       </div>
 
-      {/* Dokumenty zamówień (PO) — ten sam plik co w zakładce Zamówienia. */}
-      <OrderDocumentsSection contractId={contractId} />
+      <NewFolderDialog
+        open={newFolderFiles !== null}
+        onOpenChange={(open) => {
+          if (!open) setNewFolderFiles(null);
+        }}
+        fileNames={selectedNames}
+        suggestions={nameSuggestions}
+        pending={mutations.createFolder.isPending}
+        error={newFolderError}
+        onSubmit={createFolder}
+      />
+      <UploadDocumentDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        folders={folders}
+        ordersFolderName={ordersName}
+        pending={uploadMutation.isPending}
+        error={uploadError}
+        onSubmit={handleUpload}
+      />
+      {confirmDialog}
     </div>
   );
 }

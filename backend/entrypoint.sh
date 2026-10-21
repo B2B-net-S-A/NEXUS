@@ -589,7 +589,7 @@ _ENUM_STATEMENTS = [
             );
         END IF;
     END $$""",
-    # 0494: powody „nie liczy się do hit ratio” (21.10.2026).
+    # 0502: powody „nie liczy się do hit ratio” (21.10.2026).
     "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'duplicate'",
     "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'no_match'",
     # LinkedIn employment tracking (migracja 0049_linkedin_employment).
@@ -785,6 +785,8 @@ _ENUM_STATEMENTS = [
     # 0482: rozmowa u klienta bez Prepu 2 (do DL) i próg pominięć (do HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skipped'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skip_threshold'",
+    # 0500: rozmowa u klienta przełożona albo odwołana (do ludzi pary).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_changed'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -1058,6 +1060,26 @@ except Exception as _contract_docs_sp_err:  # noqa: BLE001
     print(f"contract docs sharepoint DDL unavailable: {_contract_docs_sp_err!r}")
     _CONTRACT_DOCS_SP_DDL = []
 
+# Foldery w zakładce Dokumenty kontraktu (migracja 0494) — JEDNO źródło
+# z migracją (`app/services/contract_document_folders_schema.py`).
+try:
+    from app.services import contract_document_folders_schema as _contract_doc_folders
+
+    _CONTRACT_DOC_FOLDERS_DDL = list(_contract_doc_folders.TABLE_DDL)
+except Exception as _contract_doc_folders_err:  # noqa: BLE001
+    print(f"contract document folders DDL unavailable: {_contract_doc_folders_err!r}")
+    _CONTRACT_DOC_FOLDERS_DDL = []
+
+# Historia zmian wag rankingu (migracja 0501) — JEDNO źródło z migracją
+# (`app/services/ranking_weights_schema.py`).
+try:
+    from app.services import ranking_weights_schema as _ranking_weights_schema
+
+    _RANKING_WEIGHT_CHANGES_DDL = list(_ranking_weights_schema.TABLE_DDL)
+except Exception as _ranking_weights_err:  # noqa: BLE001
+    print(f"ranking weight changes DDL unavailable: {_ranking_weights_err!r}")
+    _RANKING_WEIGHT_CHANGES_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1105,6 +1127,8 @@ _COLUMN_STATEMENTS = [
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
     *_CONTRACT_DOCS_SP_DDL,
+    *_CONTRACT_DOC_FOLDERS_DDL,
+    *_RANKING_WEIGHT_CHANGES_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -2247,7 +2271,7 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_jobs_closed_at ON jobs(closed_at)",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_reason jobclosereason",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_notes TEXT",
-    # 0494: rekrutacja, która zostaje, gdy zamykana jest duplikatem.
+    # 0502: rekrutacja, która zostaje, gdy zamykana jest duplikatem.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS duplicate_of_job_id INTEGER "
     "NULL REFERENCES jobs(id) ON DELETE SET NULL",
     # LinkedIn tracking (migracja 0049_linkedin_employment): 7 kolumn na
@@ -5144,6 +5168,50 @@ END $$""",
     "signature_requested_at TIMESTAMPTZ",
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
     "signature_requested_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    # 0496: podpisany plik umowy przy wierszu rejestru Generatora.
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
+    "signed_document_id INTEGER REFERENCES contract_documents(id) ON DELETE SET NULL",
+    # 0499: wnioski o podpis umowy B2B w NEXUSIE (kontraktor → firma).
+    """CREATE TABLE IF NOT EXISTS b2b_signing_requests (
+           id SERIAL PRIMARY KEY,
+           generated_contract_id INTEGER NOT NULL
+               REFERENCES b2b_generated_contracts (id) ON DELETE CASCADE,
+           status VARCHAR(24) NOT NULL DEFAULT 'sent',
+           contractor_name VARCHAR(255) NOT NULL,
+           contractor_email VARCHAR(255) NOT NULL,
+           contractor_token_hash VARCHAR(64) UNIQUE,
+           contractor_failed_attempts INTEGER NOT NULL DEFAULT 0,
+           company_signer_id INTEGER REFERENCES users (id) ON DELETE SET NULL,
+           source_pdf_path VARCHAR(512) NOT NULL,
+           source_sha256 VARCHAR(64) NOT NULL,
+           source_size INTEGER NOT NULL,
+           contractor_pdf_path VARCHAR(512),
+           contractor_sha256 VARCHAR(64),
+           contractor_size INTEGER,
+           final_pdf_path VARCHAR(512),
+           validation JSONB,
+           sent_by INTEGER REFERENCES users (id) ON DELETE SET NULL,
+           sent_at TIMESTAMPTZ NOT NULL,
+           expires_at TIMESTAMPTZ NOT NULL,
+           contractor_signed_at TIMESTAMPTZ,
+           completed_at TIMESTAMPTZ,
+           closed_at TIMESTAMPTZ,
+           closed_by INTEGER REFERENCES users (id) ON DELETE SET NULL,
+           close_reason TEXT,
+           last_reminder_at TIMESTAMPTZ,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           CONSTRAINT ck_b2b_signing_requests_status CHECK (
+               status IN ('sent', 'contractor_signed', 'completed', 'withdrawn', 'expired')
+           )
+       )""",
+    "CREATE INDEX IF NOT EXISTS ix_b2b_signing_requests_generated_contract_id "
+    "ON b2b_signing_requests (generated_contract_id)",
+    "CREATE INDEX IF NOT EXISTS ix_b2b_signing_requests_company_signer_id "
+    "ON b2b_signing_requests (company_signer_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_b2b_signing_requests_open_per_row "
+    "ON b2b_signing_requests (generated_contract_id) "
+    "WHERE status IN ('sent', 'contractor_signed')",
     # 0366: multiposting — kolumny kolejki publikacji w portalach.
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",
@@ -5391,6 +5459,9 @@ END $$""",
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS md_optional_total NUMERIC(16, 6) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
+    # 0493: to samo przy wpisie kosztowym (zakładka „Zużycie” zamówienia kosztowego).
+    "ALTER TABLE client_order_invoice_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
+    "ALTER TABLE client_order_invoice_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
     # 0317: etap „Ogłoszenia" (`posting`) — pierwsza kolumna kanbana przed „Nowi",
     # poczekalnia dla kandydatów z portali (auto-match). Enum + stage def w KAŻDYM
     # szablonie (trik +1000/-999, bo UNIQUE (template_id, order) nie jest DEFERRABLE).
@@ -5818,6 +5889,11 @@ END $$""",
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE job_public_profiles "
     "ADD COLUMN IF NOT EXISTS theme VARCHAR(32) NULL",
+    # 0495: pola karty, które klient dokłada do minimum przed „Zweryfikowany”
+    # (decyzja Artura 21.10.2026). Lustro 1:1 z migracją — pilnuje
+    # `test_playbook_verified_required_mirror.py`.
+    "ALTER TABLE client_playbooks "
+    "ADD COLUMN IF NOT EXISTS verified_required_fields JSONB NULL",
     # 0489: „O mnie” rekrutera na stałym linku (najwyżej 280 znaków).
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE candidate_invite_links "
@@ -9208,12 +9284,14 @@ _CONSTRAINT_STATEMENTS = [
     # 0351: 'non_positive_amount' — korekta faktury / kwota ≤ 0 (FIN-MD-06).
     # 0391: 'invoice_unreadable' (nieczytelna faktura, MD zostają) i
     # 'order_exhausted' (faktura na wyczerpane zamówienie kosztowe).
+    # 0493: 'manual_kept' (za ten miesiąc linia ma ręczny wpis kosztowy).
     """DO $$ BEGIN
         ALTER TABLE md_consumption_import_rows
             ADD CONSTRAINT ck_md_import_rows_cost_status
             CHECK (cost_status IS NULL OR cost_status IN (
                 'applied', 'unmatched_number', 'unmatched_consultant',
-                'non_positive_amount', 'invoice_unreadable', 'order_exhausted'
+                'non_positive_amount', 'invoice_unreadable', 'order_exhausted',
+                'manual_kept'
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0351: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
@@ -9493,6 +9571,13 @@ _CONSTRAINT_STATEMENTS = [
     """DO $$ BEGIN
         ALTER TABLE client_order_md_consumptions
             ADD CONSTRAINT ck_md_consumptions_status
+            CHECK (status IS NULL OR status IN ('accepted', 'protocol'));
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    # 0493: status i notatka ręcznego wpisu kosztowego (zakładka „Zużycie”).
+    """DO $$ BEGIN
+        ALTER TABLE client_order_invoice_consumptions
+            ADD CONSTRAINT ck_invoice_consumptions_status
             CHECK (status IS NULL OR status IN ('accepted', 'protocol'));
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",

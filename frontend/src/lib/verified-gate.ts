@@ -7,7 +7,7 @@
  * Rekrutacja bez pytań screeningowych nie ma arkusza do wypełnienia — tam
  * serwer wymaga „Dlaczego ten kandydat” (`why_candidate`, 12.10.2026).
  * Serwer odmawia 409 `VERIFIED_REQUIREMENTS_MISSING`; ekran otwiera to,
- * czego brakuje.
+ * czego brakuje. Od 21.10.2026 także minimum dla Delivery Leada (`cardFields`).
  *
  * D2: ręczny ruch na „Zatrudniony” mówi, jak podpisano umowę. Umowa B2B
  * z Generatora przesuwa kartę sama („Oznacz jako podpisaną”).
@@ -17,6 +17,12 @@ export type VerifiedRequirement = "screening_sheet" | "why_candidate" | "candida
 
 export interface VerifiedRequirementsMissing {
   missing: VerifiedRequirement[];
+  /**
+   * Pola karty z minimum dla Delivery Leada (21.10.2026): lokalizacja, tryb
+   * pracy, dostępność, „Dlaczego ten kandydat” i pola dołożone przez klienta.
+   * Klucze jak w formularzu screeningu (`card.<klucz>`).
+   */
+  cardFields: string[];
   /** Wiersz etapu, na którym otworzyć arkusz screeningu. */
   screeningStageId: number | null;
   message: string;
@@ -26,7 +32,13 @@ export function verifiedRequirementsOf(error: unknown): VerifiedRequirementsMiss
   const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
     ?.response;
   const detail = response?.data?.detail as
-    | { code?: unknown; missing?: unknown; screening_stage_id?: unknown; message?: unknown }
+    | {
+        code?: unknown;
+        missing?: unknown;
+        card_fields?: unknown;
+        screening_stage_id?: unknown;
+        message?: unknown;
+      }
     | undefined;
   if (response?.status !== 409 || !detail || detail.code !== "VERIFIED_REQUIREMENTS_MISSING") {
     return null;
@@ -37,8 +49,12 @@ export function verifiedRequirementsOf(error: unknown): VerifiedRequirementsMiss
           key === "screening_sheet" || key === "why_candidate" || key === "candidate_rate",
       )
     : [];
+  const cardFields = Array.isArray(detail.card_fields)
+    ? detail.card_fields.filter((key): key is string => typeof key === "string" && key.trim() !== "")
+    : [];
   return {
     missing,
+    cardFields,
     screeningStageId:
       typeof detail.screening_stage_id === "number" ? detail.screening_stage_id : null,
     message:

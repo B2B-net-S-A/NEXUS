@@ -64,8 +64,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
 - **A. Publikacja:** w transakcji kończącej przegląd, w savepoincie
   (`publish_on_finish`, nigdy nie rzuca): WSZYSTKIE wiersze
   `eligible ∧ measured ∧ fit_score ≥ AUTO_FULL_REVIEW_MIN_SCORE`
-  (osobny próg — przegląd punktuje kanonicznym fitem, auto-match starszym
-  scoringiem), które
+  (osobny próg, ta sama skala co `AUTO_MATCH_MIN_SCORE` od 21.10.2026), które
   przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
   CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
   `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
@@ -108,6 +107,24 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `NotificationType.auto_match_proposals` — JEDEN dzienny digest na
   (rekrutacja, odbiorca), link `/jobs/{id}?tab=similar`; kolejne propozycje
   tego dnia PODBIJAJĄ licznik w tym samym wpisie i odznaczają „przeczytane".
+- **B. Wynik pary = „Dop.” (21.10.2026).** `run_candidate_event` i
+  `run_job_event` liczą przez `auto_match_service._canonical_scored`:
+  `canonical_fit.score_candidates` z profilem `resolve_active_profile(user_id=None,
+  client_id=job.client_id)`, jak nocny przegląd (A). Do tej daty wołały stary
+  `rank_jobs_for_candidate` / `rank_candidates_for_job` z `DEFAULT_PROFILE`
+  (warstwa screeningu, semantyka z wektora treści oferty), więc próg 70 był inną
+  skalą niż procent na ekranach, a panel wag HoR go nie dotyczył. Kanoniczny fit
+  nie niesie kar ani ostrzeżeń — czarną listę, konflikt i wykluczenie klienta
+  liczy dalej `scoring_service._check_penalties_and_warnings` (`penalized`).
+  Para bez pomiaru nie dostaje decyzji: awaria pomiaru (`unavailable`, także
+  jednej paczki) cofa całe zdarzenie do kolejki (`AutoMatchUnavailable`, przed
+  zapisem); nieaktualny wektor CV (`stale`, `missing_index` — reconciler
+  dogania go co 300 s) zostawia parę bez decyzji, zdarzenie kończy się `done`
+  z `result.unmeasured`, a osobę ocenia nocny przegląd (A). Zdarzenie CV liczy
+  wektory zapytań paczkami (`full_search_measurement.warm_request_vectors`,
+  porcje po `_WARM_CHUNK` = 64), bo ocenia średnio 74 rekrutacje. Wyników `candidate_auto_match_log.score` sprzed 21.10.2026
+  nie porównuj z nowszymi — to inny scorer (reguła „nie porównuj metryk między
+  scorerami” w `kandydaci-wyszukiwanie/talent-radar-…md`).
 - **C. Jedna ścieżka walidacji z kliknięciem rekrutera:**
   `api.cv_generator_b2b.enqueue_candidate_generation` (wyjęta z `POST /generate`;
   kontrakt kwoty w `test_cv_generator_ai_master_toggle.py`). Automat nie ma

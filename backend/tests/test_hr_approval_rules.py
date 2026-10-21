@@ -222,6 +222,13 @@ def test_bonus_description_carries_the_contract_basis() -> None:
         service.bonus_description("§ 6 ust. 2")
         == "Premia poza umową · podstawa: § 6 ust. 2"
     )
+    # B2B i zlecenie: „wynagrodzenie dodatkowe”, nie „premia poza umową” (21.10.2026).
+    for form in ("b2b", "zlecenie"):
+        assert (
+            service.bonus_description("§ 6 ust. 2", form)
+            == "Wynagrodzenie dodatkowe · podstawa: § 6 ust. 2"
+        )
+    assert service.bonus_description(None, "uop") == "Premia poza umową"
 
 
 def test_nobody_decides_about_own_bonus() -> None:

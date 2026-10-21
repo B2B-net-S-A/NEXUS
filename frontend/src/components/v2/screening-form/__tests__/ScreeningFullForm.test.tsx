@@ -634,6 +634,89 @@ describe("ScreeningFullForm — rekrutacja bez pytań screeningowych (12.10.2026
   });
 });
 
+describe("ScreeningFullForm — minimum dla Delivery Leada (21.10.2026)", () => {
+  const forward = { stage: "verified", stageDefId: 12, label: "Zweryfikowany" };
+  const carried = {
+    location: { raw: "Warszawa", at: "2026-10-20T10:00:00+00:00", job_id: 7, job_title: "Java Developer — Bank A" },
+  };
+
+  function minimumState(overrides: Partial<ScreeningFormState["card"]> = {}): ScreeningFormState {
+    const base = formState().card!;
+    return formState({
+      board_column: "screening",
+      card: {
+        ...base,
+        labels: { ...base.labels, location: "Lokalizacja" },
+        editable_fields: [...base.editable_fields, "location"],
+        required: ["location", "work_mode", "availability", "recommendation"],
+        ...overrides,
+      },
+    });
+  }
+
+  it("lokalizacja z innej rekrutacji wpisuje się sama, mówi skąd i zapisuje z „Zapisz”", async () => {
+    serverState = minimumState({ carried });
+    mocks.put.mockImplementation(() => Promise.resolve({ data: formSaveResult(serverState) }));
+    const user = userEvent.setup();
+    mount({ forward });
+
+    expect(await screen.findByLabelText("Lokalizacja")).toHaveValue("Warszawa");
+    expect(
+      screen.getByText("z rozmowy 20.10.2026 · Java Developer — Bank A — sprawdź i zapisz"),
+    ).toBeInTheDocument();
+    // Sama podpowiedź nie zapala „Niezapisanych zmian”.
+    expect(screen.queryByText("Niezapisane zmiany")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    expect(lastPut().card?.fields).toMatchObject({ location: "Warszawa" });
+  });
+
+  it("bez pól minimum nie zapisuje i nie przesuwa — stopka i komunikat mówią, czego brakuje", async () => {
+    serverState = minimumState();
+    const user = userEvent.setup();
+    mount({ forward });
+    const answers = await screen.findAllByLabelText("Odpowiedź");
+    await user.type(answers[0], "6 lat");
+    await user.type(answers[1], "Tak, 2 lata");
+    await user.type(screen.getByLabelText("Kwota"), "150");
+    await user.type(screen.getByLabelText("Lokalizacja"), "-");
+
+    expect(screen.getByTestId("screening-form-minimum")).toHaveTextContent(
+      "Minimum dla Delivery Leada — brakuje: Lokalizacja, Tryb pracy, Dostępność, Dlaczego ten kandydat",
+    );
+    await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ }));
+    expect(mocks.showError).toHaveBeenCalledWith(
+      "Przed przekazaniem dalej uzupełnij: Lokalizacja, Tryb pracy, Dostępność, Dlaczego ten kandydat.",
+    );
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(screen.getAllByText("Delivery Lead potrzebuje tego pola").length).toBeGreaterThan(0);
+  });
+
+  it("z kompletem minimum stopka mówi „komplet” i ruch idzie dalej", async () => {
+    serverState = minimumState({ availability_in_profile: true });
+    mocks.put.mockImplementation(() =>
+      Promise.resolve({ data: formSaveResult(serverState, { process_state_version: 2 }) }),
+    );
+    mocks.send.mockResolvedValue({ ok: true, data: {} });
+    const user = userEvent.setup();
+    mount({ forward });
+    const answers = await screen.findAllByLabelText("Odpowiedź");
+    await user.type(answers[0], "6 lat");
+    await user.type(answers[1], "Tak, 2 lata");
+    await user.type(screen.getByLabelText("Kwota"), "150");
+    await user.type(screen.getByLabelText("Lokalizacja"), "Kraków");
+    await user.type(screen.getByLabelText("Tryb pracy"), "zdalnie");
+    await user.type(screen.getByLabelText("Dlaczego ten kandydat"), "6 lat w Javie w bankowości.");
+
+    expect(screen.getByTestId("screening-form-minimum")).toHaveTextContent("Minimum dla Delivery Leada: komplet");
+    await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+    expect(lastPut().card?.fields).toMatchObject({ location: "Kraków", work_mode: "zdalnie" });
+  });
+});
+
 describe("ScreeningFullForm — prośba Delivery Leada o poprawki (D6)", () => {
   const fixRequest = {
     version_no: 3,

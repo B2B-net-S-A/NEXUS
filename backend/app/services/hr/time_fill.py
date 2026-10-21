@@ -34,6 +34,7 @@ from app.models.hr_time import (
 )
 from app.models.user import User, UserRole
 from app.services.hr import audit, time_retention
+from app.services.hr.employment_terms import terms
 from app.services.hr.time_access import Actor
 from app.services.hr.time_calendar import month_calendar, month_range
 from app.services.hr.time_entries import (
@@ -340,7 +341,7 @@ async def fill_month(
     hours_per_day: Optional[Decimal] = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    hours = fill_hours(hours_per_day)
+    hours = fill_hours(hours_per_day, form=subject.employment_type)
     project = clean_project(project)
     chosen: Optional[str] = None
     if description and description.strip():
@@ -389,7 +390,7 @@ async def fill_month(
     }
 
 
-def fill_hours(raw: Optional[Decimal]) -> Decimal:
+def fill_hours(raw: Optional[Decimal], *, form: Optional[str] = None) -> Decimal:
     """Godziny dziennie w „Wypełnij miesiąc”: brak = 8, poza (0, 8] = 422."""
 
     if raw is None:
@@ -398,7 +399,7 @@ def fill_hours(raw: Optional[Decimal]) -> Decimal:
     if hours > STANDARD:
         raise TimeError(
             f"Wypełnianie wpisuje najwyżej {_fmt(STANDARD)} h dziennie — "
-            "nadgodziny wpisuje się w dniu, z uzasadnieniem."
+            f"{terms(form)['overtime_fill_note']}."
         )
     return hours
 

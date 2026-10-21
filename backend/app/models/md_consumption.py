@@ -100,6 +100,9 @@ COST_ROW_INVOICE_UNREADABLE = "invoice_unreadable"
 # Runda 10 (0391): numer wskazuje wyczerpane zamówienie kosztowe tej osoby —
 # faktura nierozliczona (R10-N5-6).
 COST_ROW_ORDER_EXHAUSTED = "order_exhausted"
+# 0493 (21.10.2026): za ten miesiąc linia ma ręczny wpis z zakładki „Zużycie” —
+# import go nie nadpisuje (decyzja Artura), faktura z arkusza czeka na decyzję.
+COST_ROW_MANUAL_KEPT = "manual_kept"
 COST_ROW_STATUSES: tuple[str, ...] = (
     COST_ROW_APPLIED,
     COST_ROW_UNMATCHED_NUMBER,
@@ -107,6 +110,7 @@ COST_ROW_STATUSES: tuple[str, ...] = (
     COST_ROW_NON_POSITIVE,
     COST_ROW_INVOICE_UNREADABLE,
     COST_ROW_ORDER_EXHAUSTED,
+    COST_ROW_MANUAL_KEPT,
 )
 
 COST_ROW_STATUS_LABELS: dict[str, str] = {
@@ -116,6 +120,7 @@ COST_ROW_STATUS_LABELS: dict[str, str] = {
     COST_ROW_NON_POSITIVE: "Korekta / kwota ≤ 0 — rozlicz ręcznie",
     COST_ROW_INVOICE_UNREADABLE: "Nieczytelna kwota faktury — rozlicz ręcznie",
     COST_ROW_ORDER_EXHAUSTED: "Zamówienie wyczerpane — faktura nierozliczona",
+    COST_ROW_MANUAL_KEPT: "Jest ręczny wpis za ten miesiąc — faktura pominięta",
 }
 
 
@@ -198,7 +203,8 @@ class MdConsumptionImportRow(Base):
         CheckConstraint(
             "cost_status IS NULL OR cost_status IN "
             "('applied', 'unmatched_number', 'unmatched_consultant', "
-            "'non_positive_amount', 'invoice_unreadable', 'order_exhausted')",
+            "'non_positive_amount', 'invoice_unreadable', 'order_exhausted', "
+            "'manual_kept')",
             name="ck_md_import_rows_cost_status",
         ),
         Index("ix_md_import_rows_import", "import_id"),
@@ -366,6 +372,10 @@ class ClientOrderInvoiceConsumption(Base, TimestampMixin):
             name="ck_invoice_consumptions_source",
         ),
         CheckConstraint(_PERIOD_MONTH_CHECK, name="ck_invoice_consumptions_period"),
+        CheckConstraint(
+            "status IS NULL OR status IN ('accepted', 'protocol')",
+            name="ck_invoice_consumptions_status",
+        ),
         Index(
             "ux_invoice_consumptions_order_month",
             "order_id",
@@ -400,6 +410,11 @@ class ClientOrderInvoiceConsumption(Base, TimestampMixin):
     już zastosowanego rozliczenia."""
 
     source: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    """0493: ``accepted`` | ``protocol`` | NULL — jak przy zejściu MD; status
+    opisuje etap rozliczenia miesiąca, kwota schodzi z budżetu niezależnie od niego."""
+    note: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

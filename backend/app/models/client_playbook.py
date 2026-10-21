@@ -77,6 +77,11 @@ class ClientPlaybook(Base, TimestampMixin):
     documents: Mapped[Optional[list]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql")
     )
+    # 0495 (21.10.2026, D3): klucze pól karty rekomendacji, które klient
+    # dokłada do minimum przed „Zweryfikowany” (np. ["motivation"]).
+    verified_required_fields: Mapped[Optional[list]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
 
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"

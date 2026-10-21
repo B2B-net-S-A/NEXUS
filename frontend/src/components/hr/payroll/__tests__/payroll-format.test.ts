@@ -221,6 +221,20 @@ describe("Moje premie", () => {
       bonuses_paid: { PLN: "1500.00" },
     });
     expect(nbsp(String(withSettlement.find((s) => s.id === "paid")?.value))).toBe("1500,00 zł");
+    expect(withSettlement.find((s) => s.id === "bonuses")?.label).toBe("premie przyznane w 2026");
+
+    // B2B i zlecenie: „wynagrodzenie dodatkowe”, nie „premie” (decyzja Artura 21.10.2026).
+    const settled = { year: 2026, months: [], bonuses_paid: { PLN: "1500.00" } };
+    for (const form of ["b2b", "zlecenie"] as const) {
+      const words = myStats(data, "2026-10-16", settled, form);
+      expect(words.find((s) => s.id === "bonuses")?.label).toBe(
+        "wynagrodzenie dodatkowe przyznane w 2026",
+      );
+      expect(words.find((s) => s.id === "paid")?.label).toBe(
+        "wynagrodzenie dodatkowe wypłacone w 2026",
+      );
+      expect(JSON.stringify(words)).not.toMatch(/premi/i);
+    }
   });
 });
 

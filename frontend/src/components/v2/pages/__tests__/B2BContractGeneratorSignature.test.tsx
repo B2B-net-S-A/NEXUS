@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   generated: vi.fn(),
   confirmFullySigned: vi.fn(),
+  attachSignedFile: vi.fn(),
   updateGenerated: vi.fn(),
   deleteGenerated: vi.fn(),
   downloadGenerated: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock("@/lib/api", () => ({
     generated: (...args: unknown[]) => mocks.generated(...args),
     confirmFullySigned: (...args: unknown[]) =>
       mocks.confirmFullySigned(...args),
+    attachSignedFile: (...args: unknown[]) => mocks.attachSignedFile(...args),
     updateGenerated: (...args: unknown[]) => mocks.updateGenerated(...args),
     deleteGenerated: (...args: unknown[]) => mocks.deleteGenerated(...args),
     downloadGenerated: (...args: unknown[]) =>
@@ -62,7 +64,6 @@ vi.mock("@/lib/api", () => ({
   },
   extractErrorMsg: (error: unknown) =>
     error instanceof Error ? error.message : "Błąd",
-  signingApi: {},
 }));
 
 import {
@@ -378,7 +379,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
     expect(
       within(dialog).getByText("To nie jest walidacja podpisu elektronicznego"),
     ).toBeInTheDocument();
-    expect(within(dialog).getByText(/nie utworzy pliku.*QES/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/NEXUS nie sprawdza podpisów/i)).toBeInTheDocument();
 
     const confirm = within(dialog).getByRole("button", {
       name: "Potwierdź podpisanie",
@@ -791,5 +792,140 @@ describe("GeneratedContractsTab — wyszukiwarka kandydata w potwierdzeniu podpi
     ).toBeInTheDocument();
     expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Ponów/ })).toBeInTheDocument();
+  });
+});
+
+describe("GeneratedContractsTab — podpisany plik umowy (0496)", () => {
+  const pdf = () =>
+    new File(["%PDF-1.7"], "umowa-podpisana.pdf", { type: "application/pdf" });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/jobs/20"
+        ? Promise.resolve({
+            data: { title: "Cloud Engineer", client_id: 3, client_name: "Nordea" },
+          })
+        : Promise.reject(new Error(`Unexpected GET ${url}`)),
+    );
+    mocks.confirmFullySigned.mockResolvedValue(confirmationResult("created"));
+  });
+
+  async function openDialog() {
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Oznacz jako podpisaną" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    await within(dialog).findByText("Cloud Engineer");
+    return dialog;
+  }
+
+  it("bez pliku potwierdza jak dotąd i niczego nie wgrywa", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    );
+    await waitFor(() => expect(mocks.confirmFullySigned).toHaveBeenCalled());
+    expect(mocks.attachSignedFile).not.toHaveBeenCalled();
+  });
+
+  it("wgrywa wybrany plik dopiero po udanym potwierdzeniu", async () => {
+    mocks.attachSignedFile.mockResolvedValue(generatedRow());
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    const file = pdf();
+    await userEvent.upload(
+      within(dialog).getByLabelText("Podpisana umowa (opcjonalnie)"),
+      file,
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    );
+    await waitFor(() =>
+      expect(mocks.attachSignedFile).toHaveBeenCalledWith(1, file),
+    );
+    expect(mocks.confirmFullySigned.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.attachSignedFile.mock.invocationCallOrder[0],
+    );
+    expect(mocks.showError).not.toHaveBeenCalled();
+  });
+
+  it("nieudany zapis pliku nie cofa podpisu i mówi, gdzie dołączyć plik", async () => {
+    mocks.attachSignedFile.mockRejectedValue(new Error("Plik jest pusty."));
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    await userEvent.upload(
+      within(dialog).getByLabelText("Podpisana umowa (opcjonalnie)"),
+      pdf(),
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    );
+    await waitFor(() => expect(mocks.showError).toHaveBeenCalled());
+    expect(mocks.showError.mock.calls[0][0]).toContain(
+      "plik nie został zapisany",
+    );
+    expect(mocks.showError.mock.calls[0][0]).toContain("Dołącz podpisaną umowę");
+  });
+
+  it("plik w złym formacie blokuje potwierdzenie z powodem", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    await userEvent.upload(
+      within(dialog).getByLabelText("Podpisana umowa (opcjonalnie)"),
+      new File(["PK"], "umowa.docx"),
+      { applyAccept: false },
+    );
+    expect(
+      within(dialog).getByText(
+        "Podpisana umowa musi być plikiem PDF, JPG albo PNG.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    ).toBeDisabled();
+  });
+
+  it("wiersz podpisany bez pliku daje „Dołącz podpisaną umowę”, z plikiem — link do Dokumentów", async () => {
+    mocks.attachSignedFile.mockResolvedValue(generatedRow());
+    const signed = {
+      signature_status: "signed_both" as const,
+      signature_source: "manual_confirmation" as const,
+      contract_id: 91,
+      can_confirm_signed: false,
+      can_delete: false,
+      can_edit: false,
+    };
+    renderTab([
+      generatedRow({ ...signed, id: 2, can_attach_signed_file: true }),
+      generatedRow({
+        ...signed,
+        id: 3,
+        contract_number: "1473/2026",
+        signed_document_id: 501,
+        can_attach_signed_file: true,
+      }),
+    ]);
+
+    expect(
+      await screen.findByRole("link", {
+        name: "Podpisana umowa 1473/2026 w Dokumentach kontraktu",
+      }),
+    ).toHaveAttribute("href", "/contracts/91?tab=documents");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Dołącz podpisaną umowę" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    const save = within(dialog).getByRole("button", { name: "Zapisz plik" });
+    expect(save).toBeDisabled();
+    const file = pdf();
+    await userEvent.upload(within(dialog).getByLabelText("Podpisana umowa"), file);
+    await userEvent.click(save);
+    await waitFor(() => expect(mocks.attachSignedFile).toHaveBeenCalledWith(2, file));
+    expect(mocks.showSuccess).toHaveBeenCalledWith(
+      "Podpisana umowa zapisana w Dokumentach kontraktu.",
+    );
   });
 });

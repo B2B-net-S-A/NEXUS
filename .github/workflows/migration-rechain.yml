@@ -1,0 +1,98 @@
+name: Przepnij migracje PR-ów
+
+# Po każdym pushu na main, który zmienia migracje, przepina migracje otwartych
+# PR-ów na nową głowę maina (21.10.2026). Powód: sesje dokładają migracje
+# z `down_revision` = czubek maina z chwili otwarcia PR-a; gdy dwie podepną się
+# w to samo miejsce, druga po scaleniu pierwszej ma dwie głowy Alembica
+# i wypada z kolejki. #2520 wypadł tak 6 razy w jeden dzień, a każda naprawa to
+# była ręczna zmiana nazwy, revision/down_revision i numeru w ~8 miejscach.
+#
+# Co robi: `.github/scripts/queue_rechain_migrations.py` — dla każdego
+# otwartego PR-a z plikiem w backend/alembic/versions (bez draftów,
+# `wstrzymaj`, forków) uruchamia `backend/scripts/rechain_migration.py`
+# w kopii Z MAINA, commituje i pushuje (bez force) na gałąź PR-a, potem
+# komentarz `<!-- migration-rechain -->`. Błąd albo odrzucony push = komentarz
+# z komendą do ręcznego przepięcia. Szybki sygnał w kolejce daje krok
+# „Jedna głowa Alembica” w ci-gate.yml (grupa pada po ~1–2 min, nie po ~25).
+#
+# TOKEN: push przez `secrets.QUEUE_BOT_TOKEN` (ten sam PAT co auto-enqueue:
+# Contents + Pull requests RW). NIE `GITHUB_TOKEN` — push tym tokenem nie
+# uruchamia workflowów PR-a, więc sito i auto-enqueue by nie ruszyły. PAT nie
+# ma uprawnienia „Workflows”, dlatego automat NIE scala maina do gałęzi PR-a
+# (scalony plik workflowu = odrzucony push). Komentarze idą `GITHUB_TOKEN`.
+# Kod z gałęzi PR-a nie jest wykonywany: skrypty są kopiowane z maina do
+# $RUNNER_TEMP przed checkoutem gałęzi, a migracje PR-a tylko parsowane (ast).
+#
+# Ręcznie: „Run workflow” z numerem PR-a (puste = wszystkie) i `dry_run`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/alembic/versions/**"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Numer PR-a (puste = wszystkie otwarte z migracją)"
+        required: false
+      dry_run:
+        description: "Tylko wypisz plan — bez commita, pushu i komentarza"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Po kolei: każdy bieg i tak pobiera najświeższego maina.
+concurrency:
+  group: migration-rechain
+  cancel-in-progress: false
+
+jobs:
+  rechain:
+    name: Przepnij migracje otwartych PR-ów
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Sprawdź token
+        id: token
+        env:
+          QUEUE_BOT_TOKEN: ${{ secrets.QUEUE_BOT_TOKEN }}
+        run: |
+          if [ -z "$QUEUE_BOT_TOKEN" ]; then
+            echo "::warning::Brak sekretu QUEUE_BOT_TOKEN — migracje PR-ów nie zostaną przepięte. Przepnij ręcznie: python3 backend/scripts/rechain_migration.py"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.token.outputs.ok == 'true'
+        with:
+          ref: main
+          # merge-base gałęzi PR-a z mainem wymaga historii.
+          fetch-depth: 0
+          token: ${{ secrets.QUEUE_BOT_TOKEN }}
+      - name: Skrypty z maina do katalogu tymczasowego
+        if: steps.token.outputs.ok == 'true'
+        run: |
+          cp backend/scripts/rechain_migration.py .github/scripts/queue_rechain_migrations.py "$RUNNER_TEMP/"
+      - name: Przepnij
+        if: steps.token.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          args=(--repo "$REPO" --workdir "$GITHUB_WORKSPACE" --script "$RUNNER_TEMP/rechain_migration.py")
+          if [ -n "${PR:-}" ]; then
+            args+=(--pr "$PR")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python3 "$RUNNER_TEMP/queue_rechain_migrations.py" "${args[@]}"
