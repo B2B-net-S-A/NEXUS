@@ -24,15 +24,16 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/invoices/dso": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "POST /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDD"
+  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/invoices/dso": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "POST /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDD"
  }
 }

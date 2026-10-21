@@ -7,10 +7,13 @@ import {
   defaultQueueMonth,
   formatHours,
   hoursLabel,
+  needsEntry,
   parseHours,
   queueHoursFill,
   queueHoursLabel,
   statusLine,
+  weekGroups,
+  weekTitle,
   wouldExceedDay,
 } from "../time-format";
 
@@ -149,5 +152,72 @@ describe("godziny w kolejce Akceptacji", () => {
     expect(queueHoursFill(0, 176)).toBe(0);
     expect(queueHoursFill(72, 0)).toBe(0);
     expect(queueHoursFill(72, null)).toBe(0);
+  });
+});
+
+describe("needsEntry / weekGroups / weekTitle", () => {
+  const base = {
+    is_weekend: false,
+    holiday: null,
+    day_off: null,
+    working_day: true,
+    location: "onsite" as const,
+    location_source: "default" as const,
+    attendance_status: null,
+    attendance_note: null,
+    leave: null,
+    entries: [],
+    hours: 0,
+    capacity: 8,
+    overtime_hours: 0,
+  };
+  const d = (
+    date: string,
+    weekday: number,
+    over: Partial<MonthDay> = {},
+  ): MonthDay => ({
+    ...base,
+    date,
+    weekday,
+    working_day: weekday < 6,
+    is_weekend: weekday >= 6,
+    ...over,
+  });
+
+  it("pusty dzień roboczy potrzebuje wpisu; urlop, weekend i wpisany — nie", () => {
+    expect(needsEntry(d("2031-03-05", 3))).toBe(true);
+    expect(needsEntry(d("2031-03-08", 6))).toBe(false);
+    expect(needsEntry(d("2031-03-04", 2, { capacity: null }))).toBe(false);
+    expect(needsEntry(d("2031-03-03", 1, { hours: 8, capacity: 0 }))).toBe(
+      false,
+    );
+  });
+
+  it("dzieli miesiąc na tygodnie od poniedziałku i liczy normę dni roboczych", () => {
+    const weeks = weekGroups(
+      [
+        d("2031-03-01", 6),
+        d("2031-03-02", 7),
+        d("2031-03-03", 1, { hours: 8 }),
+        d("2031-03-04", 2),
+      ],
+      8,
+    );
+    expect(weeks.map((w) => [w.start, w.end, w.hours, w.normHours])).toEqual([
+      ["2031-03-01", "2031-03-02", 0, 0],
+      ["2031-03-03", "2031-03-04", 8, 16],
+    ]);
+  });
+
+  it("tytuł tygodnia z jednym miesiącem, przełomem i jednym dniem", () => {
+    expect(weekTitle({ start: "2026-10-05", end: "2026-10-11" })).toBe(
+      "Tydzień 5–11.10",
+    );
+    expect(weekTitle({ start: "2026-09-28", end: "2026-10-04" })).toBe(
+      "Tydzień 28.09–4.10",
+    );
+    expect(weekTitle({ start: "2026-11-30", end: "2026-11-30" })).toBe(
+      "Tydzień 30.11",
+    );
   });
 });

@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/tacs/{user_id}": "PDDDDDDDDPDDDDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/team": "PPDPPDDDPPPDPPPPDPPPDDDDD",
-  "POST /api/clients/{client_id}/tacs": "PDDDDDDDDPDDDDDDDDDDDDDDD",
-  "PUT /api/clients/{client_id}/tacs/{user_id}/first-priority": "PDDDDDDDDPDDDDDDDDDDDDDDD",
-  "PUT /api/clients/{client_id}/tacs/{user_id}/toggle-primary": "PDDDDDDDDPDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/tacs/{user_id}": "PDDDDDDDDPDDDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/team": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
+  "POST /api/clients/{client_id}/tacs": "PDDDDDDDDPDDDDDDDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/tacs/{user_id}/first-priority": "PDDDDDDDDPDDDDDDDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/tacs/{user_id}/toggle-primary": "PDDDDDDDDPDDDDDDDDDDDDDDDD"
  }
 }

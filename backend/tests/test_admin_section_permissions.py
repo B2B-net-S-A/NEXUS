@@ -196,10 +196,12 @@ async def test_role_snapshot_carries_the_catalogue_and_derived_sections(
     assert set(policy["actions"]) == {"b2b_contract_generator", *catalog.KEYS}
 
     roles = {row["role"]: row for row in policy["roles"]}
+    # Rada nadzorcza (0490) tylko czyta Insights — nadania by ją otwierały.
     assert {role for role, row in roles.items() if not row["grantable"]} == {
         "admin",
         "user",
         "trainee",
+        "board",
     }
     finance = roles["finance"]
     assert finance["named"]["contracts_orders_edit"]["granted"] is True

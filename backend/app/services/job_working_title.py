@@ -65,6 +65,7 @@ _TRAILING_DIGITS = re.compile(r"(\d+)\s*$")
 # D4: kody Nordei, które odczyt maila brał za numer zapytania („PEP4989”, „TP#45854”).
 _INTERNAL_CODE = re.compile(r"^\s*(?:PEP|TP)(?![A-Za-z])", re.IGNORECASE)
 _PAREN_ONLY = re.compile(r"^\s*\(\s*(\d{4,6})\s*\)\s*$")
+_LETTER = re.compile(r"[^\W\d_]")
 
 
 def _clean(value: Any) -> str:
@@ -195,6 +196,32 @@ def reference_from_title(
     return ", ".join(found)[:CLIENT_REFERENCE_MAX] if found else None
 
 
+def reference_swallows_role(title: Optional[str], reference: Optional[str]) -> bool:
+    """Czy „numer u klienta” to w istocie nazwa roli z nazwy od klienta.
+
+    Po wycięciu takiego numeru z nazwy nie zostaje żadna litera. Produkcja
+    20.10.2026: „PL_IT_Developer_expert_TP#40379 (43020)” z numerem
+    „PL_IT_Developer_expert_TP#40379” — CV dostały nagłówek „(43020)”.
+    """
+    raw = _clean(title)
+    if not _LETTER.search(raw) or not client_reference_parts(reference):
+        return False
+    return not _LETTER.search(_strip_reference(raw, reference))
+
+
+def client_reference_for_title(
+    title: Optional[str],
+    reference: Any,
+    reference_number: Optional[str] = None,
+) -> Optional[str]:
+    """Numer u klienta do zapisu: nazwa roli w polu numeru ustępuje numerowi
+    z nazwy w znanym formacie (:func:`reference_from_title`) albo pustce."""
+    clean = normalize_client_reference(reference)
+    if clean and reference_swallows_role(title, clean):
+        return reference_from_title(title, reference_number)
+    return clean
+
+
 def _strip_reference(title: str, reference: Optional[str]) -> str:
     out = _ZOB.sub("", title)
     for part in client_reference_parts(reference):
@@ -278,15 +305,24 @@ def cv_role_title(
     albo jednego słowa z co najmniej 4 literami. Nigdy pusty napis, gdy tytuł
     był niepusty. QC CV porównuje nagłówek z tą samą wartością.
     """
-    # Tylko prefiks klienta ze strony kariery: jej usuwanie nawiasów z cyfrą
-    # zjadało „(K8s)” z nazwy roli.
-    from app.services.job_public_profile import _strip_client_prefix
-
     raw = _clean(title)
     if not raw:
         return ""
     names = list(client_names)
-    base = _clean(_strip_reference(raw, client_reference)) or raw
+    stripped = _clean(_strip_reference(raw, client_reference))
+    role = _role_without_codes(stripped or raw, names)
+    # 21.10.2026: „numer u klienta” będący całą nazwą roli zostawiał w nagłówku
+    # sam numer — „(43020) – Imię Nazwisko” (Nordea). Bez liter to nie rola.
+    if stripped != raw and not _LETTER.search(role):
+        role = _role_without_codes(raw, names)
+    return role
+
+
+def _role_without_codes(base: str, names: list[str]) -> str:
+    # Tylko prefiks klienta ze strony kariery: jej usuwanie nawiasów z cyfrą
+    # zjadało „(K8s)” z nazwy roli.
+    from app.services.job_public_profile import _strip_client_prefix
+
     text = _clean(_strip_client_prefix(base, names)) or base
     while True:
         before = text

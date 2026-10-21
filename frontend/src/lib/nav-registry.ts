@@ -52,6 +52,7 @@ import {
 } from "@/lib/section-access";
 import {
   hasRole,
+  isBoardOnly,
   isTraineeOnly,
   type User,
   type UserRole,
@@ -694,6 +695,8 @@ function featureFlagOn(
   }
 }
 
+const BOARD_NAV_IDS: ReadonlySet<string> = new Set(["insights", "help", "settings"]);
+
 function isEntryVisible(
   entry: NavEntry,
   user: NavUser,
@@ -702,6 +705,9 @@ function isEntryVisible(
   // Praktykant ma własną powłokę z jednym ekranem — żadnej pozycji menu,
   // także tych bez sekcji produktu (Pomoc, Ustawienia).
   if (isTraineeOnly(user)) return false;
+  // Rada nadzorcza (0490) ma tylko Insights, własne konto i Pomoc — reszta
+  // menu (np. „Mój czas”, gdy ma kartotekę) i tak odbiłaby w middleware.
+  if (isBoardOnly(user)) return BOARD_NAV_IDS.has(entry.id);
   const productSection = SECTION_META_BY_KEY.get(entry.section)?.section;
   return (
     (!productSection || hasSectionAccess(user, productSection)) &&

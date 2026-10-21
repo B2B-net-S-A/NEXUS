@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/champion/template": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/champion/preview": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/champion/validate": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/champion/template": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/champion/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/champion/validate": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

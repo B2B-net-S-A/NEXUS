@@ -45,6 +45,7 @@ import {
   weakestStepIndex,
   weakestStepSentence,
 } from "@/lib/insights-views";
+import { hasSectionAccess } from "@/lib/section-access";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { hasAnalyticsCapability, hasRole, useAuthStore } from "@/store/auth";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
@@ -255,6 +256,9 @@ export function ZespolView() {
 }
 
 function AttentionPanel() {
+  // „Pokaż listę” prowadzi do listy rekrutacji — bez sekcji Pipeline (Rada
+  // nadzorcza, 0490) zostaje odsyłacz do raportu, jeśli sygnał go ma.
+  const canOpenJobs = useAuthStore((s) => hasSectionAccess(s.user, "pipeline"));
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: insightsTeamSignalsQueryKeys.attention(),
     queryFn: () => insightsTeamSignalsApi.attention(),
@@ -282,7 +286,7 @@ function AttentionPanel() {
               </span>
               <div className="min-w-0 text-sm leading-snug">
                 <p className="text-foreground">{item.label}</p>
-                {item.href ? (
+                {item.href && canOpenJobs ? (
                   // Sygnały „Gdzie stoi” niosą gotowy adres listy rekrutacji —
                   // „Zobacz w tabeli” prowadziło je do tabeli ludzi.
                   <Link

@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "POST /api/recommendations/prepare-client-proposal": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/recommendations/send-candidate-shortlist-email": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "POST /api/recommendations/prepare-client-proposal": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/recommendations/send-candidate-shortlist-email": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

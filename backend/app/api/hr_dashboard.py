@@ -26,7 +26,7 @@ router = APIRouter()
 MODULE = HrModule.leave
 STAFF_DETAIL = "Zastępstwa widzą pracownicy firmy."
 #: Konta, które nie są ludźmi zatrudnionymi w firmie (jak „Nieobecni dziś”).
-_NOT_STAFF = {UserRole.automation, UserRole.user}
+_NOT_STAFF = {UserRole.automation, UserRole.user, UserRole.board}
 
 
 def require_hr_substitution_reader():

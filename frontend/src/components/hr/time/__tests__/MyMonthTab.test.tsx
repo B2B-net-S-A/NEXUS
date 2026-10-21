@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HrConfig } from "@/lib/api/hr";
@@ -310,7 +311,66 @@ describe("MyMonthTab", () => {
     );
   });
 
-  it("„Wypełnij miesiąc…” otwiera okno i wysyła godziny dziennie", async () => {
+  it("pusty dzień roboczy wpisuje się w wierszu — puste pole opisu = opis domyślny", async () => {
+    routeGet(month());
+    mocks.post.mockResolvedValue({ data: {} });
+    renderTab();
+
+    const row = await screen.findByTestId("day-2031-03-05");
+    expect(within(row).getByLabelText("Godziny 2031-03-05")).toHaveValue("8");
+    fireEvent.click(within(row).getByRole("button", { name: "Wpisz" }));
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith(
+        "/api/hr/time/me/2031/3/entries",
+        {
+          work_date: "2031-03-05",
+          hours: 8,
+          description: "Praca standardowa",
+          project: null,
+        },
+      ),
+    );
+    // Dzień z wpisem i dzień pełnego urlopu nie mają pól wpisu.
+    expect(
+      within(await screen.findByTestId("day-2031-03-03")).queryByRole(
+        "button",
+        { name: "Wpisz" },
+      ),
+    ).toBeNull();
+    expect(
+      within(screen.getByTestId("day-2031-03-04")).queryByRole("button", {
+        name: "Wpisz",
+      }),
+    ).toBeNull();
+  });
+
+  it("wpis w wierszu ponad pojemność dnia zatrzymuje się bez zapytania", async () => {
+    routeGet(month());
+    renderTab();
+
+    const row = await screen.findByTestId("day-2031-03-05");
+    fireEvent.change(within(row).getByLabelText("Godziny 2031-03-05"), {
+      target: { value: "9" },
+    });
+    fireEvent.click(within(row).getByRole("button", { name: "Wpisz" }));
+    expect(await within(row).findByRole("alert")).toHaveTextContent(
+      "Godziny od 0 do 8",
+    );
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("tydzień ma nagłówek z sumą godzin wobec normy, a nad siatką baner braków", async () => {
+    routeGet(month());
+    renderTab();
+
+    expect(await screen.findByTestId("week-2031-03-03")).toHaveTextContent(
+      "Tydzień 3–8.03 · 8 / 24 h",
+    );
+    expect(screen.getByText("Brakuje 19 dni roboczych.")).toBeInTheDocument();
+    expect(screen.getByText("8 / 168 h")).toBeInTheDocument();
+  });
+
+  it("„Wypełnij puste dni…” otwiera okno i wysyła godziny dziennie", async () => {
     routeGet(month());
     mocks.post.mockResolvedValue({
       data: {
@@ -328,7 +388,7 @@ describe("MyMonthTab", () => {
     await screen.findByTestId("day-2031-03-03");
     expect(mocks.post).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Wypełnij miesiąc…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Wypełnij puste dni…" }));
     fireEvent.change(await screen.findByLabelText("Godziny dziennie"), { target: { value: "7" } });
     fireEvent.click(screen.getByRole("button", { name: "Wypełnij" }));
     await waitFor(() =>
@@ -345,11 +405,14 @@ describe("MyMonthTab", () => {
     );
   });
 
-  it("„Szablony opisów” otwiera listę własnych szablonów", async () => {
+  it("„Więcej → Szablony opisów” otwiera listę własnych szablonów", async () => {
+    const user = userEvent.setup();
     routeGet(month());
     renderTab();
     await screen.findByTestId("day-2031-03-03");
-    fireEvent.click(screen.getByRole("button", { name: "Szablony opisów" }));
+    await user.click(screen.getByRole("button", { name: "Więcej" }));
+    expect(await screen.findByRole("menuitem", { name: "Wypełnij miesiąc…" })).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Szablony opisów" }));
     expect(await screen.findByText("Moje szablony opisów")).toBeInTheDocument();
     expect(await screen.findByText(/Nie masz jeszcze szablonów/)).toBeInTheDocument();
   });

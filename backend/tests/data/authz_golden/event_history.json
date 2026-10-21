@@ -24,9 +24,10 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/settings/event-history": "PPDDDDDDDDDDDDDDDPDDDDDDD"
+  "GET /api/settings/event-history": "PPDDDDDDDDDDDDDDDPDDDDDDDD"
  }
 }

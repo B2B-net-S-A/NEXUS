@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/insights/campaigns/active": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "PATCH /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/campaigns/active": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "PATCH /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

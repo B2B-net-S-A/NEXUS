@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/pdf": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/candidates/stages/{stage_id}/cv/branded/preview-pdf": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/cv-generator/generated/{generated_id}/editor/preview-pdf": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/pdf": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/preview-pdf": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/cv-generator/generated/{generated_id}/editor/preview-pdf": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

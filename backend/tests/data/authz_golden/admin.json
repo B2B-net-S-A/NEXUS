@@ -24,17 +24,18 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/system": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/users": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/impersonate/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users/{user_id}/reset-password": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users/{user_id}/resync-aad-groups": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users/{user_id}/send-reset-link": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/system": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/users": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/impersonate/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users/{user_id}/reset-password": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users/{user_id}/resync-aad-groups": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users/{user_id}/send-reset-link": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

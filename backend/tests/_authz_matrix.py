@@ -134,6 +134,8 @@ PERSONAS: tuple[Persona, ...] = (
     Persona("recruiter+payroll", UserRole.recruiter, grants=("payroll",)),
     Persona("recruiter+equipment", UserRole.recruiter, grants=("equipment",)),
     Persona("recruiter+cases", UserRole.recruiter, grants=("cases",)),
+    # 0490: „Rada nadzorcza” — tylko odczyt Insights (test_board_role_access.py).
+    Persona("board", UserRole.board),
 )
 
 #: Odstępstwa produkcji od macierzy z kodu (odczyt 02.10.2026): TCM ma

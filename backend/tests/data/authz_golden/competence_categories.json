@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/competence-categories": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "GET /api/competence-categories/{cc_id}/recruiters": "PPPPPPDDPPPPPPPPPPPPDPPPP"
+  "GET /api/competence-categories": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/competence-categories/{cc_id}/recruiters": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
  }
 }

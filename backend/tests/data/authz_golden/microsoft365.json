@@ -24,15 +24,16 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/microsoft365/authorize": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/microsoft365/callback": "PPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/microsoft365/free-busy": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/microsoft365/sync/trigger": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/microsoft365/webhooks": "PPPPPPPPPPPPPPPPPPPPPPPPP"
+  "DELETE /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/microsoft365/authorize": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/microsoft365/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/microsoft365/free-busy": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/microsoft365/sync/trigger": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/microsoft365/webhooks": "PPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

@@ -15,6 +15,7 @@ import {
   type ProductSection,
   type SectionAccess,
 } from "@/lib/section-access";
+import { BOARD_HOME, isBoardAllowedPath } from "@/lib/board-access";
 import type { UserRole } from "@/store/auth";
 
 /**
@@ -738,6 +739,15 @@ export function middleware(request: NextRequest) {
     (pathname === "/" || pathname === "/dashboard" || pathname.startsWith("/dashboard/"))
   ) {
     return NextResponse.redirect(new URL("/my-time", request.url));
+  }
+  // „Rada nadzorcza” (0490, rola wyłączna) widzi tylko Insights, własne konto
+  // i Pomoc — wszystko inne prowadzi do kokpitu Firma, także „/” i pulpit.
+  if (
+    userRoles.size === 1 &&
+    userRoles.has("board") &&
+    !isBoardAllowedPath(pathname)
+  ) {
+    return NextResponse.redirect(new URL(BOARD_HOME, request.url));
   }
   if (accessRule?.section && payload.sa) {
     if (

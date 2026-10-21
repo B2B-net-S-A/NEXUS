@@ -46,6 +46,7 @@ def validate_aad_mapped_roles(
         UserRole.trainee,
         UserRole.automation,
         UserRole.employee,
+        UserRole.board,
     }.intersection(mapped_roles)
     if exclusive and len(mapped_roles) != 1:
         role_name = sorted(role.value for role in exclusive)[0]

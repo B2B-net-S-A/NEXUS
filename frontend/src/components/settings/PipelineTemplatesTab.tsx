@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   DragDropContext,
   Droppable,
@@ -27,7 +28,19 @@ import {
   Loader2,
   ClipboardList,
   Bell,
+  MoreHorizontal,
+  PencilLine,
 } from "lucide-react";
+import { TabbedNav } from "@/components/ds/TabbedNav";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useUrlWriter } from "@/lib/url-selection";
 import { ScorecardSchemaBuilder } from "@/components/ScorecardSchemaBuilder";
 import { StageNotificationRulesModal } from "@/components/StageNotificationRulesModal";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
@@ -35,9 +48,43 @@ import { useToast } from "@/components/Toast";
 
 const CATEGORY_LABELS: Record<string, string> = {
   internal: "Wewnętrzny",
-  external: "Zewnętrzny",
+  external: "U klienta",
   terminal: "Końcowy",
 };
+
+/** Rodzaj etapu końcowego po polsku (dotąd w pigułce stało „· rejected”). */
+const TERMINAL_LABELS: Record<string, string> = {
+  hired: "zatrudnienie",
+  rejected: "odrzucenie",
+  withdrawn: "wycofanie",
+};
+
+/** Zakładka szczegółów procesu w adresie (`?zakladka=`), jak inne ekrany Ustawień. */
+export const PIPELINE_TAB_PARAM = "zakladka";
+type PipelineDetailTab = "etapy" | "powody";
+
+/**
+ * Opis procesu do pokazania. Proces zasiany z kodu ma opis techniczny
+ * („seedowany z legacy enum PipelineStage”) — takiego nie pokazujemy
+ * (makieta rundy 2, 21.10.2026), pusty opis = nic.
+ */
+export function processDescription(description: string | null | undefined): string | null {
+  const text = description?.trim();
+  if (!text || /legacy|enum|seed/i.test(text)) return null;
+  return text;
+}
+
+/** Co etap ma ustawione — krótkie pigułki zamiast przycisków do otwierania. */
+export function stageSetupBadges(stage: StageDef): string[] {
+  const questions = Array.isArray(stage.scorecard_schema?.questions)
+    ? stage.scorecard_schema.questions.length
+    : 0;
+  const badges: string[] = [];
+  if (questions > 0) badges.push(`scorecard · ${questions}`);
+  if (stage.sla_max_days) badges.push(`SLA ${stage.sla_max_days} dni`);
+  if (stage.tracker_enabled) badges.push("widoczny dla kandydata");
+  return badges;
+}
 
 const CATEGORY_COLORS: Record<string, string> = {
   internal: "bg-primary/15 text-primary border-primary/30",
@@ -62,6 +109,16 @@ export function PipelineTemplatesTab() {
     stageDefId: number;
     stageName: string;
   } | null>(null);
+  const searchParams = useSearchParams();
+  const pathname = usePathname() ?? "";
+  const { replaceUrl } = useUrlWriter();
+  const detailTab: PipelineDetailTab =
+    searchParams?.get(PIPELINE_TAB_PARAM) === "powody" ? "powody" : "etapy";
+  const selectDetailTab = (next: string) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.set(PIPELINE_TAB_PARAM, next);
+    replaceUrl(`${pathname}?${params.toString()}`);
+  };
 
   const loadTemplates = useCallback(async () => {
     try {
@@ -327,8 +384,8 @@ export function PipelineTemplatesTab() {
             Procesy rekrutacyjne
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Zdefiniuj strukturę pipeline&apos;ów używanych w rekrutacjach. Domyślny proces
-            zostaje automatycznie przypisany do nowych rekrutacji.
+            Etapy, przez które przechodzi kandydat. Nowe rekrutacje dostają proces oznaczony
+            jako domyślny.
           </p>
         </div>
         <button
@@ -366,8 +423,9 @@ export function PipelineTemplatesTab() {
                   <div className="flex items-center justify-between">
                     <span>{t.name}</span>
                     {t.is_default && (
-                      <span className="flex items-center gap-0.5 text-xs text-green-600">
-                        <CheckCircle2 className="w-3 h-3" />
+                      <span className="flex items-center gap-0.5 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
+                        <CheckCircle2 className="w-3 h-3" aria-hidden />
+                        domyślny
                       </span>
                     )}
                   </div>
@@ -395,9 +453,11 @@ export function PipelineTemplatesTab() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="text-lg font-semibold break-words">{detail.name}</h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {detail.description ?? "Brak opisu."}
-                    </p>
+                    {processDescription(detail.description) ? (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {processDescription(detail.description)}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="flex items-center gap-2 text-sm">
@@ -431,9 +491,22 @@ export function PipelineTemplatesTab() {
                 </div>
               </div>
 
+              <TabbedNav
+                tabs={[
+                  { value: "etapy", label: `Etapy (${detail.stages.length})` },
+                  { value: "powody", label: "Powody odrzucenia" },
+                ]}
+                value={detailTab}
+                onValueChange={selectDetailTab}
+                ariaLabel="Proces"
+              />
+              {detailTab === "etapy" ? (
               <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                  <h3 className="font-medium">Etapy ({detail.stages.length})</h3>
+                  <h3 className="font-medium">
+                    Kolejność etapów{" "}
+                    <span className="text-xs font-normal text-muted-foreground">— przeciągnij, żeby zmienić</span>
+                  </h3>
                   <div className="flex items-center gap-2">
                     {savingOrder && (
                       <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -485,68 +558,60 @@ export function PipelineTemplatesTab() {
                                   className={`text-xs px-2 py-0.5 rounded-full border ${CATEGORY_COLORS[stage.category]}`}
                                 >
                                   {CATEGORY_LABELS[stage.category]}
-                                  {stage.terminal_type ? ` · ${stage.terminal_type}` : ""}
+                                  {stage.terminal_type
+                                    ? ` · ${TERMINAL_LABELS[stage.terminal_type] ?? stage.terminal_type}`
+                                    : ""}
                                 </span>
-                                {/* Akcje w osobnej grupie: na wąskim ekranie
-                                    zawijają się pod nazwę zamiast ściskać ją do zera. */}
-                                <div className="ml-auto flex items-center gap-3">
-                                <button
-                                  onClick={() =>
-                                    setScorecardEditor({
-                                      stageDefId: stage.id,
-                                      stageName: stage.name,
-                                    })
-                                  }
-                                  title="Edytuj scorecard etapu"
-                                  className={`text-xs flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
-                                    stage.scorecard_schema &&
-                                    Array.isArray(stage.scorecard_schema.questions) &&
-                                    stage.scorecard_schema.questions.length > 0
-                                      ? "text-primary hover:bg-primary/10 dark:hover:bg-primary/30"
-                                      : "text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
-                                  }`}
-                                >
-                                  <ClipboardList className="w-3.5 h-3.5" />
-                                  <span className="hidden sm:inline">Scorecard</span>
-                                  {stage.scorecard_schema &&
-                                    Array.isArray(stage.scorecard_schema.questions) &&
-                                    stage.scorecard_schema.questions.length > 0 && (
-                                      <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full">
-                                        {stage.scorecard_schema.questions.length}
-                                      </span>
-                                    )}
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    setNotifEditor({
-                                      stageDefId: stage.id,
-                                      stageName: stage.name,
-                                    })
-                                  }
-                                  title="Konfiguruj powiadomienia dla etapu"
-                                  className="text-xs flex items-center gap-1 px-2 py-0.5 rounded text-muted-foreground hover:bg-primary/10 dark:hover:bg-primary/30 hover:text-primary transition-colors"
-                                >
-                                  <Bell className="w-3.5 h-3.5" />
-                                  <span className="hidden sm:inline">Powiadomienia</span>
-                                </button>
-                                <button
-                                  onClick={() => handleRenameStage(stage)}
-                                  className="text-xs text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
-                                >
-                                  Zmień nazwę
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteStage(stage)}
-                                  disabled={stage.is_terminal}
-                                  title={
-                                    stage.is_terminal
-                                      ? "Nie można usunąć etapu końcowego"
-                                      : "Usuń etap"
-                                  }
-                                  className="text-red-400 hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                {/* Co etap ma ustawione — widać bez otwierania okien (makieta 21.10.2026). */}
+                                <span className="flex flex-wrap gap-1">
+                                  {stageSetupBadges(stage).map((badge) => (
+                                    <span
+                                      key={badge}
+                                      className="rounded-full bg-success-muted px-2 py-0.5 text-[11px] text-success-muted-foreground"
+                                    >
+                                      {badge}
+                                    </span>
+                                  ))}
+                                </span>
+                                <div className="ml-auto">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button variant="ghost" size="icon-sm" aria-label={`Więcej: ${stage.name}`}>
+                                        <MoreHorizontal className="h-4 w-4" aria-hidden />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem onSelect={() => void handleRenameStage(stage)}>
+                                        <PencilLine className="mr-2 h-4 w-4" aria-hidden />
+                                        Zmień nazwę
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onSelect={() =>
+                                          setScorecardEditor({ stageDefId: stage.id, stageName: stage.name })
+                                        }
+                                      >
+                                        <ClipboardList className="mr-2 h-4 w-4" aria-hidden />
+                                        Scorecard
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onSelect={() =>
+                                          setNotifEditor({ stageDefId: stage.id, stageName: stage.name })
+                                        }
+                                      >
+                                        <Bell className="mr-2 h-4 w-4" aria-hidden />
+                                        Powiadomienia
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        disabled={stage.is_terminal}
+                                        onSelect={() => void handleDeleteStage(stage)}
+                                        className="text-destructive"
+                                      >
+                                        <Trash2 className="mr-2 h-4 w-4" aria-hidden />
+                                        {stage.is_terminal ? "Etapu końcowego nie usuniesz" : "Usuń etap"}
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 </div>
                               </li>
                             )}
@@ -559,6 +624,7 @@ export function PipelineTemplatesTab() {
                 </DragDropContext>
               </div>
 
+              ) : (
               <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                   <h3 className="font-medium">Powody odrzucenia / wycofania</h3>
@@ -635,6 +701,7 @@ export function PipelineTemplatesTab() {
                   );
                 })}
               </div>
+              )}
             </div>
           )}
           {!loading && !detail && (

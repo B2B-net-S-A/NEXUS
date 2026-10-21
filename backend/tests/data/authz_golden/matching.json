@@ -24,9 +24,10 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/ai-matches": "PPPPPPDDPPPPPPPPPPPPDPPPP"
+  "GET /api/jobs/{job_id}/ai-matches": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
  }
 }

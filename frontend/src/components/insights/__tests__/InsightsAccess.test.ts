@@ -35,6 +35,7 @@ const ALL_ROLES = [
   "recruiter",
   "user",
   "trainee",
+  "board",
 ] as const;
 
 /**
@@ -70,7 +71,8 @@ describe("widoki Insights per rola", () => {
     expect(FIRMA_PERMISSION).toBe("finance_module");
     for (const role of ALL_ROLES) {
       const sees = getVisibleInsightTabIds(user(role)).includes("firma");
-      expect(sees, role).toBe(role === "admin" || role === "finance");
+      // Rada nadzorcza (0490) wchodzi rolą, bez „Modułu Finanse”.
+      expect(sees, role).toBe(role === "admin" || role === "finance" || role === "board");
     }
   });
 
@@ -142,6 +144,7 @@ describe("raporty per rola", () => {
     // Domyślni posiadacze: administrator i Finanse.
     expect(ids("admin")).toContain("ranking-klientow");
     expect(ids("finance")).toContain("ranking-klientow");
+    expect(ids("board")).toContain("ranking-klientow");
     expect(ids("head_of_recruitment")).not.toContain("ranking-klientow");
     expect(ids("recruiter")).not.toContain("ranking-klientow");
     // Nadane rekruterowi — widzi; wyłączone Finansom — nie widzą.
@@ -153,9 +156,13 @@ describe("raporty per rola", () => {
     ).not.toContain("ranking-klientow");
   });
 
-  it("dopiski raportów o pieniądzach nazywają uprawnienie, nie role", () => {
-    expect(reportById("ranking-klientow").note).toBe("uprawnienie „Moduł Finanse”");
-    expect(reportById("rok-do-roku").note).toBe("kwoty z uprawnieniem „Moduł Finanse”");
+  it("dopiski raportów o pieniądzach nazywają uprawnienie i Radę, nie listę ról", () => {
+    expect(reportById("ranking-klientow").note).toBe(
+      "uprawnienie „Moduł Finanse” albo Rada nadzorcza",
+    );
+    expect(reportById("rok-do-roku").note).toBe(
+      "kwoty z uprawnieniem „Moduł Finanse” albo dla Rady nadzorczej",
+    );
     for (const id of ["ranking-klientow", "rok-do-roku"] as const) {
       expect(reportById(id).note).not.toMatch(/admin i Finanse/);
     }
@@ -166,6 +173,7 @@ describe("raporty per rola", () => {
     expect(seesBoardTrend(user("finance"))).toBe(true);
     // HoR wchodzi rolą — kwoty redaguje mu serwer.
     expect(seesBoardTrend(user("head_of_recruitment"))).toBe(true);
+    expect(seesBoardTrend(user("board"))).toBe(true);
     expect(seesBoardTrend(user("recruiter", { granted: ["finance_module"] }))).toBe(true);
     // Sama rola Finanse bez uprawnienia nie wystarcza; reszta ról też nie.
     expect(

@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/b2b-generator/register-import/runs": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/b2b-generator/register-import": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/b2b-generator/register-import/runs/{run_id}/rollback": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/b2b-generator/register-import/runs": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/b2b-generator/register-import": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/b2b-generator/register-import/runs/{run_id}/rollback": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }
