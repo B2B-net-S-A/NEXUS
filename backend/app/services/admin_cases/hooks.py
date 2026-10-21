@@ -288,7 +288,7 @@ async def open_case_for_offboarding(
                 else None
             ),
             description=(
-                f"Ostatni dzień pracy {last_day.strftime('%d.%m.%Y')}."
+                f"Ostatni dzień współpracy {last_day.strftime('%d.%m.%Y')}."
                 if last_day
                 else None
             ),

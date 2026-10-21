@@ -40,8 +40,8 @@ describe("/preview/hr-people", () => {
     render(<HrPeoplePreviewPage />);
 
     expect(await screen.findByText(/Do wyrównania · 4/)).toBeInTheDocument();
-    expect(screen.getByText(/Marta Fikcyjna: konto wyłączone · 2 osoby pod sobą/)).toBeInTheDocument();
-    expect(screen.getByText("Kacper Nowicjusz: forma i przełożony")).toBeInTheDocument();
+    expect(screen.getByText(/Marta Fikcyjna: konto wyłączone · 2 osoby w zespole/)).toBeInTheDocument();
+    expect(screen.getByText("Kacper Nowicjusz: forma i koordynator")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Przejrzyj po kolei/ }));
     expect(screen.getByText("Konto wyłączone")).toBeInTheDocument();
     expect(screen.getByText("Konto bez kartoteki")).toBeInTheDocument();
@@ -50,7 +50,7 @@ describe("/preview/hr-people", () => {
     expect(screen.getByText("uzupełnij")).toBeInTheDocument();
     expect(screen.queryByText("B2B")).toBeNull();
     expect(screen.queryByRole("button", { name: /^UoP/ })).toBeNull();
-    expect(screen.getByText("przełożony do uzupełnienia")).toBeInTheDocument();
+    expect(screen.getByText("koordynator do uzupełnienia")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Wyrównaj wg konta" }));
     expect(
@@ -66,7 +66,7 @@ describe("/preview/hr-people", () => {
     expect(screen.getAllByText("Zlecenie · student").length).toBe(2);
     expect(screen.getByRole("button", { name: /^UoP/ })).toBeInTheDocument();
     expect(screen.getAllByText(/^nieobecność do .* · zastępuje Ola P\.$/).length).toBe(2);
-    expect(screen.getByText("delegacja")).toBeInTheDocument();
+    expect(screen.getByText("wyjazd")).toBeInTheDocument();
     expect(screen.getByText("odchodzi 30.11")).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });

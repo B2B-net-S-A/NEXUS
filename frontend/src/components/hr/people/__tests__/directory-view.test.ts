@@ -51,7 +51,7 @@ function full(overrides: Partial<PersonFull> = {}): PersonFull {
 
 describe("todayChips — kolumna „Dziś”", () => {
   it("bez wpisu i z otwartym modułem urlopów/czasu = „w pracy”", () => {
-    expect(todayChips(card(), TODAY, true)).toEqual([{ tone: "success", label: "w pracy" }]);
+    expect(todayChips(card(), TODAY, true)).toEqual([{ tone: "success", label: "dostępny(a)" }]);
   });
 
   it("bez modułów urlopów i czasu nie zgaduje „w pracy”", () => {
@@ -105,7 +105,7 @@ describe("todayChips — kolumna „Dziś”", () => {
     const trip = card({
       today: { absent_until: null, half_day: null, substitute_name: null, presence: "business_trip" },
     });
-    expect(todayChips(trip, TODAY, true)).toEqual([{ tone: "neutral", label: "delegacja" }]);
+    expect(todayChips(trip, TODAY, true)).toEqual([{ tone: "neutral", label: "wyjazd" }]);
     expect(isAwayToday(trip)).toBe(true);
     const remote = card({
       today: { absent_until: null, half_day: null, substitute_name: null, presence: "remote" },
@@ -118,7 +118,7 @@ describe("todayChips — kolumna „Dziś”", () => {
     expect(
       todayChips(full({ employment_status: "offboarding", last_working_day: "2026-11-30" }), TODAY, true),
     ).toEqual([
-      { tone: "success", label: "w pracy" },
+      { tone: "success", label: "dostępny(a)" },
       { tone: "warning", label: "odchodzi 30.11" },
     ]);
     expect(todayChips(card({ employment_status: "offboarding" }), TODAY, false)).toEqual([
@@ -205,6 +205,6 @@ describe("todayKnown — „w pracy” tylko przy module urlopów (audyt 21.10.2
     const trip = card({
       today: { absent_until: null, half_day: null, substitute_name: null, presence: "business_trip" },
     });
-    expect(todayChips(trip, TODAY, known)).toEqual([{ tone: "neutral", label: "delegacja" }]);
+    expect(todayChips(trip, TODAY, known)).toEqual([{ tone: "neutral", label: "wyjazd" }]);
   });
 });

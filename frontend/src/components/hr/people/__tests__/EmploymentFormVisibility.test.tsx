@@ -183,7 +183,7 @@ describe("Rozjazdy kartoteka ↔ konto", () => {
     expect(screen.getByText(/Igor Bezkartoteczny: konto bez kartoteki/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Przejrzyj po kolei/ }));
     expect(screen.getByText("Konto wyłączone")).toBeInTheDocument();
-    expect(screen.getAllByText(/2 osoby pod sobą/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/2 osoby w zespole/).length).toBeGreaterThan(0);
     expect(screen.getByText("Forma do uzupełnienia: 1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Wyrównaj wg konta" }));

@@ -50,7 +50,7 @@ import { matchAccounts, previewByOwner } from "./lifecycle-format";
 const STEPS = ["Osoba i konto", "Zatrudnienie", "Zadania", "Podsumowanie"] as const;
 const STEP_HINTS = [
   "kto wchodzi i jaką ścieżką",
-  "forma, start, przełożony",
+  "forma, start, koordynator",
   "kto co przygotuje i do kiedy",
   "sprawdź i uruchom",
 ] as const;
@@ -289,7 +289,7 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
     <div className="space-y-4">
       <PageHeader
         title={title}
-        description="Wejście: kartoteka, konto, zadania dla przełożonego, Kadr, recepcji i IT."
+        description="Wejście: kartoteka, konto, zadania dla koordynatora, Kadr, recepcji i IT."
         breadcrumb={[{ label: "Ludzie", href: "/people" }, { label: "Wejście" }]}
         density="compact"
         actions={
@@ -603,10 +603,10 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
               <dd className="font-medium">{EMPLOYMENT_TYPE_LABELS[form.employment_type || "b2b"]}</dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Przełożony</dt>
+              <dt className="text-muted-foreground">Koordynator</dt>
               <dd className="font-medium">
                 {managers.find((m) => String(m.user_id) === form.manager_user_id)?.name ??
-                  "Bez przełożonego"}
+                  "Bez koordynatora"}
               </dd>
             </div>
             <div>

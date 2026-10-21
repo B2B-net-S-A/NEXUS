@@ -312,7 +312,7 @@ export function ProfileFieldsForm({
         htmlFor={id("type")}
         description={
           form.employment_type_blank === "hidden" && !form.employment_type
-            ? "Formę widzą ta osoba, jej przełożony, admin i Finanse. Możesz ją zmienić — obecnej nie pokazujemy."
+            ? "Formę widzą ta osoba, jej koordynator, admin i Finanse. Możesz ją zmienić — obecnej nie pokazujemy."
             : undefined
         }
       >
@@ -389,7 +389,7 @@ export function ProfileFieldsForm({
       </FormField>
       {hide.includes("last_working_day") ? null : (
         <FormField
-          label="Ostatni dzień pracy"
+          label="Ostatni dzień współpracy"
           htmlFor={id("last")}
           description="Puste, dopóki osoba nie odchodzi."
         >

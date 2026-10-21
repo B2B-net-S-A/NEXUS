@@ -63,7 +63,7 @@ function PlaceCell({
     return <span className="text-xs text-muted-foreground">{day.holiday ?? day.day_off}</span>;
   }
   if (day.attendance_status === "business_trip") {
-    return <span className="text-xs text-foreground">Delegacja</span>;
+    return <span className="text-xs text-foreground">Wyjazd</span>;
   }
   if (!day.location) {
     return <span className={CALM_EMPTY}>—</span>;

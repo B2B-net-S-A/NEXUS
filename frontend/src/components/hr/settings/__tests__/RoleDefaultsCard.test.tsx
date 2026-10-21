@@ -117,7 +117,7 @@ describe("RoleDefaultsCard", () => {
       expect(ROLE_DEFAULT_ROLES as readonly string[]).not.toContain(retired);
     }
     expect(roleLabel(null)).toBe("Wszystkie role");
-    expect(roleLabel("employee")).toBe("Pracownik");
+    expect(roleLabel("employee")).toBe("Konsultant/Kontraktor");
   });
 
   it("lista z rolą, projektem i przełącznikiem aktywności", async () => {

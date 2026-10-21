@@ -1,7 +1,7 @@
 {
-  "entry": "324c80667ee7736e01915f31168acc2a73469a07878e9bc007c13125693d2000",
+  "entry": "df79dacd3688cc1ad5b1bb25f83a9297aeb26eb610785b210b229d100878cd41",
   "guide": "hr.team_calendar",
   "sources": {
-    "frontend/src/components/hr/leave/TeamCalendar.tsx": "443864544f22b17f376280b97318304cf71b9646cceebd55745cf8b0d537d78f"
+    "frontend/src/components/hr/leave/TeamCalendar.tsx": "7f5b105ec55259c58137fea46d997ff10337374be85d864de3d07e9492aff815"
   }
 }

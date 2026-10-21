@@ -4,10 +4,10 @@
  *
  * Reguły pod ochroną:
  *
- * 1. **Konto wyłączone schodzi do wiersza „Byli pracownicy (N)”** z sumami —
+ * 1. **Konto wyłączone schodzi do wiersza „Byli w zespole (N)”** z sumami —
  *    liczby nie znikają, tylko przestają zajmować wiersze listy.
- * 2. **„Pokaż byłych pracowników” przywraca ich jako zwykłe wiersze**
- *    z plakietką „były pracownik”, wspólnie dla obu zakładek.
+ * 2. **„Pokaż byłych członków zespołu” przywraca ich jako zwykłe wiersze**
+ *    z plakietką „był(a) w zespole”, wspólnie dla obu zakładek.
  * 3. **Klik w nagłówek sortuje**, `aria-sort` mówi, jak; wiersze zbiorcze
  *    zostają pod listą osób.
  * 4. **Aktywny rekruter bez ruchu ma wiersz z zerami** (20.10.2026) — nowa
@@ -162,20 +162,20 @@ describe("Zespół → Ludzie", () => {
     const table = await peopleTable();
     const rows = bodyRows(table);
     expect(rows).toHaveLength(3);
-    const former = within(table).getByText(/Byli pracownicy \(2\)/).closest("tr")!;
+    const former = within(table).getByText(/Byli w zespole \(2\)/).closest("tr")!;
     expect(former.textContent).toContain("Ewa Była, Olga Była");
     const cells = within(former).getAllByRole("cell").map((cell) => cell.textContent);
     // Weryf./dzień —, CV 4+1, rozmowy 0+2, placementy 2+0, precyzja —, zmiana —.
     expect(cells.slice(1)).toEqual(["—", "5", "2", "2", "—", "—"]);
-    expect(within(table).queryByText("były pracownik")).toBeNull();
+    expect(within(table).queryByText("był(a) w zespole")).toBeNull();
   });
 
-  it("„Pokaż byłych pracowników” przywraca ich jako zwykłe wiersze, bez wiersza zbiorczego", async () => {
+  it("„Pokaż byłych członków zespołu” przywraca ich jako zwykłe wiersze, bez wiersza zbiorczego", async () => {
     const table = await peopleTable();
-    fireEvent.click(screen.getByRole("switch", { name: "Pokaż byłych pracowników" }));
-    expect(within(table).queryByText(/Byli pracownicy/)).toBeNull();
+    fireEvent.click(screen.getByRole("switch", { name: "Pokaż byłych członków zespołu" }));
+    expect(within(table).queryByText(/Byli w zespole/)).toBeNull();
     expect(within(table).getByText("Ewa Była")).toBeTruthy();
-    expect(within(table).getAllByText("były pracownik")).toHaveLength(2);
+    expect(within(table).getAllByText("był(a) w zespole")).toHaveLength(2);
   });
 
   it("klik w nagłówek sortuje malejąco, drugi rosnąco; wiersz zbiorczy zostaje na dole", async () => {
@@ -190,13 +190,13 @@ describe("Zespół → Ludzie", () => {
     let rows = bodyRows(table);
     expect(rows[0]).toContain("Jan Kowalski");
     expect(rows[1]).toContain("Anna Test");
-    expect(rows[2]).toContain("Byli pracownicy");
+    expect(rows[2]).toContain("Byli w zespole");
 
     fireEvent.click(within(header).getByRole("button"));
     expect(header.getAttribute("aria-sort")).toBe("ascending");
     rows = bodyRows(table);
     expect(rows[0]).toContain("Anna Test");
-    expect(rows[2]).toContain("Byli pracownicy");
+    expect(rows[2]).toContain("Byli w zespole");
   });
 
   it("aktywny rekruter bez ruchu stoi z zerami, inna rola bez ruchu idzie do dopisku", async () => {
@@ -239,7 +239,7 @@ describe("Zespół → Ludzie", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delivery Leadzi" }));
     await screen.findByText("Marek Test");
     const table = screen.getByText("Marek Test").closest("table") as HTMLElement;
-    const former = within(table).getByText(/Byli pracownicy \(1\)/).closest("tr")!;
+    const former = within(table).getByText(/Byli w zespole \(1\)/).closest("tr")!;
     expect(within(former).getAllByRole("cell").map((cell) => cell.textContent).slice(1)).toEqual([
       "3",
       "1",
@@ -247,9 +247,9 @@ describe("Zespół → Ludzie", () => {
       "—",
     ]);
 
-    fireEvent.click(screen.getByRole("switch", { name: "Pokaż byłych pracowników" }));
-    expect(within(table).queryByText(/Byli pracownicy/)).toBeNull();
-    expect(within(table).getByText("były pracownik")).toBeTruthy();
+    fireEvent.click(screen.getByRole("switch", { name: "Pokaż byłych członków zespołu" }));
+    expect(within(table).queryByText(/Byli w zespole/)).toBeNull();
+    expect(within(table).getByText("był(a) w zespole")).toBeTruthy();
 
     const header = within(table).getByRole("columnheader", { name: "Rekrutacje" });
     fireEvent.click(within(header).getByRole("button"));

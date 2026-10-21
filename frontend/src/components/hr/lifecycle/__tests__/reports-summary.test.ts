@@ -22,20 +22,20 @@ describe("podwładni przy odejściu (D5)", () => {
 
   it("mówi, kto zostanie przełożonym", () => {
     expect(reportsSummary([base])).toBe(
-      "Podwładni: 3 osoby. Po przekazaniu ich przełożonym będzie Marta Fikcyjna — od tej chwili wnioski i timesheety idą do tej osoby.",
+      "Osoby w zespole: 3 osoby. Po przekazaniu ich koordynatorem będzie Marta Fikcyjna — od tej chwili wnioski i timesheety idą do tej osoby.",
     );
   });
 
   it("bez przejmującego ostrzega, że konto poczeka", () => {
     expect(reportsSummary([{ ...base, receiver_name: null }])).toMatch(
-      /^Podwładni: 3 osoby\. Wskaż, kto zostanie ich przełożonym/,
+      /^Osoby w zespole: 3 osoby\. Wskaż, kto zostanie ich koordynatorem/,
     );
   });
 
   it("po przekazaniu liczy z wyniku, nie ze stanu na teraz", () => {
     expect(
       reportsSummary([{ ...base, status: "done", count: 0, result: { people: 2 } }]),
-    ).toBe("Podwładni przekazani (2 osoby) — ich przełożonym jest Marta Fikcyjna.");
+    ).toBe("Zespół przekazany (2 osoby) — koordynatorem jest Marta Fikcyjna.");
   });
 
   it("bez podwładnych albo bez liczby — nic", () => {

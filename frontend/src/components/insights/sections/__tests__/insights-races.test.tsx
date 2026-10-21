@@ -620,7 +620,7 @@ describe("InsightsHallOfFame", () => {
     // chipa sugerowałby, że ta osoba wciąż tu pracuje. Ta sama reguła co
     // w tabeli „Performance per osoba" dwie sekcje wyżej.
     expect(await screen.findByText("Elza Grabińska")).toBeInTheDocument();
-    expect(screen.getByText("były pracownik")).toBeInTheDocument();
+    expect(screen.getByText("był(a) w zespole")).toBeInTheDocument();
   });
 
   it("mówi, ile placementów stoi POZA rankingiem", async () => {

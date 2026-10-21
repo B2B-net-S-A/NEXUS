@@ -311,7 +311,7 @@ export function MySettlementTab() {
           state === "not_found"
             ? "Rozliczenia nie są jeszcze włączone."
             : state === "forbidden"
-              ? "Rozliczenie widzą osoby z kartoteką pracownika."
+              ? "Rozliczenie widzą osoby z kartoteką w NEXUSIE."
               : "Nie udało się wczytać rozliczenia."
         }
         onRetry={() => {

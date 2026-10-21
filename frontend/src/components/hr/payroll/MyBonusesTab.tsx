@@ -123,7 +123,7 @@ export function MyBonusesTab() {
           state === "not_found"
             ? "Moduł Płac nie jest jeszcze włączony."
             : state === "forbidden"
-              ? "Premie widzą osoby z kartoteką pracownika."
+              ? "Premie widzą osoby z kartoteką w NEXUSIE."
               : undefined
         }
         onRetry={() => me.refetch()}

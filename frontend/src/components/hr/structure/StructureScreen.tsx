@@ -156,7 +156,7 @@ export function StructureScreen({ config }: { config: HrConfig }) {
         <p className="text-[13px] text-muted-foreground">
           {peopleCount(data.total)} · {divisionsCount === 1 ? "1 pion" : `${divisionsCount} piony`}
           {view === "chart"
-            ? " · przełożonego zmienisz przeciągnięciem karty albo z menu karty"
+            ? " · koordynatora zmienisz przeciągnięciem karty albo z menu karty"
             : ""}
         </p>
         <div className="ml-auto flex flex-wrap gap-2">
@@ -569,7 +569,7 @@ function OrgCard({
           {person.manager_pending ? <TonePill tone="warning">{words.one} do uzupełnienia</TonePill> : null}
           {badge ? <TonePill tone="info">{badge}</TonePill> : null}
           {person.reports > 0 ? (
-            <span className="text-[11px] text-muted-foreground">{peopleCount(person.reports)} pod sobą</span>
+            <span className="text-[11px] text-muted-foreground">{peopleCount(person.reports)} w zespole</span>
           ) : null}
         </div>
       ) : null}
@@ -659,10 +659,10 @@ function TodoBody({
       return (
         <>
           <p className="text-[13px]">
-            {name} kończy pracę {formatWeekdayDayPl(info.last_working_day)}
+            {name} kończy współpracę {formatWeekdayDayPl(info.last_working_day)}
           </p>
           <p className="text-xs text-muted-foreground">
-            {peopleCount(person.reports)} pod sobą —{" "}
+            {peopleCount(person.reports)} w zespole —{" "}
             {info.reports_receiver_name
               ? `przejmie ${info.reports_receiver_name}`
               : "nikt ich jeszcze nie przejmuje"}
@@ -776,7 +776,7 @@ function LeavingBanners({ data }: { data: HrStructure }) {
             key={person.user_id}
             className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
           >
-            {person.name} kończy pracę {formatWeekdayDayPl(info.last_working_day)}. Podwładni:{" "}
+            {person.name} kończy współpracę {formatWeekdayDayPl(info.last_working_day)}. Osoby w zespole:{" "}
             {peopleCount(person.reports)} —{" "}
             {info.reports_receiver_name
               ? `przejmie ich ${info.reports_receiver_name}.`
@@ -857,11 +857,11 @@ function PersonRow({
                   ? EMPLOYMENT_TYPE_SHORT[person.employment_type]
                   : null,
               person.student ? "student" : null,
-              person.manager_pending ? "przełożony do uzupełnienia" : null,
+              person.manager_pending ? "koordynator do uzupełnienia" : null,
             ]
               .filter(Boolean)
               .join(" · ")}
-            {person.reports > 0 ? ` · ${peopleCount(person.reports)} pod sobą` : ""}
+            {person.reports > 0 ? ` · ${peopleCount(person.reports)} w zespole` : ""}
           </span>
           {contributionsBadge(person.contributions_from) ? (
             <StatusDot tone="info">{contributionsBadge(person.contributions_from)}</StatusDot>
