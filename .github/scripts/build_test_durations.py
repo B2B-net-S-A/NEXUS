@@ -18,8 +18,14 @@ Użycie (logi per job, bo log zbiorczy ``gh run view --log`` bywa obcięty):
     done
     python .github/scripts/build_test_durations.py job_*.log
 
-Kilka przebiegów = średnia per plik. Plik bez pomiaru dostaje w conftest
-medianę, więc nieaktualna mapa tylko pogarsza równowagę — nigdy nie gubi testu.
+Kilka przebiegów = MEDIANA per plik (od 21.10.2026; wcześniej średnia). Ten
+sam plik potrafi trwać 2–5× dłużej w shardzie kolejki niż w sicie PR-a
+(``test_authz_guard_matrix.py``: 390 s w shardzie, 78–157 s w sicie), a średnia
+z dwóch próbek ciągnie wynik do odstającej. Dlatego do logów shardów kolejki
+dokładaj logi sita (``Backend (pytest, zmienione pliki …)``) — pliki, które sito
+uruchamia najczęściej, dostają wtedy czas z warunków sita. Plik bez pomiaru
+dostaje w conftest medianę, więc nieaktualna mapa tylko pogarsza równowagę —
+nigdy nie gubi testu.
 """
 
 from __future__ import annotations
@@ -79,9 +85,11 @@ def main() -> None:
     if not samples:
         raise SystemExit("Żaden log nie zawierał wyników pytest -v.")
 
+    # Log sita z gałęzi PR-a niesie też pliki, których na mainie (jeszcze) nie ma.
     result = {
-        name: round(statistics.fmean(values), 1)
+        name: round(statistics.median(values), 1)
         for name, values in sorted(samples.items())
+        if (_REPO / "backend" / name).is_file()
     }
     args.out.write_text(
         json.dumps(result, indent=0, sort_keys=True, ensure_ascii=False) + "\n",
