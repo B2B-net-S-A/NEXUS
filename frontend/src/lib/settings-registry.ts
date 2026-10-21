@@ -401,9 +401,10 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   },
   {
     id: "history", area: "sys", title: "Historia zdarzeń", group: "Nadzór",
-    description: "Kto co usunął i które próby zostały zablokowane.",
+    description: "Usunięcia i ważne zmiany w systemie — także próby zablokowane. Wpisów nie da się usunąć.",
     keywords: "zdarzenia audyt log historia usuniecia",
-    wide: true, ownHeader: true,
+    // Nagłówek z układu Ustawień jak na innych ekranach (runda 2, 21.10.2026) — dotąd tytuł w karcie.
+    wide: true,
     // `GET /api/settings/event-history` = `FinanceModuleUser` („Moduł Finanse”).
     gate: { permission: "finance_module", section: "finance", finance: true },
   },

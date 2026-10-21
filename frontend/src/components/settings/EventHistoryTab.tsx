@@ -11,7 +11,7 @@
 
 import { useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import { History, Loader2, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Search } from "lucide-react";
 
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -71,6 +71,15 @@ export function EventHistoryTab() {
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [page, setPage] = useState(0);
+  // Pełny powód po rozwinięciu wiersza — dotąd 5–6 linii w wąskiej kolumnie (ok. 100 px na wpis).
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set());
+  const toggleRow = (id: number) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const query = useQuery({
     queryKey: ["event-history", entityType, outcome, appliedSearch, page],
@@ -102,20 +111,7 @@ export function EventHistoryTab() {
   const filtered = !!(entityType || outcome || appliedSearch);
 
   return (
-    <div className="bg-card rounded-2xl border border-border p-6 space-y-5">
-      <div className="flex items-start gap-4">
-        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-          <History className="w-6 h-6 text-primary" />
-        </div>
-        <div>
-          <h2 className="text-base font-bold text-foreground">Historia zdarzeń</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Krytyczne operacje w systemie: usunięcia klientów, kontraktorów,
-            kontraktów, umów i zamówień — także próby zablokowane. Wpisy
-            zostają trwale, również po usunięciu obiektu.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-4">
 
       <form
         className="flex flex-wrap items-end gap-3"
@@ -144,22 +140,32 @@ export function EventHistoryTab() {
             ))}
           </select>
         </label>
-        <label className="text-xs font-medium text-muted-foreground space-y-1">
-          <span className="block">Wynik</span>
-          <select
-            aria-label="Wynik operacji"
-            value={outcome}
-            onChange={(event) => {
-              setOutcome(event.target.value);
-              setPage(0);
-            }}
-            className="h-9 px-3 border border-border rounded-lg text-sm bg-card text-foreground"
-          >
-            <option value="">Wszystkie</option>
-            <option value="executed">Wykonano</option>
-            <option value="blocked">Zablokowano</option>
-          </select>
-        </label>
+        <div className="space-y-1">
+          <span className="block text-xs font-medium text-muted-foreground">Wynik</span>
+          <div className="inline-flex h-9 overflow-hidden rounded-lg border border-border" role="group" aria-label="Wynik operacji">
+            {([
+              ["", "Wszystkie"],
+              ["blocked", "Zablokowane"],
+              ["executed", "Wykonane"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={label}
+                type="button"
+                aria-pressed={outcome === value}
+                onClick={() => {
+                  setOutcome(value);
+                  setPage(0);
+                }}
+                className={cn(
+                  "px-3 text-sm font-medium",
+                  outcome === value ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         <label className="text-xs font-medium text-muted-foreground space-y-1 flex-1 min-w-[14rem]">
           <span className="block">Szukaj</span>
           <div className="relative">
@@ -211,7 +217,7 @@ export function EventHistoryTab() {
 
       {viewState === "ready" && data && (
         <>
-          <div className="overflow-x-auto rounded-xl border border-border">
+          <div className="relative overflow-x-auto rounded-xl border border-border bg-card">
             <table className="w-full text-sm">
               <thead className="bg-muted/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
@@ -220,10 +226,15 @@ export function EventHistoryTab() {
                   <th className="px-3 py-2 font-medium">Operacja</th>
                   <th className="px-3 py-2 font-medium">Obiekt</th>
                   <th className="px-3 py-2 font-medium">Wynik</th>
+                  <th className="px-3 py-2">
+                    <span className="sr-only">Szczegóły</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {data.items.map((item) => (
+                {data.items.map((item) => {
+                  const open = expanded.has(item.id);
+                  return (
                   <tr key={item.id} className="align-top">
                     <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
                       {formatWhen(item.occurred_at)}
@@ -232,7 +243,7 @@ export function EventHistoryTab() {
                       <p className="font-medium text-foreground">
                         {item.actor_name ?? "System"}
                       </p>
-                      {item.actor_email && (
+                      {item.actor_email && open && (
                         <p className="text-xs text-muted-foreground">{item.actor_email}</p>
                       )}
                     </td>
@@ -249,7 +260,7 @@ export function EventHistoryTab() {
                           : ""}
                       </p>
                     </td>
-                    <td className="px-3 py-2.5 min-w-[16rem]">
+                    <td className="px-3 py-2.5 w-[38%]">
                       <span
                         className={cn(
                           "inline-flex px-2 py-0.5 rounded-full text-xs font-semibold",
@@ -261,11 +272,34 @@ export function EventHistoryTab() {
                         {item.outcome_label}
                       </span>
                       {item.reason && (
-                        <p className="text-xs text-muted-foreground mt-1">{item.reason}</p>
+                        <p
+                          className={cn("text-xs text-muted-foreground mt-1", !open && "line-clamp-1")}
+                          title={open ? undefined : item.reason}
+                        >
+                          {item.reason}
+                        </p>
                       )}
                     </td>
+                    <td className="px-2 py-2 text-right">
+                      {item.reason || item.actor_email ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleRow(item.id)}
+                          aria-expanded={open}
+                          aria-label={open ? "Zwiń szczegóły" : "Pokaż szczegóły"}
+                          className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground pointer-coarse:p-2"
+                        >
+                          {open ? (
+                            <ChevronDown className="h-4 w-4" aria-hidden />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" aria-hidden />
+                          )}
+                        </button>
+                      ) : null}
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
