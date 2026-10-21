@@ -50,6 +50,7 @@ from app.services.competition_rules import (
 from app.models.job import Job
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
+from app.services.hit_ratio_scope import counts_in_hit_ratio
 from app.services.metric_definitions import (
     DL_HIT_RATIO_TARGET_PCT,
     FIRST_HIRED_PER_CANDIDATE_JOB,
@@ -820,10 +821,12 @@ async def dl_portfolio_counts(
                 r.cnt or 0
             )
 
-    # Mianownik hit ratio: rekrutacje ZAMKNIĘTE w kwartale (od 12.10.2026).
+    # Mianownik hit ratio: rekrutacje ZAMKNIĘTE w kwartale (od 12.10.2026),
+    # bez zamknięć „nie liczy się” (duplikat, anulowane… — 21.10.2026).
     req_q = select(Job.id, Job.delivery_lead_id, Job.client_id).where(
         Job.closed_at >= competition_history.board_start(start),
         Job.closed_at < end,
+        counts_in_hit_ratio(),
     )
     req_rows = (await db.execute(req_q)).all()
     requests_by_dl: dict[int, int] = {}

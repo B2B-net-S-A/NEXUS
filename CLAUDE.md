@@ -184,6 +184,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `duzy-podglad-po-lewej-stronie-panelu-osoby.md` — Duży podgląd po lewej stronie panelu osoby (D1–D6, 09.10.2026)
 - `dzwonek-przy-przekazaniu-karty-qc-dl-cv-wyslane.md` — Dzwonek przy przekazaniu karty: QC → DL, CV wysłane → rekruter (02.10.2026)
 - `follow-up-z-kandydatem-gdy-klient-milczy.md` — Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026)
+- `hit-ratio-zamkniecia-nie-licza-sie.md` — Hit ratio: przegrana = tylko konkurencja, reszta zamknięć „nie liczy się” (21.10.2026)
 - `imiennicy-w-oknie-dodawania.md` — Imiennicy w oknie „Dodaj kandydatów do pipeline” (13.10.2026) · telefon, e-mail i miasto w wierszu, szukanie po numerze, „Już w tej rekrutacji”, „Scal…”
 - `kanban-bez-bramek.md` — Kanban bez bramek (decyzja Artura, 17.09.2026)
 - `kandydaci-do-zamkniecia.md` — Kafelek „Kandydaci do zamknięcia” (20.10.2026)

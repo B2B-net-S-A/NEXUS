@@ -8,6 +8,7 @@ składają zapytania z TYCH SAMYCH fragmentów: rozwiązanie DL per oferta, typ
 rekrutacji i definicja placementu (D2) nie mogą mieć dwóch kopii.
 """
 
+from app.services.hit_ratio_scope import counts_in_hit_ratio_sql
 from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
 from app.services.job_delivery_lead_fill import _HEADS
 
@@ -56,7 +57,11 @@ DL_HEAD_CTE = f"""
 # Samo `created_at` to data IMPORTU z Traffita (`_UPSERT_JOB` stempluje NOW()),
 # więc 3859 z 4229 rekrutacji „powstało" w maju 2026 i zapytania DL wypadały
 # z każdego innego okna (runda 6 audytu).
-JOBS_SCOPED_CTE = """
+#
+# Zamknięcia „nie liczy się” (duplikat, anulowany projekt… — 21.10.2026) nie
+# są zapytaniem portfela: wypadają z mianownika jak w lidze. Warunek dotyczy
+# tylko zamkniętych — otwarta rekrutacja liczy się zawsze.
+JOBS_SCOPED_CTE = f"""
     jobs_scoped AS (
         SELECT j.id,
                COALESCE(j.opened_at, j.created_at) AS opened_at,
@@ -69,6 +74,7 @@ JOBS_SCOPED_CTE = """
              AND (CAST(jdl.role AS text) = 'delivery_lead'
                   OR jdl.roles @> CAST('["delivery_lead"]' AS jsonb))
         LEFT JOIN dl_head h ON h.client_id = j.client_id
+        WHERE j.status::text <> 'closed' OR {counts_in_hit_ratio_sql("j")}
     )
 """
 
