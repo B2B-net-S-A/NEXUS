@@ -171,6 +171,7 @@ from app.api import public_engagement
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
+from app.api import b2b_esign
 from app.api import b2b_register_import
 from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
@@ -1516,6 +1517,15 @@ app.include_router(
     b2b_documents.router,
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
+)
+# Podpis umowy B2B w NEXUSIE (0497) — za przełącznikiem app_settings['b2b_esign'].
+app.include_router(
+    b2b_esign.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
+app.include_router(
+    b2b_esign.public_router, prefix="/api/public", tags=["public-b2b-sign"]
 )
 app.include_router(
     b2b_register_import.router,
