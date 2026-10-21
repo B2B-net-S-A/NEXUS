@@ -119,6 +119,10 @@ export interface KanbanItem {
  // jest „Dlaczego ten kandydat” — `screening_done` znaczy wtedy „ocena
  // wpisana”. Brak pola albo `null` = zwykły arkusz.
  screening_requirement?: "why_candidate" | null;
+ // Minimum dla Delivery Leada (21.10.2026): klucze pól karty bez treści —
+ // lokalizacja, tryb pracy, dostępność, „Dlaczego ten kandydat”, pola
+ // klienta. Ta sama reguła co bramka „Zweryfikowany”. Brak pola = nie wiadomo.
+ minimum_missing?: string[] | null;
  scorecard_done?: boolean;
  // Automaty (21.09.2026): na TYM etapie leży gotowe auto-CV czekające na
  // przegląd człowieka. Brak pola (starsza odpowiedź) = brak odznaki.

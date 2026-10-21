@@ -5829,6 +5829,11 @@ END $$""",
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE job_public_profiles "
     "ADD COLUMN IF NOT EXISTS theme VARCHAR(32) NULL",
+    # 0495: pola karty, które klient dokłada do minimum przed „Zweryfikowany”
+    # (decyzja Artura 21.10.2026). Lustro 1:1 z migracją — pilnuje
+    # `test_playbook_verified_required_mirror.py`.
+    "ALTER TABLE client_playbooks "
+    "ADD COLUMN IF NOT EXISTS verified_required_fields JSONB NULL",
     # 0489: „O mnie” rekrutera na stałym linku (najwyżej 280 znaków).
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE candidate_invite_links "

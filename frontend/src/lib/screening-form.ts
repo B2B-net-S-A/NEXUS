@@ -11,6 +11,7 @@
 import type { RateUnit, ScreeningQuestion } from "@/lib/api";
 import type { NoteProposal } from "@/lib/api/recommendationCards";
 import type {
+  CarriedCardField,
   FormRate,
   RateNotRestoredReason,
   ScreeningFormAnswerOrigin,
@@ -462,6 +463,71 @@ export function assessmentMissingForForward(
   if ((values.card?.recommendation ?? "").trim()) return false;
   // Puste pole nie kasuje wartości z notatki — ta dalej się liczy.
   return state.card?.fields?.recommendation?.source !== "note";
+}
+
+// ── Minimum dla Delivery Leada (decyzja Artura 21.10.2026) ──────────────
+
+/** „-” w red flags znaczy „brak uwag”; gdzie indziej wpis bez litery i cyfry nie jest wartością. */
+const PLACEHOLDER_IS_VALUE: ReadonlySet<string> = new Set(["red_flags"]);
+
+/** Czy tekst pola karty liczy się jako wartość — lustro `has_value` w backendzie. */
+export function cardValueCounts(key: string, raw: string | null | undefined): boolean {
+  const text = (raw ?? "").trim();
+  if (PLACEHOLDER_IS_VALUE.has(key)) return text !== "";
+  return /[\p{L}\p{N}]/u.test(text);
+}
+
+/**
+ * Pola minimum bez wartości — „Zapisz i przekaż dalej” zatrzymuje się na nich
+ * (lustro `move_requirements.minimum_missing`). Puste pole nie kasuje wartości
+ * z notatki, dostępność liczy się też z profilu. W rekrutacji bez pytań
+ * „Dlaczego ten kandydat” pomijamy tylko wtedy, gdy już zatrzymuje
+ * `assessmentMissingForForward` — odpowiedzi z notatki albo stary arkusz go
+ * nie zastępują (lustro `_why_candidate_reported`, przegląd 21.10.2026).
+ */
+export function minimumMissingForForward(
+  state: Pick<ScreeningFormState, "card" | "sheet" | "note_answers" | "questions">,
+  questions: readonly ScreeningQuestion[],
+  values: Pick<ScreeningFullFormValues, "card">,
+): string[] {
+  const editable = new Set(editableCardKeys(state));
+  return (state.card?.required ?? []).filter((key) => {
+    if (!editable.has(key)) return false;
+    if (key === "recommendation" && assessmentMissingForForward(state, questions, values)) return false;
+    if (key === "availability" && state.card?.availability_in_profile) return false;
+    const typed = values.card?.[key] ?? "";
+    if (cardValueCounts(key, typed)) return false;
+    const saved = state.card?.fields?.[key];
+    return !(typed.trim() === "" && saved?.source === "note" && cardValueCounts(key, saved.raw));
+  });
+}
+
+/**
+ * D2 (21.10.2026): pola o osobie z innej rekrutacji do wpisania w puste pola
+ * formularza — jak stawka na start, tylko w „Nowych” i „Screeningu”.
+ */
+export function carriedPrefill(
+  state: Pick<ScreeningFormState, "card" | "board_column" | "editable">,
+): Record<string, CarriedCardField> {
+  if (!state.editable || !ratePrefillColumn(state)) return {};
+  const editable = new Set(editableCardKeys(state));
+  const out: Record<string, CarriedCardField> = {};
+  for (const [key, value] of Object.entries(state.card?.carried ?? {})) {
+    if (!editable.has(key) || !cardValueCounts(key, value.raw)) continue;
+    if (cardValueCounts(key, state.card?.fields?.[key]?.raw)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/** Linijka pod polem: „z rozmowy 20.10.2026 · Java Developer — Bank A”. */
+export function carriedCaption(value: CarriedCardField): string {
+  const day = value.at ? new Date(value.at) : null;
+  const date =
+    day && !Number.isNaN(day.getTime())
+      ? day.toLocaleDateString("pl-PL", { day: "numeric", month: "numeric", year: "numeric", timeZone: "Europe/Warsaw" })
+      : null;
+  return ["z rozmowy" + (date ? ` ${date}` : ""), value.job_title].filter(Boolean).join(" · ");
 }
 
 // ── Wypełnienie z notatki ────────────────────────────────────────────────

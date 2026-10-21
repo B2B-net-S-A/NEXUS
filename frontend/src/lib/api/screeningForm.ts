@@ -83,6 +83,26 @@ export interface ScreeningFormCard {
   labels: Record<string, string>;
   /** Pola karty do zapisu w formularzu — bez stawki (stawka jest w `rate`). */
   editable_fields: string[];
+  /**
+   * D2 (21.10.2026): pola o osobie z jej ostatniej rozmowy w innej
+   * rekrutacji — formularz wpisuje je w puste pola. Tylko przy prawie zapisu.
+   */
+  carried?: Record<string, CarriedCardField>;
+  /** Minimum dla DL przed „Zweryfikowany” (21.10.2026) — lustro bramki serwera. */
+  required?: string[];
+  /** Data dostępności w profilu — pole „Dostępność” nie jest wtedy brakiem. */
+  availability_in_profile?: boolean;
+  /** Pola dołożone do minimum w karcie klienta (D3) — podpis „Wymaga <klient>”. */
+  required_by_client?: { fields: string[]; client_name: string | null } | null;
+}
+
+/** Wartość pola z innej rekrutacji tej osoby (`carried_fields` w backendzie). */
+export interface CarriedCardField {
+  raw: string;
+  /** ISO — kiedy wpisano wartość w tamtej rekrutacji. */
+  at: string;
+  job_id: number;
+  job_title?: string | null;
 }
 
 export interface ScreeningFormClaim {

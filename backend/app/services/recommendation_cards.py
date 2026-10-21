@@ -44,24 +44,31 @@ from app.services.client_identity import client_display_name_expression
 from app.services.recommendation_card_rules import (  # noqa: F401 — jedno wejście dla wołających
     CARD_KINDS,
     CARD_ORIGINS,
+    CARRIED_FIELDS,
+    CLIENT_EXTRA_FIELDS,
     DISPLAY_LABELS,
     EDITABLE_FIELDS,
     KEYWORDS_MAX,
     LABELS,
     PHRASABLE_FIELDS,
     REQUIRED_FIELDS,
+    VERIFIED_MINIMUM_FIELDS,
     NoteInput,
     attach_deal_breakers,
+    carried_values,
     completeness,
     current_answers,
+    has_value,
     is_current,
     latest_facts,
     legacy_text,
     manual_value,
     max_length,
     merge_questions,
+    missing_required,
     note_answer_rows,
     note_contributions,
+    present_fields,
     project_notes,
     split_fields,
 )
@@ -133,7 +140,9 @@ def card_summary(
         "missing_labels": [DISPLAY_LABELS[key] for key in state["missing"]],
         "answers": len(answers["items"]) if answers else 0,
         "rate_hourly": _hourly_rate(current.get("rate")),
-        "availability": "availability" in current,
+        "availability": has_value("availability", current.get("availability")),
+        # Pola z treścią (21.10.2026) — minimum dla DL liczy się z nich.
+        "present": sorted(present_fields(current)),
     }
 
 
@@ -155,6 +164,62 @@ def _hourly_rate(field: object) -> Optional[float]:
     if field.get("value_max") is not None:
         return None
     return float(value)
+
+
+async def carried_fields(
+    db: AsyncSession,
+    *,
+    user: User,
+    candidate_id: int,
+    job_id: int,
+    skip: Iterable[str],
+) -> dict[str, dict[str, Any]]:
+    """Pola o osobie z jej innych rekrutacji (D2, 21.10.2026) z nazwą rekrutacji.
+
+    Tylko rekrutacje w zakresie odczytu patrzącego — jak wcześniejsze
+    odpowiedzi w „Pomiń brakujące”.
+    """
+    from app.api.recruitment_access import job_read_scope_clause  # noqa: PLC0415
+    from app.services.job_working_title import display_title  # noqa: PLC0415
+
+    rows = (
+        await db.execute(
+            select(
+                RecommendationCard.job_id,
+                RecommendationCard.fields_notes,
+                RecommendationCard.fields_manual,
+            ).where(
+                RecommendationCard.candidate_id == candidate_id,
+                RecommendationCard.job_id != job_id,
+                job_read_scope_clause(user, RecommendationCard.job_id),
+            )
+        )
+    ).all()
+    carried = carried_values(
+        (
+            {
+                "job_id": row.job_id,
+                "fields_notes": row.fields_notes,
+                "fields_manual": row.fields_manual,
+            }
+            for row in rows
+        ),
+        now=datetime.now(timezone.utc),
+        skip=skip,
+    )
+    job_ids = {value["job_id"] for value in carried.values()}
+    if not job_ids:
+        return carried
+    jobs = {
+        job.id: job
+        for job in (await db.execute(select(Job).where(Job.id.in_(job_ids))))
+        .scalars()
+        .all()
+    }
+    for value in carried.values():
+        job = jobs.get(value["job_id"])
+        value["job_title"] = display_title(job) if job is not None else None
+    return carried
 
 
 async def summaries_for_job(

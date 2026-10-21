@@ -163,8 +163,8 @@ const ADVANCED_LINKS: Array<{
   },
   {
     href: "/settings/scoring",
-    title: "Profile wag scoringu",
-    description: "Tunowanie semantic / skills / salary / location / availability per klient.",
+    title: "Ranking kandydatów",
+    description: "Co liczy się najbardziej przy dopasowaniu kandydata.",
     icon: <Sliders className="w-5 h-5" />,
     roles: ["admin", "delivery_lead"],
     section: "insights",
@@ -198,8 +198,8 @@ const ADVANCED_LINKS: Array<{
   },
   {
     href: "/settings/ai",
-    title: "Funkcje AI",
-    description: "Globalny wyłącznik + miesięczne limity dla scoringu, generatora ogłoszeń, parsera CV i podsumowań.",
+    title: "Koszty AI",
+    description: "Który model robi co i ile to kosztuje w tym miesiącu.",
     icon: <Sparkles className="w-5 h-5" />,
     roles: ["admin"],
     section: "system_admin",

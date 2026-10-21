@@ -171,7 +171,8 @@ export function boardCardBadge(
     return {
       label: `Screening: brakuje ${card.missing}`,
       tone: "wait",
-      title: "W screeningu brakuje pól warunków albo oceny — nie blokuje to ruchu karty.",
+      title:
+        "W screeningu brakuje pól warunków albo oceny. Lokalizacja, tryb pracy, dostępność i „Dlaczego ten kandydat” blokują przekazanie na „Zweryfikowany”, reszta nie.",
     };
   }
   if (column !== "screening") {

@@ -3384,6 +3384,10 @@ async def build_kanban_view(
     from app.services import candidate_rate_change as _rate_change
 
     job_has_questions = bool(screening_sheets.question_texts(job.champion_profile))
+    # Pola, które klient dokłada do minimum dla DL (karta klienta, D3).
+    job_client_required, _ = await move_requirements.client_required_fields(
+        db, job.client_id
+    )
     # Para ma CV firmowe — ta sama reguła co wymaganie ruchu na „QC CV”
     # (`company_cv_refs`, hurtem: najwyżej 4 zapytania na tablicę). Karta
     # z „Zweryfikowanego” wie przed ruchem, że CV brakuje (14.10.2026).
@@ -3611,6 +3615,15 @@ async def build_kanban_view(
         availability = availability_by_id.get(e.candidate_id, (None, None))
         payload["availability_status"] = availability[0]
         payload["availability_date"] = availability[1]
+        # Minimum dla DL (21.10.2026): strzałka i „Przesuń dalej” znają braki
+        # przed ruchem — ta sama reguła co bramka serwera.
+        payload["minimum_missing"] = move_requirements.board_minimum_missing(
+            card_by_candidate.get(e.candidate_id),
+            has_questions=job_has_questions,
+            availability_known=availability[1] is not None,
+            screening_met=bool(payload["screening_done"]),
+            client_required=job_client_required,
+        )
         in_base_at, in_base_exact, in_base_by = added_to_base_by_id.get(
             e.candidate_id, (None, False, None)
         )
