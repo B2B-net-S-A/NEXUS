@@ -1820,6 +1820,18 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   ręcznie". Przy wspólnej puli zatwierdza się cały miesiąc zamówienia naraz.
   Zatwierdzenie odmówi, gdy zamówienie ze wspólną pulą zostało w międzyczasie
   zakończone przed tym miesiącem albo anulowane.
+* **Dwa wiersze tej samej osoby — jeden z numerem zamówienia, drugi bez —
+  nie są sumowane.** Wiersz z numerem schodzi wyłącznie z tego zamówienia
+  (przekroczenie puli liczy się tylko z jego MD). Wiersz bez numeru nie schodzi
+  z żadnej puli i dostaje status **„Oczekuje na zamówienie"**; przy zamówieniu
+  z numerem (w wynikach importu i na karcie zamówienia) widać **„Pozostało do
+  zafakturowania za {miesiąc}: X MD – oczekuje na kolejne zamówienie"**. Gdy
+  w NEXUSIE pojawi się kolejne zamówienie tej osoby u tego klienta (nowe
+  zamówienie, przedłużenie, dopisanie osoby albo aktywacja szkicu z poczty),
+  oczekujące MD schodzą z niego same jako zużycie za miesiąc raportu — tyle,
+  ile mieści pula; reszta czeka na następne zamówienie. Wpis o tym jest
+  w historii nowego zamówienia. Ponowny import miesiąca nie każe czekać
+  drugi raz na MD, które już zeszły.
 * **Powtórny import tego samego miesiąca nadpisuje** poprzednie zużycie — MD nie
   odejmą się drugi raz. Przy **wspólnej puli MD** plik korygujący może nieść
   tylko poprawione osoby: MD pozostałych osób z wcześniejszego importu tego

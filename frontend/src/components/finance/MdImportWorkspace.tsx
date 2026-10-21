@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock,
   FileSpreadsheet,
   HelpCircle,
   RefreshCw,
@@ -28,6 +29,7 @@ import {
   type ImportRowTone,
 } from "@/lib/md-import-row-tone";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { awaitingMdNote } from "@/lib/order-consumption";
 import { pluralPl } from "@/lib/plural-pl";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -39,6 +41,8 @@ const TONE_STYLE: Record<ImportRowTone, { className: string; icon: typeof CheckC
   applied: { className: "text-success-muted-foreground bg-success-muted", icon: CheckCircle2 },
   pending: { className: "text-warning-muted-foreground bg-warning-muted", icon: HelpCircle },
   cost: { className: "text-info-muted-foreground bg-info-muted", icon: CheckCircle2 },
+  // 21.10.2026: MD czekają na kolejne zamówienie i zejdą z niego same.
+  awaiting: { className: "text-info-muted-foreground bg-info-muted", icon: Clock },
   // U14 (audyt 24.09.2026): osoba bez zamówienia MD to zwykły kontraktor
   // okresowy, nie błąd — szary stan, bez czerwonego nazwiska.
   neutral: { className: "text-muted-foreground bg-muted", icon: HelpCircle },
@@ -466,6 +470,11 @@ export function MdImportWorkspace() {
                     Rozliczono kwotowo: <strong>{toneCounts.cost}</strong>
                   </span>
                 ) : null}
+                {toneCounts.awaiting > 0 ? (
+                  <span className={cn(COUNTER_PILL, "text-info-muted-foreground")}>
+                    Oczekuje na zamówienie: <strong>{toneCounts.awaiting}</strong>
+                  </span>
+                ) : null}
                 <span className={cn(COUNTER_PILL, "text-muted-foreground")}>
                   Bez zamówienia MD: <strong>{toneCounts.neutral}</strong>
                 </span>
@@ -508,6 +517,7 @@ export function MdImportWorkspace() {
                         <ImportRowLine
                           key={row.id}
                           row={row}
+                          periodMonth={detail.period_month}
                           busy={assign.isPending}
                           onAssign={(orderId, confirmOverflow) =>
                             assign.mutate({ rowId: row.id, orderId, confirmOverflow })
@@ -730,12 +740,24 @@ function mergedNote(row: ImportRow) {
   );
 }
 
+/** „Pozostało do zafakturowania za … – oczekuje na kolejne zamówienie”. */
+function awaitingNote(row: ImportRow, periodMonth: string) {
+  if (row.awaiting_md == null || row.awaiting_md <= 0) return null;
+  return (
+    <span className="block text-xs text-info-muted-foreground">
+      {awaitingMdNote(periodMonth, row.awaiting_md)}
+    </span>
+  );
+}
+
 function ImportRowLine({
   row,
+  periodMonth,
   busy,
   onAssign,
 }: {
   row: ImportRow;
+  periodMonth: string;
   busy: boolean;
   onAssign: (orderId: number, confirmOverflow?: boolean) => void;
 }) {
@@ -837,11 +859,26 @@ function ImportRowLine({
             >
               Zatwierdź mimo przekroczenia
             </ConfirmTwoStepButton>
+            {awaitingNote(row, periodMonth)}
           </div>
+        ) : row.status === "awaiting_order" ? (
+          // 21.10.2026: wiersz bez numeru obok wiersza tej osoby z numerem —
+          // nic nie zeszło; MD zejdą z kolejnego zamówienia, gdy wpłynie.
+          <span className="text-xs text-muted-foreground">
+            {row.awaiting_order
+              ? `${row.awaiting_order.client_name} · po zamówieniu nr ${row.awaiting_order.order_number}`
+              : null}
+            {awaitingNote(row, periodMonth)}
+          </span>
         ) : row.matched ? (
           <span className="text-xs text-muted-foreground">
             {row.matched.client_name} · nr {row.matched.order_number}
             {mergedNote(row)}
+            {awaitingNote(row, periodMonth)}
+          </span>
+        ) : row.status === "superseded" ? (
+          <span className="text-xs text-muted-foreground">
+            Ten miesiąc zaimportowano ponownie — obowiązuje nowszy import
           </span>
         ) : row.status_reason ? (
           // Wiersz wskazał zamówienie numerem, a ta osoba go w tym miesiącu

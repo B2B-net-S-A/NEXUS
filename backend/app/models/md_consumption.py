@@ -51,12 +51,21 @@ IMPORT_ROW_COST_ONLY = "cost_only"
 # 0375 (ticket 1.1, 24.09.2026): zaksięgowanie zeszłoby poniżej zera — wiersz
 # czeka na ręczne zatwierdzenie („Do weryfikacji – przekroczenie puli o X MD”).
 IMPORT_ROW_OVERFLOW = "overflow"
+# 0492 (21.10.2026): wiersz bez numeru zamówienia obok wiersza tej samej osoby
+# z numerem — MD za ten miesiąc czekają na kolejne zamówienie (``md_pending``)
+# i schodzą z niego, gdy pojawi się w NEXUSIE (`services/md_awaiting_orders`).
+IMPORT_ROW_AWAITING_ORDER = "awaiting_order"
+# …a taki wiersz ze starszej paczki za ten sam miesiąc, gdy nowsza paczka
+# przyniosła własny wiersz oczekujący (inaczej MD czekałyby podwójnie).
+IMPORT_ROW_SUPERSEDED = "superseded"
 IMPORT_ROW_STATUSES: tuple[str, ...] = (
     IMPORT_ROW_APPLIED,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_UNMATCHED,
     IMPORT_ROW_COST_ONLY,
     IMPORT_ROW_OVERFLOW,
+    IMPORT_ROW_AWAITING_ORDER,
+    IMPORT_ROW_SUPERSEDED,
 )
 
 IMPORT_ROW_STATUS_LABELS: dict[str, str] = {
@@ -70,6 +79,8 @@ IMPORT_ROW_STATUS_LABELS: dict[str, str] = {
     IMPORT_ROW_COST_ONLY: "Tylko faktura (bez MD)",
     # Liczbę MD dokleja odczyt wiersza (`overflow_md`).
     IMPORT_ROW_OVERFLOW: "Do weryfikacji – przekroczenie puli",
+    IMPORT_ROW_AWAITING_ORDER: "Oczekuje na zamówienie",
+    IMPORT_ROW_SUPERSEDED: "Zastąpiony nowszym importem",
 }
 
 CONSUMPTION_SOURCE_IMPORT = "import"
@@ -181,7 +192,7 @@ class MdConsumptionImportRow(Base):
     __table_args__ = (
         CheckConstraint(
             "status IN ('applied', 'needs_assignment', 'unmatched', 'cost_only', "
-            "'overflow')",
+            "'overflow', 'awaiting_order', 'superseded')",
             name="ck_md_import_rows_status",
         ),
         CheckConstraint(
@@ -234,6 +245,15 @@ class MdConsumptionImportRow(Base):
         Numeric(16, 6), nullable=True
     )
     """O ile MD zaksięgowanie przekroczyłoby pulę (status ``overflow``, 0375)."""
+    awaiting_origin_order_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_orders.id", ondelete="SET NULL"), nullable=True
+    )
+    """Status ``awaiting_order`` (0492): linia zamówienia, na które trafił
+    wiersz tej osoby z numerem — przy niej wisi „Pozostało do zafakturowania”.
+    Kolejne zamówienie szukamy u tego samego klienta i tej samej osoby."""
+    md_pending: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6), nullable=True)
+    """Ile MD z wiersza wciąż czeka na zamówienie. ``md_reported − md_pending``
+    zeszło już z kolejnych zamówień (ostatnie w ``matched_order_id``)."""
     cost_status: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
     """``NULL`` = wiersz nie dotyczy rozliczenia kosztowego (brak numeru
     w „Uwagach"). Patrz ``COST_ROW_*``."""
@@ -251,6 +271,9 @@ class MdConsumptionImportRow(Base):
     import_batch = relationship("MdConsumptionImport", back_populates="rows")
     matched_order = relationship("ClientOrder", foreign_keys=[matched_order_id])
     matched_group = relationship("ClientOrderGroup", foreign_keys=[matched_group_id])
+    awaiting_origin_order = relationship(
+        "ClientOrder", foreign_keys=[awaiting_origin_order_id]
+    )
     resolver = relationship("User", foreign_keys=[resolved_by_user_id])
 
     def __repr__(self) -> str:

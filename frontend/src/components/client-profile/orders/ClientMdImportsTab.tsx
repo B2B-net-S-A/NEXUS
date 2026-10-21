@@ -28,6 +28,7 @@ const STATE_TONE: Record<ClientMdImportRowState, StatusDotTone> = {
   to_verify: "warning",
   error: "danger",
   neutral: "neutral",
+  awaiting: "info",
 };
 
 const HEAD_CELL = cn(CALM_HEAD, "px-3 py-2");
