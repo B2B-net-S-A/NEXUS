@@ -323,7 +323,9 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
                 {view.totals.leave_paid_hours > 0
                   ? ` · ${view.employment_type === "uop" ? "urlop płatny" : "płatne dni z umowy"} ${formatHours(view.totals.leave_paid_hours)} h`
                   : ""}
-                {view.totals.overtime_hours > 0 ? ` · nadgodziny ${formatHours(view.totals.overtime_hours)} h` : ""}
+                {view.totals.overtime_hours > 0
+                  ? ` · ${words.overtime_stat} ${formatHours(view.totals.overtime_hours)} h`
+                  : ""}
                 {` · ${words.review_verb}: `}
               </span>
               <span
@@ -356,6 +358,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
           roleDefault={templates.data?.role_default ?? null}
           onFill={(payload) => fill.mutateAsync(payload)}
           onDone={filled}
+          form={view.employment_type}
         />
       ) : null}
       {managingTemplates ? (
@@ -370,6 +373,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
           day={editor.day}
           entry={editor.entry}
           allowOvertime={view.can_log_overtime}
+          form={view.employment_type}
           templates={templates.data?.items}
           hint={{ text: hint.data?.text ?? null, loading: hint.isLoading }}
           onSave={(payload) => save.mutateAsync(payload)}

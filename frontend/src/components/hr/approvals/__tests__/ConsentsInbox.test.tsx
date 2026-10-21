@@ -92,7 +92,7 @@ describe("ConsentsInbox — skrzynka zgód", () => {
       row({
         id: 7,
         kind: "bonus",
-        kind_label: "Premia poza umową",
+        kind_label: "Wynagrodzenie dodatkowe",
         title: "Trzy przejęte rekrutacje",
         payer: null,
         beneficiary_user_id: 107,
@@ -116,7 +116,7 @@ describe("ConsentsInbox — skrzynka zgód", () => {
     expect(within(list).getByText("Julia Próbna")).toBeInTheDocument();
     expect(screen.getByText(/z umowy i reguł 9400 zł/)).toBeInTheDocument();
     expect(screen.getByText(/sprawdź, czy to nie dubel/)).toBeInTheDocument();
-    expect(screen.getByText(/trafi do Płac jako przyznana/)).toBeInTheDocument();
+    expect(screen.getByText(/Wynagrodzenie dodatkowe trafi do Płac jako przyznane/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Zatwierdź inną kwotę/ })).toBeInTheDocument();
   });
 

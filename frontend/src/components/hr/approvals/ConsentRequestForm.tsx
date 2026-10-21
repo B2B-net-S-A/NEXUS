@@ -460,7 +460,7 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
             Anuluj
           </Button>
           <span className="ml-auto text-xs text-muted-foreground">
-            Premię z umowy (placement, liga) liczą Płace same — tu jej nie składasz.
+            Wynagrodzenie z reguł umowy (placement, liga) liczą Płace same — tu go nie składasz.
           </span>
         </div>
       </div>
@@ -499,7 +499,7 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
                 </p>
                 <p className="text-muted-foreground">
                   {bonus
-                    ? "premie poza umową zawsze u zatwierdzającego"
+                    ? "wynagrodzenie dodatkowe zawsze u zatwierdzającego"
                     : route.supervisor_limit === null
                       ? "ten rodzaj zawsze u zatwierdzającego"
                       : `kwota ponad próg koordynatora (${moneyPl(String(route.supervisor_limit))})`}
@@ -508,7 +508,7 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
             ) : null}
             <li className="text-muted-foreground">
               {bonus
-                ? "Po zgodzie premia trafia do Płac jako przyznana."
+                ? "Po zgodzie wynagrodzenie dodatkowe trafia do Płac jako przyznane."
                 : "Po zgodzie możesz kupić albo zapłacić."}
             </li>
           </ol>

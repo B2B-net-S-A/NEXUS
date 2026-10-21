@@ -14,6 +14,7 @@ import {
   needsMyAction,
   nextStepText,
   nipValid,
+  previousMonthLine,
   queueStatus,
   settlementLayout,
   showsPreviousYear,
@@ -91,6 +92,16 @@ describe("settlement-format", () => {
     expect(nextStepText(month({ status: "estimate", hours_confirmed: false, final: false }))).toMatch(
       /po potwierdzeniu raportu godzin/,
     );
+  });
+
+  it("premie przy UoP, „wynagrodzenie dodatkowe” przy B2B i zleceniu (21.10.2026)", () => {
+    const estimate = { status: "estimate" as const, hours_confirmed: true, final: false };
+    expect(nextStepText(month({ ...estimate, employment_type: "uop" }))).toMatch(/gdy dojdą premie\.$/);
+    expect(nextStepText(month(estimate))).toMatch(/gdy dojdzie wynagrodzenie dodatkowe\.$/);
+    expect(previousMonthLine(month({ employment_type: "zlecenie" }))).toMatch(
+      /w tym wynagrodzenie dodatkowe 1\s?960,00\s?zł$/,
+    );
+    expect(previousMonthLine(month({ employment_type: "uop" }))).toMatch(/w tym premie/);
   });
 
   it("NIP: suma kontrolna, zapis z kreskami, zły NIP odrzucony", () => {
