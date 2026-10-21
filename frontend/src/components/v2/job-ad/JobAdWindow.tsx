@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * Okno „Ogłoszenie na portale” (12.10.2026) — jedna treść rekrutacji w dwóch
- * formatach: pola formularza Pracuj.pl i opis JustJoin.IT. Rekruter układa
- * ją jednym kliknięciem z Profilu Championa, poprawia i kopiuje do portalu.
+ * Okno „Ogłoszenie” (12.10.2026, od 21.10.2026 także strona kariery) — jedna
+ * treść rekrutacji: strona kariery jednym kliknięciem oraz dwa formaty do
+ * wklejenia, pola formularza Pracuj.pl i opis JustJoin.IT. Rekruter układa
+ * ją jednym kliknięciem z Profilu Championa, poprawia i publikuje.
  *
  * Do schowka idą WYŁĄCZNIE teksty policzone przez serwer dla zapisanego
  * stanu (`rendered`), po kontroli: znalezisko blokujące (nazwa klienta,
@@ -39,9 +40,9 @@ import {
 import { copyHtmlToClipboard, copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
-import { AdChecksPanel } from "./AdChecksPanel";
+import { AdChannels } from "./AdChannels";
 import { AdFactsRail, TERM_KEYS, type AdTerms } from "./AdFactsRail";
-import { AdPublications, JOBS_LIST_QUERY_ROOT } from "./AdPublications";
+import { JOBS_LIST_QUERY_ROOT } from "./AdPublications";
 import { JustJoinTab } from "./JustJoinTab";
 import { PracujTab } from "./PracujTab";
 import {
@@ -57,7 +58,7 @@ export type JobAdTab = "pracuj" | "jjit";
 /** Wywołania okna — harness `/preview/job-ad` podaje je z pamięci. */
 export type JobAdWindowApi = Pick<
   typeof jobAdApi,
-  "get" | "generate" | "save" | "markPublished" | "markRemoved"
+  "get" | "generate" | "save" | "markPublished" | "markRemoved" | "publishCareer"
 >;
 
 export interface JobAdWindowProps {
@@ -104,6 +105,7 @@ export function JobAdWindow({
   const [tab, setTab] = useState<JobAdTab>(initialTab);
   const [firstLang, setFirstLang] = useState<AdLang>("pl");
   const [copied, setCopied] = useState<ReadonlySet<string>>(new Set());
+  const [careerCopied, setCareerCopied] = useState(false);
   // Niezapisane teksty pól (obie zakładki i warunki z lewej kolumny).
   const [drafts, setDrafts] = useState<AdDrafts>({});
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -132,8 +134,9 @@ export function JobAdWindow({
   const applyState = (state: JobAdState) => {
     queryClient.setQueryData(queryKey, state);
     baseVersion.current = state.ad?.updated_at ?? null;
-    // Zmiana treści zapala „do aktualizacji” w kolumnie „Ogłoszenia” listy.
-    if (state.publications.some((item) => !item.removed_at)) {
+    // Zmiana treści zapala „do aktualizacji” w kolumnie „Ogłoszenia” listy,
+    // a strona kariery — kropkę „Kariera” w nagłówku rekrutacji i na liście.
+    if (state.publications.some((item) => !item.removed_at) || state.career.status !== "none") {
       void queryClient.invalidateQueries({ queryKey: [JOBS_LIST_QUERY_ROOT] });
     }
     // Nowa treść = nowe teksty do skopiowania; stare „Skopiowane” już nie obowiązuje.
@@ -170,11 +173,31 @@ export function JobAdWindow({
     },
   });
 
+  const publishCareer = useMutation({
+    mutationFn: () => api.publishCareer(jobId, baseVersion.current),
+    onSuccess: (state) => {
+      applyState(state);
+      void queryClient.invalidateQueries({ queryKey: [JOBS_LIST_QUERY_ROOT] });
+      showSuccess("Ogłoszenie wisi na stronie kariery.");
+    },
+    onError: (err) => {
+      if (isAdChangedError(err)) void reloadAfterConflict();
+      showError(
+        apiErrorMessage(err, "Nie udało się opublikować na stronie kariery. Spróbuj ponownie."),
+      );
+    },
+  });
+
+  const copyCareerLink = async (url: string) => {
+    if (await copyTextToClipboard(url)) setCareerCopied(true);
+    else showError("Nie udało się skopiować. Zaznacz link i skopiuj go ręcznie.");
+  };
+
   const state = query.data;
   const ad = state?.ad ?? null;
   const rendered = state?.rendered ?? null;
   const findings = state?.findings ?? [];
-  const busy = generate.isPending || save.isPending;
+  const busy = generate.isPending || save.isPending || publishCareer.isPending;
 
   const saveAd = async (content: AdContent, tech: AdTechItem[]): Promise<boolean> => {
     try {
@@ -240,6 +263,14 @@ export function JobAdWindow({
       ? "Trwa zapis poprawki."
       : null;
   const blockingCount = blockingFindings(findings).length;
+  // Na stronę idzie zapisana treść — otwarta poprawka jeszcze jej nie zmieniła.
+  const publishBlockedReason =
+    copyBlockedReason ??
+    (editing
+      ? "Najpierw zapisz albo zamknij otwarte poprawki."
+      : generate.isPending
+        ? "Trwa przygotowanie treści."
+        : null);
 
   return (
     <>
@@ -259,7 +290,7 @@ export function JobAdWindow({
           onInteractOutside={(event) => event.preventDefault()}
           data-testid="job-ad-window"
         >
-          <DialogTitle className="sr-only">Ogłoszenie na portale</DialogTitle>
+          <DialogTitle className="sr-only">Ogłoszenie</DialogTitle>
           <Tabs
             value={tab}
             onValueChange={(value) => setTab(value as JobAdTab)}
@@ -268,7 +299,7 @@ export function JobAdWindow({
             <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border bg-card px-4 py-2">
               <div className="flex min-w-0 items-center gap-4">
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground">Ogłoszenie na portale</p>
+                  <p className="text-sm font-semibold text-foreground">Ogłoszenie</p>
                   <p className="truncate text-xs text-muted-foreground">{jobTitle}</p>
                 </div>
                 {ad ? (
@@ -417,15 +448,6 @@ export function JobAdWindow({
                             {blockingCount === 1 ? "go" : "je"} albo popraw tekst.
                           </p>
                         ) : null}
-                        {/* Po wklejeniu treści na portalu rekruter oznacza to tutaj. */}
-                        <AdPublications
-                          jobId={jobId}
-                          portals={[tab]}
-                          state={state}
-                          jobClosed={jobClosed}
-                          locked={busy}
-                          api={api}
-                        />
                         <TabsContent value="pracuj" className="mt-0">
                           <PracujTab
                             content={ad.content}
@@ -461,12 +483,20 @@ export function JobAdWindow({
                       </>
                     )}
                   </div>
-                  {ad && findings.length > 0 ? (
-                    <AdChecksPanel
-                      findings={findings}
-                      busy={busy}
-                      onShow={show}
-                      onRemove={removeExcerpt}
+                  {ad && rendered ? (
+                    <AdChannels
+                      jobId={jobId}
+                      state={state}
+                      jobClosed={jobClosed}
+                      locked={busy}
+                      publishBlockedReason={publishBlockedReason}
+                      publishingCareer={publishCareer.isPending}
+                      careerCopied={careerCopied}
+                      onPublishCareer={() => publishCareer.mutate()}
+                      onCopyCareerLink={(url) => void copyCareerLink(url)}
+                      onShowFinding={show}
+                      onRemoveFinding={removeExcerpt}
+                      api={api}
                     />
                   ) : null}
                 </>
@@ -492,7 +522,7 @@ export function JobAdWindow({
                   {checksSummary(findings)}
                 </span>
                 <span className="text-muted-foreground">
-                  Ta sama treść w obu zakładkach — poprawka w jednej zmienia obie.
+                  Jedna treść dla strony kariery i obu portali — poprawka zmienia wszystkie.
                 </span>
               </footer>
             ) : null}

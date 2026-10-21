@@ -392,6 +392,8 @@ class JobResponse(BaseModel):
     # Aktywne ogłoszenia wklejone ręcznie na portalach (0432); wypełnia lista
     # i `GET /api/jobs/{id}` (`job_ad.publications.for_jobs`).
     ad_publications: list[JobAdPublicationOut] = []
+    # Otwarta rekrutacja wisi na stronie kariery (21.10.2026, kropka „Kariera”).
+    career_page: bool = False
     # Delivery Lead rozwinięty do ``UserBrief`` — wypełniają lista
     # (``GET /api/jobs``, „DL: …” obok rekrutera; zgłoszenie 30.09.2026) i
     # ``GET /api/jobs/{id}`` (Brief Profilu Championa, 04.10.2026).

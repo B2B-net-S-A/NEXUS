@@ -348,6 +348,38 @@ describe("JobDetailCompactHeader", () => {
     expect(within(bare).queryByTestId("toggle-empty-columns")).toBeNull();
   });
 
+  it("„Ogłoszenie” to widoczny przycisk z kropkami i pozycja menu (21.10.2026)", async () => {
+    const onWriteAnnouncement = vi.fn();
+    renderHeader({
+      onWriteAnnouncement,
+      adChannels: { career: true, pracuj: false, jjit: true },
+    });
+    const button = screen.getByTestId("open-job-ad");
+    expect(button).toHaveAccessibleName("Ogłoszenie — wisi: strona kariery, JustJoin.IT");
+    await userEvent.click(button);
+    expect(onWriteAnnouncement).toHaveBeenCalledTimes(1);
+
+    const menu = await openMenu();
+    await userEvent.click(
+      within(menu).getByRole("menuitem", { name: "Ogłoszenie — strona kariery i portale" }),
+    );
+    await waitFor(() => expect(onWriteAnnouncement).toHaveBeenCalledTimes(2));
+  });
+
+  it("„Ogłoszenie” bez publikacji mówi, że nigdzie nie wisi; bez prawa — nie ma przycisku", () => {
+    const first = renderHeader({
+      onWriteAnnouncement: vi.fn(),
+      adChannels: { career: false, pracuj: false, jjit: false },
+    });
+    expect(screen.getByTestId("open-job-ad")).toHaveAccessibleName(
+      "Ogłoszenie — jeszcze nigdzie nie wisi",
+    );
+    first.unmount();
+
+    renderHeader();
+    expect(screen.queryByTestId("open-job-ad")).toBeNull();
+  });
+
   it("z listy „Do przejrzenia” zakładka „Tablica” jest powrotem", async () => {
     const { onViewChange } = renderHeader({ activeView: "people" });
     const board = screen.getByTestId("view-board");

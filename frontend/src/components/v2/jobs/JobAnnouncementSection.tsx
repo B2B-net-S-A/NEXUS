@@ -48,7 +48,7 @@ export function JobAnnouncementSection({
           <div className="flex flex-wrap gap-2">
             {onWriteAnnouncement ? (
               <Button type="button" variant="outline" size="sm" onClick={onWriteAnnouncement}>
-                Przygotuj ogłoszenie na portale
+                Ogłoszenie — strona kariery i portale
               </Button>
             ) : null}
             {onGenerateInviteLink ? (
@@ -60,7 +60,7 @@ export function JobAnnouncementSection({
         ) : null}
         <p className="text-[12px] leading-snug text-muted-foreground">
           {onWriteAnnouncement
-            ? "Treść na Pracuj.pl i JustJoin.IT układa się z Profilu Championa — bez nazwy klienta i stawek. "
+            ? "Jedna treść z Profilu Championa: strona kariery jednym kliknięciem, Pracuj.pl i JustJoin.IT do wklejenia — bez nazwy klienta i stawek. "
             : ""}
           {onGenerateInviteLink
             ? "Kandydat z linku trafia od razu do „Nowych” tej rekrutacji."

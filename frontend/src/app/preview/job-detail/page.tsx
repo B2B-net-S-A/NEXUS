@@ -1929,6 +1929,8 @@ function JobDetailHarness() {
                           view === "board" ? `/jobs/${JOB_ID}` : `/jobs/${JOB_ID}?tab=${view}`
                         }
                         onOpenOrder={noop}
+                        onWriteAnnouncement={readOnlyRole ? undefined : noop}
+                        adChannels={{ career: true, pracuj: false, jjit: false }}
                         onOpenHistoryChat={noop}
                         onOpenQuestions={noop}
                         onOpenFiles={() => setFilesOpen(true)}

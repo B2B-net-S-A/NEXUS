@@ -71,6 +71,27 @@ export type JobDetailTab =
   | "interviews"
   | "contract";
 
+/** Strona kariery i portale, na których wisi ogłoszenie rekrutacji. */
+export interface AdChannelDots {
+  career: boolean;
+  pracuj: boolean;
+  jjit: boolean;
+}
+
+const AD_CHANNEL_LABELS: ReadonlyArray<{ key: keyof AdChannelDots; label: string }> = [
+  { key: "career", label: "strona kariery" },
+  { key: "pracuj", label: "Pracuj.pl" },
+  { key: "jjit", label: "JustJoin.IT" },
+];
+
+function adButtonLabel(channels: AdChannelDots | null): string {
+  if (!channels) return "Ogłoszenie";
+  const live = AD_CHANNEL_LABELS.filter(({ key }) => channels[key]).map(({ label }) => label);
+  return live.length > 0
+    ? `Ogłoszenie — wisi: ${live.join(", ")}`
+    : "Ogłoszenie — jeszcze nigdzie nie wisi";
+}
+
 interface JobDetailCompactHeaderProps {
   /** Tytuł stanowiska (tytuł dla rekrutera, a bez niego nazwa od klienta). */
   title: string;
@@ -170,7 +191,13 @@ interface JobDetailCompactHeaderProps {
   emptyColumnsHidden?: boolean;
   onToggleEmptyColumns?: () => void;
   onEdit?: () => void;
+  /**
+   * Okno „Ogłoszenie” — od 21.10.2026 widoczny przycisk w nagłówku (wcześniej
+   * pozycja menu „⋯”), z kropkami: gdzie ogłoszenie wisi.
+   */
   onWriteAnnouncement?: () => void;
+  /** Gdzie ogłoszenie wisi — kropki przy „Ogłoszenie”. Brak = bez kropek. */
+  adChannels?: AdChannelDots | null;
   onGenerateInviteLink?: () => void;
   /**
    * Narzędzia AI administratora (kryteria, scoring, embedding). Strona podaje
@@ -325,6 +352,7 @@ export function JobDetailCompactHeader({
   onToggleEmptyColumns,
   onEdit,
   onWriteAnnouncement,
+  adChannels = null,
   onGenerateInviteLink,
   onOpenAiTools,
   clientCardHref,
@@ -421,6 +449,38 @@ export function JobDetailCompactHeader({
           </nav>
 
           {presence}
+
+          {/* Na laptopie 1280 px sama ikona z kropkami (napis zabierałby tytułowi
+              ok. 80 px — jak „Historia i czat”, K-D4); napis od 1440 px, nazwa
+              w dymku i dla czytnika ekranu, a pełna pozycja także w menu „⋯”. */}
+          {onWriteAnnouncement ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 px-2"
+              onClick={onWriteAnnouncement}
+              aria-label={adButtonLabel(adChannels)}
+              title={adButtonLabel(adChannels)}
+              data-testid="open-job-ad"
+            >
+              <Megaphone className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden min-[1440px]:inline">Ogłoszenie</span>
+              {adChannels ? (
+                <span className="flex items-center gap-0.5" aria-hidden="true">
+                  {AD_CHANNEL_LABELS.map(({ key }) => (
+                    <span
+                      key={key}
+                      className={cn(
+                        "h-1.5 w-1.5 rounded-full",
+                        adChannels[key] ? "bg-success" : "border border-muted-foreground",
+                      )}
+                    />
+                  ))}
+                </span>
+              ) : null}
+            </Button>
+          ) : null}
 
           {/* Sama ikona z licznikiem (K-D4, 14.10.2026): napis zabierał tytułowi
               ok. 100 px przy 1280 px. Nazwa w dymku i dla czytnika ekranu. */}
@@ -600,7 +660,7 @@ export function JobDetailCompactHeader({
               {onWriteAnnouncement ? (
                 <DropdownMenuItem onSelect={() => deferMenuAction(onWriteAnnouncement)}>
                   <Megaphone className="h-4 w-4" />
-                  Ogłoszenie na portale
+                  Ogłoszenie — strona kariery i portale
                 </DropdownMenuItem>
               ) : null}
               {onGenerateInviteLink ? (
