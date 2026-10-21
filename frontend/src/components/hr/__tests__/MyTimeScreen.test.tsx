@@ -32,6 +32,13 @@ vi.mock("@/lib/api/hr", async () => {
     }),
   };
 });
+// Licznik zakładki „Zgody i wydatki” (22.10.2026) czyta moje zgody — tu bez sieci.
+vi.mock("@/lib/api/hr-approvals", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/hr-approvals")>(
+    "@/lib/api/hr-approvals",
+  );
+  return { ...actual, useApprovalList: () => ({ data: undefined, isSuccess: false }) };
+});
 vi.mock("../me/MyOverviewTab", () => ({
   MyOverviewTab: ({ onOpenTab }: { onOpenTab: (value: string, month?: YearMonth) => void }) => (
     <div>

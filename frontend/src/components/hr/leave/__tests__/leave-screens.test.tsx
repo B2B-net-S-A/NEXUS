@@ -158,7 +158,7 @@ describe("„Nieobecni dziś” (D6: bez rodzaju nieobecności)", () => {
     expect(screen.getByText("zastępca nieobecny")).toBeTruthy();
     expect(screen.queryByText(/urlop|L4|zwolnienie/i)).toBeNull();
     expect(screen.getByRole("link", { name: "Kalendarz zespołu" }).getAttribute("href")).toBe(
-      "/people/calendar",
+      "/people/calendar?scope=all&status=absent",
     );
   });
 });

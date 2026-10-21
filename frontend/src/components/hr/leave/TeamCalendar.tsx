@@ -1,17 +1,13 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { FilterChip } from "@/components/hr/people/people-ui";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import type { HrConfig } from "@/lib/api/hr";
 import {
   useTeamCalendar,
@@ -20,6 +16,7 @@ import {
   type TeamCalendar as TeamCalendarData,
   type TeamCalendarPerson,
 } from "@/lib/api/hr-leave";
+import { useUrlWriter } from "@/lib/url-selection";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { WEEKDAYS_PL, formatWeekdayDayPl } from "@/lib/date-pl";
@@ -33,7 +30,6 @@ import {
   calendarWindow,
   hardestDay,
   heatLevel,
-  matchesName,
   mergeCalendars,
   mondayOf,
   presenceMarks,
@@ -44,106 +40,219 @@ import {
   type CalendarView,
 } from "./calendar-bars";
 import {
+  filtersFromParams,
+  filtersHref,
+  inScope,
+  matchesPerson,
+  scopeFromParams,
+  statusFromParams,
+  type CalendarFilters,
+  type CalendarScope,
+} from "./calendar-filters";
+import {
   HALF_DAY_LABELS,
   PRESENCE_LABELS,
   formatRange,
   matchesStatusFilter,
   shortName,
-  type CalendarStatusFilter,
 } from "./leave-format";
-
-type Filter = { kind: "all" } | { kind: "team" } | { kind: "department"; name: string };
 
 interface Selected {
   person: TeamCalendarPerson;
   absence: CalendarAbsence;
 }
 
-function chipClass(active: boolean): string {
-  return cn(
-    "inline-flex h-8 items-center rounded-full border px-3 text-xs transition-colors",
-    active
-      ? "border-primary bg-primary/10 text-primary"
-      : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-  );
-}
+type CalendarQuery = ReturnType<typeof useTeamCalendar>;
 
 /** Szerokość kolumny osoby i dni (siatka CSS — paski przez kilka dni). */
 function gridStyle(days: number): CSSProperties {
   return { gridTemplateColumns: `170px repeat(${days}, minmax(0, 1fr))` };
 }
 
+/** Jeden kalendarz z jednego albo dwóch miesięcy (2 tygodnie na przełomie). */
+function mergedOf(
+  parts: CalendarQuery[],
+  frame: ReturnType<typeof calendarWindow>,
+): TeamCalendarData | null {
+  if (!parts.every((part) => part.isSuccess && part.data)) return null;
+  return mergeCalendars(
+    parts.map((part) => part.data as TeamCalendarData),
+    frame,
+  );
+}
+
 /**
- * „Ludzie → Kalendarz zespołu” (makieta 19.10.2026): ciągłe paski
- * nieobecności z etykietą, wiersz „Nieobecnych” (mapa cieplna), mocna
- * kolumna „dziś”, „Znajdź osobę”, widok 2 tygodnie / miesiąc i panel
- * „W tym tygodniu nie ma”. Rodzaj tylko z serwera (D6).
+ * „Ludzie → Kalendarz” (makieta 19.10.2026, filtry jak w Katalogu 22.10.2026):
+ * ciągłe paski nieobecności z etykietą, wiersz „Nieobecnych” (mapa cieplna),
+ * mocna kolumna „dziś”, szukanie, chipy zakresu i stanu, widok 2 tygodnie /
+ * miesiąc i panel „W tym tygodniu nie ma”. Rodzaj tylko z serwera (D6).
+ *
+ * Zakres, stan, szukanie, widok i okres są w adresie (`useUrlWriter`, bez
+ * przewijania). Koordynator otwiera domyślnie „Mój zespół”, reszta „Wszyscy”.
+ * Działy filtruje front na danych „Wszyscy” — liczniki chipów biorą się
+ * z tego samego zapytania.
  */
 export function TeamCalendar({ config }: { config: HrConfig }) {
   const today = warsawToday();
-  const [view, setView] = useState<CalendarView>("month");
-  const [anchor, setAnchor] = useState(`${today.slice(0, 7)}-01`);
-  const [filter, setFilter] = useState<Filter>({ kind: "all" });
-  const [status, setStatus] = useState<CalendarStatusFilter>("all");
-  const [query, setQuery] = useState("");
+  const isManager = Boolean(config.me.is_manager);
+  const defaults = { isManager, today };
+  const params = useSearchParams();
+  const { replaceUrl } = useUrlWriter();
+  const [filters, setFilters] = useState<CalendarFilters>(() => filtersFromParams(params, defaults));
   const [selected, setSelected] = useState<Selected | null>(null);
+  const { view, anchor, scope, status, query } = filters;
+
+  // Link na tę samą stronę (np. „Nieobecni dziś” z górnego paska) zmienia adres
+  // bez odmontowania. Brak parametru nie cofa wyboru (jak `useUrlSyncedState`).
+  const urlScope = scopeFromParams(params, isManager);
+  const urlStatus = statusFromParams(params);
+  useEffect(() => {
+    if (urlScope !== null) setFilters((f) => (f.scope === urlScope ? f : { ...f, scope: urlScope }));
+  }, [urlScope]);
+  useEffect(() => {
+    if (urlStatus !== null) {
+      setFilters((f) => (f.status === urlStatus ? f : { ...f, status: urlStatus }));
+    }
+  }, [urlStatus]);
+
+  const update = (patch: Partial<CalendarFilters>) => {
+    const next = { ...filters, ...patch };
+    setFilters(next);
+    replaceUrl(filtersHref(next, defaults, window.location));
+  };
+
   const frame = calendarWindow(view, anchor);
-  const department = filter.kind === "department" ? filter.name : null;
-  const team = filter.kind === "team";
-  const first = useTeamCalendar(frame.months[0], department, team);
-  const second = useTeamCalendar(frame.months[1] ?? frame.months[0], department, team);
-  const parts = frame.months.length > 1 ? [first, second] : [first];
-  const loaded = parts.every((part) => part.isSuccess && part.data);
+  const second = frame.months[1] ?? frame.months[0];
+  const allFirst = useTeamCalendar(frame.months[0], null, false);
+  const allSecond = useTeamCalendar(second, null, false);
+  // Bez zespołu to ten sam klucz co „Wszyscy” — React Query nie wysyła drugiego zapytania.
+  const teamFirst = useTeamCalendar(frame.months[0], null, isManager);
+  const teamSecond = useTeamCalendar(second, null, isManager);
   // Dwa miesiące naraz tylko w widoku 2 tygodni na przełomie miesiąca.
-  const data = loaded
-    ? mergeCalendars(
-        parts.map((part) => part.data as TeamCalendarData),
-        frame,
-      )
-    : null;
+  const allParts = frame.months.length > 1 ? [allFirst, allSecond] : [allFirst];
+  const teamParts = frame.months.length > 1 ? [teamFirst, teamSecond] : [teamFirst];
+  const allData = mergedOf(allParts, frame);
+  const teamData = isManager ? mergedOf(teamParts, frame) : null;
+  const teamScope = scope === "team" && isManager;
+  const parts = teamScope ? teamParts : allParts;
+  const source = teamScope ? teamData : allData;
+  const data = source ? { ...source, people: inScope(source.people, scope) } : null;
   const failed = parts.find((part) => part.isError);
   const serverToday = data?.today ?? today;
   const todayInView = serverToday >= frame.start && serverToday <= frame.end;
-  // Filtr „Kto”: stan na dziś, gdy dziś jest w oknie; inaczej ktokolwiek w okresie.
+  // Chipy stanu: stan na dziś, gdy dziś jest w oknie; inaczej ktokolwiek w okresie.
   const statusMonth = todayInView ? serverToday.slice(0, 7) : "-";
-  const people = (data?.people ?? []).filter(
-    (person) =>
-      matchesName(person, query) &&
-      matchesStatusFilter(person, status, serverToday, statusMonth),
-  );
-  const statusCounts = {
-    absent: (data?.people ?? []).filter((person) =>
-      matchesStatusFilter(person, "absent", serverToday, statusMonth),
-    ).length,
-    remote: (data?.people ?? []).filter((person) =>
-      matchesStatusFilter(person, "remote", serverToday, statusMonth),
-    ).length,
-  };
+  const searched = (data?.people ?? []).filter((person) => matchesPerson(person, query));
+  const people = status
+    ? searched.filter((person) => matchesStatusFilter(person, status, serverToday, statusMonth))
+    : searched;
+  const statusCount = (kind: "absent" | "remote") =>
+    searched.filter((person) => matchesStatusFilter(person, kind, serverToday, statusMonth)).length;
+  const allSearched = (allData?.people ?? []).filter((person) => matchesPerson(person, query));
+  const departmentOf = scope.startsWith("dept:") ? scope.slice(5) : null;
+  const departments = [...(allData?.departments ?? [])];
+  if (departmentOf && !departments.includes(departmentOf)) departments.push(departmentOf);
   const state = resolveViewState({
     isLoading: parts.some((part) => part.isLoading),
     isError: Boolean(failed),
     error: failed?.error ?? null,
-    isSuccess: loaded,
+    isSuccess: Boolean(data),
     isEmpty: (data?.people.length ?? 0) === 0,
   });
 
   const go = (next: string) => {
-    setAnchor(next);
+    update({ anchor: next });
     setSelected(null);
   };
   const switchView = (next: CalendarView) => {
     if (next === view) return;
-    setView(next);
     setSelected(null);
     // Tydzień dziś, gdy dziś w oglądanym miesiącu; inaczej początek miesiąca.
-    if (next === "two_weeks") setAnchor(todayInView ? serverToday : frame.start);
-    else setAnchor(`${anchor.slice(0, 7)}-01`);
+    update({
+      view: next,
+      anchor:
+        next === "two_weeks" ? (todayInView ? serverToday : frame.start) : `${anchor.slice(0, 7)}-01`,
+    });
+  };
+  const pickScope = (next: CalendarScope) => {
+    setSelected(null);
+    update({ scope: next });
+  };
+  const toggleStatus = (next: "absent" | "remote") => {
+    setSelected(null);
+    update({ status: status === next ? null : next });
   };
   const atToday = view === "month" ? anchor.slice(0, 7) === today.slice(0, 7) : todayInView;
+  const when = todayInView ? "dziś" : "w okresie";
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2" data-help="hr.team_calendar.filters">
+      <div className="flex flex-wrap items-center gap-2.5" data-help="hr.team_calendar.filters">
+        <div className="relative w-full max-w-[300px]">
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            type="search"
+            aria-label="Znajdź osobę w kalendarzu"
+            placeholder="Imię, stanowisko"
+            value={query}
+            onChange={(event) => update({ query: event.target.value })}
+            className="pl-8"
+          />
+        </div>
+        <div
+          role="group"
+          aria-label="Filtry kalendarza"
+          className="flex flex-1 flex-wrap items-center gap-1.5"
+        >
+          {isManager ? (
+            <FilterChip
+              active={teamScope}
+              count={teamData ? teamData.people.filter((p) => matchesPerson(p, query)).length : undefined}
+              onClick={() => pickScope("team")}
+            >
+              Mój zespół
+            </FilterChip>
+          ) : null}
+          <FilterChip
+            active={scope === "all" || (scope === "team" && !isManager)}
+            count={allData ? allSearched.length : undefined}
+            onClick={() => pickScope("all")}
+          >
+            Wszyscy
+          </FilterChip>
+          {departments.map((name) => (
+            <FilterChip
+              key={name}
+              active={departmentOf === name}
+              count={allData ? allSearched.filter((p) => p.department === name).length : undefined}
+              onClick={() => pickScope(departmentOf === name ? "all" : `dept:${name}`)}
+            >
+              {name}
+            </FilterChip>
+          ))}
+          <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+          <FilterChip
+            active={status === "absent"}
+            count={data ? statusCount("absent") : undefined}
+            onClick={() => toggleStatus("absent")}
+          >
+            {todayInView ? "Dziś nieobecni" : "Nieobecni w okresie"}
+          </FilterChip>
+          {data?.presence_shown ? (
+            <FilterChip
+              active={status === "remote"}
+              count={statusCount("remote")}
+              onClick={() => toggleStatus("remote")}
+            >
+              {`Zdalnie ${when}`}
+            </FilterChip>
+          ) : null}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1">
           <Button
             size="sm"
@@ -201,67 +310,6 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            className={chipClass(filter.kind === "all")}
-            onClick={() => setFilter({ kind: "all" })}
-          >
-            Wszyscy
-          </button>
-          {config.me.is_manager ? (
-            <button
-              type="button"
-              className={chipClass(filter.kind === "team")}
-              onClick={() => setFilter({ kind: "team" })}
-            >
-              Mój zespół
-            </button>
-          ) : null}
-          {(data?.departments ?? []).map((name) => (
-            <button
-              key={name}
-              type="button"
-              className={chipClass(filter.kind === "department" && filter.name === name)}
-              onClick={() => setFilter({ kind: "department", name })}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-        <Select
-          value={status}
-          onValueChange={(value) => {
-            setStatus(value as CalendarStatusFilter);
-            setSelected(null);
-          }}
-        >
-          <SelectTrigger className="h-8 w-[200px]" aria-label="Kto">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Wszyscy</SelectItem>
-            <SelectItem value="absent">
-              {`Nieobecni${todayInView ? " dziś" : ""} (${statusCounts.absent})`}
-            </SelectItem>
-            {data?.presence_shown ? (
-              <SelectItem value="remote">
-                {`Zdalnie${todayInView ? " dziś" : ""} (${statusCounts.remote})`}
-              </SelectItem>
-            ) : null}
-          </SelectContent>
-        </Select>
-        <label className="flex h-8 w-full items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 sm:ml-auto sm:w-[200px]">
-          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Znajdź osobę"
-            aria-label="Znajdź osobę w kalendarzu"
-            className="w-0 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </label>
       </div>
 
       {state === "loading" ? (
@@ -271,7 +319,7 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
           state={state}
           description={
             state === "forbidden"
-              ? "Kalendarz zespołu widzą osoby z kartoteką w NEXUSIE i Kadry."
+              ? "Kalendarz widzą osoby z kartoteką w NEXUSIE i Kadry."
               : state === "not_found"
                 ? "Moduł urlopów nie jest jeszcze włączony."
                 : undefined
@@ -291,8 +339,8 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
                   {query.trim()
                     ? `Nikt nie pasuje do „${query.trim()}”.`
                     : status === "remote"
-                      ? `Nikt nie pracuje zdalnie${todayInView ? " dziś" : " w tym okresie"}.`
-                      : `Nikt nie jest nieobecny${todayInView ? " dziś" : " w tym okresie"}.`}
+                      ? `Nikt nie pracuje zdalnie ${todayInView ? "dziś" : "w tym okresie"}.`
+                      : `Nikt nie jest nieobecny ${todayInView ? "dziś" : "w tym okresie"}.`}
                 </p>
               ) : (
                 <CalendarGrid

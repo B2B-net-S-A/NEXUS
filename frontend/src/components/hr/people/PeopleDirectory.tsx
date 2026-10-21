@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Search, UserPlus, UserRoundPlus } from "lucide-react";
+import { AlertTriangle, Search } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
@@ -17,6 +17,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DivisionDialog, ReassignDialog } from "@/components/hr/structure/StructureDialogs";
+import { StructureScreen } from "@/components/hr/structure/StructureScreen";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   isFullPerson,
@@ -26,14 +28,14 @@ import {
   type Person,
 } from "@/lib/api/hr";
 import { useSetTimesheetRequired } from "@/lib/api/hr-people";
+import { managerWords, useHrStructure, type StructurePerson } from "@/lib/api/hr-structure";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { countPl } from "@/lib/plural-pl";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { warsawToday } from "@/lib/warsaw-date";
 import { shortName } from "@/components/hr/leave/leave-format";
 
-import { AccountMismatchesPanel, type PendingPerson } from "./AccountMismatchesPanel";
-import { AddPersonDialog } from "./AddPersonDialog";
 import {
   FORM_SHORT,
   NO_DEPARTMENT,
@@ -45,8 +47,12 @@ import {
   todayChips,
   todayKnown as absencesKnown,
 } from "./directory-view";
+import { useDirectoryFilters, type DirectoryView, type StatusFilter } from "./directory-url";
 import { PersonAvatar } from "./PersonAvatar";
 import { FilterChip, TonePill } from "./people-ui";
+import { canSeeStructure, needsCompletion } from "./tidy-up";
+
+export { needsCompletion, pendingPeople } from "./tidy-up";
 
 const MODULE_OFF_NOTICE =
   "Moduł „Ludzie” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Kadry.";
@@ -56,47 +62,46 @@ export function timesheetRequired(person: Person): boolean | null {
   return isFullPerson(person) ? person.timesheet_required : null;
 }
 
-/** Kartoteka „do uzupełnienia” (z konta): forma albo przełożony — bez zdradzania formy. */
-export function needsCompletion(person: Person): boolean {
-  return isFullPerson(person) && (person.employment_type_pending || Boolean(person.manager_pending));
-}
-
-type StatusFilter = "away" | "leaving" | "no_report" | null;
-
 const FORMS: EmploymentType[] = ["b2b", "uop", "zlecenie"];
 
-/** Kto ma kartotekę „do uzupełnienia” — do paska rozjazdów (bez zdradzania formy). */
-export function pendingPeople(rows: readonly Person[]): PendingPerson[] {
-  return rows.filter(needsCompletion).map((row) => {
-    const full = isFullPerson(row) ? row : null;
-    const what = [
-      full?.employment_type_pending ? "forma" : null,
-      full?.manager_pending ? "koordynator" : null,
-    ].filter(Boolean);
-    return { user_id: row.user_id, name: row.name, what: what.join(" i ") };
-  });
-}
+const VIEWS: readonly (readonly [DirectoryView, string])[] = [
+  ["lista", "Lista"],
+  ["schemat", "Schemat"],
+];
+
+type BulkDialog = { kind: "reassign" | "division"; people: StructurePerson[] } | null;
 
 /**
  * Katalog ludzi (makieta 19.10.2026): chipy działów i formy, grupy po dziale,
  * kolumna „Dziś” (nieobecność bez rodzaju, delegacja, odejście) i staż.
  * Zakres danych (wizytówka / pełna kartoteka, forma) wyznacza serwer.
+ *
+ * 22.10.2026: Kadry i admin przełączają „Lista | Schemat” (schemat = dawna
+ * zakładka „Struktura”); w „Liście” zaznaczonym ustawiają pion i koordynatora.
+ * Filtry i widok stoją w adresie, więc „← Ludzie” wraca do tej samej listy.
  */
-export function PeopleDirectory({ config }: { config: HrConfig }) {
+export function PeopleDirectory({
+  config,
+  defaultView = "lista",
+}: {
+  config: HrConfig;
+  /** Widok bez `?view=` w adresie (harness Struktury otwiera się na schemacie). */
+  defaultView?: DirectoryView;
+}) {
   const people = usePeople();
-  const [query, setQuery] = useState("");
-  const [department, setDepartment] = useState<string | null>(null);
-  const [form, setForm] = useState<EmploymentType | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(null);
-  const [adding, setAdding] = useState(false);
+  const [filters, update] = useDirectoryFilters(defaultView);
+  const { q: query, department, form, status: statusFilter } = filters;
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const [bulkDialog, setBulkDialog] = useState<BulkDialog>(null);
   const { showToast } = useToast();
   const setRequired = useSetTimesheetRequired();
-  const canAdd = config.me.people_admin;
   // Hurtowa flaga raportu godzin (Kadry): zaznacz osoby → „tak / nie”.
-  const canBulk = canAdd;
-  // Rozjazdy kartoteka ↔ konto: admin, Finanse i Kadry (19.10.2026).
-  const seesAccounts = config.me.people_admin || config.me.payroll || config.me.is_admin;
+  const canBulk = config.me.people_admin;
+  // Schemat i hurtowa zmiana pionu / koordynatora: Kadry i admin (dawna „Struktura”).
+  const canStructure = canSeeStructure(config);
+  const structure = useHrStructure(canStructure);
+  const selectable = canBulk || canStructure;
+  const view: DirectoryView = canStructure ? filters.view : "lista";
   // „W pracy” i „Dziś nieobecni” tylko przy urlopach otwartych dla patrzącego.
   const todayKnown = absencesKnown(config.open_modules);
   const today = warsawToday();
@@ -125,10 +130,6 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
   );
   const groups = useMemo(() => groupByDepartment(filtered), [filtered]);
   const departments = useMemo(() => groupByDepartment(rows).map((g) => g.department), [rows]);
-  const managers = useMemo(
-    () => rows.map((row) => ({ user_id: row.user_id, name: row.name })),
-    [rows],
-  );
 
   const state = resolveViewState({
     isLoading: people.isLoading,
@@ -137,6 +138,41 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
     isSuccess: people.isSuccess,
     isEmpty: rows.length === 0,
   });
+
+  const viewSwitch = canStructure ? (
+    <div
+      role="group"
+      aria-label="Widok katalogu"
+      className="ml-auto inline-flex shrink-0 rounded-lg border border-border bg-card p-0.5"
+    >
+      {VIEWS.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={view === value}
+          onClick={() => update({ view: value })}
+          className={cn(
+            "h-8 rounded-md px-3 text-[13px] font-medium transition-colors",
+            view === value
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  // Schemat nie czeka na katalog — ma własny odczyt i własne stany.
+  if (view === "schemat") {
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2.5">{viewSwitch}</div>
+        <StructureScreen config={config} />
+      </div>
+    );
+  }
 
   if (state === "loading") {
     return <p className="py-6 text-sm text-muted-foreground">Wczytywanie ludzi…</p>;
@@ -168,10 +204,19 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
   const noReportCount = searched.filter((row) => timesheetRequired(row) === false).length;
   const showForm = rows.some((row) => formLabel(row) != null);
   const grouped = departments.length > 1;
-  const columns = 5 + (showForm ? 1 : 0) + (canBulk ? 1 : 0);
+  const columns = 5 + (showForm ? 1 : 0) + (selectable ? 1 : 0);
 
   const visibleSelected = filtered.filter((row) => selected.has(row.user_id)).length;
   const allVisible = filtered.length > 0 && visibleSelected === filtered.length;
+  // Zaznaczeni z kartoteką w strukturze (odczyt Struktury; bez niego nie ma przycisków).
+  const chosenInStructure = (structure.data?.people ?? []).filter((person) =>
+    selected.has(person.user_id),
+  );
+  const structureWords = managerWords(chosenInStructure.map((person) => person.employment_type));
+  const candidates = (structure.data?.people ?? []).map((person) => ({
+    user_id: person.user_id,
+    name: person.name,
+  }));
   const toggleAll = (checked: boolean) =>
     setSelected((current) => {
       const next = new Set(current);
@@ -207,31 +252,12 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
       },
     );
   };
-  const toggleStatus = (value: Exclude<StatusFilter, null>) =>
-    setStatusFilter((current) => (current === value ? null : value));
+  const toggleStatus = (value: StatusFilter) =>
+    update({ status: statusFilter === value ? null : value });
+  const closeBulkDialog = () => setBulkDialog(null);
 
   return (
     <div className="space-y-3">
-      {canAdd ? (
-        <div className="flex flex-wrap justify-end gap-2">
-          {/* Wejście nowej osoby = kreator z zadaniami (moduł wejścia/odejścia). */}
-          {config.open_modules.lifecycle ? (
-            <Button variant="outline" asChild>
-              <Link href="/people/new">
-                <UserRoundPlus className="h-4 w-4" aria-hidden />
-                Wejście nowej osoby
-              </Link>
-            </Button>
-          ) : null}
-          <Button onClick={() => setAdding(true)}>
-            <UserPlus className="h-4 w-4" aria-hidden />
-            Dodaj osobę
-          </Button>
-        </div>
-      ) : null}
-
-      {seesAccounts ? <AccountMismatchesPanel pendingPeople={pendingPeople(rows)} /> : null}
-
       <div className="flex flex-wrap items-center gap-2.5">
         <div className="relative w-full max-w-[300px]">
           <Search
@@ -242,7 +268,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
             aria-label="Szukaj osoby"
             placeholder="Imię, stanowisko, koordynator"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => update({ q: event.target.value })}
             className="pl-8"
           />
         </div>
@@ -250,7 +276,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
           <FilterChip
             active={department === null}
             count={searched.length}
-            onClick={() => setDepartment(null)}
+            onClick={() => update({ department: null })}
           >
             Wszyscy
           </FilterChip>
@@ -262,9 +288,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
                   count={group.rows.length}
                   dotClass={departmentDot(group.department, departments)}
                   onClick={() =>
-                    setDepartment((current) =>
-                      current === group.department ? null : group.department,
-                    )
+                    update({ department: department === group.department ? null : group.department })
                   }
                 >
                   {group.department}
@@ -279,7 +303,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
               key={item.value}
               active={form === item.value}
               count={item.count}
-              onClick={() => setForm((current) => (current === item.value ? null : item.value))}
+              onClick={() => update({ form: form === item.value ? null : item.value })}
             >
               {FORM_SHORT[item.value]}
             </FilterChip>
@@ -313,9 +337,10 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
             </FilterChip>
           ) : null}
         </div>
+        {viewSwitch}
       </div>
 
-      {canBulk && selected.size > 0 ? (
+      {selectable && selected.size > 0 ? (
         <div
           role="region"
           aria-label="Zaznaczone osoby"
@@ -324,23 +349,46 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
           <span className="font-medium text-foreground">
             Zaznaczono: {countPl(selected.size, "osoba", "osoby", "osób")}
           </span>
-          <span className="text-muted-foreground">Składa raport godzin:</span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={setRequired.isPending}
-            onClick={() => applyRequired(true)}
-          >
-            Tak
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={setRequired.isPending}
-            onClick={() => applyRequired(false)}
-          >
-            Nie
-          </Button>
+          {canBulk ? (
+            <>
+              <span className="text-muted-foreground">Składa raport godzin:</span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={setRequired.isPending}
+                onClick={() => applyRequired(true)}
+              >
+                Tak
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={setRequired.isPending}
+                onClick={() => applyRequired(false)}
+              >
+                Nie
+              </Button>
+            </>
+          ) : null}
+          {canStructure && chosenInStructure.length > 0 ? (
+            <>
+              {canBulk ? <span aria-hidden className="mx-1 h-5 w-px bg-border" /> : null}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setBulkDialog({ kind: "division", people: chosenInStructure })}
+              >
+                Ustaw pion ({chosenInStructure.length})
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setBulkDialog({ kind: "reassign", people: chosenInStructure })}
+              >
+                Zmień {structureWords.ofOne} ({chosenInStructure.length})
+              </Button>
+            </>
+          ) : null}
           <Button
             size="sm"
             variant="ghost"
@@ -354,7 +402,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
 
       {state === "empty" ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-          {canAdd
+          {config.me.people_admin
             ? "Nikt nie ma jeszcze kartoteki. Dodaj osoby albo zaimportuj je z Compassa (Ustawienia → Import z Compassa)."
             : "Kartoteki nie zostały jeszcze założone."}
         </div>
@@ -363,7 +411,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
           <Table density="compact" className="min-w-[960px]">
             <TableHeader>
               <TableRow>
-                {canBulk ? (
+                {selectable ? (
                   <TableHead className="w-9">
                     <Checkbox
                       aria-label="Zaznacz wszystkich widocznych"
@@ -407,6 +455,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
                       todayKnown={todayKnown}
                       showForm={showForm}
                       canBulk={canBulk}
+                      selectable={selectable}
                       selected={selected.has(row.user_id)}
                       onSelect={(checked) => toggleOne(row.user_id, checked)}
                     />
@@ -423,8 +472,22 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
         </div>
       )}
 
-      {canAdd ? (
-        <AddPersonDialog open={adding} onOpenChange={setAdding} managers={managers} />
+      {bulkDialog?.kind === "reassign" ? (
+        <ReassignDialog
+          people={bulkDialog.people}
+          candidates={candidates}
+          open
+          onOpenChange={(value) => (value ? null : closeBulkDialog())}
+          onDone={() => setSelected(new Set())}
+        />
+      ) : null}
+      {bulkDialog?.kind === "division" ? (
+        <DivisionDialog
+          people={bulkDialog.people}
+          open
+          onOpenChange={(value) => (value ? null : closeBulkDialog())}
+          onDone={() => setSelected(new Set())}
+        />
       ) : null}
     </div>
   );
@@ -436,6 +499,7 @@ function DirectoryRow({
   todayKnown,
   showForm,
   canBulk,
+  selectable,
   selected,
   onSelect,
 }: {
@@ -444,6 +508,7 @@ function DirectoryRow({
   todayKnown: boolean;
   showForm: boolean;
   canBulk: boolean;
+  selectable: boolean;
   selected: boolean;
   onSelect: (checked: boolean) => void;
 }) {
@@ -454,7 +519,7 @@ function DirectoryRow({
   const noReport = canBulk && timesheetRequired(row) === false;
   return (
     <TableRow className={`${CALM_ROW} h-[50px] ${needsCompletion(row) ? "bg-warning-muted/20" : ""}`}>
-      {canBulk ? (
+      {selectable ? (
         <TableCell className="w-9">
           <Checkbox
             aria-label={`Zaznacz: ${row.name}`}

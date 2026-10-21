@@ -1,7 +1,8 @@
 /**
- * „Ludzie → Struktura” wg makiety 19.10.2026: schemat kart, przeciągnięcie
- * karty = zmiana przełożonego (ta sama trasa co lista, po potwierdzeniu),
- * panel „Do uporządkowania”, przełącznik na listę. Dane fikcyjne.
+ * Schemat struktury wg makiety 19.10.2026 (od 22.10.2026 widok „Schemat”
+ * katalogu): schemat kart, przeciągnięcie karty = zmiana przełożonego (po
+ * potwierdzeniu), „Do uporządkowania” jako sekcja „Struktura” w „Porządkach”
+ * (`StructureTodoSection`). Dane fikcyjne.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -23,6 +24,7 @@ vi.mock("next/link", () => ({
 }));
 
 import { StructureScreen } from "../StructureScreen";
+import { StructureTodoSection } from "../StructureTodo";
 
 function person(id: number, name: string, extra: Partial<StructurePerson> = {}): StructurePerson {
   return {
@@ -136,11 +138,16 @@ describe("StructureScreen — schemat", () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
-  it("„Do uporządkowania” przyjmuje podpowiedź tą samą trasą", async () => {
-    renderScreen();
-    const panel = await screen.findByLabelText("Do uporządkowania");
-    expect(within(panel).getByText(/podpowiedź: Kamil Testowy/)).toBeInTheDocument();
-    fireEvent.click(within(panel).getByRole("button", { name: "Przyjmij: Kamil T." }));
+  it("„Do uporządkowania” (sekcja „Porządków”) przyjmuje podpowiedź tą samą trasą", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <StructureTodoSection data={DATA} />
+      </QueryClientProvider>,
+    );
+    const list = screen.getByRole("list", { name: "Do uporządkowania w strukturze" });
+    expect(within(list).getByText(/podpowiedź: Kamil Testowy/)).toBeInTheDocument();
+    fireEvent.click(within(list).getByRole("button", { name: "Przyjmij: Kamil T." }));
     await waitFor(() =>
       expect(mocks.post).toHaveBeenCalledWith("/api/hr/structure/reassign", {
         user_ids: [4],
@@ -149,12 +156,23 @@ describe("StructureScreen — schemat", () => {
     );
   });
 
-  it("„Lista” wraca do widoku z zaznaczaniem", async () => {
+  it("schemat bez własnego przełącznika i bez panelu bocznego; korzeń mówi o koordynatorze spoza pionu", async () => {
+    const outside = person(5, "Piotr Finansowy", { division: "back_office", reports: 1 });
+    const zofia = person(6, "Zofia Wzorcowa", {
+      manager_user_id: 5,
+      manager_name: "Piotr Finansowy",
+      manager_state: "ok",
+    });
+    mocks.get.mockImplementation(async () => ({
+      data: { ...DATA, people: [...DATA.people, outside, zofia], total: 6 },
+    }));
     renderScreen();
-    await screen.findByTestId("org-card-1");
-    fireEvent.click(screen.getByRole("button", { name: "Lista" }));
-    expect(screen.getByRole("checkbox", { name: "Zaznacz: Ewa Makietowa" })).toBeInTheDocument();
-    expect(screen.queryByTestId("org-card-1")).toBeNull();
+    expect(await screen.findByTestId("org-card-6")).toHaveTextContent(
+      "koordynator: Piotr Finansowy (Back office)",
+    );
+    expect(screen.queryByRole("button", { name: "Lista" })).toBeNull();
+    expect(screen.queryByLabelText("Do uporządkowania")).toBeNull();
+    expect(screen.getByRole("button", { name: "Headowie pionów" })).toBeInTheDocument();
   });
 
   it("duży zespół bez własnych ludzi stoi w kolumnie pod przełożonym, karty dalej przyjmują przeciąganie", async () => {

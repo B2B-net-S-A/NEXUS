@@ -421,3 +421,87 @@ async def test_week_shows_day_states_without_leave_type(app_client, modules) -> 
     closed = (await app_client.get(BASE, headers=_headers(world["boss"]))).json()
     assert closed["week"] is None
     assert all(item["week"] is None for item in closed["people"])
+
+
+@pytest.mark.asyncio
+async def test_team_queue_lists_missing_days_for_open_months_only(modules) -> None:
+    """„brak dd.mm” w „Moim zespole” (22.10.2026): dni robocze przed datą bez
+    wpisu i bez całodniowej nieobecności — tylko w szkicu albo przy braku
+    raportu; wysłany miesiąc nie ma braków do pokazania."""
+
+    from app.models.hr_time import TimesheetEntry
+    from app.services.hr.time_access import Actor
+    from app.services.hr.time_calendar import month_calendar
+    from app.services.hr.time_month import team_queue
+
+    year, month = 2091, 3
+    async with AsyncSessionLocal() as db:
+        boss = await _user(db, "recruiter")
+        common = dict(
+            manager_user_id=boss.id,
+            timesheet_required=True,
+            work_start_date=date(2090, 1, 1),
+        )
+        drafting = await _user(db, **common)
+        idle = await _user(db, **common)
+        sent = await _user(db, **common)
+        calendar = await month_calendar(db, year, month)
+        working = [item.day for item in calendar if item.is_working_day]
+        cutoff = working[5]
+        before = [day for day in working if day < cutoff]
+
+        draft = Timesheet(user_id=drafting.id, year=year, month=month, status="draft")
+        submitted = Timesheet(
+            user_id=sent.id,
+            year=year,
+            month=month,
+            status="submitted",
+            submitted_at=datetime.now(timezone.utc),
+        )
+        db.add_all([draft, submitted])
+        await db.flush()
+        db.add(
+            TimesheetEntry(
+                timesheet_id=draft.id,
+                work_date=before[0],
+                hours=Decimal("8"),
+                project="Alfa",
+                description="Rekrutacje",
+                source="manual",
+                is_overtime=False,
+                overtime_reason=None,
+            )
+        )
+        # Całodniowa nieobecność to nie brak wpisu.
+        request = await _leave(
+            db, drafting, before[1], before[1], status="approved", kind="vacation"
+        )
+        db.add(
+            LeaveRequestDay(
+                leave_request_id=request.id, user_id=drafting.id, day=before[1]
+            )
+        )
+        await db.flush()
+
+        actor = Actor(
+            user=boss,
+            profile=None,
+            is_admin=False,
+            people_admin=False,
+            payroll=False,
+            report_ids=frozenset({drafting.id, idle.id, sent.id}),
+        )
+        rows = {
+            item["user_id"]: item
+            for item in await team_queue(
+                db, actor=actor, year=year, month=month, missing_before=cutoff
+            )
+        }
+        plain = await team_queue(db, actor=actor, year=year, month=month)
+        await db.rollback()
+
+    iso = [day.isoformat() for day in before]
+    assert rows[drafting.id]["missing_dates"] == iso[2:]
+    assert rows[idle.id]["missing_dates"] == iso
+    assert rows[sent.id]["missing_dates"] == []
+    assert all("missing_dates" not in item for item in plain)

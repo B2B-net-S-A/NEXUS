@@ -12,7 +12,14 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
 import type { HolderEquipment, AssignmentRow } from "@/lib/api/equipment";
 import type { EmploymentStatus, EmploymentType, PersonCard, PersonFull } from "@/lib/api/hr";
+import type { LeaveType } from "@/lib/api/hr-leave";
 import type { RateRow } from "@/lib/api/hr-payroll";
+import type {
+  AbsenceState,
+  PersonAbsence,
+  PersonHistory,
+  PersonTimesheetMonth,
+} from "@/lib/api/hr-person-history";
 
 import { HR_CAST, harnessMonthDays, shiftDay, type HarnessPerson } from "../hr-fixtures";
 
@@ -308,3 +315,76 @@ export const OLA_EQUIPMENT: HolderEquipment = {
     },
   ],
 };
+
+// ── „Nieobecności i godziny” (`GET /api/hr/people/{id}/history`, 22.10.2026) ──
+
+/**
+ * Historia Oli w roku `year`: urlop/przerwa wykorzystana, zaplanowana,
+ * czekająca i odrzucona; przy UoP także L4. `typeVisible = false` (Finanse
+ * spoza kręgu D6) — tylko zatwierdzone, „Nieobecność”; `formVisible = false`
+ * (Kadry bez Płac) — rodzaj z puli to „Nieobecność”. Raporty godzin: bieżący
+ * szkic, wysłany, zaakceptowane z PDF i miesiąc bez raportu.
+ */
+export function olaHistory(
+  form: EmploymentType,
+  year: number,
+  { typeVisible = true, formVisible = true }: { typeVisible?: boolean; formVisible?: boolean } = {},
+): PersonHistory {
+  const poolLabel = !typeVisible || !formVisible
+    ? "Nieobecność"
+    : form === "uop"
+      ? "Urlop wypoczynkowy"
+      : form === "b2b"
+        ? "Przerwa w świadczeniu usług"
+        : "Nieobecność";
+  const label = (special: string) => (typeVisible ? special : "Nieobecność");
+  const absence = (
+    id: string,
+    start: string,
+    end: string,
+    days: string,
+    state: AbsenceState,
+    leaveType: LeaveType = "vacation",
+    text = poolLabel,
+  ): PersonAbsence => ({
+    id,
+    start_date: `${year}-${start}`,
+    end_date: `${year}-${end}`,
+    half_day: null,
+    days_total: days,
+    status: state === "waiting" ? "pending" : state === "rejected" ? "rejected" : "approved",
+    state,
+    leave_type: typeVisible ? leaveType : null,
+    label: text,
+  });
+  const all = [
+    absence("h-1", "12-21", "12-23", "3.0", "planned"),
+    absence("h-2", "11-12", "11-12", "1.0", "waiting"),
+    absence("h-3", "07-14", "07-25", "10.0", "used"),
+    ...(form === "uop"
+      ? [absence("h-4", "03-09", "03-11", "3.0", "used", "sick_leave", label("Zwolnienie lekarskie (L4)"))]
+      : []),
+    absence("h-5", "05-04", "05-04", "1.0", "rejected"),
+  ];
+  const months = Array.from({ length: 6 }, (_, back) => {
+    const date = new Date(Date.UTC(year, new Date().getUTCMonth() - back, 1));
+    return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1 };
+  });
+  const timesheets: PersonTimesheetMonth[] = months.map((month, index) => ({
+    ...month,
+    timesheet_id: index === 4 ? null : 7000 + index,
+    status: index === 0 ? "draft" : index === 1 ? "submitted" : index === 4 ? null : "approved",
+    hours: index === 0 ? 64 : index === 4 ? 0 : 168,
+    norm_hours: 168,
+    has_pdf: index >= 2 && index !== 4,
+  }));
+  return {
+    year,
+    today: `${year}-10-22`,
+    absences: {
+      type_visible: typeVisible,
+      items: typeVisible ? all : all.filter((item) => item.status === "approved"),
+    },
+    timesheets: { timesheet_required: true, items: timesheets },
+  };
+}

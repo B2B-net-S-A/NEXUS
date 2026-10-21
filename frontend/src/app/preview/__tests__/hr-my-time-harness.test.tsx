@@ -186,6 +186,28 @@ describe("/preview/hr-my-time", () => {
     expect(attempted()).toEqual([]);
   });
 
+  it("Zgody i wydatki (22.10.2026): ostatnia zakładka z licznikiem „do zrobienia”, moje zgody bez zapytań", async () => {
+    open("?tab=consents&request=9102");
+    const tab = await screen.findByRole("tab", { name: /^Zgody i wydatki/, selected: true });
+    expect(tab).toHaveTextContent("1");
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs[0]).toHaveAccessibleName("Przegląd");
+    expect(tabs.at(-1)).toBe(tab);
+    // Link z dzwonka (`request`) otwiera tę zgodę; pytanie od zatwierdzającej jest w „Do zrobienia”.
+    expect(screen.getByRole("heading", { level: 2, name: "Kurs rekrutacji technicznej" })).toBeInTheDocument();
+    const todo = screen.getByRole("list", { name: "Do zrobienia przez Ciebie" });
+    expect(within(todo).getByText("Spotkanie u klienta w Gdańsku")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Poproś o zgodę" })).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("bez modułu „Zgody” (pozostałe stany harnessu) nie ma zakładki ani zapytania o zgody", async () => {
+    open("?tab=bonuses");
+    await screen.findByRole("tab", { name: "Przegląd" });
+    expect(screen.queryByRole("tab", { name: /Zgody i wydatki/ })).toBeNull();
+    expect(attempted()).toEqual([]);
+  });
+
   it("Przerwy (B2B): bez kolumny załącznika — zgłoszenie nie potrzebuje dokumentu", async () => {
     open("?tab=leave");
     await screen.findAllByRole("row");

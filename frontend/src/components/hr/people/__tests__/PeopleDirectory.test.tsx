@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HrConfig, Person } from "@/lib/api/hr";
+import type { HrStructure, StructurePerson } from "@/lib/api/hr-structure";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -14,6 +15,18 @@ vi.mock("@/lib/api", () => ({ api: { get: mocks.get, post: mocks.post } }));
 
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast: mocks.toast }),
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => window.location.pathname,
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
 }));
 
 import { PeopleDirectory, timesheetRequired } from "../PeopleDirectory";
@@ -31,7 +44,7 @@ const MODULES = {
   approvals: false,
 };
 
-function config(peopleAdmin: boolean): HrConfig {
+function config(peopleAdmin: boolean, payroll = false): HrConfig {
   return {
     program: true,
     modules: MODULES,
@@ -43,7 +56,7 @@ function config(peopleAdmin: boolean): HrConfig {
       direct_reports: 0,
       is_admin: false,
       people_admin: peopleAdmin,
-      payroll: false,
+      payroll,
       equipment: false,
       cases: false,
     },
@@ -79,6 +92,43 @@ const PEOPLE = [
   person(9, "Ewa Fikcyjna", true),
 ];
 
+function structurePerson(id: number, name: string): StructurePerson {
+  return {
+    user_id: id,
+    name,
+    email: `osoba-${id}@example.com`,
+    job_title: "Konsultant",
+    department: null,
+    employment_type: "b2b",
+    employment_status: "active",
+    division: "front_office",
+    manager_user_id: null,
+    manager_name: null,
+    manager_state: "none",
+    reports: 0,
+    leaving: null,
+    m365_hint: null,
+    suggested_manager: null,
+  };
+}
+
+const STRUCTURE: HrStructure = {
+  people: [structurePerson(7, "Anna Przykładowa"), structurePerson(8, "Jan Testowy"), structurePerson(9, "Ewa Fikcyjna")],
+  outside_managers: [],
+  divisions: [
+    { key: "front_office", label: "Front office", head_user_id: 7, head_name: "Anna Przykładowa", head_active: true },
+    { key: "back_office", label: "Back office", head_user_id: null, head_name: null, head_active: false },
+  ],
+  total: 3,
+  without_manager: 2,
+  inactive_manager: 0,
+  m365_mismatches: 0,
+} as HrStructure;
+
+afterEach(() => {
+  window.history.replaceState(null, "", "/");
+});
+
 function renderDirectory(peopleAdmin = true, modules: Partial<typeof MODULES> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const base = config(peopleAdmin);
@@ -95,6 +145,7 @@ describe("PeopleDirectory — „Składa raport godzin”", () => {
     vi.clearAllMocks();
     mocks.get.mockImplementation(async (url: string) => {
       if (url === "/api/hr/people") return { data: { items: PEOPLE, total: PEOPLE.length } };
+      if (url === "/api/hr/structure") return { data: STRUCTURE };
       throw new Error(`nieoczekiwane ${url}`);
     });
     mocks.post.mockResolvedValue({ data: { changed: [7, 9], unchanged: [] } });
@@ -230,5 +281,106 @@ describe("PeopleDirectory — makieta 19.10.2026", () => {
     expect(screen.getByText("Ewa Makietowa")).toBeInTheDocument();
     expect(screen.getByText("Kamil Testowy")).toBeInTheDocument();
     expect(screen.queryByText("Adam Wzorcowy")).toBeNull();
+  });
+});
+
+describe("PeopleDirectory — Lista | Schemat i filtry w adresie (22.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url === "/api/hr/people") return { data: { items: PEOPLE, total: PEOPLE.length } };
+      if (url === "/api/hr/structure") return { data: STRUCTURE };
+      throw new Error(`nieoczekiwane ${url}`);
+    });
+  });
+
+  it("przełącznik „Lista | Schemat” widzą tylko Kadry i admin", async () => {
+    renderDirectory(true);
+    await screen.findByText("Jan Testowy");
+    const views = screen.getByRole("group", { name: "Widok katalogu" });
+    expect(within(views).getByRole("button", { name: "Lista" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(views).getByRole("button", { name: "Schemat" })).toBeInTheDocument();
+  });
+
+  it("bez Kadr nie ma przełącznika, a `?view=schemat` w adresie zostaje listą", async () => {
+    window.history.replaceState(null, "", "/people?view=schemat");
+    renderDirectory(false);
+    expect(await screen.findByText("Jan Testowy")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Widok katalogu" })).toBeNull();
+    expect(screen.queryByTestId("org-card-7")).toBeNull();
+    // Bez Kadr nie ma też odczytu struktury.
+    expect(mocks.get).not.toHaveBeenCalledWith("/api/hr/structure");
+  });
+
+  it("admin bez Kadr też widzi schemat", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const base = config(false);
+    render(
+      <QueryClientProvider client={client}>
+        <PeopleDirectory config={{ ...base, me: { ...base.me, is_admin: true } }} />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Jan Testowy");
+    expect(screen.getByRole("group", { name: "Widok katalogu" })).toBeInTheDocument();
+  });
+
+  it("„Schemat” pokazuje drzewo kart i zapisuje widok w adresie", async () => {
+    window.history.replaceState(null, "", "/people");
+    renderDirectory(true);
+    await screen.findByText("Jan Testowy");
+    fireEvent.click(screen.getByRole("button", { name: "Schemat" }));
+    expect(await screen.findByTestId("org-card-7")).toHaveTextContent("Anna Przykładowa");
+    expect(screen.getByRole("button", { name: "Headowie pionów" })).toBeInTheDocument();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(window.location.search).toBe("?view=schemat");
+
+    fireEvent.click(screen.getByRole("button", { name: "Lista" }));
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(window.location.search).toBe("");
+  });
+
+  it("filtry wracają z adresu („← Ludzie” z kartoteki)", async () => {
+    window.history.replaceState(null, "", "/people?q=Jan&status=no_report");
+    renderDirectory(true);
+    await screen.findByText("Jan Testowy");
+    expect(screen.getByLabelText("Szukaj osoby")).toHaveValue("Jan");
+    expect(screen.getByRole("button", { name: /Bez raportu godzin/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.queryByText("Anna Przykładowa")).toBeNull();
+  });
+
+  it("zmiana filtra trafia do adresu, inne parametry zostają", async () => {
+    window.history.replaceState(null, "", "/people?inny=1");
+    renderDirectory(true);
+    await screen.findByText("Jan Testowy");
+    fireEvent.change(screen.getByLabelText("Szukaj osoby"), { target: { value: "Jan" } });
+    fireEvent.click(screen.getByRole("button", { name: /Bez raportu godzin/ }));
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("q")).toBe("Jan");
+    expect(params.get("status")).toBe("no_report");
+    expect(params.get("inny")).toBe("1");
+  });
+
+  it("nieznana wartość w adresie nie filtruje", async () => {
+    window.history.replaceState(null, "", "/people?form=etat&status=cos");
+    renderDirectory(true);
+    expect(await screen.findByText("Anna Przykładowa")).toBeInTheDocument();
+    expect(screen.getByText("Jan Testowy")).toBeInTheDocument();
+  });
+
+  it("Lista: zaznaczonym Kadry ustawiają pion i koordynatora (dawna lista Struktury)", async () => {
+    renderDirectory(true);
+    await screen.findByText("Jan Testowy");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz: Anna Przykładowa" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz: Jan Testowy" }));
+    const bar = screen.getByRole("region", { name: "Zaznaczone osoby" });
+    await waitFor(() =>
+      expect(within(bar).getByRole("button", { name: "Ustaw pion (2)" })).toBeInTheDocument(),
+    );
+    fireEvent.click(within(bar).getByRole("button", { name: "Zmień koordynatora (2)" }));
+    const dialog = await screen.findByRole("dialog", { name: "Zmień koordynatora (2)" });
+    expect(dialog).toHaveTextContent("Anna Przykładowa, Jan Testowy");
   });
 });
