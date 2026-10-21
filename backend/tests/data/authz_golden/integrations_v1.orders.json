@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/integrations/v1/order-groups": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/order-groups/{group_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders/{order_id}/md-consumptions": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/order-groups": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/order-groups/{group_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders/{order_id}/md-consumptions": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

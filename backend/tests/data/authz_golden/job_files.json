@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/files/{file_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/jobs/{job_id}/files/{file_id}/content": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "DELETE /api/jobs/{job_id}/files/{file_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/jobs/{job_id}/files/{file_id}/content": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

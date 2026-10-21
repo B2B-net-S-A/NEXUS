@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/cases": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/cases/assignees": "BDDDBDDDBDDDBBDDDDDDDDDDB",
-  "GET /api/cases/contract-options": "BDDDBDDDBDDDBBDDDDDDDDDDB",
-  "GET /api/cases/{case_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PATCH /api/cases/{case_id}": "BDDDBDDDBDDDBBDDDDDDDDDDB",
-  "POST /api/cases": "BDDDBDDDBDDDBBDDDDDDDDDDB",
-  "POST /api/cases/{case_id}/close": "BDDDBDDDBDDDBBDDDDDDDDDDB",
-  "POST /api/cases/{case_id}/comments": "BBBBBBBDBBBBBBBBBBBBBBBBB"
+  "GET /api/cases": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/cases/assignees": "BDDDBDDDBDDDBBDDDDDDDDDDBD",
+  "GET /api/cases/contract-options": "BDDDBDDDBDDDBBDDDDDDDDDDBD",
+  "GET /api/cases/{case_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/cases/{case_id}": "BDDDBDDDBDDDBBDDDDDDDDDDBD",
+  "POST /api/cases": "BDDDBDDDBDDDBBDDDDDDDDDDBD",
+  "POST /api/cases/{case_id}/close": "BDDDBDDDBDDDBBDDDDDDDDDDBD",
+  "POST /api/cases/{case_id}/comments": "BBBBBBBDBBBBBBBBBBBBBBBBBB"
  }
 }

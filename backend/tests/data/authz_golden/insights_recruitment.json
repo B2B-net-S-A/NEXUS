@@ -24,15 +24,16 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/insights/recruitment/available-periods": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/recruitment/competence-matrix": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/recruitment/funnel": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/recruitment/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/recruitment/seniority": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/recruitment/team-activity": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/insights/recruitment/time-to-hire": "PPPPPPPDPPPPPPPPPPPPDPPPP"
+  "GET /api/insights/recruitment/available-periods": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/competence-matrix": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/funnel": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/seniority": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/team-activity": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/time-to-hire": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
  }
 }

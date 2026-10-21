@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/users/me/onboarding/jobs": "PPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/users/me/onboarding": "PPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/users/me/onboarding/jobs": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/users/me/onboarding": "PPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

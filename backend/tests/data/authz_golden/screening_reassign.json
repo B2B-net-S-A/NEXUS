@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/pipeline/stages/{stage_id}/screening/reassign-context": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/screening/reassign-suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/pipeline/stages/{stage_id}/screening/reassign-context": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/screening/reassign-suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

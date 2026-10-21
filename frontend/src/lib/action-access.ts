@@ -70,6 +70,11 @@ export const ROLE_ACTION_ACCESS: Record<
     b2b_contract_generator: "none",
     b2b_signature_confirmation: "none",
   },
+  // „Rada nadzorcza” (0490): tylko Insights.
+  board: {
+    b2b_contract_generator: "none",
+    b2b_signature_confirmation: "none",
+  },
 };
 
 export interface ActionUser {

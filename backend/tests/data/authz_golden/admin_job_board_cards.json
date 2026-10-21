@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/proposals/convert-integration-cards/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/proposals/convert-integration-cards": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/proposals/convert-integration-cards/status": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/proposals/convert-integration-cards": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

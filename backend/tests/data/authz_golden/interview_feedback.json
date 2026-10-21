@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "PATCH /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "DELETE /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "PATCH /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

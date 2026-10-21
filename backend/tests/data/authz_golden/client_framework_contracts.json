@@ -24,18 +24,19 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts": "BBDBDDDDBBBDDDDDDBBDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts/search": "BBDBDDDDBBBDDDDDDBBDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBDDDDBBBDDDDDDBBDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBDDDDBBBDDDDDDBBDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/text": "BBDBDDDDBBBDDDDDDBBDDDDDD",
-  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/framework-contracts": "PPDBDDDDBBBDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDDDDDDD",
-  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PPDBDDDDBBBDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/search": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/text": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
+  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/framework-contracts": "PPDBDDDDBBBDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PPDBDDDDBBBDDDDDDDDDDDDDDD"
  }
 }

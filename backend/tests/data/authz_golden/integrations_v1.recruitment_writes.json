@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "POST /api/integrations/v1/recruitments/{job_id}/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/recruitments/{job_id}/moves": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "POST /api/integrations/v1/recruitments/{job_id}/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/recruitments/{job_id}/moves": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -56,6 +56,10 @@ class UserRole(str, enum.Enum):
     # „Ludzie w NEXUSIE” (decyzja Artura 16.10.2026, D1): pracownik bez pracy
     # w rekrutacji — widzi tylko swój czas, ludzi i pomoc. Rola wyłączna.
     employee = "employee"
+    # „Rada nadzorcza” (0490, decyzja Artura 21.10.2026): tylko Insights —
+    # kokpit Firma z kwotami, rok do roku, raporty i zespół imiennie. Żadnego
+    # zapisu, kandydatów ani Delivery; nie przyjmuje nadań. Rola wyłączna.
+    board = "board"
 
     # Wycofane role (0411) — ALIASY rekrutera, nie osobne role. Etykiety
     # `sourcer` i `tac` zostają w typie `userrole` w Postgresie, więc wiersz
@@ -120,10 +124,10 @@ class User(Base, TimestampMixin):
         CheckConstraint(
             """
             CASE
-                WHEN role::text IN ('finance', 'user', 'trainee', 'automation', 'employee')
+                WHEN role::text IN ('finance', 'user', 'trainee', 'automation', 'employee', 'board')
                     THEN roles = jsonb_build_array(role::text)
                 ELSE NOT (
-                    roles ?| ARRAY['finance', 'user', 'trainee', 'automation', 'employee']::text[]
+                    roles ?| ARRAY['finance', 'user', 'trainee', 'automation', 'employee', 'board']::text[]
                 )
             END
             """,
@@ -381,7 +385,7 @@ class User(Base, TimestampMixin):
             self.roles = [primary_str] + current
 
     def ensure_exclusive_roles(self) -> None:
-        """Finance, legacy viewer, trainee and automation are exclusive personas."""
+        """Finance, legacy viewer, trainee, automation, employee and board are exclusive."""
 
         role_values = {role.value for role in self.get_all_roles()}
         exclusive = {
@@ -390,6 +394,7 @@ class User(Base, TimestampMixin):
             UserRole.trainee.value,
             UserRole.automation.value,
             UserRole.employee.value,
+            UserRole.board.value,
         }.intersection(role_values)
         if exclusive and len(role_values) != 1:
             role_name = sorted(exclusive)[0]

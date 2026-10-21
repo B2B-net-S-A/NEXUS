@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/section-permissions": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/section-permissions/users": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/section-permissions/roles": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/section-permissions": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/section-permissions/users": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/section-permissions/roles": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/contract-analytics/location-distribution": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/contract-analytics/margin-by-client": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/contract-analytics/margin-by-contractor": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/contract-analytics/margin-totals": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/contract-analytics/revenue-forecast": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/contract-analytics/role-client-mix": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/contract-analytics/termination-analysis": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/contract-analytics/utilization": "PPDDDDDDDDDDDDDDDPDDDDDDD"
+  "GET /api/contract-analytics/location-distribution": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/contract-analytics/margin-by-client": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/contract-analytics/margin-by-contractor": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/contract-analytics/margin-totals": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/contract-analytics/revenue-forecast": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/contract-analytics/role-client-mix": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/contract-analytics/termination-analysis": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/contract-analytics/utilization": "PPDDDDDDDDDDDDDDDPDDDDDDDD"
  }
 }

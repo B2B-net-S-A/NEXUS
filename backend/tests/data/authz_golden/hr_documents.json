@@ -24,18 +24,19 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/hr/documents/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/documents/people/{user_id}/protocols/{protocol_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/documents/retention": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/documents/settings/retention": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/documents/{document_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PATCH /api/hr/documents/{document_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/documents/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/documents/retention/delete": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/documents/{document_id}/remove": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PUT /api/hr/documents/settings/retention": "BBBBBBBDBBBBBBBBBBBBBBBBB"
+  "GET /api/hr/documents/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/documents/people/{user_id}/protocols/{protocol_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/documents/retention": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/documents/settings/retention": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/documents/{document_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/hr/documents/{document_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/documents/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/documents/retention/delete": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/documents/{document_id}/remove": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "PUT /api/hr/documents/settings/retention": "BBBBBBBDBBBBBBBBBBBBBBBBBB"
  }
 }

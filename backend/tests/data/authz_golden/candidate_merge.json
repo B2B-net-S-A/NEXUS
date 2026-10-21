@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/merge-preview": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "POST /api/candidates/{candidate_id}/merge": "PDPDDDDDDPDPDDDDDDDDDDDDD"
+  "GET /api/candidates/{candidate_id}/merge-preview": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "POST /api/candidates/{candidate_id}/merge": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

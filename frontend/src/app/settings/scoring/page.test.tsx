@@ -133,4 +133,26 @@ describe("ScoringWeightsPage — Insights RBAC", () => {
     expect(screen.getByText("Brak dostępu do profili wag scoringu.")).toBeInTheDocument();
     await waitFor(() => expect(mocks.list).not.toHaveBeenCalled());
   });
+
+  it("wagi domyślne po ludzku, od najważniejszej — bez nazw pól z kodu (21.10.2026)", async () => {
+    mocks.user = {
+      role: "delivery_lead",
+      roles: ["delivery_lead"],
+      effective_section_access: { insights: "read" },
+    };
+    renderPage();
+
+    const section = await screen.findByRole("region", { name: "Wagi domyślne — dla wszystkich rekrutacji" });
+    const labels = Array.from(section.querySelectorAll("li p:first-child")).map((node) => node.textContent);
+    expect(labels).toEqual([
+      "Dopasowanie do opisu",
+      "Umiejętności",
+      "Stawka",
+      "Profil Championa",
+      "Lokalizacja",
+      "Dostępność",
+    ]);
+    expect(section).toHaveTextContent("35%");
+    expect(screen.queryByText(/semantic|boost|tunowanie/)).toBeNull();
+  });
 });
