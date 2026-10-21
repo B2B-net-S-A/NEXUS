@@ -21,6 +21,7 @@ import { hasScopedMd } from "@/lib/order-line-usage";
 import { formatDate, formatPLN } from "@/types/client-profile";
 import { rowActivationProps } from "@/hooks/useRowNavigation";
 import { warsawDateOf } from "@/lib/warsaw-date";
+import { awaitingMdNote } from "@/lib/order-consumption";
 
 import { ConsumptionButton } from "./ConsumptionButton";
 import { formatPeriodMonthPl } from "./LineConsumptionTable";
@@ -162,6 +163,14 @@ function lineNotes(line: OrderLineRead): Array<{ label: string; tone: keyof type
     });
   }
   return notes;
+}
+
+/** MD z importu czekające na kolejne zamówienie tej osoby (21.10.2026). */
+function awaitingNotes(line: OrderLineRead): Array<{ label: string; tone: keyof typeof TONE_CLASS }> {
+  return (line.awaiting_md ?? []).map((point) => ({
+    label: awaitingMdNote(point.period_month, point.md),
+    tone: "mut",
+  }));
 }
 
 /** Kolumna „Zostało MD” / „Budżet” u osoby, która już nie pracuje na zamówieniu. */
@@ -596,7 +605,8 @@ function OrdersTableRowView({
   const { group, line, ended } = row;
   const perPersonMd = !group.is_cost_based && !usesSharedMdPool(group);
   const badge = ended ? null : lineBadge(group, line);
-  const notes = ended ? [] : lineNotes(line);
+  // Oczekujące MD dotyczą też zamówienia zakończonego — to przy nim czekają.
+  const notes = [...(ended ? [] : lineNotes(line)), ...awaitingNotes(line)];
   const needsDecision = ended && requiresDecision(line);
   const decided = ended ? decisionLabel(line) : null;
   return (

@@ -69,6 +69,7 @@ from app.models.md_consumption import (
     COST_ROW_UNMATCHED_NUMBER,
     CONSUMPTION_SOURCE_MANUAL,
     IMPORT_ROW_APPLIED,
+    IMPORT_ROW_AWAITING_ORDER,
     IMPORT_ROW_COST_ONLY,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_OVERFLOW,
@@ -137,6 +138,13 @@ from app.services.multi_consultant_orders import (
     EVENT_MD_IMPORT,
     format_md,
     quantize_md,
+)
+from app.services.md_awaiting_orders import (
+    apply_reimport,
+    next_order_line_ids,
+    plan_reimport,
+    recount_import_batch,
+    settle_awaiting_rows,
 )
 from app.services.order_policies import md_exhaustion_client_ids
 from app.services.shared_md_orders import (
@@ -409,11 +417,14 @@ async def _row_to_read(
     period_month: Optional[str] = None,
     reason_context: Optional[_ReasonContext] = None,
     merged_rows: int = 1,
+    awaiting_md: Optional[Decimal] = None,
 ) -> ImportRowRead:
     """Wiersz importu wraz z opcjami do wyboru (dla „wymaga przypisania")."""
     order_ids: set[int] = set()
     if row.matched_order_id:
         order_ids.add(row.matched_order_id)
+    if row.awaiting_origin_order_id:
+        order_ids.add(row.awaiting_origin_order_id)
     for oid in row.candidate_order_ids or []:
         try:
             order_ids.add(int(oid))
@@ -478,6 +489,13 @@ async def _row_to_read(
         status_reason=status_reason,
         overflow_md=row.overflow_md,
         merged_rows=merged_rows,
+        md_pending=row.md_pending,
+        awaiting_md=awaiting_md,
+        awaiting_order=(
+            options_by_id.get(row.awaiting_origin_order_id)
+            if row.awaiting_origin_order_id is not None
+            else None
+        ),
     )
 
 
@@ -499,34 +517,8 @@ def _summary(batch: MdConsumptionImport) -> ImportSummary:
 
 
 async def _recount(db: AsyncSession, batch: MdConsumptionImport) -> None:
-    """Przelicz liczniki partii z faktycznych statusów wierszy.
-
-    Liczniki są przeliczane, a nie inkrementowane przy rozstrzyganiu: licznik
-    modyfikowany krokowo rozjeżdża się przy każdym nieoczekiwanym przebiegu,
-    a to on jest tym, co operator czyta jako „ile zostało do zrobienia".
-    """
-    result = await db.execute(
-        select(MdConsumptionImportRow.status).where(
-            MdConsumptionImportRow.import_id == batch.id
-        )
-    )
-    statuses = [s for (s,) in result]
-    batch.rows_total = len(statuses)
-    batch.rows_applied = sum(1 for s in statuses if s == IMPORT_ROW_APPLIED)
-    # „Do weryfikacji – przekroczenie puli” też czeka na człowieka.
-    batch.rows_ambiguous = sum(
-        1 for s in statuses if s in (IMPORT_ROW_NEEDS_ASSIGNMENT, IMPORT_ROW_OVERFLOW)
-    )
-    batch.rows_unmatched = sum(1 for s in statuses if s == IMPORT_ROW_UNMATCHED)
-
-    cost_result = await db.execute(
-        select(MdConsumptionImportRow.cost_status).where(
-            MdConsumptionImportRow.import_id == batch.id
-        )
-    )
-    cost_statuses = [c for (c,) in cost_result if c is not None]
-    batch.rows_cost_applied = sum(1 for c in cost_statuses if c == COST_ROW_APPLIED)
-    batch.rows_cost_unmatched = len(cost_statuses) - batch.rows_cost_applied
+    """Przelicz liczniki partii z faktycznych statusów wierszy."""
+    await recount_import_batch(db, batch)
 
 
 async def _rollback_trial(db: AsyncSession, savepoint) -> None:
@@ -1083,6 +1075,13 @@ async def run_md_import(
     shared_md_orders: dict[int, ClientOrder] = {}
     shared_md_rows: dict[int, list[MdConsumptionImportRow]] = defaultdict(list)
     cost_rows: dict[int, list[MdConsumptionImportRow]] = defaultdict(list)
+    # 21.10.2026: wiersze dopasowane po SAMYM nazwisku czekają do końca pętli —
+    # jeśli trafiają na zamówienie, które inny wiersz tej osoby wskazał
+    # numerem, nie są z nim sumowane (`_split_awaiting_rows`).
+    name_only_md: list[tuple[MdConsumptionImportRow, LineMatch]] = []
+    # Osoby z wierszami MD w tej paczce — powtórka miesiąca poprawia ich
+    # wcześniejsze wiersze oczekujące (`apply_reimport`).
+    md_row_names: list[str] = []
 
     for parsed_row in parsed.rows:
         row = MdConsumptionImportRow(
@@ -1126,6 +1125,7 @@ async def run_md_import(
             db.add(row)
             continue
 
+        md_row_names.append(row.consultant_name)
         # Parser dochodzi tutaj wyłącznie po znalezieniu jawnie rozpoznanej
         # kolumny MD. Wspólna pula nie próbuje wyliczać dni z faktury, godzin
         # ani innej kolumny zastępczej, dopóki Finanse nie ustalą formatu.
@@ -1211,7 +1211,9 @@ async def run_md_import(
                 order_numbers=order_numbers,
                 other_client_ids=row_cost_clients,
             )
-            if len(matches) == 1:
+            if len(matches) == 1 and not authoritative:
+                name_only_md.append((row, matches[0]))
+            elif len(matches) == 1:
                 match = matches[0]
                 row.status = IMPORT_ROW_APPLIED
                 row.matched_order_id = match.order.id
@@ -1255,6 +1257,22 @@ async def run_md_import(
                 cost_rows[cost_match.order.id].append(row)
         db.add(row)
 
+    awaiting_rows: list[MdConsumptionImportRow] = []
+    for row, match in name_only_md:
+        if match.order.id in explicit_md_orders:
+            # Wiersz bez numeru obok wiersza tej osoby z numerem tego zamówienia:
+            # MD nie schodzą z jego puli, czekają na kolejne zamówienie.
+            row.status = IMPORT_ROW_AWAITING_ORDER
+            row.awaiting_origin_order_id = match.order.id
+            row.md_pending = quantize_md(row.md_reported)
+            awaiting_rows.append(row)
+            continue
+        row.status = IMPORT_ROW_APPLIED
+        row.matched_order_id = match.order.id
+        pending_md[match.order.id] += row.md_reported
+        md_orders[match.order.id] = (match.order, match.group)
+        md_rows[match.order.id].append(row)
+
     # One lock protocol for every Finance writer: all lines (ascending), then
     # all groups (ascending), only then monthly rows/upserts.  Offboarding and
     # group edits already use line -> group; reversing that order here could
@@ -1294,8 +1312,27 @@ async def run_md_import(
     family_line_ids = await _md_family_line_ids(
         db, {group.id for _, group in md_orders.values()}
     )
+    # Kolejne zamówienia, z których zejdą MD oczekujące — ta sama kolejność
+    # blokad co cele z arkusza.
+    awaiting_target_ids = await next_order_line_ids(
+        db, {md_orders[row.awaiting_origin_order_id][0] for row in awaiting_rows}
+    )
+    reimport = await plan_reimport(
+        db,
+        import_id=batch.id,
+        period_month=period_month,
+        consultant_names=md_row_names,
+    )
+    awaiting_clients = [
+        (row, md_orders[row.awaiting_origin_order_id][0].client_id)
+        for row in awaiting_rows
+    ]
     locked_orders = await _lock_finance_target_orders(
-        db, set(expected_group_by_order) | family_line_ids
+        db,
+        set(expected_group_by_order)
+        | family_line_ids
+        | awaiting_target_ids
+        | reimport.targets,
     )
     for order_id, expected_group_id in expected_group_by_order.items():
         if locked_orders[order_id].order_group_id != expected_group_id:
@@ -1378,6 +1415,19 @@ async def run_md_import(
                 detail="Zamówienie kosztowe zmieniło się podczas importu.",
             )
 
+    if reimport.earlier:
+        # Przed zejściami paczki: cofnięcie MD z kolejnego zamówienia nie może
+        # nadpisać wpisu, który ta paczka zapisze na nim wprost.
+        await db.flush()
+        await apply_reimport(
+            db,
+            reimport,
+            import_id=batch.id,
+            period_month=period_month,
+            new_awaiting=awaiting_clients,
+            user_id=user_id,
+        )
+
     # Ticket 1.1: zejście, po którym saldo spadłoby poniżej zera, nie jest
     # księgowane automatycznie. Zapis idzie próbnie w savepoincie (ta sama
     # ścieżka co zwykły zapis — podział na następcę, przekierowanie na
@@ -1419,6 +1469,14 @@ async def run_md_import(
             for touched in (outcome.order, outcome.successor_order):
                 if touched is not None:
                     before_remaining[touched.id] = touched.md_remaining
+
+    if awaiting_rows:
+        await db.flush()
+        for row in awaiting_rows:
+            await db.refresh(
+                row, attribute_names=["import_batch", "awaiting_origin_order"]
+            )
+        await settle_awaiting_rows(db, awaiting_rows, user_id=user_id)
 
     for group_id in sorted(pending_shared_md):
         before_used = await shared_md_used_total(db, group_id)
@@ -2496,6 +2554,14 @@ async def _detail(
             IMPORT_ROW_OVERFLOW,
         ):
             per_target[r.matched_order_id] += 1
+    # „Pozostało do zafakturowania” przy wierszu z numerem: MD wierszy tej
+    # paczki, które czekają na kolejne zamówienie po jego zamówieniu.
+    awaiting_by_origin: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    for r in stored:
+        if r.status == IMPORT_ROW_AWAITING_ORDER and r.awaiting_origin_order_id:
+            awaiting_by_origin[r.awaiting_origin_order_id] += Decimal(
+                str(r.md_pending or 0)
+            )
     rows = [
         await _row_to_read(
             db,
@@ -2507,6 +2573,14 @@ async def _detail(
                 if r.matched_order_id is not None
                 and r.status in (IMPORT_ROW_APPLIED, IMPORT_ROW_OVERFLOW)
                 else 1
+            ),
+            awaiting_md=(
+                r.md_pending
+                if r.status == IMPORT_ROW_AWAITING_ORDER
+                else awaiting_by_origin.get(r.matched_order_id or -1)
+                if r.status in (IMPORT_ROW_APPLIED, IMPORT_ROW_OVERFLOW)
+                and r.awaiting_origin_order_id is None
+                else None
             ),
         )
         for r in stored

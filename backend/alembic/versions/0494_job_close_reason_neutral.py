@@ -1,7 +1,7 @@
 """Powody zamknięcia „nie liczy się do hit ratio” (21.10.2026).
 
-Revision ID: 0493_job_close_neutral
-Revises: 0492_interview_changed_notification
+Revision ID: 0494_job_close_neutral
+Revises: 0493_interview_changed_notification
 
 Decyzja Artura 21.10.2026: przegraną w hit ratio jest tylko rekrutacja, którą
 wzięła inna firma. Enum ``jobclosereason`` dostaje dwa powody, które dotąd
@@ -19,8 +19,8 @@ Lustro w safety-net ``entrypoint.sh`` — prod alembic bywa osierocony.
 
 from alembic import op
 
-revision = "0493_job_close_neutral"
-down_revision = "0492_interview_changed_notification"
+revision = "0494_job_close_neutral"
+down_revision = "0493_interview_changed_notification"
 branch_labels = None
 depends_on = None
 

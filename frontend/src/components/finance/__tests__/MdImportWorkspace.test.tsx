@@ -258,6 +258,54 @@ describe("MdImportWorkspace", () => {
     );
   });
 
+  it("wiersz bez numeru czeka na kolejne zamówienie, a wiersz z numerem schodzi sam (21.10.2026)", async () => {
+    const numbered = row({
+      md_reported: 11.625,
+      order_number_hint: "4500030369",
+      matched: {
+        order_id: 99,
+        order_number: "4500030369",
+        client_id: 7,
+        client_name: "Biuro Informacji Kredytowej S.A.",
+        consultant_name: "Jan Kowalski",
+        md_remaining: 3.375,
+      },
+      awaiting_md: 12.25,
+    });
+    const awaiting = row({
+      id: 2,
+      row_number: 3,
+      md_reported: 12.25,
+      status: "awaiting_order",
+      status_label: "Oczekuje na zamówienie",
+      matched_order_id: null,
+      matched: null,
+      md_pending: 12.25,
+      awaiting_md: 12.25,
+      awaiting_order: numbered.matched,
+    });
+    vi.mocked(mdConsumptionApi.upload).mockResolvedValue({
+      data: { ...detail([numbered, awaiting]), period_month: "2026-09" },
+    } as never);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+    await user.upload(screen.getByLabelText(/Plik XLSX/), new File(["x"], "raport.xlsx"));
+    await user.click(screen.getByRole("button", { name: /Importuj/ }));
+
+    expect(await screen.findByText("Oczekuje na zamówienie")).toBeInTheDocument();
+    expect(screen.queryByText(/przekroczenie puli/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/połączono/)).not.toBeInTheDocument();
+    expect(
+      screen.getAllByText(
+        "Pozostało do zafakturowania za wrzesień 2026: 12,25 MD – oczekuje na kolejne zamówienie",
+      ),
+    ).toHaveLength(2);
+    expect(screen.getByText(/po zamówieniu nr 4500030369/)).toBeInTheDocument();
+    expect(screen.getByText(/Oczekuje na zamówienie:/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Zatwierdź/ })).not.toBeInTheDocument();
+  });
+
   it("wiersz bez dopasowania jest oznaczony, a nie pominięty", async () => {
     vi.mocked(mdConsumptionApi.upload).mockResolvedValue({
       data: detail([

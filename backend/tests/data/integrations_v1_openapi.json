@@ -5873,6 +5873,27 @@
       },
       "ImportRowRead": {
         "properties": {
+          "awaiting_md": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Awaiting Md"
+          },
+          "awaiting_order": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineOption"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "consultant_name": {
             "title": "Consultant Name",
             "type": "string"
@@ -5934,6 +5955,17 @@
               }
             ],
             "title": "Matched Order Id"
+          },
+          "md_pending": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Md Pending"
           },
           "md_reported": {
             "title": "Md Reported",

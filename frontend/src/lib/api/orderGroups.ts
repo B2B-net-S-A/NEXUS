@@ -120,6 +120,9 @@ export interface OrderLineRead {
   consumption_flags?: LineConsumptionFlag[];
   /** Miesiąc bez zejścia przy fladze `missing_previous_month` („2026-08"). */
   consumption_missing_month?: string | null;
+  /** MD z importu czekające na kolejne zamówienie tej osoby — per miesiąc
+   *  raportu (wiersz bez numeru obok wiersza z numerem, 21.10.2026). */
+  awaiting_md?: LineConsumptionPoint[];
   /** Decyzja po zakończeniu współpracy na zamówieniu MD. `pending` oznacza,
    *  że linia zostaje oznaczona alarmowo do czasu decyzji Delivery Leada. */
   offboarding_case?: OrderOffboardingCaseRead | null;
@@ -658,7 +661,7 @@ export interface OrderHistoryResponse {
 
 // ── Importy MD klienta (ticket 7, 09.2026) ──────────────────────────────────
 
-export type ClientMdImportRowState = "booked" | "to_verify" | "error" | "neutral";
+export type ClientMdImportRowState = "booked" | "to_verify" | "error" | "neutral" | "awaiting";
 
 export interface ClientMdImportSummary {
   id: number;
@@ -760,7 +763,9 @@ export type ImportRowStatus =
   | "needs_assignment"
   | "unmatched"
   | "cost_only"
-  | "overflow";
+  | "overflow"
+  | "awaiting_order"
+  | "superseded";
 
 /** Wynik dopasowania KOSZTOWEGO — niezależny od `status` (dopasowanie MD po
  *  nazwisku). `null` = wiersz nie dotyczy zamówień kosztowych, co jest czym
@@ -804,6 +809,13 @@ export interface ImportRow {
   overflow_md?: number | null;
   /** Ile wierszy tej samej osoby z tym samym numerem zsumowano w jedno zejście. */
   merged_rows?: number;
+  /** `awaiting_order`: ile MD z wiersza wciąż czeka na kolejne zamówienie. */
+  md_pending?: number | null;
+  /** „Pozostało do zafakturowania” — przy wierszu oczekującym jego MD, przy
+   *  wierszu z numerem suma oczekujących po jego zamówieniu w tej paczce. */
+  awaiting_md?: number | null;
+  /** Zamówienie z numerem, po którym wiersz czeka na kolejne. */
+  awaiting_order?: ImportLineOption | null;
   notes_raw: string | null;
   order_number_hint: string | null;
   invoice_amount: number | null;
