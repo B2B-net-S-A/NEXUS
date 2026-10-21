@@ -495,6 +495,8 @@ const PUBLIC_PATHS = [
   "/preview/cpro-queue",
   "/preview/candidate-followup",
   "/preview/kpi-targets",
+  // Ustawienia → „Ranking kandydatów” (21.10.2026): wagi, podgląd, pomiar.
+  "/preview/ranking-panel",
   // Ustawienia → „Osoby i role” (0410): dziewięć przełączników, okno osoby.
   "/preview/permissions",
   "/preview/b2b-documents",
