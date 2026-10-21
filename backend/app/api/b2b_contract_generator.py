@@ -57,6 +57,10 @@ from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_contract_role import B2BContractRole
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_signing_request import (
+    OPEN_STATUSES as ESIGN_OPEN_STATUSES,
+    B2BSigningRequest,
+)
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
 )
@@ -90,6 +94,7 @@ from app.services.b2b_documents import effects as document_effects
 from app.services.b2b_documents.contract_versions import version_for_variant
 from app.services.critical_events import audited_deletion
 from app.schemas.b2b_contract_generator import (
+    B2BGeneratedEsign,
     B2B_CLOSING_STATUSES,
     B2BClosureReason,
     B2BCompanyLookupResponse,
@@ -167,6 +172,7 @@ from app.services.b2b_contract_generator.entity_type import (
     resolve_partner_entity_type,
 )
 from app.services.b2b_contract_generator import signed_file
+from app.services.b2b_esign import settings as esign_settings
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.company_variant import (
     CompanyVariantError,
@@ -1154,6 +1160,32 @@ async def _serialize_generated_contracts(
                     raise
                 signature_client_access[client_id] = False
     live_signed_files = await signed_file.existing_document_ids(db, rows)
+    # Podpis w NEXUSIE (0497): ostatni wniosek na wiersz, jedno zapytanie.
+    esign_mode = await esign_settings.load(db)
+    esign_allowed = esign_mode.can_send(current_user)
+    latest_esign: dict[int, B2BSigningRequest] = {}
+    if rows:
+        esign_rows = await db.scalars(
+            select(B2BSigningRequest)
+            .where(
+                B2BSigningRequest.generated_contract_id.in_([row.id for row in rows])
+            )
+            .order_by(
+                B2BSigningRequest.generated_contract_id,
+                B2BSigningRequest.id.desc(),
+            )
+            .distinct(B2BSigningRequest.generated_contract_id)
+        )
+        latest_esign = {r.generated_contract_id: r for r in esign_rows.all()}
+    esign_signer_ids = {
+        r.company_signer_id for r in latest_esign.values() if r.company_signer_id
+    }
+    esign_signer_names: dict[int, str] = {}
+    if esign_signer_ids:
+        named = await db.execute(
+            select(User.id, User.name).where(User.id.in_(esign_signer_ids))
+        )
+        esign_signer_names = {uid: name for uid, name in named.all()}
     items: list[B2BGeneratedContractItem] = []
     for row in rows:
         is_signed = row.signature_status == "signed_both"
@@ -1257,6 +1289,28 @@ async def _serialize_generated_contracts(
             )
         )
 
+        # Kto wysyła i wycofuje podpis w NEXUSIE — jak trasy w api/b2b_esign.py.
+        esign = latest_esign.get(row.id)
+        esign_open = esign is not None and esign.status in ESIGN_OPEN_STATUSES
+        may_run_esign = (
+            esign_allowed
+            and not from_excel
+            and can_generate_documents
+            and can_write_client
+            and _may_correct_generated(current_user, row, team_job_ids)
+            and rate_visibility.visible(
+                client_id=row.client_id, created_by=row.created_by, job_id=row.job_id
+            )
+        )
+        can_send_esign = (
+            may_run_esign
+            and not is_signed
+            and row.contract_status == "in_progress"
+            and not esign_open
+            and bool(row.partner_name)
+            and row.render_payload is not None
+        )
+
         linked_status, linked_end = linked_contracts.get(row.contract_id, (None, None))
         job = jobs.get(row.job_id) if row.job_id is not None else None
         # Kolumna „Partner": nazwa firmy z rejestru, a dla spółki dodatkowo
@@ -1339,6 +1393,22 @@ async def _serialize_generated_contracts(
                     else None
                 ),
                 can_attach_signed_file=can_attach_file,
+                esign=(
+                    B2BGeneratedEsign(
+                        request_id=esign.id,
+                        status=esign.status,
+                        contractor_signed_at=esign.contractor_signed_at,
+                        completed_at=esign.completed_at,
+                        expires_at=esign.expires_at,
+                        company_signer_name=esign_signer_names.get(
+                            esign.company_signer_id or -1
+                        ),
+                    )
+                    if esign is not None
+                    else None
+                ),
+                can_send_esign=can_send_esign,
+                can_withdraw_esign=may_run_esign and esign_open,
                 annex_rates=(
                     list((row.annex_rates or {}).get("items") or [])
                     if row.annex_rates

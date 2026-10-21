@@ -33,6 +33,7 @@ import {
   Plus,
   Printer,
   Save,
+  Send,
   Search,
   Sparkles,
   Trash2,
@@ -133,6 +134,9 @@ import {
   scanFileProblem,
 } from "@/components/v2/b2b-generator/documents/DocumentDialogs";
 import { apiErrorMessage } from "@/lib/api-error";
+import { CompanySignaturesPanel } from "@/components/v2/b2b-generator/esign/CompanySignaturesPanel";
+import { EsignRowStatus } from "@/components/v2/b2b-generator/esign/EsignRowStatus";
+import { SendForSignatureDialog } from "@/components/v2/b2b-generator/esign/SendForSignatureDialog";
 import {
   RegisterAnnexLabel,
   RegisterStartDate,
@@ -2431,6 +2435,9 @@ export function GeneratedContractsTab({
     useState<B2BGeneratedContractRow | null>(null);
   const [signedFileRow, setSignedFileRow] =
     useState<B2BGeneratedContractRow | null>(null);
+  const [esignRow, setEsignRow] = useState<B2BGeneratedContractRow | null>(
+    null,
+  );
   const [statusRow, setStatusRow] = useState<B2BGeneratedContractRow | null>(
     null,
   );
@@ -2585,6 +2592,8 @@ export function GeneratedContractsTab({
     : "";
 
   return (
+    <>
+    <CompanySignaturesPanel />
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Umowy bieżące</CardTitle>
@@ -2996,6 +3005,34 @@ export function GeneratedContractsTab({
                                 </button>
                               ) : null}
                             </div>
+                          ) : r.esign || r.can_send_esign ? (
+                            <div className="flex flex-col items-start gap-1.5">
+                              {r.esign ? <EsignRowStatus row={r} /> : null}
+                              {r.can_send_esign ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => setEsignRow(r)}
+                                >
+                                  <Send className="h-4 w-4" />
+                                  Wyślij do podpisu
+                                </Button>
+                              ) : null}
+                              {r.can_confirm_signed ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => setSignatureRow(r)}
+                                >
+                                  <FileSignature className="h-4 w-4" />
+                                  Oznacz jako podpisaną
+                                </Button>
+                              ) : null}
+                            </div>
                           ) : r.can_confirm_signed ? (
                             <Button
                               type="button"
@@ -3180,6 +3217,9 @@ export function GeneratedContractsTab({
           onConfirmed={handleConfirmed}
         />
       ) : null}
+      {esignRow ? (
+        <SendForSignatureDialog row={esignRow} onClose={() => setEsignRow(null)} />
+      ) : null}
       {signedFileRow ? (
         <AttachSignedFileDialog
           row={signedFileRow}
@@ -3236,6 +3276,7 @@ export function GeneratedContractsTab({
         </DialogContent>
       </Dialog>
     </Card>
+    </>
   );
 }
 

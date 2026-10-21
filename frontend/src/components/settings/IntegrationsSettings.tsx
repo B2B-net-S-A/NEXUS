@@ -13,6 +13,7 @@ import {
   fetchTeamsPrepHealth,
 } from "@/components/settings/TeamsPrepStatusCard";
 import { Button } from "@/components/ui/button";
+import { EsignSettingsCard } from "@/components/v2/b2b-generator/esign/EsignSettingsCard";
 import { JOB_BOARD_CONNECTION_KEY, fetchJobBoardConnection } from "@/lib/api/jobPortals";
 import { cn } from "@/lib/utils";
 
@@ -105,6 +106,12 @@ export function IntegrationsSettings() {
           badge={boardsBadge}
         >
           <JobBoardsCard />
+        </Row>
+        <Row
+          title="Podpis umów B2B w NEXUSIE"
+          description="Druga droga obok maila: kontraktor i reprezentant podpisują kwalifikowanie, plik zostaje przy kontrakcie."
+        >
+          <EsignSettingsCard />
         </Row>
         <Row
           title="Klucze API"
