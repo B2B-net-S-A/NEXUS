@@ -406,7 +406,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inSidebar: false,
   },
   {
-    // Umowy przedwstępne (0504, 21.10.2026): prośby DL / HoR / rekrutera przy
+    // Umowy przedwstępne (0505, 21.10.2026): prośby DL / HoR / rekrutera przy
     // osobach — stan, ważność, termin B2B, decyzje o karze. W menu nie stoi
     // (wejście z listy rekrutacji i kafelka), paleta ma skrót.
     id: "pre-contracts",

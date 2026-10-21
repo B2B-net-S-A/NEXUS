@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Rekrutacje › Umowy przedwstępne (0504, 21.10.2026).
+ * Rekrutacje › Umowy przedwstępne (0505, 21.10.2026).
  *
  * Head of Recruitment widzi wszystkie prośby, Delivery Lead swoich klientów
  * i swoje prośby, rekruter to, co wystawia, i to, o co prosił (zakres liczy

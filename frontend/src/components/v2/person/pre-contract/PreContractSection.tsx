@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Sekcja „Umowa przedwstępna” w panelu osoby (zakładka „Umowa”, 0504).
+ * Sekcja „Umowa przedwstępna” w panelu osoby (zakładka „Umowa”, 0505).
  *
  * Decyzje Artura 21.10.2026: prośba przy osobie (DL, HoR albo rekruter),
  * wystawia rekruter prowadzący, każdy krok z datą i osobą, każda forma

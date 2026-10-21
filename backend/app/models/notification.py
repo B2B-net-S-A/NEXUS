@@ -216,7 +216,7 @@ class NotificationType(str, enum.Enum):
     # zmiany (dymek). related_entity=(client_interview_<rodzaj>, None), link
     # do pary — jak ``prep_changed*``: dzienny dedup zjadałby drugą zmianę.
     interview_changed = "interview_changed"
-    # 0504 (21.10.2026): umowa przedwstępna — prośba, wystawienie, podpisy,
+    # 0505 (21.10.2026): umowa przedwstępna — prośba, wystawienie, podpisy,
     # wygasanie, rezygnacja kandydata, termin umowy B2B. Do proszących,
     # obserwujących i wystawiającego, bez autora zmiany.
     # related_entity=(pre_contract_event, id) — każdy krok to osobne

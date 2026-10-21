@@ -148,7 +148,7 @@ describe("ClientAcceptedDialog", () => {
     );
   });
 
-  it("„Potrzebna umowa przedwstępna” przekazuje prośbę razem z akceptacją (0504)", async () => {
+  it("„Potrzebna umowa przedwstępna” przekazuje prośbę razem z akceptacją (0505)", async () => {
     serve();
     const { onConfirm } = renderDialog();
     const box = await dialog();

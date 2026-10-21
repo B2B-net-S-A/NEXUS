@@ -3130,7 +3130,7 @@
   {
    "id": "panel.pre-contract",
    "area": "umowa",
-   "opis": "Sekcja „Umowa przedwstępna” w zakładce „Umowa”: kroki (prośba, wystawiona, wysłana, podpis kandydata z formą, podpis firmy), ważność, termin B2B, obserwujący, akcje (0504)",
+   "opis": "Sekcja „Umowa przedwstępna” w zakładce „Umowa”: kroki (prośba, wystawiona, wysłana, podpis kandydata z formą, podpis firmy), ważność, termin B2B, obserwujący, akcje (0505)",
    "file": "components/v2/person/pre-contract/PreContractSection.tsx",
    "marker": "pre-contract-section",
    "v3_home": "Panel osoby / zakładka „Umowa”"
@@ -3138,7 +3138,7 @@
   {
    "id": "dialog.pre-contract-request",
    "area": "umowa",
-   "opis": "Okno „Poproś o umowę przedwstępną”: na kiedy (przed CV, przed rozmową, przed B2B, do daty) i po co (0504)",
+   "opis": "Okno „Poproś o umowę przedwstępną”: na kiedy (przed CV, przed rozmową, przed B2B, do daty) i po co (0505)",
    "file": "components/v2/person/pre-contract/PreContractDialogs.tsx",
    "marker": "pre-contract-request-save",
    "v3_home": "Panel osoby / menu „⋯” w doku / przegląd DL"
@@ -3146,7 +3146,7 @@
   {
    "id": "dialog.pre-contract-issue",
    "area": "umowa",
-   "opis": "Okno „Wystaw umowę przedwstępną” — formularz Generatora z ustaloną parą, DOCX i podpięcie do prośby (0504)",
+   "opis": "Okno „Wystaw umowę przedwstępną” — formularz Generatora z ustaloną parą, DOCX i podpięcie do prośby (0505)",
    "file": "components/v2/person/pre-contract/PreContractIssueDialog.tsx",
    "marker": "pre-contract-issue-save",
    "v3_home": "Panel osoby / sekcja „Umowa przedwstępna”"
@@ -3154,7 +3154,7 @@
   {
    "id": "card.pre-contract",
    "area": "tablica",
-   "opis": "Plakietka „Przedwstępna …” na karcie i w tabeli osób — napis i ton z serwera (0504)",
+   "opis": "Plakietka „Przedwstępna …” na karcie i w tabeli osób — napis i ton z serwera (0505)",
    "file": "lib/board-card-badges.ts",
    "marker": "pre_contract",
    "v3_home": "Tablica / tabela osób"
@@ -3162,7 +3162,7 @@
   {
    "id": "dialog.client-accepted-pre-contract",
    "area": "ruch",
-   "opis": "„Potrzebna umowa przedwstępna przed umową B2B” w oknie „Klient zaakceptował” (0504)",
+   "opis": "„Potrzebna umowa przedwstępna przed umową B2B” w oknie „Klient zaakceptował” (0505)",
    "file": "components/v2/recruitment/ClientAcceptedDialog.tsx",
    "marker": "client-accepted-pre-contract",
    "v3_home": "Okno „Klient zaakceptował”"
@@ -3170,7 +3170,7 @@
   {
    "id": "dl-review.pre-contract",
    "area": "przegląd DL",
-   "opis": "„Poproś o umowę przedwstępną przed wysłaniem CV” w przeglądzie Delivery Leada (0504)",
+   "opis": "„Poproś o umowę przedwstępną przed wysłaniem CV” w przeglądzie Delivery Leada (0505)",
    "file": "components/v2/recruitment/DlReviewPanel.tsx",
    "marker": "dl-review-pre-contract",
    "v3_home": "Przegląd DL"
@@ -3178,7 +3178,7 @@
   {
    "id": "list.pre-contracts",
    "area": "lista",
-   "opis": "Rekrutacje › Umowy przedwstępne — zakładki z licznikami, stan, wystawiający, ważność, termin B2B, decyzje o karze (0504)",
+   "opis": "Rekrutacje › Umowy przedwstępne — zakładki z licznikami, stan, wystawiający, ważność, termin B2B, decyzje o karze (0505)",
    "file": "components/v2/recruitment/PreContractsList.tsx",
    "marker": "pre-contract-row",
    "v3_home": "/jobs/umowy-przedwstepne"

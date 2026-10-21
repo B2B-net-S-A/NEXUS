@@ -1,4 +1,4 @@
-"""Prośba o umowę przedwstępną dla osoby w rekrutacji (0504, decyzje Artura 21.10.2026).
+"""Prośba o umowę przedwstępną dla osoby w rekrutacji (0505, decyzje Artura 21.10.2026).
 
 Delivery Lead, Head of Recruitment albo sam rekruter prosi o przedwstępną dla
 JEDNEJ osoby w JEDNEJ rekrutacji (para kandydat + rekrutacja) i mówi, na kiedy

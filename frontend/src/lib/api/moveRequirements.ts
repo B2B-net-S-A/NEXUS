@@ -29,7 +29,7 @@ export type MoveRequirementActionKind =
   | "open_card"
   // Odpowiedź narusza „Odpada, gdy…” z Championa — okno odrzucenia z notatką.
   | "reject"
-  // 0504: umowa przedwstępna niepodpisana — panel osoby, zakładka „Umowa”.
+  // 0505: umowa przedwstępna niepodpisana — panel osoby, zakładka „Umowa”.
   | "open_pre_contract";
 
 export interface MoveRequirementAction {
@@ -151,7 +151,7 @@ export function isDealBreakerWarning(item: MoveRequirementItem): boolean {
   return item.status === "missing" && !item.blocking && item.action?.kind === "reject";
 }
 
-/** 0504: umowa przedwstępna niepodpisana — ostrzeżenie (nie bramka), ten sam
+/** 0505: umowa przedwstępna niepodpisana — ostrzeżenie (nie bramka), ten sam
  *  wygląd co deal-breaker i „Przesuń mimo braku” na przycisku. */
 export function isPreContractWarning(item: MoveRequirementItem): boolean {
   return item.key === "pre_contract" && item.status === "missing" && !item.blocking;

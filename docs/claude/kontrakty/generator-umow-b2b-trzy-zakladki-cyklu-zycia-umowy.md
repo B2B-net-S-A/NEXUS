@@ -550,7 +550,7 @@ Decyzje Artura z 21.10.2026 (migracja 0503):
   awaria = 503 „Nie udało się przygotować PDF — pobierz DOCX.”. Zakładka
   „Dokumenty” ma „Pobierz PDF” przy umowach przedwstępnych.
 
-## Umowa przedwstępna w rekrutacji — prośba przy osobie, stan i dzwonki (0504, 21.10.2026)
+## Umowa przedwstępna w rekrutacji — prośba przy osobie, stan i dzwonki (0505, 21.10.2026)
 
 Zgłoszenie Artura 21.10.2026: przedwstępne z kandydatami (przed wysłaniem CV
 albo po akceptacji klienta) szły offline — Head of Recruitment i Delivery Lead

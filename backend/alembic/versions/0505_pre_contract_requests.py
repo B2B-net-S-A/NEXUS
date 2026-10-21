@@ -1,7 +1,7 @@
 """Prośby o umowę przedwstępną przy osobie w rekrutacji (21.10.2026).
 
-Revision ID: 0504_pre_contract_requests
-Revises: 0503_b2b_document_participation_types
+Revision ID: 0505_pre_contract_requests
+Revises: 0504_job_close_neutral
 
 * ``pre_contract_requests`` — prośba DL / HoR / rekrutera o przedwstępną dla
   pary (kandydat, rekrutacja), jej droga do podpisu i ważność; najwyżej jedna
@@ -18,8 +18,8 @@ from alembic import op
 
 from app.services import pre_contract_schema as schema
 
-revision = "0504_pre_contract_requests"
-down_revision = "0503_b2b_document_participation_types"
+revision = "0505_pre_contract_requests"
+down_revision = "0504_job_close_neutral"
 branch_labels = None
 depends_on = None
 
@@ -31,7 +31,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'pre_contract'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0504 odmawia: notifications ma wpisy o przedwstępnych, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0505 odmawia: notifications ma wpisy o przedwstępnych, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
