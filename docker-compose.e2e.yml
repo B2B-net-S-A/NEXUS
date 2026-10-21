@@ -67,7 +67,6 @@ services:
       COMPASS_LIFECYCLE_ENABLED: "false"
       COMPASS_WORKDAYS_ENABLED: "false"
       CLOUDTALK_ENABLED: "false"
-      SIGNING_ENABLED: "false"
       SMTP_ENABLED: "false"
       SELF_REGISTRATION_ENABLED: "false"
       SENTRY_DSN: ""

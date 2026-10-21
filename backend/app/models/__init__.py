@@ -291,7 +291,6 @@ from app.models.client_required_document import (
 )
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.document_signature_event import DocumentSignatureEvent
-from app.models.signature_link import SignatureLink
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractSignedVia,
@@ -590,7 +589,6 @@ __all__ = [
     "ClientDocStatus",
     "DocumentSignature",
     "DocumentSignatureEvent",
-    "SignatureLink",
     "SignatureStatus",
     "ClientFrameworkContract",
     "FrameworkContractStatus",

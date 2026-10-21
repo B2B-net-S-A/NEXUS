@@ -118,7 +118,6 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "POST /api/trainee/items/{item_id}/handover": "praktykant: propozycja do „Do przejrzenia” dla osoby z jego listy",
     # ── Sondy integracji bez danych ─────────────────────────────────────────
     "GET /api/autenti/health": "stan konfiguracji integracji podpisów, bez danych domenowych",
-    "GET /api/signing/health": "stan konfiguracji podpisu kwalifikowanego, bez danych domenowych",
 }
 
 

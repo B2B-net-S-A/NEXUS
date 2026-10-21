@@ -4,8 +4,9 @@ Every signature sender persists a ``document_signatures`` row in
 ``status=draft`` and hands the actual send to a background task. A container
 restart between the HTTP 202 and completion orphans the row at ``draft``/
 ``sending`` forever — the expiry sweepers only touch ``sent``/``in_progress``.
-``app.tasks.signature_reconciler`` closes that hole: rows stuck past the grace
-window are marked ``failed`` + the sender notified to resend.
+``app.tasks.signature_reconciler`` closes that hole: Autenti rows stuck past
+the grace window are marked ``failed`` + the sender notified to resend. Rows of
+the removed in-house rail (21.10.2026) are history and stay untouched.
 
 DB-backed (real postgres in CI via the same session the app uses). We drive
 ``_reconcile_stuck`` directly so no wall-clock sleeps are needed — ``updated_at``
@@ -110,8 +111,7 @@ async def _status_of(sig_id: int) -> SignatureStatus:
 
 
 async def test_reconcile_marks_stuck_draft_failed(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
-    monkeypatch.setattr(settings, "AUTENTI_ENABLED", False)
+    monkeypatch.setattr(settings, "AUTENTI_ENABLED", True)
     monkeypatch.setattr(settings, "SIGNATURE_RECONCILE_GRACE_SECONDS", 600)
 
     sender_id, contract_id = await _seed_sender_and_contract()
@@ -119,7 +119,7 @@ async def test_reconcile_marks_stuck_draft_failed(monkeypatch) -> None:
         sender_id=sender_id,
         contract_id=contract_id,
         status=SignatureStatus.draft,
-        provider="upload_validate",
+        provider="autenti",
         updated_at=_OLD,
     )
 
@@ -140,6 +140,7 @@ async def test_reconcile_marks_stuck_draft_failed(monkeypatch) -> None:
             )
         )
         assert activity is not None
+        assert activity.external_source == "autenti"
 
         notif = await db.scalar(
             select(Notification).where(
@@ -152,7 +153,6 @@ async def test_reconcile_marks_stuck_draft_failed(monkeypatch) -> None:
 
 async def test_reconcile_marks_stuck_sending_failed(monkeypatch) -> None:
     monkeypatch.setattr(settings, "AUTENTI_ENABLED", True)
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", False)
     monkeypatch.setattr(settings, "SIGNATURE_RECONCILE_GRACE_SECONDS", 600)
 
     sender_id, contract_id = await _seed_sender_and_contract()
@@ -170,7 +170,6 @@ async def test_reconcile_marks_stuck_sending_failed(monkeypatch) -> None:
 
 async def test_reconcile_skips_fresh_rows(monkeypatch) -> None:
     """A row inside the grace window is left alone (dispatch may still finish)."""
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
     monkeypatch.setattr(settings, "AUTENTI_ENABLED", True)
     monkeypatch.setattr(settings, "SIGNATURE_RECONCILE_GRACE_SECONDS", 600)
 
@@ -179,7 +178,7 @@ async def test_reconcile_skips_fresh_rows(monkeypatch) -> None:
         sender_id=sender_id,
         contract_id=contract_id,
         status=SignatureStatus.draft,
-        provider="upload_validate",
+        provider="autenti",
         updated_at=datetime.now(timezone.utc),
     )
 
@@ -189,7 +188,6 @@ async def test_reconcile_skips_fresh_rows(monkeypatch) -> None:
 
 async def test_reconcile_ignores_sent_and_in_progress(monkeypatch) -> None:
     """sent / in_progress are legitimate waiting states — never swept here."""
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
     monkeypatch.setattr(settings, "AUTENTI_ENABLED", True)
     monkeypatch.setattr(settings, "SIGNATURE_RECONCILE_GRACE_SECONDS", 600)
 
@@ -205,7 +203,7 @@ async def test_reconcile_ignores_sent_and_in_progress(monkeypatch) -> None:
         sender_id=sender_id,
         contract_id=contract_id,
         status=SignatureStatus.in_progress,
-        provider="upload_validate",
+        provider="autenti",
         updated_at=_OLD,
     )
 
@@ -214,10 +212,9 @@ async def test_reconcile_ignores_sent_and_in_progress(monkeypatch) -> None:
     assert await _status_of(inprog_id) == SignatureStatus.in_progress
 
 
-async def test_reconcile_respects_provider_kill_switch(monkeypatch) -> None:
-    """With only SIGNING on, an autenti row is untouched; in-house is healed."""
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
-    monkeypatch.setattr(settings, "AUTENTI_ENABLED", False)
+async def test_reconcile_leaves_removed_inhouse_rail_rows(monkeypatch) -> None:
+    """Rows of the removed in-house rail are history — the sweep skips them."""
+    monkeypatch.setattr(settings, "AUTENTI_ENABLED", True)
     monkeypatch.setattr(settings, "SIGNATURE_RECONCILE_GRACE_SECONDS", 600)
 
     sender_id, contract_id = await _seed_sender_and_contract()
@@ -237,14 +234,13 @@ async def test_reconcile_respects_provider_kill_switch(monkeypatch) -> None:
     )
 
     await _reconcile_stuck()
-    assert await _status_of(autenti_id) == SignatureStatus.sending  # gated off
-    assert await _status_of(inhouse_id) == SignatureStatus.failed
+    assert await _status_of(autenti_id) == SignatureStatus.failed
+    assert await _status_of(inhouse_id) == SignatureStatus.draft
 
 
-async def test_loop_noops_when_both_rails_disabled(monkeypatch) -> None:
-    """The loop must return immediately (not spin) when both kill-switches off."""
+async def test_loop_noops_when_autenti_disabled(monkeypatch) -> None:
+    """The loop must return immediately (not spin) when Autenti is off."""
     monkeypatch.setattr(settings, "AUTENTI_ENABLED", False)
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", False)
 
     # Returns without entering the while-loop; no timeout guard needed because a
     # regression (entering the loop) would hang the test, surfacing the bug.

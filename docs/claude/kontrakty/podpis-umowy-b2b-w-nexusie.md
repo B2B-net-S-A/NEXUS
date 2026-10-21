@@ -59,18 +59,32 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
 - **Pliki przed podpisem leżą w `b2b_signing/{id}/`**, nie w Dokumentach
   kontraktu — kontraktu jeszcze nie ma.
 
-## Stary tor z czerwca (`api/signing.py`, `services/signing/sender.py`)
+## Stary tor z czerwca — usunięty 21.10.2026 (PR 2b)
 
-Wyłączony od 22.09.2026 (`SIGNING_ENABLED=false`) i NIE do włączenia: podpisuje
-szkic HTML kontraktu zamiast PDF-a z Worda, kończy się po samym kontraktorze,
-sprawdza kwalifikowany tylko pierwszy podpis, pozwala zamówić podpis zwykły
-i wymaga kontraktu przed podpisem (audyt 21.10.2026). Z niego zostają:
-`ValidationService` (DSS, od 0499 z poziomem każdego podpisu), `ValidationReport`,
-`signer_identity`. Do usunięcia osobnym PR-em.
+Tor „in-house QES” z czerwca 2026 (PR-y #506–#516: `/api/signing/*`,
+`/api/public/sign/{token}`, strona `/sign/{token}`, providery KIR Szafir
+i mSzafir, `signing_sweeper`, model `SignatureLink`, `SIGNING_*` i `QTSP_*`
+w konfiguracji) był wyłączony od 22.09.2026 i został usunięty z kodu, bo
+podpisywał szkic HTML zamiast PDF-a z Worda, kończył się po samym
+kontraktorze, sprawdzał kwalifikowany tylko pierwszy podpis i wymagał
+kontraktu przed podpisem (audyt 21.10.2026). Nie przywracaj go.
+
+- **Zostało w `services/signing/` tylko to, czego używa ta droga:**
+  `provider.py` (`ValidationReport`, `signer_identity`, `normalize_person_text`,
+  `is_positive_indication`), `validation.py` (`ValidationService`, DSS)
+  i `pades.py` (pyHanko, `approval_signatures`).
+- **Tabele zostają:** `document_signatures` (Autenti i historia starego toru)
+  i `signature_links` — bez migracji. Wiersze starego toru w
+  `document_signatures` są tylko historią.
+- **`signature_reconciler` obsługuje już tylko Autenti** (`provider='autenti'`,
+  działa przy `AUTENTI_ENABLED`). Autenti zostaje — używa go moduł „Ludzie”
+  (`hr_agreements`).
+- **Ścieżka `/sign/` w `middleware.ts` zostaje publiczna** — pod nią jest
+  `/sign/b2b/{token}`.
 
 ## Plan
 
 PR 1 plik przy „Oznacz jako podpisaną” (#2530) · PR 2 rdzeń (ten plik) ·
-PR 2b usunięcie starego toru · PR 3 walidator pyHanko z listą UE (DSS później) · PR 4 ekrany, mail z linkiem,
+PR 2b usunięcie starego toru (21.10.2026) · PR 3 walidator pyHanko z listą UE (DSS później) · PR 4 ekrany, mail z linkiem,
 przypomnienia · PR 5 automatyka po podpisie i powiadomienia · etap 2 „Podpisz
 w przeglądarce” u dostawcy (SIGNIUS / KIR mSzafir) po ofertach.

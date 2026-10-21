@@ -6,7 +6,7 @@ List of Trusted Lists (LOTL). We run it as a Java sidecar (Coolify service,
 profile ``signing``) and call it over HTTP from here. When the sidecar URL is
 unset we fall back to pyHanko's local trust-chain check (non-authoritative).
 
-Plan: ``docs/in-house-qes-signature-plan.md`` §4, §7, §11 (Faza 4).
+Używa go podpis umowy B2B w NEXUSIE (``B2B_ESIGN_VALIDATOR=dss``).
 """
 
 from __future__ import annotations

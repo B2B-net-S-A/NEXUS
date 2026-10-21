@@ -603,11 +603,10 @@ async def test_second_client_is_not_a_duplicate(app_client, app_auth_headers):
 
 
 async def test_add_project_active_creates_linked_draft_order_without_signature(
-    app_client, app_auth_headers, monkeypatch
+    app_client, app_auth_headers
 ):
     """„Dodaj kolejny projekt” is one transaction: active Contract + draft Order."""
 
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
     marker = f"Ord{uuid.uuid4().hex[:6]}"
     cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
     cli_a = await _seed_client(f"Pierwszy {marker}")

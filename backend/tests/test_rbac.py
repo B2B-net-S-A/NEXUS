@@ -160,7 +160,7 @@ DELIVERY_READ_ENDPOINTS = [
 # Opaque legal artefacts are narrower than TCM's safe Delivery projection.
 DELIVERY_LEGAL_READ_ENDPOINTS = [
     ("GET", "/api/contracts/99999999/documents"),
-    ("GET", "/api/signing/contracts/99999999/signatures"),
+    ("GET", "/api/autenti/contracts/99999999/signatures"),
 ]
 
 # Endpointy wymagające RecruiterPlus (wszyscy poza `user`):

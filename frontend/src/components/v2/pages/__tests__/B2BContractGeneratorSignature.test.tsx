@@ -64,7 +64,6 @@ vi.mock("@/lib/api", () => ({
   },
   extractErrorMsg: (error: unknown) =>
     error instanceof Error ? error.message : "Błąd",
-  signingApi: {},
 }));
 
 import {
