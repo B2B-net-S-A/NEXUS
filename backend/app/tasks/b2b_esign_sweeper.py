@@ -79,8 +79,16 @@ async def _handle(request_id: int, now: datetime) -> str | None:
             return None
         row = await db.get(B2BGeneratedContract, request.generated_contract_id)
         number = row.contract_number if row else ""
-        last = (
-            request.last_reminder_at or request.contractor_signed_at or request.sent_at
+        # Zegar przypomnień liczy się od początku bieżącego etapu: przy podpisie
+        # firmy przypomnienie z etapu kontraktora nie przyspiesza kolejnego.
+        stage_start = (
+            request.contractor_signed_at
+            if request.status == "contractor_signed" and request.contractor_signed_at
+            else request.sent_at
+        )
+        last = max(
+            [stage_start]
+            + ([request.last_reminder_at] if request.last_reminder_at else [])
         )
 
         if request.status == "sent" and request.expires_at <= now:

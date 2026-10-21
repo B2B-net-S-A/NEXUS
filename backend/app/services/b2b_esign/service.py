@@ -62,6 +62,10 @@ MSG_NAME_MISSING = (
     "W umowie brakuje imienia i nazwiska osoby podpisującej — popraw umowę "
     "w generatorze i wyślij ponownie."
 )
+MSG_OPEN_BLOCKS_EDIT = (
+    "Umowa jest wysłana do podpisu w NEXUSIE — PDF jest zamrożony. Najpierw "
+    "„Przejdź na zwykłą drogę”, potem ją popraw i wyślij ponownie."
+)
 #: Nieudane wgrania z jednego linku (zły plik albo podpis) — potem nowy link.
 MAX_FAILED_ATTEMPTS = 10
 
@@ -106,6 +110,65 @@ async def open_request_for(
             B2BSigningRequest.status.in_(OPEN_STATUSES),
         )
     )
+
+
+def row_still_signable(row: B2BGeneratedContract | None) -> bool:
+    """Umowa nadal czeka na podpis — nie oznaczona ręcznie, nie anulowana."""
+    return (
+        row is not None
+        and row.signature_status != "signed_both"
+        and row.contract_status == "in_progress"
+    )
+
+
+async def assert_no_open_request(db: AsyncSession, row_id: int) -> None:
+    """Poprawka treści po wysyłce rozjechałaby kontrakt z podpisanym PDF-em."""
+    if await open_request_for(db, row_id) is not None:
+        raise HTTPException(status_code=409, detail=MSG_OPEN_BLOCKS_EDIT)
+
+
+async def close_open_requests(
+    db: AsyncSession,
+    *,
+    row_id: int,
+    actor_id: int | None,
+    reason: str,
+    now: datetime,
+) -> int:
+    """Wycofaj wnioski w toku wiersza (ręczne „Oznacz jako podpisaną”, zmiana
+    statusu umowy). Wołający trzyma blokadę wiersza — kolejność wiersz →
+    wniosek, ta sama co przy wgraniu pliku."""
+    open_requests = (
+        await db.scalars(
+            select(B2BSigningRequest)
+            .where(
+                B2BSigningRequest.generated_contract_id == row_id,
+                B2BSigningRequest.status.in_(OPEN_STATUSES),
+            )
+            .with_for_update()
+        )
+    ).all()
+    for request in open_requests:
+        request.status = "withdrawn"
+        request.contractor_token_hash = None
+        request.closed_at = now
+        request.closed_by = actor_id
+        request.close_reason = reason[:500]
+    return len(open_requests)
+
+
+async def _lock_row_then_request(
+    db: AsyncSession, row_id: int, request_id: int
+) -> tuple[B2BGeneratedContract | None, B2BSigningRequest]:
+    """Wiersz rejestru, potem wniosek — ta sama kolejność co ręczne ścieżki
+    (``close_open_requests``), więc bez zakleszczenia."""
+    row = await db.scalar(
+        select(B2BGeneratedContract)
+        .where(B2BGeneratedContract.id == row_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return row, await _lock(db, request_id)
 
 
 def assert_sendable(row: B2BGeneratedContract) -> None:
@@ -228,6 +291,7 @@ async def contractor_submit(
 ) -> B2BSigningRequest:
     """Wołać po ``contractor_precheck`` z tym samym wnioskiem."""
     request_id = request.id
+    row_id = request.generated_contract_id
     source = Fingerprint(request.source_sha256, request.source_size)
     contractor_name = request.contractor_name
     check_pdf_upload(data)
@@ -246,10 +310,14 @@ async def contractor_submit(
         required_signers=[contractor_name],
     )
     if not verdict.accepted:
-        await _count_failed_attempt(db, request_id)
+        # Awaria walidatora to nie wina kontraktora — nie zużywa prób.
+        if verdict.code != "no_validator":
+            await _count_failed_attempt(db, request_id)
         raise HTTPException(status_code=422, detail=verdict.message)
 
-    locked = await _lock(db, request_id)
+    row, locked = await _lock_row_then_request(db, row_id, request_id)
+    if not row_still_signable(row):
+        raise HTTPException(status_code=409, detail=MSG_CLOSED)
     if not is_link_live(locked, now) or locked.source_sha256 != source.sha256:
         raise HTTPException(status_code=409, detail=MSG_RACE)
     path, size = storage_service.save_b2b_signing_pdf(
@@ -293,6 +361,7 @@ async def company_submit(
 ) -> B2BSigningRequest:
     """Wołać po ``company_precheck`` z tym samym wnioskiem."""
     request_id = request.id
+    row_id = request.generated_contract_id
     contractor_name = request.contractor_name
     contractor_version = Fingerprint(
         request.contractor_sha256 or "", request.contractor_size or 0
@@ -310,7 +379,9 @@ async def company_submit(
     if not verdict.accepted:
         raise HTTPException(status_code=422, detail=verdict.message)
 
-    locked = await _lock(db, request_id)
+    row, locked = await _lock_row_then_request(db, row_id, request_id)
+    if not row_still_signable(row):
+        raise HTTPException(status_code=409, detail=MSG_CLOSED)
     if (
         locked.status != "contractor_signed"
         or locked.contractor_sha256 != contractor_version.sha256

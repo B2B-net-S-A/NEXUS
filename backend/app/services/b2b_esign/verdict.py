@@ -81,8 +81,9 @@ def name_matches(expected: str, certificate_subject: str | None) -> bool:
 
 
 def _is_qualified(level: object) -> bool:
-    text = str(level or "").upper()
-    return "QES" in text
+    """Tylko ``QESig`` — pieczęć (``QESeal``), poziom niepewny
+    (``Indeterminate QESig``, ``QESig?``) ani podpis zaawansowany nie wystarczą."""
+    return str(level or "").strip() == "QESig"
 
 
 @dataclass(frozen=True)
