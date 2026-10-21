@@ -63,6 +63,13 @@ export interface ChampionBriefViewProps {
   onOpenTeam?: () => void;
   /** „Więcej o kliencie” — zakładka „Klient i historia”. */
   onOpenClient?: () => void;
+  /**
+   * „Zmień” przy „Nazwa od klienta” i „Numer u klienta” (21.10.2026). To kolumny
+   * rekrutacji, nie profilu — szuflada „Edytuj” bloku ich nie ma, więc przycisk
+   * otwiera okno edycji rekrutacji. Brak = rola nie zmienia tego pola.
+   */
+  onEditClientTitle?: () => void;
+  onEditClientReference?: () => void;
 }
 
 /** Kotwice sekcji edytora (`ChampionProfileEditor`, `id=` na kartach). */
@@ -129,6 +136,20 @@ export function Eyebrow({ children }: { children: ReactNode }) {
   );
 }
 
+function JobFieldEdit({ label, onClick }: { label: string; onClick?: () => void }) {
+  if (!onClick) return null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Zmień: ${label}`}
+      className="shrink-0 text-xs font-medium text-primary hover:underline"
+    >
+      Zmień
+    </button>
+  );
+}
+
 function provenanceLabel(profile: Partial<ChampionProfile>): string | null {
   if (!profile._source) return null;
   return profile._parser?.includes("table-intake") ? "z dokumentu" : "z opisu klienta (AI)";
@@ -141,6 +162,8 @@ export function ChampionBriefView({
   onOpenManualSearch,
   onOpenTeam,
   onOpenClient,
+  onEditClientTitle,
+  onEditClientReference,
 }: ChampionBriefViewProps) {
   const query = useChampionProfile(jobId);
   const plainQuery = usePlainBrief(jobId);
@@ -408,11 +431,16 @@ export function ChampionBriefView({
                 value={formatJobDeadline(job.deadline, job.deadline_time) ?? "nie ustawiono"}
                 muted={!job.deadline}
               />
-              <Fact label="Nazwa od klienta" value={job.title?.trim() || "—"} />
+              <Fact
+                label="Nazwa od klienta"
+                value={job.title?.trim() || "—"}
+                action={<JobFieldEdit label="Nazwa od klienta" onClick={onEditClientTitle} />}
+              />
               <Fact
                 label="Numer u klienta"
                 value={job.client_reference?.trim() || "nie podano"}
                 muted={!job.client_reference}
+                action={<JobFieldEdit label="Numer u klienta" onClick={onEditClientReference} />}
               />
             </dl>
             {job.description?.trim() ? (
