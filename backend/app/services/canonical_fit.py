@@ -79,7 +79,7 @@ async def score_pair(db, context: RequestMatchingContext, candidate, measurement
     return CanonicalFit(breakdown, measurement.status)
 
 
-async def _attach_missing_evidence(db, job, candidates) -> None:
+async def _attach_missing_evidence(db, job, candidates, before=None) -> None:
     """Dowód z CV i notatek przed oceną (30.09.2026) — ocena umiejętności
     czyta go tak samo jak bramka. Kandydaci z dowodem dołączonym już przez
     bramkę tej rekrutacji nie są czytani drugi raz."""
@@ -92,26 +92,41 @@ async def _attach_missing_evidence(db, job, candidates) -> None:
     labels = inputs.gate_evidence_labels
     missing = [c for c in candidates if evidence_for(c, labels) is None]
     if missing:
-        await attach_gate_evidence(db, missing, labels, options=inputs.gate_options)
+        await attach_gate_evidence(
+            db, missing, labels, options=inputs.gate_options, before=before
+        )
 
 
-async def score_candidates(db, context: RequestMatchingContext, candidates):
+async def score_candidates(
+    db,
+    context: RequestMatchingContext,
+    candidates,
+    *,
+    reviewed_evidence: bool = True,
+    evidence_before=None,
+):
     """Score supplied identities against the same full request as Radar/C2.
 
     Does not grant visibility or claim exhaustive retrieval. Callers own their
     population, eligibility and pagination. No legacy score cache is read/written.
+
+    ``reviewed_evidence=False`` (pomiar na historii, ``ranking_lab``) pomija
+    wymagania zweryfikowane przez rekruterów — powstają w trakcie procesu,
+    więc przy ocenie z dnia otwarcia rekrutacji byłyby przeciekiem etykiety.
+    Z tego samego powodu ``evidence_before`` (dzień otwarcia) ogranicza
+    notatki-dowody i materiał wcześniejszych rozmów do sprzed tej chwili.
     """
     if not candidates:
         return []
     from app.services.requirement_verification import load_verified_requirements
 
     job = context.as_job()
-    await load_verified_requirements(db, job, candidates)
-    await _attach_missing_evidence(db, job, candidates)
+    await load_verified_requirements(db if reviewed_evidence else None, job, candidates)
+    await _attach_missing_evidence(db, job, candidates, before=evidence_before)
     if uses_prior_screening(context):
         from app.services.prior_screening import attach_prior_screening
 
-        await attach_prior_screening(db, job, candidates)
+        await attach_prior_screening(db, job, candidates, before=evidence_before)
     # Dostępność z żywej umowy raz na pulę (15.10.2026).
     from app.services.contract_availability import attach_contract_free
 
