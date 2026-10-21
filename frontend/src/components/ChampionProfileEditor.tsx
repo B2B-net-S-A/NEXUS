@@ -461,6 +461,14 @@ export function ChampionProfileEditor({
     return () => clearTimeout(t);
   }, [remoteChange]);
 
+  // „Zapisano” gaśnie po 3 s. Timer w efekcie, nie w `onSuccess`: odmontowanie
+  // go sprząta — do 21.10.2026 odpalał setState po zamknięciu edytora.
+  useEffect(() => {
+    if (saveStatus !== "saved") return;
+    const t = setTimeout(() => setSaveStatus("idle"), 3000);
+    return () => clearTimeout(t);
+  }, [saveStatus]);
+
   const mutation = useMutation({
     // Audyt 06.10.2026 (N2/N5): tylko sekcje zmienione względem profilu, od
     // którego DL zaczynał, i odcisk profilu wczytanego z serwera.
@@ -490,7 +498,6 @@ export function ChampionProfileEditor({
       invalidateChampionDependents(qc, jobId);
       setSaveError(null);
       setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 3000);
       onSaved?.();
     },
     // Do 28.09.2026 stan „error” nie miał żadnego widoku: DL widział zwolniony

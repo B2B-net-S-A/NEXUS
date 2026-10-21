@@ -425,6 +425,38 @@ describe("ChampionProfileEditor — wymagania jako wiersze słów kluczowych (02
     expect(payload).not.toHaveProperty("search");
   });
 
+  it("timer „Zapisano” znika razem z edytorem (bez setState po odmontowaniu)", async () => {
+    // 21.10.2026: 3-sekundowy timer po zapisie nie był sprzątany — gdy plik
+    // testów kończył się wcześniej, odpalał setState na zamkniętym jsdom
+    // („window is not defined”) i wywracał bieg vitest w kolejce merge'ów.
+    getMock.mockResolvedValue({ data: { job_id: 23, champion_profile: ROWS_PROFILE } });
+    putMock.mockResolvedValue({ data: { job_id: 23, champion_profile: ROWS_PROFILE } });
+    const { unmount } = renderAdmin(23);
+    await screen.findByTestId("champion-requirement-rows");
+    const kafka = screen.getByRole("radiogroup", { name: "Poziom wymagania: Kafka" });
+    await userEvent.click(
+      Array.from(kafka.querySelectorAll("button")).find((b) => b.textContent === "Musi mieć")!,
+    );
+    const setSpy = vi.spyOn(globalThis, "setTimeout");
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+    try {
+      await userEvent.click(screen.getByTestId("save-champion-profile"));
+      await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(setSpy.mock.calls.some(([, delay]) => delay === 3000)).toBe(true),
+      );
+      const savedTimers = setSpy.mock.results
+        .filter((_, i) => setSpy.mock.calls[i][1] === 3000)
+        .map((r) => r.value);
+      unmount();
+      const cleared = new Set(clearSpy.mock.calls.map(([id]) => id));
+      expect(savedTimers.every((id) => cleared.has(id))).toBe(true);
+    } finally {
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
+    }
+  });
+
   it("„Uprość do słów kluczowych” zamienia stare pola na wiersze, a zdania klienta idą do „Rekruter sprawdza w rozmowie”", async () => {
     getMock.mockResolvedValue({
       data: {
