@@ -3,7 +3,7 @@
 /**
  * Gdzie ogłoszenie wisi (13.10.2026): rekruter wkleja treść na portalu ręcznie,
  * a tu oznacza „opublikowane” (z linkiem), „zaktualizowane” po poprawce
- * i „zdjęte z portalu”. Ten sam stan czyta okno „Ogłoszenie na portale”,
+ * i „zdjęte z portalu”. Ten sam stan czyta okno „Ogłoszenie”,
  * sekcja „Zespół i ogłoszenie” i kolumna „Ogłoszenia” listy rekrutacji.
  *
  * NEXUS niczego na portalu nie zmienia — to wyłącznie zapis tego, co zrobił

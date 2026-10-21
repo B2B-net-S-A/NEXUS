@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * „Kontrola przed skopiowaniem”: znaleziska blokujące (nazwa klienta, kwota,
+ * „Kontrola przed publikacją”: znaleziska blokujące (nazwa klienta, kwota,
  * kontakt, nazwisko) i doradcze. Blokujące wyłączają kopiowanie w całym oknie.
  */
 
@@ -77,12 +77,10 @@ function FindingRow({
 export function AdChecksPanel({ findings, busy, onShow, onRemove }: AdChecksPanelProps) {
   const blocking = blockingFindings(findings);
   const advisory = advisoryFindings(findings);
+  // Od 21.10.2026 sekcja kolumny „Gdzie publikujesz” (`AdChannels`), nie osobna kolumna.
   return (
-    <aside
-      aria-label="Kontrola przed skopiowaniem"
-      className="flex w-[320px] flex-none flex-col gap-3 overflow-y-auto border-l border-border bg-card px-4 py-3"
-    >
-      <h2 className="text-sm font-semibold text-foreground">Kontrola przed skopiowaniem</h2>
+    <section aria-label="Kontrola przed publikacją" className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold text-foreground">Kontrola przed publikacją</h2>
       {blocking.length > 0 ? (
         <div className="flex flex-col gap-2">
           <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-destructive">
@@ -121,6 +119,6 @@ export function AdChecksPanel({ findings, busy, onShow, onRemove }: AdChecksPane
           </ul>
         </div>
       ) : null}
-    </aside>
+    </section>
   );
 }

@@ -2,6 +2,9 @@
 
 <!-- indeks: jedna treść w dwóch formatach, kontrola przed skopiowaniem, „Oznacz jako opublikowane” -->
 
+Od 21.10.2026 okno nazywa się „Ogłoszenie” i ta sama treść zasila stronę
+kariery — `ogloszenie-jedna-tresc-strona-kariery.md`.
+
 Decyzje Artura 12.10.2026 (makiety https://claude.ai/artifact/NK7tLYnrh1mNgH7MQ8MhtX).
 Pomiar naszych publicznych ogłoszeń tego dnia (50 na JustJoin.IT, 15 na
 Pracuj.pl): „co oferujemy” miały 4 z 50 i 5 z 15, etapów procesu żadne z 50,

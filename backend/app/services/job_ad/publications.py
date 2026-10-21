@@ -181,6 +181,31 @@ async def for_jobs(
     return {job_id: _sorted(items) for job_id, items in out.items()}
 
 
+async def career_pages_for_jobs(db: AsyncSession, job_ids: Iterable[int]) -> set[int]:
+    """Otwarte rekrutacje z zatwierdzonym opisem na stronie kariery — kropka
+    „Kariera” w kolumnie „Ogłoszenia” (21.10.2026), jedno zapytanie na stronę.
+
+    Przybliżenie bez sprawdzania migawki: rzadki opis zatwierdzony przy innym
+    kliencie (strona daje wtedy 404) liczy się tu jeszcze jako wiszący.
+    """
+    from app.models.job import Job, JobStatus
+    from app.models.job_public_profile import JobPublicProfile
+
+    ids = list(dict.fromkeys(job_ids))
+    if not ids:
+        return set()
+    rows = await db.scalars(
+        select(JobPublicProfile.job_id)
+        .join(Job, Job.id == JobPublicProfile.job_id)
+        .where(
+            JobPublicProfile.job_id.in_(ids),
+            JobPublicProfile.approved_at.is_not(None),
+            Job.status == JobStatus.published,
+        )
+    )
+    return set(rows)
+
+
 class ContentBlocked(Exception):
     """Treść ma znalezisko blokujące — nie wolno potwierdzić, że wisi na portalu."""
 

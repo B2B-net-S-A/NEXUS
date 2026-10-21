@@ -616,13 +616,7 @@ async def put_public_profile(
         profile = JobPublicProfile(job_id=job_id)
         db.add(profile)
     else:
-        # Opis zatwierdzony przed 19.10.2026 nie ma tekstu w migawce — dopisz
-        # go, póki pola są jeszcze opublikowaną wersją, inaczej ta zmiana
-        # zdjęłaby stronę.
-        version = await jpp.published_version(db, job, profile)
-        snapshot = jpp.stored_approved_content(profile.sections) or {}
-        if version is not None and jpp.APPROVED_TEXT_KEY not in snapshot:
-            profile.sections = jpp.with_published_text(profile.sections, version)
+        await jpp.keep_published_text(db, job, profile)
     fields = data.model_fields_set
     # Znaki formatujące (kategoria Cf) wycinamy jak w ogłoszeniu na portale:
     # „\u202ełz 081\u202c” przeglądarka pokazuje jako „180 zł”, a kontrola
@@ -715,20 +709,9 @@ async def approve_public_profile(
                 "findings": [],
             },
         )
-    _default_title, effective_title = await jpp.public_titles(db, job, profile)
-    # Kontrola i migawka liczą się z pól NA ŻYWO (same przełączniki, bez
-    # starej migawki) — zatwierdzenie publikuje bieżący stan rekrutacji.
-    preview = jpp.public_job_payload(
-        job,
-        title=effective_title,
-        link_slug=None,
-        subtitle=profile.subtitle,
-        about=profile.about,
-        sections=jpp.normalize_sections(profile.sections),
-        respect_show=False,
-    )
-    findings = await jpp.lint_payload(db, job, preview)
-    if findings:
+    try:
+        await jpp.approve_profile(db, job, profile, user_id=current_user.id)
+    except jpp.ProfileFindings as exc:
         raise HTTPException(
             status_code=422,
             detail={
@@ -737,28 +720,9 @@ async def approve_public_profile(
                     "Opis zawiera treści, których nie publikujemy — popraw je "
                     "przed zatwierdzeniem."
                 ),
-                "findings": [f.as_dict() for f in findings],
+                "findings": [f.as_dict() for f in exc.findings],
             },
-        )
-    profile.approved_at = _now()
-    profile.approved_by = current_user.id
-    profile.approved_hash = jpp.content_hash(
-        profile.subtitle, profile.about, profile.sections, effective_title
-    )
-    # Strona i portale pokazują must/nice, miasto, start i długość z chwili
-    # zatwierdzenia (audyt 25.09.2026, r3) — ich późniejsza zmiana w
-    # rekrutacji wymaga ponownego zatwierdzenia.
-    profile.sections = jpp.sections_with_approved_content(
-        profile.sections, jpp.approved_content(preview, client_id=job.client_id)
-    )
-    # Runda 8 (R8-N4-2): adres linku powstał z tytułu, którego kontrola nie
-    # widziała — slug z nazwą klienta albo nazwiskiem dostaje nowy adres.
-    await jpp.rotate_unsafe_job_slugs(db, job, effective_title)
-    profile.updated_by = current_user.id
-    # 0381: nowa zatwierdzona treść → aktualizacja żywych ogłoszeń na portalach.
-    from app.services.job_portals.service import queue_content_update
-
-    await queue_content_update(db, job_id)
+        ) from exc
     await db.commit()
     await db.refresh(profile)
     return await _profile_response(db, current_user, job, profile)
