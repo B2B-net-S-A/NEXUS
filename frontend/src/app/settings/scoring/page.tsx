@@ -29,13 +29,64 @@ const DEFAULT_WEIGHTS: Required<ScoringWeights> = {
 };
 
 const LAYER_LABELS: Record<keyof ScoringWeights, string> = {
-  semantic: "Dopasowanie semantyczne (CV ↔ opis rekrutacji)",
-  skills: "Umiejętności (must / nice)",
-  salary: "Zarobki",
-  location: "Lokalizacja / tryb pracy",
+  semantic: "Dopasowanie do opisu",
+  skills: "Umiejętności",
+  salary: "Stawka",
+  location: "Lokalizacja",
   availability: "Dostępność",
-  champion_fit: "Champion fit (profil idealnego kandydata)",
+  champion_fit: "Profil Championa",
 };
+
+/** Co liczy każda waga — jednym zdaniem, po ludzku (makieta rundy 2, 21.10.2026). */
+const LAYER_HINTS: Record<keyof ScoringWeights, string> = {
+  semantic: "jak CV pasuje do treści rekrutacji (AI)",
+  skills: "wymagane i mile widziane technologie",
+  salary: "czy oczekiwania mieszczą się w budżecie",
+  location: "miasto i tryb pracy",
+  availability: "od kiedy może zacząć",
+  champion_fit: "podobieństwo do opisanego idealnego kandydata",
+};
+
+/** Kolejność wag na ekranie: od najważniejszej w wagach domyślnych. */
+const LAYER_ORDER = (Object.keys(DEFAULT_WEIGHTS) as (keyof ScoringWeights)[]).sort(
+  (a, b) => DEFAULT_WEIGHTS[b] - DEFAULT_WEIGHTS[a],
+);
+
+/** Wagi domyślne silnika jako paski z opisem — tylko do odczytu, zmienia je profil. */
+function DefaultWeights() {
+  return (
+    <section
+      className="space-y-3 rounded-xl border border-border bg-card p-5 dark:border-border dark:bg-muted"
+      aria-labelledby="default-weights-title"
+    >
+      <div className="flex items-center gap-2">
+        <h2 id="default-weights-title" className="flex-1 text-base font-semibold text-foreground">
+          Wagi domyślne — dla wszystkich rekrutacji
+        </h2>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">suma 100%</span>
+      </div>
+      <ul className="space-y-2.5">
+        {LAYER_ORDER.map((layer) => (
+          <li key={layer} className="grid grid-cols-[minmax(0,13rem)_minmax(0,1fr)_3rem] items-center gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">{LAYER_LABELS[layer]}</p>
+              <p className="text-xs text-muted-foreground">{LAYER_HINTS[layer]}</p>
+            </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+              <div
+                className={cn("h-full rounded-full", LAYER_COLORS[layer])}
+                style={{ width: `${(DEFAULT_WEIGHTS[layer] / 40) * 100}%` }}
+              />
+            </div>
+            <span className="text-right text-sm font-semibold tabular-nums text-foreground">
+              {DEFAULT_WEIGHTS[layer]}%
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 const LAYER_COLORS: Record<keyof ScoringWeights, string> = {
   semantic: "bg-purple-500",
@@ -359,10 +410,7 @@ export default function ScoringWeightsPage() {
             Ranking kandydatów
           </h1>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-            Domyślnie: semantic 35 + skills 30 + salary 12 + location 8 +
-            availability 5 + champion 10 (suma 100). Własne profile ułatwią
-            tunowanie pod konkretnego klienta (np. &quot;klient woli
-            seniorów&quot; → boost skills).
+            Co liczy się najbardziej, gdy NEXUS układa kandydatów w kolejności „Dopasowanie”.
           </p>
         </div>
         {canEdit && editing === null && (
@@ -375,6 +423,16 @@ export default function ScoringWeightsPage() {
             Nowy profil
           </button>
         )}
+      </div>
+
+      <DefaultWeights />
+
+      <div>
+        <h2 className="text-base font-semibold text-foreground">Własne profile wag</h2>
+        <p className="text-sm text-muted-foreground">
+          Aktywny profil zastępuje wagi domyślne — np. gdy liczy się bardziej doświadczenie, więcej wagi
+          dostają „Umiejętności”.
+        </p>
       </div>
 
       {!canEdit && (
@@ -408,7 +466,7 @@ export default function ScoringWeightsPage() {
       )}
       {!isLoading && data && data.length === 0 && editing === null && (
         <div className="text-center py-10 text-muted-foreground dark:text-muted-foreground text-sm border border-dashed border-border dark:border-border rounded-xl">
-          Brak profili — scoring używa domyślnych wag (35/30/12/8/5/10).
+          Brak własnych profili — wszędzie działają wagi domyślne powyżej.
         </div>
       )}
       {data && data.length > 0 && (

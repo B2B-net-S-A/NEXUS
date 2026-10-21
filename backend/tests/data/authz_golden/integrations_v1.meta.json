@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/integrations/v1/me": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/openapi.json": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/me": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/openapi.json": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

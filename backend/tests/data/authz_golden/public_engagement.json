@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/public/engagement-declaration/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/engagement-declaration/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/engagement-declaration/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/engagement-declaration/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

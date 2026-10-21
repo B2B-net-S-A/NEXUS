@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/rate-changes": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/rate-changes/active-processes": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/rate-changes": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/rate-changes/{change_id}/decision": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/rate-changes/{change_id}/negotiation": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/rate-changes/{change_id}/outcome": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/rate-changes": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/rate-changes/active-processes": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/rate-changes": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/rate-changes/{change_id}/decision": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/rate-changes/{change_id}/negotiation": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/rate-changes/{change_id}/outcome": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

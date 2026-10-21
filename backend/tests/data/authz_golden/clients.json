@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/clients": "PPDPPDDDPPPDPPPPDPPPDDDDD",
-  "GET /api/clients/{client_id}": "PPDPPDDDPPPDPPPPDPPPDDDDD",
-  "GET /api/clients/{client_id}/profile": "PPDPPDDDPPPDPPPPDPPPDDDDD",
-  "PATCH /api/clients/{client_id}": "PDDPDDDDPPPDDDPDDDDDDDDDD",
-  "POST /api/clients": "PDDPDDDDPPPDDDPDDDDDDDDDD",
-  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/clients": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
+  "GET /api/clients/{client_id}": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
+  "GET /api/clients/{client_id}/profile": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
+  "PATCH /api/clients/{client_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
+  "POST /api/clients": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

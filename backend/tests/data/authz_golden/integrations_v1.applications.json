@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/integrations/v1/applications": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/applications/{application_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/applications/{application_id}/cv": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/applications/{application_id}/resolve": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/applications": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/applications/{application_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/applications/{application_id}/cv": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/applications/{application_id}/resolve": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

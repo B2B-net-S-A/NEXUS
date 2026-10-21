@@ -21,13 +21,12 @@ const open = (on: Partial<Record<HrModuleKey, boolean>>) => ({
 });
 
 describe("zakładki „Mój czas”", () => {
-  it("„Przegląd” zawsze pierwszy, urlopy przy otwartym module, kartoteka na końcu", () => {
+  it("„Przegląd” zawsze pierwszy, urlopy przy otwartym module, bez zakładki „Kartoteka”", () => {
     expect(myTimeTabs(open({ leave: true })).map((tab) => tab.value)).toEqual([
       "overview",
       "leave",
-      "profile",
     ]);
-    expect(myTimeTabs(open({})).map((tab) => tab.value)).toEqual(["overview", "profile"]);
+    expect(myTimeTabs(open({})).map((tab) => tab.value)).toEqual(["overview"]);
   });
 
   it("zakładka Płac nazywa się „Premie i stawka”", () => {
@@ -42,12 +41,10 @@ describe("zakładki „Mój czas”", () => {
       "leave",
       "month",
       "bonuses",
-      "profile",
     ]);
     expect(myTimeTabs(open({ leave: true })).map((t) => t.value)).toEqual([
       "overview",
       "leave",
-      "profile",
     ]);
     const extra: MyTimeModuleTab[] = [
       { value: "leave", label: "Urlopy", module: "leave", render: () => null },
@@ -58,7 +55,6 @@ describe("zakładki „Mój czas”", () => {
       "overview",
       "leave",
       "month",
-      "profile",
     ]);
   });
 });
@@ -68,14 +64,9 @@ describe("nazwy zakładek według formy (etap 2, D4)", () => {
     myTimeTabs(open({ leave: true, time: true }), undefined, form).map((tab) => tab.label);
 
   it("UoP: urlop i ewidencja; B2B: przerwy i raport godzin; zlecenie: nieobecności i potwierdzenie", () => {
-    expect(labels("uop")).toEqual(["Przegląd", "Urlop", "Ewidencja czasu pracy", "Kartoteka"]);
-    expect(labels("b2b")).toEqual(["Przegląd", "Przerwy", "Raport godzin", "Kartoteka"]);
-    expect(labels("zlecenie")).toEqual([
-      "Przegląd",
-      "Nieobecności",
-      "Potwierdzenie godzin",
-      "Kartoteka",
-    ]);
+    expect(labels("uop")).toEqual(["Przegląd", "Urlop", "Ewidencja czasu pracy"]);
+    expect(labels("b2b")).toEqual(["Przegląd", "Przerwy", "Raport godzin"]);
+    expect(labels("zlecenie")).toEqual(["Przegląd", "Nieobecności", "Potwierdzenie godzin"]);
     expect(labels(null)).toEqual(labels("uop"));
   });
 });

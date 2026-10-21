@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/jobs/{job_id}/portal-ad/career": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "PUT /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/jobs/{job_id}/portal-ad/career": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "PUT /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

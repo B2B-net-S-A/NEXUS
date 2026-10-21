@@ -24,21 +24,22 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/pipeline/stages": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/pipeline/stages": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

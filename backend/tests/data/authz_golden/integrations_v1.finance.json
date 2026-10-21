@@ -24,19 +24,20 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/integrations/v1/finance/order-changes": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-changes/history": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-changes/summary": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/months": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/zip": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/periods": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/results": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/finance/imports": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/finance/order-changes/checks": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/finance/order-changes": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-changes/history": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-changes/summary": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/months": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/zip": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/periods": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/results": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/finance/imports": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/finance/order-changes/checks": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

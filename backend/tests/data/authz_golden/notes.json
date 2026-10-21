@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "DELETE /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "GET /api/notes": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "PATCH /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/notes": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/notes/{note_id}/link-job": "PDDPDDDDPPPDDDDDDDDDDDDDD",
-  "POST /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "DELETE /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "DELETE /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/notes": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "PATCH /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/notes": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/notes/{note_id}/link-job": "PDDPDDDDPPPDDDDDDDDDDDDDDD",
+  "POST /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/pipeline/client-acceptance/recipients": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/pipeline/move-requirements": "PPPPPPDDPPPPPPPPPPPPDPPPP"
+  "GET /api/pipeline/client-acceptance/recipients": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/pipeline/move-requirements": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
  }
 }

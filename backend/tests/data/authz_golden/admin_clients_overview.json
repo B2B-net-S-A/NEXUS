@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/clients-overview": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/admin/clients-overview/by-dl": "PPDDDDDDDDDDDDDDDPDDDDDDD"
+  "GET /api/admin/clients-overview": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/admin/clients-overview/by-dl": "PPDDDDDDDDDDDDDDDPDDDDDDDD"
  }
 }

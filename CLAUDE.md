@@ -130,6 +130,7 @@ Role, dziewięć uprawnień, bramki sekcji i tras, zakres Delivery Leada, kto wi
 - `jedna-rola-rekruter-zamiast-sourcera-rekrutera-i-tac.md` — Jedna rola „Rekruter” zamiast sourcera, rekrutera i TAC (0411, 02.10.2026)
 - `rekrutacje-i-kandydatow-widza-wszyscy-stawki-do.md` — Rekrutacje i kandydatów widzą wszyscy; stawki do klienta nie widzi rekruter (23.09.2026)
 - `rola-finance-pelny-odczyt-biznesowy-decyzje-artura.md` — Rola `finance` = pełny odczyt biznesowy (decyzje Artura 19.08 i 31.08)
+- `rola-rada-nadzorcza-tylko-insights.md` — Rola „Rada nadzorcza” — tylko Insights z kwotami (0490, 21.10.2026)
 - `role-uprawnienia-i-cele-audyt-22-09-2026.md` — Role, uprawnienia i cele — audyt 22.09.2026
 - `self-service-registration-email-password.md` — Self-service registration (email/password — alternatywa dla Microsoft SSO)
 

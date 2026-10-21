@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "POST /api/candidates/{candidate_id}/blacklist": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/candidates/{candidate_id}/blacklist/remove": "PDPPDDDDPPPPDDDDDDDDDDDDD"
+  "POST /api/candidates/{candidate_id}/blacklist": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/candidates/{candidate_id}/blacklist/remove": "PDPPDDDDPPPPDDDDDDDDDDDDDD"
  }
 }
