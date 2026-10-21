@@ -343,8 +343,8 @@ async def test_board_card_names_who_verified_the_person_first_verifier(
             .all()
         )
         for stage, mover, days_ago in (
-            (PipelineStage.verified, None, 4),
-            (PipelineStage.new, adder_id, 3),
+            (PipelineStage.new, adder_id, 4),
+            (PipelineStage.verified, None, 3),
             (PipelineStage.verified, verifier_id, 2),
             (PipelineStage.interview, verifier_id, 2),
             (PipelineStage.verified, returning_dl_id, 1),
