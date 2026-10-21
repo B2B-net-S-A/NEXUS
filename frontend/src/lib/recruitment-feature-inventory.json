@@ -708,7 +708,7 @@
    "area": "naglowek",
    "opis": "Zakładki „Tablica” | „Zlecenie i Champion” w nagłówku (29.09.2026); z pełnej listy „Do przejrzenia” wraca „Tablica”",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
-   "marker": "onViewChange(\"board\")",
+   "marker": "view=\"board\"",
    "v3_home": "nagłówek — zakładki widoku"
   },
   {

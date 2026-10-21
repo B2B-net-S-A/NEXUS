@@ -34,8 +34,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ClientReferenceChip } from "@/components/v2/jobs/ClientReferenceChip";
-import { isPlainLeftClick } from "@/components/v2/pages/KanbanBoardV2";
 import type { JobDetailView } from "@/lib/job-detail-routing";
+import { isPlainLeftClick } from "@/lib/plain-left-click";
 import type { JobHeaderFact, JobHeaderFactKey } from "@/lib/job-header-facts";
 import {
   DropdownMenu,
