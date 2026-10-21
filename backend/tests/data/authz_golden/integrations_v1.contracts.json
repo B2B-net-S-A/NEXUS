@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/integrations/v1/contracts": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/contracts/{contract_id}/rate-history": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/contracts": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/contracts/{contract_id}/rate-history": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

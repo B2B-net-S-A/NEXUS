@@ -24,17 +24,18 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/candidates/{candidate_id}/rate-history": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/clients-lookup": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/embed-diagnostics": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/jobs-lookup": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/jobs-lookup/search": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "PATCH /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/candidates/{candidate_id}/rate-history": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/embed-init": "PDDPDDDDPPPDDDDDDDDDDDDDD"
+  "DELETE /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/candidates/{candidate_id}/rate-history": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/clients-lookup": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/embed-diagnostics": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/jobs-lookup": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/jobs-lookup/search": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "PATCH /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/candidates/{candidate_id}/rate-history": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/embed-init": "PDDPDDDDPPPDDDDDDDDDDDDDDD"
  }
 }

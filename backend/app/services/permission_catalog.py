@@ -57,6 +57,7 @@ ROLES: tuple[str, ...] = (
     "trainee",
     "automation",
     "employee",
+    "board",
 )
 
 _LEVELS = {"none": 0, "read": 1, "write": 2}

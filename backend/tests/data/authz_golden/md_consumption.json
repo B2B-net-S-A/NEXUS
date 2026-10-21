@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDDDDPDDDDDDD"
+  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDDDDPDDDDDDDD"
  }
 }

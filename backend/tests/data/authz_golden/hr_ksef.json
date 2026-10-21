@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/hr/ksef/invoices": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/ksef/invoices/{invoice_id}/pdf": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/ksef/status": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/ksef/fetch": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/ksef/invoices/manual": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/ksef/invoices/{invoice_id}/ignore": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/ksef/invoices/{invoice_id}/period": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/ksef/refetch": "BBBBBBBDBBBBBBBBBBBBBBBBB"
+  "GET /api/hr/ksef/invoices": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/ksef/invoices/{invoice_id}/pdf": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/ksef/status": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/ksef/fetch": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/ksef/invoices/manual": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/ksef/invoices/{invoice_id}/ignore": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/ksef/invoices/{invoice_id}/period": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/ksef/refetch": "BBBBBBBDBBBBBBBBBBBBBBBBBB"
  }
 }

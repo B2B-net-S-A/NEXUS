@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/candidate-contact/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/candidate-contact/oversight": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "GET /api/candidate-contact/queue": "PDDDPPDDPDPPPPPPPPPDDPPPP",
-  "GET /api/candidate-contact/status": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/candidate-contact/cases/{case_id}/attempts": "PDDDPPDDPDPPPPPPPPPDDPPPP",
-  "POST /api/candidate-contact/cases/{case_id}/reassign": "PDPDDDDDDPDPDDDDDDDDDDDDD"
+  "GET /api/candidate-contact/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidate-contact/oversight": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "GET /api/candidate-contact/queue": "PDDDPPDDPDPPPPPPPPPDDPPPPD",
+  "GET /api/candidate-contact/status": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/candidate-contact/cases/{case_id}/attempts": "PDDDPPDDPDPPPPPPPPPDDPPPPD",
+  "POST /api/candidate-contact/cases/{case_id}/reassign": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

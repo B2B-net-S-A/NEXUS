@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/export/candidates": "PPPPPDDDPPPPPPDDDDDDDDDDD",
-  "POST /api/import/candidates": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/export/candidates": "PPPPPDDDPPPPPPDDDDDDDDDDDD",
+  "POST /api/import/candidates": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

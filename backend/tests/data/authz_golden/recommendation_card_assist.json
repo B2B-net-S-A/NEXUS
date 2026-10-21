@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "POST /api/recommendation-cards/note/read": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/recommendation-cards/note/read-file": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/recommendation-cards/phrase": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "POST /api/recommendation-cards/note/read": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/recommendation-cards/note/read-file": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/recommendation-cards/phrase": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

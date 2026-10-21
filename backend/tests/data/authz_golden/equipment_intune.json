@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/equipment/intune/devices/{device_id}/resolution": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/equipment/intune/discrepancies": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/equipment/intune/status": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/equipment/intune/devices/{device_id}/link": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/equipment/intune/devices/{device_id}/resolve": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/equipment/intune/sync": "BBBBBBBDBBBBBBBBBBBBBBBBB"
+  "DELETE /api/equipment/intune/devices/{device_id}/resolution": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/equipment/intune/discrepancies": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/equipment/intune/status": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/intune/devices/{device_id}/link": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/intune/devices/{device_id}/resolve": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/intune/sync": "BBBBBBBDBBBBBBBBBBBBBBBBBB"
  }
 }

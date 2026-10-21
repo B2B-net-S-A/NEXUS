@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/admin/screening-note-backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/screening-note-backfill": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/screening-note-backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/screening-note-backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

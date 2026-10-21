@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/fixes": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/override": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/transform": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/fixes": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/override": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/transform": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

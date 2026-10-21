@@ -46,14 +46,15 @@ export const ROLES = [
   "trainee",
   "automation",
   "employee",
+  "board",
   "user",
 ];
 
 /**
  * Role WYŁĄCZNE — nie łączą się z żadną inną (lustro CHECK-ów w bazie).
  * Praktykant (0374) widzi tylko „Telefony na dziś”; dodatkowa rola
- * otworzyłaby mu resztę aplikacji. „Automatyzacje” (0446) tylko czytają —
- * druga rola dałaby im zapis.
+ * otworzyłaby mu resztę aplikacji. „Automatyzacje” (0446) i „Rada
+ * nadzorcza” (0490) tylko czytają — druga rola dałaby im zapis.
  */
 export const EXCLUSIVE_ROLES: readonly string[] = [
   "finance",
@@ -61,6 +62,7 @@ export const EXCLUSIVE_ROLES: readonly string[] = [
   "trainee",
   "automation",
   "employee",
+  "board",
 ];
 
 /**
@@ -86,6 +88,7 @@ export const ROLE_LABELS: Record<string, string> = {
   trainee: "Praktykant",
   automation: "Automatyzacje",
   employee: "Pracownik",
+  board: "Rada nadzorcza",
   manager: "Manager",
   client: "Klient",
 };

@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/integrations/v1/md/imports": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/md/imports/{import_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/md/imports": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/md/imports/{import_id}/rows/{row_id}/assign": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "PUT /api/integrations/v1/orders/{order_id}/md-consumptions/{period_month}": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/md/imports": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/md/imports/{import_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/md/imports": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/md/imports/{import_id}/rows/{row_id}/assign": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "PUT /api/integrations/v1/orders/{order_id}/md-consumptions/{period_month}": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

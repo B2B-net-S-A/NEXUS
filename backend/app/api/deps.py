@@ -614,29 +614,45 @@ DeliveryLeadPlus = Annotated[
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
 ]
 
+async def _require_board_reader(
+    current_user: User = Depends(require_onboarded_user),
+) -> User:
+    """„Moduł Finanse" albo Rada nadzorcza."""
+
+    if not current_user.has_role(UserRole.board):
+        ensure_permission(current_user, ProductAction.finance_module)
+    return current_user
+
+
+_require_board_reader.required_permissions = (ProductAction.finance_module,)
+
 # Widok „Firma" w /insights (kokpit z kwotami, ranking klientów z MRR):
-# uprawnienie „Moduł Finanse" (domyślnie admin i Finanse). Decyzja Artura
-# 24.09.2026: Head of Recruitment zajmuje się rekrutacją i NIE widzi pieniędzy
-# (marża, przychód, kwoty per klient) — do tego dnia wchodził tu razem
-# z Finansami. Ta decyzja dotyczy WYŁĄCZNIE widoku „Firma” w Insights: stawkę
-# do klienta w kartach rekrutacji (profil kandydata → Rekrutacje, Tablica) HoR
-# widzi dalej (`CLIENT_RATE_VIEW_ROLES`, decyzja Artura 13.10.2026).
-BoardReader = FinanceModuleUser
+# uprawnienie „Moduł Finanse" (domyślnie admin i Finanse) albo rola Rada
+# nadzorcza (0490, decyzja Artura 21.10.2026 — Rada widzi kwoty kokpitu, ale
+# nie dostaje modułu Finanse z jego zapisami: faktury, zgody, zmiany
+# w zamówieniach). Decyzja Artura 24.09.2026: Head of Recruitment zajmuje się
+# rekrutacją i NIE widzi pieniędzy (marża, przychód, kwoty per klient) — do
+# tego dnia wchodził tu razem z Finansami. Ta decyzja dotyczy WYŁĄCZNIE widoku
+# „Firma” w Insights: stawkę do klienta w kartach rekrutacji (profil kandydata
+# → Rekrutacje, Tablica) HoR widzi dalej (`CLIENT_RATE_VIEW_ROLES`, decyzja
+# Artura 13.10.2026).
+BoardReader = Annotated[User, Depends(_require_board_reader)]
 
 
 async def _require_board_trend_reader(
     current_user: User = Depends(require_onboarded_user),
 ) -> User:
-    """„Moduł Finanse" albo Head of Recruitment (ten drugi bez kwot)."""
+    """„Moduł Finanse", Rada nadzorcza albo Head of Recruitment (bez kwot)."""
 
-    if not current_user.has_role(UserRole.head_of_recruitment):
+    if not current_user.has_any_role(UserRole.head_of_recruitment, UserRole.board):
         ensure_permission(current_user, ProductAction.finance_module)
     return current_user
 
 
-# Tabele rok-do-roku: „Moduł Finanse" · Head of Recruitment. HoR dostaje je
-# BEZ metryk pieniężnych (router redaguje odpowiedź) — placementy, hit ratio,
-# konsultanci i zejścia to jego praca, kwoty już nie.
+# Tabele rok-do-roku: „Moduł Finanse" · Rada nadzorcza · Head of Recruitment.
+# HoR dostaje je BEZ metryk pieniężnych (router redaguje odpowiedź przez
+# ``action_permissions.reads_board_money``) — placementy, hit ratio, konsultanci i zejścia to
+# jego praca, kwoty już nie.
 BoardTrendReader = Annotated[User, Depends(_require_board_trend_reader)]
 
 # Head of Recruitment + admin — zarządzanie strukturą zespołu rekrutacji

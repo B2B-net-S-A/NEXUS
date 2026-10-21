@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/request-work-states": "PDPPDDDDPPPPDDDDDDDDDDDDD",
-  "PATCH /api/request-work-states": "PDPPDDDDPPPPDDDDDDDDDDDDD"
+  "GET /api/request-work-states": "PDPPDDDDPPPPDDDDDDDDDDDDDD",
+  "PATCH /api/request-work-states": "PDPPDDDDPPPPDDDDDDDDDDDDDD"
  }
 }

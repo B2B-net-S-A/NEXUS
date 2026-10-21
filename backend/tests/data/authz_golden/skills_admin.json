@@ -24,17 +24,18 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/skills-admin/plain-terms": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "GET /api/skills-admin/plain-terms/{term_id}/history": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "GET /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "POST /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "POST /api/skills-admin/skills/{skill_id}/aliases": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "POST /api/skills-admin/unmatched-terms/{term_id}/ignore": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "POST /api/skills-admin/unmatched-terms/{term_id}/map": "PDPDDDDDDPDPDDDDDDDDDDDDD",
-  "PUT /api/skills-admin/plain-terms/{term_id}": "PDPDDDDDDPDPDDDDDDDDDDDDD"
+  "GET /api/skills-admin/plain-terms": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "GET /api/skills-admin/plain-terms/{term_id}/history": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "GET /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/skills/{skill_id}/aliases": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/unmatched-terms/{term_id}/ignore": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/unmatched-terms/{term_id}/map": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "PUT /api/skills-admin/plain-terms/{term_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

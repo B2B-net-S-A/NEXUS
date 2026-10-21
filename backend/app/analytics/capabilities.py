@@ -131,6 +131,17 @@ ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
             AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
         }
     ),
+    # 0490: „Rada nadzorcza” — zespół imiennie (decyzja Artura 21.10.2026).
+    # Świadomie BEZ ``VIEW_FINANCE``/``VIEW_EXECUTIVE``: te capability otwierają
+    # stawki konsultantów na 40+ trasach poza Insights. Kwoty kokpitu Firma
+    # wpuszcza rola w ``deps.BoardReader``.
+    UserRole.board: frozenset(
+        {
+            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
+            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
+            AnalyticsCapability.VIEW_TEAM_KPI,
+        }
+    ),
     UserRole.admin: _ALL,
 }
 

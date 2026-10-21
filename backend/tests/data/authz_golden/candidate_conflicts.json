@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "PATCH /api/conflicts/{conflict_id}/deactivate": "PDDPDDDDPPPDDDDDDDDDDDDDD",
-  "POST /api/candidates/{candidate_id}/conflicts": "PDDPDDDDPPPDDDDDDDDDDDDDD"
+  "GET /api/candidates/{candidate_id}/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "PATCH /api/conflicts/{conflict_id}/deactivate": "PDDPDDDDPPPDDDDDDDDDDDDDDD",
+  "POST /api/candidates/{candidate_id}/conflicts": "PDDPDDDDPPPDDDDDDDDDDDDDDD"
  }
 }

@@ -7,10 +7,14 @@ import {
   insightsTeamSignalsQueryKeys,
 } from "@/lib/insights-team-api";
 import { SectionError } from "@/components/insights/sections/_shared";
+import { hasSectionAccess } from "@/lib/section-access";
+import { useAuthStore } from "@/store/auth";
 import { PanelLoading } from "./ViewKit";
 
 /** Raport „Rekrutacje bez ruchu": opublikowane, bez ruchu w pipeline od 14 dni. */
 export function StaleJobsReport() {
+  // Bez sekcji Pipeline (Rada nadzorcza, 0490) tytuł zostaje tekstem.
+  const canOpenJobs = useAuthStore((s) => hasSectionAccess(s.user, "pipeline"));
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: insightsTeamSignalsQueryKeys.staleJobs(),
     queryFn: () => insightsTeamSignalsApi.staleJobs(),
@@ -55,12 +59,16 @@ export function StaleJobsReport() {
             {data.items.map((job) => (
               <tr key={job.job_id} className="border-b border-border/60 last:border-b-0">
                 <td className="sticky left-0 bg-card px-4 py-2.5">
-                  <Link
-                    href={`/jobs/${job.job_id}`}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    {job.title}
-                  </Link>
+                  {canOpenJobs ? (
+                    <Link
+                      href={`/jobs/${job.job_id}`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {job.title}
+                    </Link>
+                  ) : (
+                    <span className="font-medium text-foreground">{job.title}</span>
+                  )}
                 </td>
                 <td className="px-3 py-2.5 text-foreground">{job.client_name ?? "—"}</td>
                 <td className="px-3 py-2.5 text-foreground">

@@ -6,7 +6,7 @@
 // `InsightsView`: ten przepisuje adres na `/insights`, czyli wyszedłby
 // z podglądu. Zmiana okresu w podglądzie prowadzi na `/insights` — nie klikaj.
 //
-// `?as=recruiter|hor|admin` wybiera rolę, `?view=` widok, `?report=` raport.
+// `?as=recruiter|hor|admin|board` wybiera rolę, `?view=` widok, `?report=` raport.
 // Na „Rywalizacji” zasiane są dwa okresy: trwający (źródło mieszane) i Q3 2026
 // / wrzesień 2026 jako rozliczone z DynaReportera — inne okresy z listy wyboru
 // pokażą błąd pobierania, bo sieć jest odcięta.
@@ -375,6 +375,8 @@ const ROLES = {
   recruiter: { role: "recruiter", roles: ["recruiter"], capabilities: [] },
   hor: { role: "head_of_recruitment", roles: ["head_of_recruitment"], capabilities: ["view_team_kpi"] },
   admin: { role: "admin", roles: ["admin"], capabilities: ["view_team_kpi", "view_finance"] },
+  // Rada nadzorcza (0490): Firma z kwotami rolą, zespół imiennie, bez „Mój miesiąc”.
+  board: { role: "board", roles: ["board"], capabilities: ["view_team_kpi"] },
 } as const;
 
 const VIEWS = ["rywalizacja", "moj-miesiac", "zespol", "firma", "raporty"] as const;

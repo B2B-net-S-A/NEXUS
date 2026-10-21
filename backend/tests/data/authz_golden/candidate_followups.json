@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/candidate-followups/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "GET /api/candidate-followups/candidates/{candidate_id}/teams-meetings/{meeting_id}/transcript": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/candidate-followups/candidates/{candidate_id}/claim": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/candidate-followups/candidates/{candidate_id}/outcome": "PPPPPPDDPPPPPPPPPPPDDPPPP",
-  "POST /api/candidate-followups/candidates/{candidate_id}/teams-meetings": "PPPPPPDDPPPPPPPPPPPDDPPPP"
+  "GET /api/candidate-followups/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidate-followups/candidates/{candidate_id}/teams-meetings/{meeting_id}/transcript": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/candidate-followups/candidates/{candidate_id}/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/candidate-followups/candidates/{candidate_id}/outcome": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/candidate-followups/candidates/{candidate_id}/teams-meetings": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

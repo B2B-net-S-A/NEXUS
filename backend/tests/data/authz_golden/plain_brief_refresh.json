@@ -24,9 +24,10 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "POST /api/jobs/{job_id}/plain-brief/refresh": "PPPPPPPDPPPPPPPPPPPPDPPPP"
+  "POST /api/jobs/{job_id}/plain-brief/refresh": "PPPPPPPDPPPPPPPPPPPPDPPPPD"
  }
 }

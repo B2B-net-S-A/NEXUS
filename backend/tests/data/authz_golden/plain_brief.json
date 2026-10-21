@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/plain-brief": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "PUT /api/jobs/{job_id}/role-profile": "PDPDDDDDDPDPDDDDDDDDDDDDD"
+  "GET /api/jobs/{job_id}/plain-brief": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "PUT /api/jobs/{job_id}/role-profile": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

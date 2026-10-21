@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/insights/board": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "GET /api/insights/board/yoy": "PPPDDDDDDPDPDDDDDPDDDDDDD"
+  "GET /api/insights/board": "PPDDDDDDDDDDDDDDDPDDDDDDDP",
+  "GET /api/insights/board/yoy": "PPPDDDDDDPDPDDDDDPDDDDDDDP"
  }
 }
