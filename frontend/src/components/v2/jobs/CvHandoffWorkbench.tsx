@@ -212,8 +212,9 @@ export function CvHandoffWorkbench({
   const stageId = selected?.item.id ?? null;
   const fullName = selected ? itemFullName(selected.item) : "";
   // 12.10.2026: osoba w „Nowych”/„Screeningu” też dostaje kartę CV — żeby
-  // wskazać gotowe CV (z innej rekrutacji, z pliku), zanim automat po ruchu na
-  // „Zweryfikowany” wygeneruje nowe. Sama wysyłka zostaje przy „Zweryfikowany”.
+  // wskazać gotowe CV (z innej rekrutacji, z pliku) zamiast generować nowe
+  // (od 21.10.2026 generacja tylko po potwierdzeniu w karcie). Sama wysyłka
+  // zostaje przy „Zweryfikowany”.
   const early = useMemo(
     () =>
       selected

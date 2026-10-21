@@ -569,3 +569,15 @@ async def test_automation_does_not_generate_over_a_cv_chosen_in_screening(
             )
         ).all()
     assert [event.details["reason"] for event in events] == ["pair_cv_exists"]
+
+
+@pytest.fixture(autouse=True)
+def _generation_without_confirmation(monkeypatch):
+    """Ten moduł sprawdza tryb sprzed 21.10.2026 (generacja zaraz po ruchu).
+
+    Domyślnie ruch na „Zweryfikowany” już nie generuje CV — patrz
+    `test_cv_confirm_before_generate.py`.
+    """
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "CV_AUTO_GENERATE_WITHOUT_CONFIRMATION", True)

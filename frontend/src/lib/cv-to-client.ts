@@ -286,20 +286,13 @@ export function resolveCvToClient({
 /**
  * Czy karta ma dalej odpytywać serwer (generacja w toku albo czekamy na podpięcie).
  *
- * `awaitingAuto` (14.10.2026): osobę przed chwilą przekazano dalej z formularza
- * screeningu, a automat CV jeszcze nie założył wiersza generacji — bez tego
- * karta w stanie „brak” nie pytałaby wcale i blok postępu stałby w miejscu.
- * Wołający gasi to, gdy zna powód pominięcia albo minął sufit czasu.
+ * Od 21.10.2026 ruch na „Zweryfikowany” nie generuje CV, więc po przekazaniu
+ * z formularza karta nie czeka już na automat (`awaitingAuto` z 14.10 usunięte).
  */
-export function cvToClientShouldPoll(
-  state: CvToClientState,
-  pendingGeneratedId: number | null,
-  { awaitingAuto = false }: { awaitingAuto?: boolean } = {},
-): boolean {
+export function cvToClientShouldPoll(state: CvToClientState, pendingGeneratedId: number | null): boolean {
   // Generacja w toku — także obok gotowego CV („Wygeneruj ponownie”): nowa
   // wersja ma się pojawić sama jako „Użyj nowej wersji”.
   if (state.generating) return true;
-  if (awaitingAuto && (state.kind === "none" || state.kind === "unattached")) return true;
   if (pendingGeneratedId == null) return false;
   // Zleciliśmy generację z tej karty: dopóki wiersza nie widać albo etap nie
   // dostał jeszcze szkicu, pytamy dalej (serwer podpina CV chwilę PO tym, jak
@@ -360,10 +353,8 @@ export interface ForwardProgressInput {
   state: Pick<CvToClientState, "kind">;
   /** Plakietka pochodzenia CV wybranego zamiast generacji (`stageCvOrigin`). */
   origin: { badge: string } | null;
-  /** Powód pominięcia auto-CV po tym przekazaniu (zdanie z „Pracy w tle”). */
+  /** Powód pominięcia auto-CV po tym przekazaniu (tylko z `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`). */
   skipReason: string | null;
-  /** Minął sufit czekania na automat. */
-  expired: boolean;
   /** Generację zlecono z tej karty — dzwonek „CV gotowe” wysyła tylko automat. */
   manual?: boolean;
   /** Liczba rzeczy do sprawdzenia (`cvChecksBeforeSending`) i stan odczytu. */
@@ -386,7 +377,6 @@ export function forwardProgress({
   state,
   origin,
   skipReason,
-  expired,
   manual = false,
   checks,
 }: ForwardProgressInput): ForwardProgress {
@@ -409,11 +399,10 @@ export function forwardProgress({
       cv = { tone: "warn", text: "CV ze starego szablonu — wygeneruj nowe niżej" };
       break;
     default:
+      // 21.10.2026: CV powstaje po potwierdzeniu pliku, odpowiedzi i notatek.
       cv = skipReason
         ? { tone: "info", text: `CV nie powstało automatycznie: ${skipReason}` }
-        : expired
-          ? { tone: "warn", text: "CV jeszcze nie powstało — wygeneruj je albo użyj gotowego niżej" }
-          : generating;
+        : { tone: "pending", text: "CV czeka na Ciebie — potwierdź niżej, z czego je zrobić" };
   }
   let qc: ForwardStep;
   if (state.kind !== "ready") qc = { tone: "pending", text: "QC — po CV" };

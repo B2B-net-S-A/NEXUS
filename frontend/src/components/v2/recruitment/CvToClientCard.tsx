@@ -498,20 +498,12 @@ export function CvToClientCard({
   ) : null;
   const origin = stageCvOrigin(branded);
 
-  // Po „Zapisz i przekaż dalej” (14.10.2026): automat CV rusza po ruchu, ale
-  // jego wiersz pojawia się chwilę później. Do tego czasu karta pyta sama —
-  // aż do wiersza CV, powodu pominięcia z „Pracy w tle” albo sufitu 5 minut.
+  // Po „Zapisz i przekaż dalej” (14.10.2026). Od 21.10.2026 ruch nie generuje
+  // CV — karta nie czeka na automat. Powód pominięcia z „Pracy w tle” liczy się
+  // tylko w trybie z flagą `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`.
   const [forwardedAt, setForwardedAt] = useState<number | null>(() => (forwarded ? Date.now() : null));
-  const [forwardExpired, setForwardExpired] = useState(false);
   useEffect(() => {
-    if (!forwarded) {
-      setForwardedAt(null);
-      return;
-    }
-    setForwardedAt(Date.now());
-    setForwardExpired(false);
-    const timer = setTimeout(() => setForwardExpired(true), PENDING_TIMEOUT_MS);
-    return () => clearTimeout(timer);
+    setForwardedAt(forwarded ? Date.now() : null);
   }, [forwarded]);
   const skip = useAutoCvSkip(jobId, candidateId);
   // Stare pominięcie (np. z poprzedniej weryfikacji) nie jest odpowiedzią na
@@ -520,14 +512,11 @@ export function CvToClientCard({
     forwarded && skip && (forwardedAt == null || !skip.created_at || Date.parse(skip.created_at) >= forwardedAt - 120_000)
       ? skip
       : null;
-  const awaitingAuto = forwarded && !forwardExpired && freshSkip == null;
 
   // Odpytywanie: generacja w toku albo czekamy na podpięcie zleconej z karty.
   // Sufit czasu — etap ze starym szkicem nie dostanie podpięcia nigdy, a karta
   // i tak pokazuje wtedy „Użyj tej wersji”.
-  const polling =
-    (cvToClientShouldPoll(state, pendingId) && pending?.expired !== true) ||
-    cvToClientShouldPoll(state, null, { awaitingAuto });
+  const polling = cvToClientShouldPoll(state, pendingId) && pending?.expired !== true;
   useEffect(() => {
     if (!polling) return;
     const id = setInterval(() => {
@@ -538,13 +527,25 @@ export function CvToClientCard({
       if (pairStageId != null) {
         void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(pairStageId) });
       }
-      // Powód pominięcia auto-CV przychodzi z „Pracy w tle”.
-      if (awaitingAuto) {
-        void queryClient.invalidateQueries({ queryKey: jobBackgroundEventsQueryKey(jobId, BACKGROUND_EVENTS_STEP) });
-      }
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [polling, awaitingAuto, queryClient, candidateId, jobId, stageId, pairStageId]);
+  }, [polling, queryClient, candidateId, jobId, stageId, pairStageId]);
+
+  // 21.10.2026: po przekazaniu do „Zweryfikowany” potwierdzenia otwierają się
+  // same — CV powstaje dopiero po nich. Raz na przekazanie, bez wymuszania
+  // po „Anuluj”.
+  const openedAfterForward = useRef(false);
+  const settledNone =
+    !brandedQuery.isLoading && !rowsQuery.isLoading && !brandedQuery.isError && state.kind === "none";
+  useEffect(() => {
+    if (!forwarded) {
+      openedAfterForward.current = false;
+      return;
+    }
+    if (openedAfterForward.current || !canReplace || !settledNone) return;
+    openedAfterForward.current = true;
+    setGenerateOpen(true);
+  }, [forwarded, canReplace, settledNone]);
 
   // Koniec czekania: serwer podpiął CV (etap ma treść) albo generacja padła.
   useEffect(() => {
@@ -772,8 +773,7 @@ export function CvToClientCard({
           state,
           origin,
           skipReason: freshSkip ? autoCvSkipReason(freshSkip) : null,
-          expired: forwardExpired,
-          manual: pending != null,
+          manual: pending != null || state.generating?.origin !== "auto",
           checks,
         })
       : null;
@@ -1136,8 +1136,8 @@ export function CvToClientCard({
               {readyHint ? null : useOtherButton}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Pokaże, z czego powstanie CV tej osoby w tej rekrutacji. CV wybrane albo wgrane tutaj
-              nie zostanie nadpisane przez automat po ruchu na „Zweryfikowany”.
+              Najpierw potwierdzisz plik CV, odpowiedzi ze screeningu i dodatkowe notatki — CV powstaje
+              dopiero po „Generuj”, nie samo po ruchu na „Zweryfikowany”.
             </p>
           </div>
         ) : (
