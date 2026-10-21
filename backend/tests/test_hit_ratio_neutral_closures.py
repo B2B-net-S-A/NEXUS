@@ -221,7 +221,10 @@ async def test_reopening_clears_the_close_reason(
         f"/api/jobs/{job_id}/publish", headers=app_auth_headers
     )
     assert reopened.status_code == 200, reopened.text
-    body = reopened.json()
+    # `/publish` odpowiada stanem bramki, nie rekrutacją — czytamy ją osobno.
+    fetched = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
+    assert fetched.status_code == 200, fetched.text
+    body = fetched.json()
     assert body["status"] == "published"
     assert body["close_reason"] is None
     assert body["close_notes"] is None

@@ -1,7 +1,7 @@
 """Powody zamknięcia „nie liczy się do hit ratio” (21.10.2026).
 
 Revision ID: 0492_job_close_neutral
-Revises: 0489_career_recruiter_about
+Revises: 0491_approval_contract_basis
 
 Decyzja Artura 21.10.2026: przegraną w hit ratio jest tylko rekrutacja, którą
 wzięła inna firma. Enum ``jobclosereason`` dostaje dwa powody, które dotąd
@@ -20,7 +20,7 @@ Lustro w safety-net ``entrypoint.sh`` — prod alembic bywa osierocony.
 from alembic import op
 
 revision = "0492_job_close_neutral"
-down_revision = "0489_career_recruiter_about"
+down_revision = "0491_approval_contract_basis"
 branch_labels = None
 depends_on = None
 
