@@ -73,7 +73,7 @@ async def test_close_job_404(
 ) -> None:
     resp = await app_client.post(
         "/api/jobs/99999999/close",
-        json={"reason": "other"},
+        json={"reason": "competitor"},
         headers=app_auth_headers,
     )
     assert resp.status_code == 404
@@ -95,20 +95,20 @@ async def test_close_job_invalid_reason(
 
 
 async def test_close_without_auth(app_client: AsyncClient) -> None:
-    resp = await app_client.post("/api/jobs/1/close", json={"reason": "budget"})
+    resp = await app_client.post("/api/jobs/1/close", json={"reason": "competitor"})
     assert resp.status_code in (401, 403)
 
 
 async def test_close_job_reason_optional_notes(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
-    """`notes` is optional — reason alone is enough."""
+    """`notes` is optional for a reason that counts in hit ratio."""
     job_id = await _create_draft_job(
         app_client, app_auth_headers, "pytest-close-no-notes"
     )
     resp = await app_client.post(
         f"/api/jobs/{job_id}/close",
-        json={"reason": "internal_hire"},
+        json={"reason": "competitor"},
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
@@ -214,7 +214,7 @@ async def test_close_with_people_in_progress_asks_for_confirmation(
 
     warned = await app_client.post(
         f"/api/jobs/{job_id}/close",
-        json={"reason": "other"},
+        json={"reason": "competitor"},
         headers=app_auth_headers,
     )
     assert warned.status_code == 409, warned.text
@@ -229,7 +229,7 @@ async def test_close_with_people_in_progress_asks_for_confirmation(
 
     closed = await app_client.post(
         f"/api/jobs/{job_id}/close",
-        json={"reason": "other", "acknowledge_active_cards": True},
+        json={"reason": "competitor", "acknowledge_active_cards": True},
         headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text
@@ -246,7 +246,7 @@ async def test_close_with_only_closed_cards_needs_no_confirmation(
 
     closed = await app_client.post(
         f"/api/jobs/{job_id}/close",
-        json={"reason": "budget"},
+        json={"reason": "competitor"},
         headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text

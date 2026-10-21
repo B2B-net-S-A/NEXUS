@@ -1,6 +1,6 @@
 # Integralność i uprawnienia — reguły po audytach Codexa 13–14.09.2026 (PR 1 i PR 2)
 
-<!-- indeks: blokady wiersza kontraktu, bramka sekcji tras, CV nie są kasowane, kursor M365 -->
+<!-- indeks: blokady wiersza kontraktu, bramka sekcji tras, CV nie są kasowane, kursor M365, konto za M365 -->
 
 Plan i status: `docs/uat/08-audyty-codex-2026-09-14.md`. Reguły, które łatwo
 cofnąć „przy okazji”:
@@ -146,3 +146,51 @@ cofnąć „przy okazji”:
   talentów): dzwonek podnosi `limit` zamiast doklejać strony — „nieprzeczytane
   najpierw" przetasowuje kolejność po kliknięciu, więc doklejanie dawało
   duplikaty.
+
+## Konto NEXUSA idzie za kontem Microsoft 365 (decyzja Artura 22.10.2026)
+
+Konto w NEXUSIE z `azure_oid`, którego nie ma już w Entra ID albo jest tam
+zablokowane, NEXUS wyłącza sam. Powód: 22.10.2026 dziewięć kont z rolą
+Rekruter, założonych przy pierwszym logowaniu Microsoftem, było nadal
+aktywnych z dostępem do bazy kandydatów po usunięciu kont M365 (13–19.10)
+i trafiło do katalogu „Ludzie”.
+
+### Jak działa
+
+- Pętla `m365_account_sweep` (`app/tasks/m365_account_sweep.py`, co 6 h),
+  logika w `app/services/m365_account_sweep.py`. Celowo poza `hr_loops`:
+  działa bez względu na `HR_PROGRAM_ENABLED` i `HR_LOOPS_ENABLED`, bo
+  pilnuje dostępu do danych, nie modułu kadrowego. Nie na GitHub Actions.
+- Odczyt `GET /users/{azure_oid}?$select=id,accountEnabled` tokenem
+  rejestracji „NEXUS Kadry” (`hr/m365/auth.acquire_hr_token`, APPLICATION
+  `User.Read.All`), transport `hr/m365/directory.GraphDirectoryOps.get_account`.
+- Wyłącza tylko jednoznaczny sygnał: 404 z kodem `Request_ResourceNotFound`
+  (konto usunięte, także w koszu) albo `accountEnabled: false`.
+- Wyłączenie = `app/services/account_deactivation.deactivate_account`,
+  ta sama funkcja co `DELETE /api/admin/users/{id}` i odejście w Kadrach:
+  `is_active=False`, `authorization_version+1`, `tokens_valid_after`,
+  unieważniony stały link kariery, wpis `activities`
+  `m365_account_gone_deactivated` (na liście `DEACTIVATION_ACTIONS`,
+  więc kartoteka zamyka się sama z tym dniem). Nowa ścieżka wyłączająca
+  konto też idzie przez tę funkcję — nie kopiuj jej treści.
+
+### Bezpieczniki
+
+- `M365_ACCOUNT_SWEEP_MODE`: `off` (pętla nie startuje), `report`
+  (domyślnie i przy nieznanej wartości: log `WARNING` z `user_id`, bez
+  zapisu), `enforce` (wyłącza). Zmiana wyłącznie workflow „Coolify set env”.
+  Przełączenie na `enforce` dopiero po przejrzeniu logu trybu `report`.
+- Brak poświadczeń, 401/403 rejestracji = koniec przebiegu bez zmian.
+  Sieć, 5xx, 429, 404 z innym kodem = to konto bez zmian (`errors`).
+- Więcej niż `M365_ACCOUNT_SWEEP_MAX_PER_RUN` (domyślnie 10) kont do
+  wyłączenia = log `ERROR` (Sentry) i żadnej zmiany. Masowy 404 to raczej
+  zły tenant albo rejestracja niż masowe odejście; wtedy konta wyłącza admin
+  po jednym w „Osoby i role”.
+- Ostatniego aktywnego admina nie wyłączamy (`protect_active_admin_membership`,
+  `skipped_last_admin` + log `ERROR`).
+- Admin, który po wyłączeniu przez pętlę włączył konto w „Osoby i role”
+  (`active_changed` na `true`, nowszy niż ostatnie
+  `m365_account_gone_deactivated`), wygrywa — pętla tego konta nie rusza
+  (`kept_by_admin`). Logowanie SSO ani resync grup AAD takiej decyzji nie są.
+
+Testy: `backend/tests/test_m365_account_sweep.py`.

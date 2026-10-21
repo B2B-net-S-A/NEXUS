@@ -506,6 +506,8 @@ const PUBLIC_PATHS = [
   // Ustawienia → Ocena prepów (0505): wagi, tematy, skala, historia; `?tryb=odczyt`.
   "/preview/prep-review-settings",
   "/preview/kpi-targets",
+  // Ustawienia → „Ranking kandydatów” (21.10.2026): wagi, podgląd, pomiar.
+  "/preview/ranking-panel",
   // Ustawienia → „Osoby i role” (0410): dziewięć przełączników, okno osoby.
   "/preview/permissions",
   "/preview/b2b-documents",

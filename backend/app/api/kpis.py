@@ -132,6 +132,8 @@ class MyGoalsSchema(BaseModel):
     goals: List[GoalRowSchema]
     # Delivery Lead: rekrutacje zamknięte w kwartale (podstawa celu placementów).
     closed_requests: int | None = None
+    # Delivery Lead: zamknięte jako „nie liczy się” — poza podstawą celu.
+    closed_neutral: int | None = None
 
 
 def _goals_to_schema(result: GoalsResult) -> MyGoalsSchema:

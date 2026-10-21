@@ -1,5 +1,5 @@
 # Terminy rozmowy z wklejonego maila klienta (0485, 20.10.2026)
-<!-- indeks: „Wklej maila od klienta”, F32 Sonnet 5, cytat sprawdza kod, treść maila nie jest zapisywana, plan 4 PR-ów uproszczenia cyklu -->
+<!-- indeks: „Wklej maila od klienta”, cytat sprawdza kod, mail nie jest zapisywany -->
 
 Zgłoszenie DL-i: przepisywanie terminów od klienta pole po polu (4 terminy ≈ 20
 pól daty i godziny) zabiera najwięcej czasu w cyklu rozmowy, a okien typu

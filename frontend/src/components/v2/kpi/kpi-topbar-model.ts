@@ -395,7 +395,15 @@ function deliveryLeadGroup(goals: MyKpiGoals, heading: string): KpiPanelGroup {
 
 function closedFacts(goals: MyKpiGoals): { label: string; value: string }[] {
   const closed = goals.closed_requests ?? null;
-  return closed === null ? [] : [{ label: "Zamknięte rekrutacje w kwartale", value: String(closed) }];
+  if (closed === null) return [];
+  const facts = [{ label: "Zamknięte rekrutacje w kwartale", value: String(closed) }];
+  // 21.10.2026: duplikaty, anulowane przez klienta, obsadzone wewnętrznie…
+  // nie wchodzą do hit ratio — osobny fakt, żeby było widać, że ich nie liczono.
+  const neutral = goals.closed_neutral ?? 0;
+  if (neutral > 0) {
+    facts.push({ label: "Zamknięte, które nie liczą się do hit ratio", value: String(neutral) });
+  }
+  return facts;
 }
 
 export function buildKpiTopbarModel(

@@ -269,6 +269,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/screening-form",
     "/preview/dl-review",
     "/preview/permissions",
+    "/preview/ranking-panel",
     "/preview/rejection-email",
     "/preview/api-keys",
     "/kariera",

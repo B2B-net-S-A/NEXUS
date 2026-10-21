@@ -1,5 +1,5 @@
 # Nowe CV w rekrutacji — kafelek w panelu osoby i „Dodaj do rekrutacji z tym CV” (13.10.2026)
-<!-- indeks: „Wgraj nowe CV” w panelu osoby, trasa `…/cv/original/upload`, „Użyj w tej rekrutacji”, „Dodaj z CV” przy osobie z bazy -->
+<!-- indeks: „Wgraj nowe CV”, `…/cv/original/upload`, „Użyj w tej rekrutacji” -->
 
 Dwa zgłoszenia rekruterów z 13.10.2026. Pierwsze: w panelu osoby nie dało się
 wgrać CV, gdy osoba miała już jakiekolwiek CV — trzeba było wyjść do profilu,

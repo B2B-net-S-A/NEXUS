@@ -68,7 +68,7 @@ async def test_close_then_publish_rewrites_the_status_payload(
 
     resp = await app_client.post(
         f"/api/jobs/{job_id}/close",
-        json={"reason": "other"},
+        json={"reason": "competitor"},
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
@@ -107,7 +107,7 @@ async def test_job_without_a_vector_is_left_to_the_service(
 
     resp = await app_client.post(
         f"/api/jobs/{job_id}/close",
-        json={"reason": "other"},
+        json={"reason": "competitor"},
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text

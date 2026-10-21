@@ -13,16 +13,25 @@ export type JobCloseReason =
   | "paused"
   | "filled_by_us"
   | "client_ghosted"
-  | "other";
+  | "other"
+  | "duplicate"
+  | "no_match";
 
+/**
+ * Etykiety wszystkich powodów — także „Inny”, którego nie da się już wybrać
+ * (21.10.2026), ale stare zamknięcia go noszą. Grupy i kolejność w oknie
+ * zamykania: `lib/job-close-reasons.ts`.
+ */
 export const JOB_CLOSE_REASONS: { value: JobCloseReason; label: string }[] = [
-  { value: "budget", label: "Brak budżetu" },
-  { value: "internal_hire", label: "Zatrudnili wewnętrznie" },
-  { value: "competitor", label: "Wybrali konkurencję" },
-  { value: "paused", label: "Wstrzymane / zamrożone" },
   { value: "filled_by_us", label: "Obsadzone przez nas" },
+  { value: "competitor", label: "Klient wybrał kandydata innej firmy" },
+  { value: "duplicate", label: "Duplikat albo założona przez pomyłkę" },
+  { value: "internal_hire", label: "Klient zatrudnił kogoś wewnętrznie" },
+  { value: "budget", label: "Klient anulował projekt / brak budżetu" },
+  { value: "paused", label: "Wstrzymana przez klienta" },
   { value: "client_ghosted", label: "Klient przestał odpowiadać" },
-  { value: "other", label: "Inny" },
+  { value: "no_match", label: "Nie znaleźliśmy kandydata" },
+  { value: "other", label: "Inny (do przejrzenia)" },
 ];
 
 export type Seniority = "junior" | "mid" | "senior" | "lead" | "architect";

@@ -1,6 +1,6 @@
 # Audyt 22.09.2026, druga runda — reguły po naprawie
 
-<!-- indeks: podgląd DOCX, CSP, limit ciała żądania, kontrola AI CV, automaty i retencja, MD, poczta zamówień -->
+<!-- indeks: podgląd DOCX, CSP, limit ciała żądania, kontrola AI CV, retencja, MD, poczta zamówień -->
 
 Raport: `docs/audit-2026-09-22-round2-completion-report.md`. Migracja `0351_audit_round2`.
 

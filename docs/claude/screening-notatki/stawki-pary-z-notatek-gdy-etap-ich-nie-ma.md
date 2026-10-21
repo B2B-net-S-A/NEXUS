@@ -1,5 +1,5 @@
 # Stawki pary z notatek, gdy etap ich nie ma (12.10.2026)
-<!-- indeks: etapy z Traffita bez kwot; stawka z karty i notatki wysyłki tylko jako podpowiedź -->
+<!-- indeks: stawka z karty i notatki wysyłki tylko jako podpowiedź -->
 
 Zgłoszenie Delivery Leada 12.10.2026: „chcę ponownie wysłać osobę do klienta,
 wchodzę w rekrutację z września i nie widzę, za ile ją wysłałam — czy dane się

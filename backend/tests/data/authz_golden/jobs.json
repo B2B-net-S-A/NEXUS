@@ -48,6 +48,7 @@
   "GET /api/jobs/{job_id}/request-history": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/jobs/{job_id}/requirement-proposal": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "PATCH /api/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "PATCH /api/jobs/{job_id}/close-reason": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
   "POST /api/jobs": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
   "POST /api/jobs/champion-profile/historical-matches": "PPDPDDDDPPPDDDDDDDDDDDDDDD",
   "POST /api/jobs/request-history/preview": "PPDPDDDDPPPDDDDDDDDDDDDDDD",
