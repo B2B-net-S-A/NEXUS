@@ -137,7 +137,13 @@ def _trip(amount: str) -> dict:
     }
 
 
-def _bonus(person: User, amount: str = "1500") -> dict:
+#: Podstawa premii w umowie — kartoteka testowa ma domyślnie formę B2B (0491).
+BASIS = "§ 6 ust. 2 umowy z 01.03.2025"
+
+
+def _bonus(
+    person: User, amount: str = "1500", *, basis: str | None = BASIS
+) -> dict:
     today = business_today()
     return {
         "kind": "bonus",
@@ -147,7 +153,18 @@ def _bonus(person: User, amount: str = "1500") -> dict:
         "beneficiary_user_id": person.id,
         "payout_year": today.year,
         "payout_month": today.month,
+        "contract_basis": basis,
     }
+
+
+async def _set_form(user: User, employment_type: str, *, pending: bool = False) -> None:
+    async with AsyncSessionLocal() as db:
+        profile = await db.scalar(
+            select(EmployeeProfile).where(EmployeeProfile.user_id == user.id)
+        )
+        profile.employment_type = employment_type
+        profile.employment_type_pending = pending
+        await db.commit()
 
 
 async def _notifications(user: User, ntype: NotificationType) -> list[Notification]:
@@ -254,6 +271,7 @@ async def test_bonus_goes_to_the_approver_and_lands_in_payroll_as_assigned(
     body = created.json()
     assert body["status"] == "pending_final"
     assert body["beneficiary_name"] == worker.name
+    assert body["contract_basis"] == BASIS
 
     # Osoba z premii nie widzi prośby, autor nie decyduje o własnej.
     hidden = await client.get(f"{BASE}/{body['id']}", headers=_headers(worker))
@@ -281,9 +299,12 @@ async def test_bonus_goes_to_the_approver_and_lands_in_payroll_as_assigned(
     assert bonus.assigned_by == ceo.id
     assert bonus.proposed_by == boss.id
     assert bonus.amount == Decimal("1500.00")
-    assert bonus.rule_snapshot == {"approval_request_id": body["id"]}
-    # Osoba z premii widzi stały opis, nie treść prośby.
-    assert bonus.description == "Premia poza umową"
+    assert bonus.rule_snapshot == {
+        "approval_request_id": body["id"],
+        "contract_basis": BASIS,
+    }
+    # Osoba z premii widzi stały opis z podstawą w umowie, nie treść prośby.
+    assert bonus.description == f"Premia poza umową · podstawa: {BASIS}"
     assert await _notifications(worker, NotificationType.hr_bonus_assigned)
 
 
@@ -330,6 +351,119 @@ async def test_bonus_only_from_supervisor_or_payroll_and_never_for_self(
         BASE, json=_bonus(colleague), headers=_headers(payroll)
     )
     assert from_payroll.status_code == 201, from_payroll.text
+
+
+@pytest.mark.asyncio
+async def test_b2b_bonus_without_contract_basis_is_refused(client, team) -> None:
+    worker, boss = team["worker"], team["boss"]
+    await _set_form(worker, "b2b")
+    people = (
+        await client.get(f"{BASE}/beneficiaries", headers=_headers(boss))
+    ).json()["items"]
+    assert {row["user_id"]: row["needs_contract_basis"] for row in people}[
+        worker.id
+    ] is True
+
+    missing = await client.post(
+        BASE, json=_bonus(worker, basis=None), headers=_headers(boss)
+    )
+    assert missing.status_code == 422
+    assert "B2B" in missing.json()["detail"]
+    blank = await client.post(
+        BASE, json=_bonus(worker, basis="   "), headers=_headers(boss)
+    )
+    assert blank.status_code == 422
+    # Bez punktu ani numeru aneksu to nie jest podstawa.
+    vague = await client.post(
+        BASE, json=_bonus(worker, basis="zgodnie z umową"), headers=_headers(boss)
+    )
+    assert vague.status_code == 422
+    async with AsyncSessionLocal() as db:
+        assert not list(
+            await db.scalars(
+                select(ApprovalRequest.id).where(
+                    ApprovalRequest.beneficiary_user_id == worker.id
+                )
+            )
+        )
+
+    created = await client.post(
+        BASE,
+        json=_bonus(worker, basis="  Aneks nr 3   z 15.10.2026 "),
+        headers=_headers(boss),
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["contract_basis"] == "Aneks nr 3 z 15.10.2026"
+
+    # Poprawka nie gubi wymogu: bez podstawy wraca 422, zgoda zostaje.
+    fixed = await client.put(
+        f"{BASE}/{created.json()['id']}",
+        json=_bonus(worker, basis=None),
+        headers=_headers(boss),
+    )
+    assert fixed.status_code == 422
+    detail = await client.get(
+        f"{BASE}/{created.json()['id']}", headers=_headers(team["ceo"])
+    )
+    assert detail.json()["contract_basis"] == "Aneks nr 3 z 15.10.2026"
+
+
+@pytest.mark.asyncio
+async def test_bonus_for_pending_form_needs_contract_basis_too(client, team) -> None:
+    worker, boss = team["worker"], team["boss"]
+    # Kartoteka założona z konta: forma „do uzupełnienia” liczy się jak B2B.
+    await _set_form(worker, "uop", pending=True)
+    missing = await client.post(
+        BASE, json=_bonus(worker, basis=None), headers=_headers(boss)
+    )
+    assert missing.status_code == 422
+    created = await client.post(BASE, json=_bonus(worker), headers=_headers(boss))
+    assert created.status_code == 201, created.text
+
+
+@pytest.mark.asyncio
+async def test_employment_and_mandate_bonus_need_no_contract_basis(
+    client, team
+) -> None:
+    worker, colleague, boss, ceo = (
+        team["worker"],
+        team["colleague"],
+        team["boss"],
+        team["ceo"],
+    )
+    await _set_form(worker, "uop")
+    await _set_form(colleague, "zlecenie")
+    people = (
+        await client.get(f"{BASE}/beneficiaries", headers=_headers(boss))
+    ).json()["items"]
+    needs = {row["user_id"]: row["needs_contract_basis"] for row in people}
+    assert needs[worker.id] is False and needs[colleague.id] is False
+
+    for person in (worker, colleague):
+        created = await client.post(
+            BASE, json=_bonus(person, basis=None), headers=_headers(boss)
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["contract_basis"] is None
+
+    approved = await client.post(
+        f"{BASE}/{created.json()['id']}/decide",
+        json={"action": "approve"},
+        headers=_headers(ceo),
+    )
+    assert approved.status_code == 200, approved.text
+    async with AsyncSessionLocal() as db:
+        request = await db.get(ApprovalRequest, created.json()["id"])
+        bonus = await db.get(HrBonus, request.bonus_id)
+    assert bonus.description == "Premia poza umową"
+    assert bonus.rule_snapshot == {"approval_request_id": request.id}
+
+
+@pytest.mark.asyncio
+async def test_contract_basis_only_on_bonus(client, team) -> None:
+    trip = {**_trip("500"), "contract_basis": BASIS}
+    refused = await client.post(BASE, json=trip, headers=_headers(team["worker"]))
+    assert refused.status_code == 422
 
 
 @pytest.mark.asyncio

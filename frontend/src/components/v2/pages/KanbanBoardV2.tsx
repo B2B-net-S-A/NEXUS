@@ -63,6 +63,7 @@ import {
 } from"@/lib/bulk-cv-download";
 import { cn, formatDate } from"@/lib/utils";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import { isPlainLeftClick } from "@/lib/plain-left-click";
 import { markerLabel } from "@/lib/employment-marker";
 import { eligibilityWarningBadges } from "@/lib/eligibility-reason-labels";
 import { encodeJobBackRef } from"@/lib/url-filters";
@@ -675,17 +676,6 @@ function NextActionRow({
  {advance}
  </div>
  );
-}
-
-/** Zwykły klik lewym przyciskiem — bez modyfikatorów „otwórz w nowej karcie". */
-export function isPlainLeftClick(e: {
- button: number;
- metaKey: boolean;
- ctrlKey: boolean;
- shiftKey: boolean;
- altKey: boolean;
-}): boolean {
- return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 }
 
 /** Ton chipu QC — tokeny, jak odznaki karty. */

@@ -23,11 +23,19 @@ vi.mock("@/components/champion/ChampionBriefView", () => ({
   ChampionBriefView: ({
     onEditBlock,
     onOpenTeam,
+    onEditClientTitle,
+    onEditClientReference,
   }: {
     onEditBlock?: (b: string) => void;
     onOpenTeam?: () => void;
+    onEditClientTitle?: () => void;
+    onEditClientReference?: () => void;
   }) => (
-    <div data-testid="brief">
+    <div
+      data-testid="brief"
+      data-edit-title={String(!!onEditClientTitle)}
+      data-edit-reference={String(!!onEditClientReference)}
+    >
       {onEditBlock ? (
         <button type="button" onClick={() => onEditBlock("search")}>
           edytuj czego szukamy
@@ -147,6 +155,17 @@ describe("ChampionWorkspace", () => {
     await userEvent.click(screen.getByRole("button", { name: "brak pytań" }));
     expect(screen.queryByTestId("drawer")).toBeNull();
     expect(onEditFull).toHaveBeenCalledWith("champion-section-screening");
+  });
+
+  it("„Zmień” przy nazwie od klienta tylko przy pełnej edycji, przy numerze — także przy edycji treści", () => {
+    const { unmount } = render(<Harness />);
+    expect(screen.getByTestId("brief")).toHaveAttribute("data-edit-title", "true");
+    expect(screen.getByTestId("brief")).toHaveAttribute("data-edit-reference", "true");
+    unmount();
+
+    render(<Harness canEditJob={false} />);
+    expect(screen.getByTestId("brief")).toHaveAttribute("data-edit-title", "false");
+    expect(screen.getByTestId("brief")).toHaveAttribute("data-edit-reference", "true");
   });
 
   it("„Kto prowadzi → Zespół” przechodzi do zakładki zespołu; stary link portali rozwija portale", async () => {

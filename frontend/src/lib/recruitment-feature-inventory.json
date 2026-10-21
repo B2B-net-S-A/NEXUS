@@ -708,7 +708,7 @@
    "area": "naglowek",
    "opis": "Zakładki „Tablica” | „Zlecenie i Champion” w nagłówku (29.09.2026); z pełnej listy „Do przejrzenia” wraca „Tablica”",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
-   "marker": "onViewChange(\"board\")",
+   "marker": "view=\"board\"",
    "v3_home": "nagłówek — zakładki widoku"
   },
   {
@@ -2606,6 +2606,22 @@
    "file": "components/v2/job-ad/AdChannels.tsx",
    "marker": "Opublikuj na stronie",
    "v3_home": "nagłówek → Ogłoszenie → kolumna „Gdzie publikujesz” → Strona kariery"
+  },
+  {
+   "id": "ad.career-queue",
+   "area": "lista",
+   "opis": "Strona kariery do uzupełnienia (21.10.2026): otwarte rekrutacje bez strony kariery, treść z nocy, „Opublikuj i następna”, „Popraw treść”, „Pomiń”, „Moje / Wszystkie”",
+   "file": "components/v2/job-ad/CareerQueue.tsx",
+   "marker": "Opublikuj i następna",
+   "v3_home": "Lista rekrutacji → „Strona kariery · N” → /jobs/strona-kariery"
+  },
+  {
+   "id": "list.career-queue-link",
+   "area": "lista",
+   "opis": "Przycisk „Strona kariery · N” na liście rekrutacji: ile otwartych rekrutacji osoby nie wisi na stronie kariery",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "CareerQueueLink",
+   "v3_home": "Lista rekrutacji → nagłówek"
   },
   {
    "id": "order.ad-publications",

@@ -194,6 +194,27 @@ class JobAdResponse(BaseModel):
     publications: list[AdPublicationRead] = Field(default_factory=list)
 
 
+class CareerQueueItem(BaseModel):
+    """Otwarta rekrutacja bez strony kariery (kolejka „Opublikuj i następna”)."""
+
+    job_id: int
+    title: str
+    city: Optional[str] = None
+    remote_policy: Optional[str] = None
+    delivery_lead_name: Optional[str] = None
+    opened_at: Optional[datetime] = None
+    # ready = treść czeka · template = złożona bez modelu · missing = brak treści
+    ad: Literal["ready", "template", "missing"] = "missing"
+
+
+class CareerQueueResponse(BaseModel):
+    scope: Literal["mine", "all"]
+    # Liczby dla obu zakresów — przełącznik i kafel pokazują je od razu.
+    mine_count: int
+    all_count: int
+    items: list[CareerQueueItem]
+
+
 class LangBlocksModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

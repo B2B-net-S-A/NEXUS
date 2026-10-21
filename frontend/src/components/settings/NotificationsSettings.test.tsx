@@ -71,9 +71,9 @@ beforeEach(() => {
 });
 
 describe("NotificationsSettings — zakładki według uprawnień", () => {
-  it("administrator widzi cztery zakładki", () => {
+  it("administrator w Systemie widzi trzy zakładki — bez „Moje” (są w „Moje konto”, 21.10.2026)", () => {
     renderScreen(ADMIN, "role");
-    expect(tabNames()).toEqual(["Moje", "Kto co dostaje", "Maile", "Reguły etapów"]);
+    expect(tabNames()).toEqual(["Kto co dostaje", "Maile", "Reguły etapów"]);
     expect(screen.getByRole("tab", { name: "Kto co dostaje" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -81,10 +81,14 @@ describe("NotificationsSettings — zakładki według uprawnień", () => {
     expect(screen.getByText("ekran: kto co dostaje")).toBeInTheDocument();
   });
 
-  it("rekruter widzi samo „Moje”, bez paska zakładek — także z cudzym `?sub=`", () => {
+  it("rekruter (bez zakładek firmowych) dostaje odesłanie do „Moje konto” — także z cudzym `?sub=`", () => {
     renderScreen(RECRUITER, "role", "sub=maile");
     expect(tabNames()).toEqual([]);
-    expect(screen.getByText("ekran: moje")).toBeInTheDocument();
+    expect(screen.queryByText("ekran: moje")).toBeNull();
+    expect(screen.getByRole("link", { name: "Moje konto" })).toHaveAttribute(
+      "href",
+      "/settings?item=my-notifications",
+    );
     expect(screen.queryByText("ekran: maile")).toBeNull();
     expect(screen.queryByText("ekran: kto co dostaje")).toBeNull();
   });
@@ -109,6 +113,15 @@ describe("NotificationsSettings — zakładki według uprawnień", () => {
     expect(availableNotificationTabs(null)).toEqual(["moje"]);
   });
 
+  it("System › Powiadomienia firmy bez zakładki „Moje” (21.10.2026 — są w „Moje konto”)", () => {
+    expect(
+      availableNotificationTabs(account("admin", { pipeline: "write", system_admin: "write" }), {
+        includeMine: false,
+      }),
+    ).toEqual(["role", "maile", "etapy"]);
+    expect(availableNotificationTabs(null, { includeMine: false })).toEqual([]);
+  });
+
   it("`?sub=` wybiera zakładkę, a nieznana wartość wraca do domyślnej", () => {
     renderScreen(ADMIN, "role", "sub=maile");
     expect(screen.getByText("ekran: maile")).toBeInTheDocument();
@@ -129,10 +142,11 @@ describe("NotificationsSettings — zakładki według uprawnień", () => {
     expect(window.location.search).toBe("?item=notifications");
   });
 
-  it("„tylko sobie” z zakładki Maile prowadzi do „Moje”", async () => {
-    const user = renderScreen(ADMIN, "role", "sub=maile");
+  it("„tylko sobie” z zakładki Maile prowadzi do „Moje” tylko tam, gdzie jest ta zakładka", async () => {
+    const user = renderScreen(ADMIN, "moje", "sub=maile");
     await user.click(screen.getByRole("button", { name: "tylko sobie" }));
     expect(screen.getByText("ekran: moje")).toBeInTheDocument();
-    expect(window.location.search).toBe("?item=notifications&sub=moje");
+    // „Moje” jest tu zakładką domyślną, więc adres jej nie niesie.
+    expect(window.location.search).toBe("?item=notifications");
   });
 });
