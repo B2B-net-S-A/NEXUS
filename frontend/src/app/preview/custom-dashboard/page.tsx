@@ -49,6 +49,7 @@ import {
   type MetricResult,
 } from "@/lib/api/dashboardMetrics";
 import { myPeopleSummaryQueryKey } from "@/lib/api/myPeople";
+import { ESIGN_MINE_KEY } from "@/lib/api/b2bEsign";
 import { MY_CLIENTS_CARDS_QUERY_KEY } from "@/components/v2/dashboard/MyClientsAlertsPanel";
 import {
   MY_RECRUITMENTS_QUERY_KEY,
@@ -418,6 +419,7 @@ const DL_FLOW: FlowBlock = {
   ],
   unsigned_contracts: [
     { id: 71, contract_number: "1734/2026", partner_name: "Kod i Chmura Jan Fikcyjny", client_name: "Bank Północny", created_at: daysAgo(4) },
+    { id: 72, contract_number: "1741/2026", partner_name: "Anna Przykładowa IT", client_name: "Telekom Zachód", created_at: daysAgo(3), esign_status: "sent" },
   ],
   order_mail_review: 2,
 };
@@ -925,6 +927,26 @@ function seededClient(
     items: [],
   });
   qc.setQueryData(["competence-categories-active"], []);
+  // Podpis w NEXUSIE (etap 1b): pas „Czeka na Twój podpis za B2B Network”.
+  qc.setQueryData(ESIGN_MINE_KEY, [
+    {
+      id: 31,
+      generated_contract_id: 72,
+      status: "contractor_signed",
+      contractor_name: "Ewa Przykładowa",
+      contractor_email: null,
+      company_signer_id: 1,
+      company_signer_name: "Osoba Testowa",
+      sent_at: daysAgo(3),
+      expires_at: daysAgo(-11),
+      contractor_signed_at: daysAgo(0),
+      completed_at: null,
+      closed_at: null,
+      close_reason: null,
+      contract_number: "1741/2026",
+      client_name: "Telekom Zachód",
+    },
+  ]);
   return qc;
 }
 

@@ -2130,7 +2130,7 @@ export function StatusHistoryDialog({
           <DialogTitle>Historia statusów {row.contract_number}</DialogTitle>
           <DialogDescription>
             Zapis wszystkich zmian statusu tej umowy wraz z datą i powodem
-            zakończenia projektu.
+            zakończenia projektu, a także wysyłek do podpisu w NEXUSIE.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -2158,7 +2158,21 @@ export function StatusHistoryDialog({
             </p>
           ) : (
             <ol className="space-y-3">
-              {(q.data ?? []).map((e) => (
+              {(q.data ?? []).map((e) =>
+                e.kind === "esign" ? (
+                  <li key={e.id} className="border-l-2 border-primary/40 pl-3">
+                    <p className="text-sm font-medium">{e.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {[
+                        "Podpis w NEXUSIE",
+                        e.changed_by_name,
+                        e.created_at ? formatDateTimePl(e.created_at) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  </li>
+                ) : (
                 <li key={e.id} className="border-l-2 border-border pl-3">
                   <p className="text-sm font-medium">
                     {e.from_status
@@ -2204,7 +2218,8 @@ export function StatusHistoryDialog({
                       .join(" · ")}
                   </p>
                 </li>
-              ))}
+                ),
+              )}
             </ol>
           )}
         </DialogBody>

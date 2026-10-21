@@ -196,3 +196,46 @@ describe("DockContractSteps", () => {
     expect(screen.queryByTestId("dock-hire-offline")).toBeNull();
   });
 });
+
+describe("DockContractSteps przy umowie w podpisie w NEXUSIE (etap 1b)", () => {
+  it("pokazuje kroki podpisu i zamiast ręcznego „Zatrudniony” mówi, jak go odblokować", async () => {
+    generated.mockResolvedValue([
+      {
+        ...ROW,
+        esign: {
+          request_id: 4,
+          status: "contractor_signed",
+          contractor_signed_at: "2026-10-21T10:14:00Z",
+          completed_at: null,
+          expires_at: "2026-11-04T10:00:00Z",
+          company_signer_name: "Olaf",
+        },
+      },
+    ]);
+    renderSteps({ onMarkHired: vi.fn() });
+    expect(await screen.findByText("W NEXUSIE")).toBeInTheDocument();
+    expect(screen.getByText(/Kontraktor · 21\.10/)).toBeInTheDocument();
+    expect(screen.getByText(/NEXUS potwierdzi podpis sam/)).toBeInTheDocument();
+    expect(screen.getByTestId("dock-hire-esign-lock")).toHaveTextContent("Przejdź na zwykłą drogę");
+    expect(screen.queryByTestId("dock-hire-offline")).not.toBeInTheDocument();
+  });
+
+  it("wycofana wysyłka wraca do zwykłej drogi", async () => {
+    generated.mockResolvedValue([
+      {
+        ...ROW,
+        esign: {
+          request_id: 4,
+          status: "withdrawn",
+          contractor_signed_at: null,
+          completed_at: null,
+          expires_at: "2026-11-04T10:00:00Z",
+          company_signer_name: "Olaf",
+        },
+      },
+    ]);
+    renderSteps({ onMarkHired: vi.fn() });
+    expect(await screen.findByTestId("dock-hire-offline")).toBeInTheDocument();
+    expect(screen.queryByTestId("dock-hire-esign-lock")).not.toBeInTheDocument();
+  });
+});
