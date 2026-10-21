@@ -564,15 +564,16 @@ async def test_md_starts_at_21_and_escalates_on_order_burn_rate(monkeypatch):
     assert rows[-1].dedupe_key.endswith(":high")
     assert (rows[-1].payload or {}).get("email") is True
 
-    async with AsyncSessionLocal() as db:
-        line = await db.get(ClientOrder, line_id)
-        line.md_remaining = Decimal("1")
-        await db.commit()
-
+    # Treść podaje dni z tempa, nie stałą progu (7): 1 MD przy 1 MD/dzień.
+    # Osobna linia — ta sama linia na tym samym etapie nie dostaje nowej karty.
+    last_md_line = await _seed_md_line(client_id, contract_id, remaining="1")
     await _run(rule_md_budget_low, monkeypatch, _TODAY)
     rows = [
-        r for r in await _alerts(user_id, ALERT_MD_BUDGET_LOW) if r.order_id == line_id
+        r
+        for r in await _alerts(user_id, ALERT_MD_BUDGET_LOW)
+        if r.order_id == last_md_line
     ]
+    assert rows[-1].priority == "high"
     assert "ok. 1 dzień roboczy pracy" in rows[-1].message, rows[-1].message
 
 
