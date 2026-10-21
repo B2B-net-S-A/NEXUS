@@ -17,6 +17,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete, select
 
+from tests.test_linkedin_assign_eligibility import patch_linkedin_sync  # noqa: F401
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -260,5 +262,41 @@ async def test_move_of_a_new_person_needs_the_same_confirmation(
         row = await _process_meta(world["job_id"], person)
         assert row is not None
         assert row.entry_meta["off_limits"]["how"] == "left_company"
+    finally:
+        await _cleanup(world)
+
+
+async def test_linkedin_extension_saves_person_but_skips_assignment_with_reason(
+    app_client: AsyncClient,
+    patch_linkedin_sync: None,  # noqa: F811 — bez sieci (Proxycurl)
+) -> None:
+    """Wtyczka nie ma okna potwierdzenia: 409 wywróciłby zapis osoby, więc
+    przypisanie jest pomijane z polskim powodem (jak weto managera)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+
+    world = await _seed()
+    person = world["employed"][0]
+    slug = f"off-limits-{uuid.uuid4().hex[:10]}"
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, person)
+        candidate.linkedin = f"https://www.linkedin.com/in/{slug}"
+        await db.commit()
+    try:
+        resp = await app_client.post(
+            "/api/candidates/from-linkedin",
+            headers=world["headers"],
+            json={
+                "linkedin_url": f"https://www.linkedin.com/in/{slug}/",
+                "job_id": world["job_id"],
+                "stage": "new",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["candidate_id"] == person
+        assert body["assigned_to_job_id"] is None
+        assert "nie wyciągamy ludzi" in body["assignment_skipped_reason"]
+        assert await _process_meta(world["job_id"], person) is None
     finally:
         await _cleanup(world)

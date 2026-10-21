@@ -50,5 +50,9 @@ https://claude.ai/artifact/1HLNAApCydpeY1nT8fzLre):
   raz. „Nie”/zamknięcie okna = błąd z czytelnym zdaniem
   (`detail.code = off_limits_declined`), pokazywany przez `apiErrorMessage`.
   Sposoby zgłoszenia: `lib/off-limits.ts` ↔ `HOW_LABELS` w serwisie.
+- **Wtyczka LinkedIn** (`POST /api/candidates/from-linkedin`, `fetch` bez
+  okna) nie dostaje 409: osoba się zapisuje, przypisanie jest pomijane
+  z `assignment_skipped_reason` („dodaj ją do rekrutacji w NEXUSIE
+  i potwierdź…”) — jak przy wecie managera.
 - Potwierdzenie to deklaracja człowieka (z nazwiskiem i datą), nie zabezpieczenie
   — nagłówek da się wysłać ręcznie; dlatego zostaje ślad przy procesie.

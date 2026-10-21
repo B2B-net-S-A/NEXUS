@@ -139,6 +139,19 @@ class OffLimitsConfirmationRequired(Exception):
         }
 
 
+def extension_skip_reason(exc: OffLimitsConfirmationRequired) -> str:
+    """Powód dla wtyczki LinkedIn, która nie ma okna potwierdzenia.
+
+    Wtyczka pokazuje go przy zapisanej osobie zamiast przypisania — 409
+    wywróciłby cały zapis, a ona nie ma jak go ponowić z nagłówkiem."""
+    client = exc.people[0].hit.client_name if exc.people else "klienta"
+    return (
+        f"Pracuje w firmie {client} — stamtąd nie wyciągamy ludzi. Osoba jest "
+        "zapisana w bazie; dodaj ją do rekrutacji w NEXUSIE i potwierdź, że "
+        "sam(a) się do nas zgłosił(a)."
+    )
+
+
 # --- potwierdzenia z nagłówka żądania ---------------------------------------
 
 
