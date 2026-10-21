@@ -138,13 +138,11 @@ async def test_ai_sources_says_which_file_the_current_cv_came_from(
                 CandidateStageCV.candidate_stage_id == world["stage_id"]
             )
         )
-        # Kopia etapu i plik profilu mają te same bajty — ten sam SHA.
-        if original.content_sha256 is None or row.original_cv_sha256 is None:
-            import hashlib
-
-            sha = hashlib.sha256(original.file_content or b"").hexdigest()
-            original.content_sha256 = sha
-            row.original_cv_sha256 = sha
+        # Kopia etapu i plik profilu to ten sam plik — ten sam SHA. Bez odczytu
+        # `file_content` (kolumna `deferred` — doczytanie w async = MissingGreenlet).
+        sha = "e" * 64
+        original.content_sha256 = sha
+        row.original_cv_sha256 = sha
         original_id = original.id
         original_filename = original.filename
         generated = CvGeneratedDocument(
