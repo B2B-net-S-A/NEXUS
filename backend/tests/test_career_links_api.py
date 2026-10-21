@@ -1726,6 +1726,65 @@ async def test_board_without_lead_takes_the_newest_active_link(api, board):
     assert newer["slug"] in slugs and older["slug"] not in slugs
 
 
+async def test_board_without_lead_and_live_link_gets_a_head_of_recruitment_link(
+    api, board
+):
+    """Decyzja Artura 21.10.2026: wygasły link i brak prowadzącego nie zdejmują
+    rekrutacji z tablicy — link zakłada się na Head of Recruitment."""
+    from datetime import datetime, timedelta, timezone
+
+    _, headers, job_id = await _owner_with_job(api)
+    expired = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=f"career-hor-{uuid.uuid4().hex[:8]}@example.com",
+                password_hash=hash_password("T3st_hor!Car"),
+                name="Olga Rekrutacyjna",
+                role=UserRole.head_of_recruitment,
+                is_active=True,
+            )
+        )
+        job = await db.get(Job, job_id)
+        job.recruiter_id = None
+        row = await db.scalar(
+            select(CandidateInviteLink).where(
+                CandidateInviteLink.slug == expired["slug"]
+            )
+        )
+        row.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+        await db.commit()
+
+    cards = {j["slug"] for j in (await board())["jobs"]}
+    async with AsyncSessionLocal() as db:
+        links = (
+            await db.scalars(
+                select(CandidateInviteLink).where(
+                    CandidateInviteLink.job_id == job_id,
+                    CandidateInviteLink.slug.in_(cards),
+                )
+            )
+        ).all()
+        assert len(links) == 1
+        owner = await db.get(User, links[0].created_by)
+    assert links[0].slug != expired["slug"] and links[0].expires_at is None
+    assert owner.is_active and owner.has_role(UserRole.head_of_recruitment)
+    # Drugi odczyt nie zakłada kolejnego linku.
+    await board()
+    async with AsyncSessionLocal() as db:
+        count = len(
+            (
+                await db.scalars(
+                    select(CandidateInviteLink).where(
+                        CandidateInviteLink.job_id == job_id
+                    )
+                )
+            ).all()
+        )
+    assert count == 2
+
+
 async def test_board_cv_link_belongs_to_head_of_recruitment(api, board):
     async with AsyncSessionLocal() as db:
         db.add(
@@ -1811,13 +1870,27 @@ async def test_pick_board_link_rules():
         )
 
     other_new, lead_old = link(2, "other-new"), link(1, "lead-old")
-    assert _pick_link([other_new, lead_old], 1, now) == (lead_old, False)
-    assert _pick_link([other_new], 1, now) == (None, True)
+    assert _pick_link([other_new, lead_old], 1, now) == (lead_old, None)
+    assert _pick_link([other_new], 1, now) == (None, 1)
     lead_off = link(1, "lead-off", revoked=True)
-    assert _pick_link([lead_off, other_new], 1, now) == (other_new, False)
-    assert _pick_link([link(1, "x", expired=True)], 1, now) == (None, False)
-    assert _pick_link([other_new, lead_old], None, now) == (other_new, False)
-    assert _pick_link([], None, now) == (None, False)
+    assert _pick_link([lead_off, other_new], 1, now) == (other_new, None)
+    assert _pick_link([lead_off], 1, now) == (None, None)
+    # Wygasły link prowadzącego to nie „wyłączył” — dostaje nowy (decyzja
+    # Artura 21.10.2026: tablica nie gubi rekrutacji przez wygasły link).
+    lead_expired = link(1, "x", expired=True)
+    assert _pick_link([lead_expired], 1, now) == (None, 1)
+    assert _pick_link([lead_expired, other_new], 1, now) == (None, 1)
+    assert _pick_link([other_new, lead_old], None, now) == (other_new, None)
+    # Bez prowadzącego i bez aktywnego linku — link Head of Recruitment.
+    assert _pick_link([], None, now) == (None, None)
+    assert _pick_link([], None, now, fallback_id=9) == (None, 9)
+    assert _pick_link([link(2, "old", expired=True)], None, now, fallback_id=9) == (
+        None,
+        9,
+    )
+    assert _pick_link([other_new], None, now, fallback_id=9) == (other_new, None)
+    hor_off = link(9, "hor-off", revoked=True)
+    assert _pick_link([hor_off], None, now, fallback_id=9) == (None, None)
 
 
 async def test_every_link_of_a_job_points_google_to_one_canonical_slug(api, board):

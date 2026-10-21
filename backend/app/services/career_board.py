@@ -95,7 +95,8 @@ async def _lead_id(db: AsyncSession, job: Job, users: dict[int, User]) -> Option
 async def _new_job_link(
     db: AsyncSession, job: Job, owner_id: int, title: str
 ) -> CandidateInviteLink:
-    """Link rekrutacji prowadzącego — jak „Udostępnij”, tylko bez okna.
+    """Link rekrutacji prowadzącego (albo Head of Recruitment, gdy nikt nie
+    prowadzi) — jak „Udostępnij”, tylko bez okna.
 
     Przypisanie priorytetowe zamrażamy tak samo jak ``POST /api/invite-links``
     (gałąź bez wyjątku): aktywny członek planu dostaje swoje przypisanie.
@@ -144,7 +145,7 @@ async def _new_job_link(
         payload={"slug": link.slug, "via": "career_board"},
     )
     logger.info(
-        "career_board: utworzono link rekrutacji %s dla prowadzącego %s",
+        "career_board: utworzono link rekrutacji %s dla osoby %s",
         job.id,
         owner_id,
     )
@@ -152,32 +153,54 @@ async def _new_job_link(
 
 
 def _pick_link(
-    links: list[CandidateInviteLink], lead_id: Optional[int], now: datetime
-) -> tuple[Optional[CandidateInviteLink], bool]:
-    """``(link karty, czy utworzyć link prowadzącego)``.
+    links: list[CandidateInviteLink],
+    lead_id: Optional[int],
+    now: datetime,
+    *,
+    fallback_id: Optional[int] = None,
+) -> tuple[Optional[CandidateInviteLink], Optional[int]]:
+    """``(link karty, czyj link założyć)`` — najwyżej jedno z dwóch.
 
-    Kolejność: aktywny link prowadzącego → nowy link prowadzącego, który nigdy
-    nie miał linku do tej rekrutacji → najnowszy aktywny link rekrutacji.
+    Kolejność: aktywny link prowadzącego → nowy link prowadzącego, gdy nie ma
+    aktywnego, a sam żadnego nie wyłączył (nigdy nie miał albo wygasł) →
+    najnowszy aktywny link rekrutacji → bez prowadzącego nowy link Head of
+    Recruitment (``fallback_id``), o ile ten swojego nie wyłączył. Wyłączony
+    link to decyzja człowieka; wygasły nie — decyzja Artura 21.10.2026:
+    tablica nie gubi rekrutacji przez wygasły link albo brak prowadzącego.
     ``links`` są posortowane od najnowszego.
     """
     if lead_id is not None:
         own = [link for link in links if link.created_by == lead_id]
         for link in own:
             if _active(link, now):
-                return link, False
-        if not own:
-            return None, True
+                return link, None
+        if not any(link.revoked for link in own):
+            return None, lead_id
     for link in links:
         if _active(link, now):
-            return link, False
-    return None, False
+            return link, None
+    if lead_id is None and fallback_id is not None:
+        if not any(link.revoked for link in links if link.created_by == fallback_id):
+            return None, fallback_id
+    return None, None
+
+
+async def _first_hor_id(db: AsyncSession) -> Optional[int]:
+    """Head of Recruitment dla rekrutacji bez prowadzącego — jak „Zostaw CV”:
+    pierwszy aktywny (najniższe id)."""
+    return await db.scalar(
+        select(User.id)
+        .where(User.is_active.is_(True), _is_hor_clause())
+        .order_by(User.id)
+        .limit(1)
+    )
 
 
 async def canonical_job_slug(db: AsyncSession, job: Job) -> Optional[str]:
     """Slug linku, pod którym rekrutacja stoi (albo stanie) na tablicy.
 
     Ta sama reguła co karta tablicy (``_pick_link``), ale bez zakładania linku:
-    gdy prowadzący nie ma jeszcze swojego, bierzemy najnowszy aktywny link
+    gdy tablica dopiero założy link, bierzemy najnowszy aktywny link
     rekrutacji. Strona ``/r/<slug>`` podaje go jako canonical i identyfikator
     JobPosting — jedna rekrutacja, wiele linków, jedna oferta w Google (audyt
     21.10.2026).
@@ -195,8 +218,8 @@ async def canonical_job_slug(db: AsyncSession, job: Job) -> Optional[str]:
     )
     now = _now()
     lead_id = await _lead_id(db, job, {})
-    link, create = _pick_link(links, lead_id, now)
-    if link is None and create:
+    link, _owner = _pick_link(links, lead_id, now)
+    if link is None:
         link = next((item for item in links if _active(item, now)), None)
     return link.slug if link is not None else None
 
@@ -244,6 +267,7 @@ async def board_jobs(db: AsyncSession) -> list[dict[str, Any]]:
     now = _now()
     users: dict[int, User] = {}
     names_cache: dict[Optional[int], list[str]] = {}
+    hor_id = await _first_hor_id(db)
     locked = False
     cards: list[dict[str, Any]] = []
     for job, profile in rows:
@@ -278,8 +302,8 @@ async def board_jobs(db: AsyncSession) -> list[dict[str, Any]]:
             continue
         links = links_by_job.get(job.id, [])
         lead_id = await _lead_id(db, job, users)
-        link, create = _pick_link(links, lead_id, now)
-        if create:
+        link, owner_id = _pick_link(links, lead_id, now, fallback_id=hor_id)
+        if owner_id is not None:
             if not locked:
                 await db.execute(
                     text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
@@ -293,15 +317,15 @@ async def board_jobs(db: AsyncSession) -> list[dict[str, Any]]:
                     .where(
                         CandidateInviteLink.kind == "job",
                         CandidateInviteLink.job_id == job.id,
-                        CandidateInviteLink.created_by == lead_id,
+                        CandidateInviteLink.created_by == owner_id,
                         CandidateInviteLink.slug.is_not(None),
                     )
                     .order_by(CandidateInviteLink.created_at.desc())
                 )
             ).all()
-            link, create = _pick_link(list(fresh), lead_id, now)
-            if create:
-                link = await _new_job_link(db, job, lead_id, version.title)
+            link = next((item for item in fresh if _active(item, now)), None)
+            if link is None:
+                link = await _new_job_link(db, job, owner_id, version.title)
         if link is None:
             continue
         owner = users.get(link.created_by) or await db.get(User, link.created_by)
