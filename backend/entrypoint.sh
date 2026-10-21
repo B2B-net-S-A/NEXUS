@@ -905,8 +905,11 @@ try:
     from app.services.b2b_documents import schema_sql as _b2b_docs
 
     _ENUM_STATEMENTS.extend(_b2b_docs.ENUM_DDL)
-    _B2B_DOCUMENTS_DDL = list(_b2b_docs.TABLE_DDL) + list(
-        _b2b_docs.ANNEX_GENERATOR_DDL
+    # 0503: CHECK typów na nowo — CREATE TABLE IF NOT EXISTS go nie poszerza.
+    _B2B_DOCUMENTS_DDL = (
+        list(_b2b_docs.TABLE_DDL)
+        + list(_b2b_docs.ANNEX_GENERATOR_DDL)
+        + list(_b2b_docs.TYPE_CHECK_DDL)
     )
     _B2B_DOCUMENTS_BACKFILL = list(_b2b_docs.BACKFILL_DDL)
 except Exception as _b2b_docs_err:  # noqa: BLE001

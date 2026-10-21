@@ -118,12 +118,18 @@ from app.services.b2b_documents.registry import (
 from app.services.b2b_documents.render import (
     render_docx,
     render_html,
+    stored_or_current_key,
     template_key,
 )
+from app.services.cv_pdf_preview import PdfPreviewUnavailable, pdf_from_docx
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 RATE_ANNEX_TYPE = "annex_rate_change"
+
+#: Kara umowna z wzoru umowy o udziale w procesie rekrutacyjnym (10 000 zł) —
+#: podpowiedź formularza, człowiek może ją zmienić.
+PARTICIPATION_PENALTY_DEFAULT = 10000
 
 
 # ── schematy ─────────────────────────────────────────────────────────────────
@@ -484,12 +490,22 @@ def _docx_response(data: bytes, filename: str, doc_id: int | None) -> Response:
     return Response(content=data, media_type=_DOCX_MEDIA, headers=headers)
 
 
+def _current_key(doc_type: DocumentType, language: str) -> str:
+    """Klucz szablonu NOWEGO dokumentu — bieżąca rewizja wzoru."""
+    return template_key(doc_type.key, language, doc_type.template_revision)
+
+
 async def _render_bytes(
     doc_type: DocumentType,
     language: str,
     context: dict[str, Any],
+    *,
+    stored_key: str | None = None,
 ) -> bytes:
-    key = template_key(doc_type.key, language)
+    """DOCX dokumentu. ``stored_key`` = klucz z wiersza wydanego dokumentu:
+    ponowne pobranie i plik do kontraktu idą wzorem, z którego dokument
+    wydano, a nie bieżącą rewizją (21.10.2026)."""
+    key = stored_or_current_key(stored_key, _current_key(doc_type, language))
     try:
         return await run_in_threadpool(render_docx, key, context)
     except FileNotFoundError as exc:
@@ -522,21 +538,25 @@ async def _resolve_subject(
     elif doc_type.parent == "b2b" and not doc_type.allows_external:
         raise HTTPException(status_code=422, detail="Wybierz umowę bazową z rejestru.")
 
-    if doc_type.key == "preliminary_cez":
+    if doc_type.family == "preliminary":
         if request.candidate_id is None or request.job_id is None:
             raise HTTPException(
                 status_code=422,
-                detail="Wybierz kandydata i rekrutację Centrum e-Zdrowia.",
+                detail="Wybierz kandydata i rekrutację, której dotyczy umowa.",
             )
         job = await _load_legal_scoped_job(db, user, request.job_id, write=True)
         _, job = await _validate_candidate_job_link(
             db, candidate_id=request.candidate_id, job_id=job.id
         )
-        if job.client_id != ezdrowie.EZDROWIE_CLIENT_ID:
+        if doc_type not in _preliminary_types_for(job.client_id):
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Umowa przedwstępna dotyczy wyłącznie rekrutacji Centrum e-Zdrowia."
+                    "Umowa przedwstępna Centrum e-Zdrowia dotyczy wyłącznie jego "
+                    "rekrutacji."
+                    if doc_type.preliminary_scope == "cez"
+                    else "W rekrutacji Centrum e-Zdrowia wystaw umowę przedwstępną "
+                    "Centrum e-Zdrowia."
                 ),
             )
         links.update(client_id=job.client_id)
@@ -582,6 +602,19 @@ async def _resolve_subject(
         links.update(client_id=client.id)
     base = _with_value_overrides(doc_type, await _base_info(db, parent), request.values)
     return parent, base, links
+
+
+def _preliminary_types_for(client_id: int | None) -> list[DocumentType]:
+    """Umowy przedwstępne dozwolone u klienta (decyzja Artura, 21.10.2026):
+    Centrum e-Zdrowia ma własny wzór, każdy inny klient — umowę o udziale
+    w procesie rekrutacyjnym (kandydat z działalnością albo osoba fizyczna).
+    Stała czytana przy wywołaniu — testy podmieniają ``EZDROWIE_CLIENT_ID``."""
+    scope = (
+        "cez"
+        if client_id is not None and client_id == ezdrowie.EZDROWIE_CLIENT_ID
+        else "general"
+    )
+    return [t for t in TYPES.values() if t.preliminary_scope == scope]
 
 
 def _takes_contract(doc_type: DocumentType) -> bool:
@@ -1531,6 +1564,37 @@ async def document_subjects(
     return subjects
 
 
+@router.get("/documents/preliminary-options")
+async def preliminary_options(
+    current_user: B2BGeneratorAccess,
+    candidate_id: int = Query(...),
+    job_id: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Umowy przedwstępne, które wolno wystawić w tej rekrutacji (po jej
+    kliencie): Centrum e-Zdrowia — własny wzór, inni klienci — umowa o udziale
+    w procesie rekrutacyjnym. Dostęp jak przy prefillu: przez rekrutację."""
+    job = await _load_legal_scoped_job(db, current_user, job_id, write=True)
+    await _validate_candidate_job_link(db, candidate_id=candidate_id, job_id=job.id)
+    allowed = _preliminary_types_for(job.client_id)
+    return {
+        "client_id": job.client_id,
+        "types": [
+            {
+                "key": t.key,
+                "label": t.label,
+                "default_validity_days": t.default_validity_days,
+                "b2b_term_business_days": t.b2b_term_business_days,
+            }
+            for t in allowed
+        ],
+        "default_validity_days": allowed[0].default_validity_days if allowed else None,
+        "b2b_term_business_days": allowed[0].b2b_term_business_days
+        if allowed
+        else None,
+    }
+
+
 @router.get("/documents/prefill")
 async def document_prefill(
     current_user: B2BGeneratorAccess,
@@ -1547,6 +1611,7 @@ async def document_prefill(
     values: dict[str, Any] = {"document_date": today.isoformat()}
     parent: B2BGeneratedContract | None = None
     contract: Contract | None = None
+    job = None
     if parent_generated_contract_id is not None:
         parent = await _load_parent(db, parent_generated_contract_id)
         await _authorize_parent(db, current_user, parent)
@@ -1637,7 +1702,24 @@ async def document_prefill(
     if "new_start_date_mode" in field_keys:
         values["new_start_date_mode"] = base.start_date_mode or "exact"
     if "valid_until" in field_keys:
-        values["valid_until"] = (today + timedelta(days=60)).isoformat()
+        days = doc_type.default_validity_days or 60
+        values["valid_until"] = (today + timedelta(days=days)).isoformat()
+    if "penalty_amount" in field_keys:
+        values["penalty_amount"] = PARTICIPATION_PENALTY_DEFAULT
+    if "project_label" in field_keys and job is not None:
+        client = await db.get(Client, job.client_id) if job.client_id else None
+        label = " — ".join(
+            part
+            for part in (
+                (client.display_name or client.name or "").strip()
+                if client is not None
+                else "",
+                (job.title or "").strip(),
+            )
+            if part
+        )
+        if label:
+            values["project_label"] = label
     if "entity_type" in field_keys:
         values["entity_type"] = "sole_trader"
     if "base_signing_date" in field_keys and base.signing_date:
@@ -1804,7 +1886,7 @@ async def preview_document(
     context = _context(doc_type, values, language, base, request.refs)
     try:
         html = await run_in_threadpool(
-            render_html, template_key(doc_type.key, language), context
+            render_html, _current_key(doc_type, language), context
         )
     except FileNotFoundError as exc:
         raise HTTPException(
@@ -1877,7 +1959,7 @@ async def create_document(
             "refs": request.refs,
             "base": _base_snapshot(base),
         },
-        template_key=template_key(doc_type.key, language),
+        template_key=_current_key(doc_type, language),
         created_by=current_user.id,
         **links,
     )
@@ -2087,18 +2169,16 @@ def _legacy_form_values(
     return out
 
 
-@router.post("/documents/{doc_id}/docx")
-async def redownload_document(
-    doc_id: int,
-    body: SensitiveValues,
-    current_user: B2BGeneratorAccess,
-    db: AsyncSession = Depends(get_db),
-):
-    """Pobierz ponownie. Dla dokumentów z danymi wrażliwymi body niesie te dane
-    (nie przechowujemy ich) — bez nich 422 z listą pól."""
-    _require_contract_generation(current_user)
-    doc, doc_type, parent = await _load_document(db, current_user, doc_id)
-    await _authorize_document_write(db, current_user, doc, parent)
+async def _issued_document_bytes(
+    db: AsyncSession, user: User, doc_id: int, body: SensitiveValues
+) -> tuple[B2BContractDocument, DocumentType, dict[str, Any], bytes]:
+    """DOCX wydanego dokumentu jego własnym wzorem (zapisany ``template_key``).
+
+    Dla dokumentów z danymi wrażliwymi body niesie te dane (nie
+    przechowujemy ich) — bez nich 422 z listą pól."""
+    _require_contract_generation(user)
+    doc, doc_type, parent = await _load_document(db, user, doc_id)
+    await _authorize_document_write(db, user, doc, parent)
     payload = doc.render_payload or {}
     values = {**(payload.get("values") or {})}
     supplied = {k: v for k, v in body.values.items() if k in doc_type.sensitive_keys}
@@ -2122,8 +2202,56 @@ async def redownload_document(
         )
     base = _base_from_snapshot(payload.get("base"))
     context = _context(doc_type, values, doc.language, base, payload.get("refs"))
-    data = await _render_bytes(doc_type, doc.language, context)
+    data = await _render_bytes(
+        doc_type, doc.language, context, stored_key=doc.template_key
+    )
+    return doc, doc_type, values, data
+
+
+@router.post("/documents/{doc_id}/docx")
+async def redownload_document(
+    doc_id: int,
+    body: SensitiveValues,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pobierz ponownie — tym samym wzorem, z którego dokument wydano."""
+    doc, doc_type, values, data = await _issued_document_bytes(
+        db, current_user, doc_id, body
+    )
     return _docx_response(data, _filename(doc_type, values, doc.document_date), doc.id)
+
+
+#: Odpowiedź, gdy LibreOffice nie zrobił PDF-u — DOCX działa zawsze.
+PDF_UNAVAILABLE = "Nie udało się przygotować PDF — pobierz DOCX."
+
+
+@router.post("/documents/{doc_id}/pdf")
+async def document_pdf(
+    doc_id: int,
+    body: SensitiveValues,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """PDF wydanego dokumentu — ten sam plik Word co „Pobierz DOCX”,
+    zamieniony przez LibreOffice (``cv_pdf_preview``). Bramki jak przy DOCX."""
+    doc, doc_type, values, data = await _issued_document_bytes(
+        db, current_user, doc_id, body
+    )
+    try:
+        pdf = await pdf_from_docx(data)
+    except PdfPreviewUnavailable as exc:
+        raise HTTPException(status_code=503, detail=PDF_UNAVAILABLE) from exc
+    filename = _filename(doc_type, values, doc.document_date).removesuffix(".docx")
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}.pdf"',
+            "Access-Control-Expose-Headers": "Content-Disposition, X-Document-Id",
+            "X-Document-Id": str(doc.id),
+        },
+    )
 
 
 @router.post("/documents/{doc_id}/rerender")
@@ -2160,7 +2288,7 @@ async def rerender_document(
     context = _context(doc_type, values, language, base, request.refs)
     data = await _render_bytes(doc_type, language, context)
     doc.language = language
-    doc.template_key = template_key(doc_type.key, language)
+    doc.template_key = _current_key(doc_type, language)
     doc.document_date = _date(values.get("document_date")) or doc.document_date
     previous = doc.render_payload or {}
     payload: dict[str, Any] = {
@@ -2341,7 +2469,9 @@ async def confirm_document_signed(
     if complete:
         base = _base_from_snapshot(payload.get("base"))
         context = _context(doc_type, values, doc.language, base, payload.get("refs"))
-        data = await _render_bytes(doc_type, doc.language, context)
+        data = await _render_bytes(
+            doc_type, doc.language, context, stored_key=doc.template_key
+        )
     await effects.apply(db, doc, doc_type, parent, user=current_user, docx=data)
     doc.signature_status = "signed_both"
     doc.status = "signed"
