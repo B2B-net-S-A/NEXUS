@@ -57,3 +57,17 @@ elementy i przeniesienie starych notatek (osobny PR).
   `(?<!\p{L})…(?!\p{L})`.
 - Uprawnienia jak zapis debriefu: `RecruitmentAssessmentWriteAccess`, rekruter
   pary albo członek zespołu rekrutacji; para spoza procesu = 404.
+- **Powrót na „Rozmowę” nie pyta o termin (audyt 21.10.2026).** „Cofnij
+  akceptację klienta” woła `requestMove(…, { skipInterviewDate: true })`,
+  a `usePipelineMove` sam pomija „Kiedy rozmowa u klienta?” przy powrocie
+  z niezamkniętej kolumny za „Rozmową” (`pipeline-move-dialog.movesBackTo`)
+  — karta była już na rozmowie. Ruch naprzód bez terminu pyta jak dotąd,
+  także po odbytej rozmowie (kolejna runda), a przywrócenie z „Zamkniętych”
+  też pyta.
+- **Import pytań ze starych notatek** (`scripts/import_note_client_questions.py`):
+  notatka bez `job_id` trafia do pary tylko, gdy kandydat ma w oknie dokładnie
+  jedną parę po wejściu w „Rozmowę z klientem” (`split_ambiguous_notes`,
+  ta sama reguła w `group_by_pair` dla starszych planów); inaczej idzie do
+  „Odrzuconych” z powodem „niejednoznaczna rekrutacja”. Wcześniej te same
+  pytania lądowały w debriefach i bankach kilku klientów. `--skip-notes`
+  przyjmuje id notatki albo `id_notatki:id_rekrutacji`.

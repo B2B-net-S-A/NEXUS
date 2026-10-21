@@ -45,3 +45,12 @@ z warunkami, a telefon do kandydata przed rozmową jest obowiązkowy.
   raport liczyłby rozmowę jako „bez Prepu 2”.
 - Rozmowa, która minęła bez Prepu 2 i bez wpisu, nadal ma krok „pominięte”,
   ale z dopiskiem „bez zapisanego powodu”.
+- **Przełożona rozmowa a stary wpis (audyt 21.10.2026).** Ważność wyjątku
+  liczy jedna funkcja `interview_cycle.prep2_skip_valid` (rozmowa najpóźniej
+  w najbliższy dzień roboczy po dniu zapisu): ekran (`PairSnapshot.prep2_skip`),
+  zapis i raport (`prep2_skips.tally_skip_stats`). Gdy rozmowę przełożono
+  i wpis stracił ważność, `create_skip` NADPISUJE wiersz tej rozmowy (UNIQUE
+  `interview_event_id`) — nowy powód, nowy telefon, `created_at` = teraz,
+  odhaczenie telefonu wyzerowane; wcześniej ekran mówił „allowed”, a zapis
+  dawał 409. Raport nie liczy nieważnego wpisu jako „z powodem” (rozmowa
+  odbyta bez prepów jest wtedy „bez słowa”).

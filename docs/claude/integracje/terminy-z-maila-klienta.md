@@ -115,3 +115,18 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
   „Jak poszło?” zostaje kliknięciem rekrutera. Zapis to zwykły debrief —
   bank pytań klienta, bramka przed „Umową” i powiadomienie DL-a bez zmian.
 
+
+## Po audycie 21.10.2026 — termin z przeszłości i nazwa przycisku
+
+- **Minionego terminu nie da się wybrać ani potwierdzić.** Terminy wniosku
+  sprawdza nie tylko zapis (`normalize_slots`), ale też `choose`, `confirm`
+  i `change_confirmed_slot` (`interview_slots._ensure_slot_ahead`): start
+  wcześniejszy niż teraz − 5 min = 422 „Ten termin już minął — wybierz
+  przyszły.”. Od 0487 wybór od razu zakłada rozmowę i blokadę w Outlooku —
+  bez tej kontroli dzień później w kalendarzu stawała „zaplanowana” rozmowa
+  w przeszłości. Okna `PickInterviewDialog` i `ClientReplyDialog` wyłączają
+  takie terminy z dopiskiem „termin minął” (`interview-pick.slotPassed`, ta
+  sama tolerancja; okno klienta mija, gdy nie zmieści się w nim rozmowa).
+- **Przycisk mówi, co robi:** bez prepów do zaproszenia główny przycisk
+  `PickInterviewDialog` to „Wpisz do kalendarza” (jak dymek „Rozmowa jest
+  w kalendarzu…”), nie „Wyślij do DL”. Nie wracaj do starej nazwy.
