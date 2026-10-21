@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal, Optional
 
@@ -526,6 +526,17 @@ class B2BRegisterAnnex(BaseModel):
     effective_date: Optional[date] = None
 
 
+class B2BGeneratedEsign(BaseModel):
+    """Ostatni wniosek o podpis w NEXUSIE przy wierszu (0499) — bez kwot i maili."""
+
+    request_id: int
+    status: Literal["sent", "contractor_signed", "completed", "withdrawn", "expired"]
+    contractor_signed_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    expires_at: datetime
+    company_signer_name: Optional[str] = None
+
+
 class B2BGeneratedContractItem(BaseModel):
     """Pozycja listy wygenerowanych umów (zakładka „Wygenerowane umowy")."""
 
@@ -622,6 +633,10 @@ class B2BGeneratedContractItem(BaseModel):
     # która może oznaczyć podpis tego wiersza.
     signed_document_id: Optional[int] = None
     can_attach_signed_file: bool = False
+    # Podpis w NEXUSIE (0499): stan ostatniej wysyłki i co to konto może zrobić.
+    esign: Optional[B2BGeneratedEsign] = None
+    can_send_esign: bool = False
+    can_withdraw_esign: bool = False
     # Rejestr z Excela działu (0363). `excel` = wiersz z pliku, tylko do odczytu
     # poza statusem handlowym; `generator` = umowa wydana w NEXUSIE.
     source: Literal["generator", "excel"] = "generator"

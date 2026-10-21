@@ -171,6 +171,7 @@ from app.api import public_engagement
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
+from app.api import b2b_esign
 from app.api import b2b_register_import
 from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
@@ -763,6 +764,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.signing_sweeper import signing_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
+    from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
@@ -909,6 +911,7 @@ async def lifespan(app: FastAPI):
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
         "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
+        "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
         # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
@@ -1516,6 +1519,15 @@ app.include_router(
     b2b_documents.router,
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
+)
+# Podpis umowy B2B w NEXUSIE (0499) — za przełącznikiem app_settings['b2b_esign'].
+app.include_router(
+    b2b_esign.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
+app.include_router(
+    b2b_esign.public_router, prefix="/api/public", tags=["public-b2b-sign"]
 )
 app.include_router(
     b2b_register_import.router,
