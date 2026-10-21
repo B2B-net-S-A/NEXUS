@@ -135,6 +135,9 @@ class ContractRow:
     partner_name: Optional[str]
     client_name: Optional[str]
     created_at: datetime
+    # Etap 1b (21.10.2026): umowa w podpisie w NEXUSIE („sent” albo
+    # „contractor_signed”) — lista mówi, że nikt nie musi dzwonić do Partnera.
+    esign_status: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -622,6 +625,9 @@ async def _unsigned_contracts(
             .limit(MAX_ROWS)
         )
     ).all()
+    from app.services.agreement_status import latest_esign_for_rows  # noqa: PLC0415
+
+    esign = await latest_esign_for_rows(db, (row.id for row in rows))
     return [
         ContractRow(
             id=row.id,
@@ -629,9 +635,18 @@ async def _unsigned_contracts(
             partner_name=row.partner_name,
             client_name=row.client_name,
             created_at=row.created_at,
+            esign_status=_open_esign_status(esign.get(row.id)),
         )
         for row in rows
     ]
+
+
+def _open_esign_status(request: Any) -> Optional[str]:
+    from app.models.b2b_signing_request import OPEN_STATUSES  # noqa: PLC0415
+
+    if request is None or request.status not in OPEN_STATUSES:
+        return None
+    return request.status
 
 
 async def _order_mail_count(

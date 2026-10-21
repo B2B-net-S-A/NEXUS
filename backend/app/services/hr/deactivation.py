@@ -20,9 +20,10 @@ NEXUS, który ten moduł zastępuje):
 5. **Ślad.** ``Activity`` ``hr_lifecycle_deactivated`` (jak
    ``compass_lifecycle_deactivated``) i wiersz w ``hr_audit_events``.
 
-Samo wyłączenie powtarza to, co robi ``DELETE /api/admin/users/{id}``: koniec
-sesji (``authorization_version``, ``tokens_valid_after``) i unieważnienie
-stałego linku kariery rekrutera.
+Samo wyłączenie to ``app.services.account_deactivation.deactivate_account``
+(to samo co ``DELETE /api/admin/users/{id}``): koniec sesji
+(``authorization_version``, ``tokens_valid_after``) i unieważnienie stałego
+linku kariery rekrutera.
 """
 
 from __future__ import annotations
@@ -30,14 +31,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.activity import Activity
 from app.models.hr_lifecycle import LifecycleCase
 from app.models.hr_profile import EmployeeProfile
-from app.models.invite_link import CandidateInviteLink
 from app.models.user import User, UserRole
+from app.services.account_deactivation import deactivate_account
 from app.services.hr import audit
 
 #: Bezpiecznik masowego odejścia (lustro ``MASS_EXIT_MAX_PEOPLE`` Compassa).
@@ -78,31 +78,19 @@ async def close_account(
     elif not user.is_active:
         result = "already_inactive"
     else:
-        user.is_active = False
-        user.authorization_version += 1
-        user.tokens_valid_after = now
-        await db.execute(
-            update(CandidateInviteLink)
-            .where(
-                CandidateInviteLink.created_by == user.id,
-                CandidateInviteLink.kind == "recruiter",
-            )
-            .values(revoked=True)
-        )
-        db.add(
-            Activity(
-                entity_type="user",
-                entity_id=user.id,
-                action=DEACTIVATION_ACTION,
-                user_id=actor_id,
-                details={
-                    "lifecycle_case_id": case.id,
-                    "last_working_day": case.last_working_day.isoformat()
-                    if case.last_working_day
-                    else None,
-                    "source": "hr_lifecycle",
-                },
-            )
+        await deactivate_account(
+            db,
+            user,
+            action=DEACTIVATION_ACTION,
+            actor_id=actor_id,
+            details={
+                "lifecycle_case_id": case.id,
+                "last_working_day": case.last_working_day.isoformat()
+                if case.last_working_day
+                else None,
+                "source": "hr_lifecycle",
+            },
+            now=now,
         )
         result = "deactivated"
 

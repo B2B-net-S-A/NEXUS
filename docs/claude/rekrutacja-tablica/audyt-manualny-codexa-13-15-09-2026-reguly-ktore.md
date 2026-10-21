@@ -1,6 +1,6 @@
 # Audyt manualny Codexa 13–15.09.2026 — reguły, które łatwo cofnąć
 
-<!-- indeks: budżet PLN/h rekrutacji, szkic Championa, „W procesie”, prep kit, tagi kandydata, pasek boczny -->
+<!-- indeks: budżet PLN/h, szkic Championa, „W procesie”, prep kit, tagi, pasek boczny -->
 
 Raport naprawczy: `docs/manual-audit-2026-09-13-remediation-report.md`.
 

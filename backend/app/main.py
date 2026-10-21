@@ -781,6 +781,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
+    from app.tasks.m365_account_sweep import m365_account_sweep_loop
     from app.tasks.job_portal_worker import job_portal_worker_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
@@ -961,6 +962,10 @@ async def lifespan(app: FastAPI):
         # tylko po to, zeby sprawdzic te sama flage.
         "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
         "compass_lifecycle_sync": asyncio.create_task(compass_lifecycle_sync_loop()),
+        # 22.10.2026: konto NEXUSA idzie za kontem M365 (404 / accountEnabled
+        # = false → wyłączone). Niezależna od HR_PROGRAM_ENABLED; kończy się
+        # przed pętlą przy M365_ACCOUNT_SWEEP_MODE=off.
+        "m365_account_sweep": asyncio.create_task(m365_account_sweep_loop()),
         # 0360: kolejka publikacji na portalach — kończy się przed pętlą,
         # gdy żaden portal nie jest włączony.
         "job_portal_worker": asyncio.create_task(job_portal_worker_loop()),

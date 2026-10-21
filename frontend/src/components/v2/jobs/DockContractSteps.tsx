@@ -22,6 +22,10 @@
  * (`onMarkHired`). Zamówienie stoi osobno, „Po zatrudnieniu — nie blokuje
  * ruchu”, z przerywanym kółkiem zamiast pustego „do zrobienia”. Makiety:
  * https://claude.ai/artifact/2m4b7dEXVnogXkcQymPiAA
+ *
+ * 21.10.2026 (podpis w NEXUSIE, etap 1b): umowa wysłana do podpisu w NEXUSIE
+ * mówi, u kogo jest, a ręczny ruch na „Zatrudniony” czeka — ustawi się sam po
+ * podpisie obu stron (serwer też odmawia: `ESIGN_IN_PROGRESS`).
  */
 
 import Link from "next/link";
@@ -130,6 +134,8 @@ export function DockContractSteps({
   const linkClass = "text-xs font-medium text-primary hover:underline";
 
   const waitingDays = row && !signed ? daysSince(row.created_at, new Date()) : null;
+  const esign = !signed ? row?.esign ?? null : null;
+  const inEsign = esign?.status === "sent" || esign?.status === "contractor_signed";
 
   // `orderStatus` niesie tylko karta „Zatrudniony” — po nim poznajemy etap.
   const hired = orderStatus != null;
@@ -194,7 +200,10 @@ export function DockContractSteps({
                 state={loading ? "loading" : signed ? "done" : "todo"}
                 title="Podpisana obustronnie"
                 detail={
-                  row && !signed && row.contract_status === "in_progress"
+                  // W podpisie w NEXUSIE kroki i opis daje `AgreementSignatureAction`.
+                  inEsign
+                    ? null
+                    : row && !signed && row.contract_status === "in_progress"
                     ? `Czeka na podpis${
                         waitingDays ? ` od ${countPl(waitingDays, "dnia", "dni", "dni")}` : ""
                       }. Potwierdzenie podpisu przesuwa na „Zatrudniony” i zakłada kontrakt.`
@@ -213,7 +222,14 @@ export function DockContractSteps({
               />
             </>
           ) : null}
-          {!hired && onMarkHired && !readOnly ? (
+          {!hired && inEsign ? (
+            <li
+              className="rounded-md border border-warning/40 bg-warning-muted px-2 py-1.5 text-warning-muted-foreground"
+              data-testid="dock-hire-esign-lock"
+            >
+              Ręcznie na „Zatrudniony” przesuniesz dopiero po „Przejdź na zwykłą drogę”.
+            </li>
+          ) : !hired && onMarkHired && !readOnly ? (
             <li className="space-y-1 rounded-md bg-muted/40 px-2 py-1.5" data-testid="dock-hire-offline">
               <span className="block text-foreground">
                 Umowa podpisana poza Generatorem? (B2B, umowa o pracę, zlecenie)
