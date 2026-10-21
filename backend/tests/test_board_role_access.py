@@ -127,6 +127,51 @@ def test_board_never_reaches_operational_or_money_modules(module: str) -> None:
     assert opened == []
 
 
+def test_board_is_not_company_staff() -> None:
+    # Bramki „każdy pracownik firmy” (Nieobecni dziś, zastępstwa) wpuszczają
+    # wszystkich spoza listy ról, które pracownikami NIE są — Rada nadzorcza
+    # musi na niej być (przegląd 21.10.2026: „Nieobecni dziś” pokazywały jej
+    # nazwiska nieobecnych i zastępców). Bramka sięga do bazy po przełącznik
+    # modułu przed sprawdzeniem roli, więc wzorzec bramek ma tam „B” —
+    # pilnujemy samych list.
+    from app.api import hr_dashboard, hr_leave
+    from app.services.hr.people import NON_STAFF_ROLES
+
+    assert UserRole.board in hr_leave._NOT_STAFF
+    assert UserRole.board in hr_dashboard._NOT_STAFF
+    assert UserRole.board in NON_STAFF_ROLES
+
+
+def test_integration_events_hide_candidates_without_candidate_read() -> None:
+    # Insights → Integracje: zdarzenia przebiegu niosą kandydata. Konto bez
+    # odczytu kandydatów (Rada nadzorcza) widzi zdarzenie bez osoby — jak
+    # w uzgodnieniu placementów (``insights_reconciliation``).
+    from types import SimpleNamespace
+
+    from app.api.integrations_runs import event_to_dict
+
+    event = SimpleNamespace(
+        id=1,
+        action="created",
+        external_id="x",
+        candidate_id=7,
+        traffit_id=9,
+        candidate_name="Jan Kowalski",
+        offer_title="Java",
+        matched_jobs=[],
+        error=None,
+        occurred_at=None,
+    )
+    hidden = event_to_dict(event, show_candidates=False)
+    assert hidden["candidate_name"] is None
+    assert hidden["candidate_id"] is None
+    assert hidden["traffit_id"] is None
+    assert hidden["offer_title"] == "Java"
+    assert (
+        event_to_dict(event, show_candidates=True)["candidate_name"] == "Jan Kowalski"
+    )
+
+
 def _user(role: UserRole, *permissions: str) -> User:
     user = User(
         id=1,

@@ -20,6 +20,12 @@ powodu. Powstała osobna rola `board`, na ekranie „Rada nadzorcza”.
 - **Niczego nie zmienia i nie przyjmuje nadań** (`UNGRANTABLE_ROLES`, jak
   Viewer i Praktykant) — nadanie „Modułu Finanse” dałoby jej faktury KSeF,
   zgody na wydatki i „Zmiany w zamówieniach”.
+- **Nie jest pracownikiem firmy:** `board` stoi na listach ról niebędących
+  pracą (`hr.people.NON_STAFF_ROLES`, `_NOT_STAFF` w `hr_leave` i
+  `hr_dashboard`) — bez tego „Nieobecni dziś” pokazywały Radzie nazwiska.
+  Zdarzenia Insights → Integracje bez odczytu kandydatów idą bez osoby
+  (`integrations_runs.event_to_dict`). Nowa bramka „każdy oprócz…” ma Radę
+  wykluczać.
 - **Rola wyłączna** (CHECK `ck_users_exclusive_finance_viewer_roles`,
   `ensure_exclusive_roles`, `_normalized_role_values`, mapowanie grup AAD,
   `EXCLUSIVE_ROLES` na froncie).
