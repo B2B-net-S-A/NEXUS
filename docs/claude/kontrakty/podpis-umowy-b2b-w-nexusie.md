@@ -49,6 +49,13 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   i pozwala wysłać ponownie albo wrócić do drogi zwykłej.
 - **Wysyła i wycofuje** ten, kto poprawia umowę (`_may_correct_generated`),
   z poziomem „Generowanie”, widocznymi stawkami i dostępem do klienta.
+- **Mail z linkiem idzie ze skrzynki nadawcy** (M365, `services/b2b_esign/mail.py`);
+  bez połączonej skrzynki okno pokazuje link do skopiowania. Przypomnienia
+  (`tasks/b2b_esign_sweeper.py`, co 30 min): kontraktor milczy 3 dni → mail BEZ
+  linku (w bazie jest tylko skrót tokenu, link zostaje w pierwszym mailu)
+  i dzwonek do nadawcy; podpis firmy czeka 3 dni → dzwonek do reprezentanta;
+  po terminie link wygasa (`expired`) i nadawca dostaje dzwonek. Pętla działa
+  także przy wyłączonym przełączniku.
 - **Pliki przed podpisem leżą w `b2b_signing/{id}/`**, nie w Dokumentach
   kontraktu — kontraktu jeszcze nie ma.
 

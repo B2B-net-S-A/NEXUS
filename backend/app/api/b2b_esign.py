@@ -57,18 +57,17 @@ from app.core.rate_limit import limiter
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import B2BSigningRequest
 from app.models.candidate import Candidate
-from app.models.m365 import M365Connection
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.schemas.b2b_contract_generator import B2BConfirmFullySignedRequest
 from app.services import storage_service
 from app.services.b2b_esign import service
+from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_esign import settings as esign_settings
 from app.services.b2b_contract_generator import signed_file
 from app.services.b2b_esign.qualified import QualifiedValidator
 from app.services.notification_triggers import emit as emit_notification
 from app.services.cv_pdf_preview import PdfPreviewUnavailable, pdf_from_docx
-from app.services.m365 import sender as m365_sender
 from app.services.signing.validation import ValidationService
 
 logger = logging.getLogger(__name__)
@@ -354,11 +353,6 @@ async def _mail_link(
     """Mail z linkiem ze skrzynki nadawcy — kontraktor zna ten adres.
 
     Awaria nie cofa wysyłki: okno pokazuje link do skopiowania."""
-    connection = await db.scalar(
-        select(M365Connection).where(M365Connection.user_id == sender_id)
-    )
-    if connection is None or not connection.is_active:
-        return False, "Twoja skrzynka Microsoft 365 nie jest połączona z NEXUSEM."
     number = html.escape(row.contract_number)
     name = html.escape(request.contractor_name)
     deadline = request.expires_at.astimezone(_WARSAW).strftime("%d.%m.%Y")
@@ -372,25 +366,15 @@ async def _mail_link(
         f"Link jest ważny do {deadline}.</p>"
         "<p>Pozdrawiamy<br>B2B Network</p>"
     )
-    try:
-        await m365_sender.send_new(
-            db,
-            connection,
-            to=[request.contractor_email or ""],
-            subject=f"Umowa B2B nr {row.contract_number} do podpisu",
-            body_html=body,
-            candidate_id=row.candidate_id,
-            client_request_id=f"b2b-esign-{request.id}",
-            commit_reservation=True,
-        )
-        await db.commit()
-    except Exception:  # noqa: BLE001 — wysyłka zapisana, link do skopiowania
-        logger.exception(
-            "[b2b_esign] mail z linkiem nie wyszedł request=%d", request.id
-        )
-        await db.rollback()
-        return False, "Nie udało się wysłać maila — wyślij link sam."
-    return True, None
+    return await esign_mail.send_from(
+        db,
+        user_id=sender_id,
+        to=request.contractor_email or "",
+        subject=f"Umowa B2B nr {row.contract_number} do podpisu",
+        body_html=body,
+        candidate_id=row.candidate_id,
+        request_key=f"b2b-esign-{request.id}",
+    )
 
 
 @router.get("/generated/{generated_id}/esign/defaults", response_model=EsignDefaultsOut)
@@ -410,9 +394,7 @@ async def esign_defaults(
         email = candidate.email if candidate else None
     current = await esign_settings.load(db)
     names = await _names(db, list(current.company_signer_ids))
-    connection = await db.scalar(
-        select(M365Connection).where(M365Connection.user_id == current_user.id)
-    )
+    connected = await esign_mail.mailbox_connected(db, current_user.id)
     return EsignDefaultsOut(
         contractor_name=row.partner_name,
         contractor_email=email if isinstance(email, str) else None,
@@ -421,7 +403,7 @@ async def esign_defaults(
             for uid in current.company_signer_ids
             if uid in names
         ],
-        mailbox_connected=bool(connection and connection.is_active),
+        mailbox_connected=connected,
     )
 
 
