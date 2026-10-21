@@ -1,4 +1,4 @@
-"""0493: DDL folderów w Dokumentach kontraktu ma lustro w entrypoincie
+"""0494: DDL folderów w Dokumentach kontraktu ma lustro w entrypoincie
 (produkcyjny alembic bywa osierocony)."""
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0493_contract_document_folders.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0494_contract_document_folders.py"
 
 
 def _migration_module():
@@ -23,7 +23,7 @@ def test_migration_uses_the_single_ddl_source() -> None:
     from app.services.contract_document_folders_schema import TABLE_DDL
 
     module = _migration_module()
-    assert module.revision == "0493_contract_document_folders"
+    assert module.revision == "0494_contract_document_folders"
     assert module.TABLE_DDL is TABLE_DDL
 
 

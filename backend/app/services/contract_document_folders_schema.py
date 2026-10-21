@@ -1,5 +1,5 @@
 """DDL folderów w zakładce Dokumenty kontraktu — JEDNO źródło dla migracji
-0493 i siatki w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
+0494 i siatki w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 Kolejność jest load-bearing: tabela folderów powstaje PRZED kolumną
 ``contract_documents.folder_id``, która na nią wskazuje.

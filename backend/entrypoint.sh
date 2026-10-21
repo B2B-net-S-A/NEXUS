@@ -1055,7 +1055,7 @@ except Exception as _contract_docs_sp_err:  # noqa: BLE001
     print(f"contract docs sharepoint DDL unavailable: {_contract_docs_sp_err!r}")
     _CONTRACT_DOCS_SP_DDL = []
 
-# Foldery w zakładce Dokumenty kontraktu (migracja 0493) — JEDNO źródło
+# Foldery w zakładce Dokumenty kontraktu (migracja 0494) — JEDNO źródło
 # z migracją (`app/services/contract_document_folders_schema.py`).
 try:
     from app.services import contract_document_folders_schema as _contract_doc_folders

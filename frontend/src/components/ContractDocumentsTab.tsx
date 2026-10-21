@@ -55,7 +55,7 @@ const COMPLIANCE_TYPES = new Set(["nip", "zus_certificate", "oc_policy"]);
  * Inspect the list of documents and return the soonest compliance-related
  * expiry that's already past or less than 30 days away. Used by consumers
  * that want to render a "Compliance risk" badge. Pliki w folderach (np.
- * „Poprzednia umowa”) to archiwum i alarmu nie zapalają (0493).
+ * „Poprzednia umowa”) to archiwum i alarmu nie zapalają (0494).
  */
 export function summariseComplianceRisk(docs: ContractDocument[] | undefined): {
   risk: "overdue" | "soon" | "ok";

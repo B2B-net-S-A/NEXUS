@@ -1,4 +1,4 @@
-"""0493: foldery w Dokumentach kontraktu — logika bez bazy (numer umowy
+"""0494: foldery w Dokumentach kontraktu — logika bez bazy (numer umowy
 z nazwy pliku, podpowiedź „Poprzednia umowa”, nazwa folderu)."""
 
 from __future__ import annotations

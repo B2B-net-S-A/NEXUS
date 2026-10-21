@@ -1,4 +1,4 @@
-"""Foldery w zakładce Dokumenty kontraktu (0493, ticket Ani 21.10.2026).
+"""Foldery w zakładce Dokumenty kontraktu (0494, ticket Ani 21.10.2026).
 
 ``GET    /api/contracts/{id}/document-folders`` — foldery, nazwa folderu
          „Zamówienia” i podpowiedzi „Poprzednia umowa”.

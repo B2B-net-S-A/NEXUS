@@ -452,7 +452,7 @@ const PUBLIC_PATHS = [
   "/preview/client-playbook",
   "/preview/inactive-clients-cleanup",
   "/preview/contract-docs-sharepoint",
-  // Foldery w zakładce Dokumenty kontraktu (0493); zasiany cache, sieć odcięta.
+  // Foldery w zakładce Dokumenty kontraktu (0494); zasiany cache, sieć odcięta.
   "/preview/contract-documents-folders",
   "/preview/order-new-from-pdf",
   "/preview/jobs-list-v3",

@@ -2238,7 +2238,7 @@ export const contractsApi = {
     }),
   deleteDocument: (contractId: number, documentId: number) =>
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
-  // 0493: foldery w zakładce Dokumenty (`lib/contract-document-folders.ts`).
+  // 0494: foldery w zakładce Dokumenty (`lib/contract-document-folders.ts`).
   documentFolders: (id: number) =>
     api.get<DocumentFoldersResponse>(`/api/contracts/${id}/document-folders`),
   createDocumentFolder: (id: number, payload: { name: string; document_ids?: number[] }) =>

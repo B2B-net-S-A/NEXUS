@@ -1,5 +1,5 @@
 /**
- * Foldery w zakładce Dokumenty kontraktu (0493, ticket Ani 21.10.2026).
+ * Foldery w zakładce Dokumenty kontraktu (0494, ticket Ani 21.10.2026).
  *
  * Typy są lustrem `backend/app/api/contract_document_folders.py`. Zasady:
  * - plik bez folderu = sekcja „Aktualna umowa”, zawsze na górze;
@@ -26,7 +26,7 @@ export interface ContractDocument {
   sharepoint_item_id?: string | null;
   sharepoint_push_status?: string | null;
   sharepoint_push_error?: string | null;
-  // 0493: folder w zakładce Dokumenty (null = „Aktualna umowa”).
+  // 0494: folder w zakładce Dokumenty (null = „Aktualna umowa”).
   folder_id?: number | null;
 }
 

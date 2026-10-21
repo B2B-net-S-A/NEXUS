@@ -179,7 +179,7 @@ _KNOWN_CONTRACT_FKS = {
     ("contract_care_plan_items", "contract_id"),
     ("contract_client_rates", "contract_id"),
     ("contract_documents", "contract_id"),
-    # Foldery zakładki Dokumenty (0493) idą za kontraktem zachowanym razem
+    # Foldery zakładki Dokumenty (0494) idą za kontraktem zachowanym razem
     # z plikami. Dwa foldery o tej samej nazwie (UNIQUE kontrakt + nazwa)
     # i nazwę „Zamówień” rozstrzyga ``_resolve_child_duplicates``.
     ("contract_document_folders", "contract_id"),

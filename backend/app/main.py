@@ -1467,7 +1467,7 @@ app.include_router(job_board_connection_api.router, prefix="/api", tags=["job-po
 app.include_router(
     contract_client_reassign_api.router, prefix="/api/contracts", tags=["contracts"]
 )
-# Foldery w zakładce Dokumenty kontraktu (0493).
+# Foldery w zakładce Dokumenty kontraktu (0494).
 app.include_router(
     contract_document_folders_api.router, prefix="/api/contracts", tags=["contracts"]
 )
@@ -3285,7 +3285,7 @@ async def api_health_deep_check():
         ("contract_documents", ContractDocument),
         ("contract_doc_sp_runs", ContractDocSpRun),
         ("contract_doc_sp_items", ContractDocSpItem),
-        # Foldery zakładki Dokumenty (0493); sonda ``contract_documents`` wyżej
+        # Foldery zakładki Dokumenty (0494); sonda ``contract_documents`` wyżej
         # sprawdza przy okazji kolumnę ``folder_id``.
         ("contract_document_folders", ContractDocumentFolder),
         # Zamówienia wielo-konsultantowe (0227). Bez tych sond zakładka

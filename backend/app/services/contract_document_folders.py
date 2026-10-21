@@ -1,4 +1,4 @@
-"""Foldery w zakładce Dokumenty kontraktu (0493, ticket Ani 21.10.2026).
+"""Foldery w zakładce Dokumenty kontraktu (0494, ticket Ani 21.10.2026).
 
 Zasady (``docs/claude/kontrakty/foldery-w-dokumentach-kontraktu.md``):
 

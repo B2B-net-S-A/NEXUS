@@ -1,5 +1,5 @@
 /**
- * 0493: foldery w zakładce Dokumenty kontraktu — „Aktualna umowa” na górze,
+ * 0494: foldery w zakładce Dokumenty kontraktu — „Aktualna umowa” na górze,
  * foldery pod spodem, pasek po zaznaczeniu, automatyczny folder „Zamówienia”
  * (bez „Usuń”, z plikami z zakładki Zamówienia) i podpowiedź „Poprzednia umowa”.
  */
