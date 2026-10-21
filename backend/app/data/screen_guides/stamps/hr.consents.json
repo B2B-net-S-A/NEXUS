@@ -4,6 +4,6 @@
   "sources": {
     "frontend/src/components/hr/approvals/ConsentRequestForm.tsx": "da52f1363ec0e143da30c392d2be91e80829cf80febee3262cd3c4f7ddd3a268",
     "frontend/src/components/hr/approvals/ConsentsInbox.tsx": "5b1d7b7cfc51ec55e40e7eac4d56399fa8ed936df01c6baaa4485ef46876e8ca",
-    "frontend/src/components/hr/approvals/MyConsentsScreen.tsx": "5cb28424dd782b783461dc263d8f4710487ca7864fdc34bd0c1851413cbc923b"
+    "frontend/src/components/hr/approvals/MyConsentsScreen.tsx": "5fdacc800d2e6e1c592631879fbc0ab009862ac93565b48f8542243e759312f3"
   }
 }
