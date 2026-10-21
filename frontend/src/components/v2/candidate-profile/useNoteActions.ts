@@ -35,11 +35,19 @@ export function useNoteActions(candidateId: number, readOnly: boolean) {
     });
   };
 
-  // PATCH re-parsuje @wzmianki.
-  const editNote = async (noteId: number, content: string) => {
+  // PATCH re-parsuje @wzmianki; `notify_mentions` — „Powiadom oznaczonych
+  // o zmianie” dla osób, które już były oznaczone (21.10.2026).
+  const editNote = async (
+    noteId: number,
+    content: string,
+    options?: { notifyMentions?: boolean },
+  ) => {
     if (readOnly) return false;
     try {
-      await api.patch(`/api/notes/${noteId}`, { content });
+      await api.patch(`/api/notes/${noteId}`, {
+        content,
+        ...(options?.notifyMentions ? { notify_mentions: true } : {}),
+      });
       invalidateNotes();
       return true;
     } catch (e) {

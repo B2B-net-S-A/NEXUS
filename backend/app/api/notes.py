@@ -713,8 +713,11 @@ async def update_note(
     had_dl_pair = note.parent_note_id is None and client_rate_notes.note_has_dl_pair(
         note.kind, note.content
     )
+    previous_content = note.content
 
-    for k, v in data.model_dump(exclude_unset=True).items():
+    for k, v in data.model_dump(
+        exclude_unset=True, exclude={"notify_mentions"}
+    ).items():
         setattr(note, k, v)
 
     # Po apply contentu — re-parse mentions na nowej treści.
@@ -723,6 +726,14 @@ async def update_note(
 
     to_add = sorted(new_ids - old_ids)
     to_remove = old_ids - new_ids
+    # 21.10.2026: zmieniony termin prepu w notatce do DL-a nie docierał —
+    # dzwonek dostawali tylko nowo oznaczeni. Na życzenie autora powiadomienie
+    # o zmianie dostają też ci, którzy już byli oznaczeni.
+    to_renotify = (
+        sorted(new_ids & old_ids)
+        if data.notify_mentions and note.content != previous_content
+        else []
+    )
 
     if to_remove:
         await db.execute(
@@ -735,12 +746,13 @@ async def update_note(
         db.add(NoteMention(note_id=note.id, user_id=uid))
 
     pairs: list = []
+    edited_pairs: list = []
     snippet = await _mention_snippet(db, note)
     deep_link = build_note_deep_link(note)
     context_label = await build_note_context_label(db, note)
-    notification_title = (
-        f"{current_user.name or current_user.email} oznaczył(a) Cię w notatce"
-    )
+    author_name = current_user.name or current_user.email
+    notification_title = f"{author_name} oznaczył(a) Cię w notatce"
+    edited_title = f"{author_name} zmienił(a) notatkę, w której Cię oznaczył(a)"
     if "content" in data.model_fields_set:
         # Runda 10 (R10-N6-3): wzmianka w dzwonku niosła pierwotny fragment.
         await refresh_note_mention_snippets(db, note.id, snippet)
@@ -752,6 +764,19 @@ async def update_note(
             deep_link_path=deep_link,
             snippet=snippet,
             notification_title=notification_title,
+            related_entity_type="note",
+            related_entity_id=note.id,
+        )
+    if to_renotify:
+        # Dzisiejszy wiersz wzmianki tej notatki wraca jako nieprzeczytany
+        # z nowym tytułem (``dedupe_resurface``), starszy — nowy wiersz.
+        edited_pairs = await enqueue_mention_notifications(
+            db,
+            mentioned_user_ids=to_renotify,
+            author=current_user,
+            deep_link_path=deep_link,
+            snippet=snippet,
+            notification_title=edited_title,
             related_entity_type="note",
             related_entity_id=note.id,
         )
@@ -775,11 +800,21 @@ async def update_note(
     if pairs:
         await send_mention_side_effects(
             pairs,
-            author_name=current_user.name or current_user.email,
+            author_name=author_name,
             snippet=snippet,
             deep_link_path=deep_link,
             context_label=context_label,
             notification_title=notification_title,
+        )
+    if edited_pairs:
+        await send_mention_side_effects(
+            edited_pairs,
+            author_name=author_name,
+            snippet=snippet,
+            deep_link_path=deep_link,
+            context_label=context_label,
+            notification_title=edited_title,
+            edited=True,
         )
 
     await db.refresh(note)

@@ -14,6 +14,12 @@ export function buildUsersByEmail(users: ChatUserMini[]): UsersByEmail {
   return map;
 }
 
+/** Adresy oznaczone w treści (`@adres`, małe litery, bez powtórzeń) — ten sam wzorzec co parser serwera. */
+export function mentionedEmails(content: string): string[] {
+  if (!content) return [];
+  return [...new Set(Array.from(content.matchAll(EMAIL_RE), (m) => m[1].toLowerCase()))];
+}
+
 interface MentionBadgeProps {
   email: string;
   user?: ChatUserMini;
