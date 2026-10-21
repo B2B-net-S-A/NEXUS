@@ -223,9 +223,10 @@ describe("settings-registry — portale ogłoszeniowe (RocketJobs / JustJoin.IT)
     expect(item("job-boards").route).toBeUndefined();
   });
 
-  it("znajduje się po nazwie portalu", () => {
+  it("od 21.10.2026 w „Integracjach”: z menu ukryte, po nazwie portalu znajduje się „Integracje”", () => {
     const admin = user("admin", { system_admin: "write" });
-    expect(searchSettingsItems(admin as never, "rocketjobs").map((i) => i.id)).toEqual(["job-boards"]);
+    expect(item("job-boards").hidden).toBe(true);
+    expect(searchSettingsItems(admin as never, "rocketjobs").map((i) => i.id)).toEqual(["integrations"]);
   });
 });
 
@@ -263,22 +264,30 @@ describe("settings-registry — „Klucze API” (konta serwisowe, 14.10.2026)",
     }
   });
 
-  it("ma własną trasę w obszarze System", () => {
+  it("ma własną trasę w obszarze System; z menu wchodzi się przez „Integracje” (21.10.2026)", () => {
     expect(item("api-keys").area).toBe("sys");
-    expect(item("api-keys").hidden).toBeFalsy();
+    expect(item("api-keys").hidden).toBe(true);
     expect(findSettingsItemByRoute("/settings/api-keys")?.id).toBe("api-keys");
     // Trasa z własną stroną nie otwiera się w `?item=`.
     const admin = user("admin", { system_admin: "write" });
     expect(resolveSettingsView(admin as never, { item: "api-keys" }).kind).toBe("home");
   });
 
-  it("znajduje się po nagłówku, „koncie serwisowym” i „n8n”", () => {
+  it("po nagłówku, „koncie serwisowym” i „n8n” znajduje się „Integracje”", () => {
     const admin = user("admin", { system_admin: "write" });
-    expect(searchSettingsItems(admin as never, "x-api-key").map((i) => i.id)).toEqual(["api-keys"]);
-    expect(searchSettingsItems(admin as never, "konto serwisowe").map((i) => i.id)).toEqual(["api-keys"]);
-    expect(searchSettingsItems(admin as never, "n8n").map((i) => i.id)).toEqual(["api-keys"]);
+    expect(searchSettingsItems(admin as never, "x-api-key").map((i) => i.id)).toEqual(["integrations"]);
+    expect(searchSettingsItems(admin as never, "konto serwisowe").map((i) => i.id)).toEqual(["integrations"]);
+    expect(searchSettingsItems(admin as never, "n8n").map((i) => i.id)).toEqual(["integrations"]);
     // Samo „klucz” łapie też „Wykluczone placementy” (szukanie po fragmencie).
-    expect(searchSettingsItems(admin as never, "klucze api").map((i) => i.id)).toContain("api-keys");
+    expect(searchSettingsItems(admin as never, "klucze api").map((i) => i.id)).toContain("integrations");
+  });
+
+  it("„Integracje”: jedna pozycja w grupie, widzi ją tylko admin", () => {
+    const admin = user("admin", { system_admin: "write" });
+    expect(can(admin, "integrations")).toBe(true);
+    expect(can(user("delivery_lead", { system_admin: "write" }), "integrations")).toBe(false);
+    const group = listedSettingsItems(admin as never).filter((i) => i.group === "Integracje");
+    expect(group.map((i) => i.id)).toEqual(["integrations"]);
   });
 });
 
