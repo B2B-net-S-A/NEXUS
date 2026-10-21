@@ -478,3 +478,30 @@ wysyłanego Partnerowi.
 - Pliki wygenerowane wcześniej i zapisane w bazie mają stare pola. Dokumenty
   Akademii (`academy_documents.py`) mają w szablonach tylko nazwę firmy — bez zmian.
 
+
+## Oświadczenia i deklaracje do umowy zlecenie (21.10.2026)
+
+Prośba Artura: do umów zlecenie dołożyć wzory z SharePointa Administracji
+(„3. Wzory umów / 3. Umowa zlecenie - kontraktorzy / Oświadczenia
+i deklaracje”). Generator Umów B2B → „Dokumenty” → „Nowy dokument” ma pod
+rodzajami dokumentów sekcję „Oświadczenia i deklaracje — umowa zlecenie”
+z pięcioma pustymi wzorami do pobrania: oświadczenie zleceniobiorcy (PL
+i PL/EN, DOCX), PIT-2, deklaracja rezygnacji z PPK, oświadczenie do celów
+podatkowych dla cudzoziemców (PDF). W „Generatorze aneksów” sekcji nie ma.
+
+- **NEXUS tych wzorów nie wypełnia ani nie zapisuje.** Wypełnia je
+  zleceniobiorca (PESEL, konto, dowód, ZUS) — formularz z danymi w NEXUSIE
+  oznaczałby przechowywanie albo przepuszczanie tych danych bez potrzeby.
+  Trasa `GET /api/b2b-generator/mandate-forms/{form_key}` tylko wydaje plik,
+  za tą samą bramką co generator dokumentów (`B2BGeneratorAccess`, sekcja
+  Sourcing). Lista wzorów przychodzi w `GET /document-types` (`mandate_forms`).
+- **Pliki leżą w `backend/app/data/mandate_forms/`, lista w
+  `services/b2b_documents/mandate_forms.py`.** Nowa wersja wzoru = podmiana
+  pliku pod tą samą nazwą. Repo jest publiczne: przed commitem wyczyść
+  metadane autora (DOCX `docProps/core.xml`: `dc:creator`,
+  `cp:lastModifiedBy`; PDF: słownik `/Info` i strumień XMP z `dc:creator`
+  — sam `/Info` nie wystarcza). Pilnuje tego
+  `test_every_mandate_form_file_exists_without_author_metadata`.
+- **Oświadczenie zleceniobiorcy podaje minimalne wynagrodzenie na 2026**
+  (4806 zł brutto). Na nowy rok Administracja aktualizuje wzór
+  w SharePoincie — wtedy podmień oba pliki DOCX i opis „Wzór na 2026”.

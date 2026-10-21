@@ -179,7 +179,7 @@ function register() {
 
 beforeEach(() => {
   Object.values(mocks).forEach((m) => m.mockReset());
-  mocks.types.mockResolvedValue({ types: [RATE_TYPE], ref_labels: {}, ref_defaults: {} });
+  mocks.types.mockResolvedValue({ types: [RATE_TYPE], ref_labels: {}, ref_defaults: {}, mandate_forms: [] });
   mocks.seesContracts.mockReturnValue(true);
 });
 

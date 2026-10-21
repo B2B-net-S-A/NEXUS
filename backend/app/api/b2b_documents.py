@@ -27,6 +27,7 @@ from fastapi import (
     status,
 )
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,6 +90,7 @@ from app.services.b2b_documents import (
     signed_scan,
 )
 from app.services.b2b_documents.annex_summary import annex_change
+from app.services.b2b_documents.mandate_forms import FORMS_BY_KEY, MANDATE_FORMS
 from app.services.b2b_documents.context import (
     BaseContractInfo,
     build_document_context,
@@ -1248,7 +1250,19 @@ async def document_types(current_user: B2BGeneratorAccess) -> dict:
         "types": [t.to_public() for t in TYPES.values()],
         "ref_labels": REF_LABELS,
         "ref_defaults": default_refs().as_context(),
+        "mandate_forms": [f.to_public() for f in MANDATE_FORMS],
     }
+
+
+@router.get("/mandate-forms/{form_key}")
+async def download_mandate_form(form_key: str, current_user: B2BGeneratorAccess):
+    """Pusty wzór oświadczenia albo deklaracji do umowy zlecenie."""
+    form = FORMS_BY_KEY.get(form_key)
+    if form is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiego wzoru.")
+    return FileResponse(
+        form.path, filename=form.download_name, media_type=form.media_type
+    )
 
 
 #: Ile pozycji każdego rodzaju oddaje wyszukiwanie podmiotu aneksu.
