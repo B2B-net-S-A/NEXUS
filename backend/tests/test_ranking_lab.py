@@ -30,7 +30,6 @@ _JOB = dict(
     salary_max=160,
     location="Kraków",
     remote_policy=SimpleNamespace(value="hybrid"),
-    deadline=business_today() + timedelta(days=30),
 )
 
 _PEOPLE = [
@@ -41,10 +40,23 @@ _PEOPLE = [
         skills=["Django", "Kubernetes"],
         location="Kraków",
         expected_rate_hourly=130,
-        availability_date=business_today() + timedelta(days=90),
+        availability_offset_days=90,
     ),
     dict(skills=["Python", "PostgreSQL"], location="Warszawa"),
 ]
+
+
+def _job():
+    # Daty liczone przy wywołaniu, nie przy imporcie (test_no_import_time_dates).
+    return make_job(**_JOB, deadline=business_today() + timedelta(days=30))
+
+
+def _candidate(**person):
+    offset = person.pop("availability_offset_days", None)
+    if offset is not None:
+        person["availability_date"] = business_today() + timedelta(days=offset)
+    return make_candidate(**person)
+
 
 _DRAFTS = [
     rw.PanelWeights(60, 10, 5, 70),
@@ -76,11 +88,11 @@ async def test_components_rebuild_the_engine_score_for_any_weights(
     monkeypatch, renormalize, draft
 ):
     monkeypatch.setattr(settings, "SCORE_RENORMALIZE_UNSCORED_LAYERS", renormalize)
-    job = make_job(**_JOB)
+    job = _job()
     weights = rw.engine_weights(draft)
     target = scoring.WeightProfile(id=7, name="szkic", **weights)
     for index, person in enumerate(_PEOPLE):
-        candidate = make_candidate(id=index + 1, **person)
+        candidate = _candidate(id=index + 1, **person)
         similarity = 0.35 + index * 0.1
         probe = await _score(candidate, job, lab.PROBE, similarity)
         components = lab.components_of(probe, renormalize=renormalize)
@@ -92,8 +104,8 @@ async def test_components_rebuild_the_engine_score_for_any_weights(
 @pytest.mark.asyncio
 async def test_published_built_in_weights_rebuild_exactly(monkeypatch):
     monkeypatch.setattr(settings, "SCORE_RENORMALIZE_UNSCORED_LAYERS", False)
-    job = make_job(**_JOB)
-    candidate = make_candidate(**_PEOPLE[0])
+    job = _job()
+    candidate = _candidate(**_PEOPLE[0])
     probe = await _score(candidate, job, lab.PROBE, 0.6)
     direct = await _score(candidate, job, scoring.DEFAULT_PROFILE, 0.6)
     built_in = {name: getattr(scoring.DEFAULT_PROFILE, name) for name in rw.BASE_LAYERS}
@@ -108,8 +120,8 @@ async def test_seniority_penalty_survives_in_the_factor(monkeypatch):
     monkeypatch.setattr(
         scoring, "_champion_seniority_factor", lambda *_: (0.84, "za mało lat")
     )
-    job = make_job(**_JOB)
-    candidate = make_candidate(**_PEOPLE[0])
+    job = _job()
+    candidate = _candidate(**_PEOPLE[0])
     probe = await _score(candidate, job, lab.PROBE, 0.7)
     components = lab.components_of(probe, renormalize=False)
     assert components.factor == pytest.approx(0.84)
@@ -237,7 +249,7 @@ def test_normalized_rejects_all_zero():
 
 def test_replace_profile_keeps_shape():
     # Sonda jest zwykłym profilem — ``build_request_context`` ją przyjmuje.
-    context = build_request_context(make_job(**_JOB), replace(lab.PROBE))
+    context = build_request_context(_job(), replace(lab.PROBE))
     assert context.weights["champion_fit"] == 0
 
 

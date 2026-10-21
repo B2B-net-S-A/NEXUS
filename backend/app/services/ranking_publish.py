@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 STALE_AFTER = timedelta(minutes=5)
 MIN_REASON = 10
 _lock = asyncio.Lock()
-_tasks: set[asyncio.Task] = set()
 
 
 class PanelError(Exception):
@@ -157,9 +156,9 @@ async def start(db, *, actor_id: int) -> ScoringWeightMeasurement:
 
 
 def _schedule(measurement_id: int) -> None:
-    task = asyncio.get_running_loop().create_task(run(measurement_id))
-    _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
+    from app.core.tasks import spawn
+
+    spawn(run(measurement_id), f"ranking_measurement:{measurement_id}")
 
 
 async def _update(measurement_id: int, **values) -> None:
