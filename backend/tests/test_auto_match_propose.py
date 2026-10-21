@@ -268,8 +268,6 @@ async def test_morning_bell_counts_fresh_proposals_once_a_day(monkeypatch):
 
 @needs_db
 async def test_blocking_warning_is_never_proposed(monkeypatch):
-    from types import SimpleNamespace
-
     from sqlalchemy import func, select
 
     from app.core.database import AsyncSessionLocal
@@ -280,21 +278,11 @@ async def test_blocking_warning_is_never_proposed(monkeypatch):
     try:
         _stub_ranking(monkeypatch, job_hits={ids["job"]: 0.91}, candidate_hits={})
 
-        async def rank_jobs(candidate, jobs, db, *, similarity_map=None, contexts=None):
-            return [
-                SimpleNamespace(
-                    candidate_id=candidate.id,
-                    job_id=j.id,
-                    total=95.0,
-                    matching_must=["Python"],
-                    gap_must=[],
-                    penalties=[],
-                    warnings=["active_conflict"],
-                )
-                for j in jobs
-            ]
+        # Kanoniczny fit nie niesie ostrzeżeń — sprawdza je osobna funkcja.
+        async def conflict(candidate, job, db, context=None):
+            return [], ["active_conflict"]
 
-        monkeypatch.setattr(scoring_service, "rank_jobs_for_candidate", rank_jobs)
+        monkeypatch.setattr(scoring_service, "_check_penalties_and_warnings", conflict)
         result = await _candidate_event(ids)
         assert result["decisions"] == {"penalized": 1}
         async with AsyncSessionLocal() as db:
