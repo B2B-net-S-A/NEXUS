@@ -22,6 +22,8 @@ class ContractDocumentResponse(BaseModel):
     sharepoint_item_id: Optional[str] = None
     sharepoint_push_status: Optional[str] = None
     sharepoint_push_error: Optional[str] = None
+    # 0494: folder w zakładce Dokumenty (NULL = „Aktualna umowa”).
+    folder_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

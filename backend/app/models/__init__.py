@@ -46,7 +46,11 @@ from app.models.candidate_pin import CandidatePin
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.note import Note
 from app.models.contract import Contract, ContractTerminationReason
-from app.models.contract_document import ContractDocument, ContractDocumentType
+from app.models.contract_document import (
+    ContractDocument,
+    ContractDocumentFolder,
+    ContractDocumentType,
+)
 from app.models.contract_equipment import (
     ContractEquipment,
     EquipmentItemType,
@@ -379,6 +383,7 @@ __all__ = [
     "Contract",
     "ContractTerminationReason",
     "ContractDocument",
+    "ContractDocumentFolder",
     "ContractDocumentType",
     "ContractEquipment",
     "EquipmentItemType",
