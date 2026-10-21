@@ -1,5 +1,5 @@
 # Pytania z rozmowy u klienta także bez terminu w NEXUSIE (20.10.2026)
-<!-- indeks: „Kiedy rozmowa?” przy ruchu, `questions_missing` po 24 h, debrief pary bez wydarzenia, bramka przed „Umową” dla każdej pary z etapem rozmowy, podpowiedź z notatki -->
+<!-- indeks: „Kiedy rozmowa?”, `questions_missing` po 24 h, debrief bez wydarzenia, bramka przed „Umową” -->
 
 Zgłoszenie Artura 20.10.2026: ludzie nie wiedzą, gdzie wpisać pytania z rozmowy
 u klienta, i wpisują je w notatki, a komunikat „uzupełnij pytania” się nie

@@ -1,5 +1,5 @@
 # Silnik CV bez wypełniacza (13.10.2026, D1–D3)
-<!-- indeks: bez punktu MUST, pytanie ≠ fakt, branża ze źródła, nagłówek `cv_role_title`, lata, notatki bez stawek -->
+<!-- indeks: bez punktu MUST, pytanie ≠ fakt, `cv_role_title`, lata, notatki bez stawek -->
 
 Zespół zgłaszał, że generator „wpisuje głupoty”. Pomiar produkcji z 13.10.2026
 (30 dni, 759 CV) pokazał przyczyny w prompcie i w kodzie, nie w modelu:

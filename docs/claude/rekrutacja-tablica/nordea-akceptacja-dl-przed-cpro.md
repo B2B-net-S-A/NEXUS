@@ -1,5 +1,5 @@
 # Nordea: do kolejki Cpro dopiero po akceptacji Delivery Leada (13.10.2026)
-<!-- indeks: „Akceptuj — do Cpro” ze stawką, bramka serwera dla rekrutera, dzwonek od Cpro po akceptacji -->
+<!-- indeks: „Akceptuj — do Cpro” ze stawką, bramka serwera, dzwonek od Cpro -->
 
 Zgłoszenie Artura z 13.10.2026: osoba od Cpro dostawała „Do wrzucenia do
 Cpro”, gdy rekruter kończył QC, zanim Delivery Lead Nordei zaakceptował
