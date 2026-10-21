@@ -106,7 +106,7 @@ CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
     ),
     NotificationCategory.system: CategoryInfo(
         "Konto i system",
-        "Zmiana hasła, alarmy kosztów AI i awarie automatów.",
+        "Zmiana hasła, alarmy kosztów AI, awarie automatów i masowe przeglądanie CV.",
         mandatory=True,
     ),
 }
@@ -269,6 +269,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.password_changed_by_admin: _C.system,
     _T.ai_spend_alert: _C.system,
     _T.automation_failing: _C.system,
+    _T.candidate_data_access_alert: _C.system,
 }
 
 

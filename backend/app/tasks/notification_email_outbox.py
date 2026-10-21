@@ -100,6 +100,8 @@ def kind_clause(kind: str):
         return ntype == NotificationType.b2b_signature_requested
     if kind == "system_failure":
         return ntype == NotificationType.automation_failing
+    if kind == "data_access_alert":
+        return ntype == NotificationType.candidate_data_access_alert
     if kind == HR_MAIL_KIND:
         return ntype.in_([NotificationType(value) for value in HR_MAIL_TYPES])
     raise ValueError(kind)

@@ -154,6 +154,10 @@ def _system_failure(user: User, _: _Context) -> bool:
     return user.has_role(UserRole.admin)
 
 
+def _data_access_alert(user: User, _: _Context) -> bool:
+    return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
+
+
 def _chat_unread(user: User, _: _Context) -> bool:
     # Lustro zapytania `chat_email_fallback`: rola z dostępem do kandydatów,
     # bez Finansów i roli podglądu wśród ról. Nadawca patrzy na rolę główną;
@@ -222,6 +226,7 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "request_assigned": _request_assigned,
     "signature_request": _signature_request,
     "system_failure": _system_failure,
+    "data_access_alert": _data_access_alert,
     HR_MAIL_KIND: _hr_people,
     DIGEST_KIND: _digest,
     "kpi_weekly_report": _kpi_weekly,
