@@ -617,6 +617,11 @@ class B2BGeneratedContractItem(BaseModel):
     signed_by_name: Optional[str] = None
     can_confirm_signed: bool = False
     blocked_reason: Optional[str] = None
+    # 0496: podpisany egzemplarz w Dokumentach kontraktu (``None`` = brak albo
+    # usunięty) i czy to konto może go dołączyć lub podmienić — ta sama osoba,
+    # która może oznaczyć podpis tego wiersza.
+    signed_document_id: Optional[int] = None
+    can_attach_signed_file: bool = False
     # Rejestr z Excela działu (0363). `excel` = wiersz z pliku, tylko do odczytu
     # poza statusem handlowym; `generator` = umowa wydana w NEXUSIE.
     source: Literal["generator", "excel"] = "generator"

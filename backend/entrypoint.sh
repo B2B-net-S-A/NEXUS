@@ -5149,6 +5149,9 @@ END $$""",
     "signature_requested_at TIMESTAMPTZ",
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
     "signature_requested_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    # 0496: podpisany plik umowy przy wierszu rejestru Generatora.
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
+    "signed_document_id INTEGER REFERENCES contract_documents(id) ON DELETE SET NULL",
     # 0366: multiposting — kolumny kolejki publikacji w portalach.
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",

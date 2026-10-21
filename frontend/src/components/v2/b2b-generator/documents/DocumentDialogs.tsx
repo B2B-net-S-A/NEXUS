@@ -64,10 +64,16 @@ export function invalidateAfterDocumentChange(
 export const SCAN_ACCEPT = ".pdf,.jpg,.jpeg,.png";
 const SCAN_MAX_BYTES = 20 * 1024 * 1024;
 
+const SCAN_FORMAT_MESSAGE =
+  "Skan podpisanego aneksu musi być plikiem PDF, JPG albo PNG.";
+
 /** Powód odrzucenia pliku przed wysyłką albo `null`, gdy plik się nadaje. */
-export function scanFileProblem(file: File): string | null {
+export function scanFileProblem(
+  file: File,
+  formatMessage: string = SCAN_FORMAT_MESSAGE,
+): string | null {
   if (!/\.(pdf|jpe?g|png)$/i.test(file.name)) {
-    return "Skan podpisanego aneksu musi być plikiem PDF, JPG albo PNG.";
+    return formatMessage;
   }
   if (file.size > SCAN_MAX_BYTES) {
     return "Plik jest za duży — skan może mieć najwyżej 20 MB.";
@@ -76,22 +82,26 @@ export function scanFileProblem(file: File): string | null {
   return null;
 }
 
-/** Pole wyboru skanu — wspólne dla okna podpisu i „Dołącz skan”. */
+/** Pole wyboru skanu — wspólne dla okien podpisu aneksu i umowy oraz „Dołącz skan”. */
 export function ScanFileField({
   id,
   file,
   onFile,
   disabled = false,
+  label = "Skan podpisanego aneksu",
+  formatMessage = SCAN_FORMAT_MESSAGE,
 }: {
   id: string;
   file: File | null;
   onFile: (file: File | null) => void;
   disabled?: boolean;
+  label?: string;
+  formatMessage?: string;
 }) {
-  const problem = file ? scanFileProblem(file) : null;
+  const problem = file ? scanFileProblem(file, formatMessage) : null;
   return (
     <div className="space-y-1">
-      <Label htmlFor={id}>Skan podpisanego aneksu</Label>
+      <Label htmlFor={id}>{label}</Label>
       <Input
         id={id}
         type="file"

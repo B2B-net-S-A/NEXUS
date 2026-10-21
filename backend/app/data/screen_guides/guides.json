@@ -596,7 +596,7 @@
       },
       {
         "q": "Umowa jest podpisana — co dalej?",
-        "a": "W „Umowy bieżące” kliknij „Oznacz jako podpisaną” — bez uprawnienia „Podpis B2B” poproś Delivery Leada. Dopiero wtedy powstaje kontrakt i szkic zamówienia, a kandydat przechodzi na „Zatrudniony”. Link w kolumnie rekrutacji otwiera panel osoby.",
+        "a": "W „Umowy bieżące” kliknij „Oznacz jako podpisaną” — bez uprawnienia „Podpis B2B” poproś Delivery Leada. Dopiero wtedy powstaje kontrakt i szkic zamówienia, a kandydat przechodzi na „Zatrudniony”. W tym oknie dołącz podpisany plik (albo później: „Dołącz podpisaną umowę”) — trafi do Dokumentów kontraktu.",
         "anchor": "contracts.b2b_generator.tabs"
       },
       {

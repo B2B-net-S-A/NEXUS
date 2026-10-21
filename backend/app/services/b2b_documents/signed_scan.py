@@ -57,15 +57,18 @@ MSG_NO_CONTRACT = (
 )
 
 
-def check_scan(filename: str | None, data: bytes) -> tuple[str, str]:
+def check_scan(
+    filename: str | None, data: bytes, *, format_msg: str = MSG_FORMAT
+) -> tuple[str, str]:
     """(nazwa do zapisu, typ treści); odmowa, gdy plik nie jest skanem.
 
     Rozszerzenie i pierwsze bajty muszą się zgadzać — nazwa pochodzi
-    z przeglądarki, więc sama nie mówi, co jest w środku."""
+    z przeglądarki, więc sama nie mówi, co jest w środku. ``format_msg``
+    nazywa dokument (aneks, umowa) w odmowie złego formatu."""
     name = fit_filename_column(filename or "skan.pdf")
     known = _FORMATS.get(PurePath(name).suffix.lower())
     if known is None:
-        raise HTTPException(status_code=415, detail=MSG_FORMAT)
+        raise HTTPException(status_code=415, detail=format_msg)
     if not data:
         raise HTTPException(status_code=422, detail=MSG_EMPTY)
     if len(data) > MAX_SCAN_BYTES:
@@ -76,10 +79,12 @@ def check_scan(filename: str | None, data: bytes) -> tuple[str, str]:
     return name, content_type
 
 
-async def read_scan(upload: UploadFile) -> tuple[str, str, bytes]:
+async def read_scan(
+    upload: UploadFile, *, format_msg: str = MSG_FORMAT
+) -> tuple[str, str, bytes]:
     """(nazwa, typ treści, bajty) — nigdy więcej niż limit + 1 bajt w pamięci."""
     data = await upload.read(MAX_SCAN_BYTES + 1)
-    name, content_type = check_scan(upload.filename, data)
+    name, content_type = check_scan(upload.filename, data, format_msg=format_msg)
     return name, content_type, data
 
 

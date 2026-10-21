@@ -88,6 +88,22 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   `POST /generate`, `signingApi` i `app/services/signing/` **zostają** (nietknięte,
   bez konsumenta w generatorze); `reuseOrGenerateContractId` też — razem z testami.
   Nie dokładaj do generatora akcji, która zakłada kontrakt przed podpisem.
+- **Podpisany plik umowy przy wierszu rejestru (0496, 21.10.2026).** Zgłoszenie
+  Administracji: podpisana umowa krążyła mailem i lądowała na dysku „b2b all”,
+  a w NEXUSIE jej nie było. Okno „Oznacz jako podpisaną” ma pole „Podpisana
+  umowa (opcjonalnie)” — bez pliku wszystko działa jak dotąd. Plik leci
+  DOPIERO po udanym potwierdzeniu (`POST /generated/{id}/signed-file`,
+  multipart), bo to podpis zakłada kontrakt; nieudany zapis pliku nie cofa
+  podpisu, toast odsyła do „Dołącz podpisaną umowę” w wierszu. Plik trafia do
+  Dokumentów kontraktu jako „Umowa”, wiersz wskazuje go
+  `b2b_generated_contracts.signed_document_id` (`ON DELETE SET NULL`), kolejny
+  plik podmienia poprzedni (`services/b2b_contract_generator/signed_file.py`,
+  wzór: skan podpisanego aneksu). Dołącza ten, kto mógłby oznaczyć podpis
+  wiersza (`_may_confirm_row_signature` + zakres klienta), lista mówi to samo
+  (`can_attach_signed_file`); wiersz z Excela — nie. Rejestr linkuje plik do
+  zakładki Dokumenty kontraktu, nie pobiera go sam (pobranie wymaga
+  uprawnienia do kwot). NEXUS nie sprawdza podpisów w tym pliku — to robi
+  dopiero droga „podpis w NEXUSIE” (makiety z 21.10.2026, osobne PR-y).
 - **Potwierdzenie podpisu mimo różnic = „zachowaj warunki kontraktu", nigdy
   „nadpisz z dokumentu".** Gdy para (kandydat, rekrutacja) ma już żywy
   kontrakt o innych wypełnionych warunkach niż dokument, automatyzacja odmawia
