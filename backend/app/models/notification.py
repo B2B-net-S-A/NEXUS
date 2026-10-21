@@ -216,6 +216,10 @@ class NotificationType(str, enum.Enum):
     # zmiany (dymek). related_entity=(client_interview_<rodzaj>, None), link
     # do pary — jak ``prep_changed*``: dzienny dedup zjadałby drugą zmianę.
     interview_changed = "interview_changed"
+    # 0506 (22.10.2026): ocena prepu gotowa — do ludzi pary (prowadzący,
+    # planujący, DL rekrutacji, rekruter kandydata), licznik bez dymka.
+    # related_entity=(prep_review, calendar_event.id), dedup dobowy.
+    prep_review_ready = "prep_review_ready"
     # 0371: automat przydziału requestów — rano JEDEN wpis na osobę („Od dziś:
     # X. Zwolnione: Y (champion)”); related_entity=(user, id), dedup dobowy.
     # Od 02.10.2026 także od razu po akceptacji propozycji: „Nowy request do

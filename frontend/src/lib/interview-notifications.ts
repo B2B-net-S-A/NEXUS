@@ -30,6 +30,8 @@ export const INTERVIEW_NOTIFICATION_TYPES = [
   "prep2_skip_threshold",
   // 0500 (21.10.2026): rozmowa u klienta przełożona albo odwołana — z dymkiem.
   "interview_changed",
+  // 0506 (22.10.2026): ocena prepu gotowa — do ludzi pary, licznik.
+  "prep_review_ready",
 ] as const;
 
 export type InterviewNotificationType = (typeof INTERVIEW_NOTIFICATION_TYPES)[number];
@@ -55,6 +57,8 @@ export const QUIET_INTERVIEW_TYPES: ReadonlySet<string> = new Set([
   // 0482: informacja o pominiętym Prepie 2 i progu — sam licznik.
   "prep2_skipped",
   "prep2_skip_threshold",
+  // 0506: ocena prepu gotowa — informacja, wynik i lista są w karcie osoby.
+  "prep_review_ready",
 ]);
 
 /** Zdarzenie okna: gniazdo dostarczyło powiadomienie kategorii „Rozmowy”. */
