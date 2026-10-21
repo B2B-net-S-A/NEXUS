@@ -19,6 +19,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token
 from app.models.hr_document import HrDocument
 from app.models.hr_leave import LeaveRequest
+from app.models.hr_ops import HrAuditEvent
 from app.models.hr_profile import EmployeeProfile
 from app.models.section_permission import UserActionOverride
 from app.models.user import User, UserRole
@@ -186,6 +187,54 @@ async def test_proof_reaches_person_and_hr_but_supervisor_sees_only_the_count(
     later = await _attach(app_client, worker, request["id"], png_bytes(), "skan.png")
     assert later.status_code == 201, later.text
     assert later.json()["proof_count"] == 2
+
+
+@pytest.mark.asyncio
+@WITH_DOCUMENTS
+async def test_proof_download_from_request_leaves_the_folder_trace(app_client) -> None:
+    """Pobranie załącznika z wniosku zostawia ten sam ślad co e-teczka.
+
+    Audyt 21.10.2026: `GET /api/hr/documents/{id}/file` zapisuje
+    `document_downloaded` (`sensitivity='health'` przy potwierdzeniu
+    nieobecności), a obie trasy wniosku pobierały ten sam plik bez śladu.
+    """
+
+    _boss, worker, hr = await _team()
+    request = await _submit(app_client, worker)
+    attached = await _attach(app_client, worker, request["id"], pdf_bytes(), "akt.pdf")
+    assert attached.status_code == 201, attached.text
+    document_id = attached.json()["proofs"][0]["id"]
+
+    own = await app_client.get(
+        f"{BASE}/requests/{request['id']}/proofs/{document_id}/file",
+        headers=_headers(worker),
+    )
+    assert own.status_code == 200
+    team = await app_client.get(
+        f"{BASE}/approvals/{request['id']}/proofs/{document_id}/file",
+        headers=_headers(hr),
+    )
+    assert team.status_code == 200
+
+    async with AsyncSessionLocal() as db:
+        events = (
+            await db.scalars(
+                select(HrAuditEvent).where(
+                    HrAuditEvent.entity_type == "hr_document",
+                    HrAuditEvent.action == "document_downloaded",
+                    HrAuditEvent.entity_id == str(document_id),
+                )
+            )
+        ).all()
+    assert sorted(
+        (e.actor_user_id, e.subject_user_id, e.sensitivity, e.details["kind"])
+        for e in events
+    ) == sorted(
+        [
+            (worker.id, worker.id, "health", "absence_proof"),
+            (hr.id, worker.id, "health", "absence_proof"),
+        ]
+    )
 
 
 @pytest.mark.asyncio
