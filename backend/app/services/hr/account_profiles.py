@@ -59,6 +59,7 @@ DEACTIVATION_ACTIONS: tuple[str, ...] = (
     "compass_lifecycle_deactivated",
     "sso_aad_role_denied",
     "admin_aad_role_denied",
+    "m365_account_gone_deactivated",
 )
 
 #: Statusy, które konto wyłączone zamyka (odejście w toku też — decyzja Artura).

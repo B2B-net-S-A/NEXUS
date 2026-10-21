@@ -126,7 +126,7 @@ Role, dziewięć uprawnień, bramki sekcji i tras, zakres Delivery Leada, kto wi
 - `delivery-lead-widzi-kwoty-wlasnego-portfela-profil.md` — Delivery Lead widzi kwoty własnego portfela (profil klienta + Analityka)
 - `delivery-lead-widzi-tylko-swoich-klientow-w.md` — Delivery Lead widzi tylko swoich klientów w modułach Delivery (25.09.2026)
 - `dziewiec-uprawnien-zamiast-rol-w-bramkach.md` — Dziewięć uprawnień zamiast ról w bramkach (0410, 02.10.2026)
-- `integralnosc-i-uprawnienia-reguly-po-audytach.md` — Integralność i uprawnienia — reguły po audytach Codexa 13–14.09.2026 (PR 1 i PR 2) · blokady wiersza kontraktu, bramka sekcji tras, CV nie są kasowane, kursor M365
+- `integralnosc-i-uprawnienia-reguly-po-audytach.md` — Integralność i uprawnienia — reguły po audytach Codexa 13–14.09.2026 (PR 1 i PR 2) · blokady wiersza kontraktu, bramka sekcji tras, CV nie są kasowane, kursor M365, konto za M365
 - `jedna-rola-rekruter-zamiast-sourcera-rekrutera-i-tac.md` — Jedna rola „Rekruter” zamiast sourcera, rekrutera i TAC (0411, 02.10.2026)
 - `rekrutacje-i-kandydatow-widza-wszyscy-stawki-do.md` — Rekrutacje i kandydatów widzą wszyscy; stawki do klienta nie widzi rekruter (23.09.2026)
 - `rola-finance-pelny-odczyt-biznesowy-decyzje-artura.md` — Rola `finance` = pełny odczyt biznesowy (decyzje Artura 19.08 i 31.08)
