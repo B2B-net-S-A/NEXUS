@@ -6,7 +6,7 @@ import type { EmploymentType } from "@/lib/api/hr";
 import type { MySettlement, PayrollLine, SettlementMonth } from "@/lib/api/hr-payroll";
 import type { ViewState } from "@/lib/view-state";
 import { formatMoney } from "@/lib/money";
-import { capitalize } from "@/lib/hr-employment-terms";
+import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 
 import { formatHours } from "../payroll/payroll-format";
 
@@ -18,7 +18,13 @@ const HOURS_SOURCE: Record<SettlementMonth["hours_source"], string> = {
 };
 
 /** „168 h × 95,00 zł = 15 960,00 zł · premie 1 500,00 zł” — jedna linia waluty. */
-export function settlementLineText(month: Pick<SettlementMonth, "hours" | "rate_missing">, line: PayrollLine): string {
+export function settlementLineText(
+  month: Pick<SettlementMonth, "hours" | "rate_missing">,
+  line: PayrollLine,
+  form?: EmploymentType | null,
+): string {
+  // Przy B2B i zleceniu „wynagrodzenie dodatkowe” zamiast „premii” (21.10.2026).
+  const words = employmentTerms(form);
   const parts: string[] = [];
   if (line.hourly_rate != null && line.hours_amount != null) {
     parts.push(
@@ -31,9 +37,9 @@ export function settlementLineText(month: Pick<SettlementMonth, "hours" | "rate_
     parts.push(`${formatHours(month.hours)} h · stawka nie ustawiona`);
   }
   if (Number(line.bonus_total) > 0) {
-    parts.push(`premie ${formatMoney(line.bonus_total, line.currency)}`);
+    parts.push(`${words.bonuses} ${formatMoney(line.bonus_total, line.currency)}`);
   }
-  return parts.join(" · ") || "bez godzin i premii";
+  return parts.join(" · ") || `bez godzin i ${words.bonuses_genitive}`;
 }
 
 interface MySettlementCardProps {
@@ -96,7 +102,7 @@ export function MySettlementCard({ state, data, form, onRetry }: MySettlementCar
                 </p>
                 {month.lines.map((line) => (
                   <p key={line.currency} className="text-xs text-muted-foreground">
-                    {settlementLineText(month, line)}
+                    {settlementLineText(month, line, form)}
                   </p>
                 ))}
               </div>

@@ -270,7 +270,8 @@ describe("MyOverviewTab", () => {
     const month = await card(`Raport godzin · ${["Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"][current.month - 1]}`);
     expect(await within(month).findByText("121 / 176 h")).toBeInTheDocument();
 
-    const bonuses = await card("Premie");
+    // B2B: „Wynagrodzenie dodatkowe” zamiast „Premii” (21.10.2026).
+    const bonuses = await card("Wynagrodzenie dodatkowe");
     const transit = (await within(bonuses).findByText("w drodze")).closest("p");
     expect(nbsp(transit?.textContent ?? null)).toContain("~ 3500,00 zł");
     // Etapy: prognoza z podpisanej umowy i propozycja w trakcie 21 dni.
@@ -298,7 +299,7 @@ describe("MyOverviewTab", () => {
     renderTab();
 
     expect(await screen.findByText("Nie udało się wczytać nieobecności.")).toBeInTheDocument();
-    expect(await screen.findByText("Nie udało się wczytać premii.")).toBeInTheDocument();
+    expect(await screen.findByText("Nie udało się wczytać wynagrodzenia dodatkowego.")).toBeInTheDocument();
     expect(await screen.findByText("Nie udało się wczytać miesiąca.")).toBeInTheDocument();
     expect(screen.queryByText(/zostało/)).toBeNull();
     expect(screen.queryByText(/w drodze/)).toBeNull();
@@ -315,7 +316,7 @@ describe("MyOverviewTab", () => {
     expect(await screen.findByText("Marta Fikcyjna")).toBeInTheDocument();
     expect(screen.getByText("Nic do zrobienia.")).toBeInTheDocument();
     expect(screen.queryByRole("generic", { name: /Płatne dni|Urlop|Nieobecności/ })).toBeNull();
-    expect(screen.queryByRole("generic", { name: "Premie" })).toBeNull();
+    expect(screen.queryByRole("generic", { name: /Premie|Wynagrodzenie dodatkowe/ })).toBeNull();
     expect(screen.queryByRole("generic", { name: "Mój sprzęt" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Zgłoś nieobecność|Uzupełnij dzień/ })).toBeNull();
     expect(mocks.get).not.toHaveBeenCalled();
@@ -370,6 +371,8 @@ describe("MyOverviewTab", () => {
     renderTab(config(), person("uop"));
 
     const leave = await card(`Urlop ${year}`);
+    // UoP: słowa bez zmian — karta „Premie”.
+    expect(await card("Premie")).toBeInTheDocument();
     expect(await within(leave).findByText(/Na żądanie 1 z 4 · opieka nad dzieckiem 0 z 2/)).toBeInTheDocument();
     const todo = await card("Do zrobienia");
     expect(await within(todo).findByText("Podpisz protokół PZO/TEST/2026/011")).toBeInTheDocument();

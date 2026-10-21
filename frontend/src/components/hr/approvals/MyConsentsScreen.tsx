@@ -150,7 +150,7 @@ function Detail({ row, onEdit }: { row: ApprovalRequestRow; onEdit: () => void }
       {row.status === "approved" && !row.settlement ? (
         <p className="border-t border-border/60 pt-3 text-sm text-foreground">
           {row.kind === "bonus"
-            ? "Premia jest w Płacach jako przyznana."
+            ? "Wynagrodzenie dodatkowe jest w Płacach jako przyznane."
             : `Możesz kupić albo zapłacić${row.decided_amount ? ` — do ${moneyPl(row.decided_amount, row.currency)}` : ""}.`}
         </p>
       ) : null}
@@ -247,8 +247,8 @@ export function MyConsentsScreen() {
     return (
       <div className="space-y-3 rounded-xl border border-dashed border-border p-6 text-center">
         <p className="text-sm text-muted-foreground">
-          Nie prosiłeś(-aś) jeszcze o zgodę. Subskrypcja, koszty podróży, prezent, szkolenie albo premia
-          poza umową — wszystko w jednym formularzu.
+          Nie prosiłeś(-aś) jeszcze o zgodę. Subskrypcja, koszty podróży, prezent, szkolenie albo
+          wynagrodzenie dodatkowe — wszystko w jednym formularzu.
         </p>
         <div>{newButton}</div>
       </div>

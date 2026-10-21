@@ -1055,6 +1055,16 @@ except Exception as _contract_docs_sp_err:  # noqa: BLE001
     print(f"contract docs sharepoint DDL unavailable: {_contract_docs_sp_err!r}")
     _CONTRACT_DOCS_SP_DDL = []
 
+# Foldery w zakładce Dokumenty kontraktu (migracja 0494) — JEDNO źródło
+# z migracją (`app/services/contract_document_folders_schema.py`).
+try:
+    from app.services import contract_document_folders_schema as _contract_doc_folders
+
+    _CONTRACT_DOC_FOLDERS_DDL = list(_contract_doc_folders.TABLE_DDL)
+except Exception as _contract_doc_folders_err:  # noqa: BLE001
+    print(f"contract document folders DDL unavailable: {_contract_doc_folders_err!r}")
+    _CONTRACT_DOC_FOLDERS_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1102,6 +1112,7 @@ _COLUMN_STATEMENTS = [
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
     *_CONTRACT_DOCS_SP_DDL,
+    *_CONTRACT_DOC_FOLDERS_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (

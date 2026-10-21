@@ -16,9 +16,10 @@ export const KIND_OPTIONS: {
   hint: string;
 }[] = [
   {
+    // Ekran wielu osób: neutralnie, z podstawą w umowie (decyzja Artura 21.10.2026).
     value: "bonus",
-    label: "Premia poza umową",
-    hint: "uznaniowa, nagroda, wyjątek",
+    label: "Wynagrodzenie dodatkowe",
+    hint: "wymaga podstawy: punkt umowy albo aneks",
   },
   {
     value: "subscription",
@@ -128,7 +129,7 @@ export function afterDecision(row: ApprovalRequestRow): {
 export function afterApproval(row: ApprovalRequestRow): string {
   if (row.kind === "bonus") {
     const month = payoutLine(row);
-    return `Premia trafi do Płac jako przyznana${month ? ` na ${month}` : ""} — bez drugiej akceptacji. ${row.beneficiary_name ?? "Osoba"} dostanie powiadomienie.`;
+    return `Wynagrodzenie dodatkowe trafi do Płac jako przyznane${month ? ` na ${month}` : ""} — bez drugiej akceptacji. ${row.beneficiary_name ?? "Osoba"} dostanie powiadomienie.`;
   }
   return `${row.requester_name ?? "Autor"} dostanie powiadomienie, że może kupić albo zapłacić.`;
 }

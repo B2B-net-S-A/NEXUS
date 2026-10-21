@@ -139,6 +139,7 @@ Role, dziewięć uprawnień, bramki sekcji i tras, zakres Delivery Leada, kto wi
 Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, pulpit, wygląd tabel.
 
 - `design-system-ui-zawsze-przy-pracy-nad-wygladem.md` — Design system & UI — ZAWSZE przy pracy nad wyglądem
+- `kafelek-do-uzupelnienia.md` — Kafelek „Do uzupełnienia” (21.10.2026)
 - `klienci-kontrakty-finanse-spokojne-tabele.md` — Klienci, Kontrakty, Finanse — spokojne tabele (02.10.2026)
 - `licznik-celow-w-gornym-pasku.md` — Licznik celów w górnym pasku (13.10.2026) · podpisane segmenty, panel po kliknięciu, „poniżej tempa”, cel DL z 30% hit ratio
 - `liga-w-gornym-pasku.md` — Liga Mistrzów w górnym pasku (13.10.2026) · przycisk ligi przed licznikiem celów, `/api/competitions/my-league`, stany przycisku, menu „Wygląd”
@@ -196,6 +197,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `nordea-akceptacja-dl-przed-cpro.md` — Nordea: do kolejki Cpro dopiero po akceptacji Delivery Leada (13.10.2026) · „Akceptuj — do Cpro” ze stawką, bramka serwera dla rekrutera, dzwonek od Cpro po akceptacji
 - `nowe-cv-w-rekrutacji.md` — Nowe CV w rekrutacji — kafelek w panelu osoby i „Dodaj do rekrutacji z tym CV” (13.10.2026) · „Wgraj nowe CV” w panelu osoby, trasa `…/cv/original/upload`, „Użyj w tej rekrutacji”, „Dodaj z CV” przy osobie z bazy
 - `odrzucenie-z-uzasadnieniem.md` — Odrzucenie z uzasadnieniem i rozmowa u tego samego managera (20.10.2026)
+- `off-limits-sam-sie-zglosil.md` — Off-limits: „Czy sam(a) się do nas zgłosił(a)?” przy dodaniu do rekrutacji (21.10.2026)
 - `pipeline-rekrutacji-bramka-ruchu-przekazanie-cv.md` — Pipeline rekrutacji — bramka ruchu, przekazanie CV, spójność ekranów (11.09.2026)
 - `pipeline-v4-6-kolumn-blokada-12-h-przeglad-dl.md` — Pipeline v4 — 6 kolumn, blokada 12 h, przegląd DL (0352, 23.09.2026)
 - `podobne-rekrutacje-przepiecia-i-status-requestu.md` — Podobne rekrutacje, przepięcia i status requestu (0341, 22.09.2026)
@@ -310,6 +312,7 @@ Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchroni
 - `data-rozpoczecia-umowy-start-zamowienia.md` — Data rozpoczęcia umowy ≠ start zamówienia (korekta 21.09.2026)
 - `dokumenty-kontraktow-z-sharepointa.md` — Dokumenty kontraktów z SharePointa (ticket 9, 0402, 29.09.2026)
 - `domyslny-widok-modulu-kontrakty-aktywne-i-konczace.md` — Domyślny widok modułu Kontrakty: Aktywne **i** Kończące się
+- `foldery-w-dokumentach-kontraktu.md` — Foldery w zakładce Dokumenty kontraktu (0494, 21.10.2026)
 - `generator-umow-b2b-trzy-zakladki-cyklu-zycia-umowy.md` — Generator Umów B2B — trzy zakładki cyklu życia umowy
 - `kafelek-kontraktora-status-zamowienia-musi-zgadzac.md` — Kafelek kontraktora: status zamówienia musi zgadzać się z okresem (29.09.2026)
 - `kontakt-do-konsultanta-na-umowie.md` — Kontakt do konsultanta na umowie (09.2026, migracja 0320)

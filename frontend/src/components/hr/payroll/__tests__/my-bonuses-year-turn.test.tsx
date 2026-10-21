@@ -80,7 +80,8 @@ describe("premie wypłacone na przełomie roku", () => {
     );
 
     expect(await screen.findByText("Grudzień 2026")).toBeInTheDocument();
-    expect(screen.getByText("premie wypłacone w 2026")).toBeInTheDocument();
+    // Osoba na B2B: „wynagrodzenie dodatkowe”, nie „premie” (21.10.2026).
+    expect(screen.getByText("wynagrodzenie dodatkowe wypłacone w 2026")).toBeInTheDocument();
     expect(screen.queryByText(/nie ma jeszcze miesięcy/)).toBeNull();
     const years = mocks.get.mock.calls
       .filter(([url]) => url === "/api/hr/payroll/me/settlement")

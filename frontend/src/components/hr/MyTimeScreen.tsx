@@ -66,6 +66,8 @@ export const MY_TIME_MODULE_TABS: MyTimeModuleTab[] = [
   {
     value: "bonuses",
     label: "Premie i stawka",
+    // „Wynagrodzenie dodatkowe i stawka” przy B2B i zleceniu (21.10.2026).
+    labelFor: (form) => employmentTerms(form).bonuses_tab,
     module: "payroll",
     render: () => <MyBonusesTab />,
   },
@@ -150,7 +152,8 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
     <div className="space-y-4">
       <PageHeader
         title="Mój czas"
-        description="Nieobecności, miesiąc pracy i premie w jednym miejscu."
+        // Przed wczytaniem kartoteki neutralnie (prawie wszyscy są na B2B).
+        description={`Nieobecności, miesiąc pracy i ${employmentTerms(form ?? "b2b").bonuses} w jednym miejscu.`}
         density="compact"
       />
       {state === "loading" ? (

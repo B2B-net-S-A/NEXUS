@@ -15,7 +15,9 @@ import type {
   TimesheetEntry,
   TimesheetTemplate,
 } from "@/lib/api/hr-time";
+import type { EmploymentType } from "@/lib/api/hr";
 import { formatWeekdayDayPl } from "@/lib/date-pl";
+import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 
 import { formatHours, parseHours, wouldExceedDay } from "./time-format";
 
@@ -27,6 +29,8 @@ export interface EntryDialogProps {
   entry: TimesheetEntry | null;
   /** Czy wolno wpisać nadgodziny (kartoteka albo Kadry) — serwer i tak sprawdza. */
   allowOvertime: boolean;
+  /** Forma osoby: przy B2B i zleceniu „godziny ponad 8 h” zamiast „nadgodzin”. */
+  form?: EmploymentType | null;
   onSave: (payload: EntryPatch & { id?: number }) => Promise<unknown>;
   onDelete?: (id: number) => Promise<unknown>;
   templates?: TimesheetTemplate[];
@@ -41,11 +45,13 @@ export function EntryDialog({
   day,
   entry,
   allowOvertime,
+  form,
   onSave,
   onDelete,
   templates = [],
   hint,
 }: EntryDialogProps) {
+  const words = employmentTerms(form);
   const { askConfirm, confirmDialog } = useConfirmV2();
   const defaultHours = entry ? entry.hours : Math.max(0, Math.min(8, day.capacity ?? 8) - day.hours);
   const [hours, setHours] = useState(formatHours(defaultHours || 8));
@@ -75,12 +81,12 @@ export function EntryDialog({
     }
     if (overtime && !allowOvertime && !hoursUnchanged) {
       setError(
-        "Suma dnia przekroczyłaby 8 h. Nadgodziny wpisuje osoba z uprawnieniem do nadgodzin albo Kadry.",
+        `Suma dnia przekroczyłaby 8 h. ${capitalize(words.overtime)} wpisuje osoba z uprawnieniem do ${words.overtime_genitive} albo Kadry.`,
       );
       return;
     }
     if (overtime && !hoursUnchanged && reason.trim().length < 5) {
-      setError("Nadgodziny wymagają uzasadnienia (co najmniej 5 znaków).");
+      setError(`${words.overtime_reason_required} (co najmniej 5 znaków).`);
       return;
     }
     setBusy(true);
@@ -208,13 +214,13 @@ export function EntryDialog({
         ) : null}
         {overtime ? (
           <FormField
-            label="Uzasadnienie nadgodzin"
+            label={words.overtime_reason}
             htmlFor="time-entry-reason"
             className="sm:col-span-2"
             description={
               allowOvertime
-                ? "Suma dnia przekroczy 8 h — napisz, czym były nadgodziny."
-                : "Nie masz uprawnienia do nadgodzin — popraw godziny albo poproś Kadry."
+                ? words.overtime_reason_hint
+                : `Nie masz uprawnienia do ${words.overtime_genitive} — popraw godziny albo poproś Kadry.`
             }
           >
             <Input

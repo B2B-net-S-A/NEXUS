@@ -81,6 +81,7 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
 from app.services import candidate_recruitment_filter as recruitment_filter
 from app.services import candidate_stage_column as stage_column_filter
+from app.services import client_off_limits
 from app.services import note_kinds
 from app.services.keyword_terms import KeywordTooShort
 from app.models.notification import Notification, NotificationType
@@ -4543,6 +4544,13 @@ async def create_candidate_from_linkedin(
                         if exc.status_code != status.HTTP_409_CONFLICT:
                             raise
                         assignment_skipped = str(exc.detail)
+                    except client_off_limits.OffLimitsConfirmationRequired as exc:
+                        # Off-limits (21.10.2026): wtyczka nie ma okna
+                        # potwierdzenia — osoba zostaje w bazie, a dodanie
+                        # do rekrutacji (z pytaniem) robi się w NEXUSIE.
+                        assignment_skipped = client_off_limits.extension_skip_reason(
+                            exc
+                        )
             if assignment_skipped is None:
                 assigned_job = data.job_id
 
@@ -4615,15 +4623,20 @@ async def create_candidate_from_linkedin(
     )
 
     assigned_job_id: Optional[int] = None
+    assignment_skipped_reason: Optional[str] = None
     if data.job_id is not None:
-        await _assign_candidate_to_job(
-            db=db,
-            candidate_id=candidate.id,
-            job_id=data.job_id,
-            stage=target_stage,
-            user_id=current_user.id,
-        )
-        assigned_job_id = data.job_id
+        try:
+            await _assign_candidate_to_job(
+                db=db,
+                candidate_id=candidate.id,
+                job_id=data.job_id,
+                stage=target_stage,
+                user_id=current_user.id,
+            )
+            assigned_job_id = data.job_id
+        except client_off_limits.OffLimitsConfirmationRequired as exc:
+            # Jak w ścieżce istniejącej osoby: zapis zostaje, bez przypisania.
+            assignment_skipped_reason = client_off_limits.extension_skip_reason(exc)
 
     await db.commit()
     await db.refresh(candidate)
@@ -4651,6 +4664,7 @@ async def create_candidate_from_linkedin(
         assigned_to_job_id=assigned_job_id,
         profile_url_path=f"/candidates/{candidate.id}",
         resync_scheduled=False,
+        assignment_skipped_reason=assignment_skipped_reason,
     )
 
 

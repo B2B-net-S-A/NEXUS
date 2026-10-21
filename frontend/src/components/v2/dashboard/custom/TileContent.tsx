@@ -40,6 +40,7 @@ import { CalendarTodayBody, MyPeopleBody, NoteBody } from "./SmallTiles"
 import { SystemStatusTile } from "./SystemStatusTile"
 import { TeamSignalsTile } from "./TeamSignalsTile"
 import { TodayCycleTile } from "./TodayCycleTile"
+import { ToCompleteTile } from "./ToCompleteTile"
 
 function Unavailable({ reason }: { reason: string }) {
   return (
@@ -111,6 +112,9 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
     case "closing_candidates":
       // 20.10.2026: kolumna „Akceptacja i umowa” ze wszystkich rekrutacji z zakresu.
       return <ClosingCandidatesTile />
+    case "to_complete":
+      // 21.10.2026: trzy listy zaległości z „Czeka na Ciebie” w kafelku.
+      return <ToCompleteTile />
     case "recruitment_activity":
       return <RecruitmentActivityDashboard />
     case "recruitment_competence":

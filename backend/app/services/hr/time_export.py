@@ -44,8 +44,10 @@ COLUMNS = (
     "Projekt",
     "Opis",
     "Źródło",
-    "Nadgodziny",
-    "Uzasadnienie nadgodzin",
+    # Plik idzie do osób na każdej formie — słowa neutralne, bez „nadgodzin”
+    # (decyzja Artura 21.10.2026; bramka uprawnienia bez zmian).
+    "Ponad 8 h dziennie",
+    "Czego dotyczyły godziny ponad 8 h",
 )
 
 STATUS_LABELS = {

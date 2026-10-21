@@ -36,7 +36,7 @@ import { usePersonPayroll } from "@/lib/api/hr-payroll";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
-import { employmentTerms } from "@/lib/hr-employment-terms";
+import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 import { isForbiddenError, isNotFoundError, resolveViewState } from "@/lib/view-state";
 import { ROLE_LABELS, useAuthStore } from "@/store/auth";
 import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPanel";
@@ -375,6 +375,9 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
   const full = isFullPerson(data) ? data : null;
   // Słowa formy (D4); wizytówka i forma ukryta (Kadry bez Płac) mówią „koordynator” (PIP, 21.10.2026).
   const words = full?.employment_type ? employmentTerms(full.employment_type) : null;
+  // Nadgodziny i premie: słowo z formy osoby, bez formy neutralnie jak B2B
+  // („godziny ponad 8 h”, „wynagrodzenie dodatkowe” — decyzja Artura 21.10.2026).
+  const payWords = words ?? employmentTerms("b2b");
   const directoryRows = directory.data?.items ?? [];
   const managers = directoryRows.map((row) => ({ user_id: row.user_id, name: row.name }));
   // „Dziś” z katalogu (ta sama reguła co kolumna) — kartoteka sama go nie niesie.
@@ -436,7 +439,9 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
       hint: full
         ? [
             full.timesheet_required ? (words?.timesheet ?? "raport godzin").toLowerCase() : "bez raportu godzin",
-            full.can_log_overtime ? "z nadgodzinami" : "bez nadgodzin",
+            full.can_log_overtime
+              ? `z ${payWords.overtime_instrumental}`
+              : `bez ${payWords.overtime_genitive}`,
           ].join(" · ")
         : undefined,
     });
@@ -462,7 +467,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
   if (bonuses && (bonuses.granted > 0 || bonuses.waiting > 0)) {
     facts.push({
       key: "bonus",
-      label: `Premie ${year}`,
+      label: `${capitalize(payWords.bonuses)} ${year}`,
       value: formatMoney(bonuses.granted, bonuses.currency),
       hint:
         bonuses.waiting > 0 ? `+ ${formatMoney(bonuses.waiting, bonuses.currency)} czeka` : undefined,
@@ -494,7 +499,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
       ? [
           {
             value: "payroll" as const,
-            label: "Płace i premie",
+            label: `Płace i ${payWords.bonuses}`,
             count: bonuses?.waitingCount ? bonuses.waitingCount : undefined,
           },
         ]
@@ -633,7 +638,9 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
               <Card className="flex flex-col gap-3 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold text-foreground">
-                    {pay?.scope === "full" ? "Stawka i premie" : "Premie"}
+                    {pay?.scope === "full"
+                      ? `Stawka i ${payWords.bonuses}`
+                      : capitalize(payWords.bonuses)}
                   </span>
                   {pay ? (
                     <Button size="sm" variant="ghost" onClick={() => chooseTab("payroll")}>
@@ -686,7 +693,9 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
                           </li>
                         ))}
                       {pay.bonuses.every((bonus) => bonus.status === "cancelled") ? (
-                        <li className="text-muted-foreground">Brak premii.</li>
+                        <li className="text-muted-foreground">
+                          Brak {payWords.bonuses_genitive}.
+                        </li>
                       ) : null}
                     </ul>
                   </>
@@ -868,7 +877,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
             <Fact label={words?.timesheet ?? "Timesheet"}>
               {full.timesheet_required ? "tak" : "nie"}
             </Fact>
-            <Fact label="Nadgodziny">{full.can_log_overtime ? "tak" : "nie"}</Fact>
+            <Fact label={capitalize(payWords.overtime)}>{full.can_log_overtime ? "tak" : "nie"}</Fact>
             {/* Daty Kadr (koniec zwolnienia, „składki od”, staż, ZUS) przełożony
                 dostaje bez kluczy (przegląd 17.10.2026): brak pola w odpowiedzi
                 = brak wiersza, `null` = „brak”. */}

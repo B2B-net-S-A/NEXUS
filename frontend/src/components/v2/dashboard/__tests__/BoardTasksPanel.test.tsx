@@ -170,7 +170,7 @@ function agreementRow(over: Record<string, unknown> = {}) {
   };
 }
 
-function renderPanel(props: { dlSendBand?: boolean } = {}) {
+function renderPanel(props: Parameters<typeof BoardTasksPanel>[0] = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -1499,5 +1499,84 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     expect(within(collapsed).queryByRole("listitem")).toBeNull();
     await userEvent.click(within(collapsed).getByRole("button", { name: "Rozwiń" }));
     expect(await screen.findByRole("link", { name: "Dokończ: Analityk danych" })).toBeTruthy();
+  });
+});
+
+function fixRow(over: Record<string, unknown> = {}) {
+  return {
+    job_id: 81,
+    title: "Programista Java",
+    reasons: [{ code: "prose_rows", text: "zdania w wymaganiach" }],
+    can_apply: true,
+    rows: 4,
+    talk: 2,
+    ...over,
+  };
+}
+
+describe("BoardTasksPanel — „Do uzupełnienia” (21.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead" }, realUser: null } as never);
+    post.mockResolvedValue({ data: {} });
+  });
+
+  const lists = {
+    pending_jobs: { autoclose_on: null, items: [pendingRow()] },
+    requirement_fixes: [fixRow()],
+    agreements: {
+      to_confirm: [agreementRow()],
+      to_close: [agreementRow({ generated_id: 56, reason: "closed_signed_active", contract_id: 812, candidate_name: "Piotr Lis" })],
+      waiting_on_others: [],
+    },
+  };
+
+  it("kafelek na pulpicie: trzech list nie ma w panelu, „Umowy do potwierdzenia” zostają", async () => {
+    mockQueue(lists);
+    renderPanel({ toCompleteOnGrid: true, onMoveToComplete: vi.fn() });
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    expect(within(panel).getByRole("region", { name: "Umowy do potwierdzenia" })).toBeTruthy();
+    expect(within(panel).queryByRole("region", { name: "Umowy do zamknięcia" })).toBeNull();
+    expect(
+      within(panel).queryByRole("region", { name: "Rekrutacje do dokończenia albo zamknięcia" }),
+    ).toBeNull();
+    expect(within(panel).queryByRole("region", { name: "Wymagania do poprawy" })).toBeNull();
+    // Linii „Przenieś na pulpit” nie ma — nie ma czego przenosić.
+    expect(within(panel).queryByRole("button", { name: "Przenieś na pulpit" })).toBeNull();
+  });
+
+  it("kafelek na pulpicie i nic innego → panelu nie ma (także przy awarii liczenia wymagań)", async () => {
+    mockQueue({ ...lists, requirement_fixes: null, agreements: { ...lists.agreements, to_confirm: [] } });
+    const { container } = renderPanel({ toCompleteOnGrid: true });
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  it("bez kafelka listy stoją w panelu z linią „Przenieś na pulpit” / „Zostaw tutaj”", async () => {
+    mockQueue(lists);
+    const onMove = vi.fn();
+    const onKeep = vi.fn();
+    renderPanel({ onMoveToComplete: onMove, onKeepToComplete: onKeep });
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    expect(within(panel).getByRole("region", { name: "Umowy do zamknięcia" })).toBeTruthy();
+    expect(within(panel).getByRole("region", { name: "Wymagania do poprawy" })).toBeTruthy();
+    const prompt = within(panel).getByRole("group", { name: "Do uzupełnienia" });
+    await userEvent.click(within(prompt).getByRole("button", { name: "Przenieś na pulpit" }));
+    expect(onMove).toHaveBeenCalledTimes(1);
+    await userEvent.click(within(prompt).getByRole("button", { name: "Zostaw tutaj" }));
+    expect(onKeep).toHaveBeenCalledTimes(1);
+  });
+
+  it("same rekrutacje do dokończenia (nic nie czeka) → linia stoi też w cichym widoku", async () => {
+    mockQueue({ pending_jobs: lists.pending_jobs });
+    renderPanel({ onMoveToComplete: vi.fn() });
+    expect(await screen.findByRole("group", { name: "Do uzupełnienia" })).toBeTruthy();
+  });
+
+  it("nic do uzupełnienia → bez linii, nawet gdy pulpit ją proponuje", async () => {
+    mockQueue({ agreements: { to_confirm: [agreementRow()], to_close: [], waiting_on_others: [] } });
+    renderPanel({ onMoveToComplete: vi.fn() });
+    await screen.findByRole("region", { name: "Umowy do potwierdzenia" });
+    expect(screen.queryByRole("group", { name: "Do uzupełnienia" })).toBeNull();
   });
 });

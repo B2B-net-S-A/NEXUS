@@ -16,6 +16,7 @@ import {
 import { resolveViewState } from "@/lib/view-state";
 import { warsawToday } from "@/lib/warsaw-date";
 import { monthTitlePl, type YearMonth } from "@/lib/date-pl";
+import { employmentTerms } from "@/lib/hr-employment-terms";
 
 import { EntryDialog } from "./EntryDialog";
 import { MonthGrid } from "./MonthGrid";
@@ -102,7 +103,7 @@ export function TimesheetPreviewDialog({
               },
               {
                 id: "overtime",
-                label: "nadgodziny",
+                label: employmentTerms(view.employment_type).overtime_stat,
                 value: `${formatHours(view.totals.overtime_hours)} h`,
               },
               { id: "absence", label: "dni nieobecności", value: formatHours(view.totals.leave_days) },
@@ -125,6 +126,7 @@ export function TimesheetPreviewDialog({
           day={editor.day}
           entry={editor.entry}
           allowOvertime={allowOvertime}
+          form={view.employment_type}
           onSave={(payload) => save.mutateAsync(payload)}
           onDelete={(id) => remove.mutateAsync(id)}
         />

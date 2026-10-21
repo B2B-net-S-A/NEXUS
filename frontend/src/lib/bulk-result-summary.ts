@@ -17,6 +17,7 @@ const SKIP_LABELS: Record<BulkSkipReason, string> = {
   blacklisted: "czarna lista",
   candidate_not_found: "nie znaleziono",
   rejected_by_hiring_manager: "hiring manager odrzucił po rozmowie",
+  off_limits_declined: "z firmy off-limits, to my się odezwaliśmy",
 };
 
 const WARNING_LABELS: Record<BulkWarningReason, string> = {
