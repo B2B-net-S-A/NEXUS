@@ -57,6 +57,8 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
   automation: ["delivery_view"],
   // 0456: „Pracownik” — nic domyślnie (nadania z „Osoby i role”).
   employee: [],
+  // 0490: „Rada nadzorcza” — nic; kwoty kokpitu Firma daje rola, nie uprawnienie.
+  board: [],
 };
 
 const sorted = (values: Iterable<string>) => [...values].sort();

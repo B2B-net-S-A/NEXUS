@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/care/atlas/sales-signals": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/care/atlas/sales-signals/status": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/care/atlas/sales-signals": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/care/atlas/sales-signals/status": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

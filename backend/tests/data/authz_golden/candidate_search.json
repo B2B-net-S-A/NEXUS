@@ -24,12 +24,13 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/candidate-search/runs/{run_id}": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "POST /api/candidate-search/runs": "PPPPPPPDPPPPPPPPPPPPDPPPP"
+  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidate-search/runs/{run_id}": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "POST /api/candidate-search/runs": "PPPPPPPDPPPPPPPPPPPPDPPPPD"
  }
 }

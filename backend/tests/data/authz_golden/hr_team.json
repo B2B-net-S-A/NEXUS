@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/hr/team": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/team/managers": "BBBBBBBDBBBBBBBBBBBBBBBBB"
+  "GET /api/hr/team": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/team/managers": "BBBBBBBDBBBBBBBBBBBBBBBBBB"
  }
 }

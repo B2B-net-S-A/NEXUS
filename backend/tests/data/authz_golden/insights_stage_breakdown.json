@@ -24,9 +24,10 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/insights/recruitment/stage-breakdown": "PPPPPPPDPPPPPPPPPPPPDPPPP"
+  "GET /api/insights/recruitment/stage-breakdown": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
  }
 }

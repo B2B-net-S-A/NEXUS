@@ -80,7 +80,7 @@ MODULE = HrModule.leave
 APPROVER_DETAIL = "Akceptacje widzą przełożeni i Kadry."
 INTERNAL_DETAIL = "Nieobecności widzą pracownicy firmy."
 #: Konta, które nie są ludźmi zatrudnionymi w firmie (jak w „Dodaj osobę”).
-_NOT_STAFF = {UserRole.automation, UserRole.user}
+_NOT_STAFF = {UserRole.automation, UserRole.user, UserRole.board}
 _MAX_BADGE_USERS = 300
 
 

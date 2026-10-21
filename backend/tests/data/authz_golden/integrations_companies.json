@@ -24,9 +24,10 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "POST /api/integrations/companies/people": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "POST /api/integrations/companies/people": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

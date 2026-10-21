@@ -128,6 +128,9 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
     # „Ludzie w NEXUSIE”: pracownik nie ma żadnej sekcji produktu — jego
     # ekrany („Mój czas”, „Ludzie”) stoją za kartoteką i uprawnieniami HR.
     UserRole.employee: _policy(),
+    # 0490: „Rada nadzorcza” — wyłącznie odczyt Insights. Kwoty kokpitu Firma
+    # otwiera rola w ``BoardReader``, nie sekcja Finanse ani ``VIEW_FINANCE``.
+    UserRole.board: _policy(insights=SectionAccess.read),
 }
 
 # Backwards-compatible export name. Tests use it as the migration seed contract.

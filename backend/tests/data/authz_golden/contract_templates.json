@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/contract-templates": "PPDBDDDDBBBDDDDDDPPDDDDDD",
-  "GET /api/contract-templates/{template_id}": "PPDBDDDDBBBDDDDDDPPDDDDDD",
-  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDBBBDDDDDDPPDDDDDD",
-  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-templates": "PPDBDDDDBBBDDDDDDPPDDDDDDD",
+  "GET /api/contract-templates/{template_id}": "PPDBDDDDBBBDDDDDDPPDDDDDDD",
+  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDBBBDDDDDDPPDDDDDDD",
+  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

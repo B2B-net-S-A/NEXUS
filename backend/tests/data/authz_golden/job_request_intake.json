@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/job-intake/delivery-lead": "PDDPDDDDPPPDDDDDPDDDDDDDD",
-  "GET /api/job-intake/handoff-options": "PDDPDDDDPPPDDDDDPDDDDDDDD",
-  "POST /api/job-intake/category-suggestion": "PDDPDDDDPPPDDDDDPDDDDDDDD",
-  "POST /api/job-intake/critical-suggestion": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/job-intake/public-draft": "PDDPDDDDPPPDDDDDPDDDDDDDD",
-  "POST /api/job-intake/read": "PDDPDDDDPPPDDDDDPDDDDDDDD",
-  "POST /api/job-intake/read-file": "PDDPDDDDPPPDDDDDPDDDDDDDD",
-  "POST /api/job-intake/requirement-rows": "PPPPPPDDPPPPPPPPPPPPDPPPP"
+  "GET /api/job-intake/delivery-lead": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
+  "GET /api/job-intake/handoff-options": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
+  "POST /api/job-intake/category-suggestion": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
+  "POST /api/job-intake/critical-suggestion": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/job-intake/public-draft": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
+  "POST /api/job-intake/read": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
+  "POST /api/job-intake/read-file": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
+  "POST /api/job-intake/requirement-rows": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
  }
 }

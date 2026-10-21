@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}": "BBDBBDDDBBBDBBBBDBBBDDDDD",
-  "POST /api/clients/{client_id}/deletion-check": "BBDBBDDDBBBDBBBBDBBBDDDDD"
+  "DELETE /api/clients/{client_id}": "BBDBBDDDBBBDBBBBDBBBDDDDDD",
+  "POST /api/clients/{client_id}/deletion-check": "BBDBBDDDBBBDBBBBDBBBDDDDDD"
  }
 }

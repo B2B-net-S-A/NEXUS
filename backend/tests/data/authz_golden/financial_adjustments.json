@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "POST /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDD",
-  "POST /api/financial-adjustments/{adjustment_id}/approve": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "POST /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "POST /api/financial-adjustments/{adjustment_id}/approve": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }
