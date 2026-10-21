@@ -347,7 +347,9 @@ async def test_dry_run_writes_nothing_and_apply_fills_only_empty_pairs(
     receipt = await _setting("client_rate_notes_backfill_2026_10")
     details = await _setting("repair_details_client_rate_notes_backfill_2026_10")
     assert sent_row in receipt["runs"][-1]["stage_ids"]
-    assert "161" not in str(receipt)
+    # Kwota wyglądałaby jak „161.00” albo 161.0; samo „161” trafiało w id
+    # wierszy i osób (np. 1612) i test padał losowo w kolejce (21.10.2026).
+    assert "161.0" not in str(receipt)
     assert {"stage_id": sent_row, "value": "161.00"}.items() <= next(
         row for row in details["rows"] if row["stage_id"] == sent_row
     ).items()
