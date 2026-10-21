@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/integrations/v1/clients": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/clients/{client_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/clients": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/clients/{client_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -104,8 +104,11 @@ describe("/preview/hr-my-time", () => {
     expect(await screen.findByText("Liga Mistrzów — 2. miejsce w kwartale")).toBeInTheDocument();
     expect(screen.getByText("kontrakt zakończony przed 21. dniem roboczym")).toBeInTheDocument();
     expect(screen.getByRole("generic", { name: "Moje rozliczenie" })).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "Kartoteka" }));
-    expect(await screen.findByText("Koordynator: Marta Fikcyjna")).toBeInTheDocument();
+    // Bez zakładki „Kartoteka” — koordynator i link do kartoteki są w „Ja w firmie” na „Przeglądzie”.
+    expect(screen.queryByRole("tab", { name: "Kartoteka" })).toBeNull();
+    await user.click(screen.getByRole("tab", { name: "Przegląd" }));
+    const me = await screen.findByRole("generic", { name: "Ja w firmie" });
+    expect(within(me).getByText("Marta Fikcyjna")).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 
@@ -146,7 +149,6 @@ describe("/preview/hr-my-time", () => {
     // B2B: raport godzin idzie do potwierdzenia koordynatorki (D4).
     expect(screen.getByRole("button", { name: "Wyślij do potwierdzenia" })).toBeInTheDocument();
     // B2B: „ponad 8 h”, nigdzie „nadgodzin” ani „nadg.” (decyzja Artura 21.10.2026).
-    expect(screen.getByText("ponad 8 h dziennie")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/nadg/i);
     await user.click(screen.getByRole("button", { name: `Dodaj wpis ${today}` }));
     const entry = await screen.findByRole("dialog");

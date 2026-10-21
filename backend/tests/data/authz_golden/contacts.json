@@ -24,13 +24,14 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/contacts/{contact_id}": "PDDPDDDDPPPDDDPDDDDDDDDDD",
-  "GET /api/clients/{client_id}/contacts": "PPPPPPPDPPPPPPPPPPPPDPPPP",
-  "GET /api/contacts": "PPPBPBDDBBBPPPPPBPPPDBBBB",
-  "POST /api/contacts": "PDDPDDDDPPPDDDPDDDDDDDDDD",
-  "PUT /api/contacts/{contact_id}": "PPDPPDDDPPPDPPPDDDPDDDDDD"
+  "DELETE /api/contacts/{contact_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/contacts": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "GET /api/contacts": "PPPBPBDDBBBPPPPPBPPPDBBBBD",
+  "POST /api/contacts": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
+  "PUT /api/contacts/{contact_id}": "PPDPPDDDPPPDPPPDDDPDDDDDDD"
  }
 }

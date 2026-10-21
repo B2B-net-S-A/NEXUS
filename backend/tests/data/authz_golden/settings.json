@@ -24,15 +24,16 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/settings/candidates-columns": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/settings/candidates-columns": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

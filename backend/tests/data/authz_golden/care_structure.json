@@ -24,16 +24,17 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "DELETE /api/care/clients/{client_id}/structure-proposals/managers/{contract_id}/skip": "BDDBDDDDBBBDDDDDDDDDDDDDD",
-  "DELETE /api/care/clients/{client_id}/structure-proposals/reports-to/{contact_id}/skip": "BDDBDDDDBBBDDDDDDDDDDDDDD",
-  "GET /api/care/clients/{client_id}/structure-proposals": "BDBBBDDDBBBBBBDDDDDDDDDDD",
-  "GET /api/care/structure-proposals": "BDBBBDDDBBBBBBDDDDDDDDDDD",
-  "POST /api/care/clients/{client_id}/structure-proposals/managers": "BDDBDDDDBBBDDDDDDDDDDDDDD",
-  "POST /api/care/clients/{client_id}/structure-proposals/reports-to": "BDDBDDDDBBBDDDDDDDDDDDDDD",
-  "PUT /api/care/clients/{client_id}/structure-proposals/managers/{contract_id}/skip": "BDDBDDDDBBBDDDDDDDDDDDDDD",
-  "PUT /api/care/clients/{client_id}/structure-proposals/reports-to/{contact_id}/skip": "BDDBDDDDBBBDDDDDDDDDDDDDD"
+  "DELETE /api/care/clients/{client_id}/structure-proposals/managers/{contract_id}/skip": "BDDBDDDDBBBDDDDDDDDDDDDDDD",
+  "DELETE /api/care/clients/{client_id}/structure-proposals/reports-to/{contact_id}/skip": "BDDBDDDDBBBDDDDDDDDDDDDDDD",
+  "GET /api/care/clients/{client_id}/structure-proposals": "BDBBBDDDBBBBBBDDDDDDDDDDDD",
+  "GET /api/care/structure-proposals": "BDBBBDDDBBBBBBDDDDDDDDDDDD",
+  "POST /api/care/clients/{client_id}/structure-proposals/managers": "BDDBDDDDBBBDDDDDDDDDDDDDDD",
+  "POST /api/care/clients/{client_id}/structure-proposals/reports-to": "BDDBDDDDBBBDDDDDDDDDDDDDDD",
+  "PUT /api/care/clients/{client_id}/structure-proposals/managers/{contract_id}/skip": "BDDBDDDDBBBDDDDDDDDDDDDDDD",
+  "PUT /api/care/clients/{client_id}/structure-proposals/reports-to/{contact_id}/skip": "BDDBDDDDBBBDDDDDDDDDDDDDDD"
  }
 }

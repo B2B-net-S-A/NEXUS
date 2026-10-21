@@ -24,14 +24,15 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/search/": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPPPDPPPP",
-  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPPPDPPPP"
+  "GET /api/search/": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
  }
 }

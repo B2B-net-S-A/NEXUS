@@ -24,10 +24,11 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "PATCH /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/contracts/{contract_id}/status": "UUUUUUUUUUUUUUUUUUUUUUUUU"
+  "PATCH /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/contracts/{contract_id}/status": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

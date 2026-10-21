@@ -136,10 +136,10 @@
   {
    "id": "header.ai-writer",
    "area": "naglowek",
-   "opis": "Ogłoszenie na portale: treść na Pracuj.pl i JustJoin.IT układana z Profilu Championa (do 12.10.2026 „Szkic ogłoszenia”)",
+   "opis": "Ogłoszenie: jedna treść z Profilu Championa — strona kariery jednym kliknięciem, Pracuj.pl i JustJoin.IT do wklejenia (do 12.10.2026 „Szkic ogłoszenia”, do 21.10.2026 „Ogłoszenie na portale”)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "JobAdWindow",
-   "v3_home": "menu … → Ogłoszenie na portale / Profil Championa → Zespół i ogłoszenie → Przygotuj ogłoszenie na portale"
+   "v3_home": "nagłówek rekrutacji → „Ogłoszenie” (kropki: kariera, Pracuj, JJIT) / Profil Championa → Zespół i ogłoszenie → Ogłoszenie"
   },
   {
    "id": "header.chat-unread",
@@ -2549,7 +2549,7 @@
    "opis": "Zakładka Pracuj.pl: pola w kolejności formularza portalu, każde z własnym „Kopiuj”, wybory z list formularza jako podpowiedź",
    "file": "components/v2/job-ad/PracujTab.tsx",
    "marker": "Pola w kolejności formularza Pracuj.pl",
-   "v3_home": "menu … → Ogłoszenie na portale → Pracuj.pl"
+   "v3_home": "nagłówek → Ogłoszenie → Pracuj.pl"
   },
   {
    "id": "ad.jjit-body",
@@ -2557,7 +2557,7 @@
    "opis": "Zakładka JustJoin.IT: pola formularza, tech stack z poziomem (zmiana poziomu, usunięcie) i jeden opis kopiowany z formatowaniem albo jako zwykły tekst",
    "file": "components/v2/job-ad/JustJoinTab.tsx",
    "marker": "Tech stack z poziomem",
-   "v3_home": "menu … → Ogłoszenie na portale → JustJoin.IT"
+   "v3_home": "nagłówek → Ogłoszenie → JustJoin.IT"
   },
   {
    "id": "ad.edit-field",
@@ -2565,15 +2565,15 @@
    "opis": "Ręczna poprawka pola ogłoszenia („Edytuj” → „Zapisz”); ta sama treść w obu zakładkach",
    "file": "components/v2/job-ad/AdBlock.tsx",
    "marker": "Edytuj",
-   "v3_home": "menu … → Ogłoszenie na portale → Edytuj przy polu"
+   "v3_home": "nagłówek → Ogłoszenie → Edytuj przy polu"
   },
   {
    "id": "ad.checks",
    "area": "zlecenie",
-   "opis": "Kontrola przed skopiowaniem: nazwa klienta, kwota, kontakt i nazwisko wyłączają kopiowanie; „Pokaż” i „Usuń fragment”; uwagi doradcze",
+   "opis": "Kontrola przed publikacją: nazwa klienta, kwota, kontakt i nazwisko wyłączają kopiowanie i publikację na stronie kariery; „Pokaż” i „Usuń fragment”; uwagi doradcze",
    "file": "components/v2/job-ad/AdChecksPanel.tsx",
-   "marker": "Kontrola przed skopiowaniem",
-   "v3_home": "menu … → Ogłoszenie na portale → panel kontroli"
+   "marker": "Kontrola przed publikacją",
+   "v3_home": "nagłówek → Ogłoszenie → kolumna „Gdzie publikujesz” → kontrola"
   },
   {
    "id": "ad.terms",
@@ -2581,7 +2581,7 @@
    "opis": "Warunki w ogłoszeniu (start, długość, język pracy) i lista danych, których rekrutacji brakuje",
    "file": "components/v2/job-ad/AdFactsRail.tsx",
    "marker": "Warunki w ogłoszeniu",
-   "v3_home": "menu … → Ogłoszenie na portale → lewa kolumna"
+   "v3_home": "nagłówek → Ogłoszenie → lewa kolumna"
   },
   {
    "id": "ad.regenerate",
@@ -2589,7 +2589,7 @@
    "opis": "„Przygotuj ponownie” i zmiana języka PL/EN z potwierdzeniem; awaria modelu nie zastępuje zapisanej treści",
    "file": "components/v2/job-ad/JobAdWindow.tsx",
    "marker": "Przygotuj ponownie",
-   "v3_home": "menu … → Ogłoszenie na portale → nagłówek okna"
+   "v3_home": "nagłówek → Ogłoszenie → nagłówek okna"
   },
   {
    "id": "ad.publications",
@@ -2597,7 +2597,15 @@
    "opis": "Gdzie ogłoszenie wisi: „Oznacz jako opublikowane” z linkiem do portalu, „do aktualizacji” po zmianie treści, „Zdjęte z portalu”, przypomnienie przy zamkniętej rekrutacji",
    "file": "components/v2/job-ad/AdPublications.tsx",
    "marker": "Oznacz jako opublikowane",
-   "v3_home": "menu … → Ogłoszenie na portale → nad polami zakładki; Profil Championa → Zespół i ogłoszenie"
+   "v3_home": "nagłówek → Ogłoszenie → kolumna „Gdzie publikujesz”; Profil Championa → Zespół i ogłoszenie"
+  },
+  {
+   "id": "ad.career-page",
+   "area": "zlecenie",
+   "opis": "Strona kariery z ogłoszenia (21.10.2026): „Opublikuj na stronie” / „Zaktualizuj na stronie”, „Kopiuj link”, „Otwórz stronę”; zastępuje osobny „Opis publiczny”",
+   "file": "components/v2/job-ad/AdChannels.tsx",
+   "marker": "Opublikuj na stronie",
+   "v3_home": "nagłówek → Ogłoszenie → kolumna „Gdzie publikujesz” → Strona kariery"
   },
   {
    "id": "order.ad-publications",

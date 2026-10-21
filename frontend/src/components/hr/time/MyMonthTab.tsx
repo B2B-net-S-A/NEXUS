@@ -1,13 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download } from "lucide-react";
 
-import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import { countPl } from "@/lib/plural-pl";
@@ -37,14 +42,18 @@ import { FillMonthDialog } from "./FillMonthDialog";
 import { TemplatesDialog } from "./TemplatesDialog";
 import { TimesheetArchive } from "./TimesheetArchive";
 import { useUrlMonth } from "./use-url-month";
-import { MonthGrid } from "./MonthGrid";
+import { MonthGrid, type QuickEntryInput } from "./MonthGrid";
 import {
   STATUS_TONE,
   canEditMonth,
   currentYearMonth,
   formatHours,
+  queueHoursFill,
   statusLine,
 } from "./time-format";
+
+/** Opis, gdy osoba nie ma domyślnego opisu roli (jak serwer i „Wypełnij miesiąc”). */
+const STANDARD_DESCRIPTION = "Praca standardowa";
 
 export interface MyMonthTabProps {
   config: HrConfig;
@@ -124,6 +133,21 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
       },
     );
   };
+
+  const roleDefault = templates.data?.role_default ?? null;
+  const defaultDescription = roleDefault?.description || STANDARD_DESCRIPTION;
+  const quickSave = (day: MonthDay, input: QuickEntryInput) =>
+    save
+      .mutateAsync({
+        work_date: day.date,
+        hours: input.hours,
+        description: input.description,
+        project: roleDefault?.project ?? null,
+      })
+      .catch((err: unknown) => {
+        showToast(apiErrorMessage(err, "Nie udało się zapisać wpisu."), "error");
+        throw err;
+      });
 
   const filled = (result: FillResult) => {
     const removed =
@@ -207,33 +231,34 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
         </div>
         {view ? (
           <div className="flex flex-wrap items-center gap-1.5" data-help="hr.my_time.month_actions">
-            <Button variant="ghost" size="sm" onClick={() => setManagingTemplates(true)}>
-              Szablony opisów
-            </Button>
-            {editable ? (
-              <>
-                <Button variant="ghost" size="sm" onClick={runCopy} disabled={copy.isPending}>
-                  Skopiuj opisy z poprzedniego
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setFilling(true)}
-                  disabled={fill.isPending}
-                >
-                  Wypełnij miesiąc…
-                </Button>
-                <Button size="sm" onClick={runSubmit} disabled={submit.isPending}>
-                  Wyślij do {reviewNoun}
-                </Button>
-              </>
-            ) : null}
             {status === "approved" ? (
               <Button variant="outline" size="sm" onClick={downloadPdf}>
                 <Download className="mr-1.5 h-4 w-4" aria-hidden />
                 Pobierz PDF
               </Button>
             ) : null}
+            {/* Rzadkie akcje w jednym menu; na wierzchu zostaje wpis dnia i wysyłka (makieta 21.10.2026). */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  Więcej
+                  <ChevronDown className="ml-1 h-4 w-4" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setManagingTemplates(true)}>Szablony opisów</DropdownMenuItem>
+                {editable ? (
+                  <>
+                    <DropdownMenuItem onSelect={runCopy} disabled={copy.isPending}>
+                      Skopiuj opisy z poprzedniego
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setFilling(true)} disabled={fill.isPending}>
+                      Wypełnij miesiąc…
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         ) : null}
       </div>
@@ -253,35 +278,22 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
         />
       ) : (
         <>
-          <InlineStats
-            id="my-month-stats"
-            stats={[
-              { id: "work", label: "praca", value: `${formatHours(view.totals.work_hours)} h` },
-              {
-                id: "leave",
-                label: view.employment_type === "uop" ? "urlop płatny" : "płatne dni z umowy",
-                value: `${formatHours(view.totals.leave_paid_hours)} h`,
-                title: "Płatne dni przerwy z umownej puli liczą się jak dni pracy.",
-              },
-              {
-                id: "overtime",
-                label: words.overtime_stat,
-                value: `${formatHours(view.totals.overtime_hours)} h`,
-              },
-              { id: "missing", label: "dni do uzupełnienia", value: view.totals.days_missing },
-              {
-                id: "norm",
-                label: `norma (${view.totals.working_days} dni)`,
-                value: `${view.totals.norm_hours} h`,
-              },
-              {
-                id: "approver",
-                label: words.review_verb,
-                value: view.approver_name ?? "Kadry",
-                title: capitalize(`${words.coordinator} przyjmuje ${words.timesheet_accusative}.`),
-              },
-            ]}
-          />
+          {editable && view.totals.days_missing > 0 ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+              <p className="min-w-0 flex-1 text-sm text-foreground">
+                <span className="font-semibold">
+                  Brakuje {countPl(view.totals.days_missing, "dnia roboczego", "dni roboczych", "dni roboczych")}.
+                </span>{" "}
+                <span className="text-muted-foreground">
+                  Wpisz dzień w wierszu albo wypełnij puste dni po 8 h opisem „{defaultDescription}” — wpisane
+                  dni, urlopy i święta zostają.
+                </span>
+              </p>
+              <Button size="sm" onClick={() => setFilling(true)} disabled={fill.isPending}>
+                Wypełnij puste dni…
+              </Button>
+            </div>
+          ) : null}
           <MonthGrid
             view={view}
             today={today}
@@ -289,7 +301,46 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
             onEntryClick={(day, entry) => setEditor({ day, entry })}
             onLocationChange={changeLocation}
             locationPending={pendingDay}
+            onQuickSave={quickSave}
+            defaultDescription={defaultDescription}
           />
+          {/* Suma miesiąca i wysyłka pod siatką — siatka przewija się sama, pasek zostaje na widoku. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border/60 bg-card px-3 py-2">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="text-sm font-semibold tabular-nums text-foreground">
+                {formatHours(view.totals.work_hours)} / {view.totals.norm_hours} h
+              </span>
+              <span className="h-1.5 w-32 overflow-hidden rounded-full bg-muted" aria-hidden>
+                <span
+                  className="block h-full rounded-full bg-primary"
+                  style={{ width: `${queueHoursFill(view.totals.work_hours, view.totals.norm_hours)}%` }}
+                />
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {view.totals.days_missing > 0
+                  ? `brakuje ${countPl(view.totals.days_missing, "dnia roboczego", "dni roboczych", "dni roboczych")}`
+                  : "wszystkie dni robocze wpisane"}
+                {view.totals.leave_paid_hours > 0
+                  ? ` · ${view.employment_type === "uop" ? "urlop płatny" : "płatne dni z umowy"} ${formatHours(view.totals.leave_paid_hours)} h`
+                  : ""}
+                {view.totals.overtime_hours > 0
+                  ? ` · ${words.overtime_stat} ${formatHours(view.totals.overtime_hours)} h`
+                  : ""}
+                {` · ${words.review_verb}: `}
+              </span>
+              <span
+                className="text-xs text-foreground"
+                title={capitalize(`${words.coordinator} przyjmuje ${words.timesheet_accusative}.`)}
+              >
+                {view.approver_name ?? "Kadry"}
+              </span>
+            </div>
+            {editable ? (
+              <Button size="sm" onClick={runSubmit} disabled={submit.isPending}>
+                Wyślij do {reviewNoun}
+              </Button>
+            ) : null}
+          </div>
         </>
       )}
 
@@ -303,11 +354,11 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
           open
           onOpenChange={setFilling}
           period={period}
-          form={view.employment_type}
           templates={templates.data?.items ?? []}
           roleDefault={templates.data?.role_default ?? null}
           onFill={(payload) => fill.mutateAsync(payload)}
           onDone={filled}
+          form={view.employment_type}
         />
       ) : null}
       {managingTemplates ? (

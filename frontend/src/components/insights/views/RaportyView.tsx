@@ -225,8 +225,9 @@ function ReportBody({
     case "rok-do-roku":
       return (
         <div className="space-y-6">
-          {/* Tabele Rady: „Moduł Finanse” albo Head of Recruitment (bez kwot —
-              redaguje serwer). Pozostali widzą same statystyki roczne. */}
+          {/* Tabele Rady: „Moduł Finanse”, Rada nadzorcza albo Head of
+              Recruitment (bez kwot — redaguje serwer). Pozostali widzą same
+              statystyki roczne. */}
           {seesBoardTrend(user) ? <InsightsBoardYoY /> : null}
           <InsightsYearlyStats />
         </div>

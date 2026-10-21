@@ -24,11 +24,12 @@
   "recruiter+people_admin",
   "recruiter+payroll",
   "recruiter+equipment",
-  "recruiter+cases"
+  "recruiter+cases",
+  "board"
  ],
  "routes": {
-  "GET /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "PUT /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPP",
-  "PUT /api/users/me/dashboard/panels/{panel}": "PPPPPPPDPPPPPPPPPPPPPPPPP"
+  "GET /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/dashboard/panels/{panel}": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
  }
 }

@@ -32,8 +32,9 @@ from app.models.app_setting import AppSetting
 from app.models.client import Client
 from app.models.job import Job
 from app.models.job_ad import JobAd
+from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User, UserRole
-from app.services.job_ad import fixed_blocks, generate
+from app.services.job_ad import career, fixed_blocks, generate
 from app.services.job_ad_schema import SOURCE_AI, SOURCE_TEMPLATE
 from tests.test_career_links_api import _login, _owner_with_job
 
@@ -692,6 +693,170 @@ async def test_jobs_list_and_detail_carry_only_active_publications(
     assert listing.status_code == 200, listing.text
     rows = {row["id"]: row for row in listing.json()["items"]}
     assert rows[job_id]["ad_publications"] == expected
+
+
+# ── Strona kariery z ogłoszenia (21.10.2026) ────────────────────────────────
+
+
+async def test_publish_career_page_from_the_ad_goes_live_with_own_link(
+    api: AsyncClient, monkeypatch
+):
+    owner_id, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    before = await api.get(base, headers=headers)
+    assert before.json()["career"] == {
+        "status": "none",
+        "url": None,
+        "published_at": None,
+        "published_by_name": None,
+    }
+
+    resp = await api.post(
+        f"{base}/career",
+        json={"expected_updated_at": ad["updated_at"]},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    career = resp.json()["career"]
+    assert career["status"] == "live"
+    assert career["published_by_name"]
+    slug = career["url"].rstrip("/").rsplit("/", 1)[-1]
+
+    page = await api.get(f"/api/public/career/r/{slug}")
+    assert page.status_code == 200, page.text
+    job = page.json()["job"]
+    assert job["subtitle"] == _MODEL_REPLY["lead"].rstrip(".")
+    assert job["about"].startswith(_MODEL_REPLY["about"])
+    assert (
+        "Czym się zajmiesz: rozwój mikroserwisów w Javie; przeglądy kodu."
+        in job["about"]
+    )
+
+    # Opis w oknie „Udostępnij” to ta sama treść — zatwierdzona.
+    profile = await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
+    assert profile.json()["status"] == "approved"
+
+    listing = await api.get(
+        "/api/jobs", params={"owner_id": owner_id, "page_size": 100}, headers=headers
+    )
+    rows = {row["id"]: row for row in listing.json()["items"]}
+    assert rows[job_id]["career_page"] is True
+
+
+async def test_changed_ad_marks_the_career_page_outdated_until_republished(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    await api.post(f"{base}/career", json={}, headers=headers)
+
+    edited = await api.put(
+        base,
+        json={
+            "content": {**ad["content"], "lead": "Nowy wstęp do ogłoszenia."},
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+    assert edited.json()["career"]["status"] == "outdated"
+    url = edited.json()["career"]["url"]
+    # Strona dalej pokazuje opublikowaną wersję — nikt nie dostaje 404.
+    slug = url.rstrip("/").rsplit("/", 1)[-1]
+    page = await api.get(f"/api/public/career/r/{slug}")
+    assert page.json()["job"]["subtitle"] == _MODEL_REPLY["lead"].rstrip(".")
+
+    again = await api.post(f"{base}/career", json={}, headers=headers)
+    assert again.status_code == 200, again.text
+    assert again.json()["career"]["status"] == "live"
+    assert again.json()["career"]["url"] == url
+    page = await api.get(f"/api/public/career/r/{slug}")
+    assert page.json()["job"]["subtitle"] == "Nowy wstęp do ogłoszenia"
+
+
+async def test_career_page_refuses_blocked_stale_or_internal_content(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    no_ad = await api.post(f"{base}/career", json={}, headers=headers)
+    assert no_ad.status_code == 404
+
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    stale = await api.post(
+        f"{base}/career",
+        json={"expected_updated_at": "2020-01-01T00:00:00+00:00"},
+        headers=headers,
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["code"] == "job_ad_changed"
+
+    client_name = await _client_name(job_id)
+    await api.put(
+        base,
+        json={
+            "content": {**ad["content"], "about": f"Projekt dla {client_name}."},
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+    blocked = await api.post(f"{base}/career", json={}, headers=headers)
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["code"] == "job_ad_blocked"
+
+    # Numer zgłoszenia ogłoszenie tylko odradza, strona kariery odmawia.
+    await api.put(
+        base,
+        json={
+            "content": {
+                **ad["content"],
+                "about": "Zgłoszenie RITM0866775 dla zespołu.",
+            },
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+    internal = await api.post(f"{base}/career", json={}, headers=headers)
+    assert internal.status_code == 422, internal.text
+    assert internal.json()["detail"]["code"] == "PUBLIC_PROFILE_FINDINGS"
+    profile = await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
+    assert profile.json()["status"] == "none"
+
+
+async def test_career_publish_keeps_section_toggles_saved_meanwhile(
+    api: AsyncClient, monkeypatch
+):
+    """Opis wczytany przed blokadą wiersza nie może nadpisać przełączników,
+    które ktoś zapisał w oknie „Udostępnij” w tym samym czasie."""
+    owner_id, headers, job_id = await _owner_with_job(api)
+    await _generated(api, headers, job_id, monkeypatch)
+    sections = {"must": True, "nice": True, "params": True, "process": True}
+    first = await api.put(
+        f"/api/jobs/{job_id}/public-profile",
+        json={"subtitle": "Stary podtytuł", "sections": sections},
+        headers=headers,
+    )
+    assert first.status_code == 200, first.text
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        ad = await db.get(JobAd, job_id)
+        # Ta sesja widzi opis sprzed zmiany drugiej osoby.
+        assert await db.get(JobPublicProfile, job_id) is not None
+        toggled = await api.put(
+            f"/api/jobs/{job_id}/public-profile",
+            json={"sections": {**sections, "nice": False}},
+            headers=headers,
+        )
+        assert toggled.status_code == 200, toggled.text
+        await career.publish(db, job, ad, user_id=owner_id)
+        await db.commit()
+
+    profile = await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
+    body = profile.json()
+    assert body["sections"]["nice"] is False
+    assert body["status"] == "approved"
 
 
 # ── Dostęp ──────────────────────────────────────────────────────────────────

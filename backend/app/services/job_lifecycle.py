@@ -428,7 +428,7 @@ async def create_job_core(
     # 0380: numer u klienta i tytuł dla rekrutera. Jawny tytuł = ręczny
     # (automat wyłączony); brak = składa go `job_working_title` niżej.
     from app.services.job_working_title import (
-        normalize_client_reference,
+        client_reference_for_title,
         reference_from_title,
         refresh_working_title,
     )
@@ -436,8 +436,11 @@ async def create_job_core(
     # 02.10.2026: numer klienta stoi w nazwie od klienta („… (ZOB 48213)”) —
     # bez pola w żądaniu bierzemy go z tytułu, żeby CV i Cpro go miały. Pole
     # wysłane puste to decyzja człowieka („To nie ten numer”): zostaje puste.
-    payload["client_reference"] = normalize_client_reference(
-        payload.get("client_reference")
+    # Nazwa roli wysłana jako numer ustępuje numerowi z nazwy (21.10.2026).
+    payload["client_reference"] = client_reference_for_title(
+        payload.get("title"),
+        payload.get("client_reference"),
+        payload.get("reference_number"),
     )
     if "client_reference" not in data.model_fields_set:
         payload["client_reference"] = reference_from_title(payload.get("title"))

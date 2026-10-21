@@ -42,6 +42,7 @@ describe("JobAdWindow — pierwsze przygotowanie, gdy ogłoszenie już powstało
       save: vi.fn(),
       markPublished: vi.fn(),
       markRemoved: vi.fn(),
+      publishCareer: vi.fn(),
     };
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

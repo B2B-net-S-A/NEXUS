@@ -280,9 +280,12 @@ describe("MyOverviewTab", () => {
     expect(nbsp(bonuses.textContent)).toContain("stawka 95,00 zł/h od 01.10");
 
     // B2B: koordynator i zgłoszenie, nie „przełożony” i „wniosek” (D4, D5).
-    const coordinator = await card("Mój koordynator");
-    expect(within(coordinator).getByText(/wskazujesz w zgłoszeniu/)).toBeInTheDocument();
-    expect(screen.queryByRole("generic", { name: "Mój przełożony" })).toBeNull();
+    // Karta „Ja w firmie” zastępuje zakładkę „Kartoteka” (21.10.2026).
+    const me = await card("Ja w firmie");
+    expect(within(me).getByText("Koordynator")).toBeInTheDocument();
+    expect(within(me).queryByText("Przełożony")).toBeNull();
+    expect(within(me).getByText(/wskazujesz w zgłoszeniu/)).toBeInTheDocument();
+    expect(within(me).getByRole("link", { name: "Otwórz kartotekę" })).toBeInTheDocument();
   });
 
   it("awaria zapytania to komunikat w karcie, nie „0”", async () => {
@@ -375,7 +378,8 @@ describe("MyOverviewTab", () => {
     expect(await within(todo).findByText("Podpisz protokół PZO/TEST/2026/011")).toBeInTheDocument();
     expect(within(todo).getByText(/Wyślij ewidencję czasu pracy za/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Złóż wniosek urlopowy" })).toBeInTheDocument();
-    const manager = await card("Mój przełożony");
+    const manager = await card("Ja w firmie");
+    expect(within(manager).getByText("Przełożony")).toBeInTheDocument();
     expect(within(manager).getByText(/wskazujesz we wniosku/)).toBeInTheDocument();
   });
 

@@ -499,8 +499,12 @@ z odnośnikiem `hr_documents.leave_request_id`.
 
 - **„Przegląd” jest pierwszą i domyślną zakładką** „Mojego czasu” (`?tab=overview`,
   inne wartości `?tab=` jak dotąd; link z powiadomienia `?tab=bonuses` działa).
-  Karty: nieobecności, miesiąc, premie, przełożony, sprzęt, do zrobienia
-  (`components/hr/me/MyOverviewTab.tsx`). Karta modułu wyłączonego nie istnieje
+  Karty: nieobecności, miesiąc, premie, „Ja w firmie”, sprzęt, do zrobienia
+  (`components/hr/me/MyOverviewTab.tsx`). **Bez zakładki „Kartoteka”**
+  (21.10.2026, runda 2 makiet): stanowisko, przełożony / koordynator i link
+  „Otwórz kartotekę” są w karcie „Ja w firmie” (pula — tylko przy zamkniętym
+  module nieobecności); stary `?tab=profile` otwiera „Przegląd”. Klik
+  w zakładkę zapisuje `?tab=` w adresie (`useUrlWriter`). Karta modułu wyłączonego nie istnieje
   i nie pyta serwera; awaria zapytania to zdanie z „Spróbuj ponownie” w karcie,
   nigdy „0”.
 - **Forma zatrudnienia decyduje o słowach** (B2B i zlecenie nie mają urlopu

@@ -162,8 +162,28 @@ class RenderedAd(BaseModel):
     jjit: RenderedJjit
 
 
+class AdCareerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Wersja ogłoszenia, którą okno miało na ekranie — strona dostaje
+    # dokładnie tę treść, którą osoba przeczytała.
+    expected_updated_at: Optional[datetime] = None
+
+
+class AdCareerState(BaseModel):
+    """Strona kariery rekrutacji (21.10.2026)."""
+
+    # none = strony nie ma · live = pokazuje to ogłoszenie ·
+    # outdated = działa, ale z inną treścią niż obecne ogłoszenie.
+    status: Literal["none", "live", "outdated"] = "none"
+    url: Optional[str] = None
+    published_at: Optional[datetime] = None
+    published_by_name: Optional[str] = None
+
+
 class JobAdResponse(BaseModel):
     ad: Optional[AdRead] = None
+    career: AdCareerState = Field(default_factory=AdCareerState)
     facts: list[AdFact]
     readiness: list[AdReadinessItem]
     findings: list[AdFinding] = Field(default_factory=list)

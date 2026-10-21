@@ -141,8 +141,31 @@ export interface AdPublication extends JobAdPublicationBrief {
   removed_at: string | null;
 }
 
+/**
+ * Strona kariery rekrutacji (21.10.2026): `none` = nie ma, `live` = pokazuje
+ * to ogłoszenie, `outdated` = działa, ale z inną treścią niż obecne ogłoszenie.
+ */
+export type AdCareerStatus = "none" | "live" | "outdated";
+
+export interface AdCareerState {
+  status: AdCareerStatus;
+  /** Własny link osoby, a bez niego link z tablicy kariery. */
+  url: string | null;
+  published_at: string | null;
+  published_by_name: string | null;
+}
+
+export const NO_CAREER_PAGE: AdCareerState = {
+  status: "none",
+  url: null,
+  published_at: null,
+  published_by_name: null,
+};
+
 export interface JobAdState {
   ad: AdRead | null;
+  /** Strona kariery z tej samej treści. */
+  career: AdCareerState;
   facts: AdFact[];
   readiness: AdReadinessItem[];
   findings: AdFinding[];
@@ -178,6 +201,7 @@ function normalize(data: unknown): JobAdState {
   const d = (data ?? {}) as Partial<JobAdState>;
   return {
     ad: d.ad ?? null,
+    career: d.career ?? NO_CAREER_PAGE,
     facts: Array.isArray(d.facts) ? d.facts : [],
     readiness: Array.isArray(d.readiness) ? d.readiness : [],
     findings: Array.isArray(d.findings) ? d.findings : [],
@@ -233,6 +257,19 @@ export const jobAdApi = {
     const res = await api.put(`/api/jobs/${jobId}/portal-ad/publications/${portal}`, {
       url,
       content_updated: contentUpdated,
+    });
+    return normalize(res.data);
+  },
+  /**
+   * „Opublikuj na stronie” (21.10.2026): treść ogłoszenia trafia na stronę
+   * kariery i od razu jest zatwierdzona. `expectedUpdatedAt` — wersja z ekranu.
+   */
+  publishCareer: async (
+    jobId: number,
+    expectedUpdatedAt: string | null = null,
+  ): Promise<JobAdState> => {
+    const res = await api.post(`/api/jobs/${jobId}/portal-ad/career`, {
+      expected_updated_at: expectedUpdatedAt,
     });
     return normalize(res.data);
   },

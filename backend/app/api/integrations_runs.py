@@ -26,7 +26,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import OperationalUser
+from app.api.candidate_access import user_has_candidate_read
+from app.api.deps import CurrentUser, OperationalUser
 from app.api.section_access import (
     INSIGHTS_SECTION_DEPENDENCIES,
     SOURCING_SECTION_DEPENDENCIES,
@@ -220,9 +221,31 @@ async def list_runs(
     return [run_to_dict(run) for run in runs]
 
 
+def event_to_dict(e: IntegrationRunEvent, *, show_candidates: bool) -> dict:
+    """Zdarzenie przebiegu; bez odczytu kandydatów — bez osoby.
+
+    Sekcja Insights wpuszcza też konta, które kandydatów nie widzą (Rada
+    nadzorcza, 0490). Ta sama reguła co uzgodnienie placementów
+    (``insights_reconciliation``): zdarzenie zostaje, osoba znika.
+    """
+    return {
+        "id": e.id,
+        "action": e.action,
+        "external_id": e.external_id,
+        "candidate_id": e.candidate_id if show_candidates else None,
+        "traffit_id": e.traffit_id if show_candidates else None,
+        "candidate_name": e.candidate_name if show_candidates else None,
+        "offer_title": e.offer_title,
+        "matched_jobs": e.matched_jobs,
+        "error": e.error,
+        "occurred_at": e.occurred_at,
+    }
+
+
 @reader.get("/runs/{run_id}/events")
 async def list_run_events(
     run_id: int,
+    current_user: CurrentUser,
     limit: int = Query(200, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
@@ -239,18 +262,5 @@ async def list_run_events(
         .scalars()
         .all()
     )
-    return [
-        {
-            "id": e.id,
-            "action": e.action,
-            "external_id": e.external_id,
-            "candidate_id": e.candidate_id,
-            "traffit_id": e.traffit_id,
-            "candidate_name": e.candidate_name,
-            "offer_title": e.offer_title,
-            "matched_jobs": e.matched_jobs,
-            "error": e.error,
-            "occurred_at": e.occurred_at,
-        }
-        for e in events
-    ]
+    show_candidates = user_has_candidate_read(current_user)
+    return [event_to_dict(e, show_candidates=show_candidates) for e in events]

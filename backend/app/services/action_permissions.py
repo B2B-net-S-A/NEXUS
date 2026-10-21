@@ -88,6 +88,8 @@ _GENERATOR_DEFAULTS: dict[UserRole, ActionAccess] = {
     UserRole.automation: ActionAccess.none,
     # „Ludzie w NEXUSIE”: pracownik bez pracy w rekrutacji — bez rejestru umów.
     UserRole.employee: ActionAccess.none,
+    # 0490: Rada nadzorcza widzi tylko Insights.
+    UserRole.board: ActionAccess.none,
 }
 
 
@@ -146,6 +148,18 @@ def has_permission(user: User, permission: ProductAction | str) -> bool:
 
     return (
         action_access_for_user(user, ProductAction(permission)) >= ActionAccess.manage
+    )
+
+
+def reads_board_money(user: User) -> bool:
+    """Kwoty kokpitu Rady: uprawnienie „Moduł Finanse” albo rola Rada nadzorcza.
+
+    Lustro bramki ``deps.BoardReader`` dla miejsc, które same decydują
+    o redakcji kwot (tabele rok-do-roku) albo o odbiorcach (mail zarządu).
+    """
+
+    return user.has_role(UserRole.board) or has_permission(
+        user, ProductAction.finance_module
     )
 
 
@@ -230,8 +244,10 @@ def base_action_policy_from_rows(
     return policy
 
 
-#: Role, którym ekran nie nadaje uprawnień: stary podgląd i praktykant.
-UNGRANTABLE_ROLES = frozenset({UserRole.user, UserRole.trainee})
+#: Role, którym ekran nie nadaje uprawnień: stary podgląd, praktykant i Rada
+#: nadzorcza (0490: tylko odczyt Insights — nadanie np. „Modułu Finanse”
+#: otworzyłoby jej faktury, zgody na wydatki i zmiany w zamówieniach).
+UNGRANTABLE_ROLES = frozenset({UserRole.user, UserRole.trainee, UserRole.board})
 
 
 def account_accepts_grants(user: User) -> bool:

@@ -109,12 +109,48 @@ export function rulesPayload(
   };
 }
 
+export interface BonusExample {
+  tier: 1 | 2 | 3;
+  recruiter: number;
+  dl: number;
+}
+
+/**
+ * Przykład „na żywo” z pól formularza (przed zapisem) — lustro
+ * `services/hr/bonus_rules.recruiter_tier` i `dl_bonus`: marża ≤ I granicy =
+ * próg I, poniżej II granicy = próg II, od II granicy = próg III; DL = marża/h
+ * × godziny w miesiącu × procent. Zła liczba w polu albo marża = `null`.
+ */
+export function bonusExample(form: RulesForm, marginText: string): BonusExample | null {
+  const margin = parseAmount(marginText);
+  const values = [form.boundLow, form.boundHigh, form.tier1, form.tier2, form.tier3, form.dlPercent].map(
+    parseAmount,
+  );
+  const hours = Number(form.monthlyHours);
+  if (margin === null || values.some((value) => value === null) || !Number.isFinite(hours)) return null;
+  const [low, high, t1, t2, t3, percent] = (values as string[]).map(Number);
+  const m = Number(margin);
+  const tier = m <= low ? 1 : m < high ? 2 : 3;
+  const dl = Math.round(m * hours * percent) / 100;
+  return { tier, recruiter: [t1, t2, t3][tier - 1], dl };
+}
+
+const formatPln = (value: number) => {
+  const digits = Number.isInteger(value) ? 0 : 2;
+  return `${value.toLocaleString("pl-PL", { minimumFractionDigits: digits, maximumFractionDigits: digits })} zł`;
+};
+
 function RulesEditor({ rules }: { rules: BonusRules }) {
   const { showToast } = useToast();
   const save = useSaveBonusRules();
   const refresh = useRefreshProposals();
   const people = usePeople();
   const [form, setForm] = useState<RulesForm>(() => formFromRules(rules));
+  // Stan z serwera, z którym porównujemy formularz — pasek zapisu tylko przy zmianach.
+  const [baseline, setBaseline] = useState<RulesForm>(() => formFromRules(rules));
+  const [exampleMargin, setExampleMargin] = useState("");
+  const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
+  const example = bonusExample(form, exampleMargin);
   const [error, setError] = useState<string | null>(null);
   const [newDl, setNewDl] = useState("");
   const [newRecipient, setNewRecipient] = useState("");
@@ -135,6 +171,7 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
     save.mutate(result.payload, {
       onSuccess: (saved) => {
         setForm(formFromRules(saved));
+        setBaseline(formFromRules(saved));
         showToast("Reguły premii zapisane", "success");
       },
       onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać reguł.")),
@@ -170,15 +207,65 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
     </FormField>
   );
 
+  const input = (key: TextKey, label: string, id: string, className = "w-24") => (
+    <Input
+      id={id}
+      aria-label={label}
+      inputMode="decimal"
+      value={form[key]}
+      onChange={(event) => set(key, event.target.value)}
+      className={className}
+    />
+  );
+
+  const refreshProposals = () =>
+    refresh.mutate(undefined, {
+      onSuccess: (counts) =>
+        showToast(
+          `Propozycje przeliczone: nowe ${(counts.placement_created ?? 0) + (counts.league_created ?? 0)}`,
+          "success",
+        ),
+      onError: (err) => showToast(apiErrorMessage(err, "Nie udało się przeliczyć propozycji."), "error"),
+    });
+
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {field("boundLow", "Próg I do (zł/h)", "rules-bound-low", "Marża ≤ tej kwoty.")}
-        {field("boundHigh", "Próg III od (zł/h)", "rules-bound-high", "Między = próg II.")}
-        {field("tier1", "Premia progu I", "rules-tier1")}
-        {field("tier2", "Premia progu II", "rules-tier2")}
-        {field("tier3", "Premia progu III", "rules-tier3")}
-      </div>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
+      <div className="space-y-5">
+      {/* Progi jako „marża od → premia” (makieta rundy 2, 21.10.2026), zamiast pięciu pól w rzędzie. */}
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-foreground">Premia rekrutera z placementu</legend>
+        <table className="w-full max-w-md text-sm">
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground">
+              <th className="py-1 pr-3 font-medium">Marża (zł/h)</th>
+              <th className="py-1 font-medium">Premia</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className="py-1 pr-3">
+                <span className="mr-2 text-muted-foreground">do</span>
+                {input("boundLow", "Próg I do (zł/h)", "rules-bound-low")}
+              </td>
+              <td className="py-1">{input("tier1", "Premia progu I", "rules-tier1", "w-28")}</td>
+            </tr>
+            <tr>
+              <td className="py-1 pr-3 text-muted-foreground">
+                powyżej {form.boundLow || "…"}, poniżej {form.boundHigh || "…"}
+              </td>
+              <td className="py-1">{input("tier2", "Premia progu II", "rules-tier2", "w-28")}</td>
+            </tr>
+            <tr>
+              <td className="py-1 pr-3">
+                <span className="mr-2 text-muted-foreground">od</span>
+                {input("boundHigh", "Próg III od (zł/h)", "rules-bound-high")}
+              </td>
+              <td className="py-1">{input("tier3", "Premia progu III", "rules-tier3", "w-28")}</td>
+            </tr>
+          </tbody>
+        </table>
+      </fieldset>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {field("dlPercent", "Premia DL (% marży)", "rules-dl-percent")}
         {field("monthlyHours", "Godzin w miesiącu", "rules-hours", "Marża/h × tyle godzin.")}
@@ -283,35 +370,60 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
         </div>
       </fieldset>
 
+      </div>
+      <aside className="space-y-3 rounded-lg border border-border bg-muted/30 p-4" aria-label="Przykład">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+          Na przykładzie
+        </p>
+        <FormField label="Marża konsultanta (zł/h)" htmlFor="rules-example-margin">
+          <Input
+            id="rules-example-margin"
+            inputMode="decimal"
+            placeholder="np. 46"
+            value={exampleMargin}
+            onChange={(event) => setExampleMargin(event.target.value)}
+          />
+        </FormField>
+        {example ? (
+          <p className="text-sm text-foreground" data-testid="rules-example">
+            Próg {["I", "II", "III"][example.tier - 1]}: rekruter dostaje{" "}
+            <strong>{formatPln(example.recruiter)}</strong>, Delivery Lead{" "}
+            <strong>{formatPln(example.dl)}</strong> — po {form.businessDays || "…"} dniach roboczych.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Wpisz marżę, a przykład policzy się z pól obok — jeszcze przed zapisem.
+          </p>
+        )}
+        <Button variant="outline" size="sm" disabled={refresh.isPending} onClick={refreshProposals}>
+          {refresh.isPending ? "Przeliczanie…" : "Przelicz propozycje teraz"}
+        </Button>
+      </aside>
+      </div>
+
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={submit} disabled={save.isPending}>
-          {save.isPending ? "Zapisywanie…" : "Zapisz reguły"}
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={refresh.isPending}
-          onClick={() =>
-            refresh.mutate(undefined, {
-              onSuccess: (counts) =>
-                showToast(
-                  `Propozycje przeliczone: nowe ${
-                    (counts.placement_created ?? 0) + (counts.league_created ?? 0)
-                  }`,
-                  "success",
-                ),
-              onError: (err) =>
-                showToast(apiErrorMessage(err, "Nie udało się przeliczyć propozycji."), "error"),
-            })
-          }
-        >
-          {refresh.isPending ? "Przeliczanie…" : "Przelicz propozycje teraz"}
-        </Button>
-      </div>
+      {dirty || save.isPending ? (
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 shadow-sm">
+          <span className="flex-1 text-sm text-warning-muted-foreground">Niezapisane zmiany w regułach</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setForm(baseline);
+              setError(null);
+            }}
+          >
+            Cofnij
+          </Button>
+          <Button size="sm" onClick={submit} disabled={save.isPending}>
+            {save.isPending ? "Zapisywanie…" : "Zapisz reguły"}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
