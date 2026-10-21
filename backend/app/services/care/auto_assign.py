@@ -50,7 +50,7 @@ from app.services.hr.notify import notify_each
 AUTO_REASON = "auto_load"
 MAX_AUTO = 2000
 NO_OPTION = "nikt z puli nie ma tego klienta w portfelu"
-NO_POOL = "pula opiekunów jest pusta — wskaż przełożonego albo zdejmij wykluczenia"
+NO_POOL = "pula opiekunów jest pusta — wskaż koordynatora albo zdejmij wykluczenia"
 POOL_CHANGED = (
     "Pula opiekunów zmieniła się od podglądu — odśwież podgląd i zapisz jeszcze raz."
 )

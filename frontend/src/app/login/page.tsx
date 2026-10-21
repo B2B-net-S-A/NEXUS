@@ -377,7 +377,7 @@ function LoginForm() {
       ) : (
           // Narzędzie wewnętrzne — kont nie zakłada się samodzielnie.
           <p className="text-center text-xs text-muted-foreground pt-5">
-            Dostęp wyłącznie dla pracowników B2B.net. Konta zakłada administrator.
+            Dostęp wyłącznie dla zespołu B2B.net. Konta zakłada administrator.
           </p>
       )}
     </AuthShell>

@@ -55,11 +55,11 @@ export function todayChips(person: Person, today: string, known: boolean): Today
       label: day.substitute_name ? `${label} · zastępuje ${shortName(day.substitute_name)}` : label,
     });
   } else if (day?.presence === "business_trip") {
-    chips.push({ tone: "neutral", label: "delegacja" });
+    chips.push({ tone: "neutral", label: "wyjazd" });
   } else if (day?.presence === "remote") {
     chips.push({ tone: "success", label: "zdalnie" });
   } else if (known && person.employment_status !== "exited") {
-    chips.push({ tone: "success", label: "w pracy" });
+    chips.push({ tone: "success", label: "dostępny(a)" });
   }
   if (person.employment_status === "offboarding") {
     chips.push({

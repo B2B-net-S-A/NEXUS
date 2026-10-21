@@ -14,7 +14,7 @@ export default function PeopleCalendarPage() {
         <div className="space-y-4">
           <PageHeader
             title="Kalendarz zespołu"
-            description="Nieobecności w miesiącu. Rodzaj widzą tylko osoba, jej przełożony i Kadry."
+            description="Nieobecności w miesiącu. Rodzaj widzą tylko osoba, jej koordynator i Kadry."
             density="compact"
           />
           <PeopleSectionNav config={config} active="calendar" />

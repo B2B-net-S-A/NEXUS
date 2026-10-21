@@ -273,7 +273,7 @@ export function DivisionHeadsDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="Headowie pionów"
-      description="Osoba w pionie bez przełożonego dostaje podpowiedź „przełożony = head pionu”. Nic nie zapisuje się samo."
+      description="Osoba w pionie bez koordynatora dostaje podpowiedź „koordynator = head pionu”. Nic nie zapisuje się samo."
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

@@ -73,7 +73,7 @@ export function MySettlementCard({ state, data, form, onRetry }: MySettlementCar
           state={state === "forbidden" || state === "not_found" ? state : "error"}
           description={
             state === "forbidden"
-              ? "Rozliczenie widzą osoby z kartoteką pracownika."
+              ? "Rozliczenie widzą osoby z kartoteką w NEXUSIE."
               : "Nie udało się policzyć rozliczenia."
           }
           onRetry={onRetry}

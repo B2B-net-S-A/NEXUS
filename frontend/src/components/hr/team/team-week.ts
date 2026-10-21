@@ -23,12 +23,12 @@ import { warsawDateOf } from "@/lib/warsaw-date";
 const WEEK_LABELS = ["pn", "wt", "śr", "cz", "pt", "so", "nd"] as const;
 
 export const WEEK_STATE_LABELS: Record<TeamWeekState, string> = {
-  work: "w pracy",
+  work: "dostępny(a)",
   off: "dzień wolny",
   absent: "nieobecność",
   pending: "wniosek czeka",
-  business_trip: "delegacja",
-  remote: "praca zdalna",
+  business_trip: "wyjazd",
+  remote: "zdalnie",
   unknown: "brak danych o nieobecności",
 };
 
@@ -105,7 +105,7 @@ export function todayStatus(person: TeamPerson, today: string): TodayStatus {
     };
   }
   const day = person.week?.find((item) => item.date === today);
-  if (day?.state === "business_trip") return { kind: "trip", text: "delegacja" };
+  if (day?.state === "business_trip") return { kind: "trip", text: "wyjazd" };
   if (day?.state === "remote") return { kind: "remote", text: "zdalnie" };
   if (person.covering_for.length > 0) {
     return {
@@ -115,7 +115,7 @@ export function todayStatus(person: TeamPerson, today: string): TodayStatus {
   }
   // Bez modułu urlopów (`unknown`) nieobecności nie znamy — nie mówimy „w pracy”.
   if (day?.state === "unknown" || (!person.today && !day)) return { kind: "unknown", text: "—" };
-  return { kind: "work", text: "w pracy" };
+  return { kind: "work", text: "dostępny(a)" };
 }
 
 /** „4 w pracy · 1 osoba nieobecna · 1 w delegacji”. */
@@ -127,11 +127,11 @@ export function todaySummary(people: readonly TeamPerson[], today: string): stri
     else if (status === "trip") counts.trip += 1;
     else if (status !== "unknown") counts.work += 1;
   }
-  const parts = [`${counts.work} w pracy`];
+  const parts = [`dostępni: ${counts.work}`];
   if (counts.absent > 0) {
     parts.push(countPl(counts.absent, "osoba nieobecna", "osoby nieobecne", "osób nieobecnych"));
   }
-  if (counts.trip > 0) parts.push(`${counts.trip} w delegacji`);
+  if (counts.trip > 0) parts.push(`na wyjeździe: ${counts.trip}`);
   return parts.join(" · ");
 }
 

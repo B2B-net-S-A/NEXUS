@@ -446,7 +446,7 @@ export function CaseDetailView({ caseId }: { caseId: number }) {
               </Fact>
             ) : null}
             {detail.subject_user ? (
-              <Fact label="Pracownik">
+              <Fact label="Osoba">
                 <Link href={`/people/${detail.subject_user.id}`} className="hover:underline">
                   {detail.subject_user.name ?? `#${detail.subject_user.id}`}
                 </Link>

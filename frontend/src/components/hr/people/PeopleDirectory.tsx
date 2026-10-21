@@ -71,7 +71,7 @@ export function pendingPeople(rows: readonly Person[]): PendingPerson[] {
     const full = isFullPerson(row) ? row : null;
     const what = [
       full?.employment_type_pending ? "forma" : null,
-      full?.manager_pending ? "przełożony" : null,
+      full?.manager_pending ? "koordynator" : null,
     ].filter(Boolean);
     return { user_id: row.user_id, name: row.name, what: what.join(" i ") };
   });
@@ -150,7 +150,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
         state={state}
         description={
           state === "forbidden"
-            ? "Katalog ludzi widzą osoby z kartoteką pracownika i Kadry."
+            ? "Katalog ludzi widzą osoby z kartoteką w NEXUSIE i Kadry."
             : "Nie udało się wczytać katalogu ludzi."
         }
         onRetry={() => people.refetch()}
@@ -240,7 +240,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
           />
           <Input
             aria-label="Szukaj osoby"
-            placeholder="Imię, stanowisko, przełożony"
+            placeholder="Imię, stanowisko, koordynator"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             className="pl-8"
@@ -356,7 +356,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           {canAdd
             ? "Nikt nie ma jeszcze kartoteki. Dodaj osoby albo zaimportuj je z Compassa (Ustawienia → Import z Compassa)."
-            : "Kartoteki pracowników nie zostały jeszcze założone."}
+            : "Kartoteki nie zostały jeszcze założone."}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
@@ -375,7 +375,7 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
                 <TableHead className={CALM_HEAD}>Osoba</TableHead>
                 <TableHead className={CALM_HEAD}>Stanowisko</TableHead>
                 {showForm ? <TableHead className={CALM_HEAD}>Forma</TableHead> : null}
-                <TableHead className={CALM_HEAD}>Przełożony</TableHead>
+                <TableHead className={CALM_HEAD}>Koordynator</TableHead>
                 <TableHead className={CALM_HEAD}>Dziś</TableHead>
                 <TableHead className={CALM_HEAD}>W firmie</TableHead>
               </TableRow>
@@ -502,7 +502,7 @@ function DirectoryRow({
             {shortName(row.manager_name)}
           </Link>
         ) : full?.manager_pending ? (
-          <span className="text-xs text-warning-muted-foreground">przełożony do uzupełnienia</span>
+          <span className="text-xs text-warning-muted-foreground">koordynator do uzupełnienia</span>
         ) : (
           <span className={CALM_EMPTY}>—</span>
         )}
@@ -513,10 +513,10 @@ function DirectoryRow({
         ) : (
           <span className="flex flex-wrap items-center gap-1.5">
             {chips.map((chip) =>
-              chip.label === "w pracy" ? (
+              chip.label === "dostępny(a)" ? (
                 <span key={chip.label} className="inline-flex items-center gap-1.5 text-sm">
                   <span aria-hidden className="h-2 w-2 rounded-full bg-success" />
-                  w pracy
+                  dostępny(a)
                 </span>
               ) : (
                 <TonePill key={chip.label} tone={chip.tone}>

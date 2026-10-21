@@ -140,7 +140,7 @@ describe("/preview/hr-approvals", () => {
   it("Kadry: zakres wszyscy i przełożony przy wniosku", async () => {
     open("?state=hr");
     expect(await screen.findByRole("region", { name: "Szczegóły: Kamil Testowy" })).toHaveTextContent(
-      "przełożony: Marta Fikcyjna",
+      "koordynator: Marta Fikcyjna",
     );
     expect(screen.getByText("wszyscy")).toBeInTheDocument();
     expect(attempted()).toEqual([]);

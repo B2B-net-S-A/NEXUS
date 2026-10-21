@@ -71,7 +71,7 @@ describe("/preview/hr-agreements", () => {
   it("wzory umów z wersjami i przełącznikiem modułu", async () => {
     window.history.replaceState({}, "", "/preview/hr-agreements?state=templates");
     render(<HrAgreementsPreviewPage />);
-    expect(await screen.findByRole("heading", { name: "Wzory umów z pracownikami" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Wzory umów" })).toBeInTheDocument();
     expect(screen.getByText("wersja 3")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Umowy z ludźmi włączone" })).toBeInTheDocument();
     expect(attempted()).toEqual([]);

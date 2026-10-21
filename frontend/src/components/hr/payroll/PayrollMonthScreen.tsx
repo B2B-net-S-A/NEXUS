@@ -215,7 +215,7 @@ export function PayrollMonthScreen({
           state={state === "forbidden" || state === "not_found" ? state : "error"}
           description={
             state === "forbidden"
-              ? "Miesiąc płac widzą Płace i przełożeni (godziny i premie swojego zespołu)."
+              ? "Miesiąc płac widzą Płace i koordynatorzy (godziny i premie swojego zespołu)."
               : state === "not_found"
                 ? "Moduł Płac nie jest jeszcze włączony."
                 : undefined
