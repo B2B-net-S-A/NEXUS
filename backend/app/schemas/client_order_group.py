@@ -615,6 +615,10 @@ class OrderLineRead(BaseModel):
     poprzedni miesiąc (gdy import za niego już był), wiersz importu tej osoby
     „Do weryfikacji"."""
     consumption_missing_month: Optional[str] = None
+    awaiting_md: list[LineConsumptionPoint] = Field(default_factory=list)
+    """MD z importu, które czekają na kolejne zamówienie tej osoby (wiersz
+    arkusza bez numeru obok wiersza z numerem tego zamówienia, 21.10.2026) —
+    per miesiąc raportu. Znika, gdy zejdą z kolejnego zamówienia."""
 
     # ── Historia osoby na zamówieniu (ticket 09.2026) ──
     origin: Optional[Literal["document", "manual"]] = None
