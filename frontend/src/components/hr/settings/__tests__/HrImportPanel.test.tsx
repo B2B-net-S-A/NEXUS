@@ -42,6 +42,7 @@ function module(overrides: Partial<HrImportModuleReport>): HrImportModuleReport 
 
 const DRY: HrImportUpload = {
   id: 12,
+  source: "screen",
   status: "dry_run",
   bundle_sha256: SHA,
   size_bytes: 2048,
@@ -203,6 +204,7 @@ describe("HrImportHistory", () => {
     );
     const row = (await screen.findByText("Zapisana")).closest("tr")!;
     expect(row).toHaveTextContent("a1b2c3d4e5f6…");
+    expect(row).toHaveTextContent("#12 · Anna Przykładowa · z ekranu");
     expect(row).toHaveTextContent("Kartoteki i pule urlopowe, Wnioski urlopowe");
     unmount();
 
@@ -214,5 +216,43 @@ describe("HrImportHistory", () => {
     );
     expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się pobrać danych");
     expect(screen.queryByText("Nie było jeszcze żadnego importu.")).not.toBeInTheDocument();
+  });
+
+  it("shows script batches next to screen uploads, marked and without an author", async () => {
+    // Ten sam numer 12 u paczki z ekranu i partii skryptu — dwa osobne wiersze.
+    const scripted: HrImportUpload = {
+      ...APPLIED,
+      source: "script",
+      size_bytes: null,
+      created_by_name: null,
+      applied_by_name: null,
+      expires_at: null,
+      applied_modules: ["care"],
+      modules: [
+        module({
+          module: "care",
+          label: "Mapa technologiczna i rozmowy opiekunów",
+          counts: { create: 5, update: 0, unchanged: 0, conflict: 0, skip: 0 },
+          applied: {
+            total: 5,
+            counts: { create: 5, update: 0, unchanged: 0, conflict: 0, skip: 0 },
+            written: {},
+          },
+        }),
+      ],
+    };
+    get.mockResolvedValueOnce({ data: [APPLIED, scripted] });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <HrImportHistory />
+      </QueryClientProvider>,
+    );
+    const rows = await screen.findAllByText("Zapisana");
+    expect(rows).toHaveLength(2);
+    const row = rows[1].closest("tr")!;
+    expect(row).toHaveTextContent("#12 · ze skryptu");
+    expect(row).not.toHaveTextContent("—");
+    expect(row).toHaveTextContent("Mapa technologiczna i rozmowy opiekunów");
+    expect(within(row).getAllByRole("cell")[3]).toHaveTextContent("5");
   });
 });
