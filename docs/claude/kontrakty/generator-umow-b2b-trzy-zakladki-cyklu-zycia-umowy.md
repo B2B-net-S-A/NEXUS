@@ -541,17 +541,20 @@ Kod: `models/pre_contract.py`, `services/pre_contracts.py`, `api/pre_contracts.p
 
 `requested` → `issued` (wskazana umowa z Generatora, rodzina `preliminary`,
 ta sama para; `valid_until` z umowy) → `sent` → `candidate_signed` (plik +
-forma) → `signed` (plik podpisany przez firmę; umowa w Generatorze przechodzi
-na „podpisana”). Zamknięcia: `fulfilled`, `expired` (sweeper po dacie
+forma) → `signed` (plik podpisany przez firmę). Stanu dokumentu w Generatorze
+prośba nie zmienia — „Oznacz jako podpisany” ma tam własne bramki. Zamknięcia: `fulfilled`, `expired` (sweeper po dacie
 ważności), `cancelled` (z powodem), `withdrawn` (proszący albo HoR, tylko
 przed wysłaniem), `candidate_refused`, `candidate_withdrew`.
 
 - **Rezygnacja kandydata** (`candidate-withdrew`) tylko przy umowie
   podpisanej obustronnie: zapisuje rodzaj, datę, opis i stan umowy w chwili
-  zdarzenia; nic nie nalicza. **O karze decyduje Head of Recruitment**
-  (albo wskazana osoba) — zakładka „Do decyzji o karze”.
-- **Pliki** leżą w `/pre_contracts/{id}/` i mają PESEL — pobiera je ten sam
-  krąg co Tablicę pary (`ensure_job_read_access`), jak CV i notatki osoby.
+  zdarzenia; nic nie nalicza. **O karze decyduje wyłącznie Head of
+  Recruitment albo admin** — wskazana osoba dostaje tylko dzwonek (zakładka
+  „Do decyzji o karze”).
+- **Pliki** leżą w `/pre_contracts/{id}/` i mają PESEL. Każda trasa idzie
+  przez `ensure_job_membership` (NIE `ensure_job_read_access`, który
+  przepuszcza Finanse do każdej rekrutacji). Po podpisie firmy plików nie da
+  się podmienić, a poprzednie wersje nie są kasowane (dowód do decyzji o karze).
 - **Sweeper** (co godzinę, najwyżej jedno przypomnienie dziennie): wygasa
   umowy po dacie ważności, ostrzega 3 dni przed końcem, przypomina
   wystawiającemu po 3 dniach ciszy kandydata, ostrzega dzień roboczy przed
