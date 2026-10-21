@@ -38,7 +38,7 @@ describe("/preview/hr-consents", () => {
     window.history.replaceState({}, "", "/preview/hr-consents?state=inbox&tab=consents");
     render(<HrConsentsPreviewPage />);
     expect(await screen.findByText(/z umowy i reguł 9400 zł/)).toBeInTheDocument();
-    expect(screen.getByText(/trafi do Płac jako przyznana/)).toBeInTheDocument();
+    expect(screen.getByText(/Wynagrodzenie dodatkowe trafi do Płac jako przyznane/)).toBeInTheDocument();
     // Premia dla B2B ma podstawę w umowie (0491).
     expect(screen.getByText("§ 6 ust. 2 umowy z 01.03.2025")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Zatwierdź inną kwotę/ })).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("/preview/hr-consents", () => {
     window.history.replaceState({}, "", "/preview/hr-consents?state=form&new=1");
     render(<HrConsentsPreviewPage />);
     expect(screen.queryByLabelText(/Podstawa w umowie/)).toBeNull();
-    await user.click(await screen.findByRole("button", { name: /Premia poza umową/ }));
+    await user.click(await screen.findByRole("button", { name: /Wynagrodzenie dodatkowe/ }));
     expect(screen.getByLabelText(/Podstawa w umowie/)).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });

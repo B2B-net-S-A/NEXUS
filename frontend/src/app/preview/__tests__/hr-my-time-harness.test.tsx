@@ -51,7 +51,7 @@ describe("/preview/hr-my-time", () => {
     expect(within(days).getByText(/wykorzystane 12 dni/)).toBeInTheDocument();
     expect(within(days).queryByText(/na żądanie/i)).toBeNull();
     expect(screen.getByRole("generic", { name: /^Raport godzin/ })).toBeInTheDocument();
-    const bonuses = screen.getByRole("generic", { name: "Premie" });
+    const bonuses = screen.getByRole("generic", { name: "Wynagrodzenie dodatkowe" });
     expect(within(bonuses).getByText(/umowa podpisana/)).toBeInTheDocument();
     expect(within(bonuses).getByText(/14 z 21 dni/)).toBeInTheDocument();
     const todo = screen.getByRole("generic", { name: "Do zrobienia" });
@@ -100,7 +100,7 @@ describe("/preview/hr-my-time", () => {
     expect(within(table).queryByText("Urlop wypoczynkowy")).toBeNull();
     expect(screen.getByRole("button", { name: "Zgłoś przerwę" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Premie i stawka" }));
+    await user.click(screen.getByRole("tab", { name: "Wynagrodzenie dodatkowe i stawka" }));
     expect(await screen.findByText("Liga Mistrzów — 2. miejsce w kwartale")).toBeInTheDocument();
     expect(screen.getByText("kontrakt zakończony przed 21. dniem roboczym")).toBeInTheDocument();
     expect(screen.getByRole("generic", { name: "Moje rozliczenie" })).toBeInTheDocument();
@@ -148,6 +148,8 @@ describe("/preview/hr-my-time", () => {
     expect(await screen.findByRole("heading", { name: monthTitlePl(current) })).toBeInTheDocument();
     // B2B: raport godzin idzie do potwierdzenia koordynatorki (D4).
     expect(screen.getByRole("button", { name: "Wyślij do potwierdzenia" })).toBeInTheDocument();
+    // B2B: „ponad 8 h”, nigdzie „nadgodzin” ani „nadg.” (decyzja Artura 21.10.2026).
+    expect(document.body.textContent).not.toMatch(/nadg/i);
     await user.click(screen.getByRole("button", { name: `Dodaj wpis ${today}` }));
     const entry = await screen.findByRole("dialog");
     expect(within(entry).getByRole("button", { name: "Wstaw opis z pracy w NEXUSIE" })).toBeEnabled();

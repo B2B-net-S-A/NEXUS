@@ -13,6 +13,7 @@ import type {
   SettlementStep,
 } from "@/lib/api/hr-settlements";
 import { formatDayMonthPl } from "@/lib/date-pl";
+import { employmentTerms } from "@/lib/hr-employment-terms";
 import { formatMoney } from "@/lib/money";
 
 /** Kolor stanu rozliczenia — ten sam w panelu osoby i w kolejce Płac. */
@@ -81,11 +82,17 @@ export function documentTitle(month: Pick<MySettlementMonth, "employment_type" |
   return "dane do listy płac";
 }
 
+/** „gdy dojdą premie” (UoP) / „gdy dojdzie wynagrodzenie dodatkowe” (21.10.2026). */
+function bonusesArrive(form: EmploymentType | null | undefined): string {
+  const words = employmentTerms(form);
+  return words.flow === "request" ? `gdy dojdą ${words.bonuses}` : `gdy dojdzie ${words.bonuses}`;
+}
+
 /** Co dalej — jedno zdanie dla osoby. */
 export function nextStepText(month: MySettlementMonth): string {
   if (month.status === "estimate") {
     return month.hours_confirmed
-      ? "Miesiąc liczy się do zamknięcia przez Płace — kwota może się jeszcze zmienić, gdy dojdą premie."
+      ? `Miesiąc liczy się do zamknięcia przez Płace — kwota może się jeszcze zmienić, ${bonusesArrive(month.employment_type)}.`
       : "Pozycje pojawią się po potwierdzeniu raportu godzin.";
   }
   const due = month.due_on ? formatDayMonthPl(month.due_on) : null;
@@ -182,7 +189,7 @@ export function previousMonthLine(month: MySettlementMonth): string {
   const bonuses = month.items.filter((item) => item.kind === "bonus");
   if (bonuses.length) {
     const sum = bonuses.reduce((total, item) => total + Number(item.amount), 0);
-    parts.push(`w tym premie ${formatMoney(sum, month.currency)}`);
+    parts.push(`w tym ${employmentTerms(month.employment_type).bonuses} ${formatMoney(sum, month.currency)}`);
   }
   return parts.join(" · ");
 }

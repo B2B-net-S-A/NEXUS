@@ -115,8 +115,8 @@ function BonusFacts({ context }: { context: ApprovalContext }) {
       <li className="flex gap-2">
         <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
         <span>
-          Premie tej osoby w tym roku: z umowy i reguł {moneyPl(year.automatic)} · poza umową{" "}
-          {moneyPl(year.outside_contract)} · inne ręczne {moneyPl(year.manual)}
+          Wynagrodzenie dodatkowe tej osoby w tym roku: z umowy i reguł {moneyPl(year.automatic)} ·
+          ze zgód {moneyPl(year.outside_contract)} · inne ręczne {moneyPl(year.manual)}
         </span>
       </li>
       {sameMonth ? (
@@ -125,7 +125,7 @@ function BonusFacts({ context }: { context: ApprovalContext }) {
             !
           </span>
           <span>
-            W tym samym miesiącu wypłaty jest premia z umowy ({moneyPl(year.same_month_automatic)})
+            W tym samym miesiącu wypłaty jest wynagrodzenie z reguł umowy ({moneyPl(year.same_month_automatic)})
             — sprawdź, czy to nie dubel.
           </span>
         </li>
@@ -342,7 +342,7 @@ function ConsentsInboxList() {
           {group("Potrzebne do jutra", urgent)}
           {group(urgent.length > 0 ? "Pozostałe" : "Do decyzji", rest)}
           <p className="border-t border-border/60 px-3.5 py-2.5 text-xs text-muted-foreground">
-            Premie z umowy (placementy, ligi, reguły Płac) tu nie trafiają — liczą się same.
+            Wynagrodzenie z reguł umowy (placementy, ligi, reguły Płac) tu nie trafia — liczy się samo.
           </p>
         </div>
         <ConsentDetail

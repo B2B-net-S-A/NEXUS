@@ -166,6 +166,21 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   podróży” zamiast „Delegacji”. Bez zmian: pola w bazie, słowa UoP na ekranach
   osoby na UoP, nazwa folderu „Umowy pracowników” w SharePoincie, etap
   „Zatrudniony” w rekrutacji. Nie wpisuj tych słów na sztywno w nowych ekranach.
+- **„Godziny ponad 8 h” i „wynagrodzenie dodatkowe” poza UoP** (decyzja Artura
+  21.10.2026): „nadgodziny” z bramką uprawnienia i „premia poza umową” to
+  język Kodeksu pracy i regulaminu nagród. Słowa są w słowniku form
+  (`employment_terms.py` ↔ `hr-employment-terms.ts`, klucze `overtime*`
+  i `bonus*`; `BACKEND_TERMS` niesie tytuły dzwonków o premii,
+  `bonus_message()` ich treść). Ekran i dzwonek jednej osoby biorą słowo z jej
+  formy: wpis dnia, „Mój miesiąc”, „Wypełnij miesiąc”, podgląd raportu, PDF,
+  kartoteka, karta i zakładka premii („Wynagrodzenie dodatkowe i stawka”),
+  „Moje rozliczenie”, pozycja premii do faktury (`bonus_label`), opis premii ze
+  zgody. Ekrany wielu osób i plik CSV godzin mówią neutralnie: „Ponad 8 h”,
+  „Czego dotyczyły godziny ponad 8 h”, w Zgodach rodzaj „Wynagrodzenie
+  dodatkowe” z podpowiedzią „wymaga podstawy: punkt umowy albo aneks”. Bez
+  zmian: bramka `can_log_overtime` i jej pola, kategorie premii (`Premia
+  rekrutera` — opis zapisany w bazie), ekrany działu Płac, eksport Symfonii
+  (dotyczy UoP).
 - **„Ludzie → Mój zespół”** (`/people/team`, `api/hr_team.py`,
   `services/hr/team.py`, bramka `require_hr_team_reader`: moduł „Ludzie” +
   podwładni z kartoteką albo Kadry/admin). Wiersz na bezpośredniego

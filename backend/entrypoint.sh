@@ -1057,6 +1057,16 @@ except Exception as _contract_docs_sp_err:  # noqa: BLE001
     print(f"contract docs sharepoint DDL unavailable: {_contract_docs_sp_err!r}")
     _CONTRACT_DOCS_SP_DDL = []
 
+# Foldery w zakładce Dokumenty kontraktu (migracja 0494) — JEDNO źródło
+# z migracją (`app/services/contract_document_folders_schema.py`).
+try:
+    from app.services import contract_document_folders_schema as _contract_doc_folders
+
+    _CONTRACT_DOC_FOLDERS_DDL = list(_contract_doc_folders.TABLE_DDL)
+except Exception as _contract_doc_folders_err:  # noqa: BLE001
+    print(f"contract document folders DDL unavailable: {_contract_doc_folders_err!r}")
+    _CONTRACT_DOC_FOLDERS_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1104,6 +1114,7 @@ _COLUMN_STATEMENTS = [
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
     *_CONTRACT_DOCS_SP_DDL,
+    *_CONTRACT_DOC_FOLDERS_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -5387,6 +5398,9 @@ END $$""",
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS md_optional_total NUMERIC(16, 6) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
+    # 0493: to samo przy wpisie kosztowym (zakładka „Zużycie” zamówienia kosztowego).
+    "ALTER TABLE client_order_invoice_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
+    "ALTER TABLE client_order_invoice_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
     # 0317: etap „Ogłoszenia" (`posting`) — pierwsza kolumna kanbana przed „Nowi",
     # poczekalnia dla kandydatów z portali (auto-match). Enum + stage def w KAŻDYM
     # szablonie (trik +1000/-999, bo UNIQUE (template_id, order) nie jest DEFERRABLE).
@@ -9204,12 +9218,14 @@ _CONSTRAINT_STATEMENTS = [
     # 0351: 'non_positive_amount' — korekta faktury / kwota ≤ 0 (FIN-MD-06).
     # 0391: 'invoice_unreadable' (nieczytelna faktura, MD zostają) i
     # 'order_exhausted' (faktura na wyczerpane zamówienie kosztowe).
+    # 0493: 'manual_kept' (za ten miesiąc linia ma ręczny wpis kosztowy).
     """DO $$ BEGIN
         ALTER TABLE md_consumption_import_rows
             ADD CONSTRAINT ck_md_import_rows_cost_status
             CHECK (cost_status IS NULL OR cost_status IN (
                 'applied', 'unmatched_number', 'unmatched_consultant',
-                'non_positive_amount', 'invoice_unreadable', 'order_exhausted'
+                'non_positive_amount', 'invoice_unreadable', 'order_exhausted',
+                'manual_kept'
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0351: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
@@ -9489,6 +9505,13 @@ _CONSTRAINT_STATEMENTS = [
     """DO $$ BEGIN
         ALTER TABLE client_order_md_consumptions
             ADD CONSTRAINT ck_md_consumptions_status
+            CHECK (status IS NULL OR status IN ('accepted', 'protocol'));
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    # 0493: status i notatka ręcznego wpisu kosztowego (zakładka „Zużycie”).
+    """DO $$ BEGIN
+        ALTER TABLE client_order_invoice_consumptions
+            ADD CONSTRAINT ck_invoice_consumptions_status
             CHECK (status IS NULL OR status IN ('accepted', 'protocol'));
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",

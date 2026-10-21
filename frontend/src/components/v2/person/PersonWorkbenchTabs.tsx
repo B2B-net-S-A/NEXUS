@@ -27,6 +27,7 @@ import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
 import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
 import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
 import { AddedToBaseHistoryRow, PersonInBase } from "@/components/v2/person/PersonInBase";
+import { PersonOffLimits } from "@/components/v2/person/PersonOffLimits";
 import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
 import { PersonPanelSideSection } from "@/components/v2/person/PersonPanelSide";
 import { PersonSidePreview } from "@/components/v2/person/PersonSidePreview";
@@ -308,6 +309,7 @@ function NotesTab({ row, jobId, readOnly }: { row: ProcessPersonRow; jobId: numb
   const { item } = row;
   return (
     <div className="space-y-4 text-[13px]">
+      <PersonOffLimits badge={item.entry_off_limits} />
       <PersonInBase candidateId={row.candidateId} item={item} />
       <PersonNotesHistory candidateId={row.candidateId} jobId={jobId} readOnly={readOnly} />
       <section aria-label="Historia w rekrutacji" className="space-y-2">

@@ -77,7 +77,7 @@ export function MyOverviewTab({ config, person, onOpenTab }: MyOverviewTabProps)
               onOpenTab={onOpenTab}
             />
           ) : null}
-          {open.payroll ? <BonusCard today={today} onOpenTab={onOpenTab} /> : null}
+          {open.payroll ? <BonusCard form={form} today={today} onOpenTab={onOpenTab} /> : null}
         </div>
       ) : null}
       {/* Dolny rząd: moje sprawy (szerzej), sprzęt i koordynator. */}

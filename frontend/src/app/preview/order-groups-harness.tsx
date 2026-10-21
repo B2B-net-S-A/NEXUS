@@ -19,6 +19,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/Toast";
 import { ListDetailLayout } from "@/components/ds/ListDetailLayout";
 import { EndedLineDecisionDialog } from "@/components/client-profile/orders/EndedLineDecisionDialog";
+import { lineCostConsumptionsQueryKey } from "@/components/client-profile/orders/CostConsumptionTab";
 import { lineConsumptionsQueryKey } from "@/components/client-profile/orders/LineConsumptionTable";
 import { OrderGroupPanel } from "@/components/client-profile/orders/OrderGroupPanel";
 import { orderHistoryQueryKey } from "@/components/client-profile/orders/OrderHistoryPanel";
@@ -37,6 +38,7 @@ import {
 import { ContractorOrderPanel } from "@/components/client-profile/orders/ContractorOrderPanel";
 import type { ContractWithOrdersRead, OrderType } from "@/lib/api/dlPortal";
 import type {
+  CostConsumptionsResponse,
   LineConsumptionsResponse,
   OrderGroupRead,
   SharedMdConsumptionsResponse,
@@ -65,6 +67,8 @@ export function seedOrderGroupPanels(
     consumptions?: Record<number, LineConsumptionsResponse>;
     /** Zejścia wspólnej puli MD per zamówienie (sekcja „Zejścia MD”). */
     sharedConsumptions?: Record<number, SharedMdConsumptionsResponse>;
+    /** Zakładka „Zużycie” osoby na zamówieniu kosztowym, per linia. */
+    costConsumptions?: Record<number, CostConsumptionsResponse>;
   } = {},
 ): void {
   for (const group of allGroups(groups)) {
@@ -99,6 +103,23 @@ export function seedOrderGroupPanels(
       const key = lineConsumptionsQueryKey(clientId, group.id, line.id);
       if (qc.getQueryData(key) === undefined) {
         qc.setQueryData(key, data.consumptions?.[line.id] ?? { rows: [] });
+      }
+      if (group.is_cost_based && group.budget_amount != null) {
+        const costKey = lineCostConsumptionsQueryKey(clientId, group.id, line.id);
+        if (qc.getQueryData(costKey) === undefined) {
+          qc.setQueryData<CostConsumptionsResponse>(
+            costKey,
+            data.costConsumptions?.[line.id] ?? {
+              order_number: group.order_number,
+              budget_pool: group.budget_amount,
+              budget_used: group.budget_used ?? 0,
+              budget_remaining: group.budget_remaining ?? group.budget_amount,
+              rows: [],
+              people: [{ order_id: line.id, name: line.consultant_name, invoiced: 0 }],
+              group_rows: [],
+            },
+          );
+        }
       }
     }
   }

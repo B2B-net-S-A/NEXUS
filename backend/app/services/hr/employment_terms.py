@@ -13,6 +13,10 @@ PDF raportu godzin) bierze słowa z formy osoby:
   (art. 8b ustawy o minimalnym wynagrodzeniu); dokumentem rozliczenia jest
   to samo potwierdzenie godzin z kwotą brutto — bez osobnego rachunku (R3).
 
+Przy B2B i zleceniu dzień ponad 8 h to „godziny ponad 8 h”, nie „nadgodziny”
+(bramka uprawnienia ``can_log_overtime`` zostaje — zmieniają się tylko słowa),
+a premia to „wynagrodzenie dodatkowe” (decyzja Artura 21.10.2026).
+
 Brak formy (osoba bez kartoteki) = jak umowa o pracę. ``EMPLOYMENT_TERMS`` ma
 lustro słowo w słowo we froncie (``frontend/src/lib/hr-employment-terms.ts``,
 strażnik ``tests/test_hr_employment_terms_mirror.py``); zdania składane tylko
@@ -53,6 +57,18 @@ EMPLOYMENT_TERMS: dict[str, dict[str, str]] = {
         "review_noun": "akceptacji",
         "settlement": "Lista płac",
         "person": "Pracownik",
+        "overtime": "nadgodziny",
+        "overtime_genitive": "nadgodzin",
+        "overtime_instrumental": "nadgodzinami",
+        "overtime_stat": "nadgodziny",
+        "overtime_reason": "Uzasadnienie nadgodzin",
+        "overtime_reason_hint": "Suma dnia przekroczy 8 h — napisz, czym były nadgodziny.",
+        "overtime_reason_required": "Nadgodziny wymagają uzasadnienia",
+        "overtime_fill_note": "nadgodziny wpisuje się w dniu, z uzasadnieniem",
+        "bonus": "premia",
+        "bonuses": "premie",
+        "bonuses_genitive": "premii",
+        "bonuses_tab": "Premie i stawka",
     },
     "b2b": {
         "form": "B2B",
@@ -75,6 +91,18 @@ EMPLOYMENT_TERMS: dict[str, dict[str, str]] = {
         "review_noun": "potwierdzenia",
         "settlement": "Faktura",
         "person": "Wykonawca",
+        "overtime": "godziny ponad 8 h",
+        "overtime_genitive": "godzin ponad 8 h",
+        "overtime_instrumental": "godzinami ponad 8 h",
+        "overtime_stat": "ponad 8 h dziennie",
+        "overtime_reason": "Czego dotyczyły godziny ponad 8 h",
+        "overtime_reason_hint": "Dzień ponad 8 h — dopisz krótko, czego dotyczył. Koordynator zobaczy to w raporcie godzin.",
+        "overtime_reason_required": "Dopisz, czego dotyczyły godziny ponad 8 h",
+        "overtime_fill_note": "godziny ponad 8 h wpisuje się w dniu, z krótkim opisem",
+        "bonus": "wynagrodzenie dodatkowe",
+        "bonuses": "wynagrodzenie dodatkowe",
+        "bonuses_genitive": "wynagrodzenia dodatkowego",
+        "bonuses_tab": "Wynagrodzenie dodatkowe i stawka",
     },
     "zlecenie": {
         "form": "Umowa zlecenie",
@@ -97,11 +125,25 @@ EMPLOYMENT_TERMS: dict[str, dict[str, str]] = {
         "review_noun": "potwierdzenia",
         "settlement": "Potwierdzenie godzin",
         "person": "Zleceniobiorca",
+        "overtime": "godziny ponad 8 h",
+        "overtime_genitive": "godzin ponad 8 h",
+        "overtime_instrumental": "godzinami ponad 8 h",
+        "overtime_stat": "ponad 8 h dziennie",
+        "overtime_reason": "Czego dotyczyły godziny ponad 8 h",
+        "overtime_reason_hint": "Dzień ponad 8 h — dopisz krótko, czego dotyczył. Koordynator zobaczy to w potwierdzeniu godzin.",
+        "overtime_reason_required": "Dopisz, czego dotyczyły godziny ponad 8 h",
+        "overtime_fill_note": "godziny ponad 8 h wpisuje się w dniu, z krótkim opisem",
+        "bonus": "wynagrodzenie dodatkowe",
+        "bonuses": "wynagrodzenie dodatkowe",
+        "bonuses_genitive": "wynagrodzenia dodatkowego",
+        "bonuses_tab": "Wynagrodzenie dodatkowe i stawka",
     },
 }
 
 #: Zdania, które składa tylko backend (powiadomienia o raporcie godzin, PDF,
-#: powiadomienia o nieobecności). Tytuły bez rodzaju nieobecności (D6).
+#: powiadomienia o nieobecności i o premii). Tytuły bez rodzaju nieobecności
+#: (D6). Przy B2B i zleceniu „wynagrodzenie dodatkowe” zamiast „premii”, a zgoda
+#: daje je bez „poza umową” (decyzja Artura 21.10.2026).
 BACKEND_TERMS: dict[str, dict[str, str]] = {
     "uop": {
         "timesheet_document": "Ewidencja czasu pracy",
@@ -115,6 +157,11 @@ BACKEND_TERMS: dict[str, dict[str, str]] = {
         "reported_title": "Zgłoszona nieobecność",
         "cancelled_title": "Nieobecność anulowana",
         "conflict_title": "Kolizja z Twoją nieobecnością",
+        "bonus_new_title": "Masz nową premię",
+        "bonus_changed_title": "Twoja premia została zmieniona",
+        "bonus_cancelled_title": "Premia została anulowana",
+        "bonus_cancelled_verb": "została anulowana",
+        "bonus_extra_description": "Premia poza umową",
     },
     "b2b": {
         "timesheet_document": "Raport godzin",
@@ -128,6 +175,11 @@ BACKEND_TERMS: dict[str, dict[str, str]] = {
         "reported_title": "Zgłoszona przerwa w świadczeniu usług",
         "cancelled_title": "Przerwa w świadczeniu usług anulowana",
         "conflict_title": "Kolizja z Twoją przerwą w świadczeniu usług",
+        "bonus_new_title": "Masz nowe wynagrodzenie dodatkowe",
+        "bonus_changed_title": "Twoje wynagrodzenie dodatkowe zostało zmienione",
+        "bonus_cancelled_title": "Wynagrodzenie dodatkowe zostało anulowane",
+        "bonus_cancelled_verb": "zostało anulowane",
+        "bonus_extra_description": "Wynagrodzenie dodatkowe",
     },
     "zlecenie": {
         "timesheet_document": "Potwierdzenie liczby godzin",
@@ -144,6 +196,11 @@ BACKEND_TERMS: dict[str, dict[str, str]] = {
         "reported_title": "Zgłoszona nieobecność",
         "cancelled_title": "Nieobecność anulowana",
         "conflict_title": "Kolizja z Twoją nieobecnością",
+        "bonus_new_title": "Masz nowe wynagrodzenie dodatkowe",
+        "bonus_changed_title": "Twoje wynagrodzenie dodatkowe zostało zmienione",
+        "bonus_cancelled_title": "Wynagrodzenie dodatkowe zostało anulowane",
+        "bonus_cancelled_verb": "zostało anulowane",
+        "bonus_extra_description": "Wynagrodzenie dodatkowe",
     },
 }
 
@@ -181,6 +238,25 @@ def reports_absence(employment_type: Optional[str]) -> bool:
     return employment_type in REPORT_FORMS
 
 
+def capitalize(text: str) -> str:
+    """Pierwsza litera wielka, reszta bez zmian (jak ``capitalize`` we froncie)."""
+
+    return text[:1].upper() + text[1:]
+
+
+def bonus_message(
+    employment_type: Optional[str], period: str, *, cancelled: bool = False
+) -> str:
+    """Treść dzwonka o premii: „Premia za październik 2026. Szczegóły w …”."""
+
+    words = terms(employment_type)
+    state = f" {words['bonus_cancelled_verb']}" if cancelled else ""
+    return (
+        f"{capitalize(words['bonus'])} za {period}{state}. "
+        f"Szczegóły w „Moim czasie” → {capitalize(words['bonuses'])}."
+    )
+
+
 def returned_titles() -> frozenset[str]:
     """Tytuły zwrotu raportu godzin (mail nie niesie wtedy uwag akceptującego)."""
 
@@ -195,6 +271,8 @@ __all__ = [
     "FORM_LABELS",
     "FORM_SHORT_LABELS",
     "REPORT_FORMS",
+    "bonus_message",
+    "capitalize",
     "form_of",
     "reports_absence",
     "returned_titles",

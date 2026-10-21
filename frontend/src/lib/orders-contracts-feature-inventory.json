@@ -569,6 +569,13 @@
    "b_home": "Panel, zakładka"
   },
   {
+   "id": "l.cost-consumption",
+   "opis": "Zużycie zamówienia kosztowego po miesiącach (kwoty, wspólny budżet) z edycją",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "CostConsumptionTab",
+   "b_home": "Panel, zakładka „Zużycie”"
+  },
+  {
    "id": "l.edit",
    "opis": "Edytuj linię / stawki",
    "file": "components/client-profile/orders/OrderLinePanel.tsx",
@@ -714,6 +721,48 @@
    "file": "components/contracts/ContractTerminationDialog.tsx",
    "marker": "Zwrot sprzętu",
    "b_home": "Okno „Zakończ współpracę”"
+  },
+  {
+   "id": "k.docs.sections",
+   "opis": "Dokumenty kontraktu: sekcja „Aktualna umowa” (pliki poza folderami) zawsze nad folderami",
+   "file": "components/ContractDocumentsTab.tsx",
+   "marker": "pliki poza folderami",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”"
+  },
+  {
+   "id": "k.docs.folders",
+   "opis": "Foldery w Dokumentach: „Nowy folder”, zwijanie, liczba plików, rozmiar, data, „Zmień nazwę”, „Usuń” (pliki wracają na listę główną)",
+   "file": "components/contracts/documents/FolderHeaderRow.tsx",
+   "marker": "Zmień nazwę",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”, sekcja „Foldery”"
+  },
+  {
+   "id": "k.docs.move",
+   "opis": "Checkbox przy pliku i pasek: „Przenieś do”, „Nowy folder z zaznaczonych”, „Anuluj”",
+   "file": "components/contracts/documents/SelectionBar.tsx",
+   "marker": "Nowy folder z zaznaczonych",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”, pasek nad listą"
+  },
+  {
+   "id": "k.docs.orders-folder",
+   "opis": "Automatyczny folder „Zamówienia”: dokumenty typu Zamówienie i PDF-y z zakładki Zamówienia (dawna sekcja „Dokumenty zamówień”)",
+   "file": "components/contracts/documents/FolderHeaderRow.tsx",
+   "marker": "automatyczny",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”, folder „Zamówienia”"
+  },
+  {
+   "id": "k.docs.suggestion",
+   "opis": "Podpowiedź „Poprzednia umowa – nr …” z numeru umowy w nazwach plików",
+   "file": "components/contracts/documents/FolderSuggestionBanner.tsx",
+   "marker": "wyglądają",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”, ramka nad listą"
+  },
+  {
+   "id": "k.docs.upload",
+   "opis": "„Dodaj plik”: typ, data ważności i folder (zamówienie zawsze do „Zamówień”)",
+   "file": "components/contracts/documents/UploadDocumentDialog.tsx",
+   "marker": "Aktualna umowa (bez folderu)",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”, przycisk „Dodaj plik”"
   }
  ]
 }

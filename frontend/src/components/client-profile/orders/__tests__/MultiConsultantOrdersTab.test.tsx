@@ -98,6 +98,17 @@ vi.mock("@/lib/api/orderGroups", () => ({
     // Panele (wersja B): zakładka „Historia" i „Zużycie MD" linii.
     history: vi.fn().mockResolvedValue({ data: { entries: [], people: [] } }),
     listConsumptions: vi.fn().mockResolvedValue({ data: { rows: [] } }),
+    listCostConsumptions: vi.fn().mockResolvedValue({
+      data: {
+        order_number: "445",
+        budget_pool: 0,
+        budget_used: 0,
+        budget_remaining: 0,
+        rows: [],
+        people: [],
+        group_rows: [],
+      },
+    }),
     keepLineHistory: vi.fn(),
     cancel: vi.fn(),
     restore: vi.fn(),
@@ -1598,7 +1609,9 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     expect(toggleRow.compareDocumentPosition(ended) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     // Numer zamówienia i zafakturowana kwota są w panelu osoby (ticket 6).
+    // Panel kosztowy otwiera się na „Zużyciu” (21.10.2026) — fakty są w „Szczegółach”.
     await openRow("order-line-2", user);
+    await user.click(linePanel().getByRole("tab", { name: "Szczegóły" }));
     const panel = screen.getByTestId("order-line-panel");
     expect(panel).toHaveTextContent(/Zamówienie nr 445/);
     expect(panel).toHaveTextContent(/zafakturowano\s*32\s000,00\szł/);
@@ -1802,7 +1815,9 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     expect(
       within(await row("order-line-1")).getByText(/Nierozliczone 10\s000,00\szł/),
     ).toBeInTheDocument();
-    await openRow("order-line-1");
+    const user = userEvent.setup();
+    await openRow("order-line-1", user);
+    await user.click(linePanel().getByRole("tab", { name: "Szczegóły" }));
     expect(
       linePanel().getByText(/Nie udało się rozliczyć pełnej kwoty faktury/i),
     ).toHaveTextContent(/10\s000,00\szł/);

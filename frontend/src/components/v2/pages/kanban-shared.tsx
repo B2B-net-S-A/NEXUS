@@ -33,6 +33,7 @@ import type {
 } from "@/lib/interview-cycle";
 import type { InterviewPhase } from "@/lib/pipeline-next-action";
 import type { RateChangeBadge } from "@/lib/rate-change";
+import type { OffLimitsBadge } from "@/lib/off-limits";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -200,6 +201,11 @@ export interface KanbanItem {
   must_total: number | null;
   overridden: boolean;
  } | null;
+ /**
+  * Off-limits (21.10.2026): osoba z firmy z aktywnym zamówieniem dodana po
+  * potwierdzeniu „sam(a) się zgłosił(a)” — kto, kiedy i jak.
+  */
+ entry_off_limits?: OffLimitsBadge | null;
  /**
   * Etap 2 linków (19.10.2026): właściciel linku rekrutacji, z którego osoba
   * się zgłosiła — plakietka „Z Twojego linku” / „Z linku Marty”.

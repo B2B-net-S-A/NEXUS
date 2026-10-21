@@ -21,6 +21,10 @@ from app.core.integer_range import OUT_OF_RANGE, is_integer_out_of_range
 from app.core.null_character_guard import NullCharacterGuardMiddleware
 from app.core.body_size_limit import BodySizeLimitMiddleware
 from app.core.request_correlation import RequestCorrelationMiddleware
+from app.services.client_off_limits import (
+    OffLimitsConfirmationMiddleware,
+    OffLimitsConfirmationRequired,
+)
 from app.core.sentry_privacy import scrub_event
 
 # Eager-import the models package so every ORM class is registered in the
@@ -293,6 +297,7 @@ from app.api import oauth_token as oauth_token_api
 from app.api import service_accounts as service_accounts_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
+from app.api import contract_document_folders as contract_document_folders_api
 from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
 from app.api import candidates_bulk as candidates_bulk_api
@@ -1081,11 +1086,29 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # a kopertę `{"error": …}` oddaje ten handler (`integrations_v1.common`).
 app.add_exception_handler(IntegrationApiError, integration_error_handler)
 
+
+async def _off_limits_confirmation_handler(
+    request: Request, exc: OffLimitsConfirmationRequired
+) -> JSONResponse:
+    """409 z listą osób do potwierdzenia „sama się zgłosiła” (21.10.2026).
+
+    Wyjątek, nie odpowiedź z trasy: sesja żądania robi rollback, więc
+    przerwana partia nie zostawia połowy kart."""
+    return JSONResponse(status_code=409, content={"detail": exc.detail()})
+
+
+app.add_exception_handler(
+    OffLimitsConfirmationRequired, _off_limits_confirmation_handler
+)
+
 # KOLEJNOŚĆ MA ZNACZENIE: `add_middleware` dokłada na zewnątrz, więc dodane
 # jako PIERWSZE jest najgłębiej. `UnhandledErrorMiddleware` musi być pod
 # `CORSMiddleware`, żeby zwrócone przez nie 500 przeszło przez CORS i dotarło
 # do przeglądarki z nagłówkami (inaczej wraca „Network Error" — patrz docstring).
 app.add_middleware(UnhandledErrorMiddleware)
+# Potwierdzenie „sama się zgłosiła” z nagłówka do kontekstu żądania — bramkę
+# off-limits sprawdza serwis procesu, nie trasa (``client_off_limits``).
+app.add_middleware(OffLimitsConfirmationMiddleware)
 # NUL (U+0000) w query, ścieżce albo ciele JSON → 422 zanim dotknie PostgreSQL-a
 # (asyncpg odrzuca NUL w `text`, bez tego każdy taki parametr kończył się 500).
 # Nad `UnhandledErrorMiddleware`, ale pod CORS: odrzucenie musi dostać nagłówki
@@ -1151,6 +1174,8 @@ app.add_middleware(
         "sentry-trace",
         "baggage",
         "X-Operation-Id",
+        # Off-limits: „sama się zgłosiła” przy dodaniu do rekrutacji.
+        "X-Off-Limits-Confirmation",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but
@@ -1465,6 +1490,10 @@ app.include_router(job_board_connection_api.router, prefix="/api", tags=["job-po
 # Przepięcie kontraktu na innego klienta (admin) — jedyna droga zmiany klienta.
 app.include_router(
     contract_client_reassign_api.router, prefix="/api/contracts", tags=["contracts"]
+)
+# Foldery w zakładce Dokumenty kontraktu (0494).
+app.include_router(
+    contract_document_folders_api.router, prefix="/api/contracts", tags=["contracts"]
 )
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
@@ -3203,7 +3232,7 @@ async def api_health_deep_check():
     from app.models.b2b_contract_document import B2BContractDocument
     from app.models.b2b_register_import import B2BRegisterImportRun
     from app.models.contract_doc_sharepoint import ContractDocSpItem, ContractDocSpRun
-    from app.models.contract_document import ContractDocument
+    from app.models.contract_document import ContractDocument, ContractDocumentFolder
     from app.models.cv_qc_run import CvQcRun
     from app.models.application_screening import ApplicationScreening
     from app.models.requirement_cleanup import RequirementCleanupDecision
@@ -3280,6 +3309,9 @@ async def api_health_deep_check():
         ("contract_documents", ContractDocument),
         ("contract_doc_sp_runs", ContractDocSpRun),
         ("contract_doc_sp_items", ContractDocSpItem),
+        # Foldery zakładki Dokumenty (0494); sonda ``contract_documents`` wyżej
+        # sprawdza przy okazji kolumnę ``folder_id``.
+        ("contract_document_folders", ContractDocumentFolder),
         # Zamówienia wielo-konsultantowe (0227). Bez tych sond zakładka
         # „Zamówienia" trzech klientów rozliczanych na MD wywalałaby
         # UndefinedTable przy zielonym deployu — dokładnie tryb awarii
