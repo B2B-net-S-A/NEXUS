@@ -187,6 +187,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.prep2_skipped: _C.interviews,
     _T.prep2_skip_threshold: _C.interviews,
     _T.interview_changed: _C.interviews,
+    # 0504: umowa przedwstępna kandydata — podpisy i terminy umowy.
+    _T.pre_contract: _C.contracts,
     # Akceptacje klienta (0451)
     _T.client_accepted: _C.acceptances,
     # 0374: koniec programu praktykanta — decyzja Head of Recruitment.

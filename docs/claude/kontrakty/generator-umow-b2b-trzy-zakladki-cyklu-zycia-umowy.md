@@ -505,3 +505,68 @@ podatkowych dla cudzoziemców (PDF). W „Generatorze aneksów” sekcji nie ma.
 - **Oświadczenie zleceniobiorcy podaje minimalne wynagrodzenie na 2026**
   (4806 zł brutto). Na nowy rok Administracja aktualizuje wzór
   w SharePoincie — wtedy podmień oba pliki DOCX i opis „Wzór na 2026”.
+
+## Umowa przedwstępna w rekrutacji — prośba przy osobie, stan i dzwonki (0504, 21.10.2026)
+
+Zgłoszenie Artura 21.10.2026: przedwstępne z kandydatami (przed wysłaniem CV
+albo po akceptacji klienta) szły offline — Head of Recruitment i Delivery Lead
+nie widzieli, kto ich wymaga, czy wyszła do kandydata, czy jest podpisana i do
+kiedy obowiązuje. Makiety i decyzje: https://claude.ai/artifact/VWyCFF3aU7CLCNSXGCSx2R.
+Kod: `models/pre_contract.py`, `services/pre_contracts.py`, `api/pre_contracts.py`,
+`tasks/pre_contract_sweeper.py`, SQL `services/pre_contract_schema.py`.
+
+### Decyzje
+
+- **Prośba przy osobie, nie ustawienie rekrutacji ani klienta.** O umowę dla
+  JEDNEJ osoby w JEDNEJ rekrutacji prosi Delivery Lead, Head of Recruitment
+  albo sam rekruter i mówi, na kiedy: przed wysłaniem CV, przed rozmową
+  u klienta, przed umową B2B albo do daty. Karta klienta nie ma wymogu
+  „zawsze” — wzór umowy wynika z klienta (Generator dokumentów).
+- **Wystawia rekruter prowadzący osobę** (`pair_recruiter_id`: właściciel
+  procesu → weryfikujący → rekruter rekrutacji); proszący może wskazać kogoś
+  innego, wystawiający można zmienić.
+- **Proszący i obserwujący widzą stan i dostają dzwonek przy każdym kroku**
+  (typ `pre_contract`, kategoria „Kontrakty, zamówienia i podpisy”, ikona
+  „Rekrutacje” z dymkiem), bez autora kroku. Encją dzwonka jest zdarzenie
+  (`pre_contract_events`), więc dwa kroki jednego dnia dają dwa dzwonki.
+  Druga prośba o tę samą osobę dopisuje proszącego do obserwujących — nie
+  tworzy drugiej umowy (indeks `uq_pre_contract_open_per_pair`).
+- **Każda forma podpisu** (profil zaufany, podpis osobisty, kwalifikowany,
+  odręczny skan, inna) — NEXUS zapisuje formę przy wgraniu pliku od kandydata.
+- **Brak podpisanej umowy nie blokuje ruchu karty** („Kanban bez bramek”) —
+  plakietka robi się czerwona, gdy osoba minęła etap, przed którym umowa
+  miała być podpisana.
+
+### Droga umowy
+
+`requested` → `issued` (wskazana umowa z Generatora, rodzina `preliminary`,
+ta sama para; `valid_until` z umowy) → `sent` → `candidate_signed` (plik +
+forma) → `signed` (plik podpisany przez firmę; umowa w Generatorze przechodzi
+na „podpisana”). Zamknięcia: `fulfilled`, `expired` (sweeper po dacie
+ważności), `cancelled` (z powodem), `withdrawn` (proszący albo HoR, tylko
+przed wysłaniem), `candidate_refused`, `candidate_withdrew`.
+
+- **Rezygnacja kandydata** (`candidate-withdrew`) tylko przy umowie
+  podpisanej obustronnie: zapisuje rodzaj, datę, opis i stan umowy w chwili
+  zdarzenia; nic nie nalicza. **O karze decyduje Head of Recruitment**
+  (albo wskazana osoba) — zakładka „Do decyzji o karze”.
+- **Pliki** leżą w `/pre_contracts/{id}/` i mają PESEL — pobiera je ten sam
+  krąg co Tablicę pary (`ensure_job_read_access`), jak CV i notatki osoby.
+- **Sweeper** (co godzinę, najwyżej jedno przypomnienie dziennie): wygasa
+  umowy po dacie ważności, ostrzega 3 dni przed końcem, przypomina
+  wystawiającemu po 3 dniach ciszy kandydata, ostrzega dzień roboczy przed
+  terminem umowy B2B (`b2b_deadline`).
+
+### Plakietka (`services/pre_contracts.badge`)
+
+Jedna reguła dla karty Tablicy, listy i panelu osoby; front tylko ją pokazuje.
+Tony: `missing` (prośba / wystawiona, przed etapem), `late` (po etapie,
+wygasa ≤ 7 dni, termin B2B), `wait` (wysłana — liczy dni), `signer`
+(czeka podpis firmy), `ok` (podpisana, „do DD.MM”), `closed`.
+
+### Lista „Umowy przedwstępne”
+
+`GET /api/pre-contracts?tab=` — `todo`, `mine`, `expiring`, `b2b`, `penalty`,
+`all`. Head of Recruitment i admin widzą wszystko, Delivery Lead swoich
+klientów (`dl_portfolio_client_ids`) i swoje prośby, pozostali to, o co
+prosili, co wystawiają albo obserwują. Liczniki zakładek liczy ta sama reguła.

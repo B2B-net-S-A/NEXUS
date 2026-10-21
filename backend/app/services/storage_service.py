@@ -37,6 +37,7 @@ JOB_FILES_DIR = STORAGE_ROOT / "job_files"
 # Podpis umowy B2B w NEXUSIE (0499): PDF wydany do podpisu i kolejne podpisane
 # wersje — przed podpisem nie ma jeszcze kontraktu, więc nie Dokumenty kontraktu.
 B2B_SIGNING_DIR = STORAGE_ROOT / "b2b_signing"
+PRE_CONTRACTS_DIR = STORAGE_ROOT / "pre_contracts"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -397,6 +398,27 @@ def save_b2b_signing_pdf(request_id: int, name: str, data: bytes) -> tuple[str, 
 
 def read_b2b_signing_pdf(relative_path: str) -> bytes:
     return _resolve_under_root(relative_path).read_bytes()
+
+
+# ── Umowa przedwstępna kandydata (0504) ──────────────────────────────────────
+
+
+def save_pre_contract_file(request_id: int, name: str, data: bytes) -> tuple[str, int]:
+    """Zapisz podpisaną przedwstępną pod /pre_contracts/{request_id}/{uuid}-{name}.
+
+    Plik zawiera PESEL i adres kandydata — pobiera go tylko ten, kto może
+    prowadzić prośbę (``api/pre_contracts.py``)."""
+    rel, size = _save_to(PRE_CONTRACTS_DIR / str(request_id), name, io.BytesIO(data))
+    logger.info("Saved pre-contract file: %s (%d bytes)", safe_storage_key(rel), size)
+    return rel, size
+
+
+def read_pre_contract_file(relative_path: str) -> bytes:
+    return _resolve_under_root(relative_path).read_bytes()
+
+
+def delete_pre_contract_file(relative_path: str) -> None:
+    _delete_relative(relative_path, "pre-contract file")
 
 
 # ── Client framework contracts (MSA PDFs) ────────────────────────────────────
