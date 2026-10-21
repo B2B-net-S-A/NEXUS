@@ -282,9 +282,11 @@ async def test_bonus_goes_to_the_approver_and_lands_in_payroll_as_assigned(
     assert bonus.proposed_by == boss.id
     assert bonus.amount == Decimal("1500.00")
     assert bonus.rule_snapshot == {"approval_request_id": body["id"]}
-    # Osoba z premii widzi stały opis, nie treść prośby.
-    assert bonus.description == "Premia poza umową"
-    assert await _notifications(worker, NotificationType.hr_bonus_assigned)
+    # Osoba z premii widzi stały opis, nie treść prośby — na B2B (forma
+    # domyślna kartoteki) bez „premii poza umową” (decyzja Artura 21.10.2026).
+    assert bonus.description == "Wynagrodzenie dodatkowe"
+    notices = await _notifications(worker, NotificationType.hr_bonus_assigned)
+    assert [n.title for n in notices] == ["Masz nowe wynagrodzenie dodatkowe"]
 
 
 @pytest.mark.asyncio

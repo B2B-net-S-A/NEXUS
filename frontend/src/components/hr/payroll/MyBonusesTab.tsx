@@ -2,12 +2,13 @@
 
 import { InlineStats, type InlineStat } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { useMyHrProfile } from "@/lib/api/hr";
+import { useMyHrProfile, type EmploymentType } from "@/lib/api/hr";
 import { useMyPayroll, useMySettlement, type MyPayroll, type MySettlement } from "@/lib/api/hr-payroll";
 import { resolveViewState } from "@/lib/view-state";
 import { warsawToday } from "@/lib/warsaw-date";
 import { formatMoney } from "@/lib/money";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 
 import { BonusStagesTable } from "../me/BonusStagesTable";
 import { MySettlementCard } from "../me/MySettlementCard";
@@ -25,13 +26,16 @@ import {
  * z podpisanych umów), przyznane w roku i — gdy rozliczenie się wczytało —
  * wypłacone w roku (premie z zamkniętych miesięcy). W styczniu „wypłacone”
  * są za poprzedni rok: styczeń zamyka się dopiero w lutym, więc liczba
- * bieżącego roku byłaby zerem (audyt A2, 19.10.2026).
+ * bieżącego roku byłaby zerem (audyt A2, 19.10.2026). Przy B2B i zleceniu
+ * „wynagrodzenie dodatkowe” zamiast „premii” (decyzja Artura 21.10.2026).
  */
 export function myStats(
   data: MyPayroll,
   today: string = warsawToday(),
   settlement?: MySettlement,
+  form?: EmploymentType | null,
 ): InlineStat[] {
+  const words = employmentTerms(form);
   const year = Number(today.slice(0, 4));
   const transit = inTransitSummary(myBonusItems(data, today));
   const stats: InlineStat[] = [
@@ -53,25 +57,25 @@ export function myStats(
       title:
         transit.unknown > 0
           ? `${transit.unknown} bez kwoty — kontrakt nie ma jeszcze stawki klienta.`
-          : "Szacunek z reguł premii; kwotę zatwierdzają Płace.",
+          : `Szacunek z reguł ${words.bonuses_genitive}; kwotę zatwierdzają Płace.`,
     });
   }
   stats.push({
     id: "bonuses",
-    label: `premie przyznane w ${year}`,
+    label: `${words.bonuses} przyznane w ${year}`,
     value: totalsLabel(assignedInYear(data.bonuses, year)),
   });
   const paidYear = showsPreviousYear(today) ? year - 1 : year;
   if (settlement && settlement.year === paidYear) {
     stats.push({
       id: "paid",
-      label: `premie wypłacone w ${paidYear}`,
+      label: `${words.bonuses} wypłacone w ${paidYear}`,
       value: totalsLabel(settlement.bonuses_paid),
       // R11: przy włączonych rozliczeniach liczą się premie z opłaconych rozliczeń.
       title:
         (settlement as MySettlement & { bonuses_rule?: string }).bonuses_rule === "paid_settlement"
-          ? "Premie z opłaconych rozliczeń miesięcy."
-          : "Premie z miesięcy zamkniętych w płacach.",
+          ? `${capitalize(words.bonuses)} z opłaconych rozliczeń miesięcy.`
+          : `${capitalize(words.bonuses)} z miesięcy zamkniętych w płacach.`,
     });
   }
   return stats;
@@ -92,6 +96,7 @@ export function MyBonusesTab() {
   const lastYear = useMySettlement(year - 1, january);
   const profile = useMyHrProfile();
   const form = profile.data?.has_profile ? profile.data.employment_type : null;
+  const words = employmentTerms(form);
   const data = me.data;
   const items = data ? myBonusItems(data, today) : [];
   const state = resolveViewState({
@@ -113,7 +118,9 @@ export function MyBonusesTab() {
       : settlement.data;
 
   if (state === "loading") {
-    return <p className="py-6 text-sm text-muted-foreground">Wczytywanie premii…</p>;
+    return (
+      <p className="py-6 text-sm text-muted-foreground">Wczytywanie {words.bonuses_genitive}…</p>
+    );
   }
   if (state === "forbidden" || state === "not_found" || state === "error" || !data) {
     return (
@@ -123,7 +130,7 @@ export function MyBonusesTab() {
           state === "not_found"
             ? "Moduł Płac nie jest jeszcze włączony."
             : state === "forbidden"
-              ? "Premie widzą osoby z kartoteką w NEXUSIE."
+              ? `${capitalize(words.bonuses)} widzą osoby z kartoteką w NEXUSIE.`
               : undefined
         }
         onRetry={() => me.refetch()}
@@ -139,12 +146,13 @@ export function MyBonusesTab() {
           data,
           today,
           settlementState === "ready" ? (january ? lastYear.data : settlement.data) : undefined,
+          form,
         )}
       />
       {state === "empty" ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          Nie masz jeszcze premii. Premia z placementu pojawi się tu od podpisania umowy
-          z konsultantem.
+          Nie masz jeszcze {words.bonuses_genitive}. {capitalize(words.bonus)} z placementu
+          pojawi się tu od podpisania umowy z konsultantem.
         </div>
       ) : (
         <BonusStagesTable items={items} />

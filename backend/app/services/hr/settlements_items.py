@@ -35,6 +35,7 @@ from app.models.hr_payroll import HrBonus, PayrollLine
 from app.models.hr_time import Timesheet, TimesheetEntry
 from app.models.user import User
 from app.services.hr import payroll_rates
+from app.services.hr.employment_terms import capitalize, terms
 from app.services.hr.payroll_bonuses import CATEGORY_LABELS
 from app.services.hr.payroll_periods import MONTHS_PL, month_start
 from app.services.hr.payroll_report import money
@@ -163,9 +164,12 @@ async def assigned_bonuses(
     )
 
 
-def bonus_label(bonus: HrBonus) -> str:
+def bonus_label(bonus: HrBonus, employment_type: Optional[str] = None) -> str:
+    """„Premia · Rekruter” przy UoP, „Wynagrodzenie dodatkowe · Rekruter” przy
+    B2B i zleceniu — pozycja dokumentu do faktury (decyzja Artura 21.10.2026)."""
+
     category = CATEGORY_LABELS.get(bonus.category, bonus.category)
-    text = f"Premia · {category}"
+    text = f"{capitalize(terms(employment_type)['bonus'])} · {category}"
     if bonus.description:
         text = f"{text} · {bonus.description.strip()[:120]}"
     return text
@@ -230,7 +234,7 @@ def build_items(
         items.append(
             SettlementItem(
                 kind="bonus",
-                label=bonus_label(bonus),
+                label=bonus_label(bonus, employment_type),
                 amount=money(Decimal(bonus.amount)),
                 bonus_id=bonus.id,
             )

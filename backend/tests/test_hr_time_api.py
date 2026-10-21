@@ -101,7 +101,9 @@ async def test_day_limit_is_on_the_sum_and_overtime_needs_the_right(app_client) 
         headers=h,
     )
     assert over.status_code == 403
-    assert "Nadgodziny" in over.json()["detail"]
+    # Osoba na B2B (forma domyślna kartoteki): słowa bez „nadgodzin” (21.10.2026).
+    assert "Godziny ponad 8 h" in over.json()["detail"]
+    assert "nadgodzin" not in over.json()["detail"]
     outside = await app_client.post(
         f"{BASE}/entries",
         json={**entry(3, 1), "work_date": "2031-04-01"},

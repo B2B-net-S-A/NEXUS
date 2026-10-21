@@ -263,7 +263,11 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
                 value: `${formatHours(view.totals.leave_paid_hours)} h`,
                 title: "Płatne dni przerwy z umownej puli liczą się jak dni pracy.",
               },
-              { id: "overtime", label: "nadgodziny", value: `${formatHours(view.totals.overtime_hours)} h` },
+              {
+                id: "overtime",
+                label: words.overtime_stat,
+                value: `${formatHours(view.totals.overtime_hours)} h`,
+              },
               { id: "missing", label: "dni do uzupełnienia", value: view.totals.days_missing },
               {
                 id: "norm",
@@ -299,6 +303,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
           open
           onOpenChange={setFilling}
           period={period}
+          form={view.employment_type}
           templates={templates.data?.items ?? []}
           roleDefault={templates.data?.role_default ?? null}
           onFill={(payload) => fill.mutateAsync(payload)}
@@ -317,6 +322,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
           day={editor.day}
           entry={editor.entry}
           allowOvertime={view.can_log_overtime}
+          form={view.employment_type}
           templates={templates.data?.items}
           hint={{ text: hint.data?.text ?? null, loading: hint.isLoading }}
           onSave={(payload) => save.mutateAsync(payload)}

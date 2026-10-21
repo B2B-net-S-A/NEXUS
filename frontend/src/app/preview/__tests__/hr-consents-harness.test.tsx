@@ -37,7 +37,7 @@ describe("/preview/hr-consents", () => {
     window.history.replaceState({}, "", "/preview/hr-consents?state=inbox&tab=consents");
     render(<HrConsentsPreviewPage />);
     expect(await screen.findByText(/z umowy i reguł 9400 zł/)).toBeInTheDocument();
-    expect(screen.getByText(/trafi do Płac jako przyznana/)).toBeInTheDocument();
+    expect(screen.getByText(/Wynagrodzenie dodatkowe trafi do Płac jako przyznane/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Zatwierdź inną kwotę/ })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });

@@ -126,7 +126,7 @@ export function TimesheetCsvDialog({ open, onOpenChange, mode, period }: Timeshe
       open={open}
       onOpenChange={onOpenChange}
       title="Eksport godzin do CSV"
-      description="Wiersz na każdy wpis: data, godziny, projekt, opis, źródło i nadgodziny. Plik otwiera się w Excelu; bez stawek i kwot."
+      description="Wiersz na każdy wpis: data, godziny, projekt, opis, źródło i godziny ponad 8 h dziennie. Plik otwiera się w Excelu; bez stawek i kwot."
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

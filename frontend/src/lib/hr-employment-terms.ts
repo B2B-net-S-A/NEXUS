@@ -38,6 +38,21 @@ export interface EmploymentTerms {
   review_noun: string;
   settlement: string;
   person: string;
+  /** „nadgodziny” przy UoP, „godziny ponad 8 h” przy B2B i zleceniu (21.10.2026). */
+  overtime: string;
+  overtime_genitive: string;
+  overtime_instrumental: string;
+  /** Etykieta sumy miesiąca: „nadgodziny” / „ponad 8 h dziennie”. */
+  overtime_stat: string;
+  overtime_reason: string;
+  overtime_reason_hint: string;
+  overtime_reason_required: string;
+  overtime_fill_note: string;
+  /** „premia” przy UoP, „wynagrodzenie dodatkowe” przy B2B i zleceniu (21.10.2026). */
+  bonus: string;
+  bonuses: string;
+  bonuses_genitive: string;
+  bonuses_tab: string;
 }
 
 export const EMPLOYMENT_TERMS = {
@@ -61,7 +76,19 @@ export const EMPLOYMENT_TERMS = {
     "review_verb": "akceptuje",
     "review_noun": "akceptacji",
     "settlement": "Lista płac",
-    "person": "Pracownik"
+    "person": "Pracownik",
+    "overtime": "nadgodziny",
+    "overtime_genitive": "nadgodzin",
+    "overtime_instrumental": "nadgodzinami",
+    "overtime_stat": "nadgodziny",
+    "overtime_reason": "Uzasadnienie nadgodzin",
+    "overtime_reason_hint": "Suma dnia przekroczy 8 h — napisz, czym były nadgodziny.",
+    "overtime_reason_required": "Nadgodziny wymagają uzasadnienia",
+    "overtime_fill_note": "nadgodziny wpisuje się w dniu, z uzasadnieniem",
+    "bonus": "premia",
+    "bonuses": "premie",
+    "bonuses_genitive": "premii",
+    "bonuses_tab": "Premie i stawka"
   },
   "b2b": {
     "form": "B2B",
@@ -83,7 +110,19 @@ export const EMPLOYMENT_TERMS = {
     "review_verb": "potwierdza",
     "review_noun": "potwierdzenia",
     "settlement": "Faktura",
-    "person": "Wykonawca"
+    "person": "Wykonawca",
+    "overtime": "godziny ponad 8 h",
+    "overtime_genitive": "godzin ponad 8 h",
+    "overtime_instrumental": "godzinami ponad 8 h",
+    "overtime_stat": "ponad 8 h dziennie",
+    "overtime_reason": "Czego dotyczyły godziny ponad 8 h",
+    "overtime_reason_hint": "Dzień ponad 8 h — dopisz krótko, czego dotyczył. Koordynator zobaczy to w raporcie godzin.",
+    "overtime_reason_required": "Dopisz, czego dotyczyły godziny ponad 8 h",
+    "overtime_fill_note": "godziny ponad 8 h wpisuje się w dniu, z krótkim opisem",
+    "bonus": "wynagrodzenie dodatkowe",
+    "bonuses": "wynagrodzenie dodatkowe",
+    "bonuses_genitive": "wynagrodzenia dodatkowego",
+    "bonuses_tab": "Wynagrodzenie dodatkowe i stawka"
   },
   "zlecenie": {
     "form": "Umowa zlecenie",
@@ -105,7 +144,19 @@ export const EMPLOYMENT_TERMS = {
     "review_verb": "potwierdza",
     "review_noun": "potwierdzenia",
     "settlement": "Potwierdzenie godzin",
-    "person": "Zleceniobiorca"
+    "person": "Zleceniobiorca",
+    "overtime": "godziny ponad 8 h",
+    "overtime_genitive": "godzin ponad 8 h",
+    "overtime_instrumental": "godzinami ponad 8 h",
+    "overtime_stat": "ponad 8 h dziennie",
+    "overtime_reason": "Czego dotyczyły godziny ponad 8 h",
+    "overtime_reason_hint": "Dzień ponad 8 h — dopisz krótko, czego dotyczył. Koordynator zobaczy to w potwierdzeniu godzin.",
+    "overtime_reason_required": "Dopisz, czego dotyczyły godziny ponad 8 h",
+    "overtime_fill_note": "godziny ponad 8 h wpisuje się w dniu, z krótkim opisem",
+    "bonus": "wynagrodzenie dodatkowe",
+    "bonuses": "wynagrodzenie dodatkowe",
+    "bonuses_genitive": "wynagrodzenia dodatkowego",
+    "bonuses_tab": "Wynagrodzenie dodatkowe i stawka"
   }
 } as const satisfies Record<EmploymentType, EmploymentTerms>;
 

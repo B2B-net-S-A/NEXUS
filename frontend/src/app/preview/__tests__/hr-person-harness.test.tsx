@@ -79,7 +79,7 @@ describe("/preview/hr-person", () => {
     expect(within(equipment).getByText(/Laptop Dell Latitude 5520 \(153\)/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
 
-    await openTab(user, "Płace i premie");
+    await openTab(user, "Płace i wynagrodzenie dodatkowe");
     expect(screen.getByText("Aktualna stawka:")).toHaveTextContent(/120,00\szł/);
     expect(screen.getByText("od 01.07.2026", { selector: "td" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Nowa stawka od/ }));
@@ -149,7 +149,7 @@ describe("/preview/hr-person", () => {
     expect(screen.queryByRole("tab", { name: /^Sprzęt/ })).toBeNull();
     expect(screen.getByText("bez sprawy")).toBeInTheDocument();
 
-    await openTab(user, "Płace i premie");
+    await openTab(user, "Płace i wynagrodzenie dodatkowe");
     expect(screen.getByRole("heading", { name: "Płace" })).toBeInTheDocument();
     expect(screen.queryByText("Aktualna stawka:")).toBeNull();
     await user.click(screen.getByRole("button", { name: /Nowa premia/ }));

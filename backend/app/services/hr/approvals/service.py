@@ -49,6 +49,7 @@ from app.services.hr import (
 )
 from app.services.hr.approvals import rules as approval_rules
 from app.services.hr.approvals.rules import ApprovalRules
+from app.services.hr.employment_terms import bonus_message, terms
 from app.services.hr.notify import notify_each
 from app.services.hr import payroll_bonuses
 from app.services.hr.payroll_errors import PayrollConflict, PayrollError
@@ -68,8 +69,10 @@ from app.services.hr_approvals_schema import (
     TITLE_MAX_LENGTH,
 )
 
+#: Zgody to ekran wielu osób — słowa neutralne: „wynagrodzenie dodatkowe”,
+#: nie „premia poza umową” (decyzja Artura 21.10.2026).
 KIND_LABELS: dict[str, str] = {
-    "bonus": "Premia poza umową",
+    "bonus": "Wynagrodzenie dodatkowe",
     "subscription": "Subskrypcja",
     "trip": "Koszty podróży",
     "gift": "Prezent",
@@ -215,9 +218,11 @@ def clean_input(data: RequestInput, *, today: date) -> RequestInput:
             ) from None
     if data.kind == "bonus":
         if data.beneficiary_user_id is None:
-            raise ApprovalError("Wybierz osobę, której dotyczy premia.")
+            raise ApprovalError(
+                "Wybierz osobę, której dotyczy wynagrodzenie dodatkowe."
+            )
         if data.payout_year is None or data.payout_month is None:
-            raise ApprovalError("Wybierz miesiąc wypłaty premii.")
+            raise ApprovalError("Wybierz miesiąc wypłaty wynagrodzenia dodatkowego.")
         payroll_periods.validate_period(data.payout_year, data.payout_month)
         earliest = add_months(today.year, today.month, -PAYOUT_MONTHS_BACK)
         latest = add_months(today.year, today.month, PAYOUT_MONTHS_AHEAD)
@@ -398,11 +403,11 @@ async def _assert_bonus_allowed(
     db: AsyncSession, actor: User, data: RequestInput
 ) -> None:
     if data.beneficiary_user_id == actor.id:
-        raise ApprovalForbidden("O premię dla siebie nie prosisz.")
+        raise ApprovalForbidden("O wynagrodzenie dodatkowe dla siebie nie prosisz.")
     viewer = await payroll_access.load_viewer(db, actor)
     if not viewer.manages_bonuses_of(data.beneficiary_user_id or 0):
         raise ApprovalForbidden(
-            "O premię poza umową prosi koordynator tej osoby albo Płace."
+            "O wynagrodzenie dodatkowe prosi koordynator tej osoby albo Płace."
         )
     has_profile = await db.scalar(
         select(EmployeeProfile.id).where(
@@ -703,6 +708,12 @@ async def _create_bonus(
 
     await _assert_payout_open(db, request.payout_year, request.payout_month)
     amount = request.decided_amount or request.amount
+    form = await db.scalar(
+        select(EmployeeProfile.employment_type).where(
+            EmployeeProfile.user_id == request.beneficiary_user_id
+        )
+    )
+    words = terms(form)
     bonus = HrBonus(
         recipient_user_id=request.beneficiary_user_id,
         proposed_by=request.requester_user_id,
@@ -715,7 +726,8 @@ async def _create_bonus(
         source="manual",
         # Stały opis: osoba z premii widzi go w „Moim czasie”, a treść prośby
         # (tytuł, „po co”) zostaje przy zgodzie — prośby osoba nie widzi.
-        description="Premia poza umową",
+        # Słowo z formy osoby: na B2B i zleceniu bez „premii poza umową”.
+        description=words["bonus_extra_description"],
         assigned_by=actor.id,
         assigned_at=local_now(),
         rule_snapshot={"approval_request_id": request.id},
@@ -745,11 +757,8 @@ async def _create_bonus(
     await notify_each(
         db,
         [bonus.recipient_user_id],
-        title="Masz nową premię",
-        message=(
-            f"Premia za {label(bonus.period_year, bonus.period_month)}. "
-            "Szczegóły w „Moim czasie” → Premie."
-        ),
+        title=words["bonus_new_title"],
+        message=bonus_message(form, label(bonus.period_year, bonus.period_month)),
         ntype=NotificationType.hr_bonus_assigned,
         link="/my-time?tab=bonuses",
         related_entity_type="hr_bonus",

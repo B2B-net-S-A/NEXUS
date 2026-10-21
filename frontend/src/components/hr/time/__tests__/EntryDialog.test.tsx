@@ -81,3 +81,50 @@ describe("EntryDialog — poprawka opisu w dniu z nadgodzinami", () => {
     );
   });
 });
+
+// Decyzja Artura 21.10.2026: przy B2B i zleceniu „godziny ponad 8 h”, nie
+// „nadgodziny” (bramka uprawnienia zostaje); przy UoP słowa bez zmian.
+describe("EntryDialog — słowa godzin ponad 8 h według formy", () => {
+  function openNewEntry(form: "uop" | "b2b" | "zlecenie", allowOvertime: boolean) {
+    const onSave = vi.fn(async () => undefined);
+    render(
+      <EntryDialog
+        open
+        onOpenChange={() => undefined}
+        day={{ ...DAY, entries: [BASE], hours: 8, overtime_hours: 0 }}
+        entry={null}
+        allowOvertime={allowOvertime}
+        form={form}
+        onSave={onSave}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/Godziny/), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText(/Opis/), { target: { value: "Wdrożenie" } });
+    return onSave;
+  }
+
+  it("UoP: „Uzasadnienie nadgodzin”", () => {
+    openNewEntry("uop", true);
+    expect(screen.getByLabelText("Uzasadnienie nadgodzin")).toBeInTheDocument();
+    expect(screen.getByText(/napisz, czym były nadgodziny/)).toBeInTheDocument();
+  });
+
+  it.each(["b2b", "zlecenie"] as const)("%s: „Czego dotyczyły godziny ponad 8 h”", (form) => {
+    openNewEntry(form, true);
+    expect(screen.getByLabelText("Czego dotyczyły godziny ponad 8 h")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Dopisz, czego dotyczyły godziny ponad 8 h (co najmniej 5 znaków).",
+    );
+    expect(document.body.textContent).not.toMatch(/nadgodzin/i);
+  });
+
+  it("B2B bez uprawnienia: komunikat bez „nadgodzin”", () => {
+    openNewEntry("b2b", false);
+    fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Godziny ponad 8 h wpisuje osoba z uprawnieniem do godzin ponad 8 h albo Kadry.",
+    );
+    expect(document.body.textContent).not.toMatch(/nadgodzin/i);
+  });
+});
