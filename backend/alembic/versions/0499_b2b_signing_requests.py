@@ -1,6 +1,6 @@
 """Wnioski o podpis umowy B2B w NEXUSIE (droga obok „Oznacz jako podpisaną”).
 
-Revision ID: 0497_b2b_signing_requests
+Revision ID: 0499_b2b_signing_requests
 Revises: 0496_b2b_generated_signed_file
 
 * ``b2b_signing_requests`` — jedna wysyłka umowy z rejestru Generatora do
@@ -13,7 +13,7 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0497_b2b_signing_requests"
+revision = "0499_b2b_signing_requests"
 down_revision = "0496_b2b_generated_signed_file"
 branch_labels = None
 depends_on = None

@@ -1161,7 +1161,7 @@ async def _serialize_generated_contracts(
                     raise
                 signature_client_access[client_id] = False
     live_signed_files = await signed_file.existing_document_ids(db, rows)
-    # Podpis w NEXUSIE (0497): ostatni wniosek na wiersz, jedno zapytanie.
+    # Podpis w NEXUSIE (0499): ostatni wniosek na wiersz, jedno zapytanie.
     esign_mode = await esign_settings.load(db)
     esign_allowed = esign_mode.can_send(current_user)
     latest_esign: dict[int, B2BSigningRequest] = {}

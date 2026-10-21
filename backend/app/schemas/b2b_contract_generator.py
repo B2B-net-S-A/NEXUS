@@ -527,7 +527,7 @@ class B2BRegisterAnnex(BaseModel):
 
 
 class B2BGeneratedEsign(BaseModel):
-    """Ostatni wniosek o podpis w NEXUSIE przy wierszu (0497) — bez kwot i maili."""
+    """Ostatni wniosek o podpis w NEXUSIE przy wierszu (0499) — bez kwot i maili."""
 
     request_id: int
     status: Literal["sent", "contractor_signed", "completed", "withdrawn", "expired"]
@@ -633,7 +633,7 @@ class B2BGeneratedContractItem(BaseModel):
     # która może oznaczyć podpis tego wiersza.
     signed_document_id: Optional[int] = None
     can_attach_signed_file: bool = False
-    # Podpis w NEXUSIE (0497): stan ostatniej wysyłki i co to konto może zrobić.
+    # Podpis w NEXUSIE (0499): stan ostatniej wysyłki i co to konto może zrobić.
     esign: Optional[B2BGeneratedEsign] = None
     can_send_esign: bool = False
     can_withdraw_esign: bool = False

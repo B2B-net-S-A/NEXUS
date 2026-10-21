@@ -5152,7 +5152,7 @@ END $$""",
     # 0496: podpisany plik umowy przy wierszu rejestru Generatora.
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
     "signed_document_id INTEGER REFERENCES contract_documents(id) ON DELETE SET NULL",
-    # 0497: wnioski o podpis umowy B2B w NEXUSIE (kontraktor → firma).
+    # 0499: wnioski o podpis umowy B2B w NEXUSIE (kontraktor → firma).
     """CREATE TABLE IF NOT EXISTS b2b_signing_requests (
            id SERIAL PRIMARY KEY,
            generated_contract_id INTEGER NOT NULL

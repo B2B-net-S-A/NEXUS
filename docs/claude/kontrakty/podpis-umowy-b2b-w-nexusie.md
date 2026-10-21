@@ -1,4 +1,4 @@
-# Podpis umowy B2B w NEXUSIE — druga droga obok „Oznacz jako podpisaną” (0497, 21.10.2026)
+# Podpis umowy B2B w NEXUSIE — druga droga obok „Oznacz jako podpisaną” (0499, 21.10.2026)
 
 Zgłoszenie Administracji 21.10.2026: umowa krąży mailem (Sandra → kontraktor
 → Olaf → rekruter → Dominik → Administracja), a do NEXUSA nic nie wraca. Artur
@@ -65,7 +65,7 @@ Wyłączony od 22.09.2026 (`SIGNING_ENABLED=false`) i NIE do włączenia: podpis
 szkic HTML kontraktu zamiast PDF-a z Worda, kończy się po samym kontraktorze,
 sprawdza kwalifikowany tylko pierwszy podpis, pozwala zamówić podpis zwykły
 i wymaga kontraktu przed podpisem (audyt 21.10.2026). Z niego zostają:
-`ValidationService` (DSS, od 0497 z poziomem każdego podpisu), `ValidationReport`,
+`ValidationService` (DSS, od 0499 z poziomem każdego podpisu), `ValidationReport`,
 `signer_identity`. Do usunięcia osobnym PR-em.
 
 ## Plan

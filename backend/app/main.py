@@ -1520,7 +1520,7 @@ app.include_router(
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
 )
-# Podpis umowy B2B w NEXUSIE (0497) — za przełącznikiem app_settings['b2b_esign'].
+# Podpis umowy B2B w NEXUSIE (0499) — za przełącznikiem app_settings['b2b_esign'].
 app.include_router(
     b2b_esign.router,
     prefix="/api/b2b-generator",

@@ -1,4 +1,4 @@
-"""Podpis umowy B2B w NEXUSIE (0497) — reguły przyjęcia pliku i przebieg.
+"""Podpis umowy B2B w NEXUSIE (0499) — reguły przyjęcia pliku i przebieg.
 
 Czyste reguły (bez bazy) pilnują wad toru z czerwca z audytu 21.10.2026:
 kwalifikowany KAŻDY podpis, brak walidatora = odmowa, obie strony po nazwisku.
@@ -152,7 +152,7 @@ def test_entrypoint_mirrors_the_signing_table():
     entrypoint = (root / "entrypoint.sh").read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS b2b_signing_requests" in entrypoint
     assert "uq_b2b_signing_requests_open_per_row" in entrypoint
-    migration = (root / "alembic/versions/0497_b2b_signing_requests.py").read_text()
+    migration = (root / "alembic/versions/0499_b2b_signing_requests.py").read_text()
     assert re.search(r'down_revision = "0496_b2b_generated_signed_file"', migration)
 
 

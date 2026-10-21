@@ -1,4 +1,4 @@
-"""Podpis umowy B2B w NEXUSIE — trasy (0497, decyzja Artura 21.10.2026).
+"""Podpis umowy B2B w NEXUSIE — trasy (0499, decyzja Artura 21.10.2026).
 
 Droga obok zwykłej („Oznacz jako podpisaną”), za przełącznikiem
 ``app_settings['b2b_esign']``. Trasy wewnętrzne stoją pod

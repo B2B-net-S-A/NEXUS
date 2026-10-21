@@ -319,7 +319,7 @@ Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchroni
 - `kontakt-do-konsultanta-na-umowie.md` — Kontakt do konsultanta na umowie (09.2026, migracja 0320)
 - `kontrakty-i-zamowienia-lista-z-panelem.md` — Kontrakty i Zamówienia: lista z panelem (wersja B, 29.09.2026)
 - `podpis-umowy-b2b-oznacza-autor-zespol-dl-tcm.md` — Podpis umowy B2B oznacza autor, zespół rekrutacji, DL klienta albo TCM (19.10.2026)
-- `podpis-umowy-b2b-w-nexusie.md` — Podpis umowy B2B w NEXUSIE — druga droga obok „Oznacz jako podpisaną” (0497, 21.10.2026)
+- `podpis-umowy-b2b-w-nexusie.md` — Podpis umowy B2B w NEXUSIE — druga droga obok „Oznacz jako podpisaną” (0499, 21.10.2026)
 - `przedluzenie-zamowienia-wskrzesza-zakonczony.md` — Przedłużenie zamówienia wskrzesza zakończony kontrakt
 - `rejestr-aneksow-i-aneks-w-kontrakcie.md` — Rejestr aneksów i aneks w kontrakcie od wygenerowania (13.10.2026) · jeden stan aneksu, aneks do umowy spoza Nexusa, skan podpisanego, zakładka „Aneksy”
 - `stawki-z-rekrutacji-w-zamowieniu-i-umowie.md` — Stawki z rekrutacji w zamówieniu i umowie (D7, 08.10.2026)

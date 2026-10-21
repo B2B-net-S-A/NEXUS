@@ -1,4 +1,4 @@
-"""Wniosek o podpis umowy B2B w NEXUSIE (0497, decyzja Artura 21.10.2026).
+"""Wniosek o podpis umowy B2B w NEXUSIE (0499, decyzja Artura 21.10.2026).
 
 Droga „podpis w NEXUSIE” obok zwykłej (mail i „Oznacz jako podpisaną”).
 Jeden wiersz = jedna wysyłka umowy z rejestru Generatora do podpisu

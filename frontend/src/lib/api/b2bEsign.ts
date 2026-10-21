@@ -1,5 +1,5 @@
 /**
- * Podpis umowy B2B w NEXUSIE (0497) — druga droga obok „Oznacz jako podpisaną”.
+ * Podpis umowy B2B w NEXUSIE (0499) — druga droga obok „Oznacz jako podpisaną”.
  *
  * Wewnętrzne trasy pod `/api/b2b-generator/esign…`, strona kontraktora pod
  * `/api/public/b2b-sign/{token}` (bez konta). Reguły:

@@ -34,7 +34,7 @@ CLIENT_ORDER_GROUP_POS_DIR = STORAGE_ROOT / "client_order_groups"
 FINANCE_IMPORTS_DIR = STORAGE_ROOT / "finance_imports"
 ORDER_MAIL_DIR = STORAGE_ROOT / "order_mail"
 JOB_FILES_DIR = STORAGE_ROOT / "job_files"
-# Podpis umowy B2B w NEXUSIE (0497): PDF wydany do podpisu i kolejne podpisane
+# Podpis umowy B2B w NEXUSIE (0499): PDF wydany do podpisu i kolejne podpisane
 # wersje — przed podpisem nie ma jeszcze kontraktu, więc nie Dokumenty kontraktu.
 B2B_SIGNING_DIR = STORAGE_ROOT / "b2b_signing"
 
@@ -385,7 +385,7 @@ def _delete_relative(relative_path: str, label: str) -> None:
         )
 
 
-# ── Podpis umowy B2B w NEXUSIE (0497) ────────────────────────────────────────
+# ── Podpis umowy B2B w NEXUSIE (0499) ────────────────────────────────────────
 
 
 def save_b2b_signing_pdf(request_id: int, name: str, data: bytes) -> tuple[str, int]:

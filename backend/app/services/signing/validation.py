@@ -36,7 +36,7 @@ class ValidationService:
     @property
     def authoritative(self) -> bool:
         """Werdykt „kwalifikowany” ma tylko DSS — lokalny pyHanko bez listy
-        zaufanych dostawców nie (podpis umowy B2B w NEXUSIE, 0497)."""
+        zaufanych dostawców nie (podpis umowy B2B w NEXUSIE, 0499)."""
         return self.has_dss
 
     async def validate(self, signed_pdf: bytes) -> ValidationReport:
@@ -145,7 +145,7 @@ class ValidationService:
                 ]
                 # SIG-01: wynik KAŻDEGO podpisu, nie tylko pierwszego — drugi
                 # podpis z TOTAL_FAILED nie może się schować za pierwszym.
-                # Poziom KAŻDEGO podpisu (podpis umowy B2B w NEXUSIE, 0497):
+                # Poziom KAŻDEGO podpisu (podpis umowy B2B w NEXUSIE, 0499):
                 # kwalifikowany musi być każdy, nie tylko pierwszy.
                 results = [
                     {
