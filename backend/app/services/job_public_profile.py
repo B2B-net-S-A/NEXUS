@@ -864,6 +864,77 @@ async def rotate_unsafe_job_slugs(
     return changed
 
 
+# ── Zapis i zatwierdzenie ───────────────────────────────────────────────────
+
+
+class ProfileFindings(Exception):
+    """Kontrola znalazła w opisie coś, czego nie publikujemy — zatwierdzenie
+    odmawia przy KAŻDYM znalezisku."""
+
+    def __init__(self, findings: list[Finding]):
+        super().__init__("public profile findings")
+        self.findings = findings
+
+
+async def keep_published_text(
+    db: AsyncSession, job: Job, profile: JobPublicProfile
+) -> None:
+    """Przed zmianą pól: opis zatwierdzony przed 19.10.2026 nie ma tekstu
+    w migawce — dopisz go, póki pola są jeszcze opublikowaną wersją, inaczej
+    zmiana zdjęłaby stronę."""
+    version = await published_version(db, job, profile)
+    snapshot = stored_approved_content(profile.sections) or {}
+    if version is not None and APPROVED_TEXT_KEY not in snapshot:
+        profile.sections = with_published_text(profile.sections, version)
+
+
+async def approve_profile(
+    db: AsyncSession, job: Job, profile: JobPublicProfile, *, user_id: int
+) -> None:
+    """Zatwierdzenie = publikacja na stronie kariery. Jedna droga dla okna
+    „Udostępnij” i dla „Opublikuj na stronie” z ogłoszenia (21.10.2026).
+
+    ``ProfileFindings`` przy każdym znalezisku kontroli; zapis i commit
+    zostają u wołającego.
+    """
+    from datetime import datetime, timezone
+
+    _default_title, effective_title = await public_titles(db, job, profile)
+    # Kontrola i migawka liczą się z pól NA ŻYWO (same przełączniki, bez
+    # starej migawki) — zatwierdzenie publikuje bieżący stan rekrutacji.
+    preview = public_job_payload(
+        job,
+        title=effective_title,
+        link_slug=None,
+        subtitle=profile.subtitle,
+        about=profile.about,
+        sections=normalize_sections(profile.sections),
+        respect_show=False,
+    )
+    findings = await lint_payload(db, job, preview)
+    if findings:
+        raise ProfileFindings(findings)
+    profile.approved_at = datetime.now(timezone.utc)
+    profile.approved_by = user_id
+    profile.approved_hash = content_hash(
+        profile.subtitle, profile.about, profile.sections, effective_title
+    )
+    # Strona i portale pokazują must/nice, miasto, start i długość z chwili
+    # zatwierdzenia (audyt 25.09.2026, r3) — ich późniejsza zmiana w
+    # rekrutacji wymaga ponownego zatwierdzenia.
+    profile.sections = sections_with_approved_content(
+        profile.sections, approved_content(preview, client_id=job.client_id)
+    )
+    # Runda 8 (R8-N4-2): adres linku powstał z tytułu, którego kontrola nie
+    # widziała — slug z nazwą klienta albo nazwiskiem dostaje nowy adres.
+    await rotate_unsafe_job_slugs(db, job, effective_title)
+    profile.updated_by = user_id
+    # 0381: nowa zatwierdzona treść → aktualizacja żywych ogłoszeń na portalach.
+    from app.services.job_portals.service import queue_content_update
+
+    await queue_content_update(db, job.id)
+
+
 # ── Szkic AI ────────────────────────────────────────────────────────────────
 
 

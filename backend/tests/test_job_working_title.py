@@ -22,9 +22,11 @@ import pytest
 
 from app.services.job_column_ownership import NEXUS_OWNED
 from app.services.job_working_title import (
+    client_reference_for_title,
     compose_working_title,
     display_title,
     reference_from_title,
+    reference_swallows_role,
     working_title_for_job,
 )
 
@@ -170,6 +172,49 @@ def test_intake_takes_the_number_from_the_quoted_client_title() -> None:
         "Szukamy: Analityk (41228)(41227).",
     )
     assert two.client_reference is None
+
+
+def test_role_name_is_not_a_client_reference() -> None:
+    """21.10.2026: nazwa roli w polu numeru → nagłówek CV „(43020) – …”."""
+    title = "PL_IT_Developer_expert_TP#40379 (43020)"
+    role = "PL_IT_Developer_expert_TP#40379"
+    assert reference_swallows_role(title, role)
+    assert reference_swallows_role(title, title)
+    assert not reference_swallows_role(title, "43020")
+    assert not reference_swallows_role("Java (ZOB-48213)", "ZOB 48213")
+    # Sama liczba w nazwie nie ma roli, którą numer mógłby połknąć.
+    assert not reference_swallows_role("12345", "12345")
+    assert not reference_swallows_role(title, None)
+
+    assert client_reference_for_title(title, role) == "43020"
+    assert client_reference_for_title(title, f"  {role} ") == "43020"
+    assert client_reference_for_title(role, role) is None
+    assert client_reference_for_title(title, "43020") == "43020"
+    assert client_reference_for_title("Java (ZOB-48213)", "ZOB 48213") == "ZOB 48213"
+    assert client_reference_for_title(title, "  ") is None
+
+
+def test_intake_does_not_take_the_role_name_for_the_number() -> None:
+    """21.10.2026: dosłowny cytat nazwy roli przechodził jako numer u klienta."""
+    from app.services.job_request_intake import normalize_model_output
+
+    text = "Request: PL_IT_Developer_expert_TP#40379 (43020). Snowflake, SQL."
+    picked = normalize_model_output(
+        {
+            "client_title": "PL_IT_Developer_expert_TP#40379 (43020)",
+            "client_reference": "PL_IT_Developer_expert_TP#40379 (43020)",
+        },
+        text,
+    )
+    assert picked.client_reference == "43020"
+    no_number = normalize_model_output(
+        {
+            "client_title": "PL_IT_Developer_expert_TP#40379",
+            "client_reference": "PL_IT_Developer_expert_TP#40379",
+        },
+        "Request: PL_IT_Developer_expert_TP#40379. Snowflake.",
+    )
+    assert no_number.client_reference is None
 
 
 def test_working_title_prefers_champion_and_falls_back_to_the_title() -> None:

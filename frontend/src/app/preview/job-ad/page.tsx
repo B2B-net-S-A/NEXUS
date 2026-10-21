@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Harness wizualny okna „Ogłoszenie na portale” (Pracuj.pl, JustJoin.IT).
+ * Harness wizualny okna „Ogłoszenie” (strona kariery, Pracuj.pl, JustJoin.IT).
  *
  * PRODUKCYJNE `JobAdWindow` z API podanym z pamięci (prop `api`) — zero
  * zapytań; layout `/preview` i tak odrzuca zapisy. „Przygotuj”, „Zapisz”
@@ -10,6 +10,7 @@
  * znaleziska w stanie `findings` są zasiane i znikają po pierwszym zapisie).
  *
  * `?state=ready|findings|template|empty|published` (domyślnie `ready`), `?tab=jjit`.
+ * `published` = strona kariery i Pracuj.pl wiszą, treść zmieniona po publikacji.
  * Dane fikcyjne.
  */
 
@@ -19,16 +20,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
 import { JobAdWindow, type JobAdWindowApi } from "@/components/v2/job-ad/JobAdWindow";
-import type {
-  AdContent,
-  AdFinding,
-  AdLang,
-  AdPublication,
-  AdTechItem,
-  JobAdState,
-  RenderedAd,
-  RenderedField,
-  RenderedSection,
+import {
+  NO_CAREER_PAGE,
+  type AdCareerState,
+  type AdContent,
+  type AdFinding,
+  type AdLang,
+  type AdPublication,
+  type AdTechItem,
+  type JobAdState,
+  type RenderedAd,
+  type RenderedField,
+  type RenderedSection,
 } from "@/lib/api/jobAd";
 
 const JOB_ID = 901;
@@ -313,6 +316,14 @@ const PUBLISHED: AdPublication[] = [
   },
 ];
 
+/** Strona kariery z tej treści — adres fikcyjny. */
+const CAREER_LIVE: AdCareerState = {
+  status: "live",
+  url: "https://kariera.b2bnetwork.pl/r/senior-java-developer-ab12",
+  published_at: "2026-10-21T09:00:00Z",
+  published_by_name: "Preview Rekruter",
+};
+
 function stateOf(
   content: AdContent,
   tech: AdTechItem[],
@@ -322,6 +333,7 @@ function stateOf(
     source?: "ai" | "template";
     stale?: boolean;
     publications?: AdPublication[];
+    career?: AdCareerState;
   } = {},
 ): JobAdState {
   return {
@@ -340,6 +352,7 @@ function stateOf(
     rendered: renderForHarness(content, tech),
     can_copy: !findings.some((f) => f.severity === "block"),
     publications: patch.publications ?? [],
+    career: patch.career ?? NO_CAREER_PAGE,
   };
 }
 
@@ -353,9 +366,15 @@ function initial(state: HarnessState): JobAdState {
       rendered: null,
       can_copy: false,
       publications: [],
+      career: NO_CAREER_PAGE,
     };
   }
-  if (state === "published") return stateOf(CONTENT, TECH, ADVICE, { publications: PUBLISHED });
+  if (state === "published") {
+    return stateOf(CONTENT, TECH, ADVICE, {
+      publications: PUBLISHED,
+      career: { ...CAREER_LIVE, status: "outdated" },
+    });
+  }
   if (state === "findings") return stateOf(FINDINGS_CONTENT, TECH, FINDINGS);
   if (state === "template") {
     return stateOf({ ...CONTENT, lead: "" }, TECH, ADVICE, { source: "template", stale: true });
@@ -369,7 +388,13 @@ function memoryApi(state: HarnessState): JobAdWindowApi {
   return {
     get: async () => current,
     generate: async (_jobId, lang) => {
-      current = stateOf(CONTENT, TECH, ADVICE, { lang });
+      current = stateOf(CONTENT, TECH, ADVICE, {
+        lang,
+        career:
+          current.career.status === "none"
+            ? current.career
+            : { ...current.career, status: "outdated" },
+      });
       return current;
     },
     save: async (_jobId, input) => {
@@ -381,6 +406,10 @@ function memoryApi(state: HarnessState): JobAdWindowApi {
         publications: current.publications.map((item) =>
           item.removed_at ? item : { ...item, outdated: true },
         ),
+        career:
+          current.career.status === "none"
+            ? current.career
+            : { ...current.career, status: "outdated" },
       });
       return current;
     },
@@ -403,6 +432,10 @@ function memoryApi(state: HarnessState): JobAdWindowApi {
         ...current,
         publications: [...current.publications.filter((item) => item.portal !== portal), next],
       };
+      return current;
+    },
+    publishCareer: async () => {
+      current = { ...current, career: CAREER_LIVE };
       return current;
     },
     markRemoved: async (_jobId, portal) => {
