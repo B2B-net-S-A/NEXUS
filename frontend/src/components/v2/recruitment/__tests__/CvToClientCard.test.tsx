@@ -428,6 +428,59 @@ describe("CvToClientCard — brak CV", () => {
     expect(order.indexOf("/api/notes")).toBeLessThan(order.indexOf("/api/cv-generator/generate"));
   });
 
+  // Audyt 22.10 (F66): świeżo wgrany Oryginał CV, którego lista generatora
+  // jeszcze nie zna — „Generuj” było wyłączone bez słowa.
+  it("plik spoza listy generatora: panel pyta listę od nowa, a potem mówi, czego brak", async () => {
+    const fresh: CvAiSourceFile = {
+      document_id: 32, filename: "Jan_CV_nowe.pdf", uploaded_at: null, is_primary: true, outdated: false, stage_original: true,
+    };
+    aiSources = { ...AI_SOURCES, original_cv: { ...AI_SOURCES.original_cv, document_id: 32, filename: "Jan_CV_nowe.pdf" }, cv_files: [fresh] };
+    let sourcesCalls = 0;
+    const base = mocks.apiGet.getMockImplementation()!;
+    mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+      if (url === "/api/cv-generator/candidates/121/cv-sources") {
+        sourcesCalls += 1;
+        return Promise.resolve({ data: CV_SOURCES });
+      }
+      return base(url, config);
+    });
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    await confirmAll(panel);
+    await waitFor(() => expect(sourcesCalls).toBe(2));
+    expect(await within(panel).findByTestId("cv-file-not-in-generator")).toHaveTextContent(
+      "Generator nie widzi tego pliku",
+    );
+    expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeDisabled();
+  });
+
+  it("plik, który lista generatora poznaje po odświeżeniu: „Generuj” się odblokowuje", async () => {
+    const fresh: CvAiSourceFile = {
+      document_id: 32, filename: "Jan_CV_nowe.pdf", uploaded_at: null, is_primary: true, outdated: false, stage_original: true,
+    };
+    aiSources = { ...AI_SOURCES, original_cv: { ...AI_SOURCES.original_cv, document_id: 32, filename: "Jan_CV_nowe.pdf" }, cv_files: [fresh] };
+    let sourcesCalls = 0;
+    const base = mocks.apiGet.getMockImplementation()!;
+    mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+      if (url === "/api/cv-generator/candidates/121/cv-sources") {
+        sourcesCalls += 1;
+        const list = sourcesCalls === 1 ? CV_SOURCES : [...CV_SOURCES, { id: 32, filename: "Jan_CV_nowe.pdf", is_primary: true, uploaded_at: null }];
+        return Promise.resolve({ data: list });
+      }
+      return base(url, config);
+    });
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    await confirmAll(panel);
+    const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    await waitFor(() => expect(generatePosts()).toHaveLength(1));
+    expect(generatePosts()[0][1]).toMatchObject({ cv_document_id: 32 });
+  });
+
   it("odmowa serwera (reguła klienta, 422) stoi w panelu, a panel zostaje otwarty", async () => {
     mocks.apiPost.mockRejectedValue({
       response: { status: 422, data: { detail: "Ten klient wymaga numeru projektu w CV." } },

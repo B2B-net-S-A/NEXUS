@@ -186,6 +186,18 @@ function CvGeneratePanelForm({
     : g.missing;
   // Żądanie idzie z pliku z kroku „Plik CV” — lista generatora mogła jeszcze go nie znać.
   const fileInRequest = fileId == null || g.cvDocumentId === fileId;
+  // Plik z „…/ai-sources”, którego lista generatora nie zna (np. świeżo wgrany
+  // Oryginał CV): pytamy ją raz od nowa, a gdy dalej go nie ma, mówimy to
+  // zamiast cicho wyłączać „Generuj” (audyt 22.10).
+  const { refetch: refetchSources } = g.sourcesQuery;
+  const fileUnknown =
+    fileId != null && g.sourcesQuery.isSuccess && !g.sources.some((source) => source.id === fileId);
+  const refetchedFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (!fileUnknown || fileId == null || refetchedFor.current === fileId) return;
+    refetchedFor.current = fileId;
+    void refetchSources();
+  }, [fileUnknown, fileId, refetchSources]);
   const ready = missing.length === 0 && !otherProcess && !g.generating && left.length === 0 && fileInRequest;
 
   // Dane panelu się ustaliły: proces wybrany, pliki, zasady klienta i źródła
@@ -417,6 +429,13 @@ function CvGeneratePanelForm({
       {confirmLeftSentence(left) ? (
         <p className="text-xs text-muted-foreground" data-testid="cv-confirm-left">
           {confirmLeftSentence(left)}
+        </p>
+      ) : null}
+      {fileUnknown ? (
+        <p className="text-xs text-muted-foreground" data-testid="cv-file-not-in-generator">
+          {g.sourcesQuery.isFetching
+            ? "Wczytuję listę plików…"
+            : "Generator nie widzi tego pliku CV. Odśwież stronę albo wybierz inny plik."}
         </p>
       ) : null}
       <div className="flex flex-wrap gap-1.5">
