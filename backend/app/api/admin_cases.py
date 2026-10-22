@@ -22,9 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_onboarded_user
 from app.api.hr_gates import ensure_module
 from app.core.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction
 from app.services.admin_cases import queries, service
+from app.services.care import access as care_access
+from app.services.hr import modules as hr_modules
 from app.services.hr.modules import HrModule
 from app.services.permission_denial import permission_denied
 
@@ -79,6 +81,40 @@ def require_hr_cases_reader():
 
 CasesHandler = Annotated[User, Depends(require_hr_cases_handler())]
 CasesReader = Annotated[User, Depends(require_hr_cases_reader())]
+
+
+def require_hr_cases_list_reader():
+    """Lista spraw: jak ``require_hr_cases_reader``, a „Moi podopieczni”
+    (``mine_care``) także opiekun z roli opieki (DL, TCM, admin) przy włączonej
+    Opiece — bez uprawnienia „Sprawy” i bez własnej sprawy. Lista zawęża go do
+    spraw jego podopiecznych, cudze bez treści (``queries.list_cases``);
+    audyt 22.10.2026, F11."""
+
+    async def _check(
+        current_user: User = Depends(require_onboarded_user),
+        db: AsyncSession = Depends(get_db),
+        mine_care: bool = False,
+    ) -> User:
+        await ensure_module(db, current_user, HrModule.cases)
+        if service.is_handler(current_user):
+            return current_user
+        if await service.has_assigned_cases(db, current_user.id):
+            return current_user
+        if (
+            mine_care
+            and not current_user.has_role(UserRole.automation)
+            and care_access.is_care_worker(current_user)
+            and hr_modules.module_open_for(
+                current_user, await hr_modules.load_modules(db), HrModule.care
+            )
+        ):
+            return current_user
+        raise HTTPException(status.HTTP_403_FORBIDDEN, NO_ACCESS_DETAIL)
+
+    return _check
+
+
+CasesListReader = Annotated[User, Depends(require_hr_cases_list_reader())]
 
 
 class ChecklistItem(BaseModel):
@@ -144,7 +180,7 @@ async def _managed_case(db: AsyncSession, case_id: int, *, lock: bool = False):
 
 @router.get("")
 async def list_cases(
-    current_user: CasesReader,
+    current_user: CasesListReader,
     db: AsyncSession = Depends(get_db),
     mine: bool = False,
     area: Optional[Area] = None,

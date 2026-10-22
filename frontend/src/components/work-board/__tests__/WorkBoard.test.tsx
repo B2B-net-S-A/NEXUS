@@ -739,6 +739,36 @@ describe("domknięcie makiet 22.10.2026", () => {
 });
 
 describe("tablica pracy — poprawki po audycie 22.10", () => {
+  it("F11: „Moi podopieczni” pyta o sprawy podopiecznych także opiekuna bez „Spraw” i bez własnej sprawy", async () => {
+    asUser("delivery_lead", 9);
+    route({
+      cases: list(
+        [
+          caseCard({
+            id: 51,
+            title: "Sprawa: Administracja",
+            due_on: TODAY,
+            assignee_hidden: true,
+            content_hidden: true,
+          }),
+        ],
+        { can_manage: false },
+      ),
+      board: board([]),
+    });
+    const user = userEvent.setup();
+    renderBoard({ scope: "care" }, config(false));
+
+    await user.click(await screen.findByRole("button", { name: /Moi podopieczni/ }));
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith(
+        "/api/cases",
+        expect.objectContaining({ params: expect.objectContaining({ mine_care: "true" }) }),
+      ),
+    );
+    expect(await screen.findByText("Sprawa: Administracja")).toBeInTheDocument();
+  });
+
   it("F12: osoba przypisana do sprawy bez roli opieki widzi w Opiece wszystkie swoje sprawy, nie tylko do piątku", async () => {
     asUser("recruiter", 77);
     const cfg = config(false);

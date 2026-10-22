@@ -272,7 +272,12 @@ export function WorkBoard({
     unassigned,
     ...(mineCare ? { mine_care: true } : {}),
   };
-  const cases = useCases(casesFilters, casesAllowed);
+  // „Moi podopieczni” u opiekuna bez „Spraw” i bez własnej sprawy: serwer daje
+  // sprawy podopiecznych (bez treści cudzych spraw) — audyt 22.10, F11.
+  const cases = useCases(
+    casesFilters,
+    casesAllowed || (careAccess && mineCare && Boolean(config.open_modules.cases)),
+  );
   const careBoard = useCareBoard(scope === "mine" || mineCare ? "mine" : "all", careAccess);
   // Wyłączone zapytanie i tak oddaje dane z cache (np. po zmianie konta) — bez
   // dostępu do opieki kart opieki nie pokazujemy wcale.
