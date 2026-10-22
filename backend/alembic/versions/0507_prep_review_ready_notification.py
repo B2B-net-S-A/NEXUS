@@ -1,7 +1,7 @@
 """Ocena prepu gotowa — powiadomienie dla ludzi pary (22.10.2026).
 
-Revision ID: 0506_prep_review_ready_notification
-Revises: 0505_prep_review_configs
+Revision ID: 0507_prep_review_ready_notification
+Revises: 0506_pre_contract_requests
 
 Po ocenie prepu z transkryptu Teams prowadzący, planujący, Delivery Lead
 rekrutacji i rekruter kandydata dostają ``prep_review_ready`` w ikonie
@@ -11,8 +11,8 @@ trafiło do notatki na Prep 2. Lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0506_prep_review_ready_notification"
-down_revision = "0505_prep_review_configs"
+revision = "0507_prep_review_ready_notification"
+down_revision = "0506_pre_contract_requests"
 branch_labels = None
 depends_on = None
 
@@ -28,7 +28,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'prep_review_ready'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0506 odmawia: notifications ma wpisy o ocenie prepu, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0507 odmawia: notifications ma wpisy o ocenie prepu, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

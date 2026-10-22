@@ -1,4 +1,4 @@
-"""0506: dzwonek „Prep N oceniony” do ludzi pary (22.10.2026).
+"""0507: dzwonek „Prep N oceniony” do ludzi pary (22.10.2026).
 
 Lustro enuma w entrypoincie, downgrade odmawia przy żywych wpisach, treść
 mówi poziom, wynik i ile punktów trafiło do notatki na Prep 2; ocena
@@ -17,7 +17,7 @@ from app.models.notification import NotificationType
 from app.services import prep_notifications
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0506_prep_review_ready_notification.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0507_prep_review_ready_notification.py"
 
 
 def _migration_module():

@@ -787,7 +787,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skip_threshold'",
     # 0500: rozmowa u klienta przełożona albo odwołana (do ludzi pary).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_changed'",
-    # 0506: ocena prepu gotowa (do ludzi pary).
+    # 0507: ocena prepu gotowa (do ludzi pary).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_review_ready'",
     # 0506: prośba o umowę przedwstępną — zmiany stanu dla proszących i wystawiającego.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'pre_contract'",
