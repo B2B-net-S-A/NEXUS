@@ -731,9 +731,10 @@ describe("domknięcie makiet 22.10.2026", () => {
     expect(within(panel).getByRole("button", { name: "Pomiń z powodem" })).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "Zmień rytm" })).toBeInTheDocument();
 
-    await user.click(within(panel).getByRole("button", { name: "Sprawa: Negocjacje stawki" }));
-    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith("/api/cases/931"));
-    expect(await screen.findByRole("link", { name: /Pełny widok sprawy/ })).toHaveAttribute("href", "/people/cases/931");
+    // Sprawa bez dostępu (content_hidden) — sam tytuł, bez otwierania panelu (audyt 22.10, F9).
+    expect(within(panel).getByText("Negocjacje stawki")).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Sprawa: Negocjacje stawki" })).toBeNull();
+    expect(mocks.apiGet).not.toHaveBeenCalledWith("/api/cases/931");
   });
 });
 

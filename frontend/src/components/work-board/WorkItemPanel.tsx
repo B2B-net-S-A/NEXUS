@@ -278,14 +278,9 @@ function BriefSection({
         </div>
         {cases.length ? (
           <ul className="space-y-1">
-            {cases.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  onClick={() => onOpenCase(item)}
-                  aria-label={`Sprawa: ${item.title}`}
-                  className="flex w-full items-baseline justify-between gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-muted"
-                >
+            {cases.map((item) => {
+              const body = (
+                <>
                   <span className="min-w-0 truncate">
                     <span className="font-medium text-foreground">{item.title}</span>
                     {item.assignee_name ? (
@@ -302,9 +297,28 @@ function BriefSection({
                         ? `do ${formatDayMonthPl(item.due_on)}`
                         : null}
                   </span>
-                </button>
-              </li>
-            ))}
+                </>
+              );
+              const rowClass = "flex w-full items-baseline justify-between gap-2 rounded-md px-1.5 py-1 text-left text-sm";
+              // Treść ukryta (brak dostępu do sprawy) — wiersz bez otwierania; obsługa skrzynki
+              // (`canCreateCase`) czyta każdą sprawę, więc ukryte negocjacje otwiera dalej.
+              return (
+                <li key={item.id}>
+                  {item.content_hidden && !canCreateCase ? (
+                    <div className={rowClass}>{body}</div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onOpenCase(item)}
+                      aria-label={`Sprawa: ${item.title}`}
+                      className={cn(rowClass, "hover:bg-muted")}
+                    >
+                      {body}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">Brak otwartych spraw.</p>
