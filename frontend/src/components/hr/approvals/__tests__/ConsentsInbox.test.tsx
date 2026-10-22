@@ -3,14 +3,20 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { hrConfig } from "@/app/preview/hr-fixtures";
+import { ApprovalsScreen } from "@/components/hr/leave/ApprovalsScreen";
+import type { HrConfig } from "@/lib/api/hr";
 import { approvalKeys, type ApprovalRequestRow } from "@/lib/api/hr-approvals";
 
-import { ConsentsInbox } from "../ConsentsInbox";
-
+// Zgody w „Akceptacjach” (od 22.10.2026 jedna lista z nieobecnościami) — tu
+// sam moduł zgód: urlopy i czas wyłączone, więc lista ma tylko zgody.
 const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
 const decide = vi.hoisted(() => ({ mutate: vi.fn() }));
 
-vi.mock("next/navigation", () => ({ useSearchParams: () => nav.params }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showToast: vi.fn() }) }));
 vi.mock("@/lib/api/hr-approvals", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/hr-approvals")>();
@@ -68,6 +74,12 @@ const row = (overrides: Partial<ApprovalRequestRow>): ApprovalRequestRow =>
     ...overrides,
   }) as ApprovalRequestRow;
 
+const CONSENTS_ONLY: HrConfig = (() => {
+  const config = hrConfig({ is_admin: true, has_profile: false });
+  const open = { ...config.open_modules, leave: false, time: false, approvals: true };
+  return { ...config, modules: open, open_modules: open };
+})();
+
 function renderInbox(rows: ApprovalRequestRow[]) {
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
@@ -76,7 +88,7 @@ function renderInbox(rows: ApprovalRequestRow[]) {
   for (const item of rows) client.setQueryData(approvalKeys.detail(item.id), item);
   return render(
     <QueryClientProvider client={client}>
-      <ConsentsInbox />
+      <ApprovalsScreen config={CONSENTS_ONLY} />
     </QueryClientProvider>,
   );
 }
@@ -86,7 +98,7 @@ beforeEach(() => {
   decide.mutate.mockReset();
 });
 
-describe("ConsentsInbox — skrzynka zgód", () => {
+describe("Akceptacje — zgody (szczegół, okno decyzji z linku)", () => {
   it("premia: osoba na pierwszym planie, liczby „NEXUS sprawdził” i zdanie o Płacach", () => {
     renderInbox([
       row({

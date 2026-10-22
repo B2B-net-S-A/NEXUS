@@ -35,6 +35,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   isBlockingGap,
   isDealBreakerWarning,
+  isPreContractWarning,
   useMoveRequirements,
   type MoveRequirementAction,
 } from "@/lib/api/moveRequirements";
@@ -187,6 +188,8 @@ export function MoveNextDialog({
     () => (data?.items ?? []).some((i) => i.key === "deal_breaker" && isDealBreakerWarning(i)),
     [data],
   );
+  // 0506: umowa przedwstępna niepodpisana — ostrzeżenie, ruch przechodzi.
+  const preContract = useMemo(() => (data?.items ?? []).some(isPreContractWarning), [data]);
   const fullName = item ? itemFullName(item) : "";
   const shownTargetLabel =
     targetLabel ?? (targetKey ? boardColumnLabel(targetKey, { cproEnabled }) : null) ?? target?.name ?? "";
@@ -224,9 +227,15 @@ export function MoveNextDialog({
       ? `Najpierw uzupełnij: ${gaps.map((g) => g.label).join(", ") || "braki z listy"}.`
       : dealBreaker && primary?.kind === "move"
         ? "Odpowiedź kandydata wyklucza go z tej rekrutacji — możesz go odrzucić albo przesunąć mimo to."
-        : null;
+        : preContract && primary?.kind === "move"
+          ? "Umowa przedwstępna nie jest podpisana — ruch zapisze się z tą informacją, a proszący dostanie dzwonek."
+          : null;
   const primaryLabel =
-    dealBreaker && primary?.kind === "move" ? "Przesuń mimo to" : (primary?.label ?? "");
+    dealBreaker && primary?.kind === "move"
+      ? "Przesuń mimo to"
+      : preContract && primary?.kind === "move"
+        ? "Przesuń mimo braku umowy"
+        : (primary?.label ?? "");
 
   return (
     <Dialog open={open && item != null && target != null} onOpenChange={onOpenChange}>

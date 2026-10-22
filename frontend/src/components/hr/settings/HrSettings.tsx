@@ -212,7 +212,7 @@ function ModulesCard({ config }: { config: HrConfig }) {
       title: next ? "Włączyć moduł dla wszystkich?" : "Wyłączyć moduł?",
       description: next
         ? key === "approvals"
-          ? "Każdy z kartoteką poprosi o zgodę w „Ludzie → Moje zgody”, a przełożeni i zatwierdzający dostaną je w „Akceptacjach”. Najpierw ustaw zasady niżej."
+          ? "Każdy z kartoteką poprosi o zgodę w „Mój czas → Zgody i wydatki”, a przełożeni i zatwierdzający dostaną je w „Akceptacjach”. Najpierw ustaw zasady niżej."
           : `„${HR_MODULE_LABELS[key]}” zobaczą wszyscy uprawnieni. Wcześniej zaimportuj dane z Compassa i przełącz Compass w tryb tylko do odczytu.`
         : `„${HR_MODULE_LABELS[key]}” zniknie wszystkim poza administratorem. Dane zostają.`,
       confirmLabel: next ? "Włącz" : "Wyłącz",

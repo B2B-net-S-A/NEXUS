@@ -5,11 +5,9 @@ import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +30,6 @@ import {
   type HrStructure,
   type StructurePerson,
 } from "@/lib/api/hr-structure";
-import { CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { formatWeekdayDayPl } from "@/lib/date-pl";
@@ -44,35 +41,31 @@ import {
   centeredScrollLeft,
   childLayout,
   divisionKey,
-  flatten,
-  leavingManagers,
-  todoItems,
   type DivisionGroup,
-  type TodoItem,
   type TreeNode,
 } from "./structure-tree";
 
 type DialogKind = "reassign" | "division" | "heads" | null;
-type View = "chart" | "list";
 
-/** Jedna operacja na kartę (menu ⋯, panel „Do uporządkowania”) albo zaznaczenie listy. */
+/** Jedna operacja na kartę (menu ⋯). */
 interface DialogState {
   kind: DialogKind;
   people: StructurePerson[];
 }
 
 /**
- * „Ludzie → Struktura” (Kadry i admin). Makieta 19.10.2026: przełącznik
- * Lista | Schemat — schemat to drzewo kart per pion; przełożonego zmienia się
- * przeciągnięciem karty albo z jej menu (ta sama trasa co lista, od razu).
- * Panel „Do uporządkowania” zbiera podpowiedzi i odejście przełożonego.
+ * Schemat struktury (Kadry i admin) — od 22.10.2026 widok „Schemat” katalogu
+ * `/people?view=schemat` (wcześniej osobna zakładka „Struktura” z przełącznikiem
+ * Lista | Schemat). Drzewo kart per pion; koordynatora zmienia się
+ * przeciągnięciem karty albo z jej menu (od razu, po potwierdzeniu).
+ * Zaznaczanie wielu osób („Ustaw pion”, „Zmień koordynatora”) jest w widoku
+ * „Lista” katalogu, a podpowiedzi i odejścia („Do uporządkowania”) w panelu
+ * „Porządki” (`StructureTodo.tsx`).
  */
 export function StructureScreen({ config }: { config: HrConfig }) {
   const canManage = config.me.people_admin || config.me.is_admin;
   const query = useHrStructure(canManage);
-  const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [dialog, setDialog] = useState<DialogState>({ kind: null, people: [] });
-  const [view, setView] = useState<View>("chart");
 
   const state = resolveViewState({
     isLoading: query.isLoading,
@@ -108,111 +101,36 @@ export function StructureScreen({ config }: { config: HrConfig }) {
     );
   }
 
-  const chosen = data.people.filter((person) => selected.has(person.user_id));
-  const words = managerWords(chosen.map((person) => person.employment_type));
   const candidates = data.people.map((person) => ({ user_id: person.user_id, name: person.name }));
-  const toggle = (userId: number) => {
-    const next = new Set(selected);
-    if (next.has(userId)) next.delete(userId);
-    else next.add(userId);
-    setSelected(next);
-  };
   const open = (kind: Exclude<DialogKind, null>, people: StructurePerson[] = []) =>
     setDialog({ kind, people });
   const close = () => setDialog({ kind: null, people: [] });
   const divisionsCount = groups.filter((group) => group.key !== "none").length;
-  const todo = todoItems(data);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <div
-          role="group"
-          aria-label="Widok struktury"
-          className="inline-flex rounded-lg border border-border bg-card p-0.5"
-        >
-          {(
-            [
-              ["list", "Lista"],
-              ["chart", "Schemat"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={view === value}
-              onClick={() => setView(value)}
-              className={cn(
-                "h-8 rounded-md px-3 text-[13px] font-medium transition-colors",
-                view === value
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
         <p className="text-[13px] text-muted-foreground">
           {peopleCount(data.total)} · {divisionsCount === 1 ? "1 pion" : `${divisionsCount} piony`}
-          {view === "chart"
-            ? " · koordynatora zmienisz przeciągnięciem karty albo z menu karty"
-            : ""}
+          {" · koordynatora zmienisz przeciągnięciem karty albo z menu karty"}
         </p>
         <div className="ml-auto flex flex-wrap gap-2">
-          {view === "list" && chosen.length > 0 ? (
-            <>
-              <Button variant="ghost" onClick={() => setSelected(new Set())}>
-                Wyczyść zaznaczenie
-              </Button>
-              <Button variant="outline" onClick={() => open("division", chosen)}>
-                Ustaw pion ({chosen.length})
-              </Button>
-              <Button onClick={() => open("reassign", chosen)}>
-                Zmień {words.ofOne} ({chosen.length})
-              </Button>
-            </>
-          ) : (
-            <Button variant="outline" onClick={() => open("heads")}>
-              Headowie pionów
-            </Button>
-          )}
+          <Button variant="outline" onClick={() => open("heads")}>
+            Headowie pionów
+          </Button>
         </div>
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="min-w-0 space-y-4">
-          {view === "list" ? (
-            <>
-              <LeavingBanners data={data} />
-              {groups.map((group) => (
-                <ListGroup
-                  key={group.key}
-                  data={data}
-                  group={group}
-                  selected={selected}
-                  onToggle={toggle}
-                />
-              ))}
-            </>
-          ) : (
-            groups.map((group) => (
-              <ChartGroup
-                key={group.key}
-                data={data}
-                group={group}
-                onReassign={(person) => open("reassign", [person])}
-                onDivision={(person) => open("division", [person])}
-              />
-            ))
-          )}
-        </div>
-        <TodoPanel
-          data={data}
-          items={todo}
-          onReassign={(person) => open("reassign", [person])}
-          onDivision={(person) => open("division", [person])}
-        />
+      <div className="min-w-0 space-y-4">
+        {groups.map((group) => (
+          <ChartGroup
+            key={group.key}
+            data={data}
+            group={group}
+            onReassign={(person) => open("reassign", [person])}
+            onDivision={(person) => open("division", [person])}
+          />
+        ))}
       </div>
 
       {dialog.kind === "reassign" ? (
@@ -221,7 +139,7 @@ export function StructureScreen({ config }: { config: HrConfig }) {
           candidates={candidates}
           open
           onOpenChange={(value) => (value ? null : close())}
-          onDone={() => setSelected(new Set())}
+          onDone={() => undefined}
         />
       ) : null}
       {dialog.kind === "division" ? (
@@ -229,7 +147,7 @@ export function StructureScreen({ config }: { config: HrConfig }) {
           people={dialog.people}
           open
           onOpenChange={(value) => (value ? null : close())}
-          onDone={() => setSelected(new Set())}
+          onDone={() => undefined}
         />
       ) : null}
       {dialog.kind === "heads" ? (
@@ -241,67 +159,6 @@ export function StructureScreen({ config }: { config: HrConfig }) {
         />
       ) : null}
     </div>
-  );
-}
-
-function ListGroup({
-  data,
-  group,
-  selected,
-  onToggle,
-}: {
-  data: HrStructure;
-  group: DivisionGroup;
-  selected: ReadonlySet<number>;
-  onToggle: (userId: number) => void;
-}) {
-  const rows = flatten(group.roots);
-  const orphanWords = managerWords(group.orphans.map((person) => person.employment_type));
-  return (
-    <Card className="p-0">
-      <h2 className="flex flex-wrap items-baseline gap-x-2 border-b border-border px-4 py-2 text-sm font-semibold text-foreground">
-        {group.label}
-        <span className="text-xs font-normal text-muted-foreground">
-          {group.key === "none"
-            ? peopleCount(group.count)
-            : `${peopleCount(group.count)} · head: ${group.head?.name ?? "nie ustawiono"}`}
-        </span>
-      </h2>
-      <ul className="divide-y divide-border/60">
-        {rows.map(({ node, depth }) => (
-          <PersonRow
-            key={node.person.user_id}
-            data={data}
-            person={node.person}
-            depth={depth}
-            checked={selected.has(node.person.user_id)}
-            onToggle={onToggle}
-            isRoot={depth === 0}
-          />
-        ))}
-      </ul>
-      {group.orphans.length > 0 ? (
-        <div className="border-t border-border">
-          <p className="px-4 pt-2 text-xs font-medium text-muted-foreground">
-            Bez {orphanWords.ofOne} · {peopleCount(group.orphans.length)} — ich wnioski trafiają
-            do Kadr
-          </p>
-          <ul className="divide-y divide-border/60">
-            {group.orphans.map((person) => (
-              <PersonRow
-                key={person.user_id}
-                data={data}
-                person={person}
-                depth={0}
-                checked={selected.has(person.user_id)}
-                onToggle={onToggle}
-                isRoot={false}
-              />
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </Card>
   );
 }
 
@@ -397,7 +254,7 @@ function ChartGroup({
         <div ref={scrollRef} className="overflow-x-auto pb-1">
           <ul className="mx-auto flex w-max p-0">
             {group.roots.map((node) => (
-              <OrgBranch key={node.person.user_id} node={node} {...nodeProps} />
+              <OrgBranch key={node.person.user_id} node={node} root {...nodeProps} />
             ))}
           </ul>
         </div>
@@ -428,11 +285,19 @@ interface NodeHandlers {
   onDivision: (person: StructurePerson) => void;
 }
 
-function OrgBranch({ node, ...handlers }: { node: TreeNode } & NodeHandlers) {
+function OrgBranch({
+  node,
+  root = false,
+  ...handlers
+}: { node: TreeNode; root?: boolean } & NodeHandlers) {
   const { branches, stack } = childLayout(node);
   return (
     <li className={TREE_ITEM}>
-      <OrgCard person={node.person} {...handlers} />
+      <OrgCard
+        person={node.person}
+        context={root ? managerContext(handlers.data, node.person) : null}
+        {...handlers}
+      />
       {node.children.length > 0 ? (
         <ul className={TREE_CHILDREN}>
           {branches.map((child) => (
@@ -462,6 +327,7 @@ function OrgBranch({ node, ...handlers }: { node: TreeNode } & NodeHandlers) {
 function OrgCard({
   person,
   compact = false,
+  context = null,
   data,
   dragId,
   onDragStart,
@@ -469,7 +335,12 @@ function OrgCard({
   onDrop,
   onReassign,
   onDivision,
-}: { person: StructurePerson; compact?: boolean } & NodeHandlers) {
+}: {
+  person: StructurePerson;
+  compact?: boolean;
+  /** Korzeń drzewa: koordynator spoza grupy (inny pion, bez kartoteki, odszedł). */
+  context?: string | null;
+} & NodeHandlers) {
   const [over, setOver] = useState(false);
   const droppable = dragId !== null && canDropOn(data, dragId, person.user_id);
   const words = managerWords([person.employment_type]);
@@ -554,6 +425,16 @@ function OrgCard({
               {[person.job_title, form].filter(Boolean).join(" · ") || "—"}
             </span>
           ) : null}
+          {!compact && context ? (
+            <span
+              className={cn(
+                "line-clamp-2 text-[11px] leading-tight",
+                person.manager_state === "inactive" ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {context}
+            </span>
+          ) : null}
         </div>
       </div>
       {!compact &&
@@ -577,220 +458,6 @@ function OrgCard({
   );
 }
 
-function TodoPanel({
-  data,
-  items,
-  onReassign,
-  onDivision,
-}: {
-  data: HrStructure;
-  items: TodoItem[];
-  onReassign: (person: StructurePerson) => void;
-  onDivision: (person: StructurePerson) => void;
-}) {
-  const { showToast } = useToast();
-  const reassign = useReassignManager();
-  const accept = (person: StructurePerson, managerId: number, label: string) => {
-    const words = managerWords([person.employment_type]);
-    reassign.mutate(
-      { user_ids: [person.user_id], manager_user_id: managerId },
-      {
-        onSuccess: () => showToast(`${person.name}: ${words.one} — ${label}`, "success"),
-        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zapisać zmiany."), "error"),
-      },
-    );
-  };
-  return (
-    <Card className="p-4" aria-label="Do uporządkowania">
-      <div className="flex items-center justify-between pb-2">
-        <h2 className="font-semibold text-foreground">Do uporządkowania</h2>
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-            items.length > 0 ? "bg-warning-muted text-warning-muted-foreground" : "bg-muted text-muted-foreground",
-          )}
-        >
-          {items.length}
-        </span>
-      </div>
-      {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Wszystko poukładane.</p>
-      ) : (
-        <ul className="divide-y divide-border/60">
-          {items.map((item) => (
-            <li key={`${item.kind}-${item.person.user_id}`} className="space-y-1.5 py-3">
-              <TodoBody
-                data={data}
-                item={item}
-                busy={reassign.isPending}
-                onAccept={accept}
-                onReassign={onReassign}
-                onDivision={onDivision}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-function TodoBody({
-  data,
-  item,
-  busy,
-  onAccept,
-  onReassign,
-  onDivision,
-}: {
-  data: HrStructure;
-  item: TodoItem;
-  busy: boolean;
-  onAccept: (person: StructurePerson, managerId: number, label: string) => void;
-  onReassign: (person: StructurePerson) => void;
-  onDivision: (person: StructurePerson) => void;
-}) {
-  const { person } = item;
-  const words = managerWords([person.employment_type]);
-  const name = <strong className="font-semibold">{person.name}</strong>;
-  switch (item.kind) {
-    case "leaving": {
-      const info = person.leaving!;
-      return (
-        <>
-          <p className="text-[13px]">
-            {name} kończy współpracę {formatWeekdayDayPl(info.last_working_day)}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {peopleCount(person.reports)} w zespole —{" "}
-            {info.reports_receiver_name
-              ? `przejmie ${info.reports_receiver_name}`
-              : "nikt ich jeszcze nie przejmuje"}
-          </p>
-          <Link
-            href={`/people/${person.user_id}/offboarding`}
-            className="text-[13px] font-medium text-primary hover:underline"
-          >
-            Ustaw w sprawie odejścia →
-          </Link>
-        </>
-      );
-    }
-    case "manager_gone":
-      return (
-        <>
-          <p className="text-[13px]">
-            {name} — {words.one} odszedł
-          </p>
-          <p className="text-xs text-muted-foreground">{person.manager_name ?? "konto wyłączone"}</p>
-          <Button size="sm" variant="outline" onClick={() => onReassign(person)}>
-            Zmień {words.ofOne}
-          </Button>
-        </>
-      );
-    case "m365": {
-      const hint = person.m365_hint!;
-      return (
-        <>
-          <p className="text-[13px]">{name} — Microsoft 365 mówi inaczej</p>
-          <p className="text-xs text-muted-foreground">
-            M365: {hint.name ?? hint.upn}
-            {hint.user_id ? "" : " (konto spoza NEXUSA)"} · kartoteka: {person.manager_name ?? "nikt"}
-          </p>
-          {hint.can_accept && hint.user_id ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => onAccept(person, hint.user_id!, hint.name ?? hint.upn)}
-            >
-              Przyjmij z M365
-            </Button>
-          ) : null}
-        </>
-      );
-    }
-    case "suggestion": {
-      const suggestion = person.suggested_manager!;
-      return (
-        <>
-          <p className="text-[13px]">
-            {name} — bez {words.ofOne}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            podpowiedź: {suggestion.name} (head pionu)
-            {person.employment_type_pending ? " · forma do uzupełnienia" : ""}
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => onAccept(person, suggestion.user_id, suggestion.name)}
-          >
-            Przyjmij: {shortLabel(suggestion.name)}
-          </Button>
-        </>
-      );
-    }
-    case "no_manager":
-      return (
-        <>
-          <p className="text-[13px]">
-            {name} — bez {words.ofOne}
-          </p>
-          <p className="text-xs text-muted-foreground">wnioski trafiają do Kadr</p>
-          <Button size="sm" variant="outline" onClick={() => onReassign(person)}>
-            Wskaż {words.ofOne}
-          </Button>
-        </>
-      );
-    case "no_division":
-      return (
-        <>
-          <p className="text-[13px]">{name} — bez pionu</p>
-          {data.divisions.length > 0 ? (
-            <Button size="sm" variant="outline" onClick={() => onDivision(person)}>
-              Wybierz pion
-            </Button>
-          ) : null}
-        </>
-      );
-  }
-}
-
-/** „Kamil Testowy” → „Kamil T.” (przyciski w wąskim panelu). */
-function shortLabel(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : name;
-}
-
-function LeavingBanners({ data }: { data: HrStructure }) {
-  const leaving = leavingManagers(data);
-  if (leaving.length === 0) return null;
-  return (
-    <div className="space-y-2">
-      {leaving.map((person) => {
-        const info = person.leaving!;
-        return (
-          <p
-            key={person.user_id}
-            className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
-          >
-            {person.name} kończy współpracę {formatWeekdayDayPl(info.last_working_day)}. Osoby w zespole:{" "}
-            {peopleCount(person.reports)} —{" "}
-            {info.reports_receiver_name
-              ? `przejmie ich ${info.reports_receiver_name}.`
-              : "nikt ich jeszcze nie przejmuje."}{" "}
-            <Link href={`/people/${person.user_id}/offboarding`} className="text-primary hover:underline">
-              Ustaw w sprawie odejścia
-            </Link>
-          </p>
-        );
-      })}
-    </div>
-  );
-}
-
 /** Opis przełożonego korzenia, który jest poza grupą (inny pion, bez kartoteki, odszedł). */
 function managerContext(data: HrStructure, person: StructurePerson): string | null {
   if (person.manager_user_id === null) return null;
@@ -805,124 +472,4 @@ function managerContext(data: HrStructure, person: StructurePerson): string | nu
   const division = manager ? divisionKey(manager) : "none";
   const where = division === "none" ? "bez pionu" : DIVISION_LABELS[division];
   return `${words.one}: ${person.manager_name ?? "—"} (${where})`;
-}
-
-function PersonRow({
-  data,
-  person,
-  depth,
-  checked,
-  onToggle,
-  isRoot,
-}: {
-  data: HrStructure;
-  person: StructurePerson;
-  depth: number;
-  checked: boolean;
-  onToggle: (userId: number) => void;
-  isRoot: boolean;
-}) {
-  const { showToast } = useToast();
-  const reassign = useReassignManager();
-  const words = managerWords([person.employment_type]);
-  const context = isRoot ? managerContext(data, person) : null;
-  const accept = (managerId: number, label: string) =>
-    reassign.mutate(
-      { user_ids: [person.user_id], manager_user_id: managerId },
-      {
-        onSuccess: () => showToast(`${person.name}: ${words.one} — ${label}`, "success"),
-        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zapisać zmiany."), "error"),
-      },
-    );
-
-  return (
-    <li className="flex items-start gap-3 px-4 py-2 text-sm">
-      <Checkbox
-        className="mt-0.5"
-        checked={checked}
-        onCheckedChange={() => onToggle(person.user_id)}
-        aria-label={`Zaznacz: ${person.name}`}
-      />
-      <div className="min-w-0 flex-1" style={{ paddingLeft: `${depth * 20}px` }}>
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <Link href={`/people/${person.user_id}`} className="font-medium text-foreground hover:underline">
-            {person.name}
-          </Link>
-          <span className="text-xs text-muted-foreground">
-            {[
-              person.job_title,
-              person.employment_type_pending
-                ? "forma do uzupełnienia"
-                : person.employment_type
-                  ? EMPLOYMENT_TYPE_SHORT[person.employment_type]
-                  : null,
-              person.student ? "student" : null,
-              person.manager_pending ? "koordynator do uzupełnienia" : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-            {person.reports > 0 ? ` · ${peopleCount(person.reports)} w zespole` : ""}
-          </span>
-          {contributionsBadge(person.contributions_from) ? (
-            <StatusDot tone="info">{contributionsBadge(person.contributions_from)}</StatusDot>
-          ) : null}
-          {person.reports > 0 ? (
-            <Link
-              href={`/people/team?manager=${person.user_id}`}
-              className="text-xs text-primary hover:underline"
-            >
-              Zespół
-            </Link>
-          ) : null}
-          {person.leaving ? (
-            <StatusDot tone="warning">
-              {person.leaving.status === "draft" ? "szkic odejścia" : "odchodzi"}{" "}
-              {formatWeekdayDayPl(person.leaving.last_working_day)}
-            </StatusDot>
-          ) : null}
-        </div>
-        {context ? (
-          <span className={`${CALM_SUBLINE} ${person.manager_state === "inactive" ? "text-destructive" : ""}`}>
-            {context}
-          </span>
-        ) : null}
-        {person.suggested_manager ? (
-          <span className={CALM_SUBLINE}>
-            Podpowiedź: {words.one} = {person.suggested_manager.name} (head pionu){" "}
-            <Button
-              variant="tertiary"
-              size="sm"
-              className="h-auto p-0 text-xs"
-              disabled={reassign.isPending}
-              onClick={() =>
-                accept(person.suggested_manager!.user_id, person.suggested_manager!.name)
-              }
-            >
-              Przyjmij
-            </Button>
-          </span>
-        ) : null}
-        {person.m365_hint ? (
-          <span className={CALM_SUBLINE}>
-            Microsoft 365: {person.m365_hint.name ?? person.m365_hint.upn}
-            {person.m365_hint.user_id ? "" : " (konto spoza NEXUSA)"} · w kartotece:{" "}
-            {person.manager_name ?? "nikt"}{" "}
-            {person.m365_hint.can_accept && person.m365_hint.user_id ? (
-              <Button
-                variant="tertiary"
-                size="sm"
-                className="h-auto p-0 text-xs"
-                disabled={reassign.isPending}
-                onClick={() =>
-                  accept(person.m365_hint!.user_id!, person.m365_hint!.name ?? person.m365_hint!.upn)
-                }
-              >
-                Przyjmij
-              </Button>
-            ) : null}
-          </span>
-        ) : null}
-      </div>
-    </li>
-  );
 }

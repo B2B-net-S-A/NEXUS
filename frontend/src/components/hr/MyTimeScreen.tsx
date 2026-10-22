@@ -13,11 +13,14 @@ import {
   type HrConfig,
   type HrModuleKey,
 } from "@/lib/api/hr";
+import { useApprovalList } from "@/lib/api/hr-approvals";
 import { employmentTerms } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState, useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 import type { YearMonth } from "@/lib/date-pl";
 
+import { MY_CONSENTS_TAB } from "./approvals/consents-url";
+import { MyConsentsScreen, consentsTodoCount } from "./approvals/MyConsentsScreen";
 import { MyLeaveTab } from "./leave/MyLeaveTab";
 import { MyOverviewTab } from "./me/MyOverviewTab";
 import { MyBonusesTab } from "./payroll/MyBonusesTab";
@@ -85,14 +88,30 @@ export function yearMonthFromParams(params: Pick<URLSearchParams, "get">): YearM
 const OVERVIEW_TAB = { value: "overview", label: "Przegląd" } as const;
 
 /**
+ * „Zgody i wydatki” (22.10.2026, dawne „Ludzie → Moje zgody”): ostatnia
+ * zakładka, gdy moduł „Zgody” jest otwarty, a osoba ma kartotekę albo jest
+ * adminem (ta sama reguła, co dawny link w „Ludziach”).
+ */
+export const CONSENTS_TAB = { value: MY_CONSENTS_TAB, label: "Zgody i wydatki" } as const;
+
+type TabsConfig = Pick<HrConfig, "open_modules"> & {
+  me?: Pick<HrConfig["me"], "has_profile" | "is_admin">;
+};
+
+export function consentsTabVisible(config: TabsConfig): boolean {
+  return Boolean(config.open_modules.approvals && (config.me?.has_profile || config.me?.is_admin));
+}
+
+/**
  * Zakładki widoczne dla osoby: „Przegląd” (zawsze pierwszy i domyślny,
  * etap 2 D1) i otwarte moduły. Kartoteka nie ma zakładki — stanowisko,
  * przełożony i link do niej są w karcie „Ja w firmie” na „Przeglądzie”
  * (makieta 21.10.2026; stary `?tab=profile` otwiera „Przegląd”). Nazwy
  * zakładek modułów mówią językiem umowy osoby (`form`; brak = jak umowa o pracę).
+ * Ostatnia — „Zgody i wydatki” (`consentsTabVisible`).
  */
 export function myTimeTabs(
-  config: Pick<HrConfig, "open_modules">,
+  config: TabsConfig,
   tabs: readonly MyTimeModuleTab[] = MY_TIME_MODULE_TABS,
   form?: EmploymentType | null,
 ): { value: string; label: string }[] {
@@ -104,17 +123,24 @@ export function myTimeTabs(
         value,
         label: labelFor ? labelFor(form) : label,
       })),
+    ...(consentsTabVisible(config) ? [CONSENTS_TAB] : []),
   ];
 }
 
 /**
- * „Mój czas” — przegląd, własne nieobecności, miesiąc pracy i premie (moduły
- * włączane etapami). `?tab=` wybiera zakładkę (domyślnie „Przegląd”).
+ * „Mój czas” — przegląd, własne nieobecności, miesiąc pracy, premie i zgody
+ * (moduły włączane etapami). `?tab=` wybiera zakładkę (domyślnie „Przegląd”).
  */
 export function MyTimeScreen({ config }: { config: HrConfig }) {
   const me = useMyHrProfile();
   const form = me.data?.has_profile ? me.data.employment_type : null;
-  const tabs = myTimeTabs(config, MY_TIME_MODULE_TABS, form);
+  const consentsOn = consentsTabVisible(config);
+  // Licznik „Do zrobienia przez Ciebie” — ta sama lista (i klucz cache) co zakładka.
+  const myConsents = useApprovalList("mine", consentsOn);
+  const consentsTodo = consentsTodoCount(myConsents.data);
+  const tabs = myTimeTabs(config, MY_TIME_MODULE_TABS, form).map((tab) =>
+    tab.value === CONSENTS_TAB.value && consentsTodo > 0 ? { ...tab, count: consentsTodo } : tab,
+  );
   const params = useSearchParams();
   // Zakładka z adresu (link z powiadomienia także przy otwartym ekranie), przełączalna ręcznie.
   const [active, setActive] = useUrlSyncedState<string>(params.get("tab"), tabs[0].value);
@@ -145,6 +171,11 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
       next.delete("year");
       next.delete("month");
     }
+    // Zgoda z linku i otwarty formularz należą tylko do „Zgód i wydatków”.
+    if (value !== CONSENTS_TAB.value) {
+      next.delete("request");
+      next.delete("new");
+    }
     replaceUrl(`?${next.toString()}`);
   };
 
@@ -164,10 +195,19 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
           onRetry={() => me.refetch()}
         />
       ) : !me.data.has_profile ? (
-        <Card className="p-5 text-sm text-muted-foreground">
-          Nie masz jeszcze kartoteki w NEXUSIE. Poproś Kadry o jej założenie —
-          bez niej nie zgłosisz nieobecności ani nie wyślesz raportu godzin.
-        </Card>
+        <>
+          <Card className="p-5 text-sm text-muted-foreground">
+            Nie masz jeszcze kartoteki w NEXUSIE. Poproś Kadry o jej założenie —
+            bez niej nie zgłosisz nieobecności ani nie wyślesz raportu godzin.
+          </Card>
+          {/* Admin bez kartoteki prosi o zgody jak dotąd (dawne „Moje zgody”). */}
+          {consentsOn ? (
+            <section aria-label={CONSENTS_TAB.label} className="space-y-3">
+              <h2 className="text-base font-semibold text-foreground">{CONSENTS_TAB.label}</h2>
+              <MyConsentsScreen />
+            </section>
+          ) : null}
+        </>
       ) : (
         <>
           {tabs.length > 1 ? (
@@ -183,6 +223,8 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
           ) : null}
           {current === OVERVIEW_TAB.value ? (
             <MyOverviewTab config={config} person={me.data} onOpenTab={openTab} />
+          ) : current === CONSENTS_TAB.value ? (
+            <MyConsentsScreen />
           ) : moduleTab ? (
             moduleTab.render(config, initialMonth)
           ) : null}

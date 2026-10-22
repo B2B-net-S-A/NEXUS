@@ -8,17 +8,7 @@ from pydantic import ValidationError
 from app.core.config import settings
 from app.models.prep_meeting import PrepReviewConfigVersion
 from app.services import prep_review_config as cfg
-from app.services.prep_review import grade
-
-
-def _items(covered: int, missing: int) -> list[dict]:
-    return [
-        {"key": f"must:{i}", "label": f"M{i}", "kind": "must", "status": "covered"}
-        for i in range(covered)
-    ] + [
-        {"key": f"q:{i}", "label": f"Q{i}", "kind": "question", "status": "missing"}
-        for i in range(missing)
-    ]
+from app.services.prep_review_scoring import score_review
 
 
 def _with(**changes) -> dict:
@@ -87,28 +77,33 @@ def test_describe_changes_names_threshold_and_weight() -> None:
     assert "Prep 1 · Tematy prowadzącego: 25% → 30%" in changes
 
 
-def test_grade_uses_published_thresholds() -> None:
+def _parsed(must_grades: list[str]) -> dict:
+    return {
+        "topics": [],
+        "answers": [
+            {"key": f"must:{i}", "label": f"M{i}", "kind": "must", "grade": g}
+            for i, g in enumerate(must_grades)
+        ],
+    }
+
+
+def test_score_uses_published_thresholds() -> None:
     config = cfg.PrepReviewConfig.model_validate(
         _with(good_threshold=60, weak_threshold=30)
     )
-    # pokrycie 2/3 = 67%: przy startowych progach „OK”, przy 60% „dobry”.
-    items = _items(covered=2, missing=1)
-    kwargs = dict(talk_share=None, duration_seconds=1800, own_projects_told=True)
-    assert grade(items, **kwargs).level == "ok"
-    assert grade(items, **kwargs, config=config).level == "good"
+    # Dwie mocne, jedna nie było = 67%: przy startowych progach „OK”, przy 60% „dobry”.
+    parsed = _parsed(["strong", "strong", "missing"])
+    kwargs = dict(prep_no=1, talk_share=None, duration_seconds=1800)
+    assert score_review(parsed, config=cfg.defaults(), **kwargs).level == "ok"
+    assert score_review(parsed, config=config, **kwargs).level == "good"
 
 
-def test_grade_min_minutes_rule_can_be_switched_off() -> None:
-    config = cfg.PrepReviewConfig.model_validate(_with(min_minutes_enabled=False))
-    items = _items(covered=3, missing=0)
-    kwargs = dict(talk_share=None, duration_seconds=240, own_projects_told=True)
-    assert grade(items, **kwargs).level == "weak"
-    assert grade(items, **kwargs, config=config).level == "good"
-
-
-def test_grade_talk_share_criterion_can_be_switched_off() -> None:
+def test_talk_share_criterion_can_be_switched_off() -> None:
     config = cfg.PrepReviewConfig.model_validate(_with(talk_share_enabled=False))
-    items = _items(covered=3, missing=0)
-    kwargs = dict(talk_share=0.1, duration_seconds=1800, own_projects_told=True)
-    assert grade(items, **kwargs).level == "weak"
-    assert grade(items, **kwargs, config=config).level == "good"
+    parsed = _parsed(["strong"])
+    kwargs = dict(prep_no=1, talk_share=0.1, duration_seconds=1800)
+    assert (
+        score_review(parsed, config=cfg.defaults(), **kwargs).scores["talk_share"] == 22
+    )
+    off = score_review(parsed, config=config, **kwargs)
+    assert off.scores["talk_share"] is None and off.level == "good"

@@ -149,6 +149,10 @@ class NotificationType(str, enum.Enum):
     # na serię, wyłącznie dla adminów (`services/automation_failures.py`).
     # Rekruterzy nie dostają nic: awaria jest wpisem w „Pracy w tle".
     automation_failing = "automation_failing"
+    # 0508: ktoś przegląda albo zapisuje na dysk CV kandydatów ponad normę —
+    # alarm bez blokady do adminów i Head of Recruitment, mail od razu
+    # (`services/candidate_data_access_alerts.py`).
+    candidate_data_access_alert = "candidate_data_access_alert"
     # 0336: zapisane wyszukiwanie po migracji na wspólną semantykę filtrów
     # zwraca inny zbiór osób — alert wstrzymany do akceptacji właściciela.
     saved_search_reapproval = "saved_search_reapproval"
@@ -216,6 +220,16 @@ class NotificationType(str, enum.Enum):
     # zmiany (dymek). related_entity=(client_interview_<rodzaj>, None), link
     # do pary — jak ``prep_changed*``: dzienny dedup zjadałby drugą zmianę.
     interview_changed = "interview_changed"
+    # 0507 (22.10.2026): ocena prepu gotowa — do ludzi pary (prowadzący,
+    # planujący, DL rekrutacji, rekruter kandydata), licznik bez dymka.
+    # related_entity=(prep_review, calendar_event.id), dedup dobowy.
+    prep_review_ready = "prep_review_ready"
+    # 0506 (21.10.2026): umowa przedwstępna — prośba, wystawienie, podpisy,
+    # wygasanie, rezygnacja kandydata, termin umowy B2B. Do proszących,
+    # obserwujących i wystawiającego, bez autora zmiany.
+    # related_entity=(pre_contract_event, id) — każdy krok to osobne
+    # zdarzenie, więc dzienny dedup nie zjada drugiego kroku tego samego dnia.
+    pre_contract = "pre_contract"
     # 0371: automat przydziału requestów — rano JEDEN wpis na osobę („Od dziś:
     # X. Zwolnione: Y (champion)”); related_entity=(user, id), dedup dobowy.
     # Od 02.10.2026 także od razu po akceptacji propozycji: „Nowy request do

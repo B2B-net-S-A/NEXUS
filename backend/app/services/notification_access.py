@@ -51,6 +51,12 @@ ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
     {NotificationType.ai_spend_alert, NotificationType.automation_failing}
 )
 
+# 0508: alarm o masowym przeglądaniu CV — admin i Head of Recruitment (rola
+# główna albo dodatkowa), niezależnie od sekcji (decyzja Artura 22.10.2026).
+HEAD_OF_RECRUITMENT_ALERT_TYPES: frozenset[NotificationType] = frozenset(
+    {NotificationType.candidate_data_access_alert}
+)
+
 # Context-sensitive types are handled separately below.  Every other enum
 # value must appear here or in ``ALWAYS_VISIBLE_NOTIFICATION_TYPES``.
 NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
@@ -127,6 +133,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.prep2_skipped: ProductSection.pipeline,
     NotificationType.prep2_skip_threshold: ProductSection.pipeline,
     NotificationType.interview_changed: ProductSection.pipeline,
+    NotificationType.prep_review_ready: ProductSection.pipeline,
+    NotificationType.pre_contract: ProductSection.pipeline,
     NotificationType.trainee_program_decision: ProductSection.pipeline,
     NotificationType.candidate_followup_signal: ProductSection.pipeline,
     # 0399: odpowiedź na notatkę — notatki żyją za sekcją Sourcing (router).
@@ -279,6 +287,8 @@ def user_may_receive_type(
         return True
     if notification_type in ADMIN_ONLY_NOTIFICATION_TYPES:
         return False
+    if notification_type in HEAD_OF_RECRUITMENT_ALERT_TYPES:
+        return user.has_role(UserRole.head_of_recruitment)
     if notification_type in ALWAYS_VISIBLE_NOTIFICATION_TYPES:
         return True
 
@@ -334,6 +344,10 @@ def _section_visibility_predicate(user: User) -> Any:
     conditions: list[Any] = [
         Notification.notification_type.in_(ALWAYS_VISIBLE_NOTIFICATION_TYPES)
     ]
+    if user.has_role(UserRole.head_of_recruitment):
+        conditions.append(
+            Notification.notification_type.in_(HEAD_OF_RECRUITMENT_ALERT_TYPES)
+        )
     allowed_fixed_types = [
         notification_type
         for notification_type, section in NOTIFICATION_SECTION_BY_TYPE.items()
@@ -543,6 +557,7 @@ def unmapped_notification_types() -> frozenset[NotificationType]:
     return frozenset(NotificationType) - (
         ALWAYS_VISIBLE_NOTIFICATION_TYPES
         | ADMIN_ONLY_NOTIFICATION_TYPES
+        | HEAD_OF_RECRUITMENT_ALERT_TYPES
         | frozenset(NOTIFICATION_SECTION_BY_TYPE)
         | CONTEXTUAL_NOTIFICATION_TYPES
     )

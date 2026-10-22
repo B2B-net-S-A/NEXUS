@@ -41,6 +41,7 @@ import { CalendarTodayBody, MyPeopleBody, NoteBody } from "./SmallTiles"
 import { SystemStatusTile } from "./SystemStatusTile"
 import { TeamSignalsTile } from "./TeamSignalsTile"
 import { TodayCycleTile } from "./TodayCycleTile"
+import { PreContractsTile } from "./PreContractsTile"
 import { ToCompleteTile } from "./ToCompleteTile"
 
 function Unavailable({ reason }: { reason: string }) {
@@ -116,6 +117,9 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
     case "to_complete":
       // 21.10.2026: trzy listy zaległości z „Czeka na Ciebie” w kafelku.
       return <ToCompleteTile />
+    case "pre_contracts":
+      // 0506: umowy przedwstępne — liczniki zakładek listy.
+      return <PreContractsTile />
     case "recruitment_activity":
       return <RecruitmentActivityDashboard />
     case "recruitment_competence":

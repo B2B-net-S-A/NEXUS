@@ -176,7 +176,7 @@
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin od klienta, prepy i debrief; bez terminu w NEXUSIE — „Pytania z rozmowy” (zapyta, kiedy była). Notatka „klient pytał…” podpowie „Zapisz jako pytania z rozmowy”. „Klient zaakceptował” zapisuje akceptację. Sekcja „Do „Zatrudnionego””: umowa i podpis; zamówienie dopiero po zatrudnieniu.",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin, prepy i debrief; bez terminu — „Pytania z rozmowy”. „Klient zaakceptował” zapisuje akceptację. Sekcja „Do „Zatrudnionego””: umowa i podpis; zamówienie po zatrudnieniu. Umowa przedwstępna: „⋯ → Umowa przedwstępna…” albo zakładka „Umowa” — prośba, wystawienie, podpisy, ważność.",
         "anchor": "jobs.person.expand"
       }
     ],
@@ -437,8 +437,8 @@
         "anchor": "calendar.board"
       },
       {
-        "q": "Jak zaplanować prep i co, gdy kandydat nie zdąży na Prep 2?",
-        "a": "Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. Kliknij nazwisko na karcie i przy kroku Prep „Zaplanuj”; „Zmień” i „Odwołaj” są w panelu kandydata. Bez Prepu 2 tylko, gdy rozmowa jest dziś albo w najbliższy dzień roboczy, a Prep 1 nie był słaby: „Rozmowa bez Prepu 2…”, powód i telefon do kandydata przed rozmową.",
+        "q": "Jak zaplanować prep i gdzie jest jego ocena?",
+        "a": "Prep 1 prowadzi Delivery Lead, Prep 2 rekruter: nazwisko na karcie → „Zaplanuj” przy kroku Prep. Po prepie pod krokiem jest ocena: tematy prowadzącego i odpowiedzi kandydata, a „Pełna ocena” i „Transkrypt” otwierają szczegóły. Pod Prepem 2 stoi „Do powtórzenia na Prepie 2”. Bez Prepu 2 tylko przy rozmowie dziś albo jutro.",
         "anchor": "calendar.board"
       },
       {
@@ -688,7 +688,7 @@
     "title": "Mój czas",
     "section": null,
     "roles": [],
-    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd” (z kartą „Ja w firmie” — stanowisko, koordynator, kartoteka), nieobecności („Urlop”, „Przerwy” albo „Nieobecności”), miesiąc godzin i premie (B2B: „Wynagrodzenie dodatkowe”).",
+    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd” (z kartą „Ja w firmie” — stanowisko, koordynator, kartoteka), nieobecności („Urlop”, „Przerwy” albo „Nieobecności”), miesiąc godzin, premie i „Zgody i wydatki”: prośby o zgodę.",
     "tasks": [
       {
         "q": "Jak zgłosić urlop albo przerwę?",
@@ -726,7 +726,7 @@
       {
         "id": "hr.my_time.tabs",
         "label": "Zakładki „Mojego czasu”",
-        "describe": "Przegląd, nieobecności, miesiąc godzin, rozliczenie i premie — widać tylko włączone."
+        "describe": "Przegląd, nieobecności, miesiąc godzin, rozliczenie, premie oraz zgody i wydatki — widać tylko włączone."
       },
       {
         "id": "hr.my_time.leave_submit",
@@ -761,7 +761,7 @@
     "title": "Akceptacje",
     "section": null,
     "roles": [],
-    "what": "Skrzynka koordynatora i Kadr: po lewej wnioski z umowy o pracę do decyzji i zgłoszenia z B2B i zlecenia do wiadomości, po prawej szczegół sprawy; niżej timesheety zespołu i zwinięta historia wniosków.",
+    "what": "Jedna lista spraw do decyzji z chipami rodzaju: nieobecności, raporty godzin, zgody i zgłoszenia z B2B i zlecenia do wiadomości; po prawej szczegół. „Czeka | Zdecydowane” przełącza na historię.",
     "tasks": [
       {
         "q": "Jak zaakceptować albo odrzucić wniosek?",
@@ -775,12 +775,12 @@
       },
       {
         "q": "Jak poprawić złożony wniosek?",
-        "a": "„Edytuj” w szczególe sprawy albo w rozwiniętej „Historii wniosków” zmienia rodzaj, daty, pół dnia i zastępcę; dni i pula liczą się od nowa. Przy zatwierdzonym NEXUS przesuwa autoodpowiedź i wydarzenie w Outlooku. Inny zastępca zdejmuje zgodę na przekierowanie poczty — osoba może ją włączyć sama.",
+        "a": "„Edytuj” w szczególe sprawy albo w widoku „Zdecydowane” zmienia rodzaj, daty, pół dnia i zastępcę; dni i pula liczą się od nowa. Przy zatwierdzonym NEXUS przesuwa autoodpowiedź i wydarzenie w Outlooku. Inny zastępca zdejmuje zgodę na przekierowanie poczty — osoba może ją włączyć sama.",
         "anchor": "hr.approvals.history"
       },
       {
         "q": "Jak przyjąć timesheet?",
-        "a": "W „Timesheetach” wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką; przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła osobie przypomnienie (raz dziennie). Godziny to wpisane wobec normy miesiąca. Na górze braki i do akceptacji, reszta pod „Pokaż wszystkie”.",
+        "a": "W „Raportach godzin” (chip albo pod listą) wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką; przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła osobie przypomnienie (raz dziennie). Na górze braki i do akceptacji, reszta pod „Pokaż wszystkie”.",
         "anchor": "hr.approvals.timesheets"
       },
       {
@@ -792,7 +792,7 @@
     "pitfalls": [
       "Dopisek „Z Outlooka” znaczy, że NEXUS założył wniosek z autoodpowiedzi, którą osoba ustawiła sama — decydujesz o nim jak o każdym innym.",
       "W zastępstwie nieobecnego przełożonego akceptujesz i odrzucasz wnioski jego zespołu, ale ich nie zmieniasz; L4 i podobne widzisz tylko do wiadomości.",
-      "Licznik „wnioski do decyzji” liczy tylko umowę o pracę — zgłoszenia z B2B i zlecenia nie czekają na nikogo.",
+      "Liczba przy chipie „Nieobecności” liczy tylko umowę o pracę — zgłoszenia z B2B i zlecenia („Do wiadomości”) nie czekają na nikogo.",
       "Przekierowanie poczty z cudzego wniosku wyłączają tylko Kadry („Wyłącz przekierowanie” z powodem, do końca urlopu); włączyć je z powrotem może tylko sama osoba. Regułę, która została po urlopie, zamyka „Zamknij regułę” w Ustawieniach → Kadry → Microsoft 365."
     ],
     "anchors": [
@@ -813,8 +813,8 @@
       },
       {
         "id": "hr.approvals.history",
-        "label": "Historia wniosków",
-        "describe": "Zwinięta do linku: po rozwinięciu filtr statusu i osoby (200 najnowszych), edycja i anulowanie."
+        "label": "Zdecydowane",
+        "describe": "Przełącznik „Czeka | Zdecydowane”: zdecydowane nieobecności z filtrem statusu i osoby (200 najnowszych), edycja i anulowanie, oraz rozpatrzone zgody."
       },
       {
         "id": "hr.approvals.on_behalf",
@@ -831,24 +831,24 @@
   },
   {
     "key": "hr.team_calendar",
-    "title": "Kalendarz zespołu",
+    "title": "Kalendarz",
     "section": null,
     "roles": [],
     "what": "Kto i kiedy jest nieobecny — ciągłe paski w miesiącu albo w dwóch tygodniach, wiersz „Nieobecnych” z liczbą osób na dzień i panel „W tym tygodniu nie ma”; przy czasie pracy także dni zdalne i wyjazdy.",
     "tasks": [
       {
         "q": "Kto jest dziś nieobecny?",
-        "a": "Na liście „Kto” wybierz „Nieobecni dziś”. W innym miesiącu ta sama pozycja pokazuje każdego, kto był nieobecny choć jeden dzień. Wyjazd liczy się do nieobecnych.",
+        "a": "Kliknij chip „Dziś nieobecni” nad siatką. W innym okresie ten chip nazywa się „Nieobecni w okresie” i pokazuje każdego, kto był nieobecny choć jeden dzień. Wyjazd liczy się do nieobecnych.",
         "anchor": "hr.team_calendar.filters"
       },
       {
         "q": "Kto pracuje zdalnie?",
-        "a": "Wybierz „Zdalnie” na liście „Kto”. W siatce „Z” to dzień zdalny, a „W” wyjazd — z dni oznaczonych w miesiącu godzin. Pozycja pojawia się, gdy działa czas pracy.",
+        "a": "Kliknij chip „Zdalnie dziś”. W siatce „Z” to dzień zdalny, a „W” wyjazd — z dni oznaczonych w miesiącu godzin. Chip pojawia się, gdy działa czas pracy.",
         "anchor": "hr.team_calendar.filters"
       },
       {
         "q": "Jak zawęzić kalendarz do zespołu albo działu?",
-        "a": "Nad siatką są przyciski „Wszyscy”, „Mój zespół” (dla koordynatorów) i nazwy działów, a pole „Znajdź osobę” zawęża listę po imieniu. Przełącznik „2 tygodnie / Miesiąc” zmienia zakres, strzałki go przesuwają, a „Dziś” wraca do bieżącego.",
+        "a": "Nad siatką są chipy „Mój zespół” (dla koordynatorów, domyślnie zaznaczony), „Wszyscy” i nazwy działów, a pole „Imię, stanowisko” zawęża listę. Wybór zostaje w adresie, więc link pokaże to samo. Przełącznik „2 tygodnie / Miesiąc” zmienia zakres, strzałki go przesuwają, a „Dziś” wraca do bieżącego.",
         "anchor": "hr.team_calendar.filters"
       },
       {
@@ -865,7 +865,7 @@
       {
         "id": "hr.team_calendar.filters",
         "label": "Zakres, filtry i szukanie",
-        "describe": "Strzałki, „Dziś”, „2 tygodnie / Miesiąc”, zespół albo dział, lista „Kto” i pole „Znajdź osobę”."
+        "describe": "Strzałki, „Dziś”, „2 tygodnie / Miesiąc”, chipy zespołu, działów i stanu („Dziś nieobecni”, „Zdalnie dziś”) i pole „Imię, stanowisko”."
       },
       {
         "id": "hr.team_calendar.legend",
@@ -888,16 +888,16 @@
     "title": "Zgody",
     "section": null,
     "roles": [],
-    "what": "Zgody na wydatki i wynagrodzenie dodatkowe: w „Akceptacjach” zgody czekające na Twoją decyzję, w „Moich zgodach” prośby, które wysłałeś, z przebiegiem i formularzem „Poproś o zgodę”.",
+    "what": "Zgody na wydatki i wynagrodzenie dodatkowe: w „Akceptacjach” zgody czekające na Twoją decyzję, w „Moim czasie” na karcie „Zgody i wydatki” prośby, które wysłałeś, z przebiegiem i formularzem „Poproś o zgodę”.",
     "tasks": [
       {
         "q": "Jak poprosić o zgodę na wydatek albo wynagrodzenie dodatkowe?",
-        "a": "„Ludzie → Moje zgody” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy koordynator, czy decyduje zatwierdzający. Wynagrodzenie z reguł umowy (placement, liga) liczą Płace same — o nie nie prosisz.",
+        "a": "„Mój czas → Zgody i wydatki” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy koordynator, czy decyduje zatwierdzający. Wynagrodzenie z reguł umowy (placement, liga) liczą Płace same — o nie nie prosisz.",
         "anchor": "hr.consents.form"
       },
       {
         "q": "Jak zatwierdzić albo odrzucić zgodę?",
-        "a": "„Akceptacje” → „Zgody”: wybierz zgodę z listy, obok liczby „NEXUS sprawdził”. „Zatwierdź” albo „Zatwierdź inną kwotę…”, „Dopytaj” wraca do autora z pytaniem, „Odrzuć” wymaga powodu. Przycisk z maila otwiera tę samą zgodę z oknem decyzji.",
+        "a": "„Akceptacje” → chip „Zgody”: wybierz zgodę z listy, obok liczby „NEXUS sprawdził”. „Zatwierdź” albo „Zatwierdź inną kwotę…”, „Dopytaj” wraca do autora z pytaniem, „Odrzuć” wymaga powodu. Przycisk z maila otwiera tę samą zgodę z oknem decyzji.",
         "anchor": "hr.consents.inbox"
       },
       {
@@ -907,12 +907,12 @@
       },
       {
         "q": "Co zrobić, gdy dostałem pytanie do zgody?",
-        "a": "W „Moich zgodach” zgoda jest w „Do zrobienia przez Ciebie” z pytaniem na żółtym tle. „Popraw i wyślij” otwiera formularz z danymi — po wysłaniu zgoda zaczyna drogę od nowa. „Wycofaj” zdejmuje ją ze skrzynki decydującego.",
+        "a": "W „Moim czasie → Zgody i wydatki” zgoda jest w „Do zrobienia przez Ciebie” z pytaniem na żółtym tle. „Popraw i wyślij” otwiera formularz z danymi — po wysłaniu zgoda zaczyna drogę od nowa. „Wycofaj” zdejmuje ją ze skrzynki decydującego.",
         "anchor": "hr.consents.mine"
       },
       {
         "q": "Jak dołączyć fakturę albo paragon do zgody?",
-        "a": "W „Moich zgodach” zatwierdzona zgoda ma „Rozliczenie”: przeciągnij PDF albo zdjęcie — NEXUS odczyta kwotę i sprzedawcę, popraw w „Popraw”. Faktura z KSeF na NIP firmy przypnie się sama, gdy zgoda zna sprzedawcę. Wyszło drożej o ponad 10% — „Poproś o dopłatę”.",
+        "a": "W „Moim czasie → Zgody i wydatki” zatwierdzona zgoda ma „Rozliczenie”: przeciągnij PDF albo zdjęcie — NEXUS odczyta kwotę i sprzedawcę, popraw w „Popraw”. Faktura z KSeF na NIP firmy przypnie się sama, gdy zgoda zna sprzedawcę. Wyszło drożej o ponad 10% — „Poproś o dopłatę”.",
         "anchor": "hr.consents.mine"
       }
     ],
@@ -930,7 +930,7 @@
       },
       {
         "id": "hr.consents.mine",
-        "label": "Moje zgody",
+        "label": "Zgody i wydatki",
         "describe": "Zgody, o które prosisz: do zrobienia, w toku, zamknięte; po prawej przebieg zgody."
       },
       {

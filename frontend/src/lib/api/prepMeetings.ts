@@ -42,6 +42,27 @@ export interface PrepOptions {
   notice: string;
   /** Zaproszenie dla kandydata (klucze "1" i "2"); starszy serwer = brak. */
   invitation?: Record<string, PrepInvitation>;
+  /** Notatka na Prep 2 z oceny Prepu 1 pary (22.10.2026); pusta = brak oceny. */
+  prep1_followup?: PrepOptionsFollowup[];
+}
+
+export interface PrepOptionsFollowup {
+  key: string;
+  label: string;
+  reason: PrepFollowupReason | null;
+  note: string | null;
+}
+
+/**
+ * Neutralne zdanie do zaproszenia na Prep 2 — tematy bez ocen („słaba
+ * odpowiedź” zostaje w zespole). `null` = nic do dopisania.
+ */
+export function followupInvitationLine(items: Pick<PrepOptionsFollowup, "label">[]): string | null {
+  const labels = items.map((i) => i.label.trim()).filter(Boolean);
+  if (labels.length === 0) return null;
+  const list =
+    labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join("; ")} oraz ${labels[labels.length - 1]}`;
+  return `Na spotkaniu wrócimy do: ${list}.`;
 }
 
 export type PrepItemStatus = "covered" | "partial" | "missing" | "covered_in_prep1";
@@ -55,16 +76,75 @@ export interface PrepReviewItem {
   unverified?: boolean;
 }
 
+export type PrepAnswerGrade = "strong" | "general" | "weak" | "missing" | "covered_in_prep1";
+export type PrepFollowupReason = "weak" | "missing" | "missing_topic" | "general" | "unpracticed";
+
+/** Ocena v2: temat prowadzącego z Ustawienia → Ocena prepów. */
+export interface PrepTopicResult {
+  key: string;
+  label: string;
+  required: boolean;
+  status: "covered" | "partial" | "missing";
+  quote: string | null;
+  unverified?: boolean;
+}
+
+/** Ocena v2: odpowiedź kandydata (must-have, pytanie klienta, punkt z notatki). */
+export interface PrepAnswer {
+  key: string;
+  label: string;
+  kind: "must" | "question" | "followup";
+  grade: PrepAnswerGrade;
+  quote: string | null;
+  note: string | null;
+  unverified?: boolean;
+}
+
+/** Punkt „Do powtórzenia na Prep 2” z oceny Prepu 1. */
+export interface PrepFollowupItem {
+  key: string;
+  label: string;
+  kind: "must" | "question" | "topic";
+  reason: PrepFollowupReason;
+  quote: string | null;
+  note: string | null;
+}
+
+/** Prep 2: punkt z notatki — przed (Prep 1) i po (Prep 2). */
+export interface PrepComparisonRow {
+  key: string;
+  label: string;
+  before: PrepFollowupReason | null;
+  after: PrepAnswerGrade;
+  quote: string | null;
+}
+
 export interface PrepReview {
   status: "ok" | "unavailable";
   level: "weak" | "ok" | "good" | null;
   coverage: number | null;
   criteria: {
+    /** Kształt sprzed v2 — oceny sprzed 22.10.2026 mają tylko to. */
     items?: PrepReviewItem[];
     own_projects?: { told: boolean; quote: string | null };
+    version?: number;
+    topics?: PrepTopicResult[];
+    answers?: PrepAnswer[];
+    went_well?: string[];
+    went_wrong?: string[];
+    improve?: string[];
+    scores?: Record<string, number | null>;
+    weights_used?: Record<string, number>;
+    total?: number | null;
+    caps?: string[];
+    followup?: PrepFollowupItem[];
+    comparison?: PrepComparisonRow[];
   };
   summary: string | null;
   remaining: string[];
+  /** Wersja Ustawienia → Ocena prepów (`null` = startowe). */
+  config_version?: number | null;
+  prompt_version?: string | null;
 }
 
 export type TranscriptStatus =
@@ -110,11 +190,21 @@ export interface PrepSpeaker {
   seconds: number;
 }
 
+export interface PrepTranscriptCue {
+  /** Sekunda od początku spotkania. */
+  start: number;
+  speaker: string | null;
+  role: "staff" | "candidate" | "unknown" | null;
+  text: string;
+}
+
 export interface PrepTranscript {
   event_id: number;
   speakers: PrepSpeaker[];
   text: string;
   fetched_at: string;
+  /** Wypowiedzi z czasem i mówcą; pusta lista = stary zapis bez VTT. */
+  cues?: PrepTranscriptCue[];
 }
 
 export interface PrepCreateInput {
@@ -272,6 +362,67 @@ export const PREP_LEVEL_LABELS: Record<"weak" | "ok" | "good", string> = {
   ok: "OK",
   good: "Dobry",
 };
+
+export const PREP_GRADE_LABELS: Record<PrepAnswerGrade, string> = {
+  strong: "Mocna",
+  general: "Ogólna",
+  weak: "Słaba",
+  missing: "Nie było",
+  covered_in_prep1: "Mocna w Prep 1",
+};
+
+export const PREP_TOPIC_LABELS: Record<PrepTopicResult["status"], string> = {
+  covered: "Omówione",
+  partial: "Wspomniane",
+  missing: "Nie było",
+};
+
+export const PREP_FOLLOWUP_REASON_LABELS: Record<PrepFollowupReason, string> = {
+  weak: "Słaba odp.",
+  missing: "Nie omówiono",
+  missing_topic: "Temat pominięty",
+  general: "Ogólna odp.",
+  unpracticed: "Nieprzećwiczone",
+};
+
+export const PREP_CAP_LABELS: Record<string, string> = {
+  too_short: "prep krótszy niż minimum z ustawień",
+  required_topic_missing: "pominięty temat obowiązkowy",
+  weak_must_answer: "słaba odpowiedź na must-have",
+};
+
+/** Ocena v2 (tematy, odpowiedzi, wnioski) — starsze mają tylko `items`. */
+export function isReviewV2(review: PrepReview | null | undefined): boolean {
+  return Boolean(review && review.status === "ok" && review.criteria.version === 2);
+}
+
+/** „01:02” albo „1:02:05” z sekund. */
+export function formatCueTime(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${String(m).padStart(2, "0")}:${sec}`;
+}
+
+/** Normalizacja do szukania cytatu w wypowiedzi (spacje, wielkość liter). */
+export function normalizeForQuote(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLocaleLowerCase("pl");
+}
+
+/** Indeks pierwszej wypowiedzi, w której jest cytat; -1 = nie znaleziono. */
+export function cueIndexForQuote(cues: PrepTranscriptCue[], quote: string | null): number {
+  if (!quote) return -1;
+  const full = normalizeForQuote(quote);
+  // Cytat bywa dłuższy niż jedna wypowiedź z VTT — wtedy wystarczy jego początek.
+  for (const length of [60, 25]) {
+    const needle = full.slice(0, length);
+    if (!needle) return -1;
+    const index = cues.findIndex((cue) => normalizeForQuote(cue.text).includes(needle));
+    if (index >= 0) return index;
+  }
+  return -1;
+}
 
 export const PREP_ITEM_LABELS: Record<PrepItemStatus, string> = {
   covered: "Omówione",

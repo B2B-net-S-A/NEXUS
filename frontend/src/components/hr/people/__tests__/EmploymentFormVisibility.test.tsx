@@ -58,7 +58,11 @@ vi.mock("@/components/equipment/PersonEquipmentPanel", () => ({
 import { hrConfig } from "@/app/preview/hr-fixtures";
 import { olaFromAccount, olaFull, olaWithoutForm } from "@/app/preview/hr-person/fixtures";
 
-import { AccountMismatchesPanel, mismatchOutcome } from "../AccountMismatchesPanel";
+import {
+  AccountMismatchesSection,
+  accountTodoCount,
+  mismatchOutcome,
+} from "../AccountMismatchesPanel";
 import { formFrom } from "../EditProfileDialog";
 import { PersonProfile } from "../PersonProfile";
 import { profileFormToPayload } from "../ProfileFieldsForm";
@@ -69,7 +73,7 @@ function client() {
 
 function renderProfile(person: PersonFull, me: Parameters<typeof hrConfig>[0]) {
   mocks.person = person;
-  // Pola zatrudnienia i pula stoją w zakładce „Czas i przerwy” (makieta 19.10.2026).
+  // Pola zatrudnienia i pula stoją w zakładce „Nieobecności i godziny” (dawniej „Czas i przerwy”).
   window.history.replaceState(null, "", "#czas");
   render(
     <QueryClientProvider client={client()}>
@@ -89,8 +93,11 @@ describe("Forma umowy na kartotece", () => {
     expect(screen.queryByText("Forma")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Edytuj kartotekę/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Zmień formę/ })).not.toBeInTheDocument();
-    // Pula bez słowa formy („Urlop” = UoP, „Płatne dni przerwy” = B2B).
-    expect(screen.getByText(/Pula płatnych dni/)).toBeInTheDocument();
+    // Pula bez słowa formy („Urlop” = UoP, „Płatne dni przerwy” = B2B) — karta
+    // „Nieobecności <rok>” z linią puli (22.10.2026).
+    expect(screen.getByText(/^Nieobecności \d{4}$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Pula na rok/)).toBeInTheDocument();
+    expect(screen.queryByText(/Płatne dni przerwy|^Urlop \d{4}/)).not.toBeInTheDocument();
   });
 
   it("Finanse: forma widoczna i „Zmień formę” zamiast edycji kartoteki", async () => {
@@ -175,15 +182,21 @@ describe("Rozjazdy kartoteka ↔ konto", () => {
     mocks.post.mockResolvedValue({ data: { aligned: { exit: 1, return: 0, missing: 1 } } });
     render(
       <QueryClientProvider client={client()}>
-        <AccountMismatchesPanel />
+        <AccountMismatchesSection data={MISMATCHES} />
       </QueryClientProvider>,
     );
-    // Pasek nazywa pozycje od razu; tabela po „Przejrzyj po kolei”.
-    expect(await screen.findByText(/Do wyrównania · 2/)).toBeInTheDocument();
+    // Sekcja „Konta i kartoteki” w „Porządkach” (22.10.2026) nazywa pozycje
+    // od razu; tabela po „Przejrzyj po kolei”.
+    expect(accountTodoCount(MISMATCHES, [])).toBe(2);
     expect(screen.getByText(/Igor Bezkartoteczny: konto bez kartoteki/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Przejrzyj po kolei/ }));
     expect(screen.getByText("Konto wyłączone")).toBeInTheDocument();
     expect(screen.getAllByText(/2 osoby w zespole/).length).toBeGreaterThan(0);
+    // Przepięcie zespołu — w schemacie katalogu (dawna „Struktura”).
+    expect(screen.getByRole("link", { name: "Schemacie" })).toHaveAttribute(
+      "href",
+      "/people?view=schemat",
+    );
     expect(screen.getByText("Forma do uzupełnienia: 1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Wyrównaj wg konta" }));
@@ -194,14 +207,21 @@ describe("Rozjazdy kartoteka ↔ konto", () => {
     });
   });
 
-  it("bez rozjazdów i braków — panelu nie ma", async () => {
-    mocks.mismatches = { items: [], total: 0, pending: { employment_type: 0, manager: 0 } };
-    const { container } = render(
+  it("bez rozjazdów i braków — liczba 0 i spokojne zdanie", () => {
+    const empty: AccountMismatches = { items: [], total: 0, pending: { employment_type: 0, manager: 0 } };
+    expect(accountTodoCount(empty, [])).toBe(0);
+    // Bez rozjazdów liczą się braki z serwera; kartoteki z katalogu mają pierwszeństwo.
+    expect(accountTodoCount({ ...empty, pending: { employment_type: 2, manager: 1 } }, [])).toBe(3);
+    expect(
+      accountTodoCount({ ...empty, pending: { employment_type: 2, manager: 1 } }, [
+        { user_id: 1, name: "Ola", what: "forma" },
+      ]),
+    ).toBe(1);
+    render(
       <QueryClientProvider client={client()}>
-        <AccountMismatchesPanel />
+        <AccountMismatchesSection data={empty} />
       </QueryClientProvider>,
     );
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByText("Kartoteki zgadzają się z kontami.")).toBeInTheDocument();
   });
 });

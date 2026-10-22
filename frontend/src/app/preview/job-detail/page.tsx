@@ -332,6 +332,14 @@ function columns(): KanbanColumn[] {
         entry_source: "proposal",
         added_to_job_by_id: 12,
         added_to_job_by_name: "Piotr Szkicowy",
+        // 0506: umowa przedwstępna wysłana, kandydat jeszcze nie odesłał.
+        pre_contract: {
+          id: 501,
+          state: "sent",
+          label: "Przedwstępna wysłana · czeka 2 dni",
+          tone: "wait",
+          detail: "Wysłana kandydatowi.",
+        },
       }),
     ]),
     col("verified", "Zweryfikowany", 23, []),
@@ -1597,6 +1605,17 @@ function JobDetailHarness() {
         const ids = (config.data as { candidate_ids?: number[] } | undefined)?.candidate_ids ?? [];
         config.adapter = async () => ({
           data: fakeMatchScores(ids),
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
+      // 0506: sekcja „Umowa przedwstępna” w zakładce „Umowa” — bez prośby.
+      if (config.url === "/api/pre-contracts/pair") {
+        config.adapter = async () => ({
+          data: { current: null, history: [], documents: [] },
           status: 200,
           statusText: "OK",
           headers: {},

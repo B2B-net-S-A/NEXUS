@@ -173,6 +173,7 @@ from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
 from app.api import b2b_esign
+from app.api import pre_contracts as pre_contracts_api
 from app.api import b2b_register_import
 from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
@@ -731,6 +732,9 @@ async def lifespan(app: FastAPI):
     from app.tasks.match_history_ttl import match_history_ttl_loop
     from app.tasks.slack_sla_alerts import slack_sla_alerts_loop
     from app.tasks.ai_spend_alerts import ai_spend_alerts_loop
+    from app.tasks.candidate_data_access_alerts import (
+        candidate_data_access_alerts_loop,
+    )
     from app.tasks.contract_alerts import contract_alerts_loop
     from app.tasks.competition_autofreeze import competition_autofreeze_loop
     from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
@@ -763,6 +767,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
     from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop
+    from app.tasks.pre_contract_sweeper import pre_contract_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
@@ -864,6 +869,9 @@ async def lifespan(app: FastAPI):
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
         "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
         "ai_spend_alerts": asyncio.create_task(ai_spend_alerts_loop()),
+        "candidate_data_access_alerts": asyncio.create_task(
+            candidate_data_access_alerts_loop()
+        ),
         "contract_alerts": asyncio.create_task(contract_alerts_loop()),
         "fx_refresh": asyncio.create_task(fx_refresh_loop()),
         "competition_autofreeze": asyncio.create_task(competition_autofreeze_loop()),
@@ -910,6 +918,8 @@ async def lifespan(app: FastAPI):
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
         "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
+        # 0506: umowa przedwstępna — wygasanie, przypomnienia, termin B2B.
+        "pre_contract_sweeper": asyncio.create_task(pre_contract_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
         # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
@@ -1201,6 +1211,8 @@ app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
 # 0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
 app.include_router(job_intake_forms_api.router, prefix="/api", tags=["jobs"])
 app.include_router(job_files_api.router, prefix="/api", tags=["jobs"])
+# 0506: umowa przedwstępna przy osobie w rekrutacji (prośba, podpisy, lista).
+app.include_router(pre_contracts_api.router, prefix="/api", tags=["pipeline"])
 # 0430: ogłoszenie do wklejenia na portale (zastąpiło `ai_writer`).
 app.include_router(job_ads_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])

@@ -106,7 +106,7 @@ CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
     ),
     NotificationCategory.system: CategoryInfo(
         "Konto i system",
-        "Zmiana hasła, alarmy kosztów AI i awarie automatów.",
+        "Zmiana hasła, alarmy kosztów AI, awarie automatów i masowe przeglądanie CV.",
         mandatory=True,
     ),
 }
@@ -126,6 +126,9 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.board_task_waiting: _C.mentions,
     # Rekruter czeka, aż potwierdzisz podpis jego umowy — imienne zadanie (0417).
     _T.b2b_signature_requested: _C.mentions,
+    # 0506: umowa przedwstępna — imienne zadanie (wystaw, podpisz) albo
+    # krok umowy, o którą ktoś sam poprosił; obserwowanie wyłącza się w panelu.
+    _T.pre_contract: _C.mentions,
     # 0418: zadanie DL po wzroście stawki — na DL czeka klient, nie do wyciszenia.
     _T.candidate_rate_change_task: _C.mentions,
     # Ktoś przejął Twoją osobę w „Nowych" — imienne, jak wzmianka.
@@ -187,6 +190,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.prep2_skipped: _C.interviews,
     _T.prep2_skip_threshold: _C.interviews,
     _T.interview_changed: _C.interviews,
+    _T.prep_review_ready: _C.interviews,
     # Akceptacje klienta (0451)
     _T.client_accepted: _C.acceptances,
     # 0374: koniec programu praktykanta — decyzja Head of Recruitment.
@@ -270,6 +274,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.password_changed_by_admin: _C.system,
     _T.ai_spend_alert: _C.system,
     _T.automation_failing: _C.system,
+    _T.candidate_data_access_alert: _C.system,
 }
 
 

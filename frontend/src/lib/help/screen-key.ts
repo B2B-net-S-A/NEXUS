@@ -42,8 +42,9 @@ export function screenKeyFor(pathname: string | null | undefined, search?: strin
   if (path === "/candidates" || path === "/talent-radar") return "candidates.list";
   if (path === "/calendar") return "calendar";
   if (path === "/finance") return "finance";
-  if (path === "/my-time") return "hr.my_time";
-  // Zgody (0483): zakładka „Zgody” w Akceptacjach i „Moje zgody” mają jeden przewodnik.
+  // Zgody (0483): zakładka „Zgody” w Akceptacjach i „Zgody i wydatki” w „Moim
+  // czasie” (dawne „Moje zgody”, `/people/consents` przekierowuje) mają jeden przewodnik.
+  if (path === "/my-time") return params.get("tab") === "consents" ? "hr.consents" : "hr.my_time";
   if (path === "/people/consents") return "hr.consents";
   if (path === "/people/approvals") {
     return params.get("tab") === "consents" ? "hr.consents" : "hr.approvals";

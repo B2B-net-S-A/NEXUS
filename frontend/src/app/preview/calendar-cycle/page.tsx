@@ -313,7 +313,64 @@ function Harness() {
       event_id: 601, speakers: [], fetched_at: at(now, -120),
       text: "Kasia DL: Opowiedz o swoim doświadczeniu.\nMichał Lewandowski: Od pięciu lat piszę w .NET, ostatnio transakcje zagnieżdżone w banku.",
     });
-    qc.setQueryData(prepQueryKey(603), { ...weakPrep, event_id: 603, candidate_id: 102, job_id: 2, talk_share: 0.61, review: { ...weakPrep.review!, level: "good", coverage: 0.9, remaining: [], summary: "Kandydatka opowiedziała projekty, przećwiczono pytania klienta." } });
+    // Ocena v2 (22.10.2026): tematy prowadzącego, odpowiedzi kandydata, notatka na Prep 2.
+    const v2Prep: Prep = {
+      ...weakPrep, event_id: 603, candidate_id: 102, job_id: 2, talk_share: 0.58, duration_seconds: 37 * 60,
+      online_meeting_url: "https://teams.example.com/prep",
+      review: {
+        status: "ok", level: "ok", coverage: 0.72, config_version: 2, prompt_version: "prep-review-v2",
+        summary: "Kandydatka dobrze opowiada własne projekty i podaje liczby. Ryzykiem na rozmowie jest Kafka i testy: odpowiada ogólnie. Prowadząca nie omówiła przebiegu rozmowy u klienta.",
+        remaining: ["Kafka", "Przebieg rozmowy u klienta: kto, ile trwa, live coding", "Jak testujesz integrację?"],
+        criteria: {
+          version: 2,
+          total: 72,
+          caps: [],
+          scores: { topics: 80, must_answers: 70, client_questions: 67, talk_share: 100 },
+          weights_used: { topics: 25, must_answers: 40, client_questions: 20, talk_share: 15 },
+          topics: [
+            { key: "topic:0", label: "Klient i projekt: zespół, technologia, tryb pracy", required: true, status: "covered", quote: "Klient to zespół płatności, osiem osób" },
+            { key: "topic:1", label: "Przebieg rozmowy u klienta: kto, ile trwa, live coding", required: true, status: "missing", quote: null },
+            { key: "topic:2", label: "Doświadczenie pod każdy must-have", required: true, status: "covered", quote: "migrowałam moduł rozliczeń na Javę 21" },
+            { key: "topic:3", label: "Stawka i dostępność", required: true, status: "covered", quote: "mogę zacząć od pierwszego" },
+            { key: "topic:4", label: "Pytania kandydata do klienta", required: false, status: "partial", quote: "a jak wygląda zespół" },
+          ],
+          answers: [
+            { key: "must:Java", label: "Java 17+", kind: "must", grade: "strong", quote: "migrowałam moduł rozliczeń na Javę 21", note: null },
+            { key: "must:Spring", label: "Spring Boot", kind: "must", grade: "strong", quote: "sama postawiłam serwis płatności od zera", note: null },
+            { key: "must:Kafka", label: "Kafka", kind: "must", grade: "weak", quote: "pracowałam, głównie konsumowanie zdarzeń", note: "Jeden przypadek: ile zdarzeń, jaki problem, co sama zrobiła." },
+            { key: "q:11", label: "Jak testujesz integrację?", kind: "question", grade: "general", quote: "piszemy testy, mamy Testcontainers", note: "„Ja” zamiast „my”, jeden konkretny test." },
+          ],
+          went_well: ["Projekt płatności opowiedziany samodzielnie, z liczbami", "4 z 6 pytań klienta przećwiczone"],
+          went_wrong: ["Kafka: odpowiedź bez przykładu", "Testy integracyjne: „mamy”, a nie „zrobiłam”"],
+          improve: ["Zacząć od listy tematów: przebieg rozmowy u klienta wypadł"],
+          own_projects: { told: true, quote: "sama postawiłam serwis płatności od zera" },
+          followup: [
+            { key: "must:Kafka", label: "Kafka", kind: "must", reason: "weak", quote: "pracowałam, głównie konsumowanie zdarzeń", note: "Jeden przypadek: ile zdarzeń, jaki problem, co sama zrobiła." },
+            { key: "topic:1", label: "Przebieg rozmowy u klienta: kto, ile trwa, live coding", kind: "topic", reason: "missing_topic", quote: null, note: null },
+            { key: "q:11", label: "Jak testujesz integrację?", kind: "question", reason: "general", quote: "piszemy testy, mamy Testcontainers", note: "„Ja” zamiast „my”, jeden konkretny test." },
+          ],
+          comparison: [],
+          items: [],
+        },
+      },
+    };
+    qc.setQueryData(prepQueryKey(603), v2Prep);
+    qc.setQueryData(prepTranscriptQueryKey(603), {
+      event_id: 603, fetched_at: at(now, -60 * 60),
+      speakers: [{ name: "Kasia DL", role: "staff", user_id: 8, seconds: 900 }, { name: "Anna Kowalska", role: "candidate", user_id: null, seconds: 1250 }],
+      text: "Kasia DL: Klient to zespół płatności, osiem osób.",
+      cues: [
+        { start: 134, speaker: "Kasia DL", role: "staff", text: "Klient to zespół płatności, osiem osób, sprinty dwutygodniowe." },
+        { start: 220, speaker: "Anna Kowalska", role: "candidate", text: "W ostatnim projekcie migrowałam moduł rozliczeń na Javę 21, czterdzieści serwisów." },
+        { start: 512, speaker: "Anna Kowalska", role: "candidate", text: "Sama postawiłam serwis płatności od zera, w Spring Boot." },
+        { start: 845, speaker: "Anna Kowalska", role: "candidate", text: "Z Kafką pracowałam, głównie konsumowanie zdarzeń, konfiguracją zajmował się inny zespół." },
+        { start: 892, speaker: "Kasia DL", role: "staff", text: "Klient na pewno dopyta o partycje i ponawianie, przygotuj jeden konkretny przypadek." },
+        { start: 1310, speaker: "Anna Kowalska", role: "candidate", text: "Piszemy testy, mamy Testcontainers w pipeline." },
+        { start: 1980, speaker: "Anna Kowalska", role: "candidate", text: "Mogę zacząć od pierwszego, a jak wygląda zespół po stronie klienta?" },
+      ],
+    });
+    qc.setQueryData(prepQueryKey(608), { ...v2Prep, event_id: 608 });
+    qc.setQueryData(prepQueryKey(609), { ...v2Prep, event_id: 609 });
     for (const p of Object.values(pairs)) {
       qc.setQueryData(prepOptionsQueryKey(p.candidate_id, p.job_id), {
         enabled: true, auto_transcribe: true,

@@ -118,13 +118,60 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   Mówcy z VTT (`services/teams_vtt.py`): zespół po nazwisku, kandydat po
   nazwisku albo jako jedyny mówca spoza zespołu; udział kandydata `None`, gdy
   nie da się go wskazać — nigdy 0.
-- **Ocena (`services/prep_review.py`, `AIFeatureKey.prep_review`, F24 = GPT-6
-  Luna, zapas Sonnet 5):** punkty buduje KOD (must-have w pisowni DL-a z
-  `dz_review.job_requirements` + pytania klienta z debriefów i przypięte),
-  model daje status i cytat, cytat spoza transkryptu = „nie było (bez
-  dowodu)”. Poziom liczy kod (`PREP_REVIEW_*`); w Prepie 2 punkt zaliczony
-  w Prepie 1 = `covered_in_prep1` poza mianownikiem. **Awaria modelu = `level
-  NULL`, nigdy „słaby”.** Pomiar Luny: `scripts/eval_prep_review.py`.
+- **Ocena v2 (22.10.2026, `services/prep_review.py` + czyste funkcje
+  `services/prep_review_scoring.py`, `AIFeatureKey.prep_review`, F24 = GPT-6
+  Luna, zapas Sonnet 5, `PROMPT_VERSION = prep-review-v2`).** Punkty buduje
+  KOD: tematy prowadzącego z ustawień (`topic:<nr>`, status covered /
+  partial / missing), odpowiedzi kandydata na must-have (pisownia DL-a)
+  i pytania tego klienta (stopień strong / general / weak / missing ze skali
+  w ustawieniach), w Prepie 2 zamiast must-have punkty z notatki na Prep 2
+  (`followup:<klucz z Prepu 1>`). Model daje status albo stopień, cytat,
+  jednozdaniową wskazówkę „co przećwiczyć” i listy went_well / went_wrong /
+  improve (dla prowadzącego). Cytat spoza transkryptu = „nie było (bez
+  dowodu)”; obce klucze / pominięta grupa / nieznane wartości dla większości
+  punktów = awaria (`unavailable`, `level NULL`, nigdy „słaby”).
+  **Wynik liczy kod:** kryterium 0–100, wynik = średnia ważona wagami z
+  ustawień; kryterium bez punktów (brak pytań klienta, transkrypt bez mówców
+  → brak udziału kandydata) wypada, a jego waga rozkłada się na resztę.
+  Poziom z progów; „za krótki = słaby”, pominięty temat obowiązkowy albo
+  słaba odpowiedź na must-have = najwyżej „OK” (`caps`). Pytanie klienta
+  mocne w Prepie 1 ma w Prepie 2 `covered_in_prep1` i nie liczy się.
+  **Notatka na Prep 2:** z Prepu 1 kod wybiera `criteria.followup` (słabe
+  odpowiedzi → must-have, których nie omówiono → pominięte tematy
+  obowiązkowe → ogólne → nieprzećwiczone pytania; przełączniki i limit
+  w ustawieniach); `remaining` = ich etykiety. Prep 2 ocenia te punkty
+  jeszcze raz — `criteria.comparison` (przed → po), `remaining` = co nadal
+  nie jest „mocne”. Prep 1 sprzed v2 daje notatkę z `remaining`.
+  `criteria.items` zostaje w kształcie sprzed v2 (stary widok okna i raporty).
+  Notatka `teams_prep` ma fakty, wnioski i listę do powtórzenia — bez
+  cytatów i bez transkryptu. Pomiar: `scripts/eval_prep_review.py`
+  (Luna vs Sonnet, nic nie zapisuje, `old_level` do porównania).
+- **Ocena w Kalendarzu (22.10.2026, decyzja Artura: wszystko zostaje
+  w przepływie Kalendarz → Rozmowy u klienta, bez osobnego menu „Prepy”).**
+  Karta osoby: pod krokiem Prep / Prep 2 z oceną `PrepStepReview` (plakietki
+  Nagranie · Transkrypt · Ocena, poziom z wynikiem, „Prowadzący: x z y
+  tematów”, „Kandydat: mocne · ogólne · słabe”, dwa zdania i wejścia „Pełna
+  ocena” / „Podsumowanie i follow-up” / „Transkrypt”); pod krokiem Prep 2,
+  zanim się odbył, `Prep2FollowupFromPrep1` — lista „Do powtórzenia na
+  Prepie 2” z oceny Prepu 1. Okno `PrepReviewDialog` ma zakładki Ocena (wynik
+  z wagami, `caps`, tematy, odpowiedzi z cytatem i „Przećwicz”, link „Jak
+  liczona jest ocena” → `/settings/prep-review`) · Podsumowanie i follow-up
+  (wnioski, notatka na Prep 2 albo porównanie Prep 1 → Prep 2) · Transkrypt
+  (`cues` z `GET …/transcript`: czas, mówca, rola; szukanie; klik w cytat
+  przenosi tu i podświetla wypowiedź; bez mówców — baner o ustawieniu Teams).
+  Ocena sprzed v2 = stary widok punktów bez zakładki podsumowania.
+- **Prep 2 z notatką i dzwonek „Prep N oceniony” (0507, 22.10.2026).**
+  `GET /interview-cycle/preps/options` niesie `prep1_followup` (notatka na
+  Prep 2 z najnowszej udanej oceny Prepu 1 pary, `prep_review.latest_prep1_review`);
+  okno „Zaplanuj Prep 2” pokazuje ją jako „Notatka do follow-upu · widzi tylko
+  zespół” i ma przełącznik „Dopisz do zaproszenia kandydata” — zdanie „Na
+  spotkaniu wrócimy do: …” z samymi nazwami punktów (`followupInvitationLine`),
+  nigdy z ocenami. Po każdej udanej ocenie `prep_notifications.notify_review_ready`
+  wysyła `prep_review_ready` (ikona „Kalendarz”, licznik bez dymka,
+  `QUIET_INTERVIEW_TYPES`) do ludzi pary (`prep_editor_ids`): „Prep 1 oceniony ·
+  OK (72%)” + „3 punkty do powtórzenia na Prepie 2”, w Prepie 2 „Z Prepu 1
+  poprawione x z y”. Ocena niedostępna nie dzwoni; awaria dzwonka nie cofa
+  oceny (osobny commit po ocenie). Dedup dobowy po (`prep_review`, id wydarzenia).
 - **Ustawienia → Ocena prepów (0505, 22.10.2026, makiety
   https://claude.ai/artifact/1h38jS5LMc1673CENvUejR, plansza 5).** Head of
   Recruitment i admin publikują wersję ustawień (`PUT /api/prep-review-config`,
@@ -139,7 +186,7 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   startową); nieczytelna = startowa + log, ocena nie staje. Progi, minimalna
   długość, udział kandydata i limit pytań działają od 0505; wagi kryteriów,
   tematy prowadzącego, skala odpowiedzi, notatka na Prep 2 i wskazówki dla AI
-  czyta nowa ocena (PR 2 planu). W menu Ustawień pozycja jest dla admina, HoR
+  czyta ocena v2 (punkt wyżej). W menu Ustawień pozycja jest dla admina, HoR
   i DL-a — rekruter ma w Ustawieniach samo „Moje konto”, stronę otwiera
   linkiem „Jak liczona jest ocena” z oceny prepu (middleware go wpuszcza).
 - **Bramki MIĘKKIE** (nic nie blokuje): Prep 2 wymagany zawsze, gdy rozmowa
