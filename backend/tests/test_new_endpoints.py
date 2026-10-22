@@ -189,9 +189,12 @@ async def test_candidates_include_last_activity_adds_triage_fields(
             assert value is None or (isinstance(value, str) and len(value) > 0), (
                 f"{key} must be None or non-empty str, got {value!r}"
             )
-        # Preview length cap is 120 chars + optional ellipsis
+        # Limit podglądu: `_NOTE_PREVIEW_MAX_CHARS` (220 od podniesienia capu;
+        # wielokropek mieści się w limicie).
         if isinstance(it["last_note_preview"], str):
-            assert len(it["last_note_preview"]) <= 121
+            from app.api.candidates import _NOTE_PREVIEW_MAX_CHARS
+
+            assert len(it["last_note_preview"]) <= _NOTE_PREVIEW_MAX_CHARS
 
 
 @pytest.mark.asyncio
