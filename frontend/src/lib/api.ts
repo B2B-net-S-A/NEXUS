@@ -6804,6 +6804,8 @@ export interface GeneratedCvItem {
   stage_cv_status?: "draft" | "finalized" | null;
   stage_cv_updated_at?: string | null;
   stage_cv_finalized_at?: string | null;
+  /** Odrzucone „Odrzuć to CV” w karcie „CV do klienta” (audyt 22.10). */
+  discarded?: boolean;
 }
 
 export interface CvGeneratedListParams {
