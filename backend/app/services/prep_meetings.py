@@ -139,7 +139,12 @@ def app_only_ready() -> bool:
 
 
 async def active_prep(
-    db: AsyncSession, *, candidate_id: int, job_id: int, prep_no: int
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    prep_no: int,
+    at: Optional[datetime] = None,
 ) -> Optional[PrepMeeting]:
     """Prep o tym numerze w BIEŻĄCEJ rundzie rozmów pary.
 
@@ -161,8 +166,11 @@ async def active_prep(
     dwa dni wcześniej; ekran poprosił o Prep 1 jeszcze raz, serwer go założył
     i kandydat miał dwa zaproszenia). Lustro ``late_preps`` w
     ``interview_cycle.load_snapshots``.
+
+    ``at`` = chwila, względem której liczy się runda (domyślnie teraz);
+    ocena Prepu 2 podaje start tego prepu (audyt 22.10.2026, F42).
     """
-    now = datetime.now(timezone.utc)
+    now = _utc(at) if at is not None else datetime.now(timezone.utc)
     starts = [
         _utc(s)
         for s in (

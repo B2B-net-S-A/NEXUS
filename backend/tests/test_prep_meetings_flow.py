@@ -1182,3 +1182,110 @@ async def test_teams_followup_is_moved_and_cancelled_in_the_organizer_calendar(
     assert cancelled.status_code == 200, cancelled.text
     assert cancelled.json()["outlook"] == "cancelled"
     assert cancels == [graph_id]
+
+
+# ── Audyt 22.10.2026 (F42): notatka na Prep 2 tylko z Prepu 1 tej rundy ──────
+
+
+async def _prep_row(
+    cand_id: int,
+    job_id: int,
+    owner_id: int,
+    *,
+    prep_no: int,
+    hours: float,
+    review: str | None = None,
+    followup: list[dict] | None = None,
+) -> int:
+    """Prep w kalendarzu (bez Grapha) z oceną o danym statusie."""
+    async with AsyncSessionLocal() as db:
+        start = datetime.now(timezone.utc) + timedelta(hours=hours)
+        ev = CalendarEvent(
+            title=f"Prep {prep_no}",
+            event_type=EventType.prep_call,
+            start_time=start,
+            end_time=start + timedelta(minutes=45),
+            candidate_id=cand_id,
+            job_id=job_id,
+            created_by=owner_id,
+            operational_owner_id=owner_id,
+        )
+        db.add(ev)
+        await db.flush()
+        prep = PrepMeeting(
+            calendar_event_id=ev.id,
+            candidate_id=cand_id,
+            job_id=job_id,
+            prep_no=prep_no,
+            organizer_user_id=owner_id,
+            organizer_upn=f"prep-owner-{owner_id}@example.com",
+            transcript_status="fetched" if review else "waiting",
+        )
+        db.add(prep)
+        await db.flush()
+        if review is not None:
+            db.add(
+                PrepReview(
+                    prep_meeting_id=prep.id,
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    status=review,
+                    level="ok" if review == "ok" else None,
+                    criteria={"followup": followup or []},
+                    remaining=[],
+                )
+            )
+        await db.commit()
+        return prep.id
+
+
+def _point(label: str) -> dict:
+    return {"key": f"must:{label}", "label": label, "kind": "must", "reason": "weak"}
+
+
+async def test_prep2_note_comes_only_from_prep1_of_the_current_round(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Decyzja Artura 22.10.2026 (F42): runda 2 ma Prep 1 bez udanej oceny —
+    notatka na Prep 2 i ocena Prepu 2 są puste, nie biorą punktów z rundy 1."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    await _prep_row(
+        cand_id,
+        job_id,
+        dl_id,
+        prep_no=1,
+        hours=-72,
+        review="ok",
+        followup=[_point("Kubernetes")],
+    )
+    await _interview(cand_id, job_id, dl_id, hours=-48)  # runda 1 za nami
+    round2_prep1 = await _prep_row(
+        cand_id, job_id, dl_id, prep_no=1, hours=-2, review="unavailable"
+    )
+    await _interview(cand_id, job_id, dl_id, hours=48)  # runda 2 przed nami
+    prep2 = await _prep_row(cand_id, job_id, rec_id, prep_no=2, hours=24)
+
+    url = f"/api/interview-cycle/preps/options?candidate_id={cand_id}&job_id={job_id}"
+    opts = await app_client.get(url, headers=rec_h)
+    assert opts.status_code == 200, opts.text
+    assert opts.json()["prep1_followup"] == []
+    async with AsyncSessionLocal() as db:
+        prep = await db.get(PrepMeeting, prep2)
+        assert await prep_review._prep1_review(db, prep) is None
+
+    # Ocena Prepu 1 rundy 2 się udała — notatka idzie z niej, nie z rundy 1.
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(PrepReview).where(PrepReview.prep_meeting_id == round2_prep1)
+        )
+        row.status, row.level = "ok", "ok"
+        row.criteria = {"followup": [_point("Kafka")]}
+        await db.commit()
+    opts = await app_client.get(url, headers=rec_h)
+    assert [f["key"] for f in opts.json()["prep1_followup"]] == ["must:Kafka"]
+    async with AsyncSessionLocal() as db:
+        prep = await db.get(PrepMeeting, prep2)
+        review = await prep_review._prep1_review(db, prep)
+        assert review is not None and review.prep_meeting_id == round2_prep1
