@@ -1088,9 +1088,11 @@ async def _candidates(db: AsyncSession, doc: ApprovalDocument) -> list[ApprovalR
         ApprovalRequest.currency == doc.currency,
     ]
     if doc.issue_date is not None:
+        # Prośba nie później niż 30 dni po wystawieniu faktury: kolejne faktury
+        # subskrypcji się przypinają, starsze faktury sprzedawcy — nie.
         clauses.append(
             func.date(ApprovalRequest.submitted_at)
-            >= doc.issue_date - timedelta(days=MATCH_LOOKBACK_DAYS)
+            <= doc.issue_date + timedelta(days=MATCH_LOOKBACK_DAYS)
         )
     return list(
         await db.scalars(

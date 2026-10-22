@@ -439,6 +439,82 @@ async def test_ksef_cost_invoice_pins_to_the_request_with_its_seller(
     assert row["last_document"]["comparison"]["status"] == "fits"
 
 
+def _ksef_item(nip: str, issue_date, gross: float = 240.0) -> dict:
+    return {
+        "invoiceNumber": f"FV {uuid.uuid4().hex[:6]}",
+        "issueDate": issue_date.isoformat(),
+        "seller": {"nip": nip, "name": "Dostawca Testowy"},
+        "netAmount": round(gross / 1.23, 2),
+        "vatAmount": round(gross - gross / 1.23, 2),
+        "grossAmount": gross,
+        "currency": "PLN",
+        "invoiceType": "Vat",
+    }
+
+
+async def _store_ksef(item: dict) -> str:
+    nip = item["seller"]["nip"]
+    async with AsyncSessionLocal() as db:
+        state = await cost_invoices.store(
+            db,
+            item,
+            ksef_number=f"{nip}-20261020-{uuid.uuid4().hex[:12].upper()}-AC",
+            now=datetime.now(timezone.utc),
+        )
+        await db.commit()
+    return state
+
+
+@pytest.mark.asyncio
+async def test_ksef_match_window_is_thirty_days_before_the_request_not_after(
+    client, team
+) -> None:
+    """Prośba nie później niż 30 dni po wystawieniu faktury (audyt 22.10, F18):
+    kolejna faktura subskrypcji przypina się sama, stara faktura sprzedawcy
+    z kolejki nie przypina się do świeżej zgody."""
+
+    nip = _nip(int(uuid.uuid4().int % 10**8))
+    await _approved(
+        client,
+        team,
+        {
+            **_training("240"),
+            "kind": "subscription",
+            "recurrence": "monthly",
+            "seller_nip": nip,
+        },
+    )
+    later = business_today() + timedelta(days=40)
+    assert await _store_ksef(_ksef_item(nip, later)) == "pinned"
+
+    old_nip = _nip(int(uuid.uuid4().int % 10**8))
+    old = _ksef_item(old_nip, business_today() - timedelta(days=40))
+    assert await _store_ksef(old) == "unmatched"
+    await _approved(
+        client,
+        team,
+        {
+            **_training("240"),
+            "kind": "subscription",
+            "recurrence": "monthly",
+            "seller_nip": old_nip,
+        },
+    )
+    async with AsyncSessionLocal() as db:
+        doc = await db.scalar(
+            select(ApprovalDocument).where(
+                ApprovalDocument.seller_nip == old_nip,
+                ApprovalDocument.invoice_number == old["invoiceNumber"],
+            )
+        )
+    assert doc is not None
+    assert (doc.status, doc.match_reason, doc.approval_request_id) == (
+        "unmatched",
+        "no_approval",
+        None,
+    )
+
+
 @pytest.mark.asyncio
 async def test_request_without_document_expires_after_thirty_days(client, team) -> None:
     approved = await _approved(client, team, _training("300"))
