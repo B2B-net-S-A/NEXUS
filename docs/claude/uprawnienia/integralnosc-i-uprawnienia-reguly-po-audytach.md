@@ -180,6 +180,9 @@ i trafiło do katalogu „Ludzie”.
   (domyślnie i przy nieznanej wartości: log `WARNING` z `user_id`, bez
   zapisu), `enforce` (wyłącza). Zmiana wyłącznie workflow „Coolify set env”.
   Przełączenie na `enforce` dopiero po przejrzeniu logu trybu `report`.
+  Produkcja: `enforce` od wdrożenia 22.10.2026 wieczorem (decyzja Artura po
+  przebiegu próbnym: 44 konta, 9 do wyłączenia, wszystkie 404). Każdy przebieg
+  zostawia w logu linię `m365_account_sweep done {…}`.
 - Brak poświadczeń, 401/403 rejestracji = koniec przebiegu bez zmian.
   Sieć, 5xx, 429, 404 z innym kodem = to konto bez zmian (`errors`).
 - Więcej niż `M365_ACCOUNT_SWEEP_MAX_PER_RUN` (domyślnie 10) kont do

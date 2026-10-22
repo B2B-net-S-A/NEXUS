@@ -368,3 +368,44 @@ async def test_unknown_or_missing_admin_decision_does_not_protect(enforce) -> No
 async def _kept(user_id: int) -> Optional[bool]:
     async with AsyncSessionLocal() as db:
         return await sweep._kept_by_admin(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_loop_logs_every_run_even_with_nothing_to_do(monkeypatch, caplog) -> None:
+    import asyncio
+    import logging
+
+    from app.tasks import m365_account_sweep as loop
+
+    class _Session:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    async def quiet_run(_db):
+        return {
+            "mode": "report",
+            "status": "ok",
+            "checked": 44,
+            "errors": 0,
+            "planned": [],
+            "kept_by_admin": [],
+        }
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(settings, "M365_ACCOUNT_SWEEP_MODE", "report")
+    monkeypatch.setattr(loop, "AsyncSessionLocal", _Session)
+    monkeypatch.setattr(loop, "run_once", quiet_run)
+    monkeypatch.setattr(loop.asyncio, "sleep", stop)
+    with caplog.at_level(logging.INFO, logger=loop.logger.name):
+        with pytest.raises(asyncio.CancelledError):
+            await loop.m365_account_sweep_loop()
+    assert any(
+        "m365_account_sweep done" in r.getMessage()
+        and "'checked': 44" in r.getMessage()
+        for r in caplog.records
+    )

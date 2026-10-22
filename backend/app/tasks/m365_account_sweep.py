@@ -33,8 +33,9 @@ async def m365_account_sweep_loop() -> None:
         try:
             async with AsyncSessionLocal() as db:
                 result = await run_once(db)
-            if result.get("planned") or result.get("errors"):
-                logger.info("m365_account_sweep done %s", result)
+            # Każdy przebieg zostawia linię (też „nic do wyłączenia”) — bez niej
+            # cichy przebieg nie różnił się w logach od pętli, która nie biegła.
+            logger.info("m365_account_sweep done %s", result)
         except Exception:  # noqa: BLE001 — jedno złe przejście nie zabija pętli
             logger.exception("m365_account_sweep failed")
         await asyncio.sleep(INTERVAL_SECONDS)
