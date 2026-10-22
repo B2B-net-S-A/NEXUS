@@ -589,3 +589,36 @@ def test_board_badge_keeps_only_what_is_still_missing() -> None:
         _still_missing(["candidate_rate"], {"candidate_expected_rate_hourly": 120})
         == []
     )
+
+
+@pytest.mark.asyncio
+async def test_skip_bell_names_the_gaps_without_the_409_wording(monkeypatch) -> None:
+    """Dzwonek do prowadzącego wymienia braki krótko — bez osieroconego
+    cudzysłowu i dopisku z komunikatu 409 (audyt 22.10.2026, F93)."""
+
+    from types import SimpleNamespace
+
+    from app.api.pipeline import _notify_recruiter_of_skip
+    from app.services import notification_triggers
+
+    sent: list[dict] = []
+
+    async def fake_emit(_db, **kwargs):
+        sent.append(kwargs)
+
+    class _Db:
+        async def get(self, *_args):
+            return None
+
+    monkeypatch.setattr(notification_triggers, "emit", fake_emit)
+    await _notify_recruiter_of_skip(
+        _Db(),
+        job=SimpleNamespace(id=7, title="Java Developer", recruiter_id=2),
+        candidate_id=11,
+        mover=SimpleNamespace(id=1, name="Anna Nowak"),
+        stage_name="Zweryfikowany",
+        missing=["why_candidate", "candidate_rate", "location"],
+    )
+    assert sent[0]["message"] == (
+        "Java Developer · bez: Dlaczego ten kandydat, stawka kandydata, Lokalizacja"
+    )

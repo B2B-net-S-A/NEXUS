@@ -1041,6 +1041,16 @@ def _still_missing(keys: list[str], payload: dict) -> list[str]:
     return out
 
 
+# Krótkie nazwy braków w dzwonku — etykiety komunikatu 409 mają cudzysłowy
+# i dopiski („ta rekrutacja nie ma pytań…”), które w dzwonku nie pasują.
+_SKIP_BELL_LABELS = {
+    "screening_sheet": "arkusz screeningu",
+    "why_candidate": "Dlaczego ten kandydat",
+    "candidate_rate": "stawka kandydata",
+    "debrief": "debrief",
+}
+
+
 async def _notify_recruiter_of_skip(
     db: AsyncSession,
     *,
@@ -1067,7 +1077,7 @@ async def _notify_recruiter_of_skip(
         else ""
     ) or "Kandydat"
     labels = ", ".join(
-        pipeline_move_rules.verified_requirement_label(key).strip("„”")
+        _SKIP_BELL_LABELS.get(key) or move_requirements.card_field_label(key)
         for key in missing
     )
     await emit(
