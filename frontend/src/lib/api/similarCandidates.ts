@@ -36,12 +36,19 @@ export interface SimilarCandidate extends SimilarPerson {
   shared_skills: string[];
   only_source_skills: string[];
   only_candidate_skills: string[];
+  /** Niepuste = „Możliwy duplikat” (kosinus ≥ 0,90 i ta sama tożsamość). */
+  duplicate_signals: DuplicateSignal[];
 }
+
+export type DuplicateSignal = "name" | "phone" | "linkedin" | "cv_file";
 
 export interface SimilarCandidatesResponse {
   candidate_id: number;
-  /** `no_vector` — osoba nie ma jeszcze wektora CV; `unavailable` — wyszukiwarka nie odpowiedziała. */
-  status: "ok" | "no_vector" | "unavailable";
+  /**
+   * `no_vector` — osoba nie ma jeszcze wektora CV; `no_cv` — bez CV i umiejętności
+   * nie ma z czym porównać; `unavailable` — wyszukiwarka nie odpowiedziała.
+   */
+  status: "ok" | "no_vector" | "no_cv" | "unavailable";
   total: number;
   /** Osoba z profilu — druga kolumna porównania. */
   source: SimilarPerson;

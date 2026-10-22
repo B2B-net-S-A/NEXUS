@@ -482,6 +482,8 @@ export function CandidateDetailV2({
   const canDeleteCandidate = canWriteSourcing && canHardDeleteCandidate(currentUser);
   const canMerge = canWriteSourcing && canMergeCandidates(currentUser);
   const [mergeOpen, setMergeOpen] = useState(false);
+  // „Scal…” przy możliwym duplikacie z zakładki „Podobni” — okno od razu na porównaniu.
+  const [mergeDuplicateId, setMergeDuplicateId] = useState<number | null>(null);
   const deleteMut = useMutation({
     mutationFn: () => candidatesApi.delete(id),
     onSuccess: () => {
@@ -877,6 +879,14 @@ export function CandidateDetailV2({
                     candidateName={fullName}
                     recruitments={history}
                     canWrite={canWriteSourcing}
+                    onMergeDuplicate={
+                      canMerge
+                        ? (duplicateId) => {
+                            setMergeDuplicateId(duplicateId);
+                            setMergeOpen(true);
+                          }
+                        : undefined
+                    }
                   />
                 ) : null}
               </TabsContent>
@@ -991,8 +1001,14 @@ export function CandidateDetailV2({
       ) : null}
       {canMerge && candidate ? (
         <CandidateMergeDialog
+          // Okno czyta duplikat tylko przy montowaniu — inny duplikat = nowe okno.
+          key={mergeDuplicateId ?? "pick"}
           open={mergeOpen}
-          onOpenChange={setMergeOpen}
+          onOpenChange={(next) => {
+            setMergeOpen(next);
+            if (!next) setMergeDuplicateId(null);
+          }}
+          initialDuplicateId={mergeDuplicateId}
           candidate={{
             id: candidateNumericId,
             name: candidate.name,

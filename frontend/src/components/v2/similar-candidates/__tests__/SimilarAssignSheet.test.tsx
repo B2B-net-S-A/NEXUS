@@ -61,6 +61,7 @@ const PAWEL: SimilarCandidate = {
   shared_skills: ["active directory", "windows server"],
   only_source_skills: ["microsoft 365"],
   only_candidate_skills: [],
+  duplicate_signals: [],
 };
 
 const job = (id: number, title: string, group: PickableJob["group"]): PickableJob => ({

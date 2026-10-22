@@ -5,6 +5,17 @@ w Qdrancie (ten sam indeks co wyszukiwanie), bez żadnej rekrutacji. Obok stoi
 dowód, który rekruter sprawdzi sam: wspólne umiejętności (kanoniczne nazwy,
 ta sama reguła co silnik — ``candidate_known_skill_names``).
 
+Możliwy duplikat (pomiar na produkcji 22.10.2026): para z kosinusem
+≥ ``DUPLICATE_MIN``, w której obie osoby mają CV, w 13 z 13 przypadków była
+tą samą osobą (imię i nazwisko, telefon, LinkedIn albo ten sam plik CV) —
+zawsze z innym e-mailem, więc reguła „ta sama osoba = ten sam e-mail” jej nie
+łapie. Znacznik wymaga kosinusa i co najmniej jednego sygnału tożsamości;
+nic nie scala samo — „Scal…” otwiera zwykłe okno scalania.
+
+Osoba bez CV i bez umiejętności (``is_thin_profile``) ma wektor zbudowany
+z samych pól formalnych; wszystkie takie wektory są sobie „bardzo podobne”
+(0,90–0,95). Taka osoba nie ma listy (``no_cv``) i nie trafia na listy innych.
+
 Sprawdzenie pod rekrutację to osobny krok (:func:`critical_check`): ta sama
 bramka umiejętności krytycznych co wyszukiwanie — krytyczne z wyboru Delivery
 Leada (``effective_critical``), słowa ich wierszy (``critical_gate_options``)
@@ -23,7 +34,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
+from app.models.candidate_document import CandidateDocument
+from app.services.candidate_identity_quarantine import normalize_person_name_part
 from app.services.candidate_rate_from import effective_rate
+from app.services.dedup_service import _phone_keys
 from app.services.embedding_service import nearest_candidates
 from app.services.my_people import active_process_counts
 from app.services.scoring_service import (
@@ -40,11 +54,19 @@ PAGE_MAX = 50
 #: 0,73 = mediana. Zmiana progu nie zmienia kolejności, tylko podpis.
 VERY_SIMILAR_MIN = 0.78
 SIMILAR_MIN = 0.73
+#: Od tego kosinusu para z sygnałem tożsamości to „Możliwy duplikat”. Pomiar
+#: 22.10.2026 (200 osób × 20 najbliższych): ≥ 0,90 i obie z CV — 13/13 ta sama
+#: osoba; 0,85–0,90 — już tylko 4/15.
+DUPLICATE_MIN = 0.90
+#: Poniżej tylu znaków tekstu CV (i bez umiejętności) nie ma z czym porównać.
+#: Na produkcji 3 306 takich profili, 3 298 z wektorem.
+THIN_CV_CHARS = 200
 #: Ile umiejętności „tylko u jednego” pokazuje porównanie.
 ONLY_SKILLS_CAP = 12
 
 Level = Literal["very", "similar", "partial"]
-Status = Literal["ok", "no_vector", "unavailable"]
+Status = Literal["ok", "no_vector", "no_cv", "unavailable"]
+DuplicateSignal = Literal["name", "phone", "linkedin", "cv_file"]
 
 
 def similarity_level(score: float) -> Level:
@@ -64,6 +86,71 @@ def ordered_skills(candidate) -> list[str]:
         if name in known
     ]
     return head + sorted(known - set(head))
+
+
+def is_thin_profile(candidate) -> bool:
+    """Bez tekstu CV i bez umiejętności — wektor z samych pól formalnych."""
+    text_len = len((getattr(candidate, "raw_cv_text", None) or "").strip())
+    return text_len < THIN_CV_CHARS and not candidate_known_skill_names(candidate)
+
+
+def _name_key(candidate) -> Optional[frozenset[str]]:
+    """Imię i nazwisko bez wielkości liter i znaków; kolejność bez znaczenia."""
+    parts = (
+        normalize_person_name_part(getattr(candidate, "name", None)),
+        normalize_person_name_part(getattr(candidate, "lastname", None)),
+    )
+    return frozenset(parts) if all(parts) else None
+
+
+def duplicate_signals(
+    source, other, score: float, *, same_cv_file: bool = False
+) -> tuple[DuplicateSignal, ...]:
+    """Sygnały, że to ta sama osoba — puste poniżej ``DUPLICATE_MIN``."""
+    if score < DUPLICATE_MIN:
+        return ()
+    signals: list[DuplicateSignal] = []
+    name = _name_key(source)
+    if name is not None and name == _name_key(other):
+        signals.append("name")
+    if set(_phone_keys(getattr(source, "phone", None))) & set(
+        _phone_keys(getattr(other, "phone", None))
+    ):
+        signals.append("phone")
+    slug = getattr(source, "linkedin_slug", None)
+    if slug and slug == getattr(other, "linkedin_slug", None):
+        signals.append("linkedin")
+    if same_cv_file:
+        signals.append("cv_file")
+    return tuple(signals)
+
+
+async def shared_cv_files(
+    db: AsyncSession, source_id: int, candidate_ids: Sequence[int]
+) -> set[int]:
+    """Osoby z ``candidate_ids``, które mają ten sam plik (SHA) co osoba źródłowa."""
+    if not candidate_ids:
+        return set()
+    active = CandidateDocument.source_deleted_at.is_(None)
+    source_files = (
+        select(CandidateDocument.content_sha256)
+        .where(
+            CandidateDocument.candidate_id == source_id,
+            CandidateDocument.content_sha256.is_not(None),
+            active,
+        )
+        .scalar_subquery()
+    )
+    rows = await db.execute(
+        select(CandidateDocument.candidate_id)
+        .where(
+            CandidateDocument.candidate_id.in_(list(candidate_ids)),
+            CandidateDocument.content_sha256.in_(source_files),
+            active,
+        )
+        .distinct()
+    )
+    return {int(candidate_id) for candidate_id in rows.scalars().all()}
 
 
 @dataclass(frozen=True)
@@ -135,6 +222,7 @@ class SimilarRow:
     level: Level
     overlap: SkillOverlap
     active_processes: int
+    duplicate_signals: tuple[DuplicateSignal, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -155,8 +243,13 @@ async def find_similar(
     """Strona podobnych osób z puli ``POOL_SIZE`` najbliższych w Qdrancie.
 
     Globalna czarna lista nigdy się nie pokazuje — takiej osoby i tak nie
-    zaproponujemy (bramka dodania ją odrzuca).
+    zaproponujemy (bramka dodania ją odrzuca). Profile bez CV i umiejętności
+    odpadają (patrz :func:`is_thin_profile`). Możliwy duplikat zostaje mimo
+    filtrów — filtry mówią o przydatności do rekrutacji, a duplikat to porządek
+    w bazie.
     """
+    if is_thin_profile(source):
+        return SimilarResult("no_cv", [], 0)
     found = await nearest_candidates(source.id, limit=POOL_SIZE)
     if found is None:
         return SimilarResult("unavailable", [], 0)
@@ -178,13 +271,35 @@ async def find_similar(
         .scalars()
         .all()
     )
-    by_id = {candidate.id: candidate for candidate in loaded}
+    by_id = {
+        candidate.id: candidate
+        for candidate in loaded
+        if not is_thin_profile(candidate)
+    }
     active = await active_process_counts(db, list(by_id))
+    same_file = await shared_cv_files(
+        db,
+        source.id,
+        [cid for cid, score in hits if cid in by_id and score >= DUPLICATE_MIN],
+    )
+    signals = {
+        candidate_id: duplicate_signals(
+            source,
+            by_id[candidate_id],
+            score,
+            same_cv_file=candidate_id in same_file,
+        )
+        for candidate_id, score in hits
+        if candidate_id in by_id
+    }
     kept = [
         (by_id[candidate_id], score)
         for candidate_id, score in hits
         if candidate_id in by_id
-        and passes_filters(by_id[candidate_id], filters, active.get(candidate_id, 0))
+        and (
+            signals[candidate_id]
+            or passes_filters(by_id[candidate_id], filters, active.get(candidate_id, 0))
+        )
     ]
     source_skills = ordered_skills(source)
     page = kept[offset : offset + limit]
@@ -197,6 +312,7 @@ async def find_similar(
                 level=similarity_level(score),
                 overlap=skill_overlap(source_skills, ordered_skills(candidate)),
                 active_processes=active.get(candidate.id, 0),
+                duplicate_signals=signals[candidate.id],
             )
             for candidate, score in page
         ],
