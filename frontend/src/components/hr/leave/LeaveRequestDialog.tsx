@@ -60,6 +60,8 @@ export interface LeaveRequestDialogProps {
   allowedTypes?: LeaveType[];
   /** Forma osoby (z salda) — słowa okna, zanim przyjdzie podgląd (D4, D5). */
   employmentType?: EmploymentType;
+  /** `on_behalf` z kartoteki („Dodaj za tę osobę”): osoba ustalona, bez wyboru. */
+  personUserId?: number;
 }
 
 /**
@@ -76,6 +78,7 @@ export function LeaveRequestDialog({
   mode,
   allowedTypes,
   employmentType,
+  personUserId,
 }: LeaveRequestDialogProps) {
   const onBehalf = mode === "on_behalf";
   const { showToast } = useToast();
@@ -86,7 +89,8 @@ export function LeaveRequestDialog({
   const attachProof = useAttachLeaveProof();
 
   const today = warsawToday();
-  const [personId, setPersonId] = useState("");
+  const fixedPerson = personUserId === undefined ? "" : String(personUserId);
+  const [personId, setPersonId] = useState(fixedPerson);
   const [leaveType, setLeaveType] = useState<LeaveType>("vacation");
   const [start, setStart] = useState(today);
   const [end, setEnd] = useState(today);
@@ -149,7 +153,7 @@ export function LeaveRequestDialog({
   const report = reportsAbsence(form);
 
   const reset = () => {
-    setPersonId("");
+    setPersonId(fixedPerson);
     setLeaveType("vacation");
     setStart(today);
     setEnd(today);
@@ -271,6 +275,7 @@ export function LeaveRequestDialog({
             >
               <Select
                 value={personId}
+                disabled={fixedPerson !== ""}
                 onValueChange={(value) => {
                   setPersonId(value);
                   setSubstitute(NO_SUBSTITUTE);

@@ -45,6 +45,7 @@ import { lifecycleKeys } from "@/lib/api/hr-lifecycle";
 import { agreementKeys } from "@/lib/api/hr-agreements";
 import { documentKeys } from "@/lib/api/hr-documents";
 import { personHistoryKey } from "@/lib/api/hr-person-history";
+import { leaveKeys } from "@/lib/api/hr-leave";
 
 import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
@@ -205,6 +206,19 @@ function prepare(params: URLSearchParams) {
         formVisible: as !== "hr-only",
       }),
     );
+  }
+  // „Dodaj za tę osobę”: lista osób z Akceptacji. Za B2B i zlecenie wpisują
+  // tylko Kadry (D5), przełożony tylko za umowę o pracę.
+  if (as === "hr" || as === "hr-only" || as === "account" || as === "manager") {
+    client.setQueryData(leaveKeys.people, [
+      {
+        user_id: ola.id,
+        name: ola.name,
+        employment_type: form,
+        department: "Rekrutacja IT",
+        can_enter: as !== "manager" || form === "uop",
+      },
+    ]);
   }
   // Panel sprzętu montuje się tylko dla Kadr, recepcji i admina.
   if (as === "hr" || as === "hr-only" || as === "account") {

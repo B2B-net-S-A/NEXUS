@@ -13,7 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
-import { HR_COUNTS_MUTATION_KEY, useHrConfig, type EmploymentType } from "@/lib/api/hr";
+import { HR_COUNTS_MUTATION_KEY, hrKeys, useHrConfig, type EmploymentType } from "@/lib/api/hr";
 import { SUBSTITUTION_QUERY_KEY } from "@/lib/api/hr-dashboard";
 import { payrollKeys } from "@/lib/api/hr-payroll";
 import { teamKeys } from "@/lib/api/hr-team";
@@ -652,10 +652,16 @@ export function useCancelTeamLeave() {
 
 export function useEnterOnBehalf() {
   const invalidate = useInvalidateLeave();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: OnBehalfInput) =>
       (await api.post<LeaveRequestRow>(`${ROOT}/approvals/on-behalf`, input)).data,
-    onSuccess: invalidate,
+    // Wpis z kartoteki („Dodaj za tę osobę”) — jej lista nieobecności i pula też.
+    onSuccess: (_row, input) =>
+      Promise.all([
+        invalidate(),
+        queryClient.invalidateQueries({ queryKey: hrKeys.person(input.user_id) }),
+      ]),
   });
 }
 

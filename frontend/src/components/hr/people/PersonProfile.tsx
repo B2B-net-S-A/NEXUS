@@ -18,6 +18,7 @@ import {
 import { assignmentLabel } from "@/components/equipment/equipment-format";
 import { lifecycleSummaryLine } from "@/components/hr/lifecycle/LifecycleProfileSection";
 import { CASE_STATUS_TONE } from "@/components/hr/lifecycle/lifecycle-format";
+import { LeaveRequestDialog } from "@/components/hr/leave/LeaveRequestDialog";
 import { usePersonEquipment } from "@/lib/api/equipment";
 import {
   EMPLOYMENT_STATUS_LABELS,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/api/hr";
 import { usePersonAgreements } from "@/lib/api/hr-agreements";
 import { usePersonDocuments } from "@/lib/api/hr-documents";
+import { enterablePeople, useOnBehalfPeople } from "@/lib/api/hr-leave";
 import { CASE_STATUS_LABELS, usePersonLifecycleSummary } from "@/lib/api/hr-lifecycle";
 import { usePersonPayroll } from "@/lib/api/hr-payroll";
 import { formatMoney } from "@/lib/money";
@@ -246,7 +248,21 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
   const [editing, setEditing] = useState(false);
   const [changingForm, setChangingForm] = useState(false);
   const [editingPool, setEditingPool] = useState(false);
+  const [addingAbsence, setAddingAbsence] = useState(false);
   const [tab, setTab] = useState<ProfileTab>("overview");
+  // „Dodaj za tę osobę” (makieta 22.10.2026): ta sama lista osób co „Wpisz nieobecność
+  // za…” w Akceptacjach — serwer mówi, za kogo patrzący wpisuje. Pyta tylko zakładka
+  // „Nieobecności i godziny” i tylko ktoś, kto akceptuje nieobecności.
+  const leaveApprover =
+    config.open_modules.leave &&
+    (config.me.is_manager ||
+      (config.me.covering?.length ?? 0) > 0 ||
+      config.me.people_admin ||
+      config.me.is_admin);
+  const onBehalfPeople = useOnBehalfPeople(leaveApprover && tab === "time" && viewerId !== userId);
+  const canAddAbsence =
+    onBehalfPeople.isSuccess &&
+    enterablePeople(onBehalfPeople.data).some((row) => row.user_id === userId);
   // `#place` z dzwonka Płac (i reszta kotwic) otwiera właściwą zakładkę.
   useEffect(() => {
     const sync = () => setTab(tabFromHash(window.location.hash));
@@ -828,6 +844,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
             // Zlecenie nie ma puli płatnych dni (D6) — bez „Zmień pulę”.
             canEditPool={canEdit && poolAllowed(full.employment_type)}
             onEditPool={() => setEditingPool(true)}
+            onAddAbsence={canAddAbsence ? () => setAddingAbsence(true) : undefined}
           />
         </div>
       ) : null}
@@ -887,6 +904,14 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
           suggestedDays={full.suggested_entitlement_days ?? null}
           open={editingPool}
           onOpenChange={setEditingPool}
+        />
+      ) : null}
+      {canAddAbsence ? (
+        <LeaveRequestDialog
+          open={addingAbsence}
+          onOpenChange={setAddingAbsence}
+          mode="on_behalf"
+          personUserId={userId}
         />
       ) : null}
     </div>
