@@ -129,6 +129,14 @@ describe("PrepReviewDialog v2", () => {
     expect(screen.getByText(/Słaby, bo: prep krótszy niż minimum z ustawień/)).toBeInTheDocument();
   });
 
+  it("udział kandydata wyłączony w ustawieniach nie udaje braku mówców (audyt 22.10, F43)", () => {
+    render(<PrepReviewDialog open onOpenChange={() => {}} eventId={603} pair={null} />, {
+      wrapper: withQueries(v2Prep({ talk_share: 0.6 }), TRANSCRIPT),
+    });
+    expect(screen.queryByText("bez mówców — nie liczone")).toBeNull();
+    expect(screen.getByText("wyłączone w ustawieniach")).toBeInTheDocument();
+  });
+
   it("cytat przenosi do transkryptu i podświetla wypowiedź", () => {
     render(<PrepReviewDialog open onOpenChange={() => {}} eventId={603} pair={null} />, {
       wrapper: withQueries(v2Prep(), TRANSCRIPT),

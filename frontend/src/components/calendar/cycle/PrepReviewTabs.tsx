@@ -133,7 +133,12 @@ export function ReviewScoreTab({ prep, onQuote }: { prep: Prep; onQuote: (quote:
                 </span>
                 <span className="shrink-0 tabular-nums text-muted-foreground">
                   {value == null ? (
-                    key === "talk_share" ? "bez mówców — nie liczone" : "brak punktów — nie liczone"
+                    key === "talk_share" ? (
+                      // Udział z transkryptu jest, a kryterium bez wyniku = wyłączone w ustawieniach (F43).
+                      prep.talk_share != null ? "wyłączone w ustawieniach" : "bez mówców — nie liczone"
+                    ) : (
+                      "brak punktów — nie liczone"
+                    )
                   ) : (
                     <>
                       <span className="font-semibold text-foreground">{value}%</span>
