@@ -578,6 +578,7 @@ def render_approved_docx(
         p = paragraph_for(doc, style=style)
         text_run(p, label + " ", {"bold": label_bold})
         emit(p, _trim(segments), {"bold": True} if value_bold else None)
+        p.paragraph_format.keep_with_next = True
         return spaced(p, 0, 0)
 
     def role_kind(node) -> Optional[str]:
@@ -613,6 +614,9 @@ def render_approved_docx(
         if _plain(dates).strip():
             p = paragraph_for(doc, style=style)
             emit(p, _trim(dates), {"bold": True})
+            # Role header keeps with the first task, as in the generator: the
+            # dates never sit alone at the bottom of a page.
+            p.paragraph_format.keep_with_next = True
             spaced(p, 1, 0)
         if employer is not None:
             render_employer(employer)
@@ -743,6 +747,7 @@ def render_approved_docx(
                     return 1
                 p = paragraph_for(doc, style=node.get("style", ""))
                 emit(p, segments, {"underline": True})
+                p.paragraph_format.keep_with_next = True
                 spaced(p, 0, 1)
                 return 1
             elif kind == "technologies":
