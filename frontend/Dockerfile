@@ -28,12 +28,16 @@ ARG NEXT_PUBLIC_CAREER_HOST
 # Harnessy /preview/* bez logowania — WYŁĄCZNIE stack E2E (docker-compose.e2e.yml).
 # Produkcja (Coolify, docker-compose.yml) nie przekazuje tego arga: puste = po zalogowaniu.
 ARG NEXT_PUBLIC_PREVIEW_PUBLIC
+# `staging` = staging na laptopie (docker-compose.staging.yml): znacznik
+# „STAGING” w rogu i w tytule karty. Produkcja nie przekazuje tego arga.
+ARG NEXT_PUBLIC_NEXUS_ENV
 ARG SENTRY_AUTH_TOKEN
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN}
 ENV NEXT_PUBLIC_GIT_SHA=${NEXT_PUBLIC_GIT_SHA}
 ENV NEXT_PUBLIC_CAREER_HOST=${NEXT_PUBLIC_CAREER_HOST}
 ENV NEXT_PUBLIC_PREVIEW_PUBLIC=${NEXT_PUBLIC_PREVIEW_PUBLIC}
+ENV NEXT_PUBLIC_NEXUS_ENV=${NEXT_PUBLIC_NEXUS_ENV}
 # SENTRY_AUTH_TOKEN is consumed by withSentryConfig at build time only.
 # Not exported to runtime image (omitted from `runner` stage env block).
 ENV SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN}

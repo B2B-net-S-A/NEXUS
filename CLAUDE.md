@@ -45,8 +45,11 @@ Szczegóły: `docs/claude/podstawy/ci-gotchas.md`, `deploy.md`, `healthcheck-end
 - Wdrożenia pon–pt 18:00–08:00 (Warszawa), w weekend zawsze; w dzień roboczy
   `emergency` tylko na polecenie Artura. Potem `/api/health` → `version` = SHA
   z maina ze zmianą; dopiero wtedy test na produkcji.
-- Lokalnie bez Dockera: `ruff`, testy bez bazy, `npx vitest run <pliki>`,
-  `npm run type-check`. Testy z Postgresem sprawdza CI.
+- Lokalnie: `ruff`, testy bez bazy, `npx vitest run <pliki>`,
+  `npm run type-check`. Testy z Postgresem sprawdza CI. Lokalny Docker
+  dozwolony od 22.10.2026; stały staging na kopii produkcji to
+  `docker-compose.staging.yml` (nowa pętla w lifespanie = wpis w
+  `app/core/staging.py`). → `podstawy/staging-na-laptopie.md`
 - Zmienne środowiskowe na produkcji zmienia wyłącznie workflow „Coolify set env”.
 - Repo i logi Actions są publiczne: bez nazwisk, stawek i sekretów w kodzie,
   testach, logach i paragonach migracji.
@@ -116,6 +119,7 @@ Deploy przez Coolify, `/api/health`, zmienne środowiskowe, CI i kolejka merge'�
 - `po-fazie-1.md`: Po Fazie 1
 - `specyfika-tej-apki.md`: Specyfika tej apki
 - `stabilizacja-pod-obciazeniem-reguly-po-audycie-13.md`: Stabilizacja pod obciążeniem — reguły po audycie 13.09 i reaudycie 14.09.2026 · deploy = przerwa, ponowienia HTTP, polling, single-flight cache, XLSX, uploady
+- `staging-na-laptopie.md`: Staging na laptopie — pełna kopia produkcji bez wyjścia na świat · `NEXUS_ENV=staging`, lista pętli, zapora HTTP, odtworzenie z backupu
 - `tabele-worda-z-wgranych-plikow.md`: Tabele Worda z wgranych plików — komórki przez `app/core/docx_cells.py`
 - `wersja-frontu-w-otwartej-karcie.md`: Otwarta karta sama przechodzi na nową wersję frontu
 
