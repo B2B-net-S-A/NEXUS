@@ -26,7 +26,7 @@ from app.services.interview_cycle import (
     compute_badge,
     compute_todos,
 )
-from app.services.prep_review import Item, parse_review
+from app.services.prep_review_scoring import Item, parse_review
 
 NOW = datetime(2031, 6, 10, 12, 0, tzinfo=timezone.utc)
 
@@ -187,33 +187,33 @@ _ITEMS = [Item("must:Java", "Java", "must")]
 
 def test_keys_not_matching_the_items_are_a_protocol_error() -> None:
     raw = (
-        '{"summary":"x","must_haves":[{"key":"Java","status":"covered",'
-        '"quote":"pracowałem w Javie 5 lat"}],"client_questions":[]}'
+        '{"summary":"x","topics":[],"answers":[{"key":"Java","grade":"strong",'
+        '"quote":"pracowałem w Javie 5 lat"}]}'
     )
     with pytest.raises(ValueError):
         parse_review(raw, items=_ITEMS, transcript=_T)
 
 
 def test_missing_group_is_a_protocol_error() -> None:
-    items = _ITEMS + [Item("q:7", "Jak testujesz?", "question")]
+    items = _ITEMS + [Item("topic:0", "Klient i projekt", "topic", required=True)]
     raw = (
-        '{"summary":"x","must_haves":[{"key":"must:Java","status":"covered",'
+        '{"summary":"x","answers":[{"key":"must:Java","grade":"strong",'
         '"quote":"pracowałem w Javie 5 lat"}]}'
     )
     with pytest.raises(ValueError):
         parse_review(raw, items=items, transcript=_T)
 
 
-def test_unknown_statuses_are_a_protocol_error_but_case_is_tolerated() -> None:
+def test_unknown_grades_are_a_protocol_error_but_case_is_tolerated() -> None:
     bad = (
-        '{"summary":"x","must_haves":[{"key":"must:Java","status":"done",'
-        '"quote":"pracowałem w Javie 5 lat"}],"client_questions":[]}'
+        '{"summary":"x","answers":[{"key":"must:Java","grade":"done",'
+        '"quote":"pracowałem w Javie 5 lat"}]}'
     )
     with pytest.raises(ValueError):
         parse_review(bad, items=_ITEMS, transcript=_T)
-    ok = bad.replace('"done"', '"Covered"')
+    ok = bad.replace('"done"', '"Strong"')
     parsed = parse_review(ok, items=_ITEMS, transcript=_T)
-    assert parsed["items"][0]["status"] == "covered"
+    assert parsed["answers"][0]["grade"] == "strong"
 
 
 # ── R8-N9-1: ocena prepu = pytania z prep-kitu ──────────────────────────────
