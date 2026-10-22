@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import {
   isBlockingGap,
   isDealBreakerWarning,
+  isPreContractWarning,
   type MoveRequirementAction,
   type MoveRequirementItem,
 } from "@/lib/api/moveRequirements";
@@ -76,7 +77,7 @@ export function MoveRequirementList({
         const showAction = action && req.status !== "ok" && !readOnly && !askedLater && canAct(action);
         // „Odpada, gdy…” nie blokuje ruchu, ale nie jest zwykłym przypomnieniem:
         // odpowiedź kandydata wyklucza go z tej rekrutacji.
-        const warning = isDealBreakerWarning(req);
+        const warning = isDealBreakerWarning(req) || isPreContractWarning(req);
         return (
           <li
             key={req.key}

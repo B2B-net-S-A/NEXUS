@@ -39,6 +39,7 @@ import {
   Download,
   ExternalLink,
   FileDown,
+  FileSignature,
   FileText,
   HelpCircle,
   Loader2,
@@ -59,6 +60,8 @@ import {
   X,
 } from "lucide-react";
 
+import { PreContractRequestDialog } from "@/components/v2/person/pre-contract/PreContractDialogs";
+import { invalidatePreContract } from "@/lib/api/preContracts";
 import api, {
   candidatesApi,
   candidateStageCvApi,
@@ -563,6 +566,7 @@ function PersonMoreMenu({
   profileHref,
   onUndoClientAcceptance,
   onBlacklist,
+  onPreContract,
 }: {
   onOpenCv: () => void;
   onSendEmail: () => void;
@@ -570,6 +574,8 @@ function PersonMoreMenu({
   onUndoClientAcceptance?: () => void;
   /** „Czarna lista…” (17.10.2026) — to samo okno co w menu profilu. */
   onBlacklist?: () => void;
+  /** 0506: umowa przedwstępna — zakładka „Umowa” albo okno prośby. */
+  onPreContract?: () => void;
 }) {
   return (
     <DropdownMenu modal={false}>
@@ -590,6 +596,11 @@ function PersonMoreMenu({
             <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
           </Link>
         </DropdownMenuItem>
+        {onPreContract && (
+          <DropdownMenuItem onSelect={() => deferMenuAction(onPreContract)} data-testid="dock-pre-contract">
+            <FileSignature className="h-3.5 w-3.5" /> Umowa przedwstępna…
+          </DropdownMenuItem>
+        )}
         {onUndoClientAcceptance && (
           <DropdownMenuItem
             onSelect={() => deferMenuAction(onUndoClientAcceptance)}
@@ -865,6 +876,7 @@ export function PipelineCandidateDock({
   const [openShare, setOpenShare] = useState(false);
   const [openEmail, setOpenEmail] = useState(false);
   const [openBlacklist, setOpenBlacklist] = useState(false);
+  const [openPreContract, setOpenPreContract] = useState(false);
   // Szkic notatki per osoba + rekrutacja (12.10.2026): dok montuje się na
   // nowo dla każdej osoby (`key` w `KanbanBoardV2`), więc niewysłany tekst
   // wraca z pamięci karty przeglądarki, a nie ze stanu.
@@ -1233,6 +1245,8 @@ export function PipelineCandidateDock({
         return Boolean(onAddClientSlots);
       case "reject":
         return canReject && !rejectBlockedReason;
+      case "open_pre_contract":
+        return Boolean(onOpenWorkbench);
       default:
         return false;
     }
@@ -1273,6 +1287,10 @@ export function PipelineCandidateDock({
         return;
       case "reject":
         onReject({ notes: action.note ?? null });
+        return;
+      case "open_pre_contract":
+        // 0506: umowa przedwstępna — sekcja w zakładce „Umowa” panelu osoby.
+        onOpenWorkbench?.("contract");
         return;
       default:
         return;
@@ -1931,6 +1949,11 @@ export function PipelineCandidateDock({
                 profileHref={profileHref}
                 onUndoClientAcceptance={onUndoClientAcceptance}
                 onBlacklist={canBlacklist ? () => setOpenBlacklist(true) : undefined}
+                onPreContract={
+                  readOnly
+                    ? undefined
+                    : () => (onOpenWorkbench ? onOpenWorkbench("contract") : setOpenPreContract(true))
+                }
               />
             </div>
           </div>
@@ -2628,6 +2651,16 @@ export function PipelineCandidateDock({
           candidateId={item.candidate_id}
           candidateName={fullName}
           alreadyBlacklisted={candidate?.status === "blacklisted"}
+        />
+      )}
+      {openPreContract && (
+        <PreContractRequestDialog
+          open
+          onOpenChange={setOpenPreContract}
+          candidateId={item.candidate_id}
+          jobId={jobId}
+          personLabel={fullName}
+          onDone={() => invalidatePreContract(queryClient, jobId)}
         />
       )}
       {/* „Zastąpić CV do klienta?” po wgraniu pliku „B2B_…” (15.10.2026). */}

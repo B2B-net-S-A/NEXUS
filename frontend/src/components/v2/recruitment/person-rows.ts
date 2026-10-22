@@ -10,7 +10,7 @@
  */
 
 import { eligibilityWarningBadges } from "@/lib/eligibility-reason-labels";
-import { cvStateBadge, offLimitsCardBadge, type CardBadgeTone } from "@/lib/board-card-badges";
+import { cvStateBadge, offLimitsCardBadge, preContractCardBadge, type CardBadgeTone } from "@/lib/board-card-badges";
 import { placeStage } from "@/lib/board-stages";
 import {
   colId,
@@ -259,6 +259,7 @@ export interface RowBadge {
     | "hm-veto"
     | "auto-cv"
     | "off-limits"
+    | "pre-contract"
     | `warning:${string}`;
   label: string;
   tone: RowBadgeTone;
@@ -319,6 +320,16 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
       label: offLimits.label,
       tone: "warning",
       title: offLimits.title ?? offLimits.label,
+    });
+  }
+  // Umowa przedwstępna (0506) — ta sama plakietka co karta Tablicy.
+  const preContract = preContractCardBadge(item.pre_contract);
+  if (preContract) {
+    out.push({
+      key: "pre-contract",
+      label: preContract.label,
+      tone: ROW_TONE_BY_CARD_TONE[preContract.tone] ?? "info",
+      title: preContract.title ?? preContract.label,
     });
   }
   // Stan CV firmowego (14.10.2026) — ta sama reguła co karta Tablicy
