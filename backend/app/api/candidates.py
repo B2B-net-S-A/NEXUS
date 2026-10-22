@@ -164,6 +164,7 @@ from app.services.employment_marker import (
 from app.services.candidate_blacklist import load_blacklist_info
 from app.services.dedup_service import (
     find_candidate_by_email,
+    find_candidate_by_phone_and_name,
     find_candidate_duplicates,
 )
 from app.schemas.pipeline import HiringManagerVetoBrief
@@ -8044,8 +8045,9 @@ async def preview_candidate_cv(
     status_code=status.HTTP_201_CREATED,
     responses={
         status.HTTP_409_CONFLICT: {
-            "description": "Kandydat z tym adresem e-mail już istnieje albo "
-            "ten sam plik jest już w czyimś profilu. Odpowiedź niesie "
+            "description": "Kandydat z tym adresem e-mail już istnieje, "
+            "ten sam plik jest już w czyimś profilu albo (bez `force`) jest "
+            "kandydat z tym telefonem oraz imieniem i nazwiskiem. Odpowiedź niesie "
             "`existing_candidate_id` + `matches`, żeby okno mogło dodać CV do "
             "tego profilu albo go otworzyć.",
         }
@@ -8079,6 +8081,8 @@ async def create_candidate_from_cv(
          `linkedin`) wygrywają z odczytem.
       4. Ta sama osoba = ten sam e-mail (`find_candidate_by_email`) — 409
          z `existing_candidate_id`; przy `?force=true` 409 ze zdaniem przy polu.
+         Bez `force` także ten sam telefon ORAZ imię i nazwisko
+         (`find_candidate_by_phone_and_name`) — 409 z `existing_candidate_id`.
       5. Insert a Candidate, apply enrichment (contact fields, summary,
          experience), and auto-assign a primary Competence Category.
 
@@ -8143,8 +8147,8 @@ async def create_candidate_from_cv(
             parsed[key] = strip_name_markers(value.strip())[0] or None
 
     # 3 — ta sama osoba = ten sam e-mail (decyzja Artura, 12.10.2026), po
-    # scaleniu z polami formularza. Telefon, LinkedIn oraz imię i nazwisko nie
-    # odmawiają: inny e-mail to inna osoba. JEDNO sprawdzenie na oba tryby:
+    # scaleniu z polami formularza. Telefon, LinkedIn oraz imię i nazwisko
+    # osobno nie odmawiają: inny e-mail to inna osoba (wyjątek: krok 3b). JEDNO sprawdzenie na oba tryby:
     # bez `force` odmowa niesie `existing_candidate_id` (okna i klient JustJoin
     # dodają wtedy CV do tego profilu), z `force` zostaje zdanie przy polu —
     # drugiego profilu z tym samym adresem nie zakładamy (jak `POST /api/candidates`).
@@ -8155,6 +8159,19 @@ async def create_candidate_from_cv(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_EMAIL_MESSAGE
         )
+    # 3b — ten sam telefon ORAZ to samo imię i nazwisko (decyzja Artura,
+    # 22.10.2026): scraper JustJoin zakładał drugi profil, bo e-mail z CV był
+    # inny niż w starym profilu. Sam telefon nie odmawia (numery wspólne dla
+    # kilku osób). To dopasowanie, nie dowód jak e-mail — `force` je pomija.
+    if not force:
+        same_person_rows = await find_candidate_by_phone_and_name(
+            db,
+            phone=parsed.get("phone"),
+            name=parsed.get("first_name"),
+            lastname=parsed.get("last_name"),
+        )
+        if same_person_rows:
+            _raise_from_cv_duplicate_conflict(same_person_rows)
 
     # 4 — insert and enrich
     first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME

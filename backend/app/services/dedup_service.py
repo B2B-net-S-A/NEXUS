@@ -7,6 +7,8 @@ Dwie rzeczy, których nie wolno mylić (decyzja Artura, 12.10.2026):
   wolno brać, gdy kod DECYDUJE: odmawia założenia kandydata albo podpina CV do
   istniejącego profilu (okno „Dodaj kandydata”, `/from-cv`, poczta M365,
   import masowy). Inny e-mail to inna osoba — bez ostrzeżeń.
+  Wyjątek w `/from-cv` (22.10.2026): ten sam telefon ORAZ to samo imię
+  i nazwisko — `find_candidate_by_phone_and_name` (odmowa bez `force`).
 * **Możliwe duplikaty** — `find_candidate_duplicates`. Lista podpowiedzi dla
   człowieka (okno scalania, `/check-duplicates`) i wyszukanie profilu po
   adresie LinkedIn we wtyczce. Niczego sama nie blokuje.
@@ -143,6 +145,66 @@ async def find_candidate_by_email(
             "match_reasons": ["email_exact"],
         }
         for row in rows
+    ]
+
+
+async def find_candidate_by_phone_and_name(
+    db: AsyncSession,
+    *,
+    phone: Optional[str],
+    name: Optional[str],
+    lastname: Optional[str],
+) -> list[dict]:
+    """Kandydaci z tym samym telefonem ORAZ tym samym imieniem i nazwiskiem.
+
+    Wyjątek od „ten sam e-mail” dla `/from-cv` (decyzja Artura, 22.10.2026):
+    scraper JustJoin zakładał drugi profil osoby, której panel nie podaje
+    telefonu, a CV ma inny e-mail niż stary profil. Sam telefon nie wystarcza
+    (313 numerów należało do kilku osób), więc musi się zgadzać także imię
+    i nazwisko (bez wielkości liter i spacji na brzegach).
+    """
+    phone_keys = _phone_keys(phone)
+    norm_name = _normalize_name(name)
+    norm_lastname = _normalize_name(lastname)
+    if not (phone_keys and norm_name and norm_lastname):
+        return []
+
+    stored_digits = func.regexp_replace(Candidate.phone, r"[^0-9]", "", "g")
+    phone_clause = or_(
+        *(
+            stored_digits.ilike(f"%{key}%" if len(key) == 9 else f"%{key}")
+            for key in phone_keys
+        )
+    )
+    stmt = (
+        select(
+            Candidate.id,
+            Candidate.name,
+            Candidate.lastname,
+            Candidate.email,
+            Candidate.phone,
+        )
+        .where(
+            func.lower(func.btrim(Candidate.name)) == norm_name,
+            func.lower(func.btrim(Candidate.lastname)) == norm_lastname,
+            phone_clause,
+        )
+        .order_by(Candidate.id)
+        .limit(5)
+    )
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            "candidate_id": row.id,
+            "name": row.name,
+            "lastname": row.lastname,
+            "email": row.email,
+            "match_score": 1.0,
+            "match_reasons": ["phone_exact", "name_exact"],
+        }
+        for row in rows
+        # Podciąg w SQL to tylko wstępne sito — numer potwierdza `_phone_keys`.
+        if set(phone_keys) & set(_phone_keys(row.phone))
     ]
 
 

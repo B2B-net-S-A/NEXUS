@@ -6,6 +6,8 @@ Covers:
   * Force: ?force=true still refuses a taken e-mail (no second profile)
   * 12.10.2026 — ta sama osoba = ten sam e-mail: imiennik, ten sam telefon
     i ten sam LinkedIn z INNYM adresem zakładają nowy profil
+  * 22.10.2026 — ten sam telefon ORAZ to samo imię i nazwisko (inny e-mail)
+    → 409 z `existing_candidate_id`; `?force=true` zakłada profil
 """
 
 from __future__ import annotations
@@ -266,6 +268,91 @@ async def test_from_cv_same_phone_and_linkedin_other_email_is_created(
     finally:
         await _cleanup_candidate(first_person["email"])
         await _cleanup_candidate(other_person["email"])
+
+
+async def _insert_existing(**fields) -> int:
+    """Profil sprzed scrapera (import z Traffita): telefon w innym zapisie."""
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(source="traffit", **fields)
+        db.add(candidate)
+        await db.commit()
+        return candidate.id
+
+
+async def _cleanup_candidate_id(candidate_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Candidate, candidate_id)
+        if row:
+            await db.delete(row)
+            await db.commit()
+
+
+def _random_phone_digits() -> str:
+    return "79" + f"{uuid.uuid4().int % 10_000_000:07d}"
+
+
+@pytest.mark.asyncio
+async def test_from_cv_same_phone_and_full_name_other_email_is_409_with_existing_id(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Scraper JustJoin 20–22.10.2026: panel nie podaje telefonu, CV go ma,
+    e-mail inny niż w starym profilu → powstawał drugi profil tej samej osoby.
+    Telefon z CV + to samo imię i nazwisko wskazują stary profil."""
+    unique = uuid.uuid4().hex[:8]
+    digits = _random_phone_digits()
+    existing_id = await _insert_existing(
+        name="Regula",
+        lastname=f"Telefon{unique}",
+        email=f"stary-{unique}@example.com",
+        phone=f"{digits[:3]}-{digits[3:6]}-{digits[6:]}",
+    )
+    person = _person(
+        unique,
+        first_name="REGULA",
+        last_name=f" telefon{unique} ",
+        email=f"nowy-{unique}@example.com",
+        phone=f"+48 {digits[:3]} {digits[3:6]} {digits[6:]}",
+    )
+    try:
+        _patch_parser_and_extractor(monkeypatch, person)
+        resp = await _post_cv(app_client, app_auth_headers)
+        assert resp.status_code == 409, resp.text
+        detail = resp.json()["detail"]
+        assert detail["existing_candidate_id"] == existing_id
+        assert detail["matches"][0]["match_reasons"] == ["phone_exact", "name_exact"]
+    finally:
+        await _cleanup_candidate(person["email"])
+        await _cleanup_candidate_id(existing_id)
+
+
+@pytest.mark.asyncio
+async def test_from_cv_same_phone_and_full_name_with_force_is_created(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Telefon z imieniem to dopasowanie, nie dowód jak e-mail — rekruter
+    może założyć osobny profil („Załóż osobny profil” = `?force=true`)."""
+    unique = uuid.uuid4().hex[:8]
+    digits = _random_phone_digits()
+    existing_id = await _insert_existing(
+        name="Regula",
+        lastname=f"Telefon{unique}",
+        email=f"stary-{unique}@example.com",
+        phone=digits,
+    )
+    person = _person(
+        unique,
+        last_name=f"Telefon{unique}",
+        email=f"nowy-{unique}@example.com",
+        phone=f"+48{digits}",
+    )
+    try:
+        _patch_parser_and_extractor(monkeypatch, person)
+        resp = await _post_cv(app_client, app_auth_headers, force=True)
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["candidate"]["id"] != existing_id
+    finally:
+        await _cleanup_candidate(person["email"])
+        await _cleanup_candidate_id(existing_id)
 
 
 @pytest.mark.asyncio

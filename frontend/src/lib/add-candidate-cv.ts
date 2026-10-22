@@ -188,11 +188,22 @@ export function duplicateMatchesFromConflict(error: unknown): CvDuplicateMatch[]
 
 /**
  * Odmowa po bajtach pliku (`identical_file`): to CV już leży w czyimś profilu.
- * Każde inne trafienie to ten sam e-mail — „ta sama osoba = ten sam e-mail”
- * (decyzja Artura, 12.10.2026).
+ * Pozostałe trafienia to ten sam e-mail — „ta sama osoba = ten sam e-mail”
+ * (decyzja Artura, 12.10.2026) — albo telefon z imieniem (`isPhoneAndNameMatch`).
  */
 export function isSameFileMatch(match: Pick<CvDuplicateMatch, "match_reasons">): boolean {
   return match.match_reasons.includes("identical_file");
+}
+
+/**
+ * Odmowa `/from-cv` po telefonie z CV ORAZ imieniu i nazwisku, przy innym
+ * e-mailu (22.10.2026). To dopasowanie, nie dowód jak e-mail — rekruter może
+ * mimo to założyć osobny profil (`force`).
+ */
+export function isPhoneAndNameMatch(match: Pick<CvDuplicateMatch, "match_reasons">): boolean {
+  return (
+    match.match_reasons.includes("phone_exact") && !match.match_reasons.includes("email_exact")
+  );
 }
 
 /**

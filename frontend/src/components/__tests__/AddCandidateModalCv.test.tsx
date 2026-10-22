@@ -274,6 +274,46 @@ describe("AddCandidateModal — start od CV", () => {
     expect(callsTo("/api/candidates/from-cv")[0][0]).toBe("/api/candidates/from-cv?force=true");
   });
 
+  it("telefon z CV z tym samym imieniem i nazwiskiem (inny e-mail) — ramka przy CV i zapis z force", async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (url.startsWith("/api/candidates/cv/preview")) {
+        return Promise.resolve({ data: PREVIEW } as never);
+      }
+      if (url === "/api/candidates/check-duplicates") {
+        return Promise.resolve({ data: [] } as never);
+      }
+      if (url === "/api/candidates/from-cv") {
+        return Promise.reject(
+          conflict({ ...EXISTING, email: "stary.adres@firma.pl", match_reasons: ["phone_exact", "name_exact"] }),
+        );
+      }
+      if (url === "/api/candidates/from-cv?force=true") {
+        return Promise.resolve({ data: { candidate: { id: 77 } } } as never);
+      }
+      return Promise.resolve({ data: { id: 1 } } as never);
+    });
+    const user = userEvent.setup();
+    renderModal();
+    pickCv();
+    await screen.findByText(/Uzupełniono z CV/);
+
+    await user.click(screen.getByRole("button", { name: "Dodaj kandydata" }));
+
+    expect(await screen.findByText("Ten kandydat już jest w bazie")).toBeInTheDocument();
+    expect(screen.getByText(/Ten sam telefon oraz imię i nazwisko co w CV/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dodaj to CV do profilu" })).toBeInTheDocument();
+
+    // To inna osoba: odczyt z `force`, a zapis pamięta tę decyzję.
+    await user.click(screen.getByRole("button", { name: "Wczytaj mimo to" }));
+    await waitFor(() => expect(callsTo("/api/candidates/cv/preview?force=true")).toHaveLength(1));
+    await user.click(await screen.findByRole("button", { name: "Dodaj kandydata" }));
+    await waitFor(() =>
+      expect(callsTo("/api/candidates/from-cv").map(([url]) => url)).toContain(
+        "/api/candidates/from-cv?force=true",
+      ),
+    );
+  });
+
   it("e-mail z CV należy do kandydata z bazy — „Dodaj to CV do profilu” jednym żądaniem", async () => {
     apiPost.mockImplementation((url: string) => {
       if (url === "/api/candidates/cv/preview") return Promise.reject(conflict(EXISTING));

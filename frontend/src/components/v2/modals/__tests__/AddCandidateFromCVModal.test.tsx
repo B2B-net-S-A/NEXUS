@@ -156,6 +156,23 @@ describe("AddCandidateFromCVModal — osoba już jest w bazie", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("ten sam telefon oraz imię i nazwisko: mówi to wprost i pozwala założyć osobny profil", async () => {
+    fromCvConflict("phone_exact");
+    candidatePipelines.mockReturnValue(pipelines([]));
+    const user = userEvent.setup();
+    await uploadCv(user);
+
+    expect(await screen.findByText(/Ten sam telefon oraz imię i nazwisko co w CV/)).toBeInTheDocument();
+    expect(screen.queryByText(/Ten sam adres e-mail/)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "To inna osoba? Załóż osobny profil" }));
+    await waitFor(() =>
+      expect(callsTo("/api/candidates/from-cv").map(([url]) => url)).toContain(
+        "/api/candidates/from-cv?force=true",
+      ),
+    );
+  });
+
   it("osoba w toku: „Podmień CV w tej rekrutacji” wgrywa CV na jej zgłoszenie jednym żądaniem", async () => {
     fromCvConflict("email_exact");
     candidatePipelines.mockReturnValue(
