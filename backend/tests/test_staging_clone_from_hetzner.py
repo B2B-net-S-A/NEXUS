@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -349,6 +350,23 @@ class CloneTests(unittest.TestCase):
                 clone.prepare_local_target(self.args)
         self.assertFalse(any("CREATE DATABASE" in " ".join(call.args[0]) for call in run.call_args_list))
         self.assertFalse(hasattr(self.args, "_docker_command"))
+
+    def test_container_child_unsets_libpq_overrides_instead_of_empty_values(self):
+        self.args.local_postgres_container = "b" * 64
+        self.args._docker_command = ["docker", "--host", "unix:///private/tmp/fixture-docker.sock"]
+        command = clone.docker_exec(self.args)
+        self.assertEqual(command[3:6], ["exec", "-i", "b" * 64])
+        variables = ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE", "PGOPTIONS")
+        # Exercise the actual child-env prefix, independently of Docker. A
+        # present-but-empty service/file is observably different to libpq.
+        probe = "import os,sys; sys.exit(any(name in os.environ for name in " + repr(variables) + "))"
+        result = clone.subprocess.run(
+            command[command.index("env"):] + [sys.executable, "-c", probe],
+            env={**os.environ, **dict.fromkeys(variables, "inherited-override")},
+            stdout=clone.subprocess.PIPE, stderr=clone.subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0)
 
     def test_dump_only_never_inspects_container_or_requires_docker(self):
         self.args.dump_only = True
