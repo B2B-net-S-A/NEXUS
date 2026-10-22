@@ -229,6 +229,25 @@ jobs:
       # (ruff 0.15.22).
       - name: Ruff format check
         run: ruff format --check app/
+      # 21.10.2026: z 48 czerwonych biegów kolejki ~17 to strażnicy całego repo
+      # (stemple, daty przy imporcie, `spawn`, snapshot API v1…), których PR
+      # nie widział. Pytest kolejki wyrzucał grupę dopiero po ~25 min — i każdy
+      # PR za nią. Ten sam zestaw co `_ALWAYS` sita PR-a (bez bazy, ~90 s), tu
+      # w wymaganym kontekście: zły PR wypada po ~3 min. Na PR-ze biegnie
+      # w sicie, na pushu na maina już przeszedł.
+      - name: Strażnicy repo (bez bazy, kolejka merge'ów)
+        if: ${{ github.event_name == 'merge_group' }}
+        env:
+          SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
+          CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
+          RUN_LIVE_TESTS: "0"
+          M365_TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000="
+        run: |
+          set -eu
+          # Te same wersje co w ci.yml (pytest nie stoi w requirements.txt).
+          pip install pytest==9.1.1 pytest-asyncio==1.4.0 -r requirements-testing.txt
+          python3 ../.github/scripts/select_pr_tests.py --guards > guards.txt
+          xargs -a guards.txt python -m pytest -q --tb=short -p no:cacheprovider
       - name: Alembic legacy-row, retry, and contact-queue rollback probe
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test

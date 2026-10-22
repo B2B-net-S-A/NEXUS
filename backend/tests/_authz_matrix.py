@@ -120,9 +120,7 @@ PERSONAS: tuple[Persona, ...] = (
         UserRole.recruiter,
         grants=("recruitment_manage",),
     ),
-    Persona(
-        "recruiter+finance_module", UserRole.recruiter, grants=("finance_module",)
-    ),
+    Persona("recruiter+finance_module", UserRole.recruiter, grants=("finance_module",)),
     Persona("recruiter+amounts_edit", UserRole.recruiter, grants=("amounts_edit",)),
     # 0446: „Automatyzacje” — podgląd bez zapisu (test_automation_role_access.py).
     Persona("automation", UserRole.automation),
@@ -333,13 +331,17 @@ async def collect_matrix(
     *,
     with_middleware: bool = False,
     every: int = 1,
+    offset: int = 0,
+    always: frozenset[str] = frozenset(),
 ) -> dict[str, dict[str, str]]:
     """``{moduł: {"METODA /ścieżka": "litery w kolejności person"}}``.
 
-    ``every`` bierze co n-tą trasę — do taniego porównania obu stosów.
+    ``every`` bierze co n-tą trasę od ``offset`` — do taniego porównania obu
+    stosów i do podziału macierzy między części sita PR-a; trasy z ``always``
+    wchodzą zawsze.
     """
 
-    requests = list(route_requests(app))[::every]
+    requests = sliced(list(route_requests(app)), offset, every, always)
     letters: dict[str, list[str]] = {key: [] for _, key, _, _ in requests}
     transport = httpx.ASGITransport(
         app=app if with_middleware else routes_only(app), raise_app_exceptions=False
@@ -359,6 +361,32 @@ async def collect_matrix(
     for module, key, _, _ in requests:
         matrix.setdefault(module, {})[key] = "".join(letters[key])
     return matrix
+
+
+def sliced(requests: list, offset: int, every: int, always: frozenset[str]) -> list:
+    """Co ``every``-te żądanie od ``offset`` plus te, których klucz jest w ``always``."""
+
+    return [
+        request
+        for index, request in enumerate(requests)
+        if index % every == offset or request[1] in always
+    ]
+
+
+def slice_from_env(raw: str | None) -> tuple[int, int]:
+    """``AUTHZ_MATRIX_SLICE="i/n"`` (sito PR-a w ci.yml) → ``(i, n)``; brak = całość.
+
+    Sito dzieli macierz po trasach między swoje części, żeby ~150 s jednego
+    pliku nie wydłużało jednej z nich. Pełny bieg w kolejce zmiennej nie ma.
+    """
+
+    if not raw:
+        return 0, 1
+    index, _, count = raw.partition("/")
+    offset, every = int(index), int(count)
+    if not 0 <= offset < every:
+        raise ValueError(f"AUTHZ_MATRIX_SLICE={raw!r}: oczekiwano i/n z 0 <= i < n")
+    return offset, every
 
 
 def load_golden() -> dict[str, dict[str, str]]:
