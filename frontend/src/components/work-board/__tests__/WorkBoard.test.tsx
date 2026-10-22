@@ -736,3 +736,78 @@ describe("domknięcie makiet 22.10.2026", () => {
     expect(await screen.findByRole("link", { name: /Pełny widok sprawy/ })).toHaveAttribute("href", "/people/cases/931");
   });
 });
+
+describe("tablica pracy — poprawki po audycie 22.10", () => {
+  function summaryWith(cases: CareContractCardSummary["cases"]): CareContractCardSummary {
+    return {
+      contract_id: 10,
+      candidate_id: 20,
+      candidate_name: "Anna Przykładowa",
+      client_id: 30,
+      client_name: "Bank Przykładowy",
+      role: "QA",
+      form: "B2B",
+      start_on: "2026-01-01",
+      end_on: null,
+      owner: { user_id: 5, name: "Natalia Opiekuńcza", source: "contract" },
+      cadence: { level: "biweekly", label: "co 2 tygodnie", until_on: null },
+      health: null,
+      kpis: {
+        last_contact: { on: "2026-09-26", days_ago: 26 },
+        satisfaction: { value: 5, previous: null },
+        order_end: { on: "2026-11-15", days: 24 },
+      },
+      known_project: { manager: { contact_id: 3, name: "Katarzyna Kierownicza", position: null } },
+      cases,
+    };
+  }
+
+  it("F6/F90: sprawa spoza listy otwarta z karty opieki przesuwa się z wersją ze szczegółu, nie z pustą", async () => {
+    asUser("talent_community_manager");
+    const detail: CaseDetail = {
+      ...caseCard({ id: 932, title: "Laptop dla konsultanta", updated_at: "2026-10-20T10:00:00Z" }),
+      description: null,
+      checklist: [],
+      lifecycle_case_id: null,
+      created_by: null,
+      messages: [],
+      comments: [],
+      can_manage: true,
+      can_comment: true,
+    } as CaseDetail;
+    route({
+      cases: list([]),
+      board: board([careCard({ title: "Anna Przykładowa", role_label: "QA" })]),
+      summary: summaryWith([
+        {
+          id: 932,
+          title: "Laptop dla konsultanta",
+          area: "administration",
+          area_label: "Administracja",
+          status: "new",
+          status_label: "Nowa",
+          due_on: null,
+          follow_up_on: null,
+          assignee_name: "Natalia Opiekuńcza",
+          source: "manual",
+          content_hidden: false,
+        },
+      ]),
+      detail,
+    });
+    mocks.apiPatch.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    renderBoard({ scope: "care", initialSelectedKey: "contact:plan:1" });
+
+    const panel = await screen.findByRole("dialog");
+    await user.click(await within(panel).findByRole("button", { name: "Sprawa: Laptop dla konsultanta" }));
+    const move = await screen.findByRole("group", { name: "Przenieś do" });
+    await user.click(within(move).getByRole("button", { name: "W toku" }));
+    await waitFor(() =>
+      expect(mocks.apiPatch).toHaveBeenCalledWith("/api/cases/932", {
+        status: "in_progress",
+        expected_updated_at: "2026-10-20T10:00:00Z",
+      }),
+    );
+  });
+});

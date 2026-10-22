@@ -101,7 +101,8 @@ function CasePanelBody({
   card: CaseCard;
   careAccess: boolean;
   canMove: boolean;
-  onMove: (target: WorkColumn) => void;
+  /** `fresh` = szczegół sprawy; atrapa z karty konsultanta nie ma wersji (`updated_at`). */
+  onMove: (target: WorkColumn, fresh: CaseCard) => void;
 }) {
   const query = useCase(card.id);
   const state = resolveViewState({
@@ -138,7 +139,10 @@ function CasePanelBody({
       </SheetHeader>
       <SheetBody className="space-y-4">
         {canMove && detail ? (
-          <MoveButtons current={itemColumn({ type: "case", key: "", card: view })} onMove={onMove} />
+          <MoveButtons
+            current={itemColumn({ type: "case", key: "", card: view })}
+            onMove={(target) => onMove(target, detail)}
+          />
         ) : null}
         {state === "loading" ? (
           <p className="text-sm text-muted-foreground">Wczytywanie sprawy…</p>
@@ -550,7 +554,7 @@ export function WorkItemPanel({
             card={item.card}
             careAccess={careAccess}
             canMove={canManageCases}
-            onMove={(target) => onMove(item, target)}
+            onMove={(target, fresh) => onMove({ ...item, card: fresh }, target)}
           />
         ) : item?.type === "care" ? (
           <CarePanelBody
