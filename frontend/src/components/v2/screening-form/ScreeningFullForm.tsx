@@ -72,6 +72,8 @@ import { useCapability } from "@/hooks/useCapability";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { candidatesApi, type RateUnit, type ScreeningQuestion } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { hasPermission } from "@/lib/permissions";
+import { useAuthStore } from "@/store/auth";
 import { recommendationCardsApi, type NoteProposal } from "@/lib/api/recommendationCards";
 import type { NoteFillChannel, NoteFillReceiver } from "@/lib/note-fill-channel";
 import {
@@ -1206,6 +1208,9 @@ export function ScreeningFullForm({
 }: ScreeningFullFormProps) {
   const { showSuccess, showError, showInfo, showActionToast } = useToast();
   const queryClient = useQueryClient();
+  // 22.10.2026: Delivery Lead przekazuje dalej bez kompletu pól — serwer też
+  // go przepuszcza (`pipeline_move_rules.skips_fill_gates`).
+  const skipsFillGates = hasPermission(useAuthStore((s) => s.user), "recruitment_manage");
   const query = useScreeningFormState(candidateId, jobId);
   const state = query.data;
   const model = useScreeningFormModel(state, memory);
@@ -1428,7 +1433,7 @@ export function ScreeningFullForm({
   const onForward = async () => {
     if (!state || !forward) return;
     const values = methods.getValues();
-    const missing = missingAnswersForForward(model.questions, values);
+    const missing = skipsFillGates ? [] : missingAnswersForForward(model.questions, values);
     if (missing.length > 0) {
       for (const id of missing) {
         methods.setError(`answers.${id}.response`, { type: "required", message: "Odpowiedź jest wymagana" });
@@ -1442,7 +1447,7 @@ export function ScreeningFullForm({
     }
     // Rekrutacja bez pytań: zapisem rozmowy jest „Dlaczego ten kandydat”
     // (12.10.2026) — bez tego serwer i tak odmówi ruchu.
-    if (assessmentMissingForForward(state, model.questions, values)) {
+    if (!skipsFillGates && assessmentMissingForForward(state, model.questions, values)) {
       methods.setError("card.recommendation", { type: "required", message: "Wpisz, dlaczego ten kandydat" });
       methods.setFocus("card.recommendation");
       setError(null);
@@ -1452,7 +1457,7 @@ export function ScreeningFullForm({
       return;
     }
     // Minimum dla DL (21.10.2026) — ta sama reguła co bramka serwera.
-    const minimum = minimumMissingForForward(state, model.questions, values);
+    const minimum = skipsFillGates ? [] : minimumMissingForForward(state, model.questions, values);
     if (minimum.length > 0) {
       markMinimumGaps(minimum);
       return;

@@ -124,6 +124,10 @@ export interface KanbanItem {
  // lokalizacja, tryb pracy, dostępność, „Dlaczego ten kandydat”, pola
  // klienta. Ta sama reguła co bramka „Zweryfikowany”. Brak pola = nie wiadomo.
  minimum_missing?: string[] | null;
+ // 22.10.2026: ostatni ruch Delivery Leada mimo braków — klucze braków
+ // (jak `missing` bramki serwera) i kto przesunął. Brak pola = nie było.
+ requirements_skipped?: string[] | null;
+ requirements_skipped_by_name?: string | null;
  scorecard_done?: boolean;
  // Automaty (21.09.2026): na TYM etapie leży gotowe auto-CV czekające na
  // przegląd człowieka. Brak pola (starsza odpowiedź) = brak odznaki.

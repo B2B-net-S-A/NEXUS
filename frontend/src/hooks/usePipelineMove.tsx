@@ -384,7 +384,7 @@ export interface PipelineMoveControls {
     item: KanbanItem,
     fromColumn: KanbanColumn | string,
     toColumn: KanbanColumn,
-    options: { targetLabel: string; delayMs?: number }
+    options: { targetLabel: string; delayMs?: number; detail?: string | null }
   ) => void;
   /** Ruchy czekające na wysłanie — Tablica nakłada je na stan z serwera. */
   pendingMoves: () => ReadonlyArray<{ candidateId: number; toColumn: KanbanColumn }>;
@@ -944,7 +944,9 @@ export function usePipelineMove({
       // NIE applyOptimistic tu, bo rekruter może anulować w modalu.
       // D2 (14.10.2026): para ma już stawkę etapu — ruch bez okna, jak każdy
       // inny (serwer przenosi stawkę; brak arkusza = 409 i formularz).
-      if (dialog === "verified_rate" && hasStageRate(item)) {
+      // 22.10.2026: Delivery Lead przesuwa bez bramek pól — także bez okna
+      // stawki (brak zostaje odznaką na karcie, `requirements_skipped`).
+      if (dialog === "verified_rate" && (hasStageRate(item) || canSendToClient)) {
         applyOptimistic(item, srcColId, dst);
         void sendMove(item, dst);
         return;
@@ -1054,7 +1056,7 @@ export function usePipelineMove({
         case "none":
           return true;
         case "verified_rate":
-          return hasStageRate(latest(item));
+          return hasStageRate(latest(item)) || canSendToClient;
         case "client_rate":
           return cproEnabled && !canWriteClientRate;
         case "interview_date":
@@ -1063,7 +1065,7 @@ export function usePipelineMove({
           return false;
       }
     },
-    [readOnly, latest, cproEnabled, canWriteClientRate]
+    [readOnly, latest, cproEnabled, canWriteClientRate, canSendToClient]
   );
 
   const deferMove = useCallback(
@@ -1071,7 +1073,7 @@ export function usePipelineMove({
       item: KanbanItem,
       fromColumn: KanbanColumn | string,
       dst: KanbanColumn,
-      options: { targetLabel: string; delayMs?: number }
+      options: { targetLabel: string; delayMs?: number; detail?: string | null }
     ) => {
       if (readOnly) return;
       const srcColId = typeof fromColumn === "string" ? fromColumn : colId(fromColumn);
@@ -1090,7 +1092,8 @@ export function usePipelineMove({
       const timer = setTimeout(() => void commitDeferred(current.candidate_id), delayMs);
       deferredRef.current.set(current.candidate_id, { item: current, srcColId, dst, timer, rollback });
       setDeferredCount(deferredRef.current.size);
-      showActionToast(`${itemFullName(current)} → ${options.targetLabel}`, {
+      const detail = options.detail ? ` · ${options.detail}` : "";
+      showActionToast(`${itemFullName(current)} → ${options.targetLabel}${detail}`, {
         actionLabel: "Cofnij",
         onAction: () => cancelDeferred(current.candidate_id),
         durationMs: delayMs,

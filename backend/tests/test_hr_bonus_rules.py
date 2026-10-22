@@ -242,6 +242,22 @@ def test_recruiter_is_the_first_verifier_not_the_lead_of_the_recruitment() -> No
     assert context.people(_placement_contract()) == (7, 42, "job")
 
 
+def test_dl_who_verified_himself_gets_no_recruiter_bonus() -> None:
+    # Decyzja Artura 22.10.2026: DL, który sam zweryfikował osobę w swojej
+    # rekrutacji, dostaje tylko premię DL-a — jedna płatność za zatrudnienie.
+    context = _context(jobs={10: 7}, verifiers={(1, 10): 7})
+    assert context.people(_placement_contract()) == (7, None, "job")
+    client_head = _context(
+        jobs={10: None}, client_leads={100: [(6, True)]}, verifiers={(1, 10): 6}
+    )
+    assert client_head.people(_placement_contract()) == (6, None, "client_head")
+
+
+def test_dl_verifying_in_someone_elses_recruitment_keeps_recruiter_bonus() -> None:
+    context = _context(jobs={10: 7}, verifiers={(1, 10): 8})
+    assert context.people(_placement_contract()) == (7, 8, "job")
+
+
 def test_no_verifier_means_no_recruiter_bonus() -> None:
     context = _context(jobs={10: 7})
     assert context.people(_placement_contract()) == (7, None, "job")

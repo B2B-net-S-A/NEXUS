@@ -54,6 +54,8 @@ import { PhraseButton, PhraseLanguageToggle, PhraseProposal } from "@/components
 import { answerOriginBadge, CARD_PHRASABLE_FIELDS } from "@/lib/recommendation-card";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { apiErrorMessage } from "@/lib/api-error";
+import { hasPermission } from "@/lib/permissions";
+import { useAuthStore } from "@/store/auth";
 import { recommendationCardsApi, type NoteProposal } from "@/lib/api/recommendationCards";
 import {
   refreshScreeningFormDependents,
@@ -248,6 +250,8 @@ function JointFormBody({
   onReselect,
 }: JointScreeningFormProps & { pairs: JointPair[]; groups: JointGroup[] }) {
   const queryClient = useQueryClient();
+  // 22.10.2026: Delivery Lead przekazuje dalej bez kompletu pól (serwer też).
+  const skipsFillGates = hasPermission(useAuthStore((st) => st.user), "recruitment_manage");
   const anchor = pairs.find((p) => p.anchor) ?? pairs[0];
   const methods = useForm<JointValues>({ defaultValues: jointDefaults(pairs, groups) });
   // Odczyt w renderze zapisuje subskrypcję RHF — bez niej `dirtyFields`
@@ -462,7 +466,7 @@ function JointFormBody({
         const fresh = { ...pair, state: latest(pair) };
         return { pair: fresh, projected: projectPair(values, fresh, groups, dirty, origins) };
       });
-    if (forward) {
+    if (forward && !skipsFillGates) {
       const missing = plans
         .map(({ pair, projected }) => ({ title: pair.title, items: forwardBlockers(pair, projected) }))
         .filter((b) => b.items.length > 0);

@@ -628,6 +628,11 @@ class Settings(BaseSettings):
     # tryb pracy, dostępność, „Dlaczego ten kandydat” i pola dołożone w karcie
     # klienta. False = wyłącznik awaryjny: bramka liczy tylko arkusz i stawkę.
     VERIFIED_MINIMUM_FIELDS_ENABLED: bool = True
+    # Delivery Lead przesuwa bez bramek pól (decyzja Artura 22.10.2026):
+    # osoba z uprawnieniem `recruitment_manage` przechodzi bez arkusza,
+    # stawki, minimum i debriefu — braki zostają przypomnieniem
+    # (`pipeline_move_rules.skips_fill_gates`). False = DL jak rekruter.
+    DL_SKIPS_FILL_GATES: bool = True
     # D2 (04.10.2026): ręczny ruch na „Zatrudniony” wymaga pola „jak
     # podpisano” (`hired_signed_via`). False = wyłącznik awaryjny.
     HIRED_SIGNED_VIA_REQUIRED: bool = True

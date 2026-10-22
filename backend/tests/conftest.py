@@ -319,9 +319,12 @@ def _verified_and_hired_gates_off_by_default(monkeypatch):
     """Setki testów przesuwają kartę na „Zweryfikowany” bez arkusza i na
     „Zatrudniony” bez pola „jak podpisano” — testują co innego. Testy tych
     reguł (`test_verified_gate.py`) włączają je jawnie. Minimum dla DL
-    (21.10.2026) ma osobny wyłącznik — włącza go `minimum_on`."""
+    (21.10.2026) ma osobny wyłącznik — włącza go `minimum_on`. Delivery Lead
+    bez bramek pól (22.10.2026) też jest tu wyłączony — testy bramek
+    przesuwają kartę jako DL; włącza go `dl_skips_on`."""
 
     monkeypatch.setattr(settings, "VERIFIED_GATE_ENABLED", False)
+    monkeypatch.setattr(settings, "DL_SKIPS_FILL_GATES", False)
     monkeypatch.setattr(settings, "VERIFIED_MINIMUM_FIELDS_ENABLED", False)
     monkeypatch.setattr(settings, "HIRED_SIGNED_VIA_REQUIRED", False)
 

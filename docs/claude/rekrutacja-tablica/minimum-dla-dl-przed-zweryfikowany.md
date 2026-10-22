@@ -53,3 +53,6 @@ w „Zanim przekażesz dalej, uzupełnij”, ale nie wpisuje pól z rekrutacji s
 (pola wspólne biorą wartość z innej zaznaczonej pary jak dotąd). Dok osoby nazywa braki
 minimum „przypomnieniem” tak samo jak brak arkusza (`SERVER_ENFORCED_REQUIREMENT_KEYS`).
 Pary, które już stoją w „Zweryfikowanym” albo dalej, się nie cofają.
+
+Od 22.10.2026 minimum (jak cała bramka „Zweryfikowany”) nie zatrzymuje samego
+Delivery Leada — `dl-przesuwa-bez-blokad.md`.

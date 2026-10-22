@@ -305,6 +305,10 @@ class CandidateStageResponse(BaseModel):
     # treści (`move_requirements.board_minimum_missing`). Tylko na Tablicy;
     # `None` = endpoint nie liczy.
     minimum_missing: Optional[list[str]] = None
+    # 22.10.2026: ostatni ruch Delivery Leada mimo braków — klucze braków
+    # (jak `missing` bramki) i kto przesunął. Tylko na Tablicy.
+    requirements_skipped: Optional[list[str]] = None
+    requirements_skipped_by_name: Optional[str] = None
     # „W bazie od” (0437): kiedy osoba weszła do bazy (`candidate_added_date`),
     # czy data jest dokładna (import z Traffita bez daty u źródła = nie) i kto
     # ją dodał. Tylko na Tablicy (`build_kanban_view`); ruch i historia — None.

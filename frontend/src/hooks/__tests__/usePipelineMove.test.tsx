@@ -1497,6 +1497,41 @@ describe("usePipelineMove — strzałka „→”: ruch odłożony z „Cofnij�
     expect(apply).not.toHaveBeenCalled();
     expect(showActionToast).not.toHaveBeenCalled();
   });
+
+  // 22.10.2026: Delivery Lead przesuwa bez bramek pól — „Zweryfikowany” bez
+  // stawki idzie bez okna, a komunikat strzałki wymienia braki.
+  it("Delivery Lead: „Zweryfikowany” bez stawki bez okna, komunikat z brakami", async () => {
+    useAuthStore.setState({
+      user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"], email: "dl@example.com" },
+    } as never);
+    const plain = card({ id: 61, candidate_id: 511, process_state_version: 1 });
+    const b = board({ fresh: [plain] });
+    post.mockResolvedValue({ data: { id: 961, process_state_version: 2, verification_status: "active" } });
+    const apply = vi.fn();
+    mount(b.all, { apply });
+    expect(controls.canMoveWithoutDialog(plain, b.verified)).toBe(true);
+
+    React.act(() =>
+      controls.deferMove(plain, b.fresh, b.verified, {
+        targetLabel: "Zweryfikowany",
+        detail: "bez: arkusza screeningu, stawki kandydata",
+      }),
+    );
+    expect(lastToast()[0]).toBe("Jan Kowalski511 → Zweryfikowany · bez: arkusza screeningu, stawki kandydata");
+    React.act(() => lastToast()[1].onAction());
+
+    React.act(() => controls.requestMove(plain, b.fresh, b.verified));
+    expect(screen.queryByLabelText("Kwota")).toBeNull();
+    await waitFor(() => expect(moveCalls()).toHaveLength(1));
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 511, stage: "verified" });
+  });
+
+  it("rekruter bez stawki dalej dostaje okno stawki", () => {
+    const plain = card({ id: 62, candidate_id: 512 });
+    const b = board({ fresh: [plain] });
+    mount(b.all);
+    expect(controls.canMoveWithoutDialog(plain, b.verified)).toBe(false);
+  });
 });
 
 describe("usePipelineMove — „Kiedy rozmowa u klienta?” (audyt 21.10.2026)", () => {

@@ -24,6 +24,11 @@ DL z „QC CV” do poprawy nie jest bramkowany, „Pomiń stawkę” zostało t
 podpisaną”. Wyłączniki `VERIFIED_GATE_ENABLED`, `HIRED_SIGNED_VIA_REQUIRED`;
 w testach wyłączone autouse-fixturą, `test_verified_gate.py` włącza je jawnie.
 
+**Delivery Lead bez bramek pól (22.10.2026):** osoba z uprawnieniem
+`recruitment_manage` przechodzi bramki arkusza, stawki, minimum, CV firmowego
+i debriefu — braki zostają przypomnieniem i odznaką „Przesunął DL”
+(`dl-przesuwa-bez-blokad.md`). Rekruter bez zmian.
+
 **Mniej kliknięć na Tablicy (decyzje Artura D2 i D7, 14.10.2026):**
 
 - **Okno stawki tylko bez stawki (D2).** Ruch na „Zweryfikowany” pary, która

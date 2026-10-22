@@ -982,6 +982,40 @@ def _reapplied_link_owners(
     }
 
 
+async def _requirements_skipped(
+    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+) -> dict[int, tuple[list[str], Optional[int]]]:
+    """Ostatni ruch mimo braków każdej pary: ``(braki, kto)`` — 22.10.2026.
+
+    Ślad zapisuje ``/move``, gdy Delivery Lead przeszedł bramki pól
+    (``pipeline_move_rules.skips_fill_gates``); jedno zapytanie na tablicę
+    przez wiersze etapów rekrutacji (``Activity.entity_id`` = wiersz).
+    """
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(CandidateStage.candidate_id, Activity.details, Activity.user_id)
+        .join(
+            Activity,
+            (Activity.entity_type == "pipeline")
+            & (Activity.entity_id == CandidateStage.id),
+        )
+        .where(
+            CandidateStage.job_id == job_id,
+            CandidateStage.candidate_id.in_(ids),
+            Activity.action == pipeline_move_rules.REQUIREMENTS_SKIPPED_ACTION,
+        )
+        .order_by(CandidateStage.candidate_id, Activity.id.desc())
+        .distinct(CandidateStage.candidate_id)
+    )
+    found: dict[int, tuple[list[str], Optional[int]]] = {}
+    for cid, details, user_id in rows.all():
+        missing = (details or {}).get("missing") or []
+        found[cid] = ([str(key) for key in missing], user_id)
+    return found
+
+
 async def _process_cards(
     db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
 ) -> dict[int, tuple[int, Optional[int]]]:
@@ -1600,15 +1634,18 @@ async def apply_move(
     # Pipeline v4 (23.09.2026): wejście do „Umowy"/„Zatrudnionego" wymaga
     # debriefu po rozmowie u klienta (pytania klienta albo „klient nie zadawał
     # pytań") — pytania zasilają prep i profil Championa.
-    await pipeline_move_rules.assert_debrief_before_contract(
+    # Delivery Lead przechodzi mimo braków (22.10.2026) — braki idą do śladu
+    # ruchu (`requirements_skipped`), z którego Tablica rysuje odznakę.
+    skipped_requirements = await pipeline_move_rules.assert_debrief_before_contract(
         db,
         candidate_id=data.candidate_id,
         job_id=data.job_id,
         target_column=target_column,
+        user=policy.viewer,
     )
     # D1 (04.10.2026): „Zweryfikowany” z Nowych/Screeningu wymaga arkusza
     # screeningu i stawki kandydata — ta sama reguła co okno „Przesuń dalej”.
-    await pipeline_move_rules.assert_verified_requirements(
+    skipped_requirements += await pipeline_move_rules.assert_verified_requirements(
         db,
         candidate_id=data.candidate_id,
         job=job,
@@ -2129,6 +2166,21 @@ async def apply_move(
         stage_display_name=stage_display_name,
         extra_details=activity_extra,
     )
+    if skipped_requirements:
+        db.add(
+            Activity(
+                entity_type="pipeline",
+                entity_id=stage.id,
+                action=pipeline_move_rules.REQUIREMENTS_SKIPPED_ACTION,
+                user_id=policy.actor_id,
+                details={
+                    "candidate_id": data.candidate_id,
+                    "job_id": data.job_id,
+                    "stage": legacy_enum.value,
+                    "missing": skipped_requirements,
+                },
+            )
+        )
     if eligibility_block is not None:
         # Przeniesiono mimo ostrzeżenia — audyt widzi, co zignorowano i kto.
         db.add(
@@ -3447,6 +3499,19 @@ async def build_kanban_view(
     from app.services.cv_qc import pair_statuses
 
     qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
+    # 22.10.2026: Delivery Lead przesunął mimo braków — odznaka na karcie.
+    skipped_by_candidate = await _requirements_skipped(
+        db, job_id=job_id, candidate_ids=candidate_ids
+    )
+    missing_skip_names = {
+        uid for _keys, uid in skipped_by_candidate.values() if uid is not None
+    } - set(user_name_by_id)
+    if missing_skip_names:
+        srows = await db.execute(
+            select(User.id, User.name).where(User.id.in_(missing_skip_names))
+        )
+        for uid, uname in srows.all():
+            user_name_by_id[uid] = uname
     # 0413: stan karty rekomendacji każdej osoby („Karta gotowa” / „brakuje N”)
     # i liczba prób kontaktu — po jednym zapytaniu na tablicę.
     from sqlalchemy import func, or_
@@ -3605,6 +3670,12 @@ async def build_kanban_view(
             else None
         )
         payload["qc"] = qc_by_pair.get((e.candidate_id, job_id))
+        skipped = skipped_by_candidate.get(e.candidate_id)
+        if skipped is not None:
+            payload["requirements_skipped"] = skipped[0]
+            payload["requirements_skipped_by_name"] = (
+                user_name_by_id.get(skipped[1]) if skipped[1] is not None else None
+            )
         payload["dl_send_counts"] = dl_send_job and e.external_source != TRAFFIT_SOURCE
         card = card_by_candidate.get(e.candidate_id)
         payload["card"] = (

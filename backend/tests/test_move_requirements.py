@@ -748,3 +748,45 @@ def test_job_without_questions_still_needs_why_when_note_answers_met_the_talk(
         )
         == []
     )
+
+
+# ── Delivery Lead przesuwa bez bramek pól (decyzja Artura 22.10.2026) ────────
+
+
+def test_delivery_lead_sees_the_gaps_but_they_do_not_block() -> None:
+    facts = PairFacts(
+        from_column="screening", stage_id=5, screening_stage_id=4, skips_fill_gates=True
+    )
+    result = build_requirements(facts, "verified")
+    assert result["primary"] == {"kind": "move", "label": "Przesuń na „Zweryfikowany”"}
+    sheet = _item(result, "screening_sheet")
+    assert sheet["status"] == "missing" and sheet["blocking"] is False
+    assert "przesuwasz jako Delivery Lead" in sheet["detail"]
+    assert _item(result, "candidate_rate")["blocking"] is False
+    assert all(_item(result, key)["blocking"] is False for key in MINIMUM_KEYS)
+
+    # Rekruter na tych samych faktach — blokada jak dotąd.
+    recruiter = build_requirements(replace(facts, skips_fill_gates=False), "verified")
+    assert recruiter["primary"]["kind"] == "blocked"
+
+
+def test_delivery_lead_skips_company_cv_and_debrief_but_not_qc() -> None:
+    dl = replace(VERIFIED_READY, skips_fill_gates=True, is_client_sender=True)
+    no_cv = build_requirements(dl, "cv_qc")
+    assert _item(no_cv, "company_cv")["blocking"] is False
+    assert no_cv["primary"]["kind"] == "move"
+
+    debrief = build_requirements(
+        PairFacts(
+            from_column="client_interview",
+            debrief_missing=True,
+            skips_fill_gates=True,
+        ),
+        "contract",
+    )
+    assert debrief["primary"]["kind"] == "move"
+
+    failed_qc = build_requirements(
+        replace(dl, from_column="cv_qc", company_cv=True, qc_status="failed"), "cv_sent"
+    )
+    assert failed_qc["primary"]["kind"] == "blocked"
