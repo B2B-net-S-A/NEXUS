@@ -33,6 +33,10 @@ from app.schemas.client import (
 )
 from app.services.client_access import assert_client_writable
 from app.services.client_deletion import assess_client_merge_blockers
+from app.services.client_duplicates import (
+    duplicate_warning_detail,
+    find_same_name_clients,
+)
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
@@ -479,12 +483,21 @@ async def create_client(
     current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     portfolio_category: PortfolioCategory = Query(PortfolioCategory.active),
+    acknowledge_duplicate: bool = Query(False),
 ):
     """Create a client and its initial local directory scope atomically.
 
     ``portfolio_category`` deliberately comes from the currently selected
     directory tab; direct API callers may make the same explicit choice.
+    A visible client with the same company name answers 409
+    ``client_duplicate_warning`` until the caller acknowledges it
+    (``services/client_duplicates.py``).
     """
+
+    if not acknowledge_duplicate:
+        found = await find_same_name_clients(db, data.name)
+        if found:
+            raise HTTPException(status_code=409, detail=duplicate_warning_detail(found))
 
     client = Client(**data.model_dump())
     db.add(client)

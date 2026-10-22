@@ -9,7 +9,7 @@ from io import BytesIO
 import pytest
 from httpx import AsyncClient
 from openpyxl import load_workbook
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
@@ -306,6 +306,156 @@ async def test_create_client_rejects_unknown_portfolio_category_without_writes(
     assert response.status_code == 422, response.text
     async with AsyncSessionLocal() as db:
         assert await db.scalar(select(Client.id).where(Client.name == name)) is None
+
+
+async def _seed_same_name_clients(suffix: str) -> dict[str, int]:
+    """Klient widoczny w Nieaktywnych, klient z aliasem i scalony duplikat."""
+
+    async with AsyncSessionLocal() as db:
+        existing = Client(
+            name=f"Energa {suffix}",
+            display_name=f"Energa {suffix} S.A.",
+            status=ClientStatus.inactive,
+        )
+        aliased = Client(name=f"Grupa Orlen {suffix}", status=ClientStatus.active)
+        merged = Client(name=f"Scalona {suffix}", status=ClientStatus.active)
+        db.add_all((existing, aliased, merged))
+        await db.flush()
+        merged.merged_into_client_id = aliased.id
+        merged.archived_at = datetime.now(timezone.utc)
+        db.add_all(
+            (
+                ClientPortfolioScope(
+                    client_id=existing.id,
+                    category=PortfolioCategory.active,
+                    category_override=PortfolioCategory.inactive,
+                    source_system="test",
+                ),
+                ClientAlias(
+                    client_id=aliased.id,
+                    alias=f"PKN Orlen {suffix}",
+                    normalized_alias=f"pkn orlen {suffix}",
+                    source_system="test",
+                    source_key=f"{suffix}:dup-alias",
+                ),
+            )
+        )
+        await db.commit()
+        return {"existing": existing.id, "aliased": aliased.id, "merged": merged.id}
+
+
+async def _cleanup_clients_named(suffix: str) -> None:
+    async with AsyncSessionLocal() as db:
+        client_ids = list(
+            (
+                await db.scalars(select(Client.id).where(Client.name.contains(suffix)))
+            ).all()
+        )
+        await db.execute(
+            delete(Activity).where(
+                Activity.entity_type == "client", Activity.entity_id.in_(client_ids)
+            )
+        )
+        await db.execute(
+            delete(ClientAlias).where(ClientAlias.client_id.in_(client_ids))
+        )
+        await db.execute(
+            delete(ClientPortfolioScope).where(
+                ClientPortfolioScope.client_id.in_(client_ids)
+            )
+        )
+        await db.execute(
+            Client.__table__.update()
+            .where(Client.id.in_(client_ids))
+            .values(merged_into_client_id=None)
+        )
+        await db.execute(delete(Client).where(Client.id.in_(client_ids)))
+        await db.commit()
+
+
+async def test_create_client_warns_about_same_company_and_writes_nothing(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    """Energa 12.10.2026: drugi rekord w Aktywnych, stary w Nieaktywnych."""
+
+    suffix = uuid.uuid4().hex[:10]
+    seed = await _seed_same_name_clients(suffix)
+    try:
+        # Inna wielkość liter i bez formy prawnej — ta sama firma.
+        response = await app_client.post(
+            "/api/clients",
+            json={"name": f"ENERGA {suffix}"},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 409, response.text
+        detail = response.json()["detail"]
+        assert detail["code"] == "client_duplicate_warning"
+        assert detail["clients"] == [
+            {
+                "id": seed["existing"],
+                "name": f"Energa {suffix} S.A.",
+                "categories": ["inactive"],
+            }
+        ]
+        assert detail["message"] == (
+            f"Taki klient już jest: Energa {suffix} S.A. (Nieaktywni)."
+        )
+        async with AsyncSessionLocal() as db:
+            assert (
+                await db.scalar(
+                    select(func.count(Client.id)).where(Client.name.contains(suffix))
+                )
+                == 3
+            )
+
+        # Alias też jest nazwą klienta.
+        by_alias = await app_client.post(
+            "/api/clients",
+            json={"name": f"PKN Orlen {suffix} S.A."},
+            headers=app_auth_headers,
+        )
+        assert by_alias.status_code == 409, by_alias.text
+        assert [c["id"] for c in by_alias.json()["detail"]["clients"]] == [
+            seed["aliased"]
+        ]
+
+        # Potwierdzenie „Dodaj mimo to” zakłada klienta.
+        acknowledged = await app_client.post(
+            "/api/clients",
+            params={"acknowledge_duplicate": "true"},
+            json={"name": f"ENERGA {suffix}"},
+            headers=app_auth_headers,
+        )
+        assert acknowledged.status_code == 201, acknowledged.text
+    finally:
+        await _cleanup_clients_named(suffix)
+
+
+async def test_create_client_ignores_merged_and_different_names(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    suffix = uuid.uuid4().hex[:10]
+    await _seed_same_name_clients(suffix)
+    try:
+        # Scalony duplikat nie jest „już w bazie” — nikt go nie widzi.
+        merged_name = await app_client.post(
+            "/api/clients",
+            json={"name": f"Scalona {suffix}"},
+            headers=app_auth_headers,
+        )
+        assert merged_name.status_code == 201, merged_name.text
+
+        # Wspólny początek nazwy to jeszcze nie ta sama firma.
+        prefix_only = await app_client.post(
+            "/api/clients",
+            json={"name": f"Energa {suffix} Obrót"},
+            headers=app_auth_headers,
+        )
+        assert prefix_only.status_code == 201, prefix_only.text
+    finally:
+        await _cleanup_clients_named(suffix)
 
 
 async def test_directory_requires_auth(app_client: AsyncClient) -> None:
