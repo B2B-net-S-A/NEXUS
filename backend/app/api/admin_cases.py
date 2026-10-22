@@ -135,8 +135,8 @@ async def _readable_case(db: AsyncSession, case_id: int, user: User):
     return case
 
 
-async def _managed_case(db: AsyncSession, case_id: int):
-    case = await service.get_case(db, case_id)
+async def _managed_case(db: AsyncSession, case_id: int, *, lock: bool = False):
+    case = await service.get_case(db, case_id, lock=lock)
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, CASE_NOT_FOUND_DETAIL)
     return case
@@ -218,9 +218,9 @@ async def update_case(
     current_user: CasesHandler,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    case = await _managed_case(db, case_id)
     changes = payload.model_dump(exclude_unset=True)
     expected = changes.pop("expected_updated_at", None)
+    case = await _managed_case(db, case_id, lock=expected is not None)
     if "checklist" in changes and payload.checklist is not None:
         changes["checklist"] = [item.model_dump() for item in payload.checklist]
     try:
