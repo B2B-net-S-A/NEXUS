@@ -57,7 +57,10 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
       b2bEsignApi.withdraw(requestId, "Przejście na drogę zwykłą"),
     onSuccess: () => {
       toast.showSuccess("Wysyłka wycofana — umowa wraca do drogi zwykłej.");
+      // Rejestr, karta Tablicy (plakietka „U kontraktora…”) i lista na pulpicie.
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["kanban"] });
+      queryClient.invalidateQueries({ queryKey: ["board-tasks"] });
     },
     onError: (error) => toast.showError(apiErrorMessage(error, "Nie udało się wycofać.")),
   });

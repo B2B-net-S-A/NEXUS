@@ -34,6 +34,8 @@ function SignRow({ request }: { request: EsignRequest }) {
       toast.showSuccess("Umowa podpisana przez obie strony.");
       queryClient.invalidateQueries({ queryKey: ESIGN_MINE_KEY });
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["kanban"] });
+      queryClient.invalidateQueries({ queryKey: ["board-tasks"] });
     },
   });
   const problem = file ? signedPdfProblem(file) : null;

@@ -279,6 +279,27 @@ describe("EsignRowStatus (audyt 22.10)", () => {
       ...extra,
     }) as unknown as B2BGeneratedContractRow;
 
+  it("F92: wycofanie odświeża też kartę Tablicy i listę na pulpicie", async () => {
+    mocks.withdraw.mockResolvedValue({ id: 4, status: "withdrawn" });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <EsignRowStatus row={row({}, { can_withdraw_esign: true })} />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Przejdź na zwykłą drogę/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Wycofaj wysyłkę" }));
+    await waitFor(() => expect(mocks.withdraw).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban"] }),
+    );
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["board-tasks"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["b2b-generated"] });
+  });
+
   it("F45: podpisaną przez obie strony umowę da się pobrać", async () => {
     const blob = new Blob(["%PDF"]);
     mocks.signedPdf.mockResolvedValue({ data: blob });
