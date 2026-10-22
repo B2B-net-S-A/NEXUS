@@ -236,6 +236,30 @@ describe("PickInterviewDialog", () => {
     expect(mocks.createPrep).not.toHaveBeenCalled();
   });
 
+  it("okno klienta, które już trwa: godzina startu nie jest w przeszłości (audyt 22.10, F36)", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2031, 5, 13, 10, 16));
+    try {
+      const req: SlotRequest = {
+        ...request,
+        duration_minutes: 60,
+        slots: [
+          {
+            start: new Date(2031, 5, 13, 9, 0).toISOString(),
+            end: new Date(2031, 5, 13, 10, 0).toISOString(),
+            window_end: new Date(2031, 5, 13, 12, 0).toISOString(),
+          },
+        ],
+      };
+      const dialog = renderDialog(vi.fn(), req);
+      const time = within(dialog).getByLabelText("Godzina z kandydatem");
+      expect(time).toHaveValue("10:30");
+      expect(time).toHaveAttribute("min", "10:30");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("bez prepów do zaproszenia przycisk mówi, co się stanie: rozmowa trafia do kalendarza", async () => {
     mocks.suggestions.mockResolvedValue({ enabled: false, preps: [] });
     mocks.chooseSlot.mockResolvedValue({ status: "confirmed" });

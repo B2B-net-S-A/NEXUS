@@ -128,6 +128,9 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
   w przeszłości. Okna `PickInterviewDialog` i `ClientReplyDialog` wyłączają
   takie terminy z dopiskiem „termin minął” (`interview-pick.slotPassed`, ta
   sama tolerancja; okno klienta mija, gdy nie zmieści się w nim rozmowa).
+  Okno, które już trwa, podsuwa godzinę od teraz w górę do kwadransa, nie
+  miniony początek okna (`interview-pick.windowEarliest`, wartość i `min`
+  pola; audyt 22.10, F36).
 - **Przycisk mówi, co robi:** bez prepów do zaproszenia główny przycisk
   `PickInterviewDialog` to „Wpisz do kalendarza” (jak dymek „Rozmowa jest
   w kalendarzu…”), nie „Wyślij do DL”. Nie wracaj do starej nazwy.

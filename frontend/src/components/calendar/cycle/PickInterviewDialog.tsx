@@ -36,6 +36,7 @@ import {
   slotPassed,
   spanOf,
   windowBounds,
+  windowEarliest,
   type ManualPrepCheck,
   type Span,
 } from "@/lib/interview-pick";
@@ -93,7 +94,7 @@ export function PickInterviewDialog({
     const only =
       request?.slots.length === 1 && !slotPassed(request.slots[0], request.duration_minutes) ? 0 : null;
     setIndex(only);
-    setWindowTime(only != null && request ? (windowBounds(request.slots[0], request.duration_minutes)?.from ?? "") : "");
+    setWindowTime(only != null && request ? (windowEarliest(request.slots[0], request.duration_minutes) ?? "") : "");
     setCandFrom("");
     setCandTo("");
     setPicks({});
@@ -358,6 +359,7 @@ export function PickInterviewDialog({
             <legend className="mb-1 text-xs font-semibold text-muted-foreground">Termin u klienta</legend>
             {request.slots.map((s, i) => {
               const bounds = windowBounds(s, duration);
+              const earliest = windowEarliest(s, duration);
               const selected = index === i;
               const passed = slotPassed(s, duration);
               return (
@@ -377,7 +379,7 @@ export function PickInterviewDialog({
                       disabled={passed}
                       onChange={() => {
                         setIndex(i);
-                        setWindowTime(bounds?.from ?? "");
+                        setWindowTime(earliest ?? "");
                       }}
                       className="h-4 w-4"
                     />
@@ -394,7 +396,7 @@ export function PickInterviewDialog({
                       <input
                         type="time"
                         value={windowTime}
-                        min={bounds.from}
+                        min={earliest ?? bounds.from}
                         max={bounds.to}
                         step={900}
                         onChange={(e) => setWindowTime(e.target.value)}
