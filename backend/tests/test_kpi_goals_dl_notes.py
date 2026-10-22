@@ -146,6 +146,57 @@ async def test_goals_result_survives_the_cache_round_trip(monkeypatch):
     assert kpi_goals.GoalsResult.from_dict(legacy).closed_requests is None
 
 
+# ── „Sam przekazał” Delivery Leada (22.10.2026) ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_own_handoffs_survive_the_cache_round_trip(monkeypatch):
+    from dataclasses import replace
+
+    result = replace(
+        await _dl_goals(monkeypatch, placements=1, closed=4),
+        own_handoffs={"verified": 5, "cv_sent": 3, "hired": 1},
+    )
+    assert kpi_goals.GoalsResult.from_dict(result.as_dict()) == result
+    legacy = result.as_dict()
+    del legacy["own_handoffs"]
+    assert kpi_goals.GoalsResult.from_dict(legacy).own_handoffs is None
+
+
+class _Rows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def mappings(self):
+        return self._rows
+
+
+class _FunnelDb:
+    def __init__(self, rows):
+        self.rows = rows
+        self.params = None
+
+    async def execute(self, _sql, params):
+        self.params = params
+        return _Rows(self.rows)
+
+
+@pytest.mark.asyncio
+async def test_month_own_handoffs_reads_the_month_column_of_the_funnel():
+    from app.services.kpi_panel import month_own_handoffs
+
+    db = _FunnelDb(
+        [
+            {"stage": "verified", "d": 1, "w": 2, "mo": 5},
+            {"stage": "cv_sent", "d": 0, "w": 1, "mo": 3},
+            {"stage": "client_interview", "d": 0, "w": 0, "mo": 2},
+        ]
+    )
+    counts = await month_own_handoffs(db, user=SimpleNamespace(id=7), now=NOW)
+    assert counts == {"verified": 5, "cv_sent": 3, "hired": 0}
+    assert db.params["uid"] == 7
+
+
 # ── Cel wycofany: resolver nie pyta o niego bazy ────────────────────────────
 
 

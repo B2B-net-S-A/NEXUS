@@ -492,6 +492,8 @@ async def test_goals_endpoint_shapes(api_client: AsyncClient):
         "closed_requests": None,
         # 21.10.2026: zamknięcia „nie liczy się” — tylko Delivery Lead.
         "closed_neutral": None,
+        # 22.10.2026: „Sam przekazał” — tylko Delivery Lead.
+        "own_handoffs": None,
     }
 
     dl = await _headers(api_client, UserRole.delivery_lead)
@@ -501,6 +503,7 @@ async def test_goals_endpoint_shapes(api_client: AsyncClient):
     assert body["kind"] == "delivery_lead"
     assert body["closed_requests"] == 0
     assert body["closed_neutral"] == 0
+    assert body["own_handoffs"] == {"verified": 0, "cv_sent": 0, "hired": 0}
     assert {g["short_title_pl"] for g in body["goals"]} == {"Hit ratio", "Placementy"}
 
 

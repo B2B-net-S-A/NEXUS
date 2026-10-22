@@ -175,6 +175,7 @@ function deliveryLead(placements: number, closed: number): MyKpiGoals {
     scope_label: "Q4 2026",
     people: null,
     closed_requests: closed,
+    own_handoffs: { verified: 5, cv_sent: 3, hired: 1 },
     goals: [
       {
         goal_id: "dl_hit_ratio_quarter",

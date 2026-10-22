@@ -307,6 +307,25 @@ describe("licznik celów — Delivery Lead", () => {
     expect(model?.link?.href).toBe("/insights?tab=raporty&report=portfele-dl");
   });
 
+  // 22.10.2026: „Sam przekazał” — licznik bez celu, tylko gdy coś jest.
+  it("„Sam przekazał” Delivery Leada w faktach panelu, bez zer", () => {
+    const own = buildKpiTopbarModel([], {
+      ...dlGoals({ placements: 2, closed: 10 }),
+      own_handoffs: { verified: 5, cv_sent: 3, hired: 1 },
+    });
+    expect(own?.facts).toEqual([
+      { label: "Zamknięte rekrutacje w kwartale", value: "10" },
+      { label: "Sam przekazał w tym miesiącu: zweryfikowani", value: "5" },
+      { label: "Sam przekazał: CV wysłane", value: "3" },
+      { label: "Sam przekazał: zatrudnienia", value: "1" },
+    ]);
+    const none = buildKpiTopbarModel([], {
+      ...dlGoals({ placements: 2, closed: 10 }),
+      own_handoffs: { verified: 0, cv_sent: 0, hired: 0 },
+    });
+    expect(none?.facts).toEqual([{ label: "Zamknięte rekrutacje w kwartale", value: "10" }]);
+  });
+
   it("cel zrobiony i brakujące placementy w liczbie mnogiej", () => {
     const done = buildKpiTopbarModel([], dlGoals({ placements: 3, closed: 10 }));
     expect(done?.segments[0].mark).toBe("hit");
