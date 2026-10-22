@@ -68,7 +68,10 @@ async def test_untouched_rows_confirm_state_and_note_goes_to_case(
     )
     assert resp.status_code == 201, resp.text
     saved = resp.json()
-    assert saved["tech_card_id"] and saved["tech_card_id"] != first.json()["id"]
+    assert (
+        saved["tech_card_id"]
+        and saved["tech_card_id"] != first.json()["tech_cards"][0]["id"]
+    )
 
     async with AsyncSessionLocal() as db:
         trace = await db.scalar(
