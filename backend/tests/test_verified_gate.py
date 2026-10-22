@@ -626,6 +626,59 @@ async def test_delivery_lead_bulk_move_keeps_the_gate(
         await _cleanup(world, [dl_id])
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("role", "switch_on", "expected"),
+    [
+        (UserRole.delivery_lead, True, True),
+        (UserRole.delivery_lead, False, False),
+        (UserRole.recruiter, True, False),
+    ],
+)
+async def test_me_tells_the_board_whether_the_account_skips_fill_gates(
+    monkeypatch: pytest.MonkeyPatch, role: UserRole, switch_on: bool, expected: bool
+) -> None:
+    """Audyt 22.10.2026 (F109), decyzja Artura: front czyta z `/api/auth/me`
+    tę samą regułę co serwer (`skips_fill_gates`) — wyłącznik
+    `DL_SKIPS_FILL_GATES=false` przywraca DL-owi okna minimum i stawki."""
+
+    from app.models.user import User
+    from app.services import user_response
+    from app.services.access_scope import DashboardScope, ScopeKind
+
+    async def fake_scope(user, db, **_kw):
+        return DashboardScope(kind=ScopeKind.self, user_id=user.id)
+
+    async def fake_finance_ids(user, db):
+        return frozenset()
+
+    monkeypatch.setattr(user_response, "resolve_dashboard_scope", fake_scope)
+    monkeypatch.setattr(
+        user_response, "resolve_delivery_lead_finance_client_ids", fake_finance_ids
+    )
+    monkeypatch.setattr(settings, "DL_SKIPS_FILL_GATES", switch_on)
+    now = datetime.now(timezone.utc)
+    user = User(
+        id=100,
+        email=f"{role.value}@example.com",
+        name=role.value,
+        role=role,
+        roles=[role.value],
+        is_active=True,
+        profile_completed=True,
+        authorization_version=1,
+        email_verified=True,
+        can_delete_clients=False,
+        force_password_change=False,
+        created_at=now,
+        updated_at=now,
+    )
+
+    response = await user_response.build_user_response(user, db=None)
+
+    assert response.skips_fill_gates is expected
+
+
 def test_board_badge_keeps_only_what_is_still_missing() -> None:
     from app.api.pipeline import _still_missing
 

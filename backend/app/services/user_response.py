@@ -14,6 +14,7 @@ from app.services.access_scope import (
     resolve_dashboard_scope,
     resolve_delivery_lead_finance_client_ids,
 )
+from app.services.pipeline_move_rules import skips_fill_gates
 
 
 def _dashboard_presets_for(user: User) -> list[DashboardPreset]:
@@ -92,6 +93,8 @@ async def build_user_response(user: User, db: AsyncSession) -> UserResponse:
             and not delivery_lead_sees_whole_delivery(user)
             else "all"
         )
+    # Wyłącznik `DL_SKIPS_FILL_GATES` działa też na interfejs (F109).
+    response.skips_fill_gates = skips_fill_gates(user)
     response.effective_section_access = dict(
         getattr(user, "effective_section_access", {})
     )
