@@ -613,6 +613,24 @@ przed wysłaniem), `candidate_refused`, `candidate_withdrew`.
   przez `ensure_job_membership` (NIE `ensure_job_read_access`, który
   przepuszcza Finanse do każdej rekrutacji). Po podpisie firmy plików nie da
   się podmienić, a poprzednie wersje nie są kasowane (dowód do decyzji o karze).
+- **Kto pracuje na przedwstępnych** (22.10.2026, decyzja Artura, audyt F54):
+  osoby z rekrutacji (admin, Head of Recruitment, Delivery Lead, TCM,
+  rekruter — z sekcją „Rekrutacje”: odczyt na odczyt, zapis na krok) oraz
+  **Finanse, Rada nadzorcza i Automatyzacje — pełny dostęp jak rekruter:
+  odczyt, pliki z PESEL i akcje**, z tytułu roli, bez sekcji „Rekrutacje”
+  (Rada jej nie ma, Automatyzacje mają ją tylko do odczytu). Wcześniej front
+  pokazywał im wejścia (przycisk na /jobs, paleta, kafelek pulpitu, sekcja
+  w zakładce „Umowa”), a API odpowiadało 403 — „Nie udało się sprawdzić…
+  Ponów” bez końca. Jedna lista ról: `PRE_CONTRACT_ROLES` i bramka
+  `require_pre_contract_access` (`api/pre_contracts.py`), lustro na froncie
+  capability `pre_contract.work` (`lib/capabilities.ts`) — każde wejście
+  pyta o nią, więc Viewer, Praktykant i Pracownik nie widzą wejść, które
+  skończyłyby się błędem. Rada nie ma członkostwa w rekrutacjach, więc
+  `_ensure_pair_access` sprawdza jej tylko istnienie rekrutacji. Lista
+  „Umowy przedwstępne” pokazuje tym rolom to, co rekruterowi (o co prosili,
+  co wystawiają, co obserwują). Wzorzec bramek: `tests/data/authz_golden/pre_contracts.json`
+  (kolumny `automation` i `board` = P), wyjątki nazwane w
+  `test_automation_role_access.py` i `test_board_role_access.py`.
 - **Sweeper** (co godzinę, najwyżej jedno przypomnienie dziennie): wygasa
   umowy po dacie ważności, ostrzega 3 dni przed końcem (raz na okno — liczy
   zdarzenie `expiring`, nie `last_reminder_at`; osobie odrzuconej albo

@@ -393,3 +393,89 @@ async def test_b2b_deadline_after_late_company_signature_counts_from_today(
         monkeypatch, accepted_on=date(2026, 10, 19), from_today=True
     )
     assert deadline == date(2026, 10, 29)
+
+
+# ── F54: kto pracuje na umowach przedwstępnych (decyzja Artura 22.10.2026) ──
+
+
+def _account(role, *, sections: dict[str, str]):
+    from app.models.user import User
+
+    user = User(id=41, email=f"{role.value}@example.com", name=role.value, role=role)
+    user.roles = [role.value]
+    user.effective_section_access = sections
+    return user
+
+
+def _post_request():
+    from starlette.requests import Request
+
+    return Request(
+        {"type": "http", "method": "POST", "path": "/api/pre-contracts", "headers": []}
+    )
+
+
+class _JobDb:
+    def __init__(self, exists: bool) -> None:
+        self.exists = exists
+
+    async def get(self, _model, _id):
+        return object() if self.exists else None
+
+
+async def test_finance_board_and_automation_work_on_pre_contracts_like_a_recruiter() -> (
+    None
+):
+    # Finanse, Rada nadzorcza i Automatyzacje: odczyt, pliki i akcje jak
+    # rekruter — także bez zapisu (Automatyzacje) albo całej sekcji
+    # Rekrutacje (Rada).
+    from app.api import pre_contracts as api
+    from app.models.user import UserRole
+
+    for role, sections in (
+        (UserRole.finance, {"pipeline": "write"}),
+        (UserRole.automation, {"pipeline": "read"}),
+        (UserRole.board, {"insights": "read"}),
+    ):
+        user = _account(role, sections=sections)
+        assert await api.require_pre_contract_access(_post_request(), user) is user
+        await api._ensure_pair_access(_JobDb(exists=True), user, 5)
+
+
+async def test_pre_contracts_stay_closed_for_viewer_and_without_pipeline_section() -> (
+    None
+):
+    from fastapi import HTTPException
+
+    from app.api import pre_contracts as api
+    from app.models.user import UserRole
+
+    for role, sections in (
+        (UserRole.user, {"pipeline": "read", "sourcing": "read"}),
+        (UserRole.employee, {}),
+        (UserRole.trainee, {}),
+        (UserRole.recruiter, {"pipeline": "read"}),
+    ):
+        try:
+            await api.require_pre_contract_access(
+                _post_request(), _account(role, sections=sections)
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 403
+        else:
+            raise AssertionError(f"{role.value} przeszedł bramkę przedwstępnej")
+
+
+async def test_board_gets_404_for_a_missing_recruitment() -> None:
+    from fastapi import HTTPException
+
+    from app.api import pre_contracts as api
+    from app.models.user import UserRole
+
+    board = _account(UserRole.board, sections={"insights": "read"})
+    try:
+        await api._ensure_pair_access(_JobDb(exists=False), board, 5)
+    except HTTPException as exc:
+        assert exc.status_code == 404
+    else:
+        raise AssertionError("brak rekrutacji nie dał 404")

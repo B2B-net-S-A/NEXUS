@@ -414,6 +414,11 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Umowy przedwstępne",
     icon: Briefcase,
     section: "pipeline",
+    // Bramka API przedwstępnych: Viewer ma odczyt Rekrutacji, a API mu odmawia
+    // (audyt F54, 22.10.2026). Rada nadzorcza wpis ma, ale jej powłoka pokazuje
+    // tylko Insights.
+    roles: [...CAPABILITY_ROLES["pre_contract.work"]],
+    capability: "pre_contract.work",
     placement: "primary",
     paletteKeywords: ["przedwstępna", "umowa przedwstępna", "kara", "wyłączność", "podpis"],
     inPalette: true,

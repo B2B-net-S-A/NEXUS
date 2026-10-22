@@ -447,9 +447,15 @@ async def test_moving_past_needed_column_without_signature_tells_requester_once(
     assert "bez podpisanej umowy przedwstępnej" in bells[0].message
 
 
-async def test_finance_outside_the_job_cannot_read_files_or_change_state(
-    app_client: AsyncClient,
+@pytest.mark.parametrize(
+    "role", [UserRole.finance, UserRole.automation, UserRole.board]
+)
+async def test_finance_board_and_automation_work_on_pre_contracts_like_a_recruiter(
+    app_client: AsyncClient, role: UserRole
 ) -> None:
+    # F54 (decyzja Artura 22.10.2026): Finanse, Rada nadzorcza i Automatyzacje
+    # mają przedwstępne jak rekruter — odczyt, pliki i akcje, także w
+    # rekrutacji, w której nie są w zespole.
     pair = await _pair()
     rec_h = await _headers(app_client, pair["recruiter"])
     created = await app_client.post(
@@ -459,38 +465,42 @@ async def test_finance_outside_the_job_cannot_read_files_or_change_state(
     )
     request_id = created.json()["id"]
     async with AsyncSessionLocal() as db:
-        finance, pwd = await _user(db, UserRole.finance)
+        account, pwd = await _user(db, role)
         await db.commit()
-        who = (finance.id, finance.email, pwd)
-    fin_h = await _headers(app_client, who)
-    for method, url, body in (
-        ("get", f"/api/pre-contracts/{request_id}", None),
-        ("get", f"/api/pre-contracts/{request_id}/files/candidate", None),
-        ("post", f"/api/pre-contracts/{request_id}/cancel", {"reason": "test test"}),
-    ):
-        resp = await getattr(app_client, method)(
-            url, headers=fin_h, **({"json": body} if body else {})
-        )
-        assert resp.status_code == 403, (url, resp.status_code)
-
-
-async def test_automation_account_cannot_open_pre_contract_files(
-    app_client: AsyncClient,
-) -> None:
-    pair = await _pair()
-    rec_h = await _headers(app_client, pair["recruiter"])
-    created = await app_client.post(
-        "/api/pre-contracts",
-        headers=rec_h,
-        json={"candidate_id": pair["candidate_id"], "job_id": pair["job_id"]},
+        who = (account.id, account.email, pwd)
+    headers = await _headers(app_client, who)
+    pair_view = await app_client.get(
+        "/api/pre-contracts/pair",
+        headers=headers,
+        params={"candidate_id": pair["candidate_id"], "job_id": pair["job_id"]},
     )
+    assert pair_view.status_code == 200, pair_view.text
+    assert pair_view.json()["current"]["id"] == request_id
+    one = await app_client.get(f"/api/pre-contracts/{request_id}", headers=headers)
+    assert one.status_code == 200, one.text
+    # Pliku jeszcze nie ma — 404 z treści, nie 403 z bramki.
+    file_resp = await app_client.get(
+        f"/api/pre-contracts/{request_id}/files/candidate", headers=headers
+    )
+    assert file_resp.status_code == 404, file_resp.text
+    cancel = await app_client.post(
+        f"/api/pre-contracts/{request_id}/cancel",
+        headers=headers,
+        json={"reason": "test test"},
+    )
+    assert cancel.status_code == 200, cancel.text
+
+
+async def test_viewer_cannot_open_pre_contracts(app_client: AsyncClient) -> None:
+    pair = await _pair()
     async with AsyncSessionLocal() as db:
-        bot, pwd = await _user(db, UserRole.automation)
+        viewer, pwd = await _user(db, UserRole.user)
         await db.commit()
-        who = (bot.id, bot.email, pwd)
+        who = (viewer.id, viewer.email, pwd)
     resp = await app_client.get(
-        f"/api/pre-contracts/{created.json()['id']}",
+        "/api/pre-contracts/pair",
         headers=await _headers(app_client, who),
+        params={"candidate_id": pair["candidate_id"], "job_id": pair["job_id"]},
     )
     assert resp.status_code == 403
 

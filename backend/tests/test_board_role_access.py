@@ -8,7 +8,8 @@ bramek ``tests/data/authz_golden/`` (kolumna persony ``board``):
 * poza Insights rola przechodzi dokładnie te trasy, które przechodzi
   „Pracownik” (własne konto, powiadomienia, pomoc) — nic biznesowego,
 * każda trasa ponad „Pracownika” to odczyt (GET) albo nazwany niżej
-  odczyt metodą POST,
+  odczyt metodą POST — poza umowami przedwstępnymi, które Rada prowadzi jak
+  rekruter (decyzja Artura 22.10.2026),
 * kandydaci, rekrutacje, klienci, kontrakty, zamówienia, moduł Finanse,
   płace i Generator umów B2B są zamknięte.
 
@@ -38,6 +39,10 @@ EMPLOYEE = "employee"
 # Metoda zapisu, ale bez zmiany danych: kreator metryk pulpitu liczy wartość
 # na żądanie (kwoty tylko z „Stawki i kwoty: podgląd”, którego Rada nie ma).
 READ_LIKE_POSTS = frozenset({"POST /api/dashboard-metrics/evaluate"})
+
+# Umowy przedwstępne: odczyt, pliki i akcje jak rekruter (decyzja Artura
+# 22.10.2026, audyt F54) — jedyny moduł z zapisem i danymi kandydatów.
+PRE_CONTRACT_MODULE = "pre_contracts"
 
 # Ekrany, dla których rola powstała — muszą się otworzyć.
 REQUIRED_READS = (
@@ -97,13 +102,25 @@ def test_board_adds_only_reads_to_what_an_employee_can_do() -> None:
         for route, verdicts in _matrix().items()
         if verdicts[BOARD] in PASSES and verdicts[EMPLOYEE] not in PASSES
     )
+    pre_contracts = set(_module_routes(PRE_CONTRACT_MODULE))
     writes = [
         route
         for route in beyond_employee
-        if not route.startswith("GET ") and route not in READ_LIKE_POSTS
+        if not route.startswith("GET ")
+        and route not in READ_LIKE_POSTS
+        and route not in pre_contracts
     ]
     assert writes == []
     assert beyond_employee, "Rada nie przechodzi niczego ponad Pracownika"
+
+
+def test_board_works_on_pre_contracts_like_a_recruiter() -> None:
+    routes = _module_routes(PRE_CONTRACT_MODULE)
+    assert routes
+    closed = sorted(
+        route for route, verdicts in routes.items() if verdicts[BOARD] not in PASSES
+    )
+    assert closed == []
 
 
 def test_listed_exceptions_still_exist() -> None:

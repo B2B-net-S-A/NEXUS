@@ -47,3 +47,13 @@ powodu. Powstała osobna rola `board`, na ekranie „Rada nadzorcza”.
   oraz `InsightsAccess.test.ts`.
 - **Nowa trasa:** rolę dopisuj tylko do bramek odczytu raportów. Zbiór, który
   otwiera zapis, dane kandydatów albo stawki osób, ma jej nie zawierać.
+- **Wyjątek: umowy przedwstępne** (22.10.2026, decyzja Artura, audyt F54).
+  Rada ma pełny dostęp do `/api/pre-contracts` jak rekruter — odczyt, pliki
+  z PESEL i akcje — z tytułu roli (`PRE_CONTRACT_ROLES`, bramka
+  `require_pre_contract_access`; bez sekcji „Rekrutacje” i bez członkostwa
+  w rekrutacji). To jedyny moduł z zapisem i danymi kandydatów otwarty
+  Radzie; `test_board_role_access.py` wyłącza go z reguły „tylko odczyty
+  ponad Pracownika”. Na froncie Rada ma capability `pre_contract.work`, ale
+  jej powłoka (`lib/board-access.ts`) nadal przepuszcza tylko Insights, konto
+  i Pomoc — ekranów z przedwstępnymi (lista, panel osoby) Rada dziś nie
+  otwiera.

@@ -8,7 +8,9 @@ potrzebuje aplikacji ani bazy:
 
 * zapis — rola nie przechodzi żadnej trasy z metodą zapisu, której nie
   przechodzi stary Viewer, poza nazwanymi niżej trasami, które niczego nie
-  zmieniają (wyszukiwanie, podgląd), albo które zatrzymuje handler;
+  zmieniają (wyszukiwanie, podgląd), albo które zatrzymuje handler, i poza
+  umowami przedwstępnymi, które rola prowadzi jak rekruter (decyzja Artura
+  22.10.2026);
 * odczyt — rola czyta to, co rekruter z podglądem Delivery, poza nazwanymi
   wyjątkami w obie strony;
 * pieniądze — moduł Finanse, Generator umów B2B i stawki rynkowe są zamknięte.
@@ -102,6 +104,10 @@ CLOSED_CARE_MODULES = (
 )
 CLOSED_EQUIPMENT_ROUTES = ("GET /api/equipment/contracts/{contract_id}",)
 
+# Umowy przedwstępne: odczyt, pliki i akcje jak rekruter (decyzja Artura
+# 22.10.2026, audyt F54) — jedyny moduł, w którym rola zapisuje na ekranie.
+PRE_CONTRACT_MODULE = "pre_contracts"
+
 # Ekrany, dla których rola powstała — muszą się otworzyć.
 REQUIRED_READS = (
     "GET /api/candidates",
@@ -141,7 +147,11 @@ def test_the_golden_has_the_automation_column() -> None:
 
 
 def test_automation_writes_nothing_beyond_the_viewer() -> None:
-    allowed = READ_LIKE_WRITES | HANDLER_DENIED_WRITES
+    allowed = (
+        READ_LIKE_WRITES
+        | HANDLER_DENIED_WRITES
+        | set(_module_routes(PRE_CONTRACT_MODULE))
+    )
     unexpected = sorted(
         route
         for route, verdicts in _matrix().items()
@@ -155,6 +165,17 @@ def test_automation_writes_nothing_beyond_the_viewer() -> None:
         "NOT_READ_ONLY (candidate_access.py) albo, jeśli niczego nie zmienia, "
         f"do READ_LIKE_WRITES: {unexpected}"
     )
+
+
+def test_automation_works_on_pre_contracts_like_a_recruiter() -> None:
+    routes = _module_routes(PRE_CONTRACT_MODULE)
+    assert routes
+    closed = sorted(
+        route
+        for route, verdicts in routes.items()
+        if verdicts[AUTOMATION] not in PASSES
+    )
+    assert closed == []
 
 
 def test_listed_exceptions_still_exist() -> None:

@@ -72,6 +72,8 @@ export type Capability =
   | "client.portfolio.manage"
   // ── Imienne wyniki zespołu ─────────────────────────────────────────────────
   | "dashboard.recruitment_stats.view"
+  // ── Umowy przedwstępne (0506; dostęp: decyzja Artura 22.10.2026) ──────────
+  | "pre_contract.work"
   // ── Wejścia nawigacyjne ────────────────────────────────────────────────────
   | "nav.candidates"
   | "nav.my_people"
@@ -151,6 +153,23 @@ const PROPOSAL_DECIDERS: readonly UserRole[] = ["admin", "head_of_recruitment"];
  * (backend/app/api/candidate_access.py). Węziej niż wgrywanie plików.
  */
 const DOCUMENT_REMOVERS: readonly UserRole[] = ["admin", "head_of_recruitment"];
+
+/**
+ * Kto pracuje na umowach przedwstępnych — lustro `PRE_CONTRACT_ROLES`
+ * (backend/app/api/pre_contracts.py): osoby z rekrutacji oraz Finanse, Rada
+ * nadzorcza i Automatyzacje, jak rekruter — odczyt, pliki i akcje (decyzja
+ * Artura 22.10.2026, audyt F54). Viewer nie: jego wejścia kończyły się 403.
+ */
+const PRE_CONTRACT_ROLES: readonly UserRole[] = [
+  "admin",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "recruiter",
+  "finance",
+  "automation",
+  "board",
+];
 
 /**
  * KAŻDA zalogowana rola — dla powierzchni otwartych z decyzji produktowej
@@ -252,6 +271,11 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // nieaktualny od 19.08, wiążący jest guard (`OperationalUser` zawiera
   // `UserRole.finance`).
   "dashboard.recruitment_stats.view": OPERATIONAL_READ,
+
+  // Wszystkie trasy /api/pre-contracts → `require_pre_contract_access`
+  // (`PRE_CONTRACT_ROLES`). Bez sufitu sekcji: Rada nie ma Rekrutacji, a
+  // Automatyzacje mają je tylko do odczytu — przedwstępne mają z tytułu roli.
+  "pre_contract.work": PRE_CONTRACT_ROLES,
 
   // Nawigacja — odwzorowanie ROLE_ROUTES z `middleware.ts` oraz bramek
   // sidebara. Trzymane tutaj, żeby Command Palette nie utrzymywała drugiej,
