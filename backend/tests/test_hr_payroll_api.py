@@ -761,6 +761,15 @@ async def test_manual_bonus_from_manager_waits_for_payroll(
     )
     assert by_payroll.status_code == 200, by_payroll.text
 
+    # Decyzja Artura 22.10.2026: kwoty po zatwierdzeniu przełożony nie zmienia,
+    # ale przyznaną przez siebie premię może anulować (osoba dostaje dzwonek).
+    withdrawn = await app_client.post(
+        f"/api/hr/payroll/bonuses/{bonus_id}/cancel", headers=_headers(boss)
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["status"] == "cancelled"
+    assert await worker_bells() == 2
+
     # Płace przyznają od razu, jak dotąd.
     direct = await app_client.post(
         "/api/hr/payroll/bonuses",
