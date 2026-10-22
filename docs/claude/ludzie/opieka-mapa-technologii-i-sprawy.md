@@ -110,7 +110,8 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   jednego kontraktu → `?contract=`. Nie wracaj do linków na `/contracts/{id}?tab=care`.
 - **Karty tablicy**: decyzja z końca zamówienia ≤ 60 dni bez wpisu „Do przepięcia” ma klucz
   `decision:end:<kontrakt>`; pierwszy ruch zakłada wpis (`records.ensure_redeploy`) i zwraca
-  `decision:<id>`. Decyzja na „Zrobione” = „Przekazana” albo „Nie dotyczy”; „Czeka” bez daty.
+  `decision:<id>`. Decyzja na „Zrobione” = „Przekazana” albo „Nie dotyczy”; „Czeka” bez daty (CHECK
+  `ck_care_board_states_waiting` dopuszcza to tylko dla `kind = 'decision'`, 0512).
   Popyt na „Czeka” bez daty = dziś + 30 dni (`demand.NOT_NOW_DAYS`). Karta `data:<klient>` („Dane do
   uzupełnienia”: propozycje struktury + luki mapy z pamięci podręcznej) tylko dla klientów „moich”
   jak w portfelu, krąg D11. `week_progress` = punkty planu z terminem pon–pt (bez pominiętych).
