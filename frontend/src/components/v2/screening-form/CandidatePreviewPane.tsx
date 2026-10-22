@@ -157,8 +157,10 @@ function originalDownloadPath(stageId: number): string {
   return `/api/candidates/stages/${stageId}/cv/original/download`;
 }
 
+// Podgląd = `inline` w dzienniku dostępu; tylko „Pobierz CV” liczy się alarmowi
+// masowego przeglądania CV jako zapis na dysk (audyt 22.10, F25).
 const defaultOriginalLoader: OriginalBlobLoader = (stageId) =>
-  fetchAuthenticatedBlob(originalDownloadPath(stageId));
+  fetchAuthenticatedBlob(`${originalDownloadPath(stageId)}?disposition=inline`);
 
 function Notice({ children }: { children: ReactNode }) {
   return (
