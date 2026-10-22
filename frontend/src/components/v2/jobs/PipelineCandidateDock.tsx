@@ -96,6 +96,7 @@ import {
 import { useAuthStore } from "@/store/auth";
 import { hasPermission } from "@/lib/permissions";
 import { DlMatchDialog } from "@/components/v2/recruitment/dl-review/DlMatchDialog";
+import type { ClientRateUnit } from "@/lib/person-facts";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
@@ -635,6 +636,11 @@ function PersonMoreMenu({
 const NOTE_KEYS_HINT = "Enter dodaje notatkę · Shift+Enter nowa linia";
 /** Etapy po akceptacji DL-a, z których DL może wysłać osobę też gdzie indziej. */
 const SEND_ALSO_STAGES = new Set(["cv_sent", "client_interview", "acceptance", "negotiation"]);
+
+/** Jednostka stawki do klienta z karty — „Wyślij też do…” wysyła ją bez zmian. */
+export function sendAlsoUnit(unit: string | null | undefined): ClientRateUnit {
+  return unit === "daily" || unit === "monthly" ? unit : "hourly";
+}
 /** Akcje paska „Koniec kolejki” (14.10.2026). */
 const QUEUE_END_ACTION =
   "shrink-0 rounded-md px-1.5 py-0.5 font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:p-2";
@@ -2681,6 +2687,8 @@ export function PipelineCandidateDock({
           jobId={jobId}
           jobLabel={jobLabel}
           defaultRate={item.client_rate_value != null ? String(item.client_rate_value) : ""}
+          rateUnit={sendAlsoUnit(item.client_rate_unit)}
+          currency={item.client_rate_currency || "PLN"}
         />
       )}
       {openPreContract && (

@@ -23,6 +23,7 @@ import {
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { dlMatchApi } from "@/lib/dl-match-api";
+import { RATE_UNIT_LABEL, type ClientRateUnit } from "@/lib/person-facts";
 
 import { DlMatchSection, matchTargets, summarizeResults, useDlMatch } from "./DlMatchSection";
 
@@ -35,6 +36,10 @@ export interface DlMatchDialogProps {
   jobLabel: string;
   /** Stawka do klienta w tej rekrutacji — podpowiedź w każdym wierszu. */
   defaultRate: string;
+  /** Jednostka i waluta tej stawki — idą z każdą wysyłką (stawka dzienna
+   * w A nie może trafić do B jako godzinowa). */
+  rateUnit: ClientRateUnit;
+  currency: string;
 }
 
 export function DlMatchDialog({
@@ -45,6 +50,8 @@ export function DlMatchDialog({
   jobId,
   jobLabel,
   defaultRate,
+  rateUnit,
+  currency,
 }: DlMatchDialogProps) {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
@@ -52,9 +59,10 @@ export function DlMatchDialog({
   const [busy, setBusy] = useState(false);
   const { targets, missingRate } = matchTargets(match.jobs, match.selection, {
     rate: defaultRate,
-    unit: "hourly",
-    currency: "PLN",
+    unit: rateUnit,
+    currency,
   });
+  const unitText = RATE_UNIT_LABEL[rateUnit].replace("zł", currency === "PLN" ? "zł" : currency);
 
   const send = async () => {
     setBusy(true);
@@ -83,7 +91,7 @@ export function DlMatchDialog({
         <DialogHeader>
           <DialogTitle>Wyślij {candidateName} też do…</DialogTitle>
           <DialogDescription>
-            Ta sama osoba i to samo CV co w „{jobLabel}”. Bez arkusza i pytań. Stawka w złotych za godzinę.
+            Ta sama osoba i to samo CV co w „{jobLabel}”. Bez arkusza i pytań. Stawki w {unitText}, jak w tej rekrutacji.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
