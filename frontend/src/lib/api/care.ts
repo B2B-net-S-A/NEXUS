@@ -1251,7 +1251,7 @@ export function useCareAssignment(enabled = true) {
   });
 }
 
-/** Po zmianie opiekuna albo rytmu: listy, przydział, tydzień i oś. */
+/** Po zmianie opiekuna albo rytmu: listy, przydział, tydzień, tablica i oś. */
 function invalidateCareLists(
   queryClient: ReturnType<typeof useQueryClient>,
   contractIds: number[] = [],
@@ -1259,6 +1259,9 @@ function invalidateCareLists(
   void queryClient.invalidateQueries({ queryKey: careKeys.consultants });
   void queryClient.invalidateQueries({ queryKey: careKeys.assignment });
   void queryClient.invalidateQueries({ queryKey: ["care", "week"] });
+  // Karty rozmów z rytmu na tablicy i „Klienci” (audyt 22.10, F8).
+  void queryClient.invalidateQueries({ queryKey: ["care", "board"] });
+  void queryClient.invalidateQueries({ queryKey: ["care", "clients"] });
   for (const id of contractIds) {
     void queryClient.invalidateQueries({ queryKey: ["care", "contract", id] });
   }
@@ -1658,13 +1661,9 @@ export function useHandOffToFrontOffice(contractId: number) {
           job_ids: jobIds,
         })
       ).data,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: careKeys.frontOffice(contractId) });
-      void queryClient.invalidateQueries({ queryKey: careKeys.timeline(contractId) });
-      void queryClient.invalidateQueries({ queryKey: ["care", "week"] });
-      void queryClient.invalidateQueries({ queryKey: ["care", "redeploy"] });
-      void queryClient.invalidateQueries({ queryKey: careKeys.summary });
-    },
+    // Wpis „Do przepięcia” przechodzi do „W toku” — karta „Decyzja” na tablicy,
+    // karta konsultanta i listy też się zmieniają (audyt 22.10, F7).
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: careKeys.all }),
   });
 }
 
