@@ -39,7 +39,7 @@ import {
 import { Button } from"@/components/ui/button";
 import { invalidateCandidateMutation } from"@/components/v2/pages/candidate-cache";
 import { MOVE_REQUIREMENTS_PREFIX } from "@/lib/api/moveRequirements";
-import { attachCvFormData, isSameFileMatch } from"@/lib/add-candidate-cv";
+import { attachCvFormData, isPhoneAndNameMatch, isSameFileMatch } from"@/lib/add-candidate-cv";
 
 /**
  * Response shape from POST /api/candidates/from-cv (201).
@@ -586,6 +586,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  if (conflict) {
  const top = conflict.matches[0];
  const sameFile = isSameFileMatch(top);
+ const samePhone = isPhoneAndNameMatch(top);
  const fullName = `${top.name ??""} ${top.lastname ??""}`.trim() || "Kandydat";
  const initials = `${top.name?.[0] ??""}${top.lastname?.[0] ??""}`.toUpperCase() || "?";
  const card = typeof existingCard === "object" ? existingCard : null;
@@ -609,6 +610,8 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  <DialogDescription>
  {sameFile
  ?"Ten plik leży już w profilu tej osoby, więc nie zakładamy drugiego profilu."
+ : samePhone
+ ?"Ten sam telefon oraz imię i nazwisko co w CV, więc nie zakładamy drugiego profilu."
  :"Ten sam adres e-mail co w CV, więc nie zakładamy drugiego profilu."}
  </DialogDescription>
  </DialogHeader>
@@ -665,14 +668,14 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  )}
  </li>
  </ul>
- {sameFile ? (
+ {sameFile || samePhone ? (
  <button
  type="button"
  className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
  disabled={uploadMut.isPending || existingMut.isPending}
  onClick={() => handleUpload(true)}
  >
- To CV innej osoby? Załóż osobny profil
+ {sameFile ?"To CV innej osoby? Załóż osobny profil" :"To inna osoba? Załóż osobny profil"}
  </button>
  ) : null}
  {error && (

@@ -53,6 +53,7 @@ import {
   fillEmptyFromCv,
   fromCvFormEntries,
   fromCvOverrides,
+  isPhoneAndNameMatch,
   isSameFileMatch,
   type CandidateCvPreview,
   type CvFormField,
@@ -1232,8 +1233,10 @@ export function AddCandidateModal({
         setEmailError(emailMsg);
       } else if (conflictMatches && conflictMatches.length > 0) {
         // `/from-cv` odmówił przy zapisie: ten sam plik już jest w czyimś
-        // profilu albo adres e-mail (znany serwerowi z odczytu CV) ma kandydat.
-        if (isSameFileMatch(conflictMatches[0])) {
+        // profilu, adres e-mail (znany serwerowi z odczytu CV) ma kandydat
+        // albo telefon z CV z tym samym imieniem i nazwiskiem. Plik i telefon
+        // idą do ramki przy CV, która ma „Wczytaj mimo to” (zapis z `force`).
+        if (isSameFileMatch(conflictMatches[0]) || isPhoneAndNameMatch(conflictMatches[0])) {
           setCvConflict(conflictMatches);
         } else {
           setExisting(conflictMatches[0]);
@@ -1376,6 +1379,11 @@ export function AddCandidateModal({
           match={cvConflictHit}
           sameFile={cvConflictSameFile}
           onAttachCv={cvConflictSameFile ? undefined : () => void attachCvTo(cvConflictHit)}
+          hint={
+            isPhoneAndNameMatch(cvConflictHit)
+              ? "Ten sam telefon oraz imię i nazwisko co w CV. To inna osoba? „Wczytaj mimo to” i zapisz."
+              : undefined
+          }
           attaching={attaching}
           onOpenProfile={onClose}
           onReadAnyway={() => void readCv(cvFile, true)}
