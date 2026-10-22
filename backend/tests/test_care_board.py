@@ -660,3 +660,38 @@ async def test_order_end_decision_card_and_waiting_for_front_office(
         headers=headers(lead),
     )
     assert beyond.status_code == 404, beyond.text
+
+
+async def test_saved_feedback_ends_life_of_feedback_card_state(
+    app_client, care_on
+) -> None:
+    """Audyt 22.10, F2: klucz ``feedback:<kontakt>`` wraca przy kolejnej prośbie
+    o opinię — zapis opinii kasuje stan karty, żeby nowa prośba nie stała
+    od razu w „W toku” z terminem sprzed kwartału."""
+
+    from app.core.scheduling import local_now
+    from app.services.care import board_state
+
+    lead, client_id, _area_id, manager_id, _contract_id, _c = await _setup()
+    key = f"feedback:{manager_id}"
+    async with AsyncSessionLocal() as db:
+        await board_state.save(
+            db,
+            key=key,
+            kind="feedback",
+            column_value="in_progress",
+            actor_id=lead.id,
+            now=local_now(),
+            scheduled_at=local_now() + timedelta(days=2),
+        )
+        await db.commit()
+
+    saved = await app_client.post(
+        f"/api/care/clients/{client_id}/feedback",
+        json={"contact_id": manager_id, "held_on": business_today().isoformat()},
+        headers=headers(lead),
+    )
+    assert saved.status_code == 201, saved.text
+
+    async with AsyncSessionLocal() as db:
+        assert await board_state.states_for(db, [key]) == {}
