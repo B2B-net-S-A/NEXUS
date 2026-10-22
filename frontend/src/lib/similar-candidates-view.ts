@@ -12,6 +12,7 @@ import { jobNameText } from "@/lib/job-name-text";
 import type { JobNames } from "@/lib/job-names";
 import type {
   CandidateCheck,
+  DuplicateSignal,
   JobCheck,
   SimilarPerson,
 } from "@/lib/api/similarCandidates";
@@ -44,6 +45,18 @@ export function sharedSkillsText(count: number): string {
     return `${count} wspólne umiejętności`;
   }
   return `${count} wspólnych umiejętności`;
+}
+
+const DUPLICATE_SIGNAL_TEXT: Record<DuplicateSignal, string> = {
+  name: "to samo imię i nazwisko",
+  phone: "ten sam telefon",
+  linkedin: "ten sam LinkedIn",
+  cv_file: "ten sam plik CV",
+};
+
+/** Dlaczego „Możliwy duplikat”: „ten sam telefon · ten sam plik CV”. Pusty = nie duplikat. */
+export function duplicateReasonText(signals: readonly DuplicateSignal[] | undefined): string {
+  return (signals ?? []).map((s) => DUPLICATE_SIGNAL_TEXT[s]).filter(Boolean).join(" · ");
 }
 
 /** Stawka „70 zł/h”; inna waluta zostaje ze swoim kodem. */

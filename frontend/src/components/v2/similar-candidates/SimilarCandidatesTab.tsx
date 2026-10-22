@@ -15,7 +15,7 @@
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, CircleSlash, GitCompare, UserPlus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleSlash, GitCompare, GitMerge, UserPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,6 +47,7 @@ import {
 import { skillDictionaryIndex } from "@/lib/skill-display";
 import {
   checksByCandidate,
+  duplicateReasonText,
   jobLabel,
   mergePickableJobs,
   personName,
@@ -72,6 +73,11 @@ interface SimilarCandidatesTabProps {
   /** Rekrutacje osoby z profilu (`/history`) — trafiają na górę wyboru. */
   recruitments: RecruitmentHistoryItem[];
   canWrite: boolean;
+  /**
+   * „Scal…” przy możliwym duplikacie — otwiera okno scalania z tą osobą jako
+   * duplikatem. Bez uprawnienia do scalania (admin, Head of Recruitment) brak.
+   */
+  onMergeDuplicate?: (candidateId: number) => void;
 }
 
 /** Rekrutacje w toku osoby z profilu — pierwsza grupa wyboru. */
@@ -133,6 +139,7 @@ export function SimilarCandidatesTab({
   candidateName,
   recruitments,
   canWrite,
+  onMergeDuplicate,
 }: SimilarCandidatesTabProps) {
   const [filters, setFilters] = useState<SimilarFilters>(DEFAULT_SIMILAR_FILTERS);
   const [rateDraft, setRateDraft] = useState("");
@@ -388,6 +395,11 @@ export function SimilarCandidatesTab({
           Ta osoba nie ma jeszcze przeczytanego CV, a podobnych szukamy po CV i umiejętnościach.
           Wróć tu po wgraniu CV.
         </p>
+      ) : first?.status === "no_cv" ? (
+        <p className="rounded-lg border border-border bg-muted/30 px-4 py-6 text-sm text-muted-foreground">
+          Ta osoba nie ma w profilu CV ani umiejętności, więc nie ma z czym porównać. Wróć tu po
+          wgraniu CV.
+        </p>
       ) : listQuery.isSuccess && rows.length === 0 ? (
         <p className="rounded-lg border border-border bg-muted/30 px-4 py-6 text-sm text-muted-foreground">
           {onlyMeeting
@@ -420,6 +432,7 @@ export function SimilarCandidatesTab({
                 score={scoresQuery.data?.get(person.id)}
                 onCompare={() => setCompareId(person.id)}
                 onAssign={canWrite ? () => setAssignIds([person.id]) : undefined}
+                onMerge={onMergeDuplicate ? () => onMergeDuplicate(person.id) : undefined}
               />
             ))}
           </ul>
@@ -559,6 +572,7 @@ function SimilarRow({
   score,
   onCompare,
   onAssign,
+  onMerge,
 }: {
   person: SimilarCandidate;
   dictionary: Map<string, string>;
@@ -570,8 +584,10 @@ function SimilarRow({
   score?: number;
   onCompare: () => void;
   onAssign?: () => void;
+  onMerge?: () => void;
 }) {
   const name = personName(person);
+  const duplicateReason = duplicateReasonText(person.duplicate_signals);
   const meta = [
     person.title,
     person.years_it_experience != null ? `${person.years_it_experience} lat` : null,
@@ -611,6 +627,27 @@ function SimilarRow({
             {name}
           </button>
           {meta ? <div className="truncate text-xs text-muted-foreground">{meta}</div> : null}
+          {duplicateReason ? (
+            <div className="mt-1 flex min-w-0 items-center gap-2 text-xs">
+              <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-warning/40 bg-warning-muted px-1.5 font-medium text-warning-muted-foreground">
+                <AlertTriangle className="h-3 w-3" aria-hidden />
+                Możliwy duplikat
+              </span>
+              <span className="min-w-0 truncate text-muted-foreground" title={duplicateReason}>
+                {duplicateReason}
+              </span>
+              {onMerge ? (
+                <button
+                  type="button"
+                  onClick={onMerge}
+                  className="inline-flex shrink-0 items-center gap-1 font-medium text-primary hover:underline"
+                >
+                  <GitMerge className="h-3 w-3" aria-hidden />
+                  Scal…
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1">
             {verdict ? (
               <VerdictLine verdict={verdict} score={score} />

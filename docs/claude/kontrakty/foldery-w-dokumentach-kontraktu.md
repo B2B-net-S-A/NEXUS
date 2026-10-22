@@ -36,6 +36,9 @@ harness `/preview/contract-documents-folders`.
   `tests/data/authz_golden/contract_document_folders.json`.
 - **Scalanie kontraktów:** foldery idą za kontraktem zachowanym; te same
   nazwy łączą się w jeden folder, nazwa „Zamówień” przegranego znika
-  (`contract_merge._resolve_child_duplicates`).
+  (`contract_merge._resolve_child_duplicates`). Folder użytkownika
+  przegranego o nazwie „Zamówień” zachowanego (własnej albo domyślnej)
+  dostaje dopisek „(2)” — inaczej przepięcie łamało unikalność nazwy
+  i scalenie kończyło się 500 (audyt 22.10.2026, F71/F110).
 - **SharePoint nie wie o folderach** — przeniesienie niczego tam nie
   przesuwa, usunięcie folderu niczego nie kasuje.

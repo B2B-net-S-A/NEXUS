@@ -9,7 +9,7 @@ export function StagingBadge() {
     <div
       role="status"
       aria-label="Staging — kopia produkcji, nic nie wychodzi na zewnątrz"
-      className="pointer-events-none fixed bottom-3 left-3 z-[100] rounded-full bg-destructive px-3 py-1 text-xs font-semibold tracking-wide text-destructive-foreground shadow-lg"
+      className="pointer-events-none fixed bottom-3 left-1/2 z-[100] -translate-x-1/2 rounded-full bg-destructive px-3 py-1 text-xs font-semibold tracking-wide text-destructive-foreground shadow-lg"
     >
       STAGING
     </div>
