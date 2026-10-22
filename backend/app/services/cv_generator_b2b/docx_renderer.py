@@ -1271,7 +1271,8 @@ def add_bottom_pinned_rodo(
 def add_section_header(doc: Any, text: str) -> Any:
     """Add a section header with divider above and Montserrat SemiBold title.
 
-    Paragraphs carry no ``keep_with_next`` / ``keep_together`` cohesion: the
+    Paragraphs carry no ``keep_with_next`` / ``keep_together`` cohesion (the
+    only exception is the role header in the experience section): the
     document flows line-by-line under Word's default widow/orphan handling so a
     recruiter hand-tuning page breaks moves content one line per Enter, instead
     of a glued block jumping a whole section across the page boundary.
@@ -1728,9 +1729,10 @@ def render_cv_to_bytes(
         if i > 0:
             add_horizontal_line(doc)
 
-        # Role header (dates → company → position → "Zakres zadań:") flows
-        # naturally without keep_with_next cohesion, so manual page-break edits
-        # in Word move one line at a time instead of jumping the whole block.
+        # Role header (dates → company → position → "Zakres zadań:") keeps
+        # with the first task, so the dates never sit alone at the bottom of a
+        # page. Tasks themselves flow line by line (manual page-break edits in
+        # Word move one line at a time, #503).
         para = doc.add_paragraph()
         run = para.add_run(job["dates"])
         run.font.name = "Montserrat"
@@ -1739,6 +1741,7 @@ def render_cv_to_bytes(
         run.font.bold = True
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(0)
+        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["company_name"] + " ")
@@ -1752,6 +1755,7 @@ def render_cv_to_bytes(
         run2.font.bold = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
+        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["position"] + " ")
@@ -1765,6 +1769,7 @@ def render_cv_to_bytes(
         run2.font.bold = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
+        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run = para.add_run(t["responsibilities"])
@@ -1775,6 +1780,7 @@ def render_cv_to_bytes(
         run.font.underline = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(1)
+        para.paragraph_format.keep_with_next = True
 
         add_bullet_list(
             doc,

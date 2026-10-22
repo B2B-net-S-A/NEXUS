@@ -281,6 +281,7 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 - `generator-cv-tylko-w-rekrutacji.md`: Generator CV tylko w rekrutacji
 - `generator-cv-v3-jeden-ekran-od-osoby.md`: Generator CV v3 — jeden ekran od osoby
 - `interaktywne-cv-publiczny-link-do-wygenerowanego-cv.md`: Interaktywne CV (publiczny link do wygenerowanego CV)
+- `naglowek-stanowiska-nie-zostaje-sam-na-dole-strony.md`: Nagłówek stanowiska nie zostaje sam na dole strony
 - `reguly-cv-per-klient-pelna-recepta-delivery-leada.md`: Reguły CV per klient — pełna recepta Delivery Leada
 - `silnik-cv-bez-wypelniacza.md`: Silnik CV bez wypełniacza (D1–D3) · bez punktu MUST, pytanie ≠ fakt, `cv_role_title`, lata, notatki bez stawek
 - `zrzut-zgody-rodo-na-koncu-cv-wymog-pko-bp.md`: Zrzut zgody RODO na końcu CV (wymóg PKO BP)
