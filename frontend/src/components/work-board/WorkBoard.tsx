@@ -294,12 +294,13 @@ export function WorkBoard({
         ? (cases.data?.items ?? []).filter(
             // Opiekun bez „Spraw” widzi w „Do zrobienia” sprawę tylko z terminem do
             // piątku albo po terminie (S3). Obsługa skrzynki pracuje na pełnym
-            // kanbanie spraw — od #2567 jest on tylko tutaj (K1: „zostaje wszystko”).
-            (card) => boardScope !== "care" || canManage || caseDueThisWeek(card, weekEnd),
+            // kanbanie spraw — od #2567 jest on tylko tutaj (K1: „zostaje wszystko”),
+            // tak samo osoba przypisana do sprawy bez roli opieki (audyt 22.10, F12).
+            (card) => boardScope !== "care" || canManage || !careAccess || caseDueThisWeek(card, weekEnd),
           )
         : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cases.data, area, casesQuiet, boardScope, weekEnd, canManage],
+    [cases.data, area, casesQuiet, boardScope, weekEnd, canManage, careAccess],
   );
   const allCareCards = useMemo(() => careData?.cards ?? [], [careData]);
   const careCards = useMemo(

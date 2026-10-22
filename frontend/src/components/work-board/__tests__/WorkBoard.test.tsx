@@ -739,6 +739,25 @@ describe("domknięcie makiet 22.10.2026", () => {
 });
 
 describe("tablica pracy — poprawki po audycie 22.10", () => {
+  it("F12: osoba przypisana do sprawy bez roli opieki widzi w Opiece wszystkie swoje sprawy, nie tylko do piątku", async () => {
+    asUser("recruiter", 77);
+    const cfg = config(false);
+    cfg.me.has_assigned_cases = true;
+    route({
+      cases: list(
+        [
+          caseCard({ id: 41, title: "Zwrot za szkolenie", due_on: "2026-11-06", assignee: { id: 77, name: "Rekruter" } }),
+          caseCard({ id: 42, title: "Karta parkingowa", due_on: null, assignee: { id: 77, name: "Rekruter" } }),
+        ],
+        { can_manage: false },
+      ),
+    });
+    renderBoard({ scope: "care" }, cfg);
+
+    expect(await screen.findByRole("button", { name: "Sprawa: Zwrot za szkolenie" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sprawa: Karta parkingowa" })).toBeInTheDocument();
+  });
+
   function summaryWith(cases: CareContractCardSummary["cases"]): CareContractCardSummary {
     return {
       contract_id: 10,
