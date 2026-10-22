@@ -57,12 +57,16 @@ serwer: budzik deploy-window 18:05 ──▶ Deploy wdraża tylko SHA z staging/
 Pełna kopia ma prawdziwe dane osobowe i stan integracji. Bez poniższych kroków staging
 zacząłby wysyłać maile do kandydatów, odnawiać subskrypcje M365 i pisać do Compassa.
 
-1. **Odtworzenie z backupu offsite, nie z bazy na żywo.** Skrypt
+1. **Odtworzenie z backupu offsite.** Skrypt
    `scripts/staging/restore_from_backup.sh` pobiera ostatni zestaw z S3 (rclone),
    odszyfrowuje kluczem prywatnym age z pęku kluczy macOS i odtwarza Postgresa,
    uploady i Qdranta. Produkcja nie dostaje żadnego dodatkowego obciążenia, a przy okazji
    każdego dnia sprawdzamy, że backup naprawdę daje się odtworzyć (dziś robi to tylko
    `backup-drill.yml`).
+   Alternatywa zatwierdzona przez Artura 22.10.2026: świeży `pg_dump` przez SSH
+   (`scripts/staging/clone_from_hetzner.py`) do prywatnego katalogu, a następnie
+   odtworzenie i sanitizacja w nowej lokalnej bazie `nexus_staging_*`. Nie wymaga
+   klucza age. Ten wariant kopiuje tylko PostgreSQL, nie pliki ani Qdranta.
 2. **Inne sekrety niż na produkcji.** Własny `SECRET_KEY`/klucz JWT, inne klucze
    szyfrowania tokenów: zapisane w bazie tokeny OAuth i sesje stają się nieczytelne.
 3. **Sanitizacja po odtworzeniu** (`scripts/staging/sanitize.sql`, test sprawdza listę
@@ -120,6 +124,17 @@ zacząłby wysyłać maile do kandydatów, odnawiać subskrypcje M365 i pisać d
 | 5 | Deploy tylko z `staging/verified` | przez tydzień jedno wdrożenie dziennie, `/api/health` = certyfikowany SHA |
 | 6 | (opcjonalnie) obrazy z rejestru budowane w CI na x86, deploy bez rebuildu | wymaga runtime'owej konfiguracji frontu zamiast `NEXT_PUBLIC_*` z buildu |
 
+## Wdrażanie wybranych zmian danych
+
+Decyzja Artura z 22.10.2026: oprócz kodu i migracji mają być przenoszone także
+jawnie wybrane dane biznesowe. Nie oznacza to synchronizacji całej lokalnej bazy
+z produkcją. Punkt odniesienia zapisujemy przed edycją, paczka wskazuje konkretne
+rekordy i pola, a świeży podgląd jest związany z bazą docelową i operatorem.
+Zapis wymaga zatwierdzenia skrótu podglądu i ponownego sprawdzenia stanu pod
+blokadą wierszy. Konflikt zatrzymuje całą transakcję; nowe dane produkcyjne nie
+są zastępowane lokalnym dumpem. Dostępne pola i ograniczenia handlerów opisuje
+`docs/staging-data-promotion-runbook.md`. Dane paczek pozostają poza Git i CI.
+
 ## Czego staging nie sprawdzi
 
 SSO Microsoftu, webhooki przychodzące (M365, CloudTalk), prawdziwe wysyłki i integracje,
@@ -127,6 +142,7 @@ infrastruktura Coolify/Hetznera. Dlatego krótka weryfikacja na produkcji po wdr
 
 ## Otwarte sprawy dla Artura
 
-- Klucz prywatny age do odszyfrowania backupu na laptopie (dziś jest tylko u Artura).
+- Klucz prywatny age jest potrzebny do wariantu offsite; bez niego dostępny jest
+  świeży zrzut PostgreSQL przez SSH. Nie zastępuje to testu odtworzenia backupu.
 - Czy staging ma mieć SSO (nowy adres zwrotny w Entra) czy wystarczy logowanie hasłem.
 - Budzenie laptopa przed 17:00 (`pmset`).
