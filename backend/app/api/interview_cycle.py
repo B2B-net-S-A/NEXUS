@@ -983,6 +983,7 @@ async def change_slot(
             "jest już przestawiona. Sprawdź godziny prepów."
         ),
         actor_id=current_user.id,
+        daily_dedup=False,  # audyt 22.10, F100: po potwierdzeniu tego samego dnia
     )
     await db.commit()
     await db.refresh(req)

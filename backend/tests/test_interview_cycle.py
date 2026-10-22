@@ -1416,6 +1416,41 @@ async def test_client_picked_another_slot_moves_the_interview(
         assert new.start_time.isoformat().startswith(_future(4)[:13])
 
 
+async def test_every_change_of_the_slot_reaches_the_recruiter(
+    app_client: AsyncClient,
+):
+    """Audyt 22.10, F100: „Klient zmienił termin” nie ginie w dziennym
+    dedupie dzwonka po wcześniejszym dzwonku o tym samym wniosku."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    for index in (1, 0):
+        changed = await app_client.post(
+            f"/api/interview-cycle/slots/{req['id']}/change",
+            headers=dl_h,
+            json={"index": index},
+        )
+        assert changed.status_code == 200, changed.text
+    async with AsyncSessionLocal() as db:
+        titles = (
+            await db.scalars(
+                select(Notification.title).where(
+                    Notification.user_id == rec_id,
+                    Notification.notification_type
+                    == NotificationType.interview_slot_confirmed,
+                )
+            )
+        ).all()
+    assert titles == ["Klient zmienił termin rozmowy"] * 2
+
+
 async def _move_slot_to_the_past(request_id: int, index: int) -> None:
     """Termin wniosku cofnięty na now − 2 h (wniosek sprzed kilku dni)."""
     from app.models.client_interview_slot_request import ClientInterviewSlotRequest
