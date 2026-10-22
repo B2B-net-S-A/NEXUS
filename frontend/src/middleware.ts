@@ -16,6 +16,7 @@ import {
   type SectionAccess,
 } from "@/lib/section-access";
 import { BOARD_HOME, isBoardAllowedPath } from "@/lib/board-access";
+import { PRE_CONTRACT_ROLES, PRE_CONTRACTS_PATH } from "@/lib/pre-contract-access";
 import type { UserRole } from "@/store/auth";
 
 /**
@@ -135,6 +136,10 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   { prefix: "/my-clients", roles: DELIVERY_ROLES, section: "delivery" },
   { prefix: "/clients", roles: DELIVERY_ROLES, section: "delivery" },
   { prefix: "/jobs", roles: PIPELINE_ROLES, section: "pipeline" },
+  // Lista „Umowy przedwstępne”: role z bramki API (`PRE_CONTRACT_ROLES`), bez
+  // sekcji — Rada nadzorcza nie ma Rekrutacji, a Viewer z odczytem Rekrutacji
+  // dostawałby od API 403 (decyzje Artura 22–23.10.2026).
+  { prefix: PRE_CONTRACTS_PATH, roles: [...PRE_CONTRACT_ROLES] },
   {
     prefix: "/calendar",
     roles: PIPELINE_OPERATIONAL_ROLES,
@@ -759,8 +764,9 @@ export function middleware(request: NextRequest) {
   ) {
     return NextResponse.redirect(new URL("/my-time", request.url));
   }
-  // „Rada nadzorcza” (0490, rola wyłączna) widzi tylko Insights, własne konto
-  // i Pomoc — wszystko inne prowadzi do kokpitu Firma, także „/” i pulpit.
+  // „Rada nadzorcza” (0490, rola wyłączna) widzi tylko Insights, własne konto,
+  // Pomoc i listę umów przedwstępnych — wszystko inne prowadzi do kokpitu
+  // Firma, także „/” i pulpit.
   if (
     userRoles.size === 1 &&
     userRoles.has("board") &&

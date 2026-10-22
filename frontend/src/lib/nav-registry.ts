@@ -415,8 +415,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     icon: Briefcase,
     section: "pipeline",
     // Bramka API przedwstępnych: Viewer ma odczyt Rekrutacji, a API mu odmawia
-    // (audyt F54, 22.10.2026). Rada nadzorcza wpis ma, ale jej powłoka pokazuje
-    // tylko Insights.
+    // (audyt F54, 22.10.2026). Rada nadzorcza otwiera samą listę z palety
+    // (decyzja Artura 23.10.2026).
     roles: [...CAPABILITY_ROLES["pre_contract.work"]],
     capability: "pre_contract.work",
     placement: "primary",
@@ -715,7 +715,14 @@ function featureFlagOn(
   }
 }
 
-const BOARD_NAV_IDS: ReadonlySet<string> = new Set(["insights", "help", "settings"]);
+// „pre-contracts” (23.10.2026) jest tylko w palecie — menu boczne Rady dalej
+// ma Insights, Pomoc i Ustawienia.
+const BOARD_NAV_IDS: ReadonlySet<string> = new Set([
+  "insights",
+  "help",
+  "settings",
+  "pre-contracts",
+]);
 
 function isEntryVisible(
   entry: NavEntry,
@@ -725,8 +732,9 @@ function isEntryVisible(
   // Praktykant ma własną powłokę z jednym ekranem — żadnej pozycji menu,
   // także tych bez sekcji produktu (Pomoc, Ustawienia).
   if (isTraineeOnly(user)) return false;
-  // Rada nadzorcza (0490) ma tylko Insights, własne konto i Pomoc — reszta
-  // menu (np. „Mój czas”, gdy ma kartotekę) i tak odbiłaby w middleware.
+  // Rada nadzorcza (0490) ma tylko Insights, własne konto, Pomoc i listę umów
+  // przedwstępnych — reszta menu (np. „Mój czas”, gdy ma kartotekę) i tak
+  // odbiłaby w middleware.
   if (isBoardOnly(user)) return BOARD_NAV_IDS.has(entry.id);
   const productSection = SECTION_META_BY_KEY.get(entry.section)?.section;
   return (

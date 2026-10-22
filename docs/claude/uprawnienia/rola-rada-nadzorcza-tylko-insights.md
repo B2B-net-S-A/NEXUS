@@ -29,10 +29,11 @@ powodu. Powstała osobna rola `board`, na ekranie „Rada nadzorcza”.
 - **Rola wyłączna** (CHECK `ck_users_exclusive_finance_viewer_roles`,
   `ensure_exclusive_roles`, `_normalized_role_values`, mapowanie grup AAD,
   `EXCLUSIVE_ROLES` na froncie).
-- **Front:** jeden ekran. Middleware przekierowuje wszystko poza Insights,
-  `/profile`, `/settings` i `/help` na `/insights?tab=firma`
-  (`lib/board-access.ts`, to samo czyta `postLoginDestination`); menu ma tylko
-  Insights, Pomoc i Ustawienia. Linki z Insights do profilu klienta i rekrutacji
+- **Front:** Insights i lista umów przedwstępnych. Middleware przekierowuje
+  wszystko poza Insights, `/profile`, `/settings`, `/help` i
+  `/jobs/umowy-przedwstepne` na `/insights?tab=firma`
+  (`lib/board-access.ts`, to samo czyta `postLoginDestination`); menu boczne
+  ma tylko Insights, Pomoc i Ustawienia, paleta dokłada „Umowy przedwstępne”. Linki z Insights do profilu klienta i rekrutacji
   są dla konta bez tych sekcji tekstem.
 - **Logowanie:** konto M365 w b2bnetwork.pl (gość albo konto w tenancie) przez
   SSO — pierwsze logowanie zakłada „Pracownika”, admin zmienia rolę w „Osoby
@@ -53,7 +54,14 @@ powodu. Powstała osobna rola `board`, na ekranie „Rada nadzorcza”.
   `require_pre_contract_access`; bez sekcji „Rekrutacje” i bez członkostwa
   w rekrutacji). To jedyny moduł z zapisem i danymi kandydatów otwarty
   Radzie; `test_board_role_access.py` wyłącza go z reguły „tylko odczyty
-  ponad Pracownika”. Na froncie Rada ma capability `pre_contract.work`, ale
-  jej powłoka (`lib/board-access.ts`) nadal przepuszcza tylko Insights, konto
-  i Pomoc — ekranów z przedwstępnymi (lista, panel osoby) Rada dziś nie
-  otwiera.
+  ponad Pracownika”. Na froncie Rada ma capability `pre_contract.work`.
+- **Lista „Umowy przedwstępne” otwarta Radzie** (23.10.2026, decyzja Artura).
+  Rada otwiera samą listę `/jobs/umowy-przedwstepne` (wpis `pre-contracts`
+  w `BOARD_NAV_IDS`, czyli paleta; `isBoardAllowedPath`; reguła middleware
+  z `PRE_CONTRACT_ROLES` z `lib/pre-contract-access.ts`, bez sekcji, bo Rada
+  nie ma Rekrutacji) i widzi na niej wszystkie prośby, jak Head of Recruitment
+  (`_lists_every_request` w `api/pre_contracts.py`). Panel osoby, Tablica
+  i reszta `/jobs` zostają dla niej zamknięte — osoba na liście jest dla Rady
+  tekstem, nie linkiem (`PreContractsList`). Decyzji o karze i wycofania
+  cudzej prośby Rada nie dostaje. Pilnują: `board-role.test.ts`,
+  `middleware.test.ts`, `PreContractsList.test.tsx`.

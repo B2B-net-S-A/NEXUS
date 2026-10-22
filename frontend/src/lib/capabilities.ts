@@ -1,4 +1,5 @@
 import { getUserRoles, type UserRole } from "@/store/auth";
+import { PRE_CONTRACT_ROLES } from "@/lib/pre-contract-access";
 import {
   hasPermission,
   type Permission,
@@ -153,23 +154,6 @@ const PROPOSAL_DECIDERS: readonly UserRole[] = ["admin", "head_of_recruitment"];
  * (backend/app/api/candidate_access.py). Węziej niż wgrywanie plików.
  */
 const DOCUMENT_REMOVERS: readonly UserRole[] = ["admin", "head_of_recruitment"];
-
-/**
- * Kto pracuje na umowach przedwstępnych — lustro `PRE_CONTRACT_ROLES`
- * (backend/app/api/pre_contracts.py): osoby z rekrutacji oraz Finanse, Rada
- * nadzorcza i Automatyzacje, jak rekruter — odczyt, pliki i akcje (decyzja
- * Artura 22.10.2026, audyt F54). Viewer nie: jego wejścia kończyły się 403.
- */
-const PRE_CONTRACT_ROLES: readonly UserRole[] = [
-  "admin",
-  "head_of_recruitment",
-  "delivery_lead",
-  "talent_community_manager",
-  "recruiter",
-  "finance",
-  "automation",
-  "board",
-];
 
 /**
  * KAŻDA zalogowana rola — dla powierzchni otwartych z decyzji produktowej
