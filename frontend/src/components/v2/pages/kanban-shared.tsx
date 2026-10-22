@@ -188,7 +188,25 @@ export interface KanbanItem {
   | "reassign"
   | "auto_match"
   | "import"
+  // 0514 (23.10.2026): silnik „System trzyma Nowych na 20”.
+  | "system"
   | null;
+ /**
+  * Osoba od systemu (23.10.2026) — plakietka „Od systemu · 81%”, powód
+  * w panelu osoby i termin decyzji (`services/autofill_decisions.py`).
+  * `waiting_days` = dni robocze bez decyzji; `null` = zdecydowano albo
+  * rekrutacja bez rekrutera (termin startuje od przypisania).
+  */
+ entry_autofill?: {
+  score: number;
+  matched_must: string[];
+  missing_must: string[];
+  rate_known: boolean;
+  availability_known: boolean;
+  decided: boolean;
+  waiting_days: number | null;
+  decision_due: boolean;
+ } | null;
  /**
   * 0399: wynik automatu przy wejściu — plakietka „Auto-match 67/100 · JJIT”
   * (do 29.09.2026 automaty pisały go jako notatkę w historii kandydata).

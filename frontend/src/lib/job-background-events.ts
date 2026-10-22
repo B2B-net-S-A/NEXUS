@@ -17,7 +17,9 @@ export type JobBackgroundEventKind =
   | "new_cv_proposals_failed"
   | "cv_auto_generate"
   | "cv_auto_generate_skipped"
-  | "cv_auto_generate_failed";
+  | "cv_auto_generate_failed"
+  // 23.10.2026: silnik „System trzyma Nowych na 20” dodał `count` osób.
+  | "autofill";
 
 export interface JobBackgroundEvent {
   id: number;
@@ -121,6 +123,8 @@ export function backgroundEventMessage(event: JobBackgroundEvent): string {
         ? `${head} (wymagania spełnia ${countPl(event.eligible, "osoba", "osoby", "osób")}).`
         : `${head}.`;
     }
+    case "autofill":
+      return `System dodał do „Nowych” ${countPl(event.count ?? 0, "osobę", "osoby", "osób")} — kolumna trzyma się na 20.`;
     case "new_cv_proposals": {
       const source =
         event.trigger === "job_publish" ? "Po publikacji rekrutacji" : "Nowe CV w bazie";

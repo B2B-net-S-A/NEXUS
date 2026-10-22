@@ -101,6 +101,7 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { DockClosedReason } from "@/components/v2/jobs/DockClosedReason";
+import { DockAutofillReason } from "@/components/v2/jobs/DockAutofillReason";
 import { closedReason } from "@/lib/closed-reason";
 import { useNoteFillAvailable, type NoteFillChannel } from "@/lib/note-fill-channel";
 import type { NextAction } from "@/lib/pipeline-next-action";
@@ -1489,7 +1490,10 @@ export function PipelineCandidateDock({
       <div className="flex flex-wrap gap-1.5" data-testid="dock-contact-row">
         {onTake && item.can_take && item.claim_user_id == null && (
           <Button size="sm" variant="outline" onClick={onTake}>
-            <UserPlus className="h-3.5 w-3.5" /> Biorę — 12 h
+            <UserPlus className="h-3.5 w-3.5" />{" "}
+            {item.entry_source === "system" && !item.entry_autofill?.decided
+              ? "Dzwonię — biorę na 12 h"
+              : "Biorę — 12 h"}
           </Button>
         )}
         <Button
@@ -1851,6 +1855,7 @@ export function PipelineCandidateDock({
         {/* 19.10.2026: powód odrzucenia / rezygnacji od razu po otwarciu osoby
             z kolumny zamkniętych — także w widoku „Rozwiń”. */}
         <DockClosedReason item={item} />
+        <DockAutofillReason item={item} />
         {tabsOpen ? null : factsBlock}
         {item.rate_change && !readOnly ? (
           // 0418: otwarta sprawa zmiany stawki — negocjacja (DL, HoR),

@@ -37,6 +37,7 @@ from app.services.process_entry_meta import (
     application_link_owner_id,
     application_screening_badge,
     auto_match_badge,
+    autofill_badge,
 )
 from app.models.contract import ContractType, RateUnit
 from app.services.board_stage_badges import (
@@ -3487,6 +3488,18 @@ async def build_kanban_view(
             reassign_titles[rid] = rtitle
             reassign_refs[rid] = rref
     board_now = datetime.now(timezone.utc)
+    # Osoby od systemu (23.10.2026): termin decyzji liczy się od przypisania
+    # rekrutera; jedno zapytanie tylko wtedy, gdy na Tablicy są takie karty.
+    from app.services import autofill_decisions
+
+    autofill_recruiter_since = (
+        (await autofill_decisions.recruiter_since_for_jobs(db, [job_id])).get(job_id)
+        if any(
+            p.entry_source == candidate_claim.ENTRY_SYSTEM
+            for p in v4_processes.values()
+        )
+        else None
+    )
     # Odznaki terminarza rozmowy u klienta i status zamówienia zatrudnionych —
     # po jednym zapytaniu hurtowym (liczone w serwisach, front tylko rysuje).
     from app.services.hired_order_status import order_status_for_pairs
@@ -3850,6 +3863,19 @@ async def build_kanban_view(
         if v4 is not None:
             payload["entry_source"] = v4.entry_source
             payload["entry_auto_match"] = auto_match_badge(v4.entry_meta)
+            payload["entry_autofill"] = (
+                autofill_badge(
+                    v4.entry_meta,
+                    waiting_days=autofill_decisions.waiting_days(
+                        meta=v4.entry_meta,
+                        entered_at=v4.opened_at,
+                        recruiter_since=autofill_recruiter_since,
+                        now=board_now,
+                    ),
+                )
+                if v4.entry_source == candidate_claim.ENTRY_SYSTEM
+                else None
+            )
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
             payload["entry_off_limits"] = off_limits_badge(
                 v4.entry_meta, user_name_by_id
@@ -4824,6 +4850,11 @@ async def claim_candidate(
         else None
     )
     candidate_claim.set_claim(process, current_user.id, now)
+    # Osoba od systemu (23.10.2026): „Dzwonię” to decyzja na stałe — po
+    # wygaśnięciu blokady karta nie wraca do „Czeka na Ciebie”.
+    from app.services.autofill_decisions import record_call
+
+    record_call(process, current_user.id, now)
     db.add(
         Activity(
             entity_type="pipeline",

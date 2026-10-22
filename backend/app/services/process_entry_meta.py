@@ -52,6 +52,36 @@ def auto_match_badge(meta: Any) -> Optional[dict]:
     }
 
 
+# 0514 (23.10.2026): osoba dodana przez silnik „Nowi na 20” — plakietka
+# „Od systemu · 81%”, powód w panelu osoby i termin decyzji.
+AUTOFILL_KIND = "autofill"
+
+
+def _names(value: Any) -> list[str]:
+    return [str(v)[:80] for v in value[:10]] if isinstance(value, list) else []
+
+
+def autofill_badge(meta: Any, *, waiting_days: Optional[int]) -> Optional[dict]:
+    """Plakietka osoby od systemu — tylko znane pola; cokolwiek innego = ``None``."""
+    from app.services.autofill_decisions import decided, decision_due
+
+    if not isinstance(meta, dict) or meta.get("kind") != AUTOFILL_KIND:
+        return None
+    score = meta.get("score")
+    if not isinstance(score, (int, float)) or isinstance(score, bool):
+        return None
+    return {
+        "score": int(round(score)),
+        "matched_must": _names(meta.get("matched_must")),
+        "missing_must": _names(meta.get("missing_must")),
+        "rate_known": meta.get("rate_from_hourly") is not None,
+        "availability_known": bool(meta.get("availability_date")),
+        "decided": decided(meta),
+        "waiting_days": waiting_days,
+        "decision_due": decision_due(waiting_days),
+    }
+
+
 # 0404: zgłoszenie z linku rekrutacji po przeglądzie AI — plakietka na karcie
 # „Nowi” („AI: pasuje”, „AI: do sprawdzenia”, „AI nie oceniło”).
 APPLICATION_SCREENING_KIND = "application_screening"

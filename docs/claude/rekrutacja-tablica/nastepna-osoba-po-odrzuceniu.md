@@ -92,7 +92,8 @@ wszystkie D1–D5, wdrażaj”.
 - **Filtr „Kto dodał” (D2).** Jeden przycisk w linii faktów nagłówka
   rekrutacji (`JobDetailCompactHeader.factsTrailing`, tylko na Tablicy), nie
   pasek filtrów. Menu: „Wszyscy”, „Ty” (zawsze, z zerem wyszarzone), pozostałe
-  osoby od największej liczby, „Brak danych” (karty bez zapisanej osoby
+  osoby od największej liczby, „System” (osoby od silnika „Nowi na 20”,
+  `entry_source = "system"`, `?added_by=system`, 23.10.2026), „Brak danych” (karty bez zapisanej osoby
   dodającej, głównie z Traffita). Liczby = osoby w toku na Tablicy
   (`peopleInProgress`: bez zamkniętych, z „Poza szablonem”). Karty innych
   znikają (nie są przygaszane); licznik kolumny „N z M”; kolumna pusta przez

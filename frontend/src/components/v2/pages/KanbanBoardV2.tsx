@@ -884,21 +884,30 @@ function CardV4Badges({
      </span>
     );
    })}
-   {action && (
-    <button
-     type="button"
-     onClick={(e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      v4.onTake(item);
-     }}
-     disabled={v4.takingIds.has(item.id)}
-     className="inline-flex items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
-     aria-label={`${action === "takeover" ? "Przejmij" : "Biorę"} ${fullName} — na 12 h`}
-    >
-     {action === "takeover" ? "Przejmij" : "Biorę"}
-    </button>
-   )}
+   {action && (() => {
+    // Osoba od systemu (23.10.2026): „Biorę” to decyzja „Dzwonię”.
+    const takeLabel =
+     action === "takeover"
+      ? "Przejmij"
+      : item.entry_source === "system" && !item.entry_autofill?.decided
+       ? "Dzwonię"
+       : "Biorę";
+    return (
+     <button
+      type="button"
+      onClick={(e) => {
+       e.stopPropagation();
+       e.preventDefault();
+       v4.onTake(item);
+      }}
+      disabled={v4.takingIds.has(item.id)}
+      className="inline-flex items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
+      aria-label={`${takeLabel} ${fullName} — na 12 h`}
+     >
+      {takeLabel}
+     </button>
+    );
+   })()}
   </>
  );
 }
@@ -967,7 +976,11 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  .join("")
  .toUpperCase()
  : "?";
- const addedLine = hasAddedByName
+ const addedLine = item.entry_source === "system"
+ ? `Dodał system („Nowi” na 20)${
+ item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` : ""
+ }`
+ : hasAddedByName
  ? `Dodano do rekrutacji przez: ${addedByDisplayName}${
  item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` : ""
  }`

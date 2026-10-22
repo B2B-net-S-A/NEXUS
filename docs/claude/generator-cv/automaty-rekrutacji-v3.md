@@ -39,6 +39,25 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `missing_must`, „Stawka od” (`effective_rate`), dostępność — z niej raport
   odróżni błąd wyszukiwania od braku danych. Wpis „Praca w tle”
   `new_column_autofill` (`kind: "autofill"`, `count`).
+- **E. Na Tablicy i w panelu osoby (PR 3, 23.10.2026).** Karta Tablicy niesie
+  `entry_autofill` (`process_entry_meta.autofill_badge`: wynik, wymagania,
+  `rate_known`, `availability_known`, `decided`, `waiting_days`,
+  `decision_due`) tylko dla wejścia `system`. Karta: osoba = „System”
+  (`cardOwner`), plakietka źródła „Od systemu · 81%” (ikona z dymkiem jak
+  każde źródło), przycisk „Dzwonię” zamiast „Biorę”, w „Nowych” plakietka
+  „N dni bez decyzji”. Panel osoby: blok „Dlaczego system dodał”
+  (`DockAutofillReason`) i „Dzwonię — biorę na 12 h”. Filtr „Kto dodał” ma
+  pozycję „System” (`?added_by=system`); „Brak danych” jej nie liczy.
+  **Termin decyzji** (`services/autofill_decisions.py`, jedna reguła dla
+  Tablicy i kolejki decyzji): 2 PEŁNE dni robocze w „Nowych” od dodania albo
+  od przypisania pierwszego rekrutera, jeśli przyszedł później
+  (`recruiter_since_for_jobs`: najwcześniejsze aktywne przypisanie, prowadzący
+  bez przypisania — od utworzenia rekrutacji). Rekrutacja bez rekrutera =
+  bez terminu (decyzja Artura 23.10.2026). „Dzwonię” (`POST /api/pipeline/claim`)
+  zapisuje w `entry_meta` `decided_at`/`decided_by`/`decision="call"` na
+  stałe — wygaśnięcie blokady 12 h nie przywraca terminu. Przesunięcie dalej
+  albo odrzucenie zdejmuje kartę z „Nowych”, więc termin znika sam.
+  Harness: `/preview/job-detail?autofill=1`.
 
 - **A. Co noc WSZYSTKIE rekrutacje w pracy (decyzja Artura 30.09.2026).**
   Nocna pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w
