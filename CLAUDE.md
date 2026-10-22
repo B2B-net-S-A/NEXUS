@@ -305,6 +305,7 @@ Profil i karta klienta, scalanie i usuwanie klientów, Historia zdarzeń, Centru
 - `jednorazowe-czyszczenie-nieaktywnych-klientow.md`: Jednorazowe czyszczenie „Nieaktywnych klientów" (migracja 0303)
 - `karta-klienta-client-playbooks.md`: Karta klienta (`client_playbooks`)
 - `klienci-profil-tabela-konsultantow-stawki-z.md`: Klienci → Profil: tabela konsultantów + stawki z harmonogramu
+- `klient-o-tej-samej-nazwie-ostrzezenie.md`: Klient o tej samej nazwie — ostrzeżenie przy dodawaniu · 409 `client_duplicate_warning`, `acknowledge_duplicate`, „Dodaj mimo to”, `normalize_company_name`
 - `scalenie-cardif-pelne-przeniesienie-danych.md`: Pełne scalenie klienta-duplikatu: BNP Paribas Cardif (52) → Cardif Assurances (38335) · `cardif_client_merge_repair`, najpierw dane, potem flaga; wzór na duplikaty
 - `usuwanie-klienta-z-profilu-historia-zdarzen.md`: Usuwanie klienta z profilu + Historia zdarzeń (migracja 0307)
 

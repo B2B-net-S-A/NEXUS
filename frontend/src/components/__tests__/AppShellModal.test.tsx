@@ -208,6 +208,77 @@ describe("AppShell <Modal> — a11y", () => {
       ),
     );
   });
+
+  it("przy kliencie o tej samej nazwie pokazuje go z zakładką i zapisuje dopiero po „Dodaj mimo to”", async () => {
+    const user = userEvent.setup();
+    const post = vi.mocked(api.post);
+    const onClose = vi.fn();
+    post.mockClear();
+    post
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              code: "client_duplicate_warning",
+              message: "Taki klient już jest: Energa S.A. (Nieaktywni).",
+              clients: [{ id: 41, name: "Energa S.A.", categories: ["inactive"] }],
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({ data: {} } as never);
+    render(<Harness category="active" onClose={onClose} />);
+
+    await user.click(screen.getByRole("button", { name: "Otwórz" }));
+    await user.type(screen.getByPlaceholderText("Acme Sp. z o.o."), "Energa");
+    await user.click(screen.getByRole("button", { name: "Dodaj firmę" }));
+
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("Taki klient już jest");
+    expect(notice).toHaveTextContent("Energa S.A. · zakładka Nieaktywni");
+    expect(screen.getByRole("link", { name: "Otwórz profil" })).toHaveAttribute(
+      "href",
+      "/clients/41",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Dodaj mimo to" }));
+
+    await waitFor(() =>
+      expect(post).toHaveBeenLastCalledWith(
+        "/api/clients",
+        expect.objectContaining({ name: "Energa" }),
+        { params: { portfolio_category: "active", acknowledge_duplicate: true } },
+      ),
+    );
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("chowa ostrzeżenie po zmianie nazwy", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "client_duplicate_warning",
+            clients: [{ id: 41, name: "Energa S.A.", categories: [] }],
+          },
+        },
+      },
+    });
+    render(<Harness />);
+
+    await user.click(screen.getByRole("button", { name: "Otwórz" }));
+    const name = screen.getByPlaceholderText("Acme Sp. z o.o.");
+    await user.type(name, "Energa");
+    await user.click(screen.getByRole("button", { name: "Dodaj firmę" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Energa S.A.");
+
+    await user.type(name, " Obrót");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
 
 describe("EditCandidateModal — status przy żywej umowie (S4, 15.10.2026)", () => {
