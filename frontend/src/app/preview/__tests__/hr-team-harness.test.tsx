@@ -1,9 +1,9 @@
 /**
  * `/preview/hr-team` (etap 2, „Ludzie → Mój zespół”, układ z makiety
- * 19.10.2026): prawdziwy ekran przełożonego na danych fikcyjnych, ZERO prób
- * żądania — także po otwarciu okna odrzucenia. Pasek „Dziś” z rodzajem dla
- * przełożonej (D6), karty decyzji, mini-tydzień, premie z kwotą bez stawek,
- * Kadry bez Płac — bez kolumny i kart premii.
+ * 19.10.2026, wiersze decyzji 22.10.2026): prawdziwy ekran przełożonego na
+ * danych fikcyjnych, ZERO prób żądania — także po otwarciu okna odrzucenia.
+ * Pasek „Dziś” z rodzajem dla przełożonej (D6), wiersze decyzji, mini-tydzień,
+ * premie z kwotą bez stawek, Kadry bez Płac — bez kolumny i wierszy premii.
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -54,18 +54,29 @@ describe("/preview/hr-team", () => {
 
     // „Do Twojej decyzji”: wniosek Julii i timesheet Tomasza z akcjami, premia Oli do wiadomości.
     const decisions = screen.getByRole("region", { name: "Do Twojej decyzji" });
-    const leave = within(decisions).getByText(/^Julia Próbna · /).closest("li")!;
-    expect(leave).toHaveTextContent("wniosek urlopowy");
-    expect(leave).toHaveTextContent("czeka 5 dni");
-    expect(within(decisions).getByText(/^Tomasz Podglądowy · /).closest("li")).toHaveTextContent(
-      "wysłany 2 dni temu",
+    expect(within(decisions).getByRole("link", { name: "Wszystkie w Akceptacjach →" })).toHaveAttribute(
+      "href",
+      "/people/approvals",
     );
-    expect(decisions).toHaveTextContent("premia · do wiadomości");
+    const leave = within(decisions).getByText("Julia Próbna").closest("li")!;
+    expect(leave).toHaveTextContent("nieobecność");
+    expect(leave).toHaveTextContent("czeka 5 dni");
+    const timesheet = within(decisions).getByText("Tomasz Podglądowy").closest("li")!;
+    expect(timesheet).toHaveTextContent("raport godzin");
+    expect(timesheet).toHaveTextContent("czeka 2 dni");
+    const bonusRow = within(decisions).getByText("Ola Przykładowa").closest("li")!;
+    expect(bonusRow).toHaveTextContent("wynagrodzenie dodatkowe · 1 propozycja — decydują Płace");
+    // Kwota premii jest w kolumnie „Premie w drodze”, nie w wierszu decyzji.
+    expect(bonusRow).not.toHaveTextContent(/zł|PLN/);
     await user.click(within(leave as HTMLElement).getByRole("button", { name: "Odrzuć" }));
     expect(await screen.findByRole("dialog")).toHaveTextContent("Julia Próbna");
     await user.keyboard("{Escape}");
 
     const ola = screen.getByRole("row", { name: /^Ola Przykładowa/ });
+    // Imię otwiera profil na zakładce nieobecności i godzin.
+    expect(within(ola).getByRole("link", { name: "Ola Przykładowa" }).getAttribute("href")).toMatch(
+      /^\/people\/\d+#czas$/,
+    );
     expect(ola).toHaveTextContent("zaplanowane 8 dni");
     // Wiersz puli z zerem na B2B: liczy się płatna pula, nie sam wiersz.
     expect(ola).not.toHaveTextContent(/zostało/);
@@ -97,7 +108,7 @@ describe("/preview/hr-team", () => {
       "odchodzi",
     );
     expect(screen.queryByRole("columnheader", { name: "Premie w drodze" })).toBeNull();
-    expect(screen.queryByText("premia · do wiadomości")).toBeNull();
+    expect(screen.queryByText(/wynagrodzenie dodatkowe/)).toBeNull();
     expect(screen.getByRole("combobox", { name: "Zespół koordynatora" })).toHaveTextContent(
       "Marta Fikcyjna",
     );

@@ -78,6 +78,7 @@ describe("klucz ekranu z adresu", () => {
     ["/contracts/b2b-generator", "", "contracts.b2b_generator"],
     ["/finance", "?view=order-changes", "finance"],
     ["/my-time", "?tab=leave", "hr.my_time"],
+    ["/my-time", "?tab=consents&request=4", "hr.consents"],
     ["/people/approvals", "?kind=timesheet", "hr.approvals"],
     ["/people/calendar", "", "hr.team_calendar"],
     ["/people/consents", "?request=4", "hr.consents"],

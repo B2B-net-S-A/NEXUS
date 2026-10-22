@@ -1,5 +1,5 @@
 {
-  "entry": "269bd275ce71dab83ed0c4866cbec9fec45bbf8cf825427fa85e0544424d52cf",
+  "entry": "786eb47cbdf14a8ecb96a9b9ee1d32dc4f50efa3e6f8fdf0c15ca9570fbe6751",
   "guide": "hr.my_time",
   "sources": {
     "frontend/src/components/hr/leave/LeaveRequestDialog.tsx": "f1701ca599fce375e62172922573d5a3a82caecb2aa72b94af8505899116a044",

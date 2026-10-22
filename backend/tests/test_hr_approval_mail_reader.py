@@ -132,7 +132,7 @@ async def test_approved_reply_approves_once(client, team, reply_on) -> None:
         len(await _notifications(team["worker"], NotificationType.hr_approval_decided))
         == 1
     )
-    assert decided.link == f"/people/consents?request={request_id}"
+    assert decided.link == f"/my-time?tab=consents&request={request_id}"
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@
 import { LEAVE_TYPE_LABELS } from "@/components/hr/leave/leave-format";
 import type { EmploymentType, OwnProfile } from "@/lib/api/hr";
 import type { HolderEquipment } from "@/lib/api/equipment";
+import type { ApprovalRequestRow } from "@/lib/api/hr-approvals";
 import type {
   LeaveBalance,
   LeavePreview,
@@ -25,6 +26,7 @@ import type {
   TimesheetTemplate,
 } from "@/lib/api/hr-time";
 import { monthYearPl, shiftMonth, type YearMonth } from "@/lib/date-pl";
+import { warsawToday } from "@/lib/warsaw-date";
 
 import {
   HR_CAST,
@@ -771,3 +773,97 @@ export function olaSettlement(current: YearMonth): MySettlement {
   };
 }
 
+
+// ── Zgody i wydatki (`?tab=consents`, 22.10.2026) ─────────────────────────────
+
+function consent(
+  partial: Partial<ApprovalRequestRow> & Pick<ApprovalRequestRow, "id" | "kind" | "title">,
+): ApprovalRequestRow {
+  return {
+    kind_label: "Inny wydatek",
+    status: "pending_final",
+    status_label: "Czeka na zatwierdzającego",
+    purpose: "",
+    amount: "100.00",
+    decided_amount: null,
+    currency: "PLN",
+    amount_basis: "gross",
+    recurrence: "once",
+    amount_text: "100 zł brutto",
+    payer: "company_invoice",
+    link_url: null,
+    needed_by: null,
+    starts_on: null,
+    ends_on: null,
+    beneficiary_user_id: null,
+    beneficiary_name: null,
+    payout_year: null,
+    payout_month: null,
+    requester_user_id: ola.id,
+    requester_name: ola.name,
+    supervisor_user_id: marta.id,
+    supervisor_name: marta.name,
+    needs_final: true,
+    final_approver_names: ["Aniela Administrująca"],
+    endorsed_by_name: null,
+    endorsed_at: null,
+    endorse_note: null,
+    decided_by_name: null,
+    decided_at: null,
+    decision_note: null,
+    decision_channel: null,
+    bonus_id: null,
+    submitted_at: `${shiftDay(warsawToday(), -2)}T08:12:00Z`,
+    can_decide: false,
+    decides_as: null,
+    can_edit: false,
+    can_withdraw: false,
+    context: null,
+    ...partial,
+  };
+}
+
+/** Moje zgody Oli: pytanie od zatwierdzającej (do zrobienia), szkolenie w toku, zamknięta subskrypcja. */
+export function olaConsents(): ApprovalRequestRow[] {
+  return [
+    consent({
+      id: 9101,
+      kind: "trip",
+      kind_label: "Koszty podróży",
+      title: "Spotkanie u klienta w Gdańsku",
+      purpose: "Warsztat wymagań z zespołem klienta, dwa dni na miejscu.",
+      amount: "1200.00",
+      amount_text: "1 200 zł brutto",
+      status: "returned",
+      status_label: "Pytanie do Ciebie",
+      decided_by_name: "Aniela Administrująca",
+      decision_note: "Czy nocleg jest w tej kwocie?",
+      can_edit: true,
+      can_withdraw: true,
+    }),
+    consent({
+      id: 9102,
+      kind: "training",
+      kind_label: "Szkolenie",
+      title: "Kurs rekrutacji technicznej",
+      purpose: "Kurs online, certyfikat do profilu.",
+      amount: "890.00",
+      amount_text: "890 zł brutto",
+      can_withdraw: true,
+    }),
+    consent({
+      id: 9103,
+      kind: "subscription",
+      kind_label: "Subskrypcja",
+      title: "Narzędzie do notatek",
+      purpose: "Notatki z rozmów z kandydatami.",
+      amount: "49.00",
+      amount_text: "49 zł brutto miesięcznie",
+      recurrence: "monthly",
+      status: "approved",
+      status_label: "Zatwierdzona",
+      decided_by_name: "Marta Fikcyjna",
+      decided_at: `${shiftDay(warsawToday(), -10)}T10:00:00Z`,
+    }),
+  ];
+}

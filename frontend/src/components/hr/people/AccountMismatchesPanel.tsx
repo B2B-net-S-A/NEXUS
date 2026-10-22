@@ -19,9 +19,9 @@ import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   EMPLOYMENT_STATUS_LABELS,
-  useAccountMismatches,
   useAlignWithAccounts,
   type AccountMismatch,
+  type AccountMismatches,
 } from "@/lib/api/hr";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { formatIsoDatePl } from "@/lib/date-pl";
@@ -54,42 +54,45 @@ export interface PendingPerson {
   what: string;
 }
 
-/** Ile pozycji pokazujemy z imienia w pasku (reszta w „+N”). */
+/** Ile pozycji pokazujemy z imienia (reszta w „+N”). */
 const NAMED_LIMIT = 4;
+
+/**
+ * Liczba „Konta i kartoteki” w „Porządkach”: rozjazdy z kontem i kartoteki
+ * „do uzupełnienia” z katalogu; bez nich — liczniki braków z serwera (jak
+ * dawny pasek „Do wyrównania · N”).
+ */
+export function accountTodoCount(
+  data: AccountMismatches,
+  pendingPeople: readonly PendingPerson[],
+): number {
+  const named = data.items.length + pendingPeople.length;
+  return named > 0 ? named : data.pending.employment_type + data.pending.manager;
+}
 
 /**
  * Kartoteka a konto NEXUSA (decyzja Artura 19.10.2026: „Konto decyduje + lista
  * rozjazdów”) — dla admina, Finansów i Kadr. Nowe rozjazdy nie powinny
  * powstawać (status idzie za kontem sam), lista zbiera stan sprzed zmiany
- * i to, co ominęło zwykłe ścieżki.
+ * i to, co ominęło zwykłe ścieżki. Od 22.10.2026 sekcja „Konta i kartoteki”
+ * panelu „Porządki” (wcześniej żółty pasek „Do wyrównania” nad katalogiem);
+ * odczyt i liczbę trzyma panel.
  */
-export function AccountMismatchesPanel({
+export function AccountMismatchesSection({
+  data,
   pendingPeople = [],
 }: {
+  data: AccountMismatches;
   pendingPeople?: readonly PendingPerson[];
 }) {
-  const mismatches = useAccountMismatches(true);
   const align = useAlignWithAccounts();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const { showToast } = useToast();
   const [open, setOpen] = useState(false);
 
-  if (mismatches.isLoading) return null;
-  if (mismatches.isError || !mismatches.data) {
-    return (
-      <p role="alert" className="text-sm text-destructive">
-        {apiErrorMessage(mismatches.error, "Nie udało się sprawdzić kartotek z kontami.")}
-      </p>
-    );
-  }
-  const { items, pending } = mismatches.data;
-  if (
-    items.length === 0 &&
-    pendingPeople.length === 0 &&
-    pending.employment_type === 0 &&
-    pending.manager === 0
-  ) {
-    return null;
+  const { items, pending } = data;
+  if (accountTodoCount(data, pendingPeople) === 0) {
+    return <p className="text-sm text-muted-foreground">Kartoteki zgadzają się z kontami.</p>;
   }
 
   const alignAll = async () => {
@@ -114,7 +117,6 @@ export function AccountMismatchesPanel({
     );
   };
 
-  const total = items.length + pendingPeople.length;
   const named = [
     ...items.map((item) => ({
       key: `m-${item.user_id}`,
@@ -132,46 +134,36 @@ export function AccountMismatchesPanel({
   const extra = named.length - NAMED_LIMIT;
 
   return (
-    <section
-      aria-label="Kartoteki a konta NEXUSA"
-      className="rounded-xl border border-warning/40 bg-warning-muted/40 px-4 py-3 text-sm"
-    >
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex min-w-[200px] flex-col">
-          <span className="font-semibold text-warning-muted-foreground">
-            Do wyrównania · {total > 0 ? total : pending.employment_type + pending.manager}
-          </span>
-          <span className="text-xs text-warning-muted-foreground">
-            kartoteka idzie za kontem NEXUSA
-          </span>
-        </div>
-        <ul aria-label="Do wyrównania" className="flex flex-1 flex-wrap gap-1.5">
+    <div className="space-y-3 text-sm">
+      <p className="text-xs text-muted-foreground">Kartoteka idzie za kontem NEXUSA.</p>
+      <div className="space-y-2">
+        <ul aria-label="Do wyrównania" className="flex flex-wrap gap-1.5">
           {named.slice(0, NAMED_LIMIT).map((entry) => (
             <li key={entry.key}>
               {entry.href ? (
                 <Link
                   href={entry.href}
-                  className="inline-flex rounded-full border border-warning/40 bg-card px-2 py-0.5 text-xs font-medium text-foreground hover:underline"
+                  className="inline-flex rounded-full border border-warning/40 bg-warning-muted/30 px-2 py-0.5 text-xs font-medium text-foreground hover:underline"
                 >
                   {entry.text}
                 </Link>
               ) : (
-                <span className="inline-flex rounded-full border border-warning/40 bg-card px-2 py-0.5 text-xs font-medium text-foreground">
+                <span className="inline-flex rounded-full border border-warning/40 bg-warning-muted/30 px-2 py-0.5 text-xs font-medium text-foreground">
                   {entry.text}
                 </span>
               )}
             </li>
           ))}
           {extra > 0 ? (
-            <li className="px-1 py-0.5 text-xs text-warning-muted-foreground">+{extra}</li>
+            <li className="px-1 py-0.5 text-xs text-muted-foreground">+{extra}</li>
           ) : null}
           {pendingPeople.length === 0 && pending.employment_type > 0 ? (
-            <li className="text-xs text-warning-muted-foreground">
+            <li className="text-xs text-muted-foreground">
               Forma do uzupełnienia: {pending.employment_type}
             </li>
           ) : null}
           {pendingPeople.length === 0 && pending.manager > 0 ? (
-            <li className="text-xs text-warning-muted-foreground">
+            <li className="text-xs text-muted-foreground">
               Przełożony do uzupełnienia: {pending.manager}
             </li>
           ) : null}
@@ -198,8 +190,8 @@ export function AccountMismatchesPanel({
         ) : null}
       </div>
       {open && items.length > 0 ? (
-        <div className="mt-2 overflow-x-auto rounded-md border border-border bg-card">
-          <Table density="compact" className="min-w-[720px]">
+        <div className="overflow-x-auto rounded-md border border-border bg-card">
+          <Table density="compact" className="min-w-[560px]">
             <TableHeader>
               <TableRow>
                 <TableHead className={CALM_HEAD}>Osoba</TableHead>
@@ -239,8 +231,8 @@ export function AccountMismatchesPanel({
                     {item.reports > 0 ? (
                       <span className={CALM_SUBLINE}>
                         {countPl(item.reports, "osoba", "osoby", "osób")} w zespole — przepnij w{" "}
-                        <Link href="/people/structure" className="underline">
-                          Strukturze
+                        <Link href="/people?view=schemat" className="underline">
+                          Schemacie
                         </Link>
                       </span>
                     ) : null}
@@ -252,6 +244,6 @@ export function AccountMismatchesPanel({
         </div>
       ) : null}
       {confirmDialog}
-    </section>
+    </div>
   );
 }

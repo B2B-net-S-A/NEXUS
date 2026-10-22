@@ -3,9 +3,11 @@
 /**
  * Harness „Ludzie → Akceptacje” (makieta 5 raportu „Ludzie w NEXUSIE”).
  *
- * Prawdziwe `PeopleSectionNav` + `ApprovalsScreen` (wnioski urlopowe, sekcja
- * timesheetów z podglądem miesiąca osoby, historia z filtrami) na zasianym
- * cache, ZERO zapytań (`hr-harness.tsx`).
+ * Prawdziwe `PeopleSectionNav` + `ApprovalsScreen` (jedna lista od 22.10.2026:
+ * chipy rodzaju, nieobecności do decyzji i do wiadomości, raporty godzin
+ * z podglądem miesiąca osoby, „Zdecydowane” z historią i filtrami) na zasianym
+ * cache, ZERO zapytań (`hr-harness.tsx`). Moduł zgód jest tu wyłączony — zgody
+ * w tej samej liście pokazuje `/preview/hr-consents`.
  *
  * Stany:
  * - domyślnie — Marta (przełożona 9 osób): urlop Kamila z zastępcą, rozmowami
@@ -16,8 +18,8 @@
  *   (do 10. dnia poprzedni): Julia bez raportu i szkice z „Przypomnij”, godziny
  *   „72 / 176 h” z paskiem (Kamil ma pełną normę — pasek zielony), 9 osób
  *   zwiniętych do 5 z „Pokaż wszystkie (9)”;
- * - `?kind=timesheet&year=…&month=…` — link z powiadomienia: timesheety
- *   poprzedniego miesiąca na górze (Ewa wysłała, Tomasz z nadgodzinami,
+ * - `?kind=timesheet&year=…&month=…` — link z powiadomienia: chip „Raporty
+ *   godzin” z poprzednim miesiącem (Ewa wysłała, Tomasz z nadgodzinami,
  *   Julia nie założyła, reszta zaakceptowana);
  * - urlop okolicznościowy Julii z załącznikiem: Marta widzi „Załącznik ✓” bez
  *   pliku (D6), Kadry — nazwę pliku z pobraniem (harness nie pobiera: zero zapytań);
@@ -410,7 +412,7 @@ export default function HrApprovalsPreviewPage() {
       <div className="space-y-4">
         <PageHeader
           title="Akceptacje"
-          description="Wnioski i raporty godzin Twojego zespołu do decyzji, zgłoszone przerwy do wiadomości, historia nieobecności."
+          description="Nieobecności, raporty godzin i zgody do decyzji — w jednej liście."
           density="compact"
         />
         <PeopleSectionNav config={config} active="approvals" />

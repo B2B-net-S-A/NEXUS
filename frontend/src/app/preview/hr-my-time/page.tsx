@@ -36,7 +36,12 @@
  *   zaplanowane zdalnie; poprzedni miesiąc zaakceptowany (strzałka „‹”);
  * - `?tab=bonuses` — „Premie i stawka”: etapy premii (prognoza, 14 z 21 dni,
  *   przyznane, anulowana przez automat z powodem), „Moje rozliczenie”
- *   (poprzedni miesiąc zamknięty, bieżący szacunek), historia stawki.
+ *   (poprzedni miesiąc zamknięty, bieżący szacunek), historia stawki;
+ * - `?tab=consents` — „Zgody i wydatki” (22.10.2026, dawne „Ludzie → Moje
+ *   zgody”): moduł „Zgody” otwarty, pytanie od zatwierdzającej w „Do zrobienia
+ *   przez Ciebie” (licznik 1 na zakładce), szkolenie w toku, zamknięta
+ *   subskrypcja. Formularz „Poproś o zgodę” pyta serwer o „Kto zdecyduje” —
+ *   w harnessie bez sieci.
  */
 
 import { useState } from "react";
@@ -45,6 +50,7 @@ import { LeaveRequestDialog } from "@/components/hr/leave/LeaveRequestDialog";
 import { MyTimeScreen } from "@/components/hr/MyTimeScreen";
 import { currentYearMonth } from "@/components/hr/time/time-format";
 import { equipmentKeys } from "@/lib/api/equipment";
+import { approvalKeys } from "@/lib/api/hr-approvals";
 import { leaveKeys, type LeaveInput } from "@/lib/api/hr-leave";
 import { hrKeys, type EmploymentType } from "@/lib/api/hr";
 import { payrollKeys } from "@/lib/api/hr-payroll";
@@ -73,6 +79,7 @@ import {
   kamilRequests,
   myLifecycleTasks,
   myProfile,
+  olaConsents,
   olaHistory,
   olaMonth,
   olaPayroll,
@@ -81,7 +88,7 @@ import {
   olaSettlement,
 } from "./fixtures";
 
-const STATES = ["overview", "leave", "request", "report", "month", "bonuses"] as const;
+const STATES = ["overview", "leave", "request", "report", "month", "bonuses", "consents"] as const;
 type State = (typeof STATES)[number];
 const FORMS = ["b2b", "uop", "zlecenie"] as const satisfies readonly EmploymentType[];
 
@@ -95,6 +102,7 @@ const LINKS = [
   { key: "request", label: "Wniosek urlopowy (Kamil, UoP)", href: "?state=request&tab=leave" },
   { key: "month", label: "Raport godzin", href: "?tab=month" },
   { key: "bonuses", label: "Premie i stawka", href: "?tab=bonuses" },
+  { key: "consents", label: "Zgody i wydatki", href: "?tab=consents" },
 ] as const;
 
 function prepare(params: URLSearchParams) {
@@ -111,7 +119,12 @@ function prepare(params: URLSearchParams) {
   const current = currentYearMonth();
   const year = current.year;
   const client = harnessQueryClient();
-  const config = hrConfig();
+  const base = hrConfig();
+  // Moduł „Zgody” jest w harnessach domyślnie wyłączony — otwiera go tylko ten stan.
+  const config =
+    state === "consents"
+      ? { ...base, open_modules: { ...base.open_modules, approvals: true } }
+      : base;
 
   client.setQueryData(hrKeys.config, config);
   client.setQueryData(hrKeys.me, myProfile(viewer, year, form));
@@ -171,6 +184,9 @@ function prepare(params: URLSearchParams) {
   for (const day of harnessMonthDays(monthIso)) {
     client.setQueryData(timeKeys.hint(day.date), dayHint(day.date, today));
   }
+
+  // Zgody i wydatki
+  if (state === "consents") client.setQueryData(approvalKeys.list("mine"), olaConsents());
 
   // Premie
   client.setQueryData(payrollKeys.me, olaPayroll(current, today));

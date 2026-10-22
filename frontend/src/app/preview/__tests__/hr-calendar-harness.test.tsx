@@ -36,13 +36,14 @@ afterEach(() => {
 });
 
 describe("/preview/hr-calendar", () => {
-  it("rekruterka: osoby i nieobecności bez rodzaju, bez filtra „Mój zespół”", async () => {
+  it("rekruterka: osoby i nieobecności bez rodzaju, bez chipa „Mój zespół”", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-calendar");
     render(<HrCalendarPreviewPage />);
 
     expect(await screen.findByRole("rowheader", { name: /Kamil Testowy/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Mój zespół" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Mój zespół/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Wszyscy/ })).toHaveAttribute("aria-pressed", "true");
     const bars = screen.getAllByRole("button", { name: /^Ewa Makietowa: Nieobecność/ });
     // Ciągły pasek: jedna nieobecność = jeden przycisk, nie kafelek na dzień.
     expect(bars).toHaveLength(1);
@@ -86,7 +87,7 @@ describe("/preview/hr-calendar", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("przełożona: rodzaj nieobecności swoich ludzi i filtr „Mój zespół”", async () => {
+  it("przełożona: domyślnie „Mój zespół”, rodzaj nieobecności swoich ludzi", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-calendar?as=manager");
     render(<HrCalendarPreviewPage />);
@@ -95,12 +96,19 @@ describe("/preview/hr-calendar", () => {
       name: /^Ewa Makietowa: Zwolnienie lekarskie/,
     });
     expect(sick.length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: "Mój zespół" }));
+    expect(screen.getByRole("button", { name: /^Mój zespół/ })).toHaveAttribute("aria-pressed", "true");
     const table = screen.getByRole("table");
     expect(within(table).queryByRole("rowheader", { name: /Kamil Testowy/ })).toBeNull();
     expect(within(table).getByRole("rowheader", { name: /Tomasz Podglądowy/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Delivery" }));
+    await user.click(screen.getByRole("button", { name: /^Wszyscy/ }));
+    expect(
+      within(screen.getByRole("table")).getByRole("rowheader", { name: /Kamil Testowy/ }),
+    ).toBeInTheDocument();
+    // Filtr dopisuje się do adresu obok `?as=` harnessu.
+    expect(window.location.search).toBe("?as=manager&scope=all");
+    await user.click(screen.getByRole("button", { name: /^Delivery/ }));
     expect(within(screen.getByRole("table")).getByRole("rowheader", { name: /Adam Wzorcowy/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Dziś nieobecni|^Nieobecni w okresie/ }));
     expect(attempted()).toEqual([]);
   });
 });
