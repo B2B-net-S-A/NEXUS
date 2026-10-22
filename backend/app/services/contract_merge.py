@@ -27,6 +27,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
 from app.services.contract_care_schema import REDEPLOY_ACTIVE_WHERE
+from app.services.contract_document_folders import (
+    FOLDER_NAME_MAX,
+    ORDERS_FOLDER_DEFAULT_NAME,
+)
 
 
 class ContractMergeError(RuntimeError):
@@ -3037,6 +3041,58 @@ async def _child_rows(
     return [dict(row) for row in rows]
 
 
+async def _rename_folders_named_like_orders(
+    db: AsyncSession, survivor_id: int, contract_ids: Sequence[int]
+) -> int:
+    """Folder użytkownika przegranego o nazwie „Zamówień” zachowanego.
+
+    Indeks ``uq_contract_document_folders_name`` obejmuje też wiersz
+    ``kind = 'orders'``, a ``_assert_name_free`` pilnuje tej pary tylko w jednym
+    kontrakcie — przepięcie takiego folderu na zachowany dawało IntegrityError
+    (całe scalenie 500) albo dwie sekcje „Zamówienia” przy nazwie domyślnej.
+    Folder dostaje pierwszy wolny dopisek „(2)”, „(3)”… (audyt 22.10.2026, F71).
+    """
+    orders_name = (
+        await db.scalar(
+            text(
+                "SELECT name FROM contract_document_folders "
+                "WHERE kind = 'orders' AND contract_id = :id"
+            ),
+            {"id": survivor_id},
+        )
+        or ORDERS_FOLDER_DEFAULT_NAME
+    )
+    rows = await _child_rows(
+        db,
+        "SELECT id, contract_id, name FROM contract_document_folders "
+        "WHERE kind = 'user' AND contract_id = ANY(:ids) ORDER BY id",
+        contract_ids,
+    )
+    taken = {str(r["name"]).lower() for r in rows} | {orders_name.lower()}
+    renamed = 0
+    for row in rows:
+        name = str(row["name"])
+        if (
+            int(row["contract_id"]) == survivor_id
+            or name.lower() != orders_name.lower()
+        ):
+            continue
+        number = 2
+        while True:
+            suffix = f" ({number})"
+            candidate = name[: FOLDER_NAME_MAX - len(suffix)] + suffix
+            if candidate.lower() not in taken:
+                break
+            number += 1
+        await db.execute(
+            text("UPDATE contract_document_folders SET name = :name WHERE id = :id"),
+            {"name": candidate, "id": int(row["id"])},
+        )
+        taken.add(candidate.lower())
+        renamed += 1
+    return renamed
+
+
 async def _rekey_automation_rows(
     db: AsyncSession,
     table: str,
@@ -3106,6 +3162,7 @@ async def _resolve_child_duplicates(
       na wielkość liter) łączą się w jeden: folder zachowanego (a bez niego
       najstarszy) dostaje pliki pozostałych, te są kasowane. Własna nazwa
       „Zamówień” przegranych znika — zostaje nazwa zachowanego albo domyślna.
+      Folder przegranego o nazwie „Zamówień” zachowanego dostaje dopisek „(2)”.
     """
     present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
     every = [survivor_id, *loser_ids]
@@ -3159,6 +3216,8 @@ async def _resolve_child_duplicates(
             )
             merged += len(others)
         out["contract_document_folders_merged"] = merged
+        renamed = await _rename_folders_named_like_orders(db, survivor_id, every)
+        out["contract_document_folders_renamed"] = renamed
 
     if ("contract_care_plan_items", "contract_id") in present:
         rows = await _child_rows(

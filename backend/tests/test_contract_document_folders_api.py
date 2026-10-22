@@ -335,3 +335,61 @@ async def test_contract_merge_joins_same_name_folders():
         )
         assert placed == {kept_doc: keep.id, moved_doc: keep.id, own_doc: own.id}
         await db.rollback()
+
+
+async def test_contract_merge_renames_loser_folder_named_like_survivor_orders():
+    """Folder przegranego o nazwie „Zamówień” zachowanego nie łamie unikalności
+    nazwy przy przepięciu (audyt 22.10, F71/F110) — dostaje dopisek „(2)”."""
+    from sqlalchemy import text
+
+    from app.services.contract_merge import _resolve_child_duplicates
+
+    survivor, _ = await _seed([("Umowa nr 1-2020.pdf", T.contract)])
+    loser, (renamed_doc,) = await _seed([("Aneks 1-2020.pdf", T.annex)])
+    other_survivor, _ = await _seed([("Umowa nr 3-2020.pdf", T.contract)])
+    async with AsyncSessionLocal() as db:
+        orders = ContractDocumentFolder(
+            contract_id=survivor, name="Archiwum", kind="orders"
+        )
+        clash = ContractDocumentFolder(contract_id=loser, name="ARCHIWUM")
+        taken = ContractDocumentFolder(contract_id=survivor, name="Archiwum (2)")
+        db.add_all([orders, clash, taken])
+        await db.flush()
+        doc = await db.get(ContractDocument, renamed_doc)
+        doc.folder_id = clash.id
+        await db.flush()
+
+        await _resolve_child_duplicates(
+            db,
+            [{"table_name": "contract_document_folders", "column_name": "contract_id"}],
+            [loser],
+            survivor,
+        )
+        await db.execute(
+            text(
+                "UPDATE contract_document_folders SET contract_id = :survivor "
+                "WHERE contract_id = ANY(:losers)"
+            ),
+            {"survivor": survivor, "losers": [loser]},
+        )
+        await db.refresh(clash)
+        assert clash.contract_id == survivor
+        assert clash.name == "ARCHIWUM (3)"
+        await db.refresh(doc)
+        assert doc.folder_id == clash.id
+        await db.rollback()
+
+    # Odwrotnie: zachowany ma nazwę domyślną, przegrany folder „Zamówienia”.
+    async with AsyncSessionLocal() as db:
+        named = ContractDocumentFolder(contract_id=loser, name="Zamówienia")
+        db.add(named)
+        await db.flush()
+        await _resolve_child_duplicates(
+            db,
+            [{"table_name": "contract_document_folders", "column_name": "contract_id"}],
+            [loser],
+            other_survivor,
+        )
+        await db.refresh(named)
+        assert named.name == "Zamówienia (2)"
+        await db.rollback()
