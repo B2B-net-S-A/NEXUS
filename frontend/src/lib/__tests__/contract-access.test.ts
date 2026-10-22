@@ -49,6 +49,7 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
       canViewFinance: true,
       canViewContractDocuments: true,
       canEditContractDocuments: true,
+      canUploadContractDocuments: true,
       canReassignClient: true,
     });
   });
@@ -67,6 +68,7 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
       canViewFinance: true,
       canViewContractDocuments: true,
       canEditContractDocuments: true,
+      canUploadContractDocuments: true,
       canReassignClient: false,
     });
   });
@@ -77,6 +79,8 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
     expect(outside.canViewFinance).toBe(false);
     expect(outside.canViewContractDocuments).toBe(false);
     expect(outside.canEditContractDocuments).toBe(false);
+    // Plik dodaje tylko u klienta z przypisania (backend: zakres DL).
+    expect(outside.canUploadContractDocuments).toBe(false);
   });
 
   it("Finanse od 0410: pełna edycja kontraktu i kwot, bez zmiany statusu", () => {
@@ -94,6 +98,7 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
       canViewFinance: true,
       canViewContractDocuments: true,
       canEditContractDocuments: true,
+      canUploadContractDocuments: true,
       canReassignClient: false,
     });
   });
@@ -112,6 +117,7 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
       canViewFinance: false,
       canViewContractDocuments: false,
       canEditContractDocuments: false,
+      canUploadContractDocuments: false,
       canReassignClient: false,
     });
   });
@@ -131,8 +137,10 @@ describe("contractAccess — to, co przełączył administrator", () => {
     expect(result.canEditContract).toBe(true);
     expect(result.canViewFinance).toBe(false);
     expect(result.canViewContractDocuments).toBe(false);
-    // Dokumenty mogą nieść stawki — zapis wymaga też podglądu kwot.
+    // Dokumenty mogą nieść stawki — zarządzanie nimi wymaga też podglądu kwot…
     expect(result.canEditContractDocuments).toBe(false);
+    // …ale sam nowy plik (wypowiedzenie, aneks) doda (zgłoszenie 22.10.2026).
+    expect(result.canUploadContractDocuments).toBe(true);
     expect(result.canEditContractStatus).toBe(false);
     expect(result.canManageFinance).toBe(false);
   });
@@ -226,6 +234,7 @@ describe("contractAccess — podgląd jako i brak klienta", () => {
     expect(result.canEditContractStatus).toBe(false);
     expect(result.canRecoverTermination).toBe(false);
     expect(result.canEditContractDocuments).toBe(false);
+    expect(result.canUploadContractDocuments).toBe(false);
     expect(result.financeAmountsOnly).toBe(false);
     expect(result.canReassignClient).toBe(false);
     expect(result.canViewFinance).toBe(true);

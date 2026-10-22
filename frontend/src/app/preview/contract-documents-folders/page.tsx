@@ -3,7 +3,9 @@
 /**
  * Harness wizualny folderów w zakładce Dokumenty kontraktu (0494): sekcja
  * „Aktualna umowa”, foldery (w tym automatyczny „Zamówienia” z PDF-em
- * z zakładki Zamówienia), podpowiedź „Poprzednia umowa” i tryb podglądu.
+ * z zakładki Zamówienia), podpowiedź „Poprzednia umowa”, tryb podglądu
+ * i widok osoby bez „Stawki i kwoty: podgląd” (samo „Dodaj plik”, 22.10.2026;
+ * w harnessie nie wysyłaj pliku — to byłoby zapytanie).
  *
  * ZERO zapytań: cache react-query zasiany tymi samymi kluczami co komponent,
  * z `updatedAt` w przyszłości. Dane są fikcyjne.
@@ -13,6 +15,7 @@ import { useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
+import { UploadOnlyDocuments } from "@/components/contracts/documents/UploadOnlyDocuments";
 import { ToastProvider } from "@/components/Toast";
 import type { OrderDocumentItem } from "@/lib/api/dlPortal";
 import type {
@@ -122,12 +125,13 @@ function seeded(): QueryClient {
 export default function ContractDocumentsFoldersPreview() {
   const client = useMemo(seeded, []);
   const [readOnly, setReadOnly] = useState(false);
+  const [uploadOnly, setUploadOnly] = useState(false);
   return (
     <QueryClientProvider client={client}>
       <ToastProvider>
         <main className="min-h-dvh bg-background p-6">
           <div className="mx-auto max-w-6xl space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <h1 className="text-lg font-semibold">Anna Przykładowa · Bank Przykładowy</h1>
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -137,8 +141,20 @@ export default function ContractDocumentsFoldersPreview() {
                 />
                 Tryb podglądu (bez zapisu)
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={uploadOnly}
+                  onChange={(e) => setUploadOnly(e.target.checked)}
+                />
+                Bez podglądu kwot (tylko dodawanie)
+              </label>
             </div>
-            <ContractDocumentsTab contractId={CONTRACT_ID} readOnly={readOnly} />
+            {uploadOnly ? (
+              <UploadOnlyDocuments contractId={CONTRACT_ID} />
+            ) : (
+              <ContractDocumentsTab contractId={CONTRACT_ID} readOnly={readOnly} />
+            )}
           </div>
         </main>
       </ToastProvider>

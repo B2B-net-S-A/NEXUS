@@ -13,6 +13,7 @@ import api, {
 import { AppModal } from "@/components/ds/AppModal";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
+import { UploadOnlyDocuments } from "@/components/contracts/documents/UploadOnlyDocuments";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ContractEntryTab } from "@/components/hr/onboarding/ContractEntryTab";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
@@ -573,8 +574,12 @@ export default function ContractDetailPage() {
   });
   // Opaque documents and rendered drafts can contain rates that cannot be
   // redacted safely. They retain the same assigned-client boundary as finance.
-  const { canViewFinance, canViewContractDocuments, canEditContractDocuments } =
-    contractAccess(user, { impersonating, clientId: contract?.client_id });
+  const {
+    canViewFinance,
+    canViewContractDocuments,
+    canEditContractDocuments,
+    canUploadContractDocuments,
+  } = contractAccess(user, { impersonating, clientId: contract?.client_id });
 
   // Fetch activity timeline (lazy)
   const activitiesQuery = useQuery<ActivityEntry[]>({
@@ -926,7 +931,7 @@ export default function ContractDetailPage() {
   const visibleTabs = TABS.filter(
     (tab) =>
       (careOpen || tab.key !== "care") &&
-      (canViewContractDocuments || tab.key !== "documents") &&
+      (canViewContractDocuments || canUploadContractDocuments || tab.key !== "documents") &&
       (canViewFinance || tab.key !== "rateHistory") &&
       (canViewInvoices || tab.key !== "invoices"),
   );
@@ -2452,12 +2457,15 @@ export default function ContractDetailPage() {
       )}
 
       {/* Tab: Dokumenty */}
-      {activeTab === "documents" && (
-        <ContractDocumentsTab
-          contractId={id}
-          readOnly={!canEditContractDocuments}
-        />
-      )}
+      {activeTab === "documents" &&
+        (canViewContractDocuments ? (
+          <ContractDocumentsTab
+            contractId={id}
+            readOnly={!canEditContractDocuments}
+          />
+        ) : (
+          <UploadOnlyDocuments contractId={id} />
+        ))}
 
       {/* Tab: Aneksy */}
       {activeTab === "amendments" && (

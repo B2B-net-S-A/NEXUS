@@ -618,6 +618,56 @@ async def test_contract_documents_follow_the_amounts_view_in_scope(monkeypatch) 
     assert denied.value.detail["label"] == "Stawki i kwoty: podgląd"
 
 
+class _ReachedStorage(Exception):
+    """Handler przeszedł bramki i zapisuje plik."""
+
+
+class _ContractRow:
+    def __init__(self, client_id: int):
+        self.contract = SimpleNamespace(id=1, client_id=client_id)
+
+    async def scalar(self, *_args, **_kwargs):
+        return self.contract
+
+
+async def _upload(user: User, client_id: int) -> None:
+    await contracts.upload_contract_document(
+        contract_id=1,
+        current_user=user,
+        db=_ContractRow(client_id),
+        file=SimpleNamespace(filename="wypowiedzenie.pdf", file=None),
+        doc_type=contracts.ContractDocumentType.other,
+        expiry_date=None,
+        folder_id=None,
+    )
+
+
+async def test_contract_editor_adds_a_file_without_the_amounts_view(
+    monkeypatch,
+) -> None:
+    """Zgłoszenie 22.10.2026: wypowiedzenie przy „Zakończ współpracę” nie
+    trafiało do Dokumentów, bo dodanie pliku wymagało podglądu kwot. Dodanie
+    niczego nie odsłania — lista i pobieranie zostają za „Stawki i kwoty:
+    podgląd”, zakres klientów DL zostaje."""
+
+    def reached(**_kwargs):
+        raise _ReachedStorage
+
+    monkeypatch.setattr(contracts.storage_service, "save_contract_document", reached)
+    monkeypatch.setattr(contracts, "resolve_delivery_lead_client_ids", _portfolio(5))
+
+    with pytest.raises(_ReachedStorage):
+        await _upload(_holder("contracts_orders_edit", role=TCM), client_id=6)
+    with pytest.raises(_ReachedStorage):
+        await _upload(_holder("delivery_view", "contracts_orders_edit", role=LEAD), 5)
+
+    # DL bez podglądu kwot dodaje plik tylko u klienta z przypisania.
+    with pytest.raises(HTTPException) as denied:
+        await _upload(_holder("delivery_view", "contracts_orders_edit", role=LEAD), 6)
+    assert denied.value.status_code == 403
+    assert denied.value.detail == access_scope.DL_CLIENT_OUT_OF_SCOPE_DETAIL
+
+
 # ── szkic umowy ──────────────────────────────────────────────────────────────
 
 

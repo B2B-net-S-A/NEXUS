@@ -18,6 +18,7 @@ import {
   canViewClientFinance,
   hasAnalyticsCapability,
   hasRole,
+  isClientInAssignedScope,
   type User,
 } from "@/store/auth";
 
@@ -42,6 +43,12 @@ export interface ContractAccess {
   /** Dokumenty mogą nieść stawki — ta sama granica co finanse. */
   canViewContractDocuments: boolean;
   canEditContractDocuments: boolean;
+  /**
+   * Samo „Dodaj plik” (wypowiedzenie, aneks): dodanie niczego nie odsłania,
+   * więc wystarcza edycja kontraktu w zakresie konta — bez podglądu kwot
+   * (zgłoszenie 22.10.2026). Lista i pobieranie zostają za podglądem kwot.
+   */
+  canUploadContractDocuments: boolean;
   /** „Przepnij na innego klienta” — wyłącznie admin, nie w podglądzie. */
   canReassignClient: boolean;
 }
@@ -76,6 +83,8 @@ export function contractAccess(
     canViewFinance,
     canViewContractDocuments,
     canEditContractDocuments: canEditContract && canViewContractDocuments,
+    canUploadContractDocuments:
+      canEditContract && clientId != null && isClientInAssignedScope(user, clientId),
     canReassignClient: isAdmin && !impersonating,
   };
 }
