@@ -96,9 +96,17 @@ class PlacementFacts:
 
 
 async def pending_placements(
-    db: AsyncSession, *, since: datetime, now: datetime
+    db: AsyncSession, *, since: datetime, now: datetime, pending_prefix: str
 ) -> list[PendingPlacement]:
-    """Placementy po `since` (i nie starsze niż `LOOKBACK`) bez wysłanego maila."""
+    """Placementy po `since` (i nie starsze niż `LOOKBACK`), których mail jeszcze
+    nie wyszedł albo da się go ponowić.
+
+    Para wraca do wysyłki, gdy nie ma znacznika, gdy znacznik jest `claimed`
+    (bieg przerwany restartem), gdy liczenie padło przed wysyłką (`failed`,
+    0 odbiorców) albo gdy czekają odroczeni odbiorcy (wpis `pending_prefix…`
+    w `app_settings`). Co z nią zrobić, rozstrzyga `_send_report` — tak samo
+    jak przy raportach okresowych. Bez tego pierwszy błąd gubił mail na zawsze.
+    """
 
     floor = max(since, now - LOOKBACK)
     rows = (
@@ -114,12 +122,24 @@ async def pending_placements(
                     SELECT 1 FROM kpi_email_report_runs r
                     WHERE r.kind = :kind
                       AND r.period_key = fm.candidate_id::text || ':' || fm.job_id::text
+                      AND r.status <> 'claimed'
+                      AND NOT (r.status = 'failed' AND r.recipients = 0 AND r.sent = 0)
+                      AND NOT EXISTS (
+                        SELECT 1 FROM app_settings s
+                        WHERE s.key = :pending_prefix || r.period_key
+                      )
                   )
                 ORDER BY fm.first_reached_at, fm.candidate_id, fm.job_id
                 LIMIT :batch
                 """
             ),
-            {"floor": floor, "now": now, "kind": KIND, "batch": BATCH},
+            {
+                "floor": floor,
+                "now": now,
+                "kind": KIND,
+                "batch": BATCH,
+                "pending_prefix": pending_prefix,
+            },
         )
     ).all()
     return [PendingPlacement(int(c), int(j), at) for c, j, at in rows]
