@@ -215,6 +215,9 @@ regexes = [
   '''postgresql://u:hasło@''',
   '''postgresql://nexus:tajne@''',
   '''postgresql\+asyncpg://\$\{POSTGRES_USER''',
+  # Hasło jako interpolacja compose, nie wartość — pierwsza wersja
+  # docker-compose.staging.yml (PR #2568); zostaje w historii commitów PR-a.
+  '''postgresql\+asyncpg://nexus:\$\{POSTGRES_PASSWORD\}@''',
   # Local dev default — used by seed scripts, entrypoint.sh, and the
   # ``Settings()`` Pydantic default in backend/app/core/config.py. Never
   # used in production: Coolify env vault overrides DATABASE_URL on every
