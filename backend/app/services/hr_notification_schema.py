@@ -60,7 +60,7 @@ PERSONAL_TYPES: tuple[str, ...] = (
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery; struktura
 #: u klienta (0475) — „uzupełnij strukturę klienta X” do Delivery Leadów;
-#: popyt z rozmowy opiekuna (0504) — „klient zatrudnia” do DL klienta.
+#: popyt z rozmowy opiekuna (0506) — „klient zatrudnia” do DL klienta.
 DELIVERY_TYPES: tuple[str, ...] = (
     "care_contact_due",
     *CLIENT_STRUCTURE_TYPES,

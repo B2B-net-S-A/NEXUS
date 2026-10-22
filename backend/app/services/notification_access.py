@@ -162,7 +162,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.care_contact_due: ProductSection.delivery,
     # 0475: link prowadzi do „Struktury u klientów” w Opiece (sekcja Delivery).
     NotificationType.care_client_structure: ProductSection.delivery,
-    # 0504: popyt z rozmowy opiekuna — karta na tablicy „Do zrobienia” DL.
+    # 0506: popyt z rozmowy opiekuna — karta na tablicy „Do zrobienia” DL.
     NotificationType.care_demand_signal: ProductSection.delivery,
 }
 

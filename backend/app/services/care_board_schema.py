@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — tablica opieki i popyt dla Delivery Leada: SQL migracji ``0504_care_board`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — tablica opieki i popyt dla Delivery Leada: SQL migracji ``0506_care_board`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0504_care_board.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0506_care_board.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

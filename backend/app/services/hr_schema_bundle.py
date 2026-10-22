@@ -61,7 +61,7 @@ MODULES = (
     approvals,
     approval_settlement,
     approval_basis,
-    # 0504: tablica opieki i popyt dla DL (przebudowa opieki, 22.10.2026).
+    # 0506: tablica opieki i popyt dla DL (przebudowa opieki, 22.10.2026).
     care_board,
 )
 

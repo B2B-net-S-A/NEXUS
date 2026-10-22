@@ -5,7 +5,7 @@
   ``tech_cards.care_conversation_id``), a bez niej — dział menedżera
   konsultanta u klienta. Role i źródło informacji — z tej karty; bez karty
   (albo gdy karta ich nie ma) — z rozmowy (``client_hiring_roles``,
-  ``client_hiring_source``, 0504), a bez nich zostaje notatka „klient zatrudnia”.
+  ``client_hiring_source``, 0506), a bez nich zostaje notatka „klient zatrudnia”.
 * **Karta „Popyt do sprawdzenia”** na tablicy DL: ten sam klient, dział
   i zbiór ról w 30 dniach = jedna karta (najnowszy sygnał, lista źródeł).
   Klucz ``demand:<klient>:<rozmowa>`` (``board_state``) — bez działu, bo
@@ -51,7 +51,7 @@ NOTIFY_EVERY_DAYS = 7
 NOT_NOW_DAYS = 30
 ROLE_MAX = 120
 
-#: Karta zapisana rozmową (0504) — dział, role i źródło informacji o popycie.
+#: Karta zapisana rozmową (0506) — dział, role i źródło informacji o popycie.
 TECH_CARDS_LINK = table(
     "tech_cards",
     column("id", Integer),
@@ -60,7 +60,7 @@ TECH_CARDS_LINK = table(
     column("hiring_roles", JSONB),
     column("hiring_source", String),
 )
-#: Role i źródło „klient zatrudnia” zapisane przy rozmowie (0504).
+#: Role i źródło „klient zatrudnia” zapisane przy rozmowie (0506).
 CONVERSATIONS_HIRING = table(
     "care_conversations",
     column("id", Integer),
