@@ -198,6 +198,7 @@ async def assert_verified_requirements(
     user: User,
     target_column: str,
     pending_rate: bool,
+    allow_skip: bool = True,
 ) -> list[str]:
     """409 `VERIFIED_REQUIREMENTS_MISSING` — wejście na „Zweryfikowany” bez
     arkusza screeningu albo bez stawki kandydata (decyzja Artura 04.10.2026).
@@ -215,6 +216,8 @@ async def assert_verified_requirements(
     ``VERIFIED_MINIMUM_FIELDS_ENABLED``). Od 22.10.2026 Delivery Lead
     (``skips_fill_gates``) przechodzi mimo braków: funkcja zwraca je
     wołającemu do śladu ruchu zamiast odmowy. Pusta lista = nic nie brakuje.
+    ``allow_skip=False`` (ruch zbiorczy — bez śladu i bez okna) odmawia
+    każdemu.
     """
     from app.core.config import settings  # noqa: PLC0415
     from app.models.candidate import Candidate  # noqa: PLC0415
@@ -240,7 +243,7 @@ async def assert_verified_requirements(
     # Minimum dla DL (21.10.2026): pola karty — klucze jak w formularzu.
     card_missing = move_requirements.minimum_missing(facts)
     missing.extend(card_missing)
-    if not missing or skips_fill_gates(user):
+    if not missing or (allow_skip and skips_fill_gates(user)):
         return missing
     labels = [verified_requirement_label(key) for key in missing]
     raise HTTPException(

@@ -33,8 +33,20 @@ Decyzje Artura 22.10.2026 (wszystkie rekomendowane warianty):
   `fillGapsText`). Karta od „Zweryfikowanego” do końca procesu ma odznakę
   „Przesunął DL · bez arkusza i stawki” z kanban payloadu
   `requirements_skipped` / `requirements_skipped_by_name`
-  (`requirementsSkippedBadge`). Formularz screeningu DL-a przekazuje dalej bez
+  (`requirementsSkippedBadge`). Odznaka pokazuje tylko braki, których dalej brakuje
+  (`pipeline._still_missing`: arkusz, stawka etapu albo profilu, `minimum_missing`;
+  debrief zostaje) — uzupełnione ją gaszą. Formularz screeningu DL-a przekazuje dalej bez
   odpowiedzi i minimum; stopka dalej mówi, czego brakuje.
+- **Dodanie od razu na „Zweryfikowany”.** W oknie „Dodaj do rekrutacji” osoba
+  z tym uprawnieniem przy jednej osobie wybiera „Na etap: Nowi / Zweryfikowany”
+  (`AddToRecruitmentDialog`). Dodanie idzie jak zawsze (`proposals/bulk`), a drugi
+  krok to zwykły ruch karty przez `usePipelineMoveCore`. „CV wysłane” z makiety
+  odpadło: wysyłka wymaga przeglądu DL ze stawką do klienta i QC, więc DL wysyła
+  z „Zweryfikowanego” zwykłą drogą.
+- **Dzwonek do prowadzącego.** Wejście DL-a na „Zweryfikowany” mimo braków dzwoni do
+  `jobs.recruiter_id` (gdy to ktoś inny niż DL): „<DL> przesunął(-ęła) <osoba> na
+  „Zweryfikowany”” z listą braków (`pipeline._notify_recruiter_of_skip`, typ
+  `stage_changed`). Sam przeskok debriefu nie dzwoni.
 - **Rekruter bez zmian.** Każda bramka z `kanban-bez-bramek.md` i
   `minimum-dla-dl-przed-zweryfikowany.md` dalej go zatrzymuje.
 - **D4 — jedna premia.** Gdy pierwszym weryfikującym jest Delivery Lead kontraktu,
@@ -45,5 +57,4 @@ Decyzje Artura 22.10.2026 (wszystkie rekomendowane warianty):
 Statystyki: proces zalicza się temu, kto pierwszy przesunął na „Zweryfikowany”
 (`credit_user_id`) — więc DL, który sam zweryfikował, już dziś ma go w Insights →
 Zespół. Liga Mistrzów i cele zostają dla rekruterów (filtr roli w `competitions.py`,
-`KPI_BEARING_ROLES`). Licznik „Sam przekazał” u DL-a (D3) i dodanie osoby od razu na
-dalszy etap z dzwonkiem do rekrutera to kolejne PR-y tej decyzji.
+`KPI_BEARING_ROLES`). Licznik „Sam przekazał” u DL-a (D3) to osobny PR tej decyzji.

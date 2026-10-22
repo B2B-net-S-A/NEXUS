@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BulkProposalsResponse } from "@/lib/candidate-search-api";
+import { useAuthStore } from "@/store/auth";
 
 const mocks = vi.hoisted(() => ({ add: vi.fn(), send: vi.fn() }));
 
@@ -337,5 +338,35 @@ describe("AddToRecruitmentDialog", () => {
     expect(addToRecruitmentSummary({ job, response: { ...RESPONSE, total_added: 3, total_skipped: 0 } })).toBe("Dodano 3 osoby do „Java Developer”.");
     expect(addToRecruitmentSummary({ job, response: { ...RESPONSE, total_added: 12, total_skipped: 0 } })).toBe("Dodano 12 osób do „Java Developer”.");
     expect(addToRecruitmentSummary({ job, response: { ...RESPONSE, total_added: 22, total_skipped: 0 } })).toBe("Dodano 22 osoby do „Java Developer”.");
+  });
+
+  // 22.10.2026: Delivery Lead dodaje jedną osobę od razu na „Zweryfikowany”.
+  describe("Delivery Lead wybiera etap", () => {
+    afterEach(() => {
+      useAuthStore.setState({ user: null } as never);
+    });
+
+    it("„Zweryfikowany”: dodanie, potem ruch karty dodanej osoby", async () => {
+      useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+      renderDialog({ candidateIds: [5], subject: "Marta Lis" });
+      fireEvent.click(screen.getByRole("button", { name: /Wybierz Java Developer/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Zweryfikowany" }));
+      fireEvent.click(screen.getByRole("button", { name: "Dodaj na „Zweryfikowany”" }));
+      await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+      expect(mocks.send.mock.calls[0][0]).toEqual({ candidate_id: 5, job_id: 42, stage: "verified" });
+    });
+
+    it("domyślnie „Nowi” — bez ruchu karty", async () => {
+      useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+      renderDialog({ candidateIds: [5] });
+      await addToJavaDeveloper();
+      expect(mocks.send).not.toHaveBeenCalled();
+    });
+
+    it("rekruter i wybór wielu osób nie widzą wyboru etapu", () => {
+      useAuthStore.setState({ user: { id: 4, role: "recruiter", roles: ["recruiter"] } } as never);
+      renderDialog({ candidateIds: [5] });
+      expect(screen.queryByTestId("add-to-recruitment-stage")).toBeNull();
+    });
   });
 });
