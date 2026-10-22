@@ -73,6 +73,10 @@ i dodatkowych notatek; domyślny plik = kopia „Oryginał CV” rekrutacji.
   ruchu, kolejki DL i Cpro), `dz_review._generated_cv` (QC CV) i karta —
   `GET /generated` niesie `discarded`, a `resolveCvToClient` nie proponuje
   takiego wiersza jako „Użyj tej wersji”. Nowa generacja jest znowu CV pary.
+  Odrzucone auto-CV nie czeka też na przegląd (`cv_auto_review.needs_review_clause`:
+  flaga `auto_cv_ready` na Tablicy, przypięcie na liście generatora, „CV do
+  sprawdzenia”), a przy powrocie karty na „Zweryfikowany” automat nie podpina
+  go jako szkicu nowego etapu (`cv_auto_generate._enqueue`) — robi CV od nowa.
 
 ## Czego nie zmienia
 

@@ -253,3 +253,33 @@ async def test_discarded_cv_is_not_the_pair_cv_anywhere(
         refs = await company_cv_refs(db, [pair])
         assert refs[pair]["generated_document_id"] == fresh_id
         assert (await _generated_cv(db, *pair))["generated_document_id"] == fresh_id
+
+
+def test_discarded_auto_cv_does_not_wait_for_review():
+    """Audyt 22.10 (F64, dopięcie): odrzucone auto-CV nie świeci na tablicy
+    jako „gotowe do przejrzenia” ani nie czeka w „CV do sprawdzenia” —
+    `needs_review_clause` (jedna definicja dla tablicy, listy generatora
+    i tematu CV) pomija generację ze znacznikiem `discarded_at`."""
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.cv_auto_review import needs_review_clause
+
+    compiled = needs_review_clause().compile(dialect=postgresql.dialect())
+    assert "render_payload" in str(compiled), str(compiled)
+    assert "discarded_at" in compiled.params.values(), compiled.params
+
+
+def test_return_to_verified_does_not_reattach_a_discarded_cv():
+    """Audyt 22.10 (F64, dopięcie): powrót karty na „Zweryfikowany” podpinał
+    wcześniejszą gotową generację automatu — także tę, którą ktoś odrzucił
+    w karcie „CV do klienta”. Zapytanie o wcześniejszą generację pomija
+    odrzucone (zachowanie na bazie: `test_cv_auto_generate.py`)."""
+    import inspect
+
+    from app.services import cv_auto_generate
+
+    source = inspect.getsource(cv_auto_generate._enqueue)
+    earlier = source[
+        source.index("earlier = (") : source.index("if earlier is not None")
+    ]
+    assert "not_discarded_clause()" in earlier, earlier
