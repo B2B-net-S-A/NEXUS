@@ -117,7 +117,7 @@ CATALOG = (
         trigger="Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu.",
         recipient_rule="Aktywni administratorzy.",
     ),
-    # 0506 (22.10.2026): alarm bez blokady — `services/candidate_data_access_alerts.py`.
+    # 0507 (22.10.2026): alarm bez blokady — `services/candidate_data_access_alerts.py`.
     dict(
         id="data_access_alert",
         label="Masowe przeglądanie CV",
