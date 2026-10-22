@@ -1091,8 +1091,9 @@ async def _notify_recruiter_of_skip(
     """Dzwonek do prowadzącego rekrutację: Delivery Lead przesunął osobę mimo
     braków (22.10.2026) — rekruter wie, że osobę prowadzi już ktoś inny.
 
-    Tylko wejście na „Zweryfikowany” (DL przejmuje proces); sam przeskok
-    debriefu nikogo nie powiadamia. ``emit`` sprawdza odbiorcę i dzienny duplikat.
+    Każde przejście przez „Zweryfikowany” od lewej — ruch na „Zweryfikowany”
+    albo przeskok dalej, np. na „QC CV” (DL przejmuje proces; audyt
+    22.10.2026, F58); sam przeskok debriefu nikogo nie powiadamia. ``emit`` sprawdza odbiorcę i dzienny duplikat.
     """
     from app.services.notification_triggers import emit  # noqa: PLC0415
 
@@ -1740,7 +1741,7 @@ async def apply_move(
     # pytań") — pytania zasilają prep i profil Championa.
     # Delivery Lead przechodzi mimo braków (22.10.2026) — braki idą do śladu
     # ruchu (`requirements_skipped`), z którego Tablica rysuje odznakę.
-    skipped_requirements = await pipeline_move_rules.assert_debrief_before_contract(
+    debrief_skipped = await pipeline_move_rules.assert_debrief_before_contract(
         db,
         candidate_id=data.candidate_id,
         job_id=data.job_id,
@@ -1749,7 +1750,9 @@ async def apply_move(
     )
     # D1 (04.10.2026): „Zweryfikowany” z Nowych/Screeningu wymaga arkusza
     # screeningu i stawki kandydata — ta sama reguła co okno „Przesuń dalej”.
-    skipped_requirements += await pipeline_move_rules.assert_verified_requirements(
+    # Lista niepusta tylko przy przejściu przez „Zweryfikowany” od lewej
+    # (z Nowych/Screeningu na „Zweryfikowany” albo dalej).
+    verified_skipped = await pipeline_move_rules.assert_verified_requirements(
         db,
         candidate_id=data.candidate_id,
         job=job,
@@ -1758,6 +1761,7 @@ async def apply_move(
         pending_rate=data.expected_rate_value is not None
         and data.expected_rate_value > 0,
     )
+    skipped_requirements = debrief_skipped + verified_skipped
     # D6 (08.10.2026): „Wróć do poprawy” z „QC CV” niesie listę pól do poprawy.
     # Walidacja PRZED zapisem ruchu — zła lista nie może cofnąć karty bez niej.
     fix_keys: list[str] = []
@@ -2285,7 +2289,10 @@ async def apply_move(
                 },
             )
         )
-        if target_column == "verified":
+        # Audyt 22.10.2026 (F58), decyzja Artura: dzwonek przy każdym
+        # przejściu DL-a przez „Zweryfikowany” od lewej, także przeskoku
+        # od razu na „QC CV” czy dalej. Sam przeskok debriefu nie dzwoni.
+        if verified_skipped:
             await _notify_recruiter_of_skip(
                 db,
                 job=job,

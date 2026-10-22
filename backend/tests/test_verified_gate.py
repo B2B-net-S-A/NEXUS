@@ -524,6 +524,64 @@ async def test_delivery_lead_moves_past_the_fill_gates_and_leaves_a_trace(
 
 
 @pytest.mark.asyncio
+async def test_delivery_lead_jump_past_verified_rings_the_recruiter(
+    api_client: AsyncClient, dl_skips_on
+) -> None:
+    """Audyt 22.10.2026 (F58), decyzja Artura: dzwonek do prowadzącego idzie
+    przy każdym przejściu DL-a przez „Zweryfikowany” od lewej — także przy
+    przeskoku z Nowych od razu na „QC CV”, nie tylko przy ruchu dokładnie
+    na „Zweryfikowany”."""
+
+    from app.models.activity import Activity
+    from app.models.job import Job
+    from app.models.notification import Notification
+
+    world = await _seed_world(champion_profile=WITH_QUESTIONS)
+    rec_id, _rec_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    try:
+        await seed_entry_row(world["candidate_id"], world["job_id"])
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, world["job_id"])
+            job.recruiter_id = rec_id
+            await db.commit()
+
+        moved = await _post_move(
+            api_client, dl, world, stage_def_id=world["defs"]["qc"]
+        )
+        assert moved.status_code == 200, moved.text
+
+        async with AsyncSessionLocal() as db:
+            bells = (
+                await db.scalars(
+                    select(Notification).where(
+                        Notification.user_id == rec_id,
+                        Notification.related_entity_id == world["candidate_id"],
+                    )
+                )
+            ).all()
+        skip_bells = [b for b in bells if "bez:" in (b.message or "")]
+        assert len(skip_bells) == 1, [b.title for b in bells]
+        assert "QC CV" in skip_bells[0].title
+        assert "arkusz screeningu" in skip_bells[0].message
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Activity).where(
+                    Activity.action == rules.REQUIREMENTS_SKIPPED_ACTION,
+                    Activity.user_id == dl_id,
+                )
+            )
+            await db.execute(delete(Notification).where(Notification.user_id == rec_id))
+            await db.execute(
+                update(Job).where(Job.id == world["job_id"]).values(recruiter_id=None)
+            )
+            await db.commit()
+        await _cleanup(world, [rec_id, dl_id])
+
+
+@pytest.mark.asyncio
 async def test_delivery_lead_switch_off_restores_the_gate(
     api_client: AsyncClient, minimum_on
 ) -> None:
