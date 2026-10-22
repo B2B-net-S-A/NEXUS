@@ -21,6 +21,8 @@ from app.services.similar_candidates import (
     CriticalItem,
     SimilarFilters,
     critical_items,
+    duplicate_signals,
+    is_thin_profile,
     missing_labels,
     note_for_missing,
     passes_filters,
@@ -39,8 +41,11 @@ def _person(**kw):
         tags=None,
         experience=None,
         cv_extracted_data=None,
-        raw_cv_text="",
+        # Ponad ``THIN_CV_CHARS`` — osoba z CV, ma z czym się porównać.
+        raw_cv_text="Programista Java, Spring Boot, Kafka. " * 8,
         skills_manually_curated=False,
+        phone=None,
+        linkedin_slug=None,
         availability_status=AvailabilityStatus.actively_looking,
         expected_rate_hourly=None,
         expected_rate_currency=None,
@@ -162,8 +167,12 @@ async def test_find_similar_keeps_qdrant_order_filters_and_pages(monkeypatch) ->
     async def counts(_db, ids):
         return {4: 1}
 
+    async def no_files(_db, _source_id, _ids):
+        return set()
+
     monkeypatch.setattr(similar_candidates, "nearest_candidates", hits)
     monkeypatch.setattr(similar_candidates, "active_process_counts", counts)
+    monkeypatch.setattr(similar_candidates, "shared_cv_files", no_files)
     # Osoba 5 nie wróciła z bazy (np. czarna lista odcięta w zapytaniu).
     rows = [
         _person(id=2),
@@ -186,6 +195,111 @@ async def test_find_similar_keeps_qdrant_order_filters_and_pages(monkeypatch) ->
         limit=1,
     )
     assert [r.candidate.id for r in page_two.rows] == [2]
+
+
+# ── Profile bez CV i możliwe duplikaty (pomiar 22.10.2026) ────────────────
+
+
+def test_thin_profile_needs_no_cv_text_and_no_skills() -> None:
+    assert is_thin_profile(_person(raw_cv_text=""))
+    assert is_thin_profile(_person(raw_cv_text="Jan Testowy, Warszawa"))
+    assert not is_thin_profile(_person())
+    # Krótki tekst, ale z umiejętnościami w profilu — jest z czym porównać.
+    assert not is_thin_profile(
+        _person(raw_cv_text="", skills=[{"name": "Java"}, {"name": "Kafka"}])
+    )
+
+
+@pytest.mark.asyncio
+async def test_source_without_cv_gets_no_list_and_never_asks_qdrant(
+    monkeypatch,
+) -> None:
+    async def never(_cid, *, limit):
+        raise AssertionError("bez CV nie pytamy wyszukiwarki")
+
+    monkeypatch.setattr(similar_candidates, "nearest_candidates", never)
+    result = await similar_candidates.find_similar(
+        _Db([]), _person(raw_cv_text=""), SimilarFilters()
+    )
+    assert (result.status, result.total, result.rows) == ("no_cv", 0, [])
+
+
+def test_duplicate_signals_name_phone_linkedin_and_file() -> None:
+    source = _person(
+        name="Jan",
+        lastname="Testowy",
+        phone="+48 601 204 118",
+        linkedin_slug="jan-testowy",
+    )
+    twin = _person(
+        id=2,
+        name="TESTOWY",
+        lastname="jan",
+        phone="601-204-118",
+        linkedin_slug="jan-testowy",
+    )
+    assert duplicate_signals(source, twin, 0.93, same_cv_file=True) == (
+        "name",
+        "phone",
+        "linkedin",
+        "cv_file",
+    )
+    # Poniżej progu to tylko podobny, nawet z tym samym imieniem.
+    assert duplicate_signals(source, twin, 0.89, same_cv_file=True) == ()
+    # Bardzo podobne CV, ale nic wspólnego w tożsamości — nie duplikat.
+    stranger = _person(id=3, name="Anna", lastname="Inna", phone="502 333 444")
+    assert duplicate_signals(source, stranger, 0.97) == ()
+
+
+def test_duplicate_signals_ignore_placeholder_phone_and_empty_names() -> None:
+    a = _person(name="", lastname="", phone="000 000 000")
+    b = _person(id=2, name="", lastname="", phone="000-000-000")
+    assert duplicate_signals(a, b, 0.95) == ()
+
+
+@pytest.mark.asyncio
+async def test_find_similar_drops_thin_neighbours_and_marks_duplicates(
+    monkeypatch,
+) -> None:
+    async def hits(_cid, *, limit):
+        return (True, [(2, 0.96), (3, 0.93), (4, 0.92), (5, 0.8)])
+
+    async def counts(_db, ids):
+        return {}
+
+    files_asked: list[list[int]] = []
+
+    async def files(_db, source_id, ids):
+        files_asked.append(list(ids))
+        return {3}
+
+    monkeypatch.setattr(similar_candidates, "nearest_candidates", hits)
+    monkeypatch.setattr(similar_candidates, "active_process_counts", counts)
+    monkeypatch.setattr(similar_candidates, "shared_cv_files", files)
+    rows = [
+        # Ta sama osoba — inny e-mail, ale imię i nazwisko te same; „Nie szuka”
+        # zostaje mimo domyślnego filtra.
+        _person(
+            id=2,
+            name="Jan",
+            lastname="Testowy",
+            availability_status=AvailabilityStatus.not_looking,
+        ),
+        _person(id=3, name="Jan", lastname="Testowy-Nowak"),
+        # Pusty profil — wypada z listy.
+        _person(id=4, name="Ola", lastname="Pusta", raw_cv_text=""),
+        _person(id=5, name="Jan", lastname="Testowy"),
+    ]
+    result = await similar_candidates.find_similar(
+        _Db(rows), _person(id=1), SimilarFilters()
+    )
+    assert files_asked == [[2, 3]]
+    assert [(r.candidate.id, r.duplicate_signals) for r in result.rows] == [
+        (2, ("name",)),
+        (3, ("cv_file",)),
+        (5, ()),
+    ]
+    assert result.total == 3
 
 
 # ── Sprawdzenie krytycznych ───────────────────────────────────────────────

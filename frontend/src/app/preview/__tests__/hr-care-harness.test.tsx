@@ -16,6 +16,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
+import { formatDayMonthPl } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
 import { useAuthStore } from "@/store/auth";
 import HrCarePreviewPage from "../hr-care/page";
@@ -231,9 +232,11 @@ describe("/preview/hr-care", () => {
     expect(bank).toHaveTextContent("6 · 4 dobrze · 1 uwaga · 1 ryzyko");
     expect(bank).toHaveTextContent("6 z 6");
     expect(bank).toHaveTextContent("3 menedżerów · drzewo pełne");
-    // Dane harnessu: prośba sprzed 3 dni (`card-fixtures.ts`), więc data idzie od „dziś”.
-    const pendingSince = shiftDay(warsawToday(), -3);
-    expect(bank).toHaveTextContent(`1 prośba czeka od ${pendingSince.slice(8, 10)}.${pendingSince.slice(5, 7)}`);
+    // Dane harnessu liczą się od dzisiaj (prośba sprzed 3 dni) — data na sztywno
+    // psuła test następnego dnia (kolejka merge'ów 23.10.2026).
+    expect(bank).toHaveTextContent(
+      `1 prośba czeka od ${formatDayMonthPl(shiftDay(warsawToday(), -3))}`,
+    );
     expect(bank).toHaveTextContent("2 luki do dopytania");
     expect(bank).toHaveTextContent("DL Kamil T. · opiekun domyślny Natalia O.");
     const telekom = within(table).getByRole("row", { name: /Telekom Wzorcowy/ });
