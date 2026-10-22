@@ -77,9 +77,11 @@ async def test_scoring_weights_rejects_sum_not_100(
 async def test_scoring_weights_create_list_delete(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    # Create
+    # Create — profil osoby: ogólny tylko przez panel (audyt 22.10, F60).
+    me = await app_client.get("/api/auth/me", headers=app_auth_headers)
     payload = {
         "name": "Pytest Profile",
+        "user_id": me.json()["id"],
         "weights": {
             "semantic": 30,
             "skills": 40,
