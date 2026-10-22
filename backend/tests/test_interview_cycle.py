@@ -446,6 +446,55 @@ def _future(days: int, hour: int = 9) -> str:
     return base.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
 
 
+async def test_cancelled_interview_from_the_choice_drops_client_reply_todo(
+    app_client: AsyncClient,
+):
+    """Audyt 22.10, F33: rozmowa z wyboru rekrutera odwołana w kalendarzu —
+    DL nie ma już „Odpisz klientowi” z tekstem potwierdzającym termin."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _client_id = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(3)}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{created.json()['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    body = chosen.json()
+    assert body["client_reply_pending"] is True
+
+    def reply_todos(resp) -> list:
+        return [
+            t
+            for t in resp.json()["todos"]
+            if t["candidate_id"] == cand_id and t["kind"] == "slots_reply"
+        ]
+
+    before = await app_client.get("/api/interview-cycle?scope=mine", headers=dl_h)
+    assert reply_todos(before)
+
+    async with AsyncSessionLocal() as db:
+        event = await db.get(CalendarEvent, body["event_id"])
+        event.status = EventStatus.cancelled
+        await db.commit()
+
+    after = await app_client.get("/api/interview-cycle?scope=mine", headers=dl_h)
+    assert after.status_code == 200, after.text
+    assert reply_todos(after) == []
+
+
 async def test_full_slot_flow_creates_client_interview_for_recruiter(
     app_client: AsyncClient,
 ):

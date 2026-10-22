@@ -84,7 +84,8 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
   rozmowę (`replaceable_interviews`), wybór czeka na DL-a jak dotąd — okno
   potwierdzenia pyta, czy to przełożenie (reguła 26.09.2026).
 - **Zadanie `slots_reply` „Odpisz klientowi”** dla autora wniosku (DL; w
-  zakresie „jobs” widzi je też DL rekrutacji), do startu rozmowy. Okno
+  zakresie „jobs” widzi je też DL rekrutacji), do startu rozmowy; rozmowa
+  odwołana w kalendarzu zdejmuje zadanie (audyt 22.10, F33). Okno
   `ClientReplyDialog`: gotowy tekst do skopiowania (`lib/client-reply.ts`,
   imię i nazwisko w mianowniku), „Wysłane klientowi”
   (`POST …/slots/{id}/client-replied`, idempotentne) i „Klient wybrał inny
