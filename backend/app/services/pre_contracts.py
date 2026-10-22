@@ -520,9 +520,12 @@ async def start_b2b_deadline(
     *,
     accepted_on: date,
     actor_id: Optional[int],
+    from_today: bool = False,
 ) -> None:
-    """Termin umowy B2B z przedwstępnej od akceptacji klienta (albo od dziś,
-    gdy umowę podpisano już po akceptacji). Nic, gdy wzór terminu nie zna."""
+    """Termin umowy B2B z przedwstępnej od wpisanej daty akceptacji klienta,
+    także wstecznej (decyzja Artura 22.10.2026). ``from_today`` — umowę
+    podpisano dopiero po akceptacji, więc termin liczy się od dziś. Nic, gdy
+    wzór terminu nie zna."""
     from app.models.b2b_contract_document import B2BContractDocument  # noqa: PLC0415
     from app.services.candidate_followups import add_business_days  # noqa: PLC0415
 
@@ -540,7 +543,7 @@ async def start_b2b_deadline(
     days = b2b_term_days(doc_type)
     if not days:
         return
-    start = max(accepted_on, today())
+    start = max(accepted_on, today()) if from_today else accepted_on
     req.b2b_deadline = add_business_days(
         datetime.combine(start, time(12), tzinfo=_TZ), days
     )

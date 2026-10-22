@@ -969,7 +969,11 @@ async def company_signed(
     )
     if accepted_on is not None:
         await svc.start_b2b_deadline(
-            db, req, accepted_on=accepted_on, actor_id=current_user.id
+            db,
+            req,
+            accepted_on=accepted_on,
+            actor_id=current_user.id,
+            from_today=True,
         )
     await db.commit()
     return await _one(db, current_user, req)

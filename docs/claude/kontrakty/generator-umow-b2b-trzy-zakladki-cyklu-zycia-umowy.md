@@ -603,6 +603,12 @@ przed wysłaniem), `candidate_refused`, `candidate_withdrew`.
   Recruitment albo admin** — wskazana osoba dostaje tylko dzwonek (zakładka
   „Do decyzji o karze”). Dzwonek o rezygnacji dostaje też każdy aktywny
   Head of Recruitment, nawet gdy nie obserwuje prośby.
+- **Termin umowy B2B** (`b2b_deadline`, wzór CeZ: 5 dni roboczych) liczy się
+  od wpisanej daty akceptacji klienta, także wstecznej, a nie od chwili
+  zaznaczenia akceptacji w NEXUSIE (22.10.2026, decyzja Artura, audyt F55).
+  Od dziś tylko wtedy, gdy firma podpisała przedwstępną dopiero po
+  akceptacji klienta — termin nie zaczyna się przed istnieniem umowy
+  (`start_b2b_deadline(..., from_today=True)` w `company-signed`).
 - **Pliki** leżą w `/pre_contracts/{id}/` i mają PESEL. Każda trasa idzie
   przez `ensure_job_membership` (NIE `ensure_job_read_access`, który
   przepuszcza Finanse do każdej rekrutacji). Po podpisie firmy plików nie da

@@ -538,8 +538,9 @@ async def test_signing_after_client_acceptance_starts_b2b_deadline_from_today() 
             db, candidate_id=pair["candidate_id"], job_id=pair["job_id"]
         )
         assert accepted == date(2026, 10, 1)
+        # Tak woła ścieżka podpisu firmy (`company_signed`).
         await pre_contracts.start_b2b_deadline(
-            db, req, accepted_on=accepted, actor_id=None
+            db, req, accepted_on=accepted, actor_id=None, from_today=True
         )
         # Akceptacja sprzed podpisu: 5 dni roboczych liczone od dziś.
         assert req.b2b_deadline is not None

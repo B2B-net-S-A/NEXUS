@@ -351,3 +351,45 @@ async def test_bell_names_the_person_and_the_recruitment(monkeypatch) -> None:
     assert {kw["message"] for kw in sent} == {
         "Anna Testowa — Analityk systemowy: Umowa wygasła."
     }
+
+
+class _DocTypeDb:
+    async def scalar(self, _stmt):
+        return "preliminary_cez"
+
+
+async def _deadline_from(monkeypatch, *, accepted_on: date, **kw) -> date:
+    async def fake_event(db, req, kind, **_):
+        return None
+
+    async def fake_notify(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(svc, "today", lambda: date(2026, 10, 22))  # czwartek
+    monkeypatch.setattr(svc, "add_event", fake_event)
+    monkeypatch.setattr(svc, "notify", fake_notify)
+    req = _signed()
+    await svc.start_b2b_deadline(
+        _DocTypeDb(), req, accepted_on=accepted_on, actor_id=None, **kw
+    )
+    return req.b2b_deadline
+
+
+async def test_b2b_deadline_counts_from_backdated_client_acceptance(
+    monkeypatch,
+) -> None:
+    # F55 (decyzja Artura 22.10.2026): 5 dni roboczych od wpisanej daty
+    # akceptacji klienta, także wstecznej — nie od chwili zaznaczenia w NEXUSIE.
+    deadline = await _deadline_from(monkeypatch, accepted_on=date(2026, 10, 19))
+    assert deadline == date(2026, 10, 26)
+
+
+async def test_b2b_deadline_after_late_company_signature_counts_from_today(
+    monkeypatch,
+) -> None:
+    # F55: firma podpisała przedwstępną dopiero po akceptacji klienta —
+    # termin nie może zacząć się przed istnieniem umowy.
+    deadline = await _deadline_from(
+        monkeypatch, accepted_on=date(2026, 10, 19), from_today=True
+    )
+    assert deadline == date(2026, 10, 29)
