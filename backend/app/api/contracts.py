@@ -5423,8 +5423,11 @@ async def upload_contract_document(
     expiry_date: Optional[date] = Form(None),
     folder_id: Optional[int] = Form(None),
 ):
-    contract = await _assert_contract(db, contract_id, current_user)
-    await _assert_contract_document_client_access(contract, current_user, db)
+    # Dodanie pliku niczego nie odsłania, więc wystarcza edycja kontraktów
+    # w zakresie konta (DL: klient z przypisania). Lista, pobranie, zmiana
+    # i usunięcie zostają za podglądem kwot (zgłoszenie 22.10.2026:
+    # wypowiedzenie przy „Zakończ współpracę” nie trafiało do Dokumentów).
+    await _assert_contract(db, contract_id, current_user)
     # 0494: zamówienie zawsze leży w folderze „Zamówienia” — o tym decyduje
     # typ, więc wybrany folder pomijamy. Inny folder musi być tego kontraktu.
     if doc_type == ContractDocumentType.order:

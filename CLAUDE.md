@@ -317,6 +317,7 @@ Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchroni
 - `analityka-kontraktow-utylizacja-i-kafle-sum.md`: Analityka kontraktów: utylizacja i kafle sum
 - `cofnij-zakonczenie-i-powrot-po-przerwie.md`: „Cofnij zakończenie" i „Powrót po przerwie" (0368)
 - `data-rozpoczecia-umowy-start-zamowienia.md`: Data rozpoczęcia umowy ≠ start zamówienia (korekta)
+- `dodanie-pliku-bez-podgladu-kwot.md`: Dodanie pliku do kontraktu bez podglądu kwot
 - `dokumenty-kontraktow-z-sharepointa.md`: Dokumenty kontraktów z SharePointa (ticket 9, 0402)
 - `domyslny-widok-modulu-kontrakty-aktywne-i-konczace.md`: Domyślny widok modułu Kontrakty: Aktywne **i** Kończące się
 - `foldery-w-dokumentach-kontraktu.md`: Foldery w zakładce Dokumenty kontraktu (0494)
