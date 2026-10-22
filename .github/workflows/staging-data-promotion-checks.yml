@@ -1,0 +1,114 @@
+name: Staging data promotion checks
+
+# Only synthetic rows in a disposable PostgreSQL service. Production data,
+# artifacts and credentials must never be supplied to this workflow.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - backend/app/services/staging_data_promotion.py
+      - backend/app/services/staging_promotion_recipes.py
+      - backend/scripts/staging_data_promotion.py
+      - backend/tests/test_staging_data_promotion*.py
+      - backend/tests/test_staging_promotion_recipes.py
+      - scripts/staging/clone_from_hetzner.py
+      - backend/tests/test_staging_clone_from_hetzner.py
+      - .github/workflows/staging-data-promotion-checks.yml
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-data-promotion-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  synthetic-postgres:
+    name: Staging data promotion (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexus
+          POSTGRES_PASSWORD: synthetic-test-only
+          POSTGRES_DB: nexus_staging_acceptance_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # merge_group does not support a paths trigger; filter its tree diff here.
+      - name: Select synthetic acceptance scope
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+
+          run = True
+          if os.environ["EVENT_NAME"] == "merge_group":
+              base, head = os.environ["BASE_SHA"], os.environ["HEAD_SHA"]
+              if not all(re.fullmatch(r"[a-f0-9]{40}", sha) for sha in (base, head)):
+                  raise SystemExit("Missing merge-group revision")
+              changed = subprocess.check_output(
+                  ["git", "diff", "--name-only", base, head], text=True
+              ).splitlines()
+              exact = {
+                  "backend/app/services/staging_data_promotion.py",
+                  "backend/app/services/staging_promotion_recipes.py",
+                  "backend/scripts/staging_data_promotion.py",
+                  "scripts/staging/clone_from_hetzner.py",
+                  "backend/tests/test_staging_clone_from_hetzner.py",
+                  "backend/tests/test_staging_promotion_recipes.py",
+                  ".github/workflows/staging-data-promotion-checks.yml",
+              }
+              run = any(
+                  path in exact or (
+                      path.startswith("backend/tests/test_staging_data_promotion")
+                      and path.endswith(".py")
+                  )
+                  for path in changed
+              )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"run={str(run).lower()}\n")
+          PY
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.scope.outputs.run == 'true'
+        with:
+          python-version: '3.12'
+      - name: Install only isolated acceptance dependencies
+        if: steps.scope.outputs.run == 'true'
+        run: >-
+          python -m pip install 'sqlalchemy[asyncio]==2.0.52' asyncpg==0.31.0
+          pytest==9.1.1 pytest-asyncio==1.4.0
+      - name: Verify synthetic transactional promotion
+        if: steps.scope.outputs.run == 'true'
+        working-directory: backend
+        env:
+          STAGING_PROMOTION_DB_ACCEPTANCE: '1'
+          SERVICE_PG_USER: nexus
+          SERVICE_PG_PASSWORD: synthetic-test-only
+        run: |
+          export STAGING_PROMOTION_TEST_DATABASE_URL="postgresql+asyncpg://${SERVICE_PG_USER}:${SERVICE_PG_PASSWORD}@127.0.0.1:5432/nexus_staging_acceptance_test"
+          python -m pytest --noconftest -o asyncio_mode=auto \
+            tests/test_staging_data_promotion.py \
+            tests/test_staging_promotion_recipes.py \
+            tests/test_staging_clone_from_hetzner.py \
+            tests/test_staging_data_promotion_db.py -q

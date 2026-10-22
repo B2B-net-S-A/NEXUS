@@ -112,7 +112,9 @@ services:
       - .env.staging.local
     environment:
       NEXUS_ENV: staging
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/nexus
+      # SSH clone uses a new nexus_staging_* DB. The bootstrap/offsite default
+      # remains nexus; select the successfully restored DB before starting app.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${STAGING_DATABASE_NAME:-nexus}
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
       CORS_ORIGINS: '["http://localhost:3100"]'
