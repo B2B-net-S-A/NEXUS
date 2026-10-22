@@ -364,6 +364,7 @@ async def clear_foreign_cv_projection(
         source_id=document_id,
         document_filename=None,
         document_hash=document_hash,
+        keep_contact=True,
     )
     await _purge_candidate_summary_cache(db, candidate_id)
     return stats
@@ -378,8 +379,13 @@ async def _clear_cv_projection(
     source_id: int,
     document_filename: str | None,
     document_hash: str | None,
+    keep_contact: bool = False,
 ) -> dict[str, Any]:
-    """Fakty z CV-źródła znikają z profilu, wektor idzie do skasowania."""
+    """Fakty z CV-źródła znikają z profilu, wektor idzie do skasowania.
+
+    `keep_contact` (naprawa danych, F114): e-mail, telefon, miasto i LinkedIn
+    zostają, bo odczyt mógł pochodzić z własnego załącznika osoby.
+    """
     candidate_id = candidate.id
     cleared_fields: list[str] = []
 
@@ -440,9 +446,10 @@ async def _clear_cv_projection(
         candidate.years_it_experience = None
         cleared_fields.append("years_it_experience")
 
-    clear_if_equal("email", "email")
-    clear_if_equal("phone", "phone")
-    clear_if_equal("city", "city")
+    if not keep_contact:
+        clear_if_equal("email", "email")
+        clear_if_equal("phone", "phone")
+        clear_if_equal("city", "city")
     if "city" in cleared_fields:
         projected_location = project_candidate_location(
             candidate.city,
@@ -451,8 +458,10 @@ async def _clear_cv_projection(
         if candidate.location != projected_location:
             candidate.location = projected_location
             cleared_fields.append("location")
-    if extracted.get("linkedin_url") and candidate.linkedin == extracted.get(
-        "linkedin_url"
+    if (
+        not keep_contact
+        and extracted.get("linkedin_url")
+        and candidate.linkedin == extracted.get("linkedin_url")
     ):
         candidate.linkedin = None
         cleared_fields.append("linkedin")

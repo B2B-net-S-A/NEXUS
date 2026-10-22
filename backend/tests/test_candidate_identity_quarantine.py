@@ -833,10 +833,14 @@ async def test_repair_clears_facts_read_from_a_foreign_document_but_not_the_poin
         cv_extracted_data={
             "cv_highlights": {"source_document_id": 22},
             "skills": [{"name": "Wrong Person Skill"}],
+            "email": "own@example.com",
+            "phone": "+48 600 000 000",
         }
     )
     candidate.skills = [{"name": "Wrong Person Skill"}]
     candidate.cv_filename = "own-next.pdf"
+    candidate.email = "own@example.com"
+    candidate.phone = "+48 600 000 000"
     candidate.embedding_id = "vec-11"
     db = _ProjectionDB(candidate, language_batches=[[]])
     db.execute = AsyncMock()
@@ -852,6 +856,11 @@ async def test_repair_clears_facts_read_from_a_foreign_document_but_not_the_poin
     assert candidate.ai_summary is None
     assert candidate.skills == []
     assert candidate.cv_filename == "own-next.pdf"
+    # Odczyt mógł pochodzić z własnego załącznika osoby (#2449) — dane
+    # kontaktowe zostają, decyzja dotyczy tekstu, umiejętności, podsumowania
+    # i wektora.
+    assert candidate.email == "own@example.com"
+    assert candidate.phone == "+48 600 000 000"
     assert candidate.embedding_id is None
     assert isinstance(db.added[0], IndexOutboxEvent)
     assert db.added[0].operation == "delete"
