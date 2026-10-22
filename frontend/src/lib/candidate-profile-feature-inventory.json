@@ -139,6 +139,13 @@
    "home": "Pasek osoby, akcje"
   },
   {
+   "id": "c.latest_cv",
+   "opis": "Najnowsze CV — podgląd głównego CV jednym kliknięciem (jak w Traffit, 22.10.2026)",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Najnowsze CV",
+   "home": "Pasek osoby, akcje"
+  },
+  {
    "id": "m.email",
    "opis": "Napisz maila",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",

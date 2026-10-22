@@ -186,3 +186,32 @@ describe("ProfilePersonBar — menu „⋯”", () => {
     expect(screen.queryByText("Status osoby")).toBeNull();
   });
 });
+
+describe("ProfilePersonBar — „Najnowsze CV” (22.10.2026, jak w Traffit)", () => {
+  const cv = {
+    id: 9,
+    filename: "Anna-Nowak-CV.pdf",
+    content_type: "application/pdf",
+    size_bytes: 1000,
+    document_kind: "cv" as const,
+    is_primary: true,
+    uploaded_at: "2024-09-23T10:00:00Z",
+    external_source: null,
+    created_at: "2024-09-23T10:00:00Z",
+    uploaded_by_name: "Jan Rekruter",
+  };
+
+  it("otwiera podgląd także bez prawa zapisu; w podpowiedzi plik, data i kto wgrał", () => {
+    const onOpenLatestCv = vi.fn();
+    renderBar({}, false, { latestCv: cv, onOpenLatestCv });
+    const button = screen.getByRole("button", { name: "Najnowsze CV" });
+    expect(button.getAttribute("title")).toBe("Anna-Nowak-CV.pdf · wgrane 23.09.2024 przez Jan Rekruter");
+    fireEvent.click(button);
+    expect(onOpenLatestCv).toHaveBeenCalledTimes(1);
+  });
+
+  it("bez pliku CV przycisku nie ma", () => {
+    renderBar({}, true, { latestCv: null, onOpenLatestCv: noop });
+    expect(screen.queryByRole("button", { name: "Najnowsze CV" })).toBeNull();
+  });
+});
