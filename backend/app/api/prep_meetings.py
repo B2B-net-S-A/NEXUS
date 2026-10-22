@@ -1022,6 +1022,8 @@ class Prep2SkipRow(BaseModel):
     interviews: int
     with_reason: int
     silent: int
+    # Zapisane po fakcie — osobno, nie „bez słowa” (audyt 22.10.2026, F28).
+    after_the_fact: int = 0
     share: float
     over_threshold: bool
     reasons: dict[str, int] = {}
@@ -1030,8 +1032,12 @@ class Prep2SkipRow(BaseModel):
 class PrepQualityOut(BaseModel):
     days: int
     rows: list[PrepQualityRow]
+    # Rozmowy w kalendarzu przed swoim startem; zapisane po fakcie są osobno
+    # (``interviews_after_the_fact``) i nie zaniżają linii o dwóch prepach
+    # (decyzja Artura 22.10.2026, audyt F28).
     interviews: int
     interviews_with_two_preps: int
+    interviews_after_the_fact: int = 0
     # 0482: rozmowy bez Prepu 2 w ostatnich ``skip_days`` dniach per osoba.
     skip_days: int = prep2_skips.STATS_WINDOW_DAYS
     skip_threshold: float = prep2_skips.THRESHOLD_SHARE
@@ -1094,6 +1100,7 @@ async def prep_quality_report(
                 CalendarEvent.candidate_id,
                 CalendarEvent.job_id,
                 CalendarEvent.start_time,
+                CalendarEvent.created_at,
             ).where(
                 CalendarEvent.event_type == EventType.client_interview,
                 CalendarEvent.status != EventStatus.cancelled,
@@ -1104,7 +1111,7 @@ async def prep_quality_report(
             )
         )
     ).all()
-    preps_before = 0
+    by_pair: dict[tuple[int, int], list[datetime]] = {}
     if interviews:
         prep_rows = (
             await db.execute(
@@ -1116,18 +1123,15 @@ async def prep_quality_report(
                     CalendarEvent.event_type == EventType.prep_call,
                     CalendarEvent.status != EventStatus.cancelled,
                     CalendarEvent.start_time >= since - timedelta(days=30),
-                    CalendarEvent.candidate_id.in_({c for c, _j, _s in interviews}),
+                    CalendarEvent.candidate_id.in_({iv[0] for iv in interviews}),
                 )
             )
         ).all()
-        by_pair: dict[tuple[int, int], list[datetime]] = {}
         for c, j, s in prep_rows:
             by_pair.setdefault((c, j), []).append(s)
-        preps_before = sum(
-            1
-            for c, j, start in interviews
-            if sum(1 for s in by_pair.get((c, j), []) if s <= start) >= 2
-        )
+    counted, preps_before, after_the_fact = prep2_skips.tally_two_preps(
+        interviews, by_pair
+    )
 
     return PrepQualityOut(
         days=days,
@@ -1147,8 +1151,9 @@ async def prep_quality_report(
             ),
             key=lambda r: (-r.preps, r.organizer.name.lower()),
         ),
-        interviews=len(interviews),
+        interviews=counted,
         interviews_with_two_preps=preps_before,
+        interviews_after_the_fact=after_the_fact,
         skip_rows=await _skip_rows(db, now),
     )
 
@@ -1169,6 +1174,7 @@ async def _skip_rows(db: AsyncSession, now: datetime) -> list[Prep2SkipRow]:
             interviews=stat.interviews,
             with_reason=stat.with_reason,
             silent=stat.silent,
+            after_the_fact=stat.after_the_fact,
             share=round(stat.share, 3),
             over_threshold=stat.over_threshold,
             reasons=stat.reasons,
