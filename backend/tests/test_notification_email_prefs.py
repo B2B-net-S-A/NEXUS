@@ -30,7 +30,11 @@ _SENDERS = {
     "app/services/candidate_rate_change.py": ("rate_change",),
     "app/tasks/job_deadline_alerts.py": ("job_deadline",),
     "app/services/dl_alerts.py": ("delivery_alert",),
-    "app/tasks/kpi_email_reports.py": ("kpi_weekly_report", "board_monthly_report"),
+    "app/tasks/kpi_email_reports.py": (
+        "kpi_weekly_report",
+        "board_monthly_report",
+        "board_placement_alert",
+    ),
 }
 
 
@@ -211,6 +215,13 @@ def test_delivery_lead_admin_head_and_finance_get_their_own_emails():
 
     finance = _applies(_user(UserRole.finance))
     assert {"daily_digest", "board_monthly_report", "hire_documents"} <= finance
+    # Mail „Nowy placement” jest tylko dla Rady (22.10.2026).
+    assert "board_placement_alert" not in finance
+
+    board = _applies(_user(UserRole.board))
+    # Rada dostaje podsumowanie miesięczne i mail o placemencie — i może je
+    # wyłączyć (do 22.10.2026 podsumowanie wymagało „Modułu Finanse”).
+    assert {"board_monthly_report", "board_placement_alert"} <= board
     # Czat nie wysyła maili kontom Finansów (lustro `chat_email_fallback`).
     assert "chat_unread" not in finance
 

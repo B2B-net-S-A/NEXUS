@@ -226,11 +226,27 @@ CATALOG = (
         label="Miesięczne podsumowanie Rady",
         module="Statystyki",
         trigger="1. dzień roboczy miesiąca od 8:00 — kokpit Rady i porównanie rok do roku za zamknięty miesiąc.",
-        recipient_rule="Aktywne konta z uprawnieniem „Moduł Finanse” i dostępem do sekcji Insights (mail niesie przychód i marżę).",
+        recipient_rule="Aktywne konta z uprawnieniem „Moduł Finanse” albo z rolą „Rada nadzorcza”, z dostępem do sekcji Insights (mail niesie przychód i marżę).",
+    ),
+    # Mail do Rady przy każdym placemencie (decyzja Artura 22.10.2026) —
+    # `services/board_placement_alerts.py`, wysyła pętla raportów.
+    dict(
+        id="board_placement_alert",
+        label="Nowy placement — mail do Rady",
+        module="Statystyki",
+        trigger="Pierwsze „Zatrudniony” pary (kandydat, rekrutacja) po dacie „wysyłaj od” — w ciągu ok. 10 minut. Jeden mail na parę; bez danych kandydata.",
+        recipient_rule="Aktywne konta z rolą „Rada nadzorcza”. W mailu: klient, rekrutacja, rekruter, Delivery Lead, start, marża na godzinę, który placement w miesiącu i akceptacje w drodze.",
     ),
 )
 # Raporty nie mają odpowiednika w dzwonku — wychodzą wyłącznie mailem.
-REPORT_KINDS = frozenset({"kpi_weekly_report", "board_monthly_report", "daily_digest"})
+REPORT_KINDS = frozenset(
+    {
+        "kpi_weekly_report",
+        "board_monthly_report",
+        "board_placement_alert",
+        "daily_digest",
+    }
+)
 ROUTINE_KINDS = frozenset(item["id"] for item in CATALOG)
 SECURITY_CATALOG = (
     dict(

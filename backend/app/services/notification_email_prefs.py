@@ -230,7 +230,16 @@ def _hire_documents(user: User, _: _Context) -> bool:
 
 
 def _board_monthly(user: User, _: _Context) -> bool:
-    return has_permission(user, ProductAction.finance_module) and _section_read(
+    # Lustro `kpi_email_reports._board_readers`: „Moduł Finanse” albo Rada
+    # nadzorcza (do 22.10.2026 Rada dostawała mail, ale nie mogła go wyłączyć).
+    return (
+        has_permission(user, ProductAction.finance_module)
+        or user.has_role(UserRole.board)
+    ) and _section_read(user, ProductSection.insights)
+
+
+def _board_placement(user: User, _: _Context) -> bool:
+    return user.has_role(UserRole.board) and _section_read(
         user, ProductSection.insights
     )
 
@@ -260,6 +269,7 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     DIGEST_KIND: _digest,
     "kpi_weekly_report": _kpi_weekly,
     "board_monthly_report": _board_monthly,
+    "board_placement_alert": _board_placement,
 }
 
 
