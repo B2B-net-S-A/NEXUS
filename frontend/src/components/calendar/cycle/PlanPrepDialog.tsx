@@ -9,7 +9,12 @@ import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal
 import { PrepPeoplePicker } from "@/components/calendar/cycle/PrepPeoplePicker";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
-import { prepMeetingsApi, usePrepOptions } from "@/lib/api/prepMeetings";
+import {
+  PREP_FOLLOWUP_REASON_LABELS,
+  followupInvitationLine,
+  prepMeetingsApi,
+  usePrepOptions,
+} from "@/lib/api/prepMeetings";
 import { candidateLabel, pairContext, type PairInfo } from "@/lib/interview-cycle";
 import { renderInvitationPreview } from "@/lib/prep-invitation";
 import {
@@ -82,6 +87,7 @@ export function PlanPrepDialog({
   const [start, setStart] = useState(() => defaultPrepStart(interview, prepNo, 45));
   const [duration, setDuration] = useState(45);
   const [note, setNote] = useState("");
+  const [addFollowupLine, setAddFollowupLine] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Stały identyfikator próby — ponowienie po utracie odpowiedzi nie założy
   // drugiego spotkania (serwer → `transactionId` w Graphie).
@@ -96,6 +102,7 @@ export function PlanPrepDialog({
     setStart(defaultPrepStart(interview, prepNo, 45));
     setDuration(45);
     setNote("");
+    setAddFollowupLine(false);
     setError(null);
     setInvitees(NO_INVITEES);
     // `interview?.start`, nie obiekt — wołający składa go przy każdym renderze.
@@ -132,6 +139,13 @@ export function PlanPrepDialog({
   );
   const invitation = options.data?.invitation?.[String(prepNo)] ?? null;
   // Serwer wpisuje termin rozmowy do treści tylko, gdy prep jest przed nią.
+  // Prep 2: notatka z oceny Prepu 1 i opcjonalne zdanie do zaproszenia (bez ocen).
+  const followup = prepNo === 2 ? (options.data?.prep1_followup ?? []) : [];
+  const followupLine = followupInvitationLine(followup);
+  const invitationNote = [note.trim(), addFollowupLine && followupLine ? followupLine : ""]
+    .filter(Boolean)
+    .join("\n\n");
+
   const beforeInterview =
     !interview || interview.tentative || new Date(start) < new Date(interview.start);
 
@@ -148,7 +162,7 @@ export function PlanPrepDialog({
         end: end.toISOString(),
         attendee_user_ids: invitees.userIds.filter((id) => id !== organizerId),
         attendee_emails: invitees.emails,
-        note: note.trim() || null,
+        note: invitationNote || null,
         client_request_id: requestId.current,
       });
     },
@@ -324,6 +338,43 @@ export function PlanPrepDialog({
               {timingWarning}
             </p>
           ) : null}
+          {followup.length > 0 ? (
+            <section
+              aria-label="Notatka do follow-upu"
+              data-testid="prep2-followup-note"
+              className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm"
+            >
+              <h3 className="font-semibold text-foreground">
+                Notatka do follow-upu <span className="font-normal text-muted-foreground">· widzi tylko zespół</span>
+              </h3>
+              <p className="text-xs text-muted-foreground">Z oceny Prepu 1 — te punkty AI sprawdzi na Prepie 2.</p>
+              <ol className="mt-2 flex flex-col gap-1.5">
+                {followup.map((item, i) => (
+                  <li key={item.key}>
+                    <div className="flex items-start gap-2">
+                      <span className="tabular-nums text-muted-foreground">{i + 1}.</span>
+                      <span className="min-w-0 flex-1 text-foreground">{item.label}</span>
+                      {item.reason ? (
+                        <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">
+                          {PREP_FOLLOWUP_REASON_LABELS[item.reason]}
+                        </span>
+                      ) : null}
+                    </div>
+                    {item.note ? <p className="pl-5 text-xs text-muted-foreground">Przećwicz: {item.note}</p> : null}
+                  </li>
+                ))}
+              </ol>
+              <label className="mt-3 flex items-start gap-2 text-xs text-foreground">
+                <input
+                  type="checkbox"
+                  checked={addFollowupLine}
+                  onChange={(e) => setAddFollowupLine(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>Dopisz do zaproszenia kandydata „{followupLine}” — bez ocen</span>
+              </label>
+            </section>
+          ) : null}
           <div>
             <label htmlFor="prep-note" className="mb-1 block text-xs font-semibold text-muted-foreground">
               Dopisek do zaproszenia (opcjonalnie)
@@ -347,7 +398,7 @@ export function PlanPrepDialog({
               <p className="text-sm font-semibold text-foreground">{invitation.title}</p>
               <p className="mt-2 whitespace-pre-line text-foreground">
                 {renderInvitationPreview(invitation, {
-                  note,
+                  note: invitationNote,
                   organizer: organizerName || "(prowadzący)",
                   beforeInterview,
                 })}

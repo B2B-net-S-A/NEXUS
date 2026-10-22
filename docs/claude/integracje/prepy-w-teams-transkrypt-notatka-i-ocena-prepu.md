@@ -160,6 +160,18 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   (`cues` z `GET …/transcript`: czas, mówca, rola; szukanie; klik w cytat
   przenosi tu i podświetla wypowiedź; bez mówców — baner o ustawieniu Teams).
   Ocena sprzed v2 = stary widok punktów bez zakładki podsumowania.
+- **Prep 2 z notatką i dzwonek „Prep N oceniony” (0507, 22.10.2026).**
+  `GET /interview-cycle/preps/options` niesie `prep1_followup` (notatka na
+  Prep 2 z najnowszej udanej oceny Prepu 1 pary, `prep_review.latest_prep1_review`);
+  okno „Zaplanuj Prep 2” pokazuje ją jako „Notatka do follow-upu · widzi tylko
+  zespół” i ma przełącznik „Dopisz do zaproszenia kandydata” — zdanie „Na
+  spotkaniu wrócimy do: …” z samymi nazwami punktów (`followupInvitationLine`),
+  nigdy z ocenami. Po każdej udanej ocenie `prep_notifications.notify_review_ready`
+  wysyła `prep_review_ready` (ikona „Kalendarz”, licznik bez dymka,
+  `QUIET_INTERVIEW_TYPES`) do ludzi pary (`prep_editor_ids`): „Prep 1 oceniony ·
+  OK (72%)” + „3 punkty do powtórzenia na Prepie 2”, w Prepie 2 „Z Prepu 1
+  poprawione x z y”. Ocena niedostępna nie dzwoni; awaria dzwonka nie cofa
+  oceny (osobny commit po ocenie). Dedup dobowy po (`prep_review`, id wydarzenia).
 - **Ustawienia → Ocena prepów (0505, 22.10.2026, makiety
   https://claude.ai/artifact/1h38jS5LMc1673CENvUejR, plansza 5).** Head of
   Recruitment i admin publikują wersję ustawień (`PUT /api/prep-review-config`,

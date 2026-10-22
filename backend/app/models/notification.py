@@ -216,6 +216,10 @@ class NotificationType(str, enum.Enum):
     # zmiany (dymek). related_entity=(client_interview_<rodzaj>, None), link
     # do pary — jak ``prep_changed*``: dzienny dedup zjadałby drugą zmianę.
     interview_changed = "interview_changed"
+    # 0507 (22.10.2026): ocena prepu gotowa — do ludzi pary (prowadzący,
+    # planujący, DL rekrutacji, rekruter kandydata), licznik bez dymka.
+    # related_entity=(prep_review, calendar_event.id), dedup dobowy.
+    prep_review_ready = "prep_review_ready"
     # 0506 (21.10.2026): umowa przedwstępna — prośba, wystawienie, podpisy,
     # wygasanie, rezygnacja kandydata, termin umowy B2B. Do proszących,
     # obserwujących i wystawiającego, bez autora zmiany.

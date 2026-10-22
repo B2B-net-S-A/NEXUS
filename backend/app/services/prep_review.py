@@ -290,20 +290,29 @@ def _call_model(model_chain: list[str], prompt: str) -> str:
     return text_of(message)
 
 
-async def _prep1_review(db: AsyncSession, prep: PrepMeeting) -> Optional[PrepReview]:
-    if prep.prep_no != 2:
-        return None
+async def latest_prep1_review(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> Optional[PrepReview]:
+    """Najnowsza udana ocena Prepu 1 pary — źródło notatki na Prep 2."""
     return await db.scalar(
         select(PrepReview)
         .join(PrepMeeting, PrepMeeting.id == PrepReview.prep_meeting_id)
         .where(
-            PrepMeeting.candidate_id == prep.candidate_id,
-            PrepMeeting.job_id == prep.job_id,
+            PrepMeeting.candidate_id == candidate_id,
+            PrepMeeting.job_id == job_id,
             PrepMeeting.prep_no == 1,
             PrepReview.status == "ok",
         )
         .order_by(PrepReview.id.desc())
         .limit(1)
+    )
+
+
+async def _prep1_review(db: AsyncSession, prep: PrepMeeting) -> Optional[PrepReview]:
+    if prep.prep_no != 2:
+        return None
+    return await latest_prep1_review(
+        db, candidate_id=prep.candidate_id, job_id=prep.job_id
     )
 
 
@@ -503,4 +512,21 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         ),
     )
     await db.commit()
+    await _notify_ready(db, prep, review)
     return review
+
+
+async def _notify_ready(
+    db: AsyncSession, prep: PrepMeeting, review: PrepReview
+) -> None:
+    """Dzwonek „Prep N oceniony” do pary. Awaria nie cofa oceny ani notatki."""
+    from app.services import prep_notifications  # noqa: PLC0415 — cykl
+
+    try:
+        await prep_notifications.notify_review_ready(db, prep=prep, review=review)
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001 — powiadomienie to dodatek
+        logger.warning(
+            "prep_review: notify failed prep=%s (%s)", prep.id, type(exc).__name__
+        )
+        await db.rollback()

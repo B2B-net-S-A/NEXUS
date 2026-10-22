@@ -7,8 +7,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/api/prepMeetings", () => ({
-  prepMeetingsApi: { create: vi.fn() },
+const mocks = vi.hoisted(() => ({ create: vi.fn(), followup: [] as unknown[] }));
+
+vi.mock("@/lib/api/prepMeetings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/prepMeetings")>()),
+  prepMeetingsApi: { create: mocks.create },
   usePrepOptions: () => ({
     isPending: false,
     isError: false,
@@ -17,14 +20,20 @@ vi.mock("@/lib/api/prepMeetings", () => ({
       auto_transcribe: true,
       notice: "Spotkanie jest nagrywane.",
       team: [{ id: 5, name: "Delivery Lead" }],
-      suggested: { "1": { id: 5 } },
+      suggested: { "1": { id: 5 }, "2": { id: 5 } },
       invitation: {
         "1": {
           title: "Przygotowanie do spotkania z Klientem Alior - Piotr Nowak",
           body: "Dzień dobry,\n\nZapraszam na spotkanie przygotowujące do rozmowy z Klientem Alior na stanowisko Senior Java.\n\nTermin rozmowy z Klientem: w poniedziałek\n\n{note}\n\nW razie pytań pozostaję do dyspozycji.\n\nPozdrawiam\n{organizer}",
           interview_line: "Termin rozmowy z Klientem: w poniedziałek",
         },
+        "2": {
+          title: "Przygotowanie do spotkania z Klientem Alior - Piotr Nowak (spotkanie 2)",
+          body: "Dzień dobry,\n\nZapraszam na drugie spotkanie.\n\n{note}\n\nPozdrawiam\n{organizer}",
+          interview_line: null,
+        },
       },
+      prep1_followup: mocks.followup,
     },
   }),
 }));
@@ -45,11 +54,11 @@ const PAIR = {
   client_name: "Alior",
 };
 
-function renderDialog(interview: { start: string; end: string }) {
+function renderDialog(interview: { start: string; end: string }, prepNo: 1 | 2 = 1) {
   const client = new QueryClient();
   return render(
     <QueryClientProvider client={client}>
-      <PlanPrepDialog open onOpenChange={() => {}} pair={PAIR} prepNo={1} interview={interview} />
+      <PlanPrepDialog open onOpenChange={() => {}} pair={PAIR} prepNo={prepNo} interview={interview} />
     </QueryClientProvider>,
   );
 }
@@ -115,5 +124,39 @@ describe("PlanPrepDialog — termin względem rozmowy u klienta", () => {
     const after = new Date(end.getTime() + 24 * 60 * 60_000);
     fireEvent.change(screen.getByLabelText("Termin"), { target: { value: toLocalInput(after) } });
     expect(preview).not.toHaveTextContent("Termin rozmowy z Klientem");
+  });
+});
+
+describe("PlanPrepDialog — Prep 2 z notatką z Prepu 1 (22.10.2026)", () => {
+  function interview() {
+    const start = new Date();
+    start.setDate(start.getDate() + 4);
+    start.setHours(10, 0, 0, 0);
+    return { start: start.toISOString(), end: new Date(start.getTime() + 3_600_000).toISOString() };
+  }
+
+  it("pokazuje punkty do powtórzenia i na życzenie dopisuje je do zaproszenia bez ocen", () => {
+    mocks.followup = [
+      { key: "must:Kafka", label: "Kafka", reason: "weak", note: "Jeden przypadek z liczbami." },
+      { key: "topic:1", label: "Przebieg rozmowy u klienta", reason: "missing_topic", note: null },
+    ];
+    renderDialog(interview(), 2);
+
+    const note = screen.getByTestId("prep2-followup-note");
+    expect(note).toHaveTextContent("Kafka");
+    expect(note).toHaveTextContent("Słaba odp.");
+    expect(note).toHaveTextContent("Przećwicz: Jeden przypadek z liczbami.");
+
+    const preview = screen.getByTestId("prep-invitation-preview");
+    expect(preview).not.toHaveTextContent("Na spotkaniu wrócimy do");
+    fireEvent.click(screen.getByRole("checkbox", { name: /Dopisz do zaproszenia kandydata/ }));
+    expect(preview).toHaveTextContent("Na spotkaniu wrócimy do: Kafka oraz Przebieg rozmowy u klienta.");
+    expect(preview).not.toHaveTextContent("Słaba");
+  });
+
+  it("Prep 1 nie pokazuje notatki", () => {
+    mocks.followup = [{ key: "a", label: "Kafka", reason: "weak", note: null }];
+    renderDialog(interview(), 1);
+    expect(screen.queryByTestId("prep2-followup-note")).toBeNull();
   });
 });

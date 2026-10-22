@@ -70,6 +70,7 @@ from app.services import (
     prep_invitation,
     prep_meetings,
     prep_notifications,
+    prep_review,
     teams_vtt,
 )
 from app.services.job_membership import list_job_member_ids
@@ -122,6 +123,13 @@ class InvitationPreviewOut(BaseModel):
     interview_line: Optional[str] = None
 
 
+class PrepFollowupOut(BaseModel):
+    key: str
+    label: str
+    reason: Optional[str] = None
+    note: Optional[str] = None
+
+
 class PrepOptionsOut(BaseModel):
     enabled: bool
     auto_transcribe: bool
@@ -130,6 +138,9 @@ class PrepOptionsOut(BaseModel):
     people: list[PersonOption] = []
     notice: str
     invitation: dict[int, InvitationPreviewOut] = {}
+    # Notatka na Prep 2 z oceny Prepu 1 pary (ocena v2, 22.10.2026) — okno
+    # „Zaplanuj Prep 2” pokazuje ją prowadzącemu; pusta = brak oceny Prepu 1.
+    prep1_followup: list[PrepFollowupOut] = []
 
 
 async def _client_name(db: AsyncSession, job: Job) -> Optional[str]:
@@ -351,7 +362,19 @@ async def prep_options(
         db, candidate_id=candidate_id, job_id=job_id
     )
     who = prep_meetings.candidate_name(candidate) if candidate else "Kandydat"
+    prep1 = await prep_review.latest_prep1_review(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
     return PrepOptionsOut(
+        prep1_followup=[
+            PrepFollowupOut(
+                key=str(f["key"]),
+                label=str(f["label"]),
+                reason=f.get("reason"),
+                note=f.get("note"),
+            )
+            for f in prep_review.prep1_followup_of(prep1)
+        ],
         enabled=prep_meetings.app_only_ready(),
         auto_transcribe=bool(settings.TEAMS_PREP_AUTO_TRANSCRIBE),
         suggested={

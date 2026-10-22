@@ -34,7 +34,7 @@ from app.models.calendar_event import CalendarEvent
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.notification import Notification, NotificationType
-from app.models.prep_meeting import PrepMeeting
+from app.models.prep_meeting import PrepMeeting, PrepReview
 from app.models.user import User
 from app.services import prep_invitation
 from app.services.job_working_title import job_display_title_expr
@@ -367,5 +367,62 @@ async def notify_no_response(
         message=f"{who} — {what}: potwierdź z kandydatem termin prepu.",
         entity_type="prep_no_response",
         event_id=event.id,
+        prep=prep,
+    )
+
+
+def _points(n: int) -> str:
+    """„1 punkt”, „3 punkty”, „5 punktów” (12–14 też „punktów”)."""
+    if n == 1:
+        return "1 punkt"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return f"{n} punkty"
+    return f"{n} punktów"
+
+
+async def notify_review_ready(
+    db: AsyncSession, *, prep: PrepMeeting, review: PrepReview
+) -> int:
+    """Ocena prepu gotowa — do całej pary, licznik (22.10.2026).
+
+    Rekruter ma wiedzieć przed Prepem 2, co powtórzyć; DL — jak poszedł jego
+    Prep 1. Ocena niedostępna (awaria AI) nie dzwoni: tu nie ma czego czytać,
+    a brak oceny i tak widać w kroku prepu. Autora nie ma — ocenę robi AI.
+    """
+    if review.status != "ok" or not review.level:
+        return 0
+    people = await _pair_people(db, prep)
+    if not people:
+        return 0
+    who, what = await _labels(db, prep)
+    criteria = review.criteria or {}
+    total = criteria.get("total")
+    level = {"weak": "słaby", "ok": "OK", "good": "dobry"}[review.level]
+    title = f"Prep {prep.prep_no} oceniony · {level}" + (
+        f" ({total}%)" if total is not None else ""
+    )
+    if prep.prep_no == 1:
+        n = len(criteria.get("followup") or review.remaining or [])
+        tail = (
+            f"{_points(n)} do powtórzenia na Prepie 2."
+            if n
+            else "Nic do powtórzenia na Prepie 2."
+        )
+    else:
+        rows = criteria.get("comparison") or []
+        improved = sum(1 for r in rows if r.get("after") == "strong")
+        tail = (
+            f"Z Prepu 1 poprawione {improved} z {len(rows)}."
+            if rows
+            else "Wnioski i transkrypt w karcie osoby."
+        )
+    return await _emit(
+        db,
+        user_ids=people,
+        ntype=NotificationType.prep_review_ready,
+        title=title,
+        message=f"{who} — {what}: {tail}",
+        entity_type="prep_review",
+        event_id=prep.calendar_event_id,
         prep=prep,
     )

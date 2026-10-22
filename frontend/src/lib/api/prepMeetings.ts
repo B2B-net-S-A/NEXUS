@@ -42,6 +42,27 @@ export interface PrepOptions {
   notice: string;
   /** Zaproszenie dla kandydata (klucze "1" i "2"); starszy serwer = brak. */
   invitation?: Record<string, PrepInvitation>;
+  /** Notatka na Prep 2 z oceny Prepu 1 pary (22.10.2026); pusta = brak oceny. */
+  prep1_followup?: PrepOptionsFollowup[];
+}
+
+export interface PrepOptionsFollowup {
+  key: string;
+  label: string;
+  reason: PrepFollowupReason | null;
+  note: string | null;
+}
+
+/**
+ * Neutralne zdanie do zaproszenia na Prep 2 — tematy bez ocen („słaba
+ * odpowiedź” zostaje w zespole). `null` = nic do dopisania.
+ */
+export function followupInvitationLine(items: Pick<PrepOptionsFollowup, "label">[]): string | null {
+  const labels = items.map((i) => i.label.trim()).filter(Boolean);
+  if (labels.length === 0) return null;
+  const list =
+    labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join("; ")} oraz ${labels[labels.length - 1]}`;
+  return `Na spotkaniu wrócimy do: ${list}.`;
 }
 
 export type PrepItemStatus = "covered" | "partial" | "missing" | "covered_in_prep1";

@@ -463,6 +463,10 @@ export function buildInterviewWindow({
       case "interview_changed":
         icon = "calendar";
         break;
+      // 0507: ocena prepu gotowa — tytuł niesie poziom i wynik.
+      case "prep_review_ready":
+        icon = "video";
+        break;
       case "interview_scheduled": {
         // Po starcie wydarzenia przypomnienie nic już nie mówi. Wydarzenie
         // spoza agendy cyklu (screening, zwykła rozmowa, termin) nie ma tu
