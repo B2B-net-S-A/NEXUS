@@ -720,7 +720,9 @@ describe("ScreeningFullForm — minimum dla Delivery Leada (21.10.2026)", () => 
   // 22.10.2026: Delivery Lead przekazuje dalej bez odpowiedzi i minimum —
   // serwer też go przepuszcza; stopka dalej mówi, czego brakuje.
   it("Delivery Lead przekazuje dalej bez odpowiedzi i bez minimum", async () => {
-    useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    useAuthStore.setState({
+      user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"], skips_fill_gates: true },
+    } as never);
     try {
       serverState = minimumState();
       mocks.put.mockImplementation(() =>
@@ -736,6 +738,26 @@ describe("ScreeningFullForm — minimum dla Delivery Leada (21.10.2026)", () => 
       await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ }));
       await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
       expect(mocks.showError).not.toHaveBeenCalled();
+    } finally {
+      useAuthStore.setState({ user: null } as never);
+    }
+  });
+
+  // Audyt 22.10.2026 (F109): wyłącznik `DL_SKIPS_FILL_GATES=false` — DL jak
+  // rekruter: bez odpowiedzi i minimum formularz nie przekazuje dalej.
+  it("Delivery Lead przy wyłączonym DL_SKIPS_FILL_GATES nie przekazuje dalej bez kompletu", async () => {
+    useAuthStore.setState({
+      user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"], skips_fill_gates: false },
+    } as never);
+    try {
+      serverState = minimumState();
+      const user = userEvent.setup();
+      mount({ forward });
+      await screen.findAllByLabelText("Odpowiedź");
+      await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ }));
+      await waitFor(() => expect(mocks.showError).toHaveBeenCalled());
+      expect(mocks.put).not.toHaveBeenCalled();
+      expect(mocks.send).not.toHaveBeenCalled();
     } finally {
       useAuthStore.setState({ user: null } as never);
     }

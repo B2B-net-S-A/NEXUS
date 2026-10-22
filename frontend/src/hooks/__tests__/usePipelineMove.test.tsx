@@ -1502,7 +1502,13 @@ describe("usePipelineMove — strzałka „→”: ruch odłożony z „Cofnij�
   // stawki idzie bez okna, a komunikat strzałki wymienia braki.
   it("Delivery Lead: „Zweryfikowany” bez stawki bez okna, komunikat z brakami", async () => {
     useAuthStore.setState({
-      user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"], email: "dl@example.com" },
+      user: {
+        id: 3,
+        role: "delivery_lead",
+        roles: ["delivery_lead"],
+        email: "dl@example.com",
+        skips_fill_gates: true,
+      },
     } as never);
     const plain = card({ id: 61, candidate_id: 511, process_state_version: 1 });
     const b = board({ fresh: [plain] });
@@ -1524,6 +1530,29 @@ describe("usePipelineMove — strzałka „→”: ruch odłożony z „Cofnij�
     expect(screen.queryByLabelText("Kwota")).toBeNull();
     await waitFor(() => expect(moveCalls()).toHaveLength(1));
     expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 511, stage: "verified" });
+  });
+
+  // Audyt 22.10.2026 (F109): wyłącznik `DL_SKIPS_FILL_GATES=false` przywraca
+  // DL-owi okno stawki — front czyta `skips_fill_gates` z `/api/auth/me`,
+  // nie samo uprawnienie `recruitment_manage`.
+  it("Delivery Lead przy wyłączonym DL_SKIPS_FILL_GATES dostaje okno stawki", () => {
+    useAuthStore.setState({
+      user: {
+        id: 3,
+        role: "delivery_lead",
+        roles: ["delivery_lead"],
+        email: "dl@example.com",
+        skips_fill_gates: false,
+      },
+    } as never);
+    try {
+      const plain = card({ id: 63, candidate_id: 513 });
+      const b = board({ fresh: [plain] });
+      mount(b.all);
+      expect(controls.canMoveWithoutDialog(plain, b.verified)).toBe(false);
+    } finally {
+      useAuthStore.setState({ user: null } as never);
+    }
   });
 
   it("rekruter bez stawki dalej dostaje okno stawki", () => {
