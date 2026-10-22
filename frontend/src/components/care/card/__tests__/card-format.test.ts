@@ -143,6 +143,10 @@ describe("card-format", () => {
       "Administracja · ręcznie · treść tylko w Sprawach",
     );
     expect(caseMeta({ ...kase(7, "new"), source: "mail" })).toBe("Administracja · z maila · bez osoby");
+    // Import z Compassa zapisuje `source="compass_import"` (audyt 22.10, F10).
+    expect(caseMeta({ ...kase(9, "new"), source: "compass_import", assignee_name: "Natalia O." })).toBe(
+      "Administracja · z Compassa · prowadzi Natalia O.",
+    );
     const waiting = { ...kase(8, "waiting"), due_on: "2026-10-30", follow_up_on: "2026-10-26" };
     expect(caseStatusPill(waiting).label).toBe("Czeka");
     expect(caseWhen(waiting)).toBe("odezwać się 26.10");
