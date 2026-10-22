@@ -23,7 +23,8 @@ Zasady:
   właściciela pliku, który nie ma jeszcze tego pliku w profilu. Dokument, który
   zły posiadacz usunął z profilu albo który synchronizacja miękko usunęła
   u niego, wraca widoczny (zdjęte `removed_at`, `source_deleted_at`,
-  `removed_by`; audyt 22.10.2026, F113, decyzja Artura) — do 22.10 zostawał
+  `removed_by`; audyt 22.10.2026, F113, decyzja Artura; plik, który właściciel
+  sam usunął ze swojego profilu, zostaje ukryty — 0435) — do 22.10 zostawał
   u właściciela ukryty, a jego usunięcie liczyło się jak usunięcie przez
   właściciela, więc właściciel nie dostawał też nowej kopii. Bez takiego
   właściciela (plik tylko z poczty wychodzącej) zostaje miękko usunięty u złego
@@ -336,6 +337,9 @@ async def plan(
         }
 
     used_keys = {d.external_id for d in docs if d.external_source == "m365"}
+    # Usunięcie liczy się u osoby, która usunęła — nie u właściciela, do
+    # którego dokument wraca (F113).
+    removed_by_person = {(d.candidate_id, sha_of[d.id]) for d in docs if d.removed}
 
     for doc in sorted(
         (d for d in docs if d.external_source == "m365"), key=lambda d: d.id
@@ -384,9 +388,13 @@ async def plan(
             )
             owners.add(target.candidate_id)
             owner_of[doc.id] = target.candidate_id
-            if doc.deleted or doc.removed:
+            if (doc.deleted or doc.removed) and (
+                target.candidate_id,
+                doc.file_sha256,
+            ) not in removed_by_person:
                 # Ukrył go zły posiadacz (albo synchronizacja u niego) — u
-                # właściciela plik wraca widoczny.
+                # właściciela plik wraca widoczny. Plik, który właściciel sam
+                # usunął ze swojego profilu (0435), zostaje ukryty.
                 result.restores.append(doc.id)
                 gone.discard(doc.id)
 
@@ -403,9 +411,6 @@ async def plan(
             if fed:
                 result.projections.append((holder, doc_id, sha))
 
-    # Usunięcie liczy się u osoby, która usunęła — nie u właściciela, do
-    # którego dokument wraca (F113).
-    removed_by_person = {(d.candidate_id, sha_of[d.id]) for d in docs if d.removed}
     new_docs: dict[int, MailCv] = {}
     for (candidate_id, sha), item in sorted(mail.items()):
         if sha in active_shas(candidate_id):

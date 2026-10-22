@@ -611,3 +611,76 @@ async def test_hidden_foreign_file_returns_visible_and_holder_loses_its_facts(
             )
         )
         assert trail.details["projection_cleared"] is True
+
+
+async def test_hidden_foreign_file_stays_hidden_when_the_owner_removed_that_file(
+    storage, monkeypatch
+):
+    """Przegląd audytu 22.10.2026 (F113 a 0435), bez bazy: plik, który
+    właściciel sam usunął ze swojego profilu, wraca do niego, ale ukryty —
+    zdjęcie ukrycia złego posiadacza nie cofa decyzji właściciela."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    now = datetime.now(timezone.utc)
+    owner_cv, holder_cv = b"%PDF owner removed synthetic", b"%PDF holder synthetic"
+    (storage / "owner.pdf").write_bytes(owner_cv)
+    (storage / "holder.pdf").write_bytes(holder_cv)
+
+    def doc(doc_id: int, candidate_id: int, claimed: bytes, **kwargs):
+        return repair_cli.Doc(
+            id=doc_id,
+            candidate_id=candidate_id,
+            content_sha256=_sha(claimed),
+            file_sha256=_sha(owner_cv),
+            file_size=len(owner_cv),
+            document_kind="cv",
+            is_primary=False,
+            deleted=True,
+            removed=True,
+            outdated=False,
+            uploaded_at=now - timedelta(days=1),
+            filename="x.pdf",
+            **kwargs,
+        )
+
+    hidden = doc(
+        100,
+        2,
+        holder_cv,
+        external_id="AAMkSynthetic-truncated",
+        external_source="m365",
+    )
+    owner_removed = doc(101, 1, owner_cv, external_id=None, external_source="manual")
+    monkeypatch.setattr(
+        repair_cli,
+        "_mail_cvs",
+        AsyncMock(
+            return_value={
+                (1, _sha(owner_cv)): repair_cli.MailCv(
+                    candidate_id=1,
+                    sha256=_sha(owner_cv),
+                    attachment_id=11,
+                    m365_attachment_id="AAMkSynthetic-11",
+                    storage_path="owner.pdf",
+                    filename="owner.pdf",
+                    content_type="application/pdf",
+                    received_at=now - timedelta(days=5),
+                ),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        repair_cli, "_documents", AsyncMock(return_value=[hidden, owner_removed])
+    )
+    monkeypatch.setattr(repair_cli, "_quarantined_pairs", AsyncMock(return_value=set()))
+    monkeypatch.setattr(
+        repair_cli, "_projection_sources", AsyncMock(return_value={2: (None, None)})
+    )
+
+    items = await repair_cli.plan(SimpleNamespace(), candidate_ids=[1, 2])
+
+    assert [(d, h, o) for d, h, o, _ in items.returns] == [(100, 2, 1)]
+    assert items.restores == []
+    assert (1, 11, "removed") in items.skipped
+    assert repair_cli.summarize(items, [])["returned"][0]["restored"] is False
