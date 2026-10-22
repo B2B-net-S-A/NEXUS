@@ -765,10 +765,11 @@ async def run_once(now: Optional[datetime] = None) -> dict[str, str]:
             lambda db: _monthly_mails(db, now_local, monthly_key),
             now_utc,
         )
-    # Wyłączony rodzaj nie wchodzi do wyniku — jak raport poza terminem.
+    # Wyłączony rodzaj i tick bez nowych placementów nie wchodzą do wyniku —
+    # jak raport poza terminem.
     placements = await _send_placement_alerts(now_local, now_utc)
-    if placements != "disabled":
-        out["board_placement_alert"] = placements
+    if placements not in ("disabled", "nothing"):
+        out[PLACEMENT_KIND] = placements
     return out
 
 
