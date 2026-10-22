@@ -142,6 +142,7 @@ Role, dziewięć uprawnień, bramki sekcji i tras, zakres Delivery Leada, kto wi
 
 Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, pulpit, wygląd tabel.
 
+- `czeka-na-ciebie-jako-kafelek.md`: „Czeka na Ciebie” jako kafelek pulpitu
 - `design-system-ui-zawsze-przy-pracy-nad-wygladem.md`: Design system & UI — ZAWSZE przy pracy nad wyglądem
 - `kafelek-do-uzupelnienia.md`: Kafelek „Do uzupełnienia”
 - `klienci-kontrakty-finanse-spokojne-tabele.md`: Klienci, Kontrakty, Finanse — spokojne tabele

@@ -20,6 +20,7 @@ import type {
   TileType,
 } from "@/lib/api/userDashboard";
 import { hasCapability } from "@/lib/capabilities";
+import { canCustomizeBoardPanel } from "@/lib/dashboard-panels";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
 import { getUserRoles, type User, type UserRole } from "@/store/auth";
@@ -224,6 +225,23 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     minSize: { w: 3, h: 3 },
     ownChrome: false,
     availability: needsSection("pipeline", "Rekrutacje"),
+  },
+  board_tasks: {
+    type: "board_tasks",
+    label: "Czeka na Ciebie",
+    description:
+      "Panel „Czeka na Ciebie” jako kafelek — przesuwasz go i usuwasz jak inne. Gdy stoi na pulpicie, nie ma go nad kafelkami.",
+    category: "my_work",
+    defaultSize: { w: 12, h: 6 },
+    // Panel układa listy w trzy kolumny od szerokości ekranu `lg` — węższy
+    // kafelek ścisnąłby je do nieczytelności.
+    minSize: { w: 6, h: 3 },
+    ownChrome: true,
+    // Ta sama reguła co usuwanie list panelu (`canCustomizeBoardPanel`).
+    availability: (user) =>
+      canCustomizeBoardPanel(user)
+        ? { ok: true }
+        : { ok: false, reason: "Dla Head of Recruitment i admina" },
   },
   recruitment_activity: {
     type: "recruitment_activity",

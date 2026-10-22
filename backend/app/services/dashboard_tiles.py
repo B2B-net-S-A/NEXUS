@@ -50,6 +50,10 @@ TileType = Literal[
     # „Do uzupełnienia” (21.10.2026): umowy do zamknięcia, rekrutacje do
     # dokończenia i wymagania do poprawy z `/api/board-tasks` w kafelku.
     "to_complete",
+    # „Czeka na Ciebie” jako kafelek (23.10.2026, decyzja Artura po prośbie
+    # Olafa): panel przesuwa się i usuwa jak inne kafelki — tylko Head of
+    # Recruitment i admin, jak usuwanie list panelu.
+    "board_tasks",
     # 0506: umowy przedwstępne — liczniki z `/api/pre-contracts` w kafelku.
     "pre_contracts",
     "recruitment_activity",
@@ -106,6 +110,9 @@ PanelKey = Literal[
     "dl_review",
     "cpro",
     "prep_attention",
+    # Cały panel nad kafelkami (23.10.2026): ukryty = nie stoi nad pulpitem.
+    # Stoi wtedy w kafelku `board_tasks` albo nigdzie, gdy kafelek usunięto.
+    "board_tasks",
 ]
 PANEL_KEYS: tuple[str, ...] = get_args(PanelKey)
 PANEL_CV_IN_TRANSIT = "cv_in_transit"
