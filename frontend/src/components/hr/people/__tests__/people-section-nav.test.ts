@@ -48,14 +48,15 @@ describe("zakładki obszaru „Ludzie”", () => {
     expect(values(config({ is_manager: true, direct_reports: 2 }))).toContain("approvals");
   });
 
-  it("Sprawy i Płace tylko z uprawnieniem", () => {
-    expect(values(config({ cases: true }))).toContain("cases");
+  it("Płace tylko z uprawnieniem", () => {
     expect(values(config({ cases: true }))).not.toContain("payroll");
     expect(values(config({ payroll: true }))).toContain("payroll");
   });
 
-  it("przypisany do sprawy bez uprawnienia widzi Sprawy", () => {
-    expect(values(config({ has_assigned_cases: true }))).toContain("cases");
+  it("Sprawy przeszły do Opieki (22.10.2026) — nie ma ich w Ludziach nawet z uprawnieniem", () => {
+    expect(values(config({ cases: true }))).not.toContain("cases");
+    expect(values(config({ has_assigned_cases: true }))).not.toContain("cases");
+    expect(values(config({ is_admin: true }))).not.toContain("cases");
   });
 
   it("wyłączony moduł chowa zakładkę mimo uprawnienia", () => {
@@ -79,14 +80,13 @@ describe("zakładki obszaru „Ludzie”", () => {
     expect(values(config({ people_admin: true }))).not.toContain("team");
   });
 
-  it("stała kolejność: Katalog · Mój zespół · Kalendarz · Akceptacje · Płace · Sprawy", () => {
+  it("stała kolejność: Katalog · Mój zespół · Kalendarz · Akceptacje · Płace", () => {
     expect(values(config({ is_admin: true, is_manager: true, direct_reports: 2 }))).toEqual([
       "directory",
       "team",
       "calendar",
       "approvals",
       "payroll",
-      "cases",
     ]);
   });
 

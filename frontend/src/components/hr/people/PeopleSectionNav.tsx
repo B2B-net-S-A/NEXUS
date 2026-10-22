@@ -10,8 +10,7 @@ export type PeopleSection =
   | "team"
   | "calendar"
   | "approvals"
-  | "payroll"
-  | "cases";
+  | "payroll";
 
 interface PeopleSectionLink {
   value: PeopleSection;
@@ -32,10 +31,10 @@ interface PeopleSectionLink {
  * * Kalendarz — moduł urlopów i kartoteka (albo Kadry),
  * * Akceptacje — przełożony (ma podwładnych) albo Kadry, gdy działa urlop lub czas;
  *   przy module „Zgody” także przełożony i admin (zatwierdzający),
- * * Płace — uprawnienie „Płace”,
- * * Sprawy — uprawnienie „Sprawy” albo przypisana sprawa; zostają tu, dopóki
- *   nie przejdą do „Opieki nad konsultantami”.
+ * * Płace — uprawnienie „Płace”.
  *
+ * „Sprawy” administracja@ są od 22.10.2026 w „Opiece” → „Do zrobienia”
+ * (`/people/cases` przekierowuje).
  * „Moje zgody” (własne prośby) są w „Moim czasie” → „Zgody i wydatki”.
  */
 export function peopleSections(config: HrConfig): PeopleSectionLink[] {
@@ -57,15 +56,12 @@ export function peopleSections(config: HrConfig): PeopleSectionLink[] {
   if (open.payroll && (me.payroll || me.is_admin)) {
     links.push({ value: "payroll", label: "Płace", href: "/people/payroll" });
   }
-  if (open.cases && (me.cases || me.is_admin || me.has_assigned_cases)) {
-    links.push({ value: "cases", label: "Sprawy", href: "/people/cases" });
-  }
   return links;
 }
 
 /**
- * Liczba przy zakładce: „Akceptacje” — wnioski i timesheety czekające na
- * decyzję osoby, „Sprawy” — jej otwarte sprawy. Tylko z udanego odczytu:
+ * Liczba przy zakładce „Akceptacje” — wnioski, timesheety i zgody czekające na
+ * decyzję osoby. Tylko z udanego odczytu:
  * awaria i „nie dotyczy” (`null`) to brak liczby, nigdy „0”.
  */
 export function sectionCount(
@@ -79,8 +75,7 @@ export function sectionCount(
     );
     return parts.length > 0 ? parts.reduce((sum, part) => sum + part, 0) : undefined;
   }
-  const value = section === "cases" ? counts?.cases : null;
-  return typeof value === "number" ? value : undefined;
+  return undefined;
 }
 
 /** Pasek zakładek obszaru „Ludzie” — wspólny dla katalogu i podstron modułów. */
@@ -94,7 +89,7 @@ export function PeopleSectionNav({
   const router = useRouter();
   const links = peopleSections(config);
   const counted =
-    links.length > 1 && links.some(({ value }) => value === "approvals" || value === "cases");
+    links.length > 1 && links.some(({ value }) => value === "approvals");
   const counts = useHrCounts(counted);
   // Po awarii odświeżenia `data` zostaje z poprzedniego odczytu — liczba tylko
   // przy udanym odczycie, żeby stara wartość nie udawała aktualnej.
