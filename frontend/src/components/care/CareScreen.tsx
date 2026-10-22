@@ -11,6 +11,7 @@ import { HrConfigGate } from "@/components/hr/HrConfigGate";
 import { Button } from "@/components/ui/button";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { WorkBoard } from "@/components/work-board/WorkBoard";
+import { canSeeCareBoard } from "@/components/work-board/care-access";
 import { listFilterFromParam } from "@/components/work-board/work-board-model";
 import { useCareClients, useCareConsultants } from "@/lib/api/care";
 import { useAnnouncements } from "@/lib/api/care-announcements";
@@ -98,6 +99,7 @@ export function canSeeTeam(config: Pick<HrConfig, "me">): boolean {
 const TITLE = "Opieka nad konsultantami";
 const DESCRIPTION =
   "Rozmowy, sprawy i decyzje na jednej tablicy; konsultanci ze zdrowiem relacji; wiedza o klientach.";
+const CASES_ONLY_DESCRIPTION = "Sprawy administracja@ na jednej tablicy.";
 
 type FeedbackTarget = Omit<ClientFeedbackDialogProps, "open" | "onOpenChange">;
 
@@ -132,16 +134,20 @@ function CareTabs({ config }: { config: HrConfig }) {
   const route = careRouteFrom(searchParams, {
     canSeeSkills: skillsItem ? canSeeSettingsItem(user, skillsItem, { hrProgram: config.program }) : false,
   });
+  // Bez roli opieki (same sprawy administracja@, od 22.10.2026 tu zamiast
+  // „Ludzie → Sprawy”) jest tylko „Do zrobienia” — reszty serwer i tak odmawia.
+  const careRole = canSeeCareBoard(user, config);
   const teamOpen = canSeeTeam(config);
-  const tab: CareTab = route.tab === "team" && !teamOpen ? "todo" : route.tab;
+  const tab: CareTab = !careRole || (route.tab === "team" && !teamOpen) ? "todo" : route.tab;
   const [scope, setScope] = useState<"mine" | "all">("mine");
-  const announcements = useAnnouncements();
+  const announcements = useAnnouncements(careRole);
   const pendingApprovals = (announcements.data?.items ?? []).filter((row) => row.can_approve).length;
   // Liczniki zakładek (P1: „Do zrobienia 7 · Konsultanci 42 · Klienci 9”) — te same
   // zapytania co zakładki (wspólny cache), liczba dopiero po udanym odczycie.
-  const todoCount = useCareBoard("mine");
-  const consultantsCount = useCareConsultants();
-  const clientsCount = useCareClients(scope);
+  // Bez roli opieki nie pytamy (serwer odmawia) — zakładki i tak ich nie ma.
+  const todoCount = useCareBoard("mine", careRole);
+  const consultantsCount = useCareConsultants(careRole);
+  const clientsCount = useCareClients(scope, careRole);
   // `?filter=` — chip kolejki „Do zrobienia” z linku (dzwonki).
   const listFilter = listFilterFromParam(searchParams?.get("filter"));
 
@@ -194,19 +200,23 @@ function CareTabs({ config }: { config: HrConfig }) {
     {
       value: "todo",
       label: "Do zrobienia",
-      count: todoCount.isSuccess ? todoCount.data.cards.length : undefined,
+      count: careRole && todoCount.isSuccess ? todoCount.data.cards.length : undefined,
     },
-    {
-      value: "consultants",
-      label: "Konsultanci",
-      count: consultantsCount.isSuccess ? consultantsIn(consultantsCount.data.items, scope).length : undefined,
-    },
-    {
-      value: "clients",
-      label: "Klienci",
-      count: clientsCount.isSuccess ? clientsCount.data.rows.length : undefined,
-    },
-    ...(teamOpen ? [{ value: "team", label: "Zespół opiekunów" }] : []),
+    ...(careRole
+      ? [
+          {
+            value: "consultants",
+            label: "Konsultanci",
+            count: consultantsCount.isSuccess ? consultantsIn(consultantsCount.data.items, scope).length : undefined,
+          },
+          {
+            value: "clients",
+            label: "Klienci",
+            count: clientsCount.isSuccess ? clientsCount.data.rows.length : undefined,
+          },
+          ...(teamOpen ? [{ value: "team", label: "Zespół opiekunów" }] : []),
+        ]
+      : []),
   ];
   const scoped = tab === "consultants" || tab === "clients";
 
@@ -246,7 +256,12 @@ function CareTabs({ config }: { config: HrConfig }) {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={TITLE} description={DESCRIPTION} density="compact" actions={actions} />
+      <PageHeader
+        title={TITLE}
+        description={careRole ? DESCRIPTION : CASES_ONLY_DESCRIPTION}
+        density="compact"
+        actions={careRole ? actions : undefined}
+      />
       <TabbedNav ariaLabel="Opieka nad konsultantami" value={tab} onValueChange={select} tabs={tabs}>
         <div className="pt-3">
           {tab === "todo" ? (

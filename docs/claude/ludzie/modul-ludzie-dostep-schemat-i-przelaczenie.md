@@ -601,8 +601,8 @@ szukać funkcji. Poniższe reguły łatwo cofnąć „przy okazji”, dlatego je
 
 ### Pasek zakładek
 
-- Kolejność jest stała: **Katalog · Mój zespół · Kalendarz · Akceptacje · Płace**,
-  a na końcu tymczasowo **Sprawy**. Kto nie ma dostępu, nie widzi zakładki, ale
+- Kolejność jest stała: **Katalog · Mój zespół · Kalendarz · Akceptacje · Płace**.
+  Kto nie ma dostępu, nie widzi zakładki, ale
   reszta się nie przestawia (`peopleSections()` w `PeopleSectionNav.tsx`).
 - Nie przywracaj zakładek „Struktura” ani „Moje zgody”:
   - Struktura to widok **„Schemat”** w Katalogu (przełącznik „Lista | Schemat”,
@@ -610,9 +610,13 @@ szukać funkcji. Poniższe reguły łatwo cofnąć „przy okazji”, dlatego je
   - Moje prośby o zgodę są w **Mój czas → „Zgody i wydatki”** (`/my-time?tab=consents`).
     `/people/consents` przekierowuje tam z `request` i `new`, a link z maila
     (`approvals/service.py`) prowadzi od razu do Mojego czasu.
-- Sprawy zostają w Ludziach, dopóki nie przejdą do „Opieki nad konsultantami”
-  (przebudowa Opieki, osobny PR). Nie usuwaj zakładki, zanim Sprawy będą miały
-  nowe miejsce.
+- Nie przywracaj zakładki „Sprawy” (decyzja Artura 22.10.2026, makieta R0): sprawy
+  administracja@ są w **Opieka → „Do zrobienia”**. `/people/cases` przekierowuje na
+  `/care`; tylko przy wyłączonym module `care` tablica spraw zostaje pod starym adresem.
+  Szczegóły sprawy dalej są pod `/people/cases/{id}` (linki z maili i dzwonków).
+  Menu „Opieka nad konsultantami” widzi też osoba bez roli opieki, gdy ma uprawnienie
+  „Sprawy” albo przypisaną sprawę (`casesInCare` w `lib/api/hr.ts`); dostaje wtedy
+  samo „Do zrobienia” ze sprawami — bez Konsultantów, Klientów, Zespołu i Komunikatów.
 - Etykieta to „Kalendarz”, nie „Kalendarz zespołu”.
 
 ### Katalog

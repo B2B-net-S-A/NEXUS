@@ -218,8 +218,10 @@ export function WorkBoard({
     (config.open_modules.cases &&
       (config.me.cases || config.me.is_admin || config.me.has_assigned_cases === true));
 
+  // Obsługa skrzynki zaczyna od „Wszystkie” — także w Opiece, do której sprawy
+  // przeszły z „Ludzi” (22.10.2026), gdy nie ma roli opieki.
   const [scope, setScope] = useState<Scope>(
-    boardScope === "cases" && canManageFromConfig ? "all" : "mine",
+    (boardScope === "cases" || !careAccess) && canManageFromConfig ? "all" : "mine",
   );
   const [area, setArea] = useState<WorkArea | null>(initialArea);
   const [week, setWeek] = useState(false);
@@ -290,12 +292,14 @@ export function WorkBoard({
     () =>
       showsCases(filters) && !casesQuiet
         ? (cases.data?.items ?? []).filter(
-            // W „Opiece → Do zrobienia” sprawa tylko z terminem do piątku albo po terminie (S3).
-            (card) => boardScope !== "care" || caseDueThisWeek(card, weekEnd),
+            // Opiekun bez „Spraw” widzi w „Do zrobienia” sprawę tylko z terminem do
+            // piątku albo po terminie (S3). Obsługa skrzynki pracuje na pełnym
+            // kanbanie spraw — od #2567 jest on tylko tutaj (K1: „zostaje wszystko”).
+            (card) => boardScope !== "care" || canManage || caseDueThisWeek(card, weekEnd),
           )
         : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cases.data, area, casesQuiet, boardScope, weekEnd],
+    [cases.data, area, casesQuiet, boardScope, weekEnd, canManage],
   );
   const allCareCards = useMemo(() => careData?.cards ?? [], [careData]);
   const careCards = useMemo(

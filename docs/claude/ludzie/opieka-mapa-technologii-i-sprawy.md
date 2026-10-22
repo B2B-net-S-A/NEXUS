@@ -26,13 +26,15 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
 
 ### Tablica (`components/work-board/`, `GET /api/care/board`, `PUT /api/care/board/state`)
 
-- Jedna tablica w Ludzie → Sprawy (`scope="cases"`) i w Opieka → Do zrobienia (`scope="care"`).
+- Jedna tablica w Opieka → Do zrobienia (`scope="care"`); `scope="cases"` zostaje tylko pod
+  `/people/cases` przy wyłączonym module `care` (zakładki „Sprawy” w Ludziach nie ma od 22.10.2026).
   Wszystko z dawnego kanbana spraw zostaje: Moje/Wszystkie, chipy obszarów, Na ten tydzień, Bez
   osoby, szukanie, Nowa sprawa, kolumny Nowa · W toku · Czeka na kogoś · wąskie Zrobione, karta
   sprawy 1:1. Nie usuwaj żadnego z tych elementów przy zmianach — to był warunek Artura.
 - Obszar „Opieka” (karty rozmów, opinii menedżerów, decyzji o przepięciu, u DL — popytu), chip
   „Moi podopieczni” (`GET /api/cases?mine_care=true`) i kropka zdrowia widzą tylko osoby
-  z dostępem do opieki (moduł `care` + rola z menu). Obsługa skrzynki bez opieki widzi same sprawy.
+  z dostępem do opieki (moduł `care` + rola opieki, `CARE_ROLES`). Obsługa skrzynki bez opieki
+  wchodzi do „Opieki” z menu (`casesInCare`) i widzi samo „Do zrobienia” ze sprawami.
 - Rozmowa wchodzi na tablicę tylko z terminem do piątku albo po terminie. „W toku” = umówiona
   (dzień i godzina), „Czeka” = nie odbiera (dzień ponownej próby > dziś; w ten dzień karta wraca do
   „Nowa”). Stan karty opieki żyje w `care_board_states` (0509, kolumna `board_column`); punkt planu
@@ -113,8 +115,9 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   uzupełnienia”: propozycje struktury + luki mapy z pamięci podręcznej) tylko dla klientów „moich”
   jak w portfelu, krąg D11. `week_progress` = punkty planu z terminem pon–pt (bez pominiętych).
 - **„Moi podopieczni”** = `mine_care` bez `mine`: sprawy na kontraktach, którymi się opiekuję,
-  niezależnie od prowadzącego. W zakresie opieki sprawa trafia na tablicę tylko z terminem do piątku
-  albo po terminie. Kafelek „Moja opieka” dolicza moje sprawy z tego tygodnia (`/api/cases?mine&week`).
+  niezależnie od prowadzącego. Opiekun bez uprawnienia „Sprawy” widzi w „Do zrobienia” sprawę tylko
+  z terminem do piątku albo po terminie (S3); obsługa skrzynki ma tu pełny kanban spraw (od #2567
+  Sprawy są tylko w /care). Licznik „Do zrobienia” liczy karty opieki — bez roli opieki go nie ma. Kafelek „Moja opieka” dolicza moje sprawy z tego tygodnia (`/api/cases?mine&week`).
 - **Karta konsultanta w szczególe sprawy** (`queries.consultant_section`) tylko dla obsługi spraw
   (uprawnienie „Sprawy”, admin) — osoba przypisana bez tego uprawnienia widzi sprawę bez karty.
   Zredagowany wiersz sprawy ma `assignee_hidden`/`content_hidden`; front nie pisze wtedy „bez osoby”.
@@ -140,7 +143,7 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
 
 ### Sprawy przy konsultancie (`admin_cases/contract_links.py`, `queries.py`, `hooks.py`)
 
-- Rejestr spraw zostaje jeden (Ludzie → Sprawy). Karta konsultanta pokazuje sprawy kontraktu
+- Rejestr spraw zostaje jeden (Opieka → Do zrobienia). Karta konsultanta pokazuje sprawy kontraktu
   (`cases_for_contract`): treść tylko z `may_read`, **negocjacje zawsze bez treści** (opieka „bez
   stawek”). Oś osoby ma zdarzenia spraw bez treści. Bez `may_read` tytuł też jest treścią — w karcie
   i na osi stoi „Sprawa: <obszar>” bez osoby (`queries.redact_case_title`, także negocjacje).
@@ -745,7 +748,8 @@ zapełnić.
   module nic nie zakładają — do przełączenia sprawy prowadzi Compass. Trwałe
   usunięcie kontraktu zamyka jego sprawę wejścia (savepoint — awaria spraw nie
   blokuje usunięcia).
-- Zakładkę „Sprawy” widzi uprawnienie „Sprawy”, admin i osoba przypisana do sprawy.
+- Sprawy widzi uprawnienie „Sprawy”, admin i osoba przypisana do sprawy — od 22.10.2026
+  w Opieka → „Do zrobienia” (`/people/cases` przekierowuje na `/care`).
 - **Tablica (makieta 19.10.2026, `CasesBoard.tsx`)**: chipy obszarów
   z liczbą, „Na ten tydzień” i „Bez osoby” to filtry SERWERA
   (`GET /api/cases?week=true|unassigned=true` — lista ma limit 500, więc
@@ -766,8 +770,8 @@ zapełnić.
   (`notify_assignee` pomija autora).
 - Przypisanie sprawy innej osobie (`admin_case_assigned`) to dymek i mail „Czas
   i ludzie” z linkiem `/people/cases/{id}`. Tytuł sprawy (temat cudzego maila)
-  do maila nie idzie — mail mówi tylko, że sprawa czeka. Zakładka „Sprawy” ma
-  licznik otwartych spraw przypisanych do czytającego (`GET /api/hr/counts`).
+  do maila nie idzie — mail mówi tylko, że sprawa czeka. Licznik otwartych spraw
+  przypisanych do czytającego (`GET /api/hr/counts`, `cases`) nie ma już zakładki w Ludziach.
 
 ## Opieka · Komunikaty do konsultantów (O12, etap 3, 17.10.2026)
 

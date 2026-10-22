@@ -1213,11 +1213,12 @@ export function useCareOwners(enabled = true) {
   });
 }
 
-export function useCareConsultants() {
+export function useCareConsultants(enabled = true) {
   return useQuery({
     queryKey: careKeys.consultants,
     queryFn: async () => (await api.get<CareConsultants>("/api/care/consultants")).data,
     staleTime: 60_000,
+    enabled,
   });
 }
 

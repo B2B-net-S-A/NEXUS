@@ -4,8 +4,8 @@
  * Harness „Ludzie → Sprawy administracja@” (makieta 11 raportu „Ludzie
  * w NEXUSIE”) i wspólnej tablicy pracy z opieką (22.10.2026).
  *
- * Prawdziwe `PageHeader` + `PeopleSectionNav` + `CasesBoard` (jak
- * `/people/cases`), `WorkBoard scope="care"` (jak Opieka → Do zrobienia)
+ * Prawdziwe `PageHeader` + `CasesBoard` (jak `/people/cases` przy wyłączonej
+ * opiece), `WorkBoard scope="care"` (jak Opieka → Do zrobienia), `CareScreen`
  * i `CaseDetailView` (jak `/people/cases/[id]`) na zasianym cache, ZERO
  * zapytań (`hr-harness.tsx`).
  *
@@ -36,12 +36,18 @@
  * - `who` — sprawa z maila z firmy klienta bez kontraktu (S4): „Kogo
  *   dotyczy?” z nadawcą (kontakt klienta) i „jedyną naszą konsultantką o tym
  *   nazwisku”, „Powiąż z Anną”, a w „Szczegółach” „Weź” (sprawa bez osoby).
+ * - `care-cases` — prawdziwy ekran `/care` oglądany przez recepcję (same
+ *   „Sprawy”, bez roli opieki): od 22.10.2026 tu, a nie w „Ludziach”, wchodzi
+ *   obsługa skrzynki — tylko „Do zrobienia”, bez zakładek i Komunikatów opieki.
  */
+
+import { Suspense } from "react";
+
 
 import { CaseDetailView } from "@/components/admin-cases/CaseDetailView";
 import { CasesBoard } from "@/components/admin-cases/CasesBoard";
+import { CareScreen } from "@/components/care/CareScreen";
 import { PageHeader } from "@/components/ds/PageHeader";
-import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
 import { WorkBoard } from "@/components/work-board/WorkBoard";
 import { caseKeys, type CaseArea, type CaseListFilters } from "@/lib/api/admin-cases";
 import { careBoardKeys } from "@/lib/api/care-board";
@@ -80,6 +86,7 @@ const KNOWN = [
   "panel-case",
   "panel-care",
   "who",
+  "care-cases",
 ] as const;
 type State = (typeof KNOWN)[number];
 
@@ -93,6 +100,7 @@ const STATES = [
   { key: "panel-case", label: "Panel sprawy" },
   { key: "panel-care", label: "Panel karty opieki" },
   { key: "who", label: "Kogo dotyczy?" },
+  { key: "care-cases", label: "Opieka · same sprawy" },
 ] as const;
 
 /** Opiekunka (TCM) z dostępem do opieki; w Sprawach — także z uprawnieniem „Sprawy”. */
@@ -179,7 +187,6 @@ export default function HrCasesPreviewPage() {
         description="Maile ze skrzynki, nowe kontrakty i odejścia zakładają sprawy same."
         density="compact"
       />
-      <PeopleSectionNav config={config} active="cases" />
       {state === "panel-case" ? (
         <WorkBoard scope="cases" config={config} initialSelectedKey={`case:${ONBOARDING_CASE_ID}`} />
       ) : (
@@ -220,6 +227,10 @@ export default function HrCasesPreviewPage() {
         <CaseDetailView caseId={WHO_CASE_ID} />
       ) : TODO_STATES.has(state) ? (
         todo
+      ) : state === "care-cases" ? (
+        <Suspense fallback={<HrHarnessLoading />}>
+          <CareScreen />
+        </Suspense>
       ) : (
         cases
       )}

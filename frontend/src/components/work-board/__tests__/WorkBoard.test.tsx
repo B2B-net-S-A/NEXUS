@@ -543,7 +543,25 @@ describe("domknięcie makiet 22.10.2026", () => {
     );
   });
 
-  it("w Opiece sprawa stoi tylko z terminem do piątku albo po terminie", async () => {
+  it("w Opiece opiekun bez „Spraw” widzi sprawę tylko z terminem do piątku albo po terminie", async () => {
+    asUser("talent_community_manager");
+    route({
+      cases: list(
+        [
+          caseCard({ id: 21, title: "Zaległa sprawa", due_on: "2026-10-19", overdue: true }),
+          caseCard({ id: 22, title: "Sprawa na listopad", due_on: "2026-11-20" }),
+        ],
+        { can_manage: false },
+      ),
+      board: board([]),
+    });
+    renderBoard({ scope: "care" });
+
+    expect(await screen.findByText("Zaległa sprawa")).toBeInTheDocument();
+    expect(screen.queryByText("Sprawa na listopad")).toBeNull();
+  });
+
+  it("w Opiece obsługa skrzynki ma pełny kanban spraw (od #2567 Sprawy są tylko tu)", async () => {
     asUser("talent_community_manager");
     route({
       cases: list([
@@ -555,7 +573,7 @@ describe("domknięcie makiet 22.10.2026", () => {
     renderBoard({ scope: "care" });
 
     expect(await screen.findByText("Zaległa sprawa")).toBeInTheDocument();
-    expect(screen.queryByText("Sprawa na listopad")).toBeNull();
+    expect(screen.getByText("Sprawa na listopad")).toBeInTheDocument();
   });
 
   it("`?filter=rozmowy` na liście: chip aktywny, tylko rozmowy; postęp tygodnia", async () => {

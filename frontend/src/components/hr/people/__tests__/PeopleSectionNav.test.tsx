@@ -69,12 +69,11 @@ beforeEach(() => {
 });
 
 describe("liczniki zakładek „Ludzie”", () => {
-  it("pokazuje liczby przy Akceptacjach i Sprawach po udanym odczycie", () => {
+  it("pokazuje liczbę przy Akceptacjach po udanym odczycie; Spraw w Ludziach już nie ma", () => {
     countsState.current = { isSuccess: true, data: { approvals: 3, consents: null, cases: 0 } };
     render(<PeopleSectionNav config={manager} active="directory" />);
     expect(tab("Akceptacje")).toHaveTextContent("Akceptacje3");
-    // Zero z udanego odczytu to prawdziwe zero.
-    expect(tab("Sprawy")).toHaveTextContent("Sprawy0");
+    expect(screen.queryByRole("tab", { name: /Sprawy/ })).toBeNull();
     expect(tab("Katalog")).toHaveTextContent(/^Katalog$/);
   });
 
@@ -83,11 +82,9 @@ describe("liczniki zakładek „Ludzie”", () => {
     countsState.current = { isSuccess: false, data: { approvals: 3, consents: null, cases: 1 } };
     render(<PeopleSectionNav config={manager} active="approvals" />);
     expect(tab("Akceptacje")).toHaveTextContent(/^Akceptacje$/);
-    expect(tab("Sprawy")).toHaveTextContent(/^Sprawy$/);
   });
 
   it("„nie dotyczy” (null) to brak liczby", () => {
-    expect(sectionCount("cases", { approvals: 2, consents: null, cases: null })).toBeUndefined();
     expect(sectionCount("approvals", { approvals: 2, consents: null, cases: null })).toBe(2);
     expect(sectionCount("directory", { approvals: 2, consents: null, cases: 4 })).toBeUndefined();
     expect(sectionCount("approvals", undefined)).toBeUndefined();

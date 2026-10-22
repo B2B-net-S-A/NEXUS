@@ -42,13 +42,31 @@ const columnCount = (title: string) =>
 const tiles = () => screen.getAllByRole("button", { name: /^Sprawa: / });
 
 describe("/preview/hr-cases", () => {
+  it("Opieka oglądana przez recepcję ze „Sprawami”: tylko „Do zrobienia” ze sprawami, bez zakładek opieki i Komunikatów", async () => {
+    window.history.replaceState({}, "", "/preview/hr-cases?state=care-cases&tab=consultants");
+    render(<HrCasesPreviewPage />);
+
+    expect(await screen.findByRole("heading", { name: "Opieka nad konsultantami" })).toBeInTheDocument();
+    expect(screen.getByText("Sprawy administracja@ na jednej tablicy.")).toBeInTheDocument();
+    // Stary link do „Konsultantów” i tak ląduje w „Do zrobienia”.
+    expect(screen.getByRole("tab", { name: "Do zrobienia", selected: true })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Konsultanci" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Klienci" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Komunikaty/ })).toBeNull();
+    expect(await screen.findAllByRole("button", { name: /^Sprawa: / })).not.toHaveLength(0);
+    // Obsługa skrzynki zaczyna od wszystkich spraw — jak dawniej w „Ludziach”.
+    expect(screen.getByRole("radio", { name: "Wszystkie" })).toBeChecked();
+    expect(attempted()).toEqual([]);
+  });
+
   it("tablica: Nowa 4 / W toku 2 / Czeka 1 / Zrobione, źródła i priorytety", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-cases");
     render(<HrCasesPreviewPage />);
 
     expect(await screen.findByRole("heading", { name: "Sprawy administracja@" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /Sprawy/ })).toHaveAttribute("aria-selected", "true");
+    // Sprawy nie są już zakładką „Ludzi” (22.10.2026).
+    expect(screen.queryByRole("tab", { name: /Sprawy/ })).toBeNull();
     expect(columnCount("Nowa")).toBe("4");
     expect(columnCount("W toku")).toBe("2");
     expect(columnCount("Czeka na kogoś")).toBe("1");

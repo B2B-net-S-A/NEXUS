@@ -200,11 +200,12 @@ function audienceKey(audience: Audience): string {
   return JSON.stringify(normalizeAudience(audience));
 }
 
-export function useAnnouncements() {
+export function useAnnouncements(enabled = true) {
   return useQuery({
     queryKey: announcementKeys.list,
     queryFn: async () => (await api.get<AnnouncementList>(BASE)).data,
     staleTime: 15_000,
+    enabled,
   });
 }
 

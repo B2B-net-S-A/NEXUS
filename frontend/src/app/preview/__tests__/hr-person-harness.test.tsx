@@ -179,6 +179,44 @@ describe("/preview/hr-person", () => {
     expect(attempted()).toEqual([]);
   });
 
+  it("„Dodaj za tę osobę”: Kadry otwierają wpis nieobecności z ustaloną osobą", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-person?as=hr#czas");
+    render(<HrPersonPreviewPage />);
+
+    expect(await heading()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Dodaj za tę osobę" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Wpisz nieobecność za konsultanta/kontraktora",
+    });
+    const person = within(dialog).getByRole("combobox", { name: "Osoba" });
+    expect(person).toHaveTextContent("Ola Przykładowa");
+    expect(person).toBeDisabled();
+  });
+
+  it("przełożona: za B2B nie wpisuje (D5) — bez „Dodaj za tę osobę”; za UoP tak", async () => {
+    window.history.replaceState({}, "", "/preview/hr-person?as=manager#czas");
+    const { unmount } = render(<HrPersonPreviewPage />);
+    expect(await heading()).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: /^Nieobecności \d{4}$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dodaj za tę osobę" })).toBeNull();
+    unmount();
+
+    window.history.replaceState({}, "", "/preview/hr-person?as=manager&form=uop#czas");
+    render(<HrPersonPreviewPage />);
+    expect(await heading()).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Dodaj za tę osobę" })).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("Finanse bez akceptowania nieobecności: bez „Dodaj za tę osobę”", async () => {
+    window.history.replaceState({}, "", "/preview/hr-person?as=finance#czas");
+    render(<HrPersonPreviewPage />);
+    expect(await heading()).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dodaj za tę osobę" })).toBeNull();
+    expect(attempted()).toEqual([]);
+  });
+
   it("Finanse spoza kręgu D6: tylko zatwierdzone, „nieobecność” bez rodzaju", async () => {
     window.history.replaceState({}, "", "/preview/hr-person?as=finance#czas");
     render(<HrPersonPreviewPage />);
