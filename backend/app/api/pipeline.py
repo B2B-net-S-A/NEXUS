@@ -982,20 +982,53 @@ def _reapplied_link_owners(
     }
 
 
-async def _requirements_skipped(
-    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+def _merge_skip_traces(
+    rows: Iterable[tuple[int, Optional[dict], Optional[int], Optional[datetime]]],
+    since: Mapping[int, Optional[datetime]],
 ) -> dict[int, tuple[list[str], Optional[int]]]:
-    """Ostatni ruch mimo braków każdej pary: ``(braki, kto)`` — 22.10.2026.
+    """Suma braków ze śladów pary (od najstarszego) i autor najnowszego.
+
+    Kolejny ruch mimo braków (np. przeskok debriefu) nie chowa braków
+    z wejścia na „Zweryfikowany”; ślad sprzed bieżącej próby (``since``
+    = początek próby, gdy osoba wróciła do rekrutacji) się nie liczy.
+    """
+    found: dict[int, tuple[list[str], Optional[int]]] = {}
+    for cid, details, user_id, moved_at in rows:
+        start = since.get(cid)
+        if start is not None and moved_at is not None and moved_at < start:
+            continue
+        keys = found[cid][0] if cid in found else []
+        for key in (details or {}).get("missing") or []:
+            if str(key) not in keys:
+                keys.append(str(key))
+        found[cid] = (keys, user_id)
+    return found
+
+
+async def _requirements_skipped(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    candidate_ids: Iterable[int],
+    since: Optional[Mapping[int, Optional[datetime]]] = None,
+) -> dict[int, tuple[list[str], Optional[int]]]:
+    """Ruchy mimo braków każdej pary: ``(braki, kto)`` — 22.10.2026.
 
     Ślad zapisuje ``/move``, gdy Delivery Lead przeszedł bramki pól
     (``pipeline_move_rules.skips_fill_gates``); jedno zapytanie na tablicę
     przez wiersze etapów rekrutacji (``Activity.entity_id`` = wiersz).
+    Braki z bieżącej próby sumują się (:func:`_merge_skip_traces`).
     """
     ids = sorted(set(candidate_ids))
     if not ids:
         return {}
     rows = await db.execute(
-        select(CandidateStage.candidate_id, Activity.details, Activity.user_id)
+        select(
+            CandidateStage.candidate_id,
+            Activity.details,
+            Activity.user_id,
+            CandidateStage.moved_at,
+        )
         .join(
             Activity,
             (Activity.entity_type == "pipeline")
@@ -1006,14 +1039,9 @@ async def _requirements_skipped(
             CandidateStage.candidate_id.in_(ids),
             Activity.action == pipeline_move_rules.REQUIREMENTS_SKIPPED_ACTION,
         )
-        .order_by(CandidateStage.candidate_id, Activity.id.desc())
-        .distinct(CandidateStage.candidate_id)
+        .order_by(CandidateStage.candidate_id, Activity.id)
     )
-    found: dict[int, tuple[list[str], Optional[int]]] = {}
-    for cid, details, user_id in rows.all():
-        missing = (details or {}).get("missing") or []
-        found[cid] = ([str(key) for key in missing], user_id)
-    return found
+    return _merge_skip_traces(rows.all(), since or {})
 
 
 def _still_missing(keys: list[str], payload: dict) -> list[str]:
@@ -3585,8 +3613,14 @@ async def build_kanban_view(
 
     qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
     # 22.10.2026: Delivery Lead przesunął mimo braków — odznaka na karcie.
+    # Tylko ślady bieżącej próby — po ponownym dodaniu osoby dawne nie wracają.
+    from app.services.recommendation_cards import attempt_started
+
     skipped_by_candidate = await _requirements_skipped(
-        db, job_id=job_id, candidate_ids=candidate_ids
+        db,
+        job_id=job_id,
+        candidate_ids=candidate_ids,
+        since={cid: attempt_started(p) for cid, p in v4_processes.items()},
     )
     missing_skip_names = {
         uid for _keys, uid in skipped_by_candidate.values() if uid is not None

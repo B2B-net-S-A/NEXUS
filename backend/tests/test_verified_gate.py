@@ -622,3 +622,82 @@ async def test_skip_bell_names_the_gaps_without_the_409_wording(monkeypatch) -> 
     assert sent[0]["message"] == (
         "Java Developer · bez: Dlaczego ten kandydat, stawka kandydata, Lokalizacja"
     )
+
+
+def test_board_badge_sums_every_skip_trace_of_the_current_attempt() -> None:
+    """Kolejny ruch DL-a mimo braków (przeskok debriefu) nie chowa braków
+    z wejścia na „Zweryfikowany”, a ślad z zamkniętej próby nie wraca na kartę
+    po ponownym dodaniu osoby (audyt 22.10.2026, F57)."""
+
+    from app.api.pipeline import _merge_skip_traces
+
+    now = datetime.now(timezone.utc)
+    rows = [
+        (1, {"missing": ["screening_sheet", "candidate_rate"]}, 10, now),
+        (1, {"missing": ["candidate_rate", "debrief"]}, 11, now),
+        (2, {"missing": ["debrief"]}, 10, now - timedelta(days=30)),
+        (2, {"missing": ["screening_sheet"]}, 12, now),
+    ]
+    merged = _merge_skip_traces(rows, {2: now - timedelta(days=1)})
+    assert merged[1] == (["screening_sheet", "candidate_rate", "debrief"], 11)
+    assert merged[2] == (["screening_sheet"], 12)
+
+
+@pytest.mark.asyncio
+async def test_requirements_skipped_reads_every_trace_of_the_pair() -> None:
+    from app.api.pipeline import _requirements_skipped
+    from app.models.activity import Activity
+
+    world = await _seed_world(champion_profile=WITH_QUESTIONS)
+    try:
+        async with AsyncSessionLocal() as db:
+            rows = []
+            for minutes_ago, def_key, stage in (
+                (30, "verified", PipelineStage.verified),
+                (5, "cv_sent", PipelineStage.cv_sent),
+            ):
+                row = CandidateStage(
+                    candidate_id=world["candidate_id"],
+                    job_id=world["job_id"],
+                    stage=stage,
+                    stage_def_id=world["defs"][def_key],
+                    moved_at=datetime.now(timezone.utc)
+                    - timedelta(minutes=minutes_ago),
+                )
+                db.add(row)
+                rows.append(row)
+            await db.flush()
+            for row, missing in zip(
+                rows, (["screening_sheet", "candidate_rate"], ["debrief"])
+            ):
+                db.add(
+                    Activity(
+                        entity_type="pipeline",
+                        entity_id=row.id,
+                        action=rules.REQUIREMENTS_SKIPPED_ACTION,
+                        details={"missing": missing},
+                    )
+                )
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            found = await _requirements_skipped(
+                db, job_id=world["job_id"], candidate_ids=[world["candidate_id"]]
+            )
+        assert found[world["candidate_id"]][0] == [
+            "screening_sheet",
+            "candidate_rate",
+            "debrief",
+        ]
+    finally:
+        async with AsyncSessionLocal() as db:
+            stage_ids = select(CandidateStage.id).where(
+                CandidateStage.candidate_id == world["candidate_id"]
+            )
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "pipeline",
+                    Activity.entity_id.in_(stage_ids),
+                )
+            )
+            await db.commit()
+        await _cleanup(world, [])
