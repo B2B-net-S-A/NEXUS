@@ -1022,3 +1022,79 @@ async def test_sweeper_skips_a_request_closed_after_the_due_list(monkeypatch):
         assert await b2b_esign_sweeper._handle(12, now) is None, status
         assert request.last_reminder_at is None, status
     assert calls == []
+
+
+async def _register_item(app_client, headers, generated_id: int) -> dict[str, Any]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, generated_id)
+        assert row is not None
+        number = row.contract_number
+    listed = await app_client.get(
+        "/api/b2b-generator/generated", headers=headers, params={"q": number}
+    )
+    assert listed.status_code == 200, listed.text
+    return next(i for i in listed.json() if i["id"] == generated_id)
+
+
+@pytest.mark.asyncio
+async def test_contract_in_nexus_signing_or_signed_there_cannot_be_deleted(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Audyt 22.10, F44: kaskada FK kasowała wniosek razem z podpisem
+    kontraktora albo obu stron. Usunąć można dopiero po wycofaniu wysyłki."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.b2b_signing_request import B2BSigningRequest
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    generated_id = scenario["generated_id"]
+    sent = await _send(
+        app_client, app_auth_headers, generated_id, esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+    request_id = sent.json()["request"]["id"]
+
+    assert (await _register_item(app_client, app_auth_headers, generated_id))[
+        "can_delete"
+    ] is False
+    deleted = await app_client.delete(
+        f"/api/b2b-generator/generated/{generated_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 409, deleted.text
+    assert "zwykłą drogę" in deleted.json()["detail"]
+
+    # Obie strony podpisały, ale automatyka nie oznaczyła wiersza.
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        request.status = "completed"
+        request.contractor_token_hash = None
+        await db.commit()
+    assert (await _register_item(app_client, app_auth_headers, generated_id))[
+        "can_delete"
+    ] is False
+    deleted = await app_client.delete(
+        f"/api/b2b-generator/generated/{generated_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 409, deleted.text
+    async with AsyncSessionLocal() as db:
+        assert await db.get(B2BGeneratedContract, generated_id) is not None
+        assert await db.get(B2BSigningRequest, request_id) is not None
+
+    # Wycofana wysyłka nie blokuje usunięcia.
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        request.status = "withdrawn"
+        await db.commit()
+    assert (await _register_item(app_client, app_auth_headers, generated_id))[
+        "can_delete"
+    ] is True
+    deleted = await app_client.delete(
+        f"/api/b2b-generator/generated/{generated_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+
