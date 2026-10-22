@@ -6,7 +6,8 @@
  * 13.10.2026): `summary` = „Przegląd”, `activity` = „Notatki”, `documents` =
  * „Dokumenty” (umowy i pliki), `screening` = „Screening”. 13.10.2026 doszła
  * `cv` = „CV” (wydzielona z dawnego „CV i dokumenty”), a filtr `calls`
- * („Telefony”) zniknął — stare linki z nim otwierają oś czasu.
+ * („Telefony”) zniknął — stare linki z nim otwierają oś czasu. 22.10.2026
+ * doszła `similar` = „Podobni” (osoby z podobnym CV, decyzja Artura).
  *
  * Stare klucze MUSZĄ działać dalej — linki z powiadomień są zapisane w bazie
  * (`?tab=chat&msg=`, `?tab=activity&activity=notes&note=`), a stare zakładki
@@ -21,6 +22,7 @@ export const PROFILE_SECTIONS = [
   "activity",
   "cv",
   "documents",
+  "similar",
 ] as const;
 
 /**

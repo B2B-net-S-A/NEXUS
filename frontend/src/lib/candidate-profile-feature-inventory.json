@@ -738,6 +738,34 @@
    "file": "components/v2/files/CandidateFilesTab.tsx",
    "marker": "Załączniki i formularze",
    "home": "Dokumenty → Pliki"
+  },
+  {
+   "id": "c.similar-tab",
+   "opis": "Zakładka „Podobni” — osoby z podobnym CV i umiejętnościami; kolejność bez żadnej rekrutacji, filtry „Bez „Nie szuka””, „Bez osób w procesie”, stawka, miasto (22.10.2026)",
+   "file": "components/v2/similar-candidates/SimilarCandidatesTab.tsx",
+   "marker": "Bez osób w procesie",
+   "home": "Zakładka „Podobni”"
+  },
+  {
+   "id": "c.similar-check",
+   "opis": "„Sprawdź pod rekrutację” w zakładce „Podobni” — wynik umiejętności krytycznych i dopasowanie przy wierszu, kolejność bez zmian",
+   "file": "components/v2/similar-candidates/SimilarCandidatesTab.tsx",
+   "marker": "Sprawdź pod rekrutację",
+   "home": "Zakładka „Podobni” → nad listą"
+  },
+  {
+   "id": "c.similar-compare",
+   "opis": "„Porównaj” — dwie kolumny: stanowisko, staż, wspólne i różne umiejętności, stawka, dostępność, miejsce",
+   "file": "components/v2/similar-candidates/SimilarCompareSheet.tsx",
+   "marker": "Tylko u jednej osoby",
+   "home": "Zakładka „Podobni” → „Porównaj”"
+  },
+  {
+   "id": "c.similar-assign",
+   "opis": "„Przypisz” z „Podobnych” — rekrutacje osoby z profilu i moje z wynikiem sprawdzenia; brak krytycznej wymaga zdania, które trafia na kartę jako notatka",
+   "file": "components/v2/similar-candidates/SimilarAssignSheet.tsx",
+   "marker": "Dlaczego mimo to?",
+   "home": "Zakładka „Podobni” → „Przypisz” / zaznaczeni"
   }
  ]
 }

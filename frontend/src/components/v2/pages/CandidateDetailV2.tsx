@@ -33,6 +33,7 @@ import {
   ListChecks,
   MessageSquare,
   User,
+  Users,
 } from "lucide-react";
 
 import api, {
@@ -112,6 +113,7 @@ import { ProfileTab } from "@/components/v2/candidate-profile/ProfileTab";
 import { RecruitmentsTab } from "@/components/v2/candidate-profile/RecruitmentsTab";
 import { HistoryTab } from "@/components/v2/candidate-profile/HistoryTab";
 import { FilesContractsTab } from "@/components/v2/candidate-profile/FilesContractsTab";
+import { SimilarCandidatesTab } from "@/components/v2/similar-candidates/SimilarCandidatesTab";
 import { CandidateScreeningAnswersCard } from "@/components/v2/candidate-profile/CandidateScreeningAnswersCard";
 import {
   ConflictsVetoesDialog,
@@ -579,6 +581,9 @@ export function CandidateDetailV2({
     },
     { value: "cv", label: "CV", icon: FileText },
     { value: "documents", label: "Dokumenty", icon: Files, count: fileCount },
+    // 22.10.2026: osoby z podobnym CV (bez licznika — liczba wymagałaby
+    // zapytania do wyszukiwarki przy każdym otwarciu profilu).
+    { value: "similar", label: "Podobni", icon: Users },
   ];
 
   const navProps = showNav
@@ -861,6 +866,19 @@ export function CandidateDetailV2({
                   }
                   employmentMarker={candidate.employment_marker}
                 />
+              </TabsContent>
+
+              <TabsContent value="similar" className="mt-0">
+                {/* Montuje się dopiero na tej zakładce — wyszukiwarka nie
+                    pracuje przy każdym otwarciu profilu. */}
+                {activeTab === "similar" ? (
+                  <SimilarCandidatesTab
+                    candidateId={candidateNumericId}
+                    candidateName={fullName}
+                    recruitments={history}
+                    canWrite={canWriteSourcing}
+                  />
+                ) : null}
               </TabsContent>
             </div>
           </TabbedNav>
