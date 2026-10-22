@@ -14,6 +14,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -526,8 +527,14 @@ async def test_ksef_match_window_is_thirty_days_before_the_request_not_after(
 
 
 @pytest.mark.asyncio
-async def test_request_without_document_expires_after_thirty_days(client, team) -> None:
-    approved = await _approved(client, team, _training("300"))
+async def test_recurring_request_without_document_expires_after_thirty_days(
+    client, team
+) -> None:
+    approved = await _approved(
+        client,
+        team,
+        {**_training("240"), "kind": "subscription", "recurrence": "monthly"},
+    )
     async with AsyncSessionLocal() as db:
         request = await db.get(ApprovalRequest, approved["id"])
         request.expires_on = business_today() - timedelta(days=1)
@@ -541,6 +548,85 @@ async def test_request_without_document_expires_after_thirty_days(client, team) 
     ).json()
     assert after["settlement"]["status"] == "expired"
     assert (await _upload(client, team["worker"], approved["id"])).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_one_time_request_without_document_never_expires(
+    client, team, monkeypatch
+) -> None:
+    """Decyzja Artura 22.10.2026: zgoda „raz” bez dokumentu nie wygasa —
+    delegacja czy szkolenie za dwa miesiące czekają na rachunek po wydarzeniu.
+    Zgody sprzed decyzji mają termin z backfillu i też go nie odpalają."""
+
+    start = business_today() + timedelta(days=60)
+    approved = await _approved(
+        client, team, _training("300", starts_on=start.isoformat())
+    )
+    assert approved["settlement"]["status"] == "open"
+    assert approved["settlement"]["expires_on"] is None
+    async with AsyncSessionLocal() as db:
+        request = await db.get(ApprovalRequest, approved["id"])
+        assert request.expires_on is None
+        request.expires_on = business_today() - timedelta(days=1)  # jak z backfillu
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await settlement.expire_stale(db, business_today() + timedelta(days=90))
+        await db.commit()
+    after = (
+        await client.get(f"{BASE}/{approved['id']}", headers=_headers(team["worker"]))
+    ).json()
+    assert after["settlement"]["status"] == "open"
+    assert after["settlement"]["expires_on"] is None
+    monkeypatch.setattr(reader, "read_document", _read("300.00"))
+    uploaded = await _upload(client, team["worker"], approved["id"])
+    assert uploaded.status_code == 201, uploaded.text
+
+
+@pytest.mark.asyncio
+async def test_on_approved_gives_one_time_request_no_expiry_date() -> None:
+    """Bez bazy: termin wygaśnięcia dostaje tylko wydatek cykliczny (22.10.2026)."""
+
+    today = business_today()
+    db = AsyncMock()
+    once = ApprovalRequest(
+        kind="training",
+        status="approved",
+        recurrence="once",
+        starts_on=today + timedelta(days=60),
+    )
+    await settlement.on_approved(db, once, User(id=1))
+    assert (once.settlement_status, once.expires_on) == ("open", None)
+    assert settlement.expiry(once) is None
+    monthly = ApprovalRequest(
+        kind="subscription",
+        status="approved",
+        recurrence="monthly",
+        starts_on=today + timedelta(days=90),
+    )
+    await settlement.on_approved(db, monthly, User(id=1))
+    assert monthly.expires_on == today + timedelta(days=120)
+    assert settlement.expiry(monthly) == monthly.expires_on
+    # Zgoda „raz” sprzed decyzji ma datę z backfillu — na ekranie jej nie ma.
+    once.expires_on = today
+    assert settlement.expiry(once) is None
+
+
+@pytest.mark.asyncio
+async def test_expire_stale_skips_one_time_requests_without_database() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    captured = []
+
+    async def execute(stmt):
+        captured.append(stmt)
+        return MagicMock(all=lambda: [])
+
+    db = AsyncMock()
+    db.execute = execute
+    assert await settlement.expire_stale(db, business_today()) == 0
+    (stmt,) = captured
+    where = str(stmt.whereclause.compile(dialect=postgresql.dialect()))
+    assert "approval_requests.recurrence !=" in where
 
 
 @pytest.mark.asyncio

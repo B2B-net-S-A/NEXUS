@@ -198,13 +198,18 @@ w `api/hr_approval_finance.py` (`/api/finance/approved-expenses`).
     zostaje dla faktur kontraktorów.
 - **Rozliczenie zgody** (`approval_requests.settlement_status`, ustawia
   `settlement.on_approved` w `decide`): wydatek raz `open` → `documented` →
-  `settled`; bez dokumentu przez 30 dni od zatwierdzenia → `expired`
-  (pętla `hr_lifecycle` od 8:00, dzwonek do autora, potem nowa zgoda);
-  cykliczny (subskrypcja, „co miesiąc / co rok”) `active` → `ended`, każda
-  faktura rozliczana osobno; bez żadnego dokumentu przez 30 dni od startu
-  (`starts_on`, gdy jest późniejszy niż zatwierdzenie) też `expired` — nic nie
-  kupiono, więc rejestr nie liczy „wiszącej” kwoty. Zatwierdzone przed 0486
-  dostają rozliczenie w migracji.
+  `settled` i **bez dokumentu nie wygasa** (decyzja Artura 22.10.2026, audyt
+  22.10 F21) — delegacja czy szkolenie zatwierdzone na dwa miesiące przed
+  terminem rozliczają się rachunkiem po wydarzeniu, więc `expires_on` zostaje
+  puste, a `expire_stale` pomija `recurrence = 'once'` (zgody „raz” sprzed
+  decyzji mają jeszcze datę z backfillu 0486; payloady nie pokazują jej przez
+  `settlement.expiry`, a lista „Czeka na fakturę” w Finansach nie ma „wygasa”
+  i idzie od najstarszego zatwierdzenia). Cykliczny (subskrypcja, „co miesiąc /
+  co rok”) `active` → `ended`, każda faktura rozliczana osobno; bez żadnego
+  dokumentu przez 30 dni od startu (`starts_on`, gdy jest późniejszy niż
+  zatwierdzenie) → `expired` (pętla `hr_lifecycle` od 8:00, dzwonek do autora,
+  potem nowa zgoda) — nic nie kupiono, więc rejestr nie liczy „wiszącej”
+  kwoty. Zatwierdzone przed 0486 dostają rozliczenie w migracji.
 - **Dokumenty** (`approval_documents`): autor albo Finanse wgrywają PDF/JPG/PNG
   do 10 MB (`store.py`, podkatalog `approval_documents/<zgoda>/` — nie e-teczka,
   bo to papier firmy). Odczyt kwoty, waluty, NIP-u i sprzedawcy robi model

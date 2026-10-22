@@ -186,6 +186,13 @@ def _add_year(day: date) -> date:
         return day.replace(year=day.year + 1, day=28)
 
 
+def expiry(request: ApprovalRequest) -> Optional[date]:
+    """Termin wygaśnięcia do pokazania — zgoda „raz” go nie ma (22.10.2026),
+    choć zgody sprzed decyzji niosą jeszcze datę z backfillu."""
+
+    return None if request.recurrence == "once" else request.expires_on
+
+
 async def on_approved(db: AsyncSession, request: ApprovalRequest, actor: User) -> None:
     """Rozliczenie, Historia klienta i obecność po zatwierdzeniu wydatku."""
 
@@ -193,10 +200,15 @@ async def on_approved(db: AsyncSession, request: ApprovalRequest, actor: User) -
         return
     today = business_today()
     request.settlement_status = "open" if request.recurrence == "once" else "active"
-    # Wydatek cykliczny ze startem w przyszłości (subskrypcja od stycznia)
-    # liczy 30 dni od startu — inaczej wygasałby, zanim przyjdzie pierwsza faktura.
-    start = request.starts_on if request.recurrence != "once" else None
-    request.expires_on = max(today, start or today) + timedelta(days=EXPIRY_DAYS)
+    # Wydatek jednorazowy bez dokumentu nie wygasa (decyzja Artura 22.10.2026):
+    # delegacja czy szkolenie za dwa miesiące rozliczają się po wydarzeniu.
+    # Cykliczny ze startem w przyszłości (subskrypcja od stycznia) liczy 30 dni
+    # od startu — inaczej wygasałby, zanim przyjdzie pierwsza faktura.
+    if request.recurrence == "once":
+        request.expires_on = None
+    else:
+        start = request.starts_on or today
+        request.expires_on = max(today, start) + timedelta(days=EXPIRY_DAYS)
     if request.recurrence == "yearly":
         request.renews_on = first_renewal(request.starts_on, today)
     await db.flush()
@@ -1296,7 +1308,11 @@ async def upcoming_renewals(db: AsyncSession, today: date) -> list[ApprovalReque
 
 
 async def expire_stale(db: AsyncSession, today: date) -> int:
-    """Zgoda bez żadnego dokumentu po 30 dniach od zatwierdzenia → ``expired``."""
+    """Zgoda cykliczna bez żadnego dokumentu po 30 dniach → ``expired``.
+
+    Zgoda „raz” nie wygasa (decyzja Artura 22.10.2026) — warunek na
+    ``recurrence``, bo zgody sprzed decyzji mają ``expires_on`` z backfillu.
+    """
 
     has_doc = exists().where(
         ApprovalDocument.approval_request_id == ApprovalRequest.id,
@@ -1306,6 +1322,7 @@ async def expire_stale(db: AsyncSession, today: date) -> int:
         update(ApprovalRequest)
         .where(
             ApprovalRequest.settlement_status.in_(("open", "active")),
+            ApprovalRequest.recurrence != "once",
             ApprovalRequest.expires_on < today,
             ~has_doc,
         )

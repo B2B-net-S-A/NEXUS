@@ -216,9 +216,12 @@ function AwaitingList({ rows }: { rows: ExpenseRequestRow[] }) {
               <span className="text-muted-foreground"> · {row.kind_label} · {row.requester_name ?? "—"}</span>
             </span>
             <span className="tabular-nums text-foreground">{row.amount_text}</span>
-            <span className="text-xs text-muted-foreground">
-              wygasa {row.expires_on ? formatIsoDatePl(row.expires_on) : "—"}
-            </span>
+            {/* Zgoda „raz” nie wygasa (decyzja Artura 22.10.2026) — serwer nie podaje terminu. */}
+            {row.expires_on ? (
+              <span className="text-xs text-muted-foreground">
+                wygasa {formatIsoDatePl(row.expires_on)}
+              </span>
+            ) : null}
           </li>
         ))}
       </ul>
