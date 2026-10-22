@@ -45,7 +45,7 @@ services:
       - -c
       - shared_preload_libraries=pg_stat_statements
     environment:
-      POSTGRES_USER: nexus
+      POSTGRES_USER: ${POSTGRES_USER:-nexus}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required (.env.staging.local)}
       POSTGRES_DB: nexus
     volumes:
@@ -112,7 +112,7 @@ services:
       - .env.staging.local
     environment:
       NEXUS_ENV: staging
-      DATABASE_URL: postgresql+asyncpg://nexus:${POSTGRES_PASSWORD}@postgres:5432/nexus
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/nexus
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
       CORS_ORIGINS: '["http://localhost:3100"]'
