@@ -13,7 +13,7 @@
  */
 
 import * as React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, CircleSlash, GitCompare, UserPlus } from "lucide-react";
 
@@ -143,6 +143,9 @@ export function SimilarCandidatesTab({
   const [compareId, setCompareId] = useState<number | null>(null);
   const [assignIds, setAssignIds] = useState<number[] | null>(null);
   const dictionary = useSkillDictionary();
+  // Zaznaczenie dotyczy wczytanej listy — po zmianie filtrów osoby mogą z niej
+  // zniknąć, a „Przypisz zaznaczonych” nie może po cichu wziąć mniej osób.
+  useEffect(() => setSelected(new Set()), [filters]);
 
   const listQuery = useInfiniteQuery({
     queryKey: ["candidate-similar", candidateId, filters],
@@ -211,10 +214,13 @@ export function SimilarCandidatesTab({
     return first?.critical.map((c) => c.label) ?? [];
   }, [checkQuery.data]);
 
+  // „Tylko spełniający” działa wyłącznie na udanym sprawdzeniu rekrutacji
+  // z krytycznymi — bez wyniku nie udaje przefiltrowanej listy.
+  const canFilterMeeting = checkQuery.isSuccess && criticalLabels.length > 0;
   const rows = useMemo(() => {
-    if (!onlyMeeting || !checkQuery.data) return items;
+    if (!onlyMeeting || !canFilterMeeting || !checkQuery.data) return items;
     return items.filter((c) => checkVerdict(checkQuery.data.get(c.id))?.kind === "met");
-  }, [items, onlyMeeting, checkQuery.data]);
+  }, [items, onlyMeeting, canFilterMeeting, checkQuery.data]);
 
   const toggle = (id: number, on: boolean) =>
     setSelected((prev) => {
@@ -250,7 +256,7 @@ export function SimilarCandidatesTab({
             value={checkJobId == null ? "none" : String(checkJobId)}
             onValueChange={(value) => {
               setCheckJobId(value === "none" ? null : Number(value));
-              if (value === "none") setOnlyMeeting(false);
+              setOnlyMeeting(false);
             }}
           >
             <SelectTrigger id="similar-check-job" className="h-9 w-64 max-w-full [&>span]:truncate">
@@ -287,10 +293,18 @@ export function SimilarCandidatesTab({
               ? `Krytyczne: ${criticalLabels.join(", ")}`
               : checkQuery.isSuccess
                 ? "Rekrutacja nie ma umiejętności krytycznych"
-                : "Sprawdzam…"}
+                : checkQuery.isError
+                  ? null
+                  : "Sprawdzam…"}
           </span>
           <span className="text-muted-foreground">Kolejność bez zmian — najbardziej podobni na górze.</span>
         </div>
+      ) : null}
+      {checkJob && checkQuery.isError ? (
+        <SectionError
+          title="Nie udało się sprawdzić umiejętności krytycznych tej rekrutacji."
+          onRetry={() => void checkQuery.refetch()}
+        />
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filtry podobnych">
@@ -306,7 +320,7 @@ export function SimilarCandidatesTab({
         >
           Bez osób w procesie
         </FilterToggle>
-        {checkJobId != null ? (
+        {canFilterMeeting ? (
           <FilterToggle on={onlyMeeting} onChange={setOnlyMeeting}>
             Tylko spełniający krytyczne
           </FilterToggle>

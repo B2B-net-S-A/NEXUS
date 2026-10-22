@@ -9,8 +9,11 @@ wariant C — osobna zakładka; warianty A, B i D odrzucone).
   Obok stoi dowód do sprawdzenia przez rekrutera: wspólne umiejętności
   (`candidate_known_skill_names`, bez tagów) i porównanie dwóch kolumn.
   Stopień „Bardzo podobny / Podobny / Częściowo podobny” to progi kosinusa
-  (`VERY_SIMILAR_MIN`, `SIMILAR_MIN` w `services/similar_candidates.py`) — zmiana
-  progu zmienia podpis, nie kolejność; przed zmianą zmierz na danych z produkcji.
+  (`VERY_SIMILAR_MIN` 0,78, `SIMILAR_MIN` 0,73 w `services/similar_candidates.py`,
+  pomiar 22.10.2026: 68 924 wektory, 80 osób × 20 najbliższych — mediana 0,73, p90 0,79,
+  0,78 ≈ górne 13%). Zmiana progu zmienia podpis, nie kolejność; przed zmianą zmierz
+  ponownie. Kosinus ≥ 0,90 miało 5,6% par — możliwe duplikaty tej samej osoby
+  (niepotwierdzone, nazwisk nie porównywano).
   Podpis mówi o profilu („Bardzo podobny profil”), żeby nie zgadywać rodzaju z imienia.
 - **„Sprawdź pod rekrutację” to nakładka, nie sortowanie.** Wynik przy wierszu
   (spełnia krytyczne X/Y, brak krytycznej, już w tej rekrutacji) + dopasowanie z

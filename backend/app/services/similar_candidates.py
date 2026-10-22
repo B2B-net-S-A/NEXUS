@@ -34,10 +34,12 @@ from app.services.scoring_service import (
 #: Ilu najbliższych pytamy Qdranta; filtry zakładki działają w tej puli.
 POOL_SIZE = 200
 PAGE_MAX = 50
-#: Progi stopni podobieństwa (kosinus). Do potwierdzenia pomiarem na danych
-#: z produkcji — zmiana progu nie zmienia kolejności, tylko podpis.
-VERY_SIMILAR_MIN = 0.80
-SIMILAR_MIN = 0.70
+#: Progi stopni podobieństwa (kosinus) z pomiaru na produkcji 22.10.2026:
+#: 68 924 wektory, 80 losowych osób × 20 najbliższych. Kosinus jest ściśnięty
+#: (p25 0,70 · mediana 0,73 · p90 0,79), więc 0,78 ≈ górne 13% sąsiadów,
+#: 0,73 = mediana. Zmiana progu nie zmienia kolejności, tylko podpis.
+VERY_SIMILAR_MIN = 0.78
+SIMILAR_MIN = 0.73
 #: Ile umiejętności „tylko u jednego” pokazuje porównanie.
 ONLY_SKILLS_CAP = 12
 
