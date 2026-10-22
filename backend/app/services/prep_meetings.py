@@ -198,6 +198,30 @@ async def active_prep(
     return await db.scalar(q.order_by(PrepMeeting.id.desc()).limit(1))
 
 
+async def organizer_prep_spans(
+    db: AsyncSession, *, organizer_id: int, start: datetime, end: datetime
+) -> list[tuple[datetime, datetime]]:
+    """Nieodwołane prepy prowadzącego w NEXUSIE, które nachodzą na [start, end).
+
+    Kontrola zajętości przy zapisie prepu pomija blok z Outlooka o tym samym
+    przedziale (sierota z poprzedniej próby), więc prep innego kandydata
+    w tej samej godzinie trzeba znać z bazy (audyt 22.10, F32).
+    """
+    rows = (
+        await db.execute(
+            select(CalendarEvent.start_time, CalendarEvent.end_time)
+            .join(PrepMeeting, PrepMeeting.calendar_event_id == CalendarEvent.id)
+            .where(
+                PrepMeeting.organizer_user_id == organizer_id,
+                CalendarEvent.status != EventStatus.cancelled,
+                CalendarEvent.start_time < end,
+                CalendarEvent.end_time > start,
+            )
+        )
+    ).all()
+    return [(_utc(s), _utc(e)) for s, e in rows if s is not None and e is not None]
+
+
 async def already_scheduled_message(db: AsyncSession, prep: PrepMeeting) -> str:
     """Zdanie dla 409: kiedy jest istniejący prep i czy wypada po rozmowie."""
     start = await db.scalar(

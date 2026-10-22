@@ -616,14 +616,20 @@ async def create_prep(
     # Kalendarz prowadzącego jeszcze raz tuż przed zapisem (22.10.2026): między
     # otwarciem okna a kliknięciem godzinę mógł zająć ktoś inny, a godzina
     # wpisana ręcznie mogła od początku wpadać na „zajęte”.
-    clash = None
+    nexus_preps = await prep_meetings.organizer_prep_spans(
+        db, organizer_id=organizer.id, start=body.start, end=body.end
+    )
+    blocks: dict = {}
     if organizer.email:
         blocks = await prep_availability.busy_blocks(
             [organizer.email], start=body.start, end=body.end
         )
-        clash = prep_availability.busy_overlap(
-            body.start, body.end, blocks.get(organizer.email.strip().lower())
-        )
+    clash = prep_availability.busy_overlap(
+        body.start,
+        body.end,
+        blocks.get((organizer.email or "").strip().lower()),
+        nexus_preps=nexus_preps,
+    )
     if clash is not None and not body.accept_busy:
         raise HTTPException(
             status_code=409,

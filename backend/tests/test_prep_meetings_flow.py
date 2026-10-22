@@ -336,6 +336,47 @@ async def test_retry_is_not_busy_with_its_own_orphan_meeting(
     assert resp.status_code == 201, resp.text
 
 
+async def test_other_prep_of_the_same_organizer_at_the_same_time_is_busy(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Audyt 22.10, F32: dwóch rekruterów klika tę samą podpowiedź dla
+    różnych kandydatów u tego samego DL — drugi zapis to kolizja (409),
+    choć w kalendarzu blok ma ten sam początek i koniec co nowy prep."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_a, cand_a = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    job_b, cand_b = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        dl_email = (await db.get(User, dl_id)).email.lower()
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=24)
+    end = start + timedelta(minutes=45)
+    first = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_a,
+        job_id=job_a,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=start.isoformat(),
+        end=end.isoformat(),
+    )
+    assert first.status_code == 201, first.text
+    # Outlook DL ma teraz prep kandydata A dokładnie w tym przedziale.
+    graph.busy[dl_email] = [(start, end)]
+    second = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_b,
+        job_id=job_b,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=start.isoformat(),
+        end=end.isoformat(),
+    )
+    assert second.status_code == 409, second.text
+    assert second.json()["detail"]["code"] == "PREP_SLOT_BUSY"
+
+
 async def test_unknown_or_free_calendar_saves_without_accept_busy(
     app_client: AsyncClient, graph: FakeGraph
 ):

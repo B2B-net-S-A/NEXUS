@@ -157,7 +157,9 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
   pokazuje wtedy „Zapisz mimo to”. Kalendarz nieznany (spoza grupy, błąd
   Grapha) niczego nie blokuje. Blok o tym samym początku i końcu co prep
   (±1 min) się nie liczy — to sierota z poprzedniej próby z tym samym
-  `client_request_id`. „Zapisz mimo to” znika po zmianie terminu, długości
+  `client_request_id`. Prep tego prowadzącego zapisany w NEXUSIE liczy się
+  zawsze, także w identycznym przedziale (`organizer_prep_spans`; audyt
+  22.10, F32: dwóch rekruterów o tę samą podpowiedź dla różnych kandydatów). „Zapisz mimo to” znika po zmianie terminu, długości
   albo prowadzącego. Zmiana terminu (`PATCH`) bez tej kontroli.
 - **`suggestions` niesie `busy`** — zajęte bloki prowadzącego od teraz do
   rozmowy (tylko „zajęte/wolne”, bez tytułów; to samo `getSchedule`, bez

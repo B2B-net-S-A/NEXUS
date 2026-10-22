@@ -142,6 +142,18 @@ def test_busy_overlap_ignores_the_prep_itself_from_an_earlier_attempt():
     assert pa.busy_overlap(own[0], own[1], [own, other]) == other
 
 
+def test_busy_overlap_counts_another_nexus_prep_even_with_the_same_span():
+    """Audyt 22.10, F32: prep innego kandydata u tego samego prowadzącego
+    w identycznym przedziale to kolizja, nie „sierota z poprzedniej próby”."""
+    span = (_at_waw(10), _at_waw(10, 45))
+    assert pa.busy_overlap(span[0], span[1], [span], nexus_preps=[span]) == span
+    # Kalendarz nieznany, ale NEXUS wie o prepie prowadzącego.
+    assert pa.busy_overlap(span[0], span[1], None, nexus_preps=[span]) == span
+    # Prep NEXUS obok — bez kolizji.
+    later = (_at_waw(10, 45), _at_waw(11, 30))
+    assert pa.busy_overlap(span[0], span[1], [span], nexus_preps=[later]) is None
+
+
 def test_busy_overlap_unknown_calendar_is_never_a_clash():
     assert pa.busy_overlap(_at_waw(11), _at_waw(11, 45), None) is None
 
