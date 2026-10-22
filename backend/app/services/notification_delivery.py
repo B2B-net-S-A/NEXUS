@@ -103,6 +103,59 @@ CATALOG = (
         trigger="Ktoś (albo automat przydziału) przypisał Cię do prowadzenia rekrutacji.",
         recipient_rule="Nowo przypisana osoba; bez maila do osoby, która przypisała samą siebie.",
     ),
+    # Maile natychmiast (22.10.2026, „brak maila o terminach rozmów”) — typy
+    # dzwonka z `BELL_MAIL_TYPES`, treść = tytuł i opis wpisu w dzwonku.
+    dict(
+        id="client_interview",
+        label="Rozmowy u klienta",
+        module="Rekrutacje",
+        trigger="Terminy od klienta do ustalenia z kandydatem, kandydat wybrał termin, "
+        "termin potwierdzony u klienta albo zmieniony, rozmowa przełożona albo "
+        "odwołana, zapisany debrief; 15 minut po rozmowie — prośba o telefon do kandydata.",
+        recipient_rule="Rekruter kandydata, Delivery Lead rekrutacji i właściciel "
+        "wydarzenia w kalendarzu — każdy przy kroku, który na niego czeka; bez autora zmiany.",
+    ),
+    dict(
+        id="prep_change",
+        label="Prep: odmowa albo zmiana terminu",
+        module="Rekrutacje",
+        trigger="Kandydat odmówił prepu albo proponuje inny termin; ktoś z pary "
+        "przełożył prep w Twoim kalendarzu.",
+        recipient_rule="Prowadzący prep (osoba, w której kalendarzu stoi spotkanie).",
+    ),
+    dict(
+        id="client_accepted",
+        label="Klient zaakceptował kandydata",
+        module="Rekrutacje",
+        trigger="Karta weszła na etap „Akceptacja” — dalej oferta i umowa.",
+        recipient_rule="Rekruter kandydata, prowadzący, Delivery Lead rekrutacji "
+        "i Head of Recruitment, bez osoby, która zaznaczyła akceptację.",
+    ),
+    dict(
+        id="pre_contract",
+        label="Umowa przedwstępna",
+        module="Rekrutacje",
+        trigger="Prośba o umowę przedwstępną, wystawienie, podpisy, wygasanie, "
+        "rezygnacja kandydata i termin umowy B2B.",
+        recipient_rule="Wystawiający i osoby, które o umowę poprosiły albo ją "
+        "obserwują; bez autora zmiany.",
+    ),
+    dict(
+        id="team_task",
+        label="Zadania od zespołu",
+        module="Rekrutacje",
+        trigger="Ktoś wytypował Cię do wysłania osoby do Cpro, odpowiedział na "
+        "Twoją notatkę albo przejął Twoją osobę w „Nowych”.",
+        recipient_rule="Wytypowana osoba, autor notatki, rekruter, któremu przejęto kartę.",
+    ),
+    dict(
+        id="hire_documents",
+        label="Zatrudniony bez zamówienia albo umowy",
+        module="Klienci i umowy",
+        trigger="Podpis umowy przeniósł osobę na „Zatrudniony”, a od klienta nie ma "
+        "zamówienia; ręczne „Potwierdź zatrudnienie” bez umowy w Kontraktach.",
+        recipient_rule="Brak zamówienia — Finanse; brak umowy — Delivery Leadzi klienta.",
+    ),
     dict(
         id="signature_request",
         label="Prośba o potwierdzenie podpisu umowy",
@@ -299,9 +352,31 @@ HR_MAIL_TYPES: tuple[str, ...] = (
 )
 
 
+# Rodzaj maila → typy dzwonka, które idą nim od razu (22.10.2026). Bez
+# przypomnienia 15 min przed wydarzeniem (`interview_scheduled` — mail
+# przyszedłby za późno), bez ponagleń po rozmowie (`post_interview_t45`,
+# eskalacja) i bez zmiany prepu u kogoś innego z pary (`prep_changed`).
+BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
+    "client_interview": (
+        "interview_slots_requested",
+        "interview_slot_chosen",
+        "interview_slot_confirmed",
+        "interview_changed",
+        "interview_debrief_saved",
+        "post_interview_t15",
+    ),
+    "prep_change": ("prep_candidate_declined", "prep_changed_yours"),
+    "client_accepted": ("client_accepted",),
+    "pre_contract": ("pre_contract",),
+    "team_task": ("cpro_send_assigned", "note_reply", "candidate_claim_taken"),
+    "hire_documents": ("hired_order_missing", "hire_missing_contract"),
+}
+
+
 def notification_kind(notification_type: Any) -> str | None:
     return {
         **dict.fromkeys(HR_MAIL_TYPES, HR_MAIL_KIND),
+        **{t: kind for kind, types in BELL_MAIL_TYPES.items() for t in types},
         "job_chat_message": "chat_unread",
         "job_chat_mention": "chat_unread",
         "note_mention": "mentions",
@@ -392,6 +467,7 @@ IMMEDIATE_KINDS = (
     "system_failure",
     "data_access_alert",
     HR_MAIL_KIND,
+    *BELL_MAIL_TYPES,
 )
 
 

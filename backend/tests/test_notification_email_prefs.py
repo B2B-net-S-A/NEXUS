@@ -164,6 +164,11 @@ def test_recruiter_sees_recruiter_emails_and_not_delivery_or_reports():
         "chat_unread",
         "job_deadline",
         "pipeline_stage",
+        "client_interview",
+        "client_accepted",
+        "pre_contract",
+        "prep_change",
+        "team_task",
     } <= applies
     assert not applies & {
         "dl_review",
@@ -172,6 +177,7 @@ def test_recruiter_sees_recruiter_emails_and_not_delivery_or_reports():
         "system_failure",
         "kpi_weekly_report",
         "board_monthly_report",
+        "hire_documents",
     }
 
 
@@ -184,7 +190,14 @@ def test_cpro_sender_gets_the_review_email_without_the_delivery_lead_role():
 
 def test_delivery_lead_admin_head_and_finance_get_their_own_emails():
     lead = _applies(_user(UserRole.delivery_lead))
-    assert {"dl_review", "rate_change", "delivery_alert", "signature_request"} <= lead
+    assert {
+        "dl_review",
+        "rate_change",
+        "delivery_alert",
+        "signature_request",
+        "client_interview",
+        "hire_documents",
+    } <= lead
     assert "system_failure" not in lead
 
     admin = _applies(_user(UserRole.admin))
@@ -197,7 +210,7 @@ def test_delivery_lead_admin_head_and_finance_get_their_own_emails():
     assert "board_monthly_report" not in head
 
     finance = _applies(_user(UserRole.finance))
-    assert {"daily_digest", "board_monthly_report"} <= finance
+    assert {"daily_digest", "board_monthly_report", "hire_documents"} <= finance
     # Czat nie wysyła maili kontom Finansów (lustro `chat_email_fallback`).
     assert "chat_unread" not in finance
 
@@ -253,6 +266,7 @@ def test_bell_types_behind_emails_sit_in_mutable_categories():
         "pipeline_stage": NotificationCategory.pipeline,
         "job_deadline": NotificationCategory.deadlines,
         "hr_people": NotificationCategory.people,
+        "hire_documents": NotificationCategory.contracts,
     }
     for kind, bell_type in prefs.BELL_TYPE_BY_KIND.items():
         assert bell_type in types_in(expected[kind])

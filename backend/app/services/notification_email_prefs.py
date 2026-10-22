@@ -79,6 +79,7 @@ BELL_TYPE_BY_KIND: dict[str, NotificationType] = {
     "pipeline_stage": NotificationType.stage_rule,
     "job_deadline": NotificationType.job_deadline_7d,
     HR_MAIL_KIND: NotificationType.hr_leave_decided,
+    "hire_documents": NotificationType.hire_missing_contract,
 }
 
 
@@ -206,6 +207,28 @@ def _hr_people(user: User, ctx: _Context) -> bool:
     ) and user_may_receive_type(user, NotificationType.hr_leave_decided)
 
 
+def _candidate_bell(ntype: NotificationType) -> Callable[[User, _Context], bool]:
+    # Rozmowy, prepy, akceptacje i zadania od zespołu: odbiorcę wybiera para
+    # osoba–rekrutacja, nie rola — mail może trafić do każdego konta z dostępem
+    # do kandydatów.
+    def applies(user: User, _: _Context) -> bool:
+        return user_can_access_candidate_domain(user) and user_may_receive_type(
+            user, ntype
+        )
+
+    return applies
+
+
+def _hire_documents(user: User, _: _Context) -> bool:
+    return (
+        user.has_role(UserRole.finance)
+        and user_may_receive_type(user, NotificationType.hired_order_missing)
+    ) or (
+        user.has_role(UserRole.delivery_lead)
+        and user_may_receive_type(user, NotificationType.hire_missing_contract)
+    )
+
+
 def _board_monthly(user: User, _: _Context) -> bool:
     return has_permission(user, ProductAction.finance_module) and _section_read(
         user, ProductSection.insights
@@ -227,6 +250,12 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "signature_request": _signature_request,
     "system_failure": _system_failure,
     "data_access_alert": _data_access_alert,
+    "client_interview": _candidate_bell(NotificationType.interview_slot_confirmed),
+    "prep_change": _candidate_bell(NotificationType.prep_changed_yours),
+    "client_accepted": _candidate_bell(NotificationType.client_accepted),
+    "pre_contract": _candidate_bell(NotificationType.pre_contract),
+    "team_task": _candidate_bell(NotificationType.note_reply),
+    "hire_documents": _hire_documents,
     HR_MAIL_KIND: _hr_people,
     DIGEST_KIND: _digest,
     "kpi_weekly_report": _kpi_weekly,
