@@ -310,7 +310,8 @@ async def test_finance_edits_a_contract_but_cannot_change_its_status(
 async def test_tcm_with_granted_contract_editing_works_without_amounts(
     app_client: AsyncClient,
 ) -> None:
-    """„Kontrakty i zamówienia: tworzenie i edycja” nie daje kwot ani plików."""
+    """„Kontrakty i zamówienia: tworzenie i edycja” nie daje kwot ani odczytu
+    plików — dodanie pliku tak (zgłoszenie 22.10.2026)."""
 
     tcm, tcm_id = await _account(app_client, "talent_community_manager")
     await grant_permissions(tcm_id, "contracts_orders_edit")
@@ -358,7 +359,8 @@ async def test_tcm_with_granted_contract_editing_works_without_amounts(
 
     # Szkic i pliki mogą nieść stawki, a ich treści nie da się zredagować —
     # bez „Stawki i kwoty: podgląd” nie ma do nich dostępu także przy prawie
-    # edycji kontraktu. Odczyt odmawia bramka trasy, zapis — handler.
+    # edycji kontraktu. Odczyt odmawia bramka trasy, zapis szkicu — handler.
+    # Dodanie pliku niczego nie odsłania, więc przechodzi (22.10.2026).
     listing = await app_client.get(
         f"/api/contracts/{contract_id}/documents", headers=tcm
     )
@@ -378,7 +380,12 @@ async def test_tcm_with_granted_contract_editing_works_without_amounts(
         headers=tcm,
         files={"file": ("umowa.pdf", b"%PDF-1.4\n% test\n", "application/pdf")},
     )
-    _assert_denied(upload, "amounts_view")
+    assert upload.status_code == 201, upload.text
+    uploaded_download = await app_client.get(
+        f"/api/contracts/{contract_id}/documents/{upload.json()['id']}/download",
+        headers=tcm,
+    )
+    _assert_denied(uploaded_download, "amounts_view")
 
     stored = await _stored(contract_id)
     assert stored.rate_client is None
