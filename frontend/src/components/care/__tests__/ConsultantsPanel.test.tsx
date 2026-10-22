@@ -281,6 +281,18 @@ describe("ConsultantsPanel", () => {
     expect(onOpenAnnouncement).toHaveBeenCalledWith(77);
   });
 
+  it("opiekun hurtem: awaria listy opiekunów to komunikat, nie pusta lista (audyt 22.10, F89)", async () => {
+    const user = userEvent.setup();
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url === "/api/care/owners") throw httpError(500);
+      return { data: payload([row({})]) };
+    });
+    renderPanel({ canAssign: true });
+    await user.click(await screen.findByRole("checkbox", { name: "Zaznacz: Ewa Przykładowa" }));
+    expect(await screen.findByText(/Nie udało się wczytać listy opiekunów/)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Nowy opiekun zaznaczonych" })).toBeNull();
+  });
+
   it("bez prawa do komunikatów i przydziału nie ma zaznaczania", async () => {
     mocks.get.mockResolvedValue({ data: payload([row({})]) });
     renderPanel();

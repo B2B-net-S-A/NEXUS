@@ -368,18 +368,25 @@ export function ConsultantsPanel({
           ) : null}
           {canAssign ? (
             <>
-              <Select value={ownerId} onValueChange={setOwnerId}>
-                <SelectTrigger aria-label="Nowy opiekun zaznaczonych" className="h-8 w-52">
-                  <SelectValue placeholder="Zmień opiekuna na…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(owners.data ?? []).map((owner) => (
-                    <SelectItem key={owner.id} value={String(owner.id)}>
-                      {owner.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {owners.isError ? (
+                // Awaria listy opiekunów nie może wyglądać jak pusta lista (audyt 22.10, F89).
+                <span className="text-xs text-destructive">
+                  {apiErrorMessage(owners.error, "Nie udało się wczytać listy opiekunów.")}
+                </span>
+              ) : (
+                <Select value={ownerId} onValueChange={setOwnerId}>
+                  <SelectTrigger aria-label="Nowy opiekun zaznaczonych" className="h-8 w-52">
+                    <SelectValue placeholder="Zmień opiekuna na…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(owners.data ?? []).map((owner) => (
+                      <SelectItem key={owner.id} value={String(owner.id)}>
+                        {owner.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Select value={reason} onValueChange={(value) => setReason(value as OwnerReason)}>
                 <SelectTrigger aria-label="Powód zmiany opiekuna" className="h-8 w-56">
                   <SelectValue placeholder="Powód…" />
