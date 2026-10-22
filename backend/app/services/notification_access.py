@@ -51,7 +51,7 @@ ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
     {NotificationType.ai_spend_alert, NotificationType.automation_failing}
 )
 
-# 0507: alarm o masowym przeglądaniu CV — admin i Head of Recruitment (rola
+# 0508: alarm o masowym przeglądaniu CV — admin i Head of Recruitment (rola
 # główna albo dodatkowa), niezależnie od sekcji (decyzja Artura 22.10.2026).
 HEAD_OF_RECRUITMENT_ALERT_TYPES: frozenset[NotificationType] = frozenset(
     {NotificationType.candidate_data_access_alert}

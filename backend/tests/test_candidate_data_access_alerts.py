@@ -1,4 +1,4 @@
-"""Alarm o masowym przeglądaniu CV (0507, 22.10.2026) — reguły bez bazy.
+"""Alarm o masowym przeglądaniu CV (0508, 22.10.2026) — reguły bez bazy.
 
 Progi z ruchu produkcji (30 dni do 22.10.2026): 99. percentyl rekruterów
 33 kandydatów w godzinę, na dysk najwyżej 20 plików dziennie. Juniorzy
@@ -179,7 +179,7 @@ def test_mail_applies_to_admin_and_head_of_recruitment_only() -> None:
 
 def test_new_type_is_mirrored_in_entrypoint() -> None:
     source = (
-        BACKEND / "alembic" / "versions" / "0507_candidate_data_access_alert.py"
+        BACKEND / "alembic" / "versions" / "0508_candidate_data_access_alert.py"
     ).read_text(encoding="utf-8")
     assert "'candidate_data_access_alert'" in source
     entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")

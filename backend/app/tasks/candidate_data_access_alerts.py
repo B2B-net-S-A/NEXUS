@@ -1,4 +1,4 @@
-"""Pętla alarmu o masowym przeglądaniu CV (0507) — reguły w ``services``."""
+"""Pętla alarmu o masowym przeglądaniu CV (0508) — reguły w ``services``."""
 
 from __future__ import annotations
 
