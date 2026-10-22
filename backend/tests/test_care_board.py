@@ -695,3 +695,30 @@ async def test_saved_feedback_ends_life_of_feedback_card_state(
 
     async with AsyncSessionLocal() as db:
         assert await board_state.states_for(db, [key]) == {}
+
+
+async def test_clients_mine_counts_lead_of_a_merged_duplicate(
+    app_client, care_on
+) -> None:
+    """Audyt 22.10, F81: DL przypisany tylko do scalonego duplikatu ma klienta
+    kanonicznego w „Klienci → Moi”, tak jak na tablicy i w portfelu DL."""
+
+    from app.models.client import Client
+
+    dl = await make_user(UserRole.delivery_lead)
+    canonical_id = await make_client()
+    duplicate_id = await make_client(dl=dl)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Client)
+            .where(Client.id == duplicate_id)
+            .values(merged_into_client_id=canonical_id)
+        )
+        await db.commit()
+    await make_contract(canonical_id, started_days_ago=30)
+
+    resp = await app_client.get("/api/care/clients?scope=mine", headers=headers(dl))
+    assert resp.status_code == 200, resp.text
+    row = next((r for r in resp.json()["rows"] if r["client_id"] == canonical_id), None)
+    assert row is not None
+    assert row["delivery_leads"] == [dl.name]
