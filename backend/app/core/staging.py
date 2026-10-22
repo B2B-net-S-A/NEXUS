@@ -135,6 +135,7 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "candidate_contact_traffit",
         "candidate_auto_match",
         "auto_full_review",
+        "new_column_autofill",
         "index_drift_reconciler",
         "priority_work",
         "workforce_availability",

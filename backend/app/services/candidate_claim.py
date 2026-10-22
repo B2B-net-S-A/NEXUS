@@ -55,6 +55,9 @@ ENTRY_PROPOSAL = "proposal"
 ENTRY_REASSIGN = "reassign"
 ENTRY_AUTO_MATCH = "auto_match"
 ENTRY_IMPORT = "import"
+# 0514 (23.10.2026): silnik dopełniania „Nowych” — bez blokady 12 h, osobę
+# bierze pierwszy, kto ją ruszy (`services/new_column_autofill.py`).
+ENTRY_SYSTEM = "system"
 # Wejścia, w których osobę do rekrutacji dodał człowiek — tylko one zamykają
 # jej propozycję jako ``added`` (audyt 06.10.2026 R5, decyzja 07.10.2026).
 HUMAN_ENTRY_SOURCES = frozenset({ENTRY_ADDED_MANUAL, ENTRY_PROPOSAL, ENTRY_REASSIGN})
@@ -66,6 +69,7 @@ ENTRY_SOURCES = frozenset(
         ENTRY_REASSIGN,
         ENTRY_AUTO_MATCH,
         ENTRY_IMPORT,
+        ENTRY_SYSTEM,
     }
 )
 

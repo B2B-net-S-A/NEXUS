@@ -579,6 +579,12 @@ class Settings(BaseSettings):
     AUTO_FULL_REVIEW_INTERVAL_SECONDS: int = 60
     # Zdarzenia rekrutacji starsze niż tyle dni nie uruchamiają przeglądu.
     AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS: int = 14
+    # Silnik „System trzyma Nowych na 20” (decyzje Artura 23.10.2026,
+    # `services/new_column_autofill.py`): w dni robocze 7–19 dopełnia kolumnę
+    # „Nowi” każdej rekrutacji w pracy osobami z puli nocnego przeglądu.
+    # False = pętla kończy się przed startem (stan sprzed 23.10).
+    NEW_COLUMN_AUTOFILL_ENABLED: bool = False
+    NEW_COLUMN_AUTOFILL_INTERVAL_SECONDS: int = 60
 
     # ── Auto-CV po ruchu na „Zweryfikowany" (21.09.2026) ─────────────────────
     # Po commicie pojedynczego ruchu na etap „Zweryfikowany" system w tle

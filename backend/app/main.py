@@ -809,6 +809,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.candidate_auto_match import candidate_auto_match_loop
     from app.tasks.auto_full_review import auto_full_review_loop
+    from app.tasks.new_column_autofill import new_column_autofill_loop
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
@@ -998,6 +999,9 @@ async def lifespan(app: FastAPI):
         "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),
         # 21.09.2026: nocny automatyczny pełny przegląd bazy → „Propozycje".
         "auto_full_review": asyncio.create_task(auto_full_review_loop()),
+        # 23.10.2026: „System trzyma Nowych na 20” — kończy się przed pętlą
+        # przy NEW_COLUMN_AUTOFILL_ENABLED=false.
+        "new_column_autofill": asyncio.create_task(new_column_autofill_loop()),
         "index_drift_reconciler": asyncio.create_task(index_drift_reconciler_loop()),
         "priority_work": asyncio.create_task(priority_work_loop()),
         "workforce_availability": asyncio.create_task(availability_loop()),

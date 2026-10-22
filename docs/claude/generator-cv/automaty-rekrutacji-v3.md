@@ -4,7 +4,8 @@ Cztery automaty, wszystkie WŁĄCZONE domyślnie, każdy za wyłącznikiem env,
 którego stan OFF = zachowanie sprzed 21.09. **Nic zewnętrznego ani
 nieodwracalnego nie dzieje się bez kliknięcia człowieka**: żaden automat nie
 wysyła nic do klienta, nie przesuwa karty i nie dodaje nikogo do pipeline'u
-(wyjątek: jawnie ustawione `AUTO_MATCH_MODE=add`). Zdarzenia automatów lądują
+(wyjątki: jawnie ustawione `AUTO_MATCH_MODE=add` i automat E — dopełnianie
+„Nowych”, decyzja Artura 23.10.2026). Zdarzenia automatów lądują
 w `Activity(entity_type="job_automation", entity_id=<job_id>)` — osobny typ
 encji, żeby nie mieszać się z historią rekrutacji — i czyta je
 `GET /api/jobs/{id}/background-events` (zakładka „Praca w tle", bramka jak
@@ -17,6 +18,27 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
 | B. nowe CV → „Propozycje" (`new_cv`) | `AUTO_MATCH_MODE=dry_run` | `services/auto_match_service.py` |
 | C. auto-CV po ruchu na „Zweryfikowany" — od 21.10.2026 tylko QC istniejącego CV pary, generacja po potwierdzeniu w karcie (`cv-po-potwierdzeniu.md`) | `CV_AUTO_GENERATE_ON_VERIFIED`, `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION` | `services/cv_auto_generate.py` |
 | D. podpowiedź stawki/dostępności w arkuszu screeningu | brak (czysty odczyt) | `services/screening_suggestions.py` |
+| E. „System trzyma Nowych na 20” (23.10.2026) | `NEW_COLUMN_AUTOFILL_ENABLED` (domyślnie OFF) | `services/new_column_autofill.py`, `tasks/new_column_autofill.py` |
+
+- **E. System trzyma „Nowych” na 20 (decyzje Artura 23.10.2026, makiety
+  https://claude.ai/artifact/6qyrJf65QmsQdJteLZWVT2).** Dni robocze 7–19
+  (`is_business_day`): pełny przebieg co 15 min po rekrutacjach w pracy,
+  między nimi co tick (60 s) rekrutacje, w których człowiek ruszył kartę.
+  Brak = `TARGET` (20) − osoby w kolumnie „Nowi” (ta sama reguła kolumny co
+  Tablica; osoby dodane przez zespół też się liczą). Dobiera najlepszych
+  z `job_autofill_pool` (A) i otwartych propozycji `full_base`/`new_cv` —
+  **każdy wynik, także poniżej progu**. Nie dodaje: osób, które kiedykolwiek
+  były w tej rekrutacji, pominiętych propozycji, stojących dziś na
+  „Zatrudniony”, zgłoszeń z portali (`job_board`), każdego z decyzją bramki
+  innej niż „brak przeciwwskazań” (ostrzeżenia zostają człowiekowi) i osób
+  off-limits u klienta. Wejście przez `add_candidates_to_job` z
+  `entry_source="system"` (0514, CHECK + lustro w `entrypoint.sh`),
+  `actor_user_id=None` (puste `moved_by`), `claim=False` — bez blokady 12 h,
+  bierze pierwszy, kto ruszy kartę — i `mark_proposals=False`.
+  `entry_meta.kind="autofill"` to migawka: wynik, `matched_must`,
+  `missing_must`, „Stawka od” (`effective_rate`), dostępność — z niej raport
+  odróżni błąd wyszukiwania od braku danych. Wpis „Praca w tle”
+  `new_column_autofill` (`kind: "autofill"`, `count`).
 
 - **A. Co noc WSZYSTKIE rekrutacje w pracy (decyzja Artura 30.09.2026).**
   Nocna pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w

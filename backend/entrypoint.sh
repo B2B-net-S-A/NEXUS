@@ -9381,7 +9381,7 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT ck_recruitment_processes_entry_source
             CHECK (entry_source IS NULL OR entry_source IN (
                 'added_manual', 'application', 'proposal', 'reassign',
-                'auto_match', 'import'
+                'auto_match', 'import', 'system'
             ));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """DO $$ BEGIN
