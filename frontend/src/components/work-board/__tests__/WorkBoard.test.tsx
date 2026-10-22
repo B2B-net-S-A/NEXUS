@@ -652,6 +652,33 @@ describe("domknięcie makiet 22.10.2026", () => {
     });
   });
 
+  it("zamknięta decyzja w „Zrobione”: „Otwórz ponownie” wraca wpis na „W toku” (audyt 22.10, F107)", async () => {
+    asUser("talent_community_manager");
+    route({
+      cases: { error: 403 },
+      board: {
+        ...board([]),
+        done: {
+          this_week: 2,
+          recent: [
+            { key: "decision:4", kind: "decision", title: "Decyzja: Bartosz Testowy", done_on: TODAY },
+            { key: "contact:conversation:9", kind: "contact", title: "Rozmowa: Paweł Makietowy", done_on: TODAY },
+          ],
+        },
+      },
+    });
+    mocks.apiPatch.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    renderBoard({ scope: "care" }, config(false));
+
+    await user.click(await screen.findByRole("button", { name: "Otwórz ponownie: Decyzja: Bartosz Testowy" }));
+    await waitFor(() =>
+      expect(mocks.apiPatch).toHaveBeenCalledWith("/api/care/redeploy/4", { status: "in_progress" }),
+    );
+    // Zapisana rozmowa nie ma czego otwierać.
+    expect(screen.queryByRole("button", { name: "Otwórz ponownie: Rozmowa: Paweł Makietowy" })).toBeNull();
+  });
+
   it("decyzja „Czeka” zapisuje się bez pytania o datę (czeka na front office)", async () => {
     asUser("talent_community_manager");
     route({

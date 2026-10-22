@@ -17,6 +17,12 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   `structure`, `redeploy`, `review`) prowadzą w nowe miejsca — dzwonki z linkami dalej działają.
   „Do przepięcia” to karty „Decyzja” na tablicy i filtr w Konsultantach; kolejka nazw technologii
   jest w Ustawienia → Słownik umiejętności („Nazwy z rozmów do przejrzenia”).
+- **Zamkniętą decyzję da się cofnąć** (decyzja Artura 22.10.2026, audyt F107): pozycja „Decyzja”
+  w kolumnie „Zrobione” ma „Otwórz ponownie”, a Konsultanci mają chip „Decyzje zamknięte” (lista
+  `GET /api/care/redeploy?state=closed`, najpierw ostatnio zamknięte, wynik Przekazana / Nie dotyczy,
+  notatka, „Otwórz ponownie”). Oba robią `PATCH /api/care/redeploy/{id}` `{status: "in_progress"}`
+  (409, gdy ten konsultant ma już aktywny wpis z tym powodem); karta „Decyzja” wraca na tablicę.
+  Zamknięcie nie jest jednokierunkowe — nie usuwaj tych wejść ani trasy listy zamkniętych.
 - **Profil klienta**: jedna zakładka „Ludzie i technologie” (`?tab=ludzie`, po „Kontaktach
   klienta”) z widokami Działy · Drzewo osób · Mapa; `struktura` i `technologie` przekierowują.
   Rzadkie zakładki (Importy MD, Faktury, Analityka) są pod „Więcej”.

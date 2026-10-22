@@ -1352,6 +1352,7 @@ export function useSetLoadThreshold() {
   });
 }
 
+/** Wpisy „Do przepięcia”; `closed` = filtr „Decyzje zamknięte” w Konsultantach (audyt 22.10, F107). */
 export function useRedeployQueue(state: "active" | "closed") {
   return useQuery({
     queryKey: careKeys.redeploy(state),

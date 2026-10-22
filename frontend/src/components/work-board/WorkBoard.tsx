@@ -240,6 +240,7 @@ export function WorkBoard({
   const [listFilter, setListFilter] = useState<ListFilter>(initialFilter);
   const [closing, setClosing] = useState<CareBoardCard | null>(null);
   const [closingError, setClosingError] = useState<string | null>(null);
+  const [reopening, setReopening] = useState<string | null>(null);
 
   // Link z dzwonka z innym `?filter=` przy otwartej tablicy (miękka nawigacja).
   useEffect(() => setListFilter(initialFilter), [initialFilter]);
@@ -460,6 +461,25 @@ export function WorkBoard({
     } finally {
       setOverride(card.key, null);
     }
+  };
+
+  /**
+   * „Otwórz ponownie” zamkniętej decyzji z „Zrobione” (decyzja Artura
+   * 22.10.2026, audyt F107): wpis „Do przepięcia” wraca na „W toku” i karta
+   * „Decyzja” wraca na tablicę.
+   */
+  const reopenDecision = (key: string) => {
+    const itemId = decisionIdOf(key);
+    if (itemId == null) return;
+    setReopening(key);
+    updateRedeploy.mutate(
+      { itemId, status: "in_progress" },
+      {
+        onSuccess: () => showToast("Decyzja otwarta ponownie — wraca na tablicę", "success"),
+        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się otworzyć decyzji."), "error"),
+        onSettled: () => setReopening(null),
+      },
+    );
   };
 
   /** „Sprawy tej osoby” w panelu karty opieki — ten sam panel, teraz ze sprawą. */
@@ -781,6 +801,8 @@ export function WorkBoard({
                   showClosed={showClosed}
                   onToggleClosed={() => setShowClosed((value) => !value)}
                   onOpen={(card) => selectItem(caseItem(card))}
+                  onReopenDecision={reopenDecision}
+                  reopening={reopening}
                   dropDisabled={false}
                 />
               </div>

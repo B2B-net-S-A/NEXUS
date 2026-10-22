@@ -48,6 +48,7 @@ import {
   sinceText,
 } from "./cadence-format";
 import { CadenceDialog } from "./CadenceDialog";
+import { ClosedDecisionsTable } from "./ClosedDecisionsTable";
 import { HEALTH_BADGE, healthLabel, healthWhy, needsAttention } from "./health-format";
 
 export type ConsultantsFilter = "all" | "biweekly" | "paused" | "attention" | "redeploy" | "ending";
@@ -189,6 +190,8 @@ interface ConsultantsPanelProps {
  * stanu, zaznaczanie wierszy — „Napisz komunikat do zaznaczonych” (szkic
  * z grupą „wybrane osoby”) i zmiana opiekuna hurtem dla head back office
  * i admina. Klik w osobę otwiera kartę konsultanta. Awaria ≠ pusta lista.
+ * Chip „Decyzje zamknięte” pokazuje zamknięte wpisy „Do przepięcia”
+ * z „Otwórz ponownie” (audyt 22.10, F107).
  */
 export function ConsultantsPanel({
   scope,
@@ -203,6 +206,9 @@ export function ConsultantsPanel({
   const { showToast } = useToast();
   const query = useCareConsultants();
   const [filter, setFilter] = useState<ConsultantsFilter>(initialFilter);
+  // „Decyzje zamknięte” to osobna lista wpisów „Do przepięcia”, nie filtr
+  // kontraktów (decyzja Artura 22.10.2026, audyt F107).
+  const [closedDecisions, setClosedDecisions] = useState(false);
   const [cadenceFor, setCadenceFor] = useState<number | null>(null);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [ownerId, setOwnerId] = useState("");
@@ -256,6 +262,11 @@ export function ConsultantsPanel({
 
   const choose = (next: ConsultantsFilter) => {
     setFilter(next);
+    setClosedDecisions(false);
+    setPicked(new Set());
+  };
+  const chooseClosedDecisions = () => {
+    setClosedDecisions(true);
     setPicked(new Set());
   };
   const toggle = (id: number) =>
@@ -327,11 +338,11 @@ export function ConsultantsPanel({
             <button
               key={item.value}
               type="button"
-              aria-pressed={filter === item.value}
+              aria-pressed={!closedDecisions && filter === item.value}
               onClick={() => choose(item.value)}
               className={cn(
                 "rounded-full border px-3 py-1 text-xs transition-colors",
-                filter === item.value
+                !closedDecisions && filter === item.value
                   ? "border-primary bg-primary/10 text-foreground"
                   : "border-border text-muted-foreground hover:bg-muted",
               )}
@@ -345,8 +356,21 @@ export function ConsultantsPanel({
               ) : null}
             </button>
           ))}
+          <button
+            type="button"
+            aria-pressed={closedDecisions}
+            onClick={chooseClosedDecisions}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs transition-colors",
+              closedDecisions
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border text-muted-foreground hover:bg-muted",
+            )}
+          >
+            Decyzje zamknięte
+          </button>
         </div>
-        {query.isSuccess ? (
+        {query.isSuccess && !closedDecisions ? (
           <span className="text-xs text-muted-foreground" title="Kamienie i rozmowy według rytmu osób na liście">
             Rozmów w tym miesiącu według rytmów:{" "}
             <span className="font-semibold tabular-nums">{monthTalks(rows)}</span>
@@ -415,7 +439,9 @@ export function ConsultantsPanel({
         </div>
       ) : null}
 
-      {state === "loading" ? (
+      {closedDecisions ? (
+        <ClosedDecisionsTable onOpenContract={onOpenContract} />
+      ) : state === "loading" ? (
         <p className="text-sm text-muted-foreground">Wczytywanie konsultantów…</p>
       ) : state === "forbidden" || state === "not_found" || state === "error" ? (
         <QueryStateNotice

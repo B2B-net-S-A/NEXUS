@@ -10,7 +10,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), replace: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), replace: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace, push: vi.fn() }),
@@ -21,7 +21,7 @@ vi.mock("@/lib/api", () => ({
     get: (...a: unknown[]) => mocks.get(...a),
     post: (...a: unknown[]) => mocks.post(...a),
     put: vi.fn(),
-    patch: vi.fn(),
+    patch: (...a: unknown[]) => mocks.patch(...a),
   },
 }));
 
@@ -132,6 +132,7 @@ function renderPanel(options: PanelOptions = {}) {
 beforeEach(() => {
   mocks.get.mockReset();
   mocks.post.mockReset();
+  mocks.patch.mockReset();
   window.history.replaceState(null, "", "/care?tab=consultants");
 });
 
@@ -251,6 +252,68 @@ describe("ConsultantsPanel", () => {
     expect(screen.queryByRole("row", { name: /Adam Wzorcowy/ })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Do przepięcia 1" }));
     expect(screen.getByRole("row", { name: /Ewa Przykładowa/ })).toBeInTheDocument();
+  });
+
+  it("„Decyzje zamknięte”: lista zamkniętych wpisów „Do przepięcia” z „Otwórz ponownie” (audyt 22.10, F107)", async () => {
+    const user = userEvent.setup();
+    mocks.get.mockImplementation(async (url: string, config?: { params?: { state?: string } }) => {
+      if (url === "/api/care/redeploy") {
+        expect(config?.params?.state).toBe("closed");
+        return {
+          data: {
+            items: [
+              {
+                id: 4,
+                contract_id: 9,
+                reason: "wants_change",
+                status: "dismissed",
+                due_on: null,
+                source: "conversation",
+                note: "Pomyłka przy przeciąganiu",
+                created_at: "2026-10-01T08:00:00Z",
+                resolved_at: "2026-10-20T10:00:00Z",
+                candidate_id: 5,
+                candidate_name: "Bartosz Testowy",
+                client_id: 3,
+                client_name: "Bank Przykładowy",
+                job_title: null,
+                end_date: null,
+                owner: { id: 7, name: "Natalia Opiekuńcza" },
+              },
+            ],
+            total: 1,
+            can_edit: true,
+          },
+        };
+      }
+      return { data: payload([row({})]) };
+    });
+    mocks.patch.mockResolvedValue({ data: {} });
+    renderPanel();
+    await screen.findByRole("table", { name: "Konsultanci i rytm kontaktu" });
+
+    await user.click(screen.getByRole("button", { name: /^Decyzje zamknięte/ }));
+    const table = await screen.findByRole("table", { name: "Zamknięte decyzje „Do przepięcia”" });
+    const closedRow = within(table).getByRole("row", { name: /Bartosz Testowy/ });
+    expect(within(closedRow).getByText("Nie dotyczy")).toBeInTheDocument();
+    expect(within(closedRow).getByText("Chce zmiany projektu")).toBeInTheDocument();
+    expect(within(closedRow).getByText("20.10.2026")).toBeInTheDocument();
+
+    await user.click(within(closedRow).getByRole("button", { name: "Otwórz ponownie: Bartosz Testowy" }));
+    expect(mocks.patch).toHaveBeenCalledWith("/api/care/redeploy/4", { status: "in_progress" });
+  });
+
+  it("„Decyzje zamknięte”: awaria listy to komunikat, nie „brak zamkniętych”", async () => {
+    const user = userEvent.setup();
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url === "/api/care/redeploy") throw httpError(500);
+      return { data: payload([row({})]) };
+    });
+    renderPanel();
+    await screen.findByRole("table", { name: "Konsultanci i rytm kontaktu" });
+    await user.click(screen.getByRole("button", { name: /^Decyzje zamknięte/ }));
+    expect(await screen.findByText("Nie udało się wczytać zamkniętych decyzji.")).toBeInTheDocument();
+    expect(screen.queryByText("Brak zamkniętych decyzji")).toBeNull();
   });
 
   it("klik w osobę otwiera kartę konsultanta", async () => {
