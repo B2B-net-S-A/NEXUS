@@ -8,14 +8,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.activity import Activity
-from app.models.invite_link import CandidateInviteLink
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
@@ -51,6 +50,7 @@ from app.services.onboarding_access import (
     onboarding_persona_for_roles,
 )
 from app.services.admin_active_decision import latest_admin_active_decision
+from app.services.account_deactivation import deactivate_account
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.client_identity import visible_client_predicates
 from app.services import trainee_program
@@ -572,28 +572,12 @@ async def deactivate_user(
         next_active=False,
     )
 
-    if user.is_active:
-        user.authorization_version += 1
-        user.tokens_valid_after = datetime.now(timezone.utc)
-    user.is_active = False
-    # audyt 22.09 r2 (SEC-06): stały link kariery usuniętego pracownika
-    # przestaje działać na stałe (odczyt i tak sprawdza aktywność właściciela).
-    await db.execute(
-        update(CandidateInviteLink)
-        .where(
-            CandidateInviteLink.created_by == user.id,
-            CandidateInviteLink.kind == "recruiter",
-        )
-        .values(revoked=True)
-    )
-    db.add(
-        Activity(
-            entity_type="user",
-            entity_id=user.id,
-            action="user_deactivated",
-            user_id=admin.id,
-            details={"target_email": user.email},
-        )
+    await deactivate_account(
+        db,
+        user,
+        action="user_deactivated",
+        actor_id=admin.id,
+        details={"target_email": user.email},
     )
     await db.flush()
 

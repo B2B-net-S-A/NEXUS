@@ -249,11 +249,15 @@ async def test_clients_period_filter_excludes_old_jobs(rep_client: AsyncClient):
 async def test_clients_exclude_reasons_removes_from_denominator(
     rep_client: AsyncClient,
 ):
-    """exclude_reasons=paused removes paused jobs from the denominator."""
+    """Zamknięcia „nie liczy się” wypadają zawsze; `exclude_reasons` dokłada.
+
+    21.10.2026: przegraną jest tylko wybór kandydata innej firmy — wstrzymana
+    rekrutacja nie obniża hit ratio nawet bez parametru.
+    """
     client_id = await _seed_client("ExcludeCo")
     recent = datetime.now(timezone.utc) - timedelta(days=1)
 
-    # 2 paused jobs (should be excluded)
+    # 2 wstrzymane — neutralne, poza mianownikiem bez pytania
     for _ in range(2):
         await _seed_closed_job(
             client_id=client_id,
@@ -261,14 +265,20 @@ async def test_clients_exclude_reasons_removes_from_denominator(
             headcount=1,
             close_reason=JobCloseReason.paused,
         )
-    # 1 lost job (budget) — kept
+    # 1 przegrana z konkurencją i 1 „Inny” (do przeglądu) — zostają
     await _seed_closed_job(
         client_id=client_id,
         closed_at=recent,
         headcount=1,
-        close_reason=JobCloseReason.budget,
+        close_reason=JobCloseReason.competitor,
     )
-    # 1 filled job — kept
+    await _seed_closed_job(
+        client_id=client_id,
+        closed_at=recent,
+        headcount=1,
+        close_reason=JobCloseReason.other,
+    )
+    # 1 obsadzona — zostaje
     jid_filled = await _seed_closed_job(
         client_id=client_id,
         closed_at=recent,
@@ -281,7 +291,7 @@ async def test_clients_exclude_reasons_removes_from_denominator(
     _, email, password = await _seed_user(UserRole.admin, "exclude")
     headers = await _login(rep_client, email, password)
 
-    # Without exclusion → 4 closed jobs, 1 filled = 25%
+    # Bez parametru → 3 zamknięte (konkurencja, „Inny”, obsadzona), 1 z 3
     resp_all = await rep_client.get(
         "/api/reports/clients?period=month", headers=headers
     )
@@ -290,12 +300,12 @@ async def test_clients_exclude_reasons_removes_from_denominator(
         None,
     )
     assert row_all is not None
-    assert row_all["closed_jobs"] == 4
-    assert row_all["hit_ratio"] == 25.0
+    assert row_all["closed_jobs"] == 3
+    assert row_all["hit_ratio"] == 33.3
 
-    # With exclusion → 2 jobs (budget + filled), 1 filled = 50%
+    # Z wycięciem „Inny” → 2 (konkurencja + obsadzona), 1 z 2 = 50%
     resp_excl = await rep_client.get(
-        "/api/reports/clients?period=month&exclude_reasons=paused",
+        "/api/reports/clients?period=month&exclude_reasons=other",
         headers=headers,
     )
     row_excl = next(

@@ -1,5 +1,5 @@
 # Minimum dla Delivery Leada przed „Zweryfikowany” (21.10.2026)
-<!-- indeks: lokalizacja, tryb pracy, dostępność, „Dlaczego ten kandydat” blokują; pola o osobie z innej rekrutacji; okno na Tablicy -->
+<!-- indeks: lokalizacja, tryb, dostępność, „Dlaczego ten kandydat”; okno na Tablicy -->
 
 Zgłoszenie Delivery Leadów z 21.10.2026: rekomendacje przychodziły bez lokalizacji
 i trybu pracy, DL dopytywał rekrutera na Teams. Rekruterzy tłumaczyli, że to przepięcia

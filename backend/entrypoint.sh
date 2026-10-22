@@ -591,6 +591,9 @@ _ENUM_STATEMENTS = [
             );
         END IF;
     END $$""",
+    # 0504: powody „nie liczy się do hit ratio” (21.10.2026).
+    "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'duplicate'",
+    "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'no_match'",
     # LinkedIn employment tracking (migracja 0049_linkedin_employment).
     # Candidate model odwołuje się do 7 nowych kolumn + enum — bez nich KAŻDY
     # SELECT kandydata wywala UndefinedColumnError (łącznie z /api/candidates
@@ -1082,6 +1085,16 @@ except Exception as _ranking_weights_err:  # noqa: BLE001
     print(f"ranking weight changes DDL unavailable: {_ranking_weights_err!r}")
     _RANKING_WEIGHT_CHANGES_DDL = []
 
+# Ustawienia oceny prepów (migracja 0505) — JEDNO źródło z migracją
+# (`app/services/prep_review_config_schema.py`).
+try:
+    from app.services import prep_review_config_schema as _prep_review_config_schema
+
+    _PREP_REVIEW_CONFIG_DDL = list(_prep_review_config_schema.TABLE_DDL)
+except Exception as _prep_review_config_err:  # noqa: BLE001
+    print(f"prep review config DDL unavailable: {_prep_review_config_err!r}")
+    _PREP_REVIEW_CONFIG_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1131,6 +1144,7 @@ _COLUMN_STATEMENTS = [
     *_CONTRACT_DOCS_SP_DDL,
     *_CONTRACT_DOC_FOLDERS_DDL,
     *_RANKING_WEIGHT_CHANGES_DDL,
+    *_PREP_REVIEW_CONFIG_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -2273,6 +2287,9 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_jobs_closed_at ON jobs(closed_at)",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_reason jobclosereason",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_notes TEXT",
+    # 0504: rekrutacja, która zostaje, gdy zamykana jest duplikatem.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS duplicate_of_job_id INTEGER "
+    "NULL REFERENCES jobs(id) ON DELETE SET NULL",
     # LinkedIn tracking (migracja 0049_linkedin_employment): 7 kolumn na
     # candidates + tabela candidate_linkedin_snapshots. Bez nich Candidate
     # ORM SELECT pada — blokuje /api/candidates i /api/marketplace/candidates.

@@ -1,6 +1,6 @@
 # Imiennicy w oknie „Dodaj kandydatów do pipeline” (13.10.2026)
 
-<!-- indeks: telefon, e-mail i miasto w wierszu, szukanie po numerze, „Już w tej rekrutacji”, „Scal…” -->
+<!-- indeks: telefon, e-mail i miasto w wierszu, szukanie po numerze, „Scal…” -->
 
 Zgłoszenie rekrutera 13.10.2026: w oknie „Dodaj kandydatów do pipeline”
 (`AddCandidatesQuickModal`, przycisk na Tablicy) dwie osoby o tym samym

@@ -1,6 +1,6 @@
 # Ogłoszenie na portale — treść do wklejenia w Pracuj.pl i JustJoin.IT (0430 i 0432, 12–13.10.2026)
 
-<!-- indeks: jedna treść w dwóch formatach, kontrola przed skopiowaniem, „Oznacz jako opublikowane” -->
+<!-- indeks: kontrola przed skopiowaniem, „Oznacz jako opublikowane” -->
 
 Od 21.10.2026 okno nazywa się „Ogłoszenie” i ta sama treść zasila stronę
 kariery — `ogloszenie-jedna-tresc-strona-kariery.md`.

@@ -615,7 +615,7 @@ async def test_reopen_goes_through_the_gate_and_keeps_the_recruiter(
     job_id = created.json()["id"]
     closed = await app_client.post(
         f"/api/jobs/{job_id}/close",
-        json={"reason": "other"},
+        json={"reason": "competitor"},
         headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text
@@ -717,7 +717,9 @@ async def test_reopen_without_a_body_keeps_the_team_too(
     )
     job_id = created.json()["id"]
     await app_client.post(
-        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "competitor"},
+        headers=app_auth_headers,
     )
     reopened = await app_client.post(
         f"/api/jobs/{job_id}/publish", headers=app_auth_headers
@@ -747,7 +749,9 @@ async def test_reopening_your_own_job_does_not_ring_yourself(
     )
     job_id = created.json()["id"]
     await app_client.post(
-        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "competitor"},
+        headers=app_auth_headers,
     )
     me = (await app_client.get("/api/auth/me", headers=app_auth_headers)).json()["id"]
     # Prowadzącym jest osoba, która otwiera (wpisana wprost — test dotyczy
@@ -802,7 +806,9 @@ async def test_reopen_without_an_active_recruiter_opens_with_nobody(
     )
     job_id = created.json()["id"]
     await app_client.post(
-        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "competitor"},
+        headers=app_auth_headers,
     )
     async with AsyncSessionLocal() as db:
         user = await db.get(User, recruiter_id)
@@ -868,7 +874,9 @@ async def test_reopen_drops_an_owner_without_the_recruiter_role(
     assert created.status_code == 201, created.text
     job_id = created.json()["id"]
     closed = await app_client.post(
-        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "competitor"},
+        headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text
 
@@ -968,7 +976,9 @@ async def test_reopen_brings_back_the_same_team(
     assert dropped.status_code == 204, dropped.text
 
     closed = await app_client.post(
-        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "competitor"},
+        headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text
     # Przebieg automatu po zamknięciu: request wyszedł z puli.
@@ -1020,7 +1030,9 @@ async def test_reopen_may_still_name_a_new_recruiter(
     )
     job_id = created.json()["id"]
     await app_client.post(
-        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "competitor"},
+        headers=app_auth_headers,
     )
     other = await new_recruiter()
     reopened = await app_client.post(

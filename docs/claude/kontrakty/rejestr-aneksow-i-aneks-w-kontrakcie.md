@@ -1,6 +1,6 @@
 # Rejestr aneksów i aneks w kontrakcie od wygenerowania (13.10.2026)
 
-<!-- indeks: jeden stan aneksu, aneks do umowy spoza Nexusa, skan podpisanego, zakładka „Aneksy” -->
+<!-- indeks: jeden stan aneksu, aneks do umowy spoza Nexusa, zakładka „Aneksy” -->
 
 Ticket działu („Generator aneksów + zakładka Aneksy”) po przeglądzie z Arturem
 13.10.2026: połowa opisanych braków już działała (`b2b_contract_documents`,

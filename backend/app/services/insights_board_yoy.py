@@ -69,6 +69,7 @@ from app.services.insights_board_money import (
     ratio,
     running_on,
 )
+from app.services.hit_ratio_scope import counts_in_hit_ratio_sql
 from app.services.metric_definitions import (
     CLOSED_JOBS_WITH_PLACEMENT,
     CONTRACTOR_DEPARTURE,
@@ -239,6 +240,9 @@ async def _jobs_closed_by_month(db: AsyncSession, span_start, span_end) -> dict:
                     WHERE j.status::text = 'closed'
                       AND j.closed_at >= :start
                       AND j.closed_at < :end
+                      AND """
+                    + counts_in_hit_ratio_sql("j")
+                    + """
                     GROUP BY 1, 2
                     """
                 ),

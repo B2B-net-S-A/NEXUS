@@ -1554,6 +1554,15 @@ class Settings(BaseSettings):
     # rotacji. Sonda `hr_m365` i alarm do adminów 30/14/7/1 dni przed terminem
     # (`app/services/hr/m365/secret_expiry.py`); pusta albo błędna = „nie znamy”.
     HR_M365_CLIENT_SECRET_EXPIRES_ON: Optional[date] = None
+    # Konto NEXUSA idzie za kontem Microsoft 365 (decyzja Artura 22.10.2026,
+    # `app/services/m365_account_sweep.py`): konto z `azure_oid`, którego nie ma
+    # w Entra ID (404) albo jest tam zablokowane, jest wyłączane. Rejestracja
+    # „NEXUS Kadry” (User.Read.All), niezależnie od HR_PROGRAM_ENABLED.
+    # off = pętla nie startuje; report = log bez zapisu (domyślnie);
+    # enforce = wyłącza. Zmiana wyłącznie workflow „Coolify set env”.
+    M365_ACCOUNT_SWEEP_MODE: str = "report"
+    # Więcej kont do wyłączenia w jednym przebiegu = alarm i żadnej zmiany.
+    M365_ACCOUNT_SWEEP_MAX_PER_RUN: int = 10
     # Sprzęt ↔ Intune (etap 4, D9): off = nic nie czytamy (do zgody administratora na
     # APPLICATION DeviceManagementManagedDevices.Read.All w rejestracji „NEXUS Kadry”);
     # simulate = fikcyjna lista urządzeń; live = Graph, raz na dobę od 05:30.

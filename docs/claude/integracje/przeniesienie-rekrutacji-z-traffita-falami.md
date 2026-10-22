@@ -1,6 +1,6 @@
 # Przeniesienie rekrutacji z Traffita do NEXUSA falami (11.10.2026)
 
-<!-- indeks: próba i wykonanie fali, lista osób per stan = źródło prawdy, bliźniaki, duplikaty -->
+<!-- indeks: próba i wykonanie fali, lista osób per stan = źródło prawdy -->
 
 Decyzje Artura 11.10.2026: zespół przechodzi z Traffita **falami** (klient po
 kliencie), nie przez lustro „na żywo”; „otwarta” rekrutacja to taka bez daty

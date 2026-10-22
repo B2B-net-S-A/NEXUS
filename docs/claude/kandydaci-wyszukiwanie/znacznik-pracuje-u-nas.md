@@ -1,6 +1,6 @@
 # Znacznik „Pracuje u nas” — jedna reguła na każdym ekranie (12.10.2026)
 
-<!-- indeks: pracuje / kończy / zaczyna u nas, „Potwierdź zatrudnienie”, dzwonek do DL obecnego klienta -->
+<!-- indeks: pracuje / kończy / zaczyna u nas, „Potwierdź zatrudnienie”, dzwonek do DL -->
 
 Zgłoszenie Artura: osobę, która u nas pracuje (umowa + zamówienie), dało się
 wyszukać i dodać do rekrutacji, a po drodze nigdzie nie było widać, że pracuje
