@@ -1,0 +1,207 @@
+# Stały staging NEXUSA na laptopie (docs/staging-laptop-plan.md, etap 1).
+#
+# Inaczej niż docker-compose.e2e.yml (jednorazowy, tmpfs, dane demo) ten stos
+# trzyma PEŁNĄ KOPIĘ PRODUKCJI na trwałych wolumenach. Dlatego:
+#   - backend startuje z NEXUS_ENV=staging: pętle w tle domyślnie stoją,
+#     a połączenia wychodzą tylko do sieci lokalnej i dostawców AI
+#     (`backend/app/core/staging.py`);
+#   - poczta idzie do Mailpita (http://localhost:8125), dokumenty do lokalnego S3 (versitygw);
+#   - porty są wystawione wyłącznie na 127.0.0.1 — nie na sieć Wi-Fi;
+#   - sekrety stagingu leżą w `.env.staging.local` (gitignore `.env.*.local`),
+#     wzór w `scripts/staging/env.staging.example`.
+#
+# Obrazy budują się z TYCH SAMYCH Dockerfile'i co na produkcji, a entrypoint
+# puszcza `alembic upgrade heads` — czyli dzisiejsze migracje biegną na kopii
+# wczorajszej produkcji, zanim pójdą na prawdziwą.
+#
+# Użycie:
+#   scripts/staging/restore_from_backup.sh     # kopia produkcji → wolumeny
+#   docker compose -f docker-compose.staging.yml --env-file .env.staging.local up -d --build
+#   front http://localhost:3100 · API http://localhost:8100 · poczta http://localhost:8125
+name: nexus-staging
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    # Ten sam tag co produkcja — od niego zależy porządek sortowania tekstu
+    # (komentarz w docker-compose.yml). Inny obraz = inne indeksy.
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 8g
+    shm_size: 1gb
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required (.env.staging.local)}
+      POSTGRES_DB: nexus
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  qdrant:
+    image: qdrant/qdrant:v1.17.1
+    restart: unless-stopped
+    mem_limit: 3g
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "127.0.0.1:6335:6333"
+    logging: *default-logging
+
+  # Magazyn dokumentów kandydatów (na produkcji Hetzner Object Storage).
+  # versitygw `posix`: bucket = katalog, obiekt = zwykły plik, więc kopia
+  # z backupu to po prostu pliki w wolumenie. MinIO nie wydaje już obrazów.
+  s3:
+    image: versity/versitygw:v1.8.0
+    restart: unless-stopped
+    mem_limit: 512m
+    command:
+      - --access
+      - ${STAGING_S3_ACCESS_KEY:?STAGING_S3_ACCESS_KEY required (.env.staging.local)}
+      - --secret
+      - ${STAGING_S3_SECRET_KEY:?STAGING_S3_SECRET_KEY required (.env.staging.local)}
+      - --port
+      - :7070
+      - posix
+      - /data
+    volumes:
+      - s3_data:/data
+    ports:
+      - "127.0.0.1:7170:7070"
+    logging: *default-logging
+
+  mailpit:
+    image: axllent/mailpit:v1.24
+    restart: unless-stopped
+    mem_limit: 256m
+    ports:
+      - "127.0.0.1:8125:8025"
+    logging: *default-logging
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-staging}
+        BUILT_AT: ${BUILT_AT:-staging}
+    restart: unless-stopped
+    mem_limit: 4g
+    env_file:
+      - .env.staging.local
+    environment:
+      NEXUS_ENV: staging
+      DATABASE_URL: postgresql+asyncpg://nexus:${POSTGRES_PASSWORD}@postgres:5432/nexus
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      CORS_ORIGINS: '["http://localhost:3100"]'
+      PUBLIC_BASE_URL: http://localhost:3100
+      PUBLIC_API_BASE_URL: http://localhost:8100
+      OBJECT_STORAGE_ENDPOINT: http://s3:7070
+      OBJECT_STORAGE_ACCESS_KEY: ${STAGING_S3_ACCESS_KEY}
+      OBJECT_STORAGE_SECRET_KEY: ${STAGING_S3_SECRET_KEY}
+      OBJECT_STORAGE_BUCKET: nexus-candidate-documents
+      # Poczta: wszystko do Mailpita, bez TLS (lokalna skrzynka testowa).
+      SMTP_ENABLED: "true"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_USE_TLS: "false"
+      SMTP_REQUIRE_TLS: "false"
+      M365_APP_MAIL_ENABLED: "false"
+      # Druga warstwa za zaporą wyjścia: integracje wyłączone też flagami,
+      # żeby ekrany mówiły „wyłączone”, a nie sypały błędami połączenia.
+      M365_INTEGRATION_ENABLED: "false"
+      TRAFFIT_SYNC_ENABLED: "false"
+      ORDER_MAIL_INGEST_ENABLED: "false"
+      COMPASS_LIFECYCLE_ENABLED: "false"
+      COMPASS_WORKDAYS_ENABLED: "false"
+      CLOUDTALK_ENABLED: "false"
+      AUTENTI_ENABLED: "false"
+      JJIT_ENABLED: "false"
+      PROXYCURL_ENABLED: "false"
+      HR_LOOPS_ENABLED: "false"
+      SELF_REGISTRATION_ENABLED: "false"
+      PASSWORD_LOGIN_ENABLED: "true"
+      SLACK_WEBHOOK_URL: ""
+      SENTRY_DSN: ""
+      SENTRY_ENVIRONMENT: staging
+      UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
+    volumes:
+      - uploads_data:/tmp/nexus/uploads
+    ports:
+      - "127.0.0.1:8100:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_interval: 2s
+      start_period: 600s
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8100
+        NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-staging}
+        NEXT_PUBLIC_NEXUS_ENV: staging
+    restart: unless-stopped
+    mem_limit: 1g
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8100
+      INTERNAL_API_URL: http://backend:8000
+    ports:
+      - "127.0.0.1:3100:3000"
+    logging: *default-logging
+
+  # Jednorazowe odtworzenie kopii produkcji (scripts/staging/restore_from_backup.sh).
+  # Obraz backupu: pg_restore w wersji serwera, age, rclone. Profil `restore`,
+  # więc zwykłe `up` go nie startuje.
+  restore:
+    profiles: ["restore"]
+    build:
+      context: ./backup
+    user: root
+    entrypoint: ["/bin/sh", "/staging/restore_inside.sh"]
+    env_file:
+      - .env.staging.local
+    volumes:
+      - ./scripts/staging:/staging:ro
+      - uploads_data:/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  s3_data:
+  uploads_data:

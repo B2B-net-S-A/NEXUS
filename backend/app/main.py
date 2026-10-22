@@ -13,6 +13,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES, GZipMiddleware
 
 from app.core.config import settings
+
+if settings.NEXUS_ENV == "staging":
+    from app.core.staging import install_egress_guard
+
+    install_egress_guard(settings.STAGING_EXTRA_ALLOWED_HOSTS.split(","))
+
 from app.core.database import engine, Base
 from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
@@ -1028,6 +1034,12 @@ async def lifespan(app: FastAPI):
             hr_loops.hr_approval_mail_replies_loop()
         ),
     }
+    # Staging (pełna kopia produkcji): przed pierwszym `await`, więc zatrzymana
+    # pętla nie wykona ani jednej linii — lista w `app/core/staging.py`.
+    if settings.NEXUS_ENV == "staging":
+        from app.core.staging import stop_blocked_background_tasks
+
+        stop_blocked_background_tasks(app.state.background_tasks)
 
     # Śmierć pętli musi być ZDARZENIEM, nie zmianą ułamka „running/expected".
     # Ten ułamek jest z założenia nierówny — 23 z 34 pętli kończą się celowo na

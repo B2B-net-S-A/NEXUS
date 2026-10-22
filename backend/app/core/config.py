@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Nexus ATS"
     DEBUG: bool = False
+    # Staging na laptopie (docs/staging-laptop-plan.md): `staging` = pełna kopia
+    # produkcji bez wyjścia na świat — pętle w tle domyślnie stoją, a HTTP idzie
+    # tylko do hostów z listy (`app/core/staging.py`).
+    NEXUS_ENV: str = "production"
+    # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
+    # (po przecinku). Na produkcji bez znaczenia.
+    STAGING_EXTRA_ALLOWED_HOSTS: str = ""
     SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
@@ -1074,6 +1081,15 @@ class Settings(BaseSettings):
     ANALYTICS_V1_MODULES: str = ""
     # KPI Coach v2 — wysyłka nudge'y po dry-run parity (plan PR 4).
     KPI_COACH_V2_NUDGES_ENABLED: bool = False
+
+    @field_validator("NEXUS_ENV")
+    @classmethod
+    def _validate_nexus_env(cls, v: str) -> str:
+        allowed = {"production", "staging"}
+        normalized = v.strip().lower()
+        if normalized not in allowed:
+            raise ValueError(f"NEXUS_ENV must be one of {sorted(allowed)}")
+        return normalized
 
     @field_validator("ANALYTICS_V1_MODE")
     @classmethod
