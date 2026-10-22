@@ -92,25 +92,39 @@ describe("ClientPeopleTechTab · Działy", () => {
     expect(payments.className).toContain("border-warning");
     expect(within(payments).getByText("Katarzyna Płatnicza")).toBeInTheDocument();
     expect(within(payments).getByText(/Szukają:/).parentElement).toHaveTextContent(
-      "Java Developer, DevOps Engineer (OpenShift), Java, QA",
+      /Java Developer \(otwarta\) · DevOps Engineer \(OpenShift\) \(otwarta\) · „klient zatrudnia: Java, QA” z rozmowy \d\d\.\d\d · w bazie 212 pasujących/,
+    );
+    expect(within(payments).getByRole("link", { name: "w bazie 212 pasujących" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/candidates?skills_q="),
     );
     // Konsultantka z „Ryzyko” — kropka i etykieta dla czytnika.
     expect(within(payments).getByRole("link", { name: /Anna .*Ryzyko/ })).toHaveAttribute(
       "href",
       "/care?contract=9404",
     );
-    expect(within(payments).getByText("Komu podlega Katarzyna Płatnicza?")).toBeInTheDocument();
+    // Luka z osobą z działu, przy której rozmowie trzeba dopytać.
+    expect(
+      within(payments).getByText(/Komu podlega Katarzyna Płatnicza\? — dopytać przy najbliższej rozmowie \(Anna K\.\)/),
+    ).toBeInTheDocument();
+    expect(within(payments).getByText(/^Nasi \(\d+\)$/)).toBeInTheDocument();
     const data = screen.getByRole("article", { name: "Dział Data" });
     expect(data.className).not.toContain("border-warning");
-    expect(within(data).getByText(/podlega pod: Zenon Dyrektorski/)).toBeInTheDocument();
+    expect(within(data).getByText(/→ podlega pod Zenon Dyrektorski/)).toBeInTheDocument();
+    expect(within(data).getByText(/^opinia/)).toBeInTheDocument();
     // Dział bez sygnału schowany jak na mapie.
     expect(screen.queryByRole("article", { name: "Dział CI/CD i chmura" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Pokaż wszystkie działy (4)" }));
     expect(screen.getByRole("article", { name: "Dział CI/CD i chmura" })).toBeInTheDocument();
-    // Liczby kompletności nagłówka.
-    expect(
-      screen.getByText(/5 naszych konsultantów · 2 z 4 działów z naszymi · 4 z 5 z menedżerem/),
-    ).toBeInTheDocument();
+    // Pięć liczb kompletności nad widokami.
+    const tiles = document.querySelector("[data-people-tech-completeness]") as HTMLElement;
+    expect(tiles).toHaveTextContent(/5\s*naszych/);
+    expect(tiles).toHaveTextContent(/2\s*działy z naszymi/);
+    expect(tiles).toHaveTextContent(/4 z 5\s*z menedżerem/);
+    expect(tiles).toHaveTextContent(/prośby o opinię/);
+    // Ludzie poza działami: „Przypisz dział” przy osobie (prawo edycji drzewa).
+    expect(screen.getByRole("button", { name: "Przypisz dział" })).toBeInTheDocument();
+    expect(screen.getByText("Dostawcy u klienta")).toBeInTheDocument();
   });
 
   it("pasek „Do zatwierdzenia”: jedna propozycja, zatwierdzenie idzie trasą propozycji", async () => {
@@ -136,7 +150,7 @@ describe("ClientPeopleTechTab · Działy", () => {
     serve();
     const { onViewChange } = renderTab();
     await screen.findByRole("article", { name: "Dział Płatności" });
-    fireEvent.click(screen.getByRole("radio", { name: "Mapa" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Mapa (tabela)" }));
     expect(onViewChange).toHaveBeenCalledWith("mapa");
     expect(screen.getByRole("radio", { name: "Drzewo osób" })).toBeInTheDocument();
   });

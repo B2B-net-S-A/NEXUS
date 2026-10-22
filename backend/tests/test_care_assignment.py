@@ -23,7 +23,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
 from app.models.contract import ContractStatus
-from app.models.contract_care import CLIENTS_CARE, CONTRACTS_CARE
+from app.models.contract_care import CLIENTS_CARE, CONTRACTS_CARE, CareConversation
 from app.models.hr_ops import HrAuditEvent
 from app.models.user import UserRole
 from app.services.care import cadence
@@ -137,6 +137,51 @@ async def test_overview_counts_load_from_rhythms_and_flags_the_threshold(
     assert rows[monthly[0]]["hint"] == "contract"
     assert rows[monthly[0]]["cadence_level"] == "monthly"
     assert {c["id"] for c in body["clients"]} >= {client_id, orphan_client}
+
+
+@pytest.mark.usefixtures("care_on", "divisions_reset")
+async def test_overview_counts_done_of_planned_this_month(app_client) -> None:
+    """„Zrobione w miesiącu” (P6): rozmowy z bieżącego miesiąca z planu rytmów."""
+
+    head = await make_back_office_head()
+    owner = await make_user(UserRole.talent_community_manager)
+    idle = await make_user(UserRole.talent_community_manager)
+    client_id = await make_client()
+    contract_id, _ = await make_contract(client_id, started_days_ago=200)
+    await set_owner(contract_id, owner.id)
+    today = business_today()
+    current = cadence.this_month(today)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CareConversation(
+                contract_id=contract_id,
+                occurred_on=current[0],
+                channel="phone",
+                satisfaction=4,
+            )
+        )
+        # Rozmowa z poprzedniego miesiąca się nie liczy.
+        db.add(
+            CareConversation(
+                contract_id=contract_id,
+                occurred_on=current[0] - timedelta(days=1),
+                channel="phone",
+            )
+        )
+        await db.commit()
+
+    response = await app_client.get("/api/care/assignment", headers=headers(head))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["this_month"]["from"] == current[0].isoformat()
+    cards = {card["id"]: card for card in body["owners"]}
+    assert cards[owner.id]["done_this_month"] == 1
+    assert cards[owner.id]["planned_this_month"] == care_plan.conversations_between(
+        today - timedelta(days=200), None, [], current[0], current[1]
+    )
+    assert cards[owner.id]["is_tcm"] is True
+    assert cards[idle.id]["done_this_month"] == 0
+    assert cards[idle.id]["planned_this_month"] == 0
 
 
 @pytest.mark.usefixtures("care_on", "divisions_reset")

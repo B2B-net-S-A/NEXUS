@@ -135,6 +135,8 @@ async def test_route_returns_scored_jobs_for_a_recruiter(app_client, monkeypatch
     assert body["jobs"][0]["matching_must"] == ["Angular"]
     # Nazwa klienta jak wszędzie w aplikacji (display_name przed nazwą źródłową).
     assert body["jobs"][0]["client_name"] == "Nazwa z NEXUSA"
+    # Osoba bez umowy u nas — bez źródła „nasz konsultant” (R2, 22.10.2026).
+    assert body["source"] is None and body["returns_to_market_on"] is None
 
 
 @needs_db

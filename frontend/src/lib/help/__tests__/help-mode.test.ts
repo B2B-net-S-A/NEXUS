@@ -73,6 +73,8 @@ describe("klucz ekranu z adresu", () => {
     ["/calendar", "?view=week", "calendar"],
     ["/clients/3", "?tab=zamowienia", "client.orders"],
     ["/clients/3", "?tab=profil", null],
+    ["/clients/3", "?tab=ludzie&view=mapa", "client.people"],
+    ["/clients/3", "?tab=struktura", "client.people"],
     ["/contracts", "?view=order-mail", "contracts.order_mail"],
     ["/contracts", "", null],
     ["/contracts/b2b-generator", "", "contracts.b2b_generator"],

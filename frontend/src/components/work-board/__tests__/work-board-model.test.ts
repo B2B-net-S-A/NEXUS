@@ -6,8 +6,28 @@ import type { CareBoardCard } from "@/lib/api/care-board";
 import {
   CARE_COLUMN_VISIBLE,
   buildColumns,
+  careActionHref,
+  careActionLabel,
+  careBadge,
   careCardHref,
   careDueBadge,
+  careHeaderText,
+  careMoveOptions,
+  carePanelKicker,
+  carePanelSubtitle,
+  careTileTitle,
+  caseDueThisWeek,
+  caseStubFromCardCase,
+  consultantBriefRows,
+  dataSummaryText,
+  doneSummary,
+  formatScheduledShort,
+  initialSurname,
+  isOrderEndDecision,
+  listFilterCounts,
+  listFilterFromParam,
+  matchesListFilter,
+  paginateGroups,
   careItem,
   caseItem,
   decisionIdOf,
@@ -179,7 +199,7 @@ describe("ruch karty", () => {
     expect(moveAction(item, "waiting", { canManageCases: false }).type).toBe("forbidden");
   });
 
-  it("rozmowa i opinia w „W toku” pytają o dzień i godzinę, decyzja i popyt — nie", () => {
+  it("rozmowa, opinia i popyt w „W toku” pytają o dzień i godzinę, decyzja — nie", () => {
     expect(moveAction(careItem(careCard({ kind: "contact" })), "in_progress", options)).toEqual({
       type: "care-state",
       column: "in_progress",
@@ -193,7 +213,25 @@ describe("ruch karty", () => {
     ).toMatchObject({ ask: null });
     expect(
       moveAction(careItem(careCard({ kind: "demand", key: "demand:1:2" })), "in_progress", options),
-    ).toMatchObject({ ask: null });
+    ).toMatchObject({ ask: "schedule" });
+  });
+
+  it("„Czeka”: decyzja bez daty (czeka na front office), popyt bez daty (nie teraz — 30 dni)", () => {
+    expect(
+      moveAction(careItem(careCard({ kind: "decision", key: "decision:3" })), "waiting", options),
+    ).toEqual({ type: "care-state", column: "waiting", ask: null });
+    expect(
+      moveAction(careItem(careCard({ kind: "demand", key: "demand:1:2" })), "waiting", options),
+    ).toEqual({ type: "care-state", column: "waiting", ask: null });
+    expect(
+      moveAction(careItem(careCard({ kind: "feedback", key: "feedback:3" })), "waiting", options),
+    ).toMatchObject({ ask: "retry" });
+  });
+
+  it("karta „Dane do uzupełnienia” nie przesuwa się", () => {
+    const data = careItem(careCard({ kind: "data", key: "data:5" }));
+    expect(moveAction(data, "in_progress", options).type).toBe("forbidden");
+    expect(moveAction(data, "done", options).type).toBe("forbidden");
   });
 
   it("„Czeka” pyta o dzień ponownej próby, „Nowa” kasuje stan bez pytania", () => {
@@ -274,7 +312,7 @@ describe("lista „Do zrobienia”", () => {
       ["Po terminie", ["case:1", "contact:plan:9"]],
       ["Do piątku", ["case:2"]],
       ["Decyzje", ["decision:5"]],
-      ["Popyt", ["demand:1:7"]],
+      ["Popyt do sprawdzenia", ["demand:1:7"]],
       ["Później i bez terminu", ["case:3"]],
     ]);
   });
@@ -331,9 +369,261 @@ describe("linia stanu karty opieki", () => {
   it("notatka z przeniesienia (`state_note`) dochodzi do „ponowna próba”, sama — gdy brak daty", async () => {
     const { careStateNote } = await import("../CareTile");
     const waiting = careCard({ column: "waiting", retry_on: "2026-10-24", state_note: "nie odbiera, SMS wysłany" });
-    expect(careStateNote(waiting)).toMatch(/^ponowna próba .+ · nie odbiera, SMS wysłany$/);
+    expect(careStateNote(waiting)).toBe("nie odbiera — spróbować 24.10 · nie odbiera, SMS wysłany");
     expect(careStateNote(careCard({ column: "in_progress", state_note: "czeka na grafik" }))).toBe("czeka na grafik");
     expect(careStateNote(careCard({ column: "new", state_note: "stara notatka" }))).toBeNull();
-    expect(careStateNote(careCard({ column: "waiting", retry_on: "2026-10-24" }))).toMatch(/^ponowna próba /);
+    expect(careStateNote(careCard({ column: "waiting", retry_on: "2026-10-24" }))).toBe(
+      "nie odbiera — spróbować 24.10",
+    );
+    expect(careStateNote(careCard({ kind: "feedback", column: "waiting", retry_on: "2026-10-27" }))).toBe(
+      "czeka na menedżera — do 27.10",
+    );
+    expect(careStateNote(careCard({ kind: "decision", column: "waiting" }))).toBe("czeka na front office");
+    expect(careStateNote(careCard({ kind: "demand", column: "waiting", retry_on: "2026-11-21" }))).toBe(
+      "nie teraz — wraca 21.11",
+    );
+    // Umówiona rozmowa stoi w plakietce terminu, nie w ramce.
+    expect(careStateNote(careCard({ column: "in_progress", scheduled_at: "2026-10-24T12:00:00Z" }))).toBeNull();
+  });
+});
+
+describe("wygląd karty opieki (makiety K1, K2)", () => {
+  const TODAY = "2026-10-22";
+  const FRIDAY = "2026-10-23";
+
+  it("tytuł z rodzajem, bez podwójnego przedrostka", () => {
+    expect(careTileTitle({ kind: "contact", title: "Karolina Przykładowa" })).toBe("Rozmowa: Karolina Przykładowa");
+    expect(careTileTitle({ kind: "feedback", title: "Piotr Menedżerski" })).toBe("Opinia: Piotr Menedżerski");
+    expect(careTileTitle({ kind: "contact", title: "Rozmowa: Anna P." })).toBe("Rozmowa: Anna P.");
+    expect(careTileTitle({ kind: "demand", title: "Popyt do sprawdzenia: Java" })).toBe("Popyt do sprawdzenia: Java");
+  });
+
+  it("nagłówek: „rozmowa · dzień 30”, „rozmowa · umówiona”, „rozmowa · kamień”", () => {
+    expect(careHeaderText(careCard({ reason_kind: "day_30" }))).toBe("rozmowa · dzień 30");
+    expect(careHeaderText(careCard({ reason_kind: "pre_end" }))).toBe("rozmowa · kamień");
+    expect(
+      careHeaderText(careCard({ column: "in_progress", scheduled_at: "2026-10-24T12:00:00Z" })),
+    ).toBe("rozmowa · umówiona");
+    expect(careHeaderText(careCard({ kind: "feedback" }))).toBe("opinia menedżera");
+    expect(careHeaderText(careCard({ kind: "decision", reason_kind: "wants_change" }))).toBe("decyzja · chce zmiany");
+    // Starsza odpowiedź bez `reason_kind` — etykieta serwera małymi literami.
+    expect(careHeaderText(careCard({ reason_kind: undefined, reason_label: "Dzień 7" }))).toBe("rozmowa · dzień 7");
+  });
+
+  it("plakietka: „3 dni po”, umówiona „24.10 · 14:00”, opinia „czeka od 19.10”", () => {
+    expect(careBadge(careCard({ due_on: "2026-10-19", overdue_days: 3 }), TODAY, FRIDAY)).toEqual({
+      text: "3 dni po",
+      tone: "overdue",
+    });
+    expect(careBadge(careCard({ due_on: "2026-10-21", overdue_days: 1 }), TODAY, FRIDAY)?.text).toBe("1 dzień po");
+    expect(
+      careBadge(careCard({ column: "in_progress", scheduled_at: "2026-10-24T12:00:00Z" }), TODAY, FRIDAY),
+    ).toEqual({ text: "24.10 · 14:00", tone: "week" });
+    expect(
+      careBadge(careCard({ kind: "feedback", due_on: "2026-10-19", overdue_days: 3 }), TODAY, FRIDAY)?.text,
+    ).toBe("czeka od 19.10");
+    expect(careBadge(careCard({ due_on: "2026-10-23", overdue_days: 0 }), TODAY, FRIDAY)?.text).toBe("jutro · 23.10");
+    expect(careBadge(careCard({ kind: "data", due_on: null }), TODAY, FRIDAY)).toBeNull();
+  });
+
+  it("umówiony termin w czasie firmy", () => {
+    expect(formatScheduledShort("2026-10-24T12:00:00Z")).toBe("24.10 · 14:00");
+    expect(formatScheduledShort("nie-data")).toBeNull();
+    expect(formatScheduledShort(null)).toBeNull();
+  });
+
+  it("panel: nagłówek z terminem i podtytuł z rolą, klientem i opiekunem", () => {
+    const card = careCard({
+      reason_kind: "day_30",
+      overdue_days: 3,
+      role_label: "QA",
+      client_name: "Telekom Wzorcowy",
+      owner_name: "Natalia Opiekuńcza",
+    });
+    expect(carePanelKicker(card)).toBe("Opieka · rozmowa · dzień 30 · 3 dni po terminie");
+    expect(carePanelSubtitle(card)).toBe("QA · Telekom Wzorcowy · opiekun Natalia O.");
+  });
+
+  it("„Przenieś na tablicy”: trzy pola z podpowiedzią, bez „Zrobione”; dane — żadnego", () => {
+    expect(careMoveOptions("contact").map((option) => `${option.label} — ${option.hint}`)).toEqual([
+      "Nowa — do zrobienia",
+      "W toku · Umówiona — podaj dzień i godzinę",
+      "Czeka · Nie odbiera — spróbować ponownie dnia…",
+    ]);
+    expect(careMoveOptions("feedback")[2].label).toBe("Czeka na menedżera");
+    expect(careMoveOptions("demand")[2].hint).toBe("wraca za 30 dni");
+    expect(careMoveOptions("data")).toEqual([]);
+  });
+
+  it("„Konsultant w skrócie”: ocena i cytat, prośba o opinię, koniec zamówienia, rytm", () => {
+    const rows = consultantBriefRows(
+      careCard({
+        note_excerpt: "Dobrze, chce więcej automatyzacji.",
+        last_satisfaction: 5,
+        manager: { contact_id: 1, name: "Katarzyna Kierownicza", feedback_due_on: "2026-10-16" },
+      }),
+      {
+        cadence: { label: "co 2 tygodnie", until_on: "2026-12-15" },
+        kpis: {
+          last_contact: { on: "2026-09-26", days_ago: 26 },
+          satisfaction: { value: 4, previous: null },
+          order_end: { on: "2026-11-15", days: 24 },
+        },
+        known_project: null,
+      },
+    );
+    expect(rows).toEqual([
+      { label: "Ostatnia rozmowa", value: "26.09 · 5/5 · „Dobrze, chce więcej automatyzacji.”" },
+      { label: "Menedżer u klienta", value: "Katarzyna Kierownicza · prośba o opinię czeka od 16.10" },
+      { label: "Koniec zamówienia", value: "15.11 · za 24 dni" },
+      { label: "Rytm", value: "co 2 tygodnie · do 15.12" },
+    ]);
+    const empty = consultantBriefRows(careCard({ note_excerpt: null, manager: null, last_satisfaction: null }), null);
+    expect(empty.map((row) => row.value)).toEqual(["jeszcze nie było", "nie wskazano", "bez końca", "—"]);
+  });
+
+  it("dane do uzupełnienia słowami", () => {
+    expect(dataSummaryText({ certain: 2, uncertain: 1, gaps: 3, consultants: 6 })).toBe(
+      "2 pewne propozycje menedżera + 1 do sprawdzenia · 3 luki w mapie technologii",
+    );
+    expect(dataSummaryText({ certain: 0, uncertain: 2, gaps: null, consultants: 2 })).toBe(
+      "2 propozycje menedżera do sprawdzenia",
+    );
+    expect(dataSummaryText({ certain: 0, uncertain: 0, gaps: 5, consultants: 1 })).toBe("5 luk w mapie technologii");
+  });
+
+  it("akcja: dane i popyt bez menedżera prowadzą do „Ludzie i technologie”", () => {
+    const data = careCard({ kind: "data", key: "data:30", client_id: 30, contract_id: null });
+    expect(careActionLabel(data)).toBe("Przejrzyj");
+    expect(careActionHref(data)).toBe("/clients/30?tab=ludzie");
+    const blind = careCard({
+      kind: "demand",
+      key: "demand:30:4",
+      client_id: 30,
+      contract_id: null,
+      demand: { roles: [".NET"], source: null, area: null, conversation_id: 4, manager: null, open_job: null },
+    });
+    expect(careActionLabel(blind)).toBe("Uzupełnij menedżera");
+    expect(careActionHref(blind)).toBe("/clients/30?tab=ludzie&view=drzewo");
+    const known = careCard({
+      kind: "demand",
+      key: "demand:30:5",
+      demand: {
+        roles: ["Java"],
+        source: null,
+        area: null,
+        conversation_id: 5,
+        manager: { contact_id: 7, name: "M. Rogalski" },
+        open_job: null,
+      },
+    });
+    expect(careActionLabel(known)).toBe("Porozmawiaj z menedżerem");
+  });
+
+  it("menedżer w wierszu: „K. Kierownicza”", () => {
+    expect(initialSurname("Katarzyna Kierownicza")).toBe("K. Kierownicza");
+    expect(initialSurname("Jan")).toBe("Jan");
+    expect(initialSurname(null)).toBe("");
+  });
+
+  it("decyzja z końca zamówienia bez wpisu ma własny klucz", () => {
+    expect(isOrderEndDecision("decision:end:12")).toBe(true);
+    expect(isOrderEndDecision("decision:12")).toBe(false);
+    expect(decisionIdOf("decision:end:12")).toBeNull();
+  });
+});
+
+describe("„Zrobione”, sprawy w opiece, kolejka", () => {
+  it("jedna liczba i „41 spraw w miesiącu · 5 rozmów i opinii w tym tygodniu”", () => {
+    expect(doneSummary({ casesMonth: 41, careWeek: 5 })).toEqual({
+      total: 46,
+      text: "41 spraw w miesiącu · 5 rozmów i opinii w tym tygodniu",
+    });
+    expect(doneSummary({ casesMonth: null, careWeek: 2 }).text).toBe("2 rozmowy i opinie w tym tygodniu");
+    expect(doneSummary({ casesMonth: 1, careWeek: null })).toEqual({ total: 1, text: "1 sprawa w miesiącu" });
+  });
+
+  it("sprawa w „Do zrobienia” tylko do piątku albo po terminie (S3)", () => {
+    const friday = "2026-10-23";
+    expect(caseDueThisWeek(caseCard({ due_on: "2026-10-23" }), friday)).toBe(true);
+    expect(caseDueThisWeek(caseCard({ due_on: "2026-10-10", overdue: true }), friday)).toBe(true);
+    expect(caseDueThisWeek(caseCard({ due_on: "2026-10-27" }), friday)).toBe(false);
+    expect(caseDueThisWeek(caseCard({ due_on: null }), friday)).toBe(false);
+    // Zrobione zostają w wąskiej kolumnie.
+    expect(caseDueThisWeek(caseCard({ status: "done" }), friday)).toBe(true);
+  });
+
+  it("sprawa z karty konsultanta otwiera panel od razu (skrót → `CaseCard`)", () => {
+    const stub = caseStubFromCardCase(
+      {
+        id: 931,
+        title: "Negocjacje stawki",
+        area: "negotiation",
+        area_label: "Negocjacje",
+        status: "in_progress",
+        status_label: "W toku",
+        due_on: "2026-10-20",
+        follow_up_on: null,
+        assignee_name: "Natalia Opiekuńcza",
+        source: "manual",
+        content_hidden: true,
+      },
+      "2026-10-22",
+    );
+    expect(stub).toMatchObject({ id: 931, status: "in_progress", area: "negotiation", overdue: true });
+    expect(stub.assignee?.name).toBe("Natalia Opiekuńcza");
+  });
+
+  it("`?filter=` z dzwonka → filtr; nieznany → wszystko", () => {
+    expect(listFilterFromParam("po-terminie")).toBe("overdue");
+    expect(listFilterFromParam("do-piatku")).toBe("week");
+    expect(listFilterFromParam("rozmowy")).toBe("contact");
+    expect(listFilterFromParam("opinie")).toBe("feedback");
+    expect(listFilterFromParam("decyzje")).toBe("decision");
+    expect(listFilterFromParam("dane")).toBe("data");
+    expect(listFilterFromParam("popyt")).toBe("demand");
+    expect(listFilterFromParam("cokolwiek")).toBe("all");
+    expect(listFilterFromParam(null)).toBe("all");
+  });
+
+  it("liczniki chipów listy liczą te same karty co lista (bez zrobionych)", () => {
+    const items = [
+      careItem(careCard({ key: "contact:plan:1", overdue_days: 2, due_on: "2026-10-20" })),
+      careItem(careCard({ key: "contact:plan:2", overdue_days: 0, due_on: "2026-10-23" })),
+      careItem(careCard({ key: "feedback:3", kind: "feedback", overdue_days: 0, due_on: "2026-10-30" })),
+      careItem(careCard({ key: "decision:4", kind: "decision", due_on: null, overdue_days: 0 })),
+      careItem(careCard({ key: "data:5", kind: "data", due_on: null, overdue_days: 0 })),
+      caseItem(caseCard({ id: 6, due_on: "2026-10-19", overdue: true })),
+      caseItem(caseCard({ id: 7, status: "done" })),
+    ];
+    expect(listFilterCounts(items, "2026-10-23")).toEqual({
+      all: 6,
+      overdue: 2,
+      week: 3,
+      contact: 2,
+      feedback: 1,
+      decision: 1,
+      data: 1,
+      demand: 0,
+    });
+    expect(matchesListFilter(items[5], "overdue", "2026-10-23")).toBe(true);
+    expect(matchesListFilter(items[5], "contact", "2026-10-23")).toBe(false);
+  });
+
+  it("stronicowanie kolejki: pierwsze N wierszy w kolejności grup", () => {
+    const make = (count: number, prefix: string) =>
+      Array.from({ length: count }, (_, index) => careItem(careCard({ key: `${prefix}:${index}` })));
+    const groups = [
+      { key: "overdue", items: make(30, "a") },
+      { key: "week", items: make(30, "b") },
+      { key: "later", items: make(5, "c") },
+    ];
+    const page = paginateGroups(groups, 50);
+    expect(page.groups.map((group) => [group.key, group.items.length])).toEqual([
+      ["overdue", 30],
+      ["week", 20],
+    ]);
+    expect(page.hidden).toBe(15);
+    expect(paginateGroups(groups, 100).hidden).toBe(0);
   });
 });

@@ -178,9 +178,17 @@ class ClientStateChangesBody(BaseModel):
     hiring_source: Optional[Literal["widzial", "slyszal", "plotka"]] = None
 
 
+ClientStateRow = Literal[
+    "area", "manager", "team", "technologies", "vendors", "project_end"
+]
+
+
 class ClientStateBody(BaseModel):
     confirmed: bool = True
     changes: ClientStateChangesBody = Field(default_factory=ClientStateChangesBody)
+    #: Stan każdego wiersza z okna (makieta P3): „same” = potwierdzony bez
+    #: zmian (wiersz nieruszony), „change” = zmieniony. Zapis do śladu świeżości.
+    rows: dict[ClientStateRow, Literal["same", "change"]] = Field(default_factory=dict)
 
 
 class GapAnswerBody(BaseModel):
@@ -237,6 +245,7 @@ def _extras(body: ConversationBody) -> conversation_save.Extras:
         client_state = {
             "confirmed": body.client_state.confirmed,
             "changes": body.client_state.changes.model_dump(exclude_unset=True),
+            "rows": dict(body.client_state.rows),
         }
     return conversation_save.Extras(
         client_state=client_state,
@@ -755,7 +764,7 @@ class FeedbackBody(BaseModel):
     #: Bez kontaktu tylko przy samym rozstrzygnięciu popytu („nieaktualne”).
     contact_id: Optional[int] = None
     held_on: date
-    channel: Literal["phone", "meeting", "email"] = "phone"
+    channel: Literal["phone", "meeting", "email", "teams"] = "phone"
     extension_outlook: Optional[Literal["yes", "likely", "unsure", "no"]] = None
     note: Optional[str] = Field(default=None, max_length=FEEDBACK_NOTE_MAX)
     scores: list[FeedbackScoreBody] = Field(default_factory=list, max_length=100)
@@ -806,7 +815,7 @@ async def add_client_feedback(
     jobs_new_url = None
     demand_keys: list[str] = []
     if body.demand is not None:
-        demand_keys = await demand.resolve(
+        resolved = await demand.resolve(
             db,
             client_id=client.id,
             resolution=demand.Resolution(
@@ -821,12 +830,16 @@ async def add_client_feedback(
             today=today,
             now=local_now(),
         )
+        demand_keys = resolved.keys
         if body.demand.outcome == "confirmed":
             jobs_new_url = demand.jobs_new_url(
                 client_id=client.id,
                 hm_contact_id=body.contact_id,
                 skill_ids=body.demand.skill_ids,
                 title=body.demand.role,
+                area_name=resolved.area_name,
+                headcount=body.demand.headcount,
+                start_month=body.demand.start_month,
             )
     contract_ids = (
         sorted(

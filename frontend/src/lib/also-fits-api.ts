@@ -25,6 +25,10 @@ export interface AlsoFitsResponse {
   /** `unavailable` = nie udało się sprawdzić (awaria wyszukiwania), nie „nic nie pasuje”. */
   status: "ok" | "unavailable";
   jobs: AlsoFitsJob[];
+  /** R2 (22.10.2026): nasz konsultant z decyzją „przekaż do front office”. */
+  source?: "our_consultant" | null;
+  /** „Wraca na rynek DD.MM”; brak przy `source` = data nieznana. */
+  returns_to_market_on?: string | null;
 }
 
 export const alsoFitsKeys = {

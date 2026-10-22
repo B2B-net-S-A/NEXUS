@@ -12,14 +12,17 @@ import { Button } from "@/components/ui/button";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { WorkBoard } from "@/components/work-board/WorkBoard";
 import { canSeeCareBoard } from "@/components/work-board/care-access";
+import { listFilterFromParam } from "@/components/work-board/work-board-model";
+import { useCareClients, useCareConsultants } from "@/lib/api/care";
 import { useAnnouncements } from "@/lib/api/care-announcements";
-import type { CareBoardCard } from "@/lib/api/care-board";
+import { useCareBoard, type CareBoardCard } from "@/lib/api/care-board";
 import type { HrConfig } from "@/lib/api/hr";
 import { canSeeSettingsItem, findSettingsItem, settingsItemHref } from "@/lib/settings-registry";
 import { useUrlWriter } from "@/lib/url-selection";
 import { useAuthStore } from "@/store/auth";
 
 import { AnnouncementsTab } from "./announcements/AnnouncementsTab";
+import { consultantsIn } from "./cadence-format";
 import { ConsultantCardPanel } from "./card/ConsultantCardPanel";
 import { FrontOfficeDialog } from "./card/FrontOfficeDialog";
 import { ClientFeedbackDialog, type ClientFeedbackDialogProps } from "./ClientFeedbackDialog";
@@ -139,6 +142,14 @@ function CareTabs({ config }: { config: HrConfig }) {
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const announcements = useAnnouncements(careRole);
   const pendingApprovals = (announcements.data?.items ?? []).filter((row) => row.can_approve).length;
+  // Liczniki zakładek (P1: „Do zrobienia 7 · Konsultanci 42 · Klienci 9”) — te same
+  // zapytania co zakładki (wspólny cache), liczba dopiero po udanym odczycie.
+  // Bez roli opieki nie pytamy (serwer odmawia) — zakładki i tak ich nie ma.
+  const todoCount = useCareBoard("mine", careRole);
+  const consultantsCount = useCareConsultants(careRole);
+  const clientsCount = useCareClients(scope, careRole);
+  // `?filter=` — chip kolejki „Do zrobienia” z linku (dzwonki).
+  const listFilter = listFilterFromParam(searchParams?.get("filter"));
 
   // Karta konsultanta z adresu (link z dzwonka, tablicy) i z kliknięcia; adres
   // pisze `useUrlWriter` (natywna historia), więc stan trzymamy też lokalnie.
@@ -169,6 +180,7 @@ function CareTabs({ config }: { config: HrConfig }) {
       params.delete("announcement");
       params.delete("client");
       params.delete("card");
+      params.delete("filter");
     });
   const openContract = (id: number | null) => {
     setContractId(id);
@@ -185,11 +197,23 @@ function CareTabs({ config }: { config: HrConfig }) {
     });
 
   const tabs = [
-    { value: "todo", label: "Do zrobienia" },
+    {
+      value: "todo",
+      label: "Do zrobienia",
+      count: careRole && todoCount.isSuccess ? todoCount.data.cards.length : undefined,
+    },
     ...(careRole
       ? [
-          { value: "consultants", label: "Konsultanci" },
-          { value: "clients", label: "Klienci" },
+          {
+            value: "consultants",
+            label: "Konsultanci",
+            count: consultantsCount.isSuccess ? consultantsIn(consultantsCount.data.items, scope).length : undefined,
+          },
+          {
+            value: "clients",
+            label: "Klienci",
+            count: clientsCount.isSuccess ? clientsCount.data.rows.length : undefined,
+          },
           ...(teamOpen ? [{ value: "team", label: "Zespół opiekunów" }] : []),
         ]
       : []),
@@ -246,6 +270,8 @@ function CareTabs({ config }: { config: HrConfig }) {
                 scope="care"
                 config={config}
                 initialSelectedKey={cardKey}
+                initialFilter={listFilter}
+                onOpenContract={openContract}
                 onCloseSelected={() => writeParams((params) => params.delete("card"))}
                 onOpenConversation={(id, planItemId) => setTalk({ contractId: id, planItemId: planItemId ?? null })}
                 onOpenFrontOffice={(id) => setFrontOffice(id)}
@@ -310,7 +336,9 @@ function CareTabs({ config }: { config: HrConfig }) {
  * kart opieki i spraw), „Konsultanci” (rytm i zdrowie relacji), „Klienci”
  * (wiedza, popyt, kończący), „Zespół opiekunów” (head back office i admin).
  * „Komunikaty” to przycisk w nagłówku z liczbą do zatwierdzenia.
- * `?contract=<id>` otwiera kartę konsultanta na każdej zakładce.
+ * `?contract=<id>` otwiera kartę konsultanta na każdej zakładce, `?card=<klucz>`
+ * — panel karty tablicy, `?filter=po-terminie|do-piatku|rozmowy|opinie|decyzje|
+ * dane|popyt` — chip kolejki „Do zrobienia” (linki z dzwonków).
  */
 export function CareScreen() {
   return (

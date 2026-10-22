@@ -30,6 +30,7 @@ import {
   useAddCaseComment,
   useCase,
   useCloseCase,
+  useTakeCase,
   useUpdateCase,
   type CaseChecklistItem,
   type CaseDetail,
@@ -41,7 +42,7 @@ import { formatIsoDatePl, formatMomentPl } from "@/lib/date-pl";
 import { canSeeCareBoard } from "@/components/work-board/care-access";
 import { useAuthStore } from "@/store/auth";
 
-import { CaseConsultantSection, CaseWhoBar } from "./CaseConsultant";
+import { CaseConsultantSection, CaseWhoBar, casePatchError } from "./CaseConsultant";
 import { CaseFormDialog } from "./CaseFormDialog";
 import {
   PRIORITY_BADGE,
@@ -368,9 +369,49 @@ function Header({ detail, onEdit }: { detail: CaseDetail; onEdit: () => void }) 
 }
 
 /**
- * Szczegół sprawy: nagłówek z akcjami, „Kogo dotyczy?” (sprawa bez
- * kontraktu), opis, wątek maili, komentarze, checklista i karta „Konsultant”
- * (od 22.10.2026 zamiast „Powiązań”, gdy sprawa ma kontrakt).
+ * „Osoba odpowiedzialna” z „Weź” przy sprawie bez osoby (makieta S4) — ta sama
+ * akcja co na tablicy: przypisanie do siebie z wersją karty (409 = ktoś wziął).
+ */
+function AssigneeFact({ detail }: { detail: CaseDetail }) {
+  const { showToast } = useToast();
+  const take = useTakeCase();
+  const me = useAuthStore((s) => s.user?.id ?? null);
+  const canTake =
+    detail.can_manage && !detail.assignee && me != null && detail.status !== "closed" && detail.status !== "done";
+  return (
+    <Fact label="Osoba odpowiedzialna">
+      <span className="inline-flex items-center gap-2">
+        {detail.assignee?.name ?? "—"}
+        {canTake ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs"
+            disabled={take.isPending}
+            onClick={() => {
+              if (me == null) return;
+              take.mutate(
+                { id: detail.id, userId: me, expectedUpdatedAt: detail.updated_at },
+                {
+                  onSuccess: () => showToast("Sprawa jest Twoja", "success"),
+                  onError: (err) => showToast(casePatchError(err, "Nie udało się wziąć sprawy."), "error"),
+                },
+              );
+            }}
+          >
+            Weź
+          </Button>
+        ) : null}
+      </span>
+    </Fact>
+  );
+}
+
+/**
+ * Szczegół sprawy (makieta S4, 22.10.2026): w głównej kolumnie „Kogo
+ * dotyczy?” (sprawa bez kontraktu), opis, wątek maili, checklista
+ * i komentarze; po prawej karta „Konsultant” obok maila (tylko obsługa Spraw)
+ * i „Szczegóły” z „Weź” przy sprawie bez osoby.
  */
 export function CaseDetailView({ caseId }: { caseId: number }) {
   const query = useCase(caseId);
@@ -415,26 +456,36 @@ export function CaseDetailView({ caseId }: { caseId: number }) {
         Sprawy
       </Link>
       <Header detail={detail} onEdit={() => setEditing(true)} />
-      <CaseWhoBar detail={detail} />
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* `min-w-0`: bez tego długi adres albo nazwa załącznika rozpycha stronę na telefonie. */}
         <div className="min-w-0 space-y-4 lg:col-span-2">
-          <Card className="p-4">
-            <SectionTitle>Opis</SectionTitle>
-            <p className="whitespace-pre-line break-words text-sm text-foreground">
-              {detail.description ?? (
-                <span className="text-muted-foreground">Bez opisu.</span>
-              )}
-            </p>
-          </Card>
+          <CaseWhoBar detail={detail} />
+          {/* Sprawa z maila bez opisu ma treść w wiadomościach — pusty „Opis” tylko bez maili. */}
+          {detail.description || detail.messages.length === 0 ? (
+            <Card className="p-4">
+              <SectionTitle>Opis</SectionTitle>
+              <p className="whitespace-pre-line break-words text-sm text-foreground">
+                {detail.description ?? (
+                  <span className="text-muted-foreground">Bez opisu.</span>
+                )}
+              </p>
+            </Card>
+          ) : null}
           <Messages detail={detail} />
+          <Checklist detail={detail} />
           <Comments detail={detail} />
         </div>
         <div className="min-w-0 space-y-4">
+          {detail.contract && detail.can_manage ? (
+            <Card className="p-4">
+              <SectionTitle>Konsultant</SectionTitle>
+              <CaseConsultantSection detail={detail} careAccess={careAccess} />
+            </Card>
+          ) : null}
           <Card className="p-4">
             <SectionTitle>Szczegóły</SectionTitle>
-            <Fact label="Osoba odpowiedzialna">{detail.assignee?.name ?? "nikt"}</Fact>
+            <AssigneeFact detail={detail} />
             <Fact label="Termin">{formatIsoDatePl(detail.due_on)}</Fact>
             <Fact label="Kontakt">{formatIsoDatePl(detail.follow_up_on)}</Fact>
             <Fact label="Założona">{formatMomentPl(detail.created_at)}</Fact>
@@ -443,13 +494,6 @@ export function CaseDetailView({ caseId }: { caseId: number }) {
             ) : null}
             {detail.closed_at ? <Fact label="Zakończona">{formatMomentPl(detail.closed_at)}</Fact> : null}
           </Card>
-          <Checklist detail={detail} />
-          {detail.contract ? (
-            <Card className="p-4">
-              <SectionTitle>Konsultant</SectionTitle>
-              <CaseConsultantSection detail={detail} careAccess={careAccess} />
-            </Card>
-          ) : null}
           {detail.subject_user ? (
             <Card className="p-4">
               <SectionTitle>Osoba</SectionTitle>

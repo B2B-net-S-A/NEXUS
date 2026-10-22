@@ -893,11 +893,15 @@ async def _transfer_care(
             details=details,
         )
     await db.flush()
-    return {
+    result = {
         "contracts": len(contracts),
         "clients": len(clients),
         "items": len(contracts) + len(clients),
     }
+    # Jeden kontrakt bez klientów — dzwonek prowadzi na jego kartę (R2, 22.10.2026).
+    if len(contracts) == 1 and not clients:
+        result["contract_id"] = contracts[0]
+    return result
 
 
 EXECUTORS: dict[str, Executor] = {
@@ -956,6 +960,7 @@ async def execute_handover(
     actor_id = case.owner_user_id or case.created_by
     outcome = HandoverRun(moved={})
     per_receiver: dict[int, list[tuple[str, int]]] = {}
+    care_contracts: dict[int, int] = {}
     newly_failed: list[str] = []
     for row in rows:
         if row.status == "done":
@@ -1002,10 +1007,12 @@ async def execute_handover(
         outcome.moved[row.work_kind] = moved
         if moved:
             per_receiver.setdefault(receiver.id, []).append((row.work_kind, moved))
+        if row.work_kind == "care" and result.get("contract_id"):
+            care_contracts[receiver.id] = int(result["contract_id"])
     if outcome.failed == 0:
         case.handover_executed_at = now
     await db.flush()
-    await _notify_receivers(db, case, per_receiver)
+    await _notify_receivers(db, case, per_receiver, care_contracts=care_contracts)
     if newly_failed:
         await _notify_failure(db, case, newly_failed)
     return outcome
@@ -1022,6 +1029,8 @@ async def _notify_receivers(
     db: AsyncSession,
     case: LifecycleCase,
     per_receiver: dict[int, list[tuple[str, int]]],
+    *,
+    care_contracts: Optional[dict[int, int]] = None,
 ) -> None:
     if not per_receiver:
         return
@@ -1034,7 +1043,9 @@ async def _notify_receivers(
         elif kinds == {"reports"}:
             link = "/people/team"
         elif kinds == {"care"}:
-            link = "/care"
+            # Jeden przejęty kontrakt = karta konsultanta, kilka = „Konsultanci”.
+            contract_id = (care_contracts or {}).get(receiver_id)
+            link = f"/care?contract={contract_id}" if contract_id else "/care"
         else:
             link = "/dashboard"
         # Dzwonek nie cofa przekazania (``notify_each`` łapie awarię).

@@ -25,8 +25,8 @@ import {
   type OrgPerson,
 } from "@/lib/api/client-people";
 import { hasCapability } from "@/lib/capabilities";
-import { formatIsoDatePl } from "@/lib/date-pl";
-import { countPl } from "@/lib/plural-pl";
+import { formatDayMonthPl } from "@/lib/date-pl";
+import { countPl, pluralPl } from "@/lib/plural-pl";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
@@ -46,18 +46,87 @@ import {
   type PeopleView,
 } from "./people-tech-format";
 
-function completenessLine(c: Completeness): string {
-  return [
-    countPl(c.consultants, "nasz konsultant", "naszych konsultantów", "naszych konsultantów"),
-    `${c.departmentsWithOurs} z ${c.departmentsTotal} ${c.departmentsTotal === 1 ? "działu" : "działów"} z naszymi`,
-    c.withManager !== null ? `${c.withManager} z ${c.consultants} z menedżerem` : null,
-    c.mapOn ? `mapa z ${formatIsoDatePl(c.mapOn)}` : "mapa bez źródeł",
-    c.requests !== null
-      ? countPl(c.requests, "prośba o opinię", "prośby o opinię", "próśb o opinię")
+/** Pięć liczb kompletności wiedzy (makieta P5) — te same co na liście „Klienci”. */
+function CompletenessTiles({ c }: { c: Completeness }) {
+  const tiles = [
+    { key: "ours", value: String(c.consultants), label: c.consultants === 1 ? "nasz" : "naszych" },
+    {
+      key: "departments",
+      value: String(c.departmentsWithOurs),
+      label: `${pluralPl(c.departmentsWithOurs, "dział", "działy", "działów")} z naszymi`,
+    },
+    c.withManager !== null
+      ? { key: "managers", value: `${c.withManager} z ${c.consultants}`, label: "z menedżerem" }
       : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+    {
+      key: "map",
+      value: c.mapOn ? formatDayMonthPl(c.mapOn) : "—",
+      label: c.mapOn ? "mapa z" : "mapa bez źródeł",
+      before: true,
+    },
+    c.requests !== null
+      ? {
+          key: "requests",
+          value: String(c.requests),
+          label: `${pluralPl(c.requests, "prośba", "prośby", "próśb")} o opinię`,
+        }
+      : null,
+  ].filter((tile): tile is NonNullable<typeof tile> => tile !== null);
+  return (
+    <dl className="flex flex-wrap gap-2" aria-label="Kompletność wiedzy o kliencie" data-people-tech-completeness>
+      {tiles.map((tile) => (
+        <div
+          key={tile.key}
+          className="flex min-w-24 flex-col rounded-lg border border-border bg-card px-3 py-1.5"
+        >
+          {"before" in tile && tile.before ? <dt className="text-xs text-muted-foreground">{tile.label}</dt> : null}
+          <dd className="text-lg font-semibold tabular-nums text-foreground">{tile.value}</dd>
+          {"before" in tile && tile.before ? null : <dt className="text-xs text-muted-foreground">{tile.label}</dt>}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * „Zapisz opinię menedżera” i „Nowa rekrutacja z działu” w nagłówku profilu
+ * klienta, gdy otwarta jest zakładka „Ludzie i technologie” (makieta P5).
+ * Te same zapytania co zakładka (React Query je współdzieli); okno opinii
+ * ma własny stan.
+ */
+export function PeopleTechHeaderActions({ clientId }: { clientId: number }) {
+  const user = useAuthStore((s) => s.user);
+  const canReadPeople = canReadClientPeople(user);
+  const canCreateJob = !!user && hasCapability(user, "job.create");
+  const mapQuery = useClientTechMap(clientId);
+  const orgQuery = useClientOrg(clientId, canReadPeople);
+  const [feedback, setFeedback] = useState<FeedbackTarget | null>(null);
+  const org = orgQuery.data ?? null;
+  const map = mapQuery.data ?? null;
+  return (
+    <>
+      {org?.can_write_feedback ? (
+        <FeedbackPicker
+          people={orgPeople(org)}
+          requests={org.requests.map((request) => request.contact_id)}
+          onPick={setFeedback}
+        />
+      ) : null}
+      {canCreateJob && map ? <NewJobPicker clientId={clientId} map={map} org={org} /> : null}
+      {feedback && org ? (
+        <ClientFeedbackDialog
+          clientId={clientId}
+          clientName={org.client_name}
+          manager={feedback.manager}
+          consultants={feedback.consultants}
+          open
+          onOpenChange={(open) => {
+            if (!open) setFeedback(null);
+          }}
+        />
+      ) : null}
+    </>
+  );
 }
 
 /**
@@ -115,23 +184,13 @@ export function ClientPeopleTechTab({
     />
   );
 
-  // Drzewo i mapa mają własne stany ładowania i błędów — nie czekają na drugie zapytanie.
-  const header = (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
-      <p className="min-w-0 text-sm text-muted-foreground" data-people-tech-completeness>
-        {map ? completenessLine(completeness(map, org)) : "Wczytywanie liczb klienta…"}
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        {org?.can_write_feedback ? (
-          <FeedbackPicker
-            people={orgPeople(org)}
-            requests={org.requests.map((request) => request.contact_id)}
-            onPick={setFeedback}
-          />
-        ) : null}
-        {canCreateJob && map ? <NewJobPicker clientId={clientId} map={map} org={org} /> : null}
-      </div>
-    </div>
+  // Drzewo i mapa mają własne stany ładowania i błędów — nie czekają na drugie
+  // zapytanie. „Zapisz opinię menedżera” i „Nowa rekrutacja z działu” są
+  // w nagłówku profilu klienta (`PeopleTechHeaderActions`).
+  const header = map ? (
+    <CompletenessTiles c={completeness(map, org)} />
+  ) : (
+    <p className="text-sm text-muted-foreground">Wczytywanie liczb klienta…</p>
   );
 
   let body: ReactNode;

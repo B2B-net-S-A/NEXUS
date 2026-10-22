@@ -9,7 +9,13 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
-import { HISTORY_FILTERS, historyCounts, historyEvents, type HistoryFilter } from "./card-format";
+import {
+  HISTORY_FILTERS,
+  eventDetailSeparator,
+  historyCounts,
+  historyEvents,
+  type HistoryFilter,
+} from "./card-format";
 
 function EventRow({ event, action }: { event: TimelineEvent; action: ReactNode }) {
   return (
@@ -22,16 +28,19 @@ function EventRow({ event, action }: { event: TimelineEvent; action: ReactNode }
       <span className="text-xs leading-5 tabular-nums text-muted-foreground">
         {formatIsoDatePl(event.on)}
       </span>
-      <span className="min-w-0 text-sm">
+      <span className="min-w-0 break-words text-sm">
         {event.link ? (
-          <Link href={event.link} className="hover:underline">
+          <Link href={event.link} className={cn("hover:underline", !event.future && "text-foreground")}>
             {event.title}
           </Link>
         ) : (
-          event.title
+          <span className={event.future ? undefined : "text-foreground"}>{event.title}</span>
         )}
         {event.detail ? (
-          <span className="block break-words text-xs text-muted-foreground">{event.detail}</span>
+          <span className="text-muted-foreground">
+            {eventDetailSeparator(event.detail)}
+            {event.detail}
+          </span>
         ) : null}
       </span>
       {action ? <span className="shrink-0">{action}</span> : <span />}
@@ -47,7 +56,8 @@ interface CardHistoryProps {
 
 /**
  * Jedna „Historia” karty konsultanta (zastępuje „Oś konsultanta” i „Oś
- * opieki”): rozmowy, sprawy, opinie, umowa i zamówienia z filtrami. Dane z
+ * opieki”): rozmowy, sprawy, opinie, umowa i zamówienia z filtrami; to, co
+ * przed nami (plan rozmowy), na górze tej samej listy. Dane z
  * `GET /contracts/{id}/timeline` — bez stawek i bez treści spraw.
  */
 export function CardHistory({ contractId, eventAction }: CardHistoryProps) {
@@ -102,20 +112,12 @@ export function CardHistory({ contractId, eventAction }: CardHistoryProps) {
         />
       ) : (
         <>
-          {ahead.length ? (
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Przed nami
-              </p>
-              <ol className="divide-y divide-border/60" aria-label="Przed nami">
-                {ahead.map((event, index) => (
-                  <EventRow key={`${event.kind}-${event.on}-${index}`} event={event} action={null} />
-                ))}
-              </ol>
-            </div>
-          ) : null}
-          {past.length ? (
+          {ahead.length || past.length ? (
             <ol className="divide-y divide-border/60" aria-label="Historia konsultanta">
+              {/* To, co przed nami (plan rozmowy „· za 2 dni”), stoi na górze listy — makieta P2. */}
+              {ahead.map((event, index) => (
+                <EventRow key={`ahead-${event.kind}-${event.on}-${index}`} event={event} action={null} />
+              ))}
               {past.map((event, index) => (
                 <EventRow
                   key={`${event.kind}-${event.on}-${index}`}

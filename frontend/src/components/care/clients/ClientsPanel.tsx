@@ -10,7 +10,7 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
 import { useCareClients, type CareClientRow } from "@/lib/api/care";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
-import { formatDayMonthPl, formatIsoDatePl } from "@/lib/date-pl";
+import { warsawToday } from "@/lib/warsaw-date";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -18,23 +18,27 @@ import { HEALTH_BAR, HEALTH_LABELS, healthSegments } from "../health-format";
 import {
   CLIENT_FILTERS,
   clientFilterCounts,
+  endingNames,
   gapsText,
   healthCountsText,
+  lastFeedbackText,
+  leadsText,
+  managersSubline,
   managersText,
+  mapFreshnessText,
   matchesClientFilter,
   openJobsText,
+  pendingFeedbackText,
   sortClients,
   type ClientFilter,
 } from "./clients-format";
 
-const ENDING_SHOWN = 2;
-
 function HealthCell({ row }: { row: CareClientRow }) {
   const segments = row.health ? healthSegments(row.health) : [];
-  const text = healthCountsText(row.health);
+  const text = healthCountsText(row.consultants, row.health);
   return (
     <div className="min-w-28 space-y-1">
-      <span className="font-medium tabular-nums">{row.consultants}</span>
+      <span className="block whitespace-nowrap tabular-nums">{text}</span>
       {segments.length ? (
         <span
           className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted"
@@ -50,7 +54,6 @@ function HealthCell({ row }: { row: CareClientRow }) {
           ))}
         </span>
       ) : null}
-      {text ? <span className={CALM_SUBLINE}>{text}</span> : null}
     </div>
   );
 }
@@ -86,6 +89,7 @@ export function ClientsPanel({ scope, onOpenContract }: ClientsPanelProps) {
     isEmpty: rows.length === 0,
   });
   const showHealth = query.data?.health_visible ?? all.some((row) => row.health != null);
+  const today = query.data?.today ?? warsawToday();
 
   return (
     <div className="space-y-3">
@@ -139,13 +143,13 @@ export function ClientsPanel({ scope, onOpenContract }: ClientsPanelProps) {
               <tr className={CALM_ROW}>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Klient</th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>
-                  {showHealth ? "Nasi · zdrowie" : "Nasi"}
+                  {showHealth ? "Nasi i zdrowie" : "Nasi"}
                 </th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")} title="Konsultanci ze wskazanym menedżerem u klienta">
                   Menedżerowie u klienta
                 </th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Opinie</th>
-                <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Mapa</th>
+                <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Mapa technologii</th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Popyt</th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Kończą w 60 dni</th>
               </tr>
@@ -155,6 +159,10 @@ export function ClientsPanel({ scope, onOpenContract }: ClientsPanelProps) {
                 const href = `/clients/${row.client_id}?tab=ludzie`;
                 const gaps = gapsText(row.map?.gaps ?? null);
                 const jobs = openJobsText(row.demand.open_jobs);
+                const managers = managersSubline(row);
+                const lastFeedback = lastFeedbackText(row.last_feedback_on);
+                const pending = pendingFeedbackText(row.feedback_pending, row.feedback_pending_since);
+                const ending = endingNames(row.ending_60);
                 return (
                   <tr
                     key={row.client_id}
@@ -165,30 +173,25 @@ export function ClientsPanel({ scope, onOpenContract }: ClientsPanelProps) {
                       <Link href={href} className="font-medium hover:underline" onClick={stop}>
                         {row.name}
                       </Link>
-                      <span className={CALM_SUBLINE}>
-                        {row.delivery_leads.length ? `DL: ${row.delivery_leads.join(", ")}` : "bez Delivery Leada"}
-                        {row.default_owner_name ? ` · opiekun: ${row.default_owner_name}` : ""}
-                      </span>
+                      <span className={CALM_SUBLINE}>{leadsText(row)}</span>
                     </td>
                     <td className="px-3 py-1.5 align-top">
                       <HealthCell row={row} />
                     </td>
                     <td className="px-3 py-1.5 align-top">
                       <span className="tabular-nums">{managersText(row)}</span>
-                      <span className={CALM_SUBLINE}>
-                        {row.managers_known === 1 ? "1 menedżer" : `${row.managers_known} menedżerów`}
-                      </span>
+                      {managers ? <span className={CALM_SUBLINE}>{managers}</span> : null}
                     </td>
                     <td className="px-3 py-1.5 align-top">
-                      {row.last_feedback_on ? (
-                        <span className="tabular-nums">{formatIsoDatePl(row.last_feedback_on)}</span>
+                      {lastFeedback ? (
+                        <span className="tabular-nums">{lastFeedback}</span>
                       ) : (
                         <span className={CALM_EMPTY}>brak</span>
                       )}
-                      {row.feedback_pending ? (
+                      {pending ? (
                         <span className={CALM_SUBLINE}>
                           <Badge variant="warning" size="sm">
-                            {row.feedback_pending} czeka
+                            {pending}
                           </Badge>
                         </span>
                       ) : null}
@@ -196,8 +199,8 @@ export function ClientsPanel({ scope, onOpenContract }: ClientsPanelProps) {
                     <td className="px-3 py-1.5 align-top">
                       {row.map ? (
                         <>
-                          <span>
-                            {row.map.last_source_on ? `źródło ${formatIsoDatePl(row.map.last_source_on)}` : "bez źródła"}
+                          <span className={cn(!row.map.last_source_on && "text-muted-foreground")}>
+                            {mapFreshnessText(row.map.last_source_on, today)}
                           </span>
                           {gaps ? <span className={CALM_SUBLINE}>{gaps}</span> : null}
                         </>
@@ -220,7 +223,7 @@ export function ClientsPanel({ scope, onOpenContract }: ClientsPanelProps) {
                       ) : null}
                       {row.demand.hiring_signal ? (
                         <Badge variant="info" size="sm" className="mt-1">
-                          sygnał z rozmowy
+                          klient zatrudnia (z rozmowy)
                         </Badge>
                       ) : null}
                       {jobs ? <span className={CALM_SUBLINE}>{jobs}</span> : null}
@@ -228,29 +231,30 @@ export function ClientsPanel({ scope, onOpenContract }: ClientsPanelProps) {
                         <span className={CALM_EMPTY}>—</span>
                       ) : null}
                     </td>
-                    <td className="max-w-52 px-3 py-1.5 align-top">
+                    <td className="max-w-60 px-3 py-1.5 align-top">
                       {row.ending_60.length ? (
-                        <ul className="space-y-0.5">
-                          {row.ending_60.slice(0, ENDING_SHOWN).map((item) => (
-                            <li key={item.contract_id}>
-                              <button
-                                type="button"
-                                className="text-left hover:underline"
-                                aria-label={`Karta konsultanta: ${item.name}`}
-                                onClick={(event) => {
-                                  stop(event);
-                                  onOpenContract(item.contract_id);
-                                }}
-                              >
-                                {item.name}
-                              </button>
-                              <span className="text-xs text-muted-foreground"> · {formatDayMonthPl(item.end_on)}</span>
-                            </li>
-                          ))}
-                          {row.ending_60.length > ENDING_SHOWN ? (
-                            <li className="text-xs text-muted-foreground">i {row.ending_60.length - ENDING_SHOWN} więcej</li>
-                          ) : null}
-                        </ul>
+                        <>
+                          <span className="font-medium tabular-nums">{row.ending_60.length}</span>
+                          <span className={CALM_SUBLINE}>
+                            {ending.shown.map((item, index) => (
+                              <span key={item.contractId}>
+                                {index ? " · " : null}
+                                <button
+                                  type="button"
+                                  className="hover:underline"
+                                  aria-label={`Karta konsultanta: ${item.name}`}
+                                  onClick={(event) => {
+                                    stop(event);
+                                    onOpenContract(item.contractId);
+                                  }}
+                                >
+                                  {item.label}
+                                </button>
+                              </span>
+                            ))}
+                            {ending.more ? ` · +${ending.more}` : null}
+                          </span>
+                        </>
                       ) : (
                         <span className={CALM_EMPTY}>—</span>
                       )}

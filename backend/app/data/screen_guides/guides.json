@@ -527,6 +527,51 @@
     ]
   },
   {
+    "key": "client.people",
+    "title": "Klient — Ludzie i technologie",
+    "section": null,
+    "roles": [],
+    "what": "Co wiemy o kliencie po działach: kto jest menedżerem naszych konsultantów i komu podlega, kogo tam mamy, jakich technologii używają, kogo szukają i czego jeszcze nie wiemy. Widoki: Działy, Drzewo osób, Mapa (tabela).",
+    "tasks": [
+      {
+        "q": "Czego o tym kliencie jeszcze nie wiemy?",
+        "a": "Spójrz na pięć liczb nad widokami (ilu naszych ma menedżera, z kiedy jest mapa, ile próśb o opinię czeka) i na „Luki do dopytania”. Każda luka trafia jako pytanie do okna „Rozmowa” konsultanta z tego działu — przy najbliższej rozmowie.",
+        "anchor": "client.people.gaps"
+      },
+      {
+        "q": "Jak zatwierdzić propozycję automatu?",
+        "a": "Pasek „Do zatwierdzenia” pokazuje jedną propozycję z uzasadnieniem, np. „pewne: wyższe stanowisko w tym samym dziale”. „Zatwierdź” zapisuje, „Zmień” pozwala wybrać inną osobę klienta, „Pomiń” chowa ją do czasu, aż automat wskaże kogoś innego. Pełna lista jest pod „Wszystkie propozycje”.",
+        "anchor": "client.people.approve"
+      },
+      {
+        "q": "Jak zapisać opinię menedżera albo otworzyć rekrutację z działu?",
+        "a": "Przyciski „Zapisz opinię menedżera” i „Nowa rekrutacja z działu” stoją w nagłówku klienta. Nowa rekrutacja dostaje klienta, menedżera działu i jego najmocniejsze technologie; resztę uzupełniasz w formularzu. Opinię zapiszesz też przy menedżerze na karcie działu.",
+        "anchor": "client.people.departments"
+      },
+      {
+        "q": "Gdzie dopisać, na czym pracuje dział?",
+        "a": "W „Luki do dopytania” wybierz „Dopisz notatkę o stacku” albo „Dodaj” w „Notatkach o stacku”. To jedyne miejsce takich notatek — w „Wiedzy o kliencie” są tylko do czytania. Technologie ze słownika policzą się na mapie.",
+        "anchor": "client.people.gaps"
+      },
+      {
+        "q": "Osoba klienta nie ma działu — co zrobić?",
+        "a": "W „Ludzie klienta poza działami” kliknij „Przypisz dział” przy osobie i wybierz dział z listy. Nowy dział zakłada się w „Drzewie osób” albo w formularzu kontaktu."
+      }
+    ],
+    "pitfalls": [
+      "Drzewo osób i opinie menedżerów widzą Delivery Lead, opiekun, Head of Recruitment i admin; inni widzą działy z mapy bez osób.",
+      "Domyślnego opiekuna klienta (dostają go nowi konsultanci) wybierzesz w karcie „Opiekun domyślny” pod działami albo w Opiece → „Zespół opiekunów” → „Ustawienia przydziału”.",
+      "Kropki przy technologii to liczba rodzajów źródeł (karty, rekrutacje, nasi, notatki), nie poziom znajomości."
+    ],
+    "anchors": [
+      {"id": "client.people.departments", "label": "Działy", "describe": "Karty działów: menedżer naszych i komu podlega, stan opinii, nasi konsultanci, technologie z siłą źródeł, „Szukają” i luka działu."},
+      {"id": "client.people.approve", "label": "Do zatwierdzenia", "describe": "Jedna propozycja automatu struktury z uzasadnieniem i przyciskami Zatwierdź, Zmień, Pomiń."},
+      {"id": "client.people.gaps", "label": "Luki do dopytania", "describe": "Pytania o klienta, które trafiają do najbliższej rozmowy z konsultantem z danego działu."}
+    ],
+    "help_slug": null,
+    "sources": ["frontend/src/components/care/client/ClientPeopleTechTab.tsx", "frontend/src/components/care/client/DepartmentsView.tsx", "frontend/src/components/care/client/ApprovalBar.tsx"]
+  },
+  {
     "key": "contracts.order_mail",
     "title": "Skrzynka zamówień",
     "section": "delivery",
@@ -955,7 +1000,7 @@
     "tasks": [
       {
         "q": "Od czego zacząć dzień?",
-        "a": "Otwórz „Do zrobienia” i przejrzyj kolumnę „Nowa”: rozmowy po terminie i do piątku, prośby o opinię menedżera, decyzje o przepięciu. Chip „Opieka” zostawia same karty opieki, „Moi podopieczni” — sprawy i rozmowy osób, którymi się opiekujesz. Przełącznik Tablica / Lista pokazuje to samo jako kolejkę.",
+        "a": "Otwórz „Do zrobienia” i przejrzyj kolumnę „Nowa”: rozmowy po terminie i do piątku, prośby o opinię menedżera, decyzje o przepięciu. Chip „Opieka” zostawia same karty opieki, „Moi podopieczni” — sprawy i rozmowy osób, którymi się opiekujesz. Lista pokazuje to samo jako kolejkę z filtrami.",
         "anchor": "hr.care.board"
       },
       {
@@ -965,7 +1010,7 @@
       },
       {
         "q": "Jak zapisać rozmowę z konsultantem?",
-        "a": "„Zapisz rozmowę” na karcie. Po lewej: data, forma, ocena, notatka, sygnały, następny kontakt. Po prawej „Co u klienta” z ostatnim stanem — klikasz tylko zmiany. Odpowiedz na pytania z mapy klienta; w „Coś do załatwienia?” załóż sprawę. Bez danych o zdrowiu i bez stawek.",
+        "a": "„Zapisz rozmowę” na karcie. Po lewej: data, forma, ocena, notatka, sygnały, następny kontakt. Po prawej „Co u klienta”: klikasz tylko zmiany, reszta zapisze się jako „bez zmian” (albo „Nie rozmawialiśmy o kliencie”). Odpowiedz na pytania z mapy klienta; w „Coś do załatwienia?” załóż sprawę. Bez danych o zdrowiu i bez stawek.",
         "anchor": "hr.care.conversation"
       },
       {

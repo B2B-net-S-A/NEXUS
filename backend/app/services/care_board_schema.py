@@ -50,8 +50,11 @@ CK_BOARD_KIND = f"kind IN ({quoted(BOARD_KINDS)})"
 CK_BOARD_COLUMN = f"board_column IN ({quoted(BOARD_COLUMNS)})"
 CK_BOARD_OUTCOME = f"outcome IS NULL OR outcome IN ({quoted(DEMAND_OUTCOMES)})"
 CK_BOARD_NOTE = f"note IS NULL OR char_length(note) <= {BOARD_NOTE_MAX}"
-#: „W toku” wymaga terminu albo rozstrzygnięcia, „Czeka” — daty ponowienia.
-CK_BOARD_WAITING = "board_column <> 'waiting' OR retry_on IS NOT NULL"
+#: „Czeka” wymaga daty ponowienia — poza decyzją o przepięciu, która czeka na
+#: front office bez daty (makieta K3, 0512).
+CK_BOARD_WAITING = (
+    "board_column <> 'waiting' OR retry_on IS NOT NULL OR kind = 'decision'"
+)
 
 TABLE_DDL: tuple[str, ...] = (
     f"""CREATE TABLE IF NOT EXISTS care_board_states (
@@ -101,6 +104,25 @@ INDEX_DDL: tuple[str, ...] = (
     "ON tech_cards (care_conversation_id) WHERE care_conversation_id IS NOT NULL",
 )
 
+#: Baza z 0509 ma węższy CHECK „Czeka” — blok podmienia go tylko przy starej
+#: definicji (migracja 0512 i entrypoint wykonują ten sam blok, więc start
+#: kontenera nie zwęzi więzu z powrotem).
+WAITING_DECISION_DDL: tuple[str, ...] = (
+    f"""DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.tables
+                   WHERE table_name = 'care_board_states')
+           AND NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_care_board_states_waiting'
+              AND pg_get_constraintdef(oid) LIKE '%decision%'
+        ) THEN
+            ALTER TABLE care_board_states
+                DROP CONSTRAINT IF EXISTS ck_care_board_states_waiting;
+            ALTER TABLE care_board_states
+                ADD CONSTRAINT ck_care_board_states_waiting CHECK ({CK_BOARD_WAITING});
+        END IF;
+    END $$""",
+)
 CONSTRAINT_DDL: tuple[str, ...] = (
     "DO $$ BEGIN "
     "IF NOT EXISTS (SELECT 1 FROM pg_constraint "
@@ -108,6 +130,7 @@ CONSTRAINT_DDL: tuple[str, ...] = (
     "ALTER TABLE care_conversations ADD CONSTRAINT ck_care_conversations_hiring_source "
     f"CHECK ({CK_CONVERSATION_HIRING_SOURCE}); "
     "END IF; END $$",
+    *WAITING_DECISION_DDL,
 )
 DATA_DDL: tuple[str, ...] = ()
 TABLES: tuple[str, ...] = ("care_board_states",)

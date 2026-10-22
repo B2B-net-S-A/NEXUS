@@ -134,7 +134,7 @@ describe("tablica spraw administracja@", () => {
     expect(await screen.findByText("Onboarding: Anna Przykładowa")).toBeInTheDocument();
     expect(screen.getByText("po terminie · 20.10")).toBeInTheDocument();
     expect(screen.getByText("z maila")).toBeInTheDocument();
-    expect(screen.getByText("41 w tym miesiącu · na tablicy ostatnie 30 dni")).toBeInTheDocument();
+    expect(screen.getByText("41 spraw w miesiącu")).toBeInTheDocument();
     for (const column of ["Nowa", "W toku", "Czeka na kogoś", "Zrobione"]) {
       expect(screen.getByRole("heading", { name: column })).toBeInTheDocument();
     }

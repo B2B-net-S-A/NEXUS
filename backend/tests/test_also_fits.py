@@ -265,3 +265,49 @@ def test_bell_type_is_registered_for_category_and_section() -> None:
     t = NotificationType.also_fits_added
     assert CATEGORY_BY_TYPE[t].value == "candidates"
     assert NOTIFICATION_SECTION_BY_TYPE[t] is ProductSection.pipeline
+
+
+class _Nested:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _SavepointDb:
+    def begin_nested(self):
+        return _Nested()
+
+
+@pytest.mark.asyncio
+async def test_returning_consultant_reads_the_employment_marker(monkeypatch) -> None:
+    """R2 (22.10.2026): „nasz konsultant · Wraca na rynek DD.MM” w bloku —
+    ta sama reguła co znacznik „Pracuje u nas”; awaria = brak informacji."""
+
+    from datetime import date
+
+    from app.services import employment_marker
+
+    markers = {
+        7: SimpleNamespace(
+            returns_to_market=True, returns_to_market_on=date(2026, 10, 31)
+        ),
+        8: SimpleNamespace(returns_to_market=False, returns_to_market_on=None),
+    }
+
+    async def load(db, ids, *, today):
+        return {cid: markers.get(cid) for cid in ids}
+
+    monkeypatch.setattr(employment_marker, "load_employment_markers", load)
+    today = date(2026, 10, 22)
+    found = await also_fits.returning_consultant(_SavepointDb(), 7, today=today)
+    assert found == also_fits.ReturningConsultant(returns_on=date(2026, 10, 31))
+    assert await also_fits.returning_consultant(_SavepointDb(), 8, today=today) is None
+    assert await also_fits.returning_consultant(_SavepointDb(), 9, today=today) is None
+
+    async def broken(db, ids, *, today):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(employment_marker, "load_employment_markers", broken)
+    assert await also_fits.returning_consultant(_SavepointDb(), 7, today=today) is None

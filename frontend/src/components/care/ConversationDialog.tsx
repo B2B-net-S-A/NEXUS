@@ -40,9 +40,14 @@ import { CasesToOpenSection } from "./conversation/CasesToOpenSection";
 import { ClientStateSection } from "./conversation/ClientStateSection";
 import {
   buildConversationPayload,
+  buildCases,
   caseTitleProblem,
+  contractDay,
   emptyClientState,
   emptyTalk,
+  knownRows,
+  resolveFollowUp,
+  saveLabel,
   saveSummary,
   suggestFollowUp,
   validateConversation,
@@ -144,12 +149,13 @@ export function savedToast(result: Partial<ConversationResult> | undefined): str
 }
 
 /**
- * Okno „Rozmowa” (decyzja 4 z 22.10.2026): po lewej dzisiejsza rozmowa —
- * data, forma, „Jak mu się pracuje” 1–5, notatka, sygnały jako przełączniki,
- * następny kontakt podpowiedziany z rytmu; po prawej „Co u klienta” (ostatni
- * stan: „bez zmian” / „zmień”), pytania z mapy klienta i „Coś do
- * załatwienia?”. Stopka mówi, co się zapisze. Bez danych o zdrowiu i bez
- * stawek — te mają swoje miejsca.
+ * Okno „Rozmowa” (decyzja 4 z 22.10.2026, makiety P3 i S5): po lewej
+ * dzisiejsza rozmowa — data, forma, „Jak mu się pracuje” 1–5, notatka,
+ * sygnały jako przełączniki, następny kontakt wpisany z rytmu; po prawej „Co
+ * u klienta” (ostatni stan: nieruszony wiersz = „bez zmian” z datą
+ * potwierdzenia, „zmień”), pytania z mapy klienta i „Coś do załatwienia?”.
+ * Stopka mówi, co się zapisze. Bez danych o zdrowiu i bez stawek — te mają
+ * swoje miejsca.
  */
 export function ConversationDialog({
   contractId,
@@ -185,18 +191,21 @@ export function ConversationDialog({
   const questions = useMemo(() => clientState.data?.questions ?? [], [clientState.data]);
   const knownTechnologies = clientState.data?.state?.technologies.length ?? 0;
   const casesOpen = Boolean(hr.data?.open_modules.cases);
+  const cadence = card.data?.cadence ?? null;
+  // „Następny kontakt” podpowiada rytm, dopóki opiekun go nie zmieni (makieta P3).
+  const suggestion = suggestFollowUp(cadence?.level, talk.occurredOn);
   const input = {
-    talk,
+    talk: { ...talk, followUp: resolveFollowUp(talk, suggestion) },
     clientState: stateForm,
     questions,
     answers,
     cases: casesOpen ? cases : [],
     planItemId: planItem?.id ?? null,
     knownTechnologies,
+    knownRows: knownRows(clientState.data?.state),
   };
   const payload = buildConversationPayload(input);
-  const cadence = card.data?.cadence ?? null;
-  const suggestion = suggestFollowUp(cadence?.level, talk.occurredOn);
+  const followUp = input.talk.followUp;
   const set = (patch: Partial<TalkForm>) => setTalk((current) => ({ ...current, ...patch }));
   // Okno rozmowy otwiera tylko zapisujący opiekę — tej samej bramki pilnuje `/api/care/case-assignees`.
   const canPickAssignee = true;
@@ -204,9 +213,18 @@ export function ConversationDialog({
   const caseHandler = Boolean(hr.data?.me.is_admin || hr.data?.me.cases);
   const caseTitleBlocked = casesOpen && cases.some((draft) => caseTitleProblem(draft) !== null);
   const name = card.data?.candidate_name;
-  const planLabel = planItem
-    ? (planItem.label ?? card.data?.plan.find((item) => item.id === planItem.id)?.label ?? "punkt planu")
-    : null;
+  const planRow = planItem ? card.data?.plan.find((item) => item.id === planItem.id) : undefined;
+  const planLabel = planItem ? (planItem.label ?? planRow?.label ?? "punkt planu") : null;
+  // „Bank Przykładowy · Data · dzień 45” — klient, dział i dzień współpracy (makieta P3).
+  const area = clientState.data?.state?.area?.name ?? card.data?.known_project?.area?.name ?? null;
+  const day = card.data?.start_on ? contractDay(card.data.start_on, talk.occurredOn || today) : null;
+  const context = [card.data?.client_name, area, day && day > 0 ? `dzień ${day}` : null].filter(Boolean).join(" · ");
+  const planText = planLabel
+    ? `Zamyka punkt planu: ${planLabel.charAt(0).toLowerCase()}${planLabel.slice(1)}${
+        planRow ? ` ${formatDayMonthPl(planRow.due_on)}` : ""
+      }. `
+    : "";
+  const savedCases = casesOpen ? buildCases(cases).length : 0;
 
   const submit = () => {
     setError(null);
@@ -229,14 +247,9 @@ export function ConversationDialog({
       <DialogContent size="2xl" aria-describedby={ids.date + "-desc"} data-help="hr.care.conversation">
         <DialogHeader>
           <DialogTitle>{name ? `Rozmowa · ${name}` : "Rozmowa z konsultantem"}</DialogTitle>
-          <DialogDescription id={ids.date + "-desc"}>
-            {[
-              card.data?.client_name,
-              planLabel ? `Zamyka punkt planu: ${planLabel}` : null,
-              "Bez danych o zdrowiu i bez stawek.",
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+          <DialogDescription id={ids.date + "-desc"} className="space-y-0.5">
+            {context ? <span className="block">{context}</span> : null}
+            <span className="block">{planText}Bez danych o zdrowiu i bez stawek.</span>
           </DialogDescription>
         </DialogHeader>
         <div className="relative min-h-0 flex-1 overflow-y-auto px-6 py-4">
@@ -293,7 +306,7 @@ export function ConversationDialog({
                 />
                 <Signal
                   id={ids.end}
-                  label="Projekt się kończy"
+                  label="Kończy projekt"
                   checked={talk.projectEnd}
                   onChange={(projectEnd) => set({ projectEnd })}
                 >
@@ -338,9 +351,11 @@ export function ConversationDialog({
                 label="Następny kontakt"
                 htmlFor={ids.follow}
                 description={
-                  cadence
-                    ? `Rytm: ${cadenceLabel(cadence.level)}${suggestion ? "" : " — bez stałego terminu"}.`
-                    : "Przypomnienie przyjdzie do opiekuna w tym dniu."
+                  talk.followUpAuto && suggestion && cadence
+                    ? `wg rytmu „${cadenceLabel(cadence.level)}”`
+                    : cadence
+                      ? `Rytm: ${cadenceLabel(cadence.level)}${suggestion ? "" : " — bez stałego terminu"}.`
+                      : "Przypomnienie przyjdzie do opiekuna w tym dniu."
                 }
               >
                 <div className="flex flex-wrap items-center gap-2">
@@ -348,12 +363,17 @@ export function ConversationDialog({
                     id={ids.follow}
                     type="date"
                     className="w-44"
-                    value={talk.followUp}
+                    value={followUp}
                     min={talk.occurredOn}
-                    onChange={(event) => set({ followUp: event.target.value })}
+                    onChange={(event) => set({ followUp: event.target.value, followUpAuto: false })}
                   />
-                  {suggestion && suggestion !== talk.followUp ? (
-                    <Button size="sm" variant="ghost" onClick={() => set({ followUp: suggestion })}>
+                  {followUp ? (
+                    <Button size="sm" variant="quiet" onClick={() => set({ followUp: "", followUpAuto: false })}>
+                      Bez terminu
+                    </Button>
+                  ) : null}
+                  {suggestion && suggestion !== followUp ? (
+                    <Button size="sm" variant="ghost" onClick={() => set({ followUp: suggestion, followUpAuto: true })}>
                       Podpowiedź: {formatDayMonthPl(suggestion)}
                     </Button>
                   ) : null}
@@ -402,7 +422,7 @@ export function ConversationDialog({
               Anuluj
             </Button>
             <Button onClick={submit} loading={save.isPending} disabled={caseTitleBlocked}>
-              Zapisz rozmowę
+              {saveLabel(savedCases)}
             </Button>
           </div>
         </DialogFooter>

@@ -64,6 +64,19 @@ describe("AlsoFitsBlock — „Pasuje też do” (A1)", () => {
     expect(h.onAdd).toHaveBeenLastCalledWith([21, 22]);
   });
 
+  it("our consultant returning to market shows the source and the date (R2)", () => {
+    mount(model({ ourConsultant: { returnsOn: "2026-10-31" } }));
+    expect(screen.getByTestId("also-fits-source")).toHaveTextContent(
+      "nasz konsultant · Wraca na rynek 31.10",
+    );
+    expect(screen.getByText("Pasuje też do 2 innych rekrutacji")).toBeInTheDocument();
+  });
+
+  it("without the returning marker there is no source line", () => {
+    mount(model({ ourConsultant: null }));
+    expect(screen.queryByTestId("also-fits-source")).toBeNull();
+  });
+
   it("shows added state with undo and keeps the rest addable", () => {
     const h = mount(model({}, { 21: "added" }));
     expect(screen.getByText("Dodano")).toBeInTheDocument();

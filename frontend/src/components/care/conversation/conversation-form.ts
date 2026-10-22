@@ -2,10 +2,12 @@
 // `POST /api/care/contracts/{id}/conversations` bez Reacta, z testami.
 //
 // Zasady:
-// - „Co u klienta” idzie do serwera TYLKO, gdy opiekun coś w tej sekcji
-//   ruszył („bez zmian” albo „zmień”) — inaczej `client_state: null` i karta
-//   technologiczna się nie zapisuje;
-// - pola sekcji „zmień” wchodzą do `changes`, „bez zmian” tylko potwierdza;
+// - „Co u klienta” (makieta P3): wiersz znanego stanu bez kliknięcia = „bez
+//   zmian” i zapisuje się jako potwierdzony datą rozmowy (świeżość mapy);
+//   `rows` mówi serwerowi, które wiersze potwierdzono, a które zmieniono.
+//   „Nie rozmawialiśmy o kliencie” (`skipped`) albo brak znanego stanu bez
+//   zmian = `client_state: null` i karta technologiczna się nie zapisuje;
+// - pola wiersza „zmień” wchodzą do `changes`, „bez zmian” tylko potwierdza;
 // - odpowiedzi na pytania z mapy i sprawy bez treści są pomijane;
 // - bez danych o zdrowiu i bez stawek — okno o nie nie pyta.
 
@@ -13,6 +15,7 @@ import { CASE_AREAS, type CaseArea } from "@/lib/api/admin-cases";
 import type {
   CadenceLevel,
   CareChannel,
+  ClientProjectState,
   ClientQuestion,
   ClientStateChanges,
   ClientStatePayload,
@@ -22,6 +25,8 @@ import type {
   HiringSource,
 } from "@/lib/api/care";
 import { countPl } from "@/lib/plural-pl";
+
+import { joinPl } from "../health-format";
 
 /** Najwięcej spraw z jednej rozmowy (limit serwera). */
 export const MAX_CONVERSATION_CASES = 5;
@@ -65,6 +70,11 @@ export interface TalkForm {
   hiringNote: string;
   hiringSource: HiringSource | null;
   followUp: string;
+  /**
+   * „Następny kontakt” nieruszony — bierze podpowiedź z rytmu
+   * (`resolveFollowUp`). Wpisanie albo wyczyszczenie daty wyłącza podpowiedź.
+   */
+  followUpAuto: boolean;
 }
 
 export type StateRow = "area" | "manager" | "team" | "technologies" | "vendors" | "project_end";
@@ -81,15 +91,18 @@ export const STATE_ROWS: StateRow[] = [
 
 export const STATE_ROW_LABELS: Record<StateRow, string> = {
   area: "Dział",
-  manager: "Menedżer",
+  manager: "Menedżer u klienta",
   team: "Zespół",
   technologies: "Technologie",
-  vendors: "Inni dostawcy",
+  vendors: "Dostawcy",
   project_end: "Koniec projektu",
 };
 
 export interface ClientStateForm {
+  /** Kliknięte wiersze; nieruszony wiersz znanego stanu = „bez zmian”. */
   modes: Partial<Record<StateRow, StateMode>>;
+  /** „Nie rozmawialiśmy o kliencie” — sekcja nic nie zapisuje ani nie potwierdza. */
+  skipped: boolean;
   /** `"new"` = nowy dział z `newAreaName`. */
   areaId: number | "new" | null;
   newAreaName: string;
@@ -129,12 +142,14 @@ export function emptyTalk(today: string): TalkForm {
     hiringNote: "",
     hiringSource: null,
     followUp: "",
+    followUpAuto: true,
   };
 }
 
 export function emptyClientState(): ClientStateForm {
   return {
     modes: {},
+    skipped: false,
     areaId: null,
     newAreaName: "",
     managerContactId: null,
@@ -177,13 +192,72 @@ export function suggestFollowUp(
   return days ? addDays(occurredOn, days) : null;
 }
 
+/** Dzień współpracy w dniu rozmowy: start = dzień 1 („dzień 45” w nagłówku okna). */
+export function contractDay(startOn: string, on: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}/.test(startOn) || !/^\d{4}-\d{2}-\d{2}/.test(on)) return null;
+  const days = Math.round(
+    (Date.parse(`${on.slice(0, 10)}T00:00:00Z`) - Date.parse(`${startOn.slice(0, 10)}T00:00:00Z`)) / 86_400_000,
+  );
+  return days >= 0 ? days + 1 : null;
+}
+
 function hasText(value: string): boolean {
   return value.trim().length > 0;
 }
 
-/** Wiersze „Co u klienta” ruszone przez opiekuna; pusty = sekcja nie idzie do serwera. */
-export function touchedRows(form: ClientStateForm): StateRow[] {
-  return STATE_ROWS.filter((row) => form.modes[row] !== undefined);
+/** „Następny kontakt” do zapisu: podpowiedź z rytmu, dopóki opiekun go nie ruszył. */
+export function resolveFollowUp(talk: TalkForm, suggestion: string | null): string {
+  return talk.followUpAuto ? (suggestion ?? "") : talk.followUp;
+}
+
+/** Wiersze, o których coś wiemy (ostatni stan) — te bez kliknięcia potwierdzają się „bez zmian”. */
+export function knownRows(state: ClientProjectState | null | undefined): StateRow[] {
+  if (!state) return [];
+  const known: Record<StateRow, boolean> = {
+    area: state.area != null,
+    manager: state.manager != null,
+    team: Boolean(state.team_size) || state.team_externals != null,
+    technologies: state.technologies.length > 0,
+    vendors: state.vendors.length > 0,
+    project_end: Boolean(state.project_end_month),
+  };
+  return STATE_ROWS.filter((row) => known[row]);
+}
+
+/** Stan wierszy do zapisu: kliknięte + nieruszone znane jako „same”; pominięta sekcja — nic. */
+export function rowModes(
+  form: ClientStateForm,
+  known: readonly StateRow[] = [],
+): Partial<Record<StateRow, StateMode>> {
+  if (form.skipped) return {};
+  const out: Partial<Record<StateRow, StateMode>> = {};
+  for (const row of STATE_ROWS) {
+    const mode = form.modes[row] ?? (known.includes(row) ? "same" : undefined);
+    if (mode) out[row] = mode;
+  }
+  return out;
+}
+
+/** Wiersze „Co u klienta”, które pójdą do serwera; pusty = sekcja nie idzie do serwera. */
+export function touchedRows(form: ClientStateForm, known: readonly StateRow[] = []): StateRow[] {
+  const modes = rowModes(form, known);
+  return STATE_ROWS.filter((row) => modes[row] !== undefined);
+}
+
+/** Technologie po „zmień” wobec ostatniego stanu: zostają, dochodzą („+ Azure”), odpadają. */
+export function techDiff(
+  known: { skill_id: number; name: string }[],
+  picked: PickedName[],
+): { kept: string[]; added: string[]; removed: string[] } {
+  const key = (item: { id: number | null; name: string }) =>
+    item.id != null ? `id:${item.id}` : `name:${item.name.trim().toLowerCase()}`;
+  const before = new Map(known.map((tech) => [key({ id: tech.skill_id, name: tech.name }), tech.name]));
+  const after = new Map(picked.map((item) => [key(item), item.name]));
+  return {
+    kept: [...before].filter(([k]) => after.has(k)).map(([, name]) => name),
+    added: [...after].filter(([k]) => !before.has(k)).map(([, name]) => name),
+    removed: [...before].filter(([k]) => !after.has(k)).map(([, name]) => name),
+  };
 }
 
 /** Zmiany wiersza „zmień” — pusty wynik znaczy, że opiekun nic nie wpisał. */
@@ -221,6 +295,7 @@ function rowChanges(row: StateRow, form: ClientStateForm): ClientStateChanges {
 
 /** Liczba wierszy „zmień” (stopka: „stan u klienta: 2 zmiany”). */
 export function changedRows(form: ClientStateForm): StateRow[] {
+  if (form.skipped) return [];
   return STATE_ROWS.filter((row) => form.modes[row] === "change");
 }
 
@@ -240,12 +315,14 @@ export function buildClientState(
   form: ClientStateForm,
   talk: Pick<TalkForm, "clientHiring" | "hiringNote" | "hiringSource">,
   knownTechnologies = 0,
+  known: readonly StateRow[] = [],
 ): ClientStatePayload | null {
-  if (!touchedRows(form).length) return null;
+  const rows = rowModes(form, known);
+  if (!Object.keys(rows).length) return null;
   if (effectiveTechnologies(form, knownTechnologies) === 0) {
     // Bez technologii karta się nie zapisze, ale zmiana menedżera tak (żyje na kontrakcie).
-    if (form.modes.manager === "change" && form.managerContactId != null) {
-      return { confirmed: true, changes: { manager_contact_id: form.managerContactId } };
+    if (rows.manager === "change" && form.managerContactId != null) {
+      return { confirmed: true, changes: { manager_contact_id: form.managerContactId }, rows };
     }
     return null;
   }
@@ -256,7 +333,7 @@ export function buildClientState(
     if (roles.length) changes.hiring_roles = roles;
     if (talk.hiringSource) changes.hiring_source = talk.hiringSource;
   }
-  return { confirmed: true, changes };
+  return { confirmed: true, changes, rows };
 }
 
 /** „Java, 2× QA; tester” → ["Java", "2× QA", "tester"]. */
@@ -312,6 +389,8 @@ export interface PayloadInput {
   planItemId: number | null;
   /** Ile technologii zna ostatni stan „Co u klienta” (bez nich karta się nie zapisuje). */
   knownTechnologies?: number;
+  /** Wiersze znanego stanu — nieruszone potwierdzają się „bez zmian” (`knownRows`). */
+  knownRows?: StateRow[];
 }
 
 export function buildConversationPayload(input: PayloadInput): ConversationPayload {
@@ -331,7 +410,12 @@ export function buildConversationPayload(input: PayloadInput): ConversationPaylo
       : {}),
     follow_up_on: talk.followUp || null,
     plan_item_id: input.planItemId,
-    client_state: buildClientState(input.clientState, talk, input.knownTechnologies ?? 0),
+    client_state: buildClientState(
+      input.clientState,
+      talk,
+      input.knownTechnologies ?? 0,
+      input.knownRows ?? [],
+    ),
     gap_answers: buildGapAnswers(input.questions, input.answers),
     cases: buildCases(input.cases),
   };
@@ -375,8 +459,8 @@ const CHANGE_GROUP: Record<keyof ClientStateChanges, StateRow | null> = {
 };
 
 /**
- * Stopka okna: co się zapisze („Zapiszemy: rozmowę · stan u klienta (2 zmiany)
- * · 1 odpowiedź do mapy klienta · 2 sprawy · sygnał popytu do Delivery Leada”).
+ * Stopka okna (makieta P3): „Zapisze: rozmowę, stan „co u klienta” (1 zmiana)
+ * i sygnał popytu.” — wszystko, co pójdzie do serwera.
  */
 export function saveSummary(payload: ConversationPayload): string {
   const parts = ["rozmowę"];
@@ -388,8 +472,8 @@ export function saveSummary(payload: ConversationPayload): string {
     ).size;
     parts.push(
       changes
-        ? `stan u klienta (${countPl(changes, "zmiana", "zmiany", "zmian")})`
-        : "stan u klienta bez zmian",
+        ? `stan „co u klienta” (${countPl(changes, "zmiana", "zmiany", "zmian")})`
+        : "stan „co u klienta” bez zmian",
     );
   }
   const answers = payload.gap_answers?.length ?? 0;
@@ -398,9 +482,14 @@ export function saveSummary(payload: ConversationPayload): string {
   }
   const cases = payload.cases?.length ?? 0;
   if (cases) parts.push(countPl(cases, "sprawę", "sprawy", "spraw"));
-  if (payload.client_hiring) parts.push("sygnał popytu do Delivery Leada");
+  if (payload.client_hiring) parts.push("sygnał popytu");
   if (payload.attrition_risk || payload.wants_change) parts.push("wpis „Do przepięcia”");
-  return `Zapiszemy: ${parts.join(" · ")}.`;
+  return `Zapisze: ${joinPl(parts)}.`;
+}
+
+/** Przycisk zapisu: „Zapisz rozmowę”, „Zapisz rozmowę i 1 sprawę”, „… i 2 sprawy”. */
+export function saveLabel(cases: number): string {
+  return cases ? `Zapisz rozmowę i ${countPl(cases, "sprawę", "sprawy", "spraw")}` : "Zapisz rozmowę";
 }
 
 /** Pytanie z mapy klienta słowami opiekuna. */
@@ -412,5 +501,7 @@ export function questionText(question: ClientQuestion): string {
       return `Na czym pracuje dział ${question.subject}?`;
     case "single_source":
       return `Czy ${question.subject} jest naprawdę używany?`;
+    case "category_stale":
+      return question.subject;
   }
 }

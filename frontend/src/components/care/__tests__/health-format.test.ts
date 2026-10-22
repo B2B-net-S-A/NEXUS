@@ -25,8 +25,10 @@ describe("health-format", () => {
     expect(healthLabel(watch)).toBe("Uwaga");
   });
 
-  it("„dlaczego” łączy powody kropką; bez powodów i bez zdrowia — nic", () => {
-    expect(healthWhy(risk)).toBe("chce zmiany projektu (01.10) · zamówienie kończy się za 32 dni");
+  it("„dlaczego” jednym zdaniem z „i”; bez powodów i bez zdrowia — nic", () => {
+    expect(healthWhy(risk)).toBe("chce zmiany projektu (01.10) i zamówienie kończy się za 32 dni");
+    expect(healthWhy({ ...risk, reasons: ["a", "b", "c"] })).toBe("a, b i c");
+    expect(healthWhy({ ...risk, reasons: ["ryzyko odejścia (12.10)"] })).toBe("ryzyko odejścia (12.10)");
     expect(healthWhy(ok)).toBeNull();
     expect(healthWhy(null)).toBeNull();
   });

@@ -17,8 +17,12 @@
  *   do…”; zasiane są „Moje”, każdy obszar, „Na ten tydzień”, „Bez osoby”
  *   i „Pokaż zamknięte” (wyszukiwarka tekstem wysyła zapytanie, harness je
  *   blokuje);
- * - `detail` — szczegół sprawy onboardingu: opis, mail od klienta
- *   z załącznikiem, komentarz, checklista 1/4, karta „Konsultant”;
+ * - `detail` — szczegół sprawy onboardingu (S4): w głównej kolumnie opis, mail
+ *   od klienta z załącznikiem, checklista 1/4 i komentarz; po prawej karta
+ *   „Konsultant” (koniec zamówienia „· przedłużenie w toku”, opiekun z rytmem,
+ *   ostatnia rozmowa, „Inne sprawy: brak otwartych”) i „Szczegóły”;
+ * - `detail-assignee` — ta sama sprawa u osoby przypisanej bez „Spraw”: bez
+ *   karty konsultanta, bez akcji;
  * - `board-care` — te same Sprawy oglądane przez opiekunkę (TCM z „Sprawami”):
  *   obok spraw karty opieki (rozmowy, opinia menedżera, decyzja, popyt),
  *   chip „Opieka”, „Moi podopieczni”, kropka zdrowia przy sprawach
@@ -29,8 +33,9 @@
  *   komentarz, „Konsultant” z „Przypisz opiekunowi”);
  * - `panel-care` — panel boczny karty rozmowy (przesunięcia, akcja, skrót
  *   Karty konsultanta);
- * - `who` — sprawa z maila z firmy klienta bez kontraktu: pasek „Kogo
- *   dotyczy?” z propozycją;
+ * - `who` — sprawa z maila z firmy klienta bez kontraktu (S4): „Kogo
+ *   dotyczy?” z nadawcą (kontakt klienta) i „jedyną naszą konsultantką o tym
+ *   nazwisku”, „Powiąż z Anną”, a w „Szczegółach” „Weź” (sprawa bez osoby).
  * - `care-cases` — prawdziwy ekran `/care` oglądany przez recepcję (same
  *   „Sprawy”, bez roli opieki): od 22.10.2026 tu, a nie w „Ludziach”, wchodzi
  *   obsługa skrzynki — tylko „Do zrobienia”, bez zakładek i Komunikatów opieki.
@@ -66,6 +71,7 @@ import {
   WHO_CASE_ID,
   caseList,
   onboardingCase,
+  onboardingCaseForAssignee,
   weekEnd,
   whoCase,
 } from "./fixtures";
@@ -73,6 +79,7 @@ import {
 const KNOWN = [
   "board",
   "detail",
+  "detail-assignee",
   "board-care",
   "todo",
   "todo-list",
@@ -86,6 +93,7 @@ type State = (typeof KNOWN)[number];
 const STATES = [
   { key: "board", label: "Tablica spraw" },
   { key: "detail", label: "Sprawa onboardingu" },
+  { key: "detail-assignee", label: "Sprawa · osoba bez „Spraw”" },
   { key: "board-care", label: "Sprawy z opieką" },
   { key: "todo", label: "Opieka · Do zrobienia" },
   { key: "todo-list", label: "Do zrobienia · Lista" },
@@ -106,16 +114,20 @@ const CARE_STATES: ReadonlySet<State> = new Set([
 ]);
 /** W „Opiece” opiekunka nie obsługuje skrzynki — widzi tylko sprawy przypisane do siebie. */
 const TODO_STATES: ReadonlySet<State> = new Set(["todo", "todo-list", "panel-care"]);
+/** Osoba przypisana do sprawy bez uprawnienia „Sprawy” (S4: bez karty konsultanta). */
+const ASSIGNEE_STATES: ReadonlySet<State> = new Set(["detail-assignee"]);
 
 function prepare(params: URLSearchParams) {
   const state = pickState(params.get("state"), KNOWN, "board");
   const today = warsawToday();
   const friday = weekEnd(today);
   const care = CARE_STATES.has(state);
-  const handler = !TODO_STATES.has(state);
+  const handler = !TODO_STATES.has(state) && !ASSIGNEE_STATES.has(state);
   const viewer: HarnessUser = care
     ? { ...HR_CAST.natalia, grants: handler ? ["cases"] : [] }
-    : { ...HR_CAST.zofia, grants: ["cases"] };
+    : ASSIGNEE_STATES.has(state)
+      ? { ...HR_CAST.natalia, grants: [] }
+      : { ...HR_CAST.zofia, grants: ["cases"] };
   const config: HrConfig = hrConfig({ cases: handler, has_assigned_cases: true });
   const client = harnessQueryClient();
   client.setQueryData(hrKeys.config, config);
@@ -144,7 +156,12 @@ function prepare(params: URLSearchParams) {
       }
     }
   }
-  client.setQueryData(caseKeys.detail(ONBOARDING_CASE_ID), onboardingCase(today, care));
+  client.setQueryData(
+    caseKeys.detail(ONBOARDING_CASE_ID),
+    ASSIGNEE_STATES.has(state)
+      ? onboardingCaseForAssignee(today, { id: viewer.id, name: viewer.name })
+      : onboardingCase(today, care),
+  );
   client.setQueryData(caseKeys.detail(WHO_CASE_ID), whoCase(today));
   client.setQueryData(caseKeys.assignees, CASE_ASSIGNEES);
   for (const scope of ["mine", "all"] as const) {
@@ -204,7 +221,7 @@ export default function HrCasesPreviewPage() {
       states={STATES}
       current={state}
     >
-      {state === "detail" ? (
+      {state === "detail" || state === "detail-assignee" ? (
         <CaseDetailView caseId={ONBOARDING_CASE_ID} />
       ) : state === "who" ? (
         <CaseDetailView caseId={WHO_CASE_ID} />

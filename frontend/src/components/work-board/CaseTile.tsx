@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { DraggableProvided } from "@hello-pangea/dnd";
 import { FileText, History, LogOut, Mail, PenLine, type LucideIcon } from "lucide-react";
 
@@ -11,7 +12,7 @@ import { formatDayMonthPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
 import { PRIORITY_DOT, SOURCE_ICON, caseSubline, dueBadge, type DueTone } from "../admin-cases/case-format";
-import { HealthDot } from "./HealthMark";
+import { HealthWord } from "./HealthMark";
 import { MoveMenu } from "./MoveMenu";
 import type { WorkColumn } from "./work-board-model";
 
@@ -76,8 +77,63 @@ export function TileShell({
  * Karta sprawy na tablicy (makieta 19.10.2026, bez zmian wyglądu): ikona
  * źródła, termin w kolorze, kropka priorytetu, tytuł, osoba · klient · obszar,
  * pasek listy kontrolnej, awatar albo „Weź”. Od 22.10.2026: kropka zdrowia
- * relacji przy konsultancie (krąg D11) i „Przenieś do…”.
+ * relacji przy konsultancie (krąg D11) i „Przenieś do…”; sprawa z kontraktem
+ * (makieta K1): „Telekom Wzorcowy · Uwaga · opiekun NO”, osoba to link do
+ * karty konsultanta (`careLinks` — tylko z dostępem do opieki).
  */
+/** „Karolina Przykładowa · Telekom Wzorcowy · Uwaga · opiekun NO” (osoba = link do karty). */
+function ContractSubline({ card, careLinks }: { card: CaseCard; careLinks: boolean }) {
+  const contract = card.contract;
+  if (!contract) return null;
+  const health = contract.health ?? null;
+  const person = contract.candidate_name;
+  // Tytuł sprawy z maila często ma już osobę — wtedy jej nie powtarzamy.
+  const showPerson = Boolean(person && !card.title.includes(person));
+  return (
+    <p className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+      {showPerson && person ? (
+        careLinks ? (
+          <Link
+            href={`/care?contract=${contract.id}`}
+            className="truncate text-primary hover:underline"
+            aria-label={`Karta konsultanta: ${person}`}
+          >
+            {person}
+          </Link>
+        ) : (
+          <span className="truncate">{person}</span>
+        )
+      ) : null}
+      {contract.client_name ? (
+        <span className="truncate">
+          {showPerson ? "· " : ""}
+          {contract.client_name}
+        </span>
+      ) : null}
+      {health ? (
+        <>
+          <span aria-hidden>·</span>
+          <HealthWord health={health} />
+        </>
+      ) : null}
+      {contract.care_owner_name ? (
+        <span title={`opiekun: ${contract.care_owner_name}`}>
+          · opiekun {personInitials(contract.care_owner_name)}
+        </span>
+      ) : null}
+      {careLinks && !showPerson ? (
+        <Link
+          href={`/care?contract=${contract.id}`}
+          className="text-primary hover:underline"
+          aria-label={`Karta konsultanta: ${person ?? card.title}`}
+        >
+          · karta osoby
+        </Link>
+      ) : null}
+    </p>
+  );
+}
+
 export function CaseTile({
   card,
   today,
@@ -89,6 +145,7 @@ export function CaseTile({
   column,
   drag,
   selected,
+  careLinks = false,
 }: {
   card: CaseCard;
   today?: string;
@@ -101,6 +158,8 @@ export function CaseTile({
   column: WorkColumn | "closed";
   drag?: TileDrag;
   selected?: boolean;
+  /** Link osoby do karty konsultanta (`/care?contract=`). */
+  careLinks?: boolean;
 }) {
   const due = dueBadge(card, today, weekEnd);
   const subline = caseSubline(card);
@@ -109,7 +168,6 @@ export function CaseTile({
     ? Math.round((card.checklist_done / card.checklist_total) * 100)
     : null;
   const dueVariant = due ? DUE_VARIANT[due.tone] : null;
-  const health = card.contract?.health ?? null;
   return (
     <TileShell label={card.title} drag={drag} selected={selected}>
       <div className="flex items-center justify-between gap-2">
@@ -144,18 +202,15 @@ export function CaseTile({
           >
             {card.title}
           </button>
-          <p className="flex items-center gap-1 text-xs text-muted-foreground">
-            {health ? <HealthDot health={health} /> : null}
-            <span className="truncate">
-              {[
-                subline,
-                card.contract ? "kontrakt w NEXUSIE" : null,
-                CASE_AREA_LABELS[card.area].toLowerCase(),
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
-          </p>
+          {card.contract ? (
+            <ContractSubline card={card} careLinks={careLinks} />
+          ) : (
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="truncate">
+                {[subline, CASE_AREA_LABELS[card.area].toLowerCase()].filter(Boolean).join(" · ")}
+              </span>
+            </p>
+          )}
         </div>
       </div>
       {card.follow_up_on && card.status === "waiting" ? (
@@ -202,7 +257,8 @@ export function CaseTile({
           >
             Weź
           </Button>
-        ) : (
+        ) : card.assignee_hidden ? null : (
+          // Osoba ukryta przed czytającym bez „Spraw” to nie „bez osoby”.
           <span className="shrink-0 text-xs text-muted-foreground">bez osoby</span>
         )}
       </div>

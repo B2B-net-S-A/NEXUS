@@ -18,6 +18,11 @@ cofa całość — nie zostaje rozmowa bez karty albo sprawa bez rozmowy.
   go nie ma; innego menedżera zmienia tylko DL klienta albo admin (ta sama
   reguła co akcept propozycji) — inaczej zostaje stary
   (``manager_kept: true`` w odpowiedzi).
+* **Świeżość „Co u klienta”** (makieta P3): wiersz nieruszony = „bez zmian”
+  i potwierdzony datą rozmowy — front wysyła ``rows`` ze stanem każdego
+  wiersza, karta z rozmowy dostaje datę rozmowy, a ślad
+  ``care.client_state_confirmed`` mówi, które wiersze potwierdzono, a które
+  zmieniono.
 * **Odpowiedzi na luki**: „komu podlega” → ``client_people.update_contact_org``
   (prawo edycji kontaktów klienta, inaczej 403 przed zapisem czegokolwiek);
   notatka przy tym pytaniu zapisuje się zawsze jako ogólna notatka o kliencie
@@ -31,7 +36,8 @@ cofa całość — nie zostaje rozmowa bez karty albo sprawa bez rozmowy.
   rozmowa nie ma karty. Puste ``client_hiring_note`` dostaje role tekstem.
 * **Sprawy**: najwyżej 5 z rozmowy i 20 z rozmów na osobę na dobę, przez
   ``admin_cases.service.create_case`` z kontraktem; opis = link do rozmowy
-  (bez treści rozmowy i bez stawek). Zapisujący opiekę bez uprawnienia
+  i notatka z rozmowy (makieta S5: „opis z notatki”; opieka nie zbiera stawek
+  ani danych o zdrowiu, więc notatka ich nie niesie). Zapisujący opiekę bez uprawnienia
   „Sprawy” (``is_handler``) zakłada sprawę tylko bez osoby (trafia do „Bez
   osoby” u obsługi) albo przypisaną do siebie i nigdy w obszarze
   „Negocjacje” (audyt bezpieczeństwa 22.10.2026 — dzwonki do dowolnych osób).
@@ -149,9 +155,50 @@ def month_end(value: str) -> date:
 
 def parse_gap_key(key: str) -> tuple[str, int]:
     kind, _, raw = (key or "").partition(":")
-    if kind not in {"reports_to", "area", "single"} or not raw.isdigit():
+    if kind not in {"reports_to", "area", "single", "category"} or not raw.isdigit():
+        raise HTTPException(_UNPROCESSABLE, UNKNOWN_GAP)
+    if kind == "category" and int(raw) >= len(care_card.CATEGORY_GROUPS):
         raise HTTPException(_UNPROCESSABLE, UNKNOWN_GAP)
     return kind, int(raw)
+
+
+#: Wiersze „Co u klienta” w śladzie potwierdzenia (lustro ``ClientStateRow``).
+CLIENT_STATE_ROWS = (
+    "area",
+    "manager",
+    "team",
+    "technologies",
+    "vendors",
+    "project_end",
+)
+
+
+def confirmed_rows(rows: Optional[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    """(potwierdzone bez zmian, zmienione) wiersze — w stałej kolejności okna."""
+
+    rows = rows or {}
+    same = [row for row in CLIENT_STATE_ROWS if rows.get(row) == "same"]
+    changed = [row for row in CLIENT_STATE_ROWS if rows.get(row) == "change"]
+    return same, changed
+
+
+#: Notatka z rozmowy w opisie sprawy — tyle znaków (reszta zostaje w rozmowie).
+CASE_NOTE_MAX = 2000
+
+
+def case_description(occurred_on: date, contract_id: int, note: Optional[str]) -> str:
+    """Opis sprawy z rozmowy: prefiks limitu dziennego, link do rozmowy, notatka."""
+
+    text = (
+        CASE_DESCRIPTION_PREFIX
+        + f"{occurred_on.strftime('%d.%m.%Y')}: /care?contract={contract_id}"
+    )
+    cleaned = (note or "").replace("\x00", "").strip()
+    if not cleaned:
+        return text
+    if len(cleaned) > CASE_NOTE_MAX:
+        cleaned = cleaned[: CASE_NOTE_MAX - 1].rstrip() + "…"
+    return f"{text}\n\nNotatka z rozmowy:\n{cleaned}"
 
 
 # ── Walidacja przed zapisem ─────────────────────────────────────────────────
@@ -494,6 +541,8 @@ async def apply_gap_answers(
         if not names and not note:
             continue
         where = ""
+        if kind == "category":
+            where = f" ({care_card.CATEGORY_GROUPS[subject_id][0]})"
         if kind == "area":
             area_name = await db.scalar(
                 select(ClientArea.name).where(
@@ -548,10 +597,8 @@ async def open_cases(
                     "assignee_user_id": request.assignee_user_id,
                     "due_on": request.due_on,
                     "contract_id": contract.id,
-                    "description": (
-                        CASE_DESCRIPTION_PREFIX
-                        + f"{conversation.occurred_on.strftime('%d.%m.%Y')}: "
-                        f"/care?contract={contract.id}"
+                    "description": case_description(
+                        conversation.occurred_on, contract.id, conversation.note
                     ),
                 },
             )
@@ -654,6 +701,23 @@ async def save_extras(
             today=today,
             now=now,
         )
+        same, changed = confirmed_rows(extras.client_state.get("rows"))
+        if same or changed:
+            audit.record(
+                db,
+                actor_user_id=user.id,
+                subject_user_id=None,
+                entity_type="contract",
+                entity_id=contract.id,
+                action="care.client_state_confirmed",
+                details={
+                    "conversation_id": conversation.id,
+                    "tech_card_id": saved.tech_card_id,
+                    "on": conversation.occurred_on.isoformat(),
+                    "confirmed": same,
+                    "changed": changed,
+                },
+            )
     await apply_gap_answers(
         db,
         contract,

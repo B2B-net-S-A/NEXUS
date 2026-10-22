@@ -237,6 +237,12 @@ async def test_client_mail_naming_consultant_is_a_suggestion_never_a_link(
     assert first["reason"] == REASON_CLIENT_MAIL.format(
         name=f"{candidate.name} {candidate.lastname}"
     )
+    # „Kogo dotyczy?” (S4): kontakt klienta, który napisał, i „jedyny nasz
+    # konsultant o tym nazwisku u tego klienta”.
+    assert first["sender_kind"] == "client_contact"
+    assert first["sender_contact_name"] == "Menedżer Przykładowy"
+    assert first["client_name"]
+    assert first["only_match"] is True
 
 
 # ── Tablica i szczegół ───────────────────────────────────────────────────────
@@ -275,6 +281,165 @@ async def test_card_carries_care_owner_and_mine_care_chip(app_client, care_on) -
         "/api/cases", params={"mine_care": "true"}, headers=headers(admin)
     )
     assert created["id"] not in {item["id"] for item in as_admin.json()["items"]}
+
+
+async def test_mine_care_alone_shows_cases_led_by_others(app_client, care_on) -> None:
+    """„Moi podopieczni” bez „Moje”: sprawy moich konsultantów, kto by nie prowadził.
+
+    Opiekun bez uprawnienia „Sprawy” widzi taką kartę bez treści: tytuł
+    zastępczy, bez osoby i z ``assignee_hidden`` (nie „bez osoby”). Razem
+    z „Moje” — część wspólna jak dotąd.
+    """
+
+    admin = await make_user(UserRole.admin)
+    other = await make_user(UserRole.admin)
+    dl = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=dl)
+    contract_id, _ = await make_contract(client_id)
+    led_by_other = await _case(
+        app_client,
+        admin,
+        contract_id=contract_id,
+        title="Nowy laptop dla konsultanta",
+        assignee_user_id=other.id,
+    )
+    own = await _case(
+        app_client, admin, contract_id=contract_id, assignee_user_id=dl.id
+    )
+
+    alone = await app_client.get(
+        "/api/cases", params={"mine_care": "true"}, headers=headers(dl)
+    )
+    assert alone.status_code == 200, alone.text
+    by_id = {item["id"]: item for item in alone.json()["items"]}
+    assert {led_by_other["id"], own["id"]} <= set(by_id)
+    hidden = by_id[led_by_other["id"]]
+    assert hidden["title"] == "Sprawa: Administracja"
+    assert hidden["assignee"] is None and hidden["assignee_hidden"] is True
+    assert hidden["content_hidden"] is True
+    assert "Nowy laptop" not in json.dumps(alone.json())
+    assert by_id[own["id"]]["assignee_hidden"] is False
+    assert by_id[own["id"]]["assignee"]["id"] == dl.id
+    assert alone.json()["counts"]["mine_care"] >= 2
+
+    both = await app_client.get(
+        "/api/cases",
+        params={"mine_care": "true", "mine": "true"},
+        headers=headers(dl),
+    )
+    ids = {item["id"] for item in both.json()["items"]}
+    assert own["id"] in ids and led_by_other["id"] not in ids
+
+    plain = await app_client.get("/api/cases", headers=headers(dl))
+    assert led_by_other["id"] not in {item["id"] for item in plain.json()["items"]}
+
+
+async def test_mine_care_search_does_not_reveal_hidden_case_text(
+    app_client, care_on
+) -> None:
+    """Szukanie przy „Moi podopieczni” nie zgaduje treści cudzej sprawy.
+
+    Opiekun bez „Spraw” widzi cudzą sprawę podopiecznego z tytułem zastępczym;
+    ``q`` po prawdziwym tytule/opisie byłby wyrocznią tak/nie (np. stawka
+    z „Negocjacji”). Szuka więc tylko w sprawach, które może przeczytać.
+    """
+
+    admin = await make_user(UserRole.admin)
+    other = await make_user(UserRole.admin)
+    dl = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=dl)
+    contract_id, _ = await make_contract(client_id)
+    hidden = await _case(
+        app_client,
+        admin,
+        contract_id=contract_id,
+        title="Negocjacje: nowa stawka zielonokwiat",
+        assignee_user_id=other.id,
+    )
+    own = await _case(
+        app_client,
+        admin,
+        contract_id=contract_id,
+        title="Zielonokwiat — laptop",
+        assignee_user_id=dl.id,
+    )
+
+    found = await app_client.get(
+        "/api/cases",
+        params={"mine_care": "true", "q": "zielonokwiat"},
+        headers=headers(dl),
+    )
+    assert found.status_code == 200, found.text
+    ids = {item["id"] for item in found.json()["items"]}
+    assert own["id"] in ids
+    assert hidden["id"] not in ids
+    assert found.json()["counts"]["mine_care"] == 1
+
+    # Obsługa „Spraw” czyta wszystko, więc szuka we wszystkim.
+    handler = await app_client.get(
+        "/api/cases",
+        params={"mine_care": "false", "q": "zielonokwiat"},
+        headers=headers(admin),
+    )
+    assert hidden["id"] in {item["id"] for item in handler.json()["items"]}
+
+
+async def test_consultant_card_only_for_case_handlers(app_client, care_on) -> None:
+    """S4: kartę konsultanta w sprawie widzi obsługa skrzynki, nie sama osoba
+    przypisana bez uprawnienia „Sprawy”."""
+
+    admin = await make_user(UserRole.admin)
+    dl = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=dl)
+    contract_id, _ = await make_contract(client_id)
+    created = await _case(
+        app_client, admin, contract_id=contract_id, assignee_user_id=dl.id
+    )
+
+    as_assignee = await app_client.get(
+        f"/api/cases/{created['id']}", headers=headers(dl)
+    )
+    assert as_assignee.status_code == 200, as_assignee.text
+    assert as_assignee.json()["consultant"] is None
+    assert as_assignee.json()["contract"]["id"] == contract_id
+
+    as_admin = (
+        await app_client.get(f"/api/cases/{created['id']}", headers=headers(admin))
+    ).json()
+    assert as_admin["consultant"]["contract_id"] == contract_id
+
+
+async def test_consultant_card_shows_order_extension_in_progress(
+    app_client, care_on
+) -> None:
+    """S4: „Koniec zamówienia 31.10 · przedłużenie w toku” = szkic zamówienia."""
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    admin = await make_user(UserRole.admin)
+    client_id = await make_client()
+    contract_id, _ = await make_contract(client_id, end_in_days=9)
+    created = await _case(app_client, admin, contract_id=contract_id)
+    url = f"/api/cases/{created['id']}"
+
+    before = (await app_client.get(url, headers=headers(admin))).json()
+    assert before["consultant"]["order_extension_pending"] is False
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientOrder(
+                contract_id=contract_id,
+                client_id=client_id,
+                title="Przedłużenie",
+                status=ClientOrderStatus.draft,
+                start_date=business_today() + timedelta(days=10),
+                end_date=business_today() + timedelta(days=100),
+            )
+        )
+        await db.commit()
+    after = (await app_client.get(url, headers=headers(admin))).json()
+    assert after["consultant"]["order_extension_pending"] is True
+    assert "order_extension_pending" not in queries.CARE_ONLY_FIELDS
 
 
 async def test_detail_consultant_section_without_amounts(app_client, care_on) -> None:
@@ -409,7 +574,9 @@ async def test_contract_cases_hide_content_and_negotiations(
         "assignee_name",
         "source",
         "content_hidden",
+        "assignee_hidden",
     }
+    assert by_id[plain["id"]]["assignee_hidden"] is False
 
     as_dl = (await app_client.get(url, headers=headers(dl))).json()
     assert {row["id"] for row in as_dl} >= {plain["id"], talk["id"]}
@@ -418,6 +585,7 @@ async def test_contract_cases_hide_content_and_negotiations(
     assert dl_rows[talk["id"]]["title"] == "Sprawa: Negocjacje"
     assert dl_rows[plain["id"]]["title"] == "Sprawa: Administracja"
     assert all(row["assignee_name"] is None for row in as_dl)
+    assert all(row["assignee_hidden"] for row in as_dl)
     async with AsyncSessionLocal() as db:
         events = await queries.contract_case_events(db, contract_id, dl)
     assert "Nowa stawka od stycznia" not in json.dumps(events, default=str)

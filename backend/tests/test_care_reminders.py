@@ -3,7 +3,8 @@
 * jeden przebieg na dzień kalendarza firmy (``hr_job_runs``), awaria daje się
   ponowić (Compass oddawał wtedy HTTP 200 z ``ok: false``),
 * zaległy kontakt → dzwonek ``care_contact_due`` do opiekuna, najwyżej raz
-  na 7 dni na kontrakt, link do zakładki „Opieka”,
+  na 7 dni na kontrakt, link do karty konsultanta (``/care?contract=<id>``),
+  zbiorczy — do „Do zrobienia” z filtrem (makieta R2, 22.10.2026),
 * koniec projektu < 60 dni → wpis „Do przepięcia”,
 * „dziś” to dzień w Warszawie (Compass liczył follow-up od północy UTC).
 
@@ -120,7 +121,7 @@ async def test_run_once_plans_reminds_owner_and_flags_project_end() -> None:
 
     sent = await _reminders_for(due_contract)
     assert [n.user_id for n in sent] == [owner.id]
-    assert sent[0].link == f"/contracts/{due_contract}?tab=care"
+    assert sent[0].link == f"/care?contract={due_contract}"
     assert "dzień 7" in sent[0].message
     async with AsyncSessionLocal() as db:
         kinds = set(
@@ -432,7 +433,7 @@ async def test_owner_with_many_due_contracts_gets_one_bell(monkeypatch) -> None:
     digest = by_user[27]
     assert digest["related_entity_type"] == reminders.DIGEST_ENTITY
     assert digest["related_entity_id"] == 27
-    assert digest["link"] == "/care"
+    assert digest["link"] == "/care?filter=po-terminie"  # najstarszy 01.10 < dziś
     assert digest["message"].startswith("Do zrobienia: 40 — Osoba 1")
     assert "i 37 inne" in digest["message"]
     assert "01.10" in digest["message"]
@@ -492,3 +493,18 @@ async def test_digest_waits_seven_days_unless_something_is_due_today(
     )
     rung = await reminders.remind(None, items, today=today, now=AFTER_WARSAW_MIDNIGHT)
     assert calls == [27] and rung["digests"] == 1
+
+
+def test_digest_link_filters_overdue_or_this_week() -> None:
+    today = date(2026, 10, 20)
+    items = [_care_contract(cid, 27) for cid in (1, 2)]
+    overdue = {
+        1: care_plan.NextContact(kind="cadence", due_on=date(2026, 10, 19)),
+        2: care_plan.NextContact(kind="cadence", due_on=today),
+    }
+    assert reminders.digest_link(items, overdue, today) == "/care?filter=po-terminie"
+    only_today = {
+        cid: care_plan.NextContact(kind="cadence", due_on=today) for cid in (1, 2)
+    }
+    assert reminders.digest_link(items, only_today, today) == "/care?filter=do-piatku"
+    assert reminders.contract_link(5) == "/care?contract=5"

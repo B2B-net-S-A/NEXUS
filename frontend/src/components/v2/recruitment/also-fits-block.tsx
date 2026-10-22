@@ -12,6 +12,7 @@ import { ArrowLeftRight, Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ClientReferenceTag } from "@/components/v2/jobs/JobPickName";
+import { formatDayMonthPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
 import type { AlsoFits, AlsoFitsRowModel } from "./useAlsoFitsJobs";
@@ -46,6 +47,15 @@ export interface AlsoFitsBlockProps {
   onUndo: (jobId: number) => void;
   onRetry: () => void;
   onRequest: () => void;
+}
+
+/** „nasz konsultant · Wraca na rynek 31.10” — źródło osoby w bloku (R2, 22.10.2026). */
+export function ourConsultantLabel(model: Pick<AlsoFitsRowModel, "ourConsultant">): string | null {
+  if (!model.ourConsultant) return null;
+  const { returnsOn } = model.ourConsultant;
+  return returnsOn
+    ? `nasz konsultant · Wraca na rynek ${formatDayMonthPl(returnsOn)}`
+    : "nasz konsultant · Wraca na rynek";
 }
 
 function heading(count: number): string {
@@ -102,6 +112,12 @@ export function AlsoFitsBlock({
       <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
         <ArrowLeftRight className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
         {heading(model.jobs.length)}
+        {ourConsultantLabel(model) ? (
+          <span className="font-normal text-muted-foreground" data-testid="also-fits-source">
+            {" · "}
+            {ourConsultantLabel(model)}
+          </span>
+        ) : null}
       </p>
       <ul className="mt-1 divide-y divide-border">
         {model.jobs.map((job) => {

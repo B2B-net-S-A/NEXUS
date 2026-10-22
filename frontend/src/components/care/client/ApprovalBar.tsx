@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
 
-import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,22 +14,14 @@ import {
 } from "@/components/ui/select";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
-  CONFIDENCE_LABELS,
   useApplyManagers,
   useApplyReportsTo,
   useClientStructureProposals,
   useSkipProposal,
-  type ProposalConfidence,
 } from "@/lib/api/structure-proposals";
 
 import { StructureProposalsPanel, sourcesLabel } from "../structure/StructureProposalsPanel";
-import { firstProposal, openProposalCount } from "./people-tech-format";
-
-const TONE: Record<ProposalConfidence, StatusDotTone> = {
-  certain: "success",
-  uncertain: "warning",
-  none: "neutral",
-};
+import { firstProposal, openProposalCount, proposalReason } from "./people-tech-format";
 
 /**
  * Pasek „Do zatwierdzenia” (decyzja 5, 22.10.2026): JEDNA propozycja automatu
@@ -117,7 +108,7 @@ export function ApprovalBar({
   const excludeId = first?.kind === "reports_to" ? first.row.contact.id : undefined;
 
   return (
-    <section aria-label="Do zatwierdzenia" className="space-y-2">
+    <section aria-label="Do zatwierdzenia" className="space-y-2" data-help="client.people.approve">
       {first && proposal?.contact ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm">
           <span className="inline-flex items-center gap-1.5 font-semibold">
@@ -130,13 +121,9 @@ export function ApprovalBar({
               {first.kind === "manager" ? " pracuje pod " : " podlega pod "}
             </span>
             <span className="font-medium">{proposal.contact.name}</span>
-            <span className="ml-2 inline-block align-middle">
-              <StatusDot tone={TONE[first.row.confidence]}>
-                {CONFIDENCE_LABELS[first.row.confidence]}
-              </StatusDot>
-            </span>
-            <span className="block truncate text-xs text-muted-foreground" title={sourcesLabel(proposal)}>
-              Skąd: {sourcesLabel(proposal)}
+            <span className="text-muted-foreground" title={`Skąd: ${sourcesLabel(proposal)}`}>
+              {" "}
+              ({proposalReason(first.row.confidence, proposal)})
             </span>
           </span>
           {canApply ? (

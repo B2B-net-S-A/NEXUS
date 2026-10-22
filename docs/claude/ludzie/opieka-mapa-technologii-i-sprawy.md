@@ -90,15 +90,57 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
 
 - Sygnał = rozmowa z „klient zatrudnia” (i karta z `hiring`) z 90 dni. Ten sam klient + dział +
   zbiór ról z 30 dni = jedna karta. Dzwonek `care_demand_signal` (sekcja Delivery, bez maila) do
-  aktywnych DL klienta, najwyżej jeden na (DL, klient, dział) w 7 dni. Rozstrzyga DL klienta albo
+  aktywnych DL klienta, tytuł „Popyt u klienta: X — role (z rozmowy z konsultantem)”, najwyżej jeden
+  na sygnał; ten sam dział i zbiór ról w 30 dni = jedna pozycja (`demand.notify_title`, `role_key`). Rozstrzyga DL klienta albo
   admin w oknie „Rozmowa z menedżerem” (`POST /clients/{id}/feedback` z `demand`): potwierdzona →
-  `jobs_new_url` (`/jobs/new?client=&hm=&skills=&title=`, odczyt tylko pustych pól), nie teraz →
+  `jobs_new_url` (`/jobs/new?client=&hm=&skills=&title=&dept=&headcount=&start=`, odczyt tylko
+  pustych pól; dział trafia do opisu jako „Dział u klienta: X.”, start = pierwszy dzień miesiąca), nie teraz →
   wraca za 30 dni, nieaktualne → znika. **ATLAS (`/api/care/atlas/*`) bez rozbudowy.**
 - Klucz karty popytu `demand:<klient>:<rozmowa>` — BEZ działu: dział liczy się przy odczycie, więc
   po zmianie działu menedżera rozstrzygnięcie by się zgubiło. Dział łączy tylko karty, a w linku
   dzwonka (`/care?card=<klucz>&area=<dział|0>`) służy do limitu raz na 7 dni.
 - `demand.hiring_signal` w „Klientach” widzi tylko ten, kto widzi karty popytu klienta (DL
   klienta, admin — `demand.demand_clients`); reszta dostaje `false`.
+
+### Dokończenie według makiet (22.10.2026, druga runda)
+
+- **Adres /care**: `?filter=po-terminie|do-piatku|rozmowy|opinie|decyzje|dane|popyt` wybiera chip
+  listy / filtr tablicy, `?contract=<id>` otwiera kartę konsultanta. Dzwonki opieki linkują tylko tak:
+  `care_contact_due` → `?contract=`, skrót dnia → `?filter=po-terminie` (albo `do-piatku`), przekazanie
+  jednego kontraktu → `?contract=`. Nie wracaj do linków na `/contracts/{id}?tab=care`.
+- **Karty tablicy**: decyzja z końca zamówienia ≤ 60 dni bez wpisu „Do przepięcia” ma klucz
+  `decision:end:<kontrakt>`; pierwszy ruch zakłada wpis (`records.ensure_redeploy`) i zwraca
+  `decision:<id>`. Decyzja na „Zrobione” = „Przekazana” albo „Nie dotyczy”; „Czeka” bez daty (CHECK
+  `ck_care_board_states_waiting` dopuszcza to tylko dla `kind = 'decision'`, 0512).
+  Popyt na „Czeka” bez daty = dziś + 30 dni (`demand.NOT_NOW_DAYS`). Karta `data:<klient>` („Dane do
+  uzupełnienia”: propozycje struktury + luki mapy z pamięci podręcznej) tylko dla klientów „moich”
+  jak w portfelu, krąg D11. `week_progress` = punkty planu z terminem pon–pt (bez pominiętych).
+- **„Moi podopieczni”** = `mine_care` bez `mine`: sprawy na kontraktach, którymi się opiekuję,
+  niezależnie od prowadzącego. Opiekun bez uprawnienia „Sprawy” widzi w „Do zrobienia” sprawę tylko
+  z terminem do piątku albo po terminie (S3); obsługa skrzynki ma tu pełny kanban spraw (od #2567
+  Sprawy są tylko w /care). Licznik „Do zrobienia” liczy karty opieki — bez roli opieki go nie ma. Kafelek „Moja opieka” dolicza moje sprawy z tego tygodnia (`/api/cases?mine&week`).
+- **Karta konsultanta w szczególe sprawy** (`queries.consultant_section`) tylko dla obsługi spraw
+  (uprawnienie „Sprawy”, admin) — osoba przypisana bez tego uprawnienia widzi sprawę bez karty.
+  Zredagowany wiersz sprawy ma `assignee_hidden`/`content_hidden`; front nie pisze wtedy „bez osoby”.
+- **Okno rozmowy**: wiersz „Co u klienta” bez kliknięcia = „bez zmian” i zapisuje się jako
+  potwierdzony z datą rozmowy (`client_state.rows`, ślad `care.client_state_confirmed`); „Nie
+  rozmawialiśmy o kliencie” wyłącza potwierdzenie. Opis sprawy z rozmowy zawiera notatkę (≤ 2000
+  znaków). Pytanie `category_stale` (np. „CI/CD i chmura”) z kategorii słownika, najwyżej jedno.
+- **Karta konsultanta**: „Wskaż menedżera” w karcie zapisuje przez
+  `POST …/structure-proposals/managers` (DL klienta, admin); reszta wskazuje go w oknie rozmowy.
+  Zamknięte sprawy w jednej linii „Zamknięte: …” (`closed_on`, checklista zrobione/wszystkie).
+- **Opiekun domyślny klienta** (decyzja Artura 22.10.2026): w „Ludzie i technologie” (karta
+  „Opiekun domyślny”, każdy z zapisem opieki w zakresie klienta) **i** w „Zespół opiekunów” →
+  „Ustawienia przydziału” (head back office, admin). Dawny panel „Przydział” zastąpiły tabela
+  zespołu, pasek „bez opiekuna” i dialog ustawień; opiekuna hurtem zmienia się z listy Konsultanci
+  (`?owner=<id|none>`, filtr „Kończą w 60 dni”).
+- **Klient**: zakładki Profil · Zasady współpracy · Kontakty klienta · Ludzie i technologie · Wejście
+  u klienta · Projekty · Zamówienia · Umowy · Więcej (Delivery Lead, Importy MD, Faktury, Analityka).
+  Przyciski „Zapisz opinię menedżera” i „Nowa rekrutacja z działu” stoją w nagłówku klienta przy
+  tej zakładce. W „Wiedzy o kliencie” kategorii „Stack technologiczny” nie dodaje się (przy module
+  opieki) — link „Dopisz w Ludziach i technologiach”; stare notatki zostają do odczytu.
+- **„Pasuje też do”**: nasz konsultant przekazany do front office ma źródło `our_consultant`
+  i „Wraca na rynek DD.MM”. Forma rozmowy z menedżerem nadal bez „Teams” (CHECK w bazie).
 
 ### Sprawy przy konsultancie (`admin_cases/contract_links.py`, `queries.py`, `hooks.py`)
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppModal } from "@/components/ds/AppModal";
@@ -44,6 +44,7 @@ import {
 import { useAuthStore } from "@/store/auth";
 
 import { orgPeople } from "./client-people-format";
+import { skillsMentionedIn } from "./demand-skills";
 
 export type { DemandContext } from "@/lib/api/care-clients";
 import { formatIsoDatePl } from "@/lib/date-pl";
@@ -56,6 +57,12 @@ const OUTCOMES: DemandOutcome[] = ["confirmed", "not_now", "stale"];
 const NO_MANAGER = "none";
 /** Ile technologii działu podsuwa sekcja popytu do zaznaczenia. */
 const DEMAND_SKILLS_MAX = 12;
+/** Co dzieje się po zapisie danego wyniku (makieta R4) — podpis pod opcją. */
+const OUTCOME_HINTS: Record<DemandOutcome, string> = {
+  confirmed: "→ nowa rekrutacja",
+  not_now: "wróci za 30 dni",
+  stale: "sygnał zamknięty",
+};
 
 /**
  * Okno „Rozmowa z menedżerem” / „Zapisz opinię”. Z karty „Popyt do
@@ -156,6 +163,7 @@ function FeedbackDialogBody({
     headcount: useId(),
     start: useId(),
     manager: useId(),
+    outcomeHint: useId(),
   };
   // Popyt bez menedżera na karcie: osoby klienta z drzewa (krąg D11) do wyboru.
   const canReadPeople = useAuthStore((s) => canReadClientPeople(s.user));
@@ -179,16 +187,32 @@ function FeedbackDialogBody({
       ? map.departments.find((d) => d.area.id === demand.area?.id)
       : null;
     const source = department ? department.technologies : map.technologies;
-    return [...source]
-      .sort((a, b) => b.source_count - a.source_count || a.name.localeCompare(b.name, "pl"))
+    const all = source.map((tech) => ({ id: tech.skill_id, name: tech.name, count: tech.source_count }));
+    // Technologie z ról sygnału stoją pierwsze — nie mogą wypaść za limit.
+    const mentioned = new Set(skillsMentionedIn(demand.roles, all));
+    return [...all]
+      .sort(
+        (a, b) =>
+          Number(mentioned.has(b.id)) - Number(mentioned.has(a.id)) ||
+          b.count - a.count ||
+          a.name.localeCompare(b.name, "pl"),
+      )
       .slice(0, DEMAND_SKILLS_MAX)
-      .map((tech) => ({ id: tech.skill_id, name: tech.name }));
+      .map(({ id, name }) => ({ id, name, mentioned: mentioned.has(id) }));
   }, [mapQuery.data, demand]);
   const [outcome, setOutcome] = useState<DemandOutcome | null>(null);
   const [role, setRole] = useState(demand?.roles[0] ?? "");
   const [headcount, setHeadcount] = useState("1");
   const [startMonth, setStartMonth] = useState("");
   const [skillIds, setSkillIds] = useState<Set<number>>(new Set());
+  // Raz, gdy mapa działu przyjdzie: zaznacz technologie, które padły w rolach
+  // sygnału (R4: „Technologie (z mapy działu — zaznacz)” z ✓ przy Java i Kafka).
+  const [prechecked, setPrechecked] = useState(false);
+  useEffect(() => {
+    if (prechecked || demandSkills.length === 0) return;
+    setPrechecked(true);
+    setSkillIds(new Set(demandSkills.filter((skill) => skill.mentioned).map((skill) => skill.id)));
+  }, [demandSkills, prechecked]);
   const [heldOn, setHeldOn] = useState(today);
   const [channel, setChannel] = useState<FeedbackChannel>("phone");
   const [scores, setScores] = useState<
@@ -292,6 +316,9 @@ function FeedbackDialogBody({
                   hmId: manager?.id ?? null,
                   skillIds: demandBody.skill_ids,
                   title: demandBody.role,
+                  department: demand?.area?.name ?? null,
+                  headcount: demandBody.headcount ?? null,
+                  startMonth: demandBody.start_month ?? null,
                 }),
             );
           }
@@ -307,12 +334,14 @@ function FeedbackDialogBody({
       onOpenChange={onOpenChange}
       title={
         demand
-          ? `Rozmowa z menedżerem · ${clientName}`
+          ? [manager?.name ?? "Rozmowa z menedżerem", clientName, demand.area?.name]
+              .filter(Boolean)
+              .join(" · ")
           : `Opinia od: ${manager?.name ?? ""} · ${clientName}`
       }
       description={
         demand
-          ? "Czego potrzebuje dział i jak pracują nasi konsultanci. Oceny są tym razem opcjonalne."
+          ? "Rozmowa z menedżerem: czego potrzebuje dział i jak pracują nasi konsultanci. Oceny są tym razem opcjonalne."
           : "Rozmowa z menedżerem u klienta o pracy naszych konsultantów."
       }
       size="lg"
@@ -325,7 +354,7 @@ function FeedbackDialogBody({
             {save.isPending
               ? "Zapisywanie…"
               : demand && outcome === "confirmed"
-                ? "Zapisz i otwórz rekrutację"
+                ? "Zapisz i utwórz rekrutację"
                 : demand
                   ? "Zapisz rozmowę"
                   : "Zapisz opinię"}
@@ -354,8 +383,25 @@ function FeedbackDialogBody({
               size="sm"
               value={outcome}
               onChange={setOutcome}
-              options={OUTCOMES.map((value) => ({ value, label: DEMAND_OUTCOME_LABELS[value] }))}
+              options={OUTCOMES.map((value) => ({
+                value,
+                // Podpis jest ozdobą (aria-hidden), czytnik dostaje go jako opis opcji.
+                label: (
+                  <span className="flex flex-col items-start leading-tight">
+                    <span>{DEMAND_OUTCOME_LABELS[value]}</span>
+                    <span aria-hidden className="text-[11px] font-normal opacity-75">
+                      {OUTCOME_HINTS[value]}
+                    </span>
+                  </span>
+                ),
+                describedBy: `${ids.outcomeHint}-${value}`,
+              }))}
             />
+            {OUTCOMES.map((value) => (
+              <span key={value} id={`${ids.outcomeHint}-${value}`} className="sr-only">
+                {OUTCOME_HINTS[value]}
+              </span>
+            ))}
             {outcome === "not_now" ? (
               <p className="text-xs text-muted-foreground">Karta wróci na tablicę za 30 dni.</p>
             ) : null}
@@ -393,7 +439,7 @@ function FeedbackDialogBody({
               </div>
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Technologie z mapy {demand.area ? "działu" : "klienta"}
+                  Technologie (z mapy {demand.area ? "działu" : "klienta"} — zaznacz)
                 </p>
                 {demandSkills.length ? (
                   <div role="group" aria-label="Technologie do rekrutacji" className="flex flex-wrap gap-1.5">
@@ -425,8 +471,9 @@ function FeedbackDialogBody({
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                Po zapisie otworzy się nowa rekrutacja z klientem, menedżerem i zaznaczonymi
-                technologiami — wypełnią się tylko puste pola.
+                Zapisze rozmowę z menedżerem (opinia opcjonalnie) i otworzy nową rekrutację
+                z klientem, działem, hiring managerem i zaznaczonymi technologiami — wypełnią się
+                tylko puste pola.
               </p>
             </>
           ) : null}
@@ -463,7 +510,7 @@ function FeedbackDialogBody({
         </FormField>
       ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
-        <FormField label="Rozmowa" htmlFor={ids.channel}>
+        <FormField label={demand ? "Forma" : "Rozmowa"} htmlFor={ids.channel}>
           <Select value={channel} onValueChange={(value) => setChannel(value as FeedbackChannel)}>
             <SelectTrigger id={ids.channel}>
               <SelectValue />

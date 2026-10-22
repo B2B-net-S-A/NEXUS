@@ -325,17 +325,37 @@ export function onboardingCase(today: string, d11 = false): CaseDetail {
       role: "Analityczka biznesowa",
       form: "B2B",
       order_end_on: shiftDay(today, 200),
+      // S4: szkic kolejnego zamówienia — „przedłużenie w toku” przy końcu zamówienia.
+      order_extension_pending: true,
       owner_user_id: natalia.id,
       owner_name: natalia.name,
       cadence_label: "co 2 tygodnie (pierwsze 90 dni)",
-      last_conversation: null,
+      last_conversation: { on: shiftDay(today, -9), excerpt: "Prosi o rzadki kontakt." },
       other_open_cases: 0,
       health: contract.health ?? null,
     },
   };
 }
 
-/** Sprawa z maila z firmy klienta bez kontraktu — propozycja „Kogo dotyczy?”. */
+/**
+ * Ta sama sprawa onboardingu oglądana przez osobę przypisaną BEZ uprawnienia
+ * „Sprawy” (S4): serwer nie wysyła karty konsultanta (`consultant: null`),
+ * a bez `can_manage` nie ma akcji ani „Weź”.
+ */
+export function onboardingCaseForAssignee(today: string, viewer: CasePersonRef): CaseDetail {
+  return {
+    ...onboardingCase(today),
+    assignee: viewer,
+    can_manage: false,
+    consultant: null,
+  };
+}
+
+/**
+ * Sprawa z maila z firmy klienta bez kontraktu — „Kogo dotyczy?” (S4): nadawca
+ * to kontakt klienta, w treści nazwisko jedynej naszej konsultantki o tym
+ * nazwisku u tego klienta. Bez osoby — w „Szczegółach” stoi „Weź”.
+ */
 export function whoCase(today: string): CaseDetail {
   const base = allCards(today).find((item) => item.id === WHO_CASE_ID) as CaseCard;
   return {
@@ -348,11 +368,11 @@ export function whoCase(today: string): CaseDetail {
       {
         id: 2,
         sender_email: "zakupy@ubezpieczenia-fikcyjne.example.com",
-        sender_name: `Dział zakupów — ${HR_CLIENTS.insurance.name}`,
-        subject: "Faktura za październik — brak numeru zamówienia",
+        sender_name: "Katarzyna Zakupowa",
+        subject: `Faktura za październik — ${HR_CONSULTANTS.anna.name}`,
         received_at: at(today, "07:02:00"),
         body_text:
-          "Dzień dobry,\nna fakturze za październik dla naszej konsultantki brakuje numeru zamówienia. " +
+          `Dzień dobry,\nna fakturze za październik dla ${HR_CONSULTANTS.anna.name} brakuje numeru zamówienia. ` +
           "Prosimy o korektę.\nPozdrawiamy",
         attachments: [],
       },
@@ -365,7 +385,10 @@ export function whoCase(today: string): CaseDetail {
         contract_id: 4505,
         candidate_name: HR_CONSULTANTS.anna.name,
         client_name: HR_CLIENTS.insurance.name,
-        reason: "jedyna osoba z aktywnym kontraktem u tego klienta",
+        reason: `Mail z firmy klienta, w treści: ${HR_CONSULTANTS.anna.name}`,
+        sender_kind: "client_contact",
+        sender_contact_name: "Katarzyna Zakupowa",
+        only_match: true,
       },
     ],
   };

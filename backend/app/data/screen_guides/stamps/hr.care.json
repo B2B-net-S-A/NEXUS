@@ -1,9 +1,9 @@
 {
-  "entry": "95ca4eef7f13c1a448f9cfc15e3895dd186f906c041f625cb8e4ade89b5a88e1",
+  "entry": "d5ef0a531a1a1dbe97e1279a9dc8f128252a11d38dfaff178ffa9a1e70189041",
   "guide": "hr.care",
   "sources": {
-    "frontend/src/components/care/CareScreen.tsx": "14c7aa8a20b63324d4122b73c29911880cc62e7d3191e2a2e2425691e74867f5",
-    "frontend/src/components/care/ConversationDialog.tsx": "2e96d3d5c15ed9b6bcec6611f306051238f4a82f59d78e37853a184f49e0186d",
-    "frontend/src/components/care/card/ConsultantCard.tsx": "1b35b0a3631e5d6145da5bbcf29349ddea2a624e3ec301783066b795b634dce4"
+    "frontend/src/components/care/CareScreen.tsx": "e6a2962e9898f39950b6a2517b2000d7dd2a526ff533ac0fc05bb7de3d9b00f9",
+    "frontend/src/components/care/ConversationDialog.tsx": "aec1f21781dfa6b024ed6194b4dd3398dceef009c1e57d87f76cc7a940c02255",
+    "frontend/src/components/care/card/ConsultantCard.tsx": "1cf67b41a482b04231c5ef8e1cc04ecb870fb6af86f6bed177271ad7bf26e50a"
   }
 }

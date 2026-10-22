@@ -64,12 +64,12 @@ describe("ClientTechnologiesTab", () => {
     expect(link).toHaveAttribute("href", "/jobs/new?client=3");
   });
 
-  it("domyślny opiekun spoza listy zostaje widoczny w polu", async () => {
+  it("domyślnego opiekuna nie ustawia się na mapie — tylko dostawcy (P6: „Ustawienia przydziału”)", async () => {
     mocks.canCreateJob = false;
     renderTab([{ id: 7, name: "Natalia Opiekuńcza" }]);
-    const field = await screen.findByRole("combobox", { name: "Domyślny opiekun konsultantów klienta" });
-    expect(await screen.findByText(/Olga Wykluczona/, {}, { timeout: 2000 })).toBeInTheDocument();
-    expect(field).toHaveTextContent("Olga Wykluczona");
+    expect(await screen.findByText("Dostawcy u klienta")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Domyślny opiekun konsultantów klienta" })).toBeNull();
+    expect(screen.getAllByText("· pytanie w najbliższej rozmowie").length).toBeGreaterThan(0);
   });
 
   it("mapa cieplna: dział × technologia z dymkiem źródeł i obramowaniem otwartej rekrutacji", async () => {

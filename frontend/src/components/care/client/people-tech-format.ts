@@ -12,12 +12,24 @@ import type {
   DepartmentTechnology,
   MapDepartment,
 } from "@/lib/api/care";
-import type { ClientOrg, OrgConsultant, OrgPerson } from "@/lib/api/client-people";
 import type {
-  ClientStructureProposals,
-  ManagerProposal,
-  ReportsToProposal,
+  ClientOrg,
+  FeedbackRequestBrief,
+  LastFeedback,
+  OrgConsultant,
+  OrgPerson,
+} from "@/lib/api/client-people";
+import { shortPersonName } from "@/lib/candidate-followup";
+import {
+  SOURCE_LABELS,
+  type ClientStructureProposals,
+  type ManagerProposal,
+  type ProposalCandidate,
+  type ProposalConfidence,
+  type ReportsToProposal,
 } from "@/lib/api/structure-proposals";
+
+import { gapQuestion } from "../tech-gaps";
 
 // ── Widok ───────────────────────────────────────────────────────────────────
 
@@ -28,7 +40,7 @@ export const PEOPLE_VIEWS: readonly PeopleView[] = ["dzialy", "drzewo", "mapa"];
 export const PEOPLE_VIEW_LABELS: Record<PeopleView, string> = {
   dzialy: "Działy",
   drzewo: "Drzewo osób",
-  mapa: "Mapa",
+  mapa: "Mapa (tabela)",
 };
 
 /** Dawne zakładki klienta → widok nowej zakładki (linki z powiadomień i kodu). */
@@ -69,9 +81,13 @@ export interface DepartmentManager {
   name: string;
   position: string | null;
   reportsTo: string | null;
+  /** Stanowisko przełożonego („CTO”) — z drzewa, gdy osoba jest u klienta. */
+  reportsToPosition: string | null;
   consultants: OrgConsultant[];
   /** Liczba z mapy, gdy drzewa nie ma (konsultantów nie znamy z nazwiska). */
   consultantsCount: number;
+  lastFeedback: LastFeedback | null;
+  feedbackRequest: FeedbackRequestBrief | null;
 }
 
 export interface DepartmentCard {
@@ -84,7 +100,11 @@ export interface DepartmentCard {
   openJobs: { id: number; title: string }[];
   /** „Szukają: …” — role z otwartych rekrutacji i sygnałów „klient zatrudnia”. */
   seeking: string[];
-  /** Luka działu do dopytania (zdanie) albo `null`. */
+  /** Sygnały „klient zatrudnia” działu (role i dzień rozmowy), najnowszy pierwszy. */
+  hiringSignals: { roles: string[]; on: string }[];
+  /** „W bazie N pasujących” — osoby z najmocniejszymi technologiami działu. */
+  base: MapDepartment["base"];
+  /** Luka działu do dopytania (zdania) albo `null`. */
   gap: string | null;
   lastSeen: string | null;
   /** Dział ma cokolwiek do pokazania (technologia, nasi, rekrutacja, osoby). */
@@ -120,9 +140,12 @@ function orgPeopleByArea(org: ClientOrg | null): Map<number, OrgPerson[]> {
 function managersFor(
   department: MapDepartment,
   people: OrgPerson[] | undefined,
-  orgKnown: boolean,
+  org: ClientOrg | null,
 ): DepartmentManager[] {
-  if (orgKnown) {
+  if (org !== null) {
+    const positions = new Map(
+      org.departments.flatMap((d) => d.people).map((person) => [person.id, person.position]),
+    );
     return (people ?? [])
       .filter((person) => person.is_manager || person.consultants.length > 0)
       .map((person) => ({
@@ -130,8 +153,11 @@ function managersFor(
         name: person.name,
         position: person.position,
         reportsTo: person.reports_to?.name ?? null,
+        reportsToPosition: person.reports_to ? (positions.get(person.reports_to.id) ?? null) : null,
         consultants: person.consultants,
         consultantsCount: person.consultants.length,
+        lastFeedback: person.last_feedback,
+        feedbackRequest: person.feedback_request,
       }));
   }
   return department.managers.map((manager) => ({
@@ -139,18 +165,35 @@ function managersFor(
     name: manager.name,
     position: manager.position,
     reportsTo: null,
+    reportsToPosition: null,
     consultants: [],
     consultantsCount: manager.consultants,
+    lastFeedback: null,
+    feedbackRequest: null,
   }));
 }
 
-function gapFor(map: ClientTechMap, areaId: number): string | null {
+/**
+ * Luka działu jako zdania — po źródle, z naszym konsultantem z działu, przy
+ * którego najbliższej rozmowie trzeba dopytać (to samo pytanie stoi w oknie
+ * „Rozmowa” tej osoby): „Azure Data Factory znane tylko z rozmowy
+ * z konsultantem — dopytać przy rozmowie (Karolina P.).”
+ */
+function gapFor(map: ClientTechMap, department: MapDepartment, consultants: OrgConsultant[]): string | null {
+  const who = consultants
+    .map((c) => shortPersonName(c.candidate_name))
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(", ");
+  const ask = who ? ` — dopytać przy najbliższej rozmowie (${who})` : "";
   const lines: string[] = [];
   for (const gap of map.gaps) {
-    if (gap.kind === "area_no_source" && gap.area.id === areaId) {
-      lines.push("Brak źródła technologii z 18 miesięcy — dopytaj, na czym pracują.");
-    } else if (gap.kind === "manager_unplaced" && gap.area?.id === areaId) {
-      lines.push(`Komu podlega ${gap.contact.name}?`);
+    if (gap.kind === "area_no_source" && gap.area.id === department.area.id) {
+      lines.push(`Brak źródła technologii od 18 miesięcy${ask || " — dopytać, na czym pracują"}.`);
+    } else if (gap.kind === "manager_unplaced" && gap.area?.id === department.area.id) {
+      lines.push(`Komu podlega ${gap.contact.name}?${ask ? `${ask}.` : ""}`);
+    } else if (gap.kind === "single_source" && gap.areas.some((area) => sameName(area, department.area.name))) {
+      lines.push(`${gap.name} ${gapQuestion(gap).detail}${ask}.`);
     }
   }
   return lines.length ? lines.join(" ") : null;
@@ -165,12 +208,14 @@ export function departmentCards(map: ClientTechMap, org: ClientOrg | null): Depa
   const byArea = orgPeopleByArea(org);
   return map.departments.map((department) => {
     const people = byArea.get(department.area.id);
-    const managers = managersFor(department, people, org !== null);
+    const managers = managersFor(department, people, org);
     const consultants = managers.flatMap((manager) => manager.consultants);
     const openJobs = map.open_jobs
       .filter((job) => sameName(job.area, department.area.name))
       .map((job) => ({ id: job.id, title: job.title }));
-    const signals = map.signals.filter((signal) => sameName(signal.area, department.area.name));
+    const signals = map.signals
+      .filter((signal) => sameName(signal.area, department.area.name))
+      .sort((a, b) => b.on.localeCompare(a.on));
     const seeking = uniq([
       ...openJobs.map((job) => job.title),
       ...signals.flatMap((signal) => signal.roles),
@@ -185,7 +230,11 @@ export function departmentCards(map: ClientTechMap, org: ClientOrg | null): Depa
       technologiesTotal: department.technologies_total,
       openJobs,
       seeking,
-      gap: gapFor(map, department.area.id),
+      hiringSignals: signals
+        .filter((signal) => signal.roles.length > 0)
+        .map((signal) => ({ roles: signal.roles, on: signal.on })),
+      base: department.base,
+      gap: gapFor(map, department, consultants),
       lastSeen: department.last_seen,
       hasSignal:
         department.technologies.length > 0 ||
@@ -262,6 +311,19 @@ export function firstProposal(data: ClientStructureProposals): FirstProposal | n
     .sort((a, b) => CONFIDENCE_RANK[a.confidence] - CONFIDENCE_RANK[b.confidence]);
   if (org.length) return { kind: "reports_to", row: org[0] };
   return null;
+}
+
+const CONFIDENCE_WORDS: Record<ProposalConfidence, string> = {
+  certain: "pewne",
+  uncertain: "do sprawdzenia",
+  none: "bez pewności",
+};
+
+/** Uzasadnienie na pasku: „pewne: wyższe stanowisko w tym samym dziale”. */
+export function proposalReason(confidence: ProposalConfidence, proposal: ProposalCandidate): string {
+  const sources = proposal.sources.map((s) => SOURCE_LABELS[s.source]);
+  const unique = [...new Set(sources)];
+  return unique.length ? `${CONFIDENCE_WORDS[confidence]}: ${unique.join(", ")}` : CONFIDENCE_WORDS[confidence];
 }
 
 /** Ile pozycji czeka w pełnym panelu propozycji (bez pominiętych). */

@@ -10,13 +10,17 @@ import type { CareBoardDone } from "@/lib/api/care-board";
 import { formatDayMonthPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
+import { doneSummary } from "./work-board-model";
+
 const DONE_PREVIEW = 5;
 
 /**
  * Wąska kolumna „Zrobione” (makieta 19.10.2026): sprawy zrobione z liczbą
  * z miesiąca, „Pokaż zamknięte”. Od 22.10.2026 także upuszczenie karty
  * (sprawa = status „Zrobione”, karta opieki = okno zapisu) i — gdy tablica
- * pokazuje opiekę — zapisane w tym tygodniu rozmowy i opinie.
+ * pokazuje opiekę — zapisane w tym tygodniu rozmowy i opinie. Nagłówek ma
+ * jedną liczbę (makieta K1): sprawy z miesiąca + opieka z tygodnia, pod nim
+ * „41 spraw w miesiącu · 5 rozmów i opinii w tym tygodniu”.
  */
 export function DoneColumn({
   done,
@@ -41,6 +45,11 @@ export function DoneColumn({
 }) {
   const [all, setAll] = useState(false);
   const visible = all ? done : done.slice(0, DONE_PREVIEW);
+  const summary = doneSummary({
+    casesMonth: showCases ? doneThisMonth : null,
+    careWeek: careDone ? careDone.this_week : null,
+  });
+  const counted = showCases || careDone;
   const row = (card: CaseCard) => (
     <li key={card.id}>
       <button
@@ -70,21 +79,13 @@ export function DoneColumn({
             <h3 id="cases-col-done" className="text-[13.5px] font-semibold">
               {CASE_STATUS_LABELS.done}
             </h3>
-            {showCases ? (
-              <Badge size="sm" variant="success" className="tabular-nums" title="Zrobione w tym miesiącu">
-                {doneThisMonth}
-              </Badge>
-            ) : careDone ? (
-              <Badge size="sm" variant="success" className="tabular-nums" title="Opieka: zrobione w tym tygodniu">
-                {careDone.this_week}
+            {counted ? (
+              <Badge size="sm" variant="success" className="tabular-nums" title={summary.text}>
+                {summary.total}
               </Badge>
             ) : null}
           </div>
-          {showCases ? (
-            <p className="px-1 text-xs text-muted-foreground">
-              {doneThisMonth} w tym miesiącu · na tablicy ostatnie 30 dni
-            </p>
-          ) : null}
+          {counted ? <p className="px-1 text-xs text-muted-foreground">{summary.text}</p> : null}
           {showCases && visible.length ? (
             <ul className="flex flex-col gap-1">{visible.map(row)}</ul>
           ) : null}
@@ -99,9 +100,6 @@ export function DoneColumn({
           ) : null}
           {careDone ? (
             <>
-              <p className="px-1 pt-1 text-xs text-muted-foreground">
-                Opieka: {careDone.this_week} w tym tygodniu
-              </p>
               {careDone.recent.length ? (
                 <ul className="flex flex-col gap-1">
                   {careDone.recent.slice(0, DONE_PREVIEW).map((item) => (

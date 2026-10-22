@@ -10,7 +10,11 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), replace: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mocks.replace, push: vi.fn() }),
+}));
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -25,7 +29,7 @@ vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast: vi.fn(), showError: vi.fn() }),
 }));
 
-import { ConsultantsPanel } from "@/components/care/ConsultantsPanel";
+import { ConsultantsPanel, matchesConsultantsFilter } from "@/components/care/ConsultantsPanel";
 import type { CadenceCurrent, CareConsultants, ConsultantRow } from "@/lib/api/care";
 
 function httpError(status: number) {
@@ -128,6 +132,7 @@ function renderPanel(options: PanelOptions = {}) {
 beforeEach(() => {
   mocks.get.mockReset();
   mocks.post.mockReset();
+  window.history.replaceState(null, "", "/care?tab=consultants");
 });
 
 describe("ConsultantsPanel", () => {
@@ -281,5 +286,48 @@ describe("ConsultantsPanel", () => {
     renderPanel();
     await screen.findByRole("row", { name: /Ewa Przykładowa/ });
     expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("„Konsultanci” z „Zespołu opiekunów” (`?owner=`): cały zakres, tylko ten opiekun, chip zdejmuje filtr", async () => {
+    window.history.replaceState(null, "", "/care?tab=consultants&owner=8");
+    mocks.get.mockResolvedValue({
+      data: payload([
+        row({}),
+        row({
+          contract_id: 2,
+          candidate_id: 22,
+          candidate_name: "Adam Wzorcowy",
+          owner: { id: 8, name: "Kamil Testowy" },
+          is_mine: false,
+        }),
+      ]),
+    });
+    renderPanel();
+    expect(await screen.findByRole("row", { name: /Adam Wzorcowy/ })).toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /Ewa Przykładowa/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Usuń filtr opiekuna: Kamil Testowy" }));
+    expect(screen.getByRole("row", { name: /Ewa Przykładowa/ })).toBeInTheDocument();
+    expect(window.location.search).toBe("?tab=consultants");
+  });
+
+  it("`?owner=none` pokazuje konsultantów bez opiekuna", async () => {
+    window.history.replaceState(null, "", "/care?tab=consultants&owner=none");
+    mocks.get.mockResolvedValue({
+      data: payload([row({}), row({ contract_id: 3, candidate_name: "Iga Próbna", owner: null, is_mine: false })]),
+    });
+    renderPanel();
+    expect(await screen.findByRole("row", { name: /Iga Próbna/ })).toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /Ewa Przykładowa/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Usuń filtr opiekuna: bez opiekuna" })).toBeInTheDocument();
+  });
+
+  it("„Kończą w 60 dni” — koniec od dziś do 59 dni naprzód, bez przeszłych i bezterminowych", () => {
+    const today = "2026-10-22";
+    const ending = (end_date: string | null) => matchesConsultantsFilter(row({ end_date }), "ending", today);
+    expect(ending("2026-10-22")).toBe(true);
+    expect(ending("2026-12-20")).toBe(true);
+    expect(ending("2026-12-21")).toBe(false);
+    expect(ending("2026-10-21")).toBe(false);
+    expect(ending(null)).toBe(false);
   });
 });

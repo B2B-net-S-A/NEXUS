@@ -205,13 +205,20 @@ describe("ContractCareTab", () => {
     renderTab();
     expect(await screen.findByRole("heading", { name: "Anna Przykładowa" })).toBeInTheDocument();
     expect(screen.getByText("Uwaga")).toBeInTheDocument();
-    expect(screen.getByText("rozmowa zaległa od 14 dni")).toBeInTheDocument();
+    expect(screen.getByText(/Dlaczego „Uwaga”:/).parentElement).toHaveTextContent(
+      "Dlaczego „Uwaga”: rozmowa zaległa od 14 dni.",
+    );
     const kpis = screen.getByRole("region", { name: "Najważniejsze liczby" });
     expect(within(kpis).getByText("brak rozmów")).toBeInTheDocument();
-    expect(within(kpis).getByText("spadek z 5/5")).toBeInTheDocument();
-    expect(within(kpis).getByText("3,7 / 5")).toBeInTheDocument();
+    expect(within(kpis).getByText("rytm co 2 tyg.")).toBeInTheDocument();
+    expect(within(kpis).getByText("było 5 / 5")).toBeInTheDocument();
+    expect(within(kpis).getByText("3,7")).toBeInTheDocument();
     expect(within(kpis).getByText("za 29 dni")).toBeInTheDocument();
-    expect(screen.getByText(/Opiekun: Natalia Opiekunka · Delivery Lead kontraktu · rytm co 2 tygodnie/)).toBeInTheDocument();
+    // Opiekun w podtytule (makieta P2), skąd się wziął — w podpowiedzi.
+    expect(screen.getByText(/· opiekun Natalia Opiekunka$/)).toHaveAttribute(
+      "title",
+      "Opiekun: Delivery Lead kontraktu",
+    );
     expect(screen.getByRole("region", { name: "Następny krok" })).toHaveTextContent("Zaległa rozmowa");
     expect(screen.queryByRole("button", { name: "Karta technologiczna" })).toBeNull();
     expect(screen.getByText(/Nic jeszcze nie wiemy o projekcie/)).toBeInTheDocument();
@@ -245,8 +252,8 @@ describe("ContractCareTab", () => {
     await user.click(await screen.findByRole("button", { name: /Plan kontaktów/ }));
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
     const dialog = await screen.findByRole("dialog", { name: "Rozmowa · Anna Przykładowa" });
-    expect(within(dialog).getByText(/Zamyka punkt planu: Dzień 7/)).toBeInTheDocument();
-    expect(within(dialog).getByText("Zapiszemy: rozmowę.")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Zamyka punkt planu: dzień 7 \d\d\.\d\d\./)).toBeInTheDocument();
+    expect(within(dialog).getByText("Zapisze: rozmowę.")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("radio", { name: "4 z 5" }));
     await user.click(within(dialog).getByRole("button", { name: "Zapisz rozmowę" }));
     await waitFor(() => expect(mocks.post).toHaveBeenCalled());

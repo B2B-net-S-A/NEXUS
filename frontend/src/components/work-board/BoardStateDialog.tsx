@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { CareBoardCard } from "@/lib/api/care-board";
 
-import { scheduledIso, validateBoardState } from "./work-board-model";
+import { careTileTitle, scheduledIso, validateBoardState } from "./work-board-model";
 
 export interface BoardStateValue {
   scheduled_at?: string;
@@ -55,15 +55,25 @@ export function BoardStateDialog({
   };
 
   const message = invalid ?? error;
+  const name = careTileTitle(card);
+  const withManager = card.kind === "feedback" || card.kind === "demand";
+  const title =
+    ask === "schedule"
+      ? withManager
+        ? "Kiedy rozmowa z menedżerem?"
+        : "Kiedy rozmowa?"
+      : card.kind === "feedback"
+        ? "Do kiedy czekać na menedżera?"
+        : "Kiedy spróbować ponownie?";
   return (
     <AppModal
       open
       onOpenChange={(open) => (open ? null : onCancel())}
-      title={ask === "schedule" ? "Kiedy rozmowa?" : "Kiedy spróbować ponownie?"}
+      title={title}
       description={
         ask === "schedule"
-          ? `${card.title} — karta przejdzie do „W toku” z umówionym terminem.`
-          : `${card.title} — karta czeka i wróci do „Nowa” w wybranym dniu.`
+          ? `${name} — karta przejdzie do „W toku” z umówionym terminem.`
+          : `${name} — karta czeka i wróci do „Nowa” w wybranym dniu.`
       }
       size="sm"
       footer={
@@ -86,7 +96,7 @@ export function BoardStateDialog({
       >
         <div className="grid grid-cols-2 gap-3">
           <FormField
-            label={ask === "schedule" ? "Dzień" : "Dzień ponownej próby"}
+            label={ask === "schedule" ? "Dzień" : card.kind === "feedback" ? "Czekamy do" : "Dzień ponownej próby"}
             htmlFor="board-state-day"
             required
             className={ask === "retry" ? "col-span-2" : undefined}

@@ -12,12 +12,15 @@
   dział liczy się przy odczycie i po zmianie działu menedżera stan karty
   (rozstrzygnięcie) by się zgubił; dział służy tylko do łączenia kart.
 * **Dzwonek** ``care_demand_signal`` do aktywnych DL klienta przy zapisie
-  rozmowy, najwyżej jeden na (DL, klient, dział) w 7 dni; link
-  ``/care?card=<klucz>&area=<dział albo 0>`` (dział w linku tylko do
-  liczenia tego limitu).
+  rozmowy (makieta R4, 22.10.2026): tytuł „Popyt u klienta: <klient> — <role>
+  (z rozmowy z konsultantem)”, najwyżej jeden na sygnał, a ten sam dział
+  i ten sam zbiór ról w 30 dniach = jedna pozycja (jak karta na tablicy);
+  link ``/care?card=<klucz>&area=<dział albo 0>`` (dział w linku do tego
+  limitu).
 * **Rozstrzygnięcie** (okno „Rozmowa z menedżerem”): potwierdzona →
-  ``/jobs/new`` z klientem, hiring managerem, technologiami i nazwą
-  (``jobs_new_url``), „nie teraz” → wraca za 30 dni, „nieaktualne” → znika.
+  ``/jobs/new`` z klientem, hiring managerem, technologiami, nazwą, działem,
+  liczbą osób i miesiącem startu (``jobs_new_url``), „nie teraz” → wraca za
+  30 dni, „nieaktualne” → znika.
   Rozstrzyga DL klienta albo admin; zapis obejmuje wszystkie źródła karty.
 
 Odczyt niczego nie zapisuje. Bez stawek.
@@ -47,7 +50,8 @@ from app.services.hr import audit
 
 SIGNAL_WINDOW_DAYS = 90
 GROUP_WINDOW_DAYS = 30
-NOTIFY_EVERY_DAYS = 7
+#: Dzwonek: ten sam dział i te same role w tylu dniach = jedna pozycja.
+NOTIFY_EVERY_DAYS = GROUP_WINDOW_DAYS
 NOT_NOW_DAYS = 30
 ROLE_MAX = 120
 
@@ -342,6 +346,29 @@ def notify_link(key: str, area_id: Optional[int]) -> str:
     return f"{card_link(key)}&area={area_id or 0}"
 
 
+def notify_title(client_name: str, roles: Sequence[str]) -> str:
+    """„Popyt u klienta: Bank Przykładowy — Java, QA (z rozmowy z konsultantem)”."""
+
+    what = ", ".join(roles[:3]) if roles else "nowe osoby"
+    return f"Popyt u klienta: {client_name} — {what} (z rozmowy z konsultantem)"[:255]
+
+
+def role_key(roles: Iterable[object]) -> frozenset[str]:
+    """Zbiór ról do porównań (jak ``Signal.role_set``)."""
+
+    return frozenset(role.casefold() for role in clean_roles(roles))
+
+
+def conversation_of_link(link: Optional[str]) -> Optional[int]:
+    """Id rozmowy z linku dzwonka ``/care?card=demand:<klient>:<rozmowa>&area=…``."""
+
+    raw = (link or "").split("card=", 1)[-1].split("&", 1)[0]
+    parsed = board_state.parse_key(raw)
+    if parsed is None or parsed.kind != "demand" or len(parsed.ids) < 2:
+        return None
+    return int(parsed.ids[1])
+
+
 def notify_message(
     client_name: str,
     area_name: Optional[str],
@@ -355,20 +382,61 @@ def notify_message(
 
 
 async def _recent_recipients(
-    db: AsyncSession, *, client_id: int, area_id: Optional[int], now: datetime
+    db: AsyncSession,
+    *,
+    client_id: int,
+    area_id: Optional[int],
+    conversation_id: int,
+    roles: frozenset[str],
+    now: datetime,
 ) -> set[int]:
+    """DL, którzy mają już dzwonek o tej pozycji popytu.
+
+    Ta sama pozycja = ten sam sygnał (rozmowa) albo inny sygnał z tym samym
+    działem i zbiorem ról w ``NOTIFY_EVERY_DAYS`` dniach.
+    """
+
     prefix = card_link(f"demand:{client_id}:")
-    rows = await db.scalars(
-        select(Notification.user_id).where(
-            Notification.notification_type == NotificationType.care_demand_signal,
-            Notification.related_entity_type == "client",
-            Notification.related_entity_id == client_id,
-            Notification.link.startswith(prefix, autoescape=True),
-            Notification.link.endswith(f"&area={area_id or 0}", autoescape=True),
-            Notification.created_at >= now - timedelta(days=NOTIFY_EVERY_DAYS),
+    rows = (
+        await db.execute(
+            select(Notification.user_id, Notification.link).where(
+                Notification.notification_type == NotificationType.care_demand_signal,
+                Notification.related_entity_type == "client",
+                Notification.related_entity_id == client_id,
+                Notification.link.startswith(prefix, autoescape=True),
+                Notification.link.endswith(f"&area={area_id or 0}", autoescape=True),
+                Notification.created_at >= now - timedelta(days=NOTIFY_EVERY_DAYS),
+            )
         )
-    )
-    return {int(user_id) for user_id in rows.all()}
+    ).all()
+    if not rows:
+        return set()
+    earlier = {conversation_of_link(link) for _user, link in rows} - {None}
+    same: set[Optional[int]] = {conversation_id}
+    others = sorted(cid for cid in earlier if cid != conversation_id)
+    if others:
+        role_rows = (
+            await db.execute(
+                select(
+                    CONVERSATIONS_HIRING.c.id,
+                    CONVERSATIONS_HIRING.c.client_hiring_roles,
+                    TECH_CARDS_LINK.c.hiring_roles,
+                )
+                .select_from(CONVERSATIONS_HIRING)
+                .outerjoin(
+                    TECH_CARDS_LINK,
+                    TECH_CARDS_LINK.c.care_conversation_id == CONVERSATIONS_HIRING.c.id,
+                )
+                .where(CONVERSATIONS_HIRING.c.id.in_(others))
+            )
+        ).all()
+        for conv_id, talk_roles, card_roles in role_rows:
+            found, _source = signal_hiring(card_roles, None, talk_roles, None)
+            if role_key(found) == roles:
+                same.add(conv_id)
+    return {
+        int(user_id) for user_id, link in rows if conversation_of_link(link) in same
+    }
 
 
 async def notify_leads(
@@ -391,14 +459,19 @@ async def notify_leads(
     if not leads:
         return 0
     recent = await _recent_recipients(
-        db, client_id=contract.client_id, area_id=area_id, now=now
+        db,
+        client_id=contract.client_id,
+        area_id=area_id,
+        conversation_id=conversation.id,
+        roles=role_key(roles),
+        now=now,
     )
     key = board_state.demand_key(contract.client_id, conversation.id)
     return await notify_each(
         db,
         [lead for lead in leads if lead not in recent],
         exclude=[actor_id],
-        title="Popyt do sprawdzenia",
+        title=notify_title(contract.client_name, roles),
         message=notify_message(
             contract.client_name,
             area[1] if area else None,
@@ -426,14 +499,27 @@ class Resolution:
     skill_ids: tuple[int, ...] = ()
 
 
+@dataclass(frozen=True)
+class Resolved:
+    """Wynik rozstrzygnięcia: klucze kart i dział karty (do ``jobs_new_url``)."""
+
+    keys: list[str]
+    area_name: Optional[str] = None
+
+
 def jobs_new_url(
     *,
     client_id: int,
     hm_contact_id: Optional[int],
     skill_ids: Sequence[int],
     title: Optional[str],
+    area_name: Optional[str] = None,
+    headcount: Optional[int] = None,
+    start_month: Optional[str] = None,
 ) -> str:
-    """``/jobs/new`` z klientem, hiring managerem, technologiami i nazwą.
+    """``/jobs/new`` z klientem, hiring managerem, technologiami i nazwą,
+    a od makiety R4 także z działem (``dept``), liczbą osób (``headcount``)
+    i miesiącem startu (``start``, „RRRR-MM”).
 
     ``/jobs/new`` wypełnia tylko puste pola (``?from=`` ma pierwszeństwo).
     """
@@ -447,6 +533,13 @@ def jobs_new_url(
     cleaned = " ".join((title or "").split())
     if cleaned:
         params.append(("title", cleaned[:ROLE_MAX]))
+    area = " ".join((area_name or "").split())
+    if area:
+        params.append(("dept", area[:ROLE_MAX]))
+    if headcount is not None and headcount >= 1:
+        params.append(("headcount", str(int(headcount))))
+    if start_month:
+        params.append(("start", start_month))
     return "/jobs/new?" + urlencode(params, quote_via=quote, safe=",")
 
 
@@ -458,8 +551,9 @@ async def resolve(
     actor_id: int,
     today: date,
     now: datetime,
-) -> list[str]:
-    """Zapisuje rozstrzygnięcie dla wszystkich źródeł karty; zwraca ich klucze."""
+) -> Resolved:
+    """Zapisuje rozstrzygnięcie dla wszystkich źródeł karty; zwraca ich klucze
+    i dział karty."""
 
     from fastapi import HTTPException, status  # noqa: PLC0415
 
@@ -504,4 +598,4 @@ async def resolve(
             "skills": len(resolution.skill_ids),
         },
     )
-    return group.keys
+    return Resolved(keys=group.keys, area_name=group.head.area_name)

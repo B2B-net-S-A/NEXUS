@@ -6,7 +6,8 @@ Okno „Kandydaci do dodania” woła tę trasę zaraz po „+ Dodaj” (decyzja
 14.10.2026, D1). Reguła i koszt opisane w :mod:`app.services.also_fits`.
 """
 
-from typing import Optional
+from datetime import date
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -16,10 +17,15 @@ from app.api.candidate_access import CandidateSearchAccess
 from app.api.recruitment_access import ensure_job_read_access, job_read_scope_clause
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.job import Job
-from app.services.also_fits import also_fits_for_candidate
+from app.services.also_fits import (
+    SOURCE_OUR_CONSULTANT,
+    also_fits_for_candidate,
+    returning_consultant,
+)
 
 router = APIRouter()
 
@@ -39,6 +45,10 @@ class AlsoFitsResponse(BaseModel):
     from_job_id: int
     status: str
     jobs: list[AlsoFitsJobOut]
+    #: „nasz konsultant” — osoba z decyzją „przekaż do front office” (R2, 22.10.2026).
+    source: Optional[Literal["our_consultant"]] = None
+    #: „Wraca na rynek DD.MM”; ``None`` przy ``source`` = data nieznana.
+    returns_to_market_on: Optional[date] = None
 
 
 @router.get(
@@ -68,6 +78,7 @@ async def candidate_also_fits(
         profile_user_id=current_user.id,
         scope_clause=job_read_scope_clause(current_user, Job.id),
     )
+    returning = await returning_consultant(db, candidate_id, today=business_today())
     return AlsoFitsResponse(
         candidate_id=candidate_id,
         from_job_id=from_job_id,
@@ -84,4 +95,6 @@ async def candidate_also_fits(
             )
             for j in result.jobs
         ],
+        source=SOURCE_OUR_CONSULTANT if returning is not None else None,
+        returns_to_market_on=returning.returns_on if returning is not None else None,
     )

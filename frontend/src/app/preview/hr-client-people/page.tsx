@@ -26,7 +26,10 @@
 import { useState } from "react";
 
 import { ClientFeedbackDialog } from "@/components/care/ClientFeedbackDialog";
-import { ClientPeopleTechTab } from "@/components/care/client/ClientPeopleTechTab";
+import {
+  ClientPeopleTechTab,
+  PeopleTechHeaderActions,
+} from "@/components/care/client/ClientPeopleTechTab";
 import type { PeopleView } from "@/components/care/client/people-tech-format";
 import { careKeys } from "@/lib/api/care";
 import { clientPeopleKeys } from "@/lib/api/client-people";
@@ -81,7 +84,16 @@ function prepare(params: URLSearchParams) {
 
 /** Uproszczony nagłówek profilu klienta z paskiem zakładek — tylko kontekst. */
 function ClientHeader({ people, consultants }: { people: number; consultants: number }) {
-  const tabs = ["Profil", "Zamówienia", "Delivery Lead", "Kontakty klienta", "Ludzie i technologie", "Umowy"];
+  const tabs = [
+    "Profil",
+    "Zasady współpracy",
+    "Kontakty klienta",
+    "Ludzie i technologie",
+    "Wejście u klienta",
+    "Projekty",
+    "Zamówienia",
+    "Umowy",
+  ];
   return (
     <div className="rounded-lg border border-border bg-card">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 sm:px-5">
@@ -93,6 +105,10 @@ function ClientHeader({ people, consultants }: { people: number; consultants: nu
         <span className="text-xs text-muted-foreground">
           {people} osób klienta · {consultants} naszych konsultantów
         </span>
+        {/* Akcje zakładki w nagłówku profilu (makieta P5) — ten sam komponent co strona. */}
+        <div className="ml-auto flex items-center gap-1.5">
+          <PeopleTechHeaderActions clientId={ORG_CLIENT.id} />
+        </div>
       </div>
       <div className="flex overflow-x-auto border-t border-border px-3 text-[13px] sm:px-5">
         {tabs.map((tab) => (

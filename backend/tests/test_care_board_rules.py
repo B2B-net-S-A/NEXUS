@@ -9,12 +9,20 @@ projektu. Dane fikcyjne.
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import Optional
 
 import pytest
 from fastapi import HTTPException
 
 from app.services.care import board_state
-from app.services.care.board import decision_column
+from app.services.care.board import (
+    data_card_counts,
+    decision_column,
+    feedback_due_by_manager,
+    order_end_contracts,
+    pick_open_job,
+    waiting_retry_on,
+)
 from app.services.care.card import gap_questions
 from app.services.care.conversation_save import (
     CASE_AREA_DENIED,
@@ -32,8 +40,11 @@ from app.services.care.demand import (
     Signal,
     clean_roles,
     group_signals,
+    conversation_of_link,
     jobs_new_url,
     notify_link,
+    notify_title,
+    role_key,
     signal_hiring,
     visible,
 )
@@ -162,6 +173,54 @@ def test_jobs_new_url_reads_only_given_fields() -> None:
         jobs_new_url(client_id=12, hm_contact_id=None, skill_ids=[], title=None)
         == "/jobs/new?client=12"
     )
+
+
+def test_jobs_new_url_carries_department_headcount_and_start() -> None:
+    """R4: „otworzy /jobs/new z klientem, działem, HM i technologiami”."""
+
+    assert (
+        jobs_new_url(
+            client_id=12,
+            hm_contact_id=345,
+            skill_ids=[1],
+            title="Java Developer (Kafka)",
+            area_name=" Płatności ",
+            headcount=2,
+            start_month="2027-01",
+        )
+        == "/jobs/new?client=12&hm=345&skills=1&title=Java%20Developer%20%28Kafka%29"
+        "&dept=P%C5%82atno%C5%9Bci&headcount=2&start=2027-01"
+    )
+    assert (
+        jobs_new_url(
+            client_id=12,
+            hm_contact_id=None,
+            skill_ids=[],
+            title=None,
+            area_name="  ",
+            headcount=None,
+            start_month=None,
+        )
+        == "/jobs/new?client=12"
+    )
+
+
+def test_demand_bell_title_and_dedupe_keys() -> None:
+    """R4: tytuł dzwonka i klucze, po których dzwonek liczy „tę samą pozycję”."""
+
+    assert (
+        notify_title("Bank Przykładowy", ["Java", "QA"])
+        == "Popyt u klienta: Bank Przykładowy — Java, QA (z rozmowy z konsultantem)"
+    )
+    assert notify_title("Bank Przykładowy", []).startswith(
+        "Popyt u klienta: Bank Przykładowy — nowe osoby"
+    )
+    assert len(notify_title("X" * 300, ["Java"])) == 255
+    assert conversation_of_link("/care?card=demand:7:42&area=3") == 42
+    assert conversation_of_link("/care?card=demand:7:42") == 42
+    assert conversation_of_link("/care?card=feedback:5&area=0") is None
+    assert conversation_of_link(None) is None
+    assert role_key(["QA", " java ", "Java"]) == role_key(["java", "qa"])
 
 
 _GAPS = [
@@ -328,3 +387,128 @@ def test_demand_roles_and_source_fall_back_to_the_conversation() -> None:
     assert signal_hiring([], None, ["Java"], "plotka") == (("Java",), "plotka")
     assert signal_hiring(None, None, None, None) == ((), None)
     assert clean_roles(["java", "Java", "", "  "]) == ["java"]
+
+
+# ── Domknięcie makiet 22.10.2026 (K3, R4, P1) ───────────────────────────────
+
+
+def _contract(contract_id: int, end_in: Optional[int]):
+    from app.services.care.access import CareContract
+
+    end = TODAY + timedelta(days=end_in) if end_in is not None else None
+    return CareContract(
+        id=contract_id,
+        client_id=1,
+        client_name="Firma Przykładowa",
+        candidate_id=contract_id,
+        candidate_name=f"Osoba {contract_id}",
+        job_id=None,
+        job_title="QA",
+        job_delivery_lead_id=None,
+        status="active",
+        start_date=TODAY - timedelta(days=200),
+        contract_end_date=None,
+        order_end_date=end,
+        explicit_owner_id=None,
+        client_default_owner_id=None,
+    )
+
+
+def test_decision_end_key_parses_as_decision() -> None:
+    key = board_state.parse_key("decision:end:42")
+    assert key is not None and key.variant == "decision_end"
+    assert key.kind == "decision" and key.ids == (42,)
+    assert board_state.parse_key("decision:end:x") is None
+    # Karta danych nie ma stanu na tablicy.
+    assert board_state.parse_key("data:5") is None
+
+
+def test_order_end_within_60_days_without_entry_is_a_decision_card() -> None:
+    contracts = [
+        _contract(1, 20),  # pasuje
+        _contract(2, 61),  # za daleko
+        _contract(3, -1),  # już po końcu
+        _contract(4, None),  # bezterminowo
+        _contract(5, 60),  # brzeg: dzień 60 wchodzi
+        _contract(6, 10),  # ma aktywny wpis
+        _contract(7, 30),  # rozstrzygnięty na tę samą datę
+        _contract(8, 0),  # brzeg: koniec dziś wchodzi
+    ]
+    picked = order_end_contracts(
+        contracts,
+        today=TODAY,
+        active_ids={6},
+        handled={(7, TODAY + timedelta(days=30)), (1, TODAY + timedelta(days=5))},
+    )
+    assert [c.id for c in picked] == [8, 1, 5]
+
+
+def test_recently_resolved_decision_keeps_order_end_card_away() -> None:
+    """Zamknięta „Decyzja” z innego powodu albo na inną datę („chce zmiany”,
+    koniec projektu z rozmowy) nie wraca jako karta końca zamówienia."""
+
+    contracts = [_contract(1, 20), _contract(2, 40)]
+    picked = order_end_contracts(
+        contracts,
+        today=TODAY,
+        active_ids=set(),
+        handled=set(),
+        resolved_ids=frozenset({2}),
+    )
+    assert [c.id for c in picked] == [1]
+
+
+def test_open_job_prefers_role_match_then_newest() -> None:
+    jobs = [(30, "Analityk danych"), (20, "Senior Java Developer"), (10, "QA")]
+    assert pick_open_job(jobs, ["Java Developer"]) == {
+        "id": 20,
+        "title": "Senior Java Developer",
+    }
+    assert pick_open_job(jobs, ["Kierownik"]) == {"id": 30, "title": "Analityk danych"}
+    assert pick_open_job(jobs, []) == {"id": 30, "title": "Analityk danych"}
+    assert pick_open_job([], ["Java"]) is None
+
+
+def test_data_card_only_when_something_to_fill() -> None:
+    assert data_card_counts(None, None) is None
+    assert data_card_counts({"certain": 0, "uncertain": 0}, 0) is None
+    assert data_card_counts({"certain": 2, "uncertain": 1}, 3) == {
+        "certain": 2,
+        "uncertain": 1,
+        "gaps": 3,
+    }
+    # Luki nieznane (mapa nie w cache) — liczą się same propozycje.
+    assert data_card_counts({"certain": 0, "uncertain": 1}, None) == {
+        "certain": 0,
+        "uncertain": 1,
+        "gaps": None,
+    }
+
+
+def test_waiting_retry_defaults() -> None:
+    later = TODAY + timedelta(days=3)
+    # Popyt „Nie teraz” bez daty wraca za 30 dni.
+    assert waiting_retry_on("demand", "waiting", None, TODAY) == TODAY + timedelta(
+        days=30
+    )
+    assert waiting_retry_on("demand", "waiting", later, TODAY) == later
+    # Decyzja „Czeka na front office” bez daty zostaje bez daty.
+    assert waiting_retry_on("decision", "waiting", None, TODAY) is None
+    assert waiting_retry_on("contact", "waiting", None, TODAY) is None
+    assert waiting_retry_on("demand", "in_progress", None, TODAY) is None
+
+
+def test_decision_waiting_without_date_stays_waiting() -> None:
+    state = _state(key="decision:3", kind="decision", column="waiting")
+    assert decision_column("in_progress", state, TODAY) == "waiting"
+
+
+def test_feedback_due_by_manager() -> None:
+    requests = [
+        {"contact_id": 5, "due_on": TODAY - timedelta(days=6)},
+        {"contact_id": 9, "due_on": TODAY},
+    ]
+    assert feedback_due_by_manager(requests) == {
+        5: TODAY - timedelta(days=6),
+        9: TODAY,
+    }

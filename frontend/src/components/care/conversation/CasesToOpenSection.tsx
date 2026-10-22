@@ -36,10 +36,27 @@ interface CasesToOpenSectionProps {
   handler: boolean;
 }
 
+/** Imię prowadzącego do podpowiedzi („Zofia dostanie dzwonek…”). */
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? name;
+}
+
+/**
+ * Podpowiedź pod sprawami (makieta S5): co dostanie sprawa i kto dostanie
+ * dzwonek. `names` — prowadzący wybrani w wierszach (bez powtórzeń).
+ */
+export function casesHint(names: string[]): string {
+  const base = "Sprawa dostanie kontrakt, opis z notatki i link do tej rozmowy.";
+  const people = [...new Set(names.map(firstName))];
+  if (!people.length) return `${base} Bez osoby trafi do „Bez osoby” u obsługi Spraw.`;
+  const who = people.length === 1 ? people[0] : `${people.slice(0, -1).join(", ")} i ${people[people.length - 1]}`;
+  return `${base} ${who} ${people.length === 1 ? "dostanie" : "dostaną"} dzwonek jak przy każdym przypisaniu.`;
+}
+
 /**
  * „Coś do załatwienia?” — do pięciu spraw z tym kontraktem, zakładanych razem
  * z rozmową (jeden rejestr Spraw w „Ludziach”). Opis sprawy to link do
- * rozmowy — bez stawek i bez treści rozmowy.
+ * rozmowy i notatka z rozmowy (opieka nie zbiera stawek ani danych o zdrowiu).
  */
 export function CasesToOpenSection({ drafts, onChange, canPickAssignee, handler }: CasesToOpenSectionProps) {
   const areas = caseAreasFor(handler);
@@ -48,14 +65,26 @@ export function CasesToOpenSection({ drafts, onChange, canPickAssignee, handler 
     onChange(drafts.map((draft, i) => (i === index ? { ...draft, ...patch } : draft)));
   const remove = (index: number) => onChange(drafts.filter((_, i) => i !== index));
   const showAssignee = canPickAssignee && !assignees.isError;
+  const byId = new Map((assignees.data ?? []).map((person) => [person.id, person.name]));
+  const chosen = drafts
+    .filter((draft) => draft.title.trim() && draft.assigneeUserId != null)
+    .map((draft) => byId.get(draft.assigneeUserId as number))
+    .filter((name): name is string => Boolean(name));
+  const add = () => onChange([...drafts, emptyCase()]);
 
   return (
     <section aria-label="Coś do załatwienia?" className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold text-foreground">Coś do załatwienia?</h3>
-        <span className="text-xs text-muted-foreground">
-          {drafts.length ? `${drafts.length} z ${MAX_CONVERSATION_CASES}` : "sprawy z tym kontraktem"}
-        </span>
+        {drafts.length && drafts.length < MAX_CONVERSATION_CASES ? (
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={add}>
+            <Plus aria-hidden className="size-3.5" /> dodaj kolejną
+          </Button>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            {drafts.length ? `${drafts.length} z ${MAX_CONVERSATION_CASES}` : "sprawy z tym kontraktem"}
+          </span>
+        )}
       </div>
       {drafts.length ? (
         <ul className="space-y-2">
@@ -89,7 +118,7 @@ export function CasesToOpenSection({ drafts, onChange, canPickAssignee, handler 
                   {titleProblem}
                 </p>
               ) : null}
-              <div className={showAssignee ? "grid grid-cols-3 gap-1.5" : "grid grid-cols-2 gap-1.5"}>
+              <div className="grid grid-cols-[minmax(0,1fr)_10rem] gap-1.5">
                 <Select value={draft.area} onValueChange={(next) => update(index, { area: next as CaseArea })}>
                   <SelectTrigger aria-label={`Sprawa ${index + 1}: obszar`} className="h-8">
                     <SelectValue />
@@ -102,26 +131,6 @@ export function CasesToOpenSection({ drafts, onChange, canPickAssignee, handler 
                     ))}
                   </SelectContent>
                 </Select>
-                {showAssignee ? (
-                  <Select
-                    value={draft.assigneeUserId == null ? NOBODY : String(draft.assigneeUserId)}
-                    onValueChange={(next) =>
-                      update(index, { assigneeUserId: next === NOBODY ? null : Number(next) })
-                    }
-                  >
-                    <SelectTrigger aria-label={`Sprawa ${index + 1}: prowadzi`} className="h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NOBODY}>Bez osoby — przydzieli obsługa</SelectItem>
-                      {(assignees.data ?? []).map((person) => (
-                        <SelectItem key={person.id} value={String(person.id)}>
-                          {person.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : null}
                 <Input
                   aria-label={`Sprawa ${index + 1}: termin`}
                   type="date"
@@ -130,15 +139,39 @@ export function CasesToOpenSection({ drafts, onChange, canPickAssignee, handler 
                   onChange={(event) => update(index, { dueOn: event.target.value })}
                 />
               </div>
+              {showAssignee ? (
+                <Select
+                  value={draft.assigneeUserId == null ? NOBODY : String(draft.assigneeUserId)}
+                  onValueChange={(next) =>
+                    update(index, { assigneeUserId: next === NOBODY ? null : Number(next) })
+                  }
+                >
+                  <SelectTrigger aria-label={`Sprawa ${index + 1}: prowadzi`} className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NOBODY}>Prowadzi: bez osoby — przydzieli obsługa</SelectItem>
+                    {(assignees.data ?? []).map((person) => (
+                      <SelectItem key={person.id} value={String(person.id)}>
+                        Prowadzi: {person.name}
+                        {person.handler ? " (obsługa skrzynki)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
             </li>
             );
           })}
         </ul>
       ) : null}
-      {drafts.length < MAX_CONVERSATION_CASES ? (
-        <Button size="sm" variant="ghost" onClick={() => onChange([...drafts, emptyCase()])}>
+      {!drafts.length ? (
+        <Button size="sm" variant="ghost" onClick={add}>
           <Plus aria-hidden className="size-3.5" /> Dodaj sprawę
         </Button>
+      ) : null}
+      {drafts.length ? (
+        <p className="text-xs text-muted-foreground">{casesHint(showAssignee ? chosen : [])}</p>
       ) : null}
       {drafts.length && !showAssignee ? (
         <p className="text-xs text-muted-foreground">Osobę przydzieli obsługa Spraw.</p>

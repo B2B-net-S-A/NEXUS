@@ -13,6 +13,7 @@ import {
   openProposalCount,
   peopleOutsideDepartments,
   peopleViewFrom,
+  proposalReason,
   strengthDots,
   topSkillIds,
 } from "@/components/care/client/people-tech-format";
@@ -59,10 +60,15 @@ describe("departmentCards", () => {
     ]);
     // Otwarte rekrutacje i role z sygnału „klient zatrudnia”, bez powtórzeń.
     expect(payments.seeking).toEqual(["Java Developer", "DevOps Engineer (OpenShift)", "Java", "QA"]);
-    expect(payments.gap).toBe("Komu podlega Katarzyna Płatnicza?");
+    // Luka po źródle, z osobą z działu do dopytania przy najbliższej rozmowie.
+    expect(payments.gap).toBe("Komu podlega Katarzyna Płatnicza? — dopytać przy najbliższej rozmowie (Anna K.).");
+    expect(data.gap).toMatch(/^Azure Data Factory znane tylko z rozmowy z konsultantem z \d\d\.\d{4} — dopytać przy najbliższej rozmowie \(/);
+    expect(payments.base).toEqual({ skills: ["Java 17", "Spring Boot"], count: 212 });
+    expect(payments.hiringSignals[0]?.roles).toEqual(["Java", "QA"]);
+    expect(data.managers[0]).toMatchObject({ reportsToPosition: expect.any(String) });
     // Dział bez źródła z 18 miesięcy ma lukę, choć nie ma sygnału do karty.
     const cloud = cards.find((card) => card.area.name === "CI/CD i chmura");
-    expect(cloud?.gap).toMatch(/Brak źródła technologii/);
+    expect(cloud?.gap).toBe("Brak źródła technologii od 18 miesięcy — dopytać, na czym pracują.");
     expect(cloud?.hasSignal).toBe(false);
     // Remis siły (trzy rodzaje źródeł) — po nazwie.
     expect(topSkillIds(payments)).toEqual([801, 803, 802]);
@@ -130,5 +136,26 @@ describe("firstProposal", () => {
       reports_to: [],
     };
     expect(firstProposal(none)).toBeNull();
+  });
+});
+
+describe("proposalReason", () => {
+  it("pasek mówi zdaniem: pewność i źródła bez powtórzeń", () => {
+    expect(
+      proposalReason("certain", {
+        contact: { id: 1, name: "Iwona Zespołowa", position: null, area: null },
+        sources: [{ source: "title_same_department", detail: null }],
+      } as never),
+    ).toBe("pewne: wyższe stanowisko w tym samym dziale");
+    expect(
+      proposalReason("uncertain", {
+        contact: null,
+        sources: [
+          { source: "line_manager", detail: "Iwona" },
+          { source: "line_manager", detail: "I. Zespołowa" },
+          { source: "same_team", detail: null },
+        ],
+      } as never),
+    ).toBe("do sprawdzenia: „Line Manager” na kontrakcie, menedżer kolegów z zespołu");
   });
 });

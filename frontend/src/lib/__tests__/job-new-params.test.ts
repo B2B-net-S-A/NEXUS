@@ -26,9 +26,19 @@ describe("parseJobPrefill", () => {
       hmId: 345,
       skillIds: [1, 2],
       title: "Java",
+      department: null,
+      headcount: null,
+      startMonth: null,
     });
-    const empty = parseJobPrefill({ hm: "x", skills: "", title: "  " });
-    expect(empty).toEqual({ hmId: null, skillIds: [], title: null });
+    const empty = parseJobPrefill({ hm: "x", skills: "", title: "  ", headcount: "0", start: "2027-13" });
+    expect(empty).toEqual({
+      hmId: null,
+      skillIds: [],
+      title: null,
+      department: null,
+      headcount: null,
+      startMonth: null,
+    });
     expect(hasJobPrefill(empty)).toBe(false);
   });
 
@@ -42,6 +52,16 @@ describe("parseJobPrefill", () => {
   });
 });
 
+describe("parseJobPrefill · popyt (R4)", () => {
+  it("dział, liczba osób 1–99 i miesiąc „RRRR-MM”; reszta to brak", () => {
+    const prefill = parseJobPrefill({ dept: "  Płatności  ", headcount: "2", start: "2027-01" });
+    expect(prefill).toMatchObject({ department: "Płatności", headcount: 2, startMonth: "2027-01" });
+    expect(hasJobPrefill(prefill)).toBe(true);
+    expect(parseJobPrefill({ headcount: "120" }).headcount).toBeNull();
+    expect(parseJobPrefill({ start: "styczeń" }).startMonth).toBeNull();
+  });
+});
+
 describe("applyJobPrefill", () => {
   it("pusty formularz bierze tytuł, menedżera i wymagania „musi mieć”", () => {
     const form = applyJobPrefill({ ...EMPTY_INTAKE_FORM }, VALUES);
@@ -51,6 +71,17 @@ describe("applyJobPrefill", () => {
       [["Java 17"], "must"],
       [["Kafka"], "must"],
     ]);
+  });
+
+  it("liczba osób, start i dział wchodzą tylko w puste pola", () => {
+    const extra = { ...VALUES, department: "Płatności", headcount: 2, startMonth: "2027-01" };
+    const form = applyJobPrefill({ ...EMPTY_INTAKE_FORM }, extra);
+    expect(form.headcount).toBe("2");
+    expect(form.startDate).toBe("2027-01-01");
+    expect(form.about).toBe("Dział u klienta: Płatności.");
+    const typed = { ...EMPTY_INTAKE_FORM, headcount: "3", startDate: "2026-12-01", about: "Projekt X" };
+    const kept = applyJobPrefill(typed, { ...extra, title: null, hiringManager: null, skills: [] });
+    expect(kept).toBe(typed);
   });
 
   it("wpisane pola zostają, „Klient nie podał” blokuje menedżera", () => {

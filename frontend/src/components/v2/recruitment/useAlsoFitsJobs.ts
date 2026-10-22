@@ -34,6 +34,8 @@ export interface AlsoFitsRowModel {
    */
   status: "idle" | "loading" | "error" | "unavailable" | "ok";
   jobs: AlsoFitsJob[];
+  /** Nasz konsultant wracający na rynek (R2) — źródło „nasz konsultant” w bloku. */
+  ourConsultant?: { returnsOn: string | null } | null;
   stateOf: (jobId: number) => ElsewhereState | undefined;
   /** Odmowa serwera przy dodaniu do tej rekrutacji (zamknięta karta, weto…). */
   errorOf: (jobId: number) => string | undefined;
@@ -232,6 +234,10 @@ export function useAlsoFitsJobs({
       return {
         status,
         jobs: query.data?.jobs ?? [],
+        ourConsultant:
+          query.data?.source === "our_consultant"
+            ? { returnsOn: query.data.returns_to_market_on ?? null }
+            : null,
         stateOf: (jobId) => states.get(pairKey(candidateId, jobId)),
         errorOf: (jobId) => errors.get(pairKey(candidateId, jobId)),
         undoable: (jobId) => !undoWindow.expired.has(pairKey(candidateId, jobId)),
