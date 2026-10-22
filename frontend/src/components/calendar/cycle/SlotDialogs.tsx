@@ -36,10 +36,10 @@ import { cn } from "@/lib/utils";
 const INPUT =
   "w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 
-/** `datetime-local` → ISO z przesunięciem przeglądarki (serwer normalizuje do UTC). */
 /** Długości rozmowy do wyboru — jak w „Kiedy rozmowa u klienta?” (`ClientInterviewDateDialog`). */
 const DURATIONS = [30, 45, 60, 90, 120] as const;
 
+/** `datetime-local` → ISO z przesunięciem przeglądarki (serwer normalizuje do UTC). */
 function localToIso(value: string): string {
   return new Date(value).toISOString();
 }
