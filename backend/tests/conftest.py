@@ -18,6 +18,7 @@ schema is ready.
 from __future__ import annotations
 
 import asyncio
+import functools
 import importlib
 import json
 import os
@@ -668,6 +669,59 @@ def ci_shard_assignment(
     return assignment
 
 
+_CI_SHARD_PATTERNS = ("test_*.py", "*_test.py")
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _ci_key(path) -> str:
+    return Path(path).resolve().relative_to(_BACKEND_ROOT).as_posix()
+
+
+@functools.cache
+def _ci_shard_plan() -> tuple[int, int, dict[str, int]] | None:
+    """``(indeks, liczba, {plik: shard})`` z env CI albo ``None`` poza shardem.
+
+    Partycję liczymy z LISTY PLIKÓW na dysku (oba wzorce domyślne pytesta),
+    nie z zebranych testów — dzięki temu shard nie musi kolekcjonować cudzych
+    plików (``pytest_ignore_collect`` niżej). Każdy shard widzi te same pliki
+    i te same czasy, więc liczy tę samą partycję bez koordynacji.
+    """
+    count = int(os.environ.get("CI_SHARD_COUNT", "1") or "1")
+    if count <= 1:
+        return None
+    index = int(os.environ.get("CI_SHARD_INDEX", "0") or "0")
+    if not 0 <= index < count:
+        raise pytest.UsageError(f"CI_SHARD_INDEX={index} poza zakresem 0..{count - 1}")
+    tests_root = Path(__file__).resolve().parent
+    files = sorted(
+        {
+            _ci_key(path)
+            for pattern in _CI_SHARD_PATTERNS
+            for path in tests_root.rglob(pattern)
+            if "__pycache__" not in path.parts
+        }
+    )
+    return index, count, ci_shard_assignment(files, count, _ci_file_durations())
+
+
+def pytest_ignore_collect(collection_path, config):
+    """Shard CI nie importuje plików testowych innych shardów.
+
+    22.10.2026: każdy z 12 shardów kolekcjonował wszystkie ~29,9 tys. testów
+    i odrzucał 93% z nich dopiero w ``pytest_collection_modifyitems``. Pod
+    tracerem pokrycia (``--cov-branch``) sama kolekcja trwała w kolejce
+    1:52–3:00 min na shard, lokalnie bez pokrycia 36 s.
+    """
+    plan = _ci_shard_plan()
+    if plan is None or collection_path.suffix != ".py":
+        return None
+    index, _, shard_of = plan
+    shard = shard_of.get(_ci_key(collection_path))
+    if shard is not None and shard != index:
+        return True
+    return None
+
+
 def _apply_ci_shard_filter(config, items) -> None:
     """CI-only podział kolekcji na shardy: całe PLIKI, wyważone zmierzonym czasem.
 
@@ -681,31 +735,30 @@ def _apply_ci_shard_filter(config, items) -> None:
     z ``ci_test_durations.json`` (odświeżanie: `.github/scripts/
     build_test_durations.py`). Nieaktualna mapa pogarsza tylko równowagę.
 
+    Od 22.10.2026 cudze pliki odpadają już przed kolekcją
+    (``pytest_ignore_collect``); ten filtr zostaje jako druga linia: plik
+    spoza listy z dysku (inny wzorzec, plik dodany w trakcie) trafia tylko do
+    shardu 0 — partycja zostaje zupełna i rozłączna.
+
     To NIE jest xdist (wdrożony i wycofany — patrz komentarz przy pytest
     w ci.yml): każdy shard to osobny runner z własnym postgresem
     i sekwencyjnym pytestem, więc klasa „równolegli workerzy na wspólnej
     bazie psują globalne agregaty" tu nie istnieje.
     """
-    count = int(os.environ.get("CI_SHARD_COUNT", "1") or "1")
-    if count <= 1:
+    plan = _ci_shard_plan()
+    if plan is None:
         return
-    index = int(os.environ.get("CI_SHARD_INDEX", "0") or "0")
-    if not 0 <= index < count:
-        raise pytest.UsageError(f"CI_SHARD_INDEX={index} poza zakresem 0..{count - 1}")
-    backend_root = Path(__file__).resolve().parent.parent
-    key_of = {
-        str(item.path): Path(item.path).resolve().relative_to(backend_root).as_posix()
-        for item in items
-    }
-    shard_of = ci_shard_assignment(
-        sorted(set(key_of.values())), count, _ci_file_durations()
-    )
-    kept = [item for item in items if shard_of[key_of[str(item.path)]] == index]
+    index, count, shard_of = plan
+
+    def mine(item) -> bool:
+        return shard_of.get(_ci_key(item.path), 0) == index
+
+    kept = [item for item in items if mine(item)]
     if not kept:
         raise pytest.UsageError(
             f"Shard {index}/{count} nie dostał żadnego pliku — błędna konfiguracja"
         )
-    deselected = [item for item in items if shard_of[key_of[str(item.path)]] != index]
+    deselected = [item for item in items if not mine(item)]
     if deselected:
         items[:] = kept
         config.hook.pytest_deselected(items=deselected)

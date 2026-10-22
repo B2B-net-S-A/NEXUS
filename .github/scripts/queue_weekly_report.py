@@ -232,10 +232,7 @@ def pr_changed_files(repo: str, pr: int) -> list[str] | None:
 def make_chooser():
     import select_pr_tests as sieve
 
-    try:
-        durations = json.loads(sieve._DURATIONS.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        durations = {}
+    durations = sieve._load_durations()
 
     def choose(changed: list[str]) -> tuple[list[str], list[str]]:
         direct, indirect = sieve.select(changed)

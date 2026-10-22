@@ -319,9 +319,10 @@ def test_budget_estimate_matches_recorded_sieve_runs() -> None:
     dla 1048 z 1967 plików (reszta ważyła 1 s), a macierz bramek 22 s zamiast
     ~150 — sito „na 5 min” trwało 8–15 min samego pytesta.
 
-    Biegi z ``data/sieve_runs_2026_10_21.json``; ten sam wybór na różnych
-    runnerach różni się do ~1,4× (s3), dlatego próg per bieg jest szerszy
-    niż próg dla sumy."""
+    Biegi z ``data/sieve_runs_2026_10_21.json`` nie wchodzą do mapy (od
+    22.10.2026 mapa to wyłącznie shardy kolejki, przeliczone ×0,8 na brak
+    pokrycia). Ten sam wybór na różnych runnerach różni się do ~1,4× (s3),
+    dlatego próg per bieg jest szerszy niż próg dla sumy."""
     sel = _selector()
     durations = sel._load_durations()
     runs = json.loads(
