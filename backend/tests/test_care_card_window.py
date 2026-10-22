@@ -13,7 +13,7 @@ Dane fikcyjne (repo jest publiczne).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select, update
@@ -22,6 +22,7 @@ import app.models  # noqa: F401  (rejestracja wszystkich mapperów)
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.admin_case import AdminCase
+from app.models.contract_care import TechCard
 from app.models.hr_ops import HrAuditEvent
 from app.models.user import UserRole
 from tests.test_care_api import _card, headers, make_skill, make_user
@@ -161,3 +162,63 @@ async def test_card_cases_have_closing_day_and_checklist(
     ]
     assert "Sprawa otwarta: Wejście konsultanta" in titles
     assert "Sprawa zamknięta: Wejście konsultanta 1/2" in titles
+
+
+async def test_client_hiring_is_an_event_of_one_conversation(
+    app_client,
+    care_on,  # noqa: F811
+) -> None:
+    """Audyt 22.10, F1: „klient zatrudnia” nie przechodzi na kartę z kolejnej
+    rozmowy, w której nikt go nie zaznaczył (sygnał popytu by się nie starzał)."""
+
+    _lead, _client_id, area_id, _manager_id, contract_id, _cand = await _setup()
+    admin = await make_user(UserRole.admin)
+    skill_id, _ = await make_skill("Rust")
+    today = business_today()
+    first = await app_client.post(
+        f"/api/care/contracts/{contract_id}/conversations",
+        json={
+            "occurred_on": (today - timedelta(days=30)).isoformat(),
+            "channel": "phone",
+            "client_hiring": True,
+            "client_state": {
+                "confirmed": True,
+                "changes": {
+                    "skill_ids": [skill_id],
+                    "area_id": area_id,
+                    "hiring_roles": ["Java Developer"],
+                    "hiring_source": "widzial",
+                },
+            },
+        },
+        headers=headers(admin),
+    )
+    assert first.status_code == 201, first.text
+
+    second = await app_client.post(
+        f"/api/care/contracts/{contract_id}/conversations",
+        json={
+            "occurred_on": today.isoformat(),
+            "channel": "phone",
+            "client_state": {
+                "confirmed": True,
+                "changes": {},
+                "rows": {
+                    "area": "same",
+                    "manager": "same",
+                    "team": "same",
+                    "technologies": "same",
+                },
+            },
+        },
+        headers=headers(admin),
+    )
+    assert second.status_code == 201, second.text
+    card_id = second.json()["tech_card_id"]
+    assert card_id and card_id != first.json()["tech_card_id"]
+
+    async with AsyncSessionLocal() as db:
+        card = await db.get(TechCard, card_id)
+    assert card.hiring is None
+    assert not card.hiring_roles
+    assert card.hiring_source is None
