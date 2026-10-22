@@ -37,6 +37,9 @@ const INPUT =
   "w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 
 /** `datetime-local` → ISO z przesunięciem przeglądarki (serwer normalizuje do UTC). */
+/** Długości rozmowy do wyboru — jak w „Kiedy rozmowa u klienta?” (`ClientInterviewDateDialog`). */
+const DURATIONS = [30, 45, 60, 90, 120] as const;
+
 function localToIso(value: string): string {
   return new Date(value).toISOString();
 }
@@ -147,7 +150,10 @@ export function SlotRequestDialog({
 
   const applyMail = (result: SlotsFromMail) => {
     setSlots(rowsFromMail(result));
-    if (result.duration_minutes) setDuration(result.duration_minutes);
+    // Długość spoza przycisków nie ustawia się po cichu (audyt 22.10, F29).
+    if (result.duration_minutes && (DURATIONS as readonly number[]).includes(result.duration_minutes)) {
+      setDuration(result.duration_minutes);
+    }
     if (result.respond_by) setRespondBy(isoToLocalInput(result.respond_by));
     const fromMail = noteFromMail(result);
     if (fromMail) setNote((prev) => (prev.trim() ? `${prev.trim()}\n${fromMail}` : fromMail).slice(0, 1000));
@@ -261,7 +267,7 @@ export function SlotRequestDialog({
             aria-labelledby="slot-duration-label"
             className="inline-flex flex-wrap rounded-lg bg-muted p-1"
           >
-            {[30, 45, 60, 90, 120].map((m) => (
+            {DURATIONS.map((m) => (
               <button
                 key={m}
                 type="button"
