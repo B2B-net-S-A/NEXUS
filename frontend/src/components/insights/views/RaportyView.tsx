@@ -43,6 +43,7 @@ import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunn
 import { PrepQualitySection } from "@/components/insights/chapters/PrepQualitySection";
 import { StageBreakdownSection } from "@/components/insights/chapters/StageBreakdownSection";
 import { AllocationWorkloadBoard } from "@/components/v2/priority-work/AllocationWorkloadBoard";
+import { AcceptancesReport } from "./AcceptancesReport";
 import { ProposalOutcomesReport } from "./ProposalOutcomesReport";
 import { StaleJobsReport } from "./StaleJobsReport";
 import { ViewHeader } from "./ViewKit";
@@ -180,6 +181,8 @@ function ReportBody({
   switch (id) {
     case "lejek-etapy":
       return <StageBreakdownSection period={p} />;
+    case "akceptacje-w-toku":
+      return <AcceptancesReport />;
     case "czas-konwersje":
       return (
         <div className="space-y-4">

@@ -14,7 +14,7 @@ import {
   type InsightsYoYResponse,
 } from "@/lib/insights-api";
 import { firmaSentence, signedCount } from "@/lib/insights-firma";
-import { daysLabel, monthForecast } from "@/lib/insights-in-flight";
+import { monthForecast } from "@/lib/insights-in-flight";
 import { buildRadaCsvExport } from "@/lib/insights-csv";
 import { reportHref } from "@/lib/insights-reports";
 import {
@@ -28,6 +28,7 @@ import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
 import { SectionError } from "@/components/insights/sections/_shared";
+import { AcceptancesTable } from "./AcceptancesReport";
 import { TeamFunnelPanel } from "./team/TeamFunnelPanel";
 import { Panel, PanelLoading, Takeaway, Tile, TileRow, ViewHeader } from "./ViewKit";
 
@@ -377,45 +378,22 @@ function AcceptancesList({
   staleDays: number;
 }) {
   return (
-    <details className="rounded-xl border border-border bg-card shadow-xs">
+    <details className="group rounded-xl border border-border bg-card shadow-xs">
       <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-4 text-sm font-semibold text-foreground">
         Akceptacje do domknięcia: {acceptances.length} — klient, rekrutacja, od kiedy, umowa, DL
-        <span className="text-primary">Pokaż ▾</span>
+        <span className="text-primary group-open:hidden">Pokaż ▾</span>
+        <span className="hidden text-primary group-open:inline">Zwiń ▴</span>
       </summary>
-      <div className="overflow-x-auto border-t border-border px-4 py-2">
-        <table className="w-full min-w-[36rem] text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-xs text-muted-foreground">
-              <th className="py-2 pr-3 font-semibold">Klient</th>
-              <th className="py-2 pr-3 font-semibold">Rekrutacja</th>
-              <th className="py-2 pr-3 font-semibold">Od kiedy</th>
-              <th className="py-2 pr-3 font-semibold">Umowa</th>
-              <th className="py-2 font-semibold">Delivery Lead</th>
-            </tr>
-          </thead>
-          <tbody>
-            {acceptances.map((a) => (
-              <tr key={`${a.job_id}-${a.since}-${a.stage_key}`} className="border-b border-border/60">
-                <td className="py-2 pr-3 text-foreground">{a.client_name ?? "—"}</td>
-                <td className="py-2 pr-3 text-foreground">{a.job_title}</td>
-                <td
-                  className={cn(
-                    "py-2 pr-3 tabular-nums",
-                    a.days > staleDays ? "font-semibold text-warning-muted-foreground" : "text-muted-foreground",
-                  )}
-                >
-                  {daysLabel(a.days)}
-                </td>
-                <td className="py-2 pr-3 text-muted-foreground">
-                  {a.stage_key === "acceptance" ? "—" : a.stage_label.replace("Umowa ", "")}
-                </td>
-                <td className="py-2 text-muted-foreground">{a.delivery_lead_name ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="py-2 text-xs text-muted-foreground">
-          Bez nazwisk kandydatów. Rekrutacja nie jest linkiem dla kont bez dostępu do Rekrutacji.
+      <div className="space-y-2 border-t border-border px-4 py-2">
+        <AcceptancesTable acceptances={acceptances} staleDays={staleDays} />
+        <p className="text-xs text-muted-foreground">
+          Bez nazwisk kandydatów.{" "}
+          <Link
+            href={reportHref("akceptacje-w-toku")}
+            className="font-semibold text-primary hover:underline"
+          >
+            Raport „Akceptacje w toku” →
+          </Link>
         </p>
       </div>
     </details>

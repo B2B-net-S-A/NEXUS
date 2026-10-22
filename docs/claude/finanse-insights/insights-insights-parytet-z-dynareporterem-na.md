@@ -578,3 +578,9 @@ Makiety i decyzje Artura: https://claude.ai/artifact/H4QgdE9ou92M1dtr9QrygF
   pod „Zasady…” (treść bez zmian), pasek źródła okresu to plakietka, a notka
   „Dni do 11.10.2026 z DynaReportera” przy pasku okresu — zwijana (treść
   i `data-testid` bez zmian).
+- **Raporty v3**: nowy raport „Akceptacje w toku” (pełna lista z
+  `/in-flight`, `VIEW_TEAM_KPI`; prowadzi do niego „Do uwagi” i lista na
+  Firmie). Rada nadzorcza nie widzi raportów-narzędzi zespołu: „Kompetencje
+  w toku”, „Źródła, portale i linki”, „Zamknięcia i hit ratio” (`notBoard`
+  w `lib/insights-reports.ts`); „Rekrutacje bez ruchu” zostaje, bo prowadzi
+  do niego „Do uwagi”, a Hall of Fame i Ścieżka — bo Rada widzi Rywalizację.
