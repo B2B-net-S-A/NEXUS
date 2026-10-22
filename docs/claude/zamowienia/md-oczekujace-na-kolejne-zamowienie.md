@@ -36,9 +36,13 @@ Import dopasowywał drugi wiersz po nazwisku na to samo zamówienie, sumował
   Kolejność blokad: kontrakty i linie kolejnych zamówień, potem wiersze importu.
 - **Ponowny import miesiąca** (`plan_reimport` przed blokadami, `apply_reimport`
   po blokadach i PRZED zejściami paczki): klucz to miesiąc + osoba (tokeny
-  nazwiska) + klient zamówienia z numerem, a nowa paczka jest prawdą. Każda
-  osoba z wierszem MD w nowej paczce traci wcześniejsze wiersze oczekujące
-  (`superseded`) — także gdy plik korygujący przeniósł te MD na wiersz
+  nazwiska) + klient zamówienia z numerem, a nowa paczka jest prawdą. Klient
+  wiersza paczki (`_reimport_persons` w `api/md_consumption.py`) to klient
+  zamówienia, na które trafił albo z którego czeka; bez dopasowania — klienci
+  jego linii do wyboru albo linii tej osoby w miesiącu. Wiersz tej osoby tylko
+  u innego klienta (albo imiennika) nie rusza jej oczekujących MD (audyt
+  22.10.2026, F70). Każda osoba z wierszem MD w nowej paczce u tego klienta
+  traci wcześniejsze wiersze oczekujące (`superseded`) — także gdy plik korygujący przeniósł te MD na wiersz
   z numerem. Ile już zeszło z kolejnych zamówień, liczy dziennik zamówień
   (wpisy `EVENT_MD_IMPORT` z `awaiting_row_id`, netto): to pokrywa nowe wiersze
   oczekujące bez drugiego zejścia, a nadwyżka ponad nową wartość WRACA

@@ -377,3 +377,165 @@ async def test_activated_draft_order_takes_the_awaiting_md(
         app_client, app_auth_headers, case, case["group"]["id"], case["line"]
     )
     assert old["awaiting_md"] == []
+
+
+async def _same_person_at_another_client(contract_id: int) -> tuple[int, int]:
+    """Ta sama osoba z umową u drugiego klienta."""
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+
+    async with AsyncSessionLocal() as db:
+        first = await db.get(Contract, contract_id)
+        client = Client(name=f"MdAwaitingOther-{uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.flush()
+        contract = Contract(
+            candidate_id=first.candidate_id,
+            client_id=client.id,
+            status=ContractStatus.active,
+            start_date=_old_start(),
+            rate_candidate=Decimal("1040.000"),
+            rate_client=Decimal("1360.000"),
+        )
+        db.add(contract)
+        await db.commit()
+        return client.id, contract.id
+
+
+async def test_reimport_at_another_client_keeps_the_settled_awaiting_md(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Klucz powtórki miesiąca to osoba + klient (audyt 22.10, F70): paczka
+    z wierszem tej osoby tylko u innego klienta nie cofa MD, które zeszły
+    z kolejnego zamówienia pierwszego klienta."""
+    case = await _case(app_client, app_auth_headers, monkeypatch)
+    finance = await _finance_headers(app_client)
+    first = await _import(app_client, finance, _split_sheet(case))
+    successor = await _next_order(app_client, app_auth_headers, case, md_total=20)
+    new_line = successor["lines"][0]["id"]
+    assert await _consumptions(new_line) == {_period(): Decimal("12.25")}
+
+    other_client, other_contract = await _same_person_at_another_client(
+        case["contract_id"]
+    )
+    _enable_multi(monkeypatch, case["client_id"], other_client)
+    other_number = _number()
+    other = await _create_group(
+        app_client,
+        app_auth_headers,
+        other_client,
+        other_contract,
+        number=other_number,
+        start=_old_start(),
+        end=None,
+        md_total=15,
+    )
+
+    second = await _import(
+        app_client, finance, _sheet([(case["name"], 5, other_number, 0)])
+    )
+
+    [row] = second["rows"]
+    assert row["status"] == "applied", row
+    assert row["matched_order_id"] == other["lines"][0]["id"]
+    assert await _consumptions(new_line) == {_period(): Decimal("12.25")}
+    assert not any(
+        description.startswith("Cofnięto")
+        for _, description in await _events(successor["id"])
+    )
+    earlier = await app_client.get(
+        f"/api/md-consumption/imports/{first['id']}", headers=finance
+    )
+    assert {r["status"] for r in earlier.json()["rows"]} == {"applied"}
+
+
+async def test_reimport_at_another_client_keeps_the_row_waiting(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Jak wyżej, ale przed kolejnym zamówieniem: wiersz dalej czeka."""
+    case = await _case(app_client, app_auth_headers, monkeypatch)
+    finance = await _finance_headers(app_client)
+    first = await _import(app_client, finance, _split_sheet(case))
+
+    other_client, other_contract = await _same_person_at_another_client(
+        case["contract_id"]
+    )
+    _enable_multi(monkeypatch, case["client_id"], other_client)
+    other_number = _number()
+    await _create_group(
+        app_client,
+        app_auth_headers,
+        other_client,
+        other_contract,
+        number=other_number,
+        start=_old_start(),
+        end=None,
+        md_total=15,
+    )
+    await _import(app_client, finance, _sheet([(case["name"], 5, other_number, 0)]))
+
+    earlier = await app_client.get(
+        f"/api/md-consumption/imports/{first['id']}", headers=finance
+    )
+    assert "awaiting_order" in {r["status"] for r in earlier.json()["rows"]}
+    old = await _card_line(
+        app_client, app_auth_headers, case, case["group"]["id"], case["line"]
+    )
+    assert old["awaiting_md"] == [{"period_month": _period(), "md": 12.25}]
+    successor = await _next_order(app_client, app_auth_headers, case, md_total=20)
+    assert await _consumptions(successor["lines"][0]["id"]) == {
+        _period(): Decimal("12.25")
+    }
+
+
+async def test_reimport_key_takes_the_client_of_the_row_not_just_the_name():
+    """Bez bazy: klucz powtórki z wierszy paczki to (osoba, klient)."""
+    from types import SimpleNamespace
+
+    from app.api.md_consumption import _reimport_persons
+
+    def line(order_id: int, client_id: int, name: str):
+        return SimpleNamespace(
+            order=SimpleNamespace(id=order_id, client_id=client_id),
+            group=SimpleNamespace(client_id=client_id),
+            consultant_name=name,
+        )
+
+    def row(name: str, **fields):
+        base = {
+            "consultant_name": name,
+            "awaiting_origin_order_id": None,
+            "matched_order_id": None,
+            "candidate_order_ids": None,
+        }
+        return SimpleNamespace(**{**base, **fields})
+
+    candidates = [line(1, 10, "Jan Kowalski"), line(2, 20, "Jan Kowalski")]
+    pools = (candidates, [line(3, 30, "Anna Nowak")])
+
+    assert _reimport_persons(
+        [row("Jan Kowalski", matched_order_id=2)],
+        candidates=candidates,
+        line_pools=pools,
+    ) == {("Jan Kowalski", 20)}
+    assert _reimport_persons(
+        [row("Jan Kowalski", awaiting_origin_order_id=1)],
+        candidates=candidates,
+        line_pools=pools,
+    ) == {("Jan Kowalski", 10)}
+    assert _reimport_persons(
+        [row("Anna Nowak", candidate_order_ids=[3])],
+        candidates=candidates,
+        line_pools=pools,
+    ) == {("Anna Nowak", 30)}
+    # Bez dopasowania: linie tej osoby w miesiącu.
+    assert _reimport_persons(
+        [row("Jan Kowalski")], candidates=candidates, line_pools=pools
+    ) == {("Jan Kowalski", 10), ("Jan Kowalski", 20)}
+    assert (
+        _reimport_persons([row("Ktoś Obcy")], candidates=candidates, line_pools=pools)
+        == set()
+    )
