@@ -591,14 +591,17 @@ function InvoicesPanel() {
   );
 }
 
-function KindBars({ year, month }: { year: number; month: number }) {
+export function KindBars({ year, month }: { year: number; month: number }) {
   const summary = useExpensesSummary(year, month);
   const rows = (summary.data?.by_kind ?? []).filter((row) => Number(row.amount) > 0);
   const max = Math.max(1, ...rows.map((row) => Number(row.amount)));
   return (
     <div className="space-y-2.5 rounded-xl border border-border bg-card p-4">
       <p className="text-sm font-semibold first-letter:uppercase">{MONTHS[month - 1]} według rodzaju</p>
-      {rows.length === 0 ? (
+      {/* Pusty stan tylko po udanym zapytaniu — błąd pokazuje rodzic nad kaflami. */}
+      {!summary.isSuccess ? (
+        summary.isPending ? <p className="text-xs text-muted-foreground">Wczytywanie…</p> : null
+      ) : rows.length === 0 ? (
         <p className="text-xs text-muted-foreground">W tym miesiącu nic nie zatwierdzono.</p>
       ) : (
         rows.map((row) => (
