@@ -16,6 +16,10 @@ i DL z rekruterem uzgadniali godzinę na Teams.
   Grapha, wyłączone prepy w Teams), to ``None`` — podpowiedź liczy się wtedy
   bez zajętości, a ekran mówi „kalendarz niedostępny”. Nic się nie blokuje.
 * Godziny wybiera czysta funkcja ``suggest`` (testy bez bazy i Grapha).
+* „Inna godzina…” (22.10.2026): rekruter wpisuje prep spoza podpowiedzi.
+  Okno dostaje zajętość prowadzącego razem z podpowiedziami, a zapis prepu
+  sprawdza ją jeszcze raz (``busy_overlap``) — kolizja to ostrzeżenie, nie
+  blokada (decyzja Artura).
 """
 
 from __future__ import annotations
@@ -154,6 +158,27 @@ def suggest(
         if len(picked) >= limit:
             break
     return picked
+
+
+def busy_overlap(
+    start: datetime, end: datetime, busy: Optional[Sequence[Interval]]
+) -> Optional[Interval]:
+    """Zajęty przedział prowadzącego, na który wpada prep — albo ``None``.
+
+    Bloki, które nachodzą na prep, łączy w jeden (komunikat mówi „ma wtedy
+    zajęte 11:30–13:00”, a nie trzy kawałki). ``busy=None`` = kalendarz
+    nieznany, więc kolizji nie ma czym potwierdzić.
+    """
+    hits = [(s, e) for s, e in busy or [] if start < e and s < end]
+    if not hits:
+        return None
+    return min(s for s, _ in hits), max(e for _, e in hits)
+
+
+def span_label(span: Interval, tz: str = DEFAULT_TZ) -> str:
+    """„11:30–13:00” w strefie firmy."""
+    zone = ZoneInfo(tz)
+    return f"{span[0].astimezone(zone):%H:%M}–{span[1].astimezone(zone):%H:%M}"
 
 
 def busy_from_schedule(

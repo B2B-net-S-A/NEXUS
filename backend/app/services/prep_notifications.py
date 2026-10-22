@@ -36,7 +36,7 @@ from app.models.job import Job
 from app.models.notification import Notification, NotificationType
 from app.models.prep_meeting import PrepMeeting, PrepReview
 from app.models.user import User
-from app.services import prep_invitation
+from app.services import prep_availability, prep_invitation
 from app.services.job_working_title import job_display_title_expr
 
 ChangeKind = Literal["scheduled", "moved", "cancelled", "attendees", "organizer"]
@@ -136,13 +136,15 @@ async def notify_prep_change(
     kind: ChangeKind,
     previous_start: Optional[datetime] = None,
     previous_organizer_id: Optional[int] = None,
+    clash: Optional[tuple[datetime, datetime]] = None,
 ) -> int:
     """Ktoś z pary założył, przełożył, odwołał albo przekazał prep (D6).
 
     Prowadzący (w jego kalendarzu stoi spotkanie) dostaje ``prep_changed_yours``
     — z dymkiem; reszta pary ``prep_changed`` — sam licznik. Autor nic.
     Przy zmianie prowadzącego poprzedni też dostaje „Twój” wpis — stracił
-    spotkanie ze swojego kalendarza.
+    spotkanie ze swojego kalendarza. ``clash`` — prep zapisany mimo „zajęte”
+    w kalendarzu prowadzącego (22.10.2026); prowadzący dowiaduje się o kolizji.
     """
     people = await _pair_people(db, prep)
     if previous_organizer_id:
@@ -205,6 +207,11 @@ async def notify_prep_change(
     owner = prep.organizer_user_id
     if owner in people:
         title, message = yours[kind]
+        if clash is not None:
+            message += (
+                " Nachodzi na inne spotkanie w Twoim kalendarzu "
+                f"({prep_availability.span_label(clash, settings.BUSINESS_TZ)})."
+            )
         sent += await _emit(
             db,
             user_ids=[owner],

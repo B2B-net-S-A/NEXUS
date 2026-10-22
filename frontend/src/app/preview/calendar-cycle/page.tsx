@@ -25,8 +25,10 @@ import { rateChangesQueryKey } from "@/lib/rate-change";
 import {
   prepOptionsQueryKey,
   prepQueryKey,
+  prepSuggestionsQueryKey,
   prepTranscriptQueryKey,
   type Prep,
+  type PrepSuggestions,
 } from "@/lib/api/prepMeetings";
 import type { CycleOverview, CycleStep, PairInfo } from "@/lib/interview-cycle";
 
@@ -44,6 +46,57 @@ function mondayOf(date: Date): Date {
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+/** Terminy od klienta do wyboru przez rekrutera (wniosek 71). */
+function choiceSlots(now: Date) {
+  return [
+    { start: at(now, 60 * 24 + 60), end: at(now, 60 * 24 + 120) },
+    { start: at(now, 60 * 48 + 240), end: at(now, 60 * 48 + 300) },
+    { start: at(now, 60 * 72), end: at(now, 60 * 72 + 60) },
+  ];
+}
+
+/**
+ * Podpowiedzi prepów z zajętością prowadzących dla „Umów rozmowę i prepy”
+ * (22.10.2026: „Inna godzina…” rysuje pasek dnia z tych bloków).
+ */
+function prepSuggestionsFor(interviewStart: string): PrepSuggestions {
+  const dayBefore = new Date(interviewStart);
+  dayBefore.setDate(dayBefore.getDate() - 1);
+  while (dayBefore.getDay() === 0 || dayBefore.getDay() === 6) dayBefore.setDate(dayBefore.getDate() - 1);
+  const t =(h: number, m = 0) => {
+    const d = new Date(dayBefore);
+    d.setHours(h, m, 0, 0);
+    return d.toISOString();
+  };
+  const span = (h: number, m: number, minutes: number) => ({
+    start: t(h, m),
+    end: new Date(new Date(t(h, m)).getTime() + minutes * 60_000).toISOString(),
+  });
+  return {
+    enabled: true,
+    preps: [
+      {
+        prep_no: 1,
+        organizer: { id: 8, name: "Kasia DL" },
+        calendar: "ok",
+        scheduled_start: null,
+        minutes: 45,
+        options: [span(8, 0, 45), span(9, 0, 45), span(10, 30, 45)],
+        busy: [span(10, 0, 30), span(11, 30, 90), span(15, 0, 60)],
+      },
+      {
+        prep_no: 2,
+        organizer: { id: 7, name: "Ola Rekruter" },
+        calendar: "ok",
+        scheduled_start: null,
+        minutes: 45,
+        options: [span(17, 0, 45), span(16, 0, 45), span(15, 0, 45)],
+        busy: [span(9, 0, 120), span(13, 0, 60)],
+      },
+    ],
+  };
 }
 
 const pairs: Record<string, PairInfo> = {
@@ -100,11 +153,7 @@ function st(
 }
 
 function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
-  const slots = [
-    { start: at(now, 60 * 24 + 60), end: at(now, 60 * 24 + 120) },
-    { start: at(now, 60 * 48 + 240), end: at(now, 60 * 48 + 300) },
-    { start: at(now, 60 * 72), end: at(now, 60 * 72 + 60) },
-  ];
+  const slots = choiceSlots(now);
   const items: CycleOverview["items"] = [
     {
       ...pairs.piotr,
@@ -394,6 +443,16 @@ function Harness() {
           ]),
         ),
       });
+    }
+    // Okno „Umów rozmowę i prepy” dla wniosku 71 — `updatedAt` w przyszłości,
+    // bo zapytanie podpowiedzi ma własne `staleTime` i po minucie pytałoby API.
+    for (const slot of choiceSlots(now)) {
+      const interviewStart = new Date(slot.start).toISOString();
+      qc.setQueryData(
+        prepSuggestionsQueryKey({ candidateId: pairs.tomasz.candidate_id, jobId: pairs.tomasz.job_id, interviewStart }),
+        prepSuggestionsFor(interviewStart),
+        { updatedAt: now.getTime() + 365 * 24 * 3_600_000 },
+      );
     }
     // Siatka tygodnia (zakładka „Tydzień”) — te same klucze co WeekCalendar.
     const monday = mondayOf(now);

@@ -4,7 +4,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), followup: [] as unknown[] }));
@@ -158,5 +158,35 @@ describe("PlanPrepDialog — Prep 2 z notatką z Prepu 1 (22.10.2026)", () => {
     mocks.followup = [{ key: "a", label: "Kafka", reason: "weak", note: null }];
     renderDialog(interview(), 1);
     expect(screen.queryByTestId("prep2-followup-note")).toBeNull();
+  });
+});
+
+describe("PlanPrepDialog — prowadzący ma wtedy zajęte (22.10.2026)", () => {
+  it("409 PREP_SLOT_BUSY pokazuje ostrzeżenie i „Zapisz mimo to” z accept_busy", async () => {
+    const start = new Date();
+    start.setDate(start.getDate() + 4);
+    start.setHours(10, 0, 0, 0);
+    mocks.create.mockReset();
+    mocks.create.mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "PREP_SLOT_BUSY",
+            message: "Delivery Lead ma wtedy zajęte (09:30–10:30). Wybierz inną godzinę albo zapisz mimo to, jeśli to uzgodnione.",
+          },
+        },
+      },
+    });
+    mocks.create.mockResolvedValueOnce({ transcription_setup: "enabled" });
+    renderDialog({ start: start.toISOString(), end: new Date(start.getTime() + 3_600_000).toISOString() });
+
+    fireEvent.click(screen.getByRole("button", { name: "Zaplanuj w Teams" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Delivery Lead ma wtedy zajęte (09:30–10:30)");
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({ accept_busy: false });
+
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz mimo to" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(2));
+    expect(mocks.create.mock.calls[1][0]).toMatchObject({ accept_busy: true });
   });
 });

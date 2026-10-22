@@ -102,6 +102,42 @@ def test_busy_from_schedule_marks_errors_as_unknown_calendar():
     assert out["outside@example.org"] is None
 
 
+# ── „Inna godzina…” (22.10.2026) ────────────────────────────────────────────
+
+
+def _at_waw(h: int, m: int = 0) -> datetime:
+    return datetime(2026, 10, 29, h, m, tzinfo=WAW)
+
+
+def test_busy_overlap_merges_the_blocks_the_prep_falls_on():
+    busy = [
+        (_at_waw(10), _at_waw(10, 30)),
+        (_at_waw(11, 30), _at_waw(12)),
+        (_at_waw(12), _at_waw(13)),
+    ]
+    span = pa.busy_overlap(_at_waw(11, 45), _at_waw(12, 30), busy)
+    assert span == (_at_waw(11, 30), _at_waw(13))
+    assert pa.span_label(span) == "11:30–13:00"
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        # Koniec prepu dokładnie na początku zajętego — to nie kolizja.
+        (_at_waw(10, 45), _at_waw(11, 30)),
+        # Start dokładnie na końcu zajętego.
+        (_at_waw(13), _at_waw(13, 45)),
+    ],
+)
+def test_busy_overlap_touching_edges_is_free(start, end):
+    busy = [(_at_waw(11, 30), _at_waw(13))]
+    assert pa.busy_overlap(start, end, busy) is None
+
+
+def test_busy_overlap_unknown_calendar_is_never_a_clash():
+    assert pa.busy_overlap(_at_waw(11), _at_waw(11, 45), None) is None
+
+
 # ── Okna klienta („piątek 9–12”) ────────────────────────────────────────────
 
 

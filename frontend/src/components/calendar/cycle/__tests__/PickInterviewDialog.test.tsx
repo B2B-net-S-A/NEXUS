@@ -224,4 +224,73 @@ describe("PickInterviewDialog", () => {
     expect(within(dialog).getByText(/termin minął/)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Wpisz do kalendarza" })).toBeDisabled();
   });
+
+  // ── „Inna godzina…” (22.10.2026) ──
+  const local = (h: number, m = 0) => new Date(2031, 5, 11, h, m).toISOString();
+  const withBusy: PrepSuggestions = {
+    ...suggestions,
+    preps: [{ ...suggestions.preps[0], busy: [{ start: local(11, 30), end: local(13) }] }, suggestions.preps[1]],
+  };
+
+  async function openManualPrep1() {
+    mocks.suggestions.mockResolvedValue(withBusy);
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    const prep1 = await within(dialog).findByRole("radiogroup", { name: "Godzina Prepu 1" });
+    fireEvent.click(within(prep1).getByRole("radio", { name: "Inna godzina…" }));
+    const panel = within(dialog).getByTestId("prep-1-manual");
+    fireEvent.change(within(panel).getByLabelText("Dzień"), { target: { value: "2031-06-11" } });
+    return { dialog, panel };
+  }
+
+  it("Inna godzina na zajętym: ostrzeżenie, zapis wolno — z accept_busy", async () => {
+    const { dialog, panel } = await openManualPrep1();
+    fireEvent.change(within(panel).getByLabelText("Godzina"), { target: { value: "11:45" } });
+    expect(within(panel).getByRole("status")).toHaveTextContent("Ewa DL ma wtedy zajęte (11:30–13:00)");
+    expect(within(panel).getByRole("button", { name: "13:00" })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wybierz termin i zaproś na prepy (2)" }));
+    await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(2));
+    expect(mocks.createPrep.mock.calls[0][0]).toMatchObject({
+      prep_no: 1,
+      start: local(11, 45),
+      end: local(12, 30),
+      accept_busy: true,
+    });
+    expect(mocks.createPrep.mock.calls[1][0]).toMatchObject({ prep_no: 2, accept_busy: false });
+  });
+
+  it("„Najbliżej wolne” przestawia godzinę na wolną — bez accept_busy", async () => {
+    const { dialog, panel } = await openManualPrep1();
+    fireEvent.change(within(panel).getByLabelText("Godzina"), { target: { value: "11:45" } });
+    fireEvent.click(within(panel).getByRole("button", { name: "13:00" }));
+    expect(within(panel).getByText(/Ewa DL ma wtedy wolne/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wybierz termin i zaproś na prepy (2)" }));
+    await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(2));
+    expect(mocks.createPrep.mock.calls[0][0]).toMatchObject({ start: local(13), accept_busy: false });
+  });
+
+  it("Inna godzina bez godziny albo po rozmowie blokuje zaproszenia, „Tylko termin” działa", async () => {
+    const { dialog, panel } = await openManualPrep1();
+    const invite = within(dialog).getByRole("button", { name: /Wybierz termin i zaproś na prepy/ });
+    expect(within(panel).getByText("Wpisz godzinę prepu.")).toBeInTheDocument();
+    expect(invite).toBeDisabled();
+    fireEvent.change(within(panel).getByLabelText("Dzień"), { target: { value: "2031-06-12" } });
+    fireEvent.change(within(panel).getByLabelText("Godzina"), { target: { value: "16:00" } });
+    expect(within(panel).getByRole("alert")).toHaveTextContent(/^Prep musi skończyć się przed rozmową/);
+    expect(invite).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Tylko termin" })).toBeEnabled();
+  });
+
+  it("Prep 2 przy niewidocznym kalendarzu: bez paska, z informacją", async () => {
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    const prep2 = await within(dialog).findByRole("radiogroup", { name: "Godzina Prepu 2" });
+    fireEvent.click(within(prep2).getByRole("radio", { name: "Inna godzina…" }));
+    const panel = within(dialog).getByTestId("prep-2-manual");
+    fireEvent.change(within(panel).getByLabelText("Dzień"), { target: { value: "2031-06-11" } });
+    fireEvent.change(within(panel).getByLabelText("Godzina"), { target: { value: "10:00" } });
+    expect(within(panel).queryByRole("img")).not.toBeInTheDocument();
+    expect(within(panel).getByText(/nie sprawdzimy, czy ma wtedy wolne/)).toBeInTheDocument();
+  });
 });
+
