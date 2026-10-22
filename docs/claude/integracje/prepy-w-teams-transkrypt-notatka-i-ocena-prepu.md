@@ -146,6 +146,20 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   Notatka `teams_prep` ma fakty, wnioski i listę do powtórzenia — bez
   cytatów i bez transkryptu. Pomiar: `scripts/eval_prep_review.py`
   (Luna vs Sonnet, nic nie zapisuje, `old_level` do porównania).
+- **Ocena w Kalendarzu (22.10.2026, decyzja Artura: wszystko zostaje
+  w przepływie Kalendarz → Rozmowy u klienta, bez osobnego menu „Prepy”).**
+  Karta osoby: pod krokiem Prep / Prep 2 z oceną `PrepStepReview` (plakietki
+  Nagranie · Transkrypt · Ocena, poziom z wynikiem, „Prowadzący: x z y
+  tematów”, „Kandydat: mocne · ogólne · słabe”, dwa zdania i wejścia „Pełna
+  ocena” / „Podsumowanie i follow-up” / „Transkrypt”); pod krokiem Prep 2,
+  zanim się odbył, `Prep2FollowupFromPrep1` — lista „Do powtórzenia na
+  Prepie 2” z oceny Prepu 1. Okno `PrepReviewDialog` ma zakładki Ocena (wynik
+  z wagami, `caps`, tematy, odpowiedzi z cytatem i „Przećwicz”, link „Jak
+  liczona jest ocena” → `/settings/prep-review`) · Podsumowanie i follow-up
+  (wnioski, notatka na Prep 2 albo porównanie Prep 1 → Prep 2) · Transkrypt
+  (`cues` z `GET …/transcript`: czas, mówca, rola; szukanie; klik w cytat
+  przenosi tu i podświetla wypowiedź; bez mówców — baner o ustawieniu Teams).
+  Ocena sprzed v2 = stary widok punktów bez zakładki podsumowania.
 - **Ustawienia → Ocena prepów (0505, 22.10.2026, makiety
   https://claude.ai/artifact/1h38jS5LMc1673CENvUejR, plansza 5).** Head of
   Recruitment i admin publikują wersję ustawień (`PUT /api/prep-review-config`,

@@ -805,7 +805,7 @@ export type CycleAction =
   /** 0487: odpowiedź do klienta po wyborze rekrutera (rozmowa już w kalendarzu). */
   | { type: "reply"; pair: PairInfo; request: SlotRequest }
   | { type: "plan_prep"; pair: PairInfo; second: boolean }
-  | { type: "prep_review"; pair: PairInfo; eventId: number }
+  | { type: "prep_review"; pair: PairInfo; eventId: number; tab?: "score" | "summary" | "transcript" }
   | { type: "add_slots"; pair: PairInfo | null }
   /** Prep zaplanowany po rozmowie u klienta: nowy termin TEGO spotkania. */
   | {
