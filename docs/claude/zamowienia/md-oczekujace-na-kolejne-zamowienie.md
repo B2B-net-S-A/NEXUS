@@ -30,7 +30,8 @@ Import dopasowywał drugi wiersz po nazwisku na to samo zamówienie, sumował
   z odsyłaczem „Otwórz import →”) i `awaiting_row_id`.
 - **Kto wyzwala**: `settle_awaiting_md_for_client` po utworzeniu zamówienia,
   przedłużeniu, dopisaniu osoby (`_add_line_to_group`), aktywacji szkicu
-  (`_materialize_group_after_activation` w `api/client_orders.py`) i na końcu importu dla wierszy
+  (`_materialize_group_after_activation` w `api/client_orders.py` i PATCH
+  `status=active` szkicu grupy w `update_order_group`) i na końcu importu dla wierszy
   z tej paczki. Nowa ścieżka zakładania zamówień MD musi ją wołać.
   Kolejność blokad: kontrakty i linie kolejnych zamówień, potem wiersze importu.
 - **Ponowny import miesiąca** (`plan_reimport` przed blokadami, `apply_reimport`

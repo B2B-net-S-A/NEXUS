@@ -322,3 +322,58 @@ async def test_smaller_awaiting_md_on_reimport_are_corrected_on_the_next_order(
     assert {row["status"] for row in bigger["rows"]} == {"applied"}, bigger["rows"]
     # 10 już leży na kolejnym zamówieniu, 4 schodzą dodatkowo.
     assert await _consumptions(new_line) == {_period(): Decimal("14")}
+
+
+async def test_activated_draft_order_takes_the_awaiting_md(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Kolejne zamówienie założone jako szkic (np. z PDF-a) — MD schodzą przy
+    aktywacji, nie dopiero przy następnym zamówieniu u klienta (audyt 22.10, F69)."""
+    case = await _case(app_client, app_auth_headers, monkeypatch)
+    finance = await _finance_headers(app_client)
+    detail = await _import(app_client, finance, _split_sheet(case))
+
+    url = f"/api/clients/{case['client_id']}/order-groups"
+    start = _later_start().isoformat()
+    created = await app_client.post(
+        url,
+        headers=app_auth_headers,
+        json={
+            "order_number": _number(),
+            "start_date": start,
+            "order_type": "md",
+            "md_budget_mode": "per_person",
+            "status": "draft",
+            "lines": [
+                {
+                    "contract_id": case["contract_id"],
+                    "rate_cost": 1040,
+                    "rate_revenue": 1360,
+                    "input_mode": "md",
+                    "input_value": 20,
+                    "start_date": start,
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    draft = created.json()
+    new_line = draft["lines"][0]["id"]
+    # Szkic nie jest kolejnym zamówieniem — nic jeszcze nie schodzi.
+    assert await _consumptions(new_line) == {}
+
+    activated = await app_client.patch(
+        f"{url}/{draft['id']}", headers=app_auth_headers, json={"status": "active"}
+    )
+    assert activated.status_code == 200, activated.text
+
+    assert await _consumptions(new_line) == {_period(): Decimal("12.25")}
+    after = await app_client.get(
+        f"/api/md-consumption/imports/{detail['id']}", headers=finance
+    )
+    assert after.status_code == 200, after.text
+    assert {row["status"] for row in after.json()["rows"]} == {"applied"}
+    old = await _card_line(
+        app_client, app_auth_headers, case, case["group"]["id"], case["line"]
+    )
+    assert old["awaiting_md"] == []
