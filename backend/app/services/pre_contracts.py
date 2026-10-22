@@ -310,6 +310,22 @@ async def watcher_ids(db: AsyncSession, request_id: int) -> list[int]:
     return sorted(set(rows.all()))
 
 
+async def head_of_recruitment_ids(db: AsyncSession) -> list[int]:
+    """Aktywne konta Head of Recruitment — decydują o karze z przedwstępnej."""
+    from sqlalchemy import or_  # noqa: PLC0415
+
+    from app.models.user import User, UserRole  # noqa: PLC0415
+
+    role = UserRole.head_of_recruitment
+    rows = await db.scalars(
+        select(User.id).where(
+            User.is_active.is_(True),
+            or_(User.role == role, User.roles.contains([role.value])),
+        )
+    )
+    return sorted(rows.all())
+
+
 def pair_link(req: PreContractRequest) -> str:
     return f"/jobs/{req.job_id}?candidate={req.candidate_id}"
 

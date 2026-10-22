@@ -545,3 +545,126 @@ async def test_signing_after_client_acceptance_starts_b2b_deadline_from_today() 
         assert req.b2b_deadline is not None
         assert req.b2b_deadline > business_today()
         await db.rollback()
+
+
+# ── Audyt 22.10.2026 ─────────────────────────────────────────────────────────
+
+
+async def _issued_and_sent(app_client: AsyncClient, pair: dict, headers) -> tuple:
+    created = await app_client.post(
+        "/api/pre-contracts",
+        headers=headers,
+        json={"candidate_id": pair["candidate_id"], "job_id": pair["job_id"]},
+    )
+    request_id = created.json()["id"]
+    doc_id = await _document(pair, valid_until=business_today() + timedelta(days=60))
+    linked = await app_client.post(
+        f"/api/pre-contracts/{request_id}/document",
+        headers=headers,
+        json={"document_id": doc_id},
+    )
+    assert linked.status_code == 200, linked.text
+    sent = await app_client.post(
+        f"/api/pre-contracts/{request_id}/sent", headers=headers, json={}
+    )
+    assert sent.status_code == 200, sent.text
+    return request_id, doc_id, sent.json()
+
+
+async def test_stale_screen_cannot_swap_document_or_move_sent_date(
+    app_client: AsyncClient,
+) -> None:
+    # F105: „Podepnij umowę” i „Oznacz jako wysłaną” ze starego ekranu nie
+    # podmieniają dokumentu ani daty wysyłki, gdy umowa poszła dalej.
+    pair = await _pair()
+    rec_h = await _headers(app_client, pair["recruiter"])
+    request_id, doc_id, sent = await _issued_and_sent(app_client, pair, rec_h)
+    other_doc = await _document(pair, valid_until=business_today() + timedelta(days=5))
+
+    swap = await app_client.post(
+        f"/api/pre-contracts/{request_id}/document",
+        headers=rec_h,
+        json={"document_id": other_doc},
+    )
+    assert swap.status_code == 409, swap.text
+
+    again = await app_client.post(
+        f"/api/pre-contracts/{request_id}/sent", headers=rec_h, json={}
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["sent_at"] == sent["sent_at"]
+
+    signed = await app_client.post(
+        f"/api/pre-contracts/{request_id}/candidate-signed",
+        headers=rec_h,
+        data={"signature_form": "trusted_profile"},
+        files={"file": ("umowa.pdf", PDF, "application/pdf")},
+    )
+    assert signed.status_code == 200, signed.text
+    after = await app_client.post(
+        f"/api/pre-contracts/{request_id}/sent", headers=rec_h, json={}
+    )
+    assert after.status_code == 409, after.text
+
+    body = (
+        await app_client.get(f"/api/pre-contracts/{request_id}", headers=rec_h)
+    ).json()
+    assert body["document_id"] == doc_id
+    assert body["valid_until"] == sent["valid_until"]
+    assert body["sent_at"] == sent["sent_at"]
+    assert [e["kind"] for e in body["events"]].count("sent") == 1
+    assert [e["kind"] for e in body["events"]].count("issued") == 1
+
+
+async def test_candidate_withdrawal_rings_head_of_recruitment_and_named_person(
+    app_client: AsyncClient,
+) -> None:
+    # F50: o karze decyduje Head of Recruitment — dostaje dzwonek, choć nie
+    # obserwuje prośby; wskazana osoba też (dopisana przed dzwonkiem).
+    pair = await _pair()
+    rec_h = await _headers(app_client, pair["recruiter"])
+    async with AsyncSessionLocal() as db:
+        hor, _ = await _user(db, UserRole.head_of_recruitment)
+        named, _ = await _user(db, UserRole.delivery_lead)
+        await db.commit()
+        hor_id, named_id = hor.id, named.id
+    request_id, _doc, _sent = await _issued_and_sent(app_client, pair, rec_h)
+    await app_client.post(
+        f"/api/pre-contracts/{request_id}/candidate-signed",
+        headers=rec_h,
+        data={"signature_form": "qualified"},
+        files={"file": ("k.pdf", PDF, "application/pdf")},
+    )
+    await app_client.post(
+        f"/api/pre-contracts/{request_id}/company-signed",
+        headers=rec_h,
+        files={"file": ("f.pdf", PDF, "application/pdf")},
+    )
+    resp = await app_client.post(
+        f"/api/pre-contracts/{request_id}/candidate-withdrew",
+        headers=rec_h,
+        json={
+            "kind": "resigned",
+            "event_on": business_today().isoformat(),
+            "note": "Zrezygnował po teście.",
+            "decision_user_id": named_id,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    for uid in (hor_id, named_id):
+        bells = await _bells(uid)
+        assert [b for b in bells if "decyzja o karze" in b.message], uid
+
+
+async def test_list_shows_the_latest_step_of_each_request(
+    app_client: AsyncClient,
+) -> None:
+    # F52: kolumna „Ostatni krok” na liście potrzebuje ostatniego zdarzenia.
+    pair = await _pair()
+    rec_h = await _headers(app_client, pair["recruiter"])
+    request_id, _doc, _sent = await _issued_and_sent(app_client, pair, rec_h)
+    listed = await app_client.get("/api/pre-contracts?tab=all", headers=rec_h)
+    assert listed.status_code == 200, listed.text
+    [row] = [i for i in listed.json()["items"] if i["id"] == request_id]
+    assert [e["kind"] for e in row["events"]] == ["sent"]
+    assert row["events"][0]["actor"]["id"] == pair["recruiter"][0]

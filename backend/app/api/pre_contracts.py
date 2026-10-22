@@ -74,6 +74,14 @@ MSG_LOCKED = (
     "o karze). Anuluj prośbę i wystaw nową umowę, jeśli trzeba."
 )
 MSG_ASSIGNEE = "Wybierz aktywne konto."
+MSG_ALREADY_SENT = (
+    "Umowa jest już wysłana kandydatowi — nie podmieniamy jej. Odśwież panel; "
+    "jeśli trzeba innej umowy, anuluj prośbę i wystaw nową."
+)
+MSG_CANDIDATE_SIGNED = (
+    "Kandydat już podpisał tę umowę — odśwież panel i wgraj umowę podpisaną "
+    "przez firmę."
+)
 
 _OVERSIGHT = (UserRole.admin, UserRole.head_of_recruitment)
 #: Role, które prowadzą rekrutacje. ``ensure_job_membership`` przepuszcza też
@@ -283,7 +291,10 @@ async def _serialize(
     reqs: list[PreContractRequest],
     *,
     with_events: bool = False,
+    last_event_only: bool = False,
 ) -> list[PreContractRequestOut]:
+    """``last_event_only`` — tylko ostatni krok każdej prośby (kolumna
+    „Ostatni krok” listy), bez całej historii."""
     if not reqs:
         return []
     ids = [r.id for r in reqs]
@@ -306,6 +317,20 @@ async def _serialize(
             )
         ).all():
             events.setdefault(ev.request_id, []).append(ev)
+    elif last_event_only:
+        for ev in (
+            await db.scalars(
+                select(PreContractEvent)
+                .where(PreContractEvent.request_id.in_(ids))
+                .distinct(PreContractEvent.request_id)
+                .order_by(
+                    PreContractEvent.request_id,
+                    PreContractEvent.at.desc(),
+                    PreContractEvent.id.desc(),
+                )
+            )
+        ).all():
+            events[ev.request_id] = [ev]
     people_ids: set[int] = set()
     for r in reqs:
         people_ids.update(
@@ -756,7 +781,8 @@ async def list_requests(
     stmt = stmt.order_by(PreContractRequest.requested_at.desc()).limit(300)
     rows = list((await db.scalars(stmt)).all())
     return PreContractListOut(
-        items=await _serialize(db, current_user, rows), counts=counts
+        items=await _serialize(db, current_user, rows, last_event_only=True),
+        counts=counts,
     )
 
 
@@ -773,9 +799,14 @@ async def link_document(
     db: AsyncSession = Depends(get_db),
 ):
     """Wskaż umowę wystawioną w Generatorze dokumentów (rodzina „preliminary”,
-    ta sama osoba i rekrutacja). Data ważności przychodzi z umowy."""
+    ta sama osoba i rekrutacja). Data ważności przychodzi z umowy.
+
+    Tylko przed wysłaniem: ekran otwarty wcześniej nie podmieni umowy, którą
+    kandydat już dostał albo podpisał (audyt 22.10.2026)."""
     req = await _load_for(db, current_user, request_id)
     _require_open(req)
+    if req.sent_at is not None or req.candidate_signed_at is not None:
+        raise HTTPException(status_code=409, detail=MSG_ALREADY_SENT)
     doc = await db.get(B2BContractDocument, body.document_id)
     if (
         doc is None
@@ -819,6 +850,13 @@ async def mark_sent(
     _require_open(req)
     if req.document_id is None:
         raise HTTPException(status_code=409, detail=MSG_NO_DOC)
+    if req.company_signed_at is not None:
+        raise HTTPException(status_code=409, detail=MSG_LOCKED)
+    if req.candidate_signed_at is not None:
+        raise HTTPException(status_code=409, detail=MSG_CANDIDATE_SIGNED)
+    if req.sent_at is not None:
+        # Powtórne kliknięcie (stary ekran) nie przesuwa daty wysyłki.
+        return await _one(db, current_user, req)
     req.sent_at = svc.now_utc()
     event = await svc.add_event(
         db,
@@ -1013,12 +1051,20 @@ async def _close(
     actor: User,
     message: str,
     payload: Optional[dict[str, Any]] = None,
+    extra_user_ids: tuple[int, ...] = (),
 ) -> None:
     req.closed_at = svc.now_utc()
     req.close_reason = reason
     req.closed_by = actor.id
     event = await svc.add_event(db, req, reason, actor_id=actor.id, payload=payload)
-    await svc.notify(db, req, event, message=message, actor_id=actor.id)
+    await svc.notify(
+        db,
+        req,
+        event,
+        message=message,
+        actor_id=actor.id,
+        extra_user_ids=extra_user_ids,
+    )
 
 
 @router.post(
@@ -1162,6 +1208,10 @@ async def candidate_withdrew(
         },
         "decision": None,
     }
+    # Wskazana osoba obserwuje prośbę od teraz i dostaje TEN dzwonek; Head of
+    # Recruitment — jedyny, kto decyduje o karze — też (obiecuje to okno).
+    if decision_user:
+        await svc.add_watchers(db, req.id, [decision_user])
     await _close(
         db,
         req,
@@ -1172,9 +1222,8 @@ async def candidate_withdrew(
             "Umowa przedwstępna obowiązywała — decyzja o karze."
         ),
         payload={"kind": body.kind, "event_on": body.event_on.isoformat()},
+        extra_user_ids=tuple(await svc.head_of_recruitment_ids(db)),
     )
-    if decision_user:
-        await svc.add_watchers(db, req.id, [decision_user])
     await db.commit()
     return await _one(db, current_user, req)
 
