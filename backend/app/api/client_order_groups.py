@@ -3934,6 +3934,10 @@ async def update_order_group(
     # przemianowuje historycznej kopii PDF w kontrakcie. Kopię aktualizuje
     # wyłącznie jawne podmienienie pliku przez endpoint PUT .../file.
     await materialize_scheduled_order_groups(db, client_id=client_id)
+    if requested_status == "active":
+        # Aktywacja szkicu MD = nowe kolejne zamówienie: MD z importu, które
+        # na nie czekały, schodzą od razu (audyt 22.10.2026, F69).
+        await settle_awaiting_md_for_client(db, client_id=client_id, user_id=user.id)
     await commit_order_write(db)
     await db.refresh(group)
     return await _group_to_read(
