@@ -4,41 +4,83 @@ import { useState } from "react";
 import { Users } from "lucide-react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
-import { ListDetailLayout } from "@/components/ds/ListDetailLayout";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { SegmentedRadio } from "@/components/ui/segmented-radio";
-import { useCareConsultants, type ConsultantRow } from "@/lib/api/care";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { apiErrorMessage } from "@/lib/api-error";
+import {
+  OWNER_REASON_LABELS,
+  useAssignOwners,
+  useCareConsultants,
+  useCareOwners,
+  type ConsultantRow,
+  type OwnerReason,
+} from "@/lib/api/care";
+import { useCreateAnnouncement } from "@/lib/api/care-announcements";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { formatDayMonthPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
-import { formatDayMonthPl } from "@/lib/date-pl";
 
+import { MAX_BULK_ASSIGN } from "./AssignmentPanel";
 import {
   CADENCE_BADGE,
   cadenceLabel,
   cadenceSubline,
   consultantsIn,
   contractForm,
-  filterCounts,
-  matchesFilter,
   monthTalks,
+  peopleText,
   rowSignals,
   signalText,
   sinceText,
-  type ConsultantFilter,
 } from "./cadence-format";
 import { CadenceDialog } from "./CadenceDialog";
-import { ConversationDialog } from "./ConversationDialog";
-import { ConsultantPanel } from "./week/ConsultantPanel";
+import { HEALTH_BADGE, healthLabel, healthWhy, needsAttention } from "./health-format";
 
-const FILTERS: [ConsultantFilter, string][] = [
-  ["all", "Wszystkie rytmy"],
-  ["biweekly", "Rytm: co 2 tygodnie"],
-  ["paused", "Wstrzymani"],
-  ["signals", "Z sygnałem"],
+export type ConsultantsFilter = "all" | "biweekly" | "paused" | "attention" | "redeploy";
+
+const FILTERS: { value: ConsultantsFilter; label: string }[] = [
+  { value: "all", label: "Wszystkie rytmy" },
+  { value: "biweekly", label: "Rytm: co 2 tygodnie" },
+  { value: "paused", label: "Wstrzymani" },
+  { value: "attention", label: "Z sygnałem" },
+  { value: "redeploy", label: "Do przepięcia" },
 ];
+
+const REASONS = Object.keys(OWNER_REASON_LABELS) as OwnerReason[];
+
+/**
+ * „Z sygnałem” = zdrowie „Uwaga” albo „Ryzyko”; czytający spoza kręgu D11
+ * (bez etykiety zdrowia) — dawne sygnały rytmu.
+ */
+export function matchesConsultantsFilter(row: ConsultantRow, filter: ConsultantsFilter): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "biweekly":
+      return row.cadence.level === "biweekly";
+    case "paused":
+      return row.cadence.level === "paused";
+    case "attention":
+      return row.health != null ? needsAttention(row.health) : row.signals.length > 0;
+    case "redeploy":
+      return Boolean(row.redeploy_active);
+  }
+}
+
+/** Treść startowa komunikatu — jak w edytorze (pola `{imię}` i `{opiekun}`). */
+const ANNOUNCEMENT_BODY =
+  "Cześć {imię},\n\n\n\nW razie pytań odpisz na tę wiadomość albo napisz do swojej opiekunki lub opiekuna: {opiekun}.";
 
 function NextTalk({ row }: { row: ConsultantRow }) {
   const next = row.next_contact;
@@ -77,23 +119,73 @@ function LastTalk({ row }: { row: ConsultantRow }) {
   return <span className="line-clamp-2 text-muted-foreground">{text}</span>;
 }
 
+/** „Zdrowie” — etykieta z „dlaczego”; bez etykiety (spoza D11) zostają sygnały rytmu. */
+function HealthCell({ row }: { row: ConsultantRow }) {
+  if (row.health) {
+    const why = healthWhy(row.health);
+    return (
+      <>
+        <Badge variant={HEALTH_BADGE[row.health.level]} size="md">
+          {healthLabel(row.health)}
+        </Badge>
+        {why ? <span className={cn(CALM_SUBLINE, "line-clamp-2")}>{why}</span> : null}
+        {row.redeploy_active ? <span className={CALM_SUBLINE}>do przepięcia</span> : null}
+      </>
+    );
+  }
+  const signals = rowSignals(row);
+  if (!signals.length) return <span className={CALM_EMPTY}>—</span>;
+  return <span className="text-xs text-muted-foreground">{signals.map(signalText).join(" · ")}</span>;
+}
+
+interface ConsultantsPanelProps {
+  scope: "mine" | "all";
+  onScopeChange: (scope: "mine" | "all") => void;
+  /** Otwiera kartę konsultanta (`?contract=`). */
+  onOpenContract: (contractId: number) => void;
+  /** Otwiera szkic komunikatu (`?tab=announcements&announcement=<id>`). */
+  onOpenAnnouncement: (id: number) => void;
+  /** Autor komunikatów (opiekun, DL, head back office, admin). */
+  canAnnounce: boolean;
+  /** Hurtowa zmiana opiekuna — head back office i admin. */
+  canAssign: boolean;
+  /** Filtr startowy (dawne `?tab=redeploy` → „Do przepięcia”). */
+  initialFilter?: ConsultantsFilter;
+  selectedId?: number | null;
+}
+
 /**
- * „Opieka · Konsultanci” (makieta M1): rytm przy każdej osobie — kolor mówi,
- * jak często rozmawiamy, podpis dlaczego i do kiedy. Sygnał to podpowiedź,
- * nie zmiana; rytm zmienia się w oknie „Rytm kontaktu”. Kliknięcie osoby
- * otwiera jej oś. Awaria zapytania ≠ pusta lista.
+ * „Opieka · Konsultanci”: rytm i zdrowie relacji przy każdej osobie, filtry
+ * stanu, zaznaczanie wierszy — „Napisz komunikat do zaznaczonych” (szkic
+ * z grupą „wybrane osoby”) i zmiana opiekuna hurtem dla head back office
+ * i admina. Klik w osobę otwiera kartę konsultanta. Awaria ≠ pusta lista.
  */
-export function ConsultantsPanel() {
+export function ConsultantsPanel({
+  scope,
+  onScopeChange,
+  onOpenContract,
+  onOpenAnnouncement,
+  canAnnounce,
+  canAssign,
+  initialFilter = "all",
+  selectedId = null,
+}: ConsultantsPanelProps) {
+  const { showToast } = useToast();
   const query = useCareConsultants();
-  const [scope, setScope] = useState<"mine" | "all">("mine");
-  const [filter, setFilter] = useState<ConsultantFilter>("all");
-  const [selected, setSelected] = useState<number | null>(null);
+  const [filter, setFilter] = useState<ConsultantsFilter>(initialFilter);
   const [cadenceFor, setCadenceFor] = useState<number | null>(null);
-  const [talk, setTalk] = useState<{ contractId: number; clientId: number } | null>(null);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [ownerId, setOwnerId] = useState("");
+  const [reason, setReason] = useState<OwnerReason | "">("");
+  const owners = useCareOwners(canAssign && picked.size > 0);
+  const assign = useAssignOwners();
+  const createAnnouncement = useCreateAnnouncement();
   const items = query.data?.items ?? [];
   const inScope = consultantsIn(items, scope);
-  const rows = inScope.filter((row) => matchesFilter(row, filter));
-  const counts = filterCounts(inScope);
+  const rows = inScope.filter((row) => matchesConsultantsFilter(row, filter));
+  const counts = Object.fromEntries(
+    FILTERS.map(({ value }) => [value, inScope.filter((row) => matchesConsultantsFilter(row, value)).length]),
+  ) as Record<ConsultantsFilter, number>;
   const state = resolveViewState({
     isLoading: query.isLoading,
     isError: query.isError,
@@ -101,46 +193,153 @@ export function ConsultantsPanel() {
     isSuccess: query.isSuccess,
     isEmpty: rows.length === 0,
   });
-  const selectedRow = items.find((row) => row.contract_id === selected) ?? null;
   const today = query.data?.today ?? "";
+  const selectable = canAnnounce || canAssign;
+  const pickedRows = rows.filter((row) => picked.has(row.contract_id));
+  const allPicked = rows.length > 0 && rows.every((row) => picked.has(row.contract_id));
 
-  const list = (
+  const choose = (next: ConsultantsFilter) => {
+    setFilter(next);
+    setPicked(new Set());
+  };
+  const toggle = (id: number) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const announce = () => {
+    const candidateIds = [...new Set(pickedRows.map((row) => row.candidate_id).filter((id): id is number => id != null))];
+    if (!candidateIds.length) {
+      showToast("Zaznaczone osoby nie mają profilu kandydata — komunikatu nie da się zaadresować.", "error");
+      return;
+    }
+    createAnnouncement.mutate(
+      {
+        kind: "informational",
+        subject: "Komunikat do wybranych osób",
+        body: ANNOUNCEMENT_BODY,
+        audience: { group: "selected", candidate_ids: candidateIds },
+      },
+      {
+        onSuccess: (created) => {
+          setPicked(new Set());
+          onOpenAnnouncement(created.id);
+        },
+        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się założyć szkicu komunikatu."), "error"),
+      },
+    );
+  };
+
+  const reassign = () => {
+    if (!ownerId || !reason || !pickedRows.length) return;
+    assign.mutate(
+      { contract_ids: pickedRows.map((row) => row.contract_id), owner_user_id: Number(ownerId), reason },
+      {
+        onSuccess: (result) => {
+          showToast(
+            result.changed
+              ? `Opiekun ${result.owner.name}: ${peopleText(result.changed)}`
+              : "Ci konsultanci mieli już tego opiekuna",
+            "success",
+          );
+          setPicked(new Set());
+        },
+        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zmienić opiekuna."), "error"),
+      },
+    );
+  };
+
+  return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1">
-          <SegmentedRadio
-            label="Zakres listy"
-            size="sm"
-            value={scope}
-            onChange={setScope}
-            options={(
-              [
-                ["mine", "Moi", consultantsIn(items, "mine").length],
-                ["all", "Wszyscy w moim zakresie", items.length],
-              ] as const
-            ).map(([value, label, count]) => ({
-              value,
-              label: query.isSuccess ? `${label} (${count})` : label,
-            }))}
-          />
-          <SegmentedRadio
-            label="Filtr rytmu"
-            size="sm"
-            value={filter}
-            onChange={setFilter}
-            options={FILTERS.map(([value, label]) => ({
-              value,
-              label:
-                value !== "all" && query.isSuccess ? `${label} (${counts[value]})` : label,
-            }))}
-          />
+        <div role="group" aria-label="Filtr konsultantów" className="flex flex-wrap gap-1">
+          {FILTERS.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              aria-pressed={filter === item.value}
+              onClick={() => choose(item.value)}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs transition-colors",
+                filter === item.value
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {item.label}
+              {query.isSuccess && item.value !== "all" ? (
+                <>
+                  {" "}
+                  <span className="tabular-nums">{counts[item.value]}</span>
+                </>
+              ) : null}
+            </button>
+          ))}
         </div>
         {query.isSuccess ? (
           <span className="text-xs text-muted-foreground" title="Kamienie i rozmowy według rytmu osób na liście">
-            Rozmów w tym miesiącu według rytmów: <span className="font-semibold tabular-nums">{monthTalks(rows)}</span>
+            Rozmów w tym miesiącu według rytmów:{" "}
+            <span className="font-semibold tabular-nums">{monthTalks(rows)}</span>
           </span>
         ) : null}
       </div>
+
+      {picked.size ? (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+          role="group"
+          aria-label="Akcje dla zaznaczonych"
+        >
+          <span className="font-medium">Zaznaczone: {picked.size}</span>
+          {canAnnounce ? (
+            <Button size="sm" variant="outline" loading={createAnnouncement.isPending} onClick={announce}>
+              Napisz komunikat do zaznaczonych
+            </Button>
+          ) : null}
+          {canAssign ? (
+            <>
+              <Select value={ownerId} onValueChange={setOwnerId}>
+                <SelectTrigger aria-label="Nowy opiekun zaznaczonych" className="h-8 w-52">
+                  <SelectValue placeholder="Zmień opiekuna na…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(owners.data ?? []).map((owner) => (
+                    <SelectItem key={owner.id} value={String(owner.id)}>
+                      {owner.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={reason} onValueChange={(value) => setReason(value as OwnerReason)}>
+                <SelectTrigger aria-label="Powód zmiany opiekuna" className="h-8 w-56">
+                  <SelectValue placeholder="Powód…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {REASONS.map((key) => (
+                    <SelectItem key={key} value={key}>
+                      {OWNER_REASON_LABELS[key]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                disabled={!ownerId || !reason || pickedRows.length > MAX_BULK_ASSIGN}
+                loading={assign.isPending}
+                onClick={reassign}
+              >
+                Przypisz
+              </Button>
+            </>
+          ) : null}
+          <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
+            Odznacz
+          </Button>
+        </div>
+      ) : null}
 
       {state === "loading" ? (
         <p className="text-sm text-muted-foreground">Wczytywanie konsultantów…</p>
@@ -162,14 +361,13 @@ export function ConsultantsPanel() {
           }
           description={
             scope === "mine" && filter === "all"
-              ? "Opiekuna ustawia się na kontrakcie (zakładka „Opieka”), domyślnie dla klienta albo w „Przydziale”."
+              ? "Opiekuna ustawia się w karcie konsultanta („Więcej” → „Zmień opiekuna”), domyślnie dla klienta albo w „Zespole opiekunów”."
               : undefined
           }
           action={
-            // Jak w „Ten tydzień” (#2368): admin bez podopiecznych widział tu
-            // pustkę, a „Wszyscy w moim zakresie” miało 501 osób (19.10.2026).
+            // Admin bez podopiecznych widział tu pustkę, a „Mój zakres” miał 501 osób (19.10.2026).
             scope === "mine" && filter === "all" ? (
-              <Button size="sm" variant="outline" onClick={() => setScope("all")}>
+              <Button size="sm" variant="outline" onClick={() => onScopeChange("all")}>
                 Pokaż wszystkich w moim zakresie
               </Button>
             ) : undefined
@@ -180,35 +378,53 @@ export function ConsultantsPanel() {
           <table className="w-full text-sm" aria-label="Konsultanci i rytm kontaktu">
             <thead>
               <tr className={CALM_ROW}>
+                {selectable ? (
+                  <th className="w-8 px-3 py-2">
+                    <Checkbox
+                      aria-label="Zaznacz wszystkich na liście"
+                      checked={allPicked}
+                      onCheckedChange={(value) =>
+                        setPicked(value === true ? new Set(rows.map((row) => row.contract_id)) : new Set())
+                      }
+                    />
+                  </th>
+                ) : null}
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Konsultant</th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Klient · menedżer u klienta</th>
+                <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Zdrowie</th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Rytm</th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Następna rozmowa</th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Ostatnio</th>
-                <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Sygnał</th>
-                {scope === "all" ? (
-                  <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Opiekun</th>
-                ) : null}
+                {scope === "all" ? <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Opiekun</th> : null}
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
                 const subline = cadenceSubline(row.cadence);
-                const signals = rowSignals(row);
                 const about = [row.job_title, contractForm(row.contract_type), sinceText(row.start_date, today)]
                   .filter(Boolean)
                   .join(" · ");
+                const name = row.candidate_name ?? "konsultant";
                 return (
                   <tr
                     key={row.contract_id}
-                    className={cn(CALM_ROW, selected === row.contract_id && "bg-muted/60")}
+                    className={cn(CALM_ROW, selectedId === row.contract_id && "bg-muted/60")}
                   >
+                    {selectable ? (
+                      <td className="px-3 py-1.5 align-top">
+                        <Checkbox
+                          aria-label={`Zaznacz: ${name}`}
+                          checked={picked.has(row.contract_id)}
+                          onCheckedChange={() => toggle(row.contract_id)}
+                        />
+                      </td>
+                    ) : null}
                     <td className="px-3 py-1.5 align-top">
                       <button
                         type="button"
                         className="text-left font-medium hover:underline"
-                        aria-label={`Oś konsultanta: ${row.candidate_name ?? "konsultant"}`}
-                        onClick={() => setSelected(row.contract_id)}
+                        aria-label={`Karta konsultanta: ${name}`}
+                        onClick={() => onOpenContract(row.contract_id)}
                       >
                         {row.candidate_name ?? "Konsultant"}
                       </button>
@@ -217,6 +433,9 @@ export function ConsultantsPanel() {
                     <td className="px-3 py-1.5 align-top">
                       {row.client_name}
                       <span className={CALM_SUBLINE}>{row.manager?.name ?? "menedżer: nie wskazano"}</span>
+                    </td>
+                    <td className="max-w-56 px-3 py-1.5 align-top">
+                      <HealthCell row={row} />
                     </td>
                     <td className="px-3 py-1.5 align-top">
                       <span className="flex items-center gap-1.5">
@@ -228,7 +447,7 @@ export function ConsultantsPanel() {
                             size="sm"
                             variant="quiet"
                             className="h-6 px-1.5 text-xs"
-                            aria-label={`Zmień rytm: ${row.candidate_name ?? "konsultant"}`}
+                            aria-label={`Zmień rytm: ${name}`}
                             onClick={() => setCadenceFor(row.contract_id)}
                           >
                             Zmień
@@ -236,28 +455,15 @@ export function ConsultantsPanel() {
                         ) : null}
                       </span>
                       {subline ? <span className={cn(CALM_SUBLINE, "max-w-44")}>{subline}</span> : null}
+                      {row.suggested_level ? (
+                        <span className={CALM_SUBLINE}>podnieść rytm?</span>
+                      ) : null}
                     </td>
                     <td className="px-3 py-1.5 align-top">
                       <NextTalk row={row} />
                     </td>
                     <td className="max-w-52 px-3 py-1.5 align-top">
                       <LastTalk row={row} />
-                    </td>
-                    <td className="max-w-48 px-3 py-1.5 align-top">
-                      {signals.length ? (
-                        <span className="flex flex-wrap gap-1">
-                          {signals.map((signal) => (
-                            <Badge key={signal.kind} variant="warning" size="md">
-                              {signalText(signal)}
-                            </Badge>
-                          ))}
-                          {row.suggested_level ? (
-                            <span className="text-xs text-muted-foreground">podnieść rytm?</span>
-                          ) : null}
-                        </span>
-                      ) : (
-                        <span className={CALM_EMPTY}>—</span>
-                      )}
                     </td>
                     {scope === "all" ? (
                       <td className="px-3 py-1.5 align-top">
@@ -273,31 +479,9 @@ export function ConsultantsPanel() {
       )}
       {query.isSuccess && !query.data.feedback_visible ? (
         <p className="text-xs text-muted-foreground">
-          Opinie menedżerów w sygnałach widzą opiekun, Delivery Lead klienta, Head of Recruitment i administrator.
+          Zdrowie relacji i opinie menedżerów widzą opiekun, Delivery Lead klienta, Head of Recruitment i administrator.
         </p>
       ) : null}
-    </div>
-  );
-
-  return (
-    <>
-      <ListDetailLayout
-        list={list}
-        panel={
-          selected != null ? (
-            <ConsultantPanel
-              key={selected}
-              contractId={selected}
-              onClose={() => setSelected(null)}
-              onTalk={(clientId) =>
-                setTalk({ contractId: selected, clientId: selectedRow?.client_id ?? clientId })
-              }
-            />
-          ) : null
-        }
-        onClose={() => setSelected(null)}
-        panelLabel="Oś konsultanta"
-      />
       {cadenceFor != null ? (
         <CadenceDialog
           contractId={cadenceFor}
@@ -307,16 +491,6 @@ export function ConsultantsPanel() {
           }}
         />
       ) : null}
-      {talk ? (
-        <ConversationDialog
-          contractId={talk.contractId}
-          clientId={talk.clientId}
-          open
-          onOpenChange={(open) => {
-            if (!open) setTalk(null);
-          }}
-        />
-      ) : null}
-    </>
+    </div>
   );
 }

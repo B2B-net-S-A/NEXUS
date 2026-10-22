@@ -1,7 +1,8 @@
 /**
- * „Opieka · Konsultanci” (M1): awaria to nie pusta lista, rytm z podpisem,
- * filtry z licznikami w zakresie, sygnał z podpowiedzią i „Zmień” tylko
- * przy prawie zmiany rytmu.
+ * „Opieka · Konsultanci” (M1, przebudowa 22.10.2026): awaria to nie pusta
+ * lista, rytm z podpisem, kolumna „Zdrowie” zamiast „Sygnał”, filtry stanu
+ * z licznikami w zakresie, „Zmień” tylko przy prawie zmiany rytmu,
+ * zaznaczanie — komunikat do zaznaczonych i opiekun hurtem.
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -9,10 +10,15 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 
 vi.mock("@/lib/api", () => ({
-  api: { get: (...a: unknown[]) => mocks.get(...a), post: vi.fn(), put: vi.fn(), patch: vi.fn() },
+  api: {
+    get: (...a: unknown[]) => mocks.get(...a),
+    post: (...a: unknown[]) => mocks.post(...a),
+    put: vi.fn(),
+    patch: vi.fn(),
+  },
 }));
 
 vi.mock("@/components/Toast", () => ({
@@ -88,17 +94,40 @@ function payload(items: ConsultantRow[]): CareConsultants {
   };
 }
 
-function renderPanel() {
+interface PanelOptions {
+  scope?: "mine" | "all";
+  canAnnounce?: boolean;
+  canAssign?: boolean;
+  onOpenAnnouncement?: (id: number) => void;
+  onOpenContract?: (id: number) => void;
+}
+
+function Harness({ scope: initial = "mine", ...options }: PanelOptions) {
+  const [scope, setScope] = React.useState<"mine" | "all">(initial);
+  return (
+    <ConsultantsPanel
+      scope={scope}
+      onScopeChange={setScope}
+      onOpenContract={options.onOpenContract ?? vi.fn()}
+      onOpenAnnouncement={options.onOpenAnnouncement ?? vi.fn()}
+      canAnnounce={options.canAnnounce ?? false}
+      canAssign={options.canAssign ?? false}
+    />
+  );
+}
+
+function renderPanel(options: PanelOptions = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <ConsultantsPanel />
+      <Harness {...options} />
     </QueryClientProvider>,
   );
 }
 
 beforeEach(() => {
   mocks.get.mockReset();
+  mocks.post.mockReset();
 });
 
 describe("ConsultantsPanel", () => {
@@ -109,25 +138,18 @@ describe("ConsultantsPanel", () => {
     expect(screen.queryByText("Nie opiekujesz się żadnym konsultantem")).not.toBeInTheDocument();
   });
 
-  it("pusty zakres „Moi” ma swój stan dopiero po wczytaniu", async () => {
-    mocks.get.mockResolvedValue({ data: payload([row({ is_mine: false })]) });
-    renderPanel();
-    expect(await screen.findByText("Nie opiekujesz się żadnym konsultantem")).toBeInTheDocument();
-  });
-
-  it("pusty „Moi” prowadzi do wszystkich w zakresie, jak w „Ten tydzień”", async () => {
+  it("pusty „Moi” prowadzi do wszystkich w zakresie (zakres z nagłówka /care)", async () => {
     // Testy produkcji 19.10.2026: admin bez podopiecznych widział pustkę,
     // a „Wszyscy w moim zakresie” miało 501 osób.
     mocks.get.mockResolvedValue({ data: payload([row({ is_mine: false })]) });
     renderPanel();
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Pokaż wszystkich w moim zakresie" }),
-    );
+    expect(await screen.findByText("Nie opiekujesz się żadnym konsultantem")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Pokaż wszystkich w moim zakresie" }));
     expect(screen.queryByText("Nie opiekujesz się żadnym konsultantem")).not.toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Wszyscy w moim zakresie/ })).toBeChecked();
+    expect(screen.getByRole("row", { name: /Ewa Przykładowa/ })).toBeInTheDocument();
   });
 
-  it("rytm z podpisem, zaległość przy rozmowie, sygnał z podpowiedzią i filtry z licznikami", async () => {
+  it("rytm z podpisem, zaległość przy rozmowie, sygnał bez etykiety zdrowia i filtry z licznikami", async () => {
     const user = userEvent.setup();
     mocks.get.mockResolvedValue({
       data: payload([
@@ -167,8 +189,10 @@ describe("ConsultantsPanel", () => {
         }),
       ]),
     });
-    renderPanel();
+    const { unmount } = renderPanel();
     const table = await screen.findByRole("table", { name: "Konsultanci i rytm kontaktu" });
+    expect(within(table).getByRole("columnheader", { name: "Zdrowie" })).toBeInTheDocument();
+    expect(within(table).queryByRole("columnheader", { name: "Sygnał" })).toBeNull();
     const ewa = within(table).getByRole("row", { name: /Ewa Przykładowa/ });
     expect(within(ewa).getByText("co 2 tygodnie")).toBeInTheDocument();
     expect(within(ewa).getByText("pierwsze 90 dni")).toBeInTheDocument();
@@ -183,15 +207,79 @@ describe("ConsultantsPanel", () => {
     expect(screen.queryByText("Olga Zielona")).not.toBeInTheDocument();
     expect(screen.getByText(/Rozmów w tym miesiącu według rytmów/)).toHaveTextContent("3");
 
-    expect(screen.getByRole("radio", { name: "Moi (2)" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("radio", { name: "Rytm: co 2 tygodnie (1)" })).toBeInTheDocument();
-    await user.click(screen.getByRole("radio", { name: "Z sygnałem (2)" }));
+    expect(screen.getByRole("button", { name: "Rytm: co 2 tygodnie 1" })).toBeInTheDocument();
+    // Bez etykiety zdrowia (spoza D11) „Z sygnałem” liczy dawne sygnały rytmu.
+    await user.click(screen.getByRole("button", { name: "Z sygnałem 2" }));
     expect(screen.getAllByRole("row")).toHaveLength(3);
-    await user.click(screen.getByRole("radio", { name: "Wszyscy w moim zakresie (3)" }));
-    await user.click(screen.getByRole("radio", { name: "Wstrzymani (1)" }));
+    unmount();
+
+    renderPanel({ scope: "all" });
+    await user.click(await screen.findByRole("button", { name: "Wstrzymani 1" }));
     const olga = await screen.findByRole("row", { name: /Olga Zielona/ });
     expect(within(olga).getByText("do 15.11 · długa nieobecność")).toBeInTheDocument();
     expect(within(olga).getByText("po 15.11")).toBeInTheDocument();
     expect(within(olga).getByText("Natalia Opiekuńcza")).toBeInTheDocument();
+  });
+
+  it("„Zdrowie” z etykietą i „dlaczego”; „Z sygnałem” = Uwaga i Ryzyko; „Do przepięcia” z listy", async () => {
+    const user = userEvent.setup();
+    mocks.get.mockResolvedValue({
+      data: payload([
+        row({ health: { level: "risk", label: "Ryzyko", reasons: ["chce zmiany projektu (01.10)"] }, redeploy_active: true }),
+        row({
+          contract_id: 2,
+          candidate_name: "Adam Wzorcowy",
+          signals: [{ kind: "order_end", days: 70, on: "2026-12-30" }],
+          health: { level: "ok", label: "Dobrze", reasons: [] },
+        }),
+      ]),
+    });
+    renderPanel();
+    const ewa = await screen.findByRole("row", { name: /Ewa Przykładowa/ });
+    expect(within(ewa).getByText("Ryzyko")).toBeInTheDocument();
+    expect(within(ewa).getByText("chce zmiany projektu (01.10)")).toBeInTheDocument();
+    const adam = screen.getByRole("row", { name: /Adam Wzorcowy/ });
+    expect(within(adam).getByText("Dobrze")).toBeInTheDocument();
+    // Sygnał rytmu przy etykiecie zdrowia już się nie powtarza.
+    expect(within(adam).queryByText(/koniec zamówienia/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Z sygnałem 1" }));
+    expect(screen.queryByRole("row", { name: /Adam Wzorcowy/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Do przepięcia 1" }));
+    expect(screen.getByRole("row", { name: /Ewa Przykładowa/ })).toBeInTheDocument();
+  });
+
+  it("klik w osobę otwiera kartę konsultanta", async () => {
+    const onOpenContract = vi.fn();
+    mocks.get.mockResolvedValue({ data: payload([row({})]) });
+    renderPanel({ onOpenContract });
+    await userEvent.click(await screen.findByRole("button", { name: "Karta konsultanta: Ewa Przykładowa" }));
+    expect(onOpenContract).toHaveBeenCalledWith(1);
+  });
+
+  it("zaznaczeni → szkic komunikatu z grupą „wybrane osoby”; opiekun hurtem tylko z prawem przydziału", async () => {
+    const user = userEvent.setup();
+    const onOpenAnnouncement = vi.fn();
+    mocks.get.mockResolvedValue({
+      data: payload([row({}), row({ contract_id: 2, candidate_id: 22, candidate_name: "Adam Wzorcowy" })]),
+    });
+    mocks.post.mockResolvedValue({ data: { id: 77 } });
+    renderPanel({ canAnnounce: true, onOpenAnnouncement });
+    await user.click(await screen.findByRole("checkbox", { name: "Zaznacz: Ewa Przykładowa" }));
+    await user.click(screen.getByRole("checkbox", { name: "Zaznacz: Adam Wzorcowy" }));
+    expect(screen.getByText("Zaznaczone: 2")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Nowy opiekun zaznaczonych" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Napisz komunikat do zaznaczonych" }));
+    expect(mocks.post).toHaveBeenCalledWith(
+      "/api/care/announcements",
+      expect.objectContaining({ audience: { group: "selected", candidate_ids: [1, 22] } }),
+    );
+    expect(onOpenAnnouncement).toHaveBeenCalledWith(77);
+  });
+
+  it("bez prawa do komunikatów i przydziału nie ma zaznaczania", async () => {
+    mocks.get.mockResolvedValue({ data: payload([row({})]) });
+    renderPanel();
+    await screen.findByRole("row", { name: /Ewa Przykładowa/ });
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 });

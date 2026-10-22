@@ -480,6 +480,7 @@ async def test_chips_week_and_unassigned_filter_on_server_with_counts(
         "areas": {"onboarding": 2, "marketing": 1},
         "week": 2,
         "unassigned": 2,
+        "mine_care": 0,
     }
 
     # Zrobiona sprawa nie wisi w „Na ten tydzień”.

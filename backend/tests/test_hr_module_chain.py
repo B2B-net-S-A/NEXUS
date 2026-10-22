@@ -40,7 +40,11 @@ CHAIN = (
     ("0465_equipment_extras", "0464_equipment", "equipment_extras_schema"),
     ("0466_care_announcements", "0465_equipment_extras", "care_announcements_schema"),
     # Rozliczenia (etap 4) idą za migracją statystyk z maina (0467).
-    ("0468_hr_settlements", "0467_kpi_milestones_history_only_dr", "hr_settlement_schema"),
+    (
+        "0468_hr_settlements",
+        "0467_kpi_milestones_history_only_dr",
+        "hr_settlement_schema",
+    ),
     ("0469_hr_documents", "0468_hr_settlements", "hr_documents_schema"),
     ("0470_hr_agreements", "0469_hr_documents", "hr_agreements_schema"),
     (
@@ -74,6 +78,12 @@ CHAIN = (
         "0491_approval_contract_basis",
         "0490_board_role",
         "hr_approval_basis_schema",
+    ),
+    # Tablica opieki i popyt dla DL (22.10.2026).
+    (
+        "0509_care_board",
+        "0508_candidate_data_access_alert",
+        "care_board_schema",
     ),
 )
 

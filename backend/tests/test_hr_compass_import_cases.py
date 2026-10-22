@@ -207,6 +207,7 @@ async def test_cases_dry_run_apply_and_second_apply_changes_nothing() -> None:
                 "cases_created": 6,
                 "comments_written": 1,
                 "messages_written": 1,
+                "contracts_linked": 0,
             }
 
             cases = {
@@ -291,6 +292,7 @@ async def test_cases_dry_run_apply_and_second_apply_changes_nothing() -> None:
                 "cases_created": 0,
                 "comments_written": 0,
                 "messages_written": 0,
+                "contracts_linked": 0,
             }
 
             # Sprawa przesunięta w NEXUSIE: kolejny import jej nie cofa.

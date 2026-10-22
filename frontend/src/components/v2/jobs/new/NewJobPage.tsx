@@ -39,6 +39,13 @@ import { Check } from "lucide-react";
 
 import api, { championApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { fetchHiringManagerOptions } from "@/lib/hiring-manager";
+import {
+  applyJobPrefill,
+  hasJobPrefill,
+  parseJobPrefill,
+  skillNamesFor,
+} from "@/lib/job-new-params";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ds/PageHeader";
@@ -339,7 +346,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showInfo } = useToast();
 
   // Podgląd z `step: "request"`: treść czeka w panelu „Wklej treść”, nieodczytana.
   const previewUnread = preview?.step === "request";
@@ -587,6 +594,52 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       cancelled = true;
     };
   }, [clientParam, fromParam, showError]);
+
+  // „Nowa rekrutacja z działu” i potwierdzony popyt (22.10.2026):
+  // `?hm=<kontakt>&skills=<id,id>&title=` wypełniają tylko PUSTE pola
+  // (`lib/job-new-params.ts`); `?from=` ma pierwszeństwo. Nazwy umiejętności
+  // daje mapa technologii klienta (to z niej pochodzą id), menedżera — lista
+  // hiring managerów klienta. Awaria którejś = pole zostaje puste i zdanie.
+  const hmParam = searchParams?.get("hm") ?? null;
+  const skillsParam = searchParams?.get("skills") ?? null;
+  const titleParam = searchParams?.get("title") ?? null;
+  useEffect(() => {
+    const clientId = clientParam ? Number(clientParam) : NaN;
+    if (fromParam || !Number.isInteger(clientId) || clientId <= 0) return;
+    const prefill = parseJobPrefill({ hm: hmParam, skills: skillsParam, title: titleParam });
+    if (!hasJobPrefill(prefill)) return;
+    let cancelled = false;
+    void (async () => {
+      const [managers, map] = await Promise.all([
+        prefill.hmId !== null
+          ? fetchHiringManagerOptions(clientId).catch(() => null)
+          : Promise.resolve([]),
+        prefill.skillIds.length
+          ? api
+              .get<{ technologies?: { skill_id: number; name: string }[] }>(
+                `/api/care/clients/${clientId}/tech-map`,
+              )
+              .then((r) => r.data)
+              .catch(() => null)
+          : Promise.resolve({ technologies: [] }),
+      ]);
+      if (cancelled) return;
+      const skills = skillNamesFor(prefill.skillIds, map?.technologies ?? []);
+      setForm((f) =>
+        applyJobPrefill(f, {
+          title: prefill.title,
+          hiringManager: managers?.find((m) => m.id === prefill.hmId) ?? null,
+          skills,
+        }),
+      );
+      if (managers === null || skills.length < prefill.skillIds.length) {
+        showInfo("Części danych z działu nie udało się odczytać — uzupełnij je w formularzu.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [clientParam, fromParam, hmParam, skillsParam, titleParam, showInfo]);
 
   // Formularz stoi na stronie od wejścia, więc listy do sekcji 6 (rekruterzy,
   // automat przydziału, portale) wczytują się razem z nią. To same odczyty.

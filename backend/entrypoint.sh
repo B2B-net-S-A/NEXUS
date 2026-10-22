@@ -193,6 +193,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_agreement_update'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'care_contact_due'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'care_client_structure'",
+    # 0509: popyt z rozmowy opiekuna do Delivery Leada (`care_board_schema`).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'care_demand_signal'",
     # 0483: zgody na wydatki i premie poza umową (`hr_approvals_schema`).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_approval_decided'",

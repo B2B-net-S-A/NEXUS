@@ -35,9 +35,13 @@ import {
   type CaseDetail,
   type CaseStatus,
 } from "@/lib/api/admin-cases";
+import { useHrConfig } from "@/lib/api/hr";
 import { resolveViewState } from "@/lib/view-state";
 import { formatIsoDatePl, formatMomentPl } from "@/lib/date-pl";
+import { canSeeCareBoard } from "@/components/work-board/care-access";
+import { useAuthStore } from "@/store/auth";
 
+import { CaseConsultantSection, CaseWhoBar } from "./CaseConsultant";
 import { CaseFormDialog } from "./CaseFormDialog";
 import {
   PRIORITY_BADGE,
@@ -363,10 +367,17 @@ function Header({ detail, onEdit }: { detail: CaseDetail; onEdit: () => void }) 
   );
 }
 
-/** Szczegół sprawy: nagłówek z akcjami, opis, wątek maili, komentarze, checklista, powiązania. */
+/**
+ * Szczegół sprawy: nagłówek z akcjami, „Kogo dotyczy?” (sprawa bez
+ * kontraktu), opis, wątek maili, komentarze, checklista i karta „Konsultant”
+ * (od 22.10.2026 zamiast „Powiązań”, gdy sprawa ma kontrakt).
+ */
 export function CaseDetailView({ caseId }: { caseId: number }) {
   const query = useCase(caseId);
   const [editing, setEditing] = useState(false);
+  const user = useAuthStore((s) => s.user);
+  const hrConfig = useHrConfig();
+  const careAccess = canSeeCareBoard(user, hrConfig.data);
 
   const state = resolveViewState({
     isLoading: query.isLoading,
@@ -404,6 +415,7 @@ export function CaseDetailView({ caseId }: { caseId: number }) {
         Sprawy
       </Link>
       <Header detail={detail} onEdit={() => setEditing(true)} />
+      <CaseWhoBar detail={detail} />
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* `min-w-0`: bez tego długi adres albo nazwa załącznika rozpycha stronę na telefonie. */}
@@ -432,32 +444,30 @@ export function CaseDetailView({ caseId }: { caseId: number }) {
             {detail.closed_at ? <Fact label="Zakończona">{formatMomentPl(detail.closed_at)}</Fact> : null}
           </Card>
           <Checklist detail={detail} />
-          <Card className="p-4">
-            <SectionTitle>Powiązania</SectionTitle>
-            {detail.contract ? (
-              <Fact label="Kontrakt">
-                <Link
-                  href={`/contracts/${detail.contract.id}`}
-                  className="hover:underline"
-                >
-                  {detail.contract.candidate_name ?? `#${detail.contract.id}`}
-                  {detail.contract.client_name ? ` · ${detail.contract.client_name}` : ""}
-                </Link>
-              </Fact>
-            ) : null}
-            {detail.subject_user ? (
-              <Fact label="Osoba">
+          {detail.contract ? (
+            <Card className="p-4">
+              <SectionTitle>Konsultant</SectionTitle>
+              <CaseConsultantSection detail={detail} careAccess={careAccess} />
+            </Card>
+          ) : null}
+          {detail.subject_user ? (
+            <Card className="p-4">
+              <SectionTitle>Osoba</SectionTitle>
+              <Fact label="Pracownik">
                 <Link href={`/people/${detail.subject_user.id}`} className="hover:underline">
                   {detail.subject_user.name ?? `#${detail.subject_user.id}`}
                 </Link>
               </Fact>
-            ) : null}
-            {!detail.contract && !detail.subject_user ? (
+            </Card>
+          ) : null}
+          {!detail.contract && !detail.subject_user && !detail.can_manage ? (
+            <Card className="p-4">
+              <SectionTitle>Powiązania</SectionTitle>
               <p className="text-sm text-muted-foreground">
                 Sprawa nie jest spięta z kontraktem ani z osobą.
               </p>
-            ) : null}
-          </Card>
+            </Card>
+          ) : null}
         </div>
       </div>
 

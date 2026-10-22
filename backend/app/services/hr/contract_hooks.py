@@ -10,11 +10,13 @@ Cztery zdarzenia:
   kolejności, bo sprawa czyta listę wejścia — i opiekun wg obłożenia z puli
   opiekunów (Opieka, ``care/auto_assign``; także przy wyłączonym module),
 * ``contract_ended`` — zakończenie albo unieważnienie: premie przed terminem
-  anulowane, zadanie odbioru sprzętu; przy unieważnieniu (``void``, także
-  szkicu) dodatkowo anulowane wejście konsultanta, zadanie „Przygotuj zestaw”
-  i zamknięta sprawa „Wejście konsultanta” — wejścia nie będzie,
+  anulowane, zadanie odbioru sprzętu, sprawa „Koniec współpracy” (Sprawy,
+  prowadzi opiekun — tylko przy zakończeniu, nie przy unieważnieniu); przy
+  unieważnieniu (``void``, także szkicu) dodatkowo anulowane wejście
+  konsultanta, zadanie „Przygotuj zestaw” i zamknięta sprawa „Wejście
+  konsultanta” — wejścia nie będzie,
 * ``contract_end_undone`` — cofnięcie zakończenia / ponowne otwarcie: premie
-  wracają,
+  wracają, sprawa „Koniec współpracy” zamknięta,
 * ``contract_deleted`` — trwałe usunięcie (``hard_delete_contract``): sprawa
   „Wejście konsultanta” zamknięta i propozycje premii z placementu anulowane
   (``contract_deleted``), zanim FK wyzeruje kontrakt; przyznane premie zostają;
@@ -163,6 +165,20 @@ async def _cases_start(db: AsyncSession, contract: Contract) -> None:
     await open_case_for_new_contract(db, contract)
 
 
+async def _cases_end(db: AsyncSession, contract: Contract) -> None:
+    if contract.status == ContractStatus.void:
+        return
+    from app.services.admin_cases.hooks import open_case_for_contract_end
+
+    await open_case_for_contract_end(db, contract)
+
+
+async def _cases_end_undone(db: AsyncSession, contract: Contract) -> None:
+    from app.services.admin_cases.hooks import close_case_for_undone_end
+
+    await close_case_for_undone_end(db, contract.id)
+
+
 async def _payroll_deleted(db: AsyncSession, contract: Contract) -> None:
     from app.services.hr import placement_bonuses
 
@@ -206,12 +222,18 @@ async def contract_ended(db: AsyncSession, contract: Contract) -> dict[str, str]
             ("lifecycle", _lifecycle_void),
             ("equipment", _equipment_end),
             ("cases", _cases_void),
+            ("cases_end", _cases_end),
         ],
     )
 
 
 async def contract_end_undone(db: AsyncSession, contract: Contract) -> dict[str, str]:
-    return await _run(db, contract, "end_undone", [("payroll", _payroll_end_undone)])
+    return await _run(
+        db,
+        contract,
+        "end_undone",
+        [("payroll", _payroll_end_undone), ("cases_end", _cases_end_undone)],
+    )
 
 
 async def contract_deleted(db: AsyncSession, contract: Contract) -> dict[str, str]:

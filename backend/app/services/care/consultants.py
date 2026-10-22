@@ -10,8 +10,9 @@ i następnym miesiącu wyliczona z rytmów (``plan.conversations_between``).
 Zakres: portfel Delivery Leada, head back office — wszyscy klienci
 (``access.rhythm_scope``). „Moi” i filtry (rytm, wstrzymani, z sygnałem)
 liczy front z jednej odpowiedzi (``is_mine``) — liczniki przy filtrach widać
-naraz. Odczyt niczego nie zapisuje; opinia menedżera w sygnałach tylko dla
-ról z D11.
+naraz. Odczyt niczego nie zapisuje; opinia menedżera w sygnałach i zdrowie
+relacji (``health``, 22.10.2026) tylko dla ról z D11 — inaczej ``null``.
+``redeploy_active`` = aktywny wpis „Do przepięcia” (filtr „Decyzja”).
 """
 
 from __future__ import annotations
@@ -23,7 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.services.care import access as care_access
-from app.services.care import cadence
+from app.services.care import cadence, front_office
+from app.services.care import health as care_health
 from app.services.care import plan as care_plan
 from app.services.care.week import client_managers, last_conversation_payload
 
@@ -68,6 +70,15 @@ async def consultants(
             *(p.created_by for rows in periods.values() for p in rows),
         ],
     )
+    # Zdrowie relacji (krąg D11 — ta sama flaga co opinia menedżera w sygnałach).
+    healths = (
+        await care_health.health_for(
+            db, contracts, today=today, overdue_days=overdue, periods=periods
+        )
+        if include_feedback
+        else {}
+    )
+    redeploy = await front_office.active_redeploy(db, ids)
     who = await cadence.changer(db, user)
     this_month, next_month = cadence.this_month(today), cadence.next_month(today)
 
@@ -111,6 +122,8 @@ async def consultants(
                     "next_month": cadence.month_count(contract, own, next_month),
                 },
                 "can_change_cadence": who.can_change(contract, owner_id),
+                "health": healths.get(contract.id),
+                "redeploy_active": bool(redeploy.get(contract.id)),
             }
         )
     rows.sort(

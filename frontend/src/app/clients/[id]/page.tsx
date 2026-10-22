@@ -5,6 +5,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
 
 import {
+  CLIENT_MORE_TABS,
+  LEGACY_CLIENT_TABS,
   positiveIntParam,
   useClientTab,
   useForbiddenTabFallback,
@@ -15,9 +17,21 @@ import api from "@/lib/api";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { ClientTechnologiesTab } from "@/components/care/ClientTechnologiesTab";
-import { ClientPeopleTab } from "@/components/care/ClientPeopleTab";
-import { canReadClientPeople } from "@/lib/api/client-people";
+import { ClientPeopleTechTab } from "@/components/care/client/ClientPeopleTechTab";
+import {
+  ContactOrgFields,
+  EMPTY_CONTACT_ORG,
+  contactOrgDraftFor,
+  contactOrgPayload,
+  type ContactOrgDraft,
+} from "@/components/care/client/ContactOrgFields";
+import { peopleViewFrom, type PeopleView } from "@/components/care/client/people-tech-format";
+import {
+  canReadClientPeople,
+  useClientOrg,
+  useUpdateContactOrg,
+} from "@/lib/api/client-people";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useHrConfig } from "@/lib/api/hr";
 import { hasAnyPermission } from "@/lib/permissions";
 import {
@@ -43,6 +57,7 @@ import {
   Trash2,
   AlertOctagon,
   Ellipsis,
+  ChevronDown,
 } from "lucide-react";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { Badge } from "@/components/ui/badge";
@@ -466,12 +481,19 @@ function ContactForm({
   onSubmit,
   onCancel,
   isLoading,
+  orgFields,
 }: {
   form: ContactFormData;
   setForm: React.Dispatch<React.SetStateAction<ContactFormData>>;
   onSubmit: () => void;
   onCancel: () => void;
   isLoading: boolean;
+  /**
+   * Przy otwartym module opieki (22.10.2026): „Dział” ze słownika działów
+   * klienta i „Podlega pod” zamiast pola tekstowego „Dział”; tekst zostaje
+   * w kontakcie i stoi pod listą jako podpowiedź.
+   */
+  orgFields?: React.ReactNode;
 }) {
   return (
     <div className="space-y-3">
@@ -514,16 +536,19 @@ function ContactForm({
           />
         </div>
       </div>
+      {orgFields}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground block mb-1">Dział</label>
-          <input
-            value={form.department}
-            onChange={(e) => setForm({ ...form, department: e.target.value })}
-            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-            placeholder="IT / HR"
-          />
-        </div>
+        {orgFields ? null : (
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Dział</label>
+            <input
+              value={form.department}
+              onChange={(e) => setForm({ ...form, department: e.target.value })}
+              className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
+              placeholder="IT / HR"
+            />
+          </div>
+        )}
         <div className="flex items-end pb-1.5">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -581,6 +606,50 @@ function ContactsTab({ clientId }: { clientId: number }) {
   // przecięte z zapisem sekcji Delivery. Zostają Admin i Delivery Lead;
   // pozostali czytelnicy nie dostają formularza prowadzącego w 403 (F-19).
   const canCreateContact = useCapability("contact.create");
+  // „Dział” ze słownika działów klienta i „Podlega pod” (22.10.2026): przy
+  // otwartym module opieki i dla kręgu D11 — drzewo osób (`GET …/org`) czyta
+  // tylko on. Inaczej formularz jak dotąd (tekstowe „Dział”).
+  const user = useAuthStore((state) => state.user);
+  const careOpen = useHrConfig().data?.open_modules.care === true;
+  const orgOn = careOpen && canCreateContact && canReadClientPeople(user);
+  const formOpen = showAdd || editContact !== null;
+  const orgQuery = useClientOrg(clientId, orgOn && formOpen);
+  const updateOrg = useUpdateContactOrg(clientId);
+  const [orgDraft, setOrgDraft] = useState<ContactOrgDraft | null>(null);
+  const orgInitial = orgQuery.data
+    ? contactOrgDraftFor(orgQuery.data, editContact?.id ?? null)
+    : EMPTY_CONTACT_ORG;
+  const orgCurrent = orgDraft ?? orgInitial;
+  /** Dział i przełożony idą osobną trasą PO zapisie kontaktu. */
+  const saveContactOrg = (contactId: number | undefined, payload: ReturnType<typeof contactOrgPayload>) => {
+    if (!contactId || !payload) return;
+    updateOrg.mutate(
+      { contactId, payload },
+      {
+        onError: (err) =>
+          showError(
+            `Kontakt zapisany, ale dział i „Podlega pod” nie: ${apiErrorMessage(err, "spróbuj ponownie w edycji kontaktu.")}`,
+          ),
+      },
+    );
+  };
+  const orgFields =
+    orgOn && orgQuery.data ? (
+      <ContactOrgFields
+        // `key`: wpisany nowy dział należy do tego formularza, nie następnego.
+        key={editContact?.id ?? "new"}
+        org={orgQuery.data}
+        contactId={editContact?.id ?? null}
+        departmentText={editContact?.department ?? (form.department || null)}
+        draft={orgCurrent}
+        onChange={setOrgDraft}
+        disabled={updateOrg.isPending}
+      />
+    ) : orgOn && orgQuery.isError ? (
+      <p role="alert" className="text-xs text-destructive">
+        Nie udało się wczytać działów klienta — zapisze się sam kontakt.
+      </p>
+    ) : undefined;
 
   const contactsQuery = useQuery<Contact[]>({
     queryKey: ["client-contacts", clientId],
@@ -645,6 +714,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
     setForm({ name: "", email: "", phone: "", position: "", department: "", is_decision_maker: false, notes: "" });
 
   const openEdit = (c: Contact) => {
+    setOrgDraft(null);
     setEditContact(c);
     setForm({
       name: c.name,
@@ -672,7 +742,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
           <Button
             size="sm"
             variant="primary"
-            onClick={() => { setShowAdd(true); setEditContact(null); }}
+            onClick={() => { setOrgDraft(null); setShowAdd(true); setEditContact(null); }}
           >
             <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             Dodaj kontakt
@@ -695,7 +765,14 @@ function ContactsTab({ clientId }: { clientId: number }) {
           <ContactForm
             form={form}
             setForm={setForm}
-            onSubmit={() => createMutation.mutate(form)}
+            orgFields={orgFields}
+            onSubmit={() => {
+              const payload = orgOn ? contactOrgPayload(orgCurrent, EMPTY_CONTACT_ORG) : null;
+              createMutation.mutate(form, {
+                onSuccess: (response) =>
+                  saveContactOrg((response?.data as { id?: number } | undefined)?.id, payload),
+              });
+            }}
             onCancel={() => setShowAdd(false)}
             isLoading={createMutation.isPending}
           />
@@ -755,7 +832,14 @@ function ContactsTab({ clientId }: { clientId: number }) {
                       <ContactForm
                         form={form}
                         setForm={setForm}
-                        onSubmit={() => updateMutation.mutate({ id: contact.id, data: form })}
+                        orgFields={orgFields}
+                        onSubmit={() => {
+                          const payload = orgOn ? contactOrgPayload(orgCurrent, orgInitial) : null;
+                          updateMutation.mutate(
+                            { id: contact.id, data: form },
+                            { onSuccess: () => saveContactOrg(contact.id, payload) },
+                          );
+                        }}
                         onCancel={() => setEditContact(null)}
                         isLoading={updateMutation.isPending}
                       />
@@ -995,13 +1079,29 @@ export default function ClientDetailPage() {
     },
     [replaceUrl, id, searchParams],
   );
-  const [activeTab, setActiveTab, selectTab] = useClientTab(
-    searchParams.get("tab"),
-    writeTabToUrl,
+  const tabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab, selectTab] = useClientTab(tabParam, writeTabToUrl);
+  // „Ludzie i technologie” (22.10.2026): widok z `?view=`; dawne
+  // `?tab=struktura` / `?tab=technologie` otwierają drzewo / mapę, a adres
+  // przechodzi na nowy klucz (F5 i kolejny link nie wracają do starego).
+  const peopleView = peopleViewFrom(searchParams.get("view"), tabParam);
+  const selectPeopleView = useCallback(
+    (view: PeopleView) => {
+      const next = new URLSearchParams(searchParams.toString());
+      next.set("tab", "ludzie");
+      if (view === "dzialy") next.delete("view");
+      else next.set("view", view);
+      replaceUrl(`/clients/${id}?${next.toString()}`);
+    },
+    [replaceUrl, id, searchParams],
   );
-  // „Technologie” tylko przy włączonym module opieki (admin widzi zawsze);
-  // „Sprzęt od nas / od klienta” — przy włączonym module sprzętu.
-  const hrConfig = useHrConfig().data;
+  useEffect(() => {
+    if (tabParam && tabParam in LEGACY_CLIENT_TABS) selectPeopleView(peopleView);
+  }, [tabParam, peopleView, selectPeopleView]);
+  // „Ludzie i technologie” tylko przy włączonym module opieki (admin widzi
+  // zawsze); „Sprzęt od nas / od klienta” — przy włączonym module sprzętu.
+  const hrConfigQuery = useHrConfig();
+  const hrConfig = hrConfigQuery.data;
   const careOpen = hrConfig?.open_modules.care === true;
   const equipmentOpen = hrConfig?.open_modules.equipment === true;
   // „Wejście u klienta” — moduł wejścia i odejścia; czyta podgląd Delivery
@@ -1082,6 +1182,15 @@ export default function ClientDetailPage() {
     "umowy-ramowe",
     canViewDeliveryLegal,
     authHydrated,
+  );
+  // Moduł opieki zamknięty — „Ludzie i technologie” nie istnieje; czekamy na
+  // odpowiedź `/api/hr/config` (wcześniej „brak” to brak wiedzy, nie odmowa).
+  useForbiddenTabFallback(
+    activeTab,
+    setActiveTab,
+    "ludzie",
+    careOpen,
+    hrConfigQuery.isSuccess || hrConfigQuery.isError,
   );
 
   const {
@@ -1179,24 +1288,28 @@ export default function ClientDetailPage() {
     { key: "wejscie", label: "Wejście u klienta" },
     { key: "projekty", label: "Projekty" },
     { key: "zamowienia", label: "Zamówienia" },
-    { key: "importy-md", label: "Importy MD" },
-    { key: "faktury", label: "Faktury" },
     { key: "zespol", label: "Delivery Lead" },
     { key: "kontakty", label: "Kontakty klienta" },
+    // Zaraz po kontaktach (decyzja 5, 22.10.2026): działy, drzewo osób i mapa
+    // technologii. Drzewo i opinie widzi krąg D11 — zakładka sama to rozstrzyga.
+    { key: "ludzie", label: "Ludzie i technologie" },
     { key: "umowy-ramowe", label: "Umowy" },
+    // Rzadkie — pod „Więcej” (`CLIENT_MORE_TABS`).
+    { key: "importy-md", label: "Importy MD" },
+    { key: "faktury", label: "Faktury" },
     { key: "analityka", label: "Analityka" },
-    { key: "technologie", label: "Technologie" },
-    { key: "struktura", label: "Struktura u klienta" },
   ];
-  // „Struktura u klienta” — moduł opieki i krąg D11 (opiekun, DL, HoR, admin).
-  const peopleOpen = careOpen && canReadClientPeople(user);
   const TABS = allTabs.filter(
     (tab) =>
       (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
-      (careOpen || tab.key !== "technologie") &&
+      (careOpen || tab.key !== "ludzie") &&
       (packOpen || tab.key !== "wejscie") &&
-      (invoicingOpen || tab.key !== "faktury") &&
-      (peopleOpen || tab.key !== "struktura"),
+      (invoicingOpen || tab.key !== "faktury"),
+  );
+  const moreTabs = TABS.filter((tab) => CLIENT_MORE_TABS.includes(tab.key));
+  // Zakładka wybrana z „Więcej” stoi w pasku, dopóki jest aktywna.
+  const stripTabs = TABS.filter(
+    (tab) => !CLIENT_MORE_TABS.includes(tab.key) || tab.key === activeTab,
   );
 
   return (
@@ -1309,14 +1422,14 @@ export default function ClientDetailPage() {
         {/* Tabs — horizontal scroll z visible scrollbar (macOS hide by default
             ukrywa scrollbar i user nie wie że można scrollować). Mniejszy
             padding px-3 (vs 4) + krótsze labele mieszczą wszystkie 12 tabów. */}
-        <div className="border-t border-border min-w-0">
+        <div className="flex min-w-0 items-stretch border-t border-border pr-3 sm:pr-5">
           <div
             role="tablist"
             aria-label="Sekcje klienta"
-            className="flex gap-0.5 px-3 sm:px-5 pt-0 overflow-x-auto whitespace-nowrap min-w-0"
+            className="flex min-w-0 gap-0.5 overflow-x-auto whitespace-nowrap px-3 pt-0 sm:px-5"
             style={{ scrollbarWidth: "thin" }}
           >
-            {TABS.map((tab) => (
+            {stripTabs.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
@@ -1337,6 +1450,34 @@ export default function ClientDetailPage() {
               </button>
             ))}
           </div>
+          {/* „Więcej” poza listą zakładek — to przycisk menu, nie zakładka;
+              Radix daje strzałki, Enter i Escape z klawiatury. */}
+          {moreTabs.length ? (
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Więcej sekcji klienta"
+                  className="flex shrink-0 items-center gap-1 border-b-2 border-transparent px-3 py-2 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground pointer-coarse:min-h-10"
+                >
+                  Więcej
+                  <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                {moreTabs.map((tab) => (
+                  <DropdownMenuItem
+                    key={tab.key}
+                    onSelect={() => selectTab(tab.key)}
+                    aria-current={activeTab === tab.key ? "page" : undefined}
+                    className={cn(activeTab === tab.key && "font-semibold")}
+                  >
+                    {tab.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
 
         {/* Tab content — po konsolidacji 12→6 tabów reszta sekcji wbudowana
@@ -1461,11 +1602,12 @@ export default function ClientDetailPage() {
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
-          {peopleOpen && activeTab === "struktura" && (
-            <ClientPeopleTab clientId={Number(id)} />
-          )}
-          {careOpen && activeTab === "technologie" && (
-            <ClientTechnologiesTab clientId={Number(id)} />
+          {careOpen && activeTab === "ludzie" && (
+            <ClientPeopleTechTab
+              clientId={Number(id)}
+              view={peopleView}
+              onViewChange={selectPeopleView}
+            />
           )}
 
           {activeTab === "zespol" && (

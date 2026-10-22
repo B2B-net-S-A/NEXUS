@@ -657,28 +657,91 @@
    "opis": "Zakładka „Importy MD”",
    "file": "app/clients/[id]/page.tsx",
    "marker": "Importy MD",
-   "b_home": "Bez zmian"
+   "b_home": "Profil klienta: „Więcej” w pasku zakładek (22.10.2026)"
   },
   {
    "id": "k.care-tab",
-   "opis": "Zakładka „Opieka” kontraktu: opiekun, plan kontaktów, rozmowy, karta technologiczna (moduł „care”)",
+   "opis": "Zakładka „Opieka” kontraktu = karta konsultanta (22.10.2026): zdrowie relacji z „dlaczego”, cztery liczby, „Następny krok”, „Co wiemy o projekcie”, sprawy, jedna „Historia” z filtrami, plan kontaktów, „Więcej” (opiekun, rytm, pominięcie punktu) — moduł „care”",
    "file": "app/contracts/[id]/page.tsx",
    "marker": "ContractCareTab",
    "b_home": "Strona kontraktu: zakładka „Opieka”"
   },
   {
+   "id": "k.care-tab.conversation",
+   "opis": "Okno „Rozmowa” z karty konsultanta: dzisiejsza rozmowa, „Co u klienta” (dawna karta technologiczna), pytania z mapy klienta, „Coś do załatwienia?”",
+   "file": "components/care/ConversationDialog.tsx",
+   "marker": "Co u klienta",
+   "b_home": "Strona kontraktu: zakładka „Opieka”, „Zapisz rozmowę”"
+  },
+  {
+   "id": "k.care-tab.tech-card-edit",
+   "opis": "Edycja starej karty technologicznej — „Edytuj” przy karcie w „Historii” (przycisk „Karta technologiczna” zastąpiło okno „Rozmowa”, 22.10.2026)",
+   "file": "components/care/ContractCareTab.tsx",
+   "marker": "TechCardDialog",
+   "b_home": "Strona kontraktu: zakładka „Opieka”, „Historia”"
+  },
+  {
+   "id": "k.care-tab.owner",
+   "opis": "Zmiana opiekuna kontraktu (dawny wybór w zakładce „Opieka”) — „Więcej” → „Zmień opiekuna” z powodem",
+   "file": "components/care/card/ConsultantCard.tsx",
+   "marker": "Zmień opiekuna",
+   "b_home": "Karta konsultanta: menu „Więcej”"
+  },
+  {
+   "id": "k.care-tab.cases",
+   "opis": "Sprawy konsultanta w karcie i „+ Nowa sprawa” z kontraktem",
+   "file": "components/care/card/ConsultantCard.tsx",
+   "marker": "Nowa sprawa",
+   "b_home": "Karta konsultanta: sekcja „Sprawy”"
+  },
+  {
    "id": "c.tech-tab",
-   "opis": "Zakładka „Technologie” klienta: mapa technologii z czterech źródeł (moduł „care”)",
-   "file": "app/clients/[id]/page.tsx",
+   "opis": "Mapa technologii klienta z czterech źródeł (moduł „care”) — od 22.10.2026 widok „Mapa” zakładki „Ludzie i technologie” (dawne `?tab=technologie` przekierowuje)",
+   "file": "components/care/client/ClientPeopleTechTab.tsx",
    "marker": "ClientTechnologiesTab",
-   "b_home": "Profil klienta: zakładka „Technologie”"
+   "b_home": "Profil klienta: zakładka „Ludzie i technologie” → widok „Mapa”"
   },
   {
    "id": "c.org-tab",
-   "opis": "Zakładka „Struktura u klienta”: działy, osoby klienta, menedżerowie naszych konsultantów, prośby o opinię i zapis opinii (moduł „care”, D8–D11)",
-   "file": "app/clients/[id]/page.tsx",
+   "opis": "Drzewo osób klienta: działy, osoby, menedżerowie naszych konsultantów, prośby o opinię i zapis opinii (moduł „care”, D8–D11) — od 22.10.2026 widok „Drzewo osób” zakładki „Ludzie i technologie” (dawne `?tab=struktura` przekierowuje)",
+   "file": "components/care/client/ClientPeopleTechTab.tsx",
    "marker": "ClientPeopleTab",
-   "b_home": "Profil klienta: zakładka „Struktura u klienta”"
+   "b_home": "Profil klienta: zakładka „Ludzie i technologie” → widok „Drzewo osób”"
+  },
+  {
+   "id": "c.people-tech",
+   "opis": "Zakładka „Ludzie i technologie” (`?tab=ludzie`, moduł „care”) zaraz po „Kontaktach klienta”: liczby kompletności wiedzy, „Zapisz opinię menedżera”, „Nowa rekrutacja z działu”, widoki Działy / Drzewo osób / Mapa",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "ClientPeopleTechTab",
+   "b_home": "Profil klienta: zakładka „Ludzie i technologie”"
+  },
+  {
+   "id": "c.departments",
+   "opis": "Widok „Działy”: karta działu z menedżerem naszych i „Podlega pod”, naszymi z kropką zdrowia, technologiami z siłą źródeł, „Szukają: …”, luką działu; z prawej luki, ludzie poza działami, dostawcy, notatki o stacku, domyślny opiekun",
+   "file": "components/care/client/DepartmentsView.tsx",
+   "marker": "Szukają: ",
+   "b_home": "Profil klienta: „Ludzie i technologie” → widok „Działy”"
+  },
+  {
+   "id": "c.approval-bar",
+   "opis": "Pasek „Do zatwierdzenia”: jedna propozycja automatu struktury (Zatwierdź / Zmień / Pomiń) i „Wszystkie propozycje (N)” z pełnym panelem",
+   "file": "components/care/client/ApprovalBar.tsx",
+   "marker": "Wszystkie propozycje",
+   "b_home": "Profil klienta: „Ludzie i technologie” nad widokami"
+  },
+  {
+   "id": "c.tabs-more",
+   "opis": "„Więcej” w pasku zakładek klienta: Importy MD, Faktury, Analityka; wybrana stoi w pasku",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "Więcej sekcji klienta",
+   "b_home": "Pasek zakładek klienta"
+  },
+  {
+   "id": "c.contact-area",
+   "opis": "Formularz kontaktu klienta: „Dział” ze słownika działów klienta („Nowy dział…”) i „Podlega pod” przy otwartym module opieki",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "ContactOrgFields",
+   "b_home": "Profil klienta: „Kontakty klienta” → formularz kontaktu"
   },
   {
    "id": "k.client-manager",

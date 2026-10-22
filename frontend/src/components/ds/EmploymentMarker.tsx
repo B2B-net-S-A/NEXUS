@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import {
   markerLabel,
   markerTone,
+  returnsToMarketLabel,
   type EmploymentMarker,
   type EmploymentMarkerTone,
   type MarkerLabelOptions,
@@ -52,7 +53,8 @@ export function EmploymentPill({
   ...props
 }: EmploymentPillProps) {
   const tone = markerTone(marker)
-  return (
+  const returning = returnsToMarketLabel(marker)
+  const pill = (
     <span
       data-employment-phase={marker.phase}
       title={markerLabel(marker)}
@@ -75,5 +77,25 @@ export function EmploymentPill({
       )}
       <span className="min-w-0 truncate">{markerLabel(marker, label)}</span>
     </span>
+  )
+  if (!returning) return pill
+  // „Wraca na rynek” obok znacznika (22.10.2026) — osoba z opieki przekazana
+  // do front office: koniec pracy u nas jest już ustalony.
+  return (
+    <>
+      {pill}
+      <span
+        data-returns-to-market
+        title="Opieka przekazała osobę do front office — po końcu pracy u nas szuka nowego projektu"
+        className={cn(
+          "inline-flex shrink-0 items-center font-semibold",
+          appearance === "pill"
+            ? cn("h-5 rounded-full border px-2 text-[11px]", PILL_TONE.info)
+            : cn("text-xs", TEXT_TONE.info),
+        )}
+      >
+        {returning}
+      </span>
+    </>
   )
 }

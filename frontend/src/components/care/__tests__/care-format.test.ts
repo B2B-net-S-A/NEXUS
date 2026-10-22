@@ -10,7 +10,7 @@ import {
   heatLevel,
 } from "@/components/care/care-format";
 import { buildCardPayload, initialCardForm } from "@/components/care/TechCardDialog";
-import { careTabFrom } from "@/components/care/CareScreen";
+import { careRouteFrom, canSeeTeam, contractParam } from "@/components/care/CareScreen";
 import {
   monthEnd,
   monthOf,
@@ -191,16 +191,43 @@ describe("karta technologiczna", () => {
 });
 
 describe("ekran /care", () => {
-  it("czyta zakładkę z adresu, nieznana = „Ten tydzień”, dawne listy = „Konsultanci”", () => {
-    expect(careTabFrom("redeploy")).toBe("redeploy");
-    expect(careTabFrom("review")).toBe("review");
-    expect(careTabFrom("consultants")).toBe("consultants");
-    expect(careTabFrom("assignment")).toBe("assignment");
-    // Link z powiadomienia o komunikacie (etap 3, O12).
-    expect(careTabFrom("announcements")).toBe("announcements");
-    expect(careTabFrom("contracts")).toBe("consultants");
-    expect(careTabFrom("mine")).toBe("consultants");
-    expect(careTabFrom("cokolwiek")).toBe("week");
-    expect(careTabFrom(null)).toBe("week");
+  const route = (query: string) => careRouteFrom(new URLSearchParams(query));
+
+  it("zakładki 22.10.2026: Do zrobienia, Konsultanci, Klienci, Zespół opiekunów, Komunikaty", () => {
+    expect(route("")).toEqual({ tab: "todo" });
+    expect(route("tab=cokolwiek")).toEqual({ tab: "todo" });
+    expect(route("tab=consultants")).toEqual({ tab: "consultants" });
+    expect(route("tab=clients")).toEqual({ tab: "clients" });
+    expect(route("tab=team")).toEqual({ tab: "team" });
+    // Link z powiadomienia o komunikacie (etap 3, O12) działa dalej.
+    expect(route("tab=announcements")).toEqual({ tab: "announcements" });
+  });
+
+  it("stare adresy prowadzą do nowych miejsc", () => {
+    expect(route("tab=week")).toEqual({ tab: "todo" });
+    expect(route("tab=contracts")).toEqual({ tab: "consultants" });
+    expect(route("tab=mine")).toEqual({ tab: "consultants" });
+    expect(route("tab=redeploy")).toEqual({ tab: "consultants", filter: "redeploy" });
+    expect(route("tab=assignment")).toEqual({ tab: "team" });
+    expect(route("tab=structure")).toEqual({ tab: "clients" });
+    expect(route("tab=structure&client=12")).toEqual({ tab: "clients", redirect: "/clients/12?tab=ludzie" });
+    expect(route("tab=structure&client=abc")).toEqual({ tab: "clients" });
+    expect(route("tab=review")).toEqual({ tab: "todo", redirect: "/settings?item=skills" });
+    // TCM nie wchodzi do Słownika — kolejka nazw ma własną pozycję w Ustawieniach.
+    expect(careRouteFrom(new URLSearchParams("tab=review"), { canSeeSkills: false })).toEqual({
+      tab: "todo",
+      redirect: "/settings?item=skills-review",
+    });
+  });
+
+  it("`?contract=` i dostęp do „Zespołu opiekunów”", () => {
+    expect(contractParam("4501")).toBe(4501);
+    expect(contractParam("0")).toBeNull();
+    expect(contractParam("x")).toBeNull();
+    expect(contractParam(null)).toBeNull();
+    const me = { is_admin: false, back_office_head: false } as Parameters<typeof canSeeTeam>[0]["me"];
+    expect(canSeeTeam({ me })).toBe(false);
+    expect(canSeeTeam({ me: { ...me, back_office_head: true } })).toBe(true);
+    expect(canSeeTeam({ me: { ...me, is_admin: true } })).toBe(true);
   });
 });

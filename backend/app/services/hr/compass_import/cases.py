@@ -18,22 +18,38 @@ Reguły:
 * kolejny import dokłada brakujące komentarze i maile; nagłówka sprawy
   zmienionej w NEXUSIE nie nadpisuje (pozycja „conflict”),
 * rozmowy kontraktorów (``contractor_%``) i helpdesk zostają w Compassie,
-* bez powiadomień.
+* bez powiadomień,
+* **kontrakt konsultanta** (decyzja 7, 22.10.2026): Compass trzyma przy
+  sprawie tylko tekst — imię i nazwisko konsultanta i nazwę klienta
+  (``support_inbox_meta``). Sprawa łączy się z kontraktem regułami kart
+  z Compassa (``care/card_linking``): klient po nazwie (po scaleniu; kilku
+  klientów o tej nazwie — wygrywa ten, u którego osoba ma pewny kontrakt),
+  osoba po imieniu i nazwisku, dzień założenia sprawy w okresie umowy.
+  Pewny kontrakt = ``contract_id``; niepewny = nic (propozycje liczy odczyt
+  sprawy, ``admin_cases/contract_links``). Kontraktu wpisanego w NEXUSIE
+  import nie nadpisuje ani nie zeruje.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any, Mapping, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.admin_case import AdminCase, AdminCaseComment, AdminCaseMessage
+from app.models.client import Client
 from app.models.hr_ops import HrImportBatch
 from app.services.admin_cases import rules
 from app.services.admin_cases_schema import PRIORITIES, TERMINAL_STATUSES
+from app.services.care import card_linking
+from app.services.client_portfolio_import import (
+    loose_client_name,
+    normalize_client_name,
+)
 
 from .bundle import Bundle
 from .common import (
@@ -94,6 +110,72 @@ HEADER_FIELDS = (
     "subject_user_id",
     "closed_at",
 )
+
+
+#: Słowa bez znaczenia przy porównaniu nazw klientów (jak import kart).
+_CLIENT_NOISE_WORDS = frozenset({"ex", "o"})
+
+
+def _client_words(name: Optional[str]) -> frozenset[str]:
+    return frozenset(loose_client_name(name).split()) - _CLIENT_NOISE_WORDS
+
+
+@dataclass
+class ContractLinker:
+    """Klient z nazwy Compassa + kontrakt osoby (reguły ``card_linking``)."""
+
+    by_key: dict[str, set[int]]
+    by_loose: dict[str, set[int]]
+    by_words: dict[frozenset[str], set[int]]
+    index: card_linking.ContractIndex
+
+    def client_options(self, name: Optional[str]) -> set[int]:
+        for found in (
+            self.by_key.get(normalize_client_name(name)),
+            self.by_loose.get(loose_client_name(name)),
+            self.by_words.get(_client_words(name)),
+        ):
+            if found:
+                return set(found)
+        return set()
+
+    def contract_for(
+        self, client_name: Optional[str], person_name: Optional[str], day: date
+    ) -> Optional[int]:
+        """Pewny kontrakt albo ``None`` (kilku klientów bez rozstrzygnięcia też)."""
+
+        if not client_name or not person_name:
+            return None
+        hits = {
+            match.contract_id
+            for option in self.client_options(client_name)
+            if (match := self.index.match(option, person_name, day)).contract_id
+        }
+        return next(iter(hits)) if len(hits) == 1 else None
+
+
+async def load_linker(db: AsyncSession) -> ContractLinker:
+    finals = await card_linking.final_client_ids(db)
+    by_key: dict[str, set[int]] = defaultdict(set)
+    by_loose: dict[str, set[int]] = defaultdict(set)
+    by_words: dict[frozenset[str], set[int]] = defaultdict(set)
+    for client_id, name, display in (
+        await db.execute(select(Client.id, Client.name, Client.display_name))
+    ).all():
+        final = finals.get(client_id, client_id)
+        for value in (name, display):
+            if normalize_client_name(value):
+                by_key[normalize_client_name(value)].add(final)
+            if loose_client_name(value):
+                by_loose[loose_client_name(value)].add(final)
+            if _client_words(value):
+                by_words[_client_words(value)].add(final)
+    return ContractLinker(
+        by_key=dict(by_key),
+        by_loose=dict(by_loose),
+        by_words=dict(by_words),
+        index=await card_linking.load_index(db),
+    )
 
 
 def _slug(row: Mapping[str, Any], categories: Mapping[str, str]) -> str:
@@ -184,6 +266,12 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
     comments: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for row in bundle.rows("support_ticket_comments"):
         comments[str(row.get("ticket_id"))].append(row)
+    linker: Optional[ContractLinker] = None
+    if any(
+        text(meta.get("consultant_name")) and text(meta.get("client_name"))
+        for meta in metas.values()
+    ):
+        linker = await load_linker(db)
 
     for row in bundle.rows(TICKETS):
         sid = source_id(TICKETS, row)
@@ -254,8 +342,17 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
             if ticket_id in archives
             else []
         )
+        day = local_date(row.get("created_at"))
+        contract_id = (
+            linker.contract_for(
+                text(meta.get("client_name")), text(meta.get("consultant_name")), day
+            )
+            if linker is not None and day is not None
+            else None
+        )
         payload = {
             "header": header,
+            "contract_id": contract_id,
             "source_key": f"compass:{ticket_id}",
             "created_by": people.account(row.get("user_id")),
             "created_at": parse_datetime(row.get("created_at")),
@@ -320,7 +417,16 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
             for message in messages
             if message["graph_message_id"] not in known_messages
         ]
-        action = "update" if payload["comments"] or payload["messages"] else "unchanged"
+        # Kontrakt dopisujemy tylko sprawie bez kontraktu — wybór w NEXUSIE
+        # (obsługa albo czytnik poczty) wygrywa z późniejszym „pewnym”.
+        payload["link_contract"] = (
+            existing.contract_id is None and payload["contract_id"] is not None
+        )
+        action = (
+            "update"
+            if payload["comments"] or payload["messages"] or payload["link_contract"]
+            else "unchanged"
+        )
         result.rows.append(RowPlan(sid, action, reason, payload))
     return result
 
@@ -331,7 +437,12 @@ async def apply(
     batch: HrImportBatch,
     actor_user_id: Optional[int],
 ) -> dict[str, int]:
-    written = {"cases_created": 0, "comments_written": 0, "messages_written": 0}
+    written = {
+        "cases_created": 0,
+        "comments_written": 0,
+        "messages_written": 0,
+        "contracts_linked": 0,
+    }
     for row in module_plan.rows:
         if row.action not in ("create", "update"):
             continue
@@ -341,6 +452,7 @@ async def apply(
                 source="compass_import",
                 source_key=payload["source_key"],
                 created_by=payload["created_by"],
+                contract_id=payload.get("contract_id"),
                 **payload["header"],
             )
             if payload["created_at"] is not None:
@@ -348,8 +460,13 @@ async def apply(
             db.add(case)
             await db.flush()
             written["cases_created"] += 1
+            if case.contract_id is not None:
+                written["contracts_linked"] += 1
         else:
             case = await db.get(AdminCase, payload["case_id"])
+            if payload.get("link_contract") and case.contract_id is None:
+                case.contract_id = payload["contract_id"]
+                written["contracts_linked"] += 1
         for comment in payload["comments"]:
             item = AdminCaseComment(
                 case_id=case.id,

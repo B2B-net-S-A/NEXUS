@@ -7,6 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { CareHealth } from "@/lib/api/care-board";
 import { HR_COUNTS_MUTATION_KEY } from "@/lib/api/hr";
 
 export type CaseArea =
@@ -31,6 +32,12 @@ export interface CaseContractRef {
   client_name: string | null;
   start_date: string | null;
   end_date: string | null;
+  /** Od 22.10.2026 (tablica z opieką): efektywny opiekun kontraktu. */
+  care_owner_user_id?: number | null;
+  care_owner_name?: string | null;
+  candidate_id?: number | null;
+  /** Zdrowie relacji — tylko dla czytającego z kręgu D11, inaczej `null`. */
+  health?: CareHealth | null;
 }
 
 export interface CaseChecklistItem {
@@ -80,6 +87,33 @@ export interface CaseComment {
   created_at: string;
 }
 
+/** Konsultant sprawy z kontraktem (sekcja „Konsultant” w panelu i pełnym widoku). */
+export interface CaseConsultant {
+  contract_id: number;
+  candidate_id?: number | null;
+  candidate_name: string | null;
+  client_id?: number | null;
+  client_name: string | null;
+  role: string | null;
+  form: string | null;
+  order_end_on: string | null;
+  /** Efektywny opiekun kontraktu — „Przypisz opiekunowi”. */
+  owner_user_id?: number | null;
+  owner_name: string | null;
+  cadence_label: string | null;
+  last_conversation: { on: string; excerpt: string | null } | null;
+  other_open_cases: number;
+  health: CareHealth | null;
+}
+
+/** Propozycja „Kogo dotyczy?” dla sprawy bez kontraktu (tylko obsługa Spraw) — nic nie wiąże się samo. */
+export interface CaseLinkSuggestion {
+  contract_id: number;
+  candidate_name: string | null;
+  client_name: string | null;
+  reason: string | null;
+}
+
 export interface CaseDetail extends CaseCard {
   description: string | null;
   checklist: CaseChecklistItem[];
@@ -89,6 +123,10 @@ export interface CaseDetail extends CaseCard {
   comments: CaseComment[];
   can_manage: boolean;
   can_comment: boolean;
+  /** Od 22.10.2026: gdy sprawa ma kontrakt. */
+  consultant?: CaseConsultant | null;
+  /** Od 22.10.2026: gdy sprawa nie ma kontraktu. */
+  link_suggestions?: CaseLinkSuggestion[];
 }
 
 /** Liczniki chipów: otwarte sprawy w zakresie i wyszukiwaniu, bez filtrów chipów. */
@@ -96,6 +134,8 @@ export interface CaseChipCounts {
   areas: Partial<Record<CaseArea, number>>;
   week: number;
   unassigned: number;
+  /** „Moi podopieczni” — sprawy kontraktów, których opiekunem jest czytający. */
+  mine_care?: number;
 }
 
 export interface CaseList {
@@ -122,6 +162,8 @@ export interface CaseListFilters {
   week?: boolean;
   /** „Bez osoby”: otwarte bez przypisanej osoby. */
   unassigned?: boolean;
+  /** „Moi podopieczni”: sprawy kontraktów, których efektywnym opiekunem jest czytający. */
+  mine_care?: boolean;
 }
 
 export interface CaseCreateInput {
@@ -196,14 +238,16 @@ function listParams(filters: CaseListFilters): Record<string, string> {
   if (filters.include_closed) params.include_closed = "true";
   if (filters.week) params.week = "true";
   if (filters.unassigned) params.unassigned = "true";
+  if (filters.mine_care) params.mine_care = "true";
   return params;
 }
 
-export function useCases(filters: CaseListFilters) {
+export function useCases(filters: CaseListFilters, enabled = true) {
   return useQuery({
     queryKey: caseKeys.list(filters),
     queryFn: async () =>
       (await api.get<CaseList>("/api/cases", { params: listParams(filters) })).data,
+    enabled,
   });
 }
 
@@ -215,11 +259,19 @@ export function useCase(id: number) {
   });
 }
 
-export function useCaseAssignees(enabled: boolean) {
+/**
+ * Lista osób do spraw. `via: "care"` — dla zapisującego opiekę (okno rozmowy),
+ * który nie musi mieć uprawnienia „Sprawy”.
+ */
+export function useCaseAssignees(enabled: boolean, via: "cases" | "care" = "cases") {
   return useQuery({
-    queryKey: caseKeys.assignees,
+    queryKey: via === "care" ? [...caseKeys.assignees, "care"] : caseKeys.assignees,
     queryFn: async () =>
-      (await api.get<{ items: AssigneeOption[] }>("/api/cases/assignees")).data.items,
+      (
+        await api.get<{ items: AssigneeOption[] }>(
+          via === "care" ? "/api/care/case-assignees" : "/api/cases/assignees",
+        )
+      ).data.items,
     enabled,
     staleTime: 5 * 60 * 1000,
   });
@@ -282,6 +334,21 @@ export function useTakeCase() {
           expected_updated_at: input.expectedUpdatedAt,
         })
       ).data,
+    onSettled: invalidate,
+  });
+}
+
+/**
+ * Przesunięcie karty na tablicy (status) albo zmiana jednego pola z panelu —
+ * zawsze z wersją karty: cudza zmiana w międzyczasie = 409, nie ciche
+ * nadpisanie. Tablica odświeża się także po odmowie.
+ */
+export function usePatchCase() {
+  const invalidate = useInvalidateCases();
+  return useMutation({
+    mutationKey: CASE_COUNTS_MUTATION_KEY,
+    mutationFn: async (input: { id: number; patch: CaseUpdateInput }) =>
+      (await api.patch<CaseDetail>(`/api/cases/${input.id}`, input.patch)).data,
     onSettled: invalidate,
   });
 }

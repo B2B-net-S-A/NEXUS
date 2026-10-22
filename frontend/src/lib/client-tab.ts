@@ -26,11 +26,11 @@ export type ClientTab =
   // Faktury do klientów z KSeF dopasowane do zamówień (etap 5, E8).
   | "faktury"
   | "analityka"
-  // Mapa technologii klienta („Ludzie w NEXUSIE”, 16.10.2026).
-  | "technologie"
-  // Struktura u klienta: działy, osoby, menedżerowie naszych konsultantów
-  // i opinie klienta (etap 2, 17.10.2026). Link z historii opinii kontraktu.
-  | "struktura"
+  // „Ludzie i technologie” (22.10.2026): działy, drzewo osób i mapa
+  // technologii w jednej zakładce. Zastępuje „Strukturę u klienta”
+  // (`struktura`, 17.10.2026) i „Technologie” (`technologie`, 16.10.2026) —
+  // dawne klucze w adresie prowadzą tu (`LEGACY_CLIENT_TABS`).
+  | "ludzie"
   | "zespol";
 
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
@@ -44,13 +44,33 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "importy-md",
   "faktury",
   "analityka",
-  "technologie",
-  "struktura",
+  "ludzie",
   "zespol",
 ] as const;
 
+/**
+ * Rzadkie zakładki pod „Więcej” w pasku (22.10.2026). Wybrana z menu stoi
+ * w pasku, dopóki jest aktywna — inaczej nie byłoby widać, gdzie się jest.
+ */
+export const CLIENT_MORE_TABS: readonly ClientTab[] = ["importy-md", "faktury", "analityka"];
+
+/**
+ * Dawne zakładki → „Ludzie i technologie” z widokiem (linki z powiadomień,
+ * historii opinii kontraktu i opieki sprzed 22.10.2026).
+ */
+export const LEGACY_CLIENT_TABS: Readonly<Record<string, "drzewo" | "mapa">> = {
+  struktura: "drzewo",
+  technologie: "mapa",
+};
+
 export function isClientTab(value: string | null): value is ClientTab {
   return value !== null && (CLIENT_TAB_KEYS as readonly string[]).includes(value);
+}
+
+/** Zakładka z adresu z dawnymi kluczami („struktura”, „technologie” → „ludzie”). */
+export function clientTabFrom(value: string | null): ClientTab | null {
+  if (value !== null && value in LEGACY_CLIENT_TABS) return "ludzie";
+  return isClientTab(value) ? value : null;
 }
 
 /**
@@ -75,11 +95,12 @@ export function useClientTab(
   // WARTOŚCI parametru, więc efekt niżej nie wchodził i zakładka stała.
   onSelectTab?: (tab: ClientTab) => void,
 ): readonly [ClientTab, (tab: ClientTab) => void, (tab: ClientTab) => void] {
-  const [activeTab, setActiveTab] = useState<ClientTab>(() =>
-    isClientTab(requestedTab) ? requestedTab : "profil",
+  const [activeTab, setActiveTab] = useState<ClientTab>(
+    () => clientTabFrom(requestedTab) ?? "profil",
   );
   useEffect(() => {
-    if (isClientTab(requestedTab)) setActiveTab(requestedTab);
+    const tab = clientTabFrom(requestedTab);
+    if (tab) setActiveTab(tab);
   }, [requestedTab]);
   const selectTab = useCallback(
     (tab: ClientTab) => {

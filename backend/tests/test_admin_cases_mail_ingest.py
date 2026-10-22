@@ -51,6 +51,7 @@ class FakeMailbox:
         in_reply_to: str | None = None,
         sender: str = "klient@example.com",
         attachments: list[dict[str, Any]] | None = None,
+        headers: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         marker = uuid.uuid4().hex
         received = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
@@ -63,9 +64,14 @@ class FakeMailbox:
             "receivedDateTime": received.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "hasAttachments": bool(attachments),
             "body": {"contentType": "html", "content": f"<p>{subject}</p>"},
-            "internetMessageHeaders": (
-                [{"name": "In-Reply-To", "value": in_reply_to}] if in_reply_to else []
-            ),
+            "internetMessageHeaders": [
+                *(headers or []),
+                *(
+                    [{"name": "In-Reply-To", "value": in_reply_to}]
+                    if in_reply_to
+                    else []
+                ),
+            ],
         }
         self.messages.append(msg)
         if attachments:

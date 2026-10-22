@@ -94,7 +94,7 @@ export function caseFormToPayload(form: CaseFormState): CaseCreateInput {
   };
 }
 
-function ContractPicker({
+export function ContractPicker({
   value,
   onChange,
 }: {

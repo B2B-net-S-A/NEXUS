@@ -37,6 +37,8 @@ _NO_MAIL = (
     "care_contact_due",
     # Tygodniowe „uzupełnij strukturę klienta” (0475) — przypomnienie opieki.
     "care_client_structure",
+    # Popyt z rozmowy opiekuna (0509) — karta na tablicy DL, bez maila.
+    "care_demand_signal",
     # Informacja o zapłacie — nikt na nią nie czeka (dymek i „Mój czas”).
     "hr_settlement_paid",
 )

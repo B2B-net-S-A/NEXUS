@@ -95,6 +95,16 @@ const SkillDictionaryTab = dynamic(
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
   }
 );
+const ConversationSkillNamesTab = dynamic(
+  () =>
+    import("@/components/settings/SkillDictionaryTab").then(
+      (m) => m.ConversationSkillNamesSection,
+    ),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
 const RoleLibraryTab = dynamic(
   () => import("@/components/settings/RoleLibraryTab"),
   {
@@ -418,6 +428,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       return <MailTemplatesSettings />;
     case "skills":
       return <SkillDictionaryTab />;
+    case "skills-review":
+      return <ConversationSkillNamesTab />;
     case "job-ad-blocks":
       return <JobAdFixedBlocksCard />;
     case "roles":
@@ -495,11 +507,15 @@ export default function SettingsPage() {
     return <div className="p-6 text-muted-foreground">Ładowanie…</div>;
   }
 
-  const view = resolveSettingsView(user, {
-    item: searchParams?.get("item"),
-    area: searchParams?.get("area"),
-    tab: searchParams?.get("tab"),
-  });
+  const view = resolveSettingsView(
+    user,
+    {
+      item: searchParams?.get("item"),
+      area: searchParams?.get("area"),
+      tab: searchParams?.get("tab"),
+    },
+    settingsContext,
+  );
   if (view.kind === "home") {
     return (
       <div className="mx-auto max-w-4xl space-y-6">

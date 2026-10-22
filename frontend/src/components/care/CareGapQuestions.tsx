@@ -1,70 +1,121 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { useCallback } from "react";
 
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { useClientTechMap } from "@/lib/api/care";
-import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { searchSkills, type ClientQuestion } from "@/lib/api/care";
+import { useClientOrg } from "@/lib/api/client-people";
 
-import { gapQuestion } from "./tech-gaps";
+import {
+  emptyGapAnswer,
+  questionText,
+  type GapAnswerForm,
+} from "./conversation/conversation-form";
+import { TokenPicker } from "./TokenPicker";
+
+const NONE = "none";
+
+interface CareGapQuestionsProps {
+  clientId: number | null;
+  questions: ClientQuestion[];
+  answers: Record<string, GapAnswerForm>;
+  onChange: (key: string, answer: GapAnswerForm) => void;
+}
 
 /**
- * „Do dopytania u klienta” w oknie rozmowy opieki (D16): luki mapy technologii
- * tego klienta jako pytania. Tylko podpowiedź — nic się samo nie zapisuje.
- * Mapa wczytuje się dopiero po rozwinięciu (liczy się z kilku źródeł).
+ * „Pytania z mapy klienta” w oknie rozmowy (22.10.2026): luki mapy klienta
+ * dotyczące działu konsultanta albo jego menedżera (najwyżej 4, liczy
+ * serwer) z polem odpowiedzi. Odpowiedź zapisuje się razem z rozmową —
+ * „komu podlega” w strukturze klienta, technologie i notatka w mapie.
+ * Pytanie bez odpowiedzi niczego nie zmienia. Wybór osoby przy „Komu
+ * podlega” widzi tylko ktoś z prawem edycji struktury klienta
+ * (`can_edit_org`) — reszta odpowiada notatką (serwer odmówiłby 403).
  */
-export function CareGapQuestions({ clientId }: { clientId: number | null }) {
-  const [open, setOpen] = useState(false);
-  const map = useClientTechMap(clientId ?? 0, open && clientId != null);
-  if (clientId == null) return null;
-  const questions = (map.data?.gaps ?? []).map(gapQuestion);
+export function CareGapQuestions({ clientId, questions, answers, onChange }: CareGapQuestionsProps) {
+  const needsPeople = questions.some((question) => question.kind === "reports_to");
+  const org = useClientOrg(clientId ?? 0, needsPeople && clientId != null);
+  const skillSearch = useCallback((q: string) => searchSkills(q), []);
+  if (!questions.length) return null;
+  const people = (org.data?.departments ?? []).flatMap((department) => department.people);
+  const canPickPerson = org.isSuccess && org.data.can_edit_org;
+
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={setOpen}
-      className="mt-3 rounded-md border border-border/60"
-    >
-      <CollapsibleTrigger className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-sm font-medium text-foreground hover:bg-muted/50">
-        <ChevronRight
-          aria-hidden
-          className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")}
-        />
-        Do dopytania u klienta
-        {map.isSuccess ? (
-          <span className="text-xs font-normal tabular-nums text-muted-foreground">
-            {questions.length}
-          </span>
-        ) : null}
-      </CollapsibleTrigger>
-      <CollapsibleContent className="border-t border-border/60 px-3 py-2">
-        {map.isLoading ? (
-          <p className="text-sm text-muted-foreground">Wczytywanie pytań…</p>
-        ) : map.isError ? (
-          <p role="alert" className="text-sm text-destructive">
-            Nie udało się wczytać pytań z mapy technologii.
-          </p>
-        ) : questions.length ? (
-          <ul className="space-y-1.5 text-sm" aria-label="Pytania z mapy technologii">
-            {questions.map((item) => (
-              <li key={item.key}>
-                {item.question}
-                <span className="block text-xs text-muted-foreground">
-                  {item.subject} · {item.detail}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Mapa technologii tego klienta nie ma luk do dopytania.
-          </p>
-        )}
-        <p className="mt-2 text-xs text-muted-foreground">
-          Podpowiedź z mapy technologii klienta. Odpowiedzi wpisz w notatce albo w karcie
-          technologicznej — stąd nic się nie zapisuje.
-        </p>
-      </CollapsibleContent>
-    </Collapsible>
+    <section aria-label="Pytania z mapy klienta" className="space-y-2">
+      <h3 className="text-sm font-semibold text-foreground">Pytania z mapy klienta</h3>
+      <ul className="space-y-2.5">
+        {questions.map((question) => {
+          const answer = answers[question.key] ?? emptyGapAnswer();
+          const set = (patch: Partial<GapAnswerForm>) => onChange(question.key, { ...answer, ...patch });
+          const text = questionText(question);
+          return (
+            <li key={question.key} className="space-y-1.5 rounded-md border border-border/60 px-3 py-2">
+              <p className="text-sm text-foreground">
+                {text}
+                {question.detail ? (
+                  <span className="block text-xs text-muted-foreground">{question.detail}</span>
+                ) : null}
+              </p>
+              {question.kind === "reports_to" ? (
+                org.isError ? (
+                  <p className="text-xs text-muted-foreground">
+                    Listy osób klienta nie udało się wczytać — odpowiedz notatką.
+                  </p>
+                ) : org.isLoading ? (
+                  <p className="text-xs text-muted-foreground">Wczytywanie osób…</p>
+                ) : !canPickPerson ? (
+                  <p className="text-xs text-muted-foreground">
+                    Osobę w strukturze klienta wskazuje Delivery Lead klienta — odpowiedz notatką.
+                  </p>
+                ) : (
+                  <Select
+                    value={answer.reportsToContactId == null ? NONE : String(answer.reportsToContactId)}
+                    onValueChange={(next) => set({ reportsToContactId: next === NONE ? null : Number(next) })}
+                  >
+                    <SelectTrigger aria-label={`Odpowiedź: ${text}`}>
+                      <SelectValue placeholder="Wybierz osobę…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE}>Nie wiem</SelectItem>
+                      {people
+                        .filter((person) => person.id !== question.contact_id)
+                        .map((person) => (
+                          <SelectItem key={person.id} value={String(person.id)}>
+                            {person.name}
+                            {person.position ? ` · ${person.position}` : ""}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                )
+              ) : null}
+              {question.kind === "area_without_source" ? (
+                <TokenPicker
+                  label={`Technologie: ${question.subject}`}
+                  value={answer.skills}
+                  onChange={(next) => set({ skills: next })}
+                  search={skillSearch}
+                  placeholder="Szukaj w słowniku…"
+                  freeTextHint="do przejrzenia"
+                />
+              ) : null}
+              <Input
+                aria-label={`Notatka: ${text}`}
+                value={answer.note}
+                maxLength={500}
+                placeholder={question.kind === "single_source" ? "np. tak, używają od 2025" : "Notatka (opcjonalnie)"}
+                onChange={(event) => set({ note: event.target.value })}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

@@ -52,6 +52,13 @@ export interface EmploymentMarker {
    */
   free_from?: string | null;
   free_from_basis?: "work_end" | "no_end_date" | "starting" | null;
+  /**
+   * „Wraca na rynek DD.MM” (22.10.2026): opieka przekazała osobę do front
+   * office albo zdecydowała „przekaż” na każdej trwającej umowie
+   * (`employment_marker.mark_returning`). Data = koniec pracy; brak = nieznany.
+   */
+  returns_to_market?: boolean;
+  returns_to_market_on?: string | null;
 }
 
 export type EmploymentMarkerTone = "success" | "warning" | "info";
@@ -194,4 +201,12 @@ export function markerDetails(marker: EmploymentMarker): MarkerDetailLine[] {
 /** „2 z 4 osób pracują u nas” — nagłówek ramki w oknach dodawania. */
 export function employedCountLabel(employed: number, total: number): string {
   return `${employed} z ${total} osób ${pluralPl(employed, "pracuje", "pracują", "pracuje")} u nas`;
+}
+
+/** „Wraca na rynek 30.11” (albo bez daty) — plakietka obok znacznika; `null` = brak. */
+export function returnsToMarketLabel(marker: EmploymentMarker | null | undefined): string | null {
+  if (!marker?.returns_to_market) return null;
+  return marker.returns_to_market_on
+    ? `Wraca na rynek ${shortDate(marker.returns_to_market_on)}`
+    : "Wraca na rynek";
 }

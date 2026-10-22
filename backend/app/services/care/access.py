@@ -43,6 +43,14 @@ CARE_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
 )
+#: D11: kto widzi strukturę u klienta, opinie klienta i zdrowie relacji
+#: (opiekun z roli, DL, Head of Recruitment, admin; Finanse i Kadry nie).
+PEOPLE_READER_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.head_of_recruitment,
+)
 #: Kontrakty, przy których opieka trwa (plan, przypomnienia, „Moi konsultanci”).
 LIVE_STATUSES: tuple[ContractStatus, ...] = (
     ContractStatus.active,
@@ -58,6 +66,12 @@ _clients_care = CLIENTS_CARE.alias("clients_care")
 
 def is_care_worker(user: User) -> bool:
     return user.has_any_role(*CARE_ROLES)
+
+
+def reads_client_people(user: User) -> bool:
+    """Krąg D11: opinie klienta i zdrowie relacji (bramka ``PeopleReader``)."""
+
+    return user.has_any_role(*PEOPLE_READER_ROLES)
 
 
 async def is_care_writer(db: AsyncSession, user: User) -> bool:
@@ -192,8 +206,14 @@ async def rhythm_scope(user: User, db: AsyncSession) -> frozenset[int] | None:
     return await allowed_client_ids(user, db)
 
 
+def client_in_scope(client_id: Optional[int], allowed: frozenset[int] | None) -> bool:
+    """Klient w zakresie czytającego (``None`` = wszyscy)."""
+
+    return allowed is None or client_id in allowed
+
+
 def assert_client_in_scope(client_id: int, allowed: frozenset[int] | None) -> None:
-    if allowed is not None and client_id not in allowed:
+    if not client_in_scope(client_id, allowed):
         raise HTTPException(status.HTTP_403_FORBIDDEN, DL_CLIENT_OUT_OF_SCOPE_DETAIL)
 
 

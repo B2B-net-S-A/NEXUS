@@ -76,7 +76,8 @@ from app.services.care import plan as care_plan
 from app.services.care import records
 from app.services.care import skills as care_skills
 from app.services.care import card_inbox, client_feedback, client_people, tech_map
-from app.services.care import front_office
+from app.services.care import card as care_card
+from app.services.care import conversation_save, demand, front_office
 from app.services.care import overview as care_overview
 from app.services.care import timeline as care_timeline
 from app.services.care import week as care_week_queue
@@ -159,6 +160,51 @@ async def set_contract_owner(
     return await care_overview.contract_overview(db, fresh, current_user)
 
 
+class ClientStateChangesBody(BaseModel):
+    """„Co u klienta” — tylko zmienione pola (brak pola = bez zmian)."""
+
+    area_id: Optional[int] = None
+    new_area_name: Optional[str] = Field(default=None, max_length=NAME_MAX)
+    manager_contact_id: Optional[int] = None
+    team_size: Optional[str] = Field(default=None, max_length=80)
+    team_externals: Optional[int] = Field(default=None, ge=0, le=10000)
+    skill_ids: Optional[list[int]] = Field(default=None, max_length=100)
+    new_skill_names: Optional[list[str]] = Field(default=None, max_length=50)
+    vendors: Optional[list[str]] = Field(default=None, max_length=20)
+    project_end_month: Optional[str] = Field(
+        default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"
+    )
+    hiring_roles: Optional[list[str]] = Field(default=None, max_length=20)
+    hiring_source: Optional[Literal["widzial", "slyszal", "plotka"]] = None
+
+
+class ClientStateBody(BaseModel):
+    confirmed: bool = True
+    changes: ClientStateChangesBody = Field(default_factory=ClientStateChangesBody)
+
+
+class GapAnswerBody(BaseModel):
+    key: str = Field(min_length=3, max_length=60)
+    reports_to_contact_id: Optional[int] = None
+    skill_ids: list[int] = Field(default_factory=list, max_length=50)
+    new_skill_names: list[str] = Field(default_factory=list, max_length=20)
+    note: Optional[str] = Field(default=None, max_length=SHORT_TEXT_MAX)
+
+
+class ConversationCaseBody(BaseModel):
+    title: str = Field(min_length=3, max_length=200)
+    area: Literal[
+        "onboarding",
+        "offboarding",
+        "negotiation",
+        "administration",
+        "marketing",
+        "other",
+    ] = "other"
+    assignee_user_id: Optional[int] = None
+    due_on: Optional[date] = None
+
+
 class ConversationBody(BaseModel):
     occurred_on: date
     channel: Literal["phone", "meeting", "chat"] = "phone"
@@ -171,6 +217,45 @@ class ConversationBody(BaseModel):
     client_hiring_note: Optional[str] = Field(default=None, max_length=SHORT_TEXT_MAX)
     follow_up_on: Optional[date] = None
     plan_item_id: Optional[int] = None
+    # Okno „Rozmowa” (22.10.2026) — wszystko opcjonalne, stare ciało działa.
+    #: „Klient zatrudnia”: role i źródło przy rozmowie — także bez „Co u klienta”.
+    hiring_roles: list[str] = Field(default_factory=list, max_length=20)
+    hiring_source: Optional[Literal["widzial", "slyszal", "plotka"]] = None
+    client_state: Optional[ClientStateBody] = None
+    gap_answers: list[GapAnswerBody] = Field(default_factory=list, max_length=20)
+    cases: list[ConversationCaseBody] = Field(
+        default_factory=list, max_length=conversation_save.MAX_CASES
+    )
+
+
+_CONVERSATION_FIELDS = tuple(records.ConversationInput.__dataclass_fields__)
+
+
+def _extras(body: ConversationBody) -> conversation_save.Extras:
+    client_state = None
+    if body.client_state is not None:
+        client_state = {
+            "confirmed": body.client_state.confirmed,
+            "changes": body.client_state.changes.model_dump(exclude_unset=True),
+        }
+    return conversation_save.Extras(
+        client_state=client_state,
+        hiring_roles=tuple(body.hiring_roles) if body.client_hiring else (),
+        hiring_source=body.hiring_source if body.client_hiring else None,
+        gap_answers=tuple(
+            conversation_save.GapAnswer(
+                key=answer.key,
+                reports_to_contact_id=answer.reports_to_contact_id,
+                skill_ids=tuple(answer.skill_ids),
+                new_skill_names=tuple(answer.new_skill_names),
+                note=answer.note,
+            )
+            for answer in body.gap_answers
+        ),
+        cases=tuple(
+            conversation_save.CaseRequest(**case.model_dump()) for case in body.cases
+        ),
+    )
 
 
 @router.post(
@@ -182,17 +267,39 @@ async def add_conversation(
     current_user: User = Depends(CareWriter),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    """Rozmowa + „Co u klienta”, odpowiedzi z mapy, sprawy i popyt — jedna transakcja.
+
+    Odpowiedź to zakładka „Opieka” kontraktu (jak dotąd) z dopisanymi
+    ``conversation_id``, ``tech_card_id``, ``case_ids``, ``demand_notified``
+    i ``manager_kept``.
+    """
+
     contract = await care_access.load_contract(db, contract_id, current_user)
-    await records.add_conversation(
+    extras = _extras(body)
+    await conversation_save.precheck(db, contract, extras, user=current_user)
+    today, now = business_today(), local_now()
+    conversation = await records.add_conversation(
         db,
         contract,
-        records.ConversationInput(**body.model_dump()),
+        records.ConversationInput(**body.model_dump(include=set(_CONVERSATION_FIELDS))),
         actor_id=current_user.id,
-        today=business_today(),
-        now=local_now(),
+        today=today,
+        now=now,
     )
+    saved = await conversation_save.save_extras(
+        db, contract, conversation, extras, user=current_user, today=today, now=now
+    )
+    await db.flush()
     await tech_map.invalidate([contract.client_id])
-    return await care_overview.contract_overview(db, contract, current_user)
+    overview = await care_overview.contract_overview(db, contract, current_user)
+    return {
+        **overview,
+        "conversation_id": conversation.id,
+        "tech_card_id": saved.tech_card_id,
+        "case_ids": saved.case_ids,
+        "demand_notified": saved.demand_notified,
+        "manager_kept": saved.manager_kept,
+    }
 
 
 SkipReason = Literal[
@@ -633,13 +740,29 @@ class FeedbackScoreBody(BaseModel):
     autonomy: Optional[int] = Field(default=None, ge=1, le=5)
 
 
+class DemandBody(BaseModel):
+    """Rozstrzygnięcie karty „Popyt do sprawdzenia” (Delivery Lead klienta)."""
+
+    key: str = Field(min_length=8, max_length=120)
+    outcome: Literal["confirmed", "not_now", "stale"]
+    role: Optional[str] = Field(default=None, max_length=demand.ROLE_MAX)
+    headcount: Optional[int] = Field(default=None, ge=1, le=100)
+    start_month: Optional[str] = Field(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    skill_ids: list[int] = Field(default_factory=list, max_length=30)
+
+
 class FeedbackBody(BaseModel):
-    contact_id: int
+    #: Bez kontaktu tylko przy samym rozstrzygnięciu popytu („nieaktualne”).
+    contact_id: Optional[int] = None
     held_on: date
     channel: Literal["phone", "meeting", "email"] = "phone"
     extension_outlook: Optional[Literal["yes", "likely", "unsure", "no"]] = None
     note: Optional[str] = Field(default=None, max_length=FEEDBACK_NOTE_MAX)
     scores: list[FeedbackScoreBody] = Field(default_factory=list, max_length=100)
+    demand: Optional[DemandBody] = None
+
+
+NO_FEEDBACK_CONTACT = "Wybierz osobę z firmy klienta, z którą była rozmowa."
 
 
 @router.post("/clients/{client_id}/feedback", status_code=status.HTTP_201_CREATED)
@@ -654,35 +777,75 @@ async def add_client_feedback(
     if not reads_client_people(current_user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, PEOPLE_DENIED)
     client = await care_access.load_client(db, client_id, current_user)
-    session = await client_feedback.save_feedback(
-        db,
-        client_id=client.id,
-        payload=client_feedback.FeedbackInput(
-            contact_id=body.contact_id,
-            held_on=body.held_on,
-            channel=body.channel,
-            extension_outlook=body.extension_outlook,
-            note=body.note,
-            scores=tuple(
-                client_feedback.ScoreInput(**score.model_dump())
-                for score in body.scores
+    if body.contact_id is None and body.demand is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NO_FEEDBACK_CONTACT)
+    if body.demand is not None and not await demand.can_resolve(
+        db, current_user, client.id
+    ):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, demand.RESOLVE_DENIED)
+    today = business_today()
+    session = None
+    if body.contact_id is not None:
+        session = await client_feedback.save_feedback(
+            db,
+            client_id=client.id,
+            payload=client_feedback.FeedbackInput(
+                contact_id=body.contact_id,
+                held_on=body.held_on,
+                channel=body.channel,
+                extension_outlook=body.extension_outlook,
+                note=body.note,
+                scores=tuple(
+                    client_feedback.ScoreInput(**score.model_dump())
+                    for score in body.scores
+                ),
             ),
-        ),
-        actor_id=current_user.id,
-        today=business_today(),
-    )
-    contract_ids = sorted(
-        await db.scalars(
-            select(ClientFeedbackScore.contract_id).where(
-                ClientFeedbackScore.session_id == session.id
+            actor_id=current_user.id,
+            today=today,
+        )
+    jobs_new_url = None
+    demand_keys: list[str] = []
+    if body.demand is not None:
+        demand_keys = await demand.resolve(
+            db,
+            client_id=client.id,
+            resolution=demand.Resolution(
+                key=body.demand.key,
+                outcome=body.demand.outcome,
+                role=body.demand.role,
+                headcount=body.demand.headcount,
+                start_month=body.demand.start_month,
+                skill_ids=tuple(body.demand.skill_ids),
+            ),
+            actor_id=current_user.id,
+            today=today,
+            now=local_now(),
+        )
+        if body.demand.outcome == "confirmed":
+            jobs_new_url = demand.jobs_new_url(
+                client_id=client.id,
+                hm_contact_id=body.contact_id,
+                skill_ids=body.demand.skill_ids,
+                title=body.demand.role,
+            )
+    contract_ids = (
+        sorted(
+            await db.scalars(
+                select(ClientFeedbackScore.contract_id).where(
+                    ClientFeedbackScore.session_id == session.id
+                )
             )
         )
+        if session is not None
+        else []
     )
     return {
-        "id": session.id,
-        "held_on": session.held_on,
-        "contact_id": session.contact_id,
+        "id": session.id if session is not None else None,
+        "held_on": session.held_on if session is not None else body.held_on,
+        "contact_id": session.contact_id if session is not None else None,
         "contract_ids": contract_ids,
+        "demand_keys": demand_keys,
+        "jobs_new_url": jobs_new_url,
     }
 
 
@@ -873,8 +1036,39 @@ async def contract_timeline(
         contract,
         today=business_today(),
         include_feedback=reads_client_people(current_user),
+        viewer=current_user,
     )
     return {**result, "can_edit": await care_access.is_care_writer(db, current_user)}
+
+
+@router.get("/contracts/{contract_id}/card")
+async def contract_card(
+    contract_id: int,
+    current_user: User = Depends(CareReader),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Karta konsultanta (panel ``/care`` i zakładka „Opieka” kontraktu)."""
+
+    contract = await care_access.load_contract(db, contract_id, current_user)
+    return await care_card.consultant_card(
+        db,
+        contract,
+        current_user,
+        today=business_today(),
+        scope_clause=job_read_scope_clause(current_user, Job.id),
+    )
+
+
+@router.get("/contracts/{contract_id}/client-state")
+async def contract_client_state(
+    contract_id: int,
+    current_user: User = Depends(CareReader),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Co u klienta” w oknie rozmowy: ostatni stan i pytania z mapy klienta."""
+
+    contract = await care_access.load_contract(db, contract_id, current_user)
+    return await care_card.client_state(db, contract, today=business_today())
 
 
 @router.get("/contracts/{contract_id}/front-office")
@@ -961,3 +1155,13 @@ router.include_router(care_consultants.router)
 from app.api import care_structure  # noqa: E402
 
 router.include_router(care_structure.router)
+
+# „Do zrobienia” (kanban) i „Klienci” w Opiece (przebudowa, 22.10.2026).
+from app.api import care_board  # noqa: E402
+
+router.include_router(care_board.router)
+
+# Sprawy konsultanta w karcie (``GET /contracts/{id}/cases``, moduł spraw).
+from app.api import care_cases  # noqa: E402
+
+router.include_router(care_cases.router)

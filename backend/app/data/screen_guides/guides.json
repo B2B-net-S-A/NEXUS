@@ -945,5 +945,66 @@
       "frontend/src/components/hr/approvals/MyConsentsScreen.tsx",
       "frontend/src/components/hr/approvals/ConsentRequestForm.tsx"
     ]
+  },
+  {
+    "key": "hr.care",
+    "title": "Opieka nad konsultantami",
+    "section": null,
+    "roles": [],
+    "what": "Praca opiekuna i Delivery Leada: „Do zrobienia” to tablica spraw z kartami opieki (rozmowy, opinie menedżerów, decyzje o przepięciu, u DL popyt u klienta), dalej konsultanci ze zdrowiem relacji, klienci i zespół opiekunów.",
+    "tasks": [
+      {
+        "q": "Od czego zacząć dzień?",
+        "a": "Otwórz „Do zrobienia” i przejrzyj kolumnę „Nowa”: rozmowy po terminie i do piątku, prośby o opinię menedżera, decyzje o przepięciu. Chip „Opieka” zostawia same karty opieki, „Moi podopieczni” — sprawy i rozmowy osób, którymi się opiekujesz. Przełącznik Tablica / Lista pokazuje to samo jako kolejkę.",
+        "anchor": "hr.care.board"
+      },
+      {
+        "q": "Jak umówić rozmowę albo odnotować, że konsultant nie odbiera?",
+        "a": "Przeciągnij kartę rozmowy do „W toku” i podaj dzień i godzinę albo do „Czeka na kogoś” i podaj dzień ponownej próby — to samo zrobisz z menu „Przenieś do…” na karcie. W dniu ponownej próby karta wraca do „Nowa”.",
+        "anchor": "hr.care.board"
+      },
+      {
+        "q": "Jak zapisać rozmowę z konsultantem?",
+        "a": "„Zapisz rozmowę” na karcie. Po lewej: data, forma, ocena, notatka, sygnały, następny kontakt. Po prawej „Co u klienta” z ostatnim stanem — klikasz tylko zmiany. Odpowiedz na pytania z mapy klienta; w „Coś do załatwienia?” załóż sprawę. Bez danych o zdrowiu i bez stawek.",
+        "anchor": "hr.care.conversation"
+      },
+      {
+        "q": "Gdzie zobaczę wszystko o jednej osobie?",
+        "a": "Kliknij nazwisko — otworzy się karta konsultanta: zdrowie relacji z powodem, ostatni kontakt, zadowolenie, opinia menedżera, koniec zamówienia, następny krok, projekt, sprawy i historia. W „Więcej” zmienisz opiekuna i rytm albo pominiesz punkt planu.",
+        "anchor": "hr.care.card"
+      },
+      {
+        "q": "Co zrobić z kartą „Popyt do sprawdzenia”?",
+        "a": "Widzi ją Delivery Lead klienta. Porozmawiaj z menedżerem działu i zapisz wynik: potwierdzona potrzeba otwiera nową rekrutację z klientem, menedżerem i technologiami działu, „nie teraz” wraca za 30 dni, „nieaktualne” zamyka kartę."
+      }
+    ],
+    "pitfalls": [
+      "Rozmowy nie przeniesiesz na „Zrobione” bez zapisu — przeciągnięcie tam otwiera okno rozmowy.",
+      "Zdrowie relacji widzą opiekun, Delivery Lead, Head of Recruitment i admin; inni widzą Opiekę bez tej etykiety.",
+      "Sprawy negocjacji pokazują się przy konsultancie bez treści — szczegóły są tylko w Sprawach."
+    ],
+    "anchors": [
+      {
+        "id": "hr.care.board",
+        "label": "Do zrobienia",
+        "describe": "Tablica spraw z kartami opieki: kolumny Nowa, W toku, Czeka na kogoś, Zrobione, chipy obszarów i przełącznik Tablica / Lista."
+      },
+      {
+        "id": "hr.care.card",
+        "label": "Karta konsultanta",
+        "describe": "Zdrowie relacji, cztery liczby, następny krok, co wiemy o projekcie, sprawy i historia osoby."
+      },
+      {
+        "id": "hr.care.conversation",
+        "label": "Okno rozmowy",
+        "describe": "Zapis rozmowy z konsultantem razem z „Co u klienta”, pytaniami z mapy klienta i sprawami do załatwienia."
+      }
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/care/CareScreen.tsx",
+      "frontend/src/components/care/card/ConsultantCard.tsx",
+      "frontend/src/components/care/ConversationDialog.tsx"
+    ]
   }
 ]

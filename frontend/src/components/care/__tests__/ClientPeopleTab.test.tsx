@@ -134,7 +134,7 @@ describe("ClientPeopleTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Przypisz: Data" }));
     await waitFor(() =>
       expect(mocks.patch).toHaveBeenCalledWith("/api/care/clients/7001/contacts/8204", {
-        client_area_id: 8101,
+        client_area_id: 303,
       }),
     );
   });

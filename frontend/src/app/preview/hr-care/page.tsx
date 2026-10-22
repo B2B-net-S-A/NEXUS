@@ -1,39 +1,28 @@
 "use client";
 
 /**
- * Harness „Opieka nad konsultantem” (makieta 9 raportu „Ludzie w NEXUSIE”).
- *
- * W aplikacji to zakładka „Opieka” na kontrakcie (`/contracts/[id]?tab=care`).
- * Harness nie montuje całej strony kontraktu — pokazuje prosty nagłówek
- * kontraktu i pod nim prawdziwy `ContractCareTab` na zasianym cache, ZERO
- * zapytań (`hr-harness.tsx`). Ogląda Talent Community Manager (opiekunka).
- * Kontrakt jest zawsze w 45. dniu współpracy — daty liczymy od „dziś”
- * przeglądarki (`fixtures.ts`).
+ * Harness „Opieka nad konsultantami” (przebudowa 22.10.2026, makiety
+ * 2yNppKPWBQcstvBK3YiaxV) — prawdziwe ekrany na zasianym cache, ZERO zapytań
+ * (`hr-harness.tsx`). Ogląda Natalia (Talent Community Manager, opiekunka);
+ * w stanie `team` — jako head back office. Daty liczymy od „dziś”
+ * przeglądarki (`fixtures.ts`, kontrakt Michała w 45. dniu współpracy).
  *
  * Stany (`?state=`):
- * - `tab` (domyślnie) — opiekun, dzień 45, zadowolenie 4/5, plan 7/30/90
- *   (dwa zrobione, „Dzień 90” otwarty), sygnały (koniec projektu, klient
- *   zatrudnia), oś opieki z kartą technologiczną i dwiema rozmowami;
- *   „Zapisz rozmowę” i „Karta technologiczna” otwierają okna bez zapytań;
- * - `techcard` — otwarte okno karty technologicznej z 31. dnia (prawdziwy
- *   `TechCardDialog`, ten sam, który otwiera „Edytuj” na osi — zakładka nie
- *   umie otworzyć go bez kliknięcia); obszary klienta są zasiane;
- * - `list` — ekran `/care`: domyślnie „Ten tydzień” (plan dni „Zaległe ·
- *   pn … pt” z kartami rozmów, pasek tygodnia i pas opinii od menedżerów —
- *   makieta 19.10.2026),
- *   dalej „Konsultanci” (etap 3, M1 — rytm przy każdej osobie, sygnały),
- *   „Przydział” (M3 — obciążenie opiekunów z rytmów, próg, bez opiekuna;
- *   nad nimi pula opiekunów z „nie przypisuj” i „Przypisz wg obłożenia”),
- *   „Do przepięcia”, „Technologie”; zakładkę wybiera sam ekran z `?tab=`,
- *   listy i kolejki są zasiane („Komunikaty” mają własny harness
- *   `/preview/hr-announcements`). `&contract=4504` otwiera oś Pawła
- *   z „Przekaż do front office” (dwie pasujące rekrutacje); osie i „front
- *   office” pozostałych osób z tygodnia też są zasiane, a okno rozmowy ma
- *   pytania z mapy technologii klienta;
- * - `cadence` — „Konsultanci” z otwartym oknem „Rytm kontaktu” Bartosza
- *   (M2: słaba opinia menedżera, podgląd „co 2 tygodnie” zasiany).
- * `&big=1` przy `list` dosypuje do „Wszyscy w moim zakresie” 482 zaległe
- * rozmowy (jak prod 20.10.2026) — kolumna pokazuje 8 najstarszych.
+ * - `tab` (domyślnie) — zakładka „Opieka” kontraktu = karta konsultanta na
+ *   pełną szerokość: zdrowie, cztery liczby, „Następny krok”, „Co wiemy
+ *   o projekcie”, sprawy, „Historia” z filtrami, plan kontaktów zwinięty;
+ * - `techcard` — edycja starej karty technologicznej z „Historii”
+ *   (`TechCardDialog` — przycisk „Karta technologiczna” zniknął);
+ * - `conversation` — okno „Rozmowa” Michała: lewa kolumna dzisiejsza rozmowa,
+ *   prawa „Co u klienta”, pytania z mapy klienta, „Coś do załatwienia?”;
+ * - `list` — `/care` „Do zrobienia” (tablica opieki); `&tab=consultants`,
+ *   `&tab=clients`, `&tab=announcements` — pozostałe zakładki, `&contract=<id>`
+ *   — karta konsultanta w panelu (4504 — „Przekaż do front office”);
+ * - `team` — „Zespół opiekunów” (head back office): opiekunowie z zaległymi
+ *   i portfelem, „Ustawienia przydziału” zwinięte, przydział;
+ * - `cadence` — „Konsultanci” z otwartym oknem „Rytm kontaktu” Bartosza.
+ * Stare adresy (`&tab=week|contracts|mine|redeploy|assignment|structure`)
+ * prowadzą do nowych zakładek tak jak na `/care`.
  */
 
 import { Suspense, useState } from "react";
@@ -41,19 +30,24 @@ import { Suspense, useState } from "react";
 import { CadenceDialog } from "@/components/care/CadenceDialog";
 import { CareScreen } from "@/components/care/CareScreen";
 import { ContractCareTab } from "@/components/care/ContractCareTab";
+import { ConversationDialog } from "@/components/care/ConversationDialog";
 import { TechCardDialog } from "@/components/care/TechCardDialog";
+import { caseKeys } from "@/lib/api/admin-cases";
 import { careKeys } from "@/lib/api/care";
-import { warsawToday } from "@/lib/warsaw-date";
+import { announcementKeys } from "@/lib/api/care-announcements";
+import { careBoardKeys } from "@/lib/api/care-board";
+import { clientPeopleKeys } from "@/lib/api/client-people";
 import { hrKeys } from "@/lib/api/hr";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { warsawToday } from "@/lib/warsaw-date";
 
+import { detail as announcementDetail, list as announcementList } from "../hr-announcements/fixtures";
+import { careBoard } from "../hr-cases/care-fixtures";
+import { CASE_ASSIGNEES, weekEnd } from "../hr-cases/fixtures";
+import { clientOrg } from "../hr-client-people/fixtures";
 import { clientTechMap } from "../hr-client-tech/fixtures";
-import {
-  HR_CAST,
-  HR_CLIENTS,
-  HR_CONSULTANTS,
-  hrConfig,
-} from "../hr-fixtures";
+import { seedStructure } from "../hr-client-structure/fixtures";
+import { HR_CAST, HR_CLIENTS, HR_CONSULTANTS, hrConfig } from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -61,6 +55,7 @@ import {
   pickState,
   useHrHarness,
 } from "../hr-harness";
+import { cardTimeline, careClients, clientStateFor, consultantCards } from "./card-fixtures";
 import {
   CARE_CLIENT,
   CARE_CONTRACT_ID,
@@ -82,44 +77,32 @@ import {
   careConsultants,
   michalCadence,
 } from "./rhythm-fixtures";
-import {
-  WEEK_HANDOFF_CONTRACT,
-  careWeek,
-  karolinaFrontOffice,
-  pawelFrontOffice,
-  pawelTimeline,
-  shortTimeline,
-  telecomTechMap,
-} from "./week-fixtures";
-import { seedStructure } from "../hr-client-structure/fixtures";
+import { WEEK_HANDOFF_CONTRACT, karolinaFrontOffice, pawelFrontOffice, telecomTechMap } from "./week-fixtures";
 
-const KNOWN = ["tab", "techcard", "list", "cadence"] as const;
+const KNOWN = ["tab", "techcard", "conversation", "list", "team", "cadence"] as const;
 type State = (typeof KNOWN)[number];
 
 const STATES = [
-  { key: "tab", label: "Zakładka „Opieka”" },
-  { key: "techcard", label: "Karta technologiczna" },
-  { key: "list", label: "Ten tydzień (/care)" },
-  { key: "big", label: "482 zaległe (Wszyscy)", href: "?state=list&big=1" },
-  {
-    key: "panel",
-    label: "Oś konsultanta i front office",
-    href: `?state=list&contract=${WEEK_HANDOFF_CONTRACT}`,
-  },
-  { key: "consultants", label: "Konsultanci (rytm)", href: "?state=list&tab=consultants" },
+  { key: "tab", label: "Karta w kontrakcie" },
+  { key: "techcard", label: "Stara karta technologiczna" },
+  { key: "conversation", label: "Okno „Rozmowa”" },
+  { key: "list", label: "Do zrobienia (/care)" },
+  { key: "panel", label: "Karta w panelu", href: `?state=list&tab=consultants&contract=${CARE_CONTRACT_ID}` },
+  { key: "handoff", label: "Front office w panelu", href: `?state=list&contract=${WEEK_HANDOFF_CONTRACT}` },
+  { key: "consultants", label: "Konsultanci", href: "?state=list&tab=consultants" },
+  { key: "clients", label: "Klienci", href: "?state=list&tab=clients" },
+  { key: "team", label: "Zespół opiekunów", href: "?state=team&tab=team" },
   { key: "cadence", label: "Zmiana rytmu", href: "?state=cadence&tab=consultants" },
-  { key: "assignment", label: "Przydział opiekunów", href: "?state=list&tab=assignment" },
-  { key: "structure", label: "Struktura u klientów", href: "?state=list&tab=structure" },
 ] as const;
 
 function prepare(params: URLSearchParams) {
   const state = pickState(params.get("state"), KNOWN, "tab");
   const today = warsawToday();
   const client = harnessQueryClient();
-  client.setQueryData(hrKeys.config, hrConfig());
+  const head = state === "team";
+  client.setQueryData(hrKeys.config, hrConfig(head ? { back_office_head: true } : {}));
   client.setQueryData(careKeys.contract(CARE_CONTRACT_ID), contractCare(today));
   client.setQueryData(careKeys.owners, CARE_OWNERS);
-  client.setQueryData(careKeys.clientAreas(CARE_CLIENT.id), CLIENT_AREAS);
   client.setQueryData(careKeys.summary, CARE_SUMMARY);
   client.setQueryData(careKeys.consultants, careConsultants(today));
   client.setQueryData(careKeys.assignment, careAssignment(today));
@@ -133,21 +116,42 @@ function prepare(params: URLSearchParams) {
   for (const review of ["open", "closed"] as const) {
     client.setQueryData(careKeys.skillReview(review), skillReview(today, review));
   }
-  // „Ten tydzień”: obie listy, osie każdej osoby, „front office” i mapa klienta
-  // (pytania w oknie rozmowy).
-  const bulk = params.get("big") === "1" ? 482 : 0;
-  for (const scope of ["mine", "all"] as const) {
-    client.setQueryData(careKeys.week(scope, null), careWeek(today, scope, bulk));
+  // Karta konsultanta, historia i okno rozmowy dla każdej osoby z „Konsultantów”.
+  const rows = careConsultants(today).items;
+  for (const card of consultantCards(today)) {
+    client.setQueryData(careKeys.card(card.contract_id), card);
+    client.setQueryData(careKeys.clientState(card.contract_id), clientStateFor(today, card.contract_id));
   }
-  for (const row of careWeek(today, "all").contacts) {
-    client.setQueryData(careKeys.timeline(row.contract_id), shortTimeline(today, row));
+  for (const row of rows) {
+    client.setQueryData(careKeys.timeline(row.contract_id), cardTimeline(today, row));
   }
-  client.setQueryData(careKeys.timeline(WEEK_HANDOFF_CONTRACT), pawelTimeline(today));
   client.setQueryData(careKeys.frontOffice(WEEK_HANDOFF_CONTRACT), pawelFrontOffice(today));
   client.setQueryData(careKeys.frontOffice(4502), karolinaFrontOffice(today));
+  // „Co u klienta” → „zmień”: działy i osoby klienta (menedżer, „komu podlega”).
+  for (const known of Object.values(HR_CLIENTS)) {
+    client.setQueryData(careKeys.clientAreas(known.id), CLIENT_AREAS);
+    client.setQueryData(clientPeopleKeys.org(known.id), {
+      ...clientOrg(today),
+      client_id: known.id,
+      client_name: known.name,
+    });
+  }
   client.setQueryData(careKeys.clientMap(CARE_CLIENT.id), clientTechMap(today));
   client.setQueryData(careKeys.clientMap(HR_CLIENTS.telecom.id), telecomTechMap(today));
+  for (const scope of ["mine", "all"] as const) {
+    client.setQueryData(careKeys.clients(scope), careClients(today, scope));
+    client.setQueryData(careBoardKeys.board(scope), careBoard(today, weekEnd(today), scope));
+  }
+  // „Komunikaty” w nagłówku: head back office ma komunikat do zatwierdzenia.
+  const viewer = head ? "head" : "author";
+  const announcements = announcementList(viewer);
+  client.setQueryData(announcementKeys.list, announcements);
+  for (const row of announcements.items) {
+    client.setQueryData(announcementKeys.detail(row.id), announcementDetail(row.id, viewer));
+  }
   seedStructure(client, today);
+  // „Prowadzi” w „Coś do załatwienia?” — lista osób spraw dla zapisującego opiekę.
+  client.setQueryData([...caseKeys.assignees, "care"], CASE_ASSIGNEES);
   return { user: HR_CAST.natalia, client, value: { state, today } };
 }
 
@@ -185,6 +189,20 @@ function OpenTechCard({ today }: { today: string }) {
   );
 }
 
+function OpenConversation() {
+  const [open, setOpen] = useState(true);
+  if (!open) return null;
+  return (
+    <ConversationDialog
+      contractId={CARE_CONTRACT_ID}
+      clientId={CARE_CLIENT.id}
+      planItem={{ id: 5 }}
+      open
+      onOpenChange={setOpen}
+    />
+  );
+}
+
 function OpenCadence() {
   const [open, setOpen] = useState(true);
   if (!open) return null;
@@ -192,7 +210,7 @@ function OpenCadence() {
 }
 
 function body(state: State, today: string) {
-  if (state === "list" || state === "cadence") {
+  if (state === "list" || state === "team" || state === "cadence") {
     return (
       <Suspense fallback={<HrHarnessLoading />}>
         <CareScreen />
@@ -205,6 +223,7 @@ function body(state: State, today: string) {
       <ContractHeader start={contractStart(today)} />
       <ContractCareTab contractId={CARE_CONTRACT_ID} />
       {state === "techcard" ? <OpenTechCard today={today} /> : null}
+      {state === "conversation" ? <OpenConversation /> : null}
     </div>
   );
 }
@@ -216,8 +235,8 @@ export default function HrCarePreviewPage() {
   return (
     <HrHarnessShell
       client={ready.client}
-      title="Opieka nad konsultantem"
-      note="Dane fikcyjne, bez zapytań. Ogląda opiekunka (Talent Community Manager); plan kontaktów liczy się od startu kontraktu."
+      title="Opieka nad konsultantami"
+      note="Dane fikcyjne, bez zapytań. Ogląda opiekunka (Talent Community Manager); w „Zespole opiekunów” — head back office."
       states={STATES}
       current={state}
     >

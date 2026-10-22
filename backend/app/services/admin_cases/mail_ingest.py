@@ -38,7 +38,11 @@ Reguły:
 * załączniki tylko jako metadane (nazwa, typ, rozmiar) — bez treści plików,
 * **odpowiedź na komunikat do konsultantów** (znacznik ``[Komunikat <id>/<kod>]``
   w temacie nowej sprawy) albo odbity mail — sprawa dostaje odnośnik do
-  komunikatu i kontraktu nadawcy (``care/announcements.link_mail_case``).
+  komunikatu i kontraktu nadawcy (``care/announcements.link_mail_case``),
+* **mail od konsultanta** (nadawca = e-mail z kontraktu) z dokładnie jednym
+  aktywnym kontraktem — nowa sprawa dostaje ``contract_id``
+  (``admin_cases/contract_links.link_new_mail_case``); kilka kontraktów
+  i mail z firmy klienta to tylko propozycje przy odczycie.
 
 Klient Graph jest wstrzykiwany (``AdminMailbox``); testy podają fałszywą
 skrzynkę. Prawdziwa skrzynka idzie przez rejestrację HR (``acquire_hr_token``)
@@ -398,6 +402,22 @@ async def _ingest_message(
 
         await link_mail_case(
             db, case, subject=subject, sender_email=sender_email, body_text=body_text
+        )
+        # Mail od konsultanta z dokładnie jednym aktywnym kontraktem — sprawa
+        # wie, kogo dotyczy. Kilka kontraktów albo mail z firmy klienta =
+        # propozycje przy odczycie (``contract_links.link_suggestions``).
+        from app.services.admin_cases.contract_links import (
+            link_new_mail_case,
+            sender_authenticated,
+        )
+
+        await link_new_mail_case(
+            db,
+            case,
+            sender_email=sender_email,
+            authenticated=sender_authenticated(
+                msg.get("internetMessageHeaders"), sender_email
+            ),
         )
     return outcome
 

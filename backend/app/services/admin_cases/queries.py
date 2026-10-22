@@ -9,15 +9,34 @@ z terminem najpóźniej w piątek tego tygodnia (też po terminie), „Bez osoby
 = otwarta bez przypisanej osoby. Filtrują po stronie serwera (lista ma
 limit), a liczniki ``counts`` liczy jedno zapytanie z grupowaniem po
 obszarze — w zakresie czytającego i wyszukiwania, bez filtrów chipów.
+
+Opieka (22.10.2026): kontrakt na karcie niesie efektywnego opiekuna
+(łańcuch ``care.access.effective_owners``) i zdrowie relacji (tylko dla
+czytającego z kręgu D11 — liczy ``care.health``), chip „Moi podopieczni”
+(``mine_care``) to sprawy kontraktów, których efektywnym opiekunem jest
+czytający. Szczegół sprawy z kontraktem ma sekcję ``consultant``, bez
+kontraktu — propozycje „Kogo dotyczy?” (``contract_links``). Karta
+konsultanta w opiece czyta ``cases_for_contract``. Dane opieki liczą się
+w punkcie zapisu: awaria modułu opieki nie kładzie tablicy spraw.
+
+Zakres (audyt bezpieczeństwa 22.10.2026): obsługa Spraw widzi sprawy
+wszystkich kontraktów, ale dane opieki (opiekun, rytm, ostatnia rozmowa,
+inne sprawy, zdrowie) tylko dla kontraktów klientów w swoim zakresie
+(``care.access.allowed_client_ids`` — portfel Delivery Leada); spoza
+zakresu zostaje osoba i klient. Sprawa w karcie i na osi konsultanta bez
+``may_read`` ma tytuł zastępczy „Sprawa: <obszar>” i nie ma osoby
+(``redact_case_title`` — negocjacje też).
 """
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case as sql_case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today, local_now
@@ -25,13 +44,27 @@ from app.models.admin_case import AdminCase, AdminCaseComment, AdminCaseMessage
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
+from app.models.hr_ops import HrAuditEvent
 from app.models.user import User, UserRole
 from app.services.admin_cases import rules
 from app.services.admin_cases.service import is_handler, may_read
 
+logger = logging.getLogger(__name__)
+
 #: Zrobione sprawy starsze niż tyle dni schodzą z tablicy (zostają w filtrze).
 DONE_VISIBLE_DAYS = 30
 LIST_LIMIT = 500
+#: Karta konsultanta: zamknięte sprawy kontraktu z tylu dni i najwyżej tyle spraw.
+CONTRACT_CLOSED_VISIBLE_DAYS = 90
+CONTRACT_CASES_LIMIT = 30
+#: Fragment ostatniej rozmowy opieki w szczególe sprawy.
+EXCERPT_MAX = 160
+
+FORM_LABELS: dict[str, str] = {
+    "b2b": "B2B",
+    "uop": "Umowa o pracę",
+    "uzlecenie": "Umowa zlecenie",
+}
 
 #: Imię i nazwisko konsultanta z kontraktu (kandydat trzyma je w dwóch kolumnach).
 CANDIDATE_FULL_NAME = func.concat_ws(" ", Candidate.name, Candidate.lastname)
@@ -49,6 +82,8 @@ class ListFilters:
     week: bool = False
     #: Otwarte bez przypisanej osoby.
     unassigned: bool = False
+    #: „Moi podopieczni”: kontrakty, których efektywnym opiekunem jest czytający.
+    mine_care: bool = False
 
 
 OPEN_STATUSES = ("new", "in_progress", "waiting")
@@ -72,14 +107,64 @@ async def _names(db: AsyncSession, ids: set[int]) -> dict[int, str]:
     return {row.id: row.name for row in rows}
 
 
+async def _health(
+    db: AsyncSession, ids: Iterable[int], viewer: User
+) -> dict[int, Optional[dict[str, Any]]]:
+    """Zdrowie relacji (``None`` poza kręgiem D11 — rozstrzyga ``care.health``)."""
+
+    wanted = sorted(set(ids))
+    if not wanted:
+        return {}
+    try:
+        from app.services.care.health import health_for_contracts
+    except ImportError:  # TODO(B1): moduł zdrowia relacji jeszcze nie wszedł
+        return {}
+    try:
+        async with db.begin_nested():
+            return dict(await health_for_contracts(db, wanted, viewer=viewer))
+    except Exception:  # noqa: BLE001 — zdrowie to dodatek, nie warunek tablicy
+        logger.exception("[admin_cases] zdrowie relacji nie policzone")
+        return {}
+
+
+async def _care_owners(
+    db: AsyncSession, ids: Iterable[int]
+) -> dict[int, tuple[Optional[int], Optional[str]]]:
+    """Kontrakt → (efektywny opiekun, jego nazwa); awaria opieki = pusto."""
+
+    wanted = sorted(set(ids))
+    if not wanted:
+        return {}
+    from app.services.care import access as care_access
+
+    try:
+        async with db.begin_nested():
+            contracts = await care_access.contracts_by_id(db, wanted)
+            owners = await care_access.effective_owners(db, list(contracts.values()))
+            names = await care_access.user_names(
+                db, (choice.user_id for choice in owners.values())
+            )
+    except Exception:  # noqa: BLE001 — sprawy działają bez modułu opieki
+        logger.exception("[admin_cases] opiekun kontraktów nie policzony")
+        return {}
+    return {
+        contract_id: (choice.user_id, names.get(choice.user_id))
+        for contract_id, choice in owners.items()
+    }
+
+
 async def _contract_labels(
-    db: AsyncSession, ids: set[int]
+    db: AsyncSession, ids: set[int], viewer: User
 ) -> dict[int, dict[str, Any]]:
     if not ids:
         return {}
+    from app.services.care import access as care_access
+
     rows = await db.execute(
         select(
             Contract.id,
+            Contract.client_id,
+            Contract.candidate_id,
             Contract.start_date,
             Contract.end_date,
             CANDIDATE_FULL_NAME.label("candidate_name"),
@@ -90,16 +175,27 @@ async def _contract_labels(
         .outerjoin(Client, Client.id == Contract.client_id)
         .where(Contract.id.in_(ids))
     )
-    return {
-        row.id: {
+    owners = await _care_owners(db, ids)
+    health = await _health(db, ids, viewer)
+    allowed = await care_access.allowed_client_ids(viewer, db)
+    out: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        in_scope = care_access.client_in_scope(row.client_id, allowed)
+        owner_id, owner_name = (
+            owners.get(row.id, (None, None)) if in_scope else (None, None)
+        )
+        out[row.id] = {
             "id": row.id,
+            "candidate_id": row.candidate_id,
             "candidate_name": row.candidate_name,
             "client_name": row.client_name,
             "start_date": row.start_date,
             "end_date": row.end_date,
+            "care_owner_user_id": owner_id,
+            "care_owner_name": owner_name,
+            "health": health.get(row.id) if in_scope else None,
         }
-        for row in rows
-    }
+    return out
 
 
 def _card(
@@ -149,10 +245,39 @@ def _search(term: str):
     )
 
 
+async def _cared_contract_ids(
+    db: AsyncSession, viewer: User, scope: list, *, recent: datetime
+) -> set[int]:
+    """Kontrakty spraw z tablicy, których efektywnym opiekunem jest czytający.
+
+    Bierzemy tylko kontrakty spraw widocznych na tablicy (otwarte i zrobione
+    z ostatnich dni) — każdy kontrakt ma sprawę wejścia, więc liczenie
+    opiekuna dla całej historii rosłoby z każdym rokiem.
+    """
+
+    ids = set(
+        await db.scalars(
+            select(AdminCase.contract_id)
+            .where(
+                *scope,
+                AdminCase.contract_id.is_not(None),
+                or_(
+                    AdminCase.status.in_(OPEN_STATUSES),
+                    AdminCase.closed_at >= recent,
+                ),
+            )
+            .distinct()
+        )
+    )
+    owners = await _care_owners(db, ids)
+    return {cid for cid, (owner_id, _name) in owners.items() if owner_id == viewer.id}
+
+
 async def _chip_counts(
-    db: AsyncSession, scope: list, *, friday: date
+    db: AsyncSession, scope: list, *, friday: date, cared: set[int]
 ) -> dict[str, Any]:
-    """Liczniki chipów: otwarte sprawy po obszarze, „na ten tydzień”, „bez osoby”."""
+    """Liczniki chipów: otwarte sprawy po obszarze, „na ten tydzień”, „bez osoby”,
+    „moi podopieczni”."""
 
     rows = (
         await db.execute(
@@ -166,10 +291,20 @@ async def _chip_counts(
             .group_by(AdminCase.area)
         )
     ).all()
+    mine_care = 0
+    if cared:
+        mine_care = await db.scalar(
+            select(func.count(AdminCase.id)).where(
+                AdminCase.status.in_(OPEN_STATUSES),
+                AdminCase.contract_id.in_(sorted(cared)),
+                *scope,
+            )
+        )
     return {
         "areas": {area: int(total) for area, total, _w, _u in rows},
         "week": sum(int(w) for _a, _t, w, _u in rows),
         "unassigned": sum(int(u) for _a, _t, _w, u in rows),
+        "mine_care": int(mine_care or 0),
     }
 
 
@@ -186,6 +321,10 @@ async def list_cases(
     if term:
         scope.append(_search(term))
     stmt = stmt.where(*scope)
+    recent = datetime.now(timezone.utc) - timedelta(days=DONE_VISIBLE_DAYS)
+    cared = await _cared_contract_ids(db, viewer, scope, recent=recent)
+    if filters.mine_care:
+        stmt = stmt.where(AdminCase.contract_id.in_(sorted(cared) or [-1]))
     if filters.week:
         stmt = stmt.where(
             AdminCase.status.in_(OPEN_STATUSES), AdminCase.due_on <= friday
@@ -202,7 +341,6 @@ async def list_cases(
         stmt = stmt.where(AdminCase.status == filters.status)
     else:
         # Tablica: zamknięte tylko na życzenie, zrobione z ostatnich 30 dni.
-        recent = datetime.now(timezone.utc) - timedelta(days=DONE_VISIBLE_DAYS)
         visible = or_(
             AdminCase.status.in_(("new", "in_progress", "waiting")),
             and_(AdminCase.status == "done", AdminCase.closed_at >= recent),
@@ -227,7 +365,7 @@ async def list_cases(
     }
     names = await _names(db, user_ids)
     contracts = await _contract_labels(
-        db, {case.contract_id for case in cases if case.contract_id}
+        db, {case.contract_id for case in cases if case.contract_id}, viewer
     )
     month_start = local_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     done_this_month = await db.scalar(
@@ -248,7 +386,7 @@ async def list_cases(
         "total": len(cases),
         "truncated": truncated,
         "done_this_month": int(done_this_month or 0),
-        "counts": await _chip_counts(db, scope, friday=friday),
+        "counts": await _chip_counts(db, scope, friday=friday, cared=cared),
         "today": today,
         "week_end": friday,
         "can_manage": is_handler(viewer),
@@ -286,11 +424,21 @@ async def case_detail(
     } | {c.author_user_id for c in comments if c.author_user_id is not None}
     names = await _names(db, user_ids)
     contracts = await _contract_labels(
-        db, {case.contract_id} if case.contract_id else set()
+        db, {case.contract_id} if case.contract_id else set(), viewer
     )
     card = _card(case, names=names, contracts=contracts, today=business_today())
+    consultant = None
+    suggestions: list[dict[str, Any]] = []
+    if case.contract_id is not None:
+        consultant = await consultant_section(db, case, viewer)
+    elif is_handler(viewer):
+        from app.services.admin_cases.contract_links import link_suggestions
+
+        suggestions = await link_suggestions(db, case)
     return {
         **card,
+        "consultant": consultant,
+        "link_suggestions": suggestions,
         "description": case.description,
         "checklist": case.checklist or [],
         "lifecycle_case_id": case.lifecycle_case_id,
@@ -383,3 +531,265 @@ async def contract_options(db: AsyncSession, q: str) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+# ── Opieka: konsultant sprawy i sprawy konsultanta ───────────────────────────
+
+
+#: Pola sekcji „Konsultant”, które są danymi opieki — spoza zakresu ``None``.
+CARE_ONLY_FIELDS: tuple[str, ...] = (
+    "owner_user_id",
+    "owner_name",
+    "cadence_label",
+    "last_conversation",
+    "other_open_cases",
+    "health",
+)
+
+
+def redact_out_of_scope(section: dict[str, Any], *, in_scope: bool) -> dict[str, Any]:
+    """Sekcja „Konsultant” kontraktu spoza zakresu: osoba i klient bez opieki."""
+
+    if in_scope:
+        return section
+    return {**section, **{key: None for key in CARE_ONLY_FIELDS}}
+
+
+def _excerpt(text_value: Optional[str]) -> Optional[str]:
+    cleaned = " ".join((text_value or "").split())
+    if len(cleaned) <= EXCERPT_MAX:
+        return cleaned or None
+    return cleaned[: EXCERPT_MAX - 1].rstrip() + "…"
+
+
+async def consultant_section(
+    db: AsyncSession, case: AdminCase, viewer: User
+) -> Optional[dict[str, Any]]:
+    """Sekcja „Konsultant” sprawy z kontraktem (bez kwot).
+
+    Fragment ostatniej rozmowy opieki widzi tylko ktoś, kto prowadzi opiekę
+    u tego klienta (DL w portfelu, TCM, admin) — reszta dostaje samą datę.
+    Kontrakt klienta spoza zakresu czytającego: tylko osoba, klient, rola,
+    forma i koniec (``redact_out_of_scope``).
+    Zdrowie relacji tylko krąg D11 (``care.health``). Awaria modułu opieki =
+    ``None``, sprawa dalej się otwiera.
+    """
+
+    if case.contract_id is None:
+        return None
+    from app.services.care import access as care_access
+    from app.services.care import plan as care_plan
+    from app.services.care.cadence import LEVEL_LABELS
+    from app.services.care.cadence_rules import level_on
+
+    try:
+        async with db.begin_nested():
+            contract = (await care_access.contracts_by_id(db, [case.contract_id])).get(
+                case.contract_id
+            )
+            if contract is None:
+                return None
+            owner = (await care_access.effective_owners(db, [contract]))[contract.id]
+            names = await care_access.user_names(db, [owner.user_id])
+            periods = (await care_plan.periods_by_contract(db, [contract.id])).get(
+                contract.id, []
+            )
+            latest = (await care_plan.latest_conversations(db, [contract.id])).get(
+                contract.id
+            )
+            allowed = await care_access.allowed_client_ids(viewer, db)
+            other_open = await db.scalar(
+                select(func.count(AdminCase.id)).where(
+                    AdminCase.contract_id == contract.id,
+                    AdminCase.id != case.id,
+                    AdminCase.status.in_(OPEN_STATUSES),
+                )
+            )
+    except Exception:  # noqa: BLE001 — sprawa otwiera się bez sekcji opieki
+        logger.exception("[admin_cases] sekcja konsultanta nie policzona")
+        return None
+
+    today = business_today()
+    cadence_label = None
+    if contract.is_live:
+        level = level_on(contract.start_date or date.min, periods, today).level
+        cadence_label = LEVEL_LABELS.get(level)
+    in_scope = care_access.client_in_scope(contract.client_id, allowed)
+    sees_notes = care_access.is_care_worker(viewer) and in_scope
+    health = await _health(db, [contract.id], viewer) if in_scope else {}
+    section = {
+        "contract_id": contract.id,
+        "candidate_id": contract.candidate_id,
+        "candidate_name": contract.candidate_name,
+        "client_id": contract.client_id,
+        "client_name": contract.client_name,
+        "role": contract.job_title,
+        "form": FORM_LABELS.get(contract.contract_type or ""),
+        "order_end_on": contract.end_date,
+        "owner_user_id": owner.user_id,
+        "owner_name": names.get(owner.user_id) if owner.user_id else None,
+        "cadence_label": cadence_label,
+        "last_conversation": (
+            {
+                "on": latest.occurred_on,
+                "excerpt": _excerpt(latest.note) if sees_notes else None,
+            }
+            if latest is not None
+            else None
+        ),
+        "other_open_cases": int(other_open or 0),
+        "health": health.get(contract.id),
+    }
+    return redact_out_of_scope(section, in_scope=in_scope)
+
+
+def content_hidden(case: AdminCase, viewer: User) -> bool:
+    """Treść sprawy w karcie konsultanta: tylko ``may_read``; negocjacje nigdy."""
+
+    return case.area == "negotiation" or not may_read(viewer, case)
+
+
+def redact_case_title(case: AdminCase, viewer: User) -> Optional[str]:
+    """Tytuł sprawy dla czytelnika opieki; ``None`` = pokaż prawdziwy.
+
+    Bez ``may_read`` (obsługa Spraw albo osoba przypisana) tytuł bywa treścią
+    („Nowa stawka od stycznia”) — zostaje „Sprawa: <obszar>”. Dotyczy też
+    negocjacji: ich tytuł i osobę widzi tylko ``may_read``.
+    """
+
+    if may_read(viewer, case):
+        return None
+    return f"Sprawa: {rules.AREA_LABELS.get(case.area, case.area)}"
+
+
+def contract_case_row(
+    case: AdminCase, *, names: dict[int, str], viewer: User, today: date
+) -> dict[str, Any]:
+    """Sprawa w karcie konsultanta: tytuł, obszar, status, termin, osoba.
+
+    Bez opisu, maili i komentarzy — ``content_hidden`` mówi frontowi, czy
+    czytający może otworzyć sprawę (``may_read``; negocjacje nigdy z karty).
+    Bez ``may_read`` tytuł zastępczy i bez osoby (``redact_case_title``).
+    """
+
+    replaced = redact_case_title(case, viewer)
+    return {
+        "id": case.id,
+        "title": replaced or case.title,
+        "area": case.area,
+        "area_label": rules.AREA_LABELS.get(case.area, case.area),
+        "status": case.status,
+        "status_label": rules.STATUS_LABELS.get(case.status, case.status),
+        "due_on": case.due_on,
+        "follow_up_on": case.follow_up_on,
+        "overdue": bool(
+            case.due_on and case.due_on < today and not rules.is_terminal(case.status)
+        ),
+        "assignee_name": (
+            names.get(case.assignee_user_id)
+            if case.assignee_user_id and replaced is None
+            else None
+        ),
+        "source": case.source,
+        "content_hidden": content_hidden(case, viewer),
+    }
+
+
+async def cases_for_contract(
+    db: AsyncSession, contract_id: int, viewer: User
+) -> list[dict[str, Any]]:
+    """Sprawy kontraktu dla karty konsultanta (opieka).
+
+    Otwarte najpierw (termin rosnąco), potem zamknięte z ostatnich
+    ``CONTRACT_CLOSED_VISIBLE_DAYS`` dni. Wyłączony moduł „Sprawy” = pusta
+    lista (link do sprawy prowadziłby na 404). Zakres kontraktu sprawdza trasa.
+    """
+
+    from app.services.admin_cases.service import module_enabled
+
+    if not await module_enabled(db):
+        return []
+    recent = datetime.now(timezone.utc) - timedelta(days=CONTRACT_CLOSED_VISIBLE_DAYS)
+    is_open = AdminCase.status.in_(OPEN_STATUSES)
+    cases = list(
+        (
+            await db.scalars(
+                select(AdminCase)
+                .where(
+                    AdminCase.contract_id == contract_id,
+                    or_(is_open, AdminCase.closed_at >= recent),
+                )
+                .order_by(
+                    sql_case((is_open, 0), else_=1),
+                    AdminCase.due_on.asc().nulls_last(),
+                    AdminCase.closed_at.desc().nulls_last(),
+                    AdminCase.id.desc(),
+                )
+                .limit(CONTRACT_CASES_LIMIT)
+            )
+        ).all()
+    )
+    names = await _names(
+        db, {c.assignee_user_id for c in cases if c.assignee_user_id is not None}
+    )
+    today = business_today()
+    return [
+        contract_case_row(c, names=names, viewer=viewer, today=today) for c in cases
+    ]
+
+
+async def contract_case_events(
+    db: AsyncSession, contract_id: int, viewer: User
+) -> list[dict[str, Any]]:
+    """Zdarzenia spraw kontraktu dla osi konsultanta (bez treści).
+
+    Tytuł jak w karcie: bez ``may_read`` czytającego — „Sprawa: <obszar>”.
+
+    ``case_opened`` (założenie sprawy), ``case_closed`` (zrobiona albo
+    zamknięta) i ``case_linked`` (sprawa przypięta do kontraktu przez
+    czytnik albo obsługę — ślad ``case_linked`` w ``hr_audit_events``).
+    """
+
+    cases = list(
+        (
+            await db.scalars(
+                select(AdminCase)
+                .where(AdminCase.contract_id == contract_id)
+                .order_by(AdminCase.created_at.asc(), AdminCase.id.asc())
+                .limit(200)
+            )
+        ).all()
+    )
+    events: list[dict[str, Any]] = []
+    by_id = {c.id: c for c in cases}
+
+    def _event(kind: str, at: Any, c: AdminCase) -> dict[str, Any]:
+        return {
+            "kind": kind,
+            "at": at,
+            "case_id": c.id,
+            "title": redact_case_title(c, viewer) or c.title,
+            "area": c.area,
+            "area_label": rules.AREA_LABELS.get(c.area, c.area),
+        }
+
+    for c in cases:
+        events.append(_event("case_opened", c.created_at, c))
+        if c.closed_at is not None:
+            events.append(_event("case_closed", c.closed_at, c))
+    if by_id:
+        linked = (
+            await db.execute(
+                select(HrAuditEvent.entity_id, HrAuditEvent.created_at).where(
+                    HrAuditEvent.entity_type == "admin_case",
+                    HrAuditEvent.action == "case_linked",
+                    HrAuditEvent.entity_id.in_([str(cid) for cid in by_id]),
+                    HrAuditEvent.details["contract_id"].astext == str(contract_id),
+                )
+            )
+        ).all()
+        for entity_id, at in linked:
+            c = by_id.get(int(entity_id))
+            if c is not None:
+                events.append(_event("case_linked", at, c))
+    return sorted(events, key=lambda e: (e["at"], e["case_id"]))

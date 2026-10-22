@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
+import type { CaseArea } from "./admin-cases";
 import type { FeedbackReason, LastFeedback, OrgConsultant } from "./client-people";
 
 export type CareChannel = "phone" | "meeting" | "chat";
@@ -197,8 +198,17 @@ export interface ConversationPayload {
   project_end_on?: string | null;
   client_hiring?: boolean;
   client_hiring_note?: string | null;
+  /** „Klient zatrudnia”: role i źródło przy rozmowie — także bez „Co u klienta” (popyt bez karty). */
+  hiring_roles?: string[];
+  hiring_source?: HiringSource | null;
   follow_up_on?: string | null;
   plan_item_id?: number | null;
+  /** „Co u klienta” — podany tylko, gdy opiekun potwierdził albo zmienił stan (zapisuje kartę technologiczną). */
+  client_state?: ClientStatePayload | null;
+  /** Odpowiedzi na „Pytania z mapy klienta”. */
+  gap_answers?: GapAnswerPayload[];
+  /** „Coś do załatwienia?” — najwyżej 5 spraw z tym kontraktem. */
+  cases?: ConversationCasePayload[];
 }
 
 export interface TechCardPayload {
@@ -366,6 +376,10 @@ export interface ConsultantRow {
   suggested_level: CadenceLevel | null;
   conversations: { this_month: number; next_month: number };
   can_change_cadence: boolean;
+  /** Zdrowie relacji (krąg D11); `null` — czytający spoza kręgu albo serwer sprzed 22.10. */
+  health?: Health | null;
+  /** Aktywny wpis „Do przepięcia” (filtr „Do przepięcia”). */
+  redeploy_active?: boolean;
 }
 
 export interface CareConsultants {
@@ -679,7 +693,10 @@ export type TimelineKind =
   | "handoff"
   | "plan"
   | "order_end"
-  | "contract_end";
+  | "contract_end"
+  | "case_opened"
+  | "case_closed"
+  | "case_linked";
 
 export interface TimelineEvent {
   kind: TimelineKind;
@@ -688,6 +705,10 @@ export interface TimelineEvent {
   detail: string | null;
   link: string | null;
   future: boolean;
+  /** Zdarzenie `tech_card`: karta technologiczna („Edytuj” w historii). */
+  tech_card_id?: number | null;
+  /** Zdarzenia spraw: sprawa. */
+  case_id?: number | null;
 }
 
 export interface ContractTimeline {
@@ -743,6 +764,239 @@ export interface HandoffResult {
   recipients: PersonRef[];
   notified: PersonRef[];
   redeploy_item_id: number | null;
+}
+
+// ── Karta konsultanta, okno rozmowy, zakładka „Klienci” (22.10.2026) ──────
+// Kontrakty API ze specyfikacji przebudowy opieki (`GET …/card`,
+// `GET …/client-state`, `GET /clients`, rozszerzony zapis rozmowy).
+
+export type HealthLevel = "ok" | "watch" | "risk";
+
+/** Zdrowie relacji — widzi krąg D11; inni dostają `null` (etykiety nie ma). */
+export interface Health {
+  level: HealthLevel;
+  label: string;
+  /** Zdania „dlaczego” („chce zmiany projektu (01.10)”). */
+  reasons: string[];
+}
+
+export type NextStepKind = "conversation" | "feedback" | "front_office" | "raise_cadence";
+
+export interface NextStepMatch {
+  job_id: number;
+  title: string;
+  client_name: string | null;
+  score: number;
+}
+
+export interface NextStep {
+  kind: NextStepKind | null;
+  label: string;
+  detail: string | null;
+  matches?: NextStepMatch[];
+}
+
+/** Stan projektu u klienta — z ostatniej rozmowy albo karty technologicznej. */
+export interface ClientProjectState {
+  area: { id: number; name: string } | null;
+  manager: { contact_id: number; name: string; position: string | null } | null;
+  team_size: string | null;
+  team_externals: number | null;
+  technologies: { skill_id: number; name: string }[];
+  vendors: string[];
+  hiring: { roles: string[]; source: HiringSource | string | null } | null;
+  /** `YYYY-MM`. */
+  project_end_month: string | null;
+  quote: string | null;
+}
+
+export interface ClientStateSource {
+  on: string;
+  author_name: string | null;
+  kind: "conversation" | "tech_card";
+}
+
+/** `source: null` — wiemy coś bez karty i rozmowy (np. sam menedżer z kontraktu). */
+export interface KnownProject extends ClientProjectState {
+  source: ClientStateSource | null;
+}
+
+export interface CardCase {
+  id: number;
+  title: string;
+  area: CaseArea | string;
+  area_label: string;
+  status: string;
+  status_label: string;
+  due_on: string | null;
+  follow_up_on: string | null;
+  assignee_name: string | null;
+  source: string;
+  /** Negocjacje i treść spoza uprawnień — tylko tytuł, obszar, status, termin i osoba. */
+  content_hidden: boolean;
+}
+
+export interface CardPlanItem {
+  id: number;
+  kind: PlanKind;
+  label: string;
+  due_on: string;
+  status: PlanStatus;
+  skip_reason: SkipReason | null;
+}
+
+export interface CardKpis {
+  last_contact: { on: string; days_ago: number } | null;
+  satisfaction: { value: number; previous: number | null } | null;
+  /** Tylko krąg D11 (`can_see_feedback`). */
+  manager_feedback: { avg: number | null; extension: string | null; on: string } | null;
+  order_end: { on: string; days: number } | null;
+}
+
+/** `GET /api/care/contracts/{id}/card` — jedna karta konsultanta (panel /care i zakładka kontraktu). */
+export interface ConsultantCardData {
+  contract_id: number;
+  candidate_id: number | null;
+  candidate_name: string | null;
+  client_id: number;
+  client_name: string;
+  role: string | null;
+  form: string | null;
+  start_on: string | null;
+  end_on: string | null;
+  owner: {
+    user_id: number | null;
+    name: string | null;
+    source: "contract" | "client" | "delivery_lead" | null;
+  };
+  cadence: { level: CadenceLevel; label: string; until_on: string | null } | null;
+  health: Health | null;
+  kpis: CardKpis;
+  next_step: NextStep | null;
+  known_project: KnownProject | null;
+  cases: CardCase[];
+  plan: CardPlanItem[];
+  can_edit: boolean;
+  can_change_owner: boolean;
+  can_see_feedback: boolean;
+}
+
+/**
+ * Skrót karty konsultanta dla panelu bocznego tablicy „Do zrobienia”
+ * (`components/work-board/WorkItemPanel`) — podzbiór `ConsultantCardData`
+ * z tej samej trasy i pod tym samym kluczem (`careKeys.card`). Przeniesiony
+ * z `care-board.ts` 22.10.2026, żeby jedna trasa miała jeden typ i jeden klucz.
+ */
+export interface CareContractCardSummary {
+  contract_id: number;
+  candidate_id: number | null;
+  candidate_name: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  role: string | null;
+  form: string | null;
+  start_on: string | null;
+  end_on: string | null;
+  owner: { user_id: number | null; name: string | null; source: string | null } | null;
+  cadence: { level: string; label: string; until_on: string | null } | null;
+  health: Health | null;
+  kpis: {
+    last_contact: { on: string; days_ago: number } | null;
+    satisfaction: { value: number; previous: number | null } | null;
+    manager_feedback?: { avg: number | null; extension: string | null; on: string } | null;
+    order_end: { on: string; days: number } | null;
+  };
+  known_project: {
+    manager: { contact_id: number; name: string; position: string | null } | null;
+  } | null;
+  cases: CardCase[];
+}
+
+export type ClientQuestionKind = "reports_to" | "area_without_source" | "single_source";
+
+export interface ClientQuestion {
+  key: string;
+  kind: ClientQuestionKind;
+  subject: string;
+  detail: string | null;
+  contact_id?: number | null;
+  area_id?: number | null;
+}
+
+/** `GET /api/care/contracts/{id}/client-state` — prawa kolumna okna rozmowy. */
+export interface ClientStateView {
+  state: ClientProjectState | null;
+  source: ClientStateSource | null;
+  questions: ClientQuestion[];
+}
+
+export interface ClientStateChanges {
+  area_id?: number;
+  new_area_name?: string;
+  manager_contact_id?: number;
+  team_size?: string;
+  team_externals?: number;
+  skill_ids?: number[];
+  new_skill_names?: string[];
+  vendors?: string[];
+  project_end_month?: string | null;
+  hiring_roles?: string[];
+  hiring_source?: string;
+}
+
+export interface ClientStatePayload {
+  confirmed: true;
+  changes: ClientStateChanges;
+}
+
+export interface GapAnswerPayload {
+  key: string;
+  reports_to_contact_id?: number;
+  skill_ids?: number[];
+  new_skill_names?: string[];
+  note?: string;
+}
+
+export interface ConversationCasePayload {
+  title: string;
+  area: CaseArea;
+  assignee_user_id?: number;
+  due_on?: string;
+}
+
+/** Odpowiedź zapisu rozmowy (od 22.10.2026). */
+export interface ConversationResult {
+  conversation_id: number;
+  tech_card_id: number | null;
+  case_ids: number[];
+  demand_notified: number;
+  /** Menedżera z rozmowy nie wpisano — kontrakt ma innego, a zmienia go tylko DL albo admin. */
+  manager_kept?: boolean;
+}
+
+/** Wiersz zakładki „Klienci” (`GET /api/care/clients`). */
+export interface CareClientRow {
+  client_id: number;
+  name: string;
+  delivery_leads: string[];
+  default_owner_name: string | null;
+  consultants: number;
+  health: { ok: number; watch: number; risk: number } | null;
+  managers_known: number;
+  structure_open: number;
+  last_feedback_on: string | null;
+  feedback_pending: number;
+  /** `gaps: null` = nie liczone (przybliżenie bez pełnej mapy). */
+  map: { last_source_on: string | null; gaps: number | null } | null;
+  demand: { skills: string[]; open_jobs: number; hiring_signal: boolean };
+  ending_60: { contract_id: number; name: string; end_on: string }[];
+}
+
+export interface CareClients {
+  rows: CareClientRow[];
+  scope?: "mine" | "all";
+  /** Krąg D11 — zdrowie w wierszach; poza nim `health: null`. */
+  health_visible?: boolean;
 }
 
 export const FRONT_OFFICE_REASON_LABELS: Record<FrontOfficeReason, string> = {
@@ -880,6 +1134,9 @@ export const careKeys = {
   timeline: (contractId: number) => ["care", "contract", contractId, "timeline"] as const,
   frontOffice: (contractId: number) =>
     ["care", "contract", contractId, "front-office"] as const,
+  card: (contractId: number) => ["care", "contract", contractId, "card"] as const,
+  clientState: (contractId: number) => ["care", "contract", contractId, "client-state"] as const,
+  clients: (scope: "mine" | "all") => ["care", "clients", scope] as const,
 };
 
 export function useContractCare(contractId: number, enabled = true) {
@@ -1125,29 +1382,56 @@ function useContractMutation<TVars>(
       queryClient.invalidateQueries({ queryKey: careKeys.summary });
       queryClient.invalidateQueries({ queryKey: ["care", "week"] });
       queryClient.invalidateQueries({ queryKey: careKeys.timeline(contractId) });
+      queryClient.invalidateQueries({ queryKey: careKeys.card(contractId) });
+      queryClient.invalidateQueries({ queryKey: ["care", "board"] });
+      queryClient.invalidateQueries({ queryKey: ["care", "clients"] });
     },
   });
 }
 
+/** Opiekun kontraktu; `userId: null` = domyślny (klient albo DL). Powód trafia na oś. */
 export function useSetContractOwner(contractId: number) {
-  return useContractMutation(contractId, async (userId: number | null) =>
-    (
-      await api.put<ContractCare>(`/api/care/contracts/${contractId}/owner`, {
-        user_id: userId,
-      })
-    ).data,
+  return useContractMutation(
+    contractId,
+    async ({ userId, reason }: { userId: number | null; reason?: OwnerReason | null }) =>
+      (
+        await api.put<ContractCare>(`/api/care/contracts/${contractId}/owner`, {
+          user_id: userId,
+          ...(reason ? { reason } : {}),
+        })
+      ).data,
   );
 }
 
+/**
+ * Zapis rozmowy (z kartą „Co u klienta”, odpowiedziami na luki i sprawami
+ * w jednej transakcji serwera). Odpowiedź to identyfikatory, nie zakładka —
+ * po zapisie odświeżamy wszystko, czego rozmowa dotyka.
+ */
 export function useAddConversation(contractId: number) {
-  return useContractMutation(contractId, async (payload: ConversationPayload) =>
-    (
-      await api.post<ContractCare>(
-        `/api/care/contracts/${contractId}/conversations`,
-        payload,
-      )
-    ).data,
-  );
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: ConversationPayload) =>
+      (
+        await api.post<ConversationResult>(
+          `/api/care/contracts/${contractId}/conversations`,
+          payload,
+        )
+      ).data,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["care", "contract", contractId] });
+      void queryClient.invalidateQueries({ queryKey: ["care", "client"] });
+      void queryClient.invalidateQueries({ queryKey: careKeys.consultants });
+      void queryClient.invalidateQueries({ queryKey: careKeys.assignment });
+      void queryClient.invalidateQueries({ queryKey: ["care", "redeploy"] });
+      void queryClient.invalidateQueries({ queryKey: careKeys.summary });
+      void queryClient.invalidateQueries({ queryKey: ["care", "week"] });
+      void queryClient.invalidateQueries({ queryKey: ["care", "board"] });
+      void queryClient.invalidateQueries({ queryKey: ["care", "clients"] });
+      // Sprawy założone z rozmowy stoją na tablicy spraw.
+      void queryClient.invalidateQueries({ queryKey: ["admin-cases"] });
+    },
+  });
 }
 
 export function useUpdatePlanItem(contractId: number) {
@@ -1230,7 +1514,11 @@ export function useUpdateRedeploy() {
           ...(note !== undefined ? { note } : {}),
         })
       ).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: careKeys.all }),
+    // `careKeys.all` obejmuje tablicę (`["care","board"]`); sprawy — osobny prefiks.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: careKeys.all });
+      void queryClient.invalidateQueries({ queryKey: ["admin-cases"] });
+    },
   });
 }
 
@@ -1360,4 +1648,45 @@ export function monthEnd(month: string): string | null {
 /** `YYYY-MM` z daty ISO (do pola miesiąca końca projektu). */
 export function monthOf(date: string | null | undefined): string {
   return date ? date.slice(0, 7) : "";
+}
+
+/** Karta konsultanta — ten sam odczyt w panelu `/care?contract=` i w zakładce „Opieka” kontraktu. */
+export function useConsultantCard(contractId: number, enabled = true) {
+  return useQuery({
+    queryKey: careKeys.card(contractId),
+    queryFn: async () =>
+      (await api.get<ConsultantCardData>(`/api/care/contracts/${contractId}/card`)).data,
+    enabled: enabled && Number.isFinite(contractId) && contractId > 0,
+  });
+}
+
+/** Skrót karty do panelu tablicy — ten sam odczyt i klucz co `useConsultantCard`. */
+export function useCareContractCardSummary(contractId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: careKeys.card(contractId ?? 0),
+    queryFn: async () =>
+      (await api.get<CareContractCardSummary>(`/api/care/contracts/${contractId}/card`)).data,
+    enabled: enabled && contractId != null && contractId > 0,
+  });
+}
+
+/** „Co u klienta” i pytania z mapy klienta do okna rozmowy. */
+export function useClientState(contractId: number, enabled = true) {
+  return useQuery({
+    queryKey: careKeys.clientState(contractId),
+    queryFn: async () =>
+      (await api.get<ClientStateView>(`/api/care/contracts/${contractId}/client-state`)).data,
+    enabled: enabled && Number.isFinite(contractId) && contractId > 0,
+  });
+}
+
+/** Zakładka „Klienci”: portfel z kompletnością wiedzy, zdrowiem i popytem (liczone hurtem). */
+export function useCareClients(scope: "mine" | "all", enabled = true) {
+  return useQuery({
+    queryKey: careKeys.clients(scope),
+    queryFn: async () =>
+      (await api.get<CareClients>("/api/care/clients", { params: { scope } })).data,
+    staleTime: 60_000,
+    enabled,
+  });
 }

@@ -2,7 +2,6 @@
 import { describe, expect, it } from "vitest";
 
 import { handoffToast } from "@/components/care/week/FrontOfficeSection";
-import { contractParam } from "@/components/care/week/WeekPanel";
 import {
   daysBetween,
   feedbackDueText,
@@ -190,12 +189,6 @@ describe("plan dni", () => {
 });
 
 describe("panel i przekazanie", () => {
-  it("`?contract=` tylko z dodatnią liczbą całkowitą", () => {
-    expect(contractParam("4504")).toBe(4504);
-    expect(contractParam("0")).toBeNull();
-    expect(contractParam("abc")).toBeNull();
-    expect(contractParam(null)).toBeNull();
-  });
 
   it("toast mówi, kto naprawdę dostał powiadomienie", () => {
     const base = {

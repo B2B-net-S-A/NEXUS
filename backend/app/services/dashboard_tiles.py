@@ -72,6 +72,10 @@ TileType = Literal[
     "hr_my_time",
     "hr_approvals",
     "equipment_tasks",
+    # Opieka (22.10.2026): „Moja opieka” z tablicy `/api/care/board?scope=mine`
+    # i „Zagrożeni konsultanci” z `/api/care/consultants` (zdrowie „Ryzyko”).
+    "care_mine",
+    "care_at_risk",
     "metric_number",
     "metric_chart",
     "metric_funnel",

@@ -16,9 +16,13 @@
  * jej parametr trasy i router, który adresy tego klienta przepisuje na adres
  * harnessu — klik w zakładkę zostaje tutaj.
  *
- * `?tab=` wybiera zakładkę: profil, zasady, projekty, zamowienia, importy-md,
- * zespol, kontakty, umowy-ramowe, analityka. `?tab=importy-md&import=3302`
- * otwiera import, `?tab=umowy-ramowe&framework=7001` rozwija aneksy umowy.
+ * `?tab=` wybiera zakładkę: profil, zasady, projekty, zamowienia, zespol,
+ * kontakty, ludzie, umowy-ramowe oraz spod „Więcej” importy-md i analityka.
+ * `?tab=importy-md&import=3302` otwiera import, `?tab=umowy-ramowe&framework=7001`
+ * rozwija aneksy umowy. `?tab=ludzie` (moduł opieki włączony w zasiewie
+ * `/api/hr/config`) — „Ludzie i technologie” na danych z harnessów opieki;
+ * `&view=drzewo|mapa` przełącza widok, dawne `?tab=struktura|technologie`
+ * przechodzą na nowy klucz.
  *
  * Osoby, firma, numery i kwoty są zmyślone (repo jest publiczne) — `fixtures.ts`.
  */
@@ -36,6 +40,15 @@ import { CLIENT_CONFLICTS_LIMIT } from "@/components/client-profile/ClientConfli
 import { clientMdImportsQueryKey } from "@/components/client-profile/orders/ClientMdImportsTab";
 import { api } from "@/lib/api";
 import { conflictKeys } from "@/lib/conflicts";
+import { careKeys } from "@/lib/api/care";
+import { clientPeopleKeys } from "@/lib/api/client-people";
+import { hrKeys } from "@/lib/api/hr";
+import { structureKeys } from "@/lib/api/structure-proposals";
+import { warsawToday } from "@/lib/warsaw-date";
+import { hrConfig } from "@/app/preview/hr-fixtures";
+import { clientOrgWithHealth, peopleTechMap } from "@/app/preview/hr-client-people/fixtures";
+import { bankStructure } from "@/app/preview/hr-client-structure/fixtures";
+import { CARE_OWNERS } from "@/app/preview/hr-client-tech/fixtures";
 import { useAuthStore } from "@/store/auth";
 import { useTabsStore, type Tab } from "@/store/tabs";
 
@@ -121,6 +134,29 @@ function seededClient(data: ClientProfileFixtures): QueryClient {
   for (const detail of data.mdImports.details) {
     seed([...clientMdImportsQueryKey(CLIENT_ID), detail.id], detail);
   }
+
+  // „Ludzie i technologie” (22.10.2026): moduł opieki włączony, dane banku
+  // z harnessów opieki przepięte na tego klienta.
+  const today = warsawToday();
+  // Tylko moduł opieki — inne moduły dołożyłyby zakładki i pola z niezasianymi zapytaniami.
+  const hr = hrConfig({ is_admin: true });
+  const onlyCare = Object.fromEntries(
+    Object.keys(hr.open_modules).map((key) => [key, key === "care"]),
+  ) as typeof hr.open_modules;
+  seed(hrKeys.config, { ...hr, modules: onlyCare, open_modules: onlyCare });
+  seed(clientPeopleKeys.org(CLIENT_ID), {
+    ...clientOrgWithHealth(today),
+    client_id: CLIENT_ID,
+    client_name: data.client.name,
+  });
+  seed(careKeys.clientMap(CLIENT_ID), {
+    ...peopleTechMap(today),
+    client_id: CLIENT_ID,
+    client_name: data.client.name,
+  });
+  seed(structureKeys.client(CLIENT_ID), { ...bankStructure(), client_id: CLIENT_ID });
+  seed(careKeys.clientUnlinkedCards(CLIENT_ID), { items: [], contracts: [], can_link: true });
+  seed(careKeys.owners, CARE_OWNERS);
 
   // Zamówienia — minimalnie; pełny widok ma `/preview/client-orders`.
   seed(["client-order-groups", CLIENT_ID], data.orderGroups);
@@ -237,7 +273,8 @@ function ClientProfileTabsHarness() {
             <p className="text-sm text-muted-foreground">
               Publiczny podgląd na fikcyjnych danych. Zero zapytań do API. Zakładkę
               wybiera <code>?tab=</code>: profil, zasady, projekty, zamowienia,
-              importy-md, zespol, kontakty, umowy-ramowe, analityka.
+              zespol, kontakty, ludzie, umowy-ramowe; pod „Więcej”: importy-md,
+              analityka.
             </p>
           </header>
           <HarnessRouting>

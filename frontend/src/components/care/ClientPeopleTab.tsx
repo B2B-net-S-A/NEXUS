@@ -142,11 +142,19 @@ function ProposalsSection({ clientId }: { clientId: number }) {
 }
 
 /**
- * Zakładka klienta „Struktura u klienta” (etap 2, 17.10.2026): działy → osoby
- * klienta z wcięciem po „Podlega pod” → nasi konsultanci pod menedżerem;
- * panel osoby z edycją „Podlega pod” i „Dział” oraz zapisem opinii (D8–D11).
+ * Drzewo osób klienta (etap 2, 17.10.2026; od 22.10.2026 widok „Drzewo osób”
+ * zakładki „Ludzie i technologie”): działy → osoby klienta z wcięciem po
+ * „Podlega pod” → nasi konsultanci pod menedżerem; panel osoby z edycją
+ * „Podlega pod” i „Dział” oraz zapisem opinii (D8–D11). Zakładka ma nad
+ * widokami własny pasek „Do zatwierdzenia” — wtedy `showProposals={false}`.
  */
-export function ClientPeopleTab({ clientId }: { clientId: number }) {
+export function ClientPeopleTab({
+  clientId,
+  showProposals = true,
+}: {
+  clientId: number;
+  showProposals?: boolean;
+}) {
   const query = useClientOrg(clientId);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<FeedbackTarget | null>(null);
@@ -217,7 +225,7 @@ export function ClientPeopleTab({ clientId }: { clientId: number }) {
         </Button>
       </div>
 
-      <ProposalsSection clientId={clientId} />
+      {showProposals ? <ProposalsSection clientId={clientId} /> : null}
 
       {org.requests.length ? (
         <section
