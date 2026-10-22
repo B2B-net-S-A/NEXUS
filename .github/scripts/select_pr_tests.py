@@ -106,8 +106,9 @@ _ALWAYS = (
 # ``tests/data/authz_golden``). Bramki siedzą w zależnościach rozsianych po
 # całym ``app/``, więc zmiana dowolnego pliku aplikacji może zmienić werdykt
 # którejś trasy — a żadna reguła niżej nie wybierze testu, który nie wymienia
-# modułu z nazwy. Bez bazy, ale najdłuższy plik sita: ~150 s na runnerze
-# (w shardzie kolejki 390 s), dlatego dzielony po trasach między części sita.
+# modułu z nazwy. Bez bazy, ale najdłuższy plik sita: ~150 s na runnerze,
+# w shardzie kolejki 185–390 s (tracer pokrycia + rozrzut runnerów), dlatego
+# dzielony po trasach między części sita.
 _AUTHZ_MATRIX = "tests/test_authz_guard_matrix.py"
 _AUTHZ_GOLDEN_DIR = "tests/data/authz_golden/"
 _AUTHZ_SLICE_ENV = "AUTHZ_MATRIX_SLICE"
@@ -116,6 +117,12 @@ _AUTHZ_SLICE_ENV = "AUTHZ_MATRIX_SLICE"
 # fixture'ami bazy — mapa liczy odstępy między testami w logu) + narzut
 # procesu pytest: kolekcja, import aplikacji i pierwszy test. Zmierzone
 # 21.10.2026 na biegach sita: 36 s przy 34 plikach, 79–102 s przy 186–287.
+#
+# Mapa pochodzi z shardów kolejki, które biegną pod tracerem pokrycia
+# (``--cov-branch``); sito biegnie bez niego. Mediana stosunku kolejka/sito
+# na 337 plikach z biegów 21.10.2026: 1,25 (testy na bazie ~1,0–1,3×, czysty
+# Python do ~2–2,8×, np. macierz bramek tras). Stąd jeden współczynnik.
+_NO_COVERAGE_FACTOR = 0.8
 _RUN_OVERHEAD_SECONDS = 30.0
 _PER_FILE_OVERHEAD_SECONDS = 0.3
 # Części sita (matrix joba w ci.yml musi mieć tyle samo pozycji) i czas
@@ -282,10 +289,12 @@ def plan_shards(
 
 
 def _load_durations() -> dict[str, float]:
+    """Mapa czasów kolejki przeliczona na sito (bez pomiaru pokrycia)."""
     try:
-        return json.loads(_DURATIONS.read_text(encoding="utf-8"))
+        raw = json.loads(_DURATIONS.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    return {name: seconds * _NO_COVERAGE_FACTOR for name, seconds in raw.items()}
 
 
 def main() -> None:

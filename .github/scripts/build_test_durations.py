@@ -18,14 +18,16 @@ Użycie (logi per job, bo log zbiorczy ``gh run view --log`` bywa obcięty):
     done
     python .github/scripts/build_test_durations.py job_*.log
 
-Kilka przebiegów = MEDIANA per plik (od 21.10.2026; wcześniej średnia). Ten
-sam plik potrafi trwać 2–5× dłużej w shardzie kolejki niż w sicie PR-a
-(``test_authz_guard_matrix.py``: 390 s w shardzie, 78–157 s w sicie), a średnia
-z dwóch próbek ciągnie wynik do odstającej. Dlatego do logów shardów kolejki
-dokładaj logi sita (``Backend (pytest, zmienione pliki …)``) — pliki, które sito
-uruchamia najczęściej, dostają wtedy czas z warunków sita. Plik bez pomiaru
-dostaje w conftest medianę, więc nieaktualna mapa tylko pogarsza równowagę —
-nigdy nie gubi testu.
+Kilka przebiegów = MEDIANA per plik (od 21.10.2026; wcześniej średnia) —
+ten sam shard na innym runnerze trwa 0,7–1,3× (zmierzone 21–22.10), a mediana
+nie idzie za jedną odstającą próbką. Dawaj WYŁĄCZNIE logi shardów kolejki:
+biegną z ``--cov --cov-branch``, a tracer pokrycia spowalnia testy czysto
+pythonowe nawet 2,8× (macierz bramek tras: 51 s bez pokrycia, 145 s z nim —
+lokalnie, ten sam wycinek). Logi sita PR-a (bez pokrycia) zaniżyłyby czasy
+tych plików i rozjechały wyważenie shardów; sito przelicza mapę samo
+(``_NO_COVERAGE_FACTOR`` w ``select_pr_tests.py``). Plik bez pomiaru dostaje
+w conftest medianę, więc nieaktualna mapa tylko pogarsza równowagę — nigdy
+nie gubi testu.
 """
 
 from __future__ import annotations
@@ -85,7 +87,7 @@ def main() -> None:
     if not samples:
         raise SystemExit("Żaden log nie zawierał wyników pytest -v.")
 
-    # Log sita z gałęzi PR-a niesie też pliki, których na mainie (jeszcze) nie ma.
+    # Log z gałęzi kolejki niesie też pliki, których na mainie już nie ma.
     result = {
         name: round(statistics.median(values), 1)
         for name, values in sorted(samples.items())
