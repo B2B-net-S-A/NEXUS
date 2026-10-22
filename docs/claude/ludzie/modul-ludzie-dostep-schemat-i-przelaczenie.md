@@ -591,3 +591,65 @@ razem z dodatkami. Logika i krąg widzących bez zmian — zmienił się układ.
   po przeciągnięciu nie przesuwa widoku. Powód: prod 20.10 — 44 osoby „Bez
   pionu” pod dwiema osobami dawały rząd 5384 px przy 623 px okna i otwarcie
   na pustym polu. Harness `/preview/hr-structure?state=big`.
+
+## Zakładki po przebudowie (22.10.2026)
+
+Decyzja Artura z 22.10.2026, makiety „Przed i po”: https://claude.ai/artifact/Ty1KJh5AaBcGA5s6EtVF3A.
+Moduł miał osiem zakładek, każda rola widziała inny zestaw i inną kolejność.
+Artur chciał uproszczenia bez wielkiego łączenia, tak żeby ludzie nie musieli
+szukać funkcji. Poniższe reguły łatwo cofnąć „przy okazji”, dlatego je spisujemy.
+
+### Pasek zakładek
+
+- Kolejność jest stała: **Katalog · Mój zespół · Kalendarz · Akceptacje · Płace**,
+  a na końcu tymczasowo **Sprawy**. Kto nie ma dostępu, nie widzi zakładki, ale
+  reszta się nie przestawia (`peopleSections()` w `PeopleSectionNav.tsx`).
+- Nie przywracaj zakładek „Struktura” ani „Moje zgody”:
+  - Struktura to widok **„Schemat”** w Katalogu (przełącznik „Lista | Schemat”,
+    tylko Kadry i admin). `/people/structure` przekierowuje na `/people?view=schemat`.
+  - Moje prośby o zgodę są w **Mój czas → „Zgody i wydatki”** (`/my-time?tab=consents`).
+    `/people/consents` przekierowuje tam z `request` i `new`, a link z maila
+    (`approvals/service.py`) prowadzi od razu do Mojego czasu.
+- Sprawy zostają w Ludziach, dopóki nie przejdą do „Opieki nad konsultantami”
+  (przebudowa Opieki, osobny PR). Nie usuwaj zakładki, zanim Sprawy będą miały
+  nowe miejsce.
+- Etykieta to „Kalendarz”, nie „Kalendarz zespołu”.
+
+### Katalog
+
+- Rozjazdy kont z kartoteką („Do wyrównania”) i „Do uporządkowania” ze Struktury
+  to jedna lista **„Porządki · N”**. Otwiera się z przycisku w nagłówku w panelu
+  bocznym, a na co dzień nie zajmuje miejsca nad tabelą. Każda sekcja zachowuje
+  swoją bramkę. N z nieudanego odczytu to brak liczby, nigdy „0”.
+- Filtry Katalogu (szukaj, pion, forma, stan, widok) są w adresie, więc powrót
+  z kartoteki je zachowuje.
+
+### Mój zespół, Kalendarz, Akceptacje
+
+- Mój zespół: decyzje zostają na ekranie (decyzja Artura), ale jako zwarte wiersze
+  z linkiem „Wszystkie w Akceptacjach”, a nie duże karty.
+- Kalendarz ma pasek filtrów taki jak Katalog: szukaj i chipy. Lista „Kto” zniknęła,
+  a „Dziś nieobecni” i „Zdalnie dziś” są chipami. Koordynator zaczyna od
+  „Mój zespół”, a pozostali od „Wszyscy”.
+- Akceptacje: zamiast przełącznika „Co akceptujesz” jest jedna lista z chipami
+  rodzaju (Wszystko · Nieobecności · Raporty godzin · Zgody · Do wiadomości)
+  i przełącznik „Czeka | Zdecydowane” (dawna zwinięta „Historia wniosków”).
+  Działają stare linki z powiadomień: `?tab=consents[&request=]` otwiera
+  chip Zgody, a `?kind=timesheet…` otwiera Raporty godzin.
+
+### Kartoteka osoby
+
+- Zakładka „Czas i przerwy” nazywa się teraz **„Nieobecności i godziny”**
+  (kotwica `#czas` bez zmian). Pokazuje nieobecności i raporty godzin tej osoby,
+  które wcześniej były tylko w Akceptacjach. Dane: `GET /api/hr/people/{id}/history?year=`
+  (`services/hr/person_history.py`) — krąg pełnej kartoteki (`viewer_scope == "full"`),
+  rodzaj nieobecności przez `can_see_type` (D6), przy ukrytej formie etykieta
+  „Nieobecność”, Finanse spoza kręgu widzą tylko zatwierdzone. Moduł zamknięty
+  dla patrzącego = `null`, nie pusta lista.
+- Mój zespół: znacznik „brak dd.mm” przy godzinach miesiąca bierze się z
+  `missing_dates` w `/api/hr/team` (`team_queue(..., missing_before=dziś)`):
+  dni robocze przed dziś bez wpisu i bez całodniowej nieobecności, tylko w szkicu
+  albo przy braku raportu. Dzisiejszy dzień się nie liczy.
+
+Reguły dostępu, D2, D6, słownictwo PIP i zasada „nie sobie” są bez zmian
+(`modul-ludzie-dostep-schemat-i-przelaczenie.md`, `urlopy-czas-place-wejscie-odejscie.md`).

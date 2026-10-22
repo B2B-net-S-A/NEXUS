@@ -1,8 +1,10 @@
 /**
- * „Do Twojej decyzji” w „Moim zespole” (decyzja Artura 19.10.2026): akceptacja
- * wniosku i timesheetu idzie TYMI SAMYMI trasami co „Akceptacje”
- * (`useDecideLeave`, `useDecideTimesheet`), odrzucenie przez `RejectLeaveDialog`
- * z powodem; propozycja premii bez przycisków decyzji (decydują Płace).
+ * „Do Twojej decyzji” w „Moim zespole” (decyzja Artura 19.10.2026, zwarte
+ * wiersze 22.10.2026): akceptacja wniosku i timesheetu idzie TYMI SAMYMI
+ * trasami co „Akceptacje” (`useDecideLeave`, `useDecideTimesheet`), odrzucenie
+ * przez `RejectLeaveDialog` z powodem; propozycja premii bez przycisków
+ * decyzji i bez kwoty (decydują Płace). Najwyżej trzy wiersze, reszta
+ * w „Akceptacjach”.
  */
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -65,6 +67,7 @@ const TEAM: MyTeam = {
             half_day: null,
             leave_type_label: "Urlop wypoczynkowy",
             days_total: "5.0",
+            created_at: "2026-10-18T09:00:00+02:00",
           },
         ],
         timesheets: [],
@@ -95,18 +98,18 @@ const TEAM: MyTeam = {
   stats: { people: 3, absent_today: 0, leave_requests: 1, timesheets: 1, bonus_proposals: 1 },
 };
 
-function renderCards() {
+function renderCards(team: MyTeam = TEAM) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <TeamDecisions team={TEAM} />
+        <TeamDecisions team={team} />
       </ToastProvider>
     </QueryClientProvider>,
   );
 }
 
-function card(name: RegExp): HTMLElement {
+function card(name: string): HTMLElement {
   return screen.getByText(name).closest("li") as HTMLElement;
 }
 
@@ -176,20 +179,79 @@ function renderLive(server: { team: MyTeam }) {
 }
 
 describe("„Do Twojej decyzji”", () => {
-  it("licznik liczy wniosek i timesheet, premia jest do wiadomości bez przycisków", () => {
+  it("licznik liczy wniosek i timesheet, premia jest do wiadomości bez przycisków i kwoty", () => {
     renderCards();
     const heading = screen.getByRole("heading", { name: "Do Twojej decyzji" });
-    expect(heading.parentElement).toHaveTextContent("2");
-    const bonus = card(/Adam Wzorcowy/);
-    expect(bonus).toHaveTextContent("premia · do wiadomości");
-    expect(bonus).toHaveTextContent("decydują Płace");
+    expect(heading.parentElement).toHaveTextContent("Do Twojej decyzji· 2");
+    const bonus = card("Adam Wzorcowy");
+    expect(bonus).toHaveTextContent("do wiadomości");
+    expect(bonus).toHaveTextContent("wynagrodzenie dodatkowe · 1 propozycja — decydują Płace");
+    expect(bonus).not.toHaveTextContent(/2[\s\u00a0]?000/);
     expect(within(bonus).queryByRole("button")).toBeNull();
+  });
+
+  it("wiersze: znacznik rodzaju, imię, podsumowanie, wiek i link do „Akceptacji”", () => {
+    renderCards();
+    const section = screen.getByRole("region", { name: "Do Twojej decyzji" });
+    expect(within(section).getByRole("link", { name: "Wszystkie w Akceptacjach →" })).toHaveAttribute(
+      "href",
+      "/people/approvals",
+    );
+    const leave = card("Julia Próbna");
+    expect(leave).toHaveTextContent("nieobecność");
+    expect(leave).toHaveTextContent("18–24.11.2026 · 5 dni");
+    expect(leave).toHaveTextContent("czeka 5 dni");
+    // Imię wniosku prowadzi do szczegółów w „Akceptacjach”.
+    expect(within(leave).getByRole("link", { name: "Julia Próbna" })).toHaveAttribute(
+      "href",
+      "/people/approvals",
+    );
+    expect(within(leave).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Odrzuć",
+      "Akceptuj",
+    ]);
+    const timesheet = card("Tomasz Podglądowy");
+    expect(timesheet).toHaveTextContent("raport godzin");
+    expect(timesheet).toHaveTextContent("październik 2026 · 176 / 176 h");
+  });
+
+  it("najwyżej trzy wiersze; reszta jako link do „Akceptacji”", () => {
+    const many: MyTeam = {
+      ...TEAM,
+      people: [1, 2, 3, 4, 5].map((n) =>
+        person({
+          user_id: 10 + n,
+          name: `Osoba Testowa ${n}`,
+          to_decide: {
+            leave_requests: [
+              {
+                id: `lv-${n}`,
+                start_date: "2026-11-02",
+                end_date: "2026-11-03",
+                half_day: null,
+                leave_type_label: "Urlop wypoczynkowy",
+                days_total: "2.0",
+              },
+            ],
+            timesheets: [],
+          },
+        }),
+      ),
+    };
+    renderCards(many);
+    const section = screen.getByRole("region", { name: "Do Twojej decyzji" });
+    expect(within(section).getAllByRole("listitem")).toHaveLength(3);
+    expect(section).toHaveTextContent("Do Twojej decyzji· 5");
+    expect(within(section).getByRole("link", { name: "i jeszcze 2 — w Akceptacjach" })).toHaveAttribute(
+      "href",
+      "/people/approvals",
+    );
   });
 
   it("„Akceptuj” przy wniosku woła trasę „Akceptacji”", async () => {
     const user = userEvent.setup();
     renderCards();
-    await user.click(within(card(/Julia Próbna/)).getByRole("button", { name: "Akceptuj" }));
+    await user.click(within(card("Julia Próbna")).getByRole("button", { name: "Akceptuj" }));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/hr/leave/approvals/lv-1/approve", { note: null }),
     );
@@ -198,7 +260,7 @@ describe("„Do Twojej decyzji”", () => {
   it("„Odrzuć” otwiera okno z powodem i wysyła odrzucenie dopiero z powodem", async () => {
     const user = userEvent.setup();
     renderCards();
-    await user.click(within(card(/Julia Próbna/)).getByRole("button", { name: "Odrzuć" }));
+    await user.click(within(card("Julia Próbna")).getByRole("button", { name: "Odrzuć" }));
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("Julia Próbna · 18–24.11.2026");
     await user.click(within(dialog).getByRole("button", { name: "Odrzuć wniosek" }));
@@ -215,7 +277,7 @@ describe("„Do Twojej decyzji”", () => {
   it("timesheet: potwierdzenie, potem ta sama trasa co w „Akceptacjach”", async () => {
     const user = userEvent.setup();
     renderCards();
-    const timesheet = card(/Tomasz Podglądowy/);
+    const timesheet = card("Tomasz Podglądowy");
     expect(within(timesheet).getByRole("link", { name: "Podgląd" })).toHaveAttribute(
       "href",
       "/people/approvals?kind=timesheet",
@@ -241,7 +303,7 @@ describe("„Do Twojej decyzji”", () => {
     });
     renderLive(server);
     await user.click(
-      within(await screen.findByText(/^Julia Próbna · /).then((el) => el.closest("li")!)).getByRole(
+      within(await screen.findByText("Julia Próbna").then((el) => el.closest("li")!)).getByRole(
         "button",
         { name: "Odrzuć" },
       ),
@@ -254,12 +316,32 @@ describe("„Do Twojej decyzji”", () => {
     expect(screen.queryByRole("heading", { name: "Do Twojej decyzji" })).toBeNull();
   });
 
+  it("akceptacja ostatniej sprawy: toast z `mutateAsync`, choć wiersz znika", async () => {
+    const user = userEvent.setup();
+    const server = { team: teamWithLeave("lv-1", "Julia Próbna") };
+    post.mockImplementation(async () => {
+      server.team = EMPTY_TEAM;
+      return { data: { payroll_warning: null } };
+    });
+    renderLive(server);
+    await user.click(
+      within(await screen.findByText("Julia Próbna").then((el) => el.closest("li")!)).getByRole(
+        "button",
+        { name: "Akceptuj" },
+      ),
+    );
+    expect(await screen.findByText("Wniosek zaakceptowany")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Do Twojej decyzji" })).toBeNull(),
+    );
+  });
+
   it("sprawa znika przy otwartym oknie: nowa karta nie otwiera okna sama", async () => {
     const user = userEvent.setup();
     const server = { team: teamWithLeave("lv-1", "Julia Próbna") };
     const client = renderLive(server);
     await user.click(
-      within(await screen.findByText(/^Julia Próbna · /).then((el) => el.closest("li")!)).getByRole(
+      within(await screen.findByText("Julia Próbna").then((el) => el.closest("li")!)).getByRole(
         "button",
         { name: "Odrzuć" },
       ),
@@ -274,7 +356,7 @@ describe("„Do Twojej decyzji”", () => {
     // Nowy wniosek innej osoby — okno odrzucenia nie wraca samo.
     server.team = teamWithLeave("lv-2", "Kamil Testowy");
     await client.invalidateQueries({ queryKey: teamKeys.team(null) });
-    expect(await screen.findByText(/^Kamil Testowy · /)).toBeInTheDocument();
+    expect(await screen.findByText("Kamil Testowy")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(post).not.toHaveBeenCalled();
   });

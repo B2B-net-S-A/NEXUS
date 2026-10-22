@@ -1,38 +1,51 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+// Części skrzynki zgód (0483) używane w „Ludzie → Akceptacje”: wiersz listy,
+// szczegół z liczbami „NEXUS sprawdził”, okno decyzji z linku maila i lista
+// zgód już rozstrzygniętych („Zdecydowane”). Od 22.10.2026 zgody nie mają
+// osobnej skrzynki — stoją w jednej liście z nieobecnościami (`ApprovalsScreen`).
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ExternalLink } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   useApprovalDetail,
   useApprovalList,
   type ApprovalContext,
   type ApprovalRequestRow,
 } from "@/lib/api/hr-approvals";
+import { CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { formatIsoDatePl, formatMomentPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
-import { warsawToday } from "@/lib/warsaw-date";
 
 import {
+  STATUS_TONE,
   afterDecision,
   approveLabel,
   canChangeAmount,
-  isUrgent,
   moneyPl,
   payoutLine,
   stageLine,
 } from "./approvals-format";
 import { DecisionDialog, type DecisionMode } from "./DecisionDialog";
 import { KindIcon } from "./KindIcon";
-import { TopupsPanel } from "./TopupsPanel";
 
 const LABEL = "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
 
-function InboxRow({
+/** Wiersz zgody w liście „Akceptacji”. */
+export function ConsentInboxRow({
   row,
   active,
   onSelect,
@@ -134,7 +147,8 @@ function BonusFacts({ context }: { context: ApprovalContext }) {
   );
 }
 
-function ConsentDetail({
+/** Szczegół zgody z liczbami „NEXUS sprawdził” i przyciskami decyzji. */
+export function ConsentDetail({
   row,
   onDecide,
 }: {
@@ -246,116 +260,119 @@ function ConsentDetail({
   );
 }
 
-/**
- * „Akceptacje → Zgody” (makieta 20.10.2026): zgody, o których czytający może
- * teraz zdecydować — lista po lewej („Potrzebne do jutra”, „Pozostałe”),
- * szczegół z liczbami „NEXUS sprawdził” po prawej. Link z maila
- * (`?request=…&decide=approve|reject`) otwiera zgodę z oknem decyzji.
- */
-/** Skrzynka zgód z dopłatami do decyzji na górze (etap 3, 0486). */
-export function ConsentsInbox() {
-  return (
-    <div className="space-y-3">
-      <TopupsPanel />
-      <ConsentsInboxList />
-    </div>
-  );
-}
 
-function ConsentsInboxList() {
-  const params = useSearchParams();
-  const inbox = useApprovalList("inbox");
-  const linked = Number(params.get("request"));
-  const [selectedId, setSelectedId] = useState<number | null>(
-    Number.isInteger(linked) && linked > 0 ? linked : null,
-  );
+/** Zdanie pod listą, gdy widać zgody: premie z umowy liczą się same. */
+export const CONSENT_RULES_NOTE =
+  "Wynagrodzenie z reguł umowy (placementy, ligi, reguły Płac) tu nie trafia — liczy się samo.";
+
+/**
+ * Okno decyzji zgody — z przycisku w szczególe albo z linku maila
+ * (`?request=…&decide=approve|reject`): raz po wczytaniu skrzynki i tylko,
+ * gdy zgoda nadal czeka na tę osobę.
+ */
+export function useConsentDecision({
+  rows,
+  isSuccess,
+  linkedId,
+  wanted,
+}: {
+  rows: readonly ApprovalRequestRow[] | undefined;
+  isSuccess: boolean;
+  linkedId: number | null;
+  wanted: string | null;
+}): { open: (row: ApprovalRequestRow, mode: DecisionMode) => void; dialog: ReactNode } {
   const [decision, setDecision] = useState<{
     row: ApprovalRequestRow;
     mode: DecisionMode;
   } | null>(null);
   const openedFromLink = useRef(false);
-  const rows = inbox.data ?? [];
-  const today = warsawToday();
-  const urgent = rows.filter((row) => isUrgent(row, today));
-  const rest = rows.filter((row) => !isUrgent(row, today));
-  const current = rows.find((row) => row.id === selectedId) ?? rows[0];
-
-  // Przycisk z maila: raz po wczytaniu, tylko gdy zgoda nadal czeka na tę osobę.
   useEffect(() => {
-    if (openedFromLink.current || !inbox.isSuccess) return;
+    if (openedFromLink.current || !isSuccess) return;
     openedFromLink.current = true;
-    const wanted = params.get("decide");
-    const row = (inbox.data ?? []).find((item) => item.id === linked);
+    const row = (rows ?? []).find((item) => item.id === linkedId);
     if (row && row.can_decide && (wanted === "approve" || wanted === "reject")) {
       setDecision({ row, mode: wanted });
     }
-  }, [inbox.isSuccess, inbox.data, linked, params]);
-
-  const state = resolveViewState({
-    isLoading: inbox.isLoading,
-    isError: inbox.isError,
-    error: inbox.error,
-    isSuccess: inbox.isSuccess,
-    isEmpty: rows.length === 0,
-  });
-  if (state === "loading") {
-    return <p className="py-4 text-sm text-muted-foreground">Wczytywanie zgód…</p>;
-  }
-  if (state === "forbidden" || state === "not_found" || state === "error") {
-    return <QueryStateNotice state={state} onRetry={() => inbox.refetch()} />;
-  }
-  if (state === "empty" || !current) {
-    return (
-      <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        Nic nie czeka na Twoją decyzję.
-        {Number.isInteger(linked) && linked > 0
-          ? " Zgoda z linku jest już rozpatrzona albo decyduje o niej ktoś inny."
-          : null}
-      </p>
-    );
-  }
-
-  const group = (title: string, items: ApprovalRequestRow[]) =>
-    items.length === 0 ? null : (
-      <div>
-        <h3 className={cn(LABEL, "px-3.5 py-2.5")}>{title}</h3>
-        <ul aria-label={title}>
-          {items.map((row) => (
-            <InboxRow
-              key={row.id}
-              row={row}
-              active={row.id === current.id}
-              onSelect={() => setSelectedId(row.id)}
-            />
-          ))}
-        </ul>
-      </div>
-    );
-
-  return (
-    <>
-      <div
-        data-help="hr.consents.inbox"
-        className="flex flex-wrap overflow-hidden rounded-xl border border-border bg-card"
-      >
-        <div className="min-w-0 flex-[1_1_340px] border-b border-border/60 md:max-w-[460px] md:border-b-0 md:border-r">
-          {group("Potrzebne do jutra", urgent)}
-          {group(urgent.length > 0 ? "Pozostałe" : "Do decyzji", rest)}
-          <p className="border-t border-border/60 px-3.5 py-2.5 text-xs text-muted-foreground">
-            Wynagrodzenie z reguł umowy (placementy, ligi, reguły Płac) tu nie trafia — liczy się samo.
-          </p>
-        </div>
-        <ConsentDetail
-          key={current.id}
-          row={current}
-          onDecide={(mode) => setDecision({ row: current, mode })}
-        />
-      </div>
+  }, [isSuccess, rows, linkedId, wanted]);
+  return {
+    open: (row, mode) => setDecision({ row, mode }),
+    dialog: (
       <DecisionDialog
         row={decision?.row ?? null}
         mode={decision?.mode ?? null}
         onClose={() => setDecision(null)}
       />
-    </>
+    ),
+  };
+}
+
+/** „Zdecydowane”: zgody, o których czytający zdecydował albo które poparł (`scope=decided`). */
+export function DecidedConsents({ enabled = true }: { enabled?: boolean }) {
+  const decided = useApprovalList("decided", enabled);
+  const rows = decided.data ?? [];
+  const state = resolveViewState({
+    isLoading: decided.isLoading,
+    isError: decided.isError,
+    error: decided.error,
+    isSuccess: decided.isSuccess,
+    isEmpty: rows.length === 0,
+  });
+  return (
+    <section aria-labelledby="decided-consents-title" className="space-y-2">
+      <h2 id="decided-consents-title" className="text-sm font-semibold text-foreground">
+        Zgody
+      </h2>
+      {state === "loading" ? (
+        <p className="py-4 text-sm text-muted-foreground">Wczytywanie zgód…</p>
+      ) : state === "forbidden" || state === "not_found" || state === "error" ? (
+        <QueryStateNotice state={state} onRetry={() => decided.refetch()} />
+      ) : state === "empty" ? (
+        <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          Nie decydowałeś jeszcze o żadnej zgodzie.
+        </p>
+      ) : (
+        <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
+          <Table density="compact" className="min-w-[760px]" aria-label="Zgody — zdecydowane">
+            <TableHeader>
+              <TableRow>
+                <TableHead className={CALM_HEAD}>Zgoda</TableHead>
+                <TableHead className={CALM_HEAD}>Kto prosi</TableHead>
+                <TableHead className={`${CALM_HEAD} text-right`}>Kwota</TableHead>
+                <TableHead className={CALM_HEAD}>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.id} className={`${CALM_ROW} h-[48px]`}>
+                  <TableCell>
+                    <span className="block font-medium text-foreground">
+                      {row.kind === "bonus" ? (row.beneficiary_name ?? "Osoba") : row.title}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">{row.kind_label}</span>
+                  </TableCell>
+                  <TableCell>{row.requester_name ?? "—"}</TableCell>
+                  <TableCell className="whitespace-nowrap text-right tabular-nums">
+                    {moneyPl(row.decided_amount ?? row.amount, row.currency)}
+                  </TableCell>
+                  <TableCell>
+                    <StatusDot
+                      tone={STATUS_TONE[row.status]}
+                      note={[
+                        row.decided_by_name,
+                        row.decided_at ? formatMomentPl(row.decided_at) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || undefined}
+                    >
+                      {row.status_label}
+                    </StatusDot>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </section>
   );
 }

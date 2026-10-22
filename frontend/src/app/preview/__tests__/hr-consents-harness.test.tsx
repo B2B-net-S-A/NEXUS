@@ -45,6 +45,22 @@ describe("/preview/hr-consents", () => {
     expect(attempted()).toEqual([]);
   });
 
+  it("„Wszystko”: zgody i urlop w jednej liście, „Zdecydowane” — rozstrzygnięte zgody, bez zapytań", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-consents?state=inbox");
+    render(<HrConsentsPreviewPage />);
+    const decide = await screen.findByRole("list", { name: "Do decyzji" });
+    expect(within(decide).getByRole("button", { name: /^Kamil Testowy/ })).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "Co akceptujesz" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Raporty godzin" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "Zdecydowane" }));
+    const decided = screen.getByRole("table", { name: "Zgody — zdecydowane" });
+    expect(within(decided).getByText("Kurs negocjacji")).toBeInTheDocument();
+    expect(within(decided).getByText("Odrzucona")).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
   it("link z maila otwiera okno decyzji wskazanej zgody", async () => {
     window.history.replaceState(
       {},

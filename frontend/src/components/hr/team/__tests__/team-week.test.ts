@@ -6,6 +6,7 @@ import {
   daysSince,
   decisionCards,
   decisionCount,
+  missingDaysLabel,
   monthProgress,
   todayStatus,
   todaySummary,
@@ -267,5 +268,20 @@ describe("karty „Do Twojej decyzji”", () => {
   it("dni od złożenia liczone w kalendarzu firmy", () => {
     expect(daysSince("2026-10-22T23:30:00Z", TODAY)).toBe(0);
     expect(daysSince(null, TODAY)).toBeNull();
+  });
+});
+
+describe("missingDaysLabel — „brak dd.mm” przy godzinach miesiąca", () => {
+  it("jeden dzień: jego data", () => {
+    expect(missingDaysLabel(["2026-10-21"])).toBe("brak 21.10");
+  });
+
+  it("kilka dni: liczba i ostatni dzień", () => {
+    expect(missingDaysLabel(["2026-10-19", "2026-10-21"])).toBe("brak 2 dni · ost. 21.10");
+  });
+
+  it("brak braków albo brak danych z serwera = brak znacznika", () => {
+    expect(missingDaysLabel([])).toBeNull();
+    expect(missingDaysLabel(undefined)).toBeNull();
   });
 });

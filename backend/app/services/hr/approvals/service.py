@@ -857,9 +857,10 @@ def request_link(request_id: int) -> str:
 
 
 def my_request_link(request_id: int) -> str:
-    """Zgoda w „Ludzie → Moje zgody” autora."""
+    """Zgoda autora w „Mój czas → Zgody i wydatki” (od 22.10.2026; stary
+    ``/people/consents`` przekierowuje tam)."""
 
-    return f"/people/consents?request={request_id}"
+    return f"/my-time?tab=consents&request={request_id}"
 
 
 async def _name(db: AsyncSession, user_id: Optional[int]) -> str:

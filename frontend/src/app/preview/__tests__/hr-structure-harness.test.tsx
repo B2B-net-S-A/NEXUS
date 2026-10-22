@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("/preview/hr-structure", () => {
-  it("Schemat (domyślnie): drzewo kart, „Do uporządkowania” i menu karty bez zapytań", async () => {
+  it("Schemat (domyślnie): drzewo kart, „Porządki” i menu karty bez zapytań", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-structure");
     render(<HrStructurePreviewPage />);
@@ -46,47 +46,33 @@ describe("/preview/hr-structure", () => {
     );
     expect(screen.getByTestId(`org-card-${105}`)).toHaveTextContent("Marta Fikcyjna");
     expect(screen.getAllByText("head: Kamil Testowy").length).toBeGreaterThan(0);
-    const todo = screen.getByLabelText("Do uporządkowania");
-    expect(within(todo).getByText(/kończy współpracę/)).toBeInTheDocument();
-    expect(within(todo).getByRole("button", { name: "Przyjmij z M365" })).toBeInTheDocument();
-    expect(within(todo).getByRole("button", { name: "Przyjmij: Kamil T." })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Więcej: Ewa Makietowa" }));
     await user.click(await screen.findByRole("menuitem", { name: "Zmień koordynatora…" }));
     expect(
       await screen.findByRole("dialog", { name: "Zmień koordynatora (1)" }),
     ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Anuluj" }));
+
+    await user.click(screen.getByRole("button", { name: /^Porządki · \d+$/ }));
+    const panel = await screen.findByRole("dialog", { name: "Porządki" });
+    const todo = within(panel).getByRole("region", { name: "Struktura" });
+    expect(within(todo).getByText(/kończy współpracę/)).toBeInTheDocument();
+    expect(within(todo).getByRole("button", { name: "Przyjmij z M365" })).toBeInTheDocument();
+    expect(within(todo).getByRole("button", { name: "Przyjmij: Kamil T." })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 
-  it("Lista: piony, odchodząca z podwładnymi, podpowiedzi i okna bez zapytań", async () => {
+  it("Lista: zaznaczenie, „Ustaw pion”, „Zmień koordynatora” i „Headowie pionów” bez zapytań", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-structure");
     render(<HrStructurePreviewPage />);
-    await user.click(await screen.findByRole("button", { name: "Lista" }));
-
-    expect(await screen.findByRole("heading", { name: /^Front office/ })).toHaveTextContent(
-      "head: Kamil Testowy",
-    );
-    expect(screen.getByRole("heading", { name: /^Back office/ })).toHaveTextContent(
-      "head: Piotr Finansowy",
-    );
-    expect(screen.getByRole("heading", { name: /^Bez pionu/ })).toBeInTheDocument();
-    expect(screen.getByText(/Marta Fikcyjna kończy współpracę/)).toHaveTextContent(
-      "przejmie ich Kamil Testowy",
-    );
-    expect(screen.getByText(/Podpowiedź: koordynator = Kamil Testowy/)).toBeInTheDocument();
-    expect(screen.getByText(/Microsoft 365: Kamil Testowy/)).toBeInTheDocument();
-    // Studentka na zleceniu (D8): forma i plakietka „składki od …”.
-    expect(screen.getByText(/Zlecenie · student/)).toBeInTheDocument();
-    expect(screen.getByText("składki od 07.2027")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Struktura" })).toHaveAttribute("aria-selected", "true");
-
-    await user.click(screen.getByRole("button", { name: "Headowie pionów" }));
+    await user.click(await screen.findByRole("button", { name: "Headowie pionów" }));
     expect(await screen.findByRole("dialog", { name: "Headowie pionów" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Anuluj" }));
 
-    await user.click(screen.getByRole("checkbox", { name: "Zaznacz: Ola Przykładowa" }));
+    await user.click(screen.getByRole("button", { name: "Lista" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Zaznacz: Ola Przykładowa" }));
     await user.click(screen.getByRole("checkbox", { name: "Zaznacz: Ewa Makietowa" }));
     // Obie na B2B — „koordynator”, nie „przełożony”.
     await user.click(screen.getByRole("button", { name: "Zmień koordynatora (2)" }));
@@ -103,21 +89,28 @@ describe("/preview/hr-structure", () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-structure?state=hr-only");
     render(<HrStructurePreviewPage />);
+    expect(await screen.findByTestId("org-card-105")).toBeInTheDocument();
     expect(screen.queryByText(/Zlecenie/)).not.toBeInTheDocument();
-    await user.click(await screen.findByRole("button", { name: "Lista" }));
-    expect(await screen.findByRole("heading", { name: /^Front office/ })).toBeInTheDocument();
-    expect(screen.queryByText(/Zlecenie · student/)).not.toBeInTheDocument();
     expect(screen.queryByText(/składki od/)).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/forma do uzupełnienia · koordynator do uzupełnienia/),
-    ).toBeInTheDocument();
+    // Kacper (kartoteka z konta) w „Liście”: forma i koordynator do uzupełnienia.
+    await user.click(screen.getByRole("button", { name: "Lista" }));
+    const kacper = (await screen.findByText("Kacper Nowicjusz")).closest("tr") as HTMLElement;
+    expect(within(kacper).getByText("uzupełnij")).toBeInTheDocument();
+    expect(within(kacper).getByText("koordynator do uzupełnienia")).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("Płace: studentka na zleceniu z plakietką „składki od …”", async () => {
+    window.history.replaceState({}, "", "/preview/hr-structure");
+    render(<HrStructurePreviewPage />);
+    expect(await screen.findByText("składki od 07.2027")).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 
   it("bez kartotek: spokojny pusty stan", async () => {
     window.history.replaceState({}, "", "/preview/hr-structure?state=empty");
     render(<HrStructurePreviewPage />);
-    expect(await screen.findByText(/Nikt nie ma jeszcze kartoteki/)).toBeInTheDocument();
+    expect(await screen.findByText(/Nikt nie ma jeszcze kartoteki — struktura/)).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 });

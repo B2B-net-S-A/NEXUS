@@ -20,6 +20,7 @@ import { resolveViewState } from "@/lib/view-state";
 
 import { STATUS_TONE, moneyPl, payoutLine, timeline, type StatusTone } from "./approvals-format";
 import { ConsentRequestForm } from "./ConsentRequestForm";
+import { myConsentsHref } from "./consents-url";
 import { KindIcon } from "./KindIcon";
 import { SettlementSection } from "./SettlementSection";
 import { settlementNeedsAuthor, settlementPill } from "./settlement-format";
@@ -175,10 +176,14 @@ function Detail({ row, onEdit }: { row: ApprovalRequestRow; onEdit: () => void }
   );
 }
 
+/** Zgoda czeka na autora: pytanie do poprawy albo rozliczenie (faktura, dopłata). */
+const needsAuthor = (row: ApprovalRequestRow) =>
+  row.status === "returned" || settlementNeedsAuthor(row);
+
 const GROUPS: { title: string; match: (row: ApprovalRequestRow) => boolean }[] = [
   {
     title: "Do zrobienia przez Ciebie",
-    match: (row) => row.status === "returned" || settlementNeedsAuthor(row),
+    match: needsAuthor,
   },
   {
     title: "W toku",
@@ -191,8 +196,14 @@ const GROUPS: { title: string; match: (row: ApprovalRequestRow) => boolean }[] =
   },
 ];
 
+/** Ile zgód czeka na autora („Do zrobienia przez Ciebie”) — licznik zakładki w „Moim czasie”. */
+export function consentsTodoCount(rows: readonly ApprovalRequestRow[] | undefined): number {
+  return (rows ?? []).filter(needsAuthor).length;
+}
+
 /**
- * „Ludzie → Moje zgody” (makieta 20.10.2026): zgody, o które prosiłem — lista
+ * „Mój czas → Zgody i wydatki” (makieta 20.10.2026, od 22.10.2026 zakładka
+ * `?tab=consents` zamiast „Ludzie → Moje zgody”): zgody, o które prosiłem — lista
  * po lewej, szczegół z osią „wysłana → poparcie → decyzja” po prawej;
  * „Poproś o zgodę” otwiera formularz w miejscu listy.
  */
@@ -218,7 +229,7 @@ export function MyConsentsScreen() {
         onDone={(row) => {
           setForm(null);
           setSelectedId(row.id);
-          replaceUrl(`/people/consents?request=${row.id}`);
+          replaceUrl(myConsentsHref({ request: row.id }));
         }}
       />
     );

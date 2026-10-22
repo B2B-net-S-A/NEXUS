@@ -7,13 +7,11 @@ import { useHrCounts, type HrConfig, type HrCounts } from "@/lib/api/hr";
 
 export type PeopleSection =
   | "directory"
-  | "structure"
   | "team"
   | "calendar"
   | "approvals"
-  | "consents"
-  | "cases"
-  | "payroll";
+  | "payroll"
+  | "cases";
 
 interface PeopleSectionLink {
   value: PeopleSection;
@@ -22,19 +20,23 @@ interface PeopleSectionLink {
 }
 
 /**
- * Zakładki obszaru „Ludzie” widoczne dla tej osoby. Serwer i tak broni każdej
- * trasy; tu decydujemy tylko, czego nie pokazywać na pasku.
+ * Zakładki obszaru „Ludzie” widoczne dla tej osoby (przebudowa 22.10.2026):
+ * zawsze w tej samej kolejności Katalog · Mój zespół · Kalendarz · Akceptacje
+ * · Płace — kto nie ma dostępu, nie widzi zakładki, reszta się nie przestawia.
+ * Serwer i tak broni każdej trasy; tu decydujemy tylko, czego nie pokazywać.
  *
- * * Katalog — moduł „Ludzie”,
- * * Struktura — moduł „Ludzie”, Kadry albo admin (drzewo i zmiana przełożonego),
+ * * Katalog — moduł „Ludzie”; Kadry i admin mają w nim widok „Schemat”
+ *   (dawna zakładka „Struktura”, `/people/structure` przekierowuje),
  * * Mój zespół — moduł „Ludzie” i podwładni z kartoteką (Kadry i admin
- *   oglądają cudze zespoły ze Struktury, `?manager=`),
- * * Kalendarz zespołu — moduł urlopów i kartoteka (albo Kadry),
+ *   oglądają cudze zespoły ze Schematu, `?manager=`),
+ * * Kalendarz — moduł urlopów i kartoteka (albo Kadry),
  * * Akceptacje — przełożony (ma podwładnych) albo Kadry, gdy działa urlop lub czas;
  *   przy module „Zgody” także przełożony i admin (zatwierdzający),
- * * Moje zgody — moduł „Zgody” i kartoteka (albo admin),
- * * Sprawy — uprawnienie „Sprawy” albo przypisana sprawa,
- * * Płace — uprawnienie „Płace”.
+ * * Płace — uprawnienie „Płace”,
+ * * Sprawy — uprawnienie „Sprawy” albo przypisana sprawa; zostają tu, dopóki
+ *   nie przejdą do „Opieki nad konsultantami”.
+ *
+ * „Moje zgody” (własne prośby) są w „Moim czasie” → „Zgody i wydatki”.
  */
 export function peopleSections(config: HrConfig): PeopleSectionLink[] {
   const { me, open_modules: open } = config;
@@ -43,26 +45,20 @@ export function peopleSections(config: HrConfig): PeopleSectionLink[] {
     me.is_manager || (me.covering?.length ?? 0) > 0 || me.people_admin || me.is_admin;
   const links: PeopleSectionLink[] = [];
   if (open.people) links.push({ value: "directory", label: "Katalog", href: "/people" });
-  if (open.people && (me.people_admin || me.is_admin)) {
-    links.push({ value: "structure", label: "Struktura", href: "/people/structure" });
-  }
   if (open.people && me.is_manager) {
     links.push({ value: "team", label: "Mój zespół", href: "/people/team" });
   }
   if (open.leave && staff) {
-    links.push({ value: "calendar", label: "Kalendarz zespołu", href: "/people/calendar" });
+    links.push({ value: "calendar", label: "Kalendarz", href: "/people/calendar" });
   }
   if (((open.leave || open.time) && approver) || (open.approvals && (me.is_manager || me.is_admin))) {
     links.push({ value: "approvals", label: "Akceptacje", href: "/people/approvals" });
   }
-  if (open.approvals && (me.has_profile || me.is_admin)) {
-    links.push({ value: "consents", label: "Moje zgody", href: "/people/consents" });
+  if (open.payroll && (me.payroll || me.is_admin)) {
+    links.push({ value: "payroll", label: "Płace", href: "/people/payroll" });
   }
   if (open.cases && (me.cases || me.is_admin || me.has_assigned_cases)) {
     links.push({ value: "cases", label: "Sprawy", href: "/people/cases" });
-  }
-  if (open.payroll && (me.payroll || me.is_admin)) {
-    links.push({ value: "payroll", label: "Płace", href: "/people/payroll" });
   }
   return links;
 }

@@ -7,8 +7,9 @@
  * zasianym cache, ZERO zapytań (`hr-harness.tsx`). Stany (`?state=`):
  * - `inbox` (domyślnie) — zatwierdzający (admin): premia poza umową z liczbami
  *   „NEXUS sprawdził”, delegacja poparta przez przełożoną, subskrypcja,
- *   prezent, dopłata do decyzji (faktura +18%); przełącznik „Zgody | Urlopy
- *   i timesheety”;
+ *   prezent, dopłata do decyzji (faktura +18%); od 22.10.2026 jedna lista
+ *   z chipami — „Wszystko” pokazuje zgody razem z urlopem Kamila do decyzji,
+ *   „Zdecydowane” zgody już rozstrzygnięte;
  * - `supervisor` — przełożona: delegacja ponad próg („Popieram”) i prezent
  *   w progu („Zatwierdź”);
  * - `mine` — autorka: pytanie od zatwierdzającego, zgoda w toku, rozliczenia
@@ -32,7 +33,9 @@ import {
   type ApprovalSettlement,
   type ApprovalTopupRow,
 } from "@/lib/api/hr-approvals";
-import { leaveKeys } from "@/lib/api/hr-leave";
+import { leaveKeys, type PendingLeaveRow } from "@/lib/api/hr-leave";
+import { timeKeys } from "@/lib/api/hr-time";
+import { defaultQueueMonth } from "@/components/hr/time/time-format";
 
 import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
@@ -488,6 +491,82 @@ function mineRows(): ApprovalRequestRow[] {
   ];
 }
 
+/** Zgody, o których zatwierdzający już zdecydował („Zdecydowane”). */
+function decidedRows(): ApprovalRequestRow[] {
+  return [
+    row({
+      id: 31,
+      kind: "training",
+      kind_label: "Szkolenie",
+      title: "Kurs negocjacji",
+      status: "approved",
+      status_label: "Zatwierdzona",
+      amount: "1200.00",
+      amount_text: "1 200 zł brutto",
+      submitted_at: moment(9, 9),
+      decided_by_name: HR_CAST.admin.name,
+      decided_at: moment(8, 14),
+      can_decide: false,
+      decides_as: null,
+    }),
+    row({
+      id: 32,
+      kind: "gift",
+      kind_label: "Prezent",
+      title: "Kosz świąteczny dla klienta",
+      status: "rejected",
+      status_label: "Odrzucona",
+      amount: "450.00",
+      amount_text: "450 zł brutto",
+      submitted_at: moment(12, 9),
+      decided_by_name: HR_CAST.admin.name,
+      decided_at: moment(11, 10),
+      can_decide: false,
+      decides_as: null,
+    }),
+  ];
+}
+
+/** Urlop do decyzji obok zgód — „Wszystko” to jedna lista (22.10.2026). */
+function pendingLeave(): PendingLeaveRow[] {
+  const kamil = HR_CAST.kamil;
+  return [
+    {
+      id: "lv-c-1",
+      user_id: kamil.id,
+      user_name: kamil.name,
+      leave_type: "vacation",
+      leave_type_label: "Urlop wypoczynkowy",
+      status: "pending",
+      start_date: iso(20),
+      end_date: iso(24),
+      half_day: null,
+      days_total: "5",
+      paid_days: "5",
+      unpaid_days: "0",
+      note: null,
+      substitute_user_id: HR_CAST.ola.id,
+      substitute_name: HR_CAST.ola.name,
+      forward_mail_consent: false,
+      oof_internal_message: null,
+      oof_external_message: null,
+      decided_by_name: null,
+      decided_at: null,
+      decision_note: null,
+      source: "self",
+      created_at: moment(1, 9),
+      can_cancel: false,
+      department: kamil.department,
+      manager_name: HR_CAST.marta.name,
+      work_total: 0,
+      work_by_kind: [],
+      department_absent: [],
+      type_visible: true,
+      can_decide: true,
+    },
+  ];
+}
+
 function consentsConfig(me: Partial<HrConfig["me"]>): HrConfig {
   const config = hrConfig(me);
   return {
@@ -506,6 +585,7 @@ function prepare(params: URLSearchParams) {
     const rows = inboxRows();
     client.setQueryData(approvalKeys.list("inbox"), rows);
     for (const item of rows) client.setQueryData(approvalKeys.detail(item.id), item);
+    client.setQueryData(approvalKeys.list("decided"), decidedRows());
     client.setQueryData(approvalKeys.topups, topupRows());
     client.setQueryData(approvalKeys.count, rows.length + 1);
     client.setQueryData(hrKeys.counts, {
@@ -519,6 +599,7 @@ function prepare(params: URLSearchParams) {
     const rows = supervisorRows();
     client.setQueryData(approvalKeys.list("inbox"), rows);
     for (const item of rows) client.setQueryData(approvalKeys.detail(item.id), item);
+    client.setQueryData(approvalKeys.list("decided"), []);
     client.setQueryData(approvalKeys.topups, []);
     client.setQueryData(hrKeys.counts, {
       approvals: 1,
@@ -539,11 +620,26 @@ function prepare(params: URLSearchParams) {
       cases: null,
     });
   }
-  // Zakładka „Urlopy i timesheety” w Akceptacjach — pusta kolejka, bez zapytań.
+  // Nieobecności i raporty godzin w tej samej liście „Akceptacji” — zasiane,
+  // bez zapytań: urlop Kamila u zatwierdzającego, pusta historia i kolejka.
+  const leave = state === "inbox" ? pendingLeave() : [];
   client.setQueryData(leaveKeys.pending, {
-    items: [],
+    items: leave,
+    total: leave.length,
     covering: [],
     reported: [],
+  });
+  client.setQueryData(leaveKeys.history({ status: null, user_id: null }), {
+    items: [],
+    counts: { all: 0, pending: 0, approved: 0, rejected: 0, cancelled: 0 },
+  });
+  client.setQueryData(leaveKeys.people, []);
+  const period = defaultQueueMonth();
+  client.setQueryData(timeKeys.team(period.year, period.month), {
+    year: period.year,
+    month: period.month,
+    norm_hours: 168,
+    items: [],
   });
   client.setQueryData(hrKeys.config, config);
   return { user, client, value: { state, config } };
@@ -568,11 +664,12 @@ export default function HrConsentsPreviewPage() {
           description={
             mine
               ? "Wydatki i wynagrodzenie dodatkowe, o które prosisz — i kto o nich decyduje."
-              : "Wnioski, timesheety i zgody do decyzji."
+              : "Nieobecności, raporty godzin i zgody do decyzji — w jednej liście."
           }
           density="compact"
         />
-        <PeopleSectionNav config={config} active={mine ? "consents" : "approvals"} />
+        {/* „Moje zgody” są w „Moim czasie” (przebudowa „Ludzi”, 22.10.2026). */}
+        {mine ? null : <PeopleSectionNav config={config} active="approvals" />}
         {mine ? <MyConsentsScreen /> : <ApprovalsScreen config={config} />}
       </div>
     </HrHarnessShell>
