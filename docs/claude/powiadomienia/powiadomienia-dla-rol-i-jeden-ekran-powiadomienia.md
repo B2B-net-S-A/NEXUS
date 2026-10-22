@@ -84,3 +84,74 @@ wszystkich). Makiety: https://claude.ai/artifact/TRKAAZX3RcB8AA7LVohkT8, raport
 - Testy tabeli ról na wspólnej bazie sprzątają wiersz `app_settings` (fixture
   `clean_role_mutes`) — zostawione wyłączenie ucinałoby powiadomienia adminom
   w cudzych testach. Harness `/preview/notification-settings`.
+
+## Alarm o masowym przeglądaniu CV kandydatów (0508, 22.10.2026)
+
+**Skąd.** 12.10.2026 dziewięciu kursantów Akademii Sourcera zalogowało się
+pierwszy raz Microsoftem. SSO dawało wtedy rolę Rekruter (od #2339, 19.10,
+daje już „Pracownik”). W ciągu trzech godzin otworzyli pliki 181 kandydatów,
+a 41 plików zapisali na dysk. Nikt się o tym nie dowiedział, dopóki Artur nie
+zobaczył obcych nazwisk w „Ludziach” 22.10.
+
+**Decyzja Artura 22.10.2026.** Tylko alarm, bez blokady i bez znaku wodnego na
+plikach. Alarm dostają admin i Head of Recruitment (rola główna albo dodatkowa)
+jako dymek w NEXUSIE i mail od razu.
+
+### Co liczymy
+
+`services/candidate_data_access_alerts.py` co 5 minut (pętla
+`candidate_data_access_alerts`, heartbeat) czyta `activities` z
+`entity_type='candidate'`. Każda droga do pliku kandydata już tam zapisuje
+zdarzenie (`candidate_audit`):
+
+- podgląd i zapis na dysk: `document_downloaded`, `disposition` `inline` albo `attachment`,
+- link do pliku: `document_url_issued`,
+- pobranie CV: `cv_downloaded`,
+- paczka ZIP: `bulk_cv_downloaded`, `included_count`,
+- eksport: `export_requested`, `row_count` albo `selected_count`.
+
+Zdarzenia API integracji mają `user_id` puste i nie są liczone.
+
+### Progi (zmienne env, wartości domyślne)
+
+| Co | Próg | Nowe konto (< 14 dni) |
+|---|---|---|
+| różnych kandydatów w ostatniej godzinie | > 40 | > 20 |
+| plików na dysk dziś (kalendarz firmy) | > 25 | > 12 |
+| osób w eksportach dziś | > 200 | > 100 |
+| nowe konta otwierające CV w tej samej godzinie | ≥ 3 | — |
+
+Źródło progów to ruch produkcji z 30 dni do 22.10.2026, bez juniorów:
+99. percentyl to 33 kandydatów na godzinę (maksimum 61), na dysk najwyżej 20
+plików dziennie. Te progi dałyby w tych 30 dniach 3 alarmy, wszystkie
+o liczbie kandydatów na godzinę u dwóch najaktywniejszych osób.
+
+Odtworzenie 12.10 na danych produkcji: o 12:30 alarm „nowe konta naraz”
+(6 kont), o 14:00 alarm za pliki na dysk (20 przy progu 12), o 15:00 alarm
+za liczbę kandydatów (25 w godzinę przy progu 20).
+
+Zmienne: `DATA_ACCESS_ALERT_HOUR_CANDIDATES`, `…_DAY_DISK_FILES`,
+`…_DAY_EXPORT_ROWS`, `…_NEW_ACCOUNT_DAYS`, `…_NEW_ACCOUNTS_BURST`,
+`…_INTERVAL_SECONDS` oraz wyłącznik `DATA_ACCESS_ALERTS_ENABLED`. Na produkcji
+zmienia się je wyłącznie workflowem „Coolify set env”.
+
+### Reguły, które łatwo cofnąć
+
+- **Bez blokady.** Alarm niczego nie wstrzymuje. Wstrzymanie pobierania to
+  osobna decyzja Artura, która jeszcze nie zapadła.
+- **Najwyżej jeden alarm dziennie na osobę i odbiorcę.** Dzienny dedup `emit`
+  (`ix_notif_dedup_daily`) patrzy na odbiorcę, typ i `related_entity_id`, ale
+  nie na `related_entity_type`. Alarm o osobie niesie więc id konta, a alarm
+  „nowe konta naraz” (raz dziennie) ma id 0. Przy id 1 zdusiłby alarm o koncie 1.
+- **Bez nazwisk kandydatów w treści**, bo idzie mailem. Treść zawiera imię
+  i nazwisko osoby, liczby, datę założenia konta (gdy jest nowe) i zdanie, że
+  NEXUS niczego nie zablokował. Link prowadzi do Ustawienia → Osoby i role.
+- **Widoczność.** Typ `candidate_data_access_alert` jest w
+  `HEAD_OF_RECRUITMENT_ALERT_TYPES` (`notification_access.py`): widzi go admin
+  i konto z rolą Head of Recruitment, niezależnie od sekcji. Należy do kategorii
+  „Konto i system” (obowiązkowej). Na pasku jest tematem „inne”, czyli dymek
+  i mail.
+- **Mail** to rodzaj `data_access_alert` w kolejce maili od razu
+  (`notification_email_outbox`). Jak każdy mail z katalogu wychodzi dopiero
+  po włączeniu w Ustawienia → Powiadomienia → Maile. Włączenie nie wysyła
+  zaległych alarmów.

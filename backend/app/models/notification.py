@@ -149,6 +149,10 @@ class NotificationType(str, enum.Enum):
     # na serię, wyłącznie dla adminów (`services/automation_failures.py`).
     # Rekruterzy nie dostają nic: awaria jest wpisem w „Pracy w tle".
     automation_failing = "automation_failing"
+    # 0508: ktoś przegląda albo zapisuje na dysk CV kandydatów ponad normę —
+    # alarm bez blokady do adminów i Head of Recruitment, mail od razu
+    # (`services/candidate_data_access_alerts.py`).
+    candidate_data_access_alert = "candidate_data_access_alert"
     # 0336: zapisane wyszukiwanie po migracji na wspólną semantykę filtrów
     # zwraca inny zbiór osób — alert wstrzymany do akceptacji właściciela.
     saved_search_reapproval = "saved_search_reapproval"

@@ -117,6 +117,17 @@ CATALOG = (
         trigger="Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu.",
         recipient_rule="Aktywni administratorzy.",
     ),
+    # 0508 (22.10.2026): alarm bez blokady — `services/candidate_data_access_alerts.py`.
+    dict(
+        id="data_access_alert",
+        label="Masowe przeglądanie CV",
+        module="System",
+        trigger="Ktoś otworzył pliki ponad 40 kandydatów w godzinę, zapisał na dysk "
+        "ponad 25 plików albo wyeksportował ponad 200 osób w ciągu dnia (konto "
+        "młodsze niż 14 dni — progi o połowę niższe); 3 nowe konta otwierają CV "
+        "w tej samej godzinie. Najwyżej jeden alarm dziennie na osobę.",
+        recipient_rule="Aktywni administratorzy i Head of Recruitment.",
+    ),
     # „Ludzie w NEXUSIE” (17.10.2026) — typy `HR_MAIL_TYPES`, treść składa
     # `services/hr/hr_mail.py` (bez rodzaju nieobecności i bez kwot).
     dict(
@@ -303,6 +314,7 @@ def notification_kind(notification_type: Any) -> str | None:
         "request_assignment_changed": "request_assigned",
         "b2b_signature_requested": "signature_request",
         "automation_failing": "system_failure",
+        "candidate_data_access_alert": "data_access_alert",
     }.get(getattr(notification_type, "value", notification_type))
 
 
@@ -375,6 +387,7 @@ IMMEDIATE_KINDS = (
     "request_assigned",
     "signature_request",
     "system_failure",
+    "data_access_alert",
     HR_MAIL_KIND,
 )
 
