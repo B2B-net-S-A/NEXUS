@@ -73,6 +73,11 @@ from app.models.b2b_contract_role import B2BContractRole, B2BRoleCategory
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import B2BSigningRequest
+from app.models.pre_contract import (  # noqa: F401
+    PreContractEvent,
+    PreContractRequest,
+    PreContractWatcher,
+)
 from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_register_import import B2BRegisterImportRow, B2BRegisterImportRun
 from app.models.contract_doc_sharepoint import (
@@ -764,6 +769,7 @@ from app.models.trainee import (  # noqa: F401
 from app.models.prep_meeting import (  # noqa: F401
     PrepMeeting,
     PrepReview,
+    PrepReviewConfigVersion,
     PrepTranscript,
 )
 

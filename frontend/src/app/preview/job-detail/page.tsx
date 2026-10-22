@@ -23,7 +23,10 @@
  * „Propozycjach z bazy” i w „Szukaj w bazie”, „Szukaj ręcznie” jako zakładka;
  * 19.10.2026: plakietka stawki względem budżetu 95 zł/h — w budżecie, równo
  * budżet, +7%, +25% i osoba bez stawki w `base` i `search`),
- * `?closed=1` — rekrutacja zamknięta („Otwórz ponownie…” w menu „⋯”),
+ * `?closed=1` — rekrutacja zamknięta („Otwórz ponownie…” i „Zmień powód
+ * zamknięcia…” w menu „⋯”); `?reason=duplicate|competitor|filled_by_us|other`
+ * — powód w plakietce (domyślnie duplikat), `?change=1` — otwarte okno
+ * „Zmień powód zamknięcia” (21.10.2026),
  * `?reopen=1` — zamknięta z otwartym oknem „Otwórz ponownie” i fikcyjnymi
  * brakami (04.10.2026),
  * `?files=1` — otwarte okno „Pliki” z menu „⋯” (0428, 09.10.2026),
@@ -79,11 +82,12 @@ import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { rateChangesQueryKey } from "@/lib/rate-change";
 import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
+import { JobCloseReasonBadge } from "@/components/v2/jobs/JobCloseReasonBadge";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
+import { JOB_CLOSE_REASONS, type JobCloseReason } from "@/types/client-profile";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
 import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
 import type { JobFilesResponse } from "@/lib/api/jobFiles";
-import { Badge } from "@/components/ui/badge";
 import { CANDIDATE_WINDOW_TABS, type CandidateWindowTab } from "@/components/v2/recruitment/types";
 import { searchBaseKey } from "@/components/v2/recruitment/useSearchBaseTab";
 import { screenedOutQueryKey } from "@/lib/api/applicationScreenings";
@@ -328,6 +332,14 @@ function columns(): KanbanColumn[] {
         entry_source: "proposal",
         added_to_job_by_id: 12,
         added_to_job_by_name: "Piotr Szkicowy",
+        // 0506: umowa przedwstępna wysłana, kandydat jeszcze nie odesłał.
+        pre_contract: {
+          id: 501,
+          state: "sent",
+          label: "Przedwstępna wysłana · czeka 2 dni",
+          tone: "wait",
+          detail: "Wysłana kandydatowi.",
+        },
       }),
     ]),
     col("verified", "Zweryfikowany", 23, []),
@@ -497,6 +509,12 @@ const PREVIEW_AGREEMENT = {
   signed_at: null,
   signature_requested_at: null,
   contract_id: null,
+  // 21.10.2026 (etap 1b): umowa wysłana do podpisu w NEXUSIE.
+  esign: {
+    status: "sent",
+    expires_at: new Date(Date.now() + 11 * 24 * HOUR).toISOString(),
+    contractor_signed_at: null,
+  },
 };
 
 /** Dane ze znacznikiem dzień w przód — zapytanie z własnym `staleTime` nie odświeża ich. */
@@ -1120,10 +1138,19 @@ function seededClient(championMode: HarnessChampionMode = "none"): QueryClient {
       created_at: PREVIEW_AGREEMENT.created_at,
       created_by_name: "Marta Nowak",
       can_confirm_signed: false,
-      can_edit: true,
+      can_edit: false, // wysłana do podpisu — „Popraw” po wycofaniu
       can_download: true,
       partner_name: "Karol Wzorcowy",
       client_name: "Bank Przykładowy",
+      esign: {
+        request_id: 31,
+        status: "sent",
+        contractor_signed_at: null,
+        completed_at: null,
+        expires_at: PREVIEW_AGREEMENT.esign.expires_at,
+        company_signer_name: "Osoba Testowa",
+      },
+      can_withdraw_esign: true,
     },
   ]);
   // 0404: „Odrzuceni przez AI” — pusta lista.
@@ -1531,6 +1558,11 @@ function JobDetailHarness() {
   const [reopenOpen, setReopenOpen] = useState(reopenOnStart);
   const [filesOpen, setFilesOpen] = useState(params.get("files") === "1");
   const [closeOpen, setCloseOpen] = useState(params.get("close") === "1");
+  const [changeOpen, setChangeOpen] = useState(params.get("change") === "1");
+  const reasonParam = params.get("reason");
+  const closeReason: JobCloseReason = JOB_CLOSE_REASONS.some((r) => r.value === reasonParam)
+    ? (reasonParam as JobCloseReason)
+    : "duplicate";
   const prioParam = params.get("prio");
   const priorityLevel = isPriorityLevel(prioParam) ? prioParam : "p1";
   const team = HARNESS_TEAM[params.get("team") ?? "others"] ?? HARNESS_TEAM.others;
@@ -1580,6 +1612,17 @@ function JobDetailHarness() {
         });
         return config;
       }
+      // 0506: sekcja „Umowa przedwstępna” w zakładce „Umowa” — bez prośby.
+      if (config.url === "/api/pre-contracts/pair") {
+        config.adapter = async () => ({
+          data: { current: null, history: [], documents: [] },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
       if (config.url === CLIENT_ACCEPTANCE_RECIPIENTS_URL) {
         config.adapter = async () => ({
           data: CLIENT_ACCEPTANCE_RECIPIENTS,
@@ -1607,6 +1650,10 @@ function JobDetailHarness() {
           headers: {},
           config,
         });
+        return config;
+      }
+      if (config.url === `/api/jobs/${JOB_ID}/close-reason`) {
+        config.adapter = async () => ({ data: {}, status: 200, statusText: "OK", headers: {}, config });
         return config;
       }
       if (config.url === `/api/jobs/${JOB_ID}/close`) {
@@ -1843,7 +1890,10 @@ function JobDetailHarness() {
                         referenceNumber="REF-4344"
                         badges={
                           closed ? (
-                            <Badge variant="danger">Zamknięta</Badge>
+                            <JobCloseReasonBadge
+                              reason={closeReason}
+                              notes="Ten sam request założony drugi raz z maila klienta."
+                            />
                           ) : (
                             <JobChampionsStatus
                               jobId={JOB_ID}
@@ -1951,14 +2001,29 @@ function JobDetailHarness() {
                         onCopyLink={noop}
                         onCloseJob={closed ? undefined : () => setCloseOpen(true)}
                         onReopenJob={closed ? () => setReopenOpen(true) : undefined}
+                        onChangeCloseReason={closed ? () => setChangeOpen(true) : undefined}
                       />
+                      {closed ? (
+                        <JobCloseWithReasonDialog
+                          mode="change"
+                          open={changeOpen}
+                          onOpenChange={setChangeOpen}
+                          jobId={JOB_ID}
+                          jobTitle="Senior Java Developer"
+                          initial={{
+                            reason: closeReason,
+                            notes: "Ten sam request założony drugi raz z maila klienta.",
+                            duplicateOfJobId: null,
+                          }}
+                        />
+                      ) : null}
                       {closed ? null : (
                         <JobCloseWithReasonDialog
                           open={closeOpen}
                           onOpenChange={setCloseOpen}
                           jobId={JOB_ID}
                           jobTitle="Senior Java Developer"
-                          defaultReason="other"
+                          defaultReason={null}
                         />
                       )}
                       {closed ? (

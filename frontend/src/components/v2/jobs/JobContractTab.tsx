@@ -588,7 +588,7 @@ export function JobContractTab({
         jobId={jobId}
         jobTitle={jobTitle}
         clientId={clientId}
-        defaultReason={hiredCount > 0 ? "filled_by_us" : "other"}
+        defaultReason={hiredCount > 0 ? "filled_by_us" : null}
       />
   );
 
@@ -948,7 +948,9 @@ function SigningStatusHistory({
             >
               <span>
                 <span className="font-medium text-foreground">
-                  {CONTRACT_STATUS_LABEL[event.to_status] ?? event.to_status}
+                  {event.kind === "esign"
+                    ? event.label
+                    : (CONTRACT_STATUS_LABEL[event.to_status] ?? event.to_status)}
                 </span>
                 {event.from_status
                   ? ` ← ${CONTRACT_STATUS_LABEL[event.from_status] ?? event.from_status}`

@@ -1,6 +1,6 @@
 # Audyt 22.09.2026 — reguły po naprawie
 
-<!-- indeks: tokeny OAuth per trasa, wysyłka maila M365 jednorazowa, podpis, kanonizacja umiejętności, analityka kontraktów -->
+<!-- indeks: tokeny OAuth, mail M365 jednorazowy, podpis, kanonizacja umiejętności, analityka -->
 
 Raport: `docs/audyt-nexus-2026-09-22.md`, naprawa: `docs/audit-2026-09-22-remediation-report.md`.
 

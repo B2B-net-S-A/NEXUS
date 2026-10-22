@@ -171,6 +171,12 @@ class PairFacts:
     # deal-breakera — `{number, question, response, deal_breaker}`. Ruch za
     # „Screening” dostaje ostrzeżenie (nie blokadę) i akcję „Odrzuć z powodem”.
     deal_breaker_hits: tuple[dict[str, Any], ...] = ()
+    # 0506 (21.10.2026): prośba o umowę przedwstępną w toku — kolumna, przed
+    # którą umowa ma być podpisana, i opis stanu. Ruch na nią albo dalej bez
+    # podpisanej umowy dostaje ostrzeżenie (nie blokadę — „Kanban bez bramek”).
+    pre_contract_column: Optional[str] = None
+    pre_contract_signed: bool = False
+    pre_contract_detail: Optional[str] = None
 
 
 @dataclass
@@ -288,6 +294,24 @@ def _deal_breaker_item(column: str, f: PairFacts) -> Optional[_Item]:
             # Treść do wpisania w notatkę okna odrzucenia.
             "note": text,
         },
+    )
+
+
+def _pre_contract_item(column: str, f: PairFacts) -> Optional[_Item]:
+    """Ostrzeżenie: umowa przedwstępna miała być podpisana przed tym etapem."""
+    needed = f.pre_contract_column
+    if needed is None or f.pre_contract_signed:
+        return None
+    if needed not in BOARD_COLUMN_ORDER or _index(column) < _index(needed):
+        return None
+    return _Item(
+        column,
+        "pre_contract",
+        "Umowa przedwstępna niepodpisana",
+        MISSING,
+        False,
+        f.pre_contract_detail,
+        _action("open_pre_contract", "Otwórz umowę", f.stage_id),
     )
 
 
@@ -838,6 +862,9 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
         warning = _deal_breaker_item(to_column, facts)
         if warning is not None:
             items.append(warning)
+    pre_contract = _pre_contract_item(to_column, facts)
+    if pre_contract is not None:
+        items.append(pre_contract)
     result["items"] = [item.as_dict() for item in items]
 
     primary: dict[str, Any] = {"kind": "move", "label": f"Przesuń na „{to_label}”"}
@@ -1122,6 +1149,31 @@ def stage_def_column(stage_def: Any) -> str:
     )
 
 
+async def _pre_contract_facts(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> tuple[Optional[str], bool, Optional[str]]:
+    """(kolumna „przed”, podpisana?, opis) prośby o przedwstępną w toku."""
+    from app.models.pre_contract import PreContractRequest  # noqa: PLC0415
+    from app.models.user import User  # noqa: PLC0415
+    from app.services import pre_contracts  # noqa: PLC0415
+
+    req = await db.scalar(
+        select(PreContractRequest).where(
+            PreContractRequest.candidate_id == candidate_id,
+            PreContractRequest.job_id == job_id,
+            PreContractRequest.closed_at.is_(None),
+        )
+    )
+    if req is None:
+        return None, False, None
+    column = pre_contracts.NEEDED_COLUMN.get(req.needed_before)
+    who = await db.scalar(select(User.name).where(User.id == req.requested_by))
+    needed = pre_contracts.NEEDED_BEFORE_LABEL.get(req.needed_before, "")
+    state = pre_contracts.STATE_LABEL.get(pre_contracts.state_of(req), "")
+    detail = f"{who or 'Ktoś'} poprosił(a) o nią {needed}. Teraz: {state.lower()}."
+    return column, pre_contracts.is_signed(req), detail
+
+
 async def load_pair_facts(
     db: AsyncSession, *, candidate: Any, job: Any, user: Any
 ) -> PairFacts:
@@ -1336,8 +1388,16 @@ async def load_pair_facts(
 
     client_fields, client_fields_owner = await client_required_fields(db, job.client_id)
 
+    (
+        pre_contract_column,
+        pre_contract_signed,
+        pre_contract_detail,
+    ) = await _pre_contract_facts(db, candidate_id=candidate.id, job_id=job.id)
     return PairFacts(
         from_column=from_column,
+        pre_contract_column=pre_contract_column,
+        pre_contract_signed=pre_contract_signed,
+        pre_contract_detail=pre_contract_detail,
         stage_id=latest.id if latest is not None else None,
         screening_done=screening_row is not None,
         screening_stage_id=(

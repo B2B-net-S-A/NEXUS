@@ -220,6 +220,12 @@ class NotificationType(str, enum.Enum):
     # zmiany (dymek). related_entity=(client_interview_<rodzaj>, None), link
     # do pary — jak ``prep_changed*``: dzienny dedup zjadałby drugą zmianę.
     interview_changed = "interview_changed"
+    # 0506 (21.10.2026): umowa przedwstępna — prośba, wystawienie, podpisy,
+    # wygasanie, rezygnacja kandydata, termin umowy B2B. Do proszących,
+    # obserwujących i wystawiającego, bez autora zmiany.
+    # related_entity=(pre_contract_event, id) — każdy krok to osobne
+    # zdarzenie, więc dzienny dedup nie zjada drugiego kroku tego samego dnia.
+    pre_contract = "pre_contract"
     # 0371: automat przydziału requestów — rano JEDEN wpis na osobę („Od dziś:
     # X. Zwolnione: Y (champion)”); related_entity=(user, id), dedup dobowy.
     # Od 02.10.2026 także od razu po akceptacji propozycji: „Nowy request do

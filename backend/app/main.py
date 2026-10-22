@@ -135,6 +135,7 @@ from app.api import board_tasks as board_tasks_api
 from app.api import candidate_followups as candidate_followups_api
 from app.api import interview_cycle as interview_cycle_api
 from app.api import prep_meetings as prep_meetings_api
+from app.api import prep_review_config as prep_review_config_api
 from app.api import hiring_managers_analytics as hiring_managers_api
 from app.api import admin_client_mixups
 from app.api import admin_clients_overview as admin_clients_overview_api
@@ -172,6 +173,7 @@ from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
 from app.api import b2b_esign
+from app.api import pre_contracts as pre_contracts_api
 from app.api import b2b_register_import
 from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
@@ -765,6 +767,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
     from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop
+    from app.tasks.pre_contract_sweeper import pre_contract_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
@@ -783,6 +786,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
+    from app.tasks.m365_account_sweep import m365_account_sweep_loop
     from app.tasks.job_portal_worker import job_portal_worker_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
@@ -914,6 +918,8 @@ async def lifespan(app: FastAPI):
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
         "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
+        # 0506: umowa przedwstępna — wygasanie, przypomnienia, termin B2B.
+        "pre_contract_sweeper": asyncio.create_task(pre_contract_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
         # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
@@ -966,6 +972,10 @@ async def lifespan(app: FastAPI):
         # tylko po to, zeby sprawdzic te sama flage.
         "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
         "compass_lifecycle_sync": asyncio.create_task(compass_lifecycle_sync_loop()),
+        # 22.10.2026: konto NEXUSA idzie za kontem M365 (404 / accountEnabled
+        # = false → wyłączone). Niezależna od HR_PROGRAM_ENABLED; kończy się
+        # przed pętlą przy M365_ACCOUNT_SWEEP_MODE=off.
+        "m365_account_sweep": asyncio.create_task(m365_account_sweep_loop()),
         # 0360: kolejka publikacji na portalach — kończy się przed pętlą,
         # gdy żaden portal nie jest włączony.
         "job_portal_worker": asyncio.create_task(job_portal_worker_loop()),
@@ -1201,6 +1211,8 @@ app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
 # 0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
 app.include_router(job_intake_forms_api.router, prefix="/api", tags=["jobs"])
 app.include_router(job_files_api.router, prefix="/api", tags=["jobs"])
+# 0506: umowa przedwstępna przy osobie w rekrutacji (prośba, podpisy, lista).
+app.include_router(pre_contracts_api.router, prefix="/api", tags=["pipeline"])
 # 0430: ogłoszenie do wklejenia na portale (zastąpiło `ai_writer`).
 app.include_router(job_ads_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])
@@ -1757,6 +1769,11 @@ app.include_router(
     scoring_weights_api.router,
     prefix="/api/scoring-weights",
     tags=["scoring-weights"],
+)
+app.include_router(
+    prep_review_config_api.router,
+    prefix="/api/prep-review-config",
+    tags=["prep-review-config"],
 )
 app.include_router(
     public_share_api.router,
@@ -3228,7 +3245,12 @@ async def api_health_deep_check():
     from app.models.job_public_profile import JobPublicProfile
     from app.models.candidate_consent import CandidateConsent
     from app.models.placement_exclusion import PlacementExclusion
-    from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
+    from app.models.prep_meeting import (
+        PrepMeeting,
+        PrepReview,
+        PrepReviewConfigVersion,
+        PrepTranscript,
+    )
     from app.models.job_board_connection import JobBoardConnection
     from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
     from app.models.candidate_followup import CandidateFollowup
@@ -3508,6 +3530,8 @@ async def api_health_deep_check():
         ("trainee_call_items", TraineeCallItem),
         ("prep_transcripts", PrepTranscript),
         ("prep_reviews", PrepReview),
+        # 0505: ustawienia oceny prepów — czyta je każda ocena prepu.
+        ("prep_review_configs", PrepReviewConfigVersion),
         # 0372: follow-up z kandydatem — „Czeka na Ciebie” i Tablica czytają
         # wyniki telefonów, więc brak tabeli = pulpit i kanban 500.
         ("candidate_followups", CandidateFollowup),

@@ -1,6 +1,6 @@
 # Ogłoszenie = jedna treść; strona kariery jednym kliknięciem (21.10.2026)
 
-<!-- indeks: „Opublikuj na stronie”, ogłoszenie zasila opis publiczny, kropki w nagłówku, „Kariera” na liście, kolejka zaległych, nocne przygotowanie -->
+<!-- indeks: „Opublikuj na stronie”, opis publiczny z ogłoszenia, „Kariera” na liście, kolejka zaległych -->
 
 Decyzje Artura 21.10.2026 (makiety https://claude.ai/artifact/1wcS1zr1hc73nFMKSPwm7P).
 Pomiar tego dnia: 203 z 205 otwartych rekrutacji bez strony kariery, 3 opisy

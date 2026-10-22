@@ -221,11 +221,14 @@ describe("JobContractTab", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /Zamknij rekrutację z powodem/ }),
     );
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Zamknij rekrutację" }),
-    );
+    // Bez zatrudnionych nic nie jest podpowiedziane (21.10.2026: „Inny”
+    // wycofany) — człowiek wybiera, jak się skończyła.
+    const submit = await screen.findByRole("button", { name: "Zamknij rekrutację" });
+    expect(submit).toBeDisabled();
+    await userEvent.click(screen.getByTestId("close-group-lost"));
+    await userEvent.click(submit);
     await waitFor(() => expect(closeJob).toHaveBeenCalledTimes(1));
-    expect(closeJob).toHaveBeenCalledWith(10, "other", "");
+    expect(closeJob).toHaveBeenCalledWith(10, "competitor", "", false, null);
   });
 
   it("rola bez `job.update` nie dostaje przycisku, tylko powód", async () => {

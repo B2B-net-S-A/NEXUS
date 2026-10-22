@@ -257,6 +257,27 @@ function seeded(): QueryClient {
     regressions: null, journal: null,
   });
 
+  // „Zamknięcia i hit ratio” (21.10.2026) — `?as=hor&view=raporty&report=zamkniecia-hit-ratio`.
+  const closureRow = {
+    client_name: "Bank Przykładowy S.A.",
+    duplicate_of_job_id: null,
+    delivery_lead_name: "Olga Wzorcowa",
+  };
+  qc.setQueryData(insightsQueryKeys.hitRatioClosures(), {
+    since: "2026-10-11T22:00:00+00:00",
+    counts: { won: 6, lost: 9, neutral: 3, unreviewed: 2 },
+    hit_ratio: 35.3,
+    neutral: [
+      { ...closureRow, job_id: 9101, title: "Programista Java", close_reason: "duplicate", close_notes: "Ten sam request założony drugi raz z maila klienta.", closed_at: "2026-10-20T10:00:00+00:00", closed_by_name: "Olga Wzorcowa" },
+      { ...closureRow, job_id: 9102, title: "Analityk biznesowy", close_reason: "internal_hire", close_notes: "Klient przesunął osobę z innego zespołu.", closed_at: "2026-10-16T09:00:00+00:00", closed_by_name: "Olga Wzorcowa" },
+      { ...closureRow, job_id: 9103, title: "Tester automatyzujący", close_reason: "paused", close_notes: "Klient wraca w styczniu.", closed_at: "2026-10-14T12:00:00+00:00", closed_by_name: "Karol Wzorcowy" },
+    ],
+    unreviewed: [
+      { ...closureRow, job_id: 9104, title: "DevOps Engineer", close_reason: "other", close_notes: null, closed_at: "2026-10-13T08:00:00+00:00", closed_by_name: "Karol Wzorcowy" },
+      { ...closureRow, job_id: 9105, title: "Architekt chmury", close_reason: null, close_notes: null, closed_at: "2026-10-12T15:00:00+00:00", closed_by_name: null },
+    ],
+  });
+
   // Mój miesiąc (Anna L., id 1).
   qc.setQueryData(["insights", "me", "panel"], {
     role: "recruiter", applies: true,

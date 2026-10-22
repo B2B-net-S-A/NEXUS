@@ -328,3 +328,15 @@ export function decisionCards(team: MyTeam): DecisionCard[] {
 export function decisionCount(cards: readonly DecisionCard[]): number {
   return cards.filter((card) => card.kind !== "bonus").length;
 }
+
+/**
+ * Znacznik „brak dd.mm” przy godzinach miesiąca (22.10.2026): jeden dzień bez
+ * wpisu — jego data, kilka — liczba z ostatnią datą. Brak danych = brak znacznika.
+ */
+export function missingDaysLabel(dates: readonly string[] | undefined): string | null {
+  if (!dates || dates.length === 0) return null;
+  const last = dates[dates.length - 1];
+  const [, month, day] = last.split("-");
+  const short = `${day}.${month}`;
+  return dates.length === 1 ? `brak ${short}` : `brak ${dates.length} dni · ost. ${short}`;
+}

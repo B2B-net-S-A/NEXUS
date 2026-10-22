@@ -208,7 +208,7 @@ async def test_trip_within_limit_is_closed_by_the_supervisor(client, team) -> No
     assert decided.json()["decided_by_name"] == boss.name
     (decided_note,) = await _notifications(worker, NotificationType.hr_approval_decided)
     # Autor ląduje w „Moich zgodach”, nie w skrzynce decydującego.
-    assert decided_note.link == f"/people/consents?request={body['id']}"
+    assert decided_note.link == f"/my-time?tab=consents&request={body['id']}"
 
 
 @pytest.mark.asyncio

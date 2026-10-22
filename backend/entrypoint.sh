@@ -589,6 +589,9 @@ _ENUM_STATEMENTS = [
             );
         END IF;
     END $$""",
+    # 0504: powody „nie liczy się do hit ratio” (21.10.2026).
+    "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'duplicate'",
+    "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'no_match'",
     # LinkedIn employment tracking (migracja 0049_linkedin_employment).
     # Candidate model odwołuje się do 7 nowych kolumn + enum — bez nich KAŻDY
     # SELECT kandydata wywala UndefinedColumnError (łącznie z /api/candidates
@@ -784,6 +787,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep2_skip_threshold'",
     # 0500: rozmowa u klienta przełożona albo odwołana (do ludzi pary).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_changed'",
+    # 0506: prośba o umowę przedwstępną — zmiany stanu dla proszących i wystawiającego.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'pre_contract'",
     # 0507: alarm o masowym przeglądaniu CV (do adminów i HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_data_access_alert'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
@@ -1082,6 +1087,16 @@ except Exception as _ranking_weights_err:  # noqa: BLE001
     print(f"ranking weight changes DDL unavailable: {_ranking_weights_err!r}")
     _RANKING_WEIGHT_CHANGES_DDL = []
 
+# Ustawienia oceny prepów (migracja 0505) — JEDNO źródło z migracją
+# (`app/services/prep_review_config_schema.py`).
+try:
+    from app.services import prep_review_config_schema as _prep_review_config_schema
+
+    _PREP_REVIEW_CONFIG_DDL = list(_prep_review_config_schema.TABLE_DDL)
+except Exception as _prep_review_config_err:  # noqa: BLE001
+    print(f"prep review config DDL unavailable: {_prep_review_config_err!r}")
+    _PREP_REVIEW_CONFIG_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1131,6 +1146,7 @@ _COLUMN_STATEMENTS = [
     *_CONTRACT_DOCS_SP_DDL,
     *_CONTRACT_DOC_FOLDERS_DDL,
     *_RANKING_WEIGHT_CHANGES_DDL,
+    *_PREP_REVIEW_CONFIG_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -2273,6 +2289,9 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_jobs_closed_at ON jobs(closed_at)",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_reason jobclosereason",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_notes TEXT",
+    # 0504: rekrutacja, która zostaje, gdy zamykana jest duplikatem.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS duplicate_of_job_id INTEGER "
+    "NULL REFERENCES jobs(id) ON DELETE SET NULL",
     # LinkedIn tracking (migracja 0049_linkedin_employment): 7 kolumn na
     # candidates + tabela candidate_linkedin_snapshots. Bez nich Candidate
     # ORM SELECT pada — blokuje /api/candidates i /api/marketplace/candidates.
@@ -5211,6 +5230,20 @@ END $$""",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_b2b_signing_requests_open_per_row "
     "ON b2b_signing_requests (generated_contract_id) "
     "WHERE status IN ('sent', 'contractor_signed')",
+    # 0506: prośby o umowę przedwstępną przy osobie w rekrutacji. Lustro 1:1
+    # z `app/services/pre_contract_schema.py` (pilnuje test_pre_contract_schema_mirror)
+    # — PO tabeli `b2b_contract_documents`, na którą wskazuje klucz obcy.
+    "CREATE TABLE IF NOT EXISTS pre_contract_requests (id SERIAL PRIMARY KEY, candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, client_id INTEGER NULL REFERENCES clients(id) ON DELETE SET NULL, needed_before VARCHAR(24) NOT NULL, needed_by DATE NULL, reason TEXT NULL, requested_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, requested_at TIMESTAMPTZ NOT NULL DEFAULT now(), assignee_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, document_id INTEGER NULL REFERENCES b2b_contract_documents(id) ON DELETE SET NULL, issued_at TIMESTAMPTZ NULL, sent_at TIMESTAMPTZ NULL, candidate_signed_at TIMESTAMPTZ NULL, candidate_signature_form VARCHAR(24) NULL, candidate_file_path VARCHAR(512) NULL, candidate_file_name VARCHAR(255) NULL, company_signed_at TIMESTAMPTZ NULL, company_file_path VARCHAR(512) NULL, company_file_name VARCHAR(255) NULL, valid_until DATE NULL, b2b_deadline DATE NULL, closed_at TIMESTAMPTZ NULL, close_reason VARCHAR(24) NULL, closed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, withdrawal JSONB NULL, last_reminder_at TIMESTAMPTZ NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT ck_pre_contract_needed_before CHECK (needed_before IN ('cv_sent', 'client_interview', 'b2b_contract', 'date')), CONSTRAINT ck_pre_contract_signature_form CHECK (candidate_signature_form IS NULL OR candidate_signature_form IN ('trusted_profile', 'personal_signature', 'qualified', 'handwritten_scan', 'other')), CONSTRAINT ck_pre_contract_close_reason CHECK (close_reason IS NULL OR close_reason IN ('fulfilled', 'expired', 'cancelled', 'withdrawn', 'candidate_refused', 'candidate_withdrew')))",
+    "CREATE TABLE IF NOT EXISTS pre_contract_watchers (request_id INTEGER NOT NULL REFERENCES pre_contract_requests(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (request_id, user_id))",
+    "CREATE TABLE IF NOT EXISTS pre_contract_events (id SERIAL PRIMARY KEY, request_id INTEGER NOT NULL REFERENCES pre_contract_requests(id) ON DELETE CASCADE, kind VARCHAR(40) NOT NULL, actor_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, at TIMESTAMPTZ NOT NULL DEFAULT now(), payload JSONB NULL)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_pre_contract_open_per_pair ON pre_contract_requests (candidate_id, job_id) WHERE closed_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS ix_pre_contract_requests_candidate_id ON pre_contract_requests (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_pre_contract_requests_job_id ON pre_contract_requests (job_id)",
+    "CREATE INDEX IF NOT EXISTS ix_pre_contract_requests_client_id ON pre_contract_requests (client_id)",
+    "CREATE INDEX IF NOT EXISTS ix_pre_contract_requests_requested_by ON pre_contract_requests (requested_by)",
+    "CREATE INDEX IF NOT EXISTS ix_pre_contract_requests_assignee_id ON pre_contract_requests (assignee_id)",
+    "CREATE INDEX IF NOT EXISTS ix_pre_contract_watchers_user_id ON pre_contract_watchers (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_pre_contract_events_request_id ON pre_contract_events (request_id)",
     # 0366: multiposting — kolumny kolejki publikacji w portalach.
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",

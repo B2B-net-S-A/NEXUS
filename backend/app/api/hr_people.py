@@ -7,6 +7,9 @@
 * ``GET /api/hr/people/{user_id}`` — kartoteka w zakresie czytającego
   (sama osoba, przełożony, Kadry i Finanse widzą całość; reszta wizytówkę;
   formę umowy tylko osoba, przełożony, admin i Finanse — ``people.form_viewer``),
+* ``GET /api/hr/people/{user_id}/history`` — zakładka kartoteki
+  „Nieobecności i godziny”: nieobecności roku i raporty godzin osoby, tylko
+  w pełnym zakresie (``services/hr/person_history.py``, D6 w środku),
 * ``GET /api/hr/me`` — własna kartoteka (pusta, gdy osoba jej nie ma).
 """
 
@@ -15,7 +18,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,9 +34,10 @@ from app.models.user import UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
-from app.services.hr import account_profiles, leave_substitute, people
+from app.services.hr import account_profiles, leave_substitute, people, person_history
 from app.services.hr.absence import absences_on
 from app.services.hr.leave_balance import balance_payload
+from app.services.hr.leave_policy import actor_of, can_see_type
 from app.services.hr.leave_calendar import presence_between
 from app.services.hr.modules import HrModule
 from app.services.hr.lifecycle_templates import is_back_office_head
@@ -269,6 +273,62 @@ async def get_person(
     else:
         payload = people.card_payload(row)
     return {**payload, "scope": scope}
+
+
+HISTORY_DETAIL = (
+    "Nieobecności i godziny widzą ta osoba, jej koordynator, Kadry i Finanse."
+)
+
+
+@router.get("/people/{user_id}/history")
+async def get_person_history(
+    user_id: int,
+    current_user: HrPeopleReader,
+    db: AsyncSession = Depends(get_db),
+    year: Optional[int] = Query(default=None, ge=2020, le=2100),
+) -> dict:
+    """Zakładka „Nieobecności i godziny” — ten sam krąg co pełna kartoteka.
+
+    Część modułu zamkniętego dla patrzącego to ``None`` (ekran jej nie
+    pokazuje), nie pusta lista.
+    """
+
+    row = await people.person_row(db, user_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiej kartoteki.")
+    if await people.viewer_scope(db, current_user, row.profile) != "full":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, HISTORY_DETAIL)
+    today = business_today()
+    loaded = await hr_modules.load_modules(db)
+    profile = row.profile
+    viewer = person_history.Viewer(
+        type_visible=can_see_type(
+            actor_of(current_user),
+            subject_user_id=profile.user_id,
+            subject_manager_id=profile.manager_user_id,
+        ),
+        form_visible=(await people.form_viewer(db, current_user)).sees(profile.user_id),
+    )
+    absences = None
+    if hr_modules.module_open_for(current_user, loaded, HrModule.leave):
+        absences = {
+            "type_visible": viewer.type_visible,
+            "items": await person_history.absences(
+                db, profile, year=year or today.year, today=today, viewer=viewer
+            ),
+        }
+    timesheets = None
+    if hr_modules.module_open_for(current_user, loaded, HrModule.time):
+        timesheets = {
+            "timesheet_required": profile.timesheet_required,
+            "items": await person_history.timesheets(db, profile, today=today),
+        }
+    return {
+        "year": year or today.year,
+        "today": today.isoformat(),
+        "absences": absences,
+        "timesheets": timesheets,
+    }
 
 
 #: Pola salda do pierścienia w kartotece (makieta 19.10.2026). Bez liczników

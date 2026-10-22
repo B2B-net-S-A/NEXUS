@@ -70,6 +70,7 @@ from app.services import (
     prep_invitation,
     prep_meetings,
     prep_notifications,
+    teams_vtt,
 )
 from app.services.job_membership import list_job_member_ids
 
@@ -186,6 +187,9 @@ class ReviewOut(BaseModel):
     criteria: dict
     summary: Optional[str] = None
     remaining: list
+    # 0505: wersja Ustawienia → Ocena prepów (NULL = startowe) i promptu.
+    config_version: Optional[int] = None
+    prompt_version: Optional[str] = None
 
 
 class PrepOut(BaseModel):
@@ -214,11 +218,39 @@ class PrepOut(BaseModel):
     review: Optional[ReviewOut] = None
 
 
+class CueOut(BaseModel):
+    """Wypowiedź z VTT: sekunda od początku, mówca i jego rola w prepie."""
+
+    start: int
+    speaker: Optional[str] = None
+    # staff | candidate | unknown; None = Teams nie podał mówcy
+    role: Optional[str] = None
+    text: str
+
+
 class TranscriptOut(BaseModel):
     event_id: int
     speakers: list
     text: str
     fetched_at: datetime
+    cues: list[CueOut] = []
+
+
+def _cues(transcript: PrepTranscript) -> list[CueOut]:
+    roles = {
+        s.get("name"): s.get("role")
+        for s in (transcript.speakers or [])
+        if isinstance(s, dict)
+    }
+    return [
+        CueOut(
+            start=int(cue.start),
+            speaker=cue.speaker,
+            role=roles.get(cue.speaker) if cue.speaker else None,
+            text=cue.text,
+        )
+        for cue in teams_vtt.parse_vtt(transcript.vtt or "")
+    ]
 
 
 async def _people(db: AsyncSession, ids: list[int]) -> dict[int, PersonOut]:
@@ -671,6 +703,8 @@ async def _prep_out(
             criteria=review.criteria or {},
             summary=review.summary,
             remaining=review.remaining or [],
+            config_version=review.config_version,
+            prompt_version=review.prompt_version,
         )
         if review
         else None,
@@ -887,6 +921,7 @@ async def get_prep_transcript(
         speakers=transcript.speakers or [],
         text=transcript.plain_text,
         fetched_at=transcript.fetched_at,
+        cues=_cues(transcript),
     )
 
 

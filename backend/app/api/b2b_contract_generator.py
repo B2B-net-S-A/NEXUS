@@ -174,6 +174,7 @@ from app.services.b2b_contract_generator.entity_type import (
 from app.services.b2b_contract_generator import signed_file
 from app.services.b2b_esign import service as esign_service
 from app.services.b2b_esign import settings as esign_settings
+from app.services.b2b_esign.history import esign_history
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.company_variant import (
     CompanyVariantError,
@@ -2939,7 +2940,19 @@ async def generated_contract_status_history(
         .scalars()
         .all()
     )
-    if not events:
+    # Etap 1b: wysyłki do podpisu w NEXUSIE dołączają do tej samej historii.
+    esign_entries = esign_history(
+        (
+            await db.execute(
+                select(B2BSigningRequest).where(
+                    B2BSigningRequest.generated_contract_id == generated_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not events and not esign_entries:
         return []
 
     # Batch lookup jak w `_serialize_generated_contracts` — dziennik bywa długi
@@ -2947,7 +2960,9 @@ async def generated_contract_status_history(
     # zrobiłby z dialogu historii najwolniejszy ekran w module.
     job_ids = {e.job_id for e in events if e.job_id}
     client_ids = {e.client_id for e in events if e.client_id}
-    user_ids = {e.changed_by for e in events if e.changed_by}
+    user_ids = {e.changed_by for e in events if e.changed_by} | {
+        e.user_id for e in esign_entries if e.user_id
+    }
 
     jobs: dict[int, str] = {}
     if job_ids:
@@ -2969,7 +2984,7 @@ async def generated_contract_status_history(
         )
         users = {uid: name for uid, name in result.all()}
 
-    return [
+    items = [
         B2BStatusEventItem(
             id=e.id,
             from_status=e.from_status,
@@ -2987,6 +3002,19 @@ async def generated_contract_status_history(
         )
         for e in events
     ]
+    items += [
+        B2BStatusEventItem(
+            id=-(index + 1),
+            to_status="esign",
+            kind="esign",
+            label=entry.label,
+            changed_by_name=users.get(entry.user_id) if entry.user_id else None,
+            created_at=entry.at.isoformat(),
+        )
+        for index, entry in enumerate(esign_entries)
+    ]
+    # Rosnąco jak dziennik; wpis bez daty (stare dane) zostaje na początku.
+    return sorted(items, key=lambda item: item.created_at or "")
 
 
 @router.get("/generated/{generated_id}/docx")

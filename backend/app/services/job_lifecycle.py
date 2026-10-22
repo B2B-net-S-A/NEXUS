@@ -1371,6 +1371,7 @@ async def publish_core(
         # Runda 9 (R9-N4-1): jak PATCH — klient usunięty/scalony = 422.
         await assert_client_assignable(db, job.client_id)
         job.closed_at = None
+        clear_close_choice(job)
         api._take_over_reopened_traffit_job(db, job, current_user)
         if job.work_state == WORK_STATE_FINISHED:
             await set_work_state(
@@ -1404,6 +1405,18 @@ async def publish_core(
 
 
 # ── Zamknięcie ────────────────────────────────────────────────────────────────
+
+
+def clear_close_choice(job: Job) -> None:
+    """Ponowne otwarcie zdejmuje powód zamknięcia (21.10.2026).
+
+    Powód należy do zamknięcia. Zostawiony przy otwartej rekrutacji wyciąłby
+    ją z hit ratio po ponownym zamknięciu z „Edytuj rekrutację” (PATCH nie
+    ustawia powodu). Obie ścieżki otwarcia — `publish_core` i PATCH statusu.
+    """
+    job.close_reason = None
+    job.close_notes = None
+    job.duplicate_of_job_id = None
 
 
 async def close_job_core(

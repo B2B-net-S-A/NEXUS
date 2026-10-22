@@ -28,7 +28,9 @@ export type MoveRequirementActionKind =
   // 0413: braki karty rekomendacji — otwiera całą kartę.
   | "open_card"
   // Odpowiedź narusza „Odpada, gdy…” z Championa — okno odrzucenia z notatką.
-  | "reject";
+  | "reject"
+  // 0506: umowa przedwstępna niepodpisana — panel osoby, zakładka „Umowa”.
+  | "open_pre_contract";
 
 export interface MoveRequirementAction {
   kind: MoveRequirementActionKind | null;
@@ -147,6 +149,12 @@ export interface RequirementsSummary {
  */
 export function isDealBreakerWarning(item: MoveRequirementItem): boolean {
   return item.status === "missing" && !item.blocking && item.action?.kind === "reject";
+}
+
+/** 0506: umowa przedwstępna niepodpisana — ostrzeżenie (nie bramka), ten sam
+ *  wygląd co deal-breaker i „Przesuń mimo braku” na przycisku. */
+export function isPreContractWarning(item: MoveRequirementItem): boolean {
+  return item.key === "pre_contract" && item.status === "missing" && !item.blocking;
 }
 
 /** Licznik „brakuje X z Y” i podział braków na bramki serwera i przypomnienia. */

@@ -8,6 +8,7 @@ składają zapytania z TYCH SAMYCH fragmentów: rozwiązanie DL per oferta, typ
 rekrutacji i definicja placementu (D2) nie mogą mieć dwóch kopii.
 """
 
+from app.services.hit_ratio_scope import counts_in_hit_ratio_sql
 from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
 from app.services.job_delivery_lead_fill import _HEADS
 
@@ -56,14 +57,21 @@ DL_HEAD_CTE = f"""
 # Samo `created_at` to data IMPORTU z Traffita (`_UPSERT_JOB` stempluje NOW()),
 # więc 3859 z 4229 rekrutacji „powstało" w maju 2026 i zapytania DL wypadały
 # z każdego innego okna (runda 6 audytu).
-JOBS_SCOPED_CTE = """
+#
+# `in_demand` (21.10.2026): zamknięcia „nie liczy się” (duplikat, anulowany
+# projekt…) nie są zapytaniem portfela i wypadają z mianownika jak w lidze.
+# Kolumna, nie WHERE — zatrudnienia z takiej rekrutacji dalej się liczą,
+# tak jak w lidze; filtrują ją tylko zapytania o requesty i wakaty.
+JOBS_SCOPED_CTE = f"""
     jobs_scoped AS (
         SELECT j.id,
                COALESCE(j.opened_at, j.created_at) AS opened_at,
                j.status,
                j.client_id,
                COALESCE(j.headcount, 1) AS headcount,
-               COALESCE(jdl.id, h.delivery_lead_user_id) AS dl_id
+               COALESCE(jdl.id, h.delivery_lead_user_id) AS dl_id,
+               (j.status::text <> 'closed'
+                OR {counts_in_hit_ratio_sql("j")}) AS in_demand
         FROM jobs j
         LEFT JOIN users jdl ON jdl.id = j.delivery_lead_id AND jdl.is_active
              AND (CAST(jdl.role AS text) = 'delivery_lead'

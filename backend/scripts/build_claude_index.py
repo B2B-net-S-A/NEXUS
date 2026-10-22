@@ -16,6 +16,7 @@ Użycie (z katalogu ``backend/``)::
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +30,11 @@ HINT_PREFIX = "<!-- indeks:"
 
 # Limit całego CLAUDE.md w bajtach. Nowa reguła idzie do docs/claude/, nie tutaj.
 MAX_CLAUDE_MD_BYTES = 40_000
+
+# Data w nawiasie tytułu („(0405, 30.09.2026)”, „(decyzja Artura 25.09.2026)”, „(09.2026)”)
+# zostaje w pliku reguły, a w indeksie wypada: to ok. 2 KB z 40 KB, a czytający szuka po temacie.
+_TRAILING_DATE = re.compile(r"(?:^|\s+)(?:\d{1,2}(?:[–-]\d{1,2})?\.)?\d{2}\.\d{4}$")
+_PARENS = re.compile(r"( ?)\(([^()]*)\)")
 
 # (katalog, nagłówek w indeksie, kiedy czytać). Kolejność = kolejność w indeksie.
 GROUPS: tuple[tuple[str, str, str], ...] = (
@@ -156,6 +162,17 @@ def _title_and_hint(path: Path) -> tuple[str, str]:
     return lines[0][2:].strip(), hint
 
 
+def _without_dates(title: str) -> str:
+    """Tytuł do indeksu: bez daty kończącej człon nawiasu. Data w środku zdania zostaje."""
+
+    def strip(match: re.Match[str]) -> str:
+        parts = [_TRAILING_DATE.sub("", part) for part in match.group(2).split(", ")]
+        kept = [part for part in parts if part.strip()]
+        return f"{match.group(1)}({', '.join(kept)})" if kept else ""
+
+    return _PARENS.sub(strip, title).strip()
+
+
 def render() -> str:
     """Tekst indeksu między znacznikami START/END (ze znacznikami)."""
     known = {name for name, _, _ in GROUPS}
@@ -178,13 +195,13 @@ def render() -> str:
         files = sorted((RULES_DIR / name).glob("*.md"))
         if not files:
             continue
-        out.append(f"### {heading} — `docs/claude/{name}/`")
+        out.append(f"### {heading} — `{name}/`")
         out.append("")
         out.append(when)
         out.append("")
         for path in files:
             title, hint = _title_and_hint(path)
-            line = f"- `{path.name}` — {title}"
+            line = f"- `{path.name}`: {_without_dates(title)}"
             if hint:
                 line += f" · {hint}"
             out.append(line)

@@ -1,5 +1,5 @@
 # Pole notatki: rośnie z tekstem, duże okno pisania, szkic (12.10.2026)
-<!-- indeks: trzy stany pola, Enter w dużym oknie = nowa linia, szkic w sessionStorage -->
+<!-- indeks: Enter w dużym oknie = nowa linia, szkic w sessionStorage -->
 
 Zgłoszenie rekruterów: pole notatki na dole panelu osoby miało jedną linię
 (230 × 32 px w wąskim doku), nie dało się go powiększyć, a niewysłany tekst

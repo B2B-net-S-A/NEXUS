@@ -23,7 +23,7 @@ from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.note import Note
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
 from app.models.user import User, UserRole
-from app.services import prep_review, prep_transcripts
+from app.services import prep_review, prep_review_config, prep_transcripts
 from app.services.m365 import teams_prep_auth, teams_prep_graph
 from app.services.m365.graph_client import GraphRequestError
 
@@ -338,18 +338,31 @@ async def test_transcript_is_fetched_graded_and_summarised_in_a_note(
 
     def fake_model(chain, prompt):
         assert "<transcript>" in prompt or "transcript" in prompt
+        # Tematy prowadzącego z ustawień startowych (0505) — wszystkie padły.
+        topics = [
+            {
+                "key": f"topic:{i}",
+                "status": "covered",
+                "quote": "W banku przez dwa lata",
+            }
+            for i in range(len(prep_review_config.defaults().prep1.topics))
+        ]
         return json.dumps(
             {
                 "summary": "Kandydat opowiedział o Kafce.",
-                "must_haves": [
+                "topics": topics,
+                "answers": [
                     {
                         "key": "must:Kafka",
-                        "status": "covered",
+                        "grade": "strong",
                         "quote": "budowałem integracje na Kafce",
+                        "note": None,
                     },
-                    {"key": "must:Kubernetes", "status": "missing", "quote": None},
+                    {"key": "must:Kubernetes", "grade": "missing", "quote": None},
                 ],
-                "client_questions": [],
+                "went_well": ["Konkretny projekt na Kafce"],
+                "went_wrong": ["Kubernetes nie padł"],
+                "improve": [],
                 "own_projects": {"told": True, "quote": "W banku przez dwa lata"},
             },
             ensure_ascii=False,
@@ -373,14 +386,16 @@ async def test_transcript_is_fetched_graded_and_summarised_in_a_note(
             select(PrepReview).where(PrepReview.prep_meeting_id == prep_id)
         )
         assert review.status == "ok"
-        # Kubernetes nie omówiony → pokrycie 50% = słaby (próg 50% to OK, poniżej słaby).
-        assert float(review.coverage) == 0.5
-        assert review.level in ("ok", "weak")
+        # Tematy 100 × 25, must-have (Kafka mocna, Kubernetes nie było) 50 × 40,
+        # udział kandydata 75% ≥ 45% → 100 × 15; brak pytań klienta → bez wagi.
+        assert float(review.coverage) == 0.75
+        assert review.level == "ok"
         assert review.remaining == ["Kubernetes"]
+        assert review.criteria["followup"][0]["reason"] == "missing"
         note = await db.get(Note, tr.summary_note_id)
         assert note.candidate_id == cand_id
         assert "Prep 1 — podsumowanie z Teams" in note.content
-        assert "Na Prep 2 zostało: Kubernetes" in note.content
+        assert "Do powtórzenia na Prep 2: 1) Kubernetes — nie omówiono" in note.content
         # Notatka nie niesie surowego transkryptu.
         assert "Zwiększam liczbę partycji" not in note.content
 
@@ -392,6 +407,9 @@ async def test_transcript_is_fetched_graded_and_summarised_in_a_note(
     )
     assert text.status_code == 200
     assert "Zwiększam liczbę partycji" in text.json()["text"]
+    cues = text.json()["cues"]
+    assert {c["role"] for c in cues} >= {"candidate", "staff"}
+    assert all(isinstance(c["start"], int) for c in cues)
 
     # Od #1742 (decyzja 23.09.2026) rekrutację widzi każda rola wewnętrzna,
     # także rekruter spoza zespołu — transkrypt stoi za tą samą bramką.

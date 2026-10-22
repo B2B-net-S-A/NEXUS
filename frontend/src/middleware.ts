@@ -208,6 +208,15 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    // 0505: ustawienia oceny prepów — odczyt rekruter, DL, HoR, admin;
+    // publikację (HoR, admin) bramkuje backend.
+    prefix: "/settings/prep-review",
+    roles: ["admin", "delivery_lead", "head_of_recruitment", "recruiter"],
+    section: "pipeline",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
     // Odczyt: admin, Delivery Lead, Head of Recruitment; szkic i publikację
     // wag (admin, HoR + zapis Insights) bramkuje strona i backend.
     prefix: "/settings/scoring",
@@ -392,7 +401,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/plain-brief`, `/preview/permissions`,
 //   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
 //   `/preview/job-team-panel`, `/preview/champion-workspace`, `/preview/job-ad`,
-//   `/preview/career-queue`,
+//   `/preview/career-queue`, `/preview/pre-contracts`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -494,7 +503,11 @@ const PUBLIC_PATHS = [
   "/preview/cv-to-client",
   "/preview/cpro-queue",
   "/preview/candidate-followup",
+  // Ustawienia → Ocena prepów (0505): wagi, tematy, skala, historia; `?tryb=odczyt`.
+  "/preview/prep-review-settings",
   "/preview/kpi-targets",
+  // Ustawienia → „Ranking kandydatów” (21.10.2026): wagi, podgląd, pomiar.
+  "/preview/ranking-panel",
   // Ustawienia → „Osoby i role” (0410): dziewięć przełączników, okno osoby.
   "/preview/permissions",
   "/preview/b2b-documents",
@@ -508,6 +521,8 @@ const PUBLIC_PATHS = [
   "/preview/job-ad",
   // „Strona kariery do uzupełnienia” (21.10.2026) — kolejka na danych w pamięci.
   "/preview/career-queue",
+  // Umowa przedwstępna (0506) — sekcja panelu, lista i kafelek na danych w pamięci.
+  "/preview/pre-contracts",
   "/preview/job-portals",
   "/preview/academy",
   "/preview/request-allocation",
