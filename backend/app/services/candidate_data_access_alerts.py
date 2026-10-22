@@ -68,7 +68,7 @@ WATCHED_ACTIONS: tuple[str, ...] = (
 BURST_ENTITY = "data_access_burst"
 #: Id kont zaczynają się od 1 — zero nie zderzy się w dedupie z alarmem o osobie.
 BURST_ENTITY_ID = 0
-LINK = "/settings?tab=people"
+LINK = "/settings?item=people"
 
 
 @dataclass(frozen=True)
