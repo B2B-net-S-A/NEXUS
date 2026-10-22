@@ -242,7 +242,7 @@ export function SimilarCandidatesTab({
   );
 
   return (
-    <section aria-label="Podobni kandydaci" className="space-y-3" data-help="candidate.profile.similar">
+    <section aria-label="Podobni kandydaci" className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <p className="min-w-0 flex-1 text-sm text-muted-foreground">
           Osoby z podobnym CV i umiejętnościami co {candidateName} — kolejność nie zależy od żadnej
