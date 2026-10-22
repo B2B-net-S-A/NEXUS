@@ -86,7 +86,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.services.html_sanitizer import sanitize_cv_html
-from app.services import cv_editor_issues
+from app.services import candidate_audit, cv_editor_issues
 from app.services.cv_download_log import log_cv_download
 from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.cv_rewrite_merge import MergeResult, merge_rewrite
@@ -356,6 +356,13 @@ async def download_original_cv(
     stage_id: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    disposition: Literal["attachment", "inline"] = Query(
+        "attachment",
+        description=(
+            "Tylko do dziennika dostępu: `inline` — podgląd w NEXUSIE, "
+            "`attachment` (domyślnie) — zapis na dysk."
+        ),
+    ),
 ) -> Response:
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
     if not snapshot_exists(csv):
@@ -380,6 +387,21 @@ async def download_original_cv(
             status_code=404,
             detail="Kandydat nie miał CV w momencie utworzenia rekrutacji.",
         )
+
+    # Ślad dla alarmu masowego przeglądania CV (0508) — jak każda inna droga
+    # do pliku kandydata (audyt 22.10, F25).
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.DOCUMENT_DOWNLOADED,
+        user_id=current_user.id,
+        entity_id=csv.candidate_id,
+        details={
+            "stage_id": stage_id,
+            "endpoint": "stage-cv-original",
+            "disposition": disposition,
+        },
+    )
+    await db.commit()
 
     filename = csv.original_cv_filename or f"cv_stage_{stage_id}.pdf"
     media_type, _ = mimetypes.guess_type(filename)

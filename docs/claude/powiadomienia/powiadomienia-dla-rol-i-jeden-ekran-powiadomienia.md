@@ -104,11 +104,14 @@ jako dymek w NEXUSIE i mail od razu.
 `entity_type='candidate'`. Każda droga do pliku kandydata już tam zapisuje
 zdarzenie (`candidate_audit`):
 
-- podgląd i zapis na dysk: `document_downloaded`, `disposition` `inline` albo `attachment`,
+- podgląd i zapis na dysk: `document_downloaded`, `disposition` `inline` albo `attachment`
+  (także „CV z chwili dodania” z rekrutacji, `endpoint: stage-cv-original`:
+  podgląd woła trasę z `?disposition=inline`, „Pobierz” bez niego; audyt 22.10, F25),
 - link do pliku: `document_url_issued`,
 - pobranie CV: `cv_downloaded`,
 - paczka ZIP: `bulk_cv_downloaded`, `included_count`,
-- eksport: `export_requested`, `row_count` albo `selected_count`.
+- eksport: `export_requested`, `row_count` albo `selected_count` (`POST /api/candidates/export`
+  zapisuje `row_count` = liczba osób w pliku, także przy eksporcie z filtrem; audyt 22.10, F24).
 
 Zdarzenia API integracji mają `user_id` puste i nie są liczone.
 
