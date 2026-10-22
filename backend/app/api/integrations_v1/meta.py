@@ -111,7 +111,7 @@ def integrations_openapi(full: dict) -> dict:
             "description": (
                 "API dla automatyzacji procesów firmy (na start rozliczanie klientów). "
                 "Uwierzytelnienie: nagłówek X-API-Key. Zapisy wymagają nagłówka "
-                "Idempotency-Key (UUID). Wdrożenia NEXUSA odbywają się 19:00–07:00 "
+                "Idempotency-Key (UUID). Wdrożenia NEXUSA odbywają się 18:00–08:00 "
                 "(Europe/Warsaw) — w tym oknie możliwa ~2-minutowa przerwa; ponawiaj "
                 "502/503 z odstępem."
             ),

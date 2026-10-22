@@ -1,4 +1,4 @@
-# Budzik okna wdrożeń NEXUSA — o 19:05, 21:05 i 23:05 (Warszawa) uruchamia
+# Budzik okna wdrożeń NEXUSA — o 18:05, 20:05 i 22:05 (Warszawa) uruchamia
 # workflow Deploy przez API GitHuba. Powód i działanie: loop.sh.
 #
 #   curl   — wywołanie API GitHuba.

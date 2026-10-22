@@ -8,7 +8,7 @@
   - `docker-compose.yml` — base z `build:` block (no port bindings, Coolify Traefik routuje przez `expose:`). **Limity pamięci (mem_limit) są TUTAJ** — Coolify czyta wyłącznie ten plik (docker_compose_location), więc limity trzymane w overlayu nigdy nie obowiązywały na prodzie (Memory=0, wykryte i naprawione 2026-08-12).
   - `docker-compose.override.yml` — dev (re-adds host port bindings, auto-loaded przez `docker compose up`).
   - `docker-compose.prod.yml` — prod overlay (ports/env/healthchecks — referencja do ręcznej symulacji prod; BEZ limitów zasobów).
-- **Auto-deploy:** ✅ **TAK, pon–pt w oknie 19:00–07:00 (Europe/Warsaw, decyzja Artura 14.10.2026), w sobotę i niedzielę o każdej porze (17.10.2026)** — `git push origin main` → „CI Gate” → `.github/workflows/deploy.yml` (unified template, PR #68 merged 2026-05-04) → w dzień roboczy odroczenie `night_freeze`, wieczorem budzik `deploy-window` (19:05/21:05/23:05, zapasowo cron GitHuba) → API Coolify (POST `/api/v1/deploy`) → build + restart → smoke test. Szczegóły okna, tryb `emergency` (tylko na polecenie Artura) i alarm „noc bez wdrożenia”: `ci-gotchas.md`.
+- **Auto-deploy:** ✅ **TAK, pon–pt w oknie 18:00–08:00 (Europe/Warsaw, decyzja Artura 14.10.2026, godziny 18:00–08:00 od 22.10.2026), w sobotę i niedzielę o każdej porze (17.10.2026)** — `git push origin main` → „CI Gate” → `.github/workflows/deploy.yml` (unified template, PR #68 merged 2026-05-04) → w dzień roboczy odroczenie `night_freeze`, wieczorem budzik `deploy-window` (19:05/21:05/23:05, zapasowo cron GitHuba) → API Coolify (POST `/api/v1/deploy`) → build + restart → smoke test. Szczegóły okna, tryb `emergency` (tylko na polecenie Artura) i alarm „noc bez wdrożenia”: `ci-gotchas.md`.
 - **Trigger:** push `main` → `.github/workflows/deploy.yml`. Coolify NIE buduje sam po pushu: webhook GitHuba do Coolify wyłączony 14.10.2026 (i tak nie dochodził — port 8000 zamknięty), a `coolify_release_audit.py` (`coolify-ops.yml`, akcja `release-config-audit`) pada przy włączonym Auto Deploy aplikacji.
 - **Na produkcję wchodzi tylko commit z zieloną bramką (DEP-01, od 15.09.2026).**
   Coolify 4.1.2 buduje ZAWSZE HEAD maina — ignoruje nawet przypięty
@@ -51,5 +51,5 @@
   - Brak odczytu zmiennych z API Coolify: bieg automatyczny pomija rebuild
     tylko przy tym samym kodzie (jak przed 18.10), ręczny wdraża. Każdy inny
     błąd sprawdzenia = wdrożenie.
-- **Rollback:** Coolify panel `https://coolify-nexus.dynaminds.pl` → Resources → nexus → Deployments → poprzedni → Redeploy. W dzień roboczy (pon–pt 07:00–19:00) tylko na polecenie Artura — to też przebudowa z przerwą; w weekend bez ograniczeń.
+- **Rollback:** Coolify panel `https://coolify-nexus.dynaminds.pl` → Resources → nexus → Deployments → poprzedni → Redeploy. W dzień roboczy (pon–pt 08:00–18:00) tylko na polecenie Artura — to też przebudowa z przerwą; w weekend bez ograniczeń.
 - **Standardy + procedury:** patrz `~/.claude/rules/deployment.md` + `~/.claude/rules/deployment-runbook.md`.

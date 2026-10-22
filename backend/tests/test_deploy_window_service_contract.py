@@ -1,10 +1,10 @@
 """Kontrakt budzika okna wdrożeń (`deploy-window` w compose, 15.10.2026).
 
-Merge'e z dnia odracza workflow Deploy (okno 19:00–07:00, decyzja Artura
+Merge'e z dnia odracza workflow Deploy (okno 18:00–08:00, decyzja Artura
 14.10.2026), a wdrażać miał je wieczorny `schedule` GitHuba. Ten w tym repo
 przychodzi z kilkugodzinnym opóźnieniem albo wcale — 15.10 żaden z wieczornych
 slotów nie przyszedł i dzienne zmiany czekały na ręczne uruchomienie. Budzik
-w osobnym kontenerze o 19:05, 21:05 i 23:05 czasu warszawskiego uruchamia
+w osobnym kontenerze o 18:05, 20:05 i 22:05 czasu warszawskiego uruchamia
 Deploy przez API GitHuba (`workflow_dispatch` z `window_slot=true`).
 
 Token budzika pozwala uruchomić każdy workflow repo (także zmianę zmiennych
@@ -104,7 +104,7 @@ def _dispatch_script(tmp_path: Path, token: str | None = "tok-test\n") -> str:
             'log() { echo "$*"; }',
             _function("token_ready"),
             _function("dispatch"),
-            'dispatch 19:05; echo "rc=$?"',
+            'dispatch 18:05; echo "rc=$?"',
         ]
     )
 
@@ -219,32 +219,32 @@ def test_dispatch_retries_server_errors_three_times(tmp_path: Path) -> None:
 def test_each_slot_fires_once_a_day(tmp_path: Path) -> None:
     script = "\n".join(
         [
-            'SLOTS="19:05 21:05 23:05"',
+            'SLOTS="18:05 20:05 22:05"',
             'fired=""',
             'dispatch() { echo "fire $1"; }',
             _function("tick"),
             # Pętla sprawdza zegar co 20 s, więc ta sama minuta przychodzi
             # 2–3 razy; inny dzień to nowy slot.
-            "tick 19:04 2026-10-15",
-            "tick 19:05 2026-10-15",
-            "tick 19:05 2026-10-15",
-            "tick 19:06 2026-10-15",
-            "tick 21:05 2026-10-15",
-            "tick 07:05 2026-10-16",
-            "tick 19:05 2026-10-16",
+            "tick 18:04 2026-10-15",
+            "tick 18:05 2026-10-15",
+            "tick 18:05 2026-10-15",
+            "tick 18:06 2026-10-15",
+            "tick 20:05 2026-10-15",
+            "tick 08:05 2026-10-16",
+            "tick 18:05 2026-10-16",
         ]
     )
     out = _run_sh(tmp_path, script)
     assert out.returncode == 0, out.stderr
-    assert out.stdout.splitlines() == ["fire 19:05", "fire 21:05", "fire 19:05"]
+    assert out.stdout.splitlines() == ["fire 18:05", "fire 20:05", "fire 18:05"]
 
 
 def test_slots_sit_inside_the_deploy_window() -> None:
-    """Okno wdrożeń to 19:00–07:00 (Warszawa); slot w dzień byłby odroczony."""
+    """Okno wdrożeń to 18:00–08:00 (Warszawa); slot w dzień byłby odroczony."""
     src = _LOOP_SH.read_text(encoding="utf-8")
     match = re.search(r'^SLOTS="([^"]+)"$', src, re.M)
     assert match, "brak listy SLOTS w loop.sh"
     for slot in match.group(1).split():
         hour = int(slot.split(":")[0])
-        assert hour >= 19 or hour < 7, slot
+        assert hour >= 18 or hour < 8, slot
     assert re.search(r"^export TZ=Europe/Warsaw$", src, re.M)

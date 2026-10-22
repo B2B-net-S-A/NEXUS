@@ -192,7 +192,7 @@ jobs:
         run: |
           set -euo pipefail
           gh workflow run deploy.yml --repo "$REPO" --ref main -f force_rebuild="$FORCE_REBUILD"
-          echo "::notice::Uruchomiono workflow Deploy (force_rebuild=${FORCE_REBUILD}). Wdroży HEAD maina tylko przy zielonej bramce CI Gate i tylko w oknie 19:00–07:00 — w dzień Deploy kończy się błędem okna; uruchom go wtedy ręcznie po 19:00 (force_rebuild=${FORCE_REBUILD}). Wynik w zakładce Actions."
+          echo "::notice::Uruchomiono workflow Deploy (force_rebuild=${FORCE_REBUILD}). Wdroży HEAD maina tylko przy zielonej bramce CI Gate i tylko w oknie 18:00–08:00 — w dzień Deploy kończy się błędem okna; uruchom go wtedy ręcznie po 18:00 (force_rebuild=${FORCE_REBUILD}). Wynik w zakładce Actions."
 
       - name: Zmiana czeka na deploy
         if: ${{ inputs.redeploy != 'true' }}
