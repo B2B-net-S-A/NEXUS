@@ -290,12 +290,17 @@ async def create_prep(
     client_request_id: Optional[str],
     client_name: Optional[str] = None,
     extra_emails: Sequence[str] = (),
+    interview_start: Optional[datetime] = None,
 ) -> CreatedPrep:
     """Spotkanie w kalendarzu organizatora + wiersze NEXUSA. Flush, bez commitu.
 
     ``extra_emails`` — zaproszeni spoza NEXUSA (decyzja D1, 17.10.2026: Delivery
     Lead chciał dopisać kogoś spoza zespołu rekrutacji, a lista pozwalała tylko
     na zespół).
+
+    ``interview_start`` — termin rozmowy wybrany w oknie, który czeka jeszcze
+    na DL-a (przełożenie). Wygrywa z najbliższą rozmową z kalendarza, bo ta
+    jest wtedy STARĄ rozmową (decyzja Artura 22.10.2026, audyt F37).
     """
     if not organizer.email:
         raise HTTPException(
@@ -312,9 +317,12 @@ async def create_prep(
     title = prep_invitation.title(prep_no, candidate_name(candidate), client_name)
     # Termin rozmowy trafia do treści tylko wtedy, gdy prep jest PRZED nią —
     # zaproszenie na prep po rozmowie nie może jej zapowiadać.
-    interview_start = await upcoming_interview_start(
-        db, candidate_id=candidate.id, job_id=job.id
-    )
+    if interview_start is not None:
+        interview_start = _utc(interview_start)
+    else:
+        interview_start = await upcoming_interview_start(
+            db, candidate_id=candidate.id, job_id=job.id
+        )
     if interview_start is not None and _utc(start) >= interview_start:
         interview_start = None
     invitation = prep_invitation.text(

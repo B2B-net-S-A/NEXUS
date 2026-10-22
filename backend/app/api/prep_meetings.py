@@ -164,6 +164,11 @@ class PrepCreate(BaseModel):
     # Planujący widział, że prowadzący ma wtedy zajęte, i zapisuje mimo to
     # (22.10.2026). Bez tego kolizja z kalendarza = 409 PREP_SLOT_BUSY.
     accept_busy: bool = False
+    # Termin rozmowy wybrany w oknie „Umów rozmowę i prepy”, którego jeszcze
+    # nie ma w kalendarzu (przełożenie czeka na DL-a). Treść zaproszenia
+    # kandydata podaje ten termin, nie starą rozmowę (decyzja Artura
+    # 22.10.2026, audyt F37).
+    interview_start: Optional[datetime] = None
 
     @model_validator(mode="after")
     def _window(self) -> "PrepCreate":
@@ -665,6 +670,7 @@ async def create_prep(
         client_request_id=body.client_request_id,
         client_name=await _client_name(db, job),
         extra_emails=[str(e) for e in body.attendee_emails],
+        interview_start=body.interview_start,
     )
     # Prep w cudzym kalendarzu albo dla kandydata innej osoby z pary (D6).
     await prep_notifications.notify_prep_change(

@@ -1289,3 +1289,52 @@ async def test_prep2_note_comes_only_from_prep1_of_the_current_round(
         prep = await db.get(PrepMeeting, prep2)
         review = await prep_review._prep1_review(db, prep)
         assert review is not None and review.prep_meeting_id == round2_prep1
+
+
+# ── Audyt 22.10.2026 (F37): prep do terminu, który czeka na DL-a ─────────────
+
+
+async def test_prep_for_a_slot_awaiting_dl_names_the_chosen_interview_term(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Decyzja Artura 22.10.2026 (F37): klient przenosi rozmowę z 30.10 na
+    27.10, wybór czeka na DL-a, a prepy idą od razu. Zaproszenie kandydata
+    podaje NOWY termin z okna, nie starą rozmowę z kalendarza."""
+    from app.services.prep_invitation import interview_line
+
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    await _interview(cand_id, job_id, dl_id, hours=120)  # stara rozmowa
+    chosen = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=48)
+
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(24),
+        end=_at(24.75),
+        interview_start=chosen.isoformat(),
+    )
+    assert resp.status_code == 201, resp.text
+    content = graph.created[-1][1]["body"]["content"]
+    assert interview_line(chosen) in content
+    assert content.count("Termin rozmowy z Klientem:") == 1
+
+    # Prep po wybranym terminie nie zapowiada rozmowy (jak dotąd).
+    late = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=2,
+        organizer_user_id=rec_id,
+        start=_at(60),
+        end=_at(60.5),
+        interview_start=chosen.isoformat(),
+    )
+    assert late.status_code == 201, late.text
+    assert "Termin rozmowy" not in graph.created[-1][1]["body"]["content"]

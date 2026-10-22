@@ -138,6 +138,19 @@ describe("PickInterviewDialog", () => {
     expect(mocks.toast.showSuccess).toHaveBeenCalledWith(expect.stringContaining("(2)"));
   });
 
+  it("termin czeka na DL (przełożenie): prepy idą od razu z WYBRANYM terminem rozmowy w treści (audyt 22.10, F37)", async () => {
+    mocks.chooseSlot.mockResolvedValue({ status: "awaiting_dl" });
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    expect(await within(dialog).findByText("kalendarz sprawdzony")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wybierz termin i zaproś na prepy (2)" }));
+
+    await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(2));
+    for (const [body] of mocks.createPrep.mock.calls) {
+      expect(body).toMatchObject({ interview_start: "2031-06-12T12:30:00.000Z" });
+    }
+  });
+
   it("„Zaplanuję później” i „Tylko termin” nie wysyłają zaproszeń", async () => {
     const dialog = renderDialog();
     fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);

@@ -83,6 +83,12 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
 - **Wyjątek — możliwe przełożenie:** gdy para ma nieodbytą zaplanowaną
   rozmowę (`replaceable_interviews`), wybór czeka na DL-a jak dotąd — okno
   potwierdzenia pyta, czy to przełożenie (reguła 26.09.2026).
+  Prepy z okna „Umów rozmowę i prepy” idą wtedy od razu, a zaproszenie
+  kandydata podaje WYBRANY termin rozmowy (`PrepCreate.interview_start` →
+  `prep_meetings.create_prep`), nie starą rozmowę z kalendarza (decyzja
+  Artura 22.10.2026, audyt F37: dotąd treść brała `upcoming_interview_start`,
+  czyli rozmowę sprzed przełożenia, i kandydat dostawał złą datę). Prep po
+  wybranym terminie nie zapowiada rozmowy.
 - **Zadanie `slots_reply` „Odpisz klientowi”** dla autora wniosku (DL; w
   zakresie „jobs” widzi je też DL rekrutacji), do startu rozmowy; rozmowa
   odwołana w kalendarzu zdejmuje zadanie (audyt 22.10, F33). Okno

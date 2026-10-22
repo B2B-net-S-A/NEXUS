@@ -257,6 +257,9 @@ export function PickInterviewDialog({
               client_request_id: requestIds.current[p.prep_no],
               // Ostrzeżenie „ma wtedy zajęte” było na ekranie — zapis świadomy.
               accept_busy: checks[p.prep_no]?.busy != null,
+              // Przełożenie czeka na DL-a, a prepy idą od razu: kandydat ma
+              // w zaproszeniu WYBRANY termin, nie starą rozmowę (audyt 22.10, F37).
+              interview_start: start,
             });
           } catch (err) {
             failed.push(`Prep ${p.prep_no}: ${apiErrorMessage(err, "nie powstał")}`);
