@@ -500,61 +500,72 @@ function LeagueCard({
               ))}
             </ol>
 
-            <div className="rounded-lg border border-border bg-muted/40 p-3">
-              <p className="flex items-center gap-2 text-xs font-medium text-foreground">
-                <TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />
-                {/* Liga DL nie ma formuły punktowej — nagłówek „System
-                    punktowy" nad zdaniem „bez przeliczania na punkty" sam
-                    sobie przeczy. */}
-                {data?.points_formula ? "System punktowy" : "Zasada rankingu"}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {data?.points_formula ? (
-                  <>
-                    Placement{" "}
-                    <strong className="text-foreground">
-                      {data.points_formula.placement} pkt
-                    </strong>{" "}
-                    · Rozmowa u klienta{" "}
-                    <strong className="text-foreground">
-                      {data.points_formula.interview} pkt
-                    </strong>{" "}
-                    · Rekomendacja{" "}
-                    <strong className="text-foreground">
-                      {data.points_formula.recommendation} pkt
-                    </strong>
-                  </>
-                ) : (
-                  // Liga DL nie przelicza na punkty — milczący kafel sugerowałby,
-                  // że formuła istnieje, tylko się nie doczytała.
-                  "Ranking liczy placementy — bez przeliczania na punkty."
-                )}
-              </p>
-              {variant === "placements" ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {DL_HIT_RATIO_LEAGUE_NOTE}
-                </p>
-              ) : null}
-              {data?.prize_pool_pln ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Pula nagród: {money(data.prize_pool_pln)}
-                </p>
-              ) : null}
-            </div>
+            {/* Zasady czyta się raz — zwinięte pod podium (22.10.2026), żeby
+                lista osób była zaraz pod miejscami. Treść bez zmian. */}
+            <details className="group rounded-lg border border-border bg-card">
+              <summary className="flex min-h-10 cursor-pointer items-center justify-between gap-2 px-3 text-xs font-semibold text-foreground">
+                {data?.requirement ? "Zasady ligi i warunek udziału" : "Zasady ligi"}
+                <span className="text-primary group-open:hidden">Pokaż ▾</span>
+                <span className="hidden text-primary group-open:inline">Zwiń ▴</span>
+              </summary>
+              <div className="space-y-2 border-t border-border p-3">
+                <div className="rounded-lg border border-border bg-muted/40 p-3">
+                  <p className="flex items-center gap-2 text-xs font-medium text-foreground">
+                    <TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />
+                    {/* Liga DL nie ma formuły punktowej — nagłówek „System
+                        punktowy" nad zdaniem „bez przeliczania na punkty" sam
+                        sobie przeczy. */}
+                    {data?.points_formula ? "System punktowy" : "Zasada rankingu"}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {data?.points_formula ? (
+                      <>
+                        Placement{" "}
+                        <strong className="text-foreground">
+                          {data.points_formula.placement} pkt
+                        </strong>{" "}
+                        · Rozmowa u klienta{" "}
+                        <strong className="text-foreground">
+                          {data.points_formula.interview} pkt
+                        </strong>{" "}
+                        · Rekomendacja{" "}
+                        <strong className="text-foreground">
+                          {data.points_formula.recommendation} pkt
+                        </strong>
+                      </>
+                    ) : (
+                      // Liga DL nie przelicza na punkty — milczący kafel sugerowałby,
+                      // że formuła istnieje, tylko się nie doczytała.
+                      "Ranking liczy placementy — bez przeliczania na punkty."
+                    )}
+                  </p>
+                  {variant === "placements" ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {DL_HIT_RATIO_LEAGUE_NOTE}
+                    </p>
+                  ) : null}
+                  {data?.prize_pool_pln ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Pula nagród: {money(data.prize_pool_pln)}
+                    </p>
+                  ) : null}
+                </div>
 
-            {data?.requirement ? (
-              <div className="rounded-lg border border-warning/25 bg-warning-muted p-3 text-warning-muted-foreground">
-                <p className="flex items-center gap-2 text-xs font-medium">
-                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                  Warunek udziału
-                </p>
-                <p className="mt-1 text-xs">{data.requirement}</p>
-                <p className="mt-1 text-[11px] opacity-90">
-                  Osoby poniżej progu ZOSTAJĄ w rankingu — oznaczamy je, nie
-                  ukrywamy.
-                </p>
+                {data?.requirement ? (
+                  <div className="rounded-lg border border-warning/25 bg-warning-muted p-3 text-warning-muted-foreground">
+                    <p className="flex items-center gap-2 text-xs font-medium">
+                      <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                      Warunek udziału
+                    </p>
+                    <p className="mt-1 text-xs">{data.requirement}</p>
+                    <p className="mt-1 text-[11px] opacity-90">
+                      Osoby poniżej progu ZOSTAJĄ w rankingu — oznaczamy je, nie
+                      ukrywamy.
+                    </p>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </details>
 
             {rest.length > 0 ? (
               <div>

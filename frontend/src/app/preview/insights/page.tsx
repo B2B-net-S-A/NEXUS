@@ -29,7 +29,6 @@ import {
 import { api } from "@/lib/api";
 import { DL_SEND_QUEUE_QUERY_KEY } from "@/lib/api/boardTasks";
 import { payrollKeys } from "@/lib/api/hr-payroll";
-import { insightsCampaignQueryKeys } from "@/lib/insights-campaign-api";
 import { insightsQueryKeys, type InsightsPeriodParams } from "@/lib/insights-api";
 import { performanceFlagsQueryKey } from "@/lib/insights-flags-api";
 import { isReportId } from "@/lib/insights-reports";
@@ -135,18 +134,6 @@ function seeded(): QueryClient {
     defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } },
   });
   const today = new Date();
-
-  qc.setQueryData(insightsCampaignQueryKeys.active(), {
-    id: 1, name: "Kampania Q3", emoji: "🎯", start_date: "2026-07-01", end_date: "2026-09-30",
-    target_net: 70, is_active: true, created_at: "2026-06-20T09:00:00+02:00",
-    window: { kind: "custom", start: "2026-07-01T00:00:00+02:00", end: "2026-10-01T00:00:00+02:00", timezone: "Europe/Warsaw" },
-    days_remaining: 6, has_started: true, placements: 68, resignations: 7, net: 61, progress_pct: 87,
-    remaining_to_target: 9, placements_definition: "first_hired_per_candidate_job",
-    placements_definition_note: "Placement = pierwsze wejście na etap „Zatrudniony”.",
-    resignations_definition: "ended_engagement_by_effective_end_date_v2",
-    resignations_definition_note: "Rezygnacja = kontrakt zakończony w oknie kampanii.",
-    net_definition_note: "netto = placementy − rezygnacje",
-  });
 
   const recruiterLeague = [
     leagueEntry(14, "Marta W.", 71, 9), leagueEntry(11, "Ola K.", 58, 7), leagueEntry(12, "Kuba M.", 44, 5),

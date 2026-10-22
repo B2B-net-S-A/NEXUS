@@ -453,7 +453,6 @@ const PUBLIC_PATHS = [
   "/preview/dl-alerts",
   "/preview/order-mail",
   "/preview/insights",
-  "/preview/insights-campaign",
   "/preview/insights-seniority",
   "/preview/contracts-consolidation",
   "/preview/procedure-help",

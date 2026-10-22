@@ -113,7 +113,9 @@ export function SourceNote({ closure }: { closure: CompetitionClosure | undefine
   return (
     <p
       className={cn(
-        "flex items-start gap-2 rounded-lg border px-3 py-2 text-xs",
+        // Plakietka, nie ramka (22.10.2026): na Rywalizacji stała czterokrotnie,
+        // a każda zajmowała pełną szerokość karty nad podium.
+        "inline-flex w-fit items-start gap-1.5 rounded-full border px-2.5 py-1 text-[11px]",
         // Okres mieszany wyróżniamy kolorem marki: to trwający okres, w którym
         // część liczb nie pochodzi z NEXUS-a. Rozliczony okres z DynaReportera
         // jest historią — spokojny, wyciszony pasek.

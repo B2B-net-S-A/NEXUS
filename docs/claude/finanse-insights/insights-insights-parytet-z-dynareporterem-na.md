@@ -571,3 +571,10 @@ Makiety i decyzje Artura: https://claude.ai/artifact/H4QgdE9ou92M1dtr9QrygF
 - **Rada nadzorcza: zakładki Firma · Zespół · Raporty · Rywalizacja**
   (`getVisibleInsightTabIds`), adres bez widoku ląduje na pierwszym widoku
   osoby — u Rady na Firmie (decyzja Artura 22.10.2026).
+- **Rywalizacja v3**: kampanii już nie prowadzimy (Artur, 22.10.2026) —
+  baner i panel „Kampanie rekrutacyjne” zdjęte z ekranu, a frontowy kod
+  kampanii (komponenty, `/preview/insights-campaign`, klient API) usunięty;
+  backendowe API i dane kampanii zostają. Zasady lig i wyścigów zwinięte
+  pod „Zasady…” (treść bez zmian), pasek źródła okresu to plakietka, a notka
+  „Dni do 11.10.2026 z DynaReportera” przy pasku okresu — zwijana (treść
+  i `data-testid` bez zmian).
