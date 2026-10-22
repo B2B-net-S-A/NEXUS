@@ -297,6 +297,7 @@ async def test_card_survives_sql_error_in_front_office_matches(
     from sqlalchemy import text
 
     from app.services.care import front_office
+    from app.services.care import plan as care_plan
 
     lead = await make_user(UserRole.delivery_lead)
     client_id = await make_client(dl=lead)
@@ -308,6 +309,9 @@ async def test_card_survives_sql_error_in_front_office_matches(
         await db.execute(text("SELECT * FROM tabela_ktorej_nie_ma"))
 
     monkeypatch.setattr(front_office, "overview", broken_overview)
+    # Bez zaległej rozmowy — krokiem jest przekazanie do front office (kontrakt
+    # sprzed 200 dni ma zaległe punkty planu, które wygrywają z przekazaniem).
+    monkeypatch.setattr(care_plan, "next_contact", lambda *_args, **_kwargs: None)
     card = await app_client.get(
         f"/api/care/contracts/{contract_id}/card", headers=headers(lead)
     )
