@@ -88,6 +88,14 @@ async def _seed() -> dict[str, Any]:
             role=UserRole.delivery_lead,
             is_active=True,
         )
+        rec = User(
+            email=f"in-flight-rec-{tag}@example.com",
+            name=f"Rekruter {tag}",
+            password_hash=hash_password(f"T3st_{tag}!Rec"),
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        db.add(rec)
         cli = Client(name=f"InFlight-{tag}")
         tpl = PipelineTemplate(name=f"W drodze {tag}")
         db.add_all([dl, cli, tpl])
@@ -139,8 +147,9 @@ async def _seed() -> dict[str, Any]:
         # c0: CV u klienta od 1.03.
         row(c[0], a, PipelineStage.verified, _at(2, 20))
         row(c[0], a, PipelineStage.cv_sent, _at(3, 1))
-        # c1: akceptacja 10.03, potem „Umowa wysłana” (kod `new` + nazwa) 20.03 —
-        # nadal kolumna Umowa, od 10.03.
+        # c1: zweryfikowany przez rekrutera; akceptacja 10.03, potem „Umowa
+        # wysłana” (kod `new` + nazwa) 20.03 — nadal kolumna Umowa, od 10.03.
+        row(c[1], a, PipelineStage.verified, _at(2, 25), moved_by=rec.id)
         row(c[1], a, PipelineStage.cv_sent, _at(3, 1))
         row(c[1], a, PipelineStage.acceptance, _at(3, 10))
         row(c[1], a, PipelineStage.new, _at(3, 20), stage_def_id=contract_sent.id)
@@ -157,7 +166,15 @@ async def _seed() -> dict[str, Any]:
         # „w drodze”, ani w skuteczności.
         row(c[5], b, PipelineStage.acceptance, _at(3, 4))
         await db.commit()
-        return {"open_job": a, "closed_job": b, "client": cli.name, "dl": dl.name}
+        return {
+            "open_job": a,
+            "closed_job": b,
+            "client": cli.name,
+            "dl": dl.name,
+            "dl_id": dl.id,
+            "rec_id": rec.id,
+            "c1": c[1],
+        }
 
 
 @pytest.mark.asyncio
@@ -218,6 +235,49 @@ async def test_in_flight_without_list_keeps_counts() -> None:
         )
     assert result["acceptances"] is None
     assert sum(c["count"] for c in result["columns"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_my_in_flight_keeps_only_pairs_i_verified() -> None:
+    world = await _seed()
+    async with AsyncSessionLocal() as db:
+        result = await compute_in_flight(
+            db,
+            today=date(_YEAR, 3, 31),
+            now=_at(3, 31),
+            with_acceptances=False,
+            owner=("verifier", world["rec_id"]),
+            with_people=True,
+            job_ids=[world["open_job"]],
+        )
+    [person] = result["people"]
+    assert person["candidate_id"] == world["c1"]
+    assert person["candidate_name"].startswith("Droga1 ")
+    assert person["column"] == "contract"
+    assert person["stage_label"] == "Umowa wysłana"
+    assert sum(c["count"] for c in result["columns"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_portfolio_in_flight_is_the_delivery_leads_jobs() -> None:
+    world = await _seed()
+    async with AsyncSessionLocal() as db:
+        result = await compute_in_flight(
+            db,
+            today=date(_YEAR, 3, 31),
+            now=_at(3, 31),
+            with_acceptances=False,
+            owner=("delivery_lead", world["dl_id"]),
+            with_people=True,
+            job_ids=[world["open_job"], world["closed_job"]],
+        )
+    # Trzy pary w drodze w otwartej rekrutacji DL; zamknięta — poza.
+    assert len(result["people"]) == 3
+    assert [p["column"] for p in result["people"]] == [
+        "contract",
+        "client_interview",
+        "cv_sent",
+    ]
 
 
 # ── API ──────────────────────────────────────────────────────────────────────
@@ -290,6 +350,24 @@ async def test_team_readers_get_the_acceptance_list(
     resp = await fx_client.get("/api/insights/recruitment/in-flight", headers=headers)
     assert resp.status_code == 200, resp.text
     assert isinstance(resp.json()["acceptances"], list)
+
+
+@pytest.mark.asyncio
+async def test_my_in_flight_portfolio_is_only_for_delivery_leads(
+    fx_client: AsyncClient,
+) -> None:
+    headers = await _login(fx_client, UserRole.recruiter)
+    mine = await fx_client.get(
+        "/api/insights/recruitment/in-flight/me", headers=headers
+    )
+    assert mine.status_code == 200, mine.text
+    assert isinstance(mine.json()["people"], list)
+    portfolio = await fx_client.get(
+        "/api/insights/recruitment/in-flight/me",
+        headers=headers,
+        params={"scope": "portfolio"},
+    )
+    assert portfolio.status_code == 403
 
 
 @pytest.mark.asyncio
