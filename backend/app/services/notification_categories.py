@@ -388,7 +388,7 @@ _SPLIT_GROUPS: dict[
         _C.contracts,
         (_T.care_client_structure,),
     ),
-    # 0506: „klient zatrudnia” z rozmowy opiekuna → Delivery Lead klienta.
+    # 0509: „klient zatrudnia” z rozmowy opiekuna → Delivery Lead klienta.
     "contracts_care_demand": (
         "Opieka: popyt u klienta",
         _C.contracts,

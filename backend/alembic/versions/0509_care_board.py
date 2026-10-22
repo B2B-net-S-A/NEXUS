@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — tablica opieki („Do zrobienia”) i popyt dla Delivery Leada.
 
-Revision ID: 0506_care_board
-Revises: 0505_prep_review_configs
+Revision ID: 0509_care_board
+Revises: 0508_candidate_data_access_alert
 
 Zakres: stan kart opieki na tablicy (``care_board_states``), karta
 technologiczna z rozmowy (``tech_cards.care_conversation_id``) i dzwonek
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services import care_board_schema as schema
 
-revision = "0506_care_board"
-down_revision = "0505_prep_review_configs"
+revision = "0509_care_board"
+down_revision = "0508_candidate_data_access_alert"
 branch_labels = None
 depends_on = None
 
@@ -28,7 +28,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text IN ({", ".join(f"'{t}'" for t in schema.NOTIFICATION_TYPES)})
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0506 odmawia: notifications ma wpisy typu popytu z opieki, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0509 odmawia: notifications ma wpisy typu popytu z opieki, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

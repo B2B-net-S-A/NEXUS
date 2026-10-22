@@ -349,7 +349,7 @@ class NotificationType(str, enum.Enum):
     # u klienta (propozycje automatu czekają na akcept Delivery Leada).
     # Sekcja Delivery, link do `/care?tab=structure&client=<id>`.
     care_client_structure = "care_client_structure"
-    # 0506: „klient zatrudnia” z rozmowy opiekuna — karta „Popyt do
+    # 0509: „klient zatrudnia” z rozmowy opiekuna — karta „Popyt do
     # sprawdzenia” u Delivery Leada klienta. Sekcja Delivery, link
     # `/care?card=<klucz karty>`.
     care_demand_signal = "care_demand_signal"

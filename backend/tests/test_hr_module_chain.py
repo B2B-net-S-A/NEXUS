@@ -81,8 +81,8 @@ CHAIN = (
     ),
     # Tablica opieki i popyt dla DL (22.10.2026).
     (
-        "0506_care_board",
-        "0505_prep_review_configs",
+        "0509_care_board",
+        "0508_candidate_data_access_alert",
         "care_board_schema",
     ),
 )

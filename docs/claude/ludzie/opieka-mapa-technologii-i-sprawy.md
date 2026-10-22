@@ -35,7 +35,7 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   z dostępem do opieki (moduł `care` + rola z menu). Obsługa skrzynki bez opieki widzi same sprawy.
 - Rozmowa wchodzi na tablicę tylko z terminem do piątku albo po terminie. „W toku” = umówiona
   (dzień i godzina), „Czeka” = nie odbiera (dzień ponownej próby > dziś; w ten dzień karta wraca do
-  „Nowa”). Stan karty opieki żyje w `care_board_states` (0506, kolumna `board_column`); punkt planu
+  „Nowa”). Stan karty opieki żyje w `care_board_states` (0509, kolumna `board_column`); punkt planu
   dalej ma tylko `open/done/skipped`. Upuszczenie rozmowy/opinii na „Zrobione” otwiera okno zapisu —
   stan „zrobione” daje wyłącznie zapis. Sprawa przesuwa się PATCH-em statusu z `expected_updated_at`
   (409 = ktoś zmienił w międzyczasie). Ruch: przeciąganie (`@hello-pangea/dnd`) albo menu „Przenieś do…”.
@@ -77,7 +77,7 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   ktoś z `can_edit_org` (reszta dostałaby 403 `ORG_DENIED`).
 - „Klient zatrudnia”: role i źródło idą na górnym poziomie ciała (`hiring_roles`,
   `hiring_source`) i zapisują się przy rozmowie (`care_conversations.client_hiring_roles/source`,
-  0506) — popyt bierze je, gdy rozmowa nie ma karty (albo karta nie ma ról).
+  0509) — popyt bierze je, gdy rozmowa nie ma karty (albo karta nie ma ról).
 - Sprawy z okna (audyt bezpieczeństwa 22.10.2026): tytuł 3–200 znaków; bez uprawnienia „Sprawy”
   sprawa tylko bez osoby (trafia do „Bez osoby” u obsługi) albo na siebie i nigdy „Negocjacje”
   (403); `GET /api/care/case-assignees` daje pełną listę tylko obsłudze, reszcie — ją samą.

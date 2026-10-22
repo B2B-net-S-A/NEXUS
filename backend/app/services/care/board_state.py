@@ -1,4 +1,4 @@
-"""Stan kart opieki na tablicy „Do zrobienia” (``care_board_states``, 0506).
+"""Stan kart opieki na tablicy „Do zrobienia” (``care_board_states``, 0509).
 
 Karty liczą się przy odczycie (``care/board.py``); tabela pamięta tylko to,
 co człowiek przestawił: „W toku” z terminem (``scheduled_at``), „Czeka na
