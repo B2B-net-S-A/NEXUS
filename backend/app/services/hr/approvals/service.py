@@ -889,6 +889,7 @@ async def _notify_deciders(
         related_entity_type="approval_request",
         related_entity_id=request.id,
         log_tag="approvals",
+        fresh=True,
     )
 
 
@@ -917,6 +918,7 @@ async def _notify_requester(
         related_entity_type="approval_request",
         related_entity_id=request.id,
         log_tag="approvals",
+        fresh=True,
     )
 
 

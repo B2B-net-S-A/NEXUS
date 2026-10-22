@@ -751,6 +751,7 @@ async def request_topup(
         related_entity_type="approval_request",
         related_entity_id=request.id,
         log_tag="approvals",
+        fresh=True,
     )
     return doc
 
@@ -803,6 +804,7 @@ async def decide_topup(
         related_entity_type="approval_request",
         related_entity_id=request.id,
         log_tag="approvals",
+        fresh=True,
     )
     return doc
 

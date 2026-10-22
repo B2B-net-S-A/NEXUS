@@ -316,6 +316,16 @@ async def test_invoice_over_ten_percent_needs_a_topup_from_the_approver(
         headers=_headers(team["ceo"]),
     )
     assert decided.status_code == 200, decided.text
+    # Ten sam dzień co „Zgoda zatwierdzona” — dzienny dedup powiadomień nie
+    # połyka decyzji o dopłacie (audyt 22.10, F19).
+    titles = [
+        n.title
+        for n in await _notifications(
+            team["worker"], NotificationType.hr_approval_decided
+        )
+    ]
+    assert any(t.startswith("Zgoda zatwierdzona") for t in titles), titles
+    assert any(t.startswith("Dopłata zatwierdzona") for t in titles), titles
     second = await client.post(
         f"{BASE}/{approved['id']}/documents/{doc['id']}/topup/decide",
         json={"action": "approve"},
