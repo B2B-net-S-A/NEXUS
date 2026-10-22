@@ -1299,9 +1299,10 @@ async def _serialize_generated_contracts(
         esign_open = esign is not None and esign.status in ESIGN_OPEN_STATUSES
         # Wysłany do podpisu PDF jest zamrożony — „Popraw” dopiero po wycofaniu.
         can_correct = can_correct and not esign_open
-        may_run_esign = (
-            esign_allowed
-            and not from_excel
+        # Przełącznik dotyczy tylko wysyłki: wniosek z pilotażu musi dać się
+        # wycofać także po wyłączeniu (trasa withdraw go nie sprawdza).
+        may_handle_esign = (
+            not from_excel
             and can_generate_documents
             and can_write_client
             and _may_correct_generated(current_user, row, team_job_ids)
@@ -1310,7 +1311,8 @@ async def _serialize_generated_contracts(
             )
         )
         can_send_esign = (
-            may_run_esign
+            esign_allowed
+            and may_handle_esign
             and not is_signed
             and row.contract_status == "in_progress"
             and not esign_open
@@ -1417,7 +1419,7 @@ async def _serialize_generated_contracts(
                     else None
                 ),
                 can_send_esign=can_send_esign,
-                can_withdraw_esign=may_run_esign and esign_open,
+                can_withdraw_esign=may_handle_esign and esign_open,
                 annex_rates=(
                     list((row.annex_rates or {}).get("items") or [])
                     if row.annex_rates

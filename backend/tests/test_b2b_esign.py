@@ -1098,3 +1098,27 @@ async def test_contract_in_nexus_signing_or_signed_there_cannot_be_deleted(
     )
     assert deleted.status_code == 204, deleted.text
 
+
+@pytest.mark.asyncio
+async def test_withdraw_stays_available_after_the_switch_goes_off(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Audyt 22.10, F46: przełącznik dotyczy wysyłki, nie wycofania — wniosek
+    z pilotażu musi dać się przenieść na drogę zwykłą."""
+    from app.core.database import AsyncSessionLocal
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    generated_id = scenario["generated_id"]
+    sent = await _send(
+        app_client, app_auth_headers, generated_id, esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db, esign_settings.EsignSettings(mode="off"), actor_id=esign_env["admin_id"]
+        )
+        await db.commit()
+
+    item = await _register_item(app_client, app_auth_headers, generated_id)
+    assert item["can_send_esign"] is False
+    assert item["can_withdraw_esign"] is True
