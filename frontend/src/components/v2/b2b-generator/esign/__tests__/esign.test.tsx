@@ -11,8 +11,15 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   mine: vi.fn(),
   companySign: vi.fn(),
+  withdraw: vi.fn(),
+  signedPdf: vi.fn(),
+  downloadBlob: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
+}));
+
+vi.mock("@/lib/cv-generator", () => ({
+  downloadBlob: (...a: unknown[]) => mocks.downloadBlob(...a),
 }));
 
 vi.mock("@/components/Toast", () => ({
@@ -29,13 +36,14 @@ vi.mock("@/lib/api/b2bEsign", async (importOriginal) => {
       mine: (...a: unknown[]) => mocks.mine(...a),
       companySign: (...a: unknown[]) => mocks.companySign(...a),
       companyPdf: vi.fn(),
-      withdraw: vi.fn(),
+      withdraw: (...a: unknown[]) => mocks.withdraw(...a),
+      signedPdf: (...a: unknown[]) => mocks.signedPdf(...a),
     },
   };
 });
 
 import { CompanySignaturesPanel } from "../CompanySignaturesPanel";
-import { esignSteps } from "../EsignRowStatus";
+import { EsignRowStatus, esignSteps } from "../EsignRowStatus";
 import { SendForSignatureDialog } from "../SendForSignatureDialog";
 
 function wrap(node: React.ReactNode) {
@@ -246,5 +254,87 @@ describe("strona kontraktora — instrukcja per narzędzie (etap 1b)", () => {
     expect(screen.getByRole("tab", { name: "SimplySign" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveTextContent("SimplySign na telefonie");
     expect(screen.getByText(/zostanie odrzucony/)).toBeInTheDocument();
+  });
+});
+
+describe("EsignRowStatus (audyt 22.10)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const row = (
+    esign: Partial<NonNullable<B2BGeneratedContractRow["esign"]>>,
+    extra: Record<string, unknown> = {},
+  ) =>
+    ({
+      id: 9,
+      contract_number: "1610/2026",
+      esign: {
+        request_id: 4,
+        status: "sent",
+        contractor_signed_at: null,
+        completed_at: null,
+        expires_at: "2026-11-04T10:00:00Z",
+        company_signer_name: "Olaf",
+        ...esign,
+      },
+      ...extra,
+    }) as unknown as B2BGeneratedContractRow;
+
+  it("F92: wycofanie odświeża też kartę Tablicy i listę na pulpicie", async () => {
+    mocks.withdraw.mockResolvedValue({ id: 4, status: "withdrawn" });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <EsignRowStatus row={row({}, { can_withdraw_esign: true })} />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Przejdź na zwykłą drogę/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Wycofaj wysyłkę" }));
+    await waitFor(() => expect(mocks.withdraw).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban"] }),
+    );
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["board-tasks"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["b2b-generated"] });
+  });
+
+  it("F45: podpisaną przez obie strony umowę da się pobrać", async () => {
+    const blob = new Blob(["%PDF"]);
+    mocks.signedPdf.mockResolvedValue({ data: blob });
+    wrap(
+      <EsignRowStatus
+        row={row(
+          { status: "completed", completed_at: "2026-10-22T10:00:00Z" },
+          { can_download_signed_esign: true },
+        )}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Pobierz podpisaną umowę/ }));
+    await waitFor(() => expect(mocks.signedPdf).toHaveBeenCalledWith(4));
+    expect(mocks.downloadBlob).toHaveBeenCalledWith(blob, "umowa_4_podpisana.pdf");
+  });
+
+  it("F45: bez prawa do pliku nie ma przycisku pobrania", () => {
+    wrap(<EsignRowStatus row={row({ status: "completed" })} />);
+    expect(
+      screen.queryByRole("button", { name: /Pobierz podpisaną umowę/ }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("CompanySignaturesPanel przy błędzie (audyt 22.10, F87)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("awaria listy nie wygląda jak brak umów — komunikat i „Ponów”", async () => {
+    mocks.mine.mockRejectedValue(new Error("500"));
+    wrap(<CompanySignaturesPanel />);
+    expect(
+      await screen.findByText(/Nie udało się wczytać umów do podpisu za B2B Network/),
+    ).toBeInTheDocument();
+    mocks.mine.mockResolvedValue([]);
+    await userEvent.click(screen.getByRole("button", { name: "Ponów" }));
+    await waitFor(() => expect(mocks.mine).toHaveBeenCalledTimes(2));
   });
 });

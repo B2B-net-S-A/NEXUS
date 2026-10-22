@@ -60,6 +60,15 @@ vi.mock("@/lib/api", () => ({
     error instanceof Error ? error.message : "Błąd",
 }));
 
+// Pas „Do podpisu za firmę” nad listą ma własne zapytanie; tu nic nie czeka.
+vi.mock("@/lib/api/b2bEsign", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/b2bEsign")>();
+  return {
+    ...actual,
+    b2bEsignApi: { ...actual.b2bEsignApi, mine: () => Promise.resolve([]) },
+  };
+});
+
 import {
   ClosedContractsTab,
   GeneratedContractsTab,

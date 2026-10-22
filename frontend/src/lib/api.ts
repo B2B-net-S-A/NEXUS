@@ -3979,6 +3979,8 @@ export interface B2BGeneratedContractRow {
   } | null;
   can_send_esign?: boolean;
   can_withdraw_esign?: boolean;
+  /** Czy to konto pobierze plik podpisany przez obie strony w NEXUSIE. */
+  can_download_signed_esign?: boolean;
   can_delete: boolean;
   can_edit: boolean;
   can_download: boolean;
