@@ -93,7 +93,9 @@ export function ReviewScoreTab({ prep, onQuote }: { prep: Prep; onQuote: (quote:
   const weights = c.weights_used ?? {};
   const answers = c.answers ?? [];
   const topics = c.topics ?? [];
-  const caps = (c.caps ?? []).map((cap) => PREP_CAP_LABELS[cap] ?? cap);
+  // „Za krótki” daje poziom „Słaby”, reszta ogranicza do „OK” (audyt 22.10, F40).
+  const tooShort = (c.caps ?? []).includes("too_short");
+  const caps = (c.caps ?? []).filter((cap) => cap !== "too_short").map((cap) => PREP_CAP_LABELS[cap] ?? cap);
   const graded = answers.filter((a) => a.kind !== "followup");
   const followupAnswers = answers.filter((a) => a.kind === "followup");
 
@@ -107,6 +109,7 @@ export function ReviewScoreTab({ prep, onQuote }: { prep: Prep; onQuote: (quote:
           </span>
         ) : null}
         <div className="min-w-0 flex-1 text-sm text-foreground">
+          {tooShort ? <>Słaby, bo: {PREP_CAP_LABELS.too_short}. </> : null}
           {caps.length > 0 ? <>Najwyżej „OK”, bo: {caps.join(", ")}. </> : null}
           <Link href="/settings/prep-review" className="font-semibold text-primary hover:underline">
             Jak liczona jest ocena

@@ -112,6 +112,23 @@ describe("PrepReviewDialog v2", () => {
     expect(screen.getByText("Przećwicz: Jeden przypadek z liczbami.")).toBeInTheDocument();
   });
 
+  it("prep za krótki: „Słaby, bo…”, nie „Najwyżej OK” (audyt 22.10, F40)", () => {
+    const base = v2Prep();
+    const prep = v2Prep({
+      review: {
+        ...base.review!,
+        level: "weak",
+        criteria: { ...base.review!.criteria, total: 85, caps: ["too_short"] },
+      },
+    });
+    render(<PrepReviewDialog open onOpenChange={() => {}} eventId={603} pair={null} />, {
+      wrapper: withQueries(prep, TRANSCRIPT),
+    });
+    expect(screen.getByText("Słaby · 85%")).toBeInTheDocument();
+    expect(screen.queryByText(/Najwyżej „OK”/)).toBeNull();
+    expect(screen.getByText(/Słaby, bo: prep krótszy niż minimum z ustawień/)).toBeInTheDocument();
+  });
+
   it("cytat przenosi do transkryptu i podświetla wypowiedź", () => {
     render(<PrepReviewDialog open onOpenChange={() => {}} eventId={603} pair={null} />, {
       wrapper: withQueries(v2Prep(), TRANSCRIPT),
