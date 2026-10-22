@@ -125,7 +125,11 @@ async def create_followup_meeting(
         logger.warning("teams followup create: Graph %s", exc.status)
         raise HTTPException(
             status_code=409 if exc.status in (403, 404) else 502,
-            detail="Outlook nie utworzył spotkania. Sprawdź dostęp prowadzącego do NEXUS-Meetings.",
+            detail=(
+                prep_meetings.scope_refused_detail(organizer)
+                if exc.status in (403, 404)
+                else "Outlook nie utworzył spotkania. Spróbuj ponownie za chwilę."
+            ),
         ) from exc
 
     start = created.start or start

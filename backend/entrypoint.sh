@@ -795,6 +795,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'pre_contract'",
     # 0508: alarm o masowym przeglądaniu CV (do adminów i HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_data_access_alert'",
+    # 0510: osoby, których kalendarza nie widzi aplikacja prepów (do adminów).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'teams_prep_scope_missing'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",

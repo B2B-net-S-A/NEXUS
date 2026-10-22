@@ -85,6 +85,31 @@ do zakresu tamtej aplikacji (ma `Mail.Read`) dałoby jej odczyt ich poczty.
 Mail-enabled security group **NEXUS-Meetings-Scope** (ukryta w GAL), członkowie:
 wszyscy Delivery Leadzi i rekruterzy prowadzący prepy lub follow-upy.
 
+### Nowa osoba prowadzi prepy (stan od 22.10.2026)
+
+Skład grupy NIE synchronizuje się z rolami w NEXUSIE. Osoba spoza grupy przy
+planowaniu prepu dostaje 409 z nazwiskiem prowadzącego („…nie jest w grupie
+NEXUS-Meetings”). 22.10.2026 dotyczyło to 10 osób; Codex dopisał je ręcznie.
+Automat odpadł: Graph nie zmienia grup mail-enabled, a zapis przez Exchange
+app-only z rolą ograniczoną do tej grupy zwrócił 403 (decyzja Artura 22.10).
+
+- **NEXUS mówi, kogo dopisać:** pętla `teams_prep_scope_alerts` (co 6 h,
+  `services/teams_prep_scope.py`) pyta Graph tokenem tej aplikacji o nagłówek
+  kalendarza każdego aktywnego DL-a, rekrutera i Head of Recruitment
+  (200 = w grupie, 403 = poza, 404 = brak skrzynki). Lista trafia do adminów
+  jako `teams_prep_scope_missing` (dzwonek „Konto i system” i mail od razu,
+  najwyżej raz dziennie). Wyłącznik: `TEAMS_PREP_SCOPE_ALERTS_ENABLED=false`.
+- **Admin dopisuje** (polityki Teams są od 22.10 przypisane do grupy, więc
+  wystarczy członkostwo):
+
+```powershell
+Connect-ExchangeOnline
+Add-DistributionGroupMember -Identity nexus-meetings-scope@b2bnetwork.pl -Member <adres>
+Test-ServicePrincipalAuthorization -Identity <APP_ID NEXUS Teams Prep> -Resource <adres>  # InScope = True
+```
+
+Kalendarz działa po kilkunastu minutach, Teams do ok. 30 min.
+
 ## 3. Zawężenie dostępu (PowerShell)
 
 Exchange Online (kalendarze): skonfiguruj [App RBAC](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac)

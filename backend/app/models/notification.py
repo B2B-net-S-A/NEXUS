@@ -153,6 +153,11 @@ class NotificationType(str, enum.Enum):
     # alarm bez blokady do adminów i Head of Recruitment, mail od razu
     # (`services/candidate_data_access_alerts.py`).
     candidate_data_access_alert = "candidate_data_access_alert"
+    # 0510: aplikacja „NEXUS Teams Prep” nie ma dostępu do kalendarza DL-a,
+    # rekrutera albo Head of Recruitment (poza grupą NEXUS-Meetings-Scope) —
+    # dzienna lista do dopisania, tylko admini, mail od razu
+    # (`services/teams_prep_scope.py`).
+    teams_prep_scope_missing = "teams_prep_scope_missing"
     # 0336: zapisane wyszukiwanie po migracji na wspólną semantykę filtrów
     # zwraca inny zbiór osób — alert wstrzymany do akceptacji właściciela.
     saved_search_reapproval = "saved_search_reapproval"

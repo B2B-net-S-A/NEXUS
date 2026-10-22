@@ -736,6 +736,7 @@ async def lifespan(app: FastAPI):
         candidate_data_access_alerts_loop,
     )
     from app.tasks.contract_alerts import contract_alerts_loop
+    from app.tasks.teams_prep_scope_alerts import teams_prep_scope_alerts_loop
     from app.tasks.competition_autofreeze import competition_autofreeze_loop
     from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
     from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
@@ -873,6 +874,10 @@ async def lifespan(app: FastAPI):
             candidate_data_access_alerts_loop()
         ),
         "contract_alerts": asyncio.create_task(contract_alerts_loop()),
+        # 0510: kto jest poza zakresem aplikacji prepów w Teams (do adminów).
+        "teams_prep_scope_alerts": asyncio.create_task(
+            teams_prep_scope_alerts_loop()
+        ),
         "fx_refresh": asyncio.create_task(fx_refresh_loop()),
         "competition_autofreeze": asyncio.create_task(competition_autofreeze_loop()),
         "cc_centroid_sync": asyncio.create_task(cc_centroid_sync_loop()),
