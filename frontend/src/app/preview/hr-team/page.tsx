@@ -8,8 +8,8 @@
  * albo, jak Ola, z wierszem puli 0 — kolumna „Nieobecności” pokazuje
  * zaplanowane dni), Julia na UoP z pulą.
  *
- * Układ z makiety 19.10.2026: pasek „Dziś”, karty „Do Twojej decyzji”
- * (Akceptuj / Odrzuć na miejscu — w podglądzie zapis to błąd sieci, testy
+ * Układ z makiety 19.10.2026 (wiersze decyzji 22.10.2026): pasek „Dziś”,
+ * zwarte wiersze „Do Twojej decyzji” (Akceptuj / Odrzuć na miejscu — w podglądzie zapis to błąd sieci, testy
  * klikają tylko „Odrzuć”, które otwiera okno), mini-tydzień pn–pt i pasek
  * godzin miesiąca.
  *
@@ -111,6 +111,8 @@ function harnessTeam(withBonuses: boolean): MyTeam {
   const norm = harnessWorkDays(month).length * 8;
   const later = harnessWorkDays(month).filter((day) => day > today);
   const ewaUntil = later[1] ?? shiftDay(today, 3);
+  // „brak dd.mm” (22.10.2026): ostatni dzień roboczy przed dziś bez wpisu u Oli.
+  const olaMissing = harnessWorkDays(month).filter((day) => day < today).slice(-1);
   const all: TeamPerson[] = [
     {
       ...base(ola),
@@ -124,7 +126,12 @@ function harnessTeam(withBonuses: boolean): MyTeam {
         planned_days: "8.0",
         pending_days: "0.0",
       },
-      month: { hours: Math.round(norm * 0.7), status: "draft", timesheet_id: 5101 },
+      month: {
+        hours: Math.round(norm * 0.7),
+        status: "draft",
+        timesheet_id: 5101,
+        missing_dates: olaMissing,
+      },
       bonuses: {
         count: 2,
         proposals: 1,

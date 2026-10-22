@@ -67,7 +67,7 @@ function forManager(person: PersonFull): PersonFull {
 
 function renderProfile(person: PersonFull, asHr: boolean) {
   mocks.person = person;
-  // Pola zatrudnienia stoją w zakładce „Czas i przerwy” (makieta 19.10.2026).
+  // Pola zatrudnienia stoją w zakładce „Nieobecności i godziny” (`#czas`, dawniej „Czas i przerwy”).
   window.history.replaceState(null, "", "#czas");
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(

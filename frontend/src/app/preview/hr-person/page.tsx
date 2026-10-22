@@ -29,10 +29,12 @@
  * otwierają się bez zapytań; zapisy blokuje harness.
  *
  * Makieta 19.10.2026: wizytówka z rzędem faktów (staż, forma, stawka — tylko
- * Płace, dni przerwy, premie, sprzęt), zakładki Przegląd · Czas i przerwy ·
+ * Płace, dni przerwy, premie, sprzęt), zakładki Przegląd · Nieobecności i godziny ·
  * Płace i premie · Dokumenty · Umowy · Sprzęt · Historia, pierścień dni
  * przerwy (`leave_balance`), oś „Ostatnio”, puste sekcje jako jedna linia
  * z akcją i „Rozpocznij odejście” w menu ⋯. `#place` otwiera „Płace i premie”.
+ * Od 22.10.2026 zakładka „Nieobecności i godziny” (`#czas`) pokazuje też
+ * nieobecności roku i raporty godzin osoby (`olaHistory`).
  */
 
 import { PersonProfile } from "@/components/hr/people/PersonProfile";
@@ -42,6 +44,7 @@ import { payrollKeys, type PersonPayroll } from "@/lib/api/hr-payroll";
 import { lifecycleKeys } from "@/lib/api/hr-lifecycle";
 import { agreementKeys } from "@/lib/api/hr-agreements";
 import { documentKeys } from "@/lib/api/hr-documents";
+import { personHistoryKey } from "@/lib/api/hr-person-history";
 
 import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
@@ -60,6 +63,7 @@ import {
   harnessLeaveYear,
   olaFromAccount,
   olaFull,
+  olaHistory,
   olaWithoutForm,
   personCard,
   seedHttpError,
@@ -190,6 +194,17 @@ function prepare(params: URLSearchParams) {
     } else {
       client.setQueryData(payrollKeys.person(ola.id), payroll(as));
     }
+  }
+  // „Nieobecności i godziny” — tylko pełna kartoteka pyta serwer. Finanse spoza
+  // kręgu D6 bez rodzaju, Kadry bez Płac bez słów formy.
+  if (as !== "colleague") {
+    client.setQueryData(
+      personHistoryKey(ola.id, harnessLeaveYear()),
+      olaHistory(form, harnessLeaveYear(), {
+        typeVisible: as !== "finance",
+        formVisible: as !== "hr-only",
+      }),
+    );
   }
   // Panel sprzętu montuje się tylko dla Kadr, recepcji i admina.
   if (as === "hr" || as === "hr-only" || as === "account") {

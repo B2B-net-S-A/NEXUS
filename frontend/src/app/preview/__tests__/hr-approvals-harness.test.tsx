@@ -66,19 +66,21 @@ describe("/preview/hr-approvals", () => {
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     await user.keyboard("{Escape}");
 
-    // Historia zwinięta do linku — rozwija się na klik.
-    expect(screen.queryByRole("heading", { name: "Wszystkie wnioski" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Historia wniosków" }));
-    expect(screen.getByRole("heading", { name: "Wszystkie wnioski" })).toBeInTheDocument();
+    // Historia jest pod „Zdecydowane” (jedna lista, 22.10.2026).
+    expect(screen.queryByRole("heading", { name: "Nieobecności" })).toBeNull();
+    await user.click(screen.getByRole("radio", { name: "Zdecydowane" }));
+    expect(screen.getByRole("heading", { name: "Nieobecności" })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 
-  it("link z powiadomienia: timesheety poprzedniego miesiąca na górze, podsumowanie i podgląd osoby", async () => {
+  it("link z powiadomienia: chip „Raporty godzin”, poprzedni miesiąc, podsumowanie i podgląd osoby", async () => {
     const user = userEvent.setup();
     const previous = shiftMonth(currentYearMonth(), -1);
     open(`?kind=timesheet&year=${previous.year}&month=${previous.month}`);
 
     expect(await screen.findByText(monthTitlePl(previous))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Raporty godzin/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("list", { name: DECIDE })).toBeNull();
     expect(screen.getByTestId("timesheet-summary")).toHaveTextContent(
       "1 nie założony · 2 do akceptacji · 6 zaakceptowany",
     );
@@ -127,8 +129,8 @@ describe("/preview/hr-approvals", () => {
     expect(within(dialog).getByLabelText(/Z czym koliduje termin/)).toBeInTheDocument();
     await user.keyboard("{Escape}");
 
-    // Historia: zgłoszenie „Zgłoszone”, bez „Anuluj” u przełożonej.
-    await user.click(screen.getByRole("button", { name: "Historia wniosków" }));
+    // „Zdecydowane”: zgłoszenie „Zgłoszone”, bez „Anuluj” u przełożonej.
+    await user.click(screen.getByRole("radio", { name: "Zdecydowane" }));
     const reportRow = screen
       .getAllByRole("row")
       .find((row) => row.textContent?.includes("Zgłoszone"));

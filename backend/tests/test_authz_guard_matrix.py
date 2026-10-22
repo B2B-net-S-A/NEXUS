@@ -27,20 +27,36 @@ from tests._authz_matrix import (
     collect_matrix,
     differences,
     load_golden,
+    route_requests,
+    slice_from_env,
+    sliced,
     unpinned,
     write_golden,
 )
 
 _PERSONA_INDEX = {persona.key: index for index, persona in enumerate(PERSONAS)}
+# Trasy, o które pyta ``test_matrix_tells_the_roles_apart`` — są w każdym
+# wycinku macierzy, gdy sito dzieli ją między części (AUTHZ_MATRIX_SLICE).
+_PROBES = frozenset(
+    {
+        "POST /api/contracts",
+        "GET /api/admin/section-permissions",
+        "GET /api/auth/me",
+    }
+)
+_SLICE = slice_from_env(os.environ.get("AUTHZ_MATRIX_SLICE"))
 
 
 @pytest.fixture(scope="module")
 async def matrix() -> dict[str, dict[str, str]]:
     from app.main import app
 
+    offset, every = _SLICE
     monkeypatch = pytest.MonkeyPatch()
     try:
-        return await collect_matrix(app, monkeypatch)
+        return await collect_matrix(
+            app, monkeypatch, offset=offset, every=every, always=_PROBES
+        )
     finally:
         monkeypatch.undo()
 
@@ -54,6 +70,7 @@ def _letter(matrix: dict[str, dict[str, str]], route: str, persona: str) -> str:
 
 def test_route_guards_match_the_recorded_matrix(matrix) -> None:
     if os.environ.get("AUTHZ_GOLDEN_WRITE") == "1":
+        assert _SLICE == (0, 1), "Wzorzec zapisuje się z pełnej macierzy."
         write_golden(matrix)
         return
 
@@ -127,3 +144,25 @@ async def test_middleware_does_not_change_the_verdict() -> None:
         finally:
             monkeypatch.undo()
     assert verdicts[0] == verdicts[1]
+
+
+def test_slices_of_the_sieve_cover_every_route_exactly_once() -> None:
+    """Części sita PR-a razem sprawdzają całą macierz — żadna trasa nie ginie."""
+
+    from app.main import app
+
+    requests = list(route_requests(app))
+    keys = [key for _, key, _, _ in requests]
+    assert _PROBES <= set(keys), "Trasa-próbka zniknęła — popraw _PROBES."
+    for parts in (2, 3):
+        seen: list[str] = []
+        for offset in range(parts):
+            part = sliced(requests, offset, parts, frozenset())
+            seen.extend(key for _, key, _, _ in part)
+        assert sorted(seen) == sorted(keys), parts
+    probes = sliced(requests, 1, 3, _PROBES)
+    assert _PROBES <= {key for _, key, _, _ in probes}
+    assert slice_from_env(None) == (0, 1)
+    assert slice_from_env("2/3") == (2, 3)
+    with pytest.raises(ValueError):
+        slice_from_env("3/3")

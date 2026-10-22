@@ -336,9 +336,20 @@ async def month_norm_hours(db: AsyncSession, year: int, month: int) -> int:
 
 
 async def team_queue(
-    db: AsyncSession, *, actor: Actor, year: int, month: int
+    db: AsyncSession,
+    *,
+    actor: Actor,
+    year: int,
+    month: int,
+    missing_before: Optional[date] = None,
 ) -> list[dict[str, Any]]:
-    """Zespół akceptującego na miesiąc; brak timesheetu = wiersz-zaślepka."""
+    """Zespół akceptującego na miesiąc; brak timesheetu = wiersz-zaślepka.
+
+    ``missing_before`` (Mój zespół, 22.10.2026): dla szkicu i braku raportu
+    dopisuje ``missing_dates`` — dni robocze przed tą datą bez wpisu i bez
+    całodniowej nieobecności, ta sama reguła co ``days_missing`` w miesiącu
+    osoby. Dzisiejszy dzień się nie liczy (rano nikt go jeszcze nie wpisał).
+    """
 
     start, end = month_range(year, month)
     scope = select(EmployeeProfile, User).join(User, User.id == EmployeeProfile.user_id)
@@ -392,6 +403,15 @@ async def team_queue(
     leave_by_user: dict[int, dict[date, bridge.LeaveDay]] = defaultdict(dict)
     for item in leaves:
         leave_by_user[item.user_id][item.day] = item
+    past_working_days = (
+        [
+            item.day
+            for item in await month_calendar(db, year, month)
+            if item.is_working_day and item.day < missing_before
+        ]
+        if missing_before is not None
+        else []
+    )
 
     items: list[dict[str, Any]] = []
     for profile, user in roster:
@@ -427,6 +447,22 @@ async def team_queue(
                 "can_decide": actor.can_approve(profile),
             }
         )
+        if missing_before is not None:
+            open_month = timesheet is None or timesheet.status == "draft"
+            items[-1]["missing_dates"] = (
+                [
+                    day.isoformat()
+                    for day in past_working_days
+                    if employed_on(profile, day)
+                    and not (
+                        timesheet is not None
+                        and sums.get((timesheet.id, day), Decimal("0")) > 0
+                    )
+                    and not (day in user_leaves and user_leaves[day].is_full)
+                ]
+                if open_month
+                else []
+            )
     order = {"submitted": 0, "draft": 1, "missing": 2, "approved": 3}
     items.sort(key=lambda item: (order.get(item["status"], 9), item["name"].lower()))
     return items

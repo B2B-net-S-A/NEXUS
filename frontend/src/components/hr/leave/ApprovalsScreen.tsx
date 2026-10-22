@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CalendarPlus, ChevronDown, ChevronRight } from "lucide-react";
+import { CalendarPlus } from "lucide-react";
 
 import { InlineStats } from "@/components/ds/InlineStats";
-import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { QueryStateNotice, type BlockingViewState } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -28,11 +28,21 @@ import {
 import { yearMonthFromParams } from "@/components/hr/MyTimeScreen";
 import { TimesheetApprovalsSection } from "@/components/hr/time/TimesheetApprovalsSection";
 import { defaultQueueMonth } from "@/components/hr/time/time-format";
-import { ConsentsInbox } from "@/components/hr/approvals/ConsentsInbox";
+import {
+  CONSENT_RULES_NOTE,
+  ConsentDetail,
+  ConsentInboxRow,
+  DecidedConsents,
+  useConsentDecision,
+} from "@/components/hr/approvals/ConsentsInbox";
+import type { DecisionMode } from "@/components/hr/approvals/DecisionDialog";
+import { TopupsPanel } from "@/components/hr/approvals/TopupsPanel";
+import { FilterChip } from "@/components/hr/people/people-ui";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useHrCounts, type HrConfig } from "@/lib/api/hr";
+import type { HrConfig } from "@/lib/api/hr";
+import { useApprovalList, type ApprovalRequestRow } from "@/lib/api/hr-approvals";
 import {
   useCancelTeamLeave,
   useDecideLeave,
@@ -49,12 +59,29 @@ import { useTeamQueue, type QueueStatus } from "@/lib/api/hr-time";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
-import { useUrlWriter } from "@/lib/url-selection";
-import { resolveViewState } from "@/lib/view-state";
+import { useUrlSyncedState, useUrlWriter } from "@/lib/url-selection";
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { formatWeekdayDayPl, monthTitlePl, type YearMonth } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
 
 import { personInitials } from "../people/hr-format";
+import {
+  allowedChip,
+  approvalsAccess,
+  approvalsSearch,
+  chipCounts,
+  chipFromParams,
+  chipShows,
+  consentKey,
+  queueGroups,
+  viewFromParams,
+  visibleChips,
+  type ApprovalsAccess,
+  type ApprovalsChip,
+  type ApprovalsView,
+  type QueueEntry,
+  type QueueGroups,
+} from "./approvals-filter";
 import {
   inboxItems,
   substituteAbsent,
@@ -167,112 +194,6 @@ function InboxRow({
         </span>
       </button>
     </li>
-  );
-}
-
-/**
- * Skrzynka (makieta 19.10.2026): lista spraw po lewej — „Do decyzji” (wnioski
- * z umowy o pracę) i „Do wiadomości · B2B i zlecenie” (zgłoszenia, D5) —
- * i szczegół po prawej. Jedno zapytanie (`GET /approvals/pending`).
- */
-function LeaveInbox({ viewerIsHr }: { viewerIsHr: boolean }) {
-  const pending = usePendingLeave();
-  const reported = useReportedLeave();
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const today = warsawToday();
-  const { decide, info } = inboxItems(pending.data ?? [], reported.data ?? [], today);
-  const state = resolveViewState({
-    isLoading: pending.isLoading,
-    isError: pending.isError,
-    error: pending.error,
-    isSuccess: pending.isSuccess,
-    isEmpty: decide.length === 0 && info.length === 0,
-  });
-
-  if (state === "loading") {
-    return <p className="py-4 text-sm text-muted-foreground">Wczytywanie wniosków…</p>;
-  }
-  if (state === "forbidden" || state === "not_found" || state === "error") {
-    return (
-      <QueryStateNotice
-        state={state}
-        description={
-          state === "forbidden" ? "Akceptacje widzą przełożeni i Kadry." : undefined
-        }
-        onRetry={() => pending.refetch()}
-      />
-    );
-  }
-  if (state === "empty") {
-    return (
-      <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        Nic nie czeka na Twoją decyzję. Nikt z zespołu na B2B ani na zleceniu nie ma zgłoszonej
-        przerwy.
-      </p>
-    );
-  }
-
-  const all = [...decide, ...info];
-  const current = all.find((item) => item.key === selectedKey) ?? all[0];
-  return (
-    <div className="flex flex-wrap overflow-hidden rounded-xl border border-border bg-card">
-      <div className="min-w-0 flex-[1_1_340px] border-b border-border/60 md:border-b-0 md:border-r">
-        <div data-help="hr.approvals.pending">
-          <div className="flex items-center justify-between px-3.5 py-2.5">
-            <h2 className={LABEL}>Do decyzji</h2>
-            <span
-              className={cn(
-                "rounded-full px-2 py-px text-[11px] font-semibold",
-                decide.length > 0 ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
-              )}
-            >
-              {decide.length}
-            </span>
-          </div>
-          {decide.length === 0 ? (
-            <p className="border-t border-border/60 px-3.5 py-3 text-sm text-muted-foreground">
-              Nic nie czeka na Twoją decyzję.
-            </p>
-          ) : (
-            <ul aria-label="Wnioski do decyzji (umowa o pracę)">
-              {decide.map((item) => (
-                <InboxRow
-                  key={item.key}
-                  item={item}
-                  active={item.key === current.key}
-                  onSelect={() => setSelectedKey(item.key)}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-        <div data-help="hr.approvals.reported">
-          <div className="flex items-center justify-between border-t border-border/60 bg-muted/40 px-3.5 py-2.5">
-            <h2 className={LABEL}>Do wiadomości · B2B i zlecenie</h2>
-            <span className="rounded-full bg-muted px-2 py-px text-[11px] font-semibold text-foreground">
-              {info.length}
-            </span>
-          </div>
-          {info.length === 0 ? (
-            <p className="border-t border-border/60 px-3.5 py-3 text-sm text-muted-foreground">
-              Nikt z zespołu na B2B ani na zleceniu nie ma zgłoszonej przerwy.
-            </p>
-          ) : (
-            <ul aria-label="Zgłoszone przerwy i nieobecności (B2B, zlecenie) — do wiadomości">
-              {info.map((item) => (
-                <InboxRow
-                  key={item.key}
-                  item={item}
-                  active={item.key === current.key}
-                  onSelect={() => setSelectedKey(item.key)}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-      <LeaveDetail key={current.key} item={current} viewerIsHr={viewerIsHr} />
-    </div>
   );
 }
 
@@ -562,26 +483,6 @@ function TimesheetSummary({ config, period }: { config: HrConfig; period: YearMo
   );
 }
 
-/** „Historia wniosków” zwinięta do linku — filtry i akcje dopiero po rozwinięciu. */
-function HistoryToggle({ viewerIsHr }: { viewerIsHr: boolean }) {
-  const [open, setOpen] = useState(false);
-  const Icon = open ? ChevronDown : ChevronRight;
-  return (
-    <div className="space-y-2" data-help="hr.approvals.history">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-      >
-        Historia wniosków
-        <Icon className="h-4 w-4" aria-hidden />
-      </button>
-      {open ? <LeaveHistory viewerIsHr={viewerIsHr} /> : null}
-    </div>
-  );
-}
-
 const STATUS_FILTERS: { value: LeaveStatus | "all"; label: string }[] = [
   { value: "all", label: "Wszystkie statusy" },
   { value: "pending", label: LEAVE_STATUS_LABELS.pending },
@@ -631,7 +532,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-semibold text-foreground">Wszystkie wnioski</h2>
+        <h2 className="text-sm font-semibold text-foreground">Nieobecności</h2>
         <div className="ml-auto flex flex-wrap gap-2">
           <Select value={status} onValueChange={(value) => setStatus(value as LeaveStatus | "all")}>
             <SelectTrigger className="h-8 w-[240px]" aria-label="Status">
@@ -768,31 +669,235 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
   );
 }
 
-/**
- * „Ludzie → Akceptacje” (makieta 19.10.2026): skrzynka wniosków i zgłoszeń
- * (lista + szczegół), timesheety z podsumowaniem statusów, „Historia
- * wniosków” zwinięta do linku i wpis nieobecności za pracownika.
- */
-function LeaveAndTimeApprovals({ config }: { config: HrConfig }) {
-  const params = useSearchParams();
-  const pending = usePendingLeave(config.open_modules.leave);
-  const covering = useLeaveCovering(config.open_modules.leave);
-  const [entering, setEntering] = useState(false);
-  const viewerIsHr = config.me.people_admin || config.me.is_admin;
 
-  const timesheetViewer =
-    config.me.is_manager ||
-    (config.me.covering?.length ?? 0) > 0 ||
-    config.me.people_admin ||
-    config.me.payroll ||
-    config.me.is_admin;
-  const showTimesheets = config.open_modules.time && timesheetViewer;
+const CHIP_LABEL: Record<ApprovalsChip, string> = {
+  all: "Wszystko",
+  leave: "Nieobecności",
+  time: "Raporty godzin",
+  consents: "Zgody",
+  info: "Do wiadomości",
+};
+
+const DECIDE_LEAVE_LIST = "Wnioski do decyzji (umowa o pracę)";
+const INFO_LIST = "Zgłoszone przerwy i nieobecności (B2B, zlecenie) — do wiadomości";
+
+type LeaveQuery = ReturnType<typeof usePendingLeave>;
+type ConsentQuery = ReturnType<typeof useApprovalList>;
+
+/** Stan jednego źródła listy: wczytuje się, padło (notka z ponowieniem) albo gotowe. */
+function sourceState(query: LeaveQuery | ConsentQuery) {
+  return resolveViewState({
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    isSuccess: query.isSuccess,
+    isEmpty: false,
+  });
+}
+
+/**
+ * Jedna lista spraw „Czeka” (makieta 22.10.2026): po lewej „Potrzebne do
+ * jutra” (zgody z terminem), „Do decyzji” (wnioski o nieobecność i zgody,
+ * najstarsze pierwsze) i „Do wiadomości · B2B i zlecenie”; po prawej szczegół
+ * wybranej sprawy. Źródło, które padło, ma notkę z ponowieniem — nigdy nie
+ * wygląda jak pusta skrzynka.
+ */
+function ApprovalsInbox({
+  chip,
+  access,
+  pending,
+  consents,
+  groups,
+  selectedKey,
+  onSelect,
+  onDecideConsent,
+  viewerIsHr,
+  linkedId,
+}: {
+  chip: ApprovalsChip;
+  access: ApprovalsAccess;
+  pending: LeaveQuery;
+  consents: ConsentQuery;
+  groups: QueueGroups;
+  selectedKey: string | null;
+  onSelect: (key: string) => void;
+  onDecideConsent: (row: ApprovalRequestRow, mode: DecisionMode) => void;
+  viewerIsHr: boolean;
+  linkedId: number | null;
+}) {
+  const shows = chipShows(chip);
+  const leaveUsed = access.leave && (shows.leaveDecide || shows.info);
+  const consentsUsed = access.consents && shows.consents;
+  const leaveState = leaveUsed ? sourceState(pending) : null;
+  const consentState = consentsUsed ? sourceState(consents) : null;
+  if (leaveState === "loading" || consentState === "loading") {
+    return <p className="py-4 text-sm text-muted-foreground">Wczytywanie spraw…</p>;
+  }
+
+  const notices = (
+    <>
+      {leaveState && isBlockingViewState(leaveState) ? (
+        <QueryStateNotice
+          state={leaveState as BlockingViewState}
+          description={
+            leaveState === "forbidden"
+              ? "Nieobecności do decyzji widzą koordynatorzy i Kadry."
+              : "Nie udało się wczytać nieobecności do decyzji — mogą czekać. Spróbuj ponownie za chwilę."
+          }
+          onRetry={() => pending.refetch()}
+        />
+      ) : null}
+      {consentState && isBlockingViewState(consentState) ? (
+        <QueryStateNotice
+          state={consentState as BlockingViewState}
+          description={
+            consentState === "error"
+              ? "Nie udało się wczytać zgód do decyzji — mogą czekać. Spróbuj ponownie za chwilę."
+              : undefined
+          }
+          onRetry={() => consents.refetch()}
+        />
+      ) : null}
+    </>
+  );
+  const failed =
+    (leaveState !== null && isBlockingViewState(leaveState)) ||
+    (consentState !== null && isBlockingViewState(consentState));
+  const all = [...groups.urgent, ...groups.decide, ...groups.info];
+
+  if (all.length === 0) {
+    if (failed) return <div className="space-y-2">{notices}</div>;
+    return (
+      <p
+        className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground"
+        data-testid="approvals-empty"
+      >
+        {chip === "info"
+          ? "Nikt z zespołu na B2B ani na zleceniu nie ma zgłoszonej przerwy."
+          : "Nic nie czeka na Twoją decyzję."}
+        {linkedId !== null && consentsUsed
+          ? " Zgoda z linku jest już rozpatrzona albo decyduje o niej ktoś inny."
+          : null}
+      </p>
+    );
+  }
+
+  const current = all.find((entry) => entry.key === selectedKey) ?? all[0];
+  const row = (entry: QueueEntry) =>
+    entry.source === "leave" ? (
+      <InboxRow
+        key={entry.key}
+        item={entry.item}
+        active={entry.key === current.key}
+        onSelect={() => onSelect(entry.key)}
+      />
+    ) : (
+      <ConsentInboxRow
+        key={entry.key}
+        row={entry.row}
+        active={entry.key === current.key}
+        onSelect={() => onSelect(entry.key)}
+      />
+    );
+  const showDecide = (shows.leaveDecide && access.leave) || consentsUsed;
+  const showInfo = shows.info && access.leave;
+
+  return (
+    <div className="space-y-2">
+      {notices}
+      <div
+        data-help="hr.consents.inbox"
+        className="flex flex-wrap overflow-hidden rounded-xl border border-border bg-card"
+      >
+        <div className="min-w-0 flex-[1_1_340px] border-b border-border/60 md:max-w-[480px] md:border-b-0 md:border-r">
+          {groups.urgent.length > 0 ? (
+            <div>
+              <div className="flex items-center justify-between px-3.5 py-2.5">
+                <h2 className={cn(LABEL, "text-warning-muted-foreground")}>Potrzebne do jutra</h2>
+                <span className="rounded-full bg-warning-muted px-2 py-px text-[11px] font-semibold text-warning-muted-foreground">
+                  {groups.urgent.length}
+                </span>
+              </div>
+              <ul aria-label="Potrzebne do jutra">{groups.urgent.map(row)}</ul>
+            </div>
+          ) : null}
+          {showDecide ? (
+            <div data-help="hr.approvals.pending">
+              <div
+                className={cn(
+                  "flex items-center justify-between px-3.5 py-2.5",
+                  groups.urgent.length > 0 && "border-t border-border/60",
+                )}
+              >
+                <h2 className={LABEL}>Do decyzji</h2>
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-px text-[11px] font-semibold",
+                    groups.decide.length > 0
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-foreground",
+                  )}
+                >
+                  {groups.decide.length}
+                </span>
+              </div>
+              {groups.decide.length === 0 ? (
+                <p className="border-t border-border/60 px-3.5 py-3 text-sm text-muted-foreground">
+                  Nic nie czeka na Twoją decyzję.
+                </p>
+              ) : (
+                // Sama lista nieobecności zostaje pod dawną nazwą (e2e, czytniki).
+                <ul aria-label={consentsUsed ? "Do decyzji" : DECIDE_LEAVE_LIST}>
+                  {groups.decide.map(row)}
+                </ul>
+              )}
+            </div>
+          ) : null}
+          {showInfo ? (
+            <div data-help="hr.approvals.reported">
+              <div className="flex items-center justify-between border-t border-border/60 bg-muted/40 px-3.5 py-2.5">
+                <h2 className={LABEL}>Do wiadomości · B2B i zlecenie</h2>
+                <span className="rounded-full bg-muted px-2 py-px text-[11px] font-semibold text-foreground">
+                  {groups.info.length}
+                </span>
+              </div>
+              {groups.info.length === 0 ? (
+                <p className="border-t border-border/60 px-3.5 py-3 text-sm text-muted-foreground">
+                  Nikt z zespołu na B2B ani na zleceniu nie ma zgłoszonej przerwy.
+                </p>
+              ) : (
+                <ul aria-label={INFO_LIST}>{groups.info.map(row)}</ul>
+              )}
+            </div>
+          ) : null}
+          {consentsUsed ? (
+            <p className="border-t border-border/60 px-3.5 py-2.5 text-xs text-muted-foreground">
+              {CONSENT_RULES_NOTE}
+            </p>
+          ) : null}
+        </div>
+        {current.source === "leave" ? (
+          <LeaveDetail key={current.key} item={current.item} viewerIsHr={viewerIsHr} />
+        ) : (
+          <ConsentDetail
+            key={current.key}
+            row={current.row}
+            onDecide={(mode) => onDecideConsent(current.row, mode)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Raporty godzin: podsumowanie miesiąca i kolejka (CSV, ZIP, podgląd osoby). */
+function TimesheetsSection({ config }: { config: HrConfig }) {
+  const params = useSearchParams();
   const focusUser = Number(params.get("user"));
   const initialMonth = yearMonthFromParams(params);
-  const timesheets = showTimesheets ? (
+  return (
     <section
-      key="timesheets"
-      aria-label="Timesheety"
+      aria-label="Raporty godzin"
       className="space-y-3 rounded-xl border border-border bg-card p-4"
     >
       <TimesheetSummary config={config} period={initialMonth ?? defaultQueueMonth()} />
@@ -802,29 +907,112 @@ function LeaveAndTimeApprovals({ config }: { config: HrConfig }) {
         focusUserId={Number.isInteger(focusUser) && focusUser > 0 ? focusUser : null}
       />
     </section>
-  ) : null;
-  const inbox = config.open_modules.leave ? (
-    <section key="leave" aria-label="Wnioski i zgłoszenia" className="space-y-2">
-      <LeaveInbox viewerIsHr={viewerIsHr} />
-    </section>
-  ) : null;
-  // Link z powiadomienia o timesheecie otwiera kolejkę od timesheetów.
-  const sections =
-    params.get("kind") === "timesheet" ? [timesheets, inbox] : [inbox, timesheets];
+  );
+}
 
-  const waiting = pending.data?.length ?? null;
+/**
+ * „Ludzie → Akceptacje” jako jedna lista (makieta zatwierdzona 22.10.2026).
+ * Chipy rodzaju z liczbami („Wszystko · Nieobecności · Raporty godzin · Zgody ·
+ * Do wiadomości”) i „Czeka | Zdecydowane” zamiast przełącznika „Co
+ * akceptujesz”. „Czeka” to skrzynka (lista + szczegół) z nieobecnościami
+ * i zgodami, pod nią raporty godzin; „Zdecydowane” — historia nieobecności
+ * i zgody już rozstrzygnięte. Chipy wyłączonych modułów znikają. Linki
+ * z powiadomień: `?tab=consents[&request=<id>]`, `?kind=timesheet&year=&month=&user=`.
+ */
+export function ApprovalsScreen({ config }: { config: HrConfig }) {
+  const params = useSearchParams();
+  const { replaceUrl } = useUrlWriter();
+  const access = approvalsAccess(config);
+  const viewerIsHr = config.me.people_admin || config.me.is_admin;
+  const [chipState, setChip] = useUrlSyncedState<ApprovalsChip>(chipFromParams(params), "all");
+  const [viewState, setView] = useUrlSyncedState<ApprovalsView>(viewFromParams(params), "waiting");
+  const chip = allowedChip(chipState, access);
+  const view = viewState ?? "waiting";
+  const linked = Number(params.get("request"));
+  const linkedId = Number.isInteger(linked) && linked > 0 ? linked : null;
+  const [selectedKey, setSelectedKey] = useUrlSyncedState<string>(
+    linkedId !== null ? consentKey(linkedId) : null,
+    null,
+  );
+
+  const pending = usePendingLeave(access.leave);
+  const reported = useReportedLeave(access.leave);
+  const covering = useLeaveCovering(access.leave);
+  const consents = useApprovalList("inbox", access.consents);
+  const decision = useConsentDecision({
+    rows: consents.data,
+    isSuccess: consents.isSuccess,
+    linkedId,
+    wanted: params.get("decide"),
+  });
+  const [entering, setEntering] = useState(false);
+
+  const today = warsawToday();
+  const leaveReady = access.leave && pending.isSuccess;
+  const consentsReady = access.consents && consents.isSuccess;
+  const { decide, info } = leaveReady
+    ? inboxItems(pending.data ?? [], reported.data ?? [], today)
+    : { decide: [], info: [] };
+  const consentRows = consentsReady ? (consents.data ?? []) : [];
+  const counts = chipCounts({
+    decide: leaveReady ? decide.length : null,
+    info: leaveReady ? info.length : null,
+    consents: consentsReady ? consentRows.length : null,
+  });
+  const groups = queueGroups({ decide, info, consents: consentRows, today, chip });
+
+  if (!access.leave && !access.time && !access.consents) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Akceptacje ruszą po włączeniu modułu nieobecności, czasu pracy albo zgód.
+      </p>
+    );
+  }
+
+  const setFilter = (next: { chip: ApprovalsChip; view: ApprovalsView }) => {
+    setChip(next.chip);
+    setView(next.view);
+    replaceUrl(approvalsSearch(window.location.search, next));
+  };
+  const shows = chipShows(chip);
+  const showTimesheets =
+    access.time && (chip === "time" || (chip === "all" && view === "waiting"));
+  const showTopups = access.consents && shows.consents && view === "waiting";
+
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="Rodzaj spraw" className="flex flex-wrap gap-1.5">
+          {visibleChips(access).map((value) => (
+            <FilterChip
+              key={value}
+              active={chip === value}
+              count={counts[value]}
+              onClick={() => setFilter({ chip: value, view })}
+            >
+              {CHIP_LABEL[value]}
+            </FilterChip>
+          ))}
+        </div>
+        {/* Raporty godzin mają własne statusy w kolejce miesiąca. */}
+        {chip !== "time" ? (
+          <SegmentedRadio
+            className="ml-auto"
+            size="sm"
+            label="Sprawy czekające czy zdecydowane"
+            value={view}
+            onChange={(value) => setFilter({ chip, view: value })}
+            options={[
+              { value: "waiting", label: "Czeka" },
+              { value: "decided", label: "Zdecydowane" },
+            ]}
+          />
+        ) : null}
+      </div>
+
       <div className="flex flex-wrap items-center gap-3">
         <InlineStats
           stats={[
-            {
-              id: "waiting",
-              // Licznik wniosków (umowa o pracę); zgłoszenia z B2B i zlecenia się
-              // nie liczą (D5), timesheety mają własny stan w swojej sekcji.
-              label: "wnioski do decyzji",
-              value: waiting === null ? "—" : waiting,
-            },
             {
               id: "scope",
               label: viewerIsHr ? "zakres" : "mój zespół",
@@ -834,7 +1022,7 @@ function LeaveAndTimeApprovals({ config }: { config: HrConfig }) {
             },
           ]}
         />
-        {config.open_modules.leave ? (
+        {access.leave ? (
           <Button
             className="ml-auto"
             variant="outline"
@@ -852,62 +1040,42 @@ function LeaveAndTimeApprovals({ config }: { config: HrConfig }) {
           {covering.data
             .map((cover) => `W zastępstwie za ${cover.manager_name} do ${formatWeekdayDayPl(cover.until)}`)
             .join(" · ")}
-          {" — decydujesz o wnioskach i timesheetach zastępowanego zespołu; L4 i pokrewne tylko do wiadomości."}
+          {" — decydujesz o wnioskach i raportach godzin zastępowanego zespołu; L4 i pokrewne tylko do wiadomości."}
         </p>
       ) : null}
 
-      {!inbox && !timesheets ? (
-        <p className="text-sm text-muted-foreground">
-          Akceptacje ruszą po włączeniu modułu urlopów albo czasu pracy.
-        </p>
-      ) : (
-        sections
-      )}
+      {showTopups ? <TopupsPanel /> : null}
 
-      {config.open_modules.leave ? <HistoryToggle viewerIsHr={viewerIsHr} /> : null}
+      {chip !== "time" && view === "waiting" ? (
+        <ApprovalsInbox
+          chip={chip}
+          access={access}
+          pending={pending}
+          consents={consents}
+          groups={groups}
+          selectedKey={selectedKey}
+          onSelect={setSelectedKey}
+          onDecideConsent={decision.open}
+          viewerIsHr={viewerIsHr}
+          linkedId={linkedId}
+        />
+      ) : null}
 
-      <LeaveRequestDialog open={entering} onOpenChange={setEntering} mode="on_behalf" />
-    </div>
-  );
-}
+      {chip !== "time" && view === "decided" ? (
+        <div className="space-y-6" data-help="hr.approvals.history">
+          {access.leave && (shows.leaveDecide || shows.info) ? (
+            <LeaveHistory viewerIsHr={viewerIsHr} />
+          ) : null}
+          {access.consents && shows.consents ? <DecidedConsents /> : null}
+        </div>
+      ) : null}
 
-type ApprovalsTab = "consents" | "leave";
+      {showTimesheets ? <TimesheetsSection config={config} /> : null}
 
-/**
- * „Ludzie → Akceptacje” z modułem „Zgody” (0483, 20.10.2026): przełącznik
- * „Zgody | Urlopy i timesheety”. Link z powiadomienia o zgodzie niesie
- * `?tab=consents`; bez urlopu i czasu zostają same zgody.
- */
-export function ApprovalsScreen({ config }: { config: HrConfig }) {
-  const params = useSearchParams();
-  const { replaceUrl } = useUrlWriter();
-  const counts = useHrCounts(config.open_modules.approvals);
-  const leaveOpen = config.open_modules.leave || config.open_modules.time;
-  const consentsOpen = config.open_modules.approvals;
-  const [tab, setTab] = useState<ApprovalsTab>(
-    !leaveOpen || params.get("tab") === "consents" ? "consents" : "leave",
-  );
-  if (!consentsOpen) return <LeaveAndTimeApprovals config={config} />;
-  if (!leaveOpen) return <ConsentsInbox />;
-
-  const current = counts.isSuccess ? counts.data : undefined;
-  const withCount = (label: string, value: number | null | undefined) =>
-    typeof value === "number" && value > 0 ? `${label} · ${value}` : label;
-  return (
-    <div className="space-y-4">
-      <SegmentedRadio
-        label="Co akceptujesz"
-        value={tab}
-        onChange={(value) => {
-          setTab(value);
-          replaceUrl(value === "consents" ? "?tab=consents" : "?");
-        }}
-        options={[
-          { value: "consents", label: withCount("Zgody", current?.consents) },
-          { value: "leave", label: withCount("Urlopy i timesheety", current?.approvals) },
-        ]}
-      />
-      {tab === "consents" ? <ConsentsInbox /> : <LeaveAndTimeApprovals config={config} />}
+      {decision.dialog}
+      {access.leave ? (
+        <LeaveRequestDialog open={entering} onOpenChange={setEntering} mode="on_behalf" />
+      ) : null}
     </div>
   );
 }

@@ -394,9 +394,21 @@ jobs:
     # Pełny pytest (12 shardów + pokrycie) biegnie w kolejce merge'ów na drzewie,
     # które ląduje na mainie. Reguły wyboru i ich granice:
     # `.github/scripts/select_pr_tests.py`.
-    name: Backend (pytest, zmienione pliki)
+    #
+    # Trzy części (21.10.2026): jeden job sita trwał 10–26 min przy szacunku
+    # „5 min”, bo mapa czasów miała pomiar dla połowy plików, a macierz bramek
+    # tras (wybierana przy każdej zmianie `app/`) to ~150 s w jednym pliku.
+    # Każda część liczy ten sam wybór i bierze swoją część (LPT po czasie);
+    # macierz dzieli się po trasach (`AUTHZ_MATRIX_SLICE`). Mały wybór zajmuje
+    # jedną część — pozostałe kończą się po checkoutcie, bez instalacji.
+    # Liczba części = `SIEVE_SHARDS` w selektorze (kontrakt pilnuje zgodności).
+    name: "Backend (pytest, zmienione pliki ${{ matrix.part }}/3)"
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'pull_request' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
     permissions:
       contents: read
       pull-requests: read
@@ -440,12 +452,16 @@ jobs:
             echo "::warning::Nie udało się odczytać listy plików PR-a — sito pominięte, pełne testy w kolejce merge'ów."
             files=""
           fi
-          printf '%s\n' "$files" | python3 ../.github/scripts/select_pr_tests.py > selected.txt 2> selection.log || true
+          # Części z kontekstu `strategy` (jak shardy kolejki): jedynym źródłem
+          # liczby części jest lista w matrixie.
+          printf '%s\n' "$files" | python3 ../.github/scripts/select_pr_tests.py \
+            --shards "${{ strategy.job-total }}" --shard "${{ strategy.job-index }}" \
+            --env-out "$GITHUB_ENV" > selected.txt 2> selection.log || true
           cat selection.log
           count=$(grep -c . selected.txt || true)
           echo "count=${count:-0}" >> "$GITHUB_OUTPUT"
           {
-            echo "### Testy backendu na PR-ze (sito)"
+            echo "### Testy backendu na PR-ze (sito, część ${{ matrix.part }}/${{ strategy.job-total }})"
             echo
             head -1 selection.log
             echo
@@ -677,6 +693,16 @@ jobs:
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           npx vitest run --changed "$BASE_SHA" --passWithNoTests
+          # Strażnicy całego repo: czytają drzewo (okruszki, inwentarze funkcji,
+          # harnessy, natywne confirm), więc `--changed` ich nie wybiera, gdy PR
+          # zmienia tylko pilnowany plik. 21.10.2026 brak polskiej nazwy okruszka
+          # „strona-kariery” wyrzucił z kolejki 11 PR-ów. ~12 s.
+          npx vitest run \
+            src/__tests__/ \
+            src/components/v2/shell/__tests__/BreadcrumbV2.test.tsx \
+            src/lib/__tests__/recruitment-feature-parity.test.ts \
+            src/lib/__tests__/orders-contracts-feature-parity.test.ts \
+            src/lib/__tests__/candidate-profile-feature-parity.test.ts
       - name: Build
         if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
         env:

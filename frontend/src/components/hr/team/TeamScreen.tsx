@@ -32,6 +32,7 @@ import { personInitials } from "../people/hr-format";
 import { TeamDecisions } from "./TeamDecisions";
 import { bonusCell, leaveCell, type Cell } from "./team-format";
 import {
+  missingDaysLabel,
   monthProgress,
   todayStatus,
   todaySummary,
@@ -75,8 +76,9 @@ function Avatar({ name, size = "md", className }: { name: string; size?: "sm" | 
 }
 
 /**
- * „Ludzie → Mój zespół” (makieta 19.10.2026): pasek „Dziś”, karty „Do Twojej
- * decyzji” z akceptacją na miejscu, tabela z mini-tygodniem i paskiem godzin.
+ * „Ludzie → Mój zespół” (makieta 19.10.2026, wiersze decyzji 22.10.2026): pasek
+ * „Dziś”, zwarte wiersze „Do Twojej decyzji” z akceptacją na miejscu, tabela
+ * z mini-tygodniem i paskiem godzin; imię otwiera profil na nieobecnościach i godzinach.
  * Kadry i admin wybierają przełożonego (`?manager=`).
  */
 export function TeamScreen({
@@ -257,10 +259,19 @@ function MonthBar({ person, data }: { person: TeamPerson; data: MyTeam }) {
   const progress = monthProgress(person, data);
   if (!progress) return <span className={CALM_EMPTY}>—</span>;
   if (progress.hours === null) return <span className={CALM_EMPTY}>{progress.text}</span>;
+  const missing = missingDaysLabel(person.month?.missing_dates);
   return (
     <div className="min-w-[140px] space-y-1">
       <div className="flex items-center justify-between gap-2 text-[13px]">
         <span className="tabular-nums text-foreground">{progress.text}</span>
+        {missing ? (
+          <span
+            className="rounded-full bg-warning-muted px-2 py-px text-[11px] font-medium text-warning-muted-foreground"
+            data-testid="team-missing-days"
+          >
+            {missing}
+          </span>
+        ) : null}
         {progress.status === "submitted" ? (
           <span className="rounded-full bg-info-muted px-2 py-px text-[11px] font-medium text-info-muted-foreground">
             {progress.statusLabel}
@@ -342,8 +353,9 @@ function TeamTable({ data }: { data: MyTeam }) {
                   <div className="flex items-center gap-2.5">
                     <Avatar name={person.name} size="sm" />
                     <div className="min-w-0">
+                      {/* Zakładka „Nieobecności i godziny” profilu (kotwica `#czas`). */}
                       <Link
-                        href={`/people/${person.user_id}`}
+                        href={`/people/${person.user_id}#czas`}
                         className="font-medium text-foreground hover:underline"
                       >
                         {person.name}

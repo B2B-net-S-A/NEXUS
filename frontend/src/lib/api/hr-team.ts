@@ -35,6 +35,8 @@ export interface TeamMonthRow {
   hours: number;
   status: TeamTimesheetStatus;
   timesheet_id: number | null;
+  /** Dni robocze przed dziś bez wpisu (szkic albo brak raportu), ISO. */
+  missing_dates?: string[];
 }
 
 export interface TeamBonusItem {

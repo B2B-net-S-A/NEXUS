@@ -104,7 +104,7 @@ describe("/preview/hr-person", () => {
 
     expect(await heading()).toBeInTheDocument();
     expect(screen.getByText("Zlecenie · student")).toBeInTheDocument();
-    await openTab(user, "Czas i przerwy");
+    await openTab(user, "Nieobecności i godziny");
     expect(screen.getByText("bez składek do 30.06.2027")).toBeInTheDocument();
     expect(screen.getByText("Składki od")).toBeInTheDocument();
     expect(
@@ -127,7 +127,7 @@ describe("/preview/hr-person", () => {
     render(<HrPersonPreviewPage />);
 
     expect(await heading()).toBeInTheDocument();
-    await openTab(user, "Czas i przerwy");
+    await openTab(user, "Nieobecności i godziny");
     expect(screen.getByText("12 lat")).toBeInTheDocument();
     expect(screen.getByText(/Wymiar według stażu \(12 lat\): 26 dni/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Zmień pulę" }));
@@ -154,6 +154,41 @@ describe("/preview/hr-person", () => {
     expect(screen.queryByText("Aktualna stawka:")).toBeNull();
     await user.click(screen.getByRole("button", { name: /Nowa premia/ }));
     expect(await screen.findByRole("dialog", { name: "Nowa premia" })).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("„Nieobecności i godziny” (`#czas`): nieobecności roku ze stanem i raporty godzin z PDF", async () => {
+    window.history.replaceState({}, "", "/preview/hr-person#czas");
+    render(<HrPersonPreviewPage />);
+
+    expect(await heading()).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Nieobecności i godziny/, selected: true })).toBeInTheDocument();
+    const absences = screen.getByRole("list", { name: /^Nieobecności \d{4}$/ });
+    const rows = within(absences).getAllByRole("listitem");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringMatching(/Przerwa w świadczeniu usług · 3 dni.*zaplanowana/),
+      expect.stringMatching(/czeka$/),
+      expect.stringMatching(/10 dni.*wykorzystana/),
+      expect.stringMatching(/odrzucona$/),
+    ]);
+    expect(screen.getByText(/^Pula 28 dni · wykorzystane 16,5/)).toBeInTheDocument();
+    const reports = screen.getByRole("list", { name: "Raport godzin" });
+    expect(within(reports).getAllByRole("listitem")).toHaveLength(6);
+    expect(within(reports).getByText("nie założony")).toBeInTheDocument();
+    expect(within(reports).getAllByRole("button", { name: "PDF" })).toHaveLength(3);
+    expect(attempted()).toEqual([]);
+  });
+
+  it("Finanse spoza kręgu D6: tylko zatwierdzone, „nieobecność” bez rodzaju", async () => {
+    window.history.replaceState({}, "", "/preview/hr-person?as=finance#czas");
+    render(<HrPersonPreviewPage />);
+
+    expect(await heading()).toBeInTheDocument();
+    const absences = screen.getByRole("list", { name: /^Nieobecności \d{4}$/ });
+    const rows = within(absences).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row).toHaveTextContent(/^[\d.–]+Nieobecność/);
+    expect(within(absences).queryByText("czeka")).toBeNull();
     expect(attempted()).toEqual([]);
   });
 

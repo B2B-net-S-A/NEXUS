@@ -65,10 +65,9 @@ describe("zakładki obszaru „Ludzie”", () => {
     expect(got).toEqual(["directory", "team"]);
   });
 
-  it("Kadry bez kartoteki widzą strukturę, kalendarz i akceptacje", () => {
+  it("Kadry bez kartoteki: katalog (ze Schematem), kalendarz i akceptacje", () => {
     expect(values(config({ has_profile: false, people_admin: true }))).toEqual([
       "directory",
-      "structure",
       "calendar",
       "approvals",
     ]);
@@ -77,17 +76,37 @@ describe("zakładki obszaru „Ludzie”", () => {
   it("„Mój zespół” tylko u przełożonego, zaraz po katalogu", () => {
     const manager = values(config({ is_manager: true, direct_reports: 2 }));
     expect(manager.slice(0, 2)).toEqual(["directory", "team"]);
-    expect(manager).not.toContain("structure");
     expect(values(config({ people_admin: true }))).not.toContain("team");
   });
 
-  it("Struktura: Kadry i admin, tylko przy włączonym module „Ludzie”", () => {
-    expect(values(config({ is_admin: true }))).toContain("structure");
-    expect(values(config({}))).not.toContain("structure");
+  it("stała kolejność: Katalog · Mój zespół · Kalendarz · Akceptacje · Płace · Sprawy", () => {
+    expect(values(config({ is_admin: true, is_manager: true, direct_reports: 2 }))).toEqual([
+      "directory",
+      "team",
+      "calendar",
+      "approvals",
+      "payroll",
+      "cases",
+    ]);
+  });
+
+  it("nie ma już zakładek „Struktura” i „Moje zgody” — Schemat jest w Katalogu, zgody w Moim czasie", () => {
+    const withConsents = { ...ALL_ON, approvals: true };
+    const got = values(config({ is_admin: true, people_admin: true }, withConsents));
+    expect(got).not.toContain("structure");
+    expect(got).not.toContain("consents");
+  });
+
+  it("wyłączony moduł „Ludzie” chowa Katalog i Mój zespół", () => {
     const off = { ...ALL_ON, people: false };
     const got = values(config({ people_admin: true, is_manager: true }, off));
-    expect(got).not.toContain("structure");
+    expect(got).not.toContain("directory");
     expect(got).not.toContain("team");
+  });
+
+  it("etykieta kalendarza to „Kalendarz”", () => {
+    const calendar = peopleSections(config({})).find((link) => link.value === "calendar");
+    expect(calendar?.label).toBe("Kalendarz");
   });
 });
 
@@ -96,13 +115,6 @@ describe("zakładki przy module „Zgody” (0483)", () => {
   const onlyConsents = Object.fromEntries(
     Object.keys(ALL_ON).map((key) => [key, key === "approvals"]),
   ) as Record<HrModuleKey, boolean>;
-
-  it("„Moje zgody” ma każdy z kartoteką i admin; bez modułu — nikt", () => {
-    expect(values(config({}, withConsents))).toContain("consents");
-    expect(values(config({ has_profile: false, is_admin: true }, withConsents))).toContain("consents");
-    expect(values(config({ has_profile: false }, withConsents))).not.toContain("consents");
-    expect(values(config({}))).not.toContain("consents");
-  });
 
   it("Akceptacje przy samych zgodach: przełożony i admin (zatwierdzający), zwykła osoba nie", () => {
     expect(values(config({ is_manager: true }, onlyConsents))).toContain("approvals");
