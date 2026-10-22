@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import {
   candidateHeadline,
   isRecruitmentEnded,
+  latestCvDocument,
   pickHeaderWarning,
   screeningConfirmedSkills,
   splitRecruitments,
@@ -91,5 +93,50 @@ describe("screeningConfirmedSkills", () => {
       ),
     ).toEqual(["Java", "Kafka", "Spring"]);
     expect(screeningConfirmedSkills(null, undefined)).toEqual([]);
+  });
+});
+
+describe("latestCvDocument — „Najnowsze CV” w pasku osoby (22.10.2026)", () => {
+  const doc = (over: Partial<CandidateDocument>): CandidateDocument => ({
+    id: 1,
+    filename: "cv.pdf",
+    content_type: "application/pdf",
+    size_bytes: 1000,
+    document_kind: "cv",
+    is_primary: false,
+    uploaded_at: "2026-01-01T10:00:00Z",
+    external_source: null,
+    created_at: "2026-01-01T10:00:00Z",
+    ...over,
+  });
+
+  it("bez plików CV nie ma czego pokazać", () => {
+    expect(latestCvDocument(undefined)).toBeNull();
+    expect(latestCvDocument([doc({ document_kind: "certificate", is_primary: false })])).toBeNull();
+  });
+
+  it("główne CV wygrywa z nowszym plikiem, który nie jest główny", () => {
+    const primary = doc({ id: 1, is_primary: true, uploaded_at: "2025-05-01T10:00:00Z" });
+    const newer = doc({ id: 2, uploaded_at: "2026-09-01T10:00:00Z" });
+    expect(latestCvDocument([newer, primary])?.id).toBe(1);
+  });
+
+  it("bez głównego — najświeżej wgrane; brak `uploaded_at` liczy datę zapisu", () => {
+    const older = doc({ id: 1, uploaded_at: "2025-05-01T10:00:00Z" });
+    const imported = doc({ id: 2, uploaded_at: null, created_at: "2026-02-01T10:00:00Z" });
+    expect(latestCvDocument([older, imported])?.id).toBe(2);
+  });
+
+  it("plik „nieaktualne” przegrywa z aktualnym, a sam jeden i tak się pokazuje", () => {
+    const outdated = doc({ id: 1, is_primary: true, outdated_at: "2026-09-02T10:00:00Z" });
+    const current = doc({ id: 2, uploaded_at: "2024-01-01T10:00:00Z" });
+    expect(latestCvDocument([outdated, current])?.id).toBe(2);
+    expect(latestCvDocument([outdated])?.id).toBe(1);
+  });
+
+  it("list motywacyjny (`cover_letter`) nie udaje CV, choć nowszy", () => {
+    const letter = doc({ id: 3, document_kind: "cover_letter", uploaded_at: "2026-10-01T10:00:00Z" });
+    const cv = doc({ id: 4 });
+    expect(latestCvDocument([letter, cv])?.id).toBe(4);
   });
 });
