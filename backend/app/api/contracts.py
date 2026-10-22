@@ -159,6 +159,7 @@ from app.services.contract_candidate_contact import (
     resolve_for_contract as resolve_candidate_contact,
 )
 from app.services import contract_client_manager
+from app.services import contract_placements_export as placements
 from app.services.contract_rates import effective_rate_fields
 from app.services.contractor_identity import contractor_identity_sql_expression
 from app.services.contract_service import (
@@ -2649,6 +2650,62 @@ async def export_contracts(
     return StreamingResponse(
         iter(["\ufeff" + buf.getvalue()]),
         media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/placements")
+async def export_placements(
+    current_user: FinanceReadUser,
+    db: AsyncSession = Depends(get_db),
+    start_from: date = Query(...),
+    start_to: date = Query(...),
+):
+    """Kontrakty ze startem w okresie w uk\u0142adzie arkusza \u201ePlacementy\u201d (XLSX).
+
+    Ta sama bramka co ``/export`` (stawki i mar\u017ca). Regu\u0142y kolumn:
+    ``services/contract_placements_export.py``.
+    """
+    if start_to < start_from:
+        raise HTTPException(
+            status_code=422,
+            detail="Data \u201edo\u201d jest wcze\u015bniejsza ni\u017c \u201eod\u201d.",
+        )
+    if (start_to - start_from).days > placements.MAX_RANGE_DAYS:
+        raise HTTPException(
+            status_code=422,
+            detail="Okres eksportu mo\u017ce mie\u0107 najwy\u017cej 10 lat.",
+        )
+    contracts = await placements.load_placement_contracts(db, start_from, start_to)
+    rows = await placements.build_placement_rows(db, contracts, business_today())
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Placementy"
+    ws.append(list(placements.PLACEMENT_EXPORT_COLUMNS))
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    ws.freeze_panes = "A2"
+    date_columns = [
+        idx + 1
+        for idx, name in enumerate(placements.PLACEMENT_EXPORT_COLUMNS)
+        if name in placements.DATE_COLUMNS
+    ]
+    for row in rows:
+        ws.append(safe_row(row))
+        for col in date_columns:
+            ws.cell(row=ws.max_row, column=col).number_format = "DD.MM.YYYY"
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"placementy_{start_from.isoformat()}_{start_to.isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
