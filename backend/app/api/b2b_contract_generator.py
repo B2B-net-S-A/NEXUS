@@ -4194,6 +4194,9 @@ async def attach_generated_contract_signed_file(
     Wchodzi ten, kto mógłby ten podpis oznaczyć (``_may_confirm_row_signature``),
     bo plik ląduje w kontrakcie, który założył podpis."""
     _require_signature_confirmation(current_user)
+    # Plik w Dokumentach kontraktu (FK → blokada kontraktu): kontrakty osoby
+    # PRZED wierszem, jak `/terminate` i nocny cron (audyt 22.10.2026, F47).
+    await _lock_person_contracts_before_row(db, generated_id)
     row = await db.scalar(
         select(B2BGeneratedContract)
         .where(B2BGeneratedContract.id == generated_id)
