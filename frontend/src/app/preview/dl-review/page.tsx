@@ -561,6 +561,16 @@ function seededClient(): QueryClient {
   qc.setQueryData(recommendationCardQueryKey(CANDIDATE_ID, JOB_ID), CARD, fresh);
   qc.setQueryData(dlReviewContextQueryKey(JOB_ID, CANDIDATE_ID), CONTEXT, fresh);
   qc.setQueryData(dlReviewQueueQueryKey(JOB_ID), QUEUE, fresh);
+  // „@” w uwadze dla rekrutera (22.10.2026): lista osób do oznaczenia —
+  // klucz `useMentionableUsers` dla zakresu rekrutacji.
+  qc.setQueryData(
+    ["mentionable-users", `job:${JOB_ID}`, false],
+    [
+      { id: 501, name: "Ewa Przykładowa", email: "ewa.przykladowa@example.com", role: "recruiter" },
+      { id: 502, name: "Piotr Fikcyjny", email: "piotr.fikcyjny@example.com", role: "recruiter" },
+    ],
+    fresh,
+  );
   qc.setQueryData(screeningFormQueryKey(JOB_ID, CANDIDATE_ID), RETURNED_FORM, fresh);
   qc.setQueryData(
     reassignContextQueryKey(STAGE_ID),

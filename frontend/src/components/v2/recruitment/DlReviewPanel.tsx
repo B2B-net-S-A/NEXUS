@@ -26,6 +26,9 @@
  * „Uwagi dla rekrutera” (03.10.2026) jadą z każdą z trzech decyzji jako
  * `recruiter_remark`: serwer zapisuje je jako notatkę pary i dokleja do
  * dzwonka. Stawka do klienta ma własne pole — rekruter jej nie widzi.
+ * Od 22.10.2026 pole to `MentionTextarea`: „@osoba” w uwadze daje oznaczonej
+ * osobie dzwonek wzmianki (u Nordei dzwonek akceptacji idzie do osoby od Cpro,
+ * więc tylko tak dowiaduje się rekruter).
  *
  * Kontekst decyzji (wymagania z dowodem, ocena rekrutera, ryzyka, budżet,
  * podpowiedź stawki do klienta, mediana marży u klienta) daje
@@ -62,6 +65,7 @@ import { AlertTriangle, Loader2, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/components/Toast";
+import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import {
   CvColumn,
@@ -372,6 +376,7 @@ export function DlReviewBody({
   const canSend = canSendToClient ?? hasPermission(me, "recruitment_manage");
   // Nordea (13.10.2026): decyzja to akceptacja do kolejki Cpro.
   const cpro = task.cpro === true;
+  const remarkLabel = cpro ? "Uwagi dla rekrutera i osoby od Cpro" : "Uwagi dla rekrutera";
   const canReject = roles.some((r) => DL_REJECT_ROLES.has(r));
 
   const [rateRaw, setRateRaw] = useState("");
@@ -1073,22 +1078,24 @@ export function DlReviewBody({
           ) : null}
 
           {canSend || canReject ? (
-            <label className="block text-xs font-medium">
-              {cpro ? "Uwagi dla rekrutera i osoby od Cpro" : "Uwagi dla rekrutera"}
-              <textarea
-                aria-describedby="dl-review-remark-hint"
-                className="mt-1 block min-h-9 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm font-normal"
+            <div className="text-xs font-medium">
+              <span aria-hidden>{remarkLabel}</span>
+              <MentionTextarea
+                ariaLabel={remarkLabel}
+                ariaDescribedBy="dl-review-remark-hint"
+                wrapperClassName="mt-1"
+                className="min-h-9 rounded-md border-input bg-background px-2 py-1.5 font-normal"
                 rows={2}
-                maxLength={REMARK_MAX}
+                scope={{ kind: "job", jobId: task.job_id }}
                 value={note}
-                onChange={(e) => setNote(e.target.value)}
+                onChange={(value) => setNote(value.slice(0, REMARK_MAX))}
               />
               <span id="dl-review-remark-hint" className="mt-1 block text-[11px] font-normal text-muted-foreground">
                 {cpro
-                  ? "Przy akceptacji uwagę dostanie osoba od Cpro, przy zwrocie i odrzuceniu — rekruter (w powiadomieniu i w notatkach kandydata). Stawkę do Cpro wpisz tylko w jej polu: rekruter jej nie widzi."
-                  : "Uwagę rekruter dostanie w powiadomieniu i w notatkach kandydata. Stawkę do klienta wpisz tylko w jej polu: rekruter jej nie widzi."}
+                  ? "Przy akceptacji uwagę dostanie osoba od Cpro, przy zwrocie i odrzuceniu — rekruter (w powiadomieniu i w notatkach kandydata). „@” oznacza osobę — dostanie powiadomienie przy każdej decyzji. Stawkę do Cpro wpisz tylko w jej polu: rekruter jej nie widzi."
+                  : "Uwagę rekruter dostanie w powiadomieniu i w notatkach kandydata; „@” oznacza kolejną osobę. Stawkę do klienta wpisz tylko w jej polu: rekruter jej nie widzi."}
               </span>
-            </label>
+            </div>
           ) : null}
 
           {canSend ? (

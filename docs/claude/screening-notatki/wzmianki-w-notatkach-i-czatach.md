@@ -35,3 +35,11 @@ listy poprawnie; zawodził ekran i stara reguła „tylko zespół”.
 - Edycja notatki z oznaczeniem (21.10.2026): pole „Powiadom oznaczonych
   o zmianie” (domyślnie zaznaczone) i `notify_mentions` w `PATCH /api/notes/{id}`
   — `powiadomienia/zmiana-notatki-i-terminu-rozmowy.md`.
+- Uwaga przy decyzji DL (22.10.2026): pole „Uwagi dla rekrutera (i osoby od
+  Cpro)” w przeglądzie Delivery Leada to też `MentionTextarea`. Uwaga jedzie
+  z ruchem jako `recruiter_remark` (`stage_remarks`), a oznaczeni dostają
+  dzwonek i mail wzmianki po commicie ruchu (`stage_remarks.enqueue_mentions`
+  w `run_move_effects`, tytuł „… oznaczył(a) Cię w uwadze przy przesunięciu
+  na „…””). Zgłoszenie: przy akceptacji Nordei dzwonek ruchu idzie do osoby od
+  Cpro, więc rekruter oznaczony „@” w uwadze nie dostawał nic. Ruch konta
+  serwisowego (API v1) nikogo nie oznacza.

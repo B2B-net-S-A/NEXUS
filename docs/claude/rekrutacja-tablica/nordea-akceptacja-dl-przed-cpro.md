@@ -29,7 +29,8 @@ Makiety i decyzje D1–D6: https://claude.ai/artifact/Si7j1pcC3cXxUKYMNVGWa1.
   przeglądu to `stages.cpro_id` (`dl_send_queue.load_rows`), przycisk
   „Akceptuj — do Cpro za …”, pole „Stawka do Cpro” (wymagane), uwaga dla
   osoby od Cpro to zwykłe `recruiter_remark` (`stage_remarks`, dochodzi do
-  dzwonka). Szablon bez etapu Cpro = cel `None`, przegląd to mówi.
+  dzwonka). Rekrutera oznacza się w niej „@” — dostaje dzwonek wzmianki
+  (22.10.2026, `screening-notatki/wzmianki-w-notatkach-i-czatach.md`). Szablon bez etapu Cpro = cel `None`, przegląd to mówi.
 - **Serwer: do kolejki Cpro i na „Wysłane do Cpro” z pominięciem kolejki
   wchodzi tylko osoba z uprawnieniem wysyłki CV** (`recruitment_manage`)
   **i ze stawką** — `pipeline_move_rules.requires_dl_client_rate` z nazwą
