@@ -65,7 +65,7 @@ describe("Match — podsumowanie po wysyłce", () => {
     title: null,
     destination: "cv_sent",
     qc: "passed",
-    detail: null,
+    reason: null,
     cv_carried: true,
   };
 
@@ -82,8 +82,8 @@ describe("Match — podsumowanie po wysyłce", () => {
 
   it("mówi, co nie poszło i dlaczego — także osobę zostawioną na „Zweryfikowanym”", () => {
     const summary = summarizeResults([
-      { ...base, job_id: 3, title: "ZOB-3 Java", status: "failed", detail: "weto HM" },
-      { ...base, job_id: 4, title: "ZOB-4 Java", status: "verified_only", detail: "Rekrutacja zamknięta" },
+      { ...base, job_id: 3, title: "ZOB-3 Java", status: "failed", reason: "weto HM" },
+      { ...base, job_id: 4, title: "ZOB-4 Java", status: "verified_only", reason: "Rekrutacja zamknięta" },
     ]);
     expect(summary.sent).toBeNull();
     expect(summary.problems).toEqual([

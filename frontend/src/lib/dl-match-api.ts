@@ -55,7 +55,8 @@ export interface DlMatchSendResult {
   status: "sent" | "verified_only" | "failed";
   destination: DlMatchDestination | null;
   qc: "passed" | "overridden" | null;
-  detail: string | null;
+  /** Powód odmowy słowami serwera. */
+  reason: string | null;
   cv_carried: boolean;
 }
 

@@ -392,7 +392,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
               candidate_id: 21,
               from_job_id: 31,
               results: [{ job_id: 41, title: "ZOB-41 Java B", status: "sent", destination: "cv_sent",
-                qc: "passed", detail: null, cv_carried: true }],
+                qc: "passed", reason: null, cv_carried: true }],
             },
           })
         : Promise.resolve({ data: {} }),

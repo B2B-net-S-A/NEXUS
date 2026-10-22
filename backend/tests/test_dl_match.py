@@ -297,7 +297,7 @@ async def test_job_outside_the_portfolio_is_refused_without_writes(
         assert resp.status_code == 200, resp.text
         [result] = resp.json()["results"]
         assert result["status"] == "failed"
-        assert "portfelu" in result["detail"]
+        assert "portfelu" in result["reason"]
         assert await _rows_in(job_b, world["candidate_id"]) == []
     finally:
         await _drop([job_b], [rec_id, dl_id, other_dl])

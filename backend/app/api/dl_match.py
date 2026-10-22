@@ -107,7 +107,8 @@ class MatchSendResult(BaseModel):
     status: Literal["sent", "verified_only", "failed"]
     destination: Optional[Literal["cv_sent", "cpro"]] = None
     qc: Optional[Literal["passed", "overridden"]] = None
-    detail: Optional[str] = None
+    #: Powód odmowy słowami serwera (nie ``detail`` błędu HTTP).
+    reason: Optional[str] = None
     cv_carried: bool = False
 
 
@@ -256,7 +257,7 @@ async def _send_one(
     job = await db.get(Job, target.job_id)
     if job is None:
         return MatchSendResult(
-            job_id=target.job_id, status="failed", detail="Nie ma takiej rekrutacji."
+            job_id=target.job_id, status="failed", reason="Nie ma takiej rekrutacji."
         )
     job_id = int(job.id)
     title = _job_label(job)
@@ -272,7 +273,7 @@ async def _send_one(
             job_id=job_id,
             title=title,
             status="failed",
-            detail=(
+            reason=(
                 "Tej rekrutacji nie ma w Twoim portfelu, nie jest otwarta "
                 "albo osoba już w niej jest."
             ),
@@ -286,7 +287,7 @@ async def _send_one(
             title=title,
             status="failed",
             destination=destination,
-            detail="Szablon tej rekrutacji nie ma etapu „Zweryfikowany” albo etapu wysyłki.",
+            reason="Szablon tej rekrutacji nie ma etapu „Zweryfikowany” albo etapu wysyłki.",
         )
 
     # 1. Dodanie (kopia CV z A) + „Zweryfikowany” przez DL-a.
@@ -338,7 +339,7 @@ async def _send_one(
             title=title,
             status="failed",
             destination=destination,
-            detail=exc.detail if isinstance(exc, _NotAdded) else _detail_text(exc),
+            reason=exc.detail if isinstance(exc, _NotAdded) else _detail_text(exc),
         )
     await _effects(db, verified, user)
     cv_carried = candidate_id in intake.cv_carried
@@ -386,7 +387,7 @@ async def _send_one(
             title=title,
             status="verified_only",
             destination=destination,
-            detail=_detail_text(exc),
+            reason=_detail_text(exc),
             cv_carried=cv_carried,
         )
     await _effects(db, sent, user)
