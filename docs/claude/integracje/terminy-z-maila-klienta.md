@@ -130,3 +130,36 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
 - **Przycisk mówi, co robi:** bez prepów do zaproszenia główny przycisk
   `PickInterviewDialog` to „Wpisz do kalendarza” (jak dymek „Rozmowa jest
   w kalendarzu…”), nie „Wyślij do DL”. Nie wracaj do starej nazwy.
+
+## „Inna godzina…” przy prepie (22.10.2026)
+
+- **Rekruter może wpisać prep spoza podpowiedzi.** W `PickInterviewDialog`
+  przy obu prepach, obok trzech podpowiedzi, jest „Inna godzina…”: dzień
+  (dni robocze od dziś do dnia rozmowy) i godzina co 15 min, pasek dnia
+  prowadzącego z jego zajętością i komunikat pod spodem (`interview-pick.
+  checkManualPrep`). Pojawia się też wtedy, gdy podpowiedzi brak — do tej
+  daty jedynym wyjściem było „Zaplanuję później” i okno z panelu osoby bez
+  kalendarza.
+- **Blokada** (główny przycisk czeka, „Tylko termin” działa): prep kończy się
+  po starcie rozmowy, nachodzi na drugi prep tej osoby (Prep 1 ma
+  pierwszeństwo), godzina minęła. **Ostrzeżenie** (zapis wolno): prowadzący
+  ma wtedy zajęte (z „Najbliżej wolne tego dnia”), zapas przed rozmową
+  mniejszy niż 2 h (Prep 1) / 30 min (Prep 2), poza 8–18, mniej niż 2 h od
+  teraz. Kalendarz niewidoczny = „nie sprawdzimy, czy ma wtedy wolne”.
+- **Zajęte u prowadzącego to ostrzeżenie, nie blokada** (decyzja Artura):
+  zajęte bywa przesuwalnym blokiem, a blokada wypychała do okna bez
+  kalendarza. Prowadzący dostaje w dzwonku „Nachodzi na inne spotkanie
+  w Twoim kalendarzu (…)”.
+- **Serwer sprawdza kalendarz przy każdym zapisie prepu** (`POST /preps`,
+  `prep_availability.busy_overlap`), także dla podpowiedzi: między otwarciem
+  okna a kliknięciem nikt nie rezerwuje godziny. Kolizja bez `accept_busy`
+  = 409 `PREP_SLOT_BUSY` z przedziałem w `message`; okno z panelu osoby
+  pokazuje wtedy „Zapisz mimo to”. Kalendarz nieznany (spoza grupy, błąd
+  Grapha) niczego nie blokuje. Blok o tym samym początku i końcu co prep
+  (±1 min) się nie liczy — to sierota z poprzedniej próby z tym samym
+  `client_request_id`. „Zapisz mimo to” znika po zmianie terminu, długości
+  albo prowadzącego. Zmiana terminu (`PATCH`) bez tej kontroli.
+- **`suggestions` niesie `busy`** — zajęte bloki prowadzącego od teraz do
+  rozmowy (tylko „zajęte/wolne”, bez tytułów; to samo `getSchedule`, bez
+  dodatkowego zapytania). Wpływ na sloty: prep ręczny zajmuje 45 min w
+  Outlooku prowadzącego jak podpowiedziany i kolejne podpowiedzi go omijają.

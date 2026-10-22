@@ -23,7 +23,12 @@ from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.note import Note
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
 from app.models.user import User, UserRole
-from app.services import prep_review, prep_review_config, prep_transcripts
+from app.services import (
+    prep_availability,
+    prep_review,
+    prep_review_config,
+    prep_transcripts,
+)
 from app.services.m365 import teams_prep_auth, teams_prep_graph
 from app.services.m365.graph_client import GraphRequestError
 
@@ -38,6 +43,11 @@ class FakeGraph:
         self.event_state: dict = {}
         self.fail_list_with: int | None = None
         self.patched = 0
+        # Zajętość z kalendarzy (adres → bloki; brak adresu = kalendarz nieznany).
+        self.busy: dict[str, list[tuple[datetime, datetime]]] = {}
+
+    async def busy_blocks(self, emails, *, start, end):
+        return {e.lower(): self.busy.get(e.lower()) for e in emails}
 
     async def create_event(self, upn, payload):
         self.created.append((upn, payload))
@@ -81,6 +91,7 @@ def graph(monkeypatch):
         "transcript_vtt",
     ):
         monkeypatch.setattr(teams_prep_graph, name, getattr(fake, name))
+    monkeypatch.setattr(prep_availability, "busy_blocks", fake.busy_blocks)
     monkeypatch.setattr(settings, "TEAMS_PREP_APP_ONLY_ENABLED", True)
     monkeypatch.setattr(teams_prep_auth, "credentials_configured", lambda: True)
     return fake
@@ -247,6 +258,102 @@ async def test_prep1_is_created_in_the_dl_calendar_with_teams_and_notice(
     )
     assert dup.status_code == 409
     assert dup.json()["detail"]["code"] == "PREP_ALREADY_SCHEDULED"
+
+
+async def test_busy_organizer_needs_accept_busy_and_hears_about_the_clash(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """„Inna godzina…” (22.10.2026): kolizja z kalendarza = 409, chyba że
+    planujący świadomie zapisuje mimo to — wtedy DL dostaje dzwonek o kolizji."""
+    from app.models.notification import Notification, NotificationType
+
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        dl_email = (await db.get(User, dl_id)).email.lower()
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=24)
+    graph.busy[dl_email] = [
+        (start - timedelta(minutes=15), start + timedelta(minutes=30))
+    ]
+    body = dict(
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=start.isoformat(),
+        end=(start + timedelta(minutes=45)).isoformat(),
+        client_request_id="req-busy",
+    )
+
+    refused = await _create(app_client, rec_h, **body)
+    assert refused.status_code == 409, refused.text
+    detail = refused.json()["detail"]
+    assert detail["code"] == "PREP_SLOT_BUSY"
+    assert detail["message"].startswith("Kasia Lead ma wtedy zajęte (")
+    assert graph.created == []
+
+    accepted = await _create(app_client, rec_h, **body, accept_busy=True)
+    assert accepted.status_code == 201, accepted.text
+    async with AsyncSessionLocal() as db:
+        notes = (
+            await db.scalars(
+                select(Notification).where(
+                    Notification.user_id == dl_id,
+                    Notification.notification_type
+                    == NotificationType.prep_changed_yours,
+                )
+            )
+        ).all()
+    assert len(notes) == 1
+    assert "Nachodzi na inne spotkanie w Twoim kalendarzu" in notes[0].message
+
+
+async def test_retry_is_not_busy_with_its_own_orphan_meeting(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Outlook przyjął spotkanie, a NEXUS go nie zapisał: powtórka z tym samym
+    ``client_request_id`` widzi w kalendarzu „siebie” — to nie kolizja."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        dl_email = (await db.get(User, dl_id)).email.lower()
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=24)
+    end = start + timedelta(minutes=45)
+    graph.busy[dl_email] = [(start, end)]
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=start.isoformat(),
+        end=end.isoformat(),
+        client_request_id="req-retry",
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_unknown_or_free_calendar_saves_without_accept_busy(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    # Brak wpisu w graph.busy = kalendarza nie widać → nie ma czym blokować.
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(24),
+        end=_at(24.75),
+    )
+    assert resp.status_code == 201, resp.text
 
 
 async def test_invitation_names_the_role_without_the_client_request_number(

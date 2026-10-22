@@ -161,6 +161,9 @@ class PrepCreate(BaseModel):
     attendee_emails: list[EmailStr] = Field(default_factory=list, max_length=10)
     note: Optional[str] = Field(default=None, max_length=2000)
     client_request_id: Optional[str] = Field(default=None, max_length=80)
+    # Planujący widział, że prowadzący ma wtedy zajęte, i zapisuje mimo to
+    # (22.10.2026). Bez tego kolizja z kalendarza = 409 PREP_SLOT_BUSY.
+    accept_busy: bool = False
 
     @model_validator(mode="after")
     def _window(self) -> "PrepCreate":
@@ -422,6 +425,9 @@ class PrepSuggestion(BaseModel):
     scheduled_start: Optional[datetime] = None
     minutes: int
     options: list[PrepOptionTime]
+    # Zajęte bloki prowadzącego od teraz do rozmowy — dla „Inna godzina…”
+    # (22.10.2026). Puste, gdy kalendarza nie widać (`calendar` mówi dlaczego).
+    busy: list[PrepOptionTime] = Field(default_factory=list)
 
 
 class PrepSuggestionsOut(BaseModel):
@@ -542,6 +548,7 @@ async def prep_suggestions(
                 scheduled_start=event.start_time if event is not None else None,
                 minutes=prep_availability.PREP_MINUTES,
                 options=[PrepOptionTime(start=o.start, end=o.end) for o in options],
+                busy=[PrepOptionTime(start=s, end=e) for s, e in user_busy or []],
             )
         )
     return PrepSuggestionsOut(enabled=enabled, preps=out)
@@ -606,6 +613,31 @@ async def create_prep(
     attendees = await _attendee_users(
         db, [i for i in body.attendee_user_ids if i != organizer.id]
     )
+    # Kalendarz prowadzącego jeszcze raz tuż przed zapisem (22.10.2026): między
+    # otwarciem okna a kliknięciem godzinę mógł zająć ktoś inny, a godzina
+    # wpisana ręcznie mogła od początku wpadać na „zajęte”.
+    clash = None
+    if organizer.email:
+        blocks = await prep_availability.busy_blocks(
+            [organizer.email], start=body.start, end=body.end
+        )
+        clash = prep_availability.busy_overlap(
+            body.start, body.end, blocks.get(organizer.email.strip().lower())
+        )
+    if clash is not None and not body.accept_busy:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PREP_SLOT_BUSY",
+                "busy_start": clash[0].isoformat(),
+                "busy_end": clash[1].isoformat(),
+                "message": (
+                    f"{organizer.name or organizer.email} ma wtedy zajęte "
+                    f"({prep_availability.span_label(clash)}). Wybierz inną "
+                    "godzinę albo zapisz mimo to, jeśli to uzgodnione."
+                ),
+            },
+        )
 
     created = await prep_meetings.create_prep(
         db,
@@ -629,6 +661,7 @@ async def create_prep(
         prep=created.prep,
         event=created.event,
         kind="scheduled",
+        clash=clash,
     )
     if body.prep_no == 2:
         # 0482: Prep 2 jednak jest — zapisane „bez Prepu 2” przestaje obowiązywać.

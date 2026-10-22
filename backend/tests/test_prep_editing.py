@@ -22,7 +22,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.calendar_event import CalendarEvent, EventStatus
 from app.models.prep_meeting import PrepMeeting
 from app.models.user import User, UserRole
-from app.services import prep_meetings
+from app.services import prep_availability, prep_meetings
 from app.services.m365 import teams_prep_auth, teams_prep_graph
 from app.services.m365.graph_client import GraphRequestError
 from tests.test_prep_meetings_flow import FakeGraph, _at, _create, _pair, _user
@@ -59,6 +59,7 @@ def graph(monkeypatch):
         "cancel_event",
     ):
         monkeypatch.setattr(teams_prep_graph, name, getattr(fake, name))
+    monkeypatch.setattr(prep_availability, "busy_blocks", fake.busy_blocks)
     monkeypatch.setattr(settings, "TEAMS_PREP_APP_ONLY_ENABLED", True)
     monkeypatch.setattr(teams_prep_auth, "credentials_configured", lambda: True)
     return fake

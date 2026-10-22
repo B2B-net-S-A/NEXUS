@@ -218,6 +218,8 @@ export interface PrepCreateInput {
   attendee_emails?: string[];
   note?: string | null;
   client_request_id?: string | null;
+  /** Prowadzący ma wtedy zajęte, a planujący zapisuje mimo to (22.10.2026). */
+  accept_busy?: boolean;
 }
 
 /** Zmiana prepu. Brak pola = bez zmian; `attendee_*` podane = pełna nowa lista. */
@@ -240,6 +242,8 @@ export interface PrepSuggestion {
   scheduled_start: string | null;
   minutes: number;
   options: { start: string; end: string }[];
+  /** Zajęte bloki prowadzącego od teraz do rozmowy — dla „Inna godzina…”. */
+  busy?: { start: string; end: string }[];
 }
 
 export interface PrepSuggestions {
@@ -273,6 +277,16 @@ export const prepQueryKey = (eventId: number) =>
   ["interview-cycle", "preps", eventId] as const;
 export const prepTranscriptQueryKey = (eventId: number) =>
   ["interview-cycle", "preps", eventId, "transcript"] as const;
+
+/**
+ * 409 `PREP_SLOT_BUSY`: prowadzący ma wtedy zajęte w kalendarzu (sprawdzone
+ * przy zapisie, 22.10.2026). Okno pokazuje „Zapisz mimo to” (`accept_busy`).
+ */
+export function isPrepSlotBusy(error: unknown): boolean {
+  const response = (error as { response?: { status?: number; data?: unknown } } | null)?.response;
+  const detail = (response?.data as { detail?: { code?: unknown } } | null | undefined)?.detail;
+  return response?.status === 409 && detail?.code === "PREP_SLOT_BUSY";
+}
 
 export const prepMeetingsApi = {
   options: (candidateId: number, jobId: number) =>

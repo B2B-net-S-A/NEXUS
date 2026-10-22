@@ -12,6 +12,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   PREP_FOLLOWUP_REASON_LABELS,
   followupInvitationLine,
+  isPrepSlotBusy,
   prepMeetingsApi,
   usePrepOptions,
 } from "@/lib/api/prepMeetings";
@@ -89,9 +90,17 @@ export function PlanPrepDialog({
   const [note, setNote] = useState("");
   const [addFollowupLine, setAddFollowupLine] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 409 PREP_SLOT_BUSY: prowadzący ma wtedy zajęte — „Zapisz mimo to” (22.10.2026).
+  const [busyClash, setBusyClash] = useState(false);
   // Stały identyfikator próby — ponowienie po utracie odpowiedzi nie założy
   // drugiego spotkania (serwer → `transactionId` w Graphie).
   const requestId = useRef<string>("");
+
+  // „Zapisz mimo to” dotyczy terminu i prowadzącego z odpowiedzi 409 — po
+  // zmianie któregoś z nich ostrzeżenie już nie pasuje.
+  useEffect(() => {
+    setBusyClash(false);
+  }, [start, duration, organizerId]);
 
   useEffect(() => {
     if (!open) return;
@@ -150,7 +159,7 @@ export function PlanPrepDialog({
     !interview || interview.tentative || new Date(start) < new Date(interview.start);
 
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (acceptBusy: boolean) => {
       const startDate = new Date(start);
       const end = new Date(startDate.getTime() + duration * 60_000);
       return prepMeetingsApi.create({
@@ -164,6 +173,7 @@ export function PlanPrepDialog({
         attendee_emails: invitees.emails,
         note: invitationNote || null,
         client_request_id: requestId.current,
+        accept_busy: acceptBusy,
       });
     },
     onSuccess: (prep) => {
@@ -176,7 +186,10 @@ export function PlanPrepDialog({
       );
       onOpenChange(false);
     },
-    onError: (err) => setError(apiErrorMessage(err, "Nie udało się zaplanować prepu.")),
+    onError: (err) => {
+      setBusyClash(isPrepSlotBusy(err));
+      setError(apiErrorMessage(err, "Nie udało się zaplanować prepu."));
+    },
   });
 
   if (!open) return null;
@@ -201,8 +214,9 @@ export function PlanPrepDialog({
     );
   }
 
-  const submit = () => {
+  const submit = (acceptBusy = false) => {
     setError(null);
+    setBusyClash(false);
     if (organizerId == null) {
       setError("Wybierz, kto prowadzi prep.");
       return;
@@ -211,7 +225,7 @@ export function PlanPrepDialog({
       setError("Podaj termin prepu.");
       return;
     }
-    mutation.mutate();
+    mutation.mutate(acceptBusy);
   };
 
   return (
@@ -229,9 +243,19 @@ export function PlanPrepDialog({
           >
             Anuluj
           </button>
+          {busyClash ? (
+            <button
+              type="button"
+              onClick={() => submit(true)}
+              disabled={mutation.isPending}
+              className="h-9 rounded-md border border-border bg-card px-4 text-sm font-semibold hover:bg-muted disabled:opacity-50"
+            >
+              Zapisz mimo to
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={submit}
+            onClick={() => submit()}
             disabled={mutation.isPending || options.isPending}
             className="h-9 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
@@ -427,7 +451,13 @@ export function PlanPrepDialog({
             </div>
           </div>
           {error ? (
-            <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p
+              role="alert"
+              className={cn(
+                "rounded-md px-3 py-2 text-sm",
+                busyClash ? "bg-warning-muted text-warning-muted-foreground" : "bg-destructive/10 text-destructive",
+              )}
+            >
               {error}
             </p>
           ) : null}
