@@ -71,7 +71,7 @@ describe("mini-tydzień pn–pt", () => {
       }),
       TODAY,
     )!;
-    expect(cells.map((cell) => cell.mark)).toEqual(["pn", "D", "Z", "½", "pt"]);
+    expect(cells.map((cell) => cell.mark)).toEqual(["pn", "W", "Z", "½", "pt"]);
     expect(cells.map((cell) => cell.isToday)).toEqual([false, false, false, false, true]);
     expect(weekAriaLabel(cells)).toBe(
       "pn: nieobecność, wt: wyjazd, śr: zdalnie, cz: wniosek czeka (pół dnia), pt: dostępny(a)",
