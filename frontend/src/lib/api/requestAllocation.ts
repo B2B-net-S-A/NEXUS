@@ -35,6 +35,10 @@ export interface BoardRequest {
   category_id: number | null
   deadline: string | null
   sent: number
+  /** Osoby, których karta stoi teraz w „Zweryfikowany” (jak Tablica). */
+  verified?: number
+  /** Osoby, których karta stoi teraz w „QC CV” (z kolejką Cpro). */
+  cv_qc?: number
   champion: boolean
   people: BoardPerson[]
   delivery_lead?: { id: number; name: string } | null

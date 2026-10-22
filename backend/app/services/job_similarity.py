@@ -587,6 +587,17 @@ async def at_client_counts(db: AsyncSession, job_ids: Iterable[int]) -> dict[int
     z NAZWY etapu szablonu razem z kodem wiersza (``board_column_for``), nie
     z samego kodu: „Po Interview” ma kod ``interview``, a „Rezerwa” — kod
     ``cv_sent`` (21.10.2026)."""
+    return await board_column_counts(db, job_ids, AT_CLIENT_COLUMNS)
+
+
+async def board_column_counts(
+    db: AsyncSession, job_ids: Iterable[int], columns: Sequence[str]
+) -> dict[int, int]:
+    """Ile osób w rekrutacji stoi DZIŚ w jednej z kolumn Tablicy.
+
+    Bieżący etap pary (``latest_stage_ids``) i kolumna z nazwy etapu szablonu
+    razem z kodem wiersza — ta sama reguła co Tablica. Na niej stoją
+    „Zweryf.”, „QC CV” i „Wysłani” na pulpicie requestów (23.10.2026)."""
     from app.services.candidate_stage_column import (  # noqa: PLC0415
         column_clause,
         column_rule,
@@ -597,7 +608,7 @@ async def at_client_counts(db: AsyncSession, job_ids: Iterable[int]) -> dict[int
     ids = list(set(job_ids))
     if not ids:
         return {}
-    rule = column_rule(AT_CLIENT_COLUMNS, await load_stage_defs(db))
+    rule = column_rule(columns, await load_stage_defs(db))
     latest = latest_stage_ids(job_ids=ids)
     rows = (
         await db.execute(

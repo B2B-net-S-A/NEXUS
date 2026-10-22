@@ -31,3 +31,22 @@ Kod: `custom/ToCompleteTile.tsx`, `ToCompleteMovePrompt.tsx`,
   przeglądarka razem z odrzuconymi ogłoszeniami kafelków. Panel czeka na
   odczyt układu pulpitu, żeby listy nie mignęły w nim przed kafelkiem.
 - **Bez kafelka w układach ról** — kto go nie dodał, ma panel jak dotąd.
+
+## Prepy przed rozmową u klienta w kafelku (23.10.2026)
+
+Druga prośba Olafa: prepy zostawały w „Czeka na Ciebie”, choć kafelek stał na
+pulpicie. Artur wybrał wariant 2A z makiet
+(https://claude.ai/artifact/EpgxNpGii158FV3mXdrcVN).
+
+- **Prepy są czwartą listą kafelka** (`prep_attention`, ta sama reguła
+  „kafelek albo panel”): kafelek na pulpicie = prepy tylko w nim
+  (`withoutToCompleteLists` daje `prep_attention: []`), bez kafelka — w panelu.
+  Liczą się też do „Przenieś na pulpit” (`toCompleteCounts.preps`).
+- **Jedna lista w dwóch miejscach:** `PrepAttentionSection` renderuje i panel,
+  i kafelek — nie przepisuj wiersza prepu w żadnym z nich.
+- **Prepy pierwsze**, bo mają termin: w przełączniku wąskiego kafelka
+  i w lewej kolumnie szerokiego (od 880 px), reszta list pod sobą w prawej
+  (`to-complete-rest`, wąsko `display: contents`).
+- Organizator prepu widzi tylko swoje prepy (Head of Recruitment — wszystkie),
+  więc u niego prepy przechodzą do kafelka dopiero, gdy sam go doda.
+
