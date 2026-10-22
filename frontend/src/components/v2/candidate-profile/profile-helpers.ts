@@ -3,6 +3,7 @@
  * bez montowania ciężkiego profilu (kilkanaście zapytań).
  */
 import { safeExternalHref } from "@/lib/safe-href";
+import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import {
   getCurrentTitle,
   type CandidateLite,
@@ -151,4 +152,25 @@ export function linkedinHref(raw: string | null | undefined): string | null {
   if (!trimmed) return null;
   const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
   return safeExternalHref(withScheme);
+}
+
+/**
+ * „Najnowsze CV” w pasku osoby (22.10.2026, jak w Traffit): główne CV, a bez
+ * niego najświeżej wgrane. Nowy plik CV staje się główny przy wgraniu, więc
+ * główne = najnowsza wersja, chyba że ktoś świadomie wskazał inne. Plik
+ * oznaczony „nieaktualne” przegrywa z każdym aktualnym.
+ */
+export function latestCvDocument(
+  documents: readonly CandidateDocument[] | null | undefined,
+): CandidateDocument | null {
+  const cvs = (documents ?? []).filter((doc) => doc.document_kind === "cv");
+  if (!cvs.length) return null;
+  const uploaded = (doc: CandidateDocument) => doc.uploaded_at ?? doc.created_at;
+  const ranked = [...cvs].sort((left, right) => {
+    const leftOutdated = Boolean(left.outdated_at);
+    if (leftOutdated !== Boolean(right.outdated_at)) return leftOutdated ? 1 : -1;
+    if (left.is_primary !== right.is_primary) return left.is_primary ? -1 : 1;
+    return uploaded(right).localeCompare(uploaded(left));
+  });
+  return ranked[0];
 }

@@ -507,10 +507,31 @@ export function useHrNavState(
   // Rada nadzorcza (0490) nie ma w menu ekranów „Ludzi” — bez zapytania.
   const ownShell = roles.size === 1 && (roles.has("trainee") || roles.has("board"));
   const { data } = useHrConfig(Boolean(user) && !ownShell);
-  return hrNavState(data);
+  return hrNavState(data, CARE_ROLES.some((role) => roles.has(role)));
 }
 
-export function hrNavState(config: HrConfig | undefined): HrNavState {
+/** Role z kartami opieki (pozycja „Opieka nad konsultantami” i obszar „Opieka” na tablicy). */
+export const CARE_ROLES = [
+  "admin",
+  "delivery_lead",
+  "talent_community_manager",
+  "head_of_recruitment",
+] as const;
+
+/**
+ * Sprawy administracja@ są od 22.10.2026 w „Opiece” → „Do zrobienia” (wcześniej
+ * zakładka „Sprawy” w „Ludziach”). Wchodzi tam też osoba bez roli opieki, gdy
+ * ma uprawnienie „Sprawy” albo przypisaną sprawę — widzi wtedy same sprawy.
+ */
+export function casesInCare(
+  config: Pick<HrConfig, "program" | "open_modules" | "me"> | null | undefined,
+): boolean {
+  if (!config?.program || !config.open_modules.care || !config.open_modules.cases) return false;
+  const { me } = config;
+  return me.cases || me.is_admin || me.has_assigned_cases === true;
+}
+
+export function hrNavState(config: HrConfig | undefined, careRole = false): HrNavState {
   if (!config?.program) return { myTime: false, people: false, equipment: false, care: false };
   const { me, open_modules: open } = config;
   const anyHrRight = me.people_admin || me.payroll || me.equipment || me.cases;
@@ -518,8 +539,8 @@ export function hrNavState(config: HrConfig | undefined): HrNavState {
     myTime: me.has_profile && (open.leave || open.time || open.people),
     people: open.people && (me.has_profile || anyHrRight || me.is_admin),
     equipment: open.equipment && (me.equipment || me.is_admin),
-    // Kto z ról widzi pozycję, rozstrzyga `roles` w `nav-registry`.
-    care: open.care,
+    // Role opieki albo same sprawy administracja@ (`casesInCare`).
+    care: open.care && (careRole || casesInCare(config)),
   };
 }
 

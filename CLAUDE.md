@@ -45,8 +45,11 @@ Szczegóły: `docs/claude/podstawy/ci-gotchas.md`, `deploy.md`, `healthcheck-end
 - Wdrożenia pon–pt 18:00–08:00 (Warszawa), w weekend zawsze; w dzień roboczy
   `emergency` tylko na polecenie Artura. Potem `/api/health` → `version` = SHA
   z maina ze zmianą; dopiero wtedy test na produkcji.
-- Lokalnie bez Dockera: `ruff`, testy bez bazy, `npx vitest run <pliki>`,
-  `npm run type-check`. Testy z Postgresem sprawdza CI.
+- Lokalnie: `ruff`, testy bez bazy, `npx vitest run <pliki>`,
+  `npm run type-check`. Testy z Postgresem sprawdza CI. Lokalny Docker
+  dozwolony od 22.10.2026; stały staging na kopii produkcji to
+  `docker-compose.staging.yml` (nowa pętla w lifespanie = wpis w
+  `app/core/staging.py`). → `podstawy/staging-na-laptopie.md`
 - Zmienne środowiskowe na produkcji zmienia wyłącznie workflow „Coolify set env”.
 - Repo i logi Actions są publiczne: bez nazwisk, stawek i sekretów w kodzie,
   testach, logach i paragonach migracji.
@@ -116,6 +119,7 @@ Deploy przez Coolify, `/api/health`, zmienne środowiskowe, CI i kolejka merge'�
 - `po-fazie-1.md`: Po Fazie 1
 - `specyfika-tej-apki.md`: Specyfika tej apki
 - `stabilizacja-pod-obciazeniem-reguly-po-audycie-13.md`: Stabilizacja pod obciążeniem — reguły po audycie 13.09 i reaudycie 14.09.2026 · deploy = przerwa, ponowienia HTTP, polling, single-flight cache, XLSX, uploady
+- `staging-na-laptopie.md`: Staging na laptopie — pełna kopia produkcji bez wyjścia na świat · `NEXUS_ENV=staging`, lista pętli, zapora HTTP, odtworzenie z backupu
 - `tabele-worda-z-wgranych-plikow.md`: Tabele Worda z wgranych plików — komórki przez `app/core/docx_cells.py`
 - `wersja-frontu-w-otwartej-karcie.md`: Otwarta karta sama przechodzi na nową wersję frontu
 
@@ -277,6 +281,7 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 - `generator-cv-tylko-w-rekrutacji.md`: Generator CV tylko w rekrutacji
 - `generator-cv-v3-jeden-ekran-od-osoby.md`: Generator CV v3 — jeden ekran od osoby
 - `interaktywne-cv-publiczny-link-do-wygenerowanego-cv.md`: Interaktywne CV (publiczny link do wygenerowanego CV)
+- `naglowek-stanowiska-nie-zostaje-sam-na-dole-strony.md`: Nagłówek stanowiska nie zostaje sam na dole strony
 - `reguly-cv-per-klient-pelna-recepta-delivery-leada.md`: Reguły CV per klient — pełna recepta Delivery Leada
 - `silnik-cv-bez-wypelniacza.md`: Silnik CV bez wypełniacza (D1–D3) · bez punktu MUST, pytanie ≠ fakt, `cv_role_title`, lata, notatki bez stawek
 - `zrzut-zgody-rodo-na-koncu-cv-wymog-pko-bp.md`: Zrzut zgody RODO na końcu CV (wymóg PKO BP)
@@ -300,6 +305,7 @@ Profil i karta klienta, scalanie i usuwanie klientów, Historia zdarzeń, Centru
 - `jednorazowe-czyszczenie-nieaktywnych-klientow.md`: Jednorazowe czyszczenie „Nieaktywnych klientów" (migracja 0303)
 - `karta-klienta-client-playbooks.md`: Karta klienta (`client_playbooks`)
 - `klienci-profil-tabela-konsultantow-stawki-z.md`: Klienci → Profil: tabela konsultantów + stawki z harmonogramu
+- `klient-o-tej-samej-nazwie-ostrzezenie.md`: Klient o tej samej nazwie — ostrzeżenie przy dodawaniu · 409 `client_duplicate_warning`, `acknowledge_duplicate`, „Dodaj mimo to”, `normalize_company_name`
 - `scalenie-cardif-pelne-przeniesienie-danych.md`: Pełne scalenie klienta-duplikatu: BNP Paribas Cardif (52) → Cardif Assurances (38335) · `cardif_client_merge_repair`, najpierw dane, potem flaga; wzór na duplikaty
 - `usuwanie-klienta-z-profilu-historia-zdarzen.md`: Usuwanie klienta z profilu + Historia zdarzeń (migracja 0307)
 

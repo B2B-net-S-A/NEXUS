@@ -310,6 +310,8 @@ export const screeningFormVersionsQueryKey = (jobId: number, candidateId: number
 export interface JointContextPair {
   job_id: number;
   title: string;
+  /** Numer u klienta przed tytułem, jak w nagłówku rekrutacji (22.10.2026). */
+  client_reference?: string | null;
   client_id: number | null;
   client_name: string | null;
   board_column: string | null;
@@ -326,6 +328,7 @@ export interface JointContextPair {
 export interface JointContextAnchor {
   job_id: number;
   title: string;
+  client_reference?: string | null;
   client_id: number | null;
   client_name: string | null;
   budget_hourly: number | null;

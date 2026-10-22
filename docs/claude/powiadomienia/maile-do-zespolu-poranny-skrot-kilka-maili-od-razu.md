@@ -29,6 +29,19 @@ Decyzja Artura 07.10.2026: mail ma nieść tylko to, co wymaga ruchu odbiorcy.
   tytuł sprawy administracja@ i uwagi zwrotu timesheetu nigdy). Powiadomienie
   starsze niż 24 h nie idzie mailem. Rezerwacja i wynik niepewny jak
   w `job_deadline_alerts`.
+- **Od 22.10.2026 także** (zgłoszenie „brak maila o terminach rozmów”,
+  decyzja Artura): rodzaje z `notification_delivery.BELL_MAIL_TYPES` —
+  `client_interview` (terminy od klienta, wybrany, potwierdzony i zmieniony
+  termin, przełożona albo odwołana rozmowa, debrief, telefon 15 min po
+  rozmowie), `prep_change` (odmowa prepu, zmiana Twojego prepu),
+  `client_accepted`, `pre_contract`, `team_task` (wytypowanie do Cpro,
+  odpowiedź na notatkę, przejęta osoba), `hire_documents` (zatrudniony bez
+  zamówienia albo umowy). Treść = tytuł i opis wpisu w dzwonku. Celowo bez
+  maila: przypomnienie 15 min przed wydarzeniem (`interview_scheduled`),
+  ponaglenia po rozmowie (`post_interview_t45`, eskalacja) i `prep_changed`.
+  Nowy typ w mailu = dopisz go do `BELL_MAIL_TYPES`, regułę „kogo dotyczy”
+  do `notification_email_prefs.APPLIES` i przypadek do
+  `test_immediate_email_kind`.
 - **Alerty klientów i umów mailem tylko do Delivery Leada** (rola główna albo
   dodatkowa, `dl_alerts.send_pending_alert_emails`) — admin ma je w panelu.
 - **Alarm wydatków AI**: raz w tygodniu na funkcję i miarę, raz w miesiącu na

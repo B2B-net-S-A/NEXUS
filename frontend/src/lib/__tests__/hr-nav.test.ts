@@ -71,9 +71,31 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
     });
   });
 
-  it("„Opieka” idzie za modułem care (role rozstrzyga rejestr menu)", () => {
-    expect(hrNavState(config({}, { ...MODULES, care: true })).care).toBe(true);
-    expect(hrNavState(config({})).care).toBe(false);
+  it("„Opieka”: moduł care i rola opieki", () => {
+    expect(hrNavState(config({}, { ...MODULES, care: true }), true).care).toBe(true);
+    expect(hrNavState(config({}, { ...MODULES, care: true })).care).toBe(false);
+    expect(hrNavState(config({}), true).care).toBe(false);
+  });
+
+  it("„Opieka” bez roli opieki dla osoby ze sprawami administracja@ (Sprawy przeszły z Ludzi, 22.10.2026)", () => {
+    const withCases = { ...MODULES, care: true, cases: true };
+    expect(hrNavState(config({ cases: true }, withCases)).care).toBe(true);
+    expect(hrNavState(config({ has_assigned_cases: true }, withCases)).care).toBe(true);
+    // Moduł spraw wyłączony — nie ma czego pokazać.
+    expect(hrNavState(config({ cases: true }, { ...MODULES, care: true })).care).toBe(false);
+    // Bez spraw i bez roli — nic.
+    expect(hrNavState(config({ has_profile: true }, withCases)).care).toBe(false);
+  });
+
+  it("menu: rekruter z uprawnieniem „Sprawy” widzi „Opiekę”, bez niego nie", () => {
+    const recruiter = { role: "recruiter" as const, roles: ["recruiter" as const] };
+    const withCases = { ...MODULES, care: true, cases: true };
+    const ids = (me: Partial<HrConfig["me"]>) =>
+      visibleNavEntries(recruiter, { contactQueueEnabled: true, hr: hrNavState(config(me, withCases)) }).map(
+        (entry) => entry.id,
+      );
+    expect(ids({ cases: true })).toContain("care");
+    expect(ids({ has_profile: true })).not.toContain("care");
   });
 
   it("wyłączony moduł chowa pozycję mimo kartoteki", () => {

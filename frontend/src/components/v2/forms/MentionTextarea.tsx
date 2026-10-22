@@ -75,6 +75,7 @@ interface MentionTextareaProps {
   onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   ariaLabel?: string;
+  ariaDescribedBy?: string;
   maxSuggestions?: number;
 }
 
@@ -136,6 +137,7 @@ export function MentionTextarea({
   onKeyDown,
   textareaRef,
   ariaLabel,
+  ariaDescribedBy,
   maxSuggestions = MAX_SUGGESTIONS_DEFAULT,
   wrapperClassName,
 }: MentionTextareaProps) {
@@ -437,6 +439,7 @@ export function MentionTextarea({
         rows={rows}
         disabled={disabled}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
         className={cn(
           "w-full resize-none rounded border border-border dark:border-border bg-card dark:bg-card px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring disabled:opacity-50",
           className,

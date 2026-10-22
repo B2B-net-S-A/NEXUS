@@ -65,7 +65,11 @@ import { AtOurClientBanner } from "@/components/v2/CandidateHighlights";
 import { CandidateProfileFactsBar } from "@/components/v2/pages/CandidateProfileFactsBar";
 import { CandidateFollowupDialog } from "@/components/v2/followups/CandidateFollowupDialog";
 import { useCandidateFollowup } from "@/lib/api/candidateFollowups";
-import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
+import {
+  FilePreviewModal,
+  downloadDocumentBlob,
+  type CandidateDocument,
+} from "@/components/v2/files/FilePreviewModal";
 import { usePresence } from "@/hooks/usePresence";
 import { useAuthStore, hasRole } from "@/store/auth";
 import type { CandidateRiskProfile } from "@/types/candidate-risk";
@@ -100,7 +104,10 @@ import {
   ProfileTopBar,
 } from "@/components/v2/candidate-profile/ProfileHeader";
 import { CvSkillsSection } from "@/components/v2/candidate-profile/CvSkillsSection";
-import { splitRecruitments } from "@/components/v2/candidate-profile/profile-helpers";
+import {
+  latestCvDocument,
+  splitRecruitments,
+} from "@/components/v2/candidate-profile/profile-helpers";
 import { ProfileTab } from "@/components/v2/candidate-profile/ProfileTab";
 import { RecruitmentsTab } from "@/components/v2/candidate-profile/RecruitmentsTab";
 import { HistoryTab } from "@/components/v2/candidate-profile/HistoryTab";
@@ -383,6 +390,7 @@ export function CandidateDetailV2({
   const [notesFactsOpen, setNotesFactsOpen] = useState(false);
   const [followupOpen, setFollowupOpen] = useState(false);
   const [blacklistOpen, setBlacklistOpen] = useState(false);
+  const [latestCvOpen, setLatestCvOpen] = useState(false);
 
   // ── Uprawnienia ───────────────────────────────────────────────────────
   const currentUser = useAuthStore((s) => s.user);
@@ -543,6 +551,9 @@ export function CandidateDetailV2({
   const toCheck = notesFactsToCheck(notesFactsQuery.data);
 
   const fileCount = documentsQuery.isSuccess ? (documentsQuery.data ?? []).length : undefined;
+  // „Najnowsze CV” w pasku osoby — z tej samej listy plików, bez osobnego zapytania.
+  const cvDocuments = (documentsQuery.data ?? []).filter((doc) => doc.document_kind === "cv");
+  const latestCv = latestCvDocument(cvDocuments);
   const tabs = [
     { value: "summary", label: "Przegląd", icon: User },
     {
@@ -639,6 +650,8 @@ export function CandidateDetailV2({
           onDelete: canDeleteCandidate ? () => setDeleteOpen(true) : undefined,
           onMerge: canMerge ? () => setMergeOpen(true) : undefined,
           onBlacklist: canWriteSourcing ? () => setBlacklistOpen(true) : undefined,
+          latestCv,
+          onOpenLatestCv: () => setLatestCvOpen(true),
         }}
       />
 
@@ -879,6 +892,20 @@ export function CandidateDetailV2({
           candidateId={candidateNumericId}
           open={followupOpen}
           onOpenChange={setFollowupOpen}
+        />
+      ) : null}
+
+      {latestCvOpen && latestCv ? (
+        <FilePreviewModal
+          documents={cvDocuments}
+          initialDocumentId={latestCv.id}
+          candidateId={candidateNumericId}
+          onClose={() => setLatestCvOpen(false)}
+          onDownload={(doc) =>
+            downloadDocumentBlob(candidateNumericId, doc).catch(() =>
+              showError("Nie udało się pobrać pliku."),
+            )
+          }
         />
       ) : null}
 

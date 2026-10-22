@@ -53,12 +53,15 @@ import {
   fillEmptyFromCv,
   fromCvFormEntries,
   fromCvOverrides,
+  isPhoneAndNameMatch,
   isSameFileMatch,
   type CandidateCvPreview,
   type CvFormField,
 } from "@/lib/add-candidate-cv";
 import { isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import { ExistingCandidateNotice } from "@/components/v2/candidates/ExistingCandidateNotice";
+import { ExistingClientNotice } from "@/components/clients/ExistingClientNotice";
+import { clientDuplicateWarningFrom, type SameNameClient } from "@/lib/client-duplicate";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { availabilityContractNote } from "@/lib/contract-availability";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -1232,8 +1235,10 @@ export function AddCandidateModal({
         setEmailError(emailMsg);
       } else if (conflictMatches && conflictMatches.length > 0) {
         // `/from-cv` odmówił przy zapisie: ten sam plik już jest w czyimś
-        // profilu albo adres e-mail (znany serwerowi z odczytu CV) ma kandydat.
-        if (isSameFileMatch(conflictMatches[0])) {
+        // profilu, adres e-mail (znany serwerowi z odczytu CV) ma kandydat
+        // albo telefon z CV z tym samym imieniem i nazwiskiem. Plik i telefon
+        // idą do ramki przy CV, która ma „Wczytaj mimo to” (zapis z `force`).
+        if (isSameFileMatch(conflictMatches[0]) || isPhoneAndNameMatch(conflictMatches[0])) {
           setCvConflict(conflictMatches);
         } else {
           setExisting(conflictMatches[0]);
@@ -1376,6 +1381,11 @@ export function AddCandidateModal({
           match={cvConflictHit}
           sameFile={cvConflictSameFile}
           onAttachCv={cvConflictSameFile ? undefined : () => void attachCvTo(cvConflictHit)}
+          hint={
+            isPhoneAndNameMatch(cvConflictHit)
+              ? "Ten sam telefon oraz imię i nazwisko co w CV. To inna osoba? „Wczytaj mimo to” i zapisz."
+              : undefined
+          }
           attaching={attaching}
           onOpenProfile={onClose}
           onReadAnyway={() => void readCv(cvFile, true)}
@@ -2342,12 +2352,21 @@ export function AddClientModal({
   const [form, setForm] = useState<ClientFormData>(EMPTY_CLIENT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // 409 `client_duplicate_warning`: klient o tej nazwie już jest (Energa, 22.10.2026).
+  const [sameName, setSameName] = useState<SameNameClient[] | null>(null);
 
-  const onChange = (k: keyof ClientFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onChange = (k: keyof ClientFormData, v: string) => {
+    if (k === "name") setSameName(null);
+    setForm(f => ({ ...f, [k]: v }));
+  };
   const onCheckbox = (k: keyof ClientFormData, v: boolean) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    await save(false);
+  };
+
+  const save = async (acknowledgeDuplicate: boolean) => {
     if (!form.name) { setError("Nazwa firmy jest wymagana"); return; }
     setSaving(true); setError("");
     try {
@@ -2366,13 +2385,16 @@ export function AddClientModal({
         {
           params: {
             portfolio_category: category ?? "active",
+            ...(acknowledgeDuplicate ? { acknowledge_duplicate: true } : {}),
           },
         },
       );
       onSuccess("Firma dodana pomyślnie");
       onClose();
     } catch (err: any) {
-      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
+      const duplicates = clientDuplicateWarningFrom(err);
+      if (duplicates?.length) setSameName(duplicates);
+      else setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -2381,6 +2403,14 @@ export function AddClientModal({
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
         <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} />
+        {sameName ? (
+          <ExistingClientNotice
+            clients={sameName}
+            saving={saving}
+            onOpenProfile={onClose}
+            onAddAnyway={() => void save(true)}
+          />
+        ) : null}
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Dodaj firmę" />

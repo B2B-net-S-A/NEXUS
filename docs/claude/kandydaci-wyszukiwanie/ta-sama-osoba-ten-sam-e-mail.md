@@ -21,6 +21,16 @@ więc ostrzeżenie „podobny kandydat” trafiało bardzo często i nic nie zna
 - Telefon, LinkedIn oraz imię i nazwisko nie odmawiają i nie podpinają CV,
   bo wspólny numer (agencja, biuro) wrzucał CV do cudzego profilu — na
   produkcji 313 numerów należało do kilku różnych osób.
+- **Wyjątek w `/from-cv` (decyzja Artura, 22.10.2026): ten sam telefon ORAZ
+  to samo imię i nazwisko** (bez wielkości liter i spacji na brzegach, numer
+  po ostatnich 9 cyfrach) → 409 z `existing_candidate_id`, powody
+  `["phone_exact", "name_exact"]`. Powód: scraper JustJoin (panel nie podaje
+  telefonu, e-mail z CV inny niż w starym profilu) założył 20–22.10.2026
+  drugi profil 7 osobom z bazy; scalone tego samego dnia. To dopasowanie, nie
+  dowód — `?force=true` je pomija, okna mają „To inna osoba? Załóż osobny
+  profil” („Dodaj z CV”) i „Wczytaj mimo to” („Dodaj kandydata”). Sam telefon
+  albo samo imię i nazwisko nadal nie odmawiają. Sprawdzenie idzie PO odczycie
+  CV (`find_candidate_by_phone_and_name`), sito przed odczytem bez zmian.
 
 ## Gdzie to mieszka
 
@@ -111,8 +121,9 @@ komunikat (`isClientTimeout` w `lib/http-timeouts.ts`).
 
 ## Znane koszty i zaległości
 
-- 966 grup „ten sam telefon i nazwisko, inny e-mail” to prawdopodobnie podwójne
-  profile; reguła ich nie sygnalizuje — temat dla narzędzia scalania.
+- 966 grup „ten sam telefon i nazwisko, inny e-mail” (12.10.2026) to
+  prawdopodobnie podwójne profile; od 22.10.2026 `/from-cv` nie dokłada
+  nowych, ale istniejące czekają na narzędzie scalania.
 - Unikalny indeks jest na surowej kolumnie `email`. 12.10.2026 było 5 par
   różniących się wielkością liter; po ich scaleniu warto dodać unikalny indeks
   na `lower(btrim(email))`.

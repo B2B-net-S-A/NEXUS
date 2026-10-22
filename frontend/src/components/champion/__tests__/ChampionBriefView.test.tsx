@@ -5,7 +5,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChampionBriefView } from "@/components/champion/ChampionBriefView";
 import type { ChampionBlock } from "@/lib/champion-blocks";
@@ -247,6 +247,49 @@ describe("ChampionBriefView", () => {
     renderBrief();
     expect(await screen.findByRole("button", { name: /Ponów|Spróbuj ponownie/ })).toBeInTheDocument();
     expect(screen.queryByTestId("champion-brief-view")).toBeNull();
+  });
+});
+
+describe("ChampionBriefView — „O projekcie”: cały opis bez wchodzenia w edycję", () => {
+  // jsdom nie liczy układu: opis „nie mieści się”, gdy scrollHeight > clientHeight.
+  function fakeOverflow(overflowing: boolean) {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(overflowing ? 120 : 60);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(60);
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  it("rozwinięcie „Obowiązki” pokazuje cały opis projektu", async () => {
+    fakeOverflow(true);
+    const user = userEvent.setup();
+    renderBrief();
+    const about = await screen.findByText("Budowa nowego systemu od podstaw.");
+    expect(about).toHaveClass("line-clamp-3");
+    await user.click(screen.getByText("Cały opis i obowiązki (2)"));
+    expect(about).not.toHaveClass("line-clamp-3");
+    await user.click(screen.getByText("Cały opis i obowiązki (2)"));
+    expect(about).toHaveClass("line-clamp-3");
+  });
+
+  it("bez obowiązków ucięty opis rozwija „Cały opis”", async () => {
+    fakeOverflow(true);
+    getMock.mockResolvedValue({
+      data: { job_id: 5, champion_profile: { ...PROFILE, project: { about: "Długi opis projektu.", responsibilities: "" } } },
+    });
+    const user = userEvent.setup();
+    renderBrief();
+    const about = await screen.findByText("Długi opis projektu.");
+    await user.click(screen.getByText("Cały opis"));
+    expect(about).not.toHaveClass("line-clamp-3");
+  });
+
+  it("krótki opis bez obowiązków — bez „Cały opis”", async () => {
+    fakeOverflow(false);
+    getMock.mockResolvedValue({
+      data: { job_id: 5, champion_profile: { ...PROFILE, project: { about: "Krótki opis.", responsibilities: "" } } },
+    });
+    renderBrief();
+    await screen.findByText("Krótki opis.");
+    expect(screen.queryByText("Cały opis")).not.toBeInTheDocument();
   });
 });
 

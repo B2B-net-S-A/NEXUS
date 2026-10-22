@@ -4,8 +4,9 @@
  * Pasek osoby — góra profilu na całą szerokość (od 13.10.2026, decyzja E1):
  * tożsamość, pigułki („Szuka aktywnie”, „Pracuje u nas”, kategoria, ryzyko,
  * konflikt z klientem), kontakt jako ikony z kopiowaniem i akcje w jednym
- * rzędzie: „Przypisz do rekrutacji”, „Dodaj notatkę”, „Nie odebrał”, menu „⋯”
- * (Kontakt · Dane · Status osoby · Usuń profil). Czarna lista „u nas” od
+ * rzędzie: „Przypisz do rekrutacji”, „Dodaj notatkę”, „Nie odebrał”, „Najnowsze
+ * CV” (od 22.10.2026, jak w Traffit), menu „⋯” (Kontakt · Dane · Status osoby ·
+ * Usuń profil). Czarna lista „u nas” od
  * 17.10.2026 nie jest pigułką, tylko banerem pod paskiem (`BlacklistNotice`
  * w `CandidateDetailV2`) — z tym, kto, kiedy i dlaczego.
  *
@@ -31,6 +32,7 @@ import {
   CalendarPlus,
   Combine,
   Copy,
+  FileText,
   Linkedin,
   Mail,
   MessageSquare,
@@ -68,8 +70,10 @@ import { phase5Api } from "@/lib/api";
 import { conflictKeys } from "@/lib/conflicts";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import { hidesAvailabilityStatus } from "@/lib/contract-availability";
+import { formatDate } from "@/lib/utils";
 import type { PresenceViewer } from "@/hooks/usePresence";
 import type { CandidateRiskProfile } from "@/types/candidate-risk";
+import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { getCandidateInitials } from "@/components/v2/pages/candidate-list-helpers";
 import { candidateHeadline, linkedinHref, pickHeaderWarning } from "./profile-helpers";
 
@@ -147,6 +151,9 @@ export interface ProfilePersonBarActions {
   onMerge?: () => void;
   /** „Czarna lista…” (17.10.2026) — okno `BlacklistDialog`; tylko z prawem zapisu. */
   onBlacklist?: () => void;
+  /** „Najnowsze CV” — bez pliku CV (albo przed wczytaniem listy) przycisku nie ma. */
+  latestCv?: CandidateDocument | null;
+  onOpenLatestCv?: () => void;
 }
 
 export interface ProfilePersonBarProps {
@@ -397,6 +404,16 @@ function MenuGroupLabel({ children }: { children: ReactNode }) {
   return <DropdownMenuLabel className="pt-2">{children}</DropdownMenuLabel>;
 }
 
+function latestCvTitle(doc: CandidateDocument): string {
+  const added = [
+    `wgrane ${formatDate(doc.uploaded_at ?? doc.created_at)}`,
+    doc.uploaded_by_name ? `przez ${doc.uploaded_by_name}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return `${doc.filename} · ${added}`;
+}
+
 function PersonActions({
   candidate,
   actions,
@@ -444,6 +461,18 @@ function PersonActions({
             </Button>
           ) : null}
         </>
+      ) : null}
+      {actions.latestCv && actions.onOpenLatestCv ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="min-h-11 min-w-11"
+          onClick={actions.onOpenLatestCv}
+          title={latestCvTitle(actions.latestCv)}
+        >
+          <FileText className="h-4 w-4" />
+          Najnowsze CV
+        </Button>
       ) : null}
       {/* modal={false} jest nośne: modalne menu zostawia zablokowane
           pointer-events na body podczas zamykania, więc dialog otwarty z menu

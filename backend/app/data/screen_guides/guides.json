@@ -361,7 +361,7 @@
       },
       {
         "q": "Gdzie są notatki, CV, pliki i umowy?",
-        "a": "„Notatki”: rozmowy, próby kontaktu, Delivery Lead, maile i czat; przełącznik „Zmiany etapów i automaty” pokazuje oś czasu. „CV”: umiejętności, doświadczenie, wykształcenie. „Dokumenty”: umowy i pliki w grupach — CV kandydata, CV dla klientów, załączniki i formularze.",
+        "a": "Aktualne CV otwiera „Najnowsze CV” w pasku osoby (strzałki w oknie — starsze wersje). „Notatki”: rozmowy, próby kontaktu, Delivery Lead, maile i czat; „Zmiany etapów i automaty” pokazuje oś czasu. „CV”: umiejętności, doświadczenie, wykształcenie. „Dokumenty”: umowy i pliki w grupach — CV kandydata, CV dla klientów, załączniki i formularze.",
         "anchor": "candidate.profile.tabs"
       },
       {
@@ -981,7 +981,8 @@
     "pitfalls": [
       "Rozmowy nie przeniesiesz na „Zrobione” bez zapisu — przeciągnięcie tam otwiera okno rozmowy.",
       "Zdrowie relacji widzą opiekun, Delivery Lead, Head of Recruitment i admin; inni widzą Opiekę bez tej etykiety.",
-      "Sprawy negocjacji pokazują się przy konsultancie bez treści — szczegóły są tylko w Sprawach."
+      "Sprawy negocjacji pokazują się przy konsultancie bez treści — szczegóły są tylko w Sprawach.",
+      "Sprawy administracja@ są tu, a nie w „Ludziach”. Kto obsługuje skrzynkę bez roli opieki, widzi samo „Do zrobienia” ze sprawami."
     ],
     "anchors": [
       {

@@ -30,6 +30,7 @@ from app.models.job import Job
 from app.models.prep_meeting import PrepMeeting
 from app.models.user import User, UserRole
 from app.services import interview_slots, prep_invitation
+from app.services.job_working_title import cv_role_title_for_job
 from app.services.m365 import teams_prep_auth, teams_prep_graph
 from app.services.m365.app_graph_client import AppOnlyTokenUnavailable
 from app.services.m365.calendar import (
@@ -287,7 +288,9 @@ async def create_prep(
     invitation = prep_invitation.text(
         prep_no=prep_no,
         client_name=client_name,
-        job_title=job.title,
+        # Kandydat dostaje nazwę roli jak w nagłówku CV — bez numeru zapytania
+        # klienta (zgłoszenie 22.10.2026: „… Prioritization (42874)”).
+        job_title=await cv_role_title_for_job(db, job),
         interview_start=interview_start,
         note=note,
         organizer_name=organizer.name or "",

@@ -11,6 +11,7 @@ import { DatePasteHandler } from "@/components/DatePasteHandler";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KpiNudgeToaster } from "@/components/v2/kpi/KpiNudgeToaster";
 import { OffLimitsConfirmHost } from "@/components/v2/recruitment/OffLimitsConfirmHost";
+import { IS_STAGING, StagingBadge } from "@/components/StagingBadge";
 
 // Fonts are self-hosted from `./fonts` on purpose — `next/font/google` fetches
 // the .woff2 files from fonts.gstatic.com AT BUILD TIME, and Coolify rebuilds
@@ -103,7 +104,7 @@ const baloo2 = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Nexus",
+  title: IS_STAGING ? "STAGING · Nexus" : "Nexus",
   description: "Modern recruitment platform for IT staffing agencies",
 };
 
@@ -124,6 +125,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="bg-background text-foreground font-sans antialiased">
         <ChunkReloadGuard />
         <AppVersionGuard />
+        <StagingBadge />
         <QueryProvider>
           <ThemeProvider>
             <ToastProvider>

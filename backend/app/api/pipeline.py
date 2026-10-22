@@ -28,6 +28,7 @@ from app.models.recruitment_priority import PriorityChannel
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
+from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.services import board_tasks as board_tasks_svc
 from app.services import candidate_audit, candidate_claim, pipeline_move_rules
@@ -181,8 +182,10 @@ def _spawn(coro, label: str) -> None:
 
 async def _post_commit_effect(
     db: AsyncSession, label: str, effect: Callable[[], Awaitable[None]]
-) -> None:
+) -> bool:
     """Efekt uboczny po zatwierdzonym ruchu — nigdy nie rzuca i nie wygasza sesji.
+
+    ``True`` = zapisy efektu są zatwierdzone (mail o nich może już wyjść).
 
     Efekt biegnie w savepoincie: błąd cofa wyłącznie jego zapisy, a obiekty
     załadowane w sesji żądania (``current_user``, ``stage``, ``job``) zostają
@@ -199,7 +202,7 @@ async def _post_commit_effect(
         # Klasa wyjątku, nie treść: IntegrityError niesie `DETAIL: Key (...)=(...)`
         # z danymi wiersza, których `hide_parameters` nie ukrywa (runda 7, R7-X2-9).
         logger.warning("%s failed (%s)", label, type(exc).__name__)
-        return
+        return False
     try:
         await db.commit()
     except Exception as exc:  # noqa: BLE001
@@ -208,6 +211,8 @@ async def _post_commit_effect(
             await db.rollback()
         except Exception:  # noqa: BLE001
             pass
+        return False
+    return True
 
 
 # ── Helpers to bridge legacy enum ↔ new stage_def FK ────────────────────────
@@ -1299,6 +1304,9 @@ class MoveApplied:
     eligibility_acknowledged: Optional[str]
     # Czytane PRZED commitem — obiekty sesji po commicie bywają wygasłe.
     actor_id: Optional[int]
+    # Uwaga zapisana przy ruchu (`stage_remarks`) — jej wzmianki „@” dzwonią
+    # po commicie (22.10.2026).
+    remark_note: Optional[Note] = None
 
 
 async def apply_move(
@@ -2038,7 +2046,7 @@ async def apply_move(
             max_onsite_days=data.work_mode_max_onsite_days,
             user=policy.actor,
         )
-    stage_remarks.record(
+    remark_note = stage_remarks.record(
         db, stage=stage, author_id=policy.actor_id, text=data.recruiter_remark
     )
     await screening_fix_requests.record(
@@ -2418,6 +2426,7 @@ async def apply_move(
             eligibility_block.reason_code if eligibility_block is not None else None
         ),
         actor_id=policy.actor_id,
+        remark_note=remark_note,
     )
 
 
@@ -2456,6 +2465,29 @@ async def run_move_effects(
             hired_engagement=outcome.hired_engagement,
         ),
     )
+
+    # Wzmianki „@” w uwadze ruchu (22.10.2026) — dzwonek jak przy notatce;
+    # mail dopiero, gdy dzwonki są zatwierdzone. Ruch konta serwisowego
+    # (``mover=None``) nikogo nie oznacza.
+    remark_note = outcome.remark_note
+    if remark_note is not None and mover is not None:
+        remark_mentions: list[stage_remarks.RemarkMentions] = []
+
+        async def _remark_mentions() -> None:
+            found = await stage_remarks.enqueue_mentions(
+                db,
+                note=remark_note,
+                author=mover,
+                stage_name=outcome.stage_display_name,
+            )
+            if found is not None:
+                remark_mentions.append(found)
+
+        if await _post_commit_effect(
+            db, f"remark mentions stage={stage_id}", _remark_mentions
+        ):
+            for found in remark_mentions:
+                await stage_remarks.send_mentions(found)
 
     # 0348/0353: dzwonek dla osoby, która wysyła do Cpro. Best-effort.
     cpro_assignee = outcome.cpro_assignee
