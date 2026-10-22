@@ -98,9 +98,10 @@ function history(partial: Partial<PersonHistory> = {}): PersonHistory {
   };
 }
 
-function renderCards({ canEditPool = false } = {}) {
+function renderCards({ canEditPool = false, canAdd = false } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onEditPool = vi.fn();
+  const onAddAbsence = vi.fn();
   render(
     <QueryClientProvider client={client}>
       <PersonAbsencesHours
@@ -108,10 +109,11 @@ function renderCards({ canEditPool = false } = {}) {
         year={2026}
         canEditPool={canEditPool}
         onEditPool={onEditPool}
+        onAddAbsence={canAdd ? onAddAbsence : undefined}
       />
     </QueryClientProvider>,
   );
-  return { onEditPool };
+  return { onEditPool, onAddAbsence };
 }
 
 describe("PersonAbsencesHours", () => {
@@ -170,5 +172,20 @@ describe("PersonAbsencesHours", () => {
     expect(screen.queryByTestId("person-timesheets")).toBeNull();
     await userEvent.setup().click(screen.getByRole("button", { name: "Zmień pulę" }));
     expect(onEditPool).toHaveBeenCalled();
+  });
+
+  it("„Dodaj za tę osobę” tylko z `onAddAbsence` (serwer pozwala wpisać za tę osobę)", async () => {
+    mocks.responses.push(() => history());
+    const { onAddAbsence } = renderCards({ canAdd: true });
+    await screen.findByRole("list", { name: "Nieobecności 2026" });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Dodaj za tę osobę" }));
+    expect(onAddAbsence).toHaveBeenCalled();
+  });
+
+  it("bez `onAddAbsence` nie ma przycisku wpisu", async () => {
+    mocks.responses.push(() => history());
+    renderCards();
+    await screen.findByRole("list", { name: "Nieobecności 2026" });
+    expect(screen.queryByRole("button", { name: "Dodaj za tę osobę" })).toBeNull();
   });
 });

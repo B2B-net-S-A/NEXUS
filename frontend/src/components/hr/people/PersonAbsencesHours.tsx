@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download } from "lucide-react";
+import { CalendarPlus, Download } from "lucide-react";
 
 import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
@@ -52,18 +52,21 @@ function Failure({ text, onRetry }: { text: string; onRetry: () => void }) {
  * „Nieobecności i godziny” (`#czas`). Jedno zapytanie
  * (`GET /api/hr/people/{id}/history`); część modułu zamkniętego dla
  * patrzącego (`null`) nie ma listy ani karty raportów. Awaria to zdanie z „Spróbuj ponownie”,
- * pusty stan wisi na sukcesie zapytania.
+ * pusty stan wisi na sukcesie zapytania. „Dodaj za tę osobę” (`onAddAbsence`) dostaje
+ * tylko ten, komu serwer pozwala wpisać nieobecność za tę osobę.
  */
 export function PersonAbsencesHours({
   person,
   year,
   canEditPool,
   onEditPool,
+  onAddAbsence,
 }: {
   person: PersonFull;
   year: number;
   canEditPool: boolean;
   onEditPool: () => void;
+  onAddAbsence?: () => void;
 }) {
   const history = usePersonHistory(person.user_id, year);
   // Błąd pobrania PDF jako zdanie w karcie — kartoteka nie zależy od dostawcy toastów.
@@ -101,10 +104,20 @@ export function PersonAbsencesHours({
         <CardHeading
           title={`Nieobecności ${year}`}
           action={
-            canEditPool ? (
-              <Button size="sm" variant="ghost" onClick={onEditPool}>
-                Zmień pulę
-              </Button>
+            canEditPool || onAddAbsence ? (
+              <div className="flex flex-wrap justify-end gap-1">
+                {onAddAbsence ? (
+                  <Button size="sm" variant="outline" onClick={onAddAbsence}>
+                    <CalendarPlus className="mr-1 h-3.5 w-3.5" aria-hidden />
+                    Dodaj za tę osobę
+                  </Button>
+                ) : null}
+                {canEditPool ? (
+                  <Button size="sm" variant="ghost" onClick={onEditPool}>
+                    Zmień pulę
+                  </Button>
+                ) : null}
+              </div>
             ) : undefined
           }
         />
