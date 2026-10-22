@@ -134,7 +134,7 @@ function PeopleTechHarness({ state }: { state: HarnessState }) {
           open
           onOpenChange={(open) => setDemandOpen(open)}
           demand={{
-            key: `demand:${ORG_CLIENT.id}:301:77`,
+            key: `demand:${ORG_CLIENT.id}:77`,
             roles: ["Java Developer", "QA"],
             area: { id: 301, name: "Płatności" },
             source: "widział",

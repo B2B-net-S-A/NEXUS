@@ -11,7 +11,7 @@ Decyzje Artura z 22.10.2026 (przebudowa „Opieki nad konsultantami”):
   tablicy (W toku z terminem, Czeka na kogoś z datą ponowienia, notatka)
   pamięta ``care_board_states``: jeden wiersz na klucz karty
   (``contact:plan:<id>``, ``feedback:<kontakt>``, ``decision:<id>``,
-  ``demand:<klient>:<dział>:<rozmowa>``). Karta w „Nowa” nie ma wiersza —
+  ``demand:<klient>:<rozmowa>``). Karta w „Nowa” nie ma wiersza —
   przeniesienie do „Nowa” kasuje wiersz. Rozstrzygnięty popyt
   (``outcome``) stoi w kolumnie ``done`` albo, przy „nie teraz”, w ``waiting``
   z datą powrotu. Kolumna w bazie nazywa się ``board_column`` (``column`` to
@@ -74,9 +74,22 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
+#: Źródła informacji o popycie (jak ``tech_cards.hiring_source``).
+HIRING_SOURCES: tuple[str, ...] = ("widzial", "slyszal", "plotka")
+CK_CONVERSATION_HIRING_SOURCE = (
+    "client_hiring_source IS NULL OR client_hiring_source IN "
+    f"({quoted(HIRING_SOURCES)})"
+)
+
 COLUMN_DDL: tuple[str, ...] = (
     "ALTER TABLE tech_cards ADD COLUMN IF NOT EXISTS care_conversation_id "
     "INTEGER NULL REFERENCES care_conversations(id) ON DELETE SET NULL",
+    # „Klient zatrudnia” bez „Co u klienta” (bez karty): role i źródło
+    # zostają przy rozmowie, popyt czyta je, gdy rozmowa nie ma karty.
+    "ALTER TABLE care_conversations ADD COLUMN IF NOT EXISTS client_hiring_roles "
+    "JSONB NULL",
+    "ALTER TABLE care_conversations ADD COLUMN IF NOT EXISTS client_hiring_source "
+    "VARCHAR(16) NULL",
 )
 
 INDEX_DDL: tuple[str, ...] = (
@@ -88,12 +101,23 @@ INDEX_DDL: tuple[str, ...] = (
     "ON tech_cards (care_conversation_id) WHERE care_conversation_id IS NOT NULL",
 )
 
-CONSTRAINT_DDL: tuple[str, ...] = ()
+CONSTRAINT_DDL: tuple[str, ...] = (
+    "DO $$ BEGIN "
+    "IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_care_conversations_hiring_source') THEN "
+    "ALTER TABLE care_conversations ADD CONSTRAINT ck_care_conversations_hiring_source "
+    f"CHECK ({CK_CONVERSATION_HIRING_SOURCE}); "
+    "END IF; END $$",
+)
 DATA_DDL: tuple[str, ...] = ()
 TABLES: tuple[str, ...] = ("care_board_states",)
 DOWNGRADE_DDL: tuple[str, ...] = (
     "DROP INDEX IF EXISTS ix_tech_cards_care_conversation",
     "ALTER TABLE tech_cards DROP COLUMN IF EXISTS care_conversation_id",
+    "ALTER TABLE care_conversations DROP CONSTRAINT IF EXISTS "
+    "ck_care_conversations_hiring_source",
+    "ALTER TABLE care_conversations DROP COLUMN IF EXISTS client_hiring_source",
+    "ALTER TABLE care_conversations DROP COLUMN IF EXISTS client_hiring_roles",
 )
 
 ALL_DDL: tuple[str, ...] = (

@@ -18,6 +18,14 @@ czytający. Szczegół sprawy z kontraktem ma sekcję ``consultant``, bez
 kontraktu — propozycje „Kogo dotyczy?” (``contract_links``). Karta
 konsultanta w opiece czyta ``cases_for_contract``. Dane opieki liczą się
 w punkcie zapisu: awaria modułu opieki nie kładzie tablicy spraw.
+
+Zakres (audyt bezpieczeństwa 22.10.2026): obsługa Spraw widzi sprawy
+wszystkich kontraktów, ale dane opieki (opiekun, rytm, ostatnia rozmowa,
+inne sprawy, zdrowie) tylko dla kontraktów klientów w swoim zakresie
+(``care.access.allowed_client_ids`` — portfel Delivery Leada); spoza
+zakresu zostaje osoba i klient. Sprawa w karcie i na osi konsultanta bez
+``may_read`` ma tytuł zastępczy „Sprawa: <obszar>” i nie ma osoby
+(``redact_case_title`` — negocjacje też).
 """
 
 from __future__ import annotations
@@ -150,9 +158,12 @@ async def _contract_labels(
 ) -> dict[int, dict[str, Any]]:
     if not ids:
         return {}
+    from app.services.care import access as care_access
+
     rows = await db.execute(
         select(
             Contract.id,
+            Contract.client_id,
             Contract.candidate_id,
             Contract.start_date,
             Contract.end_date,
@@ -166,20 +177,25 @@ async def _contract_labels(
     )
     owners = await _care_owners(db, ids)
     health = await _health(db, ids, viewer)
-    return {
-        row.id: {
+    allowed = await care_access.allowed_client_ids(viewer, db)
+    out: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        in_scope = care_access.client_in_scope(row.client_id, allowed)
+        owner_id, owner_name = (
+            owners.get(row.id, (None, None)) if in_scope else (None, None)
+        )
+        out[row.id] = {
             "id": row.id,
             "candidate_id": row.candidate_id,
             "candidate_name": row.candidate_name,
             "client_name": row.client_name,
             "start_date": row.start_date,
             "end_date": row.end_date,
-            "care_owner_user_id": owners.get(row.id, (None, None))[0],
-            "care_owner_name": owners.get(row.id, (None, None))[1],
-            "health": health.get(row.id),
+            "care_owner_user_id": owner_id,
+            "care_owner_name": owner_name,
+            "health": health.get(row.id) if in_scope else None,
         }
-        for row in rows
-    }
+    return out
 
 
 def _card(
@@ -520,6 +536,25 @@ async def contract_options(db: AsyncSession, q: str) -> list[dict[str, Any]]:
 # ── Opieka: konsultant sprawy i sprawy konsultanta ───────────────────────────
 
 
+#: Pola sekcji „Konsultant”, które są danymi opieki — spoza zakresu ``None``.
+CARE_ONLY_FIELDS: tuple[str, ...] = (
+    "owner_user_id",
+    "owner_name",
+    "cadence_label",
+    "last_conversation",
+    "other_open_cases",
+    "health",
+)
+
+
+def redact_out_of_scope(section: dict[str, Any], *, in_scope: bool) -> dict[str, Any]:
+    """Sekcja „Konsultant” kontraktu spoza zakresu: osoba i klient bez opieki."""
+
+    if in_scope:
+        return section
+    return {**section, **{key: None for key in CARE_ONLY_FIELDS}}
+
+
 def _excerpt(text_value: Optional[str]) -> Optional[str]:
     cleaned = " ".join((text_value or "").split())
     if len(cleaned) <= EXCERPT_MAX:
@@ -534,6 +569,8 @@ async def consultant_section(
 
     Fragment ostatniej rozmowy opieki widzi tylko ktoś, kto prowadzi opiekę
     u tego klienta (DL w portfelu, TCM, admin) — reszta dostaje samą datę.
+    Kontrakt klienta spoza zakresu czytającego: tylko osoba, klient, rola,
+    forma i koniec (``redact_out_of_scope``).
     Zdrowie relacji tylko krąg D11 (``care.health``). Awaria modułu opieki =
     ``None``, sprawa dalej się otwiera.
     """
@@ -577,11 +614,10 @@ async def consultant_section(
     if contract.is_live:
         level = level_on(contract.start_date or date.min, periods, today).level
         cadence_label = LEVEL_LABELS.get(level)
-    sees_notes = care_access.is_care_worker(viewer) and (
-        allowed is None or contract.client_id in allowed
-    )
-    health = await _health(db, [contract.id], viewer)
-    return {
+    in_scope = care_access.client_in_scope(contract.client_id, allowed)
+    sees_notes = care_access.is_care_worker(viewer) and in_scope
+    health = await _health(db, [contract.id], viewer) if in_scope else {}
+    section = {
         "contract_id": contract.id,
         "candidate_id": contract.candidate_id,
         "candidate_name": contract.candidate_name,
@@ -604,12 +640,26 @@ async def consultant_section(
         "other_open_cases": int(other_open or 0),
         "health": health.get(contract.id),
     }
+    return redact_out_of_scope(section, in_scope=in_scope)
 
 
 def content_hidden(case: AdminCase, viewer: User) -> bool:
     """Treść sprawy w karcie konsultanta: tylko ``may_read``; negocjacje nigdy."""
 
     return case.area == "negotiation" or not may_read(viewer, case)
+
+
+def redact_case_title(case: AdminCase, viewer: User) -> Optional[str]:
+    """Tytuł sprawy dla czytelnika opieki; ``None`` = pokaż prawdziwy.
+
+    Bez ``may_read`` (obsługa Spraw albo osoba przypisana) tytuł bywa treścią
+    („Nowa stawka od stycznia”) — zostaje „Sprawa: <obszar>”. Dotyczy też
+    negocjacji: ich tytuł i osobę widzi tylko ``may_read``.
+    """
+
+    if may_read(viewer, case):
+        return None
+    return f"Sprawa: {rules.AREA_LABELS.get(case.area, case.area)}"
 
 
 def contract_case_row(
@@ -619,11 +669,13 @@ def contract_case_row(
 
     Bez opisu, maili i komentarzy — ``content_hidden`` mówi frontowi, czy
     czytający może otworzyć sprawę (``may_read``; negocjacje nigdy z karty).
+    Bez ``may_read`` tytuł zastępczy i bez osoby (``redact_case_title``).
     """
 
+    replaced = redact_case_title(case, viewer)
     return {
         "id": case.id,
-        "title": case.title,
+        "title": replaced or case.title,
         "area": case.area,
         "area_label": rules.AREA_LABELS.get(case.area, case.area),
         "status": case.status,
@@ -634,7 +686,9 @@ def contract_case_row(
             case.due_on and case.due_on < today and not rules.is_terminal(case.status)
         ),
         "assignee_name": (
-            names.get(case.assignee_user_id) if case.assignee_user_id else None
+            names.get(case.assignee_user_id)
+            if case.assignee_user_id and replaced is None
+            else None
         ),
         "source": case.source,
         "content_hidden": content_hidden(case, viewer),
@@ -685,9 +739,11 @@ async def cases_for_contract(
 
 
 async def contract_case_events(
-    db: AsyncSession, contract_id: int
+    db: AsyncSession, contract_id: int, viewer: User
 ) -> list[dict[str, Any]]:
     """Zdarzenia spraw kontraktu dla osi konsultanta (bez treści).
+
+    Tytuł jak w karcie: bez ``may_read`` czytającego — „Sprawa: <obszar>”.
 
     ``case_opened`` (założenie sprawy), ``case_closed`` (zrobiona albo
     zamknięta) i ``case_linked`` (sprawa przypięta do kontraktu przez
@@ -712,7 +768,7 @@ async def contract_case_events(
             "kind": kind,
             "at": at,
             "case_id": c.id,
-            "title": c.title,
+            "title": redact_case_title(c, viewer) or c.title,
             "area": c.area,
             "area_label": rules.AREA_LABELS.get(c.area, c.area),
         }

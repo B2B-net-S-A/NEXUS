@@ -40,6 +40,8 @@ export interface CareBoardCard {
   scheduled_at: string | null;
   retry_on: string | null;
   note_excerpt: string | null;
+  /** Notatka z przeniesienia karty („W toku” / „Czeka na kogoś”) — `care_board_states.note`. */
+  state_note?: string | null;
   contract_id?: number | null;
   candidate_id?: number | null;
   client_id: number | null;

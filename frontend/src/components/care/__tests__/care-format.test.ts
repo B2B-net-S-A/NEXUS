@@ -213,6 +213,11 @@ describe("ekran /care", () => {
     expect(route("tab=structure&client=12")).toEqual({ tab: "clients", redirect: "/clients/12?tab=ludzie" });
     expect(route("tab=structure&client=abc")).toEqual({ tab: "clients" });
     expect(route("tab=review")).toEqual({ tab: "todo", redirect: "/settings?item=skills" });
+    // TCM nie wchodzi do Słownika — kolejka nazw ma własną pozycję w Ustawieniach.
+    expect(careRouteFrom(new URLSearchParams("tab=review"), { canSeeSkills: false })).toEqual({
+      tab: "todo",
+      redirect: "/settings?item=skills-review",
+    });
   });
 
   it("`?contract=` i dostęp do „Zespołu opiekunów”", () => {

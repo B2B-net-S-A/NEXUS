@@ -28,7 +28,7 @@ export type DemandOutcome = "confirmed" | "not_now" | "stale";
 
 /**
  * Karta „Popyt do sprawdzenia” otwierająca okno „Rozmowa z menedżerem”.
- * Tablica (F1/F2) podaje klucz karty (`demand:<client>:<area|0>:<rozmowa>`),
+ * Tablica (F1/F2) podaje klucz karty (`demand:<client>:<rozmowa>`),
  * role z rozmowy opiekuna i dział, jeśli go znamy.
  */
 export interface DemandContext {
@@ -52,14 +52,21 @@ export interface DemandPayload {
 /**
  * `contact_id` może zniknąć wyłącznie razem z `demand` (serwer: bez obu 422).
  * Rozstrzyga popyt DL klienta albo admin — inni dostają 403 z komunikatem.
+ * Bez menedżera serwer nie zakłada sesji opinii, więc oceny, przedłużenie
+ * i notatka idą tylko z `contact_id`.
  */
-export interface FeedbackWithDemandPayload extends Omit<FeedbackPayload, "contact_id"> {
+export interface FeedbackWithDemandPayload
+  extends Omit<FeedbackPayload, "contact_id" | "extension_outlook" | "note" | "scores"> {
   contact_id?: number | null;
+  extension_outlook?: FeedbackPayload["extension_outlook"];
+  note?: FeedbackPayload["note"];
+  scores?: FeedbackPayload["scores"];
   demand?: DemandPayload | null;
 }
 
 export interface FeedbackSaveResult {
-  id: number;
+  /** Sesja opinii; `null`, gdy zapis był samym rozstrzygnięciem popytu (bez menedżera). */
+  id: number | null;
   contract_ids: number[];
   /** Tylko dla `confirmed`: `/jobs/new?client=…&hm=…&skills=…&title=…`. */
   jobs_new_url?: string | null;

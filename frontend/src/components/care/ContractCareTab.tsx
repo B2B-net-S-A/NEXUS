@@ -4,10 +4,20 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useConsultantCard, useContractCare, type TimelineEvent } from "@/lib/api/care";
+import { useConsultantCard, useContractCare, type TechCard, type TimelineEvent } from "@/lib/api/care";
 
 import { ConsultantCard } from "./card/ConsultantCard";
 import { TechCardDialog } from "./TechCardDialog";
+
+/** Karta do „Edytuj” z historii: po `tech_card_id` zdarzenia, a bez niego (stara oś) po dacie. */
+export function findTechCard<T extends Pick<TechCard, "id" | "interview_on">>(
+  cards: readonly T[] | undefined,
+  target: { id: number | null; on: string },
+): T | null {
+  if (!cards) return null;
+  if (target.id != null) return cards.find((item) => item.id === target.id) ?? null;
+  return cards.find((item) => item.interview_on === target.on) ?? null;
+}
 
 /**
  * Edycja starej karty technologicznej z „Historii” (przycisk „Karta
@@ -17,12 +27,12 @@ import { TechCardDialog } from "./TechCardDialog";
 function TechCardEditor({
   contractId,
   clientId,
-  on,
+  target,
   onClose,
 }: {
   contractId: number;
   clientId: number;
-  on: string;
+  target: { id: number | null; on: string };
   onClose: () => void;
 }) {
   const care = useContractCare(contractId);
@@ -34,7 +44,7 @@ function TechCardEditor({
       </p>
     );
   }
-  const card = care.data?.tech_cards.find((item) => item.interview_on === on) ?? null;
+  const card = findTechCard(care.data?.tech_cards, target);
   if (!card) {
     return <p className="text-sm text-muted-foreground">Tej karty nie da się już edytować.</p>;
   }
@@ -58,12 +68,17 @@ function TechCardEditor({
  */
 export function ContractCareTab({ contractId }: { contractId: number }) {
   const card = useConsultantCard(contractId);
-  const [editOn, setEditOn] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<{ id: number | null; on: string } | null>(null);
   const canEdit = card.data?.can_edit ?? false;
 
   const historyAction = (event: TimelineEvent) =>
     canEdit && event.kind === "tech_card" ? (
-      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditOn(event.on)}>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-xs"
+        onClick={() => setEditTarget({ id: event.tech_card_id ?? null, on: event.on })}
+      >
         Edytuj
       </Button>
     ) : null;
@@ -71,12 +86,12 @@ export function ContractCareTab({ contractId }: { contractId: number }) {
   return (
     <div className="space-y-3 rounded-lg border border-border bg-card p-4">
       <ConsultantCard contractId={contractId} layout="page" historyAction={historyAction} />
-      {editOn && card.data ? (
+      {editTarget && card.data ? (
         <TechCardEditor
           contractId={contractId}
           clientId={card.data.client_id}
-          on={editOn}
-          onClose={() => setEditOn(null)}
+          target={editTarget}
+          onClose={() => setEditTarget(null)}
         />
       ) : null}
     </div>

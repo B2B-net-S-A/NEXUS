@@ -41,12 +41,24 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   (409 = ktoś zmienił w międzyczasie). Ruch: przeciąganie (`@hello-pangea/dnd`) albo menu „Przenieś do…”.
 - Klik w kartę otwiera panel boczny (sprawa albo skrót karty konsultanta); pełny ekran sprawy
   zostaje pod linkiem. Widok Tablica / Lista pamięta się per osoba (localStorage).
+- `/care?card=<klucz>` z dzwonka otwiera panel także przy otwartej już tablicy (efekt na
+  `initialSelectedKey`), a zamknięcie panelu zdejmuje `card` z adresu (F5 nie otwiera go znowu).
+- Karta „Decyzja” w „Czeka” po dniu ponownej próby wraca do „Nowa” także przy wpisie „W toku”
+  (`board.decision_column`). Notatka z przeniesienia (`state_note`) stoi w linii „umówione /
+  ponowna próba” na karcie i w panelu.
+- „Wraca na rynek” przy znaczniku „Pracuje u nas” (`employment_marker.returning_contract_ids`) =
+  kontrakt przekazany do front office (ślad `care.front_office_handoff`) z niezamkniętym wpisem
+  „Do przepięcia”; sam wpis w toku nie wystarcza, a „ryzyko odejścia” nie liczy się nigdy.
+- `/care?tab=review` prowadzi admina i HoR do Słownika umiejętności, a TCM (bez Słownika) do
+  `/settings?item=skills-review`.
 
 ### Zdrowie relacji (`care/health.py`)
 
 - Dobrze / Uwaga / Ryzyko + powody („dlaczego”), czyste reguły w module z testami brzegów. Widzi
   krąg D11 (opiekun, DL, HoR, admin) — inni dostają `health: null`, bo reguły czytają opinię
   menedżera, której Finanse nie widzą. Zadowolenie bierze się tylko z rozmów opiekuna.
+  Także w D11 zdrowie ma tylko kontrakt klienta z zakresu czytającego (`allowed_client_ids`,
+  portfel DL) — tablica Spraw pokazuje kontrakty wszystkich, więc spoza zakresu `health: null`.
   „Decyzja” = wpis „Do przepięcia” w toku / przepięty / nie dotyczy z 120 dni albo przekazanie do
   front office. Bez modelu AI.
 
@@ -59,6 +71,18 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   klienta albo admin (`manager_kept: true`). Odpowiedź „technologie działu” = notatka o stacku;
   nazwy spoza słownika idą do kolejki przeglądu. Karta wie, z której rozmowy powstała
   (`tech_cards.care_conversation_id`).
+- Bez technologii, ale ze zmianą menedżera front wysyła `client_state` z samym
+  `manager_contact_id` (menedżer na kontrakt, bez karty). Notatka przy „Komu podlega …?” zapisuje
+  się zawsze jako ogólna notatka o kliencie (także bez wybranej osoby); wybór osoby widzi tylko
+  ktoś z `can_edit_org` (reszta dostałaby 403 `ORG_DENIED`).
+- „Klient zatrudnia”: role i źródło idą na górnym poziomie ciała (`hiring_roles`,
+  `hiring_source`) i zapisują się przy rozmowie (`care_conversations.client_hiring_roles/source`,
+  0504) — popyt bierze je, gdy rozmowa nie ma karty (albo karta nie ma ról).
+- Sprawy z okna (audyt bezpieczeństwa 22.10.2026): tytuł 3–200 znaków; bez uprawnienia „Sprawy”
+  sprawa tylko bez osoby (trafia do „Bez osoby” u obsługi) albo na siebie i nigdy „Negocjacje”
+  (403); `GET /api/care/case-assignees` daje pełną listę tylko obsłudze, reszcie — ją samą.
+  Limit: 5 spraw z rozmowy i 20 spraw z rozmów na osobę na dobę (429; liczone po opisie
+  „Z rozmowy opiekuna z konsultantem …” i `created_by`).
 
 ### Popyt → Delivery Lead (`care/demand.py`)
 
@@ -68,14 +92,26 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   admin w oknie „Rozmowa z menedżerem” (`POST /clients/{id}/feedback` z `demand`): potwierdzona →
   `jobs_new_url` (`/jobs/new?client=&hm=&skills=&title=`, odczyt tylko pustych pól), nie teraz →
   wraca za 30 dni, nieaktualne → znika. **ATLAS (`/api/care/atlas/*`) bez rozbudowy.**
+- Klucz karty popytu `demand:<klient>:<rozmowa>` — BEZ działu: dział liczy się przy odczycie, więc
+  po zmianie działu menedżera rozstrzygnięcie by się zgubiło. Dział łączy tylko karty, a w linku
+  dzwonka (`/care?card=<klucz>&area=<dział|0>`) służy do limitu raz na 7 dni.
+- `demand.hiring_signal` w „Klientach” widzi tylko ten, kto widzi karty popytu klienta (DL
+  klienta, admin — `demand.demand_clients`); reszta dostaje `false`.
 
 ### Sprawy przy konsultancie (`admin_cases/contract_links.py`, `queries.py`, `hooks.py`)
 
 - Rejestr spraw zostaje jeden (Ludzie → Sprawy). Karta konsultanta pokazuje sprawy kontraktu
   (`cases_for_contract`): treść tylko z `may_read`, **negocjacje zawsze bez treści** (opieka „bez
-  stawek”). Oś osoby ma zdarzenia spraw bez treści.
+  stawek”). Oś osoby ma zdarzenia spraw bez treści. Bez `may_read` tytuł też jest treścią — w karcie
+  i na osi stoi „Sprawa: <obszar>” bez osoby (`queries.redact_case_title`, także negocjacje).
+- Obsługa Spraw widzi sprawy wszystkich kontraktów, ale dane opieki (opiekun, rytm, ostatnia
+  rozmowa, inne sprawy, zdrowie) tylko dla klientów ze swojego zakresu (`allowed_client_ids`);
+  spoza zakresu zostaje osoba i klient (`queries.redact_out_of_scope`).
 - Mail z nowej sprawy: nadawca = e-mail konsultanta z kontraktu i dokładnie jeden aktywny lub
-  kończący się kontrakt → `contract_id` sam (ślad `case_linked`, `source: mail_sender`). Kilka
+  kończący się kontrakt → `contract_id` sam (ślad `case_linked`, `source: mail_sender`) — tylko gdy
+  nadawca jest uwierzytelniony: pierwszy (od bramki) nagłówek `Authentication-Results` ma
+  `dmarc=pass` dla domeny `From` albo `spf=pass` + `dkim=pass` zgodne z nią
+  (`contract_links.sender_authenticated`). Inaczej sam `From` daje tylko propozycję. Kilka
   kontraktów albo mail z firmy klienta z nazwiskiem naszego konsultanta → tylko propozycje „Kogo
   dotyczy?” (klik), nigdy automatycznie. Odmienione nazwiska celowo nie dają propozycji.
 - Koniec współpracy konsultanta (`contract_hooks.contract_ended`, krok `cases_end`) zakłada sprawę

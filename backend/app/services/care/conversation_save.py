@@ -19,12 +19,22 @@ cofa całość — nie zostaje rozmowa bez karty albo sprawa bez rozmowy.
   reguła co akcept propozycji) — inaczej zostaje stary
   (``manager_kept: true`` w odpowiedzi).
 * **Odpowiedzi na luki**: „komu podlega” → ``client_people.update_contact_org``
-  (prawo edycji kontaktów klienta, inaczej 403 przed zapisem czegokolwiek),
+  (prawo edycji kontaktów klienta, inaczej 403 przed zapisem czegokolwiek);
+  notatka przy tym pytaniu zapisuje się zawsze jako ogólna notatka o kliencie
+  (``reports_to_note``) — także bez wybranej osoby,
   technologie działu → notatka o stacku klienta (wiedza o kliencie, którą
   czyta mapa) z nazwami ze słownika; nazwy spoza słownika idą do kolejki
   „Nazwy z rozmów do przejrzenia”.
-* **Sprawy**: najwyżej 5, przez ``admin_cases.service.create_case``
-  z kontraktem; opis = link do rozmowy (bez treści rozmowy i bez stawek).
+* **Klient zatrudnia**: role i źródło z górnego poziomu ciała zapisują się
+  przy rozmowie (``care_conversations.client_hiring_roles/source``) — także
+  bez „Co u klienta”, gdy karta się nie zapisuje; popyt bierze je, gdy
+  rozmowa nie ma karty. Puste ``client_hiring_note`` dostaje role tekstem.
+* **Sprawy**: najwyżej 5 z rozmowy i 20 z rozmów na osobę na dobę, przez
+  ``admin_cases.service.create_case`` z kontraktem; opis = link do rozmowy
+  (bez treści rozmowy i bez stawek). Zapisujący opiekę bez uprawnienia
+  „Sprawy” (``is_handler``) zakłada sprawę tylko bez osoby (trafia do „Bez
+  osoby” u obsługi) albo przypisaną do siebie i nigdy w obszarze
+  „Negocjacje” (audyt bezpieczeństwa 22.10.2026 — dzwonki do dowolnych osób).
 
 Bez danych o zdrowiu i bez stawek — jak cała opieka.
 """
@@ -38,10 +48,13 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import local_now
+from app.models.admin_case import AdminCase
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
+from app.models.contact import Contact
 from app.models.contract import Contract
 from app.models.contract_care import CareConversation, ClientArea, TechCard
 from app.models.skill import Skill
@@ -52,13 +65,17 @@ from app.services.care import card as care_card
 from app.services.care import client_people, demand, records
 from app.services.care import skills as care_skills
 from app.services.care.access import CareContract
-from app.services.care.demand import TECH_CARDS_LINK
+from app.services.care.demand import CONVERSATIONS_HIRING, TECH_CARDS_LINK, clean_roles
 from app.services.care.week import client_managers
 from app.services.client_access import record_client_audit, resolve_client_access
-from app.services.contract_care_schema import NAME_MAX
+from app.services.contract_care_schema import NAME_MAX, SHORT_TEXT_MAX
 from app.services.hr import audit
 
 MAX_CASES = 5
+#: Sprawy z rozmów jednej osoby w dobie kalendarza firmy.
+MAX_CASES_PER_DAY = 20
+#: Początek opisu sprawy z rozmowy — po nim liczy się dzienny limit.
+CASE_DESCRIPTION_PREFIX = "Z rozmowy opiekuna z konsultantem "
 _UNPROCESSABLE = status.HTTP_422_UNPROCESSABLE_ENTITY
 
 UNKNOWN_GAP = "Nie ma takiego pytania z mapy klienta."
@@ -68,6 +85,15 @@ ORG_DENIED = (
 )
 CASES_OFF = "Moduł „Sprawy” nie jest włączony — usuń sprawy z rozmowy."
 TOO_MANY_CASES = f"Z jednej rozmowy założysz najwyżej {MAX_CASES} spraw."
+TOO_MANY_CASES_TODAY = (
+    f"Dziś założono już z rozmów {MAX_CASES_PER_DAY} spraw — kolejne załóż "
+    "jutro albo poproś obsługę Spraw."
+)
+CASE_ASSIGNEE_DENIED = (
+    "Sprawę z rozmowy możesz zostawić bez osoby (przydzieli obsługa Spraw) "
+    "albo wziąć na siebie — innej osobie przydziela obsługa."
+)
+CASE_AREA_DENIED = "Sprawę w obszarze „Negocjacje” zakłada obsługa Spraw."
 
 
 @dataclass(frozen=True)
@@ -96,6 +122,9 @@ class Extras:
     client_state: Optional[dict[str, Any]] = None
     gap_answers: Sequence[GapAnswer] = field(default_factory=tuple)
     cases: Sequence[CaseRequest] = field(default_factory=tuple)
+    #: „Klient zatrudnia” (górny poziom ciała) — role i źródło informacji.
+    hiring_roles: Sequence[str] = field(default_factory=tuple)
+    hiring_source: Optional[str] = None
 
 
 @dataclass
@@ -128,6 +157,40 @@ def parse_gap_key(key: str) -> tuple[str, int]:
 # ── Walidacja przed zapisem ─────────────────────────────────────────────────
 
 
+def case_request_problem(
+    request: CaseRequest, *, actor_id: int, handler: bool
+) -> Optional[str]:
+    """Odmowa sprawy z rozmowy dla zapisującego bez uprawnienia „Sprawy”."""
+
+    if handler:
+        return None
+    if request.area == "negotiation":
+        return CASE_AREA_DENIED
+    if request.assignee_user_id not in (None, actor_id):
+        return CASE_ASSIGNEE_DENIED
+    return None
+
+
+def over_daily_limit(already_today: int, adding: int) -> bool:
+    return already_today + adding > MAX_CASES_PER_DAY
+
+
+async def cases_opened_today(db: AsyncSession, user_id: int) -> int:
+    """Sprawy z rozmów założone dziś (kalendarz firmy) przez tę osobę."""
+
+    start = local_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(
+        await db.scalar(
+            select(func.count(AdminCase.id)).where(
+                AdminCase.created_by == user_id,
+                AdminCase.created_at >= start,
+                AdminCase.description.like(f"{CASE_DESCRIPTION_PREFIX}%"),
+            )
+        )
+        or 0
+    )
+
+
 async def precheck(
     db: AsyncSession, contract: CareContract, extras: Extras, *, user: User
 ) -> None:
@@ -140,6 +203,13 @@ async def precheck(
 
         if not await cases_service.module_enabled(db):
             raise HTTPException(status.HTTP_409_CONFLICT, CASES_OFF)
+        handler = cases_service.is_handler(user)
+        for request in extras.cases:
+            problem = case_request_problem(request, actor_id=user.id, handler=handler)
+            if problem:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, problem)
+        if over_daily_limit(await cases_opened_today(db, user.id), len(extras.cases)):
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY_CASES_TODAY)
     needs_org = False
     for answer in extras.gap_answers:
         kind, _ = parse_gap_key(answer.key)
@@ -350,6 +420,20 @@ async def _skill_names(db: AsyncSession, skill_ids: Sequence[int]) -> list[str]:
     )
 
 
+def reports_to_note(
+    occurred_on: date, contact_name: str, note: Optional[str]
+) -> Optional[str]:
+    """Treść notatki o kliencie z odpowiedzi „Komu podlega …?” (pusta = ``None``)."""
+
+    cleaned = " ".join((note or "").split())
+    if not cleaned:
+        return None
+    return (
+        f"Z rozmowy z konsultantem {occurred_on.strftime('%d.%m.%Y')} "
+        f"(komu podlega {contact_name}): {cleaned}"
+    )
+
+
 async def apply_gap_answers(
     db: AsyncSession,
     contract: CareContract,
@@ -364,16 +448,34 @@ async def apply_gap_answers(
     for answer in answers:
         kind, subject_id = parse_gap_key(answer.key)
         if kind == "reports_to":
-            if answer.reports_to_contact_id is None:
-                continue
-            await client_people.update_contact_org(
-                db,
-                client_id=contract.client_id,
-                contact_id=subject_id,
-                changes={"reports_to_contact_id": answer.reports_to_contact_id},
-                actor_id=actor_id,
-            )
-            saved += 1
+            if answer.reports_to_contact_id is not None:
+                await client_people.update_contact_org(
+                    db,
+                    client_id=contract.client_id,
+                    contact_id=subject_id,
+                    changes={"reports_to_contact_id": answer.reports_to_contact_id},
+                    actor_id=actor_id,
+                )
+                saved += 1
+            if " ".join((answer.note or "").split()):
+                contact_name = await db.scalar(
+                    select(Contact.name).where(
+                        Contact.id == subject_id,
+                        Contact.client_id == contract.client_id,
+                    )
+                )
+                if contact_name is None:
+                    raise HTTPException(_UNPROCESSABLE, UNKNOWN_GAP)
+                db.add(
+                    ClientKnowledge(
+                        client_id=contract.client_id,
+                        category=KnowledgeCategory.general,
+                        content=reports_to_note(occurred_on, contact_name, answer.note),
+                        added_by=actor_id,
+                        source="care",
+                    )
+                )
+                saved += 1
             continue
         names = await _skill_names(db, answer.skill_ids)
         extra = [
@@ -447,8 +549,8 @@ async def open_cases(
                     "due_on": request.due_on,
                     "contract_id": contract.id,
                     "description": (
-                        "Z rozmowy opiekuna z konsultantem "
-                        f"{conversation.occurred_on.strftime('%d.%m.%Y')}: "
+                        CASE_DESCRIPTION_PREFIX
+                        + f"{conversation.occurred_on.strftime('%d.%m.%Y')}: "
                         f"/care?contract={contract.id}"
                     ),
                 },
@@ -460,6 +562,27 @@ async def open_cases(
 
 
 # ── Popyt ───────────────────────────────────────────────────────────────────
+
+
+async def save_hiring(
+    db: AsyncSession,
+    conversation: CareConversation,
+    roles: Sequence[str],
+    source: Optional[str],
+) -> list[str]:
+    """Role i źródło „klient zatrudnia” przy rozmowie; zwraca oczyszczone role."""
+
+    cleaned = clean_roles(roles)
+    if not conversation.client_hiring or (not cleaned and source is None):
+        return cleaned
+    await db.execute(
+        update(CONVERSATIONS_HIRING)
+        .where(CONVERSATIONS_HIRING.c.id == conversation.id)
+        .values(client_hiring_roles=cleaned or None, client_hiring_source=source)
+    )
+    if cleaned and not (conversation.client_hiring_note or "").strip():
+        conversation.client_hiring_note = ", ".join(cleaned)[:SHORT_TEXT_MAX]
+    return cleaned
 
 
 async def _demand_area(
@@ -487,16 +610,17 @@ async def notify_demand(
     tech_card_id: Optional[int],
     actor_id: int,
     now: datetime,
+    conversation_roles: Sequence[str] = (),
 ) -> int:
     if not conversation.client_hiring:
         return 0
-    roles: list[str] = []
+    roles: list[str] = list(conversation_roles)
     if tech_card_id is not None:
         roles = list(
             await db.scalar(
                 select(TechCard.hiring_roles).where(TechCard.id == tech_card_id)
             )
-            or []
+            or roles
         )
     return await demand.notify_leads(
         db,
@@ -540,6 +664,9 @@ async def save_extras(
     saved.case_ids = await open_cases(
         db, contract, conversation, extras.cases, actor=user
     )
+    hiring_roles = await save_hiring(
+        db, conversation, extras.hiring_roles, extras.hiring_source
+    )
     saved.demand_notified = await notify_demand(
         db,
         contract,
@@ -547,5 +674,6 @@ async def save_extras(
         tech_card_id=saved.tech_card_id,
         actor_id=user.id,
         now=now,
+        conversation_roles=hiring_roles,
     )
     return saved

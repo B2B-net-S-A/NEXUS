@@ -59,7 +59,7 @@ import { useAuthStore, type User } from "@/store/auth";
 
 const TODAY = "2026-10-22";
 const DEMAND: DemandContext = {
-  key: "demand:7001:301:77",
+  key: "demand:7001:77",
   roles: ["Java Developer"],
   area: { id: 301, name: "Płatności" },
   source: "widział",
@@ -126,7 +126,7 @@ describe("ClientFeedbackDialog · popyt", () => {
       contact_id: 8203,
       scores: [],
       demand: {
-        key: "demand:7001:301:77",
+        key: "demand:7001:77",
         outcome: "confirmed",
         role: "Java Developer",
         headcount: 2,
@@ -147,12 +147,17 @@ describe("ClientFeedbackDialog · popyt", () => {
       }),
     );
     renderDialog(null);
+    // Bez menedżera pola opinii są ukryte — zapisałyby się tylko z menedżerem.
+    expect(screen.getByText(/Bez menedżera zapisze się tylko decyzja o popycie/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Co mówi klient")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Nieaktualne" }));
     fireEvent.click(screen.getByRole("button", { name: "Zapisz rozmowę" }));
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
     const body = mocks.post.mock.calls[0][1] as Record<string, unknown>;
     expect(body).not.toHaveProperty("contact_id");
-    expect(body.demand).toEqual({ key: "demand:7001:301:77", outcome: "stale" });
+    expect(body).not.toHaveProperty("note");
+    expect(body).not.toHaveProperty("scores");
+    expect(body.demand).toEqual({ key: "demand:7001:77", outcome: "stale" });
     expect(await screen.findByRole("alert")).toHaveTextContent("Popyt rozstrzyga Delivery Lead klienta.");
   });
 
@@ -166,7 +171,7 @@ describe("ClientFeedbackDialog · popyt", () => {
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
     expect(mocks.post.mock.calls[0][1]).toMatchObject({
       contact_id: 8203,
-      demand: { key: "demand:7001:301:77", outcome: "not_now" },
+      demand: { key: "demand:7001:77", outcome: "not_now" },
     });
     expect(mocks.push).not.toHaveBeenCalled();
   });

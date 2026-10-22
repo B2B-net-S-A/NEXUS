@@ -34,7 +34,9 @@ interface CareGapQuestionsProps {
  * dotyczące działu konsultanta albo jego menedżera (najwyżej 4, liczy
  * serwer) z polem odpowiedzi. Odpowiedź zapisuje się razem z rozmową —
  * „komu podlega” w strukturze klienta, technologie i notatka w mapie.
- * Pytanie bez odpowiedzi niczego nie zmienia.
+ * Pytanie bez odpowiedzi niczego nie zmienia. Wybór osoby przy „Komu
+ * podlega” widzi tylko ktoś z prawem edycji struktury klienta
+ * (`can_edit_org`) — reszta odpowiada notatką (serwer odmówiłby 403).
  */
 export function CareGapQuestions({ clientId, questions, answers, onChange }: CareGapQuestionsProps) {
   const needsPeople = questions.some((question) => question.kind === "reports_to");
@@ -42,6 +44,7 @@ export function CareGapQuestions({ clientId, questions, answers, onChange }: Car
   const skillSearch = useCallback((q: string) => searchSkills(q), []);
   if (!questions.length) return null;
   const people = (org.data?.departments ?? []).flatMap((department) => department.people);
+  const canPickPerson = org.isSuccess && org.data.can_edit_org;
 
   return (
     <section aria-label="Pytania z mapy klienta" className="space-y-2">
@@ -64,13 +67,19 @@ export function CareGapQuestions({ clientId, questions, answers, onChange }: Car
                   <p className="text-xs text-muted-foreground">
                     Listy osób klienta nie udało się wczytać — odpowiedz notatką.
                   </p>
+                ) : org.isLoading ? (
+                  <p className="text-xs text-muted-foreground">Wczytywanie osób…</p>
+                ) : !canPickPerson ? (
+                  <p className="text-xs text-muted-foreground">
+                    Osobę w strukturze klienta wskazuje Delivery Lead klienta — odpowiedz notatką.
+                  </p>
                 ) : (
                   <Select
                     value={answer.reportsToContactId == null ? NONE : String(answer.reportsToContactId)}
                     onValueChange={(next) => set({ reportsToContactId: next === NONE ? null : Number(next) })}
                   >
                     <SelectTrigger aria-label={`Odpowiedź: ${text}`}>
-                      <SelectValue placeholder={org.isLoading ? "Wczytywanie osób…" : "Wybierz osobę…"} />
+                      <SelectValue placeholder="Wybierz osobę…" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE}>Nie wiem</SelectItem>

@@ -139,7 +139,7 @@ function careBoard(today: string): CareBoard {
       card("contact:plan:1", "contact", "Rozmowa: Paweł Makietowy", bank, shiftDay(today, -6), 6, "risk", 4504),
       card("feedback:8802", "feedback", "Opinia: Piotr Menedżerski", bank, shiftDay(today, -2), 2, null, null),
       card("contact:plan:2", "contact", "Rozmowa: Karolina Przykładowa", telecom, shiftDay(today, 2), 0, "watch", 4502),
-      card("demand:7001:301:77", "demand", "Popyt do sprawdzenia: Java", bank, shiftDay(today, 3), 0, null, null),
+      card("demand:7001:77", "demand", "Popyt do sprawdzenia: Java", bank, shiftDay(today, 3), 0, null, null),
     ],
     done: { this_week: 3, recent: [] },
   };

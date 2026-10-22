@@ -1,6 +1,7 @@
 """Sprawy w opiece (decyzja 7, 22.10.2026) — z bazą.
 
-* mail od konsultanta z jednym aktywnym kontraktem wiąże sprawę sam, z dwoma —
+* mail od uwierzytelnionego konsultanta (``Authentication-Results``)
+  z jednym aktywnym kontraktem wiąże sprawę sam; bez uwierzytelnienia albo z dwoma —
   tylko propozycje; mail z firmy klienta z nazwiskiem konsultanta — propozycja,
 * karta na tablicy niesie opiekuna kontraktu, chip „Moi podopieczni”,
 * szczegół: sekcja „Konsultant” bez kwot, ślad przypięcia kontraktu,
@@ -113,6 +114,17 @@ async def _grant_cases(user_id: int) -> None:
 # ── Czytnik poczty ───────────────────────────────────────────────────────────
 
 
+def _authenticated(email: str) -> list[dict[str, str]]:
+    domain = email.rsplit("@", 1)[1]
+    return [
+        {
+            "name": "Authentication-Results",
+            "value": f"spf=pass smtp.mailfrom={domain}; dkim=pass header.d={domain};"
+            f" dmarc=pass action=none header.from={domain}",
+        }
+    ]
+
+
 async def test_mail_from_consultant_links_the_only_live_contract(mailbox) -> None:
     dl = await make_user(UserRole.delivery_lead)
     client_id = await make_client(dl=dl)
@@ -120,7 +132,12 @@ async def test_mail_from_consultant_links_the_only_live_contract(mailbox) -> Non
     candidate = await _candidate(candidate_id)
 
     fake = FakeMailbox()
-    msg = fake.add(subject="Pytanie o urlop", hours_ago=1, sender=candidate.email)
+    msg = fake.add(
+        subject="Pytanie o urlop",
+        hours_ago=1,
+        sender=candidate.email,
+        headers=_authenticated(candidate.email),
+    )
     assert (await _ingest(fake))["created"] == 1
 
     case = await _case_of(msg["id"])
@@ -133,9 +150,40 @@ async def test_mail_from_consultant_links_the_only_live_contract(mailbox) -> Non
                 HrAuditEvent.action == "case_linked",
             )
         )
-        events = await queries.contract_case_events(db, contract_id)
+        events = await queries.contract_case_events(db, contract_id, dl)
     assert trace.details == {"contract_id": contract_id, "source": "mail_sender"}
     assert {e["kind"] for e in events} >= {"case_opened", "case_linked"}
+
+
+async def test_unauthenticated_sender_is_only_a_suggestion(app_client, mailbox) -> None:
+    """Podrobiony ``From`` bez ``dmarc=pass`` nie wiąże sprawy z kontraktem."""
+
+    admin = await make_user(UserRole.admin)
+    client_id = await make_client()
+    contract_id, candidate_id = await make_contract(client_id)
+    candidate = await _candidate(candidate_id)
+    domain = candidate.email.rsplit("@", 1)[1]
+
+    fake = FakeMailbox()
+    msg = fake.add(
+        subject="Zmiana konta do przelewu",
+        hours_ago=1,
+        sender=candidate.email,
+        headers=[
+            {
+                "name": "Authentication-Results",
+                "value": f"spf=fail smtp.mailfrom={domain}; dmarc=fail header.from={domain}",
+            }
+        ],
+    )
+    await _ingest(fake)
+    case = await _case_of(msg["id"])
+    assert case.contract_id is None
+
+    detail = await app_client.get(f"/api/cases/{case.id}", headers=headers(admin))
+    suggestions = detail.json()["link_suggestions"]
+    assert [s["contract_id"] for s in suggestions] == [contract_id]
+    assert suggestions[0]["reason"] == REASON_SENDER
 
 
 async def test_two_live_contracts_are_only_suggestions(app_client, mailbox) -> None:
@@ -256,6 +304,40 @@ async def test_detail_consultant_section_without_amounts(app_client, care_on) ->
     assert "100.0" not in dumped and "130.0" not in dumped  # stawki kontraktu
 
 
+async def test_out_of_portfolio_contract_hides_care_data(app_client, care_on) -> None:
+    """DL z „Sprawami” widzi sprawę obcego klienta bez opiekuna i zdrowia."""
+
+    admin = await make_user(UserRole.admin)
+    owner_dl = await make_user(UserRole.delivery_lead)
+    handler_dl = await make_user(UserRole.delivery_lead)
+    await _grant_cases(handler_dl.id)
+    client_id = await make_client(dl=owner_dl)
+    await make_client(dl=handler_dl)
+    contract_id, _ = await make_contract(client_id)
+    created = await _case(app_client, admin, contract_id=contract_id)
+
+    board = await app_client.get("/api/cases", headers=headers(handler_dl))
+    assert board.status_code == 200, board.text
+    card = next(i for i in board.json()["items"] if i["id"] == created["id"])
+    assert card["contract"]["candidate_name"]
+    assert card["contract"]["care_owner_user_id"] is None
+    assert card["contract"]["care_owner_name"] is None
+    assert card["contract"]["health"] is None
+
+    detail = (
+        await app_client.get(f"/api/cases/{created['id']}", headers=headers(handler_dl))
+    ).json()
+    consultant = detail["consultant"]
+    assert consultant["client_name"] and consultant["candidate_name"]
+    for key in queries.CARE_ONLY_FIELDS:
+        assert consultant[key] is None, key
+
+    own = (
+        await app_client.get(f"/api/cases/{created['id']}", headers=headers(admin))
+    ).json()["consultant"]
+    assert own["owner_user_id"] == owner_dl.id
+
+
 async def test_patch_contract_leaves_a_trace(app_client, care_on) -> None:
     admin = await make_user(UserRole.admin)
     client_id = await make_client()
@@ -276,7 +358,7 @@ async def test_patch_contract_leaves_a_trace(app_client, care_on) -> None:
                 HrAuditEvent.action == "case_linked",
             )
         )
-        events = await queries.contract_case_events(db, contract_id)
+        events = await queries.contract_case_events(db, contract_id, admin)
     assert trace.actor_user_id == admin.id
     assert trace.details["previous_contract_id"] is None
     assert [e["kind"] for e in events if e["case_id"] == created["id"]] == [
@@ -332,6 +414,13 @@ async def test_contract_cases_hide_content_and_negotiations(
     as_dl = (await app_client.get(url, headers=headers(dl))).json()
     assert {row["id"] for row in as_dl} >= {plain["id"], talk["id"]}
     assert all(row["content_hidden"] for row in as_dl)  # DL bez „Spraw”
+    dl_rows = {row["id"]: row for row in as_dl}
+    assert dl_rows[talk["id"]]["title"] == "Sprawa: Negocjacje"
+    assert dl_rows[plain["id"]]["title"] == "Sprawa: Administracja"
+    assert all(row["assignee_name"] is None for row in as_dl)
+    async with AsyncSessionLocal() as db:
+        events = await queries.contract_case_events(db, contract_id, dl)
+    assert "Nowa stawka od stycznia" not in json.dumps(events, default=str)
 
     refused = await app_client.get(url, headers=headers(stranger))
     assert refused.status_code == 403

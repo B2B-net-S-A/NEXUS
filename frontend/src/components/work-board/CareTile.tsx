@@ -67,15 +67,20 @@ export function CareActionButton({
   );
 }
 
-/** Umówiona rozmowa albo ponowna próba — ramka jak „odezwać się” na karcie sprawy. */
+/**
+ * Umówiona rozmowa albo ponowna próba — ramka jak „odezwać się” na karcie
+ * sprawy — z notatką z przeniesienia karty (`state_note`), gdy jest.
+ */
 export function careStateNote(card: CareBoardCard): string | null {
+  let when: string | null = null;
   if (card.column === "in_progress" && card.scheduled_at) {
-    return `umówione ${formatDateTimePl(card.scheduled_at)}`;
+    when = `umówione ${formatDateTimePl(card.scheduled_at)}`;
+  } else if (card.column === "waiting" && card.retry_on) {
+    when = `ponowna próba ${formatDayMonthPl(card.retry_on)}`;
   }
-  if (card.column === "waiting" && card.retry_on) {
-    return `ponowna próba ${formatDayMonthPl(card.retry_on)}`;
-  }
-  return null;
+  const note = card.column !== "new" ? card.state_note?.trim() : null;
+  if (when && note) return `${when} · ${note}`;
+  return when ?? (note || null);
 }
 
 /**

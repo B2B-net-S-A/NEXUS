@@ -232,6 +232,21 @@ async def _feedback_cards(
     return cards
 
 
+def decision_column(
+    item_status: str, state: Optional[board_state.BoardState], today: date
+) -> str:
+    """Kolumna karty decyzji: „Czeka” do daty ponowienia, potem „Nowa”.
+
+    Po ``retry_on`` karta wraca do „Nowa” także przy wpisie „W toku”
+    (przegląd 22.10.2026) — inaczej opiekun nie widzi, że czas wrócić.
+    Bez „Czeka” kolumnę wyznacza status wpisu „Do przepięcia”.
+    """
+
+    if state is not None and state.column == "waiting":
+        return board_state.column_for(state, today)
+    return "in_progress" if item_status == "in_progress" else "new"
+
+
 async def _decision_cards(
     db: AsyncSession,
     contracts: Sequence[CareContract],
@@ -260,9 +275,7 @@ async def _decision_cards(
         contract = by_id[item.contract_id]
         key = f"decision:{item.id}"
         state = states.get(key)
-        column = "in_progress" if item.status == "in_progress" else "new"
-        if state is not None and board_state.column_for(state, today) == "waiting":
-            column = "waiting"
+        column = decision_column(item.status, state, today)
         owner_id = owners[contract.id].user_id
         cards.append(
             {

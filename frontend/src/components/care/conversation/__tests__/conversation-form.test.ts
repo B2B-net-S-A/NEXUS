@@ -12,6 +12,9 @@ import {
   buildClientState,
   buildConversationPayload,
   buildGapAnswers,
+  CASE_TITLE_TOO_SHORT,
+  caseAreasFor,
+  caseTitleProblem,
   emptyCase,
   emptyClientState,
   emptyGapAnswer,
@@ -92,7 +95,21 @@ describe("buildConversationPayload", () => {
       satisfaction: 4,
       note: "Dobrze.",
       plan_item_id: 33,
+      hiring_roles: ["dwóch testerów"],
+      hiring_source: null,
     });
+    expect(off).not.toHaveProperty("hiring_roles");
+  });
+
+  it("„klient zatrudnia” wysyła role i źródło na górnym poziomie także bez „Co u klienta”", () => {
+    const payload = buildConversationPayload(
+      input({
+        talk: { ...emptyTalk(TODAY), clientHiring: true, hiringNote: "Java; QA", hiringSource: "slyszal" },
+      }),
+    );
+    expect(payload.client_state).toBeNull();
+    expect(payload.hiring_roles).toEqual(["Java", "QA"]);
+    expect(payload.hiring_source).toBe("slyszal");
   });
 });
 
@@ -140,6 +157,16 @@ describe("buildClientState", () => {
     expect(buildClientState(cleared, noHiring, 5)).toBeNull();
     const added = { ...cleared, skills: [{ id: null, name: "Nowy framework" }] };
     expect(buildClientState(added, noHiring, 0)?.changes).toEqual({ skill_ids: [], new_skill_names: ["Nowy framework"] });
+  });
+
+  it("bez technologii sama zmiana menedżera idzie bez karty", () => {
+    const form = {
+      ...emptyClientState(),
+      modes: { manager: "change" as const, area: "same" as const },
+      managerContactId: 42,
+    };
+    expect(buildClientState(form, noHiring, 0)).toEqual({ confirmed: true, changes: { manager_contact_id: 42 } });
+    expect(buildClientState({ ...form, managerContactId: null }, noHiring, 0)).toBeNull();
   });
 
   it("pusty miesiąc końca projektu przy „zmień” czyści koniec (null)", () => {
@@ -277,5 +304,22 @@ describe("questionText", () => {
       "Na czym pracuje dział Płatności?",
       "Czy Kafka jest naprawdę używany?",
     ]);
+  });
+});
+
+describe("sprawy z rozmowy: obszary i tytuł", () => {
+  it("„Negocjacje” tylko dla obsługi Spraw", () => {
+    expect(caseAreasFor(true)).toContain("negotiation");
+    expect(caseAreasFor(false)).not.toContain("negotiation");
+    expect(caseAreasFor(false)).toContain("administration");
+  });
+
+  it("tytuł krótszy niż 3 znaki blokuje zapis z komunikatem przy polu", () => {
+    expect(caseTitleProblem({ ...emptyCase(), title: " ab " })).toBe(CASE_TITLE_TOO_SHORT);
+    expect(caseTitleProblem({ ...emptyCase(), title: "abc" })).toBeNull();
+    expect(caseTitleProblem(emptyCase())).toBeNull();
+    expect(validateConversation(input({ cases: [{ ...emptyCase(), title: "VP" }] }), TODAY)).toBe(
+      CASE_TITLE_TOO_SHORT,
+    );
   });
 });

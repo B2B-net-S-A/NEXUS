@@ -86,8 +86,13 @@ export interface WorkBoardProps {
   onOpenFrontOffice?: (contractId: number) => void;
   /** „Rozmowa z menedżerem” o popycie (F3). */
   onOpenDemand?: (card: CareBoardCard) => void;
-  /** Otwarty panel karty (np. `/care?card=<key>` z dzwonka). */
+  /**
+   * Otwarty panel karty (np. `/care?card=<key>` z dzwonka). Zmiana wartości
+   * (miękka nawigacja na tej samej zakładce) otwiera panel nowej karty.
+   */
   initialSelectedKey?: string | null;
+  /** Zamknięcie panelu — ekran zdejmuje `card` z adresu (F5 nie otwiera go ponownie). */
+  onCloseSelected?: () => void;
   /** Widok na start (harness); bez niego — zapamiętany wybór osoby. */
   initialView?: WorkView;
   initialArea?: WorkArea | null;
@@ -177,6 +182,7 @@ export function WorkBoard({
   onOpenFrontOffice,
   onOpenDemand,
   initialSelectedKey = null,
+  onCloseSelected,
   initialView,
   initialArea = null,
 }: WorkBoardProps) {
@@ -209,6 +215,13 @@ export function WorkBoard({
   const [expanded, setExpanded] = useState<ReadonlySet<WorkColumn>>(new Set());
   const [pending, setPending] = useState<PendingState | null>(null);
   const [pendingError, setPendingError] = useState<string | null>(null);
+
+  // Link z dzwonka przy otwartej już tablicy (miękka nawigacja) — inicjalizator
+  // `useState` działa tylko raz, więc nowy klucz z adresu dosyłamy efektem.
+  useEffect(() => {
+    setSelectedKey(initialSelectedKey);
+    setSnapshot(null);
+  }, [initialSelectedKey]);
 
   useEffect(() => {
     if (!initialView) setView(readViewPreference(boardScope, me, "board"));
@@ -682,7 +695,10 @@ export function WorkBoard({
 
       <WorkItemPanel
         item={selected}
-        onClose={() => setSelectedKey(null)}
+        onClose={() => {
+          setSelectedKey(null);
+          onCloseSelected?.();
+        }}
         today={today}
         weekEnd={weekEnd}
         careAccess={careAccess}

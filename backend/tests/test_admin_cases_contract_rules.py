@@ -3,7 +3,8 @@
 * imię i nazwisko konsultanta w treści maila: bez wielkości liter, polskich
   znaków i kolejności słów, słowa obok siebie; samo imię i odmienione
   nazwisko nie wskazują nikogo,
-* automat wpisuje kontrakt tylko przy DOKŁADNIE jednym kandydacie,
+* automat wpisuje kontrakt tylko przy DOKŁADNIE jednym kandydacie
+  i uwierzytelnionym nadawcy (``Authentication-Results``),
 * propozycje w kolejności siły dowodu, każdy kontrakt raz,
 * checklista „Koniec współpracy” z pakietu klienta i stanu opieki,
 * import z Compassa: klient po nazwie + osoba + dzień — pewny albo nic.
@@ -24,6 +25,7 @@ from app.services.admin_cases.contract_links import (
     LiveContract,
     names_in_text,
     rank_suggestions,
+    sender_authenticated,
     sender_contract,
 )
 from app.services.care.card_linking import ContractIndex, ContractRow
@@ -176,3 +178,114 @@ def test_compass_duplicate_client_resolved_by_the_sure_contract() -> None:
         [(_row(9, 900, 8, date(2026, 1, 1)), "Ola Przykładowa")], {key: {7, 8}}
     )
     assert linker.contract_for("PFRON", "Ola Przykładowa", day) == 9
+
+
+# ── Uwierzytelniony nadawca (audyt bezpieczeństwa 22.10.2026) ────────────────
+
+_EOP_PASS = (
+    "spf=pass (sender IP is 192.0.2.10) smtp.mailfrom=example.com; "
+    "dkim=pass (signature was verified) header.d=example.com;"
+    "dmarc=pass action=none header.from=example.com;compauth=pass reason=100"
+)
+
+
+def _auth(value: str) -> list[dict[str, str]]:
+    return [{"name": "Authentication-Results", "value": value}]
+
+
+def test_dmarc_pass_for_sender_domain_authenticates() -> None:
+    assert sender_authenticated(_auth(_EOP_PASS), "anna@example.com")
+    assert sender_authenticated(
+        _auth("mx.example.net; dmarc=pass header.from=example.com"),
+        "anna@mail.example.com",
+    )
+
+
+def test_spf_and_dkim_pass_without_dmarc_authenticate() -> None:
+    value = (
+        "spf=pass smtp.mailfrom=bounce@example.com; "
+        "dkim=pass header.d=example.com; dmarc=none header.from=example.com"
+    )
+    assert sender_authenticated(_auth(value), "anna@example.com")
+    only_spf = "spf=pass smtp.mailfrom=example.com; dkim=none"
+    assert not sender_authenticated(_auth(only_spf), "anna@example.com")
+
+
+def test_failed_or_foreign_domain_results_do_not_authenticate() -> None:
+    failed = (
+        "spf=fail smtp.mailfrom=example.com; dkim=none; "
+        "dmarc=fail action=quarantine header.from=example.com"
+    )
+    assert not sender_authenticated(_auth(failed), "anna@example.com")
+    # Przechodzi, ale dla innej domeny niż ``From``.
+    foreign = "dmarc=pass header.from=attacker.example; spf=pass smtp.mailfrom=attacker.example"
+    assert not sender_authenticated(_auth(foreign), "anna@example.com")
+    assert not sender_authenticated(_auth(_EOP_PASS), "anna@notexample.com")
+
+
+def test_missing_header_or_sender_does_not_authenticate() -> None:
+    assert not sender_authenticated([], "anna@example.com")
+    assert not sender_authenticated(None, "anna@example.com")
+    assert not sender_authenticated(
+        [{"name": "In-Reply-To", "value": "<x@example.com>"}], "anna@example.com"
+    )
+    assert not sender_authenticated(_auth(_EOP_PASS), None)
+
+
+def test_only_the_topmost_header_counts() -> None:
+    """Niższy nagłówek mógł wstawić nadawca — liczy się ten od bramki."""
+
+    headers = [
+        {
+            "name": "Authentication-Results",
+            "value": "dmarc=fail header.from=example.com",
+        },
+        {"name": "Authentication-Results", "value": _EOP_PASS},
+    ]
+    assert not sender_authenticated(headers, "anna@example.com")
+
+
+# ── Zakres czytającego i tytuły spraw w opiece (audyt 22.10.2026) ────────────
+
+
+def test_consultant_section_out_of_scope_keeps_only_person_and_client() -> None:
+    from app.services.admin_cases.queries import CARE_ONLY_FIELDS, redact_out_of_scope
+
+    section = {
+        "contract_id": 1,
+        "candidate_name": "Anna Przykładowa",
+        "client_name": "Przykład sp. z o.o.",
+        "owner_user_id": 5,
+        "owner_name": "Opiekun Przykładowy",
+        "cadence_label": "co miesiąc",
+        "last_conversation": {"on": "2026-10-01", "excerpt": None},
+        "other_open_cases": 2,
+        "health": {"level": "risk"},
+    }
+    assert redact_out_of_scope(section, in_scope=True) == section
+    hidden = redact_out_of_scope(section, in_scope=False)
+    assert all(hidden[key] is None for key in CARE_ONLY_FIELDS)
+    assert hidden["candidate_name"] == "Anna Przykładowa"
+    assert hidden["client_name"] == "Przykład sp. z o.o."
+
+
+def test_client_scope_helper() -> None:
+    from app.services.care.access import client_in_scope
+
+    assert client_in_scope(3, None)
+    assert client_in_scope(3, frozenset({3}))
+    assert not client_in_scope(4, frozenset({3}))
+    assert not client_in_scope(3, frozenset())
+
+
+def test_case_title_replaced_without_may_read(monkeypatch) -> None:
+    from app.models.admin_case import AdminCase
+    from app.services.admin_cases import queries
+
+    talk = AdminCase(id=1, title="Nowa stawka od stycznia", area="negotiation")
+    plain = AdminCase(id=2, title="Laptop dla Anny", area="administration")
+    monkeypatch.setattr(queries, "may_read", lambda viewer, case: False)
+    assert queries.redact_case_title(talk, object()) == "Sprawa: Negocjacje"
+    assert queries.redact_case_title(plain, object()) == "Sprawa: Administracja"
+    monkeypatch.setattr(queries, "may_read", lambda viewer, case: True)
+    assert queries.redact_case_title(talk, object()) is None

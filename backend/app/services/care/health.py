@@ -2,7 +2,9 @@
 
 Etykietę i zdanie „dlaczego” widzi krąg D11 (opiekun z roli, Delivery Lead,
 Head of Recruitment, admin) — liczą się w niej opinie menedżera u klienta.
-Finanse i inni dostają ``health: null`` (``health_for_contracts``).
+Finanse i inni dostają ``health: null`` (``health_for_contracts``), tak samo
+kontrakt klienta spoza zakresu czytającego (portfel Delivery Leada, audyt
+bezpieczeństwa 22.10.2026 — tablica Spraw pokazuje kontrakty wszystkich).
 
 Reguły (``assess`` — czysta funkcja, testy brzegów w ``test_care_health.py``):
 
@@ -376,11 +378,17 @@ def _created_day(item: Optional[RedeployQueueItem]) -> Optional[date]:
 async def health_for_contracts(
     db: AsyncSession, contract_ids: Iterable[int], *, viewer: User
 ) -> dict[int, Optional[dict[str, Any]]]:
-    """Zdrowie po identyfikatorach; ``None`` dla każdego, gdy viewer poza D11."""
+    """Zdrowie po identyfikatorach; ``None`` poza D11 i poza zakresem klientów."""
 
     ids = sorted(set(contract_ids))
     if not care_access.reads_client_people(viewer):
         return {cid: None for cid in ids}
     contracts = await care_access.contracts_by_id(db, ids)
-    result = await health_for(db, list(contracts.values()), today=business_today())
+    allowed = await care_access.allowed_client_ids(viewer, db)
+    visible = [
+        contract
+        for contract in contracts.values()
+        if care_access.client_in_scope(contract.client_id, allowed)
+    ]
+    result = await health_for(db, visible, today=business_today())
     return {cid: result.get(cid) for cid in ids}

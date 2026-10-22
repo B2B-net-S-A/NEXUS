@@ -206,8 +206,14 @@ async def rhythm_scope(user: User, db: AsyncSession) -> frozenset[int] | None:
     return await allowed_client_ids(user, db)
 
 
+def client_in_scope(client_id: Optional[int], allowed: frozenset[int] | None) -> bool:
+    """Klient w zakresie czytającego (``None`` = wszyscy)."""
+
+    return allowed is None or client_id in allowed
+
+
 def assert_client_in_scope(client_id: int, allowed: frozenset[int] | None) -> None:
-    if allowed is not None and client_id not in allowed:
+    if not client_in_scope(client_id, allowed):
         raise HTTPException(status.HTTP_403_FORBIDDEN, DL_CLIENT_OUT_OF_SCOPE_DETAIL)
 
 

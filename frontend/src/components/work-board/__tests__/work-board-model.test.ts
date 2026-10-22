@@ -192,7 +192,7 @@ describe("ruch karty", () => {
       moveAction(careItem(careCard({ kind: "decision", key: "decision:3" })), "in_progress", options),
     ).toMatchObject({ ask: null });
     expect(
-      moveAction(careItem(careCard({ kind: "demand", key: "demand:1:0:2" })), "in_progress", options),
+      moveAction(careItem(careCard({ kind: "demand", key: "demand:1:2" })), "in_progress", options),
     ).toMatchObject({ ask: null });
   });
 
@@ -266,7 +266,7 @@ describe("lista „Do zrobienia”", () => {
         caseItem(caseCard({ id: 4, status: "done" })),
         careItem(careCard({ key: "contact:plan:9", due_on: "2026-10-21", overdue_days: 1 })),
         careItem(careCard({ key: "decision:5", kind: "decision", due_on: null })),
-        careItem(careCard({ key: "demand:1:0:7", kind: "demand", due_on: null })),
+        careItem(careCard({ key: "demand:1:7", kind: "demand", due_on: null })),
       ],
       "2026-10-24",
     );
@@ -274,7 +274,7 @@ describe("lista „Do zrobienia”", () => {
       ["Po terminie", ["case:1", "contact:plan:9"]],
       ["Do piątku", ["case:2"]],
       ["Decyzje", ["decision:5"]],
-      ["Popyt", ["demand:1:0:7"]],
+      ["Popyt", ["demand:1:7"]],
       ["Później i bez terminu", ["case:3"]],
     ]);
   });
@@ -290,7 +290,7 @@ describe("drobne", () => {
     expect(planItemIdOf("contact:plan:42")).toBe(42);
     expect(planItemIdOf("contact:followup:42")).toBeNull();
     expect(decisionIdOf("decision:7")).toBe(7);
-    expect(decisionIdOf("demand:1:0:7")).toBeNull();
+    expect(decisionIdOf("demand:1:7")).toBeNull();
   });
 
   it("adres karty poza /care: kontrakt albo klucz karty", () => {
@@ -324,5 +324,16 @@ describe("drobne", () => {
     });
     expect(() => writeViewPreference("care", 7, "board")).not.toThrow();
     expect(readViewPreference("care", 7, "board")).toBe("board");
+  });
+});
+
+describe("linia stanu karty opieki", () => {
+  it("notatka z przeniesienia (`state_note`) dochodzi do „ponowna próba”, sama — gdy brak daty", async () => {
+    const { careStateNote } = await import("../CareTile");
+    const waiting = careCard({ column: "waiting", retry_on: "2026-10-24", state_note: "nie odbiera, SMS wysłany" });
+    expect(careStateNote(waiting)).toMatch(/^ponowna próba .+ · nie odbiera, SMS wysłany$/);
+    expect(careStateNote(careCard({ column: "in_progress", state_note: "czeka na grafik" }))).toBe("czeka na grafik");
+    expect(careStateNote(careCard({ column: "new", state_note: "stara notatka" }))).toBeNull();
+    expect(careStateNote(careCard({ column: "waiting", retry_on: "2026-10-24" }))).toMatch(/^ponowna próba /);
   });
 });

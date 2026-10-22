@@ -4,13 +4,17 @@
   Dział: z karty technologicznej zapisanej tą rozmową (okno „Rozmowa”,
   ``tech_cards.care_conversation_id``), a bez niej — dział menedżera
   konsultanta u klienta. Role i źródło informacji — z tej karty; bez karty
-  ról nie ma, zostaje notatka „klient zatrudnia”.
+  (albo gdy karta ich nie ma) — z rozmowy (``client_hiring_roles``,
+  ``client_hiring_source``, 0504), a bez nich zostaje notatka „klient zatrudnia”.
 * **Karta „Popyt do sprawdzenia”** na tablicy DL: ten sam klient, dział
   i zbiór ról w 30 dniach = jedna karta (najnowszy sygnał, lista źródeł).
-  Klucz ``demand:<klient>:<dział albo 0>:<rozmowa>`` (``board_state``).
+  Klucz ``demand:<klient>:<rozmowa>`` (``board_state``) — bez działu, bo
+  dział liczy się przy odczycie i po zmianie działu menedżera stan karty
+  (rozstrzygnięcie) by się zgubił; dział służy tylko do łączenia kart.
 * **Dzwonek** ``care_demand_signal`` do aktywnych DL klienta przy zapisie
   rozmowy, najwyżej jeden na (DL, klient, dział) w 7 dni; link
-  ``/care?card=<klucz>``.
+  ``/care?card=<klucz>&area=<dział albo 0>`` (dział w linku tylko do
+  liczenia tego limitu).
 * **Rozstrzygnięcie** (okno „Rozmowa z menedżerem”): potwierdzona →
   ``/jobs/new`` z klientem, hiring managerem, technologiami i nazwą
   (``jobs_new_url``), „nie teraz” → wraca za 30 dni, „nieaktualne” → znika.
@@ -56,6 +60,13 @@ TECH_CARDS_LINK = table(
     column("hiring_roles", JSONB),
     column("hiring_source", String),
 )
+#: Role i źródło „klient zatrudnia” zapisane przy rozmowie (0504).
+CONVERSATIONS_HIRING = table(
+    "care_conversations",
+    column("id", Integer),
+    column("client_hiring_roles", JSONB),
+    column("client_hiring_source", String),
+)
 _contacts_org = CONTACTS_ORG.alias("contacts_org")
 
 RESOLVE_DENIED = "Popyt rozstrzyga Delivery Lead klienta albo administrator."
@@ -78,9 +89,7 @@ class Signal:
 
     @property
     def key(self) -> str:
-        return board_state.demand_key(
-            self.client_id, self.area_id, self.conversation_id
-        )
+        return board_state.demand_key(self.client_id, self.conversation_id)
 
     @property
     def role_set(self) -> frozenset[str]:
@@ -100,6 +109,31 @@ class Group:
     @property
     def keys(self) -> list[str]:
         return [signal.key for signal in self.signals]
+
+
+def clean_roles(roles: Iterable[object]) -> list[str]:
+    """Role popytu: bez pustych, przycięte do ``ROLE_MAX``, bez powtórzeń."""
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for role in roles or []:
+        text = " ".join(str(role).split())[:ROLE_MAX]
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            out.append(text)
+    return out
+
+
+def signal_hiring(
+    card_roles: Optional[Sequence[object]],
+    card_source: Optional[str],
+    conversation_roles: Optional[Sequence[object]],
+    conversation_source: Optional[str],
+) -> tuple[tuple[str, ...], Optional[str]]:
+    """Role i źródło sygnału: z karty rozmowy, a gdy ich nie ma — z rozmowy."""
+
+    roles = clean_roles(card_roles or []) or clean_roles(conversation_roles or [])
+    return tuple(roles), card_source or conversation_source
 
 
 def group_signals(signals: Iterable[Signal]) -> list[Group]:
@@ -178,6 +212,18 @@ async def signals_for_clients(
             )
         ).all()
     }
+    talk_hiring = {
+        row.id: row
+        for row in (
+            await db.execute(
+                select(
+                    CONVERSATIONS_HIRING.c.id,
+                    CONVERSATIONS_HIRING.c.client_hiring_roles,
+                    CONVERSATIONS_HIRING.c.client_hiring_source,
+                ).where(CONVERSATIONS_HIRING.c.id.in_(conv_ids))
+            )
+        ).all()
+    }
     managers = sorted({row[6] for row in rows if row[6] is not None})
     manager_area: dict[int, int] = {}
     if managers:
@@ -219,6 +265,13 @@ async def signals_for_clients(
         if area_id is not None and areas.get(area_id, (None,))[0] != client_id:
             area_id = None
         contract = contracts.get(contract_id)
+        talk = talk_hiring.get(conv_id)
+        roles, source = signal_hiring(
+            card.hiring_roles if card is not None else None,
+            card.hiring_source if card is not None else None,
+            talk.client_hiring_roles if talk is not None else None,
+            talk.client_hiring_source if talk is not None else None,
+        )
         out.append(
             Signal(
                 conversation_id=conv_id,
@@ -229,12 +282,8 @@ async def signals_for_clients(
                 on=on,
                 area_id=area_id,
                 area_name=areas[area_id][1] if area_id is not None else None,
-                roles=tuple(
-                    str(role)[:ROLE_MAX]
-                    for role in ((card.hiring_roles or []) if card is not None else [])
-                    if str(role).strip()
-                ),
-                source=card.hiring_source if card is not None else None,
+                roles=roles,
+                source=source,
                 note=excerpt(note),
             )
         )
@@ -287,6 +336,12 @@ def card_link(key: str) -> str:
     return f"/care?card={key}"
 
 
+def notify_link(key: str, area_id: Optional[int]) -> str:
+    """Link dzwonka: karta popytu + dział (do limitu raz na 7 dni per dział)."""
+
+    return f"{card_link(key)}&area={area_id or 0}"
+
+
 def notify_message(
     client_name: str,
     area_name: Optional[str],
@@ -302,13 +357,14 @@ def notify_message(
 async def _recent_recipients(
     db: AsyncSession, *, client_id: int, area_id: Optional[int], now: datetime
 ) -> set[int]:
-    prefix = card_link(f"demand:{client_id}:{area_id or 0}:")
+    prefix = card_link(f"demand:{client_id}:")
     rows = await db.scalars(
         select(Notification.user_id).where(
             Notification.notification_type == NotificationType.care_demand_signal,
             Notification.related_entity_type == "client",
             Notification.related_entity_id == client_id,
             Notification.link.startswith(prefix, autoescape=True),
+            Notification.link.endswith(f"&area={area_id or 0}", autoescape=True),
             Notification.created_at >= now - timedelta(days=NOTIFY_EVERY_DAYS),
         )
     )
@@ -337,7 +393,7 @@ async def notify_leads(
     recent = await _recent_recipients(
         db, client_id=contract.client_id, area_id=area_id, now=now
     )
-    key = board_state.demand_key(contract.client_id, area_id, conversation.id)
+    key = board_state.demand_key(contract.client_id, conversation.id)
     return await notify_each(
         db,
         [lead for lead in leads if lead not in recent],
@@ -352,7 +408,7 @@ async def notify_leads(
         ntype=NotificationType.care_demand_signal,
         related_entity_type="client",
         related_entity_id=contract.client_id,
-        link=card_link(key),
+        link=notify_link(key, area_id),
         log_tag="care",
     )
 

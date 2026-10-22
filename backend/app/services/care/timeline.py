@@ -12,7 +12,7 @@ rozmowy opieki ich nie zbierają. Opinie klienta tylko dla ról z D11
 
 Sprawy kontraktu (22.10.2026): założenie, podpięcie i zamknięcie z serwisu
 spraw (``admin_cases.queries.contract_case_events``) — tytuł i obszar, bez
-treści maili.
+treści maili; bez ``may_read`` czytającego tytuł zastępczy „Sprawa: <obszar>”.
 
 Etap 3 (O8, O10): zmiany rytmu kontaktu z powodem i autorem, powrót rytmu
 po dacie „do kiedy” (przed nami, gdy w przyszłości) i zmiany opiekuna ze
@@ -44,6 +44,7 @@ from app.models.contract_care import (
 )
 from app.models.hr_ops import HrAuditEvent
 from app.models.job import Job
+from app.models.user import User
 from app.services.care import access as care_access
 from app.services.care import client_feedback, front_office
 from app.services.care import plan as care_plan
@@ -237,15 +238,17 @@ async def _tech_cards(
         parts = [area] if area else []
         if counts.get(card_id):
             parts.append(f"technologie: {counts[card_id]}")
-        out.append(
-            _event(
-                "tech_card",
-                interview_on,
-                "Karta technologiczna",
-                today=today,
-                detail=" · ".join(parts) or None,
-            )
+        item = _event(
+            "tech_card",
+            interview_on,
+            "Karta technologiczna",
+            today=today,
+            detail=" · ".join(parts) or None,
         )
+        if item is not None:
+            # „Edytuj” w historii szuka karty po id (dwie karty jednego dnia).
+            item["tech_card_id"] = card_id
+        out.append(item)
     return out
 
 
@@ -478,7 +481,7 @@ _CASE_TITLES = {
 
 
 async def _cases(
-    db: AsyncSession, contract_id: int, today: date
+    db: AsyncSession, contract_id: int, today: date, viewer: User
 ) -> list[dict[str, Any]]:
     """Sprawy kontraktu z serwisu spraw (``contract_case_events``) — bez treści."""
 
@@ -488,7 +491,7 @@ async def _cases(
     )
 
     out = []
-    for event in await contract_case_events(db, contract_id):
+    for event in await contract_case_events(db, contract_id, viewer):
         at = event["at"]
         on = _local(at) if isinstance(at, datetime) else at
         item = _event(
@@ -538,6 +541,7 @@ async def contract_timeline(
     *,
     today: date,
     include_feedback: bool,
+    viewer: User,
 ) -> dict[str, Any]:
     events: list[Optional[dict[str, Any]]] = [
         await _recruitment(db, contract, today),
@@ -555,7 +559,7 @@ async def contract_timeline(
         *(await _handoffs(db, contract.id, today)),
         *(await _cadence(db, contract, today)),
         *(await _owners(db, contract.id, today)),
-        *(await _cases(db, contract.id, today)),
+        *(await _cases(db, contract.id, today, viewer)),
         _event(
             "contract_end",
             contract.contract_end_date,

@@ -218,6 +218,9 @@ class ConversationBody(BaseModel):
     follow_up_on: Optional[date] = None
     plan_item_id: Optional[int] = None
     # Okno „Rozmowa” (22.10.2026) — wszystko opcjonalne, stare ciało działa.
+    #: „Klient zatrudnia”: role i źródło przy rozmowie — także bez „Co u klienta”.
+    hiring_roles: list[str] = Field(default_factory=list, max_length=20)
+    hiring_source: Optional[Literal["widzial", "slyszal", "plotka"]] = None
     client_state: Optional[ClientStateBody] = None
     gap_answers: list[GapAnswerBody] = Field(default_factory=list, max_length=20)
     cases: list[ConversationCaseBody] = Field(
@@ -237,6 +240,8 @@ def _extras(body: ConversationBody) -> conversation_save.Extras:
         }
     return conversation_save.Extras(
         client_state=client_state,
+        hiring_roles=tuple(body.hiring_roles) if body.client_hiring else (),
+        hiring_source=body.hiring_source if body.client_hiring else None,
         gap_answers=tuple(
             conversation_save.GapAnswer(
                 key=answer.key,
@@ -1031,6 +1036,7 @@ async def contract_timeline(
         contract,
         today=business_today(),
         include_feedback=reads_client_people(current_user),
+        viewer=current_user,
     )
     return {**result, "can_edit": await care_access.is_care_writer(db, current_user)}
 

@@ -9,7 +9,7 @@
 // - odpowiedzi na pytania z mapy i sprawy bez treści są pomijane;
 // - bez danych o zdrowiu i bez stawek — okno o nie nie pyta.
 
-import type { CaseArea } from "@/lib/api/admin-cases";
+import { CASE_AREAS, type CaseArea } from "@/lib/api/admin-cases";
 import type {
   CadenceLevel,
   CareChannel,
@@ -25,6 +25,25 @@ import { countPl } from "@/lib/plural-pl";
 
 /** Najwięcej spraw z jednej rozmowy (limit serwera). */
 export const MAX_CONVERSATION_CASES = 5;
+/** Tytuł sprawy z rozmowy: 3–200 znaków (walidacja serwera). */
+export const CASE_TITLE_MIN = 3;
+export const CASE_TITLE_MAX = 200;
+export const CASE_TITLE_TOO_SHORT = `Tytuł sprawy: co najmniej ${CASE_TITLE_MIN} znaki.`;
+
+/**
+ * Obszary spraw w oknie rozmowy. „Negocjacje” zakłada tylko obsługa Spraw
+ * (uprawnienie „Sprawy” albo admin) — serwer odmawia reszcie (403).
+ */
+export function caseAreasFor(handler: boolean): CaseArea[] {
+  return handler ? [...CASE_AREAS] : CASE_AREAS.filter((area) => area !== "negotiation");
+}
+
+/** Za krótki tytuł sprawy (pusty wiersz to nie błąd — po prostu się nie zapisze). */
+export function caseTitleProblem(draft: CaseDraft): string | null {
+  const title = draft.title.trim();
+  if (title && title.length < CASE_TITLE_MIN) return CASE_TITLE_TOO_SHORT;
+  return null;
+}
 
 export interface PickedName {
   /** `null` = nazwa wpisana tekstem (spoza słownika). */
@@ -223,7 +242,13 @@ export function buildClientState(
   knownTechnologies = 0,
 ): ClientStatePayload | null {
   if (!touchedRows(form).length) return null;
-  if (effectiveTechnologies(form, knownTechnologies) === 0) return null;
+  if (effectiveTechnologies(form, knownTechnologies) === 0) {
+    // Bez technologii karta się nie zapisze, ale zmiana menedżera tak (żyje na kontrakcie).
+    if (form.modes.manager === "change" && form.managerContactId != null) {
+      return { confirmed: true, changes: { manager_contact_id: form.managerContactId } };
+    }
+    return null;
+  }
   const changes: ClientStateChanges = {};
   for (const row of changedRows(form)) Object.assign(changes, rowChanges(row, form));
   if (talk.clientHiring) {
@@ -301,6 +326,9 @@ export function buildConversationPayload(input: PayloadInput): ConversationPaylo
     project_end_on: talk.projectEnd && talk.projectEndOn ? talk.projectEndOn : null,
     client_hiring: talk.clientHiring,
     client_hiring_note: talk.clientHiring ? talk.hiringNote.trim() || null : null,
+    ...(talk.clientHiring
+      ? { hiring_roles: splitRoles(talk.hiringNote), hiring_source: talk.hiringSource }
+      : {}),
     follow_up_on: talk.followUp || null,
     plan_item_id: input.planItemId,
     client_state: buildClientState(input.clientState, talk, input.knownTechnologies ?? 0),
@@ -325,6 +353,7 @@ export function validateConversation(input: PayloadInput, today: string): string
   if (titled.length > MAX_CONVERSATION_CASES) {
     return `Z jednej rozmowy założysz najwyżej ${MAX_CONVERSATION_CASES} spraw.`;
   }
+  if (input.cases.some((draft) => caseTitleProblem(draft))) return CASE_TITLE_TOO_SHORT;
   const untitled = input.cases.find((draft) => !hasText(draft.title) && (draft.dueOn || draft.assigneeUserId != null));
   if (untitled) return "Sprawa potrzebuje tytułu — albo usuń pusty wiersz.";
   return null;

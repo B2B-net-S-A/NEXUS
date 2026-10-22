@@ -74,9 +74,11 @@ logger = logging.getLogger(__name__)
 #: Horyzont filtra listy „Kończy u nas w ciągu 60 dni".
 ENDING_SOON_FILTER_DAYS = 60
 
-#: Wpis „Do przepięcia” w tym stanie = osoba przekazana do front office albo
-#: decyzja „przekaż” z tablicy opieki (22.10.2026).
-RETURNING_REDEPLOY_STATUS = "in_progress"
+#: Wpis „Do przepięcia” niezamknięty (otwarty albo w toku) — razem
+#: z przekazaniem do front office daje „Wraca na rynek” (22.10.2026).
+RETURNING_REDEPLOY_STATUSES: tuple[str, ...] = ("open", "in_progress")
+#: Ryzyko odejścia to sygnał opieki, nie decyzja o powrocie na rynek.
+NEVER_RETURNING_REASONS = frozenset({"attrition_risk"})
 
 _PHASE_RANK: dict[str, int] = {"working": 0, "ending": 1, "starting": 2}
 
@@ -315,8 +317,8 @@ def mark_returning(
     """„Wraca na rynek DD.MM” przy znaczniku (22.10.2026, czysta).
 
     Osoba wraca na rynek, gdy KAŻDA jej trwająca umowa (bez tych z przyszłym
-    startem) ma przekazanie do front office albo decyzję „przekaż” z opieki
-    (wpis „Do przepięcia” w toku). Druga umowa bez takiej decyzji = osoba
+    startem) ma przekazanie do front office z niezamkniętym wpisem „Do
+    przepięcia” (``returning_contract_ids``). Druga umowa bez takiej decyzji = osoba
     zostaje u nas. Data = najpóźniejszy koniec pracy na tych umowach; brak
     daty na którejś = data nieznana (plakietka bez daty).
     """
@@ -342,10 +344,33 @@ def mark_returning(
     return out
 
 
+def returning_contract_ids(
+    handed_over: Collection[int], redeploy_items: Iterable[tuple[int, str, str]]
+) -> set[int]:
+    """Umowy, które „wracają na rynek” (czysta reguła, przegląd 22.10.2026).
+
+    Tak = umowa przekazana do front office (ślad ``care.front_office_handoff``)
+    i z niezamkniętym wpisem „Do przepięcia” (``redeploy_items`` = (umowa,
+    status, powód)). Sam wpis w toku — np. ryzyko odejścia albo „chce zmiany”
+    bez przekazania — nie wystarcza; wpis „ryzyko odejścia” nie liczy się nigdy.
+    """
+
+    handed = set(handed_over)
+    return {
+        contract_id
+        for contract_id, status, reason in redeploy_items
+        if contract_id in handed
+        and status in RETURNING_REDEPLOY_STATUSES
+        and reason not in NEVER_RETURNING_REASONS
+    }
+
+
 async def load_returning_contract_ids(
     db: AsyncSession, contract_ids: Iterable[int]
 ) -> set[int]:
-    """Umowy z wpisem „Do przepięcia” w toku — tylko przy włączonym module opieki.
+    """Umowy przekazane do front office z niezamkniętym wpisem „Do przepięcia”.
+
+    Liczy ``returning_contract_ids``; tylko przy włączonym module opieki.
 
     Wyłączony program albo moduł = nikt nie „wraca na rynek” (dane opieki nie
     wychodzą poza moduł). Awaria odczytu (np. brak tabel modułu) nie kładzie
@@ -355,6 +380,8 @@ async def load_returning_contract_ids(
     if not ids:
         return set()
     from app.models.contract_care import RedeployQueueItem
+    from app.models.hr_ops import HrAuditEvent
+    from app.services.care.front_office import HANDOFF_ACTION
     from app.services.hr.modules import load_modules
 
     try:
@@ -362,13 +389,31 @@ async def load_returning_contract_ids(
             modules = await load_modules(db)
             if not modules.get("care"):
                 return set()
-            rows = await db.scalars(
-                select(RedeployQueueItem.contract_id).where(
-                    RedeployQueueItem.contract_id.in_(ids),
-                    RedeployQueueItem.status == RETURNING_REDEPLOY_STATUS,
+            handed = {
+                int(entity_id)
+                for entity_id in await db.scalars(
+                    select(HrAuditEvent.entity_id)
+                    .where(
+                        HrAuditEvent.entity_type == "contract",
+                        HrAuditEvent.entity_id.in_([str(cid) for cid in ids]),
+                        HrAuditEvent.action == HANDOFF_ACTION,
+                    )
+                    .distinct()
+                )
+            }
+            if not handed:
+                return set()
+            rows = await db.execute(
+                select(
+                    RedeployQueueItem.contract_id,
+                    RedeployQueueItem.status,
+                    RedeployQueueItem.reason,
+                ).where(
+                    RedeployQueueItem.contract_id.in_(sorted(handed)),
+                    RedeployQueueItem.status.in_(RETURNING_REDEPLOY_STATUSES),
                 )
             )
-            return set(rows)
+            return returning_contract_ids(handed, rows.all())
     except Exception:  # noqa: BLE001 — znacznik ma się pokazać bez dopisku
         logger.warning(
             "employment_marker: returning contracts unavailable", exc_info=True
@@ -721,6 +766,7 @@ __all__ = [
     "load_employment_markers",
     "load_order_ends",
     "load_returning_contract_ids",
+    "returning_contract_ids",
     "mark_returning",
     "marker_client_ids",
     "markers_from_rows",

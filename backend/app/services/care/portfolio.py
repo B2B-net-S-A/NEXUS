@@ -5,6 +5,9 @@ Delivery Leadzi, domyślny opiekun, liczba konsultantów, zdrowie relacji
 (liczniki Dobrze/Uwaga/Ryzyko — tylko krąg D11), kompletność wiedzy
 (menedżerowie znani, konsultanci bez menedżera, ostatnia opinia, prośby
 o opinię — D11), mapa technologii, popyt i konsultanci kończący w 60 dni.
+Sygnał „klient zatrudnia” (``demand.hiring_signal``) tylko dla tego, kto
+widzi karty popytu klienta (DL klienta, admin — ``demand.demand_clients``);
+reszta dostaje ``false`` (audyt bezpieczeństwa 22.10.2026).
 
 Liczone hurtem (zapytania grupowane po kliencie). Mapa technologii nie jest
 liczona od nowa dla każdego klienta: jeśli jest w cache single-flight
@@ -44,6 +47,16 @@ from app.services.skill_normalize import iter_skill_names
 
 ENDING_DAYS = 60
 DEMAND_SKILLS = 5
+
+
+def hiring_signal(
+    client_id: int, hiring_clients: set[int], demand_scope: Optional[frozenset[int]]
+) -> bool:
+    """Sygnał popytu w wierszu klienta — tylko w zakresie kart popytu czytającego."""
+
+    return client_id in hiring_clients and care_access.client_in_scope(
+        client_id, demand_scope
+    )
 
 
 def _latest(*values: Optional[date]) -> Optional[date]:
@@ -237,10 +250,17 @@ async def clients(
             pending[item["client_id"]] += 1
     light = await _light_map(db, client_ids) if client_ids else {}
     open_jobs, job_skills = await _open_jobs(db, client_ids) if client_ids else ({}, {})
-    # Nierozstrzygnięty sygnał „klient zatrudnia” z 90 dni (jak karta popytu).
+    # Nierozstrzygnięty sygnał „klient zatrudnia” z 90 dni (jak karta popytu),
+    # tylko u klientów, których popyt czytający widzi.
+    demand_scope = await demand.demand_clients(db, user)
+    demand_ids = [
+        cid for cid in client_ids if care_access.client_in_scope(cid, demand_scope)
+    ]
     hiring_clients = {
         signal.client_id
-        for group, _state in await demand.open_groups(db, client_ids, today=today)
+        for group, _state in (
+            await demand.open_groups(db, demand_ids, today=today) if demand_ids else []
+        )
         for signal in group.signals
     }
 
@@ -291,7 +311,9 @@ async def clients(
                 "demand": {
                     "skills": job_skills.get(client_id, []),
                     "open_jobs": open_jobs.get(client_id, 0),
-                    "hiring_signal": client_id in hiring_clients,
+                    "hiring_signal": hiring_signal(
+                        client_id, hiring_clients, demand_scope
+                    ),
                 },
                 "ending_60": ending,
             }

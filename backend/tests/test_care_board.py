@@ -210,8 +210,15 @@ async def test_conversation_window_saves_card_case_and_demand(
             )
         )
     assert linked == saved["conversation_id"]
-    key = f"demand:{client_id}:{area_id}:{saved['conversation_id']}"
-    assert bell is not None and bell.link == f"/care?card={key}"
+    key = f"demand:{client_id}:{saved['conversation_id']}"
+    assert bell is not None and bell.link == f"/care?card={key}&area={area_id}"
+
+    timeline = await app_client.get(
+        f"/api/care/contracts/{contract_id}/timeline", headers=headers(lead)
+    )
+    tech_events = [e for e in timeline.json()["events"] if e["kind"] == "tech_card"]
+    # „Edytuj” w historii szuka karty po id, nie po dacie.
+    assert [e["tech_card_id"] for e in tech_events] == [saved["tech_card_id"]]
 
     card = await app_client.get(
         f"/api/care/contracts/{contract_id}/card", headers=headers(lead)
@@ -238,10 +245,7 @@ async def test_conversation_window_saves_card_case_and_demand(
     # Ten sam klient, dział i role w 30 dniach = jedna karta (najnowsza rozmowa).
     assert len(demand_cards) == 1
     newest = demand_cards[0]
-    assert (
-        newest["key"]
-        == f"demand:{client_id}:{area_id}:{again.json()['conversation_id']}"
-    )
+    assert newest["key"] == f"demand:{client_id}:{again.json()['conversation_id']}"
     assert newest["demand"]["roles"] == ["Java Developer"]
     assert len(newest["sources"]) == 2
 
@@ -285,7 +289,35 @@ async def test_conversation_window_saves_card_case_and_demand(
     ]
 
 
-async def test_conversation_window_refuses_card_without_technology(
+async def test_card_survives_sql_error_in_front_office_matches(
+    app_client, care_on, monkeypatch
+) -> None:
+    """Błąd SQL w „Pasuje też do” nie przerywa transakcji karty (savepoint)."""
+
+    from sqlalchemy import text
+
+    from app.services.care import front_office
+
+    lead = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=lead)
+    contract_id, _ = await make_contract(
+        client_id, started_days_ago=200, end_in_days=20
+    )
+
+    async def broken_overview(db, *args, **kwargs):
+        await db.execute(text("SELECT * FROM tabela_ktorej_nie_ma"))
+
+    monkeypatch.setattr(front_office, "overview", broken_overview)
+    card = await app_client.get(
+        f"/api/care/contracts/{contract_id}/card", headers=headers(lead)
+    )
+    assert card.status_code == 200, card.text
+    step = card.json()["next_step"]
+    assert step["kind"] == "front_office"
+    assert step["matches"] == []
+
+
+async def test_conversation_window_saves_without_card_when_no_technology(
     app_client, care_on
 ) -> None:
     lead, _client_id, area_id, _m, contract_id, _c = await _setup()
@@ -297,12 +329,91 @@ async def test_conversation_window_refuses_card_without_technology(
         },
         headers=headers(lead),
     )
-    assert resp.status_code == 422, resp.text
-    # Cała transakcja cofnięta — rozmowy nie ma.
+    # Bez technologii karta się nie zapisuje, ale rozmowa tak.
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["tech_card_id"] is None
+    assert resp.json()["conversation_id"]
     tab = await app_client.get(
         f"/api/care/contracts/{contract_id}", headers=headers(lead)
     )
-    assert tab.json()["conversations"] == []
+    assert [c["id"] for c in tab.json()["conversations"]] == [
+        resp.json()["conversation_id"]
+    ]
+
+
+async def test_hiring_roles_without_client_state_reach_demand_card(
+    app_client, care_on
+) -> None:
+    lead, client_id, _area_id, _m, contract_id, _c = await _setup()
+    admin = await make_user(UserRole.admin)
+    resp = await app_client.post(
+        f"/api/care/contracts/{contract_id}/conversations",
+        json={
+            "occurred_on": business_today().isoformat(),
+            "client_hiring": True,
+            "hiring_roles": ["Kotlin Developer"],
+            "hiring_source": "slyszal",
+        },
+        headers=headers(admin),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["tech_card_id"] is None
+    board = await app_client.get("/api/care/board?scope=all", headers=headers(lead))
+    card = next(
+        c
+        for c in board.json()["cards"]
+        if c["kind"] == "demand" and c["client_id"] == client_id
+    )
+    assert card["demand"]["roles"] == ["Kotlin Developer"]
+    assert card["demand"]["source"] == "slyszal"
+
+
+async def test_conversation_cases_without_cases_permission(app_client, care_on) -> None:
+    """DL bez „Spraw”: sprawa bez osoby albo na siebie; nie komuś, nie negocjacje."""
+
+    lead, _client_id, _a, _m, contract_id, _c = await _setup()
+    other = await make_user(UserRole.delivery_lead)
+    url = f"/api/care/contracts/{contract_id}/conversations"
+    base = {"occurred_on": business_today().isoformat(), "channel": "phone"}
+
+    assignees = await app_client.get("/api/care/case-assignees", headers=headers(lead))
+    assert assignees.status_code == 200, assignees.text
+    assert [item["id"] for item in assignees.json()["items"]] == [lead.id]
+
+    for case, detail in (
+        (
+            {
+                "title": "Aneks do umowy",
+                "area": "administration",
+                "assignee_user_id": other.id,
+            },
+            "innej osobie",
+        ),
+        ({"title": "Nowa stawka od stycznia", "area": "negotiation"}, "Negocjacje"),
+    ):
+        refused = await app_client.post(
+            url, json={**base, "cases": [case]}, headers=headers(lead)
+        )
+        assert refused.status_code == 403, refused.text
+        assert detail in refused.json()["detail"]
+
+    ok = await app_client.post(
+        url,
+        json={
+            **base,
+            "cases": [
+                {"title": "Nowy laptop", "area": "administration"},
+                {
+                    "title": "Dostęp do VPN",
+                    "area": "administration",
+                    "assignee_user_id": lead.id,
+                },
+            ],
+        },
+        headers=headers(lead),
+    )
+    assert ok.status_code == 201, ok.text
+    assert len(ok.json()["case_ids"]) == 2
 
 
 async def test_board_contact_card_moves_between_columns(app_client, care_on) -> None:

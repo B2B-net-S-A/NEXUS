@@ -198,6 +198,9 @@ export interface ConversationPayload {
   project_end_on?: string | null;
   client_hiring?: boolean;
   client_hiring_note?: string | null;
+  /** „Klient zatrudnia”: role i źródło przy rozmowie — także bez „Co u klienta” (popyt bez karty). */
+  hiring_roles?: string[];
+  hiring_source?: HiringSource | null;
   follow_up_on?: string | null;
   plan_item_id?: number | null;
   /** „Co u klienta” — podany tylko, gdy opiekun potwierdził albo zmienił stan (zapisuje kartę technologiczną). */
@@ -702,6 +705,10 @@ export interface TimelineEvent {
   detail: string | null;
   link: string | null;
   future: boolean;
+  /** Zdarzenie `tech_card`: karta technologiczna („Edytuj” w historii). */
+  tech_card_id?: number | null;
+  /** Zdarzenia spraw: sprawa. */
+  case_id?: number | null;
 }
 
 export interface ContractTimeline {

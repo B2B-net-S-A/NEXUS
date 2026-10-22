@@ -14,8 +14,9 @@ import { WorkBoard } from "@/components/work-board/WorkBoard";
 import { useAnnouncements } from "@/lib/api/care-announcements";
 import type { CareBoardCard } from "@/lib/api/care-board";
 import type { HrConfig } from "@/lib/api/hr";
-import { findSettingsItem, settingsItemHref } from "@/lib/settings-registry";
+import { canSeeSettingsItem, findSettingsItem, settingsItemHref } from "@/lib/settings-registry";
 import { useUrlWriter } from "@/lib/url-selection";
+import { useAuthStore } from "@/store/auth";
 
 import { AnnouncementsTab } from "./announcements/AnnouncementsTab";
 import { ConsultantCardPanel } from "./card/ConsultantCardPanel";
@@ -42,9 +43,14 @@ export interface CareRoute {
  * „Konsultanci”; `redeploy` → „Konsultanci” z filtrem „Do przepięcia” (karty
  * „Decyzja” stoją na tablicy); `assignment` → „Zespół opiekunów”;
  * `structure` → „Klienci” (z `client` — „Ludzie i technologie” klienta);
- * `review` (kolejka nazw technologii) → Ustawienia → Słownik umiejętności.
+ * `review` (kolejka nazw technologii) → Ustawienia → Słownik umiejętności
+ * (admin, HoR — `canSeeSkills`), a TCM bez dostępu do Słownika → „Nazwy
+ * z rozmów do przejrzenia”.
  */
-export function careRouteFrom(params: URLSearchParams | null | undefined): CareRoute {
+export function careRouteFrom(
+  params: URLSearchParams | null | undefined,
+  { canSeeSkills = true }: { canSeeSkills?: boolean } = {},
+): CareRoute {
   const value = params?.get("tab") ?? null;
   switch (value) {
     case "consultants":
@@ -67,8 +73,8 @@ export function careRouteFrom(params: URLSearchParams | null | undefined): CareR
     case "announcements":
       return { tab: "announcements" };
     case "review": {
-      const skills = findSettingsItem("skills");
-      return { tab: "todo", redirect: skills ? settingsItemHref(skills) : "/settings" };
+      const target = findSettingsItem(canSeeSkills ? "skills" : "skills-review");
+      return { tab: "todo", redirect: target ? settingsItemHref(target) : "/settings" };
     }
     default:
       return { tab: "todo" };
@@ -118,7 +124,11 @@ function CareTabs({ config }: { config: HrConfig }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { replaceUrl } = useUrlWriter();
-  const route = careRouteFrom(searchParams);
+  const user = useAuthStore((s) => s.user);
+  const skillsItem = findSettingsItem("skills");
+  const route = careRouteFrom(searchParams, {
+    canSeeSkills: skillsItem ? canSeeSettingsItem(user, skillsItem, { hrProgram: config.program }) : false,
+  });
   const teamOpen = canSeeTeam(config);
   const tab: CareTab = route.tab === "team" && !teamOpen ? "todo" : route.tab;
   const [scope, setScope] = useState<"mine" | "all">("mine");
@@ -222,6 +232,7 @@ function CareTabs({ config }: { config: HrConfig }) {
                 scope="care"
                 config={config}
                 initialSelectedKey={cardKey}
+                onCloseSelected={() => writeParams((params) => params.delete("card"))}
                 onOpenConversation={(id, planItemId) => setTalk({ contractId: id, planItemId: planItemId ?? null })}
                 onOpenFrontOffice={(id) => setFrontOffice(id)}
                 onOpenFeedback={(card) => setFeedback(feedbackTarget(card, false))}

@@ -406,9 +406,19 @@ async def _ingest_message(
         # Mail od konsultanta z dokładnie jednym aktywnym kontraktem — sprawa
         # wie, kogo dotyczy. Kilka kontraktów albo mail z firmy klienta =
         # propozycje przy odczycie (``contract_links.link_suggestions``).
-        from app.services.admin_cases.contract_links import link_new_mail_case
+        from app.services.admin_cases.contract_links import (
+            link_new_mail_case,
+            sender_authenticated,
+        )
 
-        await link_new_mail_case(db, case, sender_email=sender_email)
+        await link_new_mail_case(
+            db,
+            case,
+            sender_email=sender_email,
+            authenticated=sender_authenticated(
+                msg.get("internetMessageHeaders"), sender_email
+            ),
+        )
     return outcome
 
 

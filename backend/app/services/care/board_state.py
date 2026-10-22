@@ -55,7 +55,7 @@ _KEY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("contact_followup", re.compile(r"^contact:followup:(\d+)$")),
     ("feedback", re.compile(r"^feedback:(\d+)$")),
     ("decision", re.compile(r"^decision:(\d+)$")),
-    ("demand", re.compile(r"^demand:(\d+):(\d+):(\d+)$")),
+    ("demand", re.compile(r"^demand:(\d+):(\d+)$")),
 )
 
 
@@ -75,7 +75,7 @@ class CardKey:
 def parse_key(raw: str) -> Optional[CardKey]:
     """``contact:plan:<punkt>``, ``contact:followup:<rozmowa>``,
     ``feedback:<kontakt>``, ``decision:<wpis>``,
-    ``demand:<klient>:<dział albo 0>:<rozmowa>``; inny tekst = ``None``."""
+    ``demand:<klient>:<rozmowa>``; inny tekst = ``None``."""
 
     for variant, pattern in _KEY_PATTERNS:
         match = pattern.match(raw or "")
@@ -84,8 +84,11 @@ def parse_key(raw: str) -> Optional[CardKey]:
     return None
 
 
-def demand_key(client_id: int, area_id: Optional[int], conversation_id: int) -> str:
-    return f"demand:{client_id}:{area_id or 0}:{conversation_id}"
+def demand_key(client_id: int, conversation_id: int) -> str:
+    """Klucz popytu BEZ działu: dział liczy się przy odczycie (karta z rozmowy
+    albo dział menedżera) i po jego zmianie rozstrzygnięcie by się zgubiło."""
+
+    return f"demand:{client_id}:{conversation_id}"
 
 
 @dataclass(frozen=True)

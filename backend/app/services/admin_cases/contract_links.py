@@ -6,7 +6,12 @@ Dwie drogi i jedna zasada — automat łączy tylko to, co pewne:
   reguła co karta kontraktu i komunikaty: ``contract_candidate_contact`` —
   e-mail z umowy, a bez niego z profilu kandydata). DOKŁADNIE jeden aktywny
   albo kończący się kontrakt z tym adresem = czytnik wpisuje ``contract_id``
-  nowej sprawie (``link_new_mail_case``). Kilka = tylko propozycje,
+  nowej sprawie (``link_new_mail_case``) — ale tylko, gdy nadawca jest
+  uwierzytelniony (``sender_authenticated``: w nagłówku
+  ``Authentication-Results`` dopisanym przez naszą bramkę poczty
+  ``dmarc=pass`` albo ``spf=pass`` i ``dkim=pass`` dla domeny nadawcy).
+  Sam ``From`` łatwo podrobić, więc bez uwierzytelnienia zostaje propozycja
+  „Kogo dotyczy?” (audyt bezpieczeństwa 22.10.2026). Kilka = tylko propozycje,
 * **mail z firmy klienta** — nadawca = kontakt klienta, a w temacie albo
   treści stoi imię i nazwisko naszego konsultanta z aktywnym kontraktem
   u tego klienta → propozycja „Kogo dotyczy?”, nigdy wpis automatu. Imię
@@ -241,16 +246,104 @@ async def live_contracts_for_emails(
     return out
 
 
+def _domain_of(value: Optional[str]) -> Optional[str]:
+    raw = (value or "").strip().strip("<>").lower().rstrip(".")
+    if "@" in raw:
+        raw = raw.rsplit("@", 1)[1]
+    return raw or None
+
+
+def _aligned(found: Optional[str], sender_domain: str) -> bool:
+    """Domena z wyniku = domena nadawcy albo jej domena nadrzędna (relaxed)."""
+
+    domain = _domain_of(found)
+    if domain is None:
+        return False
+    return sender_domain == domain or sender_domain.endswith("." + domain)
+
+
+def parse_authentication_results(value: str) -> dict[str, tuple[str, dict[str, str]]]:
+    """``Authentication-Results`` → {metoda: (wynik, właściwości)}; pierwszy wpis metody."""
+
+    out: dict[str, tuple[str, dict[str, str]]] = {}
+    for part in (value or "").split(";"):
+        tokens = part.split()
+        if not tokens or "=" not in tokens[0]:
+            continue
+        method, _, result = tokens[0].partition("=")
+        method = method.strip().lower()
+        props: dict[str, str] = {}
+        for token in tokens[1:]:
+            key, sep, prop = token.partition("=")
+            if sep and "." in key:
+                props.setdefault(key.lower(), prop.strip())
+        out.setdefault(method, (result.strip().lower(), props))
+    return out
+
+
+def sender_authenticated(
+    headers: Optional[Sequence[Mapping[str, Any]]], sender_email: Optional[str]
+) -> bool:
+    """Czy nadawca maila jest uwierzytelniony dla swojej domeny.
+
+    Czyta PIERWSZY nagłówek ``Authentication-Results`` z listy Graph (najwyżej
+    w mailu = dopisany przez bramkę przy odbiorze; niższe mógł wstawić
+    nadawca). Tak = ``dmarc=pass`` z ``header.from`` domeny nadawcy albo
+    ``spf=pass`` (``smtp.mailfrom``) i ``dkim=pass`` (``header.d``) zgodne
+    z domeną nadawcy. Brak nagłówka = nie.
+    """
+
+    sender_domain = (
+        _domain_of(sender_email) if sender_email and "@" in sender_email else None
+    )
+    if sender_domain is None:
+        return False
+    value = next(
+        (
+            str(header.get("value") or "")
+            for header in headers or []
+            if str(header.get("name") or "").strip().lower() == "authentication-results"
+        ),
+        None,
+    )
+    if value is None:
+        return False
+    results = parse_authentication_results(value)
+    dmarc = results.get("dmarc")
+    if (
+        dmarc
+        and dmarc[0] == "pass"
+        and _aligned(dmarc[1].get("header.from"), sender_domain)
+    ):
+        return True
+    spf = results.get("spf")
+    dkim = results.get("dkim")
+    return bool(
+        spf
+        and dkim
+        and spf[0] == "pass"
+        and dkim[0] == "pass"
+        and _aligned(spf[1].get("smtp.mailfrom"), sender_domain)
+        and _aligned(dkim[1].get("header.d"), sender_domain)
+    )
+
+
 async def link_new_mail_case(
-    db: AsyncSession, case: AdminCase, *, sender_email: Optional[str]
+    db: AsyncSession,
+    case: AdminCase,
+    *,
+    sender_email: Optional[str],
+    authenticated: bool = False,
 ) -> Optional[int]:
     """Nowa sprawa z maila konsultanta → jego kontrakt, gdy jest dokładnie jeden.
 
-    Nie nadpisuje kontraktu wpisanego wcześniej (np. przez odpowiedź na
-    komunikat). Nie commituje — wchodzi w punkt zapisu czytnika.
+    Tylko dla uwierzytelnionego nadawcy (``sender_authenticated``) — inaczej
+    zostaje propozycja przy odczycie. Nie nadpisuje kontraktu wpisanego
+    wcześniej (np. przez odpowiedź na komunikat). Nie commituje — wchodzi
+    w punkt zapisu czytnika.
     """
 
-    if case.contract_id is not None:
+    if case.contract_id is not None or not authenticated:
         return None
     key = _email_key(sender_email)
     if key is None:

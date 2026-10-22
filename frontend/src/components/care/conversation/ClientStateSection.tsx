@@ -351,7 +351,8 @@ export function ClientStateSection({
       </ul>
       {touchedRows(form).length && effectiveTechnologies(form, knownTechnologies) === 0 ? (
         <p className="text-xs text-warning-muted-foreground">
-          Stan u klienta zapisze się dopiero z co najmniej jedną technologią — „Technologie” → „uzupełnij”.
+          Bez technologii zapisze się tylko zmiana menedżera — reszta stanu u klienta czeka na co najmniej
+          jedną technologię („Technologie” → „uzupełnij”).
         </p>
       ) : null}
     </section>

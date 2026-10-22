@@ -277,13 +277,15 @@ async def next_step(
             "matches": [],
         }
         try:
-            result = await front_office.overview(
-                db,
-                contract,
-                today=today,
-                profile_user_id=user.id,
-                scope_clause=scope_clause,
-            )
+            # Savepoint: błąd SQL w dopasowaniach nie psuje transakcji karty.
+            async with db.begin_nested():
+                result = await front_office.overview(
+                    db,
+                    contract,
+                    today=today,
+                    profile_user_id=user.id,
+                    scope_clause=scope_clause,
+                )
             step["matches"] = [
                 {
                     "job_id": job["job_id"],

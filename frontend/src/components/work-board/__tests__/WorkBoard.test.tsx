@@ -303,6 +303,33 @@ describe("tablica pracy — Opieka → Do zrobienia", () => {
     expect(onOpenConversation).toHaveBeenCalledWith(10, 1);
   });
 
+  it("link z dzwonka przy otwartej tablicy (nowy `initialSelectedKey`) otwiera panel; zamknięcie zdejmuje kartę z adresu", async () => {
+    asUser("talent_community_manager");
+    route({
+      cases: { error: 403 },
+      board: board([careCard({}), careCard({ key: "contact:plan:2", title: "Rozmowa: Beata Wzorcowa" })]),
+    });
+    const onCloseSelected = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = (key: string | null) => (
+      <QueryClientProvider client={queryClient}>
+        <WorkBoard scope="care" config={config(false)} initialSelectedKey={key} onCloseSelected={onCloseSelected} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view(null));
+    await screen.findByRole("listitem", { name: "Rozmowa: Beata Wzorcowa" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    rerender(view("contact:plan:2"));
+    const panel = await screen.findByRole("dialog");
+    expect(within(panel).getByText("Rozmowa: Beata Wzorcowa")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(onCloseSelected).toHaveBeenCalled();
+  });
+
   it("„W toku” pyta o dzień i godzinę i zapisuje stan karty", async () => {
     asUser("talent_community_manager");
     route({ cases: { error: 403 }, board: board([careCard({})]) });

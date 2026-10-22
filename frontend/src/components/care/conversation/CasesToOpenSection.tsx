@@ -11,9 +11,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CASE_AREAS, CASE_AREA_LABELS, useCaseAssignees, type CaseArea } from "@/lib/api/admin-cases";
+import { CASE_AREA_LABELS, useCaseAssignees, type CaseArea } from "@/lib/api/admin-cases";
 
-import { MAX_CONVERSATION_CASES, emptyCase, type CaseDraft } from "./conversation-form";
+import {
+  CASE_TITLE_MAX,
+  MAX_CONVERSATION_CASES,
+  caseAreasFor,
+  caseTitleProblem,
+  emptyCase,
+  type CaseDraft,
+} from "./conversation-form";
 
 const NOBODY = "none";
 
@@ -22,6 +29,11 @@ interface CasesToOpenSectionProps {
   onChange: (next: CaseDraft[]) => void;
   /** Lista osób spraw z `GET /api/care/case-assignees` (zapisujący opiekę); bez prawa zapisu — „przydzieli obsługa”. */
   canPickAssignee: boolean;
+  /**
+   * Obsługa Spraw (uprawnienie „Sprawy” albo admin): pełna lista osób i obszar „Negocjacje”.
+   * Reszta zostawia sprawę bez osoby albo bierze ją na siebie (trasa zwraca wtedy tylko ją).
+   */
+  handler: boolean;
 }
 
 /**
@@ -29,7 +41,8 @@ interface CasesToOpenSectionProps {
  * z rozmową (jeden rejestr Spraw w „Ludziach”). Opis sprawy to link do
  * rozmowy — bez stawek i bez treści rozmowy.
  */
-export function CasesToOpenSection({ drafts, onChange, canPickAssignee }: CasesToOpenSectionProps) {
+export function CasesToOpenSection({ drafts, onChange, canPickAssignee, handler }: CasesToOpenSectionProps) {
+  const areas = caseAreasFor(handler);
   const assignees = useCaseAssignees(canPickAssignee && drafts.length > 0, "care");
   const update = (index: number, patch: Partial<CaseDraft>) =>
     onChange(drafts.map((draft, i) => (i === index ? { ...draft, ...patch } : draft)));
@@ -46,13 +59,18 @@ export function CasesToOpenSection({ drafts, onChange, canPickAssignee }: CasesT
       </div>
       {drafts.length ? (
         <ul className="space-y-2">
-          {drafts.map((draft, index) => (
+          {drafts.map((draft, index) => {
+            const titleProblem = caseTitleProblem(draft);
+            const titleErrorId = `conversation-case-${index}-title-error`;
+            return (
             <li key={index} className="grid gap-1.5 rounded-md border border-border/60 p-2">
               <div className="flex items-center gap-1.5">
                 <Input
                   aria-label={`Sprawa ${index + 1}: tytuł`}
                   value={draft.title}
-                  maxLength={300}
+                  maxLength={CASE_TITLE_MAX}
+                  aria-invalid={titleProblem ? true : undefined}
+                  aria-describedby={titleProblem ? titleErrorId : undefined}
                   placeholder="np. Nowy laptop, aneks, dostęp do VPN"
                   onChange={(event) => update(index, { title: event.target.value })}
                 />
@@ -66,13 +84,18 @@ export function CasesToOpenSection({ drafts, onChange, canPickAssignee }: CasesT
                   <X aria-hidden className="size-4" />
                 </Button>
               </div>
+              {titleProblem ? (
+                <p id={titleErrorId} role="alert" className="text-xs text-destructive">
+                  {titleProblem}
+                </p>
+              ) : null}
               <div className={showAssignee ? "grid grid-cols-3 gap-1.5" : "grid grid-cols-2 gap-1.5"}>
                 <Select value={draft.area} onValueChange={(next) => update(index, { area: next as CaseArea })}>
                   <SelectTrigger aria-label={`Sprawa ${index + 1}: obszar`} className="h-8">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CASE_AREAS.map((key) => (
+                    {areas.map((key) => (
                       <SelectItem key={key} value={key}>
                         {CASE_AREA_LABELS[key]}
                       </SelectItem>
@@ -90,7 +113,7 @@ export function CasesToOpenSection({ drafts, onChange, canPickAssignee }: CasesT
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NOBODY}>Prowadzi: obsługa</SelectItem>
+                      <SelectItem value={NOBODY}>Bez osoby — przydzieli obsługa</SelectItem>
                       {(assignees.data ?? []).map((person) => (
                         <SelectItem key={person.id} value={String(person.id)}>
                           {person.name}
@@ -108,7 +131,8 @@ export function CasesToOpenSection({ drafts, onChange, canPickAssignee }: CasesT
                 />
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       ) : null}
       {drafts.length < MAX_CONVERSATION_CASES ? (
@@ -118,6 +142,11 @@ export function CasesToOpenSection({ drafts, onChange, canPickAssignee }: CasesT
       ) : null}
       {drafts.length && !showAssignee ? (
         <p className="text-xs text-muted-foreground">Osobę przydzieli obsługa Spraw.</p>
+      ) : null}
+      {drafts.length && showAssignee && !handler ? (
+        <p className="text-xs text-muted-foreground">
+          Sprawę zostaw bez osoby (przydzieli obsługa Spraw) albo weź na siebie.
+        </p>
       ) : null}
     </section>
   );

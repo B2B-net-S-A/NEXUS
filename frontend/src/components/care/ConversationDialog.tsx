@@ -40,6 +40,7 @@ import { CasesToOpenSection } from "./conversation/CasesToOpenSection";
 import { ClientStateSection } from "./conversation/ClientStateSection";
 import {
   buildConversationPayload,
+  caseTitleProblem,
   emptyClientState,
   emptyTalk,
   saveSummary,
@@ -199,6 +200,9 @@ export function ConversationDialog({
   const set = (patch: Partial<TalkForm>) => setTalk((current) => ({ ...current, ...patch }));
   // Okno rozmowy otwiera tylko zapisujący opiekę — tej samej bramki pilnuje `/api/care/case-assignees`.
   const canPickAssignee = true;
+  // Obsługa Spraw (uprawnienie „Sprawy” albo admin) — pełna lista osób i obszar „Negocjacje”.
+  const caseHandler = Boolean(hr.data?.me.is_admin || hr.data?.me.cases);
+  const caseTitleBlocked = casesOpen && cases.some((draft) => caseTitleProblem(draft) !== null);
   const name = card.data?.candidate_name;
   const planLabel = planItem
     ? (planItem.label ?? card.data?.plan.find((item) => item.id === planItem.id)?.label ?? "punkt planu")
@@ -373,7 +377,12 @@ export function ConversationDialog({
                 onChange={(key, answer) => setAnswers((current) => ({ ...current, [key]: answer }))}
               />
               {casesOpen ? (
-                <CasesToOpenSection drafts={cases} onChange={setCases} canPickAssignee={canPickAssignee} />
+                <CasesToOpenSection
+                  drafts={cases}
+                  onChange={setCases}
+                  canPickAssignee={canPickAssignee}
+                  handler={caseHandler}
+                />
               ) : null}
             </div>
           </div>
@@ -392,7 +401,7 @@ export function ConversationDialog({
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Anuluj
             </Button>
-            <Button onClick={submit} loading={save.isPending}>
+            <Button onClick={submit} loading={save.isPending} disabled={caseTitleBlocked}>
               Zapisz rozmowę
             </Button>
           </div>

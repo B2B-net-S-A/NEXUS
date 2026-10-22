@@ -293,3 +293,17 @@ describe("ContractCareTab", () => {
     expect(mocks.get).toHaveBeenCalledWith("/api/care/contracts/5");
   });
 });
+
+describe("findTechCard", () => {
+  it("szuka karty po id zdarzenia, a bez id (stara oś) po dacie", async () => {
+    const { findTechCard } = await import("../ContractCareTab");
+    const cards = [
+      { id: 1, interview_on: "2026-10-20" },
+      { id: 2, interview_on: "2026-10-20" },
+    ];
+    expect(findTechCard(cards, { id: 2, on: "2026-10-20" })?.id).toBe(2);
+    expect(findTechCard(cards, { id: null, on: "2026-10-20" })?.id).toBe(1);
+    expect(findTechCard(cards, { id: 9, on: "2026-10-20" })).toBeNull();
+    expect(findTechCard(undefined, { id: 1, on: "2026-10-20" })).toBeNull();
+  });
+});

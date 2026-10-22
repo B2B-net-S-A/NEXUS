@@ -10,7 +10,9 @@ termin i osobę, a ``content_hidden`` mówi, czy sprawę wolno otworzyć;
 negocjacje — nigdy z karty. Odczyt niczego nie zapisuje.
 
 ``GET /case-assignees`` — lista osób do spraw dla zapisującego opiekę (wybór
-„Prowadzi” w oknie rozmowy; ta sama lista co ``/api/cases/assignees`` obsługi).
+„Prowadzi” w oknie rozmowy). Obsługa Spraw (``is_handler``) dostaje pełną
+listę, reszta tylko siebie — sprawę z rozmowy bez uprawnienia zostawia się
+bez osoby albo bierze na siebie (``conversation_save.case_request_problem``).
 
 Router dołącza się pod prefiksem ``/api/care`` z ``_HR_PROGRAM``.
 """
@@ -22,6 +24,7 @@ from app.api.care_gates import CareReader, CareWriter
 from app.core.database import get_db
 from app.models.user import User
 from app.services.admin_cases import queries
+from app.services.admin_cases.service import is_handler
 from app.services.care import access as care_access
 
 router = APIRouter()
@@ -39,7 +42,11 @@ async def contract_cases(
 
 @router.get("/case-assignees")
 async def case_assignees(
-    _: User = Depends(CareWriter),
+    current_user: User = Depends(CareWriter),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return {"items": await queries.assignee_options(db)}
+    if is_handler(current_user):
+        return {"items": await queries.assignee_options(db)}
+    return {
+        "items": [{"id": current_user.id, "name": current_user.name, "handler": False}]
+    }

@@ -402,3 +402,25 @@ def test_future_contract_does_not_block_returning_and_alone_is_not_returning():
 
     only_future = build_markers([rows[1]], today=TODAY)
     assert mark_returning(only_future, {12})[1].returns_to_market is False
+
+
+def test_returning_needs_front_office_handoff_and_never_attrition_risk():
+    """Sam wpis „Do przepięcia” w toku nie zapala „Wraca na rynek” (22.10.2026)."""
+
+    from app.services.employment_marker import returning_contract_ids
+
+    # Ryzyko odejścia w toku, bez przekazania — nie.
+    assert (
+        returning_contract_ids(set(), [(10, "in_progress", "attrition_risk")]) == set()
+    )
+    # Ryzyko odejścia nawet przy przekazaniu — nie.
+    assert (
+        returning_contract_ids({10}, [(10, "in_progress", "attrition_risk")]) == set()
+    )
+    # „Chce zmiany” w toku bez przekazania — nie.
+    assert returning_contract_ids(set(), [(10, "in_progress", "wants_change")]) == set()
+    # Przekazanie do front office + niezamknięty wpis — tak.
+    assert returning_contract_ids({10}, [(10, "in_progress", "wants_change")]) == {10}
+    assert returning_contract_ids({11}, [(11, "open", "project_end")]) == {11}
+    # Przekazanie, ale wpis już zamknięty — nie.
+    assert returning_contract_ids({10}, [(10, "done", "project_end")]) == set()

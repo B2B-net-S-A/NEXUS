@@ -122,7 +122,7 @@ function mineCards(today: string): CareBoardCard[] {
       health: { level: "watch", label: "Uwaga", reasons: ["koniec bez decyzji za 41 dni"] },
     }),
     base(today, {
-      key: "demand:7003:12:9901",
+      key: "demand:7003:9901",
       kind: "demand",
       title: `Popyt: ${HR_CLIENTS.clinic.name}`,
       subtitle: "dział Platformy · 2 role",

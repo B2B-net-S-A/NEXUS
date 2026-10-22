@@ -262,12 +262,16 @@ function FeedbackDialogBody({
     }
     save.mutate(
       {
-        ...(manager ? { contact_id: manager.id } : {}),
+        ...(manager
+          ? {
+              contact_id: manager.id,
+              extension_outlook: extension,
+              note: note.trim() || null,
+              scores: scoresForPayload(scores, skipped),
+            }
+          : {}),
         held_on: heldOn,
         channel,
-        extension_outlook: extension,
-        note: note.trim() || null,
-        scores: scoresForPayload(scores, skipped),
         ...(demandBody ? { demand: demandBody } : {}),
       },
       {
@@ -484,87 +488,96 @@ function FeedbackDialogBody({
         </FormField>
       </div>
 
-      <div className="mt-3 space-y-2">
-        {consultants.length === 0 && manager ? (
-          <p className="text-sm text-muted-foreground">
-            Ta osoba nie jest menedżerem żadnego z naszych konsultantów — opinia zapisze
-            samą rozmowę.
-          </p>
-        ) : null}
-        {consultants.map((consultant) => {
-          const isSkipped = skipped.has(consultant.contract_id);
-          const values = scores[consultant.contract_id] ?? {};
-          const name = consultant.candidate_name ?? `Kontrakt #${consultant.contract_id}`;
-          return (
-            <div
-              key={consultant.contract_id}
-              className="flex flex-wrap items-end justify-between gap-3 rounded-md border border-border/60 p-3"
-            >
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {[
-                    consultant.role,
-                    consultant.end_date
-                      ? `${consultant.end_source === "contract" ? "umowa" : "zamówienie"} do ${formatIsoDatePl(consultant.end_date)}`
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || "—"}
-                </p>
-                {isSkipped ? (
-                  <p className="text-xs text-muted-foreground">bez opinii w tej rozmowie</p>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap items-end gap-3">
-                {FIELDS.map((field) => (
-                  <ScorePicker
-                    key={field}
-                    label={SCORE_LABELS[field]}
-                    groupLabel={`${SCORE_LABELS[field]} — ${name}`}
-                    value={values[field] ?? null}
-                    disabled={isSkipped}
-                    onChange={(value) => setScore(consultant.contract_id, field, value)}
-                  />
-                ))}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-pressed={isSkipped}
-                  aria-label={isSkipped ? `Oceń: ${name}` : `Pomiń: ${name}`}
-                  onClick={() => toggleSkip(consultant.contract_id)}
+      {manager ? (
+        <>
+          <div className="mt-3 space-y-2">
+            {consultants.length === 0 && manager ? (
+              <p className="text-sm text-muted-foreground">
+                Ta osoba nie jest menedżerem żadnego z naszych konsultantów — opinia zapisze
+                samą rozmowę.
+              </p>
+            ) : null}
+            {consultants.map((consultant) => {
+              const isSkipped = skipped.has(consultant.contract_id);
+              const values = scores[consultant.contract_id] ?? {};
+              const name = consultant.candidate_name ?? `Kontrakt #${consultant.contract_id}`;
+              return (
+                <div
+                  key={consultant.contract_id}
+                  className="flex flex-wrap items-end justify-between gap-3 rounded-md border border-border/60 p-3"
                 >
-                  {isSkipped ? "oceń" : "pomiń"}
-                </Button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {[
+                        consultant.role,
+                        consultant.end_date
+                          ? `${consultant.end_source === "contract" ? "umowa" : "zamówienie"} do ${formatIsoDatePl(consultant.end_date)}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "—"}
+                    </p>
+                    {isSkipped ? (
+                      <p className="text-xs text-muted-foreground">bez opinii w tej rozmowie</p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-end gap-3">
+                    {FIELDS.map((field) => (
+                      <ScorePicker
+                        key={field}
+                        label={SCORE_LABELS[field]}
+                        groupLabel={`${SCORE_LABELS[field]} — ${name}`}
+                        value={values[field] ?? null}
+                        disabled={isSkipped}
+                        onChange={(value) => setScore(consultant.contract_id, field, value)}
+                      />
+                    ))}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-pressed={isSkipped}
+                      aria-label={isSkipped ? `Oceń: ${name}` : `Pomiń: ${name}`}
+                      onClick={() => toggleSkip(consultant.contract_id)}
+                    >
+                      {isSkipped ? "oceń" : "pomiń"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span id={ids.extension} className="text-sm">
-          Przedłużenie{nearestEnd ? ` zamówień do ${formatIsoDatePl(nearestEnd)}` : ""}
-        </span>
-        <SegmentedRadio
-          labelledBy={ids.extension}
-          size="sm"
-          value={extension}
-          onChange={(value) => setExtension(value === extension ? null : value)}
-          options={EXTENSIONS.map((value) => ({ value, label: EXTENSION_LABELS[value] }))}
-        />
-      </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span id={ids.extension} className="text-sm">
+              Przedłużenie{nearestEnd ? ` zamówień do ${formatIsoDatePl(nearestEnd)}` : ""}
+            </span>
+            <SegmentedRadio
+              labelledBy={ids.extension}
+              size="sm"
+              value={extension}
+              onChange={(value) => setExtension(value === extension ? null : value)}
+              options={EXTENSIONS.map((value) => ({ value, label: EXTENSION_LABELS[value] }))}
+            />
+          </div>
 
-      <FormField label="Co mówi klient" htmlFor={ids.note} className="mt-3">
-        <Textarea
-          id={ids.note}
-          rows={3}
-          maxLength={FEEDBACK_NOTE_MAX}
-          value={note}
-          placeholder="np. Zespół chce zostać w tym składzie. Więcej inicjatywy na planowaniu."
-          onChange={(event) => setNote(event.target.value)}
-        />
-      </FormField>
+          <FormField label="Co mówi klient" htmlFor={ids.note} className="mt-3">
+            <Textarea
+              id={ids.note}
+              rows={3}
+              maxLength={FEEDBACK_NOTE_MAX}
+              value={note}
+              placeholder="np. Zespół chce zostać w tym składzie. Więcej inicjatywy na planowaniu."
+              onChange={(event) => setNote(event.target.value)}
+            />
+          </FormField>
+        </>
+      ) : (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Bez menedżera zapisze się tylko decyzja o popycie. Opinię o konsultantach, przedłużenie
+          i notatkę zapiszesz, gdy wybierzesz menedżera.
+        </p>
+      )}
       <p className="mt-2 text-xs text-muted-foreground">
         Konsultant tej opinii nie widzi. Bez danych o zdrowiu i bez stawek. Opinia trafia
         do kontraktów ocenionych osób.
