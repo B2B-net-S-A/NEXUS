@@ -16,8 +16,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
+import { warsawToday } from "@/lib/warsaw-date";
 import { useAuthStore } from "@/store/auth";
 import HrCarePreviewPage from "../hr-care/page";
+import { shiftDay } from "../hr-fixtures";
 
 // Cała strona z prawdziwymi ekranami — na obciążonej maszynie 5 s nie wystarcza.
 vi.setConfig({ testTimeout: 30_000 });
@@ -229,7 +231,9 @@ describe("/preview/hr-care", () => {
     expect(bank).toHaveTextContent("6 · 4 dobrze · 1 uwaga · 1 ryzyko");
     expect(bank).toHaveTextContent("6 z 6");
     expect(bank).toHaveTextContent("3 menedżerów · drzewo pełne");
-    expect(bank).toHaveTextContent("1 prośba czeka od 19.10");
+    // Dane harnessu: prośba sprzed 3 dni (`card-fixtures.ts`), więc data idzie od „dziś”.
+    const pendingSince = shiftDay(warsawToday(), -3);
+    expect(bank).toHaveTextContent(`1 prośba czeka od ${pendingSince.slice(8, 10)}.${pendingSince.slice(5, 7)}`);
     expect(bank).toHaveTextContent("2 luki do dopytania");
     expect(bank).toHaveTextContent("DL Kamil T. · opiekun domyślny Natalia O.");
     const telekom = within(table).getByRole("row", { name: /Telekom Wzorcowy/ });
