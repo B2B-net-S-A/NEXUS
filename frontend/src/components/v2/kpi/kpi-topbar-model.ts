@@ -403,6 +403,16 @@ function closedFacts(goals: MyKpiGoals): { label: string; value: string }[] {
   if (neutral > 0) {
     facts.push({ label: "Zamknięte, które nie liczą się do hit ratio", value: String(neutral) });
   }
+  // 22.10.2026: osoby, które DL przeprowadził sam (pierwszy przesunął na
+  // „Zweryfikowany”) — licznik bez celu; zera nie zaśmiecają panelu.
+  const own = goals.own_handoffs ?? null;
+  if (own && own.verified + own.cv_sent + own.hired > 0) {
+    facts.push(
+      { label: "Sam przekazał w tym miesiącu: zweryfikowani", value: String(own.verified) },
+      { label: "Sam przekazał: CV wysłane", value: String(own.cv_sent) },
+      { label: "Sam przekazał: zatrudnienia", value: String(own.hired) },
+    );
+  }
   return facts;
 }
 

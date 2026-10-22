@@ -156,3 +156,9 @@ https://claude.ai/artifact/X92X1KagSUsdb4EQ32F4Wv.
 - Bez eksportu do Excela (D7) i bez przycisku „Otwórz w Kandydatach” (D5 B,
   następny krok, jeśli zespół zacznie z listy wracać do ludzi).
 - Harness: `/preview/kpi-who-counts` (lista własna, lidera, zespołu, rama kafla 480 px).
+- **„Sam przekazał” Delivery Leada (22.10.2026).** Fakty pod celami DL-a mają trzy
+  wiersze: zweryfikowani, CV wysłane i zatrudnienia z tego miesiąca — procesy, które
+  DL sam pierwszy przesunął na „Zweryfikowany” (ta sama atrybucja co „Moje KPI”,
+  `kpi_panel.month_own_handoffs`, pole `own_handoffs` w `/api/kpis/me/goals`). To
+  licznik, nie cel; przy samych zerach wiersze się nie pokazują. Kontekst: DL przesuwa
+  bez blokad pól (`rekrutacja-tablica/dl-przesuwa-bez-blokad.md`).

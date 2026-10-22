@@ -510,6 +510,45 @@ def _funnel_counts(row: Optional[dict], *, key_month: str = "mo") -> FunnelCount
 # ── Główne API ───────────────────────────────────────────────────────────────
 
 
+# Kamienie „Sam przekazał” Delivery Leada (22.10.2026) — klucze odpowiedzi.
+OWN_HANDOFF_STAGES: dict[str, str] = {
+    "verified": "verified",
+    "cv_sent": "cv_sent",
+    "hired": "hired",
+}
+
+
+async def month_own_handoffs(
+    db: AsyncSession, *, user: User, now: Optional[datetime] = None
+) -> dict[str, int]:
+    """Ile procesów zaliczonych ``user`` w tym miesiącu doszło do „Zweryfikowany”,
+    „CV wysłane” i „Zatrudniony” — ta sama atrybucja co „Moje KPI”.
+
+    Proces zalicza się temu, kto pierwszy przesunął na „Zweryfikowany”, więc
+    u Delivery Leada to dokładnie osoby, które przeprowadził sam (decyzja
+    Artura 22.10.2026: licznik „Sam przekazał”, bez celu).
+    """
+    if now is None:
+        now = datetime.now(WARSAW)
+    day_start, _ = period_bounds(KpiPeriod.day, now)
+    week_start, _ = period_bounds(KpiPeriod.week, now)
+    month_start, _ = period_bounds(KpiPeriod.month, now)
+    rows = (
+        await db.execute(
+            _FUNNEL_SQL,
+            {
+                "uid": user.id,
+                "day_start": day_start,
+                "week_start": week_start,
+                "month_start": month_start,
+                "rolling30": now - timedelta(days=_PRECISION_WINDOW_DAYS),
+            },
+        )
+    ).mappings()
+    by_stage = {row["stage"]: int(row["mo"]) for row in rows}
+    return {key: by_stage.get(stage, 0) for key, stage in OWN_HANDOFF_STAGES.items()}
+
+
 async def compute_my_panel(
     db: AsyncSession, *, user: User, now: Optional[datetime] = None
 ) -> PanelResult:
@@ -599,11 +638,13 @@ async def compute_my_panel(
 
 
 __all__ = [
+    "OWN_HANDOFF_STAGES",
     "PRECISION_COHORT_CTE",
     "PRECISION_R30_SQL",
     "FunnelCounts",
     "PanelResult",
     "PrecisionResult",
     "VERIFIER_ANCHORED_CTE",
+    "month_own_handoffs",
     "compute_my_panel",
 ]

@@ -134,6 +134,8 @@ class MyGoalsSchema(BaseModel):
     closed_requests: int | None = None
     # Delivery Lead: zamknięte jako „nie liczy się” — poza podstawą celu.
     closed_neutral: int | None = None
+    # Delivery Lead: „Sam przekazał” w tym miesiącu — {verified, cv_sent, hired}.
+    own_handoffs: dict[str, int] | None = None
 
 
 def _goals_to_schema(result: GoalsResult) -> MyGoalsSchema:

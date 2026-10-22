@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -96,6 +96,9 @@ class GoalsResult:
     # Delivery Lead: zamknięte w kwartale jako „nie liczy się” (21.10.2026) —
     # poza podstawą celu. Reszta: None.
     closed_neutral: Optional[int] = None
+    # Delivery Lead: „Sam przekazał” w tym miesiącu (22.10.2026) — procesy,
+    # które sam zweryfikował: `{verified, cv_sent, hired}`. Licznik bez celu.
+    own_handoffs: Optional[dict[str, int]] = None
 
     def as_dict(self) -> dict:
         return {
@@ -105,6 +108,7 @@ class GoalsResult:
             "goals": [asdict(g) for g in self.goals],
             "closed_requests": self.closed_requests,
             "closed_neutral": self.closed_neutral,
+            "own_handoffs": self.own_handoffs,
         }
 
     @classmethod
@@ -116,6 +120,7 @@ class GoalsResult:
             goals=tuple(GoalRow(**g) for g in data["goals"]),
             closed_requests=data.get("closed_requests"),
             closed_neutral=data.get("closed_neutral"),
+            own_handoffs=data.get("own_handoffs"),
         )
 
 
@@ -385,6 +390,11 @@ async def compute_my_goals(
         if isinstance(cached, dict):
             return GoalsResult.from_dict(cached)
         result = await _delivery_lead_goals(db, user=user, now=now)
+        from app.services.kpi_panel import month_own_handoffs  # noqa: PLC0415
+
+        result = replace(
+            result, own_handoffs=await month_own_handoffs(db, user=user, now=now)
+        )
         await cache_set(cache_key, result.as_dict(), ttl_seconds=_CACHE_TTL_SECONDS)
         return result
 
