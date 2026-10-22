@@ -836,7 +836,7 @@ function LeaveAndTimeApprovals({ config }: { config: HrConfig }) {
         />
         {config.open_modules.leave ? (
           <Button
-            className="ml-auto"
+            className="ml-auto h-auto min-h-9 max-w-full whitespace-normal py-1.5 text-left"
             variant="outline"
             data-help="hr.approvals.on_behalf"
             onClick={() => setEntering(true)}
