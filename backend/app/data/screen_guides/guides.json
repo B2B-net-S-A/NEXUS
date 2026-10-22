@@ -437,8 +437,8 @@
         "anchor": "calendar.board"
       },
       {
-        "q": "Jak zaplanować prep i co, gdy kandydat nie zdąży na Prep 2?",
-        "a": "Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. Kliknij nazwisko na karcie i przy kroku Prep „Zaplanuj”; „Zmień” i „Odwołaj” są w panelu kandydata. Bez Prepu 2 tylko, gdy rozmowa jest dziś albo w najbliższy dzień roboczy, a Prep 1 nie był słaby: „Rozmowa bez Prepu 2…”, powód i telefon do kandydata przed rozmową.",
+        "q": "Jak zaplanować prep i gdzie jest jego ocena?",
+        "a": "Prep 1 prowadzi Delivery Lead, Prep 2 rekruter: nazwisko na karcie → „Zaplanuj” przy kroku Prep. Po prepie pod krokiem jest ocena: tematy prowadzącego i odpowiedzi kandydata, a „Pełna ocena” i „Transkrypt” otwierają szczegóły. Pod Prepem 2 stoi „Do powtórzenia na Prepie 2”. Bez Prepu 2 tylko przy rozmowie dziś albo jutro.",
         "anchor": "calendar.board"
       },
       {
