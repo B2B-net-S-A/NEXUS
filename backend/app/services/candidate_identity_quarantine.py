@@ -319,6 +319,68 @@ async def _clear_quarantined_cv_projection(
             await _restore_stage_copies(db, candidate=candidate, document=document)
         return {"cleared_fields": 0, "tombstoned_languages": 0}
 
+    stats = await _clear_cv_projection(
+        db,
+        candidate=candidate,
+        extracted=extracted,
+        source_kind=source_kind,
+        source_id=source_id,
+        document_filename=document.filename if document is not None else None,
+        document_hash=document.content_sha256 if document is not None else None,
+    )
+    if document is not None:
+        await _restore_stage_copies(db, candidate=candidate, document=document)
+    return stats
+
+
+async def clear_foreign_cv_projection(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    document_id: int,
+    document_hash: str | None,
+) -> dict[str, Any]:
+    """Wyczyść z profilu fakty odczytane z CV innej osoby (naprawa danych).
+
+    Audyt 22.10.2026 (F114, decyzja Artura): skrypty naprawcze po cudzym CV
+    z maila (`m365_document_repair`, `m365_unreadable_name_rematch`) odpinały
+    plik, a tekst CV, umiejętności, podsumowanie AI i wektor z tego pliku
+    zostawały. Wołający sam rozstrzyga, że projekcja pochodzi z tego pliku,
+    i sam prowadzi główne CV, wskaźnik `cv_filename` i kopie CV etapu — tu
+    zostaje czyszczenie jak w kwarantannie tożsamości.
+    """
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if candidate is None:
+        return {"cleared_fields": 0, "tombstoned_languages": 0}
+    _extracted_raw = candidate.cv_extracted_data
+    extracted = dict(_extracted_raw) if isinstance(_extracted_raw, dict) else {}
+    stats = await _clear_cv_projection(
+        db,
+        candidate=candidate,
+        extracted=extracted,
+        source_kind="document",
+        source_id=document_id,
+        document_filename=None,
+        document_hash=document_hash,
+    )
+    await _purge_candidate_summary_cache(db, candidate_id)
+    return stats
+
+
+async def _clear_cv_projection(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    extracted: dict[str, Any],
+    source_kind: SourceKind,
+    source_id: int,
+    document_filename: str | None,
+    document_hash: str | None,
+) -> dict[str, Any]:
+    """Fakty z CV-źródła znikają z profilu, wektor idzie do skasowania."""
+    candidate_id = candidate.id
     cleared_fields: list[str] = []
 
     def clear_if_equal(attribute: str, parsed_key: str) -> None:
@@ -334,7 +396,7 @@ async def _clear_quarantined_cv_projection(
     candidate.raw_cv_text = None
     cleared_fields.append("raw_cv_text")
     if source_kind == "legacy_cv" or (
-        document is not None and candidate.cv_filename == document.filename
+        document_filename is not None and candidate.cv_filename == document_filename
     ):
         candidate.cv_filename = None
         cleared_fields.append("cv_filename")
@@ -415,7 +477,7 @@ async def _clear_quarantined_cv_projection(
         candidate_id=candidate_id,
         source_kind=source_kind,
         source_id=source_id,
-        document_hash=document.content_sha256 if document is not None else None,
+        document_hash=document_hash,
     )
     language_rows = list(
         (
@@ -503,8 +565,6 @@ async def _clear_quarantined_cv_projection(
             candidate_id,
             exc,
         )
-    if document is not None:
-        await _restore_stage_copies(db, candidate=candidate, document=document)
     return {
         "cleared_fields": len(set(cleared_fields)),
         "tombstoned_languages": len(language_rows),
