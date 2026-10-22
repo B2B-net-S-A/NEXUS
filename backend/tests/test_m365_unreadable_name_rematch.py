@@ -317,3 +317,124 @@ async def test_rematch_skips_private_mail_and_ineligible_mailbox() -> None:
         assert rows[foreign_box.id] == (None, EmailMatchMethod.unmatched)
         assert rows[regular.id] == (real.id, EmailMatchMethod.strict)
         # Bez commitu: zamknięcie sesji wycofuje dane syntetyczne.
+
+
+def test_summary_lists_profiles_read_from_the_foreign_cv() -> None:
+    """Audyt 22.10.2026 (F114): próba wypisuje, czyj profil czytano z cudzego
+    CV — same id, a zmiana tej listy zmienia odcisk planu."""
+    plan = script.Plan(victims=[7], removals=[(4, 7)], primaries={7: (4, None)})
+    before = plan.fingerprint()
+    plan.projections = [(7, 4, "a" * 64)]
+    assert script.summarize(plan)["projection_from_foreign"] == [
+        {"candidate": 7, "doc": 4}
+    ]
+    assert plan.fingerprint() != before
+
+
+def test_profile_source_is_the_traced_document_or_the_primary_pointer() -> None:
+    from types import SimpleNamespace
+
+    foreign = SimpleNamespace(id=4, is_primary=True, filename="Foreign.pdf")
+    other = SimpleNamespace(id=5, is_primary=False, filename="other.pdf")
+    traced = SimpleNamespace(
+        cv_extracted_data={"cv_highlights": {"source_document_id": 4}},
+        cv_filename="own.pdf",
+    )
+    untraced = SimpleNamespace(cv_extracted_data={}, cv_filename="foreign.pdf")
+    elsewhere = SimpleNamespace(
+        cv_extracted_data={"cv_highlights": {"source_document_id": 99}},
+        cv_filename="foreign.pdf",
+    )
+    assert script.projected_document(traced, [foreign, other]) is foreign
+    assert script.projected_document(untraced, [foreign, other]) is foreign
+    assert script.projected_document(elsewhere, [foreign, other]) is None
+
+
+@pytest.mark.asyncio
+async def test_apply_clears_facts_read_from_the_foreign_cv(monkeypatch) -> None:
+    """Audyt 22.10.2026 (F114, decyzja Artura): po odpięciu cudzego CV profil
+    poszkodowanego nie zostaje z tekstem, umiejętnościami i podsumowaniem
+    z tego CV."""
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.delete_candidate_embedding",
+        AsyncMock(return_value=True),
+    )
+    tag = uuid.uuid4().hex[:12]
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"unreadable-proj-{tag}@example.com",
+            name="Synthetic recruiter",
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
+            is_active=True,
+        )
+        victim = Candidate(
+            name="Олена",
+            lastname="Петренко",
+            raw_cv_text="Synthetic foreign CV text",
+            ai_summary="Synthetic foreign summary",
+            skills=[{"name": "Foreign Skill"}],
+        )
+        db.add_all([user, victim])
+        await db.flush()
+        mail = _email(
+            user.id,
+            victim.id,
+            EmailMatchMethod.smart_name,
+            f"conv-proj-{tag}",
+            f"nobody@{tag}.test",
+            now - timedelta(days=2),
+        )
+        db.add(mail)
+        await db.flush()
+        foreign_sha = uuid.uuid4().hex + uuid.uuid4().hex
+        db.add(
+            EmailAttachment(
+                email_id=mail.id,
+                m365_attachment_id=f"att-proj-{tag}",
+                filename="foreign.pdf",
+                content_type="application/pdf",
+                size_bytes=7,
+                is_inline=False,
+                storage_path="synthetic/foreign.pdf",
+                sha256=foreign_sha,
+                is_cv_candidate=True,
+                cv_parse_attempted_at=now,
+                parsed_candidate_id=victim.id,
+            )
+        )
+        foreign = CandidateDocument(
+            candidate_id=victim.id,
+            filename="foreign.pdf",
+            file_content=b"foreign",
+            content_type="application/pdf",
+            size_bytes=7,
+            document_kind=CandidateDocumentKind.cv,
+            is_primary=True,
+            external_source="m365",
+            external_id=f"m365:proj-{tag}",
+            content_sha256=foreign_sha,
+            uploaded_at=now - timedelta(days=2),
+        )
+        db.add(foreign)
+        await db.flush()
+        victim.cv_extracted_data = {
+            "skills": [{"name": "Foreign Skill"}],
+            "cv_highlights": {"source_document_id": foreign.id},
+        }
+        await db.flush()
+
+        plan = await script.plan_and_stage(db, now=now)
+        assert (victim.id, foreign.id, foreign_sha) in plan.projections
+        # Próba na sucho niczego nie czyści — to robi dopiero zapis.
+        assert victim.raw_cv_text == "Synthetic foreign CV text"
+
+        assert await script.clear_projections(db, plan) == len(plan.projections)
+        await db.refresh(victim)
+        assert victim.raw_cv_text is None
+        assert victim.ai_summary is None
+        assert victim.skills == []
+        # Bez commitu: zamknięcie sesji wycofuje dane syntetyczne.
