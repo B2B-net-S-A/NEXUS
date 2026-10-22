@@ -17,8 +17,10 @@ from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.note import Note, NoteType
-from app.models.notification import NotificationType
+from app.models.note_mention import NoteMention
+from app.models.notification import Notification, NotificationType
 from app.models.recommendation_card import RecommendationCard
+from app.models.user import User
 from app.services import board_tasks, note_kinds, stage_remarks
 from app.services import stage_handoff_recipients as handoff
 from app.services import stage_notification_emitter as emitter
@@ -170,6 +172,78 @@ def test_template_knows_where_a_card_returns_for_fixes() -> None:
     )
     # Powrót do poprawy celuje w pierwszy etap „Zweryfikowany” szablonu.
     assert stages.verified_id == 2
+
+
+class _Session:
+    def __init__(self) -> None:
+        self.added: list = []
+
+    def add(self, obj) -> None:
+        self.added.append(obj)
+
+
+@pytest.mark.asyncio
+async def test_remark_mentions_ring_everyone_but_the_author(monkeypatch) -> None:
+    """22.10.2026: „@rekruter” w uwadze przy akceptacji Nordei nie dawał
+    dzwonka — uwaga zapisywała się bez wzmianek."""
+
+    from app.services import mention_dispatch, mention_parser
+
+    async def _parse(_db, content, job_id):
+        assert (content, job_id) == ("@rek@example.com dzwoń jutro", 3)
+        return [5, 7]
+
+    enqueued: dict = {}
+
+    async def _enqueue(_db, **kwargs):
+        enqueued.update(kwargs)
+        return [("user-7", "notif")]
+
+    async def _label(_db, _note):
+        return "notatce o kandydacie Jan Testowy"
+
+    monkeypatch.setattr(mention_parser, "parse_mentions", _parse)
+    monkeypatch.setattr(mention_dispatch, "enqueue_mention_notifications", _enqueue)
+    monkeypatch.setattr(mention_dispatch, "build_note_context_label", _label)
+    db = _Session()
+    note = Note(id=11, content="@rek@example.com dzwoń jutro", candidate_id=9, job_id=3)
+    author = SimpleNamespace(id=5, name="Daria D.", email="daria@example.com")
+
+    found = await stage_remarks.enqueue_mentions(
+        db, note=note, author=author, stage_name="Wysłać do Cpro"
+    )
+
+    assert found is not None
+    assert [(m.note_id, m.user_id) for m in db.added] == [(11, 7)]
+    assert enqueued["mentioned_user_ids"] == [7]
+    assert enqueued["notification_title"] == (
+        "Daria D. oznaczył(a) Cię w uwadze przy przesunięciu na „Wysłać do Cpro”"
+    )
+    assert enqueued["related_entity_type"] == "note"
+    assert enqueued["related_entity_id"] == 11
+    assert found.pairs == [("user-7", "notif")]
+    assert found.context_label == "notatce o kandydacie Jan Testowy"
+    assert found.deep_link_path == "/candidates/9?tab=activity&activity=notes&note=11"
+
+
+@pytest.mark.asyncio
+async def test_remark_without_mentions_rings_nobody(monkeypatch) -> None:
+    from app.services import mention_parser
+
+    async def _parse(_db, _content, _job_id):
+        return [5]  # tylko autor
+
+    monkeypatch.setattr(mention_parser, "parse_mentions", _parse)
+    db = _Session()
+    note = Note(id=11, content="@daria@example.com", candidate_id=9, job_id=3)
+    author = SimpleNamespace(id=5, name=None, email="daria@example.com")
+    assert (
+        await stage_remarks.enqueue_mentions(
+            db, note=note, author=author, stage_name=None
+        )
+        is None
+    )
+    assert db.added == []
 
 
 # ── Z bazą: prawdziwe ruchy ──────────────────────────────────────────────────
@@ -368,6 +442,73 @@ async def test_send_and_rejection_carry_the_remark_to_the_recruiter(
         # Ruch bez uwagi nie zakłada pustej notatki.
         assert len(await _remarks(cid)) == 2
     finally:
+        await _cleanup_with_notes(world, [rec_id, other_id, dl_id])
+
+
+@pytest.mark.asyncio
+async def test_person_mentioned_in_the_remark_gets_a_bell(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """„@” w „Uwagach dla rekrutera” (22.10.2026): oznaczona osoba dostaje
+    dzwonek wzmianki, autor nie oznacza sam siebie."""
+
+    (
+        world,
+        (rec_id, rec_creds),
+        (other_id, _other),
+        (dl_id, dl_creds),
+    ) = await _non_nordea_world(monkeypatch)
+    rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
+    cid = world["candidate_id"]
+    async with AsyncSessionLocal() as db:
+        other_email = (await db.get(User, other_id)).email
+        dl_email = (await db.get(User, dl_id)).email
+    try:
+        await _seed_screening(world, rec_id)
+        await _move(api_client, rec, world, "verified")
+        await _move(api_client, rec, world, "qc")
+        await _move(
+            api_client,
+            dl,
+            world,
+            "cv_sent",
+            client_rate_value="170",
+            client_rate_unit="hourly",
+            client_rate_currency="PLN",
+            recruiter_remark=f"@{other_email} @{dl_email} zadzwoń jutro do kandydata",
+        )
+        note = (await _remarks(cid))[0]
+        async with AsyncSessionLocal() as db:
+            mentioned = set(
+                await db.scalars(
+                    select(NoteMention.user_id).where(NoteMention.note_id == note.id)
+                )
+            )
+            bells = list(
+                await db.scalars(
+                    select(Notification).where(
+                        Notification.notification_type == NotificationType.note_mention,
+                        Notification.related_entity_type == "note",
+                        Notification.related_entity_id == note.id,
+                    )
+                )
+            )
+        assert mentioned == {other_id}
+        assert [b.user_id for b in bells] == [other_id]
+        assert "oznaczył(a) Cię w uwadze przy przesunięciu na" in bells[0].title
+        assert "zadzwoń jutro" in bells[0].message
+        assert "170" not in bells[0].message
+        assert bells[0].link.startswith(f"/candidates/{cid}?")
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Notification).where(
+                    Notification.notification_type == NotificationType.note_mention,
+                    Notification.user_id.in_([rec_id, other_id, dl_id]),
+                )
+            )
+            await db.commit()
         await _cleanup_with_notes(world, [rec_id, other_id, dl_id])
 
 

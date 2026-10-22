@@ -25,6 +25,10 @@ vi.mock("@/lib/api", () => ({
     get: (...a: unknown[]) => get(...a),
     post: (...a: unknown[]) => post(...a),
   },
+  // Lista osób do „@” (`useMentionableUsers`) czyta nazwany eksport.
+  api: {
+    get: (...a: unknown[]) => get(...a),
+  },
   pipelineApi: {
     move: (data: unknown) => post("/api/pipeline/move", data),
   },
@@ -213,6 +217,11 @@ function mockApi({
         },
       });
     }
+    if (url === "/api/users/mentionable") {
+      return Promise.resolve({
+        data: [{ id: 5, name: "Jan Rekruter", email: "jan.rekruter@example.com", role: "recruiter" }],
+      });
+    }
     if (url === "/api/cv-generator/generated") return Promise.resolve({ data: cvs });
     if (url === "/api/screening-form") return Promise.resolve({ data: form });
     if (url === "/api/cv-generator/generated/77/docx") return Promise.resolve({ data: new Blob(["docx"]) });
@@ -387,6 +396,30 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
       "Anna Nowak — zaakceptowane, osoba czeka w kolejce Cpro.",
     );
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  // 22.10.2026: „@” w uwadze oznacza rekrutera — przy akceptacji do Cpro
+  // dzwonek ruchu idzie do osoby od Cpro, więc rekruter dowiaduje się z wzmianki.
+  it("Nordea: „@” w uwadze wstawia adres rekrutera do recruiter_remark", async () => {
+    mockApi();
+    renderPanel(task({ cpro: true, target_stage_def_id: 404 }));
+    expect(screen.getByText(/„@” oznacza osobę/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Stawka do Cpro"), "165");
+    const remark = screen.getByLabelText(/Uwagi dla rekrutera i osoby od Cpro/);
+    await userEvent.type(remark, "@Jan");
+    await userEvent.click(await screen.findByRole("option", { name: /Jan Rekruter/ }));
+    // Kursor za wzmianką stawia `requestAnimationFrame` — pisz po klatce.
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await userEvent.keyboard("zadzwoń do kandydata");
+    await userEvent.click(screen.getByRole("button", { name: /Akceptuj — do Cpro za 165 zł\/h/ }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({
+          recruiter_remark: "@jan.rekruter@example.com zadzwoń do kandydata",
+        }),
+      ),
+    );
   });
 
   it("Nordea bez etapu Cpro w szablonie: akceptacja zablokowana z wyjaśnieniem", () => {
