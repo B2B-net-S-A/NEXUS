@@ -304,6 +304,17 @@ def _sees_all(user: User) -> bool:
     return user.has_any_role(*_OVERSIGHT)
 
 
+#: Kto widzi na liście wszystkie prośby: Head of Recruitment i admin, a od
+#: decyzji Artura 23.10.2026 także Finanse, Rada nadzorcza i Automatyzacje.
+#: Tylko odczyt listy — wycofanie cudzej prośby i decyzja o karze zostają
+#: przy ``_sees_all``.
+_LISTS_EVERY_REQUEST: tuple[UserRole, ...] = (*_OVERSIGHT, *_ROLE_GRANTED)
+
+
+def _lists_every_request(user: User) -> bool:
+    return user.has_any_role(*_LISTS_EVERY_REQUEST)
+
+
 async def _load(
     db: AsyncSession, request_id: int, *, lock: bool = False
 ) -> PreContractRequest:
@@ -793,8 +804,9 @@ async def list_requests(
     tab: Literal["todo", "mine", "expiring", "b2b", "penalty", "all"] = Query("todo"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Lista dla Head of Recruitment (wszystko), Delivery Leada (swoi klienci
-    i swoje prośby) i rekrutera (to, co ma wystawić, i to, o co prosił).
+    """Lista dla Head of Recruitment, Finansów, Rady nadzorczej i Automatyzacji
+    (wszystko), Delivery Leada (swoi klienci i swoje prośby) i rekrutera (to,
+    co ma wystawić, i to, o co prosił).
 
     Liczniki zakładek liczy ta sama reguła widoczności."""
     uid = current_user.id
@@ -808,7 +820,7 @@ async def list_requests(
             )
         ),
     )
-    if _sees_all(current_user):
+    if _lists_every_request(current_user):
         visible = None
     elif current_user.has_role(UserRole.delivery_lead):
         portfolio = await dl_portfolio_client_ids(db, uid)

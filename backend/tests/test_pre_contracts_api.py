@@ -679,3 +679,35 @@ async def test_list_shows_the_latest_step_of_each_request(
     [row] = [i for i in listed.json()["items"] if i["id"] == request_id]
     assert [e["kind"] for e in row["events"]] == ["sent"]
     assert row["events"][0]["actor"]["id"] == pair["recruiter"][0]
+
+
+@pytest.mark.parametrize(
+    "role", [UserRole.finance, UserRole.automation, UserRole.board]
+)
+async def test_finance_board_and_automation_list_every_request(
+    app_client: AsyncClient, role: UserRole
+) -> None:
+    # Decyzja Artura 23.10.2026: lista „Umowy przedwstępne” pokazuje tym rolom
+    # wszystkie prośby, jak Head of Recruitment — także te, przy których nie
+    # prosili, nie wystawiają i nie obserwują. Decyzji o karze nie dostają.
+    pair = await _pair()
+    rec_h = await _headers(app_client, pair["recruiter"])
+    created = await app_client.post(
+        "/api/pre-contracts",
+        headers=rec_h,
+        json={"candidate_id": pair["candidate_id"], "job_id": pair["job_id"]},
+    )
+    assert created.status_code in (200, 201), created.text
+    request_id = created.json()["id"]
+    async with AsyncSessionLocal() as db:
+        account, pwd = await _user(db, role)
+        await db.commit()
+        who = (account.id, account.email, pwd)
+    headers = await _headers(app_client, who)
+    for tab in ("todo", "all"):
+        listed = await app_client.get(f"/api/pre-contracts?tab={tab}", headers=headers)
+        assert listed.status_code == 200, listed.text
+        body = listed.json()
+        [row] = [i for i in body["items"] if i["id"] == request_id]
+        assert row["can_decide_penalty"] is False
+        assert body["counts"][tab] >= 1

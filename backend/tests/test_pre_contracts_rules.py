@@ -479,3 +479,28 @@ async def test_board_gets_404_for_a_missing_recruitment() -> None:
         assert exc.status_code == 404
     else:
         raise AssertionError("brak rekrutacji nie dał 404")
+
+
+def test_finance_board_and_automation_see_every_request_on_the_list() -> None:
+    # Decyzja Artura 23.10.2026: Finanse, Rada nadzorcza i Automatyzacje widzą
+    # na liście wszystkie prośby, jak Head of Recruitment. Wycofanie cudzej
+    # prośby i decyzja o karze zostają przy Head of Recruitment i adminie.
+    from app.api import pre_contracts as api
+    from app.models.user import UserRole
+
+    for role in (
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.finance,
+        UserRole.board,
+        UserRole.automation,
+    ):
+        assert api._lists_every_request(_account(role, sections={})), role
+    for role in (
+        UserRole.recruiter,
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+    ):
+        assert not api._lists_every_request(_account(role, sections={})), role
+    for role in (UserRole.finance, UserRole.board, UserRole.automation):
+        assert not api._sees_all(_account(role, sections={})), role

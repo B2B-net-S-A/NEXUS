@@ -627,8 +627,10 @@ przed wysłaniem), `candidate_refused`, `candidate_withdrew`.
   pyta o nią, więc Viewer, Praktykant i Pracownik nie widzą wejść, które
   skończyłyby się błędem. Rada nie ma członkostwa w rekrutacjach, więc
   `_ensure_pair_access` sprawdza jej tylko istnienie rekrutacji. Lista
-  „Umowy przedwstępne” pokazuje tym rolom to, co rekruterowi (o co prosili,
-  co wystawiają, co obserwują). Wzorzec bramek: `tests/data/authz_golden/pre_contracts.json`
+  „Umowy przedwstępne” pokazuje tym rolom **wszystkie prośby, jak Head of
+  Recruitment** (23.10.2026, decyzja Artura; `_lists_every_request`).
+  Wycofanie cudzej prośby i decyzja o karze zostają przy Head of Recruitment
+  i adminie (`_sees_all`) — nie dopisuj tam tych ról. Wzorzec bramek: `tests/data/authz_golden/pre_contracts.json`
   (kolumny `automation` i `board` = P), wyjątki nazwane w
   `test_automation_role_access.py` i `test_board_role_access.py`.
 - **Sweeper** (co godzinę, najwyżej jedno przypomnienie dziennie): wygasa
