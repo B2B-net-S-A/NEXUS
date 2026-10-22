@@ -5,6 +5,23 @@ import pytest
 from app.services import job_request_intake as intake
 from app.services.job_request_intake import normalize_model_output
 
+
+@pytest.fixture(autouse=True)
+def _empty_skill_catalog(monkeypatch) -> None:
+    """Każdy test startuje z pustym słownikiem umiejętności.
+
+    Słownik żyje w pamięci procesu, a wypełnia go z bazy start aplikacji
+    (``skill_taxonomy_loader.refresh_alias_map``) w dowolnym wcześniejszym
+    pliku. Z „Java” w słowniku wersja znika z wiersza („Java 17+” → „Java”),
+    więc wynik zależał od tego, co biegło przed tym plikiem w shardzie
+    (22.10.2026: shard 9 kolejki po zmianie podziału plików). Testy, które
+    potrzebują słownika, budują własny przez ``_technologies``.
+    """
+    from app.services import keyword_suggest
+
+    monkeypatch.setattr(keyword_suggest, "_catalog", ())
+
+
 REQUEST = (
     "Szukamy Senior Java Developera do projektu migracji płatności. "
     "Wymagania: Java 17+, Spring Boot, Kafka. Mile widziane: Kubernetes. "
