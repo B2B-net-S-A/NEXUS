@@ -21,6 +21,8 @@
 // dla osoby od Cpro.
 // Uwaga rekrutera z „Zapisz i przekaż do DL” (14.10.2026) stoi na górze
 // kolumny decyzji, nad „Warunkami” (`recruiter_handoff_remark` w kontekście).
+// „Pasuje też do Twoich rekrutacji” (Match, 22.10.2026): połączona rekrutacja
+// zaznaczona, druga z oceną, trzecia u klienta z Cpro, czwarta z osobą w środku.
 
 import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -48,6 +50,7 @@ import {
   recommendationCardQueryKey,
   type RecommendationCard,
 } from "@/lib/api/recommendationCards";
+import { dlMatchKeys, type DlMatchSuggestions } from "@/lib/dl-match-api";
 import { useAuthStore } from "@/store/auth";
 
 const CANDIDATE_ID = 101;
@@ -512,6 +515,53 @@ const RETURNED_FORM: ScreeningFormState = {
   handback_stage_def_id: 303,
 };
 
+const MATCH: DlMatchSuggestions = {
+  candidate_id: CANDIDATE_ID,
+  from_job_id: JOB_ID,
+  status: "ok",
+  jobs: [
+    {
+      job_id: 211,
+      title: "Senior Java Developer (karty)",
+      client_name: "Bank Przykładowy (fikcyjny)",
+      client_reference: "ZOB-9731",
+      score: 88,
+      matching_must: ["Java", "Spring"],
+      gap_must: [],
+      linked: true,
+      destination: "cv_sent",
+      sendable: true,
+      budget_max_hourly: 190,
+    },
+    {
+      job_id: 212,
+      title: "Java Backend Developer",
+      client_name: "Bank Przykładowy (fikcyjny)",
+      client_reference: "ZOB-9802",
+      score: 81,
+      matching_must: ["Java"],
+      gap_must: ["Kafka"],
+      linked: false,
+      destination: "cv_sent",
+      sendable: true,
+      budget_max_hourly: 180,
+    },
+    {
+      job_id: 213,
+      title: "Java Developer",
+      client_name: "Bank Nordycki (fikcyjny)",
+      client_reference: "NOR-0412",
+      score: 78,
+      matching_must: ["Java"],
+      gap_must: [],
+      linked: false,
+      destination: "cpro",
+      sendable: true,
+    },
+  ],
+  already_in: [{ job_id: 214, title: "Java Tech Lead", client_reference: "ZOB-9690", column: "screening" }],
+};
+
 function seededClient(): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
@@ -561,6 +611,7 @@ function seededClient(): QueryClient {
   qc.setQueryData(recommendationCardQueryKey(CANDIDATE_ID, JOB_ID), CARD, fresh);
   qc.setQueryData(dlReviewContextQueryKey(JOB_ID, CANDIDATE_ID), CONTEXT, fresh);
   qc.setQueryData(dlReviewQueueQueryKey(JOB_ID), QUEUE, fresh);
+  qc.setQueryData(dlMatchKeys.one(JOB_ID, CANDIDATE_ID), MATCH, fresh);
   // „@” w uwadze dla rekrutera (22.10.2026): lista osób do oznaczenia —
   // klucz `useMentionableUsers` dla zakresu rekrutacji.
   qc.setQueryData(
