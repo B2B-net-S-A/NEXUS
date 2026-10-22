@@ -206,7 +206,8 @@ async def test_conversation_window_saves_card_case_and_demand(
             select(Notification).where(
                 Notification.user_id == lead.id,
                 Notification.notification_type == NotificationType.care_demand_signal,
-                Notification.related_entity_id == client_id,
+                Notification.related_entity_type == "care_demand",
+                Notification.related_entity_id == saved["conversation_id"],
             )
         )
     assert linked == saved["conversation_id"]
@@ -291,20 +292,8 @@ async def test_conversation_window_saves_card_case_and_demand(
         if c["kind"] == "demand" and c["client_id"] == client_id
     ]
 
-    # Ten sam dział, ale inne role = nowa pozycja i nowy dzwonek (R4). Dzwonek
-    # o Javie przesuwamy o dwa dni wstecz: ``emit`` ma globalny dedup dobowy
-    # (odbiorca + typ + klient, ``ix_notif_dedup_daily``), a test sprawdza
-    # regułę pozycji, nie ten dedup.
-    async with AsyncSessionLocal() as db:
-        await db.execute(
-            update(Notification)
-            .where(
-                Notification.notification_type == NotificationType.care_demand_signal,
-                Notification.related_entity_id == client_id,
-            )
-            .values(created_at=Notification.created_at - timedelta(days=2))
-        )
-        await db.commit()
+    # Ten sam dział, ale inne role = nowa pozycja i nowy dzwonek (R4) — także
+    # tego samego dnia: encja dzwonka to rozmowa, nie klient (audyt 22.10, F5).
     qa_body = {
         **body,
         "cases": [],
@@ -660,3 +649,65 @@ async def test_order_end_decision_card_and_waiting_for_front_office(
         headers=headers(lead),
     )
     assert beyond.status_code == 404, beyond.text
+
+
+async def test_saved_feedback_ends_life_of_feedback_card_state(
+    app_client, care_on
+) -> None:
+    """Audyt 22.10, F2: klucz ``feedback:<kontakt>`` wraca przy kolejnej prośbie
+    o opinię — zapis opinii kasuje stan karty, żeby nowa prośba nie stała
+    od razu w „W toku” z terminem sprzed kwartału."""
+
+    from app.core.scheduling import local_now
+    from app.services.care import board_state
+
+    lead, client_id, _area_id, manager_id, _contract_id, _c = await _setup()
+    key = f"feedback:{manager_id}"
+    async with AsyncSessionLocal() as db:
+        await board_state.save(
+            db,
+            key=key,
+            kind="feedback",
+            column_value="in_progress",
+            actor_id=lead.id,
+            now=local_now(),
+            scheduled_at=local_now() + timedelta(days=2),
+        )
+        await db.commit()
+
+    saved = await app_client.post(
+        f"/api/care/clients/{client_id}/feedback",
+        json={"contact_id": manager_id, "held_on": business_today().isoformat()},
+        headers=headers(lead),
+    )
+    assert saved.status_code == 201, saved.text
+
+    async with AsyncSessionLocal() as db:
+        assert await board_state.states_for(db, [key]) == {}
+
+
+async def test_clients_mine_counts_lead_of_a_merged_duplicate(
+    app_client, care_on
+) -> None:
+    """Audyt 22.10, F81: DL przypisany tylko do scalonego duplikatu ma klienta
+    kanonicznego w „Klienci → Moi”, tak jak na tablicy i w portfelu DL."""
+
+    from app.models.client import Client
+
+    dl = await make_user(UserRole.delivery_lead)
+    canonical_id = await make_client()
+    duplicate_id = await make_client(dl=dl)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Client)
+            .where(Client.id == duplicate_id)
+            .values(merged_into_client_id=canonical_id)
+        )
+        await db.commit()
+    await make_contract(canonical_id, started_days_ago=30)
+
+    resp = await app_client.get("/api/care/clients?scope=mine", headers=headers(dl))
+    assert resp.status_code == 200, resp.text
+    row = next((r for r in resp.json()["rows"] if r["client_id"] == canonical_id), None)
+    assert row is not None
+    assert row["delivery_leads"] == [dl.name]
