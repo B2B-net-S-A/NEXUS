@@ -302,3 +302,18 @@ describe("EsignRowStatus (audyt 22.10)", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("CompanySignaturesPanel przy błędzie (audyt 22.10, F87)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("awaria listy nie wygląda jak brak umów — komunikat i „Ponów”", async () => {
+    mocks.mine.mockRejectedValue(new Error("500"));
+    wrap(<CompanySignaturesPanel />);
+    expect(
+      await screen.findByText(/Nie udało się wczytać umów do podpisu za B2B Network/),
+    ).toBeInTheDocument();
+    mocks.mine.mockResolvedValue([]);
+    await userEvent.click(screen.getByRole("button", { name: "Ponów" }));
+    await waitFor(() => expect(mocks.mine).toHaveBeenCalledTimes(2));
+  });
+});

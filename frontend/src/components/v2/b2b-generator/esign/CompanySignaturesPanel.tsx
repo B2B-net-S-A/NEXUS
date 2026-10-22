@@ -101,6 +101,31 @@ function SignRow({ request }: { request: EsignRequest }) {
 /** „Do podpisu za firmę” (makieta 6) — tylko gdy coś czeka na tę osobę. */
 export function CompanySignaturesPanel() {
   const mine = useQuery({ queryKey: ESIGN_MINE_KEY, queryFn: b2bEsignApi.mine, staleTime: 30_000 });
+  // Rejestr to miejsce pracy reprezentanta: awaria nie może wyglądać jak brak
+  // umów (pas na pulpicie przy błędzie się chowa i odsyła tutaj).
+  if (mine.isError) {
+    return (
+      <Alert
+        variant="error"
+        className="mb-4"
+        title={apiErrorMessage(
+          mine.error,
+          "Nie udało się wczytać umów do podpisu za B2B Network.",
+        )}
+      >
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-2"
+          onClick={() => void mine.refetch()}
+          disabled={mine.isFetching}
+        >
+          Ponów
+        </Button>
+      </Alert>
+    );
+  }
   if (!mine.isSuccess || mine.data.length === 0) return null;
   return (
     <section

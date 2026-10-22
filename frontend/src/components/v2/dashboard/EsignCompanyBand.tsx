@@ -35,7 +35,8 @@ export function EsignCompanyBand() {
     enabled: allowed,
   });
   // Pas jest zadaniem, nie listą: bez umów czekających na tę osobę go nie ma.
-  // Błąd zapytania też go chowa — ta sama lista stoi na górze rejestru.
+  // Błąd zapytania też go chowa — ta sama lista stoi na górze rejestru, a tam
+  // awaria pokazuje komunikat z „Ponów”.
   if (!allowed || !mine.isSuccess || mine.data.length === 0) return null;
   return (
     <section
