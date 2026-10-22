@@ -616,15 +616,16 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inPalette: true,
   },
   // Opieka nad konsultantami (moduł `care`): opiekunowie kontraktów (DL, TCM),
-  // Head of Recruitment (kolejka technologii) i admin. Sekcja „system”, bo
-  // HoR nie ma Delivery — trasy `/api/care` i tak bronią zakresu DL.
+  // Head of Recruitment (kolejka technologii) i admin — oraz od 22.10.2026
+  // osoby ze sprawami administracja@ (same sprawy). Kto widzi pozycję, liczy
+  // `hrNavState` (`CARE_ROLES`, `casesInCare`). Sekcja „system”, bo HoR nie ma
+  // Delivery — trasy `/api/care` i tak bronią zakresu DL.
   {
     id: "care",
     href: "/care",
     label: "Opieka nad konsultantami",
     icon: HeartHandshake,
     section: "system",
-    roles: ["admin", "delivery_lead", "talent_community_manager", "head_of_recruitment"],
     featureFlag: "hrCare",
     placement: "primary",
     paletteKeywords: ["opieka", "konsultanci", "przepięcia", "technologie"],

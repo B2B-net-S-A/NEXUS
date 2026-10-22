@@ -11,6 +11,7 @@ import { HrConfigGate } from "@/components/hr/HrConfigGate";
 import { Button } from "@/components/ui/button";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { WorkBoard } from "@/components/work-board/WorkBoard";
+import { canSeeCareBoard } from "@/components/work-board/care-access";
 import { useAnnouncements } from "@/lib/api/care-announcements";
 import type { CareBoardCard } from "@/lib/api/care-board";
 import type { HrConfig } from "@/lib/api/hr";
@@ -95,6 +96,7 @@ export function canSeeTeam(config: Pick<HrConfig, "me">): boolean {
 const TITLE = "Opieka nad konsultantami";
 const DESCRIPTION =
   "Rozmowy, sprawy i decyzje na jednej tablicy; konsultanci ze zdrowiem relacji; wiedza o klientach.";
+const CASES_ONLY_DESCRIPTION = "Sprawy administracja@ na jednej tablicy.";
 
 type FeedbackTarget = Omit<ClientFeedbackDialogProps, "open" | "onOpenChange">;
 
@@ -129,10 +131,13 @@ function CareTabs({ config }: { config: HrConfig }) {
   const route = careRouteFrom(searchParams, {
     canSeeSkills: skillsItem ? canSeeSettingsItem(user, skillsItem, { hrProgram: config.program }) : false,
   });
+  // Bez roli opieki (same sprawy administracja@, od 22.10.2026 tu zamiast
+  // „Ludzie → Sprawy”) jest tylko „Do zrobienia” — reszty serwer i tak odmawia.
+  const careRole = canSeeCareBoard(user, config);
   const teamOpen = canSeeTeam(config);
-  const tab: CareTab = route.tab === "team" && !teamOpen ? "todo" : route.tab;
+  const tab: CareTab = !careRole || (route.tab === "team" && !teamOpen) ? "todo" : route.tab;
   const [scope, setScope] = useState<"mine" | "all">("mine");
-  const announcements = useAnnouncements();
+  const announcements = useAnnouncements(careRole);
   const pendingApprovals = (announcements.data?.items ?? []).filter((row) => row.can_approve).length;
 
   // Karta konsultanta z adresu (link z dzwonka, tablicy) i z kliknięcia; adres
@@ -181,9 +186,13 @@ function CareTabs({ config }: { config: HrConfig }) {
 
   const tabs = [
     { value: "todo", label: "Do zrobienia" },
-    { value: "consultants", label: "Konsultanci" },
-    { value: "clients", label: "Klienci" },
-    ...(teamOpen ? [{ value: "team", label: "Zespół opiekunów" }] : []),
+    ...(careRole
+      ? [
+          { value: "consultants", label: "Konsultanci" },
+          { value: "clients", label: "Klienci" },
+          ...(teamOpen ? [{ value: "team", label: "Zespół opiekunów" }] : []),
+        ]
+      : []),
   ];
   const scoped = tab === "consultants" || tab === "clients";
 
@@ -223,7 +232,12 @@ function CareTabs({ config }: { config: HrConfig }) {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={TITLE} description={DESCRIPTION} density="compact" actions={actions} />
+      <PageHeader
+        title={TITLE}
+        description={careRole ? DESCRIPTION : CASES_ONLY_DESCRIPTION}
+        density="compact"
+        actions={careRole ? actions : undefined}
+      />
       <TabbedNav ariaLabel="Opieka nad konsultantami" value={tab} onValueChange={select} tabs={tabs}>
         <div className="pt-3">
           {tab === "todo" ? (

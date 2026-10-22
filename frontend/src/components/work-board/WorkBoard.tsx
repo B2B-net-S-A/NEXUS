@@ -198,8 +198,10 @@ export function WorkBoard({
     (config.open_modules.cases &&
       (config.me.cases || config.me.is_admin || config.me.has_assigned_cases === true));
 
+  // Obsługa skrzynki zaczyna od „Wszystkie” — także w Opiece, do której sprawy
+  // przeszły z „Ludzi” (22.10.2026), gdy nie ma roli opieki.
   const [scope, setScope] = useState<Scope>(
-    boardScope === "cases" && canManageFromConfig ? "all" : "mine",
+    (boardScope === "cases" || !careAccess) && canManageFromConfig ? "all" : "mine",
   );
   const [area, setArea] = useState<WorkArea | null>(initialArea);
   const [week, setWeek] = useState(false);
