@@ -32,7 +32,7 @@ def summarize(application, envs):
         "revision_is_pinned": bool(
             re.fullmatch(r"[0-9a-f]{40}", str(application.get("git_commit_sha", "")))
         ),
-        # Okno wdrożeń 19:00–07:00 (14.10.2026) pilnuje deploy.yml — działa
+        # Okno wdrożeń 18:00–08:00 (14.10.2026) pilnuje deploy.yml — działa
         # tylko, gdy Coolify nie buduje sam po pushu na main. Same flagi,
         # nigdy wartość sekretu webhooka.
         "auto_deploy_enabled": (
@@ -126,7 +126,7 @@ def main():
         violations = deploy_window_violations(result)
         if violations:
             print(
-                "::error::Okno wdrożeń 19:00–07:00 może nie trzymać: "
+                "::error::Okno wdrożeń 18:00–08:00 może nie trzymać: "
                 + ", ".join(violations)
                 + " — wyłącz Auto Deploy aplikacji w Coolify (Advanced).",
                 file=sys.stderr,

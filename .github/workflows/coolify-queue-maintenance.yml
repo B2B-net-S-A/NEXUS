@@ -16,10 +16,10 @@ on:
         description: "inspect | cancel | redeploy"
         required: true
         default: "inspect"
-      # `redeploy` przebudowuje produkcję — obowiązuje okno 19:00–07:00 pon–pt
+      # `redeploy` przebudowuje produkcję — obowiązuje okno 18:00–08:00 pon–pt
       # (decyzja Artura 14.10.2026; weekend bez okna), jak w deploy.yml.
       emergency:
-        description: "AWARYJNIE: redeploy w dzień roboczy mimo okna 19:00–07:00 (tylko na polecenie Artura)"
+        description: "AWARYJNIE: redeploy w dzień roboczy mimo okna 18:00–08:00 (tylko na polecenie Artura)"
         type: boolean
         default: false
       reason:
@@ -82,10 +82,10 @@ jobs:
 
       # Przed anulowaniem: redeploy w ciągu dnia nie może zostawić kolejki
       # anulowanej bez nowego wdrożenia.
-      - name: Okno wdrożeń 19:00–07:00
+      - name: Okno wdrożeń 18:00–08:00
         if: ${{ inputs.mode == 'redeploy' }}
         env:
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '7-19' }}
+          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}
           EMERGENCY: ${{ inputs.emergency }}
           REASON: ${{ inputs.reason }}
         run: |
@@ -96,10 +96,10 @@ jobs:
           fi
           if [ "$EMERGENCY" = "true" ] && [ -n "$(echo "$REASON" | tr -d '[:space:]')" ]; then
             echo "::warning::Awaryjny redeploy poza oknem — powód: $REASON"
-            printf '### ⚠️ Awaryjny redeploy poza oknem 19:00–07:00\n\nUruchomił: `%s`\n\nPowód: %s\n' "$GITHUB_ACTOR" "$REASON" >> "$GITHUB_STEP_SUMMARY"
+            printf '### ⚠️ Awaryjny redeploy poza oknem 18:00–08:00\n\nUruchomił: `%s`\n\nPowód: %s\n' "$GITHUB_ACTOR" "$REASON" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          echo "::error::Okno ciszy $FREEZE_WINDOW (czas Europe/Warsaw): w dni robocze redeploy tylko 19:00–07:00. Uruchom po 19:00 albo — wyłącznie na polecenie Artura — z emergency=true i powodem."
+          echo "::error::Okno ciszy $FREEZE_WINDOW (czas Europe/Warsaw): w dni robocze redeploy tylko 18:00–08:00. Uruchom po 18:00 albo — wyłącznie na polecenie Artura — z emergency=true i powodem."
           exit 1
 
       - name: Cancel stuck deployments

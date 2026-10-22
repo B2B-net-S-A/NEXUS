@@ -437,15 +437,15 @@ jobs:
               "\`LATEST.json\` kopii off-site jest nieczytelny, za stary albo brakuje w nim artefaktu (postgres / uploads / cv_corpus / qdrant). Procedura: \`docs/runbook-backup-201.md\`."
           fi
 
-  # ── Noc bez wdrożenia (okno 19:00–07:00, decyzja Artura 14.10.2026) ────────
+  # ── Noc bez wdrożenia (okno 18:00–08:00, decyzja Artura 14.10.2026) ────────
   # Merge'e z dnia wdraża wieczorny `schedule` w deploy.yml. Cron GitHuba
   # potrafi nie przyjść wcale (26.09.2026) — wtedy zmiany czekałyby kolejną
   # dobę bez śladu. W dzień roboczy ta sonda sprawdza, czy na produkcji są
-  # wszystkie merge'e sprzed 07:00 (przy zielonej bramce HEAD-a; czerwoną
+  # wszystkie merge'e sprzed 08:00 (przy zielonej bramce HEAD-a; czerwoną
   # obsługuje alarm wstrzymania w deploy.yml). W weekend okna nie ma
   # (17.10.2026), więc nie ma też czego oceniać — `night-check` milczy.
   night-deploy:
-    name: Noc bez wdrożenia (okno 19:00–07:00)
+    name: Noc bez wdrożenia (okno 18:00–08:00)
     if: ${{ github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -458,11 +458,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
-      - name: Czy noc wdrożyła merge'e sprzed 07:00?
+      - name: Czy noc wdrożyła merge'e sprzed 08:00?
         id: night
         env:
           GH_TOKEN: ${{ github.token }}
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '7-19' }}
+          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}
         run: |
           set -u
           live=$(curl -sS --max-time 15 https://api.nexus.dynaminds.pl/api/health | jq -r '.version // ""' 2>/dev/null || echo "")
@@ -482,7 +482,7 @@ jobs:
             echo "Nocne okno wdrożeń minęło, a produkcja nie ma zmian z maina: **${REASON}**."
             echo
             echo "Wieczorne przebiegi Deploy nie wdrożyły HEAD-a (cron GitHuba nie przyszedł albo bieg padł)."
-            echo "Następna szansa: dziś po 19:00. Awaryjnie w dzień — tylko na polecenie Artura"
+            echo "Następna szansa: dziś po 18:00. Awaryjnie w dzień — tylko na polecenie Artura"
             echo "(Deploy → Run workflow z emergency=true i powodem)."
             echo
             echo "Bieg: ${RUN_URL}"

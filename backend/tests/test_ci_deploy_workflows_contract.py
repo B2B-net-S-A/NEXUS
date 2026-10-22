@@ -662,23 +662,23 @@ def test_gitleaks_also_scans_every_commit_of_the_pr_and_merge_group() -> None:
 
 
 def test_deploy_waits_for_the_evening_window() -> None:
-    """Decyzja Artura 14.10.2026: wdrożenia tylko 19:00–07:00 (Warszawa).
+    """Decyzja Artura 14.10.2026: wdrożenia tylko 18:00–08:00 (Warszawa).
 
-    Okno ciszy `7-19` obowiązuje bez zmiennej repo, także ręczny dispatch
+    Okno ciszy `8-18` obowiązuje bez zmiennej repo, także ręczny dispatch
     (np. z „Coolify set env”); omija je tylko `emergency` z powodem. Zaległe
     merge'e dnia wdraża wieczorny `schedule` — kilka slotów, bo cron GitHuba
     potrafi przyjść z kilkugodzinnym opóźnieniem albo wcale (26.09.2026)."""
     deploy = _load("deploy.yml")
     crons = [entry["cron"] for entry in _triggers(deploy)["schedule"]]
-    assert crons == ["23 17,18,19,20,21 * * *", "23 4 * * *"], (
-        "17:23Z = 19:23 latem, 18:23Z = 19:23 zimą; 04:23Z = zapas przed 07:00."
+    assert crons == ["23 16,17,18,19,20,21 * * *", "23 4 * * *"], (
+        "16:23Z = 18:23 latem, 17:23Z = 18:23 zimą; 04:23Z = zapas przed 08:00."
     )
     select = deploy["jobs"]["select"]
     assert "github.event_name == 'schedule'" in select["if"]
     assert "github.ref == 'refs/heads/main'" in select["if"]
     step = _step(select["steps"], "Wybierz wydanie")
     freeze = step["env"]["FREEZE_WINDOW"]
-    assert freeze == "${{ vars.DEPLOY_FREEZE_WINDOW || '7-19' }}", (
+    assert freeze == "${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}", (
         "Okno ciszy obowiązuje bez zmiennej repo i dla ręcznego dispatchu."
     )
     quiet = _step(select["steps"], "Poczekaj na ciszę na mainie (grupowanie deployów)")
@@ -733,13 +733,13 @@ def test_window_slot_dispatch_behaves_like_the_evening_schedule() -> None:
 
 def test_uptime_probe_alerts_on_a_night_without_deploy() -> None:
     """Wieczorny cron może nie przyjść — w dzień sonda sprawdza, czy noc
-    wdrożyła merge'e sprzed 07:00, i otwiera/zamyka jedno issue."""
+    wdrożyła merge'e sprzed 08:00, i otwiera/zamyka jedno issue."""
     job = _load("uptime-probe.yml")["jobs"]["night-deploy"]
     assert job["if"] == "${{ github.event_name == 'schedule' }}"
     assert job["permissions"]["issues"] == "write"
-    check = _step(job["steps"], "Czy noc wdrożyła merge'e sprzed 07:00?")
+    check = _step(job["steps"], "Czy noc wdrożyła merge'e sprzed 08:00?")
     assert "select_release_sha.py night-check" in check["run"]
-    assert check["env"]["FREEZE_WINDOW"] == "${{ vars.DEPLOY_FREEZE_WINDOW || '7-19' }}"
+    assert check["env"]["FREEZE_WINDOW"] == "${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}"
     marker = "Deploy NEXUS — noc bez wdrożenia"
     assert marker in _step(job["steps"], "Alarm — noc bez wdrożenia")["run"]
     assert marker in _step(job["steps"], "Zamknij alarm nocy")["run"]
@@ -754,12 +754,12 @@ def test_queue_maintenance_redeploy_respects_the_window() -> None:
     assert inputs["emergency"]["default"] is False
     steps = wf["jobs"]["maintain"]["steps"]
     names = [step.get("name") for step in steps]
-    gate = _step(steps, "Okno wdrożeń 19:00–07:00")
-    assert names.index("Okno wdrożeń 19:00–07:00") < names.index(
+    gate = _step(steps, "Okno wdrożeń 18:00–08:00")
+    assert names.index("Okno wdrożeń 18:00–08:00") < names.index(
         "Cancel stuck deployments"
     )
     assert gate["if"] == "${{ inputs.mode == 'redeploy' }}"
-    assert gate["env"]["FREEZE_WINDOW"] == "${{ vars.DEPLOY_FREEZE_WINDOW || '7-19' }}"
+    assert gate["env"]["FREEZE_WINDOW"] == "${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}"
     assert "select_release_sha.py in-freeze" in gate["run"]
     assert "inputs.reason" not in gate["run"]
     assert gate["env"]["REASON"] == "${{ inputs.reason }}"

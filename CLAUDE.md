@@ -42,7 +42,7 @@ Szczegóły: `docs/claude/podstawy/ci-gotchas.md`, `deploy.md`, `healthcheck-end
 - Gotowy PR wchodzi do kolejki sam; sesja kończy `gh pr merge <nr> --squash --auto`.
   Draft albo etykieta `wstrzymaj` = nie wchodzi. Wypadł z kolejki: najpierw
   przyczyna z logów `merge_group`, potem poprawka.
-- Wdrożenia pon–pt 19:00–07:00 (Warszawa), w weekend zawsze; w dzień roboczy
+- Wdrożenia pon–pt 18:00–08:00 (Warszawa), w weekend zawsze; w dzień roboczy
   `emergency` tylko na polecenie Artura. Potem `/api/health` → `version` = SHA
   z maina ze zmianą; dopiero wtedy test na produkcji.
 - Lokalnie bez Dockera: `ruff`, testy bez bazy, `npx vitest run <pliki>`,

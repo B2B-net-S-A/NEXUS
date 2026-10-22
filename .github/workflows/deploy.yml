@@ -106,12 +106,12 @@ on:
         description: "Pełna przebudowa bez cache Coolify (np. po zmianie zmiennej build-time)"
         type: boolean
         default: false
-      # Okno wdrożeń 19:00–07:00 pon–pt (decyzja Artura 14.10.2026; weekend bez
+      # Okno wdrożeń 18:00–08:00 pon–pt (decyzja Artura 14.10.2026; weekend bez
       # okna od 17.10.2026) obowiązuje też ręczny bieg. `emergency` je omija —
       # WYŁĄCZNIE na polecenie Artura.
       # Wdraża cały HEAD maina, czyli wszystko scalone w ciągu dnia.
       emergency:
-        description: "AWARYJNIE: wdróż w dzień roboczy mimo okna 19:00–07:00 (tylko na polecenie Artura)"
+        description: "AWARYJNIE: wdróż w dzień roboczy mimo okna 18:00–08:00 (tylko na polecenie Artura)"
         type: boolean
         default: false
       reason:
@@ -126,23 +126,23 @@ on:
         description: "Slot okna wdrożeń z budzika deploy-window (zachowuje się jak wieczorny cron)"
         type: boolean
         default: false
-  # Okno wdrożeń (decyzja Artura 14.10.2026): pon–pt produkcja przebudowuje
-  # się tylko 19:00–07:00 czasu warszawskiego — w dzień wszyscy pracują
+  # Okno wdrożeń (decyzja Artura 14.10.2026, godziny 18:00–08:00 od 22.10.2026):
+  # pon–pt produkcja przebudowuje się tylko 18:00–08:00 czasu warszawskiego — w dzień wszyscy pracują
   # w systemie, a deploy to ~2 min przerwy. Merge'e z dnia odracza `select`
   # (`night_freeze`), a wdrażają je przebiegi w oknie. W sobotę i niedzielę
   # okna nie ma (17.10.2026): merge wdraża się od razu.
   #
-  # Głównym wyzwalaczem jest budzik `deploy-window` (19:05, 21:05, 23:05
+  # Głównym wyzwalaczem jest budzik `deploy-window` (18:05, 20:05, 22:05
   # Warszawa, `window_slot` wyżej). Cron GitHuba zostaje jako zapas, bo w tym
   # repo przychodzi z 3–9 h opóźnieniem albo wcale: 15.10.2026 sloty 17:23Z
   # i 18:23Z nie przyszły do 19:30Z, slot 04:23Z przyszedł o 09:15Z (w dzień,
   # więc odroczony), a godzinny `uptime-probe` odpala się ok. 4 razy na dobę.
-  # 17:23Z = 19:23 latem (zimą 18:23 — jeszcze okno, wdraża slot 18:23Z),
+  # 16:23Z = 18:23 latem (zimą 17:23 — jeszcze okno, wdraża slot 17:23Z),
   # kolejne godziny to zapas, 04:23Z (06:23 latem, 05:23 zimą) to ostatnia
-  # szansa przed 07:00, już po nocnym przeglądzie bazy i kopii 02:30Z.
+  # szansa przed 08:00, już po nocnym przeglądzie bazy i kopii 02:30Z.
   # Przebieg, który trafi na wdrożoną już wersję, kończy się na koalescencji.
   schedule:
-    - cron: "23 17,18,19,20,21 * * *"
+    - cron: "23 16,17,18,19,20,21 * * *"
     - cron: "23 4 * * *"
 
 permissions:
@@ -216,7 +216,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           QUIET: ${{ vars.DEPLOY_QUIET_SECONDS || '0' }}
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '7-19' }}
+          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}
         run: |
           set -u
           # PROD-04: w oknie ciszy wybór wydania i tak odroczy deploy — nie
@@ -251,11 +251,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TARGET_UNVERIFIED: ${{ github.event_name == 'workflow_dispatch' && '--target-unverified' || '' }}
           SCHEDULED: ${{ (github.event_name == 'schedule' || env.WINDOW_SLOT == 'true') && '--scheduled' || '' }}
-          # Okno wdrożeń 19:00–07:00 (14.10.2026): `7-19` = cisza 07:00–18:59
+          # Okno wdrożeń 18:00–08:00 (14.10.2026): `8-18` = cisza 08:00–17:59
           # czasu warszawskiego pon–pt (weekend bez ciszy, 17.10.2026), dla
           # KAŻDEGO zdarzenia, także ręcznego biegu. Zmienna repo nadpisuje
           # godziny (`off` = brak okna).
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '7-19' }}
+          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}
           EMERGENCY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency && '--emergency' || '' }}
           # Tekst od człowieka tylko przez `env:` — interpolacja `${{ }}` w `run`
           # wkleiłaby go do skryptu powłoki.
@@ -270,7 +270,7 @@ jobs:
             $TARGET_UNVERIFIED $SCHEDULED $EMERGENCY
           if [ -n "$EMERGENCY" ]; then
             {
-              echo "### ⚠️ Awaryjne wdrożenie poza oknem 19:00–07:00"
+              echo "### ⚠️ Awaryjne wdrożenie poza oknem 18:00–08:00"
               echo
               echo "Uruchomił: \`${GITHUB_ACTOR}\`"
               echo

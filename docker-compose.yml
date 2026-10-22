@@ -398,7 +398,7 @@ services:
       start_period: 60s
     logging: *default-logging
 
-  # Budzik okna wdrożeń (15.10.2026): o 19:05, 21:05 i 23:05 czasu
+  # Budzik okna wdrożeń (15.10.2026): o 18:05, 20:05 i 22:05 czasu
   # warszawskiego uruchamia workflow Deploy przez API GitHuba, bo cron GitHuba
   # przychodzi z kilkugodzinnym opóźnieniem albo wcale — deploy-window/loop.sh.
   # Token (fine-grained PAT, „Actions: read and write”, tylko to repo) leży

@@ -26,10 +26,10 @@ Skoro nie da się wskazać Coolify commitu, pilnujemy obu końców budowy:
     i trzeba go wycofać.
 
 ``select`` — okno ciszy (PROD-04, audyt 22.09.2026; dzień od 14.10.2026)
-    Od 14.10.2026 (decyzja Artura) wdrożenia idą pon–pt tylko 19:00–07:00
+    Od 14.10.2026 (decyzja Artura; godziny od 22.10.2026) wdrożenia idą pon–pt tylko 18:00–08:00
     czasu warszawskiego: w dzień wszyscy pracują w systemie, a przebudowa to
     ~2 min przerwy. W sobotę i niedzielę okna nie ma (17.10.2026) — wdrażamy
-    o każdej porze. Okno ``--freeze-window`` (w deploy.yml domyślnie ``7-19``):
+    o każdej porze. Okno ``--freeze-window`` (w deploy.yml domyślnie ``8-18``):
     automatyczny deploy (``workflow_run`` i ``schedule``) jest odraczany —
     ``head_status=night_freeze``, ``defer=true``, kod 0 — a zaległe merge'e
     wdraża wieczorny ``schedule``. Ręczny ``workflow_dispatch`` w oknie kończy
@@ -301,7 +301,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     select.add_argument(
         "--freeze-window",
         default="",
-        help="okno ciszy deployu pon–pt w godzinach czasu warszawskiego, np. 7-19 "
+        help="okno ciszy deployu pon–pt w godzinach czasu warszawskiego, np. 8-18 "
         "(pusty = brak; w weekend okna nie ma)",
     )
     select.add_argument(
@@ -377,8 +377,8 @@ def _run_select(
             if manual:
                 print(
                     f"::error::Okno ciszy {args.freeze_window} (czas {DEFAULT_TZ}): "
-                    "w dni robocze wdrożenia tylko 19:00–07:00. Uruchom ponownie "
-                    "po 19:00 albo — wyłącznie na polecenie Artura — z emergency=true "
+                    "w dni robocze wdrożenia tylko 18:00–08:00. Uruchom ponownie "
+                    "po 18:00 albo — wyłącznie na polecenie Artura — z emergency=true "
                     "i powodem.",
                     file=sys.stderr,
                 )
@@ -482,8 +482,8 @@ def _run_accept(args: argparse.Namespace, fetch: Fetch) -> int:
 
 
 def window_closed_at(now_utc: datetime, window: str, tz: str = DEFAULT_TZ) -> datetime:
-    """Chwila (UTC), w której zaczęło się bieżące okno ciszy — dla ``7-19``
-    dzisiejsza 07:00 czasu ``tz``. Wołać tylko wewnątrz okna ciszy."""
+    """Chwila (UTC), w której zaczęło się bieżące okno ciszy — dla ``8-18``
+    dzisiejsza 08:00 czasu ``tz``. Wołać tylko wewnątrz okna ciszy."""
     bounds = parse_freeze_window(window)
     if bounds is None:
         raise ValueError("brak okna ciszy")

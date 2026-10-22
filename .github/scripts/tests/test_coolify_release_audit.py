@@ -40,7 +40,7 @@ class ReleaseAuditTests(unittest.TestCase):
         )
 
     def test_auto_deploy_and_push_webhook_are_reported_as_flags_only(self):
-        # Okno wdrożeń 19:00–07:00 trzyma tylko wtedy, gdy Coolify nie wdraża
+        # Okno wdrożeń 18:00–08:00 trzyma tylko wtedy, gdy Coolify nie wdraża
         # sam po pushu na main (14.10.2026).
         secret = "whsec-private-value"
         result = audit.summarize(

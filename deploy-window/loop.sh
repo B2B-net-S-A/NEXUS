@@ -1,12 +1,12 @@
 #!/bin/sh
 # Budzik okna wdrożeń NEXUSA (15.10.2026).
 #
-# Wdrożenia idą tylko 19:00–07:00 czasu warszawskiego (decyzja Artura
+# Wdrożenia idą tylko 18:00–08:00 czasu warszawskiego (decyzja Artura
 # 14.10.2026). Merge'e z dnia odracza workflow Deploy, a wdrażać miał je
 # wieczorny `schedule` GitHuba. Ten w tym repo przychodzi z 3–9 h opóźnieniem
 # albo wcale: 15.10 żaden z wieczornych slotów nie przyszedł do 21:30
 # (dzienne merge'e wdrożył dopiero ręczny bieg), a godzinny `uptime-probe`
-# odpala się ok. 4 razy na dobę. Ten kontener o 19:05, 21:05 i 23:05 uruchamia
+# odpala się ok. 4 razy na dobę. Ten kontener o 18:05, 20:05 i 22:05 uruchamia
 # Deploy przez API GitHuba: `workflow_dispatch` z `window_slot=true` zachowuje
 # się jak `schedule` (bramka CI Gate, okno ciszy, pominięcie rebuildu, gdy
 # produkcja ma już HEAD maina). Kolejne sloty to ponowienie, gdy wcześniejszy
@@ -23,7 +23,7 @@
 # restartu; brak pliku = slot pominięty z wpisem w logu.
 set -eu
 
-SLOTS="19:05 21:05 23:05"
+SLOTS="18:05 20:05 22:05"
 # Kanoniczna nazwa po przeniesieniu repo do organizacji — stara
 # `artur-t-96/Nexus` daje przekierowanie, za którym POST nie idzie.
 REPO="${DEPLOY_WINDOW_REPO:-B2B-net-S-A/NEXUS}"

@@ -117,18 +117,18 @@ class FreezeWindowTests(unittest.TestCase):
         self.assertTrue(SELECT.in_freeze(self.at("2026-07-01T22:30:00"), "0-7"))
 
     def test_day_window_matches_the_evening_cron_slots(self):
-        # Okno 7-19 (decyzja 14.10.2026): wdrożenia tylko 19:00–07:00.
-        # Lato: 17:23Z = 19:23 lokalnie → wolno; zima: 17:23Z = 18:23 → jeszcze
-        # okno, wdraża slot 18:23Z (= 19:23 zimą).
-        self.assertFalse(SELECT.in_freeze(self.at("2026-07-01T17:23:00"), "7-19"))
-        self.assertTrue(SELECT.in_freeze(self.at("2026-12-01T17:23:00"), "7-19"))
-        self.assertFalse(SELECT.in_freeze(self.at("2026-12-01T18:23:00"), "7-19"))
-        # Zapasowy slot 04:23Z: 06:23 latem, 05:23 zimą — oba przed 07:00.
-        self.assertFalse(SELECT.in_freeze(self.at("2026-07-01T04:23:00"), "7-19"))
-        self.assertFalse(SELECT.in_freeze(self.at("2026-12-01T04:23:00"), "7-19"))
-        # Spóźniony cron po 07:00 trafia już w okno.
-        self.assertTrue(SELECT.in_freeze(self.at("2026-07-01T05:30:00"), "7-19"))
-        self.assertTrue(SELECT.in_freeze(self.at("2026-07-01T12:00:00"), "7-19"))
+        # Okno 8-18 (decyzja 14.10.2026, godziny od 22.10.2026): wdrożenia
+        # tylko 18:00–08:00. Lato: 16:23Z = 18:23 lokalnie → wolno; zima:
+        # 16:23Z = 17:23 → jeszcze okno, wdraża slot 17:23Z (= 18:23 zimą).
+        self.assertFalse(SELECT.in_freeze(self.at("2026-07-01T16:23:00"), "8-18"))
+        self.assertTrue(SELECT.in_freeze(self.at("2026-12-01T16:23:00"), "8-18"))
+        self.assertFalse(SELECT.in_freeze(self.at("2026-12-01T17:23:00"), "8-18"))
+        # Zapasowy slot 04:23Z: 06:23 latem, 05:23 zimą — oba przed 08:00.
+        self.assertFalse(SELECT.in_freeze(self.at("2026-07-01T04:23:00"), "8-18"))
+        self.assertFalse(SELECT.in_freeze(self.at("2026-12-01T04:23:00"), "8-18"))
+        # Spóźniony cron po 08:00 trafia już w okno.
+        self.assertTrue(SELECT.in_freeze(self.at("2026-07-01T06:30:00"), "8-18"))
+        self.assertTrue(SELECT.in_freeze(self.at("2026-07-01T12:00:00"), "8-18"))
 
     def test_window_across_midnight_and_off_values(self):
         self.assertTrue(SELECT.in_freeze(self.at("2026-12-01T22:30:00"), "22-6"))
@@ -140,17 +140,17 @@ class FreezeWindowTests(unittest.TestCase):
                 SELECT.parse_freeze_window(bad)
 
     def test_weekend_has_no_window(self):
-        # Doprecyzowanie Artura 17.10.2026: okno 7-19 tylko pon–pt, w sobotę
+        # Doprecyzowanie Artura 17.10.2026: okno 8-18 tylko pon–pt, w sobotę
         # i niedzielę wdrażamy o każdej porze. Październik 2026 = CEST (UTC+2).
         # Sobota 17.10 11:00 w Warszawie → bez okna; piątek 16.10 11:00 → okno.
-        self.assertFalse(SELECT.in_freeze(self.at("2026-10-17T09:00:00"), "7-19"))
-        self.assertFalse(SELECT.in_freeze(self.at("2026-10-18T09:00:00"), "7-19"))
-        self.assertTrue(SELECT.in_freeze(self.at("2026-10-16T09:00:00"), "7-19"))
-        # Poniedziałek 19.10: 06:59 jeszcze bez okna, od 07:00 okno.
-        self.assertFalse(SELECT.in_freeze(self.at("2026-10-19T04:59:00"), "7-19"))
-        self.assertTrue(SELECT.in_freeze(self.at("2026-10-19T05:00:00"), "7-19"))
+        self.assertFalse(SELECT.in_freeze(self.at("2026-10-17T09:00:00"), "8-18"))
+        self.assertFalse(SELECT.in_freeze(self.at("2026-10-18T09:00:00"), "8-18"))
+        self.assertTrue(SELECT.in_freeze(self.at("2026-10-16T09:00:00"), "8-18"))
+        # Poniedziałek 19.10: 07:59 jeszcze bez okna, od 08:00 okno.
+        self.assertFalse(SELECT.in_freeze(self.at("2026-10-19T05:59:00"), "8-18"))
+        self.assertTrue(SELECT.in_freeze(self.at("2026-10-19T06:00:00"), "8-18"))
         # Zima (CET): sobota 05.12 12:00 → bez okna.
-        self.assertFalse(SELECT.in_freeze(self.at("2026-12-05T11:00:00"), "7-19"))
+        self.assertFalse(SELECT.in_freeze(self.at("2026-12-05T11:00:00"), "8-18"))
 
     def test_weekend_counts_by_the_local_date_of_now(self):
         # Okno przez północ: niedziela 23:30 → weekend; piątek 23:30 → okno;
@@ -170,8 +170,8 @@ class FreezeWindowTests(unittest.TestCase):
         # Wtorek 03:00 → poniedziałek 22:00, jak dotąd.
         start = SELECT.window_closed_at(self.at("2026-10-20T01:00:00"), "22-6")
         self.assertEqual(start, self.at("2026-10-19T20:00:00"))
-        start = SELECT.window_closed_at(self.at("2026-10-19T08:00:00"), "7-19")
-        self.assertEqual(start, self.at("2026-10-19T05:00:00"))
+        start = SELECT.window_closed_at(self.at("2026-10-19T08:00:00"), "8-18")
+        self.assertEqual(start, self.at("2026-10-19T06:00:00"))
 
     def test_in_freeze_cli_exit_codes(self):
         args = SELECT.parse_args(["in-freeze", "--freeze-window", "0-7"])
@@ -261,7 +261,7 @@ class CliTests(unittest.TestCase):
 
         args = SELECT.parse_args(
             ["select", "--repo", "o/r", "--target", A, "--target-unverified",
-             "--freeze-window", "7-19"]
+             "--freeze-window", "8-18"]
         )
         now = datetime(2026, 7, 1, 10, 0, tzinfo=timezone.utc)  # 12:00 w Warszawie
         self.assertEqual(SELECT._run_select(args, fetch, now=now), 1)
@@ -279,7 +279,7 @@ class CliTests(unittest.TestCase):
 
         args = SELECT.parse_args(
             ["select", "--repo", "o/r", "--target", A, "--target-unverified",
-             "--freeze-window", "7-19"]
+             "--freeze-window", "8-18"]
         )
         now = datetime(2026, 7, 1, 18, 0, tzinfo=timezone.utc)  # 20:00 w Warszawie
         self.assertEqual(SELECT._run_select(args, fetch, now=now), 0)
@@ -300,7 +300,7 @@ class CliTests(unittest.TestCase):
                 out, _ = self.env()
                 args = SELECT.parse_args(
                     ["select", "--repo", "o/r", "--target", A,
-                     "--freeze-window", "7-19", *extra]
+                     "--freeze-window", "8-18", *extra]
                 )
                 self.assertEqual(SELECT._run_select(args, fetch, now=now), 0)
                 text = out.read_text()
@@ -317,7 +317,7 @@ class CliTests(unittest.TestCase):
 
         args = SELECT.parse_args(
             ["select", "--repo", "o/r", "--target", A, "--target-unverified",
-             "--freeze-window", "7-19", "--emergency", "--reason", "logowanie nie działa"]
+             "--freeze-window", "8-18", "--emergency", "--reason", "logowanie nie działa"]
         )
         now = datetime(2026, 7, 1, 10, 0, tzinfo=timezone.utc)
         self.assertEqual(SELECT._run_select(args, fetch, now=now), 0)
@@ -336,7 +336,7 @@ class CliTests(unittest.TestCase):
             with self.subTest(extra=extra):
                 args = SELECT.parse_args(
                     ["select", "--repo", "o/r", "--target", A,
-                     "--freeze-window", "7-19", *extra]
+                     "--freeze-window", "8-18", *extra]
                 )
                 self.assertEqual(SELECT._run_select(args, fetch, now=now), 1)
 
@@ -376,7 +376,7 @@ class CliTests(unittest.TestCase):
 
     def night_args(self, live=A):
         return SELECT.parse_args(
-            ["night-check", "--repo", "o/r", "--live", live, "--freeze-window", "7-19"]
+            ["night-check", "--repo", "o/r", "--live", live, "--freeze-window", "8-18"]
         )
 
     def test_night_check_alerts_on_merges_older_than_this_mornings_seven(self):
