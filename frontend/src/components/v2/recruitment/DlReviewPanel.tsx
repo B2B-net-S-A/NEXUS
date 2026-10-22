@@ -130,6 +130,8 @@ import {
 import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import { PersonFacts } from "@/components/v2/person/PersonFacts";
+import { PreContractRequestDialog } from "@/components/v2/person/pre-contract/PreContractDialogs";
+import { invalidatePreContract } from "@/lib/api/preContracts";
 
 export { RATE_UNIT_LABEL, type ClientRateUnit };
 
@@ -440,6 +442,8 @@ export function DlReviewBody({
   const candidateId = task.candidate_id;
   const jobId = task.job_id;
   const context = useDlReviewContext(candidateId, jobId);
+  // 0506: prośba o przedwstępną z przeglądu (DL decyduje, że CV poczeka na umowę).
+  const [preContractOpen, setPreContractOpen] = useState(false);
   // Braki wśród wymagań, które serwer liczy do „X/Y” (krytyczne i „musi mieć”)
   // — same nazwy; liczb X/Y tu nie przeliczamy.
   const missingRequirements = useMemo(
@@ -1086,8 +1090,30 @@ export function DlReviewBody({
               </span>
             </label>
           ) : null}
+
+          {canSend ? (
+            <button
+              type="button"
+              className="text-left text-xs font-medium text-primary underline-offset-2 hover:underline"
+              onClick={() => setPreContractOpen(true)}
+              data-testid="dl-review-pre-contract"
+            >
+              Poproś o umowę przedwstępną przed wysłaniem CV
+            </button>
+          ) : null}
         </DecisionPanel>
       </div>
+      {preContractOpen ? (
+        <PreContractRequestDialog
+          open
+          onOpenChange={setPreContractOpen}
+          candidateId={candidateId}
+          jobId={jobId}
+          personLabel={task.candidate_name}
+          defaultNeededBefore="cv_sent"
+          onDone={() => invalidatePreContract(queryClient, jobId)}
+        />
+      ) : null}
 
       <ReturnForFixDialog
         open={returnOpen}

@@ -138,9 +138,25 @@ describe("ClientAcceptedDialog", () => {
     fireEvent.click(save);
 
     expect(onConfirm).toHaveBeenCalledWith(
-      { acceptedOn: warsawToday(), plannedStartOn: "2099-11-01", clientNote: "Start od listopada." },
+      {
+        acceptedOn: warsawToday(),
+        plannedStartOn: "2099-11-01",
+        clientNote: "Start od listopada.",
+        requestPreContract: false,
+      },
       RECIPIENTS,
     );
+  });
+
+  it("„Potrzebna umowa przedwstępna” przekazuje prośbę razem z akceptacją (0506)", async () => {
+    serve();
+    const { onConfirm } = renderDialog();
+    const box = await dialog();
+    fireEvent.click(within(box).getByRole("checkbox", { name: /Potrzebna umowa przedwstępna/ }));
+    const save = within(box).getByRole("button", { name: "Zapisz akceptację" });
+    await waitFor(() => expect(save).not.toBeDisabled());
+    fireEvent.click(save);
+    expect(onConfirm.mock.calls[0][0].requestPreContract).toBe(true);
   });
 
   it("brak debriefu po rozmowie blokuje zapis i prowadzi do debriefu", async () => {

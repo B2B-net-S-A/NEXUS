@@ -412,6 +412,9 @@ class CandidateStageResponse(BaseModel):
     # planned_start_on, marked_at, marked_by_name}; front rysuje ją tylko
     # w kolumnie „Akceptacja i umowa”.
     client_acceptance: Optional[dict] = None
+    # 0506: umowa przedwstępna pary — `{id, state, label, tone, detail}`
+    # z `services/pre_contracts.badge` (front tylko pokazuje).
+    pre_contract: Optional[dict] = None
     # Znacznik „Pracuje u nas” (`services/employment_marker.py`); `elsewhere`
     # liczone względem klienta tej rekrutacji. Pulpit „Moje następne kroki”
     # go nie niesie (do 25 tablic w jednej odpowiedzi).

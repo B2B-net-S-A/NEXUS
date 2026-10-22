@@ -220,6 +220,12 @@ class NotificationType(str, enum.Enum):
     # planujący, DL rekrutacji, rekruter kandydata), licznik bez dymka.
     # related_entity=(prep_review, calendar_event.id), dedup dobowy.
     prep_review_ready = "prep_review_ready"
+    # 0506 (21.10.2026): umowa przedwstępna — prośba, wystawienie, podpisy,
+    # wygasanie, rezygnacja kandydata, termin umowy B2B. Do proszących,
+    # obserwujących i wystawiającego, bez autora zmiany.
+    # related_entity=(pre_contract_event, id) — każdy krok to osobne
+    # zdarzenie, więc dzienny dedup nie zjada drugiego kroku tego samego dnia.
+    pre_contract = "pre_contract"
     # 0371: automat przydziału requestów — rano JEDEN wpis na osobę („Od dziś:
     # X. Zwolnione: Y (champion)”); related_entity=(user, id), dedup dobowy.
     # Od 02.10.2026 także od razu po akceptacji propozycji: „Nowy request do

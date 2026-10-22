@@ -1984,6 +1984,40 @@ async def apply_move(
                 "source": "pipeline_move",
             },
         )
+    # 0506: umowa przedwstępna pary — termin umowy B2B po akceptacji klienta
+    # i ślad ruchu bez podpisanej umowy (ostrzeżenie, nie bramka).
+    from app.services import pre_contracts as _pre_contracts  # noqa: PLC0415
+    from app.services.board_stage_badges import (  # noqa: PLC0415
+        board_column_for as _board_column_for,
+    )
+    from app.services.move_requirements import (  # noqa: PLC0415
+        column_label as _column_label,
+    )
+
+    _to_column = _board_column_for(
+        stage_def.name if stage_def is not None else None,
+        legacy_enum.value,
+        category=getattr(
+            getattr(stage_def, "category", None),
+            "value",
+            getattr(stage_def, "category", None),
+        ),
+        terminal_type=getattr(
+            getattr(stage_def, "terminal_type", None),
+            "value",
+            getattr(stage_def, "terminal_type", None),
+        ),
+    )
+    await _pre_contracts.on_move(
+        db,
+        candidate_id=data.candidate_id,
+        job_id=data.job_id,
+        to_column=_to_column,
+        to_label=_column_label(_to_column),
+        accepted_on=stage.client_accepted_on,
+        actor_id=policy.actor_id,
+        actor_name=getattr(policy.viewer, "name", None),
+    )
     await create_original_cv_snapshot(db, stage)
     if expected_rate_value is not None:
         await _record_rate_from_move(
@@ -3298,6 +3332,10 @@ async def build_kanban_view(
         if with_employment
         else {}
     )
+    # 0506: umowa przedwstępna pary na karcie — dwa zapytania na tablicę.
+    from app.services.pre_contracts import kanban_badges  # noqa: PLC0415
+
+    pre_contract_badges = await kanban_badges(db, job_id, candidate_ids)
     # 0450 (D3): złota plakietka „Champion” na karcie — jedno zapytanie.
     from app.services.job_champions import live_candidate_ids  # noqa: PLC0415
 
@@ -3582,6 +3620,7 @@ async def build_kanban_view(
             latest_acceptance.get(e.candidate_id), user_name_by_id
         )
         payload["employment_marker"] = employment_markers.get(e.candidate_id)
+        payload["pre_contract"] = pre_contract_badges.get(e.candidate_id)
         payload["other_open_jobs"] = other_open_jobs.get(e.candidate_id) or []
         payload["is_champion"] = e.candidate_id in champion_ids
         v4 = v4_processes.get(e.candidate_id)
