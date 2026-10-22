@@ -48,7 +48,11 @@ ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
 )
 
 ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
-    {NotificationType.ai_spend_alert, NotificationType.automation_failing}
+    {
+        NotificationType.ai_spend_alert,
+        NotificationType.automation_failing,
+        NotificationType.teams_prep_scope_missing,
+    }
 )
 
 # 0508: alarm o masowym przeglądaniu CV — admin i Head of Recruitment (rola

@@ -200,3 +200,11 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
 - **Po Fireflies zostaje:** wartość enuma `fireflies_meeting`, migracje
   0129/0187, `Note.audio_url`/`source_ref`, `enrich_from_meeting` (używane
   przez „Powiąż + AI” i briefing).
+- **Kto może prowadzić prep (0510, 22.10.2026):** aplikacja zakłada spotkanie
+  tylko w kalendarzu członka grupy `NEXUS-Meetings-Scope`, której skład NIE
+  idzie za rolami. Odmowę Microsoftu (403/404) zamieniamy na 409 z nazwiskiem
+  i adresem prowadzącego (`prep_meetings.scope_refused_detail`, też follow-up).
+  Pętla `teams_prep_scope_alerts` wysyła adminom raz dziennie listę osób
+  poza grupą (`teams_prep_scope_missing`). Dopisuje admin ręcznie — NEXUS nie
+  ma prawa zapisu do grupy i nie dostaje go (decyzja Artura 22.10).
+  Instrukcja: `docs/teams-prep-setup.md` → „Nowa osoba prowadzi prepy”.

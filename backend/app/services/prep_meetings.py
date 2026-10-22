@@ -116,6 +116,21 @@ async def suggest_organizer_id(
     return prep1 if prep_no == 1 else prep2
 
 
+def scope_refused_detail(organizer: User) -> str:
+    """Odmowa Microsoftu przy zakładaniu spotkania — z nazwiskiem prowadzącego.
+
+    22.10.2026 ogólne „ta osoba nie jest w grupie” nie mówiło planującemu ani
+    adminowi, KOGO dopisać; prowadzącym bywa DL rekrutacji, nie planujący.
+    """
+    who = organizer.name or organizer.email or "prowadzącego"
+    address = f" ({organizer.email})" if organizer.name and organizer.email else ""
+    return (
+        f"Microsoft 365 nie pozwolił założyć spotkania w kalendarzu: {who}{address} "
+        "— zwykle dlatego, że ta osoba nie jest w grupie NEXUS-Meetings. Wybierz "
+        "innego prowadzącego albo poproś administratora o dopisanie tej osoby."
+    )
+
+
 def app_only_ready() -> bool:
     return bool(settings.TEAMS_PREP_APP_ONLY_ENABLED) and (
         teams_prep_auth.credentials_configured()
@@ -324,9 +339,7 @@ async def create_prep(
         if exc.status in (403, 404):
             raise HTTPException(
                 status_code=409,
-                detail="Microsoft 365 nie pozwolił założyć spotkania w kalendarzu "
-                "organizatora — zwykle dlatego, że ta osoba nie jest w grupie "
-                "NEXUS-Meetings. Poproś administratora o dopisanie.",
+                detail=scope_refused_detail(organizer),
             ) from exc
         raise HTTPException(
             status_code=502,

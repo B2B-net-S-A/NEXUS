@@ -114,7 +114,9 @@ CATALOG = (
         id="system_failure",
         label="Awaria automatu",
         module="System",
-        trigger="Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu.",
+        trigger="Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu; "
+        "DL albo rekruter jest poza grupą, w której aplikacja zakłada prepy w Teams "
+        "(najwyżej raz dziennie).",
         recipient_rule="Aktywni administratorzy.",
     ),
     # 0508 (22.10.2026): alarm bez blokady — `services/candidate_data_access_alerts.py`.
@@ -314,6 +316,7 @@ def notification_kind(notification_type: Any) -> str | None:
         "request_assignment_changed": "request_assigned",
         "b2b_signature_requested": "signature_request",
         "automation_failing": "system_failure",
+        "teams_prep_scope_missing": "system_failure",
         "candidate_data_access_alert": "data_access_alert",
     }.get(getattr(notification_type, "value", notification_type))
 
