@@ -796,6 +796,32 @@ describe("tablica pracy — poprawki po audycie 22.10", () => {
     expect(await screen.findByText("Sprawa: Administracja")).toBeInTheDocument();
   });
 
+  it("F11: awaria spraw podopiecznych u opiekuna bez „Spraw” to komunikat, nie same karty opieki", async () => {
+    asUser("delivery_lead", 9);
+    route({ cases: { error: 500 }, board: board([]) });
+    const user = userEvent.setup();
+    renderBoard({ scope: "care" }, config(false));
+
+    await user.click(await screen.findByRole("button", { name: /Moi podopieczni/ }));
+    expect(await screen.findByText("Nie udało się wczytać spraw — karty opieki są aktualne.")).toBeInTheDocument();
+  });
+
+  it("F11: odmowa (403) spraw podopiecznych w Opiece zostaje cicha", async () => {
+    asUser("head_of_recruitment", 9);
+    route({ cases: { error: 403 }, board: board([]) });
+    const user = userEvent.setup();
+    renderBoard({ scope: "care" }, config(false));
+
+    await user.click(await screen.findByRole("button", { name: /Moi podopieczni/ }));
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith(
+        "/api/cases",
+        expect.objectContaining({ params: expect.objectContaining({ mine_care: "true" }) }),
+      ),
+    );
+    expect(screen.queryByText(/Nie udało się wczytać spraw/)).toBeNull();
+  });
+
   it("F12: osoba przypisana do sprawy bez roli opieki widzi w Opiece wszystkie swoje sprawy, nie tylko do piątku", async () => {
     asUser("recruiter", 77);
     const cfg = config(false);

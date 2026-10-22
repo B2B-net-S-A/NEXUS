@@ -275,10 +275,10 @@ export function WorkBoard({
   };
   // „Moi podopieczni” u opiekuna bez „Spraw” i bez własnej sprawy: serwer daje
   // sprawy podopiecznych (bez treści cudzych spraw) — audyt 22.10, F11.
-  const cases = useCases(
-    casesFilters,
-    casesAllowed || (careAccess && mineCare && Boolean(config.open_modules.cases)),
-  );
+  // `casesOn` = zapytanie o sprawy idzie — ładowanie i awaria liczą się tak samo
+  // jak przy uprawnieniu „Sprawy” (awaria ≠ pusta lista).
+  const casesOn = casesAllowed || (careAccess && mineCare && Boolean(config.open_modules.cases));
+  const cases = useCases(casesFilters, casesOn);
   const careBoard = useCareBoard(scope === "mine" || mineCare ? "mine" : "all", careAccess);
   // Wyłączone zapytanie i tak oddaje dane z cache (np. po zmianie konta) — bez
   // dostępu do opieki kart opieki nie pokazujemy wcale.
@@ -371,10 +371,10 @@ export function WorkBoard({
     );
   }
 
-  const loading = (casesAllowed && cases.isLoading) || (careAccess && careBoard.isLoading);
-  const casesFailed = casesAllowed && cases.isError && !casesQuiet;
+  const loading = (casesOn && cases.isLoading) || (careAccess && careBoard.isLoading);
+  const casesFailed = casesOn && cases.isError && !casesQuiet;
   const careFailed = careAccess && careBoard.isError;
-  const blockingError = boardScope === "cases" ? casesFailed : careFailed && (casesFailed || !casesAllowed);
+  const blockingError = boardScope === "cases" ? casesFailed : careFailed && (casesFailed || !casesOn);
 
   const selectItem = (item: WorkItem) => {
     setSnapshot(item);
@@ -579,7 +579,7 @@ export function WorkBoard({
   const showScope = canManage || careAccess;
   const showCaseControls = showCaseControlsFor(casesAllowed, casesQuiet);
   const everythingReady =
-    (!casesAllowed || cases.isSuccess || casesQuiet) && (!careAccess || careBoard.isSuccess);
+    (!casesOn || cases.isSuccess || casesQuiet) && (!careAccess || careBoard.isSuccess);
 
   const renderItem = (item: WorkItem, drag: Parameters<typeof CaseTile>[0]["drag"]) => {
     const column = overrides.get(item.key) ?? itemColumn(item);
@@ -723,7 +723,7 @@ export function WorkBoard({
           state="error"
           description={boardScope === "cases" ? "Nie udało się wczytać spraw." : "Nie udało się wczytać tablicy opieki."}
           onRetry={() => {
-            if (casesAllowed) void cases.refetch();
+            if (casesOn) void cases.refetch();
             if (careAccess) void careBoard.refetch();
           }}
         />
