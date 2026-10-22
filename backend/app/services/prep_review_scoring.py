@@ -347,7 +347,11 @@ def followup_items(parsed: dict, config: PrepReviewConfig) -> list[dict]:
             reason = "general"
         elif a["grade"] == "missing" and a["kind"] == "must" and rules.weak_answers:
             reason = "missing"
-        elif a["grade"] == "missing" and rules.unpracticed_client_questions:
+        elif (
+            a["grade"] == "missing"
+            and a["kind"] == "question"
+            and rules.unpracticed_client_questions
+        ):
             reason = "unpracticed"
         else:
             continue
