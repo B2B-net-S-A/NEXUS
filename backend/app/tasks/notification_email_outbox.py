@@ -6,7 +6,9 @@ blokuje cudzą pracę — rodzaje `IMMEDIATE_KINDS` z
 `notification_delivery` (CV czeka na przegląd DL, CV wróciło do poprawy, nowa
 rekrutacja, prośba o potwierdzenie podpisu, awaria automatu, od 17.10.2026
 sprawy „Czas i ludzie” — treść składa `services/hr/hr_mail.py`, bez rodzaju
-nieobecności i kwot). Resztę zbiera poranny skrót
+nieobecności i kwot, od 22.10.2026 rodzaje z `BELL_MAIL_TYPES`: rozmowy
+u klienta, prepy, akceptacja klienta, umowa przedwstępna, zadania od zespołu,
+zatrudniony bez dokumentów). Resztę zbiera poranny skrót
 (`tasks/daily_digest_email.py`).
 
 Pętla co minutę bierze wiersze `Notification` tych typów bez `email_sent_at`
@@ -47,6 +49,7 @@ from app.services.hr.hr_mail import mail_text
 from app.services.m365.system_mail import DELIVERY_UNCERTAIN, app_mail_send_outcome
 from app.services.notification_access import user_can_receive_notification
 from app.services.notification_delivery import (
+    BELL_MAIL_TYPES,
     HR_MAIL_KIND,
     HR_MAIL_TYPES,
     IMMEDIATE_KINDS,
@@ -109,6 +112,8 @@ def kind_clause(kind: str):
         return ntype == NotificationType.candidate_data_access_alert
     if kind == HR_MAIL_KIND:
         return ntype.in_([NotificationType(value) for value in HR_MAIL_TYPES])
+    if kind in BELL_MAIL_TYPES:
+        return ntype.in_([NotificationType(value) for value in BELL_MAIL_TYPES[kind]])
     raise ValueError(kind)
 
 

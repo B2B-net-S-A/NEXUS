@@ -293,8 +293,9 @@ class NotificationType(str, enum.Enum):
     # 0451: karta weszła na etap „Akceptacja” — klient zaakceptował osobę
     # (D1–D6, 16.10.2026). Do rekrutera kandydata, prowadzącego, Delivery
     # Leada rekrutacji i każdego Head of Recruitment poza osobą, która
-    # zaznaczyła; related_entity=(candidate_stage, id). Bez maila,
-    # kategoria „Akceptacje klienta” nie do wyciszenia.
+    # zaznaczyła; related_entity=(candidate_stage, id). Kategoria „Akceptacje
+    # klienta” nie do wyciszenia; od 22.10.2026 także mail (`client_accepted`
+    # w `notification_delivery.BELL_MAIL_TYPES`).
     client_accepted = "client_accepted"
     # 0452: ręczne „Potwierdź zatrudnienie”, a w Kontraktach nie ma umowy osoby
     # u klienta rekrutacji — „Pracuje u nas” liczy się wyłącznie z umowy
