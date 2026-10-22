@@ -86,12 +86,12 @@ pozostaje na bazie `nexus`; wybrana kopia jest nową bazą obok niej w tym samym
 lokalnym serwerze. Obecna osobna ścieżka odtwarzania offsite nadal zakłada bazę
 `nexus` — przy niej `STAGING_DATABASE_NAME` musi wynosić `nexus`.
 
-Uruchomienie lokalnego Dockera w bieżącej sesji pozostaje zablokowane przez
-załadowaną wcześniejszą politykę narzędzi. Wznowienie restore/startu przez Docker
-wykonaj dopiero w nowej sesji po restarcie Codexa; komendy tego zadania nie
-obchodzą tej blokady. Host-native restore wymaga dostępnego lokalnego Postgresa.
+Lokalny Docker jest dozwolony od 22.10.2026. Nieudany przebieg zostawia pustą
+bazę docelową (`CREATE DATABASE` jest poza transakcją) — kolejny przebieg kieruj
+do nowej nazwy zamiast kasować tamtą. Host-native restore wymaga dostępnego
+lokalnego Postgresa.
 
-Po restarcie, jeżeli `psql`/`pg_restore` nie są zainstalowane na hoście, użyj
+Jeżeli `psql`/`pg_restore` nie są zainstalowane na hoście, użyj
 klientów PostgreSQL 16 we wskazanym lokalnym kontenerze stagingu:
 
 ```sh

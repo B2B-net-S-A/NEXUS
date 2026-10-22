@@ -12,6 +12,11 @@
 \set ON_ERROR_STOP on
 BEGIN;
 
+-- Zrzut z pg_dump ustawia pusty search_path (`set_config('search_path', '', …)`),
+-- a klon z Hetznera biegnie w tej samej transakcji co restore — bez tego
+-- nazwy tabel poniżej nie istnieją.
+SET LOCAL search_path = public;
+
 -- Tokeny OAuth skrzynek M365 (szyfrowane kluczem produkcji, ale klucz nie
 -- powinien być jedyną zaporą) i kursory delty: staging nie czyta poczty.
 UPDATE m365_connections
