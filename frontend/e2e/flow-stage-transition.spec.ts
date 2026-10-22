@@ -248,6 +248,37 @@ test.describe("Pipeline rekrutacji @stack", () => {
       200,
       "arkusz screeningu przed „Zweryfikowany”"
     );
+    // Minimum dla Delivery Leada (21.10.2026): bez lokalizacji, trybu pracy,
+    // dostępności i „Dlaczego ten kandydat” bramka zwraca 409
+    // VERIFIED_REQUIREMENTS_MISSING. Uzupełniamy je tym samym zapisem co okno
+    // „Uzupełnij przed przekazaniem” (`MinimumFieldsDialog`).
+    const form = await jsonOf<{ version: number; state_token: string }>(
+      await admin.api.get("/api/screening-form", {
+        params: { candidate_id: candidate.id, job_id: job.id },
+      }),
+      200,
+      "stan formularza screeningu"
+    );
+    await expectStatus(
+      await admin.api.put("/api/screening-form", {
+        data: {
+          candidate_id: candidate.id,
+          job_id: job.id,
+          expected_version: form.version,
+          state_token: form.state_token,
+          card: {
+            fields: {
+              location: "Warszawa",
+              work_mode: "hybryda, 2 dni w biurze",
+              availability: "od zaraz",
+              recommendation: "Trzy lata komercyjnie w tej samej technologii.",
+            },
+          },
+        },
+      }),
+      200,
+      "minimum dla DL przed „Zweryfikowany”"
+    );
 
     const verified = await jsonOf<StageResponse & {
       verification_status: string;
