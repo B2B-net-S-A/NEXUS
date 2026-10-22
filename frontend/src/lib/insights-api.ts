@@ -97,12 +97,25 @@ export interface InFlightAcceptance {
   days: number;
 }
 
+export type InFlightScope = "mine" | "portfolio";
+
+/** Para w „Moje osoby w drodze” (`/in-flight/me`). */
+export interface InFlightPerson extends Omit<InFlightAcceptance, "stage_key"> {
+  column: InFlightColumn["column"];
+  stage_key: string;
+  /** `null` = konto bez odczytu sekcji Rekrutacja. */
+  candidate_id: number | null;
+  candidate_name: string | null;
+}
+
 export interface InFlightResponse {
   asof: string;
   stale_days: number;
   columns: InFlightColumn[];
   /** `null` = konto bez `view_team_kpi` (lista ma klientów i Delivery Leadów). */
   acceptances: InFlightAcceptance[] | null;
+  /** Tylko `/in-flight/me` — własne pary osoby. */
+  people?: InFlightPerson[] | null;
   forecast: {
     open: number;
     hired: number;
@@ -428,6 +441,14 @@ export const insightsApi = {
   inFlight: () =>
     api
       .get<InFlightResponse>("/api/insights/recruitment/in-flight")
+      .then((r) => r.data),
+
+  /** `mine` = pary, które zweryfikowałem; `portfolio` = rekrutacje Delivery Leada. */
+  inFlightMe: (scope: InFlightScope) =>
+    api
+      .get<InFlightResponse>("/api/insights/recruitment/in-flight/me", {
+        params: { scope },
+      })
       .then((r) => r.data),
 
   timeToHire: (p: InsightsPeriodParams & { min_hires?: number }) =>
@@ -1006,6 +1027,8 @@ export const insightsQueryKeys = {
     ["insights", "recruitment", "competence-matrix"] as const,
   // Stan na dziś — bez okresu w kluczu.
   inFlight: () => ["insights", "recruitment", "in-flight"] as const,
+  inFlightMe: (scope: InFlightScope) =>
+    ["insights", "recruitment", "in-flight", "me", scope] as const,
   hitRatioClosures: () => ["insights", "hit-ratio-closures"] as const,
 };
 

@@ -512,3 +512,37 @@ usuwanie:
   różnicy. Wiersze zbiorcze zawsze pod listą osób. Bez kliknięcia — kolejność
   z API. Ten sam `SortableHeader` (`sections/_shared.tsx`) ma „Performance
   per osoba”.
+
+## Akceptacje, „W drodze” i „Mój miesiąc” v3 (22.10.2026)
+
+Makiety i decyzje Artura: https://claude.ai/artifact/H4QgdE9ou92M1dtr9QrygF
+(„nic nie wycinać hurtem — co bez sensu, zwinąć albo do raportu”).
+
+- **Akceptacje są w lejku, ale tylko od 12.10.2026.** Traffit ich nie znał,
+  DynaReporter nie prowadził. `/recruitment/funnel` oddaje przy etapie
+  `counted_from` (dzień, od którego etap jest liczony w oknie), a konwersja
+  między etapami liczonymi od różnych dni ma `pct = null` i `partial_window`.
+  Ekran pokazuje wtedy „od 12.10”, nie zero i nie procent.
+- **„W drodze” (`/recruitment/in-flight`) = stan na dziś**, kolumna pary
+  regułą Tablicy (ta sama co „Teraz” w „Lejku po etapach”), „od kiedy” =
+  wejście do KOLUMNY (odznaka „Umowa wysłana” nie zeruje licznika, powrót na
+  rozmowę — tak). Lista akceptacji ma klientów i DL, więc tylko z
+  `VIEW_TEAM_KPI`; nazwisk kandydatów nie ma tam nigdy.
+- **Prognoza z akceptacji**: skuteczność = placementy / akceptacje
+  rozstrzygnięte od 12.10.2026, pokazywana od 10 rozstrzygnięć i zawsze jako
+  przedział („ok. 8–9”). Skuteczność jest firmowa także w widoku osoby —
+  próbka jednej osoby jest za mała.
+- **`/recruitment/in-flight/me`**: `mine` = pary, które osoba zweryfikowała
+  (zasługa jak w celach i wyścigach), `portfolio` = rekrutacje Delivery Leada
+  (403 dla innych ról). Nazwiska kandydatów tylko z odczytem sekcji Rekrutacja.
+- **„Mój miesiąc” rekrutera**: cele z tempem z TEGO SAMEGO modelu co licznik
+  w pasku (`buildKpiTopbarModel`) plus precyzja jako wiersz celu, lejek
+  5 etapów (porównanie z zespołem bierze akceptacje tylko, gdy lejek firmy
+  liczy je przez cały miesiąc), „Moje osoby w drodze”, „Moja premia” (dane
+  `/api/hr/payroll/me` — tylko własna; Płace wyłączone albo brak kartoteki =
+  karty nie ma), „Kto się liczy do celów” zwinięte (to samo jest w panelu
+  celów), wyścig rekomendacji obok wyścigu placementów.
+- **Delivery Lead ma własny „Mój miesiąc”** („Jak idzie mój portfel?”): cele
+  DL z kwartału, „W drodze u moich klientów” z kolejką „Do wysłania”, Liga DL,
+  premia, „Moi klienci” z raportu „Portfele DL”. Do 22.10 DL widział ekran
+  i cele rekrutera.
