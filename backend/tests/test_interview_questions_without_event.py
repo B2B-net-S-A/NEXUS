@@ -365,15 +365,35 @@ async def test_pair_debrief_creates_held_interview_and_opens_gate(
         assert ev.operational_owner_id == rec_id
     assert await _gate(cand_id, job_id) is None
 
-    # Poprawka tej samej rozmowy nie zakłada drugiej.
+    # Drugi zapis pytań bez rozmowy z tego samego dnia nie zakłada drugiej
+    # rozmowy i NIE nadpisuje jej debriefu: 409 z rozmową, którą okno otwiera
+    # do poprawy (decyzja Artura 22.10.2026, audyt F27). Dotąd zapis z okna
+    # startującego od pustego formularza zastępował pytania, ocenę i ofertę.
     again = await app_client.put(
         url,
         headers=rec_h,
-        json={**body, "questions": ["Jak testujesz Kafkę?"], "held_on": yesterday},
+        json={
+            **body,
+            "outcome": "medium",
+            "offer_acceptance": "unknown",
+            "questions": ["Jak testujesz Kafkę?"],
+            "held_on": yesterday,
+        },
     )
-    assert again.status_code == 200, again.text
-    assert again.json()["questions"] == ["Jak testujesz Kafkę?"]
+    assert again.status_code == 409, again.text
+    detail = again.json()["detail"]
+    assert detail["code"] == "DEBRIEF_EXISTS"
+    assert detail["event_id"] == out["calendar_event_id"]
+    assert "ma już zapisany debrief" in detail["message"]
     assert await _interview_count(cand_id, job_id) == 1
+    kept = await app_client.get(
+        f"/api/interview-cycle/events/{out['calendar_event_id']}/debrief",
+        headers=rec_h,
+    )
+    assert kept.status_code == 200, kept.text
+    assert kept.json()["questions"] == body["questions"]
+    assert kept.json()["outcome"] == "good"
+    assert kept.json()["offer_acceptance"] == "likely"
 
 
 async def test_pair_debrief_uses_the_held_interview_without_debrief(

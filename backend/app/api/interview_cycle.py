@@ -1550,12 +1550,35 @@ async def save_pair_debrief(
     start = client_interview_entry.held_interview_start(
         body.held_on, body.held_at, now=now
     )
-    # Rozmowa z tego dnia już ma debrief (drugi zapis z innego okna, wyścig
-    # z panelem) — poprawiamy go, a nie zakładamy drugiej rundy tego samego dnia.
+    # Rozmowa z tego dnia już jest — nie zakładamy drugiej rundy tego samego
+    # dnia. Gdy ma debrief (drugi zapis z innego okna, wyścig z panelem), zapis
+    # odmawia: okno pary startuje od pustego formularza i nadpisałoby pytania,
+    # ocenę i ofertę, których piszący nie widział. Front otwiera ten debrief
+    # do poprawy (decyzja Artura 22.10.2026, audyt F27).
     same_day = await client_interview_entry.held_interview_on(
         db, candidate_id=candidate_id, job_id=job_id, day=body.held_on, now=now
     )
     if same_day is not None:
+        has_debrief = await db.scalar(
+            select(InterviewFeedback.id).where(
+                InterviewFeedback.calendar_event_id == same_day.id,
+                InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
+            )
+        )
+        if has_debrief is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "DEBRIEF_EXISTS",
+                    "event_id": same_day.id,
+                    "message": (
+                        "Rozmowa u klienta z "
+                        f"{body.held_on:%d.%m.%Y} ma już zapisany debrief. "
+                        "Otwórz go i popraw — zapis bez wskazania rozmowy "
+                        "nadpisałby go w całości."
+                    ),
+                },
+            )
         event = await _load_interview_event(db, same_day.id, current_user)
         return await _store_debrief(db, event, body, current_user)
     event = await client_interview_entry.create_interview(
