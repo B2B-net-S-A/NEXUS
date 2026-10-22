@@ -16,7 +16,7 @@
  * z sekcjami tego bloku (`onEditBlock`).
  */
 
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PencilLine } from "lucide-react";
 
 import { Chips, Fact, stackNames } from "@/components/champion/BriefParts";
@@ -364,23 +364,7 @@ export function ChampionBriefView({
             </BriefSection>
 
             <BriefSection title="O projekcie" onEdit={edit("project")} testId="brief-project">
-              {projectAbout ? (
-                <p className="line-clamp-3 text-sm leading-relaxed text-foreground">{projectAbout}</p>
-              ) : (
-                <p className="text-[13px] text-muted-foreground">Delivery Lead nie opisał jeszcze projektu.</p>
-              )}
-              {responsibilities.length > 0 ? (
-                <details className="text-sm">
-                  <summary className="cursor-pointer text-[13px] text-muted-foreground hover:text-foreground">
-                    Obowiązki ({responsibilities.length})
-                  </summary>
-                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-foreground">
-                    {responsibilities.map((line, i) => (
-                      <li key={`${i}-${line}`}>{line}</li>
-                    ))}
-                  </ul>
-                </details>
-              ) : null}
+              <ProjectAbout about={projectAbout} responsibilities={responsibilities} />
             </BriefSection>
           </div>
         </div>
@@ -493,6 +477,61 @@ export function ChampionBriefView({
         </aside>
       </div>
     </TooltipProvider>
+  );
+}
+
+/**
+ * Opis projektu jest przycięty do trzech linii; rozwinięcie „Obowiązki”
+ * pokazuje go w całości (prośba z rekrutacji 22.10.2026 — na screeningu
+ * nie wchodzi się w edycję, żeby doczytać opis). Bez obowiązków ucięty
+ * opis rozwija „Cały opis”.
+ */
+function ProjectAbout({ about, responsibilities }: { about: string; responsibilities: string[] }) {
+  const [open, setOpen] = useState(false);
+  const [clamped, setClamped] = useState(false);
+  const aboutRef = useRef<HTMLParagraphElement>(null);
+
+  useLayoutEffect(() => {
+    const el = aboutRef.current;
+    if (!el || open) return;
+    const measure = () => setClamped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [about, open]);
+
+  const label =
+    responsibilities.length > 0
+      ? `${clamped ? "Cały opis i obowiązki" : "Obowiązki"} (${responsibilities.length})`
+      : "Cały opis";
+
+  return (
+    <>
+      {about ? (
+        <p
+          ref={aboutRef}
+          className={`${open ? "" : "line-clamp-3 "}whitespace-pre-line text-sm leading-relaxed text-foreground`}
+        >
+          {about}
+        </p>
+      ) : (
+        <p className="text-[13px] text-muted-foreground">Delivery Lead nie opisał jeszcze projektu.</p>
+      )}
+      {responsibilities.length > 0 || (about && clamped) ? (
+        <details className="text-sm" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+          <summary className="cursor-pointer text-[13px] text-muted-foreground hover:text-foreground">{label}</summary>
+          {responsibilities.length > 0 ? (
+            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-foreground">
+              {responsibilities.map((line, i) => (
+                <li key={`${i}-${line}`}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
+        </details>
+      ) : null}
+    </>
   );
 }
 
