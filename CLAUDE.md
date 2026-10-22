@@ -262,6 +262,7 @@ Lista i profil kandydata, słowa kluczowe, kolejność „Dopasowanie”, Talent
 - `kolejnosc-dopasowanie-i-gorne-pole-listy.md`: Kolejność „Dopasowanie” i górne pole listy
 - `moi-ludzie-lista-rekrutera-dzwonek-przy-nowej.md`: „Moi ludzie" — lista rekrutera, dzwonek przy nowej rekrutacji, postać w rogu
 - `podglad-cv-pdf-js-lupa-szukaj-w-cv.md`: Podgląd CV: pdf.js + lupa „Szukaj w CV”
+- `podobni-kandydaci.md`: Zakładka „Podobni” na profilu kandydata — podobny ≠ pasujący
 - `slowa-kluczowe-przez-korpus-zlozony-lista-najpierw.md`: Słowa kluczowe przez korpus złożony + lista „najpierw id” (0385)
 - `szukaj-recznie-nie-wycina-sygnaly-mile-widziane.md`: „Szukaj ręcznie” nie wycina — sygnały „Mile widziane”
 - `ta-sama-osoba-ten-sam-e-mail.md`: Ta sama osoba = ten sam e-mail; nowe CV czytane od razu · duplikaty w oknach, /from-cv, poczcie i imporcie; LinkedIn z adresu profilu

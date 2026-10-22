@@ -23,7 +23,7 @@ from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -105,6 +105,10 @@ BulkAddSource = Literal[
     # 14.10.2026: „Pasuje też do” pod osobą właśnie dodaną do innej rekrutacji
     # (okno „Kandydaci do dodania”). Ręczne dodanie + dzwonek do rekrutera.
     "also_fits",
+    # 22.10.2026: zakładka „Podobni” na profilu kandydata. Osoba bez
+    # umiejętności krytycznej rekrutacji wchodzi tylko ze zdaniem „dlaczego
+    # mimo to” (``reasons``), które trafia na kartę jako notatka.
+    "similar_candidates",
 ]
 
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.
@@ -156,11 +160,25 @@ class BulkProposalsRequest(BaseModel):
     # „Pasuje też do” (14.10.2026): rekrutacja, przy której padła podpowiedź —
     # trafia do historii i do dzwonka rekrutera. Czytane tylko przy `also_fits`.
     origin_job_id: Optional[int] = Field(default=None, gt=0)
+    # „Podobni” (22.10.2026): zdanie „dlaczego mimo to” dla osoby bez
+    # umiejętności krytycznej tej rekrutacji. Czytane tylko przy
+    # `similar_candidates`; trafia na kartę jako notatka „Do sprawdzenia: …”.
+    reasons: dict[int, str] = Field(default_factory=dict)
     # 0399: wynik dopasowania od integracji (scraper JJIT/RocketJobs). Od
     # 30.09.2026 taki wynik NIE zakłada karty: osoba trafia do „Do przejrzenia”
     # jako propozycja ``job_board`` (``propose_candidates_for_job``). Serwer
     # czyta go WYŁĄCZNIE od tokenu integracji — człowiek dodaje jak dotąd.
     auto_match: Optional["AutoMatchEntryIn"] = None
+
+    @field_validator("reasons")
+    @classmethod
+    def _reasons_shape(cls, value: dict[int, str]) -> dict[int, str]:
+        if len(value) > 100:
+            raise ValueError("Najwyżej 100 uzasadnień naraz.")
+        cleaned = {int(k): v.strip() for k, v in value.items() if v and v.strip()}
+        if any(len(v) > 1000 for v in cleaned.values()):
+            raise ValueError("Uzasadnienie może mieć najwyżej 1000 znaków.")
+        return cleaned
 
 
 class AutoMatchEntryIn(BaseModel):
@@ -671,6 +689,7 @@ async def add_candidates_to_job(
     initial_stage_def_id: Optional[int] = None,
     initial_stage_legacy: Optional[str] = None,
     note: Optional[str] = None,
+    notes_by_candidate: Optional[dict[int, str]] = None,
     tags: Optional[list[str]] = None,
     entry_source: str = candidate_claim.ENTRY_ADDED_MANUAL,
     claim: bool = True,
@@ -920,11 +939,15 @@ async def add_candidates_to_job(
                 occurred_at=stage.moved_at,
             )
 
-            # Optional shared note attached to every newly added candidate.
-            if note:
+            # Optional shared note attached to every newly added candidate,
+            # plus the person's own note (``notes_by_candidate``, „Podobni”).
+            own_note = (notes_by_candidate or {}).get(candidate_id)
+            for content in (note, own_note):
+                if not content:
+                    continue
                 db.add(
                     Note(
-                        content=note,
+                        content=content,
                         note_type=NoteType.general,
                         candidate_id=candidate_id,
                         job_id=job.id,
@@ -1118,6 +1141,57 @@ async def split_by_application(
     )
 
 
+async def _similar_reason_notes(
+    db: AsyncSession, *, job: Job, candidate_ids: list[int], reasons: dict[int, str]
+) -> dict[int, str]:
+    """„Podobni” (22.10.2026): brak krytycznej = dodanie tylko ze zdaniem.
+
+    Ta sama bramka umiejętności krytycznych co wyszukiwanie
+    (``similar_candidates.critical_check``). Osoba bez którejś krytycznej
+    i bez zdania w ``reasons`` → 422 z imionami; ze zdaniem → notatka
+    „Do sprawdzenia: … — zdanie” na karcie. Decyzja Artura: ostrzeżenie
+    z obowiązkowym uzasadnieniem, nie blokada.
+    """
+    from app.services.similar_candidates import (  # noqa: PLC0415
+        critical_check,
+        missing_labels,
+        note_for_missing,
+    )
+
+    candidates = list(
+        (await db.execute(select(Candidate).where(Candidate.id.in_(candidate_ids))))
+        .scalars()
+        .all()
+    )
+    checks = await critical_check(db, job, candidates)
+    notes: dict[int, str] = {}
+    without_reason: list[str] = []
+    for candidate in candidates:
+        missing = missing_labels(checks.get(candidate.id, []))
+        if not missing:
+            continue
+        reason = reasons.get(candidate.id)
+        if not reason:
+            without_reason.append(
+                f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+                or f"#{candidate.id}"
+            )
+            continue
+        notes[candidate.id] = note_for_missing(missing, reason)
+    if without_reason:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "critical_reason_required",
+                "message": (
+                    "Brak umiejętności krytycznej tej rekrutacji: "
+                    f"{', '.join(without_reason)}. Napisz, dlaczego mimo to."
+                ),
+            },
+        )
+    return notes
+
+
 @router.post(
     "/jobs/{job_id}/proposals/bulk",
     response_model=BulkProposalsResponse,
@@ -1176,6 +1250,12 @@ async def bulk_add_proposals(
             total_proposed=len(proposal.proposed),
         )
 
+    notes_by_candidate: dict[int, str] = {}
+    if body.source == "similar_candidates" and not from_integration and add_ids:
+        notes_by_candidate = await _similar_reason_notes(
+            db, job=job, candidate_ids=add_ids, reasons=body.reasons
+        )
+
     result = await add_candidates_to_job(
         db,
         job=job,
@@ -1184,6 +1264,7 @@ async def bulk_add_proposals(
         initial_stage_def_id=body.initial_stage_def_id,
         initial_stage_legacy=body.initial_stage_legacy,
         note=body.note,
+        notes_by_candidate=notes_by_candidate,
         tags=body.tags,
         entry_source=(
             candidate_claim.ENTRY_AUTO_MATCH

@@ -342,7 +342,7 @@
     "title": "Profil kandydata",
     "section": "sourcing",
     "roles": ["recruiter", "delivery_lead"],
-    "what": "Na górze pasek osoby: imię, „Szuka aktywnie” albo „Pracuje u nas”, kontakt i akcje. Po lewej „Do propozycji”: stawka, dostępność, praca, języki. Zakładki: Przegląd, Rekrutacje, Screening, Notatki, CV, Dokumenty.",
+    "what": "Na górze pasek osoby: imię, „Szuka aktywnie” albo „Pracuje u nas”, kontakt i akcje. Po lewej „Do propozycji”: stawka, dostępność, praca, języki. Zakładki: Przegląd, Rekrutacje, Screening, Notatki, CV, Dokumenty, Podobni.",
     "tasks": [
       {
         "q": "Jak dodać kandydata do rekrutacji?",
@@ -372,7 +372,7 @@
     "pitfalls": [
       "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem. Ramka „Pracuje u nas” na górze „Do propozycji” pokazuje klienta, koniec zamówienia i Delivery Leada; „Zaczyna u nas” to podpisana umowa ze startem w przyszłości, „Kończy u nas” — zamówienie bez kontynuacji w ciągu 30 dni. Linia „zadeklarowana od” pod „Stawką u nas” to niższa stawka podana w ostatnich 18 miesiącach.",
       "Przy zmianie stawki okno pokazuje trwające procesy od „Zweryfikowany” — zaznaczone dostają wpis o zmianie stawki, a Delivery Lead i Head of Recruitment powiadomienie.",
-      "„Przegląd” pokazuje, co jest do zrobienia po naszej stronie: zaległy telefon po ciszy klienta i procesy, w których ruch ma rekruter albo Delivery. Wszystkie procesy są w „Rekrutacje”: w toku jako tabela (klik w wiersz rozwija stawki, CV i ocenę dopasowania), zakończone pod spodem. „Pasujące rekrutacje” liczą się dopiero po „Pokaż”.",
+      "„Przegląd” pokazuje, co jest do zrobienia po naszej stronie: zaległy telefon po ciszy klienta i procesy, w których ruch ma rekruter albo Delivery. Wszystkie procesy są w „Rekrutacje”: w toku jako tabela (klik w wiersz rozwija stawki, CV i ocenę dopasowania), zakończone pod spodem. „Pasujące rekrutacje” liczą się dopiero po „Pokaż”. „Podobni” to osoby z podobnym CV i umiejętnościami — kolejność nie zależy od rekrutacji; „Sprawdź pod rekrutację” pokazuje, kto spełnia jej umiejętności krytyczne, a dodanie osoby bez krytycznej wymaga zdania „dlaczego mimo to”, które trafia na kartę jako notatka.",
       "W „Notatkach” widać 10 najnowszych, starsze są pod „Pokaż starsze”. Ważną notatkę przypnij pinezką — zobaczy ją cały zespół, także w karcie kandydata w rekrutacji. Imię i nazwisko zapisuj bez dopisków w nawiasie: „Szuka aktywnie” ustawisz w Dostępności, czarną listę w menu „⋯” → „Czarna lista…” (u nas albo u klienta, z powodem — potem widać ją w ramce pod paskiem osoby), a zatrudnienie widać samo z umowy w Kontraktach."
     ],
     "anchors": [
@@ -404,7 +404,7 @@
       {
         "id": "candidate.profile.tabs",
         "label": "Zakładki profilu",
-        "describe": "Przegląd, Rekrutacje, Screening, Notatki, CV, Dokumenty."
+        "describe": "Przegląd, Rekrutacje, Screening, Notatki, CV, Dokumenty, Podobni."
       }
     ],
     "help_slug": null,

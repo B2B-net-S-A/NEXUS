@@ -1746,3 +1746,59 @@ async def nearest_jobs_for_vector(
     except Exception as e:  # noqa: BLE001 — „nie wiem”, wołający wraca do wzoru
         logger.warning("[Search] nearest_jobs_for_vector failed: %s", e)
         return None
+
+
+# ── Podobni kandydaci: sąsiedzi w kolekcji KANDYDATÓW (22.10.2026) ─────────
+# Zakładka „Podobni” na profilu kandydata. Jak przy rekrutacjach: Qdrant sam
+# czyta wektor referencji po id punktu (`query=<id>`), więc nic nie liczymy
+# w Voyage'u. `None` = „nie wiem” (Qdrant nie odpowiedział), `[]` bez wektora
+# referencji = „ta osoba nie ma wektora” — wołający mówi to wprost.
+
+_SIMILAR_CANDIDATES_TIMEOUT_SECONDS = 2
+
+
+async def nearest_candidates(
+    candidate_id: int, *, limit: int
+) -> Optional[tuple[bool, list[tuple[int, float]]]]:
+    """``(ma_wektor, [(kandydat, kosinus), …])`` malejąco, bez samej osoby.
+
+    ``None`` = Qdrant nie odpowiedział.
+    """
+    ref = int(candidate_id)
+
+    def _run() -> tuple[bool, list[tuple[int, float]]]:
+        from qdrant_client import QdrantClient
+        from qdrant_client.models import Filter, HasIdCondition
+
+        client = QdrantClient(
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+            timeout=_SIMILAR_CANDIDATES_TIMEOUT_SECONDS,
+        )
+        # Zapytanie po id punktu, którego nie ma, kończy się błędem — najpierw
+        # sprawdzamy, czy osoba ma wektor.
+        if not client.retrieve(
+            collection_name=_collection(),
+            ids=[ref],
+            with_payload=False,
+            with_vectors=False,
+        ):
+            return False, []
+        response = client.query_points(
+            collection_name=_collection(),
+            query=ref,
+            query_filter=Filter(must_not=[HasIdCondition(has_id=[ref])]),
+            limit=limit,
+            with_payload=False,
+        )
+        return True, [
+            (int(point.id), float(point.score))
+            for point in response.points
+            if int(point.id) != ref
+        ]
+
+    try:
+        return await _run_qdrant(_run)
+    except Exception as e:  # noqa: BLE001 — „nie wiem”, ekran mówi to wprost
+        logger.warning("[Search] nearest_candidates failed: %s", e)
+        return None

@@ -23,6 +23,32 @@ przeszedł staging. Plan z etapami: `docs/staging-laptop-plan.md`.
   Klucz prywatny age bierze z pęku kluczy macOS (`nexus-backup-age`).
 - `scripts/staging/env.staging.example` — wzór `.env.staging.local`.
 
+## Kopia bez klucza age i późniejsze przenoszenie zmian
+
+Decyzja Artura z 22.10.2026: lokalna kopia może też powstać ze świeżego zrzutu
+bazy na Hetznerze przez SSH. `scripts/staging/clone_from_hetzner.py` pobiera
+spójny `pg_dump` z jawnie wskazanego kontenera PostgreSQL. Nie zmienia danych
+źródłowych, nie usuwa istniejących baz i odtwarza wyłącznie do **nowej** lokalnej
+bazy `nexus_staging_*`. Odtworzenie i sanitizacja są jedną transakcją; aplikacja
+nie jest uruchamiana automatycznie. Tryb `--dump-only` pozwala pobrać kopię przed
+uruchomieniem lokalnego PostgreSQL, a `--restore-manifest` wznowić odtwarzanie
+bez ponownego pobierania. Ten wariant obejmuje bazę PostgreSQL; pliki CV,
+uploady i Qdrant wymagają odrębnego odtworzenia zgodnie z opisem powyżej.
+
+Na produkcję trafiają kod i wersjonowane migracje przez istniejącą ścieżkę
+PR → CI → Deploy. **Lokalnej bazy nie wysyłamy z powrotem na produkcję.**
+Wybrane zmiany danych przenosi `backend/scripts/staging_data_promotion.py`:
+stan przed edycją → paczka wybranych pól → podgląd na docelowej bazie → jawne
+zatwierdzenie skrótu podglądu → transakcja z ponowną kontrolą konfliktów.
+Nowe rekordy produkcyjne i pola poza paczką pozostają nietknięte. Brak zgodności
+z oczekiwanym stanem zatrzymuje całą paczkę. Obsługiwane są wyłącznie pola
+z jawnej listy; pola wymagające przeliczeń lub obsługi zdarzeń domenowych muszą
+najpierw dostać osobny handler. Instrukcja i aktualny zakres:
+`docs/staging-data-promotion-runbook.md`.
+
+Dump, selection, baseline, paczka i podgląd zawierają dane produkcyjne lub
+biznesowe: wyłącznie prywatny katalog poza repo, bez przesyłania do Actions.
+
 ## Reguły, które łatwo cofnąć
 
 - **Nowa pętla w lifespanie = wpis w `STAGING_ALLOWED_TASKS` albo

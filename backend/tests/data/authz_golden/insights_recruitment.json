@@ -31,6 +31,7 @@
   "GET /api/insights/recruitment/available-periods": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
   "GET /api/insights/recruitment/competence-matrix": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
   "GET /api/insights/recruitment/funnel": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/in-flight": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
   "GET /api/insights/recruitment/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
   "GET /api/insights/recruitment/seniority": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
   "GET /api/insights/recruitment/team-activity": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
