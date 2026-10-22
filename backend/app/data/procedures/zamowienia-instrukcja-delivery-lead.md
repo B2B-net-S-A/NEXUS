@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 21.10.2026
+> **Zgodność z systemem sprawdzona:** 23.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1846,11 +1846,14 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   z numerem (w wynikach importu i na karcie zamówienia) widać **„Pozostało do
   zafakturowania za {miesiąc}: X MD – oczekuje na kolejne zamówienie"**. Gdy
   w NEXUSIE pojawi się kolejne zamówienie tej osoby u tego klienta (nowe
-  zamówienie, przedłużenie, dopisanie osoby albo aktywacja szkicu z poczty),
-  oczekujące MD schodzą z niego same jako zużycie za miesiąc raportu — tyle,
+  zamówienie, przedłużenie, dopisanie osoby albo aktywacja szkicu — z poczty
+  i w **Uzupełnij zamówienie**), oczekujące MD schodzą z niego same jako
+  zużycie za miesiąc raportu — tyle,
   ile mieści pula; reszta czeka na następne zamówienie. Wpis o tym jest
   w historii nowego zamówienia. Ponowny import miesiąca nie każe czekać
-  drugi raz na MD, które już zeszły.
+  drugi raz na MD, które już zeszły. Liczy się osoba **u tego klienta**:
+  plik z tą osobą tylko u innego klienta (albo z jej imiennikiem) nie rusza
+  jej oczekujących MD.
 * **Powtórny import tego samego miesiąca nadpisuje** poprzednie zużycie — MD nie
   odejmą się drugi raz. Przy **wspólnej puli MD** plik korygujący może nieść
   tylko poprawione osoby: MD pozostałych osób z wcześniejszego importu tego
