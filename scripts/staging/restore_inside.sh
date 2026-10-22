@@ -96,17 +96,31 @@ for obj in $(rclone lsf "${SRC}/qdrant/${DAY}/" --include "*-${STAMP}.snapshot.a
 done
 
 # ── 4. Korpus CV (lokalny S3) ────────────────────────────────────────────────
-# Przyrostowo: kolejne odtworzenia pobierają tylko nowe pliki. Pobieranie z B2
-# liczy się do dziennego limitu transakcji klasy B (backup.sh, RCLONE_S3_NO_HEAD),
-# więc pierwszy pełny bieg (~136 tys. plików) może wymagać podniesionego limitu
-# albo kilku dni; przerwany sync wznawia się przy następnym biegu.
+# Przyrostowo: kolejne odtworzenia pobierają tylko nowe pliki. Źródło domyślne
+# (decyzja Artura 22.10.2026) to bucket produkcji przez klucz TYLKO DO ODCZYTU
+# (CV_SOURCE_*): pobieranie z lustra w B2 liczy się do dziennego limitu
+# transakcji klasy B (backup.sh, RCLONE_S3_NO_HEAD), a ~136 tys. plików wyczerpuje
+# go w kilkanaście minut. Bez CV_SOURCE_* zapasowo idzie lustro z B2.
+CV_BUCKET=nexus-candidate-documents
 if [ "${SKIP_CV:-0}" = "1" ]; then
     log "korpus CV: pominięty (SKIP_CV=1)"
 else
-    CV_BUCKET="${OBJECT_STORAGE_BUCKET:-nexus-candidate-documents}"
+    if [ -n "${CV_SOURCE_ENDPOINT:-}" ] && [ -n "${CV_SOURCE_ACCESS_KEY:-}" ] \
+        && [ -n "${CV_SOURCE_SECRET_KEY:-}" ]; then
+        export RCLONE_CONFIG_CVSRC_TYPE=s3
+        export RCLONE_CONFIG_CVSRC_PROVIDER=Other
+        export RCLONE_CONFIG_CVSRC_ENDPOINT="$CV_SOURCE_ENDPOINT"
+        export RCLONE_CONFIG_CVSRC_ACCESS_KEY_ID="$CV_SOURCE_ACCESS_KEY"
+        export RCLONE_CONFIG_CVSRC_SECRET_ACCESS_KEY="$CV_SOURCE_SECRET_KEY"
+        export RCLONE_CONFIG_CVSRC_REGION="${CV_SOURCE_REGION:-eu-central-1}"
+        CV_SRC="cvsrc:${CV_SOURCE_BUCKET:-$CV_BUCKET}"
+    else
+        CV_SRC="${SRC}/candidate-documents/current"
+        log "korpus CV: brak CV_SOURCE_* — źródłem lustro w B2 (limit klasy B!)"
+    fi
     rclone mkdir "staging:${CV_BUCKET}"
-    log "korpus CV: rclone sync → staging:${CV_BUCKET}"
-    rclone sync "${SRC}/candidate-documents/current" "staging:${CV_BUCKET}" \
+    log "korpus CV: rclone sync ${CV_SRC%%:*}: → staging:${CV_BUCKET}"
+    rclone sync "$CV_SRC" "staging:${CV_BUCKET}" \
         --fast-list --transfers "${RESTORE_CV_TRANSFERS:-8}" \
         --max-duration "${RESTORE_CV_MAX_DURATION:-4h}" --stats-one-line --stats 2m \
         || log "korpus CV: sync niedokończony (kod $?) — wznowi się przy następnym biegu"

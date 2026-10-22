@@ -17,7 +17,9 @@ przeszedł staging. Plan z etapami: `docs/staging-laptop-plan.md`.
     smtplib i aiohttp: poza siecią lokalną tylko dostawcy AI
     i `STAGING_EXTRA_ALLOWED_HOSTS`.
 - `scripts/staging/restore_from_backup.sh` — kopia offsite z `backup/backup.sh`
-  (age + B2) → baza, uploady, Qdrant, korpus CV; potem `sanitize.sql`.
+  (age + B2) → baza, uploady, Qdrant; potem `sanitize.sql`. Korpus CV z bucketu
+  produkcji kluczem tylko do odczytu (`CV_SOURCE_*`, decyzja Artura 22.10.2026),
+  bo lustro w B2 ma dzienny limit pobrań klasy B.
   Klucz prywatny age bierze z pęku kluczy macOS (`nexus-backup-age`).
 - `scripts/staging/env.staging.example` — wzór `.env.staging.local`.
 
