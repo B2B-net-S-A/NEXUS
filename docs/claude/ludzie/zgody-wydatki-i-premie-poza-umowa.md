@@ -204,8 +204,12 @@ w `api/hr_approval_finance.py` (`/api/finance/approved-expenses`).
   puste, a `expire_stale` pomija `recurrence = 'once'` (zgody „raz” sprzed
   decyzji mają jeszcze datę z backfillu 0486; payloady nie pokazują jej przez
   `settlement.expiry`, a lista „Czeka na fakturę” w Finansach nie ma „wygasa”
-  i idzie od najstarszego zatwierdzenia). Cykliczny (subskrypcja, „co miesiąc /
-  co rok”) `active` → `ended`, każda faktura rozliczana osobno; bez żadnego
+  i idzie od najstarszego zatwierdzenia). Zgody „raz”, które przed F21 zdążyły
+  wygasnąć, wracają do `open` bez terminu dopiero po uruchomieniu narzędzia
+  `python -m app.cli.hr_one_off_expiry_restore` (najpierw liczby z
+  `backend/scripts/hr_one_off_expired_report.sql`) po zgodzie Artura (decyzja
+  23.10.2026) — samo wdrożenie F21 ich nie przywraca. Cykliczny (subskrypcja,
+  „co miesiąc / co rok”) `active` → `ended`, każda faktura rozliczana osobno; bez żadnego
   dokumentu przez 30 dni od startu (`starts_on`, gdy jest późniejszy niż
   zatwierdzenie) → `expired` (pętla `hr_lifecycle` od 8:00, dzwonek do autora,
   potem nowa zgoda) — nic nie kupiono, więc rejestr nie liczy „wiszącej”
