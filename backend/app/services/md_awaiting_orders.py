@@ -352,7 +352,7 @@ async def _earlier_awaiting_rows(
     *,
     import_id: int,
     period_month: str,
-    persons: set[frozenset[str]],
+    persons: set[PersonKey],
     lock: bool = False,
 ) -> dict[PersonKey, list[MdConsumptionImportRow]]:
     if not persons:
@@ -382,9 +382,9 @@ async def _earlier_awaiting_rows(
         )
     grouped: dict[PersonKey, list[MdConsumptionImportRow]] = defaultdict(list)
     for row, client_id in (await db.execute(query)).all():
-        tokens = name_tokens(row.consultant_name)
-        if tokens in persons:
-            grouped[(tokens, client_id)].append(row)
+        key = (name_tokens(row.consultant_name), client_id)
+        if key in persons:
+            grouped[key].append(row)
     return dict(grouped)
 
 
@@ -420,13 +420,22 @@ async def plan_reimport(
     *,
     import_id: int,
     period_month: str,
-    consultant_names: Iterable[str],
+    persons: Iterable[tuple[str, int]],
 ) -> ReimportPlan:
     """Przed blokadami importu: kogo dotyczy powtórka miesiąca i które linie
-    kolejnych zamówień może poprawić (import blokuje je z góry)."""
-    persons = {tokens for tokens in map(name_tokens, consultant_names) if tokens}
+    kolejnych zamówień może poprawić (import blokuje je z góry).
+
+    ``persons``: pary (nazwisko z wiersza MD paczki, klient jego zamówienia).
+    Klient należy do klucza (audyt 22.10.2026, F70): wiersz tej osoby u innego
+    klienta albo imiennika nie rusza jej wcześniejszych wierszy oczekujących.
+    """
+    keys = {
+        (tokens, client_id)
+        for name, client_id in persons
+        if (tokens := name_tokens(name))
+    }
     earlier = await _earlier_awaiting_rows(
-        db, import_id=import_id, period_month=period_month, persons=persons
+        db, import_id=import_id, period_month=period_month, persons=keys
     )
     targets: set[int] = set()
     for rows in earlier.values():
@@ -457,12 +466,11 @@ async def apply_reimport(
 
     ``new_awaiting``: nowe wiersze oczekujące z klientem ich zamówienia z numerem.
     """
-    persons = {tokens for (tokens, _client) in plan.earlier}
     earlier = await _earlier_awaiting_rows(
         db,
         import_id=import_id,
         period_month=period_month,
-        persons=persons,
+        persons=set(plan.earlier),
         lock=True,
     )
     fresh: dict[PersonKey, list[MdConsumptionImportRow]] = defaultdict(list)
