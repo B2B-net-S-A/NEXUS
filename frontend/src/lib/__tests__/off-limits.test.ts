@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { AxiosError, type InternalAxiosRequestConfig } from "axios";
+import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
@@ -8,13 +10,18 @@ import { offLimitsCardBadge } from "@/lib/board-card-badges";
 import {
   OFF_LIMITS_CODE,
   OFF_LIMITS_HEADER,
+  askOffLimits,
   offLimitsHeaderValue,
+  offLimitsOthersInRequest,
   offLimitsPeopleFrom,
   registerOffLimitsHost,
   type OffLimitsAnswers,
   type OffLimitsPerson,
 } from "@/lib/off-limits";
-import { answersFromState } from "@/components/v2/recruitment/OffLimitsConfirmHost";
+import {
+  OffLimitsConfirmHost,
+  answersFromState,
+} from "@/components/v2/recruitment/OffLimitsConfirmHost";
 
 vi.mock("@/lib/telemetry-capability", () => ({
   apiSupportsCorrelation: () => false,
@@ -108,6 +115,63 @@ describe("interceptor `api`", () => {
     const { seenHeaders, error } = await post(null);
     expect(seenHeaders).toHaveLength(1);
     expect(error).not.toBeNull();
+  });
+});
+
+describe("partia z osobą off-limits (audyt 22.10, F72)", () => {
+  it("rozpoznaje w żądaniu osoby spoza okna", () => {
+    expect(offLimitsOthersInRequest(JSON.stringify({ candidate_ids: [7, 8, 9] }), [ANNA])).toBe(
+      true,
+    );
+    expect(offLimitsOthersInRequest({ candidate_ids: [7] }, [ANNA])).toBe(false);
+    expect(offLimitsOthersInRequest(JSON.stringify({ candidate_id: 7 }), [ANNA])).toBe(false);
+    expect(offLimitsOthersInRequest("nie-json", [ANNA])).toBe(false);
+    expect(offLimitsOthersInRequest(undefined, [ANNA])).toBe(false);
+  });
+
+  it("same „Nie, to my” dają nagłówek, gdy reszta partii ma się dodać", () => {
+    expect(JSON.parse(offLimitsHeaderValue({ 7: "skip" }, true)!)).toEqual({ 7: "skip" });
+    expect(offLimitsHeaderValue({ 7: "skip" }, false)).toBeNull();
+  });
+
+  it("„Nie, to my” przy jednej z trzech osób ponawia partię — reszta się dodaje", async () => {
+    const unregister = registerOffLimitsHost(async () => ({ 7: "skip" }));
+    const seenHeaders: (string | undefined)[] = [];
+    try {
+      const result = await api.post(
+        "/api/proposals/bulk",
+        { job_id: 1, candidate_ids: [7, 8, 9] },
+        {
+          adapter: async (config) => {
+            const header = config.headers.get(OFF_LIMITS_HEADER);
+            seenHeaders.push(typeof header === "string" ? header : undefined);
+            if (!header) throw conflict(config);
+            return {
+              data: { total_added: 2 },
+              status: 200,
+              statusText: "OK",
+              headers: {},
+              config,
+            };
+          },
+        },
+      );
+      expect(result.data).toEqual({ total_added: 2 });
+      expect(seenHeaders).toEqual([undefined, JSON.stringify({ 7: "skip" })]);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("okno partii mówi „Pomiń te osoby”, a nie „Nie dodawaj”", async () => {
+    render(createElement(OffLimitsConfirmHost));
+    let answered: Promise<OffLimitsAnswers | null> = Promise.resolve(null);
+    act(() => {
+      answered = askOffLimits([ANNA], { othersInRequest: true });
+    });
+    fireEvent.click(await screen.findByLabelText(/Nie, to my się odezwaliśmy/));
+    fireEvent.click(screen.getByRole("button", { name: "Pomiń te osoby" }));
+    await expect(answered).resolves.toEqual({ 7: "skip" });
   });
 });
 

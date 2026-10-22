@@ -26,7 +26,9 @@ Przebieg (w kontenerze backendu)::
   dokładnie jedną; inaczej jest w „Odrzuconych” jako „niejednoznaczna
   rekrutacja” (audyt 21.10.2026).
 * ``--rollback`` cofa wszystkie przebiegi z paragonu: debriefy i rozmowy
-  założone przez import, dopisane pytania i przypięcia.
+  założone przez import, dopisane pytania i przypięcia — bez pracy ludzi po
+  imporcie (pytanie przypięte gdzie indziej, rozmowa z debriefem klienta
+  zostają; audyt 22.10.2026).
 
 Paragon w ``app_settings['note_client_questions_import']``: same liczby i ID.
 """
@@ -541,6 +543,10 @@ async def apply_plan(
                 current + [t for t in texts if question_hash(t) not in known]
             )
             fb.no_client_questions = False
+            # Cofnięcie przywraca debrief tylko wtedy, gdy nikt go potem nie zmienił.
+            receipt["updated_feedbacks"][-1]["written_client_questions"] = (
+                fb.client_questions
+            )
             await db.flush()
         inserted, pins = await _bank(
             db,
@@ -562,25 +568,71 @@ async def apply_plan(
     return receipt
 
 
+async def _still_used(db: Any, ids: list[int], columns: tuple[Any, ...]) -> set[int]:
+    """Id, do których po cofnięciu części importu wciąż coś się odwołuje —
+    praca ludzi po imporcie (przypięcie w innej rekrutacji, ocena, debrief
+    klienta, prep). Te wiersze zostają (audyt 22.10.2026)."""
+    from sqlalchemy import select
+
+    used: set[int] = set()
+    for column in columns:
+        used.update(
+            (await db.scalars(select(column).where(column.in_(ids)).distinct())).all()
+        )
+    return used
+
+
 async def rollback(db: Any) -> dict[str, int]:
-    """Cofa wszystkie przebiegi z paragonu (od najnowszego). Commit robi wołający."""
+    """Cofa wszystkie przebiegi z paragonu (od najnowszego). Commit robi wołający.
+
+    Nie zabiera pracy ludzi po imporcie: pytanie, które ktoś potem przypiął
+    albo ocenił, i rozmowa, do której ktoś coś dopisał, zostają
+    (``kept_questions`` / ``kept_events``); uzupełniony debrief wraca do stanu
+    sprzed importu tylko, gdy nikt go potem nie zmienił (``kept_feedbacks``).
+    """
     from sqlalchemy import delete
 
     from app.models.app_setting import AppSetting
     from app.models.calendar_event import CalendarEvent
+    from app.models.candidate_contact import CandidateContactOpportunity
+    from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+    from app.models.followup_meeting import FollowupMeeting
     from app.models.interview_feedback import InterviewFeedback
-    from app.models.interview_question import InterviewQuestion, JobQuestion
+    from app.models.interview_question import (
+        InterviewQuestion,
+        InterviewQuestionRating,
+        JobQuestion,
+    )
+    from app.models.prep_meeting import Prep2Skip, PrepMeeting
 
     setting = await db.get(AppSetting, RECEIPT_KEY)
     runs = list((setting.value or {}).get("runs") or []) if setting else []
-    counts = {"feedbacks": 0, "events": 0, "questions": 0, "pins": 0, "restored": 0}
+    counts = {
+        "feedbacks": 0,
+        "events": 0,
+        "questions": 0,
+        "pins": 0,
+        "restored": 0,
+        "kept_feedbacks": 0,
+        "kept_questions": 0,
+        "kept_events": 0,
+    }
     for run in reversed(runs):
         for saved in run.get("updated_feedbacks") or []:
             fb = await db.get(InterviewFeedback, saved["id"])
-            if fb is not None:
-                fb.client_questions = saved["client_questions"]
-                fb.no_client_questions = saved["no_client_questions"]
-                counts["restored"] += 1
+            if fb is None:
+                continue
+            # Paragon sprzed 22.10.2026 nie zna wpisanej treści — nie zgadujemy.
+            if (
+                "written_client_questions" not in saved
+                or fb.client_questions != saved["written_client_questions"]
+                or fb.no_client_questions
+            ):
+                counts["kept_feedbacks"] += 1
+                continue
+            fb.client_questions = saved["client_questions"]
+            fb.no_client_questions = saved["no_client_questions"]
+            counts["restored"] += 1
         if run.get("pin_ids"):
             counts["pins"] += int(
                 (
@@ -591,16 +643,24 @@ async def rollback(db: Any) -> dict[str, int]:
                 or 0
             )
         if run.get("question_ids"):
-            counts["questions"] += int(
-                (
-                    await db.execute(
-                        delete(InterviewQuestion).where(
-                            InterviewQuestion.id.in_(run["question_ids"])
-                        )
-                    )
-                ).rowcount
-                or 0
+            used = await _still_used(
+                db,
+                run["question_ids"],
+                (JobQuestion.question_id, InterviewQuestionRating.question_id),
             )
+            counts["kept_questions"] += len(used)
+            doomed = [qid for qid in run["question_ids"] if qid not in used]
+            if doomed:
+                counts["questions"] += int(
+                    (
+                        await db.execute(
+                            delete(InterviewQuestion).where(
+                                InterviewQuestion.id.in_(doomed)
+                            )
+                        )
+                    ).rowcount
+                    or 0
+                )
         if run.get("feedback_ids"):
             counts["feedbacks"] += int(
                 (
@@ -613,16 +673,29 @@ async def rollback(db: Any) -> dict[str, int]:
                 or 0
             )
         if run.get("event_ids"):
-            counts["events"] += int(
+            used = await _still_used(
+                db,
+                run["event_ids"],
                 (
-                    await db.execute(
-                        delete(CalendarEvent).where(
-                            CalendarEvent.id.in_(run["event_ids"])
-                        )
-                    )
-                ).rowcount
-                or 0
+                    InterviewFeedback.calendar_event_id,
+                    PrepMeeting.calendar_event_id,
+                    Prep2Skip.interview_event_id,
+                    FollowupMeeting.calendar_event_id,
+                    CandidateContactOpportunity.meeting_event_id,
+                    ClientInterviewSlotRequest.event_id,
+                ),
             )
+            counts["kept_events"] += len(used)
+            doomed = [eid for eid in run["event_ids"] if eid not in used]
+            if doomed:
+                counts["events"] += int(
+                    (
+                        await db.execute(
+                            delete(CalendarEvent).where(CalendarEvent.id.in_(doomed))
+                        )
+                    ).rowcount
+                    or 0
+                )
     if setting is not None:
         setting.value = {
             "runs": [],

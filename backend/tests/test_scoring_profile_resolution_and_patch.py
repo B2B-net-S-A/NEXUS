@@ -20,6 +20,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
 from app.api import scoring_weights as api
@@ -108,19 +109,87 @@ async def test_patch_from_screen_keeps_client_binding(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_patch_can_still_unbind_client_explicitly(monkeypatch):
+async def test_patch_can_move_the_profile_from_client_to_person(monkeypatch):
     async def _no_stale(_db, _profile_id):
         return None
 
     monkeypatch.setattr(api, "mark_stale_for_profile", _no_stale)
     row = _row()
     payload = api.ScoringWeightProfileCreate.model_validate(
-        {"name": "Bankowość", "client_id": None, "weights": _WEIGHTS, "active": True}
+        {
+            "name": "Bankowość",
+            "client_id": None,
+            "user_id": 7,
+            "weights": _WEIGHTS,
+            "active": True,
+        }
     )
 
     await api.update_profile(5, payload, current_user=_ADMIN, db=_RecordingDb(row))
 
     assert row.client_id is None
+    assert row.user_id == 7
+
+
+# ── Wagi ogólne tylko przez panel (decyzja Artura 22.10.2026, audyt F60) ──
+# Stary edytor wysyłał {name, weights, active}, więc każdy „Nowy profil”
+# lądował jako profil OGÓLNY i od razu wypierał opublikowane wagi panelu
+# (najnowszy aktywny profil ogólny wygrywa) — bez pomiaru na historii.
+
+
+async def _refused(call) -> HTTPException:
+    with pytest.raises(HTTPException) as caught:
+        await call
+    assert caught.value.status_code == 409
+    assert "Ranking kandydatów" in caught.value.detail
+    return caught.value
+
+
+@pytest.mark.asyncio
+async def test_create_without_client_or_person_is_refused():
+    payload = api.ScoringWeightProfileCreate.model_validate(
+        {"name": "Nowy profil", "weights": _WEIGHTS, "active": True}
+    )
+    db = _RecordingDb()
+
+    await _refused(api.create_profile(payload, current_user=_ADMIN, db=db))
+
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+async def test_general_profile_is_read_only_in_the_old_editor():
+    row = _row(client_id=None, name="Wagi ogólne (panel)")
+    payload = api.ScoringWeightProfileCreate.model_validate(
+        {"name": "Inna nazwa", "weights": _WEIGHTS, "active": True}
+    )
+
+    await _refused(
+        api.update_profile(5, payload, current_user=_ADMIN, db=_RecordingDb(row))
+    )
+
+    assert row.name == "Wagi ogólne (panel)"
+
+
+@pytest.mark.asyncio
+async def test_patch_cannot_turn_a_client_profile_into_a_general_one():
+    row = _row()
+    payload = api.ScoringWeightProfileCreate.model_validate(
+        {"name": "Bankowość", "client_id": None, "weights": _WEIGHTS, "active": True}
+    )
+
+    await _refused(
+        api.update_profile(5, payload, current_user=_ADMIN, db=_RecordingDb(row))
+    )
+
+    assert row.client_id == 42
+
+
+@pytest.mark.asyncio
+async def test_general_profile_cannot_be_deleted_from_the_old_editor():
+    row = _row(client_id=None)
+
+    await _refused(api.delete_profile(5, current_user=_ADMIN, db=_RecordingDb(row)))
 
 
 _PAGE = (
