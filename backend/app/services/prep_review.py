@@ -1,22 +1,17 @@
 """Ocena prepu z transkryptu Teams + notatka z podsumowaniem (0370, F24).
 
-Decyzje Artura 23.09.2026. Każdy prep oceniany osobno według trzech kryteriów:
-
-1. czy omówiono każdy must-have rekrutacji (w pisowni Delivery Leada),
-2. czy przećwiczono pytania, które zadaje TEN klient (bank debriefów +
-   pytania przypięte do rekrutacji),
-3. czy mówił kandydat, a nie prowadzący — udział w rozmowie liczy KOD
-   z czasów wypowiedzi, model ocenia tylko, czy kandydat sam opowiedział
-   swoje projekty.
+Decyzje Artura 23.09.2026, ocena v2 od 22.10.2026 (makiety
+1h38jS5LMc1673CENvUejR). Z czego składa się ocena, ustawia Head of
+Recruitment w Ustawienia → Ocena prepów (``services/prep_review_config``,
+0505): tematy prowadzącego, odpowiedzi kandydata na must-have i pytania tego
+klienta (skala mocna / ogólna / słaba / nie było), udział kandydata
+w rozmowie, a w Prepie 2 — poprawa punktów z notatki na Prep 2.
 
 Listy punktów buduje kod, model (GPT-6 Luna, zapas Sonnet 5) wskazuje status
-i cytat. Cytat nieobecny w transkrypcie = punkt „nie było” z adnotacją
-„bez dowodu” — model nie może zaliczyć punktu, którego nie ma w rozmowie.
-Poziom oceny (słaby / OK / dobry) liczy kod z progów ``PREP_REVIEW_*``.
-
-W Prepie 2 punkt zaliczony już w Prepie 1 ma status ``covered_in_prep1``
-i nie liczy się do mianownika — Prep 2 skupiony na brakach nie może wyjść
-„słaby” tylko dlatego, że nie powtarza tematów z Prepu 1.
+albo stopień i cytat. Cytat nieobecny w transkrypcie = „nie było” z adnotacją
+„bez dowodu”. Wynik i poziom liczy kod (``services/prep_review_scoring``).
+Prep 1 daje listę „Do powtórzenia na Prep 2” (notatka rekrutera); Prep 2
+ocenia te punkty jeszcze raz i porównuje z Prepem 1.
 
 AI to dodatek, nigdy bramka: awaria modelu daje ``status='unavailable'``
 i ``level=NULL`` (nigdy „słaby”), a notatka zawiera same fakty.
@@ -29,17 +24,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
-from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.config import settings
 from app.models.ai_feature import AIFeatureKey
 from app.models.interview_question import (
     InterviewQuestion,
@@ -49,12 +41,24 @@ from app.models.interview_question import (
 from app.models.job import Job
 from app.models.note import Note, NoteType
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
+from app.services.prep_review_config import PrepReviewConfig
+from app.services.prep_review_config import current as current_config
+from app.services.prep_review_scoring import (
+    Item,
+    comparison,
+    followup_items,
+    legacy_items,
+    mark_covered_in_prep1,
+    note_content,
+    parse_review,
+    score_review,
+)
 from app.services.prompt_fencing import fence, json_for_prompt
 
 logger = logging.getLogger(__name__)
 
 FEATURE = AIFeatureKey.prep_review
-PROMPT_VERSION = "prep-review-v1"
+PROMPT_VERSION = "prep-review-v2"
 NOTE_SOURCE = "teams_prep"
 # Runda 8 (R8-N9-9): transkrypt dłuższy niż limit NIE jest ucinany — tematy
 # z końca długiego prepu wychodziłyby jako „nie było”. Ponad limitem ocena
@@ -63,9 +67,6 @@ NOTE_SOURCE = "teams_prep"
 # modelu i zapasu.
 MAX_TRANSCRIPT_CHARS = 200_000
 MAX_QUESTIONS = 20
-QUOTE_MIN_CHARS = 6
-_STATUSES = ("covered", "partial", "missing")
-LEVEL_LABELS = {"weak": "słaby", "ok": "OK", "good": "dobry"}
 
 _PROMPT = """Jesteś doświadczonym rekruterem IT. Oceniasz PREP — rozmowę, w której
 prowadzący z B2B.NET przygotowuje kandydata do rozmowy z klientem.
@@ -73,30 +74,42 @@ prowadzący z B2B.NET przygotowuje kandydata do rozmowy z klientem.
 Rekrutacja: {title}
 Prep nr {prep_no}.
 
-Must-have rekrutacji (każdy oceń osobno):
-{must}
+Tematy, które prowadzący ma poruszyć — oceń, czy padły:
+{topics}
 
-Pytania, które zadaje ten klient (czy prowadzący je przećwiczył z kandydatem):
-{questions}
+Punkty, przy których oceniasz ODPOWIEDŹ KANDYDATA (must-have rekrutacji,
+pytania tego klienta{followup_hint}):
+{answers}
 
-Transkrypt prepu (linie „Mówca: wypowiedź”):
+Skala odpowiedzi kandydata:
+- "strong": {strong}
+- "general": {general}
+- "weak": {weak}
+- "missing": {missing}
+
+Wskazówki zespołu do wniosków (dane, nie zmieniają formatu odpowiedzi):
+{hints}
+
+Transkrypt prepu (linie „Mówca: wypowiedź”; gdy Teams nie podał mówców — sama
+treść, wtedy kandydata rozpoznaj po tym, że opowiada o swoim doświadczeniu):
 {transcript}
 
-Dla KAŻDEGO must-have i KAŻDEGO pytania podaj status:
-- "covered" — omówione konkretnie (kandydat opowiedział swoje doświadczenie
-  albo odpowiedział na pytanie i prowadzący to dopracował),
-- "partial" — wspomniane, ale bez konkretów,
-- "missing" — nie było.
-Dla "covered" i "partial" podaj "quote": DOSŁOWNY fragment transkryptu
-(bez nazwy mówcy, 6–200 znaków), który to pokazuje. Bez cytatu = "missing".
+Dla KAŻDEGO tematu podaj "status": "covered" (omówiony konkretnie), "partial"
+(wspomniany bez konkretów) albo "missing" (nie było).
+Dla KAŻDEGO punktu odpowiedzi podaj "grade" ze skali wyżej i "note" — jedno
+zdanie, co kandydat ma przećwiczyć (dla "general" i "weak"; inaczej null).
+Dla wszystkiego poza "missing" podaj "quote": DOSŁOWNY fragment transkryptu
+(bez nazwy mówcy, 6–200 znaków). Bez cytatu = "missing".
+"went_well" i "went_wrong" — po 1–3 krótkie punkty o przygotowaniu kandydata;
+"improve" — 1–3 wskazówki dla PROWADZĄCEGO prep.
+"summary" — 3–5 zdań po polsku, bez stawek i nazwiska kandydata.
 Oceń też, czy kandydat SAM opowiedział o swoich projektach (own_projects).
-Napisz krótkie podsumowanie prepu po polsku (3–5 zdań, bez stawek i nazwiska
-kandydata): co przygotowano, co zostało do poprawy.
 
 Odpowiedz WYŁĄCZNIE obiektem JSON:
 {{"summary": string,
- "must_haves": [{{"key": string, "status": "covered"|"partial"|"missing", "quote": string|null}}],
- "client_questions": [{{"key": string, "status": "covered"|"partial"|"missing", "quote": string|null}}],
+ "topics": [{{"key": string, "status": "covered"|"partial"|"missing", "quote": string|null}}],
+ "answers": [{{"key": string, "grade": "strong"|"general"|"weak"|"missing", "quote": string|null, "note": string|null}}],
+ "went_well": [string], "went_wrong": [string], "improve": [string],
  "own_projects": {{"told": boolean, "quote": string|null}}}}
 Klucze ("key") przepisz dokładnie z list powyżej."""
 
@@ -104,19 +117,13 @@ Klucze ("key") przepisz dokładnie z list powyżej."""
 # ── Materiał dla modelu ──────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True)
-class Item:
-    key: str
-    label: str
-    kind: str  # "must" | "question"
+async def build_items(
+    db: AsyncSession, job: Job, *, max_questions: int = MAX_QUESTIONS
+) -> list[Item]:
+    """Punkty oceny: must-have (pisownia DL-a) + pytania tego klienta.
 
-
-def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", (text or "")).strip().casefold()
-
-
-async def build_items(db: AsyncSession, job: Job) -> list[Item]:
-    """Punkty oceny: must-have (pisownia DL-a) + pytania tego klienta."""
+    ``max_questions`` — najwięcej pytań klienta (Ustawienia → Ocena prepów).
+    """
     from app.services.dz_review import job_requirements
 
     must, _nice = job_requirements(job)
@@ -167,10 +174,66 @@ async def build_items(db: AsyncSession, job: Job) -> list[Item]:
         entries.append((qid, suggested.text or ""))
     items.extend(
         Item(key=f"q:{qid}", label=text.strip(), kind="question")
-        for qid, text in entries[:MAX_QUESTIONS]
+        for qid, text in entries[:max_questions]
         if text.strip()
     )
     return items
+
+
+def topic_items(config: PrepReviewConfig, prep_no: int) -> list[Item]:
+    """Tematy prowadzącego z ustawień — klucz z numeru, bo nazwa bywa zmieniana."""
+    rules = config.prep2 if prep_no == 2 else config.prep1
+    return [
+        Item(key=f"topic:{i}", label=t.label.strip(), kind="topic", required=t.required)
+        for i, t in enumerate(rules.topics)
+        if t.label.strip()
+    ]
+
+
+def followup_answer_items(prep1_followup: list[dict]) -> list[Item]:
+    """Prep 2: punkty z notatki na Prep 2 jako punkty odpowiedzi kandydata."""
+    return [
+        Item(key=f"followup:{f['key']}", label=f["label"], kind="followup")
+        for f in prep1_followup
+    ]
+
+
+def build_prompt(
+    *,
+    title: str,
+    prep_no: int,
+    items: list[Item],
+    config: PrepReviewConfig,
+    transcript: str,
+) -> str:
+    scale = config.answer_scale
+    return _PROMPT.format(
+        title=title or "rekrutacja",
+        prep_no=prep_no,
+        followup_hint=", punkty z notatki po Prepie 1" if prep_no == 2 else "",
+        topics=fence(
+            "topics",
+            json_for_prompt(
+                [{"key": i.key, "topic": i.label} for i in items if i.kind == "topic"]
+            ),
+        ),
+        answers=fence(
+            "answers",
+            json_for_prompt(
+                [
+                    {"key": i.key, "kind": i.kind, "point": i.label}
+                    for i in items
+                    if i.kind != "topic"
+                ]
+            ),
+        ),
+        strong=scale["strong"].description,
+        general=scale["general"].description,
+        weak=scale["weak"].description,
+        missing=scale["missing"].description,
+        hints=fence("team_hints", config.ai_hints or "brak"),
+        transcript=fence("transcript", transcript),
+    )
 
 
 def input_hash(material: dict, model: str) -> str:
@@ -182,199 +245,7 @@ def input_hash(material: dict, model: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-# ── Odpowiedź modelu → punkty z dowodem ──────────────────────────────────────
-
-
-def _json_object(raw: str) -> dict:
-    body = (raw or "").strip()
-    start, end = body.find("{"), body.rfind("}")
-    if start < 0 or end <= start:
-        raise ValueError("no JSON object in model output")
-    data = json.loads(body[start : end + 1])
-    if not isinstance(data, dict):
-        raise ValueError("model output is not an object")
-    return data
-
-
-def _verified(quote: Any, haystack: str) -> Optional[str]:
-    if not isinstance(quote, str):
-        return None
-    q = quote.strip().strip("„”\"'")
-    if len(q) < QUOTE_MIN_CHARS or _norm(q) not in haystack:
-        return None
-    return q[:300]
-
-
-def _status(value: Any) -> Optional[str]:
-    """Status modelu bez wielkości liter („Covered” = „covered”)."""
-    if not isinstance(value, str):
-        return None
-    status = value.strip().casefold()
-    return status if status in _STATUSES else None
-
-
-def _check_protocol(items: list[Item], given: dict[str, dict]) -> None:
-    """Odpowiedź, która nie trzyma się kluczy albo statusów, to awaria modelu.
-
-    Runda 8 (R8-N9-2): klucz „Java” zamiast „must:Java” albo pominięta grupa
-    zerowały wszystkie punkty i dawały „słaby” z dzwonkiem do organizatora
-    i HoR — a awaria modelu ma dawać ``unavailable`` (``level=NULL``). Model,
-    który pominie pojedynczy punkt, dalej dostaje za niego „nie było”; odmowa
-    dopiero, gdy nie pasuje co najmniej połowa kluczy albo statusów.
-    """
-    if not items:
-        return
-    matched = [given[i.key] for i in items if i.key in given]
-    if len(matched) * 2 < len(items):
-        raise ValueError("model output keys do not match the items")
-    valid = sum(1 for entry in matched if _status(entry.get("status")) is not None)
-    if valid * 2 < len(matched):
-        raise ValueError("model output statuses are not recognised")
-
-
-def parse_review(raw: str, *, items: list[Item], transcript: str) -> dict:
-    """JSON modelu → ``{summary, items, own_projects}``; cytaty sprawdzone.
-
-    Punkt, o którym model milczy, jest „nie było”. Status ``covered``/
-    ``partial`` bez cytatu obecnego w transkrypcie też — z ``unverified``.
-    Odpowiedź niezgodna z protokołem (brak grupy, obce klucze albo statusy
-    dla większości punktów) rzuca ``ValueError`` — wołający zapisuje wtedy
-    ocenę jako niedostępną.
-    """
-    data = _json_object(raw)
-    haystack = _norm(transcript)
-    given: dict[str, dict] = {}
-    for group, kind in (("must_haves", "must"), ("client_questions", "question")):
-        entries = data.get(group)
-        if any(i.kind == kind for i in items) and not isinstance(entries, list):
-            raise ValueError(f"model output without {group}")
-        for entry in entries or []:
-            if isinstance(entry, dict) and entry.get("key"):
-                given.setdefault(str(entry["key"]).strip(), entry)
-    _check_protocol(items, given)
-    out: list[dict] = []
-    for item in items:
-        entry = given.get(item.key) or {}
-        status = _status(entry.get("status")) or "missing"
-        quote = _verified(entry.get("quote"), haystack) if status != "missing" else None
-        unverified = status != "missing" and quote is None
-        out.append(
-            {
-                "key": item.key,
-                "label": item.label,
-                "kind": item.kind,
-                "status": "missing" if unverified else status,
-                "quote": quote,
-                "unverified": unverified,
-            }
-        )
-    own = data.get("own_projects") if isinstance(data.get("own_projects"), dict) else {}
-    own_quote = _verified(own.get("quote"), haystack)
-    summary = data.get("summary")
-    return {
-        "summary": summary.strip()[:2000] if isinstance(summary, str) else None,
-        "items": out,
-        "own_projects": {
-            "told": bool(own.get("told")) and own_quote is not None,
-            "quote": own_quote,
-        },
-    }
-
-
-# ── Poziom oceny (kod, nie model) ────────────────────────────────────────────
-
-
-_POINTS = {"covered": 1.0, "partial": 0.5, "missing": 0.0}
-
-
-def apply_prep1_coverage(items: list[dict], prep1_covered: set[str]) -> list[dict]:
-    """Prep 2: punkt zaliczony w Prepie 1 nie obniża oceny."""
-    out = []
-    for item in items:
-        if item["status"] != "covered" and item["key"] in prep1_covered:
-            out.append({**item, "status": "covered_in_prep1"})
-        else:
-            out.append(item)
-    return out
-
-
-@dataclass(frozen=True)
-class Grade:
-    level: str
-    coverage: Optional[float]
-    remaining: list[str]
-
-
-def grade(
-    items: list[dict],
-    *,
-    talk_share: Optional[float],
-    duration_seconds: int,
-    own_projects_told: bool,
-) -> Grade:
-    scored = [i for i in items if i["status"] in _POINTS]
-    coverage = (
-        round(sum(_POINTS[i["status"]] for i in scored) / len(scored), 3)
-        if scored
-        else None
-    )
-    remaining = [i["label"] for i in scored if i["status"] != "covered"]
-    too_short = duration_seconds < settings.PREP_REVIEW_MIN_MINUTES * 60
-    weak = (
-        too_short
-        or (coverage is not None and coverage < settings.PREP_REVIEW_WEAK_COVERAGE)
-        or (
-            talk_share is not None and talk_share < settings.PREP_REVIEW_WEAK_TALK_SHARE
-        )
-    )
-    if weak:
-        return Grade("weak", coverage, remaining)
-    good = (
-        (coverage is None or coverage >= settings.PREP_REVIEW_GOOD_COVERAGE)
-        and (talk_share is None or talk_share >= settings.PREP_REVIEW_GOOD_TALK_SHARE)
-        and own_projects_told
-    )
-    return Grade("good" if good else "ok", coverage, remaining)
-
-
-# ── Notatka ──────────────────────────────────────────────────────────────────
-
-
-def _count(items: list[dict], kind: str) -> str:
-    rel = [i for i in items if i["kind"] == kind]
-    done = sum(1 for i in rel if i["status"] in ("covered", "covered_in_prep1"))
-    return f"{done}/{len(rel)}"
-
-
-def note_content(
-    *,
-    prep_no: int,
-    level: Optional[str],
-    items: list[dict],
-    talk_share: Optional[float],
-    duration_seconds: int,
-    summary: Optional[str],
-    remaining: list[str],
-) -> str:
-    facts = [f"Czas: {max(1, round(duration_seconds / 60))} min"]
-    if talk_share is not None:
-        facts.append(f"kandydat mówił {round(talk_share * 100)}% czasu")
-    lines = [f"# Prep {prep_no} — podsumowanie z Teams"]
-    if level:
-        facts.insert(0, f"Ocena: {LEVEL_LABELS[level]}")
-        facts.append(f"must-have {_count(items, 'must')}")
-        if any(i["kind"] == "question" for i in items):
-            facts.append(f"pytania klienta {_count(items, 'question')}")
-    lines.append(" · ".join(facts))
-    lines.append(
-        summary
-        or "Podsumowanie AI jest niedostępne — pełny transkrypt "
-        "jest w kalendarzu „Rozmowy u klienta”."
-    )
-    if level and remaining:
-        head = "Na Prep 2 zostało" if prep_no == 1 else "Nie omówiono"
-        lines.append(f"{head}: " + "; ".join(remaining[:12]))
-    return "\n\n".join(lines)
+# ── Zapis ────────────────────────────────────────────────────────────────────
 
 
 async def _upsert_note(
@@ -419,10 +290,10 @@ def _call_model(model_chain: list[str], prompt: str) -> str:
     return text_of(message)
 
 
-async def _prep1_covered(db: AsyncSession, prep: PrepMeeting) -> set[str]:
+async def _prep1_review(db: AsyncSession, prep: PrepMeeting) -> Optional[PrepReview]:
     if prep.prep_no != 2:
-        return set()
-    earlier = await db.scalar(
+        return None
+    return await db.scalar(
         select(PrepReview)
         .join(PrepMeeting, PrepMeeting.id == PrepReview.prep_meeting_id)
         .where(
@@ -434,13 +305,29 @@ async def _prep1_covered(db: AsyncSession, prep: PrepMeeting) -> set[str]:
         .order_by(PrepReview.id.desc())
         .limit(1)
     )
-    if earlier is None:
+
+
+def prep1_followup_of(review: Optional[PrepReview]) -> list[dict]:
+    """Notatka na Prep 2 z oceny Prepu 1 (v2) albo z jej „Na Prep 2 zostało” (v1)."""
+    if review is None:
+        return []
+    criteria = review.criteria or {}
+    if isinstance(criteria.get("followup"), list):
+        return [f for f in criteria["followup"] if isinstance(f, dict) and f.get("key")]
+    return [
+        {"key": f"v1:{i}", "label": label, "kind": "must", "reason": "missing"}
+        for i, label in enumerate(review.remaining or [])
+        if isinstance(label, str) and label.strip()
+    ]
+
+
+def prep1_strong_keys(review: Optional[PrepReview]) -> set[str]:
+    if review is None:
         return set()
-    return {
-        i["key"]
-        for i in (earlier.criteria or {}).get("items", [])
-        if i.get("status") == "covered"
-    }
+    criteria = review.criteria or {}
+    if isinstance(criteria.get("answers"), list):
+        return {a["key"] for a in criteria["answers"] if a.get("grade") == "strong"}
+    return {i["key"] for i in criteria.get("items", []) if i.get("status") == "covered"}
 
 
 async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepReview]:
@@ -460,7 +347,22 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         # Pusty transkrypt nie jest oceną — pętla oznacza go jako „bez nagrania”.
         return None
 
-    items = await build_items(db, job)
+    config, config_version = await current_config(db)
+    prep1 = await _prep1_review(db, prep)
+    prep1_followup = prep1_followup_of(prep1)
+    strong_before = prep1_strong_keys(prep1)
+    must_and_questions = await build_items(
+        db, job, max_questions=config.max_client_questions
+    )
+    if prep.prep_no == 2:
+        # Prep 2 nie powtarza wszystkich must-have — must-have, które wymagają
+        # powtórki, są w notatce na Prep 2 (punkty „followup”).
+        must_and_questions = [i for i in must_and_questions if i.kind == "question"]
+    items = [
+        *topic_items(config, prep.prep_no),
+        *must_and_questions,
+        *followup_answer_items(prep1_followup),
+    ]
     text = transcript.plain_text
     too_long = len(text) > MAX_TRANSCRIPT_CHARS
     chain = model_chain_for(FEATURE)
@@ -469,6 +371,7 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         "prep_no": prep.prep_no,
         "items": [[i.key, i.label] for i in items],
         "transcript": text,
+        "config_version": config_version,
     }
     digest = input_hash(material, chain[0])
     review = await db.scalar(
@@ -485,26 +388,12 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
     if too_long:
         logger.info("prep_review: transcript too long prep=%s", prep.id)
     if api_key_configured(chain[0]) and not too_long:
-        prompt = _PROMPT.format(
-            title=job.title or "rekrutacja",
+        prompt = build_prompt(
+            title=job.title or "",
             prep_no=prep.prep_no,
-            must=fence(
-                "must_haves",
-                json_for_prompt(
-                    [{"key": i.key, "name": i.label} for i in items if i.kind == "must"]
-                ),
-            ),
-            questions=fence(
-                "client_questions",
-                json_for_prompt(
-                    [
-                        {"key": i.key, "question": i.label}
-                        for i in items
-                        if i.kind == "question"
-                    ]
-                ),
-            ),
-            transcript=fence("transcript", text),
+            items=items,
+            config=config,
+            transcript=text,
         )
         try:
             async with ai_feature(db, FEATURE, user_id=prep.organizer_user_id):
@@ -540,6 +429,10 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         )
         db.add(review)
 
+    level: Optional[str] = None
+    total: Optional[int] = None
+    followup: list[dict] = []
+    compared: list[dict] = []
     if parsed is None:
         review.status = "unavailable"
         review.level = None
@@ -548,30 +441,51 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         review.summary = None
         review.remaining = []
         review.input_hash = None
-        level = None
-        items_out: list[dict] = []
-        remaining: list[str] = []
-        summary = None
     else:
-        items_out = apply_prep1_coverage(
-            parsed["items"], await _prep1_covered(db, prep)
-        )
-        g = grade(
-            items_out,
+        if prep.prep_no == 2:
+            parsed["answers"] = mark_covered_in_prep1(parsed["answers"], strong_before)
+        score = score_review(
+            parsed,
+            config=config,
+            prep_no=prep.prep_no,
             talk_share=talk_share,
             duration_seconds=transcript.duration_seconds,
-            own_projects_told=parsed["own_projects"]["told"],
         )
-        level, remaining, summary = g.level, g.remaining, parsed["summary"]
+        level, total = score.level, score.total
+        if prep.prep_no == 1:
+            followup = followup_items(parsed, config)
+            remaining = [f["label"] for f in followup]
+        else:
+            compared = comparison(parsed, prep1_followup)
+            remaining = [c["label"] for c in compared if c["after"] != "strong"]
         review.status = "ok"
-        review.level = g.level
-        review.coverage = Decimal(str(g.coverage)) if g.coverage is not None else None
-        review.criteria = {"items": items_out, "own_projects": parsed["own_projects"]}
-        review.summary = summary
+        review.level = level
+        review.coverage = (
+            Decimal(str(round(total / 100, 3))) if total is not None else None
+        )
+        review.criteria = {
+            "version": 2,
+            "topics": parsed["topics"],
+            "answers": parsed["answers"],
+            "went_well": parsed["went_well"],
+            "went_wrong": parsed["went_wrong"],
+            "improve": parsed["improve"],
+            "own_projects": parsed["own_projects"],
+            "scores": score.scores,
+            "weights_used": score.weights_used,
+            "total": total,
+            "caps": score.caps,
+            "followup": followup,
+            "comparison": compared,
+            # Kształt sprzed v2 — okno oceny i raporty czytają ``items``.
+            "items": legacy_items(parsed),
+        }
+        review.summary = parsed["summary"]
         review.remaining = remaining
         review.input_hash = digest
     review.model = model_used
     review.prompt_version = PROMPT_VERSION
+    review.config_version = config_version
 
     await _upsert_note(
         db,
@@ -580,11 +494,12 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         note_content(
             prep_no=prep.prep_no,
             level=level,
-            items=items_out,
+            total=total,
+            parsed=parsed,
             talk_share=talk_share,
             duration_seconds=transcript.duration_seconds,
-            summary=summary,
-            remaining=remaining,
+            followup=followup,
+            compared=compared,
         ),
     )
     await db.commit()

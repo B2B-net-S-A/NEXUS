@@ -46,6 +46,7 @@ export type SettingsItemId =
   | "stages"
   | "cv"
   | "ranking"
+  | "prep-review"
   | "kpi-targets"
   | "mail"
   | "skills"
@@ -223,6 +224,20 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: {
       roles: ["admin", "delivery_lead", "head_of_recruitment"],
       section: "insights",
+      required: "read",
+    },
+  },
+  {
+    id: "prep-review", area: "rec", title: "Ocena prepów", group: "Proces",
+    description: "Jak oceniamy Prep 1 i Prep 2: kryteria, wagi, skala odpowiedzi.",
+    keywords: "prep follow-up ocena transkrypt teams wagi tematy kandydat",
+    route: "/settings/prep-review",
+    // Publikuje HoR i admin (`can_edit` z serwera). W menu bez rekrutera —
+    // jego Ustawienia to samo „Moje konto”; stronę otwiera linkiem „Jak
+    // liczona jest ocena” z oceny prepu (middleware i `ConfigReader` go wpuszczają).
+    gate: {
+      roles: ["admin", "delivery_lead", "head_of_recruitment"],
+      section: "pipeline",
       required: "read",
     },
   },

@@ -19,6 +19,9 @@ import { formatDayMonthPl, formatWeekdayDayPl } from "@/lib/date-pl";
 
 import { absentRowText } from "./leave-format";
 
+/** Kalendarz otwarty na „Wszyscy” + „Dziś nieobecni” (parametry z `calendar-filters.ts`). */
+export const ABSENT_TODAY_CALENDAR_HREF = "/people/calendar?scope=all&status=absent";
+
 interface AbsentTodayPanelProps {
   date: string;
   items: AbsentTodayRow[];
@@ -31,8 +34,9 @@ export function AbsentTodayPanel({ date, items, onNavigate }: AbsentTodayPanelPr
     <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
         <b className="text-sm text-foreground">Nieobecni dziś · {formatWeekdayDayPl(date)}</b>
+        {/* Kalendarz z tym samym zbiorem co okienko: wszyscy, „Dziś nieobecni”. */}
         <Link
-          href="/people/calendar"
+          href={ABSENT_TODAY_CALENDAR_HREF}
           onClick={onNavigate}
           className="text-[11.5px] text-primary hover:underline"
         >

@@ -336,7 +336,9 @@ async def _month(
         payroll=False,
         report_ids=frozenset(ids),
     )
-    queue = await team_queue(db, actor=actor, year=today.year, month=today.month)
+    queue = await team_queue(
+        db, actor=actor, year=today.year, month=today.month, missing_before=today
+    )
     working_days = sum(
         1
         for day in await month_calendar(db, today.year, today.month)
@@ -353,6 +355,9 @@ async def _month(
             "hours": item["hours"],
             "status": item["status"],
             "timesheet_id": item["timesheet"]["id"] if item["timesheet"] else None,
+            # Dni robocze przed dziś bez wpisu (szkic albo brak raportu) —
+            # znacznik „brak dd.mm” w „Moim zespole” (22.10.2026).
+            "missing_dates": item.get("missing_dates", []),
         }
         for item in queue
         if item["user_id"] in set(ids)

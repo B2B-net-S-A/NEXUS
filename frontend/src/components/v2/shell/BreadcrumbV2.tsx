@@ -44,6 +44,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   v2: "UI Showcase",
   pipeline: "Pipeline",
   scoring: "Ranking kandydatów",
+  "prep-review": "Ocena prepów",
   "pipeline-templates": "Procesy",
   "contract-templates": "Wzory umów",
   compare: "Porównanie",

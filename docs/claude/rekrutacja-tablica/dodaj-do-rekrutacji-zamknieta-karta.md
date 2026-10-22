@@ -1,6 +1,6 @@
 # „Dodaj do rekrutacji”: zamknięta karta to nie „już w rekrutacji” (12.10.2026)
 
-<!-- indeks: powód `closed_in_job`, okno zostaje z powodem z serwera, „Przywróć” ruchem karty -->
+<!-- indeks: powód `closed_in_job`, „Przywróć” ruchem karty -->
 
 Zgłoszenie 12.10.2026: rekruterka i Delivery Lead nie mogły dodać osoby do
 rekrutacji. Osoba miała w niej kartę „Odrzucony” sprzed czterech dni (historia

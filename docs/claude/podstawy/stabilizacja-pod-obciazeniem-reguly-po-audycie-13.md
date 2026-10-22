@@ -1,6 +1,6 @@
 # Stabilizacja pod obciążeniem — reguły po audycie 13.09 i reaudycie 14.09.2026
 
-<!-- indeks: deploy = przerwa dla użytkowników, ponowienia HTTP, polling, single-flight cache, eksport XLSX, uploady -->
+<!-- indeks: deploy = przerwa, ponowienia HTTP, polling, single-flight cache, XLSX, uploady -->
 
 Audyt `docs/performance-and-availability-audit-2026-09-13.md`, reaudyt
 `docs/performance-and-availability-reaudit-2026-09-14.md` i dwa PR-y naprawcze

@@ -118,13 +118,51 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   Mówcy z VTT (`services/teams_vtt.py`): zespół po nazwisku, kandydat po
   nazwisku albo jako jedyny mówca spoza zespołu; udział kandydata `None`, gdy
   nie da się go wskazać — nigdy 0.
-- **Ocena (`services/prep_review.py`, `AIFeatureKey.prep_review`, F24 = GPT-6
-  Luna, zapas Sonnet 5):** punkty buduje KOD (must-have w pisowni DL-a z
-  `dz_review.job_requirements` + pytania klienta z debriefów i przypięte),
-  model daje status i cytat, cytat spoza transkryptu = „nie było (bez
-  dowodu)”. Poziom liczy kod (`PREP_REVIEW_*`); w Prepie 2 punkt zaliczony
-  w Prepie 1 = `covered_in_prep1` poza mianownikiem. **Awaria modelu = `level
-  NULL`, nigdy „słaby”.** Pomiar Luny: `scripts/eval_prep_review.py`.
+- **Ocena v2 (22.10.2026, `services/prep_review.py` + czyste funkcje
+  `services/prep_review_scoring.py`, `AIFeatureKey.prep_review`, F24 = GPT-6
+  Luna, zapas Sonnet 5, `PROMPT_VERSION = prep-review-v2`).** Punkty buduje
+  KOD: tematy prowadzącego z ustawień (`topic:<nr>`, status covered /
+  partial / missing), odpowiedzi kandydata na must-have (pisownia DL-a)
+  i pytania tego klienta (stopień strong / general / weak / missing ze skali
+  w ustawieniach), w Prepie 2 zamiast must-have punkty z notatki na Prep 2
+  (`followup:<klucz z Prepu 1>`). Model daje status albo stopień, cytat,
+  jednozdaniową wskazówkę „co przećwiczyć” i listy went_well / went_wrong /
+  improve (dla prowadzącego). Cytat spoza transkryptu = „nie było (bez
+  dowodu)”; obce klucze / pominięta grupa / nieznane wartości dla większości
+  punktów = awaria (`unavailable`, `level NULL`, nigdy „słaby”).
+  **Wynik liczy kod:** kryterium 0–100, wynik = średnia ważona wagami z
+  ustawień; kryterium bez punktów (brak pytań klienta, transkrypt bez mówców
+  → brak udziału kandydata) wypada, a jego waga rozkłada się na resztę.
+  Poziom z progów; „za krótki = słaby”, pominięty temat obowiązkowy albo
+  słaba odpowiedź na must-have = najwyżej „OK” (`caps`). Pytanie klienta
+  mocne w Prepie 1 ma w Prepie 2 `covered_in_prep1` i nie liczy się.
+  **Notatka na Prep 2:** z Prepu 1 kod wybiera `criteria.followup` (słabe
+  odpowiedzi → must-have, których nie omówiono → pominięte tematy
+  obowiązkowe → ogólne → nieprzećwiczone pytania; przełączniki i limit
+  w ustawieniach); `remaining` = ich etykiety. Prep 2 ocenia te punkty
+  jeszcze raz — `criteria.comparison` (przed → po), `remaining` = co nadal
+  nie jest „mocne”. Prep 1 sprzed v2 daje notatkę z `remaining`.
+  `criteria.items` zostaje w kształcie sprzed v2 (stary widok okna i raporty).
+  Notatka `teams_prep` ma fakty, wnioski i listę do powtórzenia — bez
+  cytatów i bez transkryptu. Pomiar: `scripts/eval_prep_review.py`
+  (Luna vs Sonnet, nic nie zapisuje, `old_level` do porównania).
+- **Ustawienia → Ocena prepów (0505, 22.10.2026, makiety
+  https://claude.ai/artifact/1h38jS5LMc1673CENvUejR, plansza 5).** Head of
+  Recruitment i admin publikują wersję ustawień (`PUT /api/prep-review-config`,
+  `HeadOfRecruitmentPlus`); rekruter, DL, HoR i admin czytają (`ConfigReader`,
+  sekcja Pipeline). Każda publikacja = nowy wiersz `prep_review_configs`,
+  obowiązuje najnowszy, `prep_reviews.config_version` mówi, według której
+  wersji powstała ocena; zmiana działa od NASTĘPNEJ oceny (starych nie
+  przeliczamy). Brak wierszy = ustawienia startowe z kodu
+  (`prep_review_config.defaults()`), które odtwarzają ocenę sprzed 0505: progi
+  z `PREP_REVIEW_*` i do 20 pytań klienta — env zostaje tylko jako start.
+  Wersja z bazy czyta się na tle startowej (nowy klucz dostaje wartość
+  startową); nieczytelna = startowa + log, ocena nie staje. Progi, minimalna
+  długość, udział kandydata i limit pytań działają od 0505; wagi kryteriów,
+  tematy prowadzącego, skala odpowiedzi, notatka na Prep 2 i wskazówki dla AI
+  czyta ocena v2 (punkt wyżej). W menu Ustawień pozycja jest dla admina, HoR
+  i DL-a — rekruter ma w Ustawieniach samo „Moje konto”, stronę otwiera
+  linkiem „Jak liczona jest ocena” z oceny prepu (middleware go wpuszcza).
 - **Bramki MIĘKKIE** (nic nie blokuje): Prep 2 wymagany zawsze, gdy rozmowa
   u klienta jest w przyszłości (`PREP2_HINT_DAYS` usunięte); jedyny wyjątek
   z powodem i telefonem przed rozmową — `rozmowa-bez-prepu-2.md` (0482); todo

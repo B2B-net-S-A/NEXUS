@@ -1083,6 +1083,16 @@ except Exception as _ranking_weights_err:  # noqa: BLE001
     print(f"ranking weight changes DDL unavailable: {_ranking_weights_err!r}")
     _RANKING_WEIGHT_CHANGES_DDL = []
 
+# Ustawienia oceny prepów (migracja 0505) — JEDNO źródło z migracją
+# (`app/services/prep_review_config_schema.py`).
+try:
+    from app.services import prep_review_config_schema as _prep_review_config_schema
+
+    _PREP_REVIEW_CONFIG_DDL = list(_prep_review_config_schema.TABLE_DDL)
+except Exception as _prep_review_config_err:  # noqa: BLE001
+    print(f"prep review config DDL unavailable: {_prep_review_config_err!r}")
+    _PREP_REVIEW_CONFIG_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1132,6 +1142,7 @@ _COLUMN_STATEMENTS = [
     *_CONTRACT_DOCS_SP_DDL,
     *_CONTRACT_DOC_FOLDERS_DDL,
     *_RANKING_WEIGHT_CHANGES_DDL,
+    *_PREP_REVIEW_CONFIG_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (

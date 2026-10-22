@@ -170,6 +170,8 @@ export function AgreementPanelTab({
   }
 
   const signed = row.signature_status === "signed_both";
+  const inEsign =
+    !signed && (row.esign?.status === "sent" || row.esign?.status === "contractor_signed");
   return (
     <section
       aria-label="Umowa B2B"
@@ -194,8 +196,19 @@ export function AgreementPanelTab({
         {row.created_by_name ? ` przez ${row.created_by_name}` : ""}.
         {signed
           ? " Kontrakt i zamówienie są w Delivery."
-          : " Wyślij DOCX Partnerowi; po podpisie obu stron potwierdź podpis."}
+          : inEsign
+            ? " Wysłana do podpisu w NEXUSIE."
+            : " Wyślij DOCX Partnerowi; po podpisie obu stron potwierdź podpis."}
       </p>
+      {inEsign && !readOnly && canGenerate ? (
+        <p
+          className="rounded-md border border-warning/40 bg-warning-muted px-2 py-1.5 text-xs text-warning-muted-foreground"
+          data-testid="agreement-panel-esign-lock"
+        >
+          „Popraw umowę” wróci po „Przejdź na zwykłą drogę” — inaczej podpisany PDF
+          i kontrakt by się rozjechały.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-start gap-2">
         {row.can_download ? (
           <Button size="sm" variant="outline" disabled={downloading} onClick={() => void download(row)}>

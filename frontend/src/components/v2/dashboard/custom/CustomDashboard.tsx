@@ -68,6 +68,7 @@ import { DashboardGrid, type DashboardGridMode } from "./DashboardGrid"
 import { EmptyDashboard } from "./EmptyDashboard"
 import { BoardTasksPanel } from "../BoardTasksPanel"
 import { DlSendQueueBand, showsDlSendBand } from "../DlSendQueueBand"
+import { EsignCompanyBand } from "../EsignCompanyBand"
 import { BoardPanelsMenu } from "./BoardPanelsMenu"
 import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
@@ -500,6 +501,7 @@ export function CustomDashboard() {
           nad układem, a nie jako kafelki: zadanie ma dotrzeć do osoby, która
           pulpitu nie układała. Pas pierwszy i na całą szerokość — w kolumnie
           panelu gotowi do wysyłki ginęli między innymi listami. */}
+      {editing ? null : <EsignCompanyBand />}
       {editing ? null : <DlSendQueueBand hiddenPanels={hiddenPanels} />}
       {/* Panel czeka na układ pulpitu: inaczej listy „Do uzupełnienia” mignęłyby
           w nim, zanim okaże się, że stoją w kafelku. */}

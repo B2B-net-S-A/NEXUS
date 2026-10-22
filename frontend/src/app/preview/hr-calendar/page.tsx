@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Harness „Ludzie → Kalendarz zespołu” (makieta 3 raportu „Ludzie w NEXUSIE”).
+ * Harness „Ludzie → Kalendarz” (makieta 3 raportu „Ludzie w NEXUSIE”).
  *
  * Prawdziwe `PeopleSectionNav` + `TeamCalendar` na zasianym cache, ZERO zapytań
  * (`hr-harness.tsx`). Miesiąc to bieżący miesiąc przeglądarki — ekran liczy
@@ -9,11 +9,13 @@
  *
  * Stany (`?as=`):
  * - `team` (domyślnie) — rekruterka bez podwładnych: widzi „nieobecny”, bez
- *   rodzaju (D6), bez filtra „Mój zespół”;
- * - `manager` — przełożona: filtr „Mój zespół” i rodzaj nieobecności swoich
- *   ludzi (osoba, przełożony i Kadry).
- * Filtry działów, „Mój zespół” i sąsiednie miesiące (±2, także widok
- * „2 tygodnie” na przełomie miesięcy) są zasiane — klik nie wysyła zapytania.
+ *   rodzaju (D6), bez chipa „Mój zespół”, domyślnie „Wszyscy”;
+ * - `manager` — przełożona: domyślnie chip „Mój zespół” i rodzaj nieobecności
+ *   swoich ludzi (osoba, przełożony i Kadry).
+ * „Wszyscy”, „Mój zespół” i sąsiednie miesiące (±2, także widok „2 tygodnie”
+ * na przełomie miesięcy) są zasiane — klik nie wysyła zapytania; działy
+ * filtruje ekran na danych „Wszyscy”. Filtry ekranu dopisują się do adresu
+ * obok `?as=`.
  * Układ z makiety 19.10.2026: ciągłe paski, wiersz „Nieobecnych”, panel
  * „W tym tygodniu nie ma”, „Znajdź osobę”.
  */
@@ -132,7 +134,6 @@ function prepare(params: URLSearchParams) {
   client.setQueryData(hrKeys.config, config);
   client.setQueryData(hrKeys.counts, { approvals: as === "manager" ? 4 : null, cases: null });
   const current = warsawToday().slice(0, 7);
-  const departments = [...new Set(PLANS.map((plan) => plan.person.department))];
   // Widok 2 tygodni na przełomie miesięcy czyta dwa miesiące — zasiane ±2.
   for (const month of [-2, -1, 0, 1, 2].map((delta) => shiftMonth(current, delta))) {
     client.setQueryData(leaveKeys.calendar(month, null, false), calendar(month, viewer, as, () => true));
@@ -140,12 +141,6 @@ function prepare(params: URLSearchParams) {
       leaveKeys.calendar(month, null, true),
       calendar(month, viewer, as, (p) => REPORTS.has(p.id) || p.id === viewer.id),
     );
-    for (const department of departments) {
-      client.setQueryData(
-        leaveKeys.calendar(month, department, false),
-        calendar(month, viewer, as, (p) => p.department === department),
-      );
-    }
   }
   return { user: viewer, client, value: { as, config } };
 }
@@ -157,7 +152,7 @@ export default function HrCalendarPreviewPage() {
   return (
     <HrHarnessShell
       client={ready.client}
-      title="Ludzie → Kalendarz zespołu"
+      title="Ludzie → Kalendarz"
       note="Dane fikcyjne, bez zapytań. Rodzaj nieobecności widzą tylko osoba, jej przełożony i Kadry (D6)."
       states={STATES}
       current={as}
@@ -165,8 +160,8 @@ export default function HrCalendarPreviewPage() {
     >
       <div className="space-y-4">
         <PageHeader
-          title="Kalendarz zespołu"
-          description="Nieobecności w miesiącu. Rodzaj widzą tylko osoba, jej przełożony i Kadry."
+          title="Kalendarz"
+          description="Nieobecności w zespole. Rodzaj widzą tylko osoba, jej koordynator i Kadry."
           density="compact"
         />
         <PeopleSectionNav config={config} active="calendar" />

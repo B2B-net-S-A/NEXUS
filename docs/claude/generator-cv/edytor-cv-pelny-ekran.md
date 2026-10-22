@@ -1,6 +1,6 @@
 # Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026)
 
-<!-- indeks: kontrakt HTML ↔ Word, klauzula RODO, „Do poprawy”, AI na zaznaczeniu i dla całego CV, historia wersji -->
+<!-- indeks: kontrakt HTML ↔ Word, „Do poprawy”, AI na zaznaczeniu, historia wersji -->
 
 Pomiar na produkcji (30 dni do 12.10.2026, tylko odczyt, same liczby): 686 CV
 z generatora, w edytorze poprawiono 17 (2,5%), mediana 2 zapisy i 1,5 minuty.

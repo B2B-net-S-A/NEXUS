@@ -43,6 +43,9 @@ export interface EsignRequest {
   completed_at: string | null;
   closed_at: string | null;
   close_reason: string | null;
+  /** Tylko w liście „Czeka na mój podpis” (`/esign/mine`). */
+  contract_number?: string | null;
+  client_name?: string | null;
 }
 
 export interface EsignDefaults {

@@ -561,6 +561,8 @@ export interface FlowContractRow {
   partner_name?: string | null;
   client_name?: string | null;
   created_at: string;
+  /** Umowa w podpisie w NEXUSIE (etap 1b) — nikt nie musi dzwonić do Partnera. */
+  esign_status?: "sent" | "contractor_signed" | null;
 }
 
 /**

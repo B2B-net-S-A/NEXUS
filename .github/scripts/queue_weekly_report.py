@@ -239,7 +239,9 @@ def make_chooser():
 
     def choose(changed: list[str]) -> tuple[list[str], list[str]]:
         direct, indirect = sieve.select(changed)
-        return sieve.apply_budget(direct, indirect, 300.0, durations)
+        return sieve.apply_budget(
+            direct, indirect, sieve.DEFAULT_BUDGET_SECONDS, durations
+        )
 
     return choose
 

@@ -1,5 +1,5 @@
 # Zmieniona notatka z oznaczeniem i przełożona rozmowa u klienta (21.10.2026)
-<!-- indeks: „Powiadom oznaczonych o zmianie” (`notify_mentions`), `interview_changed` (0500) w „Kalendarzu”, kto dostaje, czego nie wysyłamy -->
+<!-- indeks: `notify_mentions`, `interview_changed` (0500), kto dostaje -->
 
 Zgłoszenie rekruterki: terminy prepów i rozmów często się zmieniają, a gdy
 rekruter poprawiał notatkę, w której oznaczył Delivery Leada, DL nic nie

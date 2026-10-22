@@ -1,9 +1,9 @@
 {
-  "entry": "c640856337b2e44b8f144cfe8d84a2fe6a09b2b4644fb1dcbb5f2fb407a3a569",
+  "entry": "0a4801d36787d921e1eb3a55434e3716f8dcec6e8ab5e921a2e7eb0eefd59733",
   "guide": "hr.consents",
   "sources": {
     "frontend/src/components/hr/approvals/ConsentRequestForm.tsx": "e55600da8293766611a7a941a7afd488d87c91696807e281b412b65f9fd3faec",
-    "frontend/src/components/hr/approvals/ConsentsInbox.tsx": "b0d78be330b0a9d73886c7ac254cbc580a9fbab5426f8a0c88fe54bdb56ba4bb",
-    "frontend/src/components/hr/approvals/MyConsentsScreen.tsx": "11dda67fdd1c8885c8e70468f21150ca553ac4d3905a94f7d20bd311b3d724d2"
+    "frontend/src/components/hr/approvals/ConsentsInbox.tsx": "101cc60bfc5edcebfce735323178a3b8cf73aef7d319e2bde006cad7dd3922af",
+    "frontend/src/components/hr/approvals/MyConsentsScreen.tsx": "8940a73ac1b6548d035e39a35027b093247f1d38a16a9d9c2623306472aa7ecc"
   }
 }

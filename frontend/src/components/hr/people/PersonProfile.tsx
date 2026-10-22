@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, MoreHorizontal, Pencil } from "lucide-react";
+import { MoreHorizontal, Pencil } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
@@ -52,6 +52,8 @@ import { EntitlementDialog } from "./EntitlementDialog";
 import { poolAllowed } from "./form-rules";
 import { formLabel, tenureLabel, todayChips, todayKnown } from "./directory-view";
 import { STATUS_TONE, formatDays } from "./hr-format";
+import { PeopleBackLink } from "./PeopleBackLink";
+import { PersonAbsencesHours } from "./PersonAbsencesHours";
 import { PersonAvatar } from "./PersonAvatar";
 import { TonePill } from "./people-ui";
 import {
@@ -79,89 +81,6 @@ function CardTitle({ children }: { children: React.ReactNode }) {
     <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
       {children}
     </h3>
-  );
-}
-
-function LeavePoolCard({
-  person,
-  year,
-  canEdit,
-}: {
-  person: PersonFull;
-  year: number;
-  canEdit: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  const current = person.entitlements?.find((row) => row.year === year);
-  // D6: pula płatnych dni na umowie o pracę i na B2B z pulą w umowie; zlecenie bez puli.
-  const form = person.employment_type;
-  if (!poolAllowed(form)) {
-    return (
-      <Card className="p-4">
-        <CardTitle>Nieobecności {year}</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Na umowie zlecenie nie ma puli płatnych dni — nieobecność jest bez wynagrodzenia.
-        </p>
-      </Card>
-    );
-  }
-  return (
-    <Card className="p-4">
-      <div className="flex items-center justify-between">
-        <CardTitle>
-          {form === "uop"
-            ? `Urlop ${year}`
-            : form
-              ? `Płatne dni przerwy ${year}`
-              : `Pula płatnych dni ${year}`}
-        </CardTitle>
-        {canEdit ? (
-          <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-            Zmień pulę
-          </Button>
-        ) : null}
-      </div>
-      {current ? (
-        <>
-          <Fact label="Pula na rok">
-            {current.entitlement_days == null
-              ? "bez puli"
-              : `${formatDays(current.entitlement_days)} dni`}
-          </Fact>
-          <Fact label="Zaległy z poprzedniego roku">
-            {formatDays(current.carried_over_days)} dni
-          </Fact>
-          <Fact label="Wykorzystane przed NEXUSEM">
-            {formatDays(current.used_initial_days)} dni
-          </Fact>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Saldo po wnioskach policzy moduł urlopów.
-          </p>
-        </>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Pula na {year} nie jest ustawiona.
-        </p>
-      )}
-      {form === "uop" && person.suggested_entitlement_days ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          Wymiar według stażu ({person.leave_seniority_years} lat):{" "}
-          {person.suggested_entitlement_days} dni.
-        </p>
-      ) : null}
-      {canEdit && editing ? (
-        <EntitlementDialog
-          userId={person.user_id}
-          name={person.name}
-          year={year}
-          current={current}
-          employmentType={form ?? undefined}
-          suggestedDays={person.suggested_entitlement_days ?? null}
-          open={editing}
-          onOpenChange={setEditing}
-        />
-      ) : null}
-    </Card>
   );
 }
 
@@ -494,7 +413,8 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
   // płac też muszą do nich dojść (audyt 21.10.2026).
   const tabs: { value: ProfileTab; label: string; count?: number }[] = [
     { value: "overview", label: "Przegląd" },
-    ...(full ? [{ value: "time" as const, label: "Czas i przerwy" }] : []),
+    // „Nieobecności i godziny” (22.10.2026, dawniej „Czas i przerwy”; kotwica `#czas` bez zmian).
+    ...(full ? [{ value: "time" as const, label: "Nieobecności i godziny" }] : []),
     ...(payrollShown || (full && billingVisible)
       ? [
           {
@@ -515,13 +435,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
 
   return (
     <div className="space-y-4">
-      <Link
-        href="/people"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden />
-        Ludzie
-      </Link>
+      <PeopleBackLink />
 
       <Card className="overflow-hidden p-0">
         <header className="flex flex-wrap items-center gap-4 px-5 py-4">
@@ -908,7 +822,13 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
               </Fact>
             ) : null}
           </Card>
-          <LeavePoolCard person={full} year={year} canEdit={canEdit} />
+          <PersonAbsencesHours
+            person={full}
+            year={year}
+            // Zlecenie nie ma puli płatnych dni (D6) — bez „Zmień pulę”.
+            canEditPool={canEdit && poolAllowed(full.employment_type)}
+            onEditPool={() => setEditingPool(true)}
+          />
         </div>
       ) : null}
 

@@ -187,3 +187,64 @@ describe("AgreementSignatureAction przy umowie w podpisie w NEXUSIE", () => {
     expect(screen.getByText(/NEXUS potwierdzi podpis sam/)).toBeInTheDocument();
   });
 });
+
+describe("EsignCompanyBand na pulpicie (etap 1b)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  async function setUser(access: "view" | "none") {
+    const { useAuthStore } = await import("@/store/auth");
+    useAuthStore.setState({
+      user: {
+        id: 1,
+        role: "admin",
+        roles: [],
+        effective_action_access: { b2b_contract_generator: access },
+      },
+      hydrated: true,
+    } as never);
+  }
+
+  it("pokazuje umowy czekające na mój podpis z linkiem do rejestru", async () => {
+    await setUser("view");
+    mocks.mine.mockResolvedValue([
+      {
+        id: 3,
+        generated_contract_id: 9,
+        contract_number: "1611/2026",
+        client_name: "Bank B",
+        contractor_name: "Ewa Przykładowa",
+        contractor_signed_at: "2026-10-21T10:14:00Z",
+      },
+    ]);
+    const { EsignCompanyBand } = await import("@/components/v2/dashboard/EsignCompanyBand");
+    wrap(<EsignCompanyBand />);
+    const band = await screen.findByTestId("esign-company-band");
+    expect(within(band).getByText("1611/2026 · Ewa Przykładowa")).toBeInTheDocument();
+    expect(within(band).getByText(/Bank B · kontraktor podpisał/)).toBeInTheDocument();
+    expect(within(band).getByRole("link", { name: "Podpisz" })).toHaveAttribute(
+      "href",
+      "/contracts/b2b-generator",
+    );
+  });
+
+  it("bez dostępu do Generatora nawet nie pyta serwera", async () => {
+    await setUser("none");
+    const { EsignCompanyBand } = await import("@/components/v2/dashboard/EsignCompanyBand");
+    const { container } = wrap(<EsignCompanyBand />);
+    expect(container).toBeEmptyDOMElement();
+    expect(mocks.mine).not.toHaveBeenCalled();
+  });
+});
+
+describe("strona kontraktora — instrukcja per narzędzie (etap 1b)", () => {
+  it("zakładki zmieniają instrukcję, a PAdES jest zawsze na widoku", async () => {
+    const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
+    render(<B2BSignForm token="t" initialState="waiting" />);
+    expect(screen.getByRole("tab", { name: "mObywatel" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("numer CAN");
+    await userEvent.click(screen.getByRole("tab", { name: "SimplySign" }));
+    expect(screen.getByRole("tab", { name: "SimplySign" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("SimplySign na telefonie");
+    expect(screen.getByText(/zostanie odrzucony/)).toBeInTheDocument();
+  });
+});
