@@ -189,4 +189,21 @@ describe("PlanPrepDialog — prowadzący ma wtedy zajęte (22.10.2026)", () => {
     await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(2));
     expect(mocks.create.mock.calls[1][0]).toMatchObject({ accept_busy: true });
   });
+
+  it("po zmianie terminu „Zapisz mimo to” znika — ostrzeżenie dotyczyło innej godziny", async () => {
+    const start = new Date();
+    start.setDate(start.getDate() + 4);
+    start.setHours(10, 0, 0, 0);
+    mocks.create.mockReset();
+    mocks.create.mockRejectedValueOnce({
+      response: { status: 409, data: { detail: { code: "PREP_SLOT_BUSY", message: "Delivery Lead ma wtedy zajęte." } } },
+    });
+    renderDialog({ start: start.toISOString(), end: new Date(start.getTime() + 3_600_000).toISOString() });
+    fireEvent.click(screen.getByRole("button", { name: "Zaplanuj w Teams" }));
+    expect(await screen.findByRole("button", { name: "Zapisz mimo to" })).toBeInTheDocument();
+    const field = document.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+    const later = new Date(start.getTime() - 2 * 3_600_000);
+    fireEvent.change(field, { target: { value: toLocalInput(later) } });
+    expect(screen.queryByRole("button", { name: "Zapisz mimo to" })).toBeNull();
+  });
 });

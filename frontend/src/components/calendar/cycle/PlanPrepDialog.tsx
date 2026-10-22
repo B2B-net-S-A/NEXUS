@@ -96,6 +96,12 @@ export function PlanPrepDialog({
   // drugiego spotkania (serwer → `transactionId` w Graphie).
   const requestId = useRef<string>("");
 
+  // „Zapisz mimo to” dotyczy terminu i prowadzącego z odpowiedzi 409 — po
+  // zmianie któregoś z nich ostrzeżenie już nie pasuje.
+  useEffect(() => {
+    setBusyClash(false);
+  }, [start, duration, organizerId]);
+
   useEffect(() => {
     if (!open) return;
     requestId.current =

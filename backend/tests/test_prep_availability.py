@@ -134,6 +134,14 @@ def test_busy_overlap_touching_edges_is_free(start, end):
     assert pa.busy_overlap(start, end, busy) is None
 
 
+def test_busy_overlap_ignores_the_prep_itself_from_an_earlier_attempt():
+    # Outlook przyjął spotkanie, zapis w NEXUSIE padł — powtórka widzi „siebie”.
+    own = (_at_waw(10), _at_waw(10, 45))
+    assert pa.busy_overlap(own[0], own[1], [own]) is None
+    other = (_at_waw(10, 30), _at_waw(11))
+    assert pa.busy_overlap(own[0], own[1], [own, other]) == other
+
+
 def test_busy_overlap_unknown_calendar_is_never_a_clash():
     assert pa.busy_overlap(_at_waw(11), _at_waw(11, 45), None) is None
 

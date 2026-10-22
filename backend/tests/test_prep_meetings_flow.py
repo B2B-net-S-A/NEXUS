@@ -309,6 +309,33 @@ async def test_busy_organizer_needs_accept_busy_and_hears_about_the_clash(
     assert "Nachodzi na inne spotkanie w Twoim kalendarzu" in notes[0].message
 
 
+async def test_retry_is_not_busy_with_its_own_orphan_meeting(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Outlook przyjął spotkanie, a NEXUS go nie zapisał: powtórka z tym samym
+    ``client_request_id`` widzi w kalendarzu „siebie” — to nie kolizja."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        dl_email = (await db.get(User, dl_id)).email.lower()
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=24)
+    end = start + timedelta(minutes=45)
+    graph.busy[dl_email] = [(start, end)]
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=start.isoformat(),
+        end=end.isoformat(),
+        client_request_id="req-retry",
+    )
+    assert resp.status_code == 201, resp.text
+
+
 async def test_unknown_or_free_calendar_saves_without_accept_busy(
     app_client: AsyncClient, graph: FakeGraph
 ):

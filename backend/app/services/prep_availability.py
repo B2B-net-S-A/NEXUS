@@ -160,6 +160,9 @@ def suggest(
     return picked
 
 
+_SAME_SPAN = timedelta(minutes=1)
+
+
 def busy_overlap(
     start: datetime, end: datetime, busy: Optional[Sequence[Interval]]
 ) -> Optional[Interval]:
@@ -167,9 +170,18 @@ def busy_overlap(
 
     Bloki, które nachodzą na prep, łączy w jeden (komunikat mówi „ma wtedy
     zajęte 11:30–13:00”, a nie trzy kawałki). ``busy=None`` = kalendarz
-    nieznany, więc kolizji nie ma czym potwierdzić.
+    nieznany, więc kolizji nie ma czym potwierdzić. Blok o tym samym
+    początku i końcu co prep to zwykle ten sam prep z poprzedniej próby
+    (Outlook przyjął spotkanie, NEXUS nie zdążył go zapisać) — powtórka
+    z tym samym ``client_request_id`` nie może się o niego potknąć.
     """
-    hits = [(s, e) for s, e in busy or [] if start < e and s < end]
+    hits = [
+        (s, e)
+        for s, e in busy or []
+        if start < e
+        and s < end
+        and not (abs(s - start) < _SAME_SPAN and abs(e - end) < _SAME_SPAN)
+    ]
     if not hits:
         return None
     return min(s for s, _ in hits), max(e for _, e in hits)
