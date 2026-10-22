@@ -200,6 +200,42 @@ describe("PickInterviewDialog", () => {
     expect(mocks.createPrep.mock.calls[1][0].start).toBe("2031-06-12T10:00:00Z");
   });
 
+  it("Prep 1 nie zaznacza się sam na godzinie już zaplanowanego Prepu 2 (audyt 22.10, F34)", async () => {
+    mocks.suggestions.mockResolvedValue({
+      enabled: true,
+      preps: [
+        suggestions.preps[0],
+        { ...suggestions.preps[1], scheduled_start: "2031-06-11T14:00:00Z", options: [] },
+      ],
+    });
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    const prep1 = await within(dialog).findByRole("radiogroup", { name: "Godzina Prepu 1" });
+    await waitFor(() => expect(within(prep1).getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true"));
+    expect(within(prep1).getAllByRole("radio")[0]).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wybierz termin i zaproś na prepy (1)" }));
+    await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(1));
+    expect(mocks.createPrep.mock.calls[0][0]).toMatchObject({ prep_no: 1, start: "2031-06-11T15:00:00Z" });
+  });
+
+  it("jedyna podpowiedź Prepu 1 na zaplanowanym Prepie 2 nie idzie do zaproszeń (F34)", async () => {
+    mocks.suggestions.mockResolvedValue({
+      enabled: true,
+      preps: [
+        { ...suggestions.preps[0], options: [suggestions.preps[0].options[0]] },
+        { ...suggestions.preps[1], scheduled_start: "2031-06-11T14:00:00Z", options: [] },
+      ],
+    });
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    await within(dialog).findByRole("radiogroup", { name: "Godzina Prepu 1" });
+    await waitFor(() => expect(mocks.suggestions).toHaveBeenCalled());
+    expect(within(dialog).queryByRole("button", { name: /Wybierz termin i zaproś na prepy/ })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wpisz do kalendarza" }));
+    await waitFor(() => expect(mocks.chooseSlot).toHaveBeenCalled());
+    expect(mocks.createPrep).not.toHaveBeenCalled();
+  });
+
   it("bez prepów do zaproszenia przycisk mówi, co się stanie: rozmowa trafia do kalendarza", async () => {
     mocks.suggestions.mockResolvedValue({ enabled: false, preps: [] });
     mocks.chooseSlot.mockResolvedValue({ status: "confirmed" });
