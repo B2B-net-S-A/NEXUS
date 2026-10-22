@@ -481,6 +481,39 @@ describe("CvToClientCard — brak CV", () => {
     expect(generatePosts()[0][1]).toMatchObject({ cv_document_id: 32 });
   });
 
+  // Audyt 22.10 (F67): nieudana generacja czyściła pole notatki i zdejmowała
+  // potwierdzenie — rekruter wpisywał ją drugi raz i w rekrutacji był duplikat.
+  it("odmowa generacji: notatka zostaje w polu i potwierdzona, ponowienie nie zapisuje jej drugi raz", async () => {
+    let attempt = 0;
+    mocks.apiPost.mockImplementation(async (url: string) => {
+      if (url === "/api/notes") return { data: { id: 1 } };
+      if (url === "/api/cv-generator/generate") {
+        attempt += 1;
+        if (attempt === 1) throw { response: { status: 422, data: { detail: "Ten klient wymaga numeru projektu w CV." } } };
+        return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+      }
+      throw new Error(`unexpected POST ${url}`);
+    });
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    await userEvent.click(await within(panel).findByRole("button", { name: "Potwierdź plik" }));
+    await userEvent.click(within(panel).getByRole("button", { name: /^Potwierdź (odpowiedzi|bez odpowiedzi)$/ }));
+    await userEvent.type(within(panel).getByRole("textbox", { name: "Dodatkowe notatki do CV" }), "Migracja Jenkinsa");
+    await userEvent.click(within(panel).getByRole("button", { name: "Potwierdź notatki" }));
+    const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    expect(await within(panel).findByRole("alert")).toHaveTextContent("Ten klient wymaga numeru projektu w CV.");
+    expect(within(panel).getByTestId("cv-confirm-count")).toHaveTextContent("Potwierdzone 3 z 3");
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    await waitFor(() => expect(attempt).toBe(2));
+    const notePosts = mocks.apiPost.mock.calls.filter(([url]) => url === "/api/notes");
+    expect(notePosts).toHaveLength(1);
+    expect(notePosts[0][1]).toMatchObject({ content: "Migracja Jenkinsa" });
+  }, 20000);
+
   it("odmowa serwera (reguła klienta, 422) stoi w panelu, a panel zostaje otwarty", async () => {
     mocks.apiPost.mockRejectedValue({
       response: { status: 422, data: { detail: "Ten klient wymaga numeru projektu w CV." } },
