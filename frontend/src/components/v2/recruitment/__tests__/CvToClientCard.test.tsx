@@ -1497,7 +1497,9 @@ describe("CvToClientCard — miniatura i menu „⋯” (Edytor CV 3, „Ekran 5
     rows = [{ id: 5, status: "ready" }];
     mocks.discard.mockImplementation(async () => {
       mocks.brandedGet.mockResolvedValue({ data: { status: "none", edit_revision: 4, version: 1 } });
-      rows = [];
+      // Serwer nie kasuje dokumentu generatora — oznacza go jako odrzucony
+      // (audyt 22.10, F64), więc wiersz dalej jest na liście pary.
+      rows = [{ id: 5, status: "ready", discarded: true }];
       return { data: { status: "none", edit_revision: 4, version: 1 } };
     });
     renderCard();
@@ -1508,6 +1510,7 @@ describe("CvToClientCard — miniatura i menu „⋯” (Edytor CV 3, „Ekran 5
     await waitFor(() => expect(mocks.discard).toHaveBeenCalledWith(21, READY.edit_revision));
     expect(mocks.showSuccess).toHaveBeenCalledWith("CV odrzucone. Potwierdź, z czego zrobić nowe.");
     expect(await screen.findByTestId("cv-generate-panel")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Użyj tej wersji/ })).toBeNull();
   });
 
   it("tylko do odczytu: bez „Otwórz i popraw”; w „⋯” zostaje samo „Pobierz PDF”", async () => {

@@ -64,6 +64,13 @@ i dodatkowych notatek; domyślny plik = kopia „Oryginał CV” rekrutacji.
   `cv_document_versions`, dokument generatora w plikach kandydata. 409 przy
   innej rewizji, przy etapie bez CV i od „CV wysłane”
   (`client_cv_locked_after_send`). Pytanie przez `useConfirmV2`.
+- **Odrzucone CV nie jest już CV pary** (audyt 22.10.2026): wszystkie gotowe
+  generacje pary dostają `render_payload["discarded_at"]`
+  (`_mark_pair_generations_discarded`). Pomijają je fallbacki do „najnowszego
+  gotowego CV z generatora”: `move_requirements.company_cv_refs` (wymagania
+  ruchu, kolejki DL i Cpro), `dz_review._generated_cv` (QC CV) i karta —
+  `GET /generated` niesie `discarded`, a `resolveCvToClient` nie proponuje
+  takiego wiersza jako „Użyj tej wersji”. Nowa generacja jest znowu CV pary.
 
 ## Czego nie zmienia
 

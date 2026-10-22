@@ -80,10 +80,10 @@ from app.services.cv_document_assets import (
     CvAssetsError,
 )
 from app.core.http_headers import content_disposition_attachment
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 from app.services.html_sanitizer import sanitize_cv_html
 from app.services import cv_editor_issues
@@ -1606,10 +1606,60 @@ async def discard_branded_cv(
         raise HTTPException(409, "Ta rekrutacja nie ma CV do klienta do odrzucenia.")
     await _ensure_client_cv_replaceable(db, csv)
     snapshot_draft(db, csv, user_id=current_user.id, reason="replaced")
+    await _mark_pair_generations_discarded(db, csv)
     _clear_stage_draft(db, csv, user_id=current_user.id, action=DISCARD_ACTION)
     await db.commit()
     await db.refresh(csv)
     return _build_branded_response(csv)
+
+
+async def _mark_pair_generations_discarded(
+    db: AsyncSession, csv: CandidateStageCV
+) -> None:
+    """Gotowe CV generatora tej pary przestają być CV pary (audyt 22.10, F64).
+
+    Bez znacznika karta proponowała odrzucone CV jako „Użyj tej wersji”,
+    a wymagania ruchu, kolejki DL/Cpro i QC CV brały je jako CV firmowe pary
+    (fallback do najnowszej gotowej generacji). „Zacznij od nowa” dotyczy
+    wszystkich dotychczasowych generacji pary, nie tylko podpiętej; nowa
+    generacja jest znowu CV pary. Dokumenty zostają w plikach kandydata.
+    Bez commitu.
+    """
+    from app.models.cv_generated_document import DISCARDED_KEY, not_discarded_clause
+
+    stage = await db.get(CandidateStage, csv.candidate_stage_id)
+    scope = []
+    if csv.generated_document_id is not None:
+        scope.append(CvGeneratedDocument.id == csv.generated_document_id)
+    if stage is not None and stage.candidate_id and stage.job_id:
+        scope.append(
+            and_(
+                CvGeneratedDocument.candidate_id == stage.candidate_id,
+                CvGeneratedDocument.job_id == stage.job_id,
+            )
+        )
+    if not scope:
+        return
+    docs = (
+        await db.scalars(
+            select(CvGeneratedDocument)
+            .options(
+                defer(CvGeneratedDocument.docx_content),
+                defer(CvGeneratedDocument.template_content),
+                defer(CvGeneratedDocument.consent_content),
+            )
+            .where(
+                or_(*scope),
+                CvGeneratedDocument.status == "ready",
+                CvGeneratedDocument.render_payload.is_not(None),
+                not_discarded_clause(),
+            )
+        )
+    ).all()
+    discarded_at = datetime.now(timezone.utc).isoformat()
+    for doc in docs:
+        # Nowy słownik — kolumna JSON bez śledzenia mutacji.
+        doc.render_payload = {**doc.render_payload, DISCARDED_KEY: discarded_at}
 
 
 def _schedule_qc_after_attach(
