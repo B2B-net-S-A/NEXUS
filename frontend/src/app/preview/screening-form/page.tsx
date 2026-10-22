@@ -892,11 +892,12 @@ const JOINT_STATE: ScreeningFormState = {
 const JOINT_CONTEXT: JointContext = {
   candidate_id: CANDIDATE_ID,
   job_id: JOB_ID,
-  anchor: { job_id: JOB_ID, title: "Senior Java Developer", client_id: 1, client_name: "Bank Przykładowy", budget_hourly: 150 },
+  anchor: { job_id: JOB_ID, title: "Senior Java Developer", client_reference: "40101", client_id: 1, client_name: "Bank Przykładowy", budget_hourly: 150 },
   pairs: [
     {
       job_id: JOINT_JOB_ID,
       title: "Java Developer — płatności",
+      client_reference: "40102, 40103",
       client_id: 3,
       client_name: "Ubezpieczenia Demo",
       board_column: "new",
@@ -957,7 +958,7 @@ const JOINT_ALSO_FITS = {
   from_job_id: JOB_ID,
   status: "ok" as const,
   jobs: [
-    { job_id: 205, title: "Kafka Engineer", client_name: "Logistyka Demo", score: 74, matching_must: ["Java", "Kafka"], gap_must: [] },
+    { job_id: 205, title: "Kafka Engineer", client_reference: "40105", client_name: "Logistyka Demo", score: 74, matching_must: ["Java", "Kafka"], gap_must: [] },
   ],
 };
 

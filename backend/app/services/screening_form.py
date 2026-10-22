@@ -626,6 +626,7 @@ async def joint_anchor(db: AsyncSession, job: Job) -> dict[str, Any]:
     return {
         "job_id": job.id,
         "title": display_title(job),
+        "client_reference": job.client_reference,
         "client_id": job.client_id,
         "client_name": client_name,
         "budget_hourly": float(budget) if budget is not None else None,
@@ -705,6 +706,8 @@ async def joint_pairs(
             {
                 "job_id": job_id,
                 "title": display_title(job),
+                # Numer u klienta przed tytułem, jak w nagłówku (22.10.2026).
+                "client_reference": job.client_reference,
                 "client_id": job.client_id,
                 "client_name": client_name,
                 "board_column": state.column,

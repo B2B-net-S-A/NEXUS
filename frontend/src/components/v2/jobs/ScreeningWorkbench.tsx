@@ -491,6 +491,7 @@ export function ScreeningWorkbench({
         {jointEnabled && !jointSaving ? (
           <JointScreeningPicker
             anchorTitle={jointAnchor?.title ?? "Ta rekrutacja"}
+            anchorReference={jointAnchor?.client_reference}
             pairs={jointPairs}
             suggestions={jointSuggestions}
             selected={selectedJoint}

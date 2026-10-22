@@ -10,11 +10,16 @@
  * Od 16.10.2026 (D1 A) odznaczenie nie kasuje wpisów: odznaczona rekrutacja
  * z wpisami ma „N odpowiedzi w pamięci”, pod listą stoi „Odznaczono … · Cofnij”,
  * a ponowne zaznaczenie mówi, że wpisy wróciły.
+ *
+ * Od 22.10.2026 przed tytułem stoi numer u klienta (`ClientReferenceTag`), jak
+ * w nagłówku rekrutacji i oknach wyboru — tytuły dla rekrutera są uogólnione.
+ * Etykieta, nie przycisk kopiowania: klik w wiersz zaznacza rekrutację.
  */
 
 import { Check, Layers } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ClientReferenceTag } from "@/components/v2/jobs/JobPickName";
 import {
   answersCameBack,
   answersStay,
@@ -49,6 +54,7 @@ function noticeText(notice: JointPickerNotice): string {
 
 export interface JointScreeningPickerProps {
   anchorTitle: string;
+  anchorReference?: string | null;
   pairs: JointContextPair[];
   suggestions: AlsoFitsJob[];
   selected: ReadonlySet<number>;
@@ -74,6 +80,7 @@ function claimLine(pair: JointContextPair): string | null {
 
 export function JointScreeningPicker({
   anchorTitle,
+  anchorReference,
   pairs,
   suggestions,
   selected,
@@ -111,7 +118,10 @@ export function JointScreeningPicker({
             <Check className="h-3 w-3" />
           </span>
           <span className="min-w-0">
-            <span className="block font-semibold text-foreground">{anchorTitle}</span>
+            <span className="block font-semibold text-foreground">
+              <ClientReferenceTag className="mr-1.5 align-text-bottom" reference={anchorReference} />
+              {anchorTitle}
+            </span>
             <span className="text-muted-foreground">ta Tablica</span>
           </span>
         </li>
@@ -138,6 +148,7 @@ export function JointScreeningPicker({
               />
               <label htmlFor={id} className="min-w-0 flex-1">
                 <span className="block font-semibold text-foreground">
+                  <ClientReferenceTag className="mr-1.5 align-text-bottom" reference={pair.client_reference} />
                   {pair.title}
                   {pair.client_name ? <span className="font-normal text-muted-foreground"> · {pair.client_name}</span> : null}
                 </span>
@@ -163,6 +174,7 @@ export function JointScreeningPicker({
           >
             <span className="min-w-0 flex-1">
               <span className="block font-semibold text-foreground">
+                <ClientReferenceTag className="mr-1.5 align-text-bottom" reference={job.client_reference} />
                 {job.title}
                 {job.client_name ? <span className="font-normal text-muted-foreground"> · {job.client_name}</span> : null}
               </span>
