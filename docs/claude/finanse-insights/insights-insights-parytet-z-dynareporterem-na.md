@@ -546,3 +546,14 @@ Makiety i decyzje Artura: https://claude.ai/artifact/H4QgdE9ou92M1dtr9QrygF
   DL z kwartału, „W drodze u moich klientów” z kolejką „Do wysłania”, Liga DL,
   premia, „Moi klienci” z raportu „Portfele DL”. Do 22.10 DL widział ekran
   i cele rekrutera.
+- **Zespół v3**: „Cele zespołu” dla każdego, kto widzi Insights
+  (`/recruitment/team-goals` = `integration_insights.company_team_goals`, te
+  same sumy co licznik HoR, bez osób) z prognozą miesiąca („ok. 29–30” =
+  placementy + szacunek z akceptacji); jeden lejek 5 etapów „w okresie” z
+  wierszem „stoi dziś” zamiast czterech kafli i słupków z tymi samymi
+  liczbami; „Ostatnie 8 tygodni” (`/recruitment/weekly-trend`, tydzień od
+  poniedziałku, akceptacje sprzed 12.10 = `null`); „Do uwagi” + akceptacje
+  stojące ponad 14 dni; tabela Ludzie + „Akceptacje”, „Placementy / cel”
+  (tylko okno miesiąca — cel jest miesięczny) i „W drodze dziś” (pierwszy
+  weryfikujący, ta sama liczba co „Moje osoby w drodze”). Długi przypis pod
+  tabelą zwinięty w „Jak liczymy tabelę?”.

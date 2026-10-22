@@ -1,5 +1,6 @@
 import api from "@/lib/api";
 import type { JobCloseReason } from "@/types/client-profile";
+import type { MyKpiGoals } from "@/lib/api";
 
 /**
  * Klient `/api/insights/*` — powierzchni Insights liczonej z danych
@@ -98,6 +99,20 @@ export interface InFlightAcceptance {
 }
 
 export type InFlightScope = "mine" | "portfolio";
+
+/** `GET /api/insights/recruitment/weekly-trend` — tygodnie od poniedziałku. */
+export interface WeeklyTrendResponse {
+  weeks: {
+    week_start: string;
+    /** Bieżący tydzień — jeszcze trwa. */
+    partial: boolean;
+    /** `null` = etap nieodnotowywany w tym tygodniu (akceptacje przed 12.10.2026). */
+    counts: Record<
+      "verified" | "cv_sent" | "client_interview" | "acceptance" | "hired",
+      number | null
+    >;
+  }[];
+}
 
 /** Para w „Moje osoby w drodze” (`/in-flight/me`). */
 export interface InFlightPerson extends Omit<InFlightAcceptance, "stage_key"> {
@@ -444,6 +459,19 @@ export const insightsApi = {
       .then((r) => r.data),
 
   /** `mine` = pary, które zweryfikowałem; `portfolio` = rekrutacje Delivery Leada. */
+  /** Cele zespołu — te same sumy co licznik HoR w pasku, bez osób. */
+  teamGoals: () =>
+    api
+      .get<MyKpiGoals>("/api/insights/recruitment/team-goals")
+      .then((r) => r.data),
+
+  weeklyTrend: (weeks: number) =>
+    api
+      .get<WeeklyTrendResponse>("/api/insights/recruitment/weekly-trend", {
+        params: { weeks },
+      })
+      .then((r) => r.data),
+
   inFlightMe: (scope: InFlightScope) =>
     api
       .get<InFlightResponse>("/api/insights/recruitment/in-flight/me", {
@@ -1030,6 +1058,9 @@ export const insightsQueryKeys = {
   inFlight: () => ["insights", "recruitment", "in-flight"] as const,
   inFlightMe: (scope: InFlightScope) =>
     ["insights", "recruitment", "in-flight", "me", scope] as const,
+  teamGoals: () => ["insights", "recruitment", "team-goals"] as const,
+  weeklyTrend: (weeks: number) =>
+    ["insights", "recruitment", "weekly-trend", weeks] as const,
   hitRatioClosures: () => ["insights", "hit-ratio-closures"] as const,
 };
 

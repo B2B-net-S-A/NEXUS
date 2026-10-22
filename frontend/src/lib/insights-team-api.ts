@@ -131,7 +131,13 @@ export interface TeamPeopleRow {
   verifications: number;
   recommendations: number;
   interviews: number;
+  /** Akceptacje (od 22.10.2026; liczone od 12.10.2026). Brak = odpowiedź sprzed wdrożenia. */
+  acceptances?: number;
   placements: number;
+  /** Cel placementów osoby — tylko w oknie miesiąca; `null` = brak celu albo inne okno. */
+  placements_target?: number | null;
+  /** Pary w drodze dziś (pierwszy weryfikujący) — stan, nie okno. */
+  in_flight?: number;
   /** Placementy z TEGO SAMEGO odcinka poprzedniego okresu. */
   previous_placements: number;
   /** `null` = w oknie nie upłynął jeszcze żaden dzień roboczy. */
@@ -150,6 +156,7 @@ export interface TeamPeopleOutsideScope {
   verifications: number;
   recommendations: number;
   interviews: number;
+  acceptances?: number;
   placements: number;
   previous_placements: number;
 }
@@ -167,6 +174,7 @@ export interface TeamPeopleResponse {
     verifications: number;
     recommendations: number;
     interviews: number;
+    acceptances?: number;
     placements: number;
   };
   workdays: number;

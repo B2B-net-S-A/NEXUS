@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,6 @@ import {
   insightsBoardApi,
   insightsQueryKeys,
   type InsightsPeriodParams,
-  type RecruitmentFunnelResponse,
 } from "@/lib/insights-api";
 import {
   insightsFlagsApi,
@@ -37,13 +36,10 @@ import {
   type TeamPeopleRow,
 } from "@/lib/insights-team-api";
 import {
-  buildSteps,
   countDelta,
   DL_HIT_RATIO_PORTFOLIO_NOTE,
   isPeopleRowWorthShowing,
   previousComparablePeriod,
-  weakestStepIndex,
-  weakestStepSentence,
 } from "@/lib/insights-views";
 import { hasSectionAccess } from "@/lib/section-access";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
@@ -71,15 +67,10 @@ import {
   type WhoCountsMetric,
 } from "@/lib/kpi-who-counts";
 import { useUrlWriter } from "@/lib/url-selection";
-import {
-  FunnelBars,
-  Panel,
-  PanelLoading,
-  Takeaway,
-  Tile,
-  TileRow,
-  ViewHeader,
-} from "./ViewKit";
+import { TeamFunnelPanel } from "./team/TeamFunnelPanel";
+import { TeamGoalsPanel } from "./team/TeamGoalsPanel";
+import { WeeklyTrendPanel } from "./team/WeeklyTrendPanel";
+import { Panel, PanelLoading, ViewHeader } from "./ViewKit";
 
 export const ZESPOL_DEFAULT_PERIOD: InsightsPeriodParams = {
   period: "month",
@@ -97,23 +88,15 @@ export const ZESPOL_DL_PERIOD: InsightsPeriodParams = {
   offset: 0,
 };
 
-const STEPS = [
-  { stage: "verified", label: "Zweryfikowani" },
-  { stage: "cv_sent", label: "CV wysłane" },
-  { stage: "client_interview", label: "Rozmowy u klienta" },
-  { stage: "hired", label: "Zatrudnieni" },
-] as const;
-
-function stageCount(funnel: RecruitmentFunnelResponse | undefined, stage: string) {
-  return funnel?.stages.find((s) => s.stage === stage)?.count ?? null;
-}
+/** Akceptacja stojąca dłużej niż tyle dni trafia do „Do uwagi”. */
+const ACCEPTANCE_ATTENTION_DAYS = 14;
 
 /**
- * Zespół — „Jak idzie zespołowi i gdzie tracimy ludzi?".
+ * Zespół — „Jak idzie zespołowi?” (v3, 22.10.2026).
  *
- * Kafle i lejek widzi każdy (lejek firmy, jak dotąd w Insights). Tabelę
- * ludzi i „Do uwagi" — role z `view_team_kpi` (HoR, Delivery Lead, TCM,
- * Finanse, admin): to imienne wyniki cudzej pracy. Bez kwot.
+ * Każdy widzi: cele zespołu (sumy), lejek w okresie z „stoi dziś” i ostatnie
+ * tygodnie. Tabelę ludzi i „Do uwagi” — role z `view_team_kpi` (HoR, Delivery
+ * Lead, TCM, Finanse, admin, Rada): to imienne wyniki cudzej pracy. Bez kwot.
  */
 export function ZespolView() {
   const user = useAuthStore((state) => state.user);
@@ -136,54 +119,28 @@ export function ZespolView() {
       insightsApi.recruitmentFunnel(previous!.params as InsightsPeriodParams),
     enabled: previous !== null,
   });
+  const inFlightQuery = useQuery({
+    queryKey: insightsQueryKeys.inFlight(),
+    queryFn: () => insightsApi.inFlight(),
+    staleTime: 60 * 1000,
+  });
 
   const funnel = funnelQuery.data;
-  const prevFunnel = previousFunnelQuery.data;
   const viewState = resolveViewState({
     isLoading: funnelQuery.isPending,
     isSuccess: funnelQuery.isSuccess,
     isError: funnelQuery.isError,
     error: funnelQuery.error,
   });
-
-  const steps = buildSteps(
-    STEPS.map((s) => s.label),
-    STEPS.map((s) => stageCount(funnel, s.stage) ?? 0),
-  );
-  const prevSteps = prevFunnel
-    ? buildSteps(
-        STEPS.map((s) => s.label),
-        STEPS.map((s) => stageCount(prevFunnel, s.stage) ?? 0),
-      )
-    : undefined;
-  const sentence = weakestStepSentence(steps, {
-    previous: prevSteps,
-    previousLabel: previous?.label,
-  });
-
-  const tile = (stage: string, label: string, note?: string) => {
-    const current = stageCount(funnel, stage);
-    const before = prevFunnel ? stageCount(prevFunnel, stage) : null;
-    return (
-      <Tile
-        key={stage}
-        label={label}
-        value={current === null ? "—" : current.toLocaleString("pl-PL")}
-        delta={previous ? countDelta(current, before, previous.label) : null}
-        note={note ?? null}
-      />
-    );
-  };
+  const staleAcceptances = (inFlightQuery.data?.acceptances ?? []).filter(
+    (a) => a.days > ACCEPTANCE_ATTENTION_DAYS,
+  ).length;
 
   return (
     <div className="space-y-6">
       <ViewHeader
         question="Jak idzie zespołowi?"
-        lede={
-          previous
-            ? `Porównanie: ${previous.label}. Liczone: pierwsze wejście pary (kandydat, rekrutacja) na etap w wybranym okresie.`
-            : "Liczone: pierwsze wejście pary (kandydat, rekrutacja) na etap w wybranym okresie."
-        }
+        lede={previous ? `Porównanie: ${previous.label}.` : undefined}
         actions={
           <PeriodPicker
             value={period}
@@ -195,53 +152,49 @@ export function ZespolView() {
         }
       />
 
+      <TeamGoalsPanel />
+
       {viewState === "loading" ? (
         <PanelLoading />
-      ) : isBlockingViewState(viewState) ? (
+      ) : isBlockingViewState(viewState) || !funnel ? (
         <SectionError
           label="Zespół"
           error={funnelQuery.error}
           onRetry={() => void funnelQuery.refetch()}
         />
       ) : (
-        <>
-          <TileRow>
-            {tile("hired", "Placementy")}
-            {tile("cv_sent", "CV wysłane do klienta")}
-            {tile("client_interview", "Rozmowy u klienta")}
-            {/* Runda 10 (R10-N2-5): kafel liczy kod etapu we wszystkich
-                rekrutacjach, a raport pod linkiem — kolumny Tablicy w
-                rekrutacjach opublikowanych i zamkniętych. Mówimy to wprost. */}
-            {tile(
-              "verified",
-              "Zweryfikowani",
-              "Po kodzie etapu, wszystkie rekrutacje. Raport „Lejek po etapach” liczy kolumny Tablicy, więc liczba może się różnić.",
-            )}
-          </TileRow>
-
-          <div
-            className={cn(
-              "grid grid-cols-1 gap-4",
-              seesTeam && "xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]",
-            )}
-          >
-            <Panel
-              title="Gdzie tracimy ludzi"
-              hint="% osób, które przeszły z poprzedniego etapu"
-            >
-              <FunnelBars steps={steps} highlight={weakestStepIndex(steps)} />
-              {sentence ? <Takeaway>{sentence}</Takeaway> : null}
-              <Link
-                href={reportHref("lejek-etapy", period)}
-                className="text-sm font-semibold text-primary hover:underline"
-              >
-                Wszystkie etapy i odznaki Tablicy (reguła kolumn Tablicy) →
-              </Link>
-            </Panel>
-            {seesTeam ? <AttentionPanel /> : null}
-          </div>
-        </>
+        <TeamFunnelPanel
+          funnel={funnel}
+          previous={previousFunnelQuery.data}
+          previousLabel={previous?.label}
+          inFlight={inFlightQuery.data}
+          period={period}
+        />
       )}
+
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-4",
+          seesTeam && "xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]",
+        )}
+      >
+        <WeeklyTrendPanel />
+        {seesTeam ? (
+          <AttentionPanel
+            extra={
+              staleAcceptances > 0
+                ? [
+                    {
+                      kind: "stale_acceptances",
+                      count: staleAcceptances,
+                      label: `akceptacji czeka dłużej niż ${ACCEPTANCE_ATTENTION_DAYS} dni`,
+                    },
+                  ]
+                : []
+            }
+          />
+        ) : null}
+      </div>
 
       {seesTeam ? (
         <PeoplePanel period={period} previousLabel={previous?.label ?? null} />
@@ -255,7 +208,12 @@ export function ZespolView() {
   );
 }
 
-function AttentionPanel() {
+function AttentionPanel({
+  extra = [],
+}: {
+  /** Sygnały liczone na froncie (np. akceptacje stojące za długo) — bez odnośnika. */
+  extra?: { kind: string; count: number; label: string }[];
+}) {
   // „Pokaż listę” prowadzi do listy rekrutacji — bez sekcji Pipeline (Rada
   // nadzorcza, 0490) zostaje odsyłacz do raportu, jeśli sygnał go ma.
   const canOpenJobs = useAuthStore((s) => hasSectionAccess(s.user, "pipeline"));
@@ -273,7 +231,7 @@ function AttentionPanel() {
           error={error}
           onRetry={() => void refetch()}
         />
-      ) : data.items.length === 0 ? (
+      ) : data.items.length === 0 && extra.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Nic nie wymaga uwagi — żaden sygnał nie przekracza progu.
         </p>
@@ -311,6 +269,14 @@ function AttentionPanel() {
                   </a>
                 )}
               </div>
+            </li>
+          ))}
+          {extra.map((item) => (
+            <li key={item.kind} className="flex items-start gap-3 py-3">
+              <span className="min-w-8 text-xl font-semibold tabular-nums text-warning-muted-foreground">
+                {item.count}
+              </span>
+              <p className="min-w-0 text-sm leading-snug text-foreground">{item.label}</p>
             </li>
           ))}
         </ul>
@@ -432,11 +398,15 @@ function RecruiterTable({
   const formerSummary = summarizeFormerEmployees(former, (row) => row.name, {
     recommendations: (row) => row.recommendations,
     interviews: (row) => row.interviews,
+    acceptances: (row) => row.acceptances ?? 0,
     placements: (row) => row.placements,
   });
   const onSort = (key: TeamPeopleSortKey) =>
     setSort((current) => nextColumnSort(current, key, isNameColumn));
   const outside = data?.outside_scope;
+  const hasTargets = (data?.rows ?? []).some(
+    (row) => row.placements_target != null && row.placements_target > 0,
+  );
   // Lista „Kto się liczy” osoby z tabeli (17.10.2026): `?kto=…&osoba=<id>`
   // albo `osoba=bez-zaslugi`. W adresie, więc „Wstecz” ją zamyka.
   const searchParams = useSearchParams();
@@ -509,7 +479,9 @@ function RecruiterTable({
                   ["verifications_per_workday", "Weryf. / dzień"],
                   ["recommendations", "CV wysłane"],
                   ["interviews", "Rozmowy u klienta"],
-                  ["placements", "Placementy"],
+                  ["acceptances", "Akceptacje"],
+                  ["placements", hasTargets ? "Placementy / cel" : "Placementy"],
+                  ["in_flight", "W drodze dziś"],
                   ["precision_pct", "Precyzja 30 dni"],
                   [
                     "placements_delta",
@@ -540,7 +512,7 @@ function RecruiterTable({
           <tbody>
             {worthShowing.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={9} className="px-4 py-6 text-center text-muted-foreground">
                   Nikt nie ruszył jeszcze kandydata w tym okresie.
                 </td>
               </tr>
@@ -577,8 +549,12 @@ function RecruiterTable({
                   {formerSummary.sums.interviews}
                 </td>
                 <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {formerSummary.sums.acceptances}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
                   {formerSummary.sums.placements}
                 </td>
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
                 <td className="px-3 py-2.5 text-right text-xs">—</td>
                 <td className="px-4 py-2.5 text-right text-xs">—</td>
               </tr>
@@ -596,8 +572,12 @@ function RecruiterTable({
                   {outside.interviews}
                 </td>
                 <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {outside.acceptances ?? "—"}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
                   {outside.placements}
                 </td>
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
                 <td className="px-3 py-2.5 text-right text-xs">—</td>
                 <td className="px-4 py-2.5 text-right text-xs">—</td>
               </tr>
@@ -612,7 +592,6 @@ function RecruiterTable({
                   [
                     ["recommendation", unattributed.recommendations],
                     ["interview", unattributed.interviews],
-                    ["placement", unattributed.placements],
                   ] as const
                 ).map(([metric, value]) => (
                   <CountCell
@@ -625,6 +604,18 @@ function RecruiterTable({
                     className="text-xs"
                   />
                 ))}
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {unattributed.acceptances ?? "—"}
+                </td>
+                <CountCell
+                  value={unattributed.placements}
+                  metric="placement"
+                  who="Bez osoby z zasługą"
+                  active={listSubject?.kind === "unattributed" && listMetric === "placement"}
+                  onOpen={() => writeList("placement", UNATTRIBUTED_SLUG)}
+                  className="text-xs"
+                />
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
                 <td className="px-3 py-2.5 text-right text-xs">—</td>
                 <td className="px-4 py-2.5 text-right text-xs">—</td>
               </tr>
@@ -637,17 +628,27 @@ function RecruiterTable({
         {unattributedElsewhere(data) > 0
           ? `${unattributedElsewhere(data)} ruchów${unattributed ? " na innych etapach" : ""} nie da się przypisać nikomu — są w lejku, nie ma ich w tabeli. `
           : ""}
-        Liczba przy osobie otwiera listę osób, które się na nią składają.{" "}
-        Liczone jak w wyścigach i „Mój miesiąc”: CV wysłane, rozmowy
-        i placementy pary dostaje osoba, która zweryfikowała kandydata — dlatego
-        liczby różnią się od kafli wyżej i od raportu „Aktywność zespołu” (tam
-        liczy się osoba, która przesunęła etap). Precyzja: z osób
-        zweryfikowanych w ostatnich 30 dniach — ilu wysłano CV do klienta; „—” =
-        mniej niż 5 weryfikacji. Konta administracyjne stoją jednym wierszem
-        pod tabelą, jak w Hall of Fame. Byli członkowie zespołu (konto wyłączone) też
-        stoją jednym wierszem — ich liczby zostają w sumach; „Pokaż byłych
-        członków zespołu” rozwija ich z powrotem. Klik w nagłówek sortuje kolumnę.
+        Zasługę za parę dostaje osoba, która zweryfikowała kandydata. Liczba
+        przy osobie otwiera listę osób za nią; klik w nagłówek sortuje.
       </p>
+      <details className="text-xs text-muted-foreground">
+        <summary className="min-h-9 cursor-pointer py-2 font-semibold text-primary">
+          Jak liczymy tabelę?
+        </summary>
+        <p className="max-w-4xl leading-relaxed">
+          Liczone jak w wyścigach i „Mój miesiąc”: CV wysłane, rozmowy,
+          akceptacje i placementy pary dostaje osoba, która zweryfikowała
+          kandydata — dlatego liczby różnią się od lejka wyżej i od raportu
+          „Aktywność zespołu” (tam liczy się osoba, która przesunęła etap).
+          Akceptacje liczą się od 12.10.2026. „Placementy / cel” — tylko
+          w oknie miesiąca, cel osoby z celów KPI. „W drodze dziś” — pary osoby,
+          które stoją dziś na wysyłce CV, u klienta, na rozmowie albo
+          w akceptacji, niezależnie od okresu. Precyzja: z osób zweryfikowanych
+          w ostatnich 30 dniach — ilu wysłano CV do klienta; „—” = mniej niż
+          5 weryfikacji. Konta administracyjne i byli członkowie zespołu stoją
+          jednym wierszem pod tabelą — ich liczby zostają w sumach.
+        </p>
+      </details>
     </div>
   );
 }
@@ -678,7 +679,11 @@ function unattributedElsewhere(data: TeamPeopleResponse): number {
   const row = data.unattributed;
   if (!row) return data.totals.unattributed;
   return Math.max(
-    data.totals.unattributed - row.recommendations - row.interviews - row.placements,
+    data.totals.unattributed -
+      row.recommendations -
+      row.interviews -
+      (row.acceptances ?? 0) -
+      row.placements,
     0,
   );
 }
@@ -704,6 +709,7 @@ function CountCell({
   active,
   onOpen,
   className,
+  suffix,
 }: {
   value: number;
   metric: WhoCountsMetric;
@@ -711,6 +717,8 @@ function CountCell({
   active: boolean;
   onOpen: () => void;
   className?: string;
+  /** Dopisek za liczbą (np. „/ 2” — cel). */
+  suffix?: ReactNode;
 }) {
   return (
     <td
@@ -733,6 +741,7 @@ function CountCell({
       ) : (
         value
       )}
+      {suffix}
     </td>
   );
 }
@@ -754,6 +763,11 @@ function PersonRow({
 }) {
   const delta = countDelta(row.placements, row.previous_placements, "");
   const isLow = row.precision_pct !== null && row.precision_pct < lowPrecision;
+  // Cel tylko w oknie miesiąca i tylko dodatni — „2 / 0” to nie cel.
+  const target =
+    row.placements_target != null && row.placements_target > 0
+      ? row.placements_target
+      : null;
   return (
     <tr className="border-b border-border/60 last:border-b-0">
       <td className="sticky left-0 bg-card px-4 py-2.5">
@@ -792,14 +806,26 @@ function PersonRow({
         active={openMetric === "interview"}
         onOpen={() => onOpen("interview")}
       />
+      <td className="px-3 py-2.5 text-right tabular-nums">
+        {row.acceptances ?? "—"}
+      </td>
       <CountCell
         value={row.placements}
         metric="placement"
         who={row.name}
         active={openMetric === "placement"}
         onOpen={() => onOpen("placement")}
-        className="font-semibold"
+        className={cn(
+          "font-semibold",
+          target !== null && row.placements >= target && "text-success-muted-foreground",
+        )}
+        suffix={
+          target !== null ? (
+            <span className="font-normal text-muted-foreground"> / {target}</span>
+          ) : null
+        }
       />
+      <td className="px-3 py-2.5 text-right tabular-nums">{row.in_flight ?? "—"}</td>
       <td
         className={cn(
           "px-3 py-2.5 text-right tabular-nums",
