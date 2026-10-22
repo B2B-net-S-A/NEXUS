@@ -54,6 +54,27 @@ describe("JointScreeningPicker — „Screening dla” (B1)", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("zamkniętą kartę");
   });
 
+  it("shows the client reference before each title, like the recruitment header", () => {
+    render(
+      <JointScreeningPicker
+        anchorTitle="Cyber Security Project Coordinator"
+        anchorReference="42946"
+        pairs={[
+          pair({ job_id: 2, title: "Cyber Security Specialist", client_reference: "42927, 42928" }),
+          pair({ job_id: 3, title: "Cyber Security Consultant", client_reference: null }),
+        ]}
+        suggestions={[{ job_id: 4, title: "Cyber Security Expert", client_name: null, client_reference: "42970", score: 71, matching_must: [], gap_must: [] }]}
+        selected={new Set()}
+        onToggle={vi.fn()}
+        onAddAndJoin={vi.fn()}
+        addingJobId={null}
+      />,
+    );
+    const tags = screen.getAllByTestId("client-reference-tag").map((tag) => tag.textContent);
+    expect(tags).toEqual(["42946", "42927+1", "42970"]);
+    expect(screen.getByRole("checkbox", { name: /42927\+1\s*Cyber Security Specialist/ })).toBeInTheDocument();
+  });
+
   it("stops at four recruitments in one conversation", () => {
     render(
       <JointScreeningPicker

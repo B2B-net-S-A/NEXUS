@@ -234,3 +234,28 @@ async def test_quick_view_skips_the_current_job_and_counts_the_rest(
     assert len(ids) == 4
     assert set(ids) <= {o["job_id"] for o in others}
     assert body["current_recruitments_total"] == 5
+
+
+async def test_joint_context_carries_client_reference(app_client: AsyncClient):
+    """Numer u klienta przed tytułem, jak w nagłówku rekrutacji (22.10.2026)."""
+    w = await _world(PipelineStage.new)
+    other = await _same_person_in(w, PipelineStage.screening)
+    async with AsyncSessionLocal() as db:
+        for job_id, reference in (
+            (w["job_id"], "42946"),
+            (other["job_id"], "ZOB-2984"),
+        ):
+            await db.execute(
+                update(Job).where(Job.id == job_id).values(client_reference=reference)
+            )
+        await db.commit()
+
+    res = await app_client.get(
+        f"{URL}/joint-context",
+        params={"candidate_id": w["cand_id"], "job_id": w["job_id"]},
+        headers=w["rec_h"],
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["anchor"]["client_reference"] == "42946"
+    assert [p["client_reference"] for p in body["pairs"]] == ["ZOB-2984"]
