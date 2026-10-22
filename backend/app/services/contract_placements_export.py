@@ -19,12 +19,15 @@ w wybranym okresie.
   bez niej dzień pierwszego ruchu karty na „Akceptację”, z uwagą.
 * Data podpisania — najwcześniejszy podpis umowy z Generatora powiązanej
   z kontraktem; umowy spoza Generatora daty nie mają (uwaga).
-* Premia — premie automatu Płac do tego kontraktu (bez anulowanych).
+* Premia — premie automatu Płac do tego kontraktu (bez anulowanych), tylko te,
+  które pobierający widzi w Płacach (``PayrollViewer.sees_person``: Płace,
+  sama osoba, przełożony). Bramka trasy (stawki i marża) przepuszcza też
+  „Moduł Finanse” bez Płac — premii innych osób ta osoba nie dostaje.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -211,6 +214,15 @@ def _number(value: Optional[Decimal]) -> Any:
     return "" if value is None else float(value)
 
 
+def visible_bonuses(
+    rows: Iterable[tuple[str, int, Decimal, bool]],
+    sees_bonus_of: Callable[[int], bool],
+) -> list[tuple[str, int, Decimal, bool]]:
+    """Premie, które pobierający widzi w Płacach — reszta nie trafia do pliku."""
+
+    return [row for row in rows if sees_bonus_of(row[1])]
+
+
 def placement_row(
     contract: Contract, facts: PlacementFacts, candidate: str, client: str
 ) -> list[Any]:
@@ -371,9 +383,16 @@ async def _user_names(db: AsyncSession, ids: set[int]) -> dict[int, str]:
 
 
 async def build_placement_rows(
-    db: AsyncSession, contracts: Sequence[Contract], today: date
+    db: AsyncSession,
+    contracts: Sequence[Contract],
+    today: date,
+    *,
+    sees_bonus_of: Callable[[int], bool],
 ) -> list[list[Any]]:
-    """Wiersze eksportu — stała liczba zapytań na paczkę (kurs walut osobno)."""
+    """Wiersze eksportu — stała liczba zapytań na paczkę (kurs walut osobno).
+
+    ``sees_bonus_of`` — czy pobierający widzi premie danej osoby w Płacach.
+    """
 
     if not contracts:
         return []
@@ -386,7 +405,10 @@ async def build_placement_rows(
     }
     acceptances = await _acceptances(db, pairs)
     generated = await _generated(db, ids)
-    bonuses = await _bonuses(db, ids)
+    bonuses = {
+        contract_id: visible_bonuses(rows, sees_bonus_of)
+        for contract_id, rows in (await _bonuses(db, ids)).items()
+    }
 
     people: dict[int, tuple[Optional[int], Optional[int], Optional[int]]] = {}
     user_ids: set[int] = set()

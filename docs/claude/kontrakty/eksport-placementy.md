@@ -13,8 +13,15 @@ Kod: `backend/app/services/contract_placements_export.py`, trasa
 front `components/v2/modals/PlacementsExportDialog.tsx`, `lib/placements-export.ts`.
 
 - **Kto pobiera:** ta sama bramka co `/export` (`FinanceReadUser`: admin,
-  Finanse, Rada). Wzorzec dostępu w `tests/data/authz_golden/contracts.json`
-  jest kopią wiersza `/export` — inna bramka to świadoma zmiana dostępu do kwot.
+  Finanse i każdy z uprawnieniem „Moduł Finanse”; Rada nie). Wzorzec dostępu
+  w `tests/data/authz_golden/contracts.json` jest kopią wiersza `/export` —
+  inna bramka to świadoma zmiana dostępu do kwot.
+- **Premie jak w Płacach, nie jak stawki:** bramka trasy przepuszcza „Moduł
+  Finanse” bez uprawnienia „Płace”, a premie innych osób widzą tylko Płace
+  (admin, Finanse domyślnie), sama osoba i przełożony (decyzja D2,
+  `ludzie/urlopy-czas-place-wejscie-odejscie.md`). Eksport filtruje premie
+  przez `PayrollViewer.sees_person` — nie czytaj `hr_bonuses` w eksporcie bez
+  tego filtra (przegląd 23.10.2026 złapał przeciek przed merge'em).
 - **Wiersz = kontrakt ze startem w okresie** i statusem aktywny, kończący się
   albo zakończony (jak premie z placementów). Okres, nie filtry listy: arkusz
   liczy placementy po starcie. „Powrót po przerwie” jest w pliku z uwagą —
@@ -44,7 +51,7 @@ front `components/v2/modals/PlacementsExportDialog.tsx`, `lib/placements-export.
   późniejsza niż w arkuszu Delivery. Umowa spoza Generatora = pusta komórka
   i uwaga. Prawdziwa data podpisu wymaga pola przy „Oznacz jako podpisaną”.
 - **Premia:** premie automatu Płac do kontraktu (`source=contract_placement`,
-  bez anulowanych): „rekruter Jan Bąk 1500 zł; DL Ewa Kowal 772,80 zł
+  bez anulowanych, tylko widoczne dla pobierającego): „rekruter Jan Bąk 1500 zł; DL Ewa Kowal 772,80 zł
   (propozycja)”.
 - **Sprawdzenie na danych:** październik 2026 na kopii produkcji — 37 kontraktów,
   wszystkie 33 placementy z arkusza są w pliku (4 dodatkowe: kontrakt bez

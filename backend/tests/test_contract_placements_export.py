@@ -33,12 +33,64 @@ from app.services.contract_placements_export import (
     placement_notes,
     placement_row,
     upcoming_rate_steps,
+    visible_bonuses,
 )
+from app.services.hr.payroll_access import PayrollViewer, is_payroll
 
 XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 # ── Bez bazy ─────────────────────────────────────────────────────────────────
+
+
+def _user(role, *permissions: str):
+    from app.models.user import User
+    from app.services import permission_catalog as catalog
+
+    person = User(
+        id=77,
+        email=f"{role.value}-placements@example.com",
+        name=role.value,
+        role=role,
+        roles=[role.value],
+        is_active=True,
+        profile_completed=True,
+    )
+    held = catalog.close(permissions)
+    person.effective_action_access = {key: "manage" for key in held}
+    person.effective_section_access = catalog.derive_sections(held)
+    return person
+
+
+def test_finance_module_without_payroll_is_not_payroll():
+    """Bramka eksportu przepuszcza „Moduł Finanse”, Płace — nie: premie innych
+    osób musi odfiltrować sam eksport."""
+
+    from app.models.user import UserRole
+
+    assert is_payroll(_user(UserRole.recruiter, "finance_module")) is False
+    assert is_payroll(_user(UserRole.finance, "payroll")) is True
+
+
+def test_bonuses_follow_payroll_visibility():
+    rows = [
+        ("recruiter", 77, Decimal("1500"), False),
+        ("dl", 12, Decimal("772.80"), True),
+        ("dl_extra", 13, Decimal("772.80"), True),
+    ]
+    finance_module = PayrollViewer(
+        user_id=77, payroll=False, admin=False, report_ids=frozenset({13})
+    )
+    payroll = PayrollViewer(
+        user_id=5, payroll=True, admin=False, report_ids=frozenset()
+    )
+
+    # Sama osoba i jej podwładny — jak lista premii w Płacach; obcej premii DL brak.
+    assert [r[1] for r in visible_bonuses(rows, finance_module.sees_person)] == [
+        77,
+        13,
+    ]
+    assert visible_bonuses(rows, payroll.sees_person) == rows
 
 
 def _contract(**overrides) -> Contract:

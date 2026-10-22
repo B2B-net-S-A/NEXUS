@@ -160,6 +160,7 @@ from app.services.contract_candidate_contact import (
 )
 from app.services import contract_client_manager
 from app.services import contract_placements_export as placements
+from app.services.hr import payroll_access
 from app.services.contract_rates import effective_rate_fields
 from app.services.contractor_identity import contractor_identity_sql_expression
 from app.services.contract_service import (
@@ -2677,7 +2678,12 @@ async def export_placements(
             detail="Okres eksportu mo\u017ce mie\u0107 najwy\u017cej 10 lat.",
         )
     contracts = await placements.load_placement_contracts(db, start_from, start_to)
-    rows = await placements.build_placement_rows(db, contracts, business_today())
+    # Premie innych osób tylko dla tych, którzy widzą je w Płacach — bramka
+    # trasy przepuszcza też „Moduł Finanse” bez uprawnienia „Płace”.
+    viewer = await payroll_access.load_viewer(db, current_user)
+    rows = await placements.build_placement_rows(
+        db, contracts, business_today(), sees_bonus_of=viewer.sees_person
+    )
 
     from openpyxl import Workbook
     from openpyxl.styles import Font
