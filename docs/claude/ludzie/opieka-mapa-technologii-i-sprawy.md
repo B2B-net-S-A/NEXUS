@@ -96,6 +96,12 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   `jobs_new_url` (`/jobs/new?client=&hm=&skills=&title=&dept=&headcount=&start=`, odczyt tylko
   pustych pól; dział trafia do opisu jako „Dział u klienta: X.”, start = pierwszy dzień miesiąca), nie teraz →
   wraca za 30 dni, nieaktualne → znika. **ATLAS (`/api/care/atlas/*`) bez rozbudowy.**
+- **Osobny dzwonek na każdy nowy sygnał** (decyzja Artura 22.10.2026, audyt F5): inny dział albo
+  inne role u tego samego klienta dają DL nowy dzwonek także tego samego dnia. Encja dzwonka to
+  rozmowa (`related_entity_type="care_demand"`, `related_entity_id=<rozmowa>`), nie klient —
+  dobowy dedup `emit` (`ix_notif_dedup_daily`: odbiorca + typ + encja) zjadał drugi popyt. Ten sam
+  sygnał i ten sam dział + zbiór ról w 30 dniach pilnuje `_recent_recipients` (czyta też stare
+  dzwonki z encją `client`). Nie wracaj do encji klienta.
 - Klucz karty popytu `demand:<klient>:<rozmowa>` — BEZ działu: dział liczy się przy odczycie, więc
   po zmianie działu menedżera rozstrzygnięcie by się zgubiło. Dział łączy tylko karty, a w linku
   dzwonka (`/care?card=<klucz>&area=<dział|0>`) służy do limitu raz na 7 dni.

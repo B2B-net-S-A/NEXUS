@@ -14,7 +14,9 @@
 * **Dzwonek** ``care_demand_signal`` do aktywnych DL klienta przy zapisie
   rozmowy (makieta R4, 22.10.2026): tytuł „Popyt u klienta: <klient> — <role>
   (z rozmowy z konsultantem)”, najwyżej jeden na sygnał, a ten sam dział
-  i ten sam zbiór ról w 30 dniach = jedna pozycja (jak karta na tablicy);
+  i ten sam zbiór ról w 30 dniach = jedna pozycja (jak karta na tablicy).
+  Encja dzwonka to rozmowa (``care_demand``), więc inny popyt u tego samego
+  klienta tego samego dnia dostaje osobny dzwonek (decyzja Artura 22.10.2026);
   link ``/care?card=<klucz>&area=<dział albo 0>`` (dział w linku do tego
   limitu).
 * **Rozstrzygnięcie** (okno „Rozmowa z menedżerem”): potwierdzona →
@@ -34,7 +36,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 from urllib.parse import quote, urlencode
 
-from sqlalchemy import Integer, String, column, select, table
+from sqlalchemy import Integer, String, and_, column, or_, select, table
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,6 +55,8 @@ GROUP_WINDOW_DAYS = 30
 #: Dzwonek: ten sam dział i te same role w tylu dniach = jedna pozycja.
 NOTIFY_EVERY_DAYS = GROUP_WINDOW_DAYS
 NOT_NOW_DAYS = 30
+#: Encja dzwonka popytu = rozmowa (sygnał), nie klient (audyt 22.10, F5).
+NOTIFY_ENTITY = "care_demand"
 ROLE_MAX = 120
 
 #: Karta zapisana rozmową (0509) — dział, role i źródło informacji o popycie.
@@ -401,8 +405,15 @@ async def _recent_recipients(
         await db.execute(
             select(Notification.user_id, Notification.link).where(
                 Notification.notification_type == NotificationType.care_demand_signal,
-                Notification.related_entity_type == "client",
-                Notification.related_entity_id == client_id,
+                # Encja = sygnał (rozmowa), od 22.10.2026; stare dzwonki mają
+                # encję klienta i przez 30 dni dalej liczą się do limitu.
+                or_(
+                    Notification.related_entity_type == NOTIFY_ENTITY,
+                    and_(
+                        Notification.related_entity_type == "client",
+                        Notification.related_entity_id == client_id,
+                    ),
+                ),
                 Notification.link.startswith(prefix, autoescape=True),
                 Notification.link.endswith(f"&area={area_id or 0}", autoescape=True),
                 Notification.created_at >= now - timedelta(days=NOTIFY_EVERY_DAYS),
@@ -479,8 +490,11 @@ async def notify_leads(
             contract.candidate_name,
         ),
         ntype=NotificationType.care_demand_signal,
-        related_entity_type="client",
-        related_entity_id=contract.client_id,
+        # Encja sygnału, nie klienta: dobowy dedup ``emit`` (odbiorca + typ +
+        # encja) zjadałby inny popyt u tego klienta tego samego dnia (audyt
+        # 22.10, F5, decyzja Artura). Ten sam sygnał pilnuje ``recent``.
+        related_entity_type=NOTIFY_ENTITY,
+        related_entity_id=conversation.id,
         link=notify_link(key, area_id),
         log_tag="care",
     )

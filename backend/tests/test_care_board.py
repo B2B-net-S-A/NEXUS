@@ -206,7 +206,8 @@ async def test_conversation_window_saves_card_case_and_demand(
             select(Notification).where(
                 Notification.user_id == lead.id,
                 Notification.notification_type == NotificationType.care_demand_signal,
-                Notification.related_entity_id == client_id,
+                Notification.related_entity_type == "care_demand",
+                Notification.related_entity_id == saved["conversation_id"],
             )
         )
     assert linked == saved["conversation_id"]
@@ -291,20 +292,8 @@ async def test_conversation_window_saves_card_case_and_demand(
         if c["kind"] == "demand" and c["client_id"] == client_id
     ]
 
-    # Ten sam dział, ale inne role = nowa pozycja i nowy dzwonek (R4). Dzwonek
-    # o Javie przesuwamy o dwa dni wstecz: ``emit`` ma globalny dedup dobowy
-    # (odbiorca + typ + klient, ``ix_notif_dedup_daily``), a test sprawdza
-    # regułę pozycji, nie ten dedup.
-    async with AsyncSessionLocal() as db:
-        await db.execute(
-            update(Notification)
-            .where(
-                Notification.notification_type == NotificationType.care_demand_signal,
-                Notification.related_entity_id == client_id,
-            )
-            .values(created_at=Notification.created_at - timedelta(days=2))
-        )
-        await db.commit()
+    # Ten sam dział, ale inne role = nowa pozycja i nowy dzwonek (R4) — także
+    # tego samego dnia: encja dzwonka to rozmowa, nie klient (audyt 22.10, F5).
     qa_body = {
         **body,
         "cases": [],
