@@ -5,6 +5,7 @@ import {
   daysLabel,
   forecastLabel,
   forecastSentence,
+  monthForecast,
   myInFlightSentence,
 } from "@/lib/insights-in-flight";
 
@@ -82,5 +83,16 @@ describe("daysLabel", () => {
     expect(daysLabel(1)).toBe("1 dzień");
     expect(daysLabel(3)).toBe("3 dni");
     expect(daysLabel(12)).toBe("12 dni");
+  });
+});
+
+describe("monthForecast", () => {
+  it("adds the estimate to placements already made", () => {
+    expect(monthForecast(21, forecast())).toBe("ok. 29–30");
+    expect(monthForecast(21, forecast({ low: 9, high: 9 }))).toBe("ok. 30");
+  });
+
+  it("is null without a rate", () => {
+    expect(monthForecast(21, forecast({ rate_pct: null, low: null, high: null }))).toBeNull();
   });
 });
