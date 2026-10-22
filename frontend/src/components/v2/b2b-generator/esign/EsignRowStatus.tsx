@@ -1,13 +1,14 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Clock, Undo2 } from "lucide-react";
+import { Check, Clock, Download, Undo2 } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { B2BGeneratedContractRow } from "@/lib/api";
 import { b2bEsignApi } from "@/lib/api/b2bEsign";
+import { downloadBlob } from "@/lib/cv-generator";
 import { cn } from "@/lib/utils";
 
 function formatDay(value: string | null | undefined): string {
@@ -60,6 +61,13 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
     },
     onError: (error) => toast.showError(apiErrorMessage(error, "Nie udało się wycofać.")),
   });
+  // Plik z podpisami obu stron — gdy automatyka nie założyła kontraktu, nadawca
+  // oznacza umowę ręcznie i dołącza właśnie ten plik.
+  const download = useMutation({
+    mutationFn: (requestId: number) => b2bEsignApi.signedPdf(requestId),
+    onSuccess: (res, requestId) => downloadBlob(res.data, `umowa_${requestId}_podpisana.pdf`),
+    onError: (error) => toast.showError(apiErrorMessage(error, "Nie udało się pobrać pliku.")),
+  });
   const e = row.esign;
   if (!e) return null;
 
@@ -107,6 +115,17 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
       )}
       {e.status === "sent" ? (
         <p className="text-xs text-muted-foreground">Link ważny do {formatDay(e.expires_at)}</p>
+      ) : null}
+      {e.status === "completed" && row.can_download_signed_esign ? (
+        <button
+          type="button"
+          onClick={() => download.mutate(e.request_id)}
+          disabled={download.isPending}
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-60"
+        >
+          <Download className="h-3 w-3" aria-hidden />
+          Pobierz podpisaną umowę
+        </button>
       ) : null}
       {row.can_withdraw_esign ? (
         <button

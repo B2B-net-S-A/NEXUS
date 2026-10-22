@@ -1420,6 +1420,13 @@ async def _serialize_generated_contracts(
                 ),
                 can_send_esign=can_send_esign,
                 can_withdraw_esign=may_handle_esign and esign_open,
+                # Ta sama bramka co trasa `signed-pdf` (nadawca albo reprezentant).
+                can_download_signed_esign=(
+                    esign is not None
+                    and esign.status == "completed"
+                    and bool(esign.final_pdf_path)
+                    and (may_handle_esign or esign.company_signer_id == current_user.id)
+                ),
                 annex_rates=(
                     list((row.annex_rates or {}).get("items") or [])
                     if row.annex_rates

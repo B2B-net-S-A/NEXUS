@@ -645,6 +645,9 @@ async def test_without_the_confirm_permission_the_sender_is_asked_to_finish(
         f"/api/b2b-generator/esign/{request_id}/signed-pdf", headers=app_auth_headers
     )
     assert pdf.status_code == 200 and pdf.content.endswith(b"% firma\n")
+    # Audyt 22.10, F45: rejestr pokazuje nadawcy „Pobierz podpisaną umowę”.
+    item = await _register_item(app_client, app_auth_headers, scenario["generated_id"])
+    assert item["can_download_signed_esign"] is True
 
 
 # ── wygasanie i przypomnienia (PR 4b) ────────────────────────────────────────
