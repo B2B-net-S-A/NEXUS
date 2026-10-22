@@ -840,6 +840,41 @@ describe("CvToClientCard — „Napisz od nowa” (Edytor CV 3, PR 5)", () => {
     expect(payload).toMatchObject({ language: "en", project_ref: "PRJ-9" });
   }, 20000);
 
+  // Audyt 22.10 (F65): „Napisz od nowa” brało plik domyślny zamiast pliku,
+  // z którego powstało poprawiane CV.
+  const CV_FILES: CvAiSourceFile[] = [
+    { document_id: 31, filename: "Jan_Kowalski_CV.pdf", uploaded_at: null, is_primary: true, outdated: false, stage_original: true },
+    { document_id: 30, filename: "stare.docx", uploaded_at: null, is_primary: false, outdated: false, stage_original: false },
+  ];
+
+  it("„Napisz od nowa” pisze z pliku, z którego powstało poprawiane CV", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    aiSources = {
+      ...AI_SOURCES,
+      cv_files: CV_FILES,
+      last_source_cv: { document_id: 30, filename: "stare.docx", outdated: false, stage_original: false, removed: false },
+    };
+    renderCard();
+    await startRewrite("");
+    await waitFor(() => expect(generatePosts()).toHaveLength(1));
+    expect(generatePosts()[0][1]).toMatchObject({ cv_document_id: 30 });
+  }, 20000);
+
+  it("„Napisz od nowa”: plik poprzedniego CV usunięty z profilu — wraca Oryginał CV", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    aiSources = {
+      ...AI_SOURCES,
+      cv_files: CV_FILES,
+      last_source_cv: { document_id: 99, filename: "usuniete.pdf", outdated: false, stage_original: false, removed: true },
+    };
+    renderCard();
+    await startRewrite("");
+    await waitFor(() => expect(generatePosts()).toHaveLength(1));
+    expect(generatePosts()[0][1]).toMatchObject({ cv_document_id: 31 });
+  }, 20000);
+
   // Przegląd PR 5: każde ponowienie po błędzie dopisywało kolejną notatkę „Uwaga do CV”.
   it("ponowienie po błędzie nie zapisuje uwagi drugi raz", async () => {
     mocks.brandedGet.mockResolvedValue({ data: DRAFT });

@@ -55,6 +55,7 @@ import {
   confirmLeftSentence,
   cvFileChoices,
   NO_CONFIRMATIONS,
+  rewriteSourceFileId,
   type CvConfirmations,
 } from "@/lib/cv-generate-confirm";
 import { canMutateSection } from "@/lib/section-access";
@@ -149,6 +150,8 @@ function CvGeneratePanelForm({
   });
   const { setSourceChoice } = g;
   const originalId = g.aiSourcesQuery.data?.original_cv?.document_id ?? null;
+  // „Napisz od nowa” poprawia CV, które już powstało — z jego pliku (audyt 22.10).
+  const startId = (rewrite !== undefined ? rewriteSourceFileId(g.aiSourcesQuery.data) : null) ?? originalId;
   // Plik CV do generacji: na start ten z „Z czego powstało” (kopia „Oryginał CV”
   // rekrutacji), potem wybór rekrutera w kroku „Plik CV”.
   const [chosenFile, setChosenFile] = useState<number | null>(null);
@@ -163,7 +166,7 @@ function CvGeneratePanelForm({
         outdated: false,
         stage_original: false,
       }));
-  const fileId = chosenFile ?? originalId ?? (g.aiSourcesQuery.isError ? g.cvDocumentId : null);
+  const fileId = chosenFile ?? startId ?? (g.aiSourcesQuery.isError ? g.cvDocumentId : null);
   useEffect(() => {
     if (fileId != null) setSourceChoice(fileId);
   }, [fileId, setSourceChoice]);

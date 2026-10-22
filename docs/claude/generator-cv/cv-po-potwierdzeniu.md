@@ -32,7 +32,9 @@ i dodatkowych notatek; domyślny plik = kopia „Oryginał CV” rekrutacji.
   (zapis jako notatka rekrutacji przed generacją, jak w oknie generatora;
   „Nie mam nic do dodania”). Kolejność dowolna; „Generuj” po trzech. Zmiana
   pliku albo treści notatki po potwierdzeniu zdejmuje potwierdzenie.
-  „Napisz od nowa” potwierdzeń nie ma — poprawia CV, które już powstało.
+  „Napisz od nowa” potwierdzeń nie ma — poprawia CV, które już powstało,
+  z jego pliku (`last_source_cv`, `rewriteSourceFileId`); plik domyślny tylko,
+  gdy tamten jest usunięty, nieaktualny, to „CV dla klienta” albo go nie znamy.
 - **Plik domyślny = kopia „Oryginał CV”** (`GET …/cv/ai-sources`, `_cv_files`
   w `api/cv_ai_sources.py`): plik profilu o tym samym SHA co kopia etapu (także
   z wiersza sprzed ruchu karty). Bez kopii — główne albo najnowsze CV
