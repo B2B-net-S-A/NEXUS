@@ -37,6 +37,9 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   (`options.invitation`, pola `{note}`/`{organizer}` podstawia
   `lib/prep-invitation.ts`) i mówi, w czyim kalendarzu powstaje spotkanie
   i kto dostaje zaproszenie.
+  Stanowisko w treści = `cv_role_title_for_job` (nazwa roli jak w nagłówku
+  CV), nie surowe `jobs.title`: do 22.10.2026 kandydat dostawał numer
+  zapytania klienta („… Prioritization (42874)”, zgłoszenie z Nordei).
 - **Prep po rozmowie u klienta należy do jej rundy** (`PairSnapshot.late_preps`,
   lustro w `prep_meetings.active_prep`, 02.10.2026). Rekruter zaplanował
   Prep 1, zanim DL potwierdził termin rozmowy na dwa dni wcześniej; prep nie

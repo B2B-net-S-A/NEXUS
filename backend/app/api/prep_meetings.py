@@ -74,6 +74,7 @@ from app.services import (
     teams_vtt,
 )
 from app.services.job_membership import list_job_member_ids
+from app.services.job_working_title import cv_role_title_for_job
 
 logger = logging.getLogger(__name__)
 
@@ -362,6 +363,7 @@ async def prep_options(
         db, candidate_id=candidate_id, job_id=job_id
     )
     who = prep_meetings.candidate_name(candidate) if candidate else "Kandydat"
+    role = await cv_role_title_for_job(db, job)
     prep1 = await prep_review.latest_prep1_review(
         db, candidate_id=candidate_id, job_id=job_id
     )
@@ -389,7 +391,7 @@ async def prep_options(
                 body=prep_invitation.text(
                     prep_no=n,
                     client_name=client_name,
-                    job_title=job.title,
+                    job_title=role,
                     interview_start=interview_start,
                     note=prep_invitation.NOTE_FIELD,
                     organizer_name=prep_invitation.ORGANIZER_FIELD,

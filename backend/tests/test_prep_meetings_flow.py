@@ -249,6 +249,51 @@ async def test_prep1_is_created_in_the_dl_calendar_with_teams_and_notice(
     assert dup.json()["detail"]["code"] == "PREP_ALREADY_SCHEDULED"
 
 
+async def test_invitation_names_the_role_without_the_client_request_number(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Zgłoszenie 22.10.2026: zaproszenie do kandydata niosło numer zapytania
+    klienta („… na stanowisko Threat Identification & Prioritization (42874)”).
+    Kandydat dostaje samą nazwę roli — tę samą, co w nagłówku CV."""
+    from app.models.job import Job
+
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.title = "Threat Identification & Prioritization (42874)"
+        job.client_reference = "42874"
+        await db.commit()
+
+    opts = await app_client.get(
+        f"/api/interview-cycle/preps/options?candidate_id={cand_id}&job_id={job_id}",
+        headers=rec_h,
+    )
+    assert opts.status_code == 200, opts.text
+    for preview in opts.json()["invitation"].values():
+        assert (
+            "na stanowisko Threat Identification & Prioritization." in (preview["body"])
+        )
+        assert "42874" not in preview["body"] + preview["title"]
+
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(24),
+        end=_at(24.75),
+    )
+    assert resp.status_code == 201, resp.text
+    _, payload = graph.created[-1]
+    assert "42874" not in payload["subject"]
+    assert "42874" not in payload["body"]["content"]
+    assert "Threat Identification &amp; Prioritization." in payload["body"]["content"]
+
+
 async def test_organizer_outside_the_team_is_rejected(
     app_client: AsyncClient, graph: FakeGraph
 ):
