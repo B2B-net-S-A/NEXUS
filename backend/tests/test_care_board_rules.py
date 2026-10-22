@@ -512,3 +512,54 @@ def test_feedback_due_by_manager() -> None:
         5: TODAY - timedelta(days=6),
         9: TODAY,
     }
+
+
+async def test_done_counts_resolved_demand_card_once(monkeypatch) -> None:
+    """Audyt 22.10, F3: jedno rozstrzygnięcie karty popytu z dwoma źródłami
+    zapisuje oba klucze z tym samym czasem — „Zrobione” liczy kartę raz."""
+
+    from datetime import datetime, timezone
+
+    from app.services.care import board as care_board
+
+    now = datetime(2026, 10, 21, 10, 0, tzinfo=timezone.utc)
+
+    def state(key: str, outcome: str, at: datetime) -> board_state.BoardState:
+        return board_state.BoardState(
+            key=key,
+            kind="demand",
+            column="done",
+            scheduled_at=None,
+            retry_on=None,
+            outcome=outcome,
+            job_id=None,
+            note=None,
+            updated_by=1,
+            updated_at=at,
+        )
+
+    async def updated_between(_db, _first, _last, *, kind):
+        assert kind == "demand"
+        return [
+            state("demand:7:100", "confirmed", now),
+            state("demand:7:101", "confirmed", now),
+            # Inna karta tego klienta, rozstrzygnięta osobno — liczy się osobno.
+            state("demand:7:205", "stale", now + timedelta(hours=1)),
+        ]
+
+    monkeypatch.setattr(board_state, "updated_between", updated_between)
+    done = await care_board._done(
+        None,
+        contract_ids=[],
+        client_ids=None,
+        include_feedback=False,
+        include_demand=True,
+        monday=date(2026, 10, 19),
+        friday=date(2026, 10, 23),
+        names_by_contract={},
+    )
+    assert done["this_week"] == 2
+    assert sorted(row["key"] for row in done["recent"]) == [
+        "demand:7:101",
+        "demand:7:205",
+    ]
