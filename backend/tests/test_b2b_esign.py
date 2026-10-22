@@ -965,3 +965,60 @@ def test_reminder_after_the_contractor_signed_goes_to_the_company_signer():
         "Przypomnienie do podpisu za B2B Network",
     ]
 
+
+@pytest.mark.asyncio
+async def test_sweeper_skips_a_request_closed_after_the_due_list(monkeypatch):
+    """Audyt 22.10, F106: wniosek wycofany albo podpisany między listą a blokadą
+    nie dostaje przypomnienia — bez dzwonka i bez maila do kontraktora."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.tasks import b2b_esign_sweeper
+
+    now = datetime(2026, 11, 5, 9, 0, tzinfo=timezone.utc)
+    calls: list[str] = []
+
+    for status in ("withdrawn", "completed", "expired"):
+        request = SimpleNamespace(
+            id=12,
+            status=status,
+            generated_contract_id=5,
+            sent_at=now - timedelta(days=4),
+            expires_at=now + timedelta(days=10),
+            contractor_signed_at=None,
+            last_reminder_at=None,
+            sent_by=7,
+            company_signer_id=9,
+            contractor_email="anna@example.com",
+            contractor_name="Anna",
+        )
+
+        class _Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def scalar(self, _stmt, _request=request):
+                return _request
+
+            async def get(self, _model, _id):
+                return SimpleNamespace(contract_number="B2B/1", candidate_id=3)
+
+            async def commit(self):
+                calls.append("commit")
+
+        async def _emit(*_a, **_k):
+            calls.append("notify")
+
+        async def _send_from(*_a, **_k):
+            calls.append("mail")
+
+        monkeypatch.setattr(b2b_esign_sweeper, "AsyncSessionLocal", _Session)
+        monkeypatch.setattr(b2b_esign_sweeper, "emit_notification", _emit)
+        monkeypatch.setattr(b2b_esign_sweeper.esign_mail, "send_from", _send_from)
+
+        assert await b2b_esign_sweeper._handle(12, now) is None, status
+        assert request.last_reminder_at is None, status
+    assert calls == []
