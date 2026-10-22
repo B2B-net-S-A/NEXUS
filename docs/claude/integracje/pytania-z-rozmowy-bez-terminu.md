@@ -28,8 +28,14 @@ elementy i przeniesienie starych notatek (osobny PR).
   (`missing_debrief`) dostaje ten debrief; rozmowa dopiero zaplanowana = 422;
   bez rozmowy — zakłada odbytą rozmowę z tą datą (bez godziny 9:00, dziś przed
   9:00 — chwila temu) i zapisuje debrief w tej samej transakcji. Rozmowa z tego
-  samego dnia już istnieje = poprawka jej debriefu, nie druga runda. Dalej
-  wszystko jak przy zwykłym debriefie (bank pytań klienta, pin, kroki, bramka).
+  samego dnia już istnieje = nie druga runda: bez debriefu dostaje ten zapis,
+  a Z DEBRIEFEM zapis odmawia 409 `DEBRIEF_EXISTS` (`event_id`, `message`)
+  i okno (`DebriefDialog`) przechodzi na ten debrief do poprawy — wczytuje
+  ocenę, ofertę i pytania, dopisuje pytania wpisane przed chwilą (decyzja
+  Artura 22.10.2026, audyt F27: dotąd okno pary startowało od pustego
+  formularza i zapis nadpisywał pytania, ocenę i ofertę zapisane wcześniej
+  przez kogoś innego). Dalej wszystko jak przy zwykłym debriefie (bank pytań
+  klienta, pin, kroki, bramka).
 - **Zadanie `questions_missing`** (`compute_todos`): para w etapie
   „Rozmowa z klientem” od `QUESTIONS_MISSING_AFTER_HOURS` (24 h), bez rozmowy
   w kalendarzu i bez otwartego wniosku o terminy. Adresat = rekruter pary

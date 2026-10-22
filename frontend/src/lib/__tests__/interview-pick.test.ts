@@ -9,6 +9,7 @@ import {
   nearestFreeStarts,
   prepDays,
   windowBounds,
+  windowEarliest,
 } from "@/lib/interview-pick";
 
 const fixed = { start: "2031-06-12T08:00:00Z", end: "2031-06-12T08:45:00Z" };
@@ -28,6 +29,14 @@ describe("interview-pick", () => {
   it("granice okna: najpóźniejszy start mieści całą rozmowę", () => {
     expect(windowBounds(window, 45)).toEqual({ from: "09:00", to: "11:15" });
     expect(windowBounds(fixed, 45)).toBeNull();
+  });
+
+  it("okno, które już trwa: najwcześniejszy start od teraz w górę do kwadransa (F36)", () => {
+    expect(windowEarliest(window, 60, new Date(2031, 5, 13, 10, 15))).toBe("10:15");
+    expect(windowEarliest(window, 60, new Date(2031, 5, 13, 10, 16))).toBe("10:30");
+    // Okno jeszcze się nie zaczęło — od jego początku.
+    expect(windowEarliest(window, 60, new Date(2031, 5, 12, 18, 0))).toBe("09:00");
+    expect(windowEarliest(fixed, 60)).toBeNull();
   });
 
   it("start rozmowy: zwykły termin bez zmian, okno z godziną, poza oknem null", () => {

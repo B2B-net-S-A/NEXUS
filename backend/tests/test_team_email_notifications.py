@@ -38,6 +38,14 @@ def test_catalog_has_every_new_kind_and_ids_fit_the_report_table():
     assert all(len(kind) <= 32 for kind in ids)
 
 
+def test_prep_change_catalog_names_everyone_who_gets_the_mail():
+    """Audyt 22.10, F102: odmowę dostaje cała para, nowy prep — prowadzący."""
+    item = next(i for i in delivery.CATALOG if i["id"] == "prep_change")
+    assert "zaplanował" in item["trigger"]
+    assert "cała para" in item["recipient_rule"]
+    assert "prowadzący" in item["recipient_rule"].lower()
+
+
 @pytest.mark.parametrize(
     ("ntype", "title", "entity", "expected"),
     [
