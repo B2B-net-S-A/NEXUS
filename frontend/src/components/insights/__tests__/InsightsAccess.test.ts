@@ -64,7 +64,30 @@ describe("widoki Insights per rola", () => {
   it.each(ALL_ROLES)("rola %s widzi Rywalizację, Zespół i Raporty", (role) => {
     const tabs = getVisibleInsightTabIds(user(role));
     expect(tabs).toEqual(expect.arrayContaining(["rywalizacja", "zespol", "raporty"]));
-    expect(tabs[0]).toBe("rywalizacja");
+    // Rada nadzorcza: Rywalizacja zostaje, ale ostatnia (decyzja 22.10.2026).
+    expect(tabs[0]).toBe(role === "board" ? "firma" : "rywalizacja");
+  });
+
+  it("Rada nadzorcza bez widoku w adresie ląduje na Firmie", () => {
+    const tabs = getVisibleInsightTabIds(user("board"));
+    expect(resolveInsightsLocation({ tab: null, ch: null, report: null, hash: "" }, tabs).tab).toBe(
+      "firma",
+    );
+    expect(
+      resolveInsightsLocation(
+        { tab: null, ch: null, report: null, hash: "" },
+        getVisibleInsightTabIds(user("recruiter")),
+      ).tab,
+    ).toBe("rywalizacja");
+  });
+
+  it("Rada nadzorcza: Firma pierwsza, Rywalizacja ostatnia", () => {
+    expect(getVisibleInsightTabIds(user("board"))).toEqual([
+      "firma",
+      "zespol",
+      "raporty",
+      "rywalizacja",
+    ]);
   });
 
   it("Firma idzie za uprawnieniem „Moduł Finanse” — domyślnie mają je administrator i Finanse", () => {
@@ -128,10 +151,10 @@ describe("widoki Insights per rola", () => {
     expect(getVisibleInsightTabIds(null)).toEqual(ALL_TABS);
   });
 
-  it("domyślny widok to Rywalizacja dla każdego", () => {
+  it("domyślny widok to Rywalizacja dla każdego poza Radą (Firma)", () => {
     expect(DEFAULT_INSIGHTS_TAB).toBe("rywalizacja");
     for (const role of ALL_ROLES) {
-      expect(getDefaultTabForUser(user(role))).toBe("rywalizacja");
+      expect(getDefaultTabForUser(user(role))).toBe(role === "board" ? "firma" : "rywalizacja");
     }
   });
 });
