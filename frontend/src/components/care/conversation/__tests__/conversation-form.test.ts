@@ -15,17 +15,24 @@ import {
   CASE_TITLE_TOO_SHORT,
   caseAreasFor,
   caseTitleProblem,
+  contractDay,
   emptyCase,
   emptyClientState,
   emptyGapAnswer,
   emptyTalk,
+  knownRows,
   questionText,
+  resolveFollowUp,
+  rowModes,
+  saveLabel,
   saveSummary,
   splitRoles,
   suggestFollowUp,
+  techDiff,
   validateConversation,
   type PayloadInput,
 } from "../conversation-form";
+import { casesHint } from "../CasesToOpenSection";
 
 const TODAY = "2026-10-22";
 
@@ -122,7 +129,28 @@ describe("buildClientState", () => {
 
   it("„bez zmian” potwierdza stan bez zmian", () => {
     const form = { ...emptyClientState(), modes: { area: "same" as const, technologies: "same" as const } };
-    expect(buildClientState(form, noHiring, 2)).toEqual({ confirmed: true, changes: {} });
+    expect(buildClientState(form, noHiring, 2)).toEqual({
+      confirmed: true,
+      changes: {},
+      rows: { area: "same", technologies: "same" },
+    });
+  });
+
+  it("nieruszone wiersze znanego stanu potwierdzają się same; „Nie rozmawialiśmy” — nic", () => {
+    const known = ["area", "manager", "technologies"] as const;
+    const form = { ...emptyClientState(), modes: { technologies: "change" as const }, skills: [{ id: 1, name: "Java" }] };
+    expect(buildClientState(form, noHiring, 2, [...known])).toEqual({
+      confirmed: true,
+      changes: { skill_ids: [1], new_skill_names: [] },
+      rows: { area: "same", manager: "same", technologies: "change" },
+    });
+    expect(buildClientState(emptyClientState(), noHiring, 2, [...known])?.rows).toEqual({
+      area: "same",
+      manager: "same",
+      technologies: "same",
+    });
+    expect(buildClientState({ ...form, skipped: true }, noHiring, 2, [...known])).toBeNull();
+    expect(rowModes({ ...form, skipped: true }, [...known])).toEqual({});
   });
 
   it("„zmień” wnosi tylko pola tego wiersza; nowy dział z nazwą, technologie słownik + tekst", () => {
@@ -147,6 +175,7 @@ describe("buildClientState", () => {
         new_skill_names: ["Tajny framework"],
         team_size: "8",
       },
+      rows: { area: "change", manager: "same", team: "change", technologies: "change" },
     });
   });
 
@@ -165,7 +194,11 @@ describe("buildClientState", () => {
       modes: { manager: "change" as const, area: "same" as const },
       managerContactId: 42,
     };
-    expect(buildClientState(form, noHiring, 0)).toEqual({ confirmed: true, changes: { manager_contact_id: 42 } });
+    expect(buildClientState(form, noHiring, 0)).toEqual({
+      confirmed: true,
+      changes: { manager_contact_id: 42 },
+      rows: { area: "same", manager: "change" },
+    });
     expect(buildClientState({ ...form, managerContactId: null }, noHiring, 0)).toBeNull();
   });
 
@@ -180,7 +213,11 @@ describe("buildClientState", () => {
     const form = { ...emptyClientState(), modes: { area: "same" as const } };
     expect(
       buildClientState(form, { clientHiring: true, hiringNote: "Java; QA", hiringSource: "slyszal" }, 1),
-    ).toEqual({ confirmed: true, changes: { hiring_roles: ["Java", "QA"], hiring_source: "slyszal" } });
+    ).toEqual({
+      confirmed: true,
+      changes: { hiring_roles: ["Java", "QA"], hiring_source: "slyszal" },
+      rows: { area: "same" },
+    });
   });
 });
 
@@ -258,11 +295,11 @@ describe("saveSummary", () => {
         },
       }),
     );
-    expect(saveSummary(payload)).toBe("Zapiszemy: rozmowę · stan u klienta (1 zmiana).");
+    expect(saveSummary(payload)).toBe("Zapisze: rozmowę i stan „co u klienta” (1 zmiana).");
   });
 
   it("mówi, co się zapisze", () => {
-    expect(saveSummary(buildConversationPayload(input()))).toBe("Zapiszemy: rozmowę.");
+    expect(saveSummary(buildConversationPayload(input()))).toBe("Zapisze: rozmowę.");
     const payload = buildConversationPayload(
       input({
         talk: { ...emptyTalk(TODAY), clientHiring: true, wantsChange: true },
@@ -282,12 +319,22 @@ describe("saveSummary", () => {
       }),
     );
     expect(saveSummary(payload)).toBe(
-      "Zapiszemy: rozmowę · stan u klienta (2 zmiany) · 1 odpowiedź do mapy klienta · 2 sprawy · sygnał popytu do Delivery Leada · wpis „Do przepięcia”.",
+      "Zapisze: rozmowę, stan „co u klienta” (2 zmiany), 1 odpowiedź do mapy klienta, 2 sprawy, sygnał popytu i wpis „Do przepięcia”.",
     );
     const same = buildConversationPayload(
       input({ clientState: { ...emptyClientState(), modes: { area: "same" } }, knownTechnologies: 1 }),
     );
-    expect(saveSummary(same)).toBe("Zapiszemy: rozmowę · stan u klienta bez zmian.");
+    expect(saveSummary(same)).toBe("Zapisze: rozmowę i stan „co u klienta” bez zmian.");
+    // Makieta P3: zmiana technologii i popyt.
+    const p3 = buildConversationPayload(
+      input({
+        talk: { ...emptyTalk(TODAY), clientHiring: true },
+        clientState: { ...emptyClientState(), modes: { technologies: "change" }, skills: [{ id: 9, name: "Azure" }] },
+        knownTechnologies: 3,
+        knownRows: ["area", "manager", "technologies"],
+      }),
+    );
+    expect(saveSummary(p3)).toBe("Zapisze: rozmowę, stan „co u klienta” (1 zmiana) i sygnał popytu.");
   });
 });
 
@@ -298,11 +345,17 @@ describe("splitRoles", () => {
 });
 
 describe("questionText", () => {
-  it("trzy rodzaje pytań", () => {
-    expect(QUESTIONS.map(questionText)).toEqual([
+  it("cztery rodzaje pytań", () => {
+    expect(
+      [
+        ...QUESTIONS,
+        { key: "category:0", kind: "category_stale", subject: "CI/CD i chmura", detail: "brak źródła" } as ClientQuestion,
+      ].map(questionText),
+    ).toEqual([
       "Komu podlega Anna Kierownik?",
       "Na czym pracuje dział Płatności?",
       "Czy Kafka jest naprawdę używany?",
+      "CI/CD i chmura",
     ]);
   });
 });
@@ -321,5 +374,66 @@ describe("sprawy z rozmowy: obszary i tytuł", () => {
     expect(validateConversation(input({ cases: [{ ...emptyCase(), title: "VP" }] }), TODAY)).toBe(
       CASE_TITLE_TOO_SHORT,
     );
+  });
+});
+
+describe("makiety P3 i S5: następny kontakt, technologie, nagłówek, przycisk zapisu", () => {
+  it("następny kontakt z rytmu, dopóki opiekun go nie ruszy", () => {
+    const talk = emptyTalk(TODAY);
+    expect(resolveFollowUp(talk, "2026-11-05")).toBe("2026-11-05");
+    expect(resolveFollowUp(talk, null)).toBe("");
+    expect(resolveFollowUp({ ...talk, followUpAuto: false, followUp: "" }, "2026-11-05")).toBe("");
+    expect(resolveFollowUp({ ...talk, followUpAuto: false, followUp: "2026-11-10" }, "2026-11-05")).toBe("2026-11-10");
+  });
+
+  it("znane wiersze stanu", () => {
+    expect(knownRows(null)).toEqual([]);
+    expect(
+      knownRows({
+        area: { id: 1, name: "Płatności" },
+        manager: null,
+        team_size: "9",
+        team_externals: null,
+        technologies: [{ skill_id: 1, name: "Java" }],
+        vendors: [],
+        hiring: null,
+        project_end_month: "2027-01",
+        quote: null,
+      }),
+    ).toEqual(["area", "team", "technologies", "project_end"]);
+  });
+
+  it("różnica technologii: „+ Azure”, usunięte osobno", () => {
+    expect(
+      techDiff(
+        [
+          { skill_id: 1, name: "Java 17" },
+          { skill_id: 2, name: "Spring Boot" },
+        ],
+        [
+          { id: 1, name: "Java 17" },
+          { id: 3, name: "Azure" },
+          { id: null, name: "Tajny framework" },
+        ],
+      ),
+    ).toEqual({ kept: ["Java 17"], added: ["Azure", "Tajny framework"], removed: ["Spring Boot"] });
+  });
+
+  it("dzień współpracy i przycisk zapisu z liczbą spraw", () => {
+    expect(contractDay("2026-09-08", "2026-10-22")).toBe(45);
+    expect(contractDay("2026-10-22", "2026-10-22")).toBe(1);
+    expect(contractDay("2026-10-23", "2026-10-22")).toBeNull();
+    expect(saveLabel(0)).toBe("Zapisz rozmowę");
+    expect(saveLabel(1)).toBe("Zapisz rozmowę i 1 sprawę");
+    expect(saveLabel(2)).toBe("Zapisz rozmowę i 2 sprawy");
+    expect(saveLabel(5)).toBe("Zapisz rozmowę i 5 spraw");
+  });
+
+  it("podpowiedź pod sprawami mówi, kto dostanie dzwonek", () => {
+    expect(casesHint(["Zofia Recepcyjna"])).toBe(
+      "Sprawa dostanie kontrakt, opis z notatki i link do tej rozmowy. Zofia dostanie dzwonek jak przy każdym przypisaniu.",
+    );
+    expect(casesHint(["Zofia Recepcyjna", "Kamil T.", "Zofia Recepcyjna"])).toMatch(/Zofia i Kamil dostaną dzwonek/);
+    expect(casesHint([])).toMatch(/Bez osoby trafi do „Bez osoby”/);
   });
 });

@@ -20,6 +20,7 @@ export const SCREEN_KEYS = [
   "candidate.profile",
   "calendar",
   "client.orders",
+  "client.people",
   "contracts.order_mail",
   "contracts.b2b_generator",
   "finance",
@@ -60,7 +61,13 @@ export function screenKeyFor(pathname: string | null | undefined, search?: strin
   if (!record) return null;
   const [, kind] = record;
   if (kind === "candidates") return "candidate.profile";
-  if (kind === "clients") return params.get("tab") === "zamowienia" ? "client.orders" : null;
+  if (kind === "clients") {
+    const tab = params.get("tab");
+    if (tab === "zamowienia") return "client.orders";
+    // „Ludzie i technologie” (22.10.2026) — dawne „Struktura” i „Technologie” prowadzą tu.
+    if (tab === "ludzie" || tab === "struktura" || tab === "technologie") return "client.people";
+    return null;
+  }
 
   // /jobs/{id}: ta sama reguła co strona rekrutacji (stare ?tab= w cenie).
   const state = readJobDetailUrlState(params);

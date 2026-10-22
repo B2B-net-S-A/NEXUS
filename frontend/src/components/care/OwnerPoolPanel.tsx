@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 import { peopleText } from "./cadence-format";
+import { orphansText } from "./team/team-format";
 
 const LIST_LIMIT = 100;
 
@@ -181,11 +182,11 @@ function PoolEditor({
   );
 }
 
-function AutoPreview({ data, stale }: { data: CareAutoAssignment; stale: boolean }) {
+/** Zapis „Przypisz wg obłożenia” po potwierdzeniu — te same pary co w podglądzie. */
+function useAutoApply(data: CareAutoAssignment) {
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const apply = useApplyAutoAssignment();
-  const [showList, setShowList] = useState(false);
   const count = data.items.length;
 
   const submit = async () => {
@@ -210,6 +211,44 @@ function AutoPreview({ data, stale }: { data: CareAutoAssignment; stale: boolean
       },
     );
   };
+  return { submit, pending: apply.isPending, confirmDialog };
+}
+
+function PreviewTable({ data }: { data: CareAutoAssignment }) {
+  const count = data.items.length;
+  return (
+    <div className="max-h-80 overflow-y-auto rounded-lg border border-border">
+      <table className="w-full text-sm" aria-label="Podgląd przydziału wg obłożenia">
+        <thead>
+          <tr className={CALM_ROW}>
+            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Konsultant</th>
+            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Klient</th>
+            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Opiekun</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.items.slice(0, LIST_LIMIT).map((item) => (
+            <tr key={item.contract_id} className={CALM_ROW}>
+              <td className="px-3 py-1.5">{item.candidate_name ?? "Konsultant"}</td>
+              <td className="px-3 py-1.5">{item.client_name}</td>
+              <td className="px-3 py-1.5">{item.owner.name}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {count > LIST_LIMIT ? (
+        <p className="px-3 py-2 text-xs text-muted-foreground">
+          i jeszcze {peopleText(count - LIST_LIMIT)} — zapis obejmie wszystkich z podglądu.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function AutoPreview({ data, stale }: { data: CareAutoAssignment; stale: boolean }) {
+  const { submit, pending, confirmDialog } = useAutoApply(data);
+  const [showList, setShowList] = useState(false);
+  const count = data.items.length;
 
   return (
     <div className="space-y-2 border-t border-border pt-3">
@@ -229,11 +268,11 @@ function AutoPreview({ data, stale }: { data: CareAutoAssignment; stale: boolean
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
-            disabled={apply.isPending || stale}
+            disabled={pending || stale}
             title={stale ? "Najpierw zapisz pulę — podgląd liczy się z zapisanej" : undefined}
             onClick={() => void submit()}
           >
-            {apply.isPending ? "Zapisywanie…" : `Przypisz wg obłożenia (${count})`}
+            {pending ? "Zapisywanie…" : `Przypisz wg obłożenia (${count})`}
           </Button>
           <Button size="sm" variant="ghost" aria-expanded={showList} onClick={() => setShowList((v) => !v)}>
             {showList ? "Ukryj podgląd" : "Pokaż podgląd"}
@@ -242,33 +281,7 @@ function AutoPreview({ data, stale }: { data: CareAutoAssignment; stale: boolean
       ) : (
         <p className="text-sm text-muted-foreground">Nie ma kogo przypisać.</p>
       )}
-      {showList && count ? (
-        <div className="max-h-80 overflow-y-auto rounded-lg border border-border">
-          <table className="w-full text-sm" aria-label="Podgląd przydziału wg obłożenia">
-            <thead>
-              <tr className={CALM_ROW}>
-                <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Konsultant</th>
-                <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Klient</th>
-                <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Opiekun</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.slice(0, LIST_LIMIT).map((item) => (
-                <tr key={item.contract_id} className={CALM_ROW}>
-                  <td className="px-3 py-1.5">{item.candidate_name ?? "Konsultant"}</td>
-                  <td className="px-3 py-1.5">{item.client_name}</td>
-                  <td className="px-3 py-1.5">{item.owner.name}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {count > LIST_LIMIT ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground">
-              i jeszcze {peopleText(count - LIST_LIMIT)} — zapis obejmie wszystkich z podglądu.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      {showList && count ? <PreviewTable data={data} /> : null}
       {confirmDialog}
     </div>
   );
@@ -280,7 +293,12 @@ function AutoPreview({ data, stale }: { data: CareAutoAssignment; stale: boolean
  * w kartotece, minus osoby „nie przypisuj”. Widzi i zmienia head back office
  * albo administrator (``can_assign``).
  */
-export function OwnerPoolPanel() {
+export function OwnerPoolPanel({
+  withAutoPreview = true,
+}: {
+  /** Okno „Ustawienia przydziału” ma przydział na pasku ekranu, nie w oknie. */
+  withAutoPreview?: boolean;
+} = {}) {
   const { showToast } = useToast();
   const query = useCareAutoAssignment();
   // Zapis w rodzicu: edytor przemontowuje się po zapisie (``key``), a wtedy
@@ -330,9 +348,67 @@ export function OwnerPoolPanel() {
             onSave={onSave}
             onDirtyChange={setPoolDirty}
           />
-          <AutoPreview data={data} stale={poolDirty} />
+          {withAutoPreview ? <AutoPreview data={data} stale={poolDirty} /> : null}
         </>
       )}
+    </section>
+  );
+}
+
+/**
+ * Pasek „bez opiekuna” w „Zespole opiekunów” (makieta P6): ilu konsultantów
+ * nie ma opiekuna na kontrakcie, u których klientów i od kiedy, z „Podgląd”
+ * i „Przypisz wg obłożenia (N)” — ten sam zapis co w puli. Gdy nie ma kogo
+ * przypisać, pasek znika; awaria podglądu to komunikat, nie pustka.
+ */
+export function AutoAssignBar() {
+  const query = useCareAutoAssignment();
+  const data = query.data;
+  if (query.isError) {
+    return (
+      <QueryStateNotice
+        state="error"
+        description="Nie udało się policzyć przydziału wg obłożenia."
+        onRetry={() => query.refetch()}
+      />
+    );
+  }
+  if (!data || !data.items.length) return null;
+  return <AutoAssignBarBody data={data} />;
+}
+
+function AutoAssignBarBody({ data }: { data: CareAutoAssignment }) {
+  const { submit, pending, confirmDialog } = useAutoApply(data);
+  const [showList, setShowList] = useState(false);
+  const count = data.items.length;
+  return (
+    <section
+      aria-label="Konsultanci bez opiekuna"
+      className="space-y-2 rounded-lg border border-warning/50 bg-warning/10 px-3 py-2"
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+        <p className="min-w-0 flex-1">
+          <span className="font-semibold">{orphansText(data.items)}.</span>{" "}
+          <span className="text-muted-foreground">
+            Automat przypisze osobie z puli, która ma najmniej podopiecznych.
+          </span>
+          {data.unassigned.length ? (
+            <span className="block text-xs text-warning-muted-foreground">
+              Bez opiekuna zostanie {peopleText(data.unassigned.length)}: {data.unassigned[0].reason}.
+            </span>
+          ) : null}
+        </p>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <Button size="sm" variant="outline" aria-expanded={showList} onClick={() => setShowList((v) => !v)}>
+            {showList ? "Ukryj podgląd" : "Podgląd"}
+          </Button>
+          <Button size="sm" disabled={pending} onClick={() => void submit()}>
+            {pending ? "Zapisywanie…" : `Przypisz wg obłożenia (${count})`}
+          </Button>
+        </span>
+      </div>
+      {showList ? <PreviewTable data={data} /> : null}
+      {confirmDialog}
     </section>
   );
 }

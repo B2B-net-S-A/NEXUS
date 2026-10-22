@@ -15,6 +15,12 @@ liczona od nowa dla każdego klienta: jeśli jest w cache single-flight
 luk; inaczej lekkie przybliżenie — ostatnia sfinalizowana karta albo notatka
 o stacku, luki ``null``.
 
+Przy menedżerach (makieta P4, 22.10.2026): pewne propozycje automatu struktury
+do zatwierdzenia (``structure_proposals`` — menedżer konsultanta i „Podlega
+pod”) i „drzewo pełne” — każdy nasz konsultant ma menedżera, a każdy taki
+menedżer ma „Podlega pod” (ta sama reguła co luka ``manager_unplaced`` mapy).
+Przy opiniach — od kiedy czeka najstarsza prośba (``feedback_pending_since``).
+
 ``mine`` = klienci, u których czytający jest przypisanym Delivery Leadem,
 domyślnym opiekunem albo opiekunem któregoś konsultanta; ``all`` = cały
 zakres. Odczyt niczego nie zapisuje.
@@ -41,7 +47,13 @@ from app.models.job import Job, JobStatus
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.care import access as care_access
-from app.services.care import client_people, demand, health, tech_map
+from app.services.care import (
+    client_people,
+    demand,
+    health,
+    structure_proposals,
+    tech_map,
+)
 from app.services.care.access import CareContract
 from app.services.skill_normalize import iter_skill_names
 
@@ -57,6 +69,28 @@ def hiring_signal(
     return client_id in hiring_clients and care_access.client_in_scope(
         client_id, demand_scope
     )
+
+
+def tree_complete(
+    managers: Sequence[Optional[int]], reports_to: dict[int, Optional[int]]
+) -> bool:
+    """„Drzewo pełne”: każdy konsultant ma menedżera, każdy menedżer „Podlega pod”."""
+
+    if not managers or any(manager is None for manager in managers):
+        return False
+    return all(reports_to.get(manager) is not None for manager in managers)
+
+
+def pending_since(requests: Sequence[dict[str, Any]]) -> dict[int, date]:
+    """Najstarszy termin prośby o opinię per klient (``due_on``)."""
+
+    out: dict[int, date] = {}
+    for item in requests:
+        due = item["due_on"]
+        client_id = item["client_id"]
+        if client_id not in out or due < out[client_id]:
+            out[client_id] = due
+    return out
 
 
 def _latest(*values: Optional[date]) -> Optional[date]:
@@ -231,6 +265,7 @@ async def clients(
     )
     last_feedback: dict[int, date] = {}
     pending: Counter = Counter()
+    since: dict[int, date] = {}
     if include_feedback and client_ids:
         last_feedback = dict(
             (
@@ -244,10 +279,19 @@ async def clients(
                 )
             ).all()
         )
-        for item in await client_people.feedback_requests_for(
+        requests = await client_people.feedback_requests_for(
             db, contracts, owners=owners, today=today
-        ):
+        )
+        for item in requests:
             pending[item["client_id"]] += 1
+        since = pending_since(requests)
+    structure = (
+        await structure_proposals.load(db, client_ids=client_ids) if client_ids else {}
+    )
+    proposals = {
+        row["client_id"]: row["certain"] + row["reports_to_certain"]
+        for row in structure_proposals.summary_rows(structure.values())
+    }
     light = await _light_map(db, client_ids) if client_ids else {}
     open_jobs, job_skills = await _open_jobs(db, client_ids) if client_ids else ({}, {})
     # Nierozstrzygnięty sygnał „klient zatrudnia” z 90 dni (jak karta popytu),
@@ -270,6 +314,10 @@ async def clients(
         known = {managers.get(c.id) for c in group if managers.get(c.id) is not None}
         counts = Counter(
             (healths.get(c.id) or {}).get("level") for c in group if healths.get(c.id)
+        )
+        data = structure.get(client_id)
+        reports_to = (
+            {person.id: person.reports_to_id for person in data.people} if data else {}
         )
         cached = _cached_map(await cache_get(tech_map.cache_key(client_id)))
         ending = sorted(
@@ -305,8 +353,13 @@ async def clients(
                 ),
                 "managers_known": len(known),
                 "structure_open": sum(1 for c in group if managers.get(c.id) is None),
+                "proposals_certain": proposals.get(client_id, 0),
+                "tree_complete": tree_complete(
+                    [managers.get(c.id) for c in group], reports_to
+                ),
                 "last_feedback_on": last_feedback.get(client_id),
                 "feedback_pending": pending.get(client_id, 0),
+                "feedback_pending_since": since.get(client_id),
                 "map": cached or {"last_source_on": light.get(client_id), "gaps": None},
                 "demand": {
                     "skills": job_skills.get(client_id, []),
@@ -319,4 +372,9 @@ async def clients(
             }
         )
     rows.sort(key=lambda row: row["name"].casefold())
-    return {"rows": rows, "scope": scope, "health_visible": include_feedback}
+    return {
+        "rows": rows,
+        "scope": scope,
+        "health_visible": include_feedback,
+        "today": today,
+    }

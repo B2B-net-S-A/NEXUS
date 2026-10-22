@@ -39,11 +39,21 @@ export function healthLabel(health: Health): string {
   return health.label?.trim() || HEALTH_LABELS[health.level];
 }
 
-/** „dlaczego” w jednym zdaniu: powody po kropce, przy „Dobrze” bez powodów — nic. */
+/** „a”, „a i b”, „a, b i c” — wyliczenie po polsku. */
+export function joinPl(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} i ${parts[parts.length - 1]}`;
+}
+
+/**
+ * „dlaczego” jednym zdaniem (makieta P2): „chce zmiany projektu (01.10)
+ * i zamówienie kończy się za 32 dni”. Bez kropki na końcu — stawia ją
+ * miejsce, które zdanie pokazuje. Przy „Dobrze” bez powodów — nic.
+ */
 export function healthWhy(health: Health | null | undefined): string | null {
   if (!health) return null;
   const reasons = health.reasons.map((reason) => reason.trim()).filter(Boolean);
-  return reasons.length ? reasons.join(" · ") : null;
+  return reasons.length ? joinPl(reasons) : null;
 }
 
 /** Kolejność sortowania: ryzyko, uwaga, dobrze, brak etykiety. */

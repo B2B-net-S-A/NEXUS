@@ -51,8 +51,10 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
 /**
  * Rzadkie zakładki pod „Więcej” w pasku (22.10.2026). Wybrana z menu stoi
  * w pasku, dopóki jest aktywna — inaczej nie byłoby widać, gdzie się jest.
+ * „Delivery Lead” (`zespol`) też tu jest (makieta P5): DL widać w nagłówku,
+ * a notatki o stacku mają jedno wejście w „Ludziach i technologiach”.
  */
-export const CLIENT_MORE_TABS: readonly ClientTab[] = ["importy-md", "faktury", "analityka"];
+export const CLIENT_MORE_TABS: readonly ClientTab[] = ["zespol", "importy-md", "faktury", "analityka"];
 
 /**
  * Dawne zakładki → „Ludzie i technologie” z widokiem (linki z powiadomień,

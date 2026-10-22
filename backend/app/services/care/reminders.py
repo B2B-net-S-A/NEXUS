@@ -11,9 +11,12 @@ powtarza. Dla każdego aktywnego kontraktu:
 2. zaległy albo dzisiejszy kontakt (punkt planu albo follow-up z ostatniej
    rozmowy) → dzwonek ``care_contact_due`` do opiekuna, najwyżej raz na
    7 dni na kontrakt. Opiekun z kilkoma takimi kontraktami dostaje JEDEN
-   zbiorczy dzwonek z linkiem do „Opieka → Ten tydzień” (decyzja Artura
-   19.10.2026: pierwszy przebieg dał 472 dzwonki, jednemu DL 290), najwyżej
-   raz na 7 dni — wcześniej tylko, gdy któryś kontakt wypada dziś,
+   zbiorczy dzwonek z linkiem do „Opieka → Do zrobienia” z filtrem (decyzja
+   Artura 19.10.2026: pierwszy przebieg dał 472 dzwonki, jednemu DL 290),
+   najwyżej raz na 7 dni — wcześniej tylko, gdy któryś kontakt wypada dziś.
+   Linki (makieta R2, 22.10.2026): pojedynczy kontakt → karta konsultanta
+   ``/care?contract=<id>``, zbiorczy → ``/care?filter=po-terminie`` (jest
+   zaległy) albo ``/care?filter=do-piatku`` (same dzisiejsze),
 3. koniec projektu < 60 dni z karty albo rozmowy → wpis „Do przepięcia”,
 4. klient z konsultantami bez menedżera u klienta → dzwonek
    ``care_client_structure`` „uzupełnij strukturę klienta X” do jego Delivery
@@ -60,12 +63,27 @@ REMINDER_EVERY_DAYS = 7
 
 #: Zbiorczy dzwonek opiekuna (``related_entity_id`` = id opiekuna).
 DIGEST_ENTITY = "care_owner_digest"
-DIGEST_LINK = "/care"
+DIGEST_LINK_OVERDUE = "/care?filter=po-terminie"
+DIGEST_LINK_THIS_WEEK = "/care?filter=do-piatku"
 DIGEST_NAMES = 3
 
 
 def contract_link(contract_id: int) -> str:
-    return f"/contracts/{contract_id}?tab=care"
+    """Karta konsultanta w opiece (panel ``/care?contract=<id>``)."""
+
+    return f"/care?contract={contract_id}"
+
+
+def digest_link(
+    contracts: list[care_access.CareContract],
+    contacts: dict[int, care_plan.NextContact],
+    today: date,
+) -> str:
+    """Zbiorczy dzwonek: „Po terminie”, gdy coś jest zaległe, inaczej „Do piątku”."""
+
+    if any(contacts[contract.id].due_on < today for contract in contracts):
+        return DIGEST_LINK_OVERDUE
+    return DIGEST_LINK_THIS_WEEK
 
 
 async def _recent_digests(
@@ -100,7 +118,7 @@ def digest_message(
     when = "dziś" if oldest == today else oldest.strftime("%d.%m")
     return (
         f"Do zrobienia: {len(ordered)} — {names}. Najstarszy termin: {when}. "
-        "Lista w „Opieka → Ten tydzień”."
+        "Lista w „Opieka → Do zrobienia”."
     )
 
 
@@ -223,7 +241,7 @@ async def remind(
                 ntype=NotificationType.care_contact_due,
                 related_entity_type=DIGEST_ENTITY,
                 related_entity_id=owner,
-                link=DIGEST_LINK,
+                link=digest_link(items, upcoming, today),
                 log_tag="care",
             )
             digests += int(bool(created))

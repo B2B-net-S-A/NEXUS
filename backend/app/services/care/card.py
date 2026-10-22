@@ -25,11 +25,14 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
 
+from app.core.scheduling import DEFAULT_TZ
+from app.models.admin_case import AdminCase
 from app.models.contract_care import (
     CarePlanItem,
     ClientArea,
@@ -223,15 +226,58 @@ async def known_project(
 # ── Sprawy (serwis B2) ──────────────────────────────────────────────────────
 
 
+def checklist_progress(checklist: Any) -> tuple[int, int]:
+    """(odhaczone, wszystkie) pozycje checklisty sprawy; zły wpis się nie liczy."""
+
+    items = [item for item in (checklist or []) if isinstance(item, dict)]
+    return sum(1 for item in items if item.get("done") is True), len(items)
+
+
+def case_extras(case: AdminCase) -> dict[str, Any]:
+    """Dodatki wiersza sprawy w karcie (makieta S3): zamknięcie i checklista.
+
+    Bez treści: tylko liczby checklisty (zamknięte jako „Wejście konsultanta ·
+    18.09 · 4/4”). Osoba ukryta przed czytającym — ``assignee_hidden`` z wiersza
+    ``queries.contract_case_row``.
+    """
+
+    done, total = checklist_progress(case.checklist)
+    closed = case.closed_at
+    return {
+        "closed_on": (
+            closed.astimezone(ZoneInfo(DEFAULT_TZ)).date()
+            if closed is not None
+            else None
+        ),
+        "checklist_done": done,
+        "checklist_total": total,
+    }
+
+
 async def contract_cases(
     db: AsyncSession, contract_id: int, viewer: User
 ) -> list[dict[str, Any]]:
-    """Sprawy kontraktu z serwisu spraw (``admin_cases.queries.cases_for_contract``)."""
+    """Sprawy kontraktu z serwisu spraw (``admin_cases.queries.cases_for_contract``)
+    z datą zamknięcia i postępem checklisty (``case_extras``)."""
 
     # Import w funkcji: moduł spraw ciągnie serwisy HR, a karta jest w opiece.
     from app.services.admin_cases.queries import cases_for_contract  # noqa: PLC0415
 
-    return list(await cases_for_contract(db, contract_id, viewer))
+    rows = list(await cases_for_contract(db, contract_id, viewer))
+    if not rows:
+        return rows
+    cases = {
+        case.id: case
+        for case in (
+            await db.scalars(
+                select(AdminCase).where(AdminCase.id.in_([row["id"] for row in rows]))
+            )
+        ).all()
+    }
+    return [
+        {**row, **case_extras(cases[row["id"]])} if row["id"] in cases else row
+        for row in rows
+    ]
 
 
 # ── Następny krok ───────────────────────────────────────────────────────────
@@ -501,17 +547,80 @@ async def consultant_card(
 # ── „Co u klienta” w oknie rozmowy ──────────────────────────────────────────
 
 
+#: Grupy kategorii słownika umiejętności (``skills.category``) pytane w oknie
+#: rozmowy, gdy mapa klienta zna technologie z grupy, ale żadna nie ma źródła
+#: z ostatnich 18 miesięcy (makieta P3: „CI/CD i chmura — brak źródła od 18
+#: miesięcy. Czego używają?”). Indeks grupy jest kluczem pytania ``category:<i>``.
+CATEGORY_GROUPS: tuple[tuple[str, frozenset[str]], ...] = (
+    ("CI/CD i chmura", frozenset({"devops", "cloud"})),
+    ("Bazy danych", frozenset({"database"})),
+    ("Testy", frozenset({"qa"})),
+)
+#: Najwyżej tyle pytań o grupy kategorii w jednym oknie.
+CATEGORY_QUESTIONS = 1
+
+
+def _months_between(start: date, end: date) -> int:
+    months = (end.year - start.year) * 12 + end.month - start.month
+    return months - (1 if end.day < start.day else 0)
+
+
+def category_gaps(
+    technologies: list[dict[str, Any]], *, today: date
+) -> list[dict[str, Any]]:
+    """Pytania o grupy kategorii bez świeżego źródła (czysta reguła).
+
+    Grupa wchodzi, gdy mapa zna z niej co najmniej jedną technologię, a ostatnie
+    źródło (karta, notatka, rekrutacja — CV naszych konsultantów nie mają daty)
+    jest starsze niż ``tech_map.STALE_AFTER_DAYS`` albo go nie ma. Najpierw grupa
+    z najstarszym źródłem; najwyżej ``CATEGORY_QUESTIONS``.
+    """
+
+    stale_before = today - timedelta(days=tech_map.STALE_AFTER_DAYS)
+    found: list[tuple[date, dict[str, Any]]] = []
+    for index, (label, categories) in enumerate(CATEGORY_GROUPS):
+        group = [t for t in technologies if (t.get("category") or "") in categories]
+        if not group:
+            continue
+        seen = [d for d in (as_date(t.get("last_seen")) for t in group) if d]
+        last = max(seen) if seen else None
+        if last is not None and last >= stale_before:
+            continue
+        since = (
+            f"brak źródła od {_months_between(last, today)} miesięcy"
+            if last is not None
+            else "brak źródła"
+        )
+        found.append(
+            (
+                last or date.min,
+                {
+                    "key": f"category:{index}",
+                    "kind": "category_stale",
+                    "subject": label,
+                    "detail": f"{since}. Czego używają?",
+                },
+            )
+        )
+    found.sort(key=lambda pair: pair[0])
+    return [question for _last, question in found[:CATEGORY_QUESTIONS]]
+
+
 def gap_questions(
     gaps: list[dict[str, Any]],
     *,
     area: Optional[dict[str, Any]],
     manager_contact_id: Optional[int],
     limit: int = QUESTIONS_MAX,
+    technologies: Optional[list[dict[str, Any]]] = None,
+    today: Optional[date] = None,
 ) -> list[dict[str, Any]]:
     """Luki mapy klienta dotyczące działu konsultanta albo jego menedżera.
 
     Czysta reguła: najpierw „komu podlega” menedżer, potem dział bez źródła,
-    potem technologie działu znane z jednego źródła; najwyżej ``limit``.
+    potem grupa kategorii bez świeżego źródła (``category_gaps``, gdy podano
+    ``technologies`` i ``today``), potem technologie działu znane z jednego
+    źródła; najwyżej ``limit``.
     """
 
     area_id = area["id"] if area else None
@@ -573,7 +682,12 @@ def gap_questions(
                     "area_id": area_id,
                 }
             )
-    return [*reports, *areas, *singles][:limit]
+    categories = (
+        category_gaps(technologies, today=today)
+        if technologies is not None and today is not None
+        else []
+    )
+    return [*reports, *areas, *categories, *singles][:limit]
 
 
 async def client_state(
@@ -593,5 +707,7 @@ async def client_state(
         list(result.get("gaps") or []),
         area=(project or {}).get("area"),
         manager_contact_id=manager.get("contact_id"),
+        technologies=list(result.get("technologies") or []),
+        today=today,
     )
     return {"state": state, "source": source, "questions": questions}

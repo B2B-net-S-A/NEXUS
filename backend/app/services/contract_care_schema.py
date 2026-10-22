@@ -96,7 +96,7 @@ SKIP_REASONS: tuple[str, ...] = (
     "other",
 )
 
-FEEDBACK_CHANNELS: tuple[str, ...] = ("phone", "meeting", "email")
+FEEDBACK_CHANNELS: tuple[str, ...] = ("phone", "meeting", "email", "teams")
 EXTENSION_OUTLOOKS: tuple[str, ...] = ("yes", "likely", "unsure", "no")
 FEEDBACK_SCORE_FIELDS: tuple[str, ...] = ("quality", "communication", "autonomy")
 
@@ -434,6 +434,27 @@ def _add_check(table: str, name: str, condition: str) -> str:
     END $$"""
 
 
+#: Forma „Teams” rozmowy z menedżerem (0511, makieta R4 z 22.10.2026). Jedyna
+#: definicja poszerzenia — ten sam blok wykonuje migracja i entrypoint
+#: (przez ``hr_schema_bundle``), więc start kontenera nie zwęzi więzu z powrotem.
+FEEDBACK_TEAMS_DDL: tuple[str, ...] = (
+    f"""DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.tables
+                   WHERE table_name = 'client_feedback_sessions')
+           AND NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_client_feedback_sessions_channel'
+              AND pg_get_constraintdef(oid) LIKE '%teams%'
+        ) THEN
+            ALTER TABLE client_feedback_sessions
+                DROP CONSTRAINT IF EXISTS ck_client_feedback_sessions_channel;
+            ALTER TABLE client_feedback_sessions
+                ADD CONSTRAINT ck_client_feedback_sessions_channel CHECK ({CK_FEEDBACK_CHANNEL});
+        END IF;
+    END $$""",
+)
+
+
 #: Baza sprzed etapu 3 (0462 nie jest wdrożona, ale bazy lokalne i testowe ją
 #: mają): rodzaj ``cadence`` w CHECK-u planu i CHECK-i powodu „Pomiń”.
 #: Bloki podmieniają/dokładają ograniczenie tylko przy starej definicji.
@@ -458,6 +479,7 @@ CONSTRAINT_DDL: tuple[str, ...] = (
     _add_check(
         "contract_care_plan_items", "ck_contract_care_plan_items_skip", CK_PLAN_SKIP
     ),
+    *FEEDBACK_TEAMS_DDL,
 )
 DATA_DDL: tuple[str, ...] = ()
 

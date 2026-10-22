@@ -19,13 +19,15 @@ import {
   type ClientStateView,
 } from "@/lib/api/care";
 import { useClientOrg } from "@/lib/api/client-people";
-import { formatIsoDatePl, monthYearPl } from "@/lib/date-pl";
+import { formatDayMonthPl, monthYearPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
 import { TokenPicker } from "../TokenPicker";
 import {
   STATE_ROWS,
   effectiveTechnologies,
+  knownRows,
+  techDiff,
   touchedRows,
   STATE_ROW_LABELS,
   type ClientStateForm,
@@ -49,7 +51,7 @@ export function stateValue(row: StateRow, state: ClientProjectState | null): str
     case "team": {
       const parts = [
         state.team_size ? `${state.team_size} osób` : null,
-        state.team_externals != null ? `z zewnątrz ${state.team_externals}` : null,
+        state.team_externals != null ? `${state.team_externals} z zewnątrz` : null,
       ].filter(Boolean);
       return parts.length ? parts.join(" · ") : null;
     }
@@ -125,10 +127,41 @@ interface ClientStateSectionProps {
   onChange: (next: ClientStateForm) => void;
 }
 
+/** Technologie po „zmień”: zostają, „+ Azure” dochodzi, usunięte przekreślone (makieta P3). */
+function TechDiffLine({ state, form }: { state: ClientProjectState | null; form: ClientStateForm }) {
+  const diff = techDiff(state?.technologies ?? [], form.skills);
+  if (!diff.kept.length && !diff.added.length && !diff.removed.length) {
+    return <span className="block text-muted-foreground">bez technologii</span>;
+  }
+  const chip = "rounded-md border px-1.5 py-0.5 text-xs";
+  return (
+    <ul className="mt-0.5 flex flex-wrap gap-1" aria-label="Technologie po zmianie">
+      {diff.kept.map((name) => (
+        <li key={`k-${name}`} className={cn(chip, "border-border bg-muted/40")}>
+          {name}
+        </li>
+      ))}
+      {diff.added.map((name) => (
+        <li key={`a-${name}`} className={cn(chip, "border-success/30 bg-success-muted text-success-muted-foreground")}>
+          + {name}
+        </li>
+      ))}
+      {diff.removed.map((name) => (
+        <li key={`r-${name}`} className={cn(chip, "border-border text-muted-foreground line-through")}>
+          <span className="sr-only">usunięta: </span>
+          {name}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
- * „Co u klienta” — dawna karta technologiczna wypełniona ostatnim stanem.
- * Przy każdym wierszu „bez zmian” albo „zmień”; nieruszona sekcja nic nie
- * zapisuje (karta technologiczna powstaje tylko po potwierdzeniu albo zmianie).
+ * „Co u klienta” — dawna karta technologiczna wypełniona ostatnim stanem
+ * (makieta P3: „potwierdzasz, nie przepisujesz”). Wiersz bez kliknięcia =
+ * „bez zmian” i zapisze się jako potwierdzony datą rozmowy; „zmień” otwiera
+ * pole, „cofnij” wraca do ostatniego stanu. „Nie rozmawialiśmy o kliencie”
+ * wyłącza całą sekcję (nic się nie zapisuje ani nie potwierdza).
  */
 export function ClientStateSection({
   knownTechnologies,
@@ -142,6 +175,7 @@ export function ClientStateSection({
   const ids = { area: useId(), newArea: useId(), manager: useId(), size: useId(), externals: useId(), end: useId() };
   const state = view?.state ?? null;
   const modes = form.modes;
+  const known = knownRows(state);
   const areas = useClientAreas(clientId ?? 0, modes.area === "change" && clientId != null);
   const org = useClientOrg(clientId ?? 0, modes.manager === "change" && clientId != null);
   const skillSearch = useCallback((q: string) => searchSkills(q), []);
@@ -155,14 +189,7 @@ export function ClientStateSection({
     const base = { ...form, modes: nextModes };
     onChange(mode === "change" && modes[row] !== "change" ? prefill(row, base, state) : base);
   };
-  const allSame = () => {
-    const nextModes: ClientStateForm["modes"] = {};
-    for (const row of STATE_ROWS) {
-      if (modes[row] === "change") nextModes[row] = "change";
-      else if (stateValue(row, state) != null) nextModes[row] = "same";
-    }
-    onChange({ ...form, modes: nextModes });
-  };
+  const sourceDay = view?.source ? formatDayMonthPl(view.source.on) : null;
 
   const editor = (row: StateRow): ReactNode => {
     switch (row) {
@@ -285,71 +312,92 @@ export function ClientStateSection({
   return (
     <section aria-label="Co u klienta" className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold text-foreground">Co u klienta</h3>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-foreground">Co u klienta</h3>
+          <p className="text-xs text-muted-foreground">
+            {view?.source
+              ? `stan ${view.source.kind === "tech_card" ? "z karty technologicznej" : "z rozmowy"} ${sourceDay}${
+                  view.source.author_name ? ` · ${view.source.author_name}` : ""
+                } — potwierdź albo zmień`
+              : state
+                ? "Znamy tylko to, co jest na kontrakcie — uzupełnij resztę z rozmowy."
+                : loading
+                  ? "Wczytywanie ostatniego stanu…"
+                  : failed
+                    ? "Nie udało się wczytać ostatniego stanu — możesz go uzupełnić od zera."
+                    : "Nic jeszcze nie wiemy o projekcie — uzupełnij to, czego się dowiesz."}
+          </p>
+        </div>
         {state ? (
-          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={allSame}>
-            Wszystko bez zmian
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            aria-pressed={form.skipped}
+            onClick={() => onChange({ ...form, skipped: !form.skipped })}
+          >
+            {form.skipped ? "Rozmawialiśmy o kliencie" : "Nie rozmawialiśmy o kliencie"}
           </Button>
         ) : null}
       </div>
-      {view?.source ? (
+      {form.skipped ? (
         <p className="text-xs text-muted-foreground">
-          Ostatni stan {view.source.kind === "tech_card" ? "z karty technologicznej" : "z rozmowy"}{" "}
-          {formatIsoDatePl(view.source.on)}
-          {view.source.author_name ? ` · ${view.source.author_name}` : ""}. Zapisze się tylko to, co
-          potwierdzisz albo zmienisz.
-        </p>
-      ) : state ? (
-        <p className="text-xs text-muted-foreground">
-          Znamy tylko to, co jest na kontrakcie — uzupełnij resztę z rozmowy.
+          Stan u klienta zostaje jak był — bez potwierdzenia z tej rozmowy.
         </p>
       ) : (
-        <p className="text-xs text-muted-foreground">
-          {loading
-            ? "Wczytywanie ostatniego stanu…"
-            : failed
-              ? "Nie udało się wczytać ostatniego stanu — możesz go uzupełnić od zera."
-              : "Nic jeszcze nie wiemy o projekcie — uzupełnij to, czego się dowiesz."}
-        </p>
+        <ul className="divide-y divide-border/60 rounded-md border border-border/60">
+          {STATE_ROWS.map((row) => {
+            const value = stateValue(row, state);
+            const mode = modes[row];
+            const changing = mode === "change";
+            return (
+              <li key={row} className="space-y-1.5 px-3 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 text-sm">
+                    <span className="block text-xs text-muted-foreground">{STATE_ROW_LABELS[row]}</span>
+                    {row === "technologies" && changing ? (
+                      <TechDiffLine state={state} form={form} />
+                    ) : (
+                      <span className={cn("block", value ? "text-foreground" : "text-muted-foreground")}>
+                        {value ?? "nie wiemy"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5" role="group" aria-label={STATE_ROW_LABELS[row]}>
+                    {changing ? (
+                      <>
+                        <span className="text-xs font-medium text-primary">zmieniono</span>
+                        <ModeButton
+                          pressed={false}
+                          label={`${STATE_ROW_LABELS[row]}: cofnij`}
+                          onClick={() => setMode(row, undefined)}
+                        >
+                          cofnij
+                        </ModeButton>
+                      </>
+                    ) : (
+                      <>
+                        {known.includes(row) ? (
+                          <span className="text-xs text-muted-foreground">bez zmian</span>
+                        ) : null}
+                        <ModeButton
+                          pressed={false}
+                          label={`${STATE_ROW_LABELS[row]}: ${value != null ? "zmień" : "uzupełnij"}`}
+                          onClick={() => setMode(row, "change")}
+                        >
+                          {value != null ? "zmień" : "uzupełnij"}
+                        </ModeButton>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {changing ? editor(row) : null}
+              </li>
+            );
+          })}
+        </ul>
       )}
-      <ul className="divide-y divide-border/60 rounded-md border border-border/60">
-        {STATE_ROWS.map((row) => {
-          const value = stateValue(row, state);
-          const mode = modes[row];
-          return (
-            <li key={row} className="space-y-1.5 px-3 py-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 text-sm">
-                  <span className="block text-xs text-muted-foreground">{STATE_ROW_LABELS[row]}</span>
-                  <span className={cn("block", value ? "text-foreground" : "text-muted-foreground")}>
-                    {value ?? "nie wiemy"}
-                  </span>
-                </div>
-                <div className="flex shrink-0 gap-1" role="group" aria-label={STATE_ROW_LABELS[row]}>
-                  {value != null ? (
-                    <ModeButton
-                      pressed={mode === "same"}
-                      label={`${STATE_ROW_LABELS[row]}: bez zmian`}
-                      onClick={() => setMode(row, mode === "same" ? undefined : "same")}
-                    >
-                      bez zmian
-                    </ModeButton>
-                  ) : null}
-                  <ModeButton
-                    pressed={mode === "change"}
-                    label={`${STATE_ROW_LABELS[row]}: ${value != null ? "zmień" : "uzupełnij"}`}
-                    onClick={() => setMode(row, mode === "change" ? undefined : "change")}
-                  >
-                    {value != null ? "zmień" : "uzupełnij"}
-                  </ModeButton>
-                </div>
-              </div>
-              {mode === "change" ? editor(row) : null}
-            </li>
-          );
-        })}
-      </ul>
-      {touchedRows(form).length && effectiveTechnologies(form, knownTechnologies) === 0 ? (
+      {touchedRows(form, known).length && effectiveTechnologies(form, knownTechnologies) === 0 ? (
         <p className="text-xs text-warning-muted-foreground">
           Bez technologii zapisze się tylko zmiana menedżera — reszta stanu u klienta czeka na co najmniej
           jedną technologię („Technologie” → „uzupełnij”).

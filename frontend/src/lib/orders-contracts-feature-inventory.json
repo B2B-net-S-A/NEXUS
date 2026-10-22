@@ -670,7 +670,7 @@
    "id": "k.care-tab.conversation",
    "opis": "Okno „Rozmowa” z karty konsultanta: dzisiejsza rozmowa, „Co u klienta” (dawna karta technologiczna), pytania z mapy klienta, „Coś do załatwienia?”",
    "file": "components/care/ConversationDialog.tsx",
-   "marker": "Co u klienta",
+   "marker": "ClientStateSection",
    "b_home": "Strona kontraktu: zakładka „Opieka”, „Zapisz rozmowę”"
   },
   {
@@ -710,14 +710,14 @@
   },
   {
    "id": "c.people-tech",
-   "opis": "Zakładka „Ludzie i technologie” (`?tab=ludzie`, moduł „care”) zaraz po „Kontaktach klienta”: liczby kompletności wiedzy, „Zapisz opinię menedżera”, „Nowa rekrutacja z działu”, widoki Działy / Drzewo osób / Mapa",
+   "opis": "Zakładka „Ludzie i technologie” (`?tab=ludzie`, moduł „care”) zaraz po „Kontaktach klienta”: pięć liczb kompletności wiedzy, widoki Działy / Drzewo osób / Mapa (tabela)",
    "file": "app/clients/[id]/page.tsx",
    "marker": "ClientPeopleTechTab",
    "b_home": "Profil klienta: zakładka „Ludzie i technologie”"
   },
   {
    "id": "c.departments",
-   "opis": "Widok „Działy”: karta działu z menedżerem naszych i „Podlega pod”, naszymi z kropką zdrowia, technologiami z siłą źródeł, „Szukają: …”, luką działu; z prawej luki, ludzie poza działami, dostawcy, notatki o stacku, domyślny opiekun",
+   "opis": "Widok „Działy”: karta działu z menedżerem naszych i „Podlega pod” (ze stanowiskiem), stanem opinii, „Nasi (N)” z kropką zdrowia, technologiami z siłą źródeł, „Szukają: …” (rekrutacje, sygnał z rozmowy, „w bazie N pasujących”), luką działu z osobą do dopytania; z prawej luki („pytanie w najbliższej rozmowie”), ludzie poza działami z „Przypisz dział”, dostawcy u klienta, notatki o stacku. Domyślny opiekun klienta — „Zespół opiekunów” → „Ustawienia przydziału” (22.10.2026)",
    "file": "components/care/client/DepartmentsView.tsx",
    "marker": "Szukają: ",
    "b_home": "Profil klienta: „Ludzie i technologie” → widok „Działy”"
@@ -731,10 +731,24 @@
   },
   {
    "id": "c.tabs-more",
-   "opis": "„Więcej” w pasku zakładek klienta: Importy MD, Faktury, Analityka; wybrana stoi w pasku",
+   "opis": "„Więcej” w pasku zakładek klienta: Delivery Lead (z „Wiedzą o kliencie”), Importy MD, Faktury, Analityka; wybrana stoi w pasku",
    "file": "app/clients/[id]/page.tsx",
    "marker": "Więcej sekcji klienta",
    "b_home": "Pasek zakładek klienta"
+  },
+  {
+   "id": "c.people-tech.header-actions",
+   "opis": "„Zapisz opinię menedżera” i „Nowa rekrutacja z działu” w nagłówku profilu klienta przy otwartej zakładce „Ludzie i technologie” (makieta P5, 22.10.2026)",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "PeopleTechHeaderActions",
+   "b_home": "Profil klienta: nagłówek przy zakładce „Ludzie i technologie”"
+  },
+  {
+   "id": "c.knowledge-stack",
+   "opis": "Delivery Lead → Wiedza o kliencie: notatki „Stack technologiczny” do czytania, dopisuje się je w „Ludziach i technologiach” (jedno wejście, R2 22.10.2026)",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "Dopisz w Ludziach i technologiach",
+   "b_home": "Profil klienta: „Więcej” → Delivery Lead → Wiedza o kliencie"
   },
   {
    "id": "c.contact-area",

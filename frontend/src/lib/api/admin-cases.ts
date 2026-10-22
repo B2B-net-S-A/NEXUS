@@ -63,6 +63,13 @@ export interface CaseCard {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  /**
+   * Od 22.10.2026 („Moi podopieczni” bez dostępu do sprawy): osoba prowadząca
+   * jest ukryta — `assignee: null` NIE znaczy wtedy „bez osoby”.
+   */
+  assignee_hidden?: boolean;
+  /** Czytający nie otworzy tej sprawy (tytuł zastępczy, bez linku). */
+  content_hidden?: boolean;
 }
 
 export interface CaseMessage {
@@ -97,6 +104,8 @@ export interface CaseConsultant {
   role: string | null;
   form: string | null;
   order_end_on: string | null;
+  /** Kontrakt ma szkic kolejnego zamówienia — „przedłużenie w toku”. */
+  order_extension_pending?: boolean;
   /** Efektywny opiekun kontraktu — „Przypisz opiekunowi”. */
   owner_user_id?: number | null;
   owner_name: string | null;
@@ -112,6 +121,12 @@ export interface CaseLinkSuggestion {
   candidate_name: string | null;
   client_name: string | null;
   reason: string | null;
+  /** Skąd propozycja: mail z adresu konsultanta, z kontaktu klienta albo samo nazwisko w treści. */
+  sender_kind?: "consultant" | "client_contact" | null;
+  /** Kontakt klienta, który napisał (przy `client_contact`). */
+  sender_contact_name?: string | null;
+  /** Jedyny nasz aktywny konsultant o tym imieniu i nazwisku u tego klienta. */
+  only_match?: boolean;
 }
 
 export interface CaseDetail extends CaseCard {

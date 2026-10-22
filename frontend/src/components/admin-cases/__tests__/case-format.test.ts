@@ -8,7 +8,9 @@ import {
   dueBadge,
   dueLabel,
   fileSize,
+  firstNameInstrumental,
   groupByStatus,
+  linkButtonLabels,
   removeChecklistItem,
   toggleChecklistItem,
 } from "../case-format";
@@ -143,4 +145,28 @@ it("rozmiar załącznika", () => {
   expect(fileSize(200)).toBe("1 kB");
   expect(fileSize(350 * 1024)).toBe("350 kB");
   expect(fileSize(1.25 * 1024 * 1024)).toBe("1,3 MB");
+});
+
+describe("„Powiąż z Jakubem” (S4, 22.10.2026)", () => {
+  it("odmienia polskie imiona, nieznane końcówki zostawia", () => {
+    expect(firstNameInstrumental("Jakub Makietowy")).toBe("Jakubem");
+    expect(firstNameInstrumental("Anna Przykładowa")).toBe("Anną");
+    expect(firstNameInstrumental("Marek Nowak")).toBe("Markiem");
+    expect(firstNameInstrumental("Paweł Nowak")).toBe("Pawłem");
+    expect(firstNameInstrumental("Patryk Nowak")).toBe("Patrykiem");
+    expect(firstNameInstrumental("Jerzy Nowak")).toBe("Jerzym");
+    expect(firstNameInstrumental("Bruno Nowak")).toBeNull();
+    expect(firstNameInstrumental("Jo")).toBeNull();
+    expect(firstNameInstrumental(null)).toBeNull();
+  });
+
+  it("to samo imię dwa razy albo bez odmiany — pełne imię i nazwisko", () => {
+    expect(linkButtonLabels(["Jakub Makietowy"])).toEqual(["Powiąż z Jakubem"]);
+    expect(linkButtonLabels(["Jan Nowak", "Jan Kowalski", "Bruno Wzór"])).toEqual([
+      "Powiąż: Jan Nowak",
+      "Powiąż: Jan Kowalski",
+      "Powiąż: Bruno Wzór",
+    ]);
+    expect(linkButtonLabels([null])).toEqual(["Powiąż"]);
+  });
 });

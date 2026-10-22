@@ -55,6 +55,8 @@ _KEY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("contact_followup", re.compile(r"^contact:followup:(\d+)$")),
     ("feedback", re.compile(r"^feedback:(\d+)$")),
     ("decision", re.compile(r"^decision:(\d+)$")),
+    # Karta z samego końca zamówienia (bez wpisu „Do przepięcia”) — K3.
+    ("decision_end", re.compile(r"^decision:end:(\d+)$")),
     ("demand", re.compile(r"^demand:(\d+):(\d+)$")),
 )
 
@@ -64,7 +66,7 @@ class CardKey:
     """Rozebrany klucz karty: rodzaj tablicy i identyfikatory."""
 
     raw: str
-    variant: str  # contact_plan | contact_followup | feedback | decision | demand
+    variant: str  # contact_plan | contact_followup | feedback | decision | decision_end | demand
     ids: tuple[int, ...]
 
     @property
@@ -74,7 +76,7 @@ class CardKey:
 
 def parse_key(raw: str) -> Optional[CardKey]:
     """``contact:plan:<punkt>``, ``contact:followup:<rozmowa>``,
-    ``feedback:<kontakt>``, ``decision:<wpis>``,
+    ``feedback:<kontakt>``, ``decision:<wpis>``, ``decision:end:<kontrakt>``,
     ``demand:<klient>:<rozmowa>``; inny tekst = ``None``."""
 
     for variant, pattern in _KEY_PATTERNS:

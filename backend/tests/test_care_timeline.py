@@ -146,10 +146,13 @@ async def test_timeline_from_recruitment_to_orders_without_rates(
     order_end = next(e for e in body["events"] if e["kind"] == "order_end")
     assert order_end["future"] is True
     conversation = next(e for e in body["events"] if e["kind"] == "conversation")
-    assert "chce zmiany projektu" in conversation["detail"]
+    # Makieta P2: forma, ocena i sygnały w tytule, cytat z notatki w dopisku.
+    assert conversation["title"].startswith("Rozmowa · ")
+    assert "chce zmiany projektu" in conversation["title"]
+    assert conversation["detail"].startswith("„")
     feedback = next(e for e in body["events"] if e["kind"] == "feedback")
-    assert feedback["title"] == "Opinia: Michał Rogalski-Przykładowy"
-    assert feedback["detail"].startswith("4,0/5")
+    assert feedback["title"].startswith("Opinia menedżera · 4,0")
+    assert feedback["detail"] == "Michał Rogalski-Przykładowy"
     assert body["manager"]["id"] == manager
     assert body["signals"] == ["wants_change"]
     assert body["front_office_reasons"] == ["wants_change"]

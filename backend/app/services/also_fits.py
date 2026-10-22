@@ -13,12 +13,18 @@ w „Szukaj w bazie”.
 
 Awaria wyszukiwania wektorowego nie jest „nic nie pasuje”: wynik ma status
 ``unavailable`` i ekran mówi, że nie udało się sprawdzić.
+
+Nasz konsultant wracający na rynek (makieta R2, 22.10.2026): osoba z decyzją
+„przekaż do front office” (znacznik ``returns_to_market`` z
+``employment_marker``) ma w bloku źródło „nasz konsultant” i „Wraca na rynek
+DD.MM” (:func:`returning_consultant`). Bez kwot — znacznik ich nie niesie.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 from types import SimpleNamespace
 from typing import Iterable, Optional
 
@@ -217,6 +223,41 @@ async def also_fits_for_candidate(
             )
         )
     return AlsoFitsResult(status="ok", jobs=tuple(out))
+
+
+#: Źródło osoby w bloku: nasz konsultant wracający na rynek.
+SOURCE_OUR_CONSULTANT = "our_consultant"
+
+
+@dataclass(frozen=True)
+class ReturningConsultant:
+    """Nasz konsultant przekazany do front office — „Wraca na rynek DD.MM”."""
+
+    returns_on: Optional[date]
+
+
+async def returning_consultant(
+    db: AsyncSession, candidate_id: int, *, today: date
+) -> Optional[ReturningConsultant]:
+    """Znacznik „Wraca na rynek” osoby albo ``None``.
+
+    Ta sama reguła co znacznik „Pracuje u nas” na Tablicy, w panelu i na
+    profilu (``employment_marker.mark_returning``). Awaria = ``None``: blok
+    „Pasuje też do” działa bez tej informacji.
+    """
+
+    from app.services.employment_marker import load_employment_markers
+
+    try:
+        async with db.begin_nested():
+            markers = await load_employment_markers(db, [candidate_id], today=today)
+    except Exception:  # noqa: BLE001 — dodatek do bloku, nie jego warunek
+        logger.exception("[also_fits] znacznik „Wraca na rynek” nie policzony")
+        return None
+    marker = markers.get(candidate_id)
+    if marker is None or not getattr(marker, "returns_to_market", False):
+        return None
+    return ReturningConsultant(returns_on=marker.returns_to_market_on)
 
 
 OTHER_OPEN_JOBS_LIMIT = 5

@@ -17,7 +17,10 @@ import api from "@/lib/api";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { ClientPeopleTechTab } from "@/components/care/client/ClientPeopleTechTab";
+import {
+  ClientPeopleTechTab,
+  PeopleTechHeaderActions,
+} from "@/components/care/client/ClientPeopleTechTab";
 import {
   ContactOrgFields,
   EMPTY_CONTACT_ORG,
@@ -278,7 +281,16 @@ function LazyDetails({
 
 // ── Knowledge Tab ─────────────────────────────────────────────────────────────
 
-function KnowledgeTab({ clientId }: { clientId: number }) {
+function KnowledgeTab({
+  clientId,
+  stackHref,
+}: {
+  clientId: number;
+  // Notatki o stacku mają jedno wejście (R2, 22.10.2026): przy module opieki
+  // dopisuje się je w „Ludziach i technologiach” z działem, tu zostają do
+  // czytania. `null` = moduł opieki wyłączony, kategoria jak dawniej.
+  stackHref: string | null;
+}) {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ category: "general" as KnowledgeCategory, content: "", source: "" });
   const queryClient = useQueryClient();
@@ -326,6 +338,9 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
     ...cat,
     entries: entries.filter((e) => e.category === cat.key),
   }));
+  const formCategories = stackHref
+    ? KNOWLEDGE_CATEGORIES.filter((cat) => cat.key !== "tech_stack")
+    : KNOWLEDGE_CATEGORIES;
 
   return (
     <div className="space-y-4">
@@ -372,7 +387,7 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
                 onChange={(e) => setForm({ ...form, category: e.target.value as KnowledgeCategory })}
                 className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               >
-                {KNOWLEDGE_CATEGORIES.map((c) => (
+                {formCategories.map((c) => (
                   <option key={c.key} value={c.key}>
                     {c.label}
                   </option>
@@ -417,13 +432,20 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
 
       {/* Grouped entries */}
       {grouped.map((cat) =>
-        cat.entries.length === 0 ? null : (
+        cat.entries.length === 0 && !(stackHref && cat.key === "tech_stack") ? null : (
           <div key={cat.key} className="space-y-2">
-            <div className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg w-fit", cat.bg)}>
-              <span className={cat.color}>{cat.icon}</span>
-              <span className={cn("text-xs font-bold uppercase tracking-wide", cat.color)}>
-                {cat.label}
-              </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg w-fit", cat.bg)}>
+                <span className={cat.color}>{cat.icon}</span>
+                <span className={cn("text-xs font-bold uppercase tracking-wide", cat.color)}>
+                  {cat.label}
+                </span>
+              </div>
+              {stackHref && cat.key === "tech_stack" ? (
+                <Link href={stackHref} className="text-xs font-medium text-primary hover:underline">
+                  Dopisz w Ludziach i technologiach
+                </Link>
+              ) : null}
             </div>
             {cat.entries.map((entry) => (
               <div key={entry.id} className="bg-card dark:bg-muted border border-border dark:border-border rounded-xl p-4 group">
@@ -1285,16 +1307,17 @@ export default function ClientDetailPage() {
     // Karta klienta — bez filtra po roli: rola `user` dostanie 403 z backendu
     // i karta pokaże „Brak uprawnień", nie pustkę (zamierzone).
     { key: "zasady", label: "Zasady współpracy" },
-    { key: "wejscie", label: "Wejście u klienta" },
-    { key: "projekty", label: "Projekty" },
-    { key: "zamowienia", label: "Zamówienia" },
-    { key: "zespol", label: "Delivery Lead" },
     { key: "kontakty", label: "Kontakty klienta" },
     // Zaraz po kontaktach (decyzja 5, 22.10.2026): działy, drzewo osób i mapa
     // technologii. Drzewo i opinie widzi krąg D11 — zakładka sama to rozstrzyga.
     { key: "ludzie", label: "Ludzie i technologie" },
+    { key: "wejscie", label: "Wejście u klienta" },
+    { key: "projekty", label: "Projekty" },
+    { key: "zamowienia", label: "Zamówienia" },
     { key: "umowy-ramowe", label: "Umowy" },
-    // Rzadkie — pod „Więcej” (`CLIENT_MORE_TABS`).
+    // Rzadkie — pod „Więcej” (`CLIENT_MORE_TABS`, makieta P5): DL klienta
+    // stoi też w nagłówku, wiedza o kliencie ma wejście z „Ludzi i technologii”.
+    { key: "zespol", label: "Delivery Lead" },
     { key: "importy-md", label: "Importy MD" },
     { key: "faktury", label: "Faktury" },
     { key: "analityka", label: "Analityka" },
@@ -1353,6 +1376,8 @@ export default function ClientDetailPage() {
             className="ml-auto justify-end max-sm:order-last max-sm:ml-0 max-sm:w-full max-sm:justify-start"
           />
           <div className="flex items-center gap-1.5 max-sm:ml-auto">
+            {/* „Ludzie i technologie”: akcje zakładki w nagłówku (makieta P5). */}
+            {careOpen && activeTab === "ludzie" ? <PeopleTechHeaderActions clientId={Number(id)} /> : null}
             {canUpdateClient && (
               <Button
                 size="sm"
@@ -1624,7 +1649,10 @@ export default function ClientDetailPage() {
                 icon={<BookOpen className="w-4 h-4 text-muted-foreground" />}
                 title="Wiedza o kliencie (selling points, tech stack, kultura)"
               >
-                <KnowledgeTab clientId={Number(id)} />
+                <KnowledgeTab
+                  clientId={Number(id)}
+                  stackHref={careOpen ? `/clients/${id}?tab=ludzie` : null}
+                />
               </LazyDetails>
             </div>
           )}

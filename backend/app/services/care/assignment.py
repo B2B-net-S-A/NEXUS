@@ -13,6 +13,10 @@
   opiekunem wpisanym na kontrakcie i poprzednim faktycznym opiekunem; oś
   konsultanta go pokazuje. DL zmienia opiekuna pojedynczo u swoich klientów
   (zakładka „Opieka” kontraktu), jak dotąd.
+* **„Zrobione w miesiącu”** (makieta P6, 22.10.2026): przy opiekunie rozmowy
+  zapisane w BIEŻĄCYM miesiącu przy jego podopiecznych (``done_this_month``)
+  z rozmów, które rytmy przewidują na ten miesiąc (``planned_this_month``).
+  ``in_pool`` i ``is_tcm`` dają podpis w tabeli „Zespół opiekunów”.
 * **„Bez opiekuna”** = nikt w łańcuchu (ani kontrakt, ani domyślny opiekun
   klienta, ani DL). Podpowiedź przy wierszu mówi, skąd jest opiekun albo
   czego brakuje (np. „klient bez domyślnego opiekuna”).
@@ -25,12 +29,12 @@ from datetime import date, timedelta
 from typing import Any, Literal, Optional, get_args
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
-from app.models.contract_care import CONTRACTS_CARE
+from app.models.contract_care import CONTRACTS_CARE, CareConversation
 from app.models.user import User, UserRole
 from app.services.care import access as care_access
 from app.services.care import cadence
@@ -117,12 +121,35 @@ def _hint(
     return "no_default"
 
 
+async def _held_between(
+    db: AsyncSession, contract_ids: list[int], month: tuple[date, date]
+) -> dict[int, int]:
+    """Rozmowy opieki zapisane w miesiącu — per kontrakt (jedno zapytanie)."""
+
+    if not contract_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(CareConversation.contract_id, func.count())
+            .where(
+                CareConversation.contract_id.in_(contract_ids),
+                CareConversation.occurred_on >= month[0],
+                CareConversation.occurred_on <= month[1],
+            )
+            .group_by(CareConversation.contract_id)
+        )
+    ).all()
+    return {contract_id: int(count) for contract_id, count in rows}
+
+
 async def overview(db: AsyncSession, user: User, *, today: date) -> dict[str, Any]:
     allowed = await care_access.rhythm_scope(user, db)
     contracts = await care_access.live_contracts(db, allowed=allowed)
     owners = await care_access.effective_owners(db, contracts)
     periods = await care_plan.periods_by_contract(db, [c.id for c in contracts])
     month = cadence.next_month(today)
+    current = cadence.this_month(today)
+    held = await _held_between(db, [c.id for c in contracts], current)
     candidates = await care_access.owner_candidates(db)
     default_ids = {c.client_default_owner_id for c in contracts} - {None}
     active_defaults = (
@@ -156,10 +183,18 @@ async def overview(db: AsyncSession, user: User, *, today: date) -> dict[str, An
         if choice.user_id is not None:
             card = load.setdefault(
                 choice.user_id,
-                {"consultants": 0, "conversations": 0, "by_level": Counter()},
+                {
+                    "consultants": 0,
+                    "conversations": 0,
+                    "by_level": Counter(),
+                    "planned": 0,
+                    "done": 0,
+                },
             )
             card["consultants"] += 1
             card["conversations"] += talks
+            card["planned"] += cadence.month_count(contract, own, current)
+            card["done"] += held.get(contract.id, 0)
             if level is not None:
                 card["by_level"][level] += 1
             clients_of[choice.user_id][contract.client_name] += 1
@@ -214,7 +249,14 @@ async def overview(db: AsyncSession, user: User, *, today: date) -> dict[str, An
     cards = []
     for owner_id in owner_ids:
         card = load.get(
-            owner_id, {"consultants": 0, "conversations": 0, "by_level": {}}
+            owner_id,
+            {
+                "consultants": 0,
+                "conversations": 0,
+                "by_level": {},
+                "planned": 0,
+                "done": 0,
+            },
         )
         account = by_id.get(owner_id)
         cards.append(
@@ -232,6 +274,12 @@ async def overview(db: AsyncSession, user: User, *, today: date) -> dict[str, An
                 ],
                 "over_threshold": threshold is not None
                 and card["conversations"] > threshold,
+                "is_tcm": bool(
+                    account and account.has_role(UserRole.talent_community_manager)
+                ),
+                "in_pool": owner_id in pool_ids,
+                "planned_this_month": card["planned"],
+                "done_this_month": card["done"],
             }
         )
     cards.sort(key=lambda card: (-card["consultants"], card["name"].casefold()))
@@ -259,6 +307,7 @@ async def overview(db: AsyncSession, user: User, *, today: date) -> dict[str, An
     return {
         "today": today,
         "month": {"from": month[0], "to": month[1]},
+        "this_month": {"from": current[0], "to": current[1]},
         "counts": {
             "active": len(rows),
             "without_owner": sum(1 for row in rows if row["owner"] is None),

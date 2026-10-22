@@ -449,6 +449,12 @@ export interface OwnerLoad {
   by_level: Partial<Record<CadenceLevel, number>>;
   clients: string[];
   over_threshold: boolean;
+  /** Podpis w „Zespole opiekunów” (P6, 22.10.2026); brak w odpowiedzi sprzed zmiany. */
+  is_tcm?: boolean;
+  in_pool?: boolean;
+  /** Rozmowy w BIEŻĄCYM miesiącu: przewidziane rytmami i zapisane. */
+  planned_this_month?: number;
+  done_this_month?: number;
 }
 
 export type OwnerHint = "contract" | "client" | "delivery_lead" | "default_inactive" | "no_default";
@@ -476,6 +482,8 @@ export interface AssignmentRow {
 export interface CareAssignment {
   today: string;
   month: { from: string; to: string };
+  /** Bieżący miesiąc („Zrobione w …”). */
+  this_month?: { from: string; to: string };
   counts: {
     active: number;
     without_owner: number;
@@ -834,6 +842,13 @@ export interface CardCase {
   source: string;
   /** Negocjacje i treść spoza uprawnień — tylko tytuł, obszar, status, termin i osoba. */
   content_hidden: boolean;
+  /** Osoba ukryta przed czytającym (tytuł zastępczy) — nie pisz „bez osoby”. */
+  assignee_hidden?: boolean;
+  /** Dzień zamknięcia (kalendarz firmy); otwarte — `null`. */
+  closed_on?: string | null;
+  /** Postęp checklisty sprawy (makieta S3: „Wejście konsultanta · 18.09 · 4/4”). */
+  checklist_done?: number;
+  checklist_total?: number;
 }
 
 export interface CardPlanItem {
@@ -912,7 +927,12 @@ export interface CareContractCardSummary {
   cases: CardCase[];
 }
 
-export type ClientQuestionKind = "reports_to" | "area_without_source" | "single_source";
+/** `category_stale` — grupa kategorii słownika („CI/CD i chmura”) bez źródła od 18 miesięcy. */
+export type ClientQuestionKind =
+  | "reports_to"
+  | "area_without_source"
+  | "single_source"
+  | "category_stale";
 
 export interface ClientQuestion {
   key: string;
@@ -944,9 +964,14 @@ export interface ClientStateChanges {
   hiring_source?: string;
 }
 
+/** Wiersz „Co u klienta” w oknie rozmowy. */
+export type ClientStateRowKey = "area" | "manager" | "team" | "technologies" | "vendors" | "project_end";
+
 export interface ClientStatePayload {
   confirmed: true;
   changes: ClientStateChanges;
+  /** Stan wierszy: nieruszony = „same” (potwierdzony datą rozmowy), zmieniony = „change”. */
+  rows?: Partial<Record<ClientStateRowKey, "same" | "change">>;
 }
 
 export interface GapAnswerPayload {
@@ -984,8 +1009,14 @@ export interface CareClientRow {
   health: { ok: number; watch: number; risk: number } | null;
   managers_known: number;
   structure_open: number;
+  /** Pewne propozycje automatu struktury do zatwierdzenia (menedżer + „Podlega pod”). */
+  proposals_certain?: number;
+  /** Każdy nasz ma menedżera, a każdy menedżer „Podlega pod”. */
+  tree_complete?: boolean;
   last_feedback_on: string | null;
   feedback_pending: number;
+  /** Od kiedy czeka najstarsza prośba o opinię (ISO). */
+  feedback_pending_since?: string | null;
   /** `gaps: null` = nie liczone (przybliżenie bez pełnej mapy). */
   map: { last_source_on: string | null; gaps: number | null } | null;
   demand: { skills: string[]; open_jobs: number; hiring_signal: boolean };
@@ -997,6 +1028,8 @@ export interface CareClients {
   scope?: "mine" | "all";
   /** Krąg D11 — zdrowie w wierszach; poza nim `health: null`. */
   health_visible?: boolean;
+  /** „Dziś” serwera (kalendarz firmy) — wiek mapy technologii. */
+  today?: string;
 }
 
 export const FRONT_OFFICE_REASON_LABELS: Record<FrontOfficeReason, string> = {

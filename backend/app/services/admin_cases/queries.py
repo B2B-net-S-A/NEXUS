@@ -26,6 +26,14 @@ inne sprawy, zdrowie) tylko dla kontraktów klientów w swoim zakresie
 zakresu zostaje osoba i klient. Sprawa w karcie i na osi konsultanta bez
 ``may_read`` ma tytuł zastępczy „Sprawa: <obszar>” i nie ma osoby
 (``redact_case_title`` — negocjacje też).
+
+„Moi podopieczni” sam (``mine_care`` bez ``mine``, makieta S2 22.10.2026) =
+sprawy kontraktów, których opiekunem jest czytający, niezależnie od osoby
+prowadzącej — także u opiekuna bez uprawnienia „Sprawy”. Wtedy karta sprawy,
+której czytający nie może otworzyć (``may_read``), ma tytuł zastępczy, bez
+osoby i z ``assignee_hidden``/``content_hidden`` — front nie pisze „bez osoby”
+o ukrytej osobie. Sekcję „Konsultant” w szczególe sprawy widzi tylko obsługa
+Spraw (``is_handler``) — ta sama bramka co propozycje „Kogo dotyczy?”.
 """
 
 from __future__ import annotations
@@ -204,11 +212,15 @@ def _card(
     names: dict[int, str],
     contracts: dict[int, dict[str, Any]],
     today: date,
+    viewer: Optional[User] = None,
 ) -> dict[str, Any]:
     checklist = case.checklist or []
+    # Karta „Moich podopiecznych” bez dostępu do sprawy: tytuł zastępczy,
+    # bez osoby i bez pracownika (``redact_case_title``).
+    hidden = viewer is not None and not may_read(viewer, case)
     return {
         "id": case.id,
-        "title": case.title,
+        "title": (redact_case_title(case, viewer) if hidden else None) or case.title,
         "area": case.area,
         "priority": case.priority,
         "status": case.status,
@@ -219,12 +231,16 @@ def _card(
         ),
         "assignee": (
             {"id": case.assignee_user_id, "name": names.get(case.assignee_user_id)}
-            if case.assignee_user_id
+            if case.assignee_user_id and not hidden
             else None
         ),
+        #: Osoba ukryta przed czytającym — front nie może napisać „bez osoby”.
+        "assignee_hidden": hidden,
+        #: Czytający nie otworzy sprawy (brak ``may_read``) — karta bez linku.
+        "content_hidden": hidden,
         "subject_user": (
             {"id": case.subject_user_id, "name": names.get(case.subject_user_id)}
-            if case.subject_user_id
+            if case.subject_user_id and not hidden
             else None
         ),
         "contract": contracts.get(case.contract_id) if case.contract_id else None,
@@ -274,7 +290,12 @@ async def _cared_contract_ids(
 
 
 async def _chip_counts(
-    db: AsyncSession, scope: list, *, friday: date, cared: set[int]
+    db: AsyncSession,
+    scope: list,
+    *,
+    care_scope: list,
+    friday: date,
+    cared: set[int],
 ) -> dict[str, Any]:
     """Liczniki chipów: otwarte sprawy po obszarze, „na ten tydzień”, „bez osoby”,
     „moi podopieczni”."""
@@ -297,7 +318,7 @@ async def _chip_counts(
             select(func.count(AdminCase.id)).where(
                 AdminCase.status.in_(OPEN_STATUSES),
                 AdminCase.contract_id.in_(sorted(cared)),
-                *scope,
+                *care_scope,
             )
         )
     return {
@@ -314,17 +335,29 @@ async def list_cases(
     today = business_today()
     friday = week_end(today)
     stmt = select(AdminCase)
-    scope = []
-    if filters.mine or not is_handler(viewer):
-        scope.append(AdminCase.assignee_user_id == viewer.id)
+    own = filters.mine or not is_handler(viewer)
+    search: list = []
     term = (filters.q or "").replace("\x00", "").strip()
     if term:
-        scope.append(_search(term))
-    stmt = stmt.where(*scope)
+        # Bez „Spraw” szukamy tylko w sprawach, które czytający może otworzyć —
+        # inaczej ``q`` zgadywałby treść cudzej sprawy podopiecznego (tytuł
+        # zastępczy w ``_card`` nic by nie dał).
+        search.append(
+            _search(term)
+            if is_handler(viewer)
+            else and_(_search(term), AdminCase.assignee_user_id == viewer.id)
+        )
+    scope = [*search, *([AdminCase.assignee_user_id == viewer.id] if own else [])]
     recent = datetime.now(timezone.utc) - timedelta(days=DONE_VISIBLE_DAYS)
-    cared = await _cared_contract_ids(db, viewer, scope, recent=recent)
+    # „Moi podopieczni” bez „Moje” = sprawy kontraktów czytającego bez względu
+    # na osobę prowadzącą (też u opiekuna bez „Spraw”); razem z „Moje” — część
+    # wspólna jak dotąd.
+    care_scope = search if not filters.mine else scope
+    cared = await _cared_contract_ids(db, viewer, care_scope, recent=recent)
     if filters.mine_care:
-        stmt = stmt.where(AdminCase.contract_id.in_(sorted(cared) or [-1]))
+        stmt = stmt.where(*care_scope, AdminCase.contract_id.in_(sorted(cared) or [-1]))
+    else:
+        stmt = stmt.where(*scope)
     if filters.week:
         stmt = stmt.where(
             AdminCase.status.in_(OPEN_STATUSES), AdminCase.due_on <= friday
@@ -381,12 +414,15 @@ async def list_cases(
     )
     return {
         "items": [
-            _card(case, names=names, contracts=contracts, today=today) for case in cases
+            _card(case, names=names, contracts=contracts, today=today, viewer=viewer)
+            for case in cases
         ],
         "total": len(cases),
         "truncated": truncated,
         "done_this_month": int(done_this_month or 0),
-        "counts": await _chip_counts(db, scope, friday=friday, cared=cared),
+        "counts": await _chip_counts(
+            db, scope, care_scope=care_scope, friday=friday, cared=cared
+        ),
         "today": today,
         "week_end": friday,
         "can_manage": is_handler(viewer),
@@ -573,9 +609,14 @@ async def consultant_section(
     forma i koniec (``redact_out_of_scope``).
     Zdrowie relacji tylko krąg D11 (``care.health``). Awaria modułu opieki =
     ``None``, sprawa dalej się otwiera.
+
+    Kartę widzi tylko obsługa Spraw (makieta S4, 22.10.2026 — ta sama bramka
+    co propozycje „Kogo dotyczy?”): osoba przypisana bez uprawnienia „Sprawy”
+    dostaje ``None`` i widzi samą sprawę. ``order_extension_pending`` =
+    kontrakt ma szkic kolejnego zamówienia („przedłużenie w toku”).
     """
 
-    if case.contract_id is None:
+    if case.contract_id is None or not is_handler(viewer):
         return None
     from app.services.care import access as care_access
     from app.services.care import plan as care_plan
@@ -605,6 +646,7 @@ async def consultant_section(
                     AdminCase.status.in_(OPEN_STATUSES),
                 )
             )
+            extension_pending = await order_extension_pending(db, contract.id)
     except Exception:  # noqa: BLE001 — sprawa otwiera się bez sekcji opieki
         logger.exception("[admin_cases] sekcja konsultanta nie policzona")
         return None
@@ -626,6 +668,7 @@ async def consultant_section(
         "role": contract.job_title,
         "form": FORM_LABELS.get(contract.contract_type or ""),
         "order_end_on": contract.end_date,
+        "order_extension_pending": extension_pending,
         "owner_user_id": owner.user_id,
         "owner_name": names.get(owner.user_id) if owner.user_id else None,
         "cadence_label": cadence_label,
@@ -641,6 +684,33 @@ async def consultant_section(
         "health": health.get(contract.id),
     }
     return redact_out_of_scope(section, in_scope=in_scope)
+
+
+async def order_extension_pending(db: AsyncSession, contract_id: int) -> bool:
+    """Czy kontrakt ma szkic kolejnego zamówienia — „przedłużenie w toku”.
+
+    Szkic się liczy, porzucony szkic bez daty końca, bez grupy i bez stawki
+    przychodowej nie (szkic z podpisu umowy — ta sama reguła co
+    ``order_continuation``). Stawka służy tylko do tej decyzji, nie wychodzi.
+    """
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    found = await db.scalar(
+        select(ClientOrder.id)
+        .where(
+            ClientOrder.contract_id == contract_id,
+            ClientOrder.status == ClientOrderStatus.draft,
+            or_(
+                ClientOrder.end_date.is_not(None),
+                ClientOrder.order_group_id.is_not(None),
+                func.coalesce(ClientOrder.rate_client, ClientOrder.md_rate_revenue, 0)
+                > 0,
+            ),
+        )
+        .limit(1)
+    )
+    return found is not None
 
 
 def content_hidden(case: AdminCase, viewer: User) -> bool:
@@ -674,6 +744,8 @@ def contract_case_row(
 
     replaced = redact_case_title(case, viewer)
     return {
+        #: Osoba ukryta przed czytającym — „bez osoby” byłoby nieprawdą.
+        "assignee_hidden": replaced is not None,
         "id": case.id,
         "title": replaced or case.title,
         "area": case.area,

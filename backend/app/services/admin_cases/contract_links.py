@@ -23,11 +23,19 @@ Propozycje liczą się przy ODCZYCIE sprawy bez kontraktu
 (``link_suggestions``), więc kontrakt dodany po mailu też się pojawi, a sprawa
 z importu Compassa (opis „Konsultant: … · klient: …”) dostaje je tak samo.
 Nazwisko konsultanta spoza firmy nadawcy też jest propozycją, ale niżej.
+
+Propozycja mówi, skąd się wzięła (makieta S4, 22.10.2026): ``sender_kind``
+(``consultant`` — mail z adresu konsultanta, ``client_contact`` — z kontaktu
+klienta, ``None`` — samo nazwisko w treści), ``sender_contact_name`` (kontakt
+klienta, który napisał) i ``only_match`` — to jedyny nasz aktywny konsultant
+o tym imieniu i nazwisku u tego klienta („jedyny nasz konsultant o tym
+nazwisku u tego klienta”).
 """
 
 from __future__ import annotations
 
 import unicodedata
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -121,6 +129,35 @@ class LiveContract:
     client_name: Optional[str]
 
 
+SENDER_CONSULTANT = "consultant"
+SENDER_CLIENT_CONTACT = "client_contact"
+
+
+def only_matches(
+    contract_ids: Iterable[int], contracts: Mapping[int, LiveContract]
+) -> frozenset[int]:
+    """Kontrakty, których osoba jest jedyną o tym imieniu i nazwisku u klienta.
+
+    Liczy po ``person_key`` wśród aktywnych kontraktów tego samego klienta —
+    dwóch „Janów Nowaków” u jednego klienta to nie „jedyny nasz konsultant”.
+    """
+
+    counts = Counter(
+        (row.client_id, person_key(row.candidate_name))
+        for row in contracts.values()
+        if person_key(row.candidate_name)
+    )
+    out: set[int] = set()
+    for contract_id in contract_ids:
+        row = contracts.get(contract_id)
+        if row is None:
+            continue
+        key = person_key(row.candidate_name)
+        if key and counts[(row.client_id, key)] == 1:
+            out.add(contract_id)
+    return frozenset(out)
+
+
 def rank_suggestions(
     *,
     by_sender: Sequence[int],
@@ -128,15 +165,21 @@ def rank_suggestions(
     text_named: Sequence[int],
     contracts: Mapping[int, LiveContract],
     limit: int = MAX_SUGGESTIONS,
+    sender_contacts: Optional[Mapping[int, Optional[str]]] = None,
 ) -> list[dict[str, Any]]:
-    """Propozycje w kolejności siły dowodu, każdy kontrakt raz."""
+    """Propozycje w kolejności siły dowodu, każdy kontrakt raz.
 
+    ``sender_contacts``: klient → imię i nazwisko kontaktu, który napisał.
+    """
+
+    contacts = sender_contacts or {}
+    unique = only_matches({*by_sender, *client_named, *text_named}, contracts)
     out: list[dict[str, Any]] = []
     seen: set[int] = set()
-    for ids, template in (
-        (by_sender, REASON_SENDER),
-        (client_named, REASON_CLIENT_MAIL),
-        (text_named, REASON_TEXT),
+    for ids, template, kind in (
+        (by_sender, REASON_SENDER, SENDER_CONSULTANT),
+        (client_named, REASON_CLIENT_MAIL, SENDER_CLIENT_CONTACT),
+        (text_named, REASON_TEXT, None),
     ):
         for contract_id in ids:
             contract = contracts.get(contract_id)
@@ -150,6 +193,13 @@ def rank_suggestions(
                     "candidate_name": contract.candidate_name,
                     "client_name": contract.client_name,
                     "reason": template.format(name=name),
+                    "sender_kind": kind,
+                    "sender_contact_name": (
+                        contacts.get(contract.client_id)
+                        if kind == SENDER_CLIENT_CONTACT
+                        else None
+                    ),
+                    "only_match": contract_id in unique,
                 }
             )
             if len(out) >= limit:
@@ -367,30 +417,37 @@ async def link_new_mail_case(
     return contract_id
 
 
-async def _client_ids_of_senders(db: AsyncSession, emails: Sequence[str]) -> set[int]:
-    """Klienci, których kontaktem jest nadawca (z klientem docelowym scalenia)."""
+async def _contacts_of_senders(
+    db: AsyncSession, emails: Sequence[str]
+) -> dict[int, Optional[str]]:
+    """Klient → kontakt, który napisał (z klientem docelowym scalenia)."""
 
     if not emails:
-        return set()
-    client_ids = set(
-        await db.scalars(
-            select(Contact.client_id).where(
-                func.lower(func.trim(Contact.email)).in_(list(emails))
+        return {}
+    rows = (
+        await db.execute(
+            select(Contact.client_id, Contact.name)
+            .where(func.lower(func.trim(Contact.email)).in_(list(emails)))
+            .order_by(Contact.id.asc())
+        )
+    ).all()
+    contacts: dict[int, Optional[str]] = {}
+    for client_id, name in rows:
+        if client_id is not None:
+            contacts.setdefault(client_id, (name or "").strip() or None)
+    if not contacts:
+        return {}
+    merged = (
+        await db.execute(
+            select(Client.id, Client.merged_into_client_id).where(
+                Client.id.in_(sorted(contacts))
             )
         )
-    )
-    if not client_ids:
-        return set()
-    merged = dict(
-        (
-            await db.execute(
-                select(Client.id, Client.merged_into_client_id).where(
-                    Client.id.in_(sorted(client_ids))
-                )
-            )
-        ).all()
-    )
-    return client_ids | {target for target in merged.values() if target}
+    ).all()
+    for client_id, target in merged:
+        if target:
+            contacts.setdefault(target, contacts.get(client_id))
+    return contacts
 
 
 async def link_suggestions(db: AsyncSession, case: AdminCase) -> list[dict[str, Any]]:
@@ -431,8 +488,8 @@ async def link_suggestions(db: AsyncSession, case: AdminCase) -> list[dict[str, 
     named = names_in_text(
         text_value, {cid: row.candidate_name for cid, row in live.items()}
     )
-    sender_clients = await _client_ids_of_senders(db, senders)
-    client_named = [cid for cid in named if live[cid].client_id in sender_clients]
+    sender_contacts = await _contacts_of_senders(db, senders)
+    client_named = [cid for cid in named if live[cid].client_id in sender_contacts]
     text_named = [cid for cid in named if cid not in client_named]
 
     return rank_suggestions(
@@ -440,4 +497,5 @@ async def link_suggestions(db: AsyncSession, case: AdminCase) -> list[dict[str, 
         client_named=client_named,
         text_named=text_named,
         contracts=live,
+        sender_contacts=sender_contacts,
     )

@@ -25,6 +25,7 @@ import {
   SKIP_REASON_LABELS,
   careKeys,
   useConsultantCard,
+  useHandOffToFrontOffice,
   useUpdatePlanItem,
   type CardCase,
   type CardPlanItem,
@@ -39,15 +40,29 @@ import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { warsawToday } from "@/lib/warsaw-date";
 
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+
 import { CadenceDialog } from "../CadenceDialog";
-import { contractForm } from "../cadence-format";
 import { ClientFeedbackDialog } from "../ClientFeedbackDialog";
 import { ConversationDialog } from "../ConversationDialog";
 import { HEALTH_BADGE, healthLabel, healthWhy } from "../health-format";
 import { SkipPlanItemDialog } from "../SkipPlanItemDialog";
-import { FrontOfficeSection } from "../week/FrontOfficeSection";
+import { FrontOfficeSection, handoffToast } from "../week/FrontOfficeSection";
 import { CardHistory } from "./CardHistory";
-import { cardKpis, casesHeading, openCases, type KpiTone } from "./card-format";
+import {
+  cardKpis,
+  cardSubtitle,
+  caseMeta,
+  caseStatusPill,
+  caseWhen,
+  casesHeading,
+  closedCasesLine,
+  openCases,
+  teamText,
+  type CaseStatusTone,
+  type KpiTone,
+} from "./card-format";
+import { ManagerPicker } from "./ManagerPicker";
 import { NewCaseDialog } from "./NewCaseDialog";
 import { OwnerDialog } from "./OwnerDialog";
 
@@ -80,108 +95,130 @@ function Section({
   );
 }
 
-function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-2 text-sm">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-foreground">{children}</dd>
-    </div>
-  );
-}
-
 function sourceText(card: ConsultantCardData): string | null {
   const source = card.known_project?.source;
   if (!source) return null;
   return [
     source.kind === "tech_card" ? "z karty technologicznej" : "z rozmowy",
-    formatIsoDatePl(source.on),
+    formatDayMonthPl(source.on),
     source.author_name,
   ]
     .filter(Boolean)
     .join(" · ");
 }
 
+function Strong({ children }: { children: ReactNode }) {
+  return <span className="font-medium text-foreground">{children}</span>;
+}
+
+/**
+ * „Co wiemy o projekcie” (makieta P2): skąd wiemy, potem jedna linia
+ * „Dział X · menedżer Y · zespół 9 osób (4 z zewnątrz: A, B)”, technologie
+ * jako chipy i „Klient zatrudnia: …” z cytatem w jednej linii. Brak
+ * menedżera = „Wskaż menedżera” prosto w karcie.
+ */
 function KnownProject({ card }: { card: ConsultantCardData }) {
   const known = card.known_project;
+  const manager = known?.manager ?? null;
+  const managerPart = manager ? (
+    <Strong>{manager.name}</Strong>
+  ) : card.can_edit ? (
+    <ManagerPicker contractId={card.contract_id} clientId={card.client_id} />
+  ) : (
+    <span className="text-muted-foreground">nie wskazano</span>
+  );
   if (!known) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Nic jeszcze nie wiemy o projekcie. Zapytaj przy rozmowie — prawa kolumna okna „Rozmowa”.
-      </p>
+      <div className="space-y-1 text-sm">
+        <p className="text-muted-foreground">
+          Nic jeszcze nie wiemy o projekcie. Zapytaj przy rozmowie — prawa kolumna okna „Rozmowa”.
+        </p>
+        {/* div, nie p — „Wskaż menedżera” rozwija formularz (div w p psuje hydratację). */}
+        <div className="text-muted-foreground">menedżer {managerPart}</div>
+      </div>
     );
   }
-  const team = [
-    known.team_size ? `${known.team_size} osób` : null,
-    known.team_externals != null ? `z zewnątrz ${known.team_externals}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const team = teamText(known.team_size, known.team_externals, known.vendors);
+  const hiringSource =
+    known.hiring?.source && known.hiring.source in HIRING_SOURCE_LABELS
+      ? HIRING_SOURCE_LABELS[known.hiring.source as HiringSource]
+      : null;
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 text-sm">
       <p className="text-xs text-muted-foreground">
         {sourceText(card) ?? "Bez rozmowy o projekcie — to, co wiemy z kontraktu."}
       </p>
-      <dl className="grid gap-1">
-        <Fact label="Dział">{known.area?.name ?? "—"}</Fact>
-        <Fact label="Menedżer">
-          {known.manager
-            ? `${known.manager.name}${known.manager.position ? ` · ${known.manager.position}` : ""}`
-            : "nie wskazano"}
-        </Fact>
-        {team ? <Fact label="Zespół">{team}</Fact> : null}
-        <Fact label="Technologie">
-          {known.technologies.length ? (
-            <ul className="flex flex-wrap gap-1" aria-label="Technologie w projekcie">
-              {known.technologies.map((tech) => (
-                <li
-                  key={tech.skill_id}
-                  className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-xs"
-                >
-                  {tech.name}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            "—"
-          )}
-        </Fact>
-        {known.vendors.length ? <Fact label="Inni dostawcy">{known.vendors.join(", ")}</Fact> : null}
-        {known.project_end_month ? (
-          <Fact label="Koniec projektu">{monthYearPl(known.project_end_month)}</Fact>
-        ) : null}
-        {known.hiring ? (
-          <Fact label="Klient zatrudnia">
-            {known.hiring.roles.join(", ") || "tak"}
-            {known.hiring.source && known.hiring.source in HIRING_SOURCE_LABELS
-              ? ` · ${HIRING_SOURCE_LABELS[known.hiring.source as HiringSource]}`
-              : ""}
-          </Fact>
-        ) : null}
-      </dl>
-      {known.quote ? <q className="block text-sm text-muted-foreground">{known.quote}</q> : null}
+      <div className="text-muted-foreground">
+        Dział {known.area ? <Strong>{known.area.name}</Strong> : "—"} · menedżer {managerPart}
+        {team ? ` · ${team}` : ""}
+        {known.project_end_month ? ` · projekt do ${monthYearPl(known.project_end_month)}` : ""}
+      </div>
+      {known.technologies.length ? (
+        <ul className="flex flex-wrap gap-1" aria-label="Technologie w projekcie">
+          {known.technologies.map((tech) => (
+            <li key={tech.skill_id} className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-xs">
+              {tech.name}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {known.hiring || known.quote ? (
+        <p className="text-muted-foreground">
+          {known.hiring ? (
+            <>
+              Klient zatrudnia: <Strong>{known.hiring.roles.join(", ") || "tak"}</Strong>
+              {hiringSource ? ` (${hiringSource})` : ""}
+            </>
+          ) : null}
+          {known.hiring && known.quote ? " · " : null}
+          {known.quote ? <q>{known.quote}</q> : null}
+        </p>
+      ) : null}
     </div>
   );
 }
 
+const CASE_PILL: Record<CaseStatusTone, "info" | "warning" | "neutral"> = {
+  info: "info",
+  warning: "warning",
+  neutral: "neutral",
+};
+
+/**
+ * Wiersz sprawy (makieta S3): tytuł, „Negocjacje · ręcznie · prowadzi X ·
+ * treść tylko w Sprawach”, po prawej status i termin. Cały wiersz prowadzi do
+ * sprawy w „Ludziach”, gdy czytający może ją otworzyć.
+ */
 function CaseRow({ item }: { item: CardCase }) {
-  const meta = [
-    item.area_label,
-    item.status_label,
-    item.due_on ? `termin ${formatDayMonthPl(item.due_on)}` : null,
-    item.assignee_name ?? "bez osoby",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const pill = caseStatusPill(item);
+  const when = caseWhen(item);
+  const body = (
+    <>
+      <span className="min-w-0">
+        <span className="block font-medium text-foreground">{item.title}</span>
+        <span className={CALM_SUBLINE}>{caseMeta(item)}</span>
+      </span>
+      <span className="flex shrink-0 flex-col items-end gap-0.5">
+        <Badge variant={CASE_PILL[pill.tone]} size="sm">
+          {pill.label}
+        </Badge>
+        {when ? <span className="text-xs tabular-nums text-muted-foreground">{when}</span> : null}
+      </span>
+    </>
+  );
+  const rowClass = "flex items-start justify-between gap-3 py-1.5 text-sm";
   return (
-    <li className="py-1.5 text-sm">
+    <li>
       {item.content_hidden ? (
-        <span className="font-medium">{item.title}</span>
+        <div className={rowClass}>{body}</div>
       ) : (
-        <Link href={`/people/cases/${item.id}`} className="font-medium hover:underline">
-          {item.title}
+        <Link
+          href={`/people/cases/${item.id}`}
+          className={cn(rowClass, "-mx-1.5 rounded-md px-1.5 hover:bg-muted/50")}
+        >
+          {body}
         </Link>
       )}
-      <span className={CALM_SUBLINE}>{meta}</span>
     </li>
   );
 }
@@ -251,15 +288,6 @@ function PlanRow({
 
 type TalkTarget = { planItem: { id: number; label: string } | null };
 
-const KNOWN_FORMS = ["b2b", "uop", "uzlecenie"] as const;
-
-/** „B2B”, „Zlecenie” — forma ze słownika; nieznana zostaje tekstem z serwera. */
-function formText(form: string | null): string | null {
-  if (!form) return null;
-  const known = KNOWN_FORMS.find((value) => value === form);
-  return known ? contractForm(known) : form;
-}
-
 interface ConsultantCardProps {
   contractId: number;
   /** `panel` — panel boczny `/care`; `page` — zakładka „Opieka” kontraktu na pełną szerokość. */
@@ -316,6 +344,8 @@ function CardBody({
   const queryClient = useQueryClient();
   const hr = useHrConfig();
   const restore = useUpdatePlanItem(card.contract_id);
+  const handOff = useHandOffToFrontOffice(card.contract_id);
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [talk, setTalk] = useState<TalkTarget | null>(null);
   const [skipping, setSkipping] = useState<CardPlanItem | null>(null);
   const [cadenceOpen, setCadenceOpen] = useState(false);
@@ -333,31 +363,39 @@ function CardBody({
   const casesOpen = Boolean(hr.data?.open_modules.cases);
   const canOpenCase = casesOpen && Boolean(hr.data?.me.cases || hr.data?.me.is_admin);
   const name = card.candidate_name ?? "Konsultant";
-  const subtitle = [
-    card.role,
-    formText(card.form),
-    card.client_name,
-    card.start_on ? `od ${formatIsoDatePl(card.start_on)}` : null,
-    card.end_on ? `umowa do ${formatIsoDatePl(card.end_on)}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const subtitle = cardSubtitle(card);
   const why = healthWhy(card.health);
-  const ownerLine = [
-    card.owner.name ? `Opiekun: ${card.owner.name}` : "Bez opiekuna",
-    card.owner.source ? OWNER_SOURCE_LABELS[card.owner.source] : null,
-    card.cadence
-      ? `rytm ${card.cadence.label}${card.cadence.until_on ? ` do ${formatDayMonthPl(card.cadence.until_on)}` : ""}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
   const manager = card.known_project?.manager ?? null;
   const step = card.next_step;
   const open = openCases(card.cases);
+  const closedLine = closedCasesLine(card.cases);
 
   const startTalk = (item: CardPlanItem | null) =>
     setTalk({ planItem: item ? { id: item.id, label: item.label } : null });
+
+  const handOffNow = async () => {
+    const matches = step?.matches ?? [];
+    const ok = await askConfirm({
+      title: `Przekazać ${name} do front office?`,
+      description: matches.length
+        ? `Front office dostanie dzwonek z pasującymi rekrutacjami: ${matches.map((job) => job.title).join(", ")}.`
+        : "Front office dostanie dzwonek bez pasujących rekrutacji — dobierze je sam.",
+      confirmLabel: "Przekaż",
+    });
+    if (!ok) return;
+    handOff.mutate(
+      matches.map((job) => job.job_id),
+      {
+        onSuccess: (result) => {
+          const message = handoffToast(result);
+          showToast(message.text, message.tone);
+          // „Następny krok” i historia liczą się od nowa po przekazaniu.
+          void queryClient.invalidateQueries({ queryKey: careKeys.card(card.contract_id) });
+        },
+        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się przekazać do front office."), "error"),
+      },
+    );
+  };
 
   const stepAction = (() => {
     if (!step?.kind) return null;
@@ -373,16 +411,12 @@ function CardBody({
         <Button size="sm" onClick={() => setFeedbackOpen(true)}>
           Rozmowa z menedżerem
         </Button>
-      ) : (
-        <Button size="sm" variant="outline" asChild>
-          <Link href={`/clients/${card.client_id}?tab=ludzie`}>Wskaż menedżera</Link>
-        </Button>
-      );
+      ) : null;
     }
-    if (step.kind === "front_office") {
+    if (step.kind === "front_office" && card.can_edit) {
       return (
-        <Button size="sm" variant={frontOffice ? "ghost" : "primary"} onClick={() => setFrontOffice((v) => !v)}>
-          {frontOffice ? "Zwiń" : "Przekaż do front office"}
+        <Button size="sm" onClick={() => void handOffNow()} loading={handOff.isPending}>
+          Przekaż
         </Button>
       );
     }
@@ -412,15 +446,16 @@ function CardBody({
         ) : null
       }
     >
-      {card.cases.length ? (
+      {open.length ? (
         <ul className="divide-y divide-border/60" aria-label="Sprawy konsultanta">
-          {[...open, ...card.cases.filter((item) => !open.includes(item))].map((item) => (
+          {open.map((item) => (
             <CaseRow key={item.id} item={item} />
           ))}
         </ul>
-      ) : (
+      ) : card.cases.length ? null : (
         <p className="text-sm text-muted-foreground">Brak spraw z tym kontraktem.</p>
       )}
+      {closedLine ? <p className="text-xs text-muted-foreground">{closedLine}</p> : null}
       {casesOpen && !canOpenCase && card.can_edit ? (
         <p className="text-xs text-muted-foreground">
           Sprawę z tym kontraktem założysz w oknie rozmowy („Coś do załatwienia?”).
@@ -489,7 +524,14 @@ function CardBody({
                 </Badge>
               ) : null}
             </div>
-            {subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
+            {subtitle ? (
+              <p
+                className="text-sm text-muted-foreground"
+                title={card.owner.source ? `Opiekun: ${OWNER_SOURCE_LABELS[card.owner.source]}` : undefined}
+              >
+                {subtitle}
+              </p>
+            ) : null}
           </div>
           <div className={cn("flex shrink-0 items-center gap-1.5", layout === "panel" && "pr-10")}>
             {card.can_edit ? (
@@ -531,18 +573,16 @@ function CardBody({
             </DropdownMenu>
           </div>
         </div>
-        {why ? (
+        {why && card.health ? (
           <p className="text-sm text-foreground">
-            <span className="text-muted-foreground">Dlaczego: </span>
-            {why}
+            <span className="font-medium">Dlaczego „{healthLabel(card.health)}”:</span> {why}.
           </p>
         ) : null}
-        <p className="text-xs text-muted-foreground">{ownerLine}</p>
       </header>
 
       <section aria-label="Najważniejsze liczby">
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {cardKpis(card).map((kpi) => (
+          {cardKpis(card, today).map((kpi) => (
             <div key={kpi.label} className="rounded-lg border border-border bg-card px-3 py-2">
               <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 {kpi.label}
@@ -564,25 +604,48 @@ function CardBody({
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Następny krok
               </p>
-              <p className="text-sm font-medium text-foreground">{step.label}</p>
+              <p className="text-sm font-medium text-foreground">
+                {step.label}
+                {step.matches?.length ? (
+                  <>
+                    <span className="font-normal text-muted-foreground"> — pasuje do </span>
+                    <span aria-label="Pasujące rekrutacje" role="list" className="inline">
+                      {step.matches.map((job, index) => (
+                        <span key={job.job_id} role="listitem">
+                          {index > 0 ? (
+                            <span className="font-normal text-muted-foreground">
+                              {index === step.matches!.length - 1 ? " i " : ", "}
+                            </span>
+                          ) : null}
+                          <Link
+                            href={`/jobs/${job.job_id}`}
+                            className="inline-flex items-baseline gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 text-xs font-medium hover:bg-muted"
+                            title={job.client_name ?? undefined}
+                          >
+                            {job.title}
+                            <span className="tabular-nums text-muted-foreground">{job.score}</span>
+                          </Link>
+                        </span>
+                      ))}
+                    </span>
+                  </>
+                ) : null}
+              </p>
               {step.detail ? <p className="text-xs text-muted-foreground">{step.detail}</p> : null}
             </div>
-            {stepAction}
+            <div className="flex shrink-0 items-center gap-1.5">
+              {step.kind === "front_office" ? (
+                <Button size="sm" variant="ghost" onClick={() => setFrontOffice((v) => !v)}>
+                  {frontOffice ? "Zwiń szczegóły" : "Więcej szczegółów"}
+                </Button>
+              ) : null}
+              {stepAction}
+            </div>
           </div>
-          {step.matches?.length && !frontOffice ? (
-            <ul className="space-y-0.5 text-sm" aria-label="Pasujące rekrutacje">
-              {step.matches.map((job) => (
-                <li key={job.job_id}>
-                  <Link href={`/jobs/${job.job_id}`} className="hover:underline">
-                    {job.title}
-                  </Link>
-                  <span className="text-xs text-muted-foreground">
-                    {" "}
-                    · {[job.client_name, `dopasowanie ${job.score}`].filter(Boolean).join(" · ")}
-                  </span>
-                </li>
-              ))}
-            </ul>
+          {step.kind === "feedback" && card.can_see_feedback && !manager ? (
+            <p className="text-xs text-muted-foreground">
+              Najpierw wskaż menedżera w „Co wiemy o projekcie” — opinię zbiera się od niego.
+            </p>
           ) : null}
           {frontOffice ? <FrontOfficeSection contractId={card.contract_id} /> : null}
         </section>
@@ -638,6 +701,7 @@ function CardBody({
           onOpenChange={setCaseOpen}
         />
       ) : null}
+      {confirmDialog}
       {feedbackOpen && manager ? (
         <ClientFeedbackDialog
           clientId={card.client_id}

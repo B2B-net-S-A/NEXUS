@@ -2,7 +2,11 @@
 
 // Kafelki opieki nad konsultantami (22.10.2026):
 // - „Moja opieka” — karty z tablicy „Do zrobienia” (`GET /api/care/board?scope=mine`,
-//   ten sam klucz zapytania co tablica): po terminie i do piątku;
+//   ten sam klucz zapytania co tablica): po terminie i do piątku, a od makiety S2
+//   (22.10.2026) także sprawy przypisane do mnie z terminem do piątku albo po
+//   terminie (`GET /api/cases?mine=true&week=true`) — jedna kolejka. Bez
+//   dostępu do Spraw (403/404) kafelek liczy same karty opieki; inna awaria spraw
+//   to zdanie pod listą, nie cichy brak;
 // - „Zagrożeni konsultanci” — wiersze „Konsultantów” (`GET /api/care/consultants`,
 //   zakres liczy serwer: DL — swój portfel) ze zdrowiem relacji „Ryzyko”.
 // Awaria to blok błędu, nigdy „0”. Bez stawek; zdrowie to poziom i zdanie
@@ -12,6 +16,7 @@ import Link from "next/link"
 
 import { Skeleton } from "@/components/ui/skeleton"
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
+import { useCases, type CaseCard } from "@/lib/api/admin-cases"
 import { useCareConsultants, type ConsultantRow } from "@/lib/api/care"
 import {
   HEALTH_DOT,
@@ -22,7 +27,7 @@ import {
 import { formatIsoDatePl } from "@/lib/date-pl"
 import { countPl } from "@/lib/plural-pl"
 import { cn } from "@/lib/utils"
-import { resolveViewState } from "@/lib/view-state"
+import { httpStatusFromError, resolveViewState } from "@/lib/view-state"
 
 const PREVIEW = 4
 
@@ -46,15 +51,92 @@ function cardHref(card: CareBoardCard): string {
   return card.contract_id ? `/care?contract=${card.contract_id}` : `/care?card=${encodeURIComponent(card.key)}`
 }
 
+function overdueText(days: number): string {
+  return `${days} ${days === 1 ? "dzień" : "dni"} po terminie`
+}
+
 function dueText(card: CareBoardCard): string {
-  if (card.overdue_days > 0) {
-    return `${card.overdue_days} ${card.overdue_days === 1 ? "dzień" : "dni"} po terminie`
-  }
+  if (card.overdue_days > 0) return overdueText(card.overdue_days)
   return card.due_on ? `do ${formatIsoDatePl(card.due_on)}` : "bez terminu"
+}
+
+/** Wiersz kafelka: karta opieki albo sprawa przypisana do mnie. */
+export interface CareMineRow {
+  key: string
+  title: string
+  href: string
+  sub: string
+  overdue: boolean
+  dueOn: string | null
+  health: CareBoardCard["health"]
+}
+
+function daysBetween(fromIso: string, toIso: string): number {
+  const day = (iso: string) => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)))
+  return Math.round((day(toIso) - day(fromIso)) / 86_400_000)
+}
+
+/**
+ * Jedna kolejka „Moja opieka”: karty tablicy po terminie i do piątku oraz
+ * otwarte sprawy przypisane do mnie z terminem do piątku albo po terminie.
+ * Najpierw po terminie (najstarszy termin), potem do piątku.
+ */
+export function careMineRows(
+  board: CareBoard,
+  cases: readonly CaseCard[] = [],
+): { overdue: CareMineRow[]; thisWeek: CareMineRow[] } {
+  const { overdue, thisWeek } = careMineCards(board)
+  const fromCard = (card: CareBoardCard): CareMineRow => ({
+    key: card.key,
+    title: card.title,
+    href: cardHref(card),
+    sub: [card.client_name, dueText(card)].filter(Boolean).join(" · "),
+    overdue: card.overdue_days > 0,
+    dueOn: card.due_on,
+    health: card.health,
+  })
+  const openCases = cases.filter(
+    (item) =>
+      item.status !== "done" &&
+      item.status !== "closed" &&
+      item.due_on !== null &&
+      item.due_on <= board.week_end,
+  )
+  const fromCase = (item: CaseCard): CareMineRow => {
+    const late = item.overdue || (item.due_on !== null && item.due_on < board.today)
+    const due = item.due_on as string
+    return {
+      key: `case:${item.id}`,
+      title: item.title,
+      href: `/people/cases/${item.id}`,
+      sub: [
+        "Sprawa",
+        item.contract?.candidate_name ?? item.contract?.client_name ?? null,
+        late ? overdueText(Math.max(1, daysBetween(due, board.today))) : `do ${formatIsoDatePl(due)}`,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      overdue: late,
+      dueOn: item.due_on,
+      health: item.contract?.health ?? null,
+    }
+  }
+  const byDue = (a: CareMineRow, b: CareMineRow) =>
+    (a.dueOn ?? "9999").localeCompare(b.dueOn ?? "9999")
+  const caseRows = openCases.map(fromCase)
+  return {
+    overdue: [...overdue.map(fromCard), ...caseRows.filter((r) => r.overdue)].sort(byDue),
+    thisWeek: [...thisWeek.map(fromCard), ...caseRows.filter((r) => !r.overdue)].sort(byDue),
+  }
 }
 
 export function CareMineTile() {
   const board = useCareBoard("mine")
+  const cases = useCases({ mine: true, week: true })
+  // Bez dostępu do Spraw albo z wyłączonym modułem — kafelek bez spraw.
+  const casesStatus = httpStatusFromError(cases.error)
+  const casesDenied = cases.isError && (casesStatus === 403 || casesStatus === 404)
+  const casesFailed = cases.isError && !casesDenied
   const state = resolveViewState({
     isLoading: board.isLoading,
     isError: board.isError,
@@ -65,7 +147,7 @@ export function CareMineTile() {
   if (state !== "ready" || !board.data) {
     return <WidgetErrorBlock error={board.error} onRetry={() => board.refetch()} />
   }
-  const { overdue, thisWeek } = careMineCards(board.data)
+  const { overdue, thisWeek } = careMineRows(board.data, cases.data?.items ?? [])
   const rows = [...overdue, ...thisWeek]
   return (
     <div className="flex h-full flex-col gap-2 text-sm">
@@ -88,10 +170,10 @@ export function CareMineTile() {
                 key={card.key}
                 className={cn(
                   "min-w-0 rounded-md border-l-2 py-1 pl-2",
-                  card.overdue_days > 0 ? "border-destructive" : "border-border",
+                  card.overdue ? "border-destructive" : "border-border",
                 )}
               >
-                <Link href={cardHref(card)} className="flex min-w-0 items-center gap-1.5 hover:underline">
+                <Link href={card.href} className="flex min-w-0 items-center gap-1.5 hover:underline">
                   {card.health ? (
                     <span
                       aria-hidden
@@ -104,16 +186,21 @@ export function CareMineTile() {
                 <p
                   className={cn(
                     "truncate text-xs",
-                    card.overdue_days > 0 ? "text-destructive" : "text-muted-foreground",
+                    card.overdue ? "text-destructive" : "text-muted-foreground",
                   )}
                 >
-                  {[card.client_name, dueText(card)].filter(Boolean).join(" · ")}
+                  {card.sub}
                 </p>
               </li>
             ))}
           </ul>
         </>
       )}
+      {casesFailed ? (
+        <p className="text-xs text-muted-foreground">
+          Spraw nie udało się wczytać — kafelek liczy same rozmowy i opinie.
+        </p>
+      ) : null}
       <Link href="/care" className="mt-auto self-start text-sm font-medium text-primary hover:underline">
         Opieka → Do zrobienia
       </Link>

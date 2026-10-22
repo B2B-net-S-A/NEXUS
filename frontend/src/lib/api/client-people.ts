@@ -14,7 +14,7 @@ import { hasRole, type User } from "@/store/auth";
 
 import { careKeys, type PersonRef } from "./care";
 
-export type FeedbackChannel = "phone" | "meeting" | "email";
+export type FeedbackChannel = "phone" | "meeting" | "teams" | "email";
 export type ExtensionOutlook = "yes" | "likely" | "unsure" | "no";
 export type FeedbackReason = "pre_end" | "quarterly";
 export type ScoreField = "quality" | "communication" | "autonomy";
@@ -149,6 +149,7 @@ export interface ContractFeedbackItem {
 export const FEEDBACK_CHANNEL_LABELS: Record<FeedbackChannel, string> = {
   phone: "Telefon",
   meeting: "Spotkanie",
+  teams: "Teams",
   email: "E-mail",
 };
 

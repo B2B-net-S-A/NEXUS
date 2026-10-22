@@ -74,7 +74,7 @@ describe("/preview/hr-client-people", () => {
     window.history.replaceState({}, "", "/preview/hr-client-people?state=popyt");
     render(<HrClientPeoplePreviewPage />);
     const dialog = await screen.findByRole("dialog", {
-      name: "Rozmowa z menedżerem · Bank Przykładowy",
+      name: "Rozmowa z menedżerem · Bank Przykładowy · Płatności",
     });
     fireEvent.click(within(dialog).getByRole("radio", { name: "Potrzeba potwierdzona" }));
     expect(within(dialog).getByRole("button", { name: "Kafka" })).toBeInTheDocument();

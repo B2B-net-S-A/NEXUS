@@ -143,3 +143,42 @@ export function fileSize(bytes: number | null): string {
   }
   return `${Math.max(1, Math.round(bytes / 1024))} kB`;
 }
+
+const POLISH_WORD = /^[a-ząćęłńóśźż]{3,}$/i;
+
+/**
+ * Imię w narzędniku do „Powiąż z Jakubem” (makieta S4, 22.10.2026); `null` =
+ * nie wiemy, jak je odmienić — przycisk mówi wtedy „Powiąż: <imię i nazwisko>”.
+ * Reguły dla polskich imion: -a → -ą (Anna, Kuba), -ek → -kiem (Marek),
+ * -eł → -łem (Paweł), -k/-g → -iem (Patryk), -y/-i → -m (Jerzy, Antoni),
+ * inna spółgłoska → -em (Jakub, Michał). Imię na -e, -o, -u i obce znaki — `null`.
+ */
+export function firstNameInstrumental(fullName: string | null | undefined): string | null {
+  const first = (fullName ?? "").trim().split(/\s+/)[0] ?? "";
+  if (!POLISH_WORD.test(first)) return null;
+  const lower = first.toLocaleLowerCase("pl");
+  if (lower.endsWith("a")) return `${first.slice(0, -1)}ą`;
+  if (lower.endsWith("ek")) return `${first.slice(0, -2)}kiem`;
+  if (lower.endsWith("eł")) return `${first.slice(0, -2)}łem`;
+  if (/[kg]$/.test(lower)) return `${first}iem`;
+  if (/[yi]$/.test(lower)) return `${first}m`;
+  if (/[eouąęó]$/.test(lower)) return null;
+  return `${first}em`;
+}
+
+/**
+ * Etykiety „Powiąż z …” dla propozycji „Kogo dotyczy?”: imię w narzędniku,
+ * a gdy dwie propozycje mają to samo imię albo imienia nie da się odmienić —
+ * pełne imię i nazwisko („Powiąż: Jan Nowak”).
+ */
+export function linkButtonLabels(
+  names: readonly (string | null)[],
+): string[] {
+  const firsts = names.map((name) => (name ?? "").trim().split(/\s+/)[0]?.toLocaleLowerCase("pl") ?? "");
+  return names.map((name, index) => {
+    const unique = firsts.filter((first) => first && first === firsts[index]).length === 1;
+    const instrumental = unique ? firstNameInstrumental(name) : null;
+    if (instrumental) return `Powiąż z ${instrumental}`;
+    return name ? `Powiąż: ${name}` : "Powiąż";
+  });
+}

@@ -9,21 +9,12 @@ import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   HIRING_SOURCE_LABELS,
   useAddStackNote,
-  useCareOwners,
   useClientTechMap,
-  useSetClientDefaultOwner,
   type ClientTechMap,
   type TechGap,
 } from "@/lib/api/care";
@@ -38,8 +29,6 @@ import { useAuthStore } from "@/store/auth";
 import { gapQuestion } from "./tech-gaps";
 import { TechHeatmap } from "./TechHeatmap";
 import { UnlinkedCardsPanel } from "./UnlinkedCardsPanel";
-
-const DEFAULT_OWNER = "none";
 
 export function StackNoteDialog({ clientId, onClose }: { clientId: number; onClose: () => void }) {
   const { showToast } = useToast();
@@ -108,10 +97,11 @@ export function GapsCard({
   onAddNote: (() => void) | null;
 }) {
   return (
-    <section className="space-y-2 rounded-lg border border-border bg-card p-4">
+    <section className="space-y-2 rounded-lg border border-border bg-card p-4" data-help="client.people.gaps">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Luki do dopytania</h3>
-        <Badge variant={gaps.length ? "warning" : "neutral"}>{gaps.length}</Badge>
+        <h3 className="text-sm font-semibold">
+          Luki do dopytania <span className="tabular-nums text-muted-foreground">· {gaps.length}</span>
+        </h3>
       </div>
       {gaps.length ? (
         <ul className="text-sm" aria-label="Luki do dopytania">
@@ -123,8 +113,11 @@ export function GapsCard({
                 title={item.question}
                 className={cn("flex flex-col gap-0.5 py-2", index > 0 && "border-t border-border/60")}
               >
-                <span className="font-semibold">{item.subject}</span>
-                <span className="text-xs text-muted-foreground">{item.detail}</span>
+                <span>
+                  <span className="font-semibold">{item.subject}</span>
+                  <span className="text-muted-foreground"> — {item.detail}</span>
+                  <span className="text-xs text-muted-foreground"> · pytanie w najbliższej rozmowie</span>
+                </span>
                 {gap.kind === "manager_unplaced" ? (
                   <Link
                     href={`/clients/${clientId}?tab=ludzie&view=drzewo`}
@@ -149,50 +142,10 @@ export function GapsCard({
         <p className="text-sm text-muted-foreground">Nie ma luk do dopytania.</p>
       )}
       <p className="border-t border-border/60 pt-2 text-xs text-muted-foreground">
-        Pytania pokazują się w oknie rozmowy z konsultantami tego klienta.
+        Każda luka trafia jako pytanie do okna „Rozmowa” konsultanta tego klienta — przy najbliższej
+        rozmowie.
       </p>
     </section>
-  );
-}
-
-export function DefaultOwner({ map, clientId }: { map: ClientTechMap; clientId: number }) {
-  const { showToast } = useToast();
-  const owners = useCareOwners(map.can_edit);
-  const save = useSetClientDefaultOwner(clientId);
-  if (!map.can_edit) {
-    return <span className="text-sm">{map.default_owner?.name ?? "Delivery Lead kontraktu"}</span>;
-  }
-  return (
-    <Select
-      value={map.default_owner ? String(map.default_owner.id) : DEFAULT_OWNER}
-      disabled={save.isPending}
-      onValueChange={(next) =>
-        save.mutate(next === DEFAULT_OWNER ? null : Number(next), {
-          onSuccess: () => showToast("Domyślny opiekun zapisany", "success"),
-          onError: (err) =>
-            showToast(apiErrorMessage(err, "Nie udało się zapisać opiekuna."), "error"),
-        })
-      }
-    >
-      <SelectTrigger aria-label="Domyślny opiekun konsultantów klienta" className="h-8">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={DEFAULT_OWNER}>Delivery Lead kontraktu</SelectItem>
-        {/* Opiekun spoza listy (wykluczony z puli, nieaktywne konto) — inaczej
-            pole byłoby puste, jak gdyby opiekuna nie było. */}
-        {map.default_owner && owners.isSuccess && !owners.data.some((o) => o.id === map.default_owner?.id) ? (
-          <SelectItem value={String(map.default_owner.id)}>
-            {map.default_owner.name} (spoza listy opiekunów)
-          </SelectItem>
-        ) : null}
-        {(owners.data ?? []).map((owner) => (
-          <SelectItem key={owner.id} value={String(owner.id)}>
-            {owner.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
   );
 }
 
@@ -345,16 +298,12 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
             </div>
           </section>
           <section className="space-y-2 rounded-lg border border-border bg-card p-4">
-            <h3 className="text-sm font-semibold">Dostawcy i opiekun</h3>
+            <h3 className="text-sm font-semibold">Dostawcy u klienta</h3>
             <p className="text-sm">
               {map.vendors.length
                 ? map.vendors.map((vendor) => vendor.name).join(", ")
                 : <span className="text-muted-foreground">Nikt nie wskazał dostawców.</span>}
             </p>
-            <div className="grid gap-1">
-              <span className="text-xs text-muted-foreground">Domyślny opiekun konsultantów</span>
-              <DefaultOwner map={map} clientId={clientId} />
-            </div>
           </section>
           {map.notes.length ? (
             <section className="space-y-2 rounded-lg border border-border bg-card p-4">

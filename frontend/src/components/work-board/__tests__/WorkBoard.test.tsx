@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CaseCard, CaseDetail, CaseList } from "@/lib/api/admin-cases";
+import type { CareContractCardSummary } from "@/lib/api/care";
 import type { CareBoard, CareBoardCard } from "@/lib/api/care-board";
 import type { HrConfig } from "@/lib/api/hr";
 
@@ -64,12 +65,14 @@ function careCard(overrides: Partial<CareBoardCard>): CareBoardCard {
     column: "new",
     title: "Rozmowa: Anna Przykładowa",
     subtitle: "Bank Przykładowy · menedżer: Jan Wzorcowy",
-    reason_label: "dzień 30",
+    reason_label: "Dzień 30",
+    reason_kind: "day_30",
     due_on: "2026-10-20",
     overdue_days: 2,
     scheduled_at: null,
     retry_on: null,
     note_excerpt: "Chce więcej backendu.",
+    note_on: "2026-09-26",
     contract_id: 10,
     candidate_id: 20,
     client_id: 30,
@@ -139,6 +142,7 @@ interface Routes {
   cases?: CaseList | { error: number };
   board?: CareBoard;
   detail?: CaseDetail;
+  summary?: CareContractCardSummary;
 }
 
 function route(routes: Routes) {
@@ -150,6 +154,9 @@ function route(routes: Routes) {
         : Promise.resolve({ data: value });
     }
     if (url === "/api/care/board") return Promise.resolve({ data: routes.board ?? board([]) });
+    if (/^\/api\/care\/contracts\/\d+\/card$/.test(url) && routes.summary) {
+      return Promise.resolve({ data: routes.summary });
+    }
     if (url.startsWith("/api/cases/") && routes.detail) return Promise.resolve({ data: routes.detail });
     return Promise.reject({ response: { status: 404 } });
   });
@@ -194,6 +201,8 @@ describe("tablica pracy — Ludzie → Sprawy z opieką", () => {
             client_name: "Telekom Wzorcowy",
             start_date: null,
             end_date: null,
+            care_owner_user_id: 5,
+            care_owner_name: "Natalia Opiekuńcza",
             health: { level: "watch", label: "Uwaga", reasons: ["zaległa rozmowa"] },
           },
         }),
@@ -205,20 +214,30 @@ describe("tablica pracy — Ludzie → Sprawy z opieką", () => {
 
     const tile = await screen.findByRole("listitem", { name: "Rozmowa: Anna Przykładowa" });
     expect(within(tile).getByText("Opieka")).toBeInTheDocument();
-    expect(within(tile).getByText("po terminie · 20.10")).toBeInTheDocument();
+    expect(within(tile).getByText("rozmowa · dzień 30")).toBeInTheDocument();
+    expect(within(tile).getByText("2 dni po")).toBeInTheDocument();
     expect(within(tile).getByText("Ryzyko")).toBeInTheDocument();
-    expect(within(tile).getByText("„Chce więcej backendu.”")).toBeInTheDocument();
+    expect(within(tile).getByText("„Chce więcej backendu.” · 26.09")).toBeInTheDocument();
     // Bez okien opieki (Ludzie → Sprawy) akcja prowadzi do karty konsultanta w /care.
     expect(within(tile).getByRole("link", { name: /^Zapisz rozmowę/ })).toHaveAttribute(
       "href",
       "/care?contract=10",
     );
     const caseTile = screen.getByRole("listitem", { name: "Negocjacje stawki: Karolina Przykładowa" });
-    expect(within(caseTile).getByText(/Zdrowie relacji: Uwaga/)).toBeInTheDocument();
+    // K1: „Telekom Wzorcowy · Uwaga · opiekun NO” i link do karty konsultanta.
+    expect(within(caseTile).getByText("Uwaga")).toBeInTheDocument();
+    expect(within(caseTile).getByText(/opiekun NO/)).toBeInTheDocument();
+    expect(within(caseTile).getByRole("link", { name: /Karta konsultanta/ })).toHaveAttribute(
+      "href",
+      "/care?contract=11",
+    );
     expect(screen.getByRole("button", { name: "Opieka 1" })).toBeInTheDocument();
-    expect(screen.getByText("Opieka: 2 w tym tygodniu")).toBeInTheDocument();
+    // „Zrobione”: jedna liczba (4 sprawy z miesiąca + 2 z opieki z tygodnia).
+    expect(screen.getByText("4 sprawy w miesiącu · 2 rozmowy i opinie w tym tygodniu")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Bez osoby/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Moi podopieczni 3" }));
+    // 3 sprawy moich konsultantów (serwer) + moja karta opieki.
+    await user.click(screen.getByRole("button", { name: "Moi podopieczni 4" }));
     await waitFor(() =>
       expect(mocks.apiGet).toHaveBeenCalledWith("/api/cases", {
         params: { mine_care: "true" },
@@ -463,7 +482,7 @@ describe("panel boczny karty", () => {
     const panel = await screen.findByRole("dialog");
     expect(await within(panel).findByText("Czekam na księgowość.")).toBeInTheDocument();
     expect(within(panel).getByText("Sprawdzić w księgowości")).toBeInTheDocument();
-    expect(within(panel).getByText("co miesiąc")).toBeInTheDocument();
+    expect(within(panel).getByText(/rytm: co miesiąc/)).toBeInTheDocument();
     expect(within(panel).getByRole("link", { name: /Otwórz kartę konsultanta/ })).toHaveAttribute(
       "href",
       "/care?contract=11",
@@ -501,12 +520,201 @@ describe("panel boczny karty", () => {
     const panel = await screen.findByRole("dialog");
     expect(await within(panel).findByText("Kogo dotyczy?")).toBeInTheDocument();
     expect(mocks.apiPatch).not.toHaveBeenCalled();
-    await user.click(within(panel).getByRole("button", { name: /Powiąż z Anna Kontraktorska/ }));
+    await user.click(within(panel).getByRole("button", { name: /^Powiąż/ }));
     await waitFor(() =>
       expect(mocks.apiPatch).toHaveBeenCalledWith("/api/cases/7", {
         contract_id: 15,
         expected_updated_at: "2026-10-16T08:00:00Z",
       }),
     );
+  });
+});
+
+describe("domknięcie makiet 22.10.2026", () => {
+  it("„Moi podopieczni” bez uprawnienia „Sprawy” pyta o sprawy moich konsultantów, nie o moje", async () => {
+    asUser("talent_community_manager");
+    route({ cases: list([], { can_manage: false }), board: board([careCard({})]) });
+    const user = userEvent.setup();
+    renderBoard({}, config(false));
+
+    await user.click(await screen.findByRole("button", { name: /^Moi podopieczni/ }));
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith("/api/cases", { params: { mine_care: "true" } }),
+    );
+  });
+
+  it("w Opiece sprawa stoi tylko z terminem do piątku albo po terminie", async () => {
+    asUser("talent_community_manager");
+    route({
+      cases: list([
+        caseCard({ id: 21, title: "Zaległa sprawa", due_on: "2026-10-19", overdue: true }),
+        caseCard({ id: 22, title: "Sprawa na listopad", due_on: "2026-11-20" }),
+      ]),
+      board: board([]),
+    });
+    renderBoard({ scope: "care" });
+
+    expect(await screen.findByText("Zaległa sprawa")).toBeInTheDocument();
+    expect(screen.queryByText("Sprawa na listopad")).toBeNull();
+  });
+
+  it("`?filter=rozmowy` na liście: chip aktywny, tylko rozmowy; postęp tygodnia", async () => {
+    asUser("talent_community_manager", 5);
+    route({
+      cases: { error: 403 },
+      board: {
+        ...board([
+          careCard({}),
+          careCard({ key: "decision:4", kind: "decision", title: "Bartosz Testowy", due_on: null, overdue_days: 0 }),
+        ]),
+        week_progress: { done: 2, total: 6 },
+      },
+    });
+    renderBoard({ scope: "care", initialView: "list", initialFilter: "contact" }, config(false));
+
+    expect(await screen.findByRole("button", { name: "Rozmowy 1" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Wszystko 2" })).toBeInTheDocument();
+    expect(screen.queryByText("Bartosz Testowy")).toBeNull();
+    expect(screen.getByText(/Ten tydzień:/).textContent).toBe("Ten tydzień: 2 z 6 zapisane");
+  });
+
+  it("klik w osobę na liście otwiera kartę konsultanta, klient prowadzi do „Ludzie i technologie”", async () => {
+    asUser("talent_community_manager", 5);
+    route({ cases: { error: 403 }, board: board([careCard({ title: "Anna Przykładowa" })]) });
+    const onOpenContract = vi.fn();
+    const user = userEvent.setup();
+    renderBoard({ scope: "care", initialView: "list", onOpenContract }, config(false));
+
+    await user.click(await screen.findByRole("button", { name: "Karta konsultanta: Anna Przykładowa" }));
+    expect(onOpenContract).toHaveBeenCalledWith(10);
+    expect(screen.getByRole("link", { name: "Bank Przykładowy" })).toHaveAttribute("href", "/clients/30?tab=ludzie");
+  });
+
+  it("decyzja na „Zrobione”: wybór „Nie dotyczy” odrzuca wpis „Do przepięcia”", async () => {
+    asUser("talent_community_manager");
+    route({
+      cases: { error: 403 },
+      board: board([careCard({ key: "decision:4", kind: "decision", title: "Bartosz Testowy", due_on: null, overdue_days: 0 })]),
+    });
+    mocks.apiPatch.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    renderBoard({ scope: "care" }, config(false));
+
+    await user.click(await screen.findByRole("button", { name: "Przenieś do…: Decyzja: Bartosz Testowy" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Zrobione" }));
+    const dialog = await screen.findByRole("dialog", { name: "Jak zamknąć decyzję?" });
+    await user.click(within(dialog).getByRole("button", { name: /Nie dotyczy/ }));
+    await waitFor(() =>
+      expect(mocks.apiPatch).toHaveBeenCalledWith("/api/care/redeploy/4", { status: "dismissed" }),
+    );
+  });
+
+  it("decyzja z samego końca zamówienia: najpierw wpis (PUT), potem „Przekazana”", async () => {
+    asUser("talent_community_manager");
+    route({
+      cases: { error: 403 },
+      board: board([
+        careCard({ key: "decision:end:10", kind: "decision", title: "Bartosz Testowy", due_on: "2026-11-30", overdue_days: 0 }),
+      ]),
+    });
+    mocks.apiPut.mockResolvedValue({ data: { key: "decision:77", column: "in_progress" } });
+    mocks.apiPatch.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    renderBoard({ scope: "care" }, config(false));
+
+    await user.click(await screen.findByRole("button", { name: "Przenieś do…: Decyzja: Bartosz Testowy" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Zrobione" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /Przekazana/ }));
+    await waitFor(() =>
+      expect(mocks.apiPatch).toHaveBeenCalledWith("/api/care/redeploy/77", { status: "done" }),
+    );
+    expect(mocks.apiPut).toHaveBeenCalledWith("/api/care/board/state", {
+      key: "decision:end:10",
+      column: "in_progress",
+    });
+  });
+
+  it("decyzja „Czeka” zapisuje się bez pytania o datę (czeka na front office)", async () => {
+    asUser("talent_community_manager");
+    route({
+      cases: { error: 403 },
+      board: board([careCard({ key: "decision:4", kind: "decision", title: "Bartosz Testowy", due_on: null, overdue_days: 0 })]),
+    });
+    mocks.apiPut.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    renderBoard({ scope: "care" }, config(false));
+
+    await user.click(await screen.findByRole("button", { name: "Przenieś do…: Decyzja: Bartosz Testowy" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Czeka na kogoś" }));
+    await waitFor(() =>
+      expect(mocks.apiPut).toHaveBeenCalledWith("/api/care/board/state", { key: "decision:4", column: "waiting" }),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("panel karty rozmowy (K2): przeniesienie z podpowiedzią, skrót osoby, jej sprawy otwierają ten sam panel", async () => {
+    asUser("talent_community_manager");
+    const summary: CareContractCardSummary = {
+      contract_id: 10,
+      candidate_id: 20,
+      candidate_name: "Anna Przykładowa",
+      client_id: 30,
+      client_name: "Bank Przykładowy",
+      role: "QA",
+      form: "B2B",
+      start_on: "2026-01-01",
+      end_on: null,
+      owner: { user_id: 5, name: "Natalia Opiekuńcza", source: "contract" },
+      cadence: { level: "biweekly", label: "co 2 tygodnie", until_on: null },
+      health: null,
+      kpis: {
+        last_contact: { on: "2026-09-26", days_ago: 26 },
+        satisfaction: { value: 5, previous: null },
+        order_end: { on: "2026-11-15", days: 24 },
+      },
+      known_project: { manager: { contact_id: 3, name: "Katarzyna Kierownicza", position: null } },
+      cases: [
+        {
+          id: 931,
+          title: "Negocjacje stawki",
+          area: "negotiation",
+          area_label: "Negocjacje",
+          status: "in_progress",
+          status_label: "W toku",
+          due_on: "2026-10-27",
+          follow_up_on: null,
+          assignee_name: "Natalia Opiekuńcza",
+          source: "manual",
+          content_hidden: true,
+        },
+      ],
+    };
+    route({
+      cases: { error: 403 },
+      board: board([careCard({ title: "Anna Przykładowa", role_label: "QA" })]),
+      summary,
+    });
+    const user = userEvent.setup();
+    renderBoard({ scope: "care", initialSelectedKey: "contact:plan:1" }, config(false));
+
+    const panel = await screen.findByRole("dialog");
+    expect(within(panel).getByText("Opieka · rozmowa · dzień 30 · 2 dni po terminie")).toBeInTheDocument();
+    expect(within(panel).getByText("QA · Bank Przykładowy · opiekun Natalia O.")).toBeInTheDocument();
+    const move = within(panel).getByRole("group", { name: "Przenieś na tablicy" });
+    expect(within(move).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Nowado zrobienia",
+      "W toku · Umówionapodaj dzień i godzinę",
+      "Czeka · Nie odbieraspróbować ponownie dnia…",
+    ]);
+    expect(within(panel).queryByRole("button", { name: "Zrobione" })).toBeNull();
+    expect(await within(panel).findByText("Konsultant w skrócie")).toBeInTheDocument();
+    expect(within(panel).getByText("15.11 · za 24 dni")).toBeInTheDocument();
+    expect(within(panel).getByText("Sprawy tej osoby · 1")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Pomiń z powodem" })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Zmień rytm" })).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole("button", { name: "Sprawa: Negocjacje stawki" }));
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith("/api/cases/931"));
+    expect(await screen.findByRole("link", { name: /Pełny widok sprawy/ })).toHaveAttribute("href", "/people/cases/931");
   });
 });

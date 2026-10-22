@@ -30,7 +30,9 @@ import type { ConsultantRow } from "@/lib/api/care"
 import type { HrConfig, HrModuleKey } from "@/lib/api/hr"
 import { HR_TILE_TYPES, hrTileGate } from "@/lib/dashboard-tiles/catalog"
 
-import { CareAtRiskTile, CareMineTile, atRiskRows, careMineCards } from "../CareTiles"
+import type { CaseCard } from "@/lib/api/admin-cases"
+
+import { CareAtRiskTile, CareMineTile, atRiskRows, careMineCards, careMineRows } from "../CareTiles"
 
 function wrap(node: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -92,6 +94,44 @@ describe("careMineCards", () => {
   })
 })
 
+function caseCard(id: number, due: string | null, overdue: boolean, status: CaseCard["status"] = "new"): CaseCard {
+  return {
+    id,
+    title: `Sprawa ${id}`,
+    area: "administration",
+    priority: "P2",
+    status,
+    due_on: due,
+    follow_up_on: null,
+    overdue,
+    assignee: { id: 1, name: "Kamil Testowy" },
+    subject_user: null,
+    contract: null,
+    source: "mail",
+    checklist_done: 0,
+    checklist_total: 0,
+    created_at: "2026-10-20T08:00:00Z",
+    updated_at: "2026-10-20T08:00:00Z",
+    closed_at: null,
+  }
+}
+
+describe("careMineRows", () => {
+  it("sprawy przypisane do mnie po terminie i do piątku dochodzą do kolejki (S2)", () => {
+    const { overdue, thisWeek } = careMineRows(BOARD, [
+      caseCard(7, "2026-10-18", true),
+      caseCard(8, "2026-10-23", false),
+      caseCard(9, "2026-10-29", false),
+      caseCard(10, "2026-10-19", true, "done"),
+    ])
+    expect(overdue.map((r) => r.key)).toEqual(["d", "case:7", "a"])
+    expect(thisWeek.map((r) => r.key)).toEqual(["b", "case:8"])
+    const late = overdue.find((r) => r.key === "case:7")!
+    expect(late.href).toBe("/people/cases/7")
+    expect(late.sub).toBe("Sprawa · 4 dni po terminie")
+  })
+})
+
 describe("atRiskRows", () => {
   it("tylko „Ryzyko”; serwer bez pola zdrowia = nikt", () => {
     const rows = [row(1, "Zofia Z", "risk"), row(2, "Adam A", "watch"), row(3, "Bartek B", "risk"), row(4, "C", null)]
@@ -106,6 +146,23 @@ describe("CareMineTile / CareAtRiskTile", () => {
     expect(await screen.findByText("2 po terminie")).toBeInTheDocument()
     expect(screen.getByText(/1 do piątku/)).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Opieka → Do zrobienia" })).toHaveAttribute("href", "/care")
+  })
+
+  it("„Moja opieka” liczy też moje sprawy; bez dostępu do Spraw — same karty", async () => {
+    routes = {
+      "/api/care/board": BOARD,
+      "/api/cases": { items: [caseCard(7, "2026-10-18", true)], total: 1, truncated: false, done_this_month: 0, can_manage: false },
+    }
+    wrap(<CareMineTile />)
+    expect(await screen.findByText("3 po terminie")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Sprawa 7" })).toHaveAttribute("href", "/people/cases/7")
+  })
+
+  it("awaria spraw (500) to zdanie pod listą, karty opieki zostają", async () => {
+    routes = { "/api/care/board": BOARD }
+    wrap(<CareMineTile />)
+    expect(await screen.findByText(/Spraw nie udało się wczytać/)).toBeInTheDocument()
+    expect(screen.getByText("2 po terminie")).toBeInTheDocument()
   })
 
   it("awaria tablicy to blok błędu, nie „0”", async () => {

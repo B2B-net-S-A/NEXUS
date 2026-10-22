@@ -1,8 +1,6 @@
 "use client";
 
-import { AppModal } from "@/components/ds/AppModal";
 import { useToast } from "@/components/Toast";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -79,52 +77,40 @@ function ClientRow({
   );
 }
 
-/** „Domyślni opiekunowie klientów” — nowe kontrakty klienta dostają go same. */
-export function ClientDefaultOwnersDialog({
-  data,
-  open,
-  onOpenChange,
-}: {
-  data: CareAssignment;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+/**
+ * „Domyślni opiekunowie klientów” — nowe kontrakty klienta dostają go same.
+ * Jedyne miejsce zapisu: okno „Ustawienia przydziału” w „Zespole opiekunów”
+ * (makieta P6, 22.10.2026).
+ */
+export function ClientDefaultOwnersTable({ data }: { data: CareAssignment }) {
   return (
-    <AppModal
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Domyślni opiekunowie klientów"
-      description="Kontrakt bez wskazanego opiekuna dostaje domyślnego opiekuna klienta, a bez niego Delivery Leada."
-      size="lg"
-      footer={
-        <Button variant="ghost" onClick={() => onOpenChange(false)}>
-          Zamknij
-        </Button>
-      }
-    >
-      <table className="w-full text-sm" aria-label="Domyślni opiekunowie klientów">
-        <thead>
-          <tr className={CALM_ROW}>
-            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Klient</th>
-            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Domyślny opiekun</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.clients.map((client) => (
-            <ClientRow
-              key={client.id}
-              client={client}
-              choices={data.owner_choices}
-              canEdit={data.can_edit_defaults}
-            />
-          ))}
-        </tbody>
-      </table>
-      {!data.can_edit_defaults ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          Domyślnego opiekuna zmieniają Delivery Lead klienta, Talent Community Manager i administrator.
-        </p>
-      ) : null}
-    </AppModal>
+    <div className="space-y-2">
+      <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+        <table className="w-full text-sm" aria-label="Domyślni opiekunowie klientów">
+          <thead>
+            <tr className={CALM_ROW}>
+              <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Klient</th>
+              <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Domyślny opiekun</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.clients.map((client) => (
+              <ClientRow
+                key={client.id}
+                client={client}
+                choices={data.owner_choices}
+                canEdit={data.can_edit_defaults}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Kontrakt bez wskazanego opiekuna dostaje domyślnego opiekuna klienta, a bez niego Delivery Leada.
+        {data.can_edit_defaults
+          ? ""
+          : " Domyślnego opiekuna zmieniają Delivery Lead klienta, Talent Community Manager i administrator."}
+      </p>
+    </div>
   );
 }

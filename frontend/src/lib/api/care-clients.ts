@@ -68,7 +68,7 @@ export interface FeedbackSaveResult {
   /** Sesja opinii; `null`, gdy zapis był samym rozstrzygnięciem popytu (bez menedżera). */
   id: number | null;
   contract_ids: number[];
-  /** Tylko dla `confirmed`: `/jobs/new?client=…&hm=…&skills=…&title=…`. */
+  /** Tylko dla `confirmed`: `/jobs/new?client=…&hm=…&skills=…&title=…&dept=…&headcount=…&start=…`. */
   jobs_new_url?: string | null;
   /** Klucze kart popytu zamkniętych tym zapisem. */
   demand_keys?: string[];
@@ -96,17 +96,29 @@ export function jobsNewHref({
   hmId,
   skillIds,
   title,
+  department,
+  headcount,
+  startMonth,
 }: {
   clientId: number;
   hmId?: number | null;
   skillIds?: readonly number[];
   title?: string | null;
+  /** Od makiety R4: dział, liczba osób i miesiąc startu („RRRR-MM”) — lustro `demand.jobs_new_url`. */
+  department?: string | null;
+  headcount?: number | null;
+  startMonth?: string | null;
 }): string {
   const params = new URLSearchParams({ client: String(clientId) });
   if (hmId != null && hmId > 0) params.set("hm", String(hmId));
   const skills = (skillIds ?? []).filter((id) => Number.isInteger(id) && id > 0);
   if (skills.length) params.set("skills", skills.join(","));
   if (title?.trim()) params.set("title", title.trim());
+  if (department?.trim()) params.set("dept", department.trim());
+  if (headcount != null && Number.isInteger(headcount) && headcount >= 1) {
+    params.set("headcount", String(headcount));
+  }
+  if (startMonth) params.set("start", startMonth);
   // `URLSearchParams` koduje przecinek — w adresie zostaje czytelna lista id.
   return `/jobs/new?${params.toString().replace(/%2C/g, ",")}`;
 }

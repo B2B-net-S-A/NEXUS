@@ -596,17 +596,27 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   }, [clientParam, fromParam, showError]);
 
   // „Nowa rekrutacja z działu” i potwierdzony popyt (22.10.2026):
-  // `?hm=<kontakt>&skills=<id,id>&title=` wypełniają tylko PUSTE pola
+  // `?hm=<kontakt>&skills=<id,id>&title=&dept=&headcount=&start=` wypełniają tylko PUSTE pola
   // (`lib/job-new-params.ts`); `?from=` ma pierwszeństwo. Nazwy umiejętności
   // daje mapa technologii klienta (to z niej pochodzą id), menedżera — lista
   // hiring managerów klienta. Awaria którejś = pole zostaje puste i zdanie.
   const hmParam = searchParams?.get("hm") ?? null;
   const skillsParam = searchParams?.get("skills") ?? null;
   const titleParam = searchParams?.get("title") ?? null;
+  const deptParam = searchParams?.get("dept") ?? null;
+  const headcountParam = searchParams?.get("headcount") ?? null;
+  const startParam = searchParams?.get("start") ?? null;
   useEffect(() => {
     const clientId = clientParam ? Number(clientParam) : NaN;
     if (fromParam || !Number.isInteger(clientId) || clientId <= 0) return;
-    const prefill = parseJobPrefill({ hm: hmParam, skills: skillsParam, title: titleParam });
+    const prefill = parseJobPrefill({
+      hm: hmParam,
+      skills: skillsParam,
+      title: titleParam,
+      dept: deptParam,
+      headcount: headcountParam,
+      start: startParam,
+    });
     if (!hasJobPrefill(prefill)) return;
     let cancelled = false;
     void (async () => {
@@ -630,6 +640,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
           title: prefill.title,
           hiringManager: managers?.find((m) => m.id === prefill.hmId) ?? null,
           skills,
+          department: prefill.department,
+          headcount: prefill.headcount,
+          startMonth: prefill.startMonth,
         }),
       );
       if (managers === null || skills.length < prefill.skillIds.length) {
@@ -639,7 +652,17 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     return () => {
       cancelled = true;
     };
-  }, [clientParam, fromParam, hmParam, skillsParam, titleParam, showInfo]);
+  }, [
+    clientParam,
+    fromParam,
+    hmParam,
+    skillsParam,
+    titleParam,
+    deptParam,
+    headcountParam,
+    startParam,
+    showInfo,
+  ]);
 
   // Formularz stoi na stronie od wejścia, więc listy do sekcji 6 (rekruterzy,
   // automat przydziału, portale) wczytują się razem z nią. To same odczyty.

@@ -53,6 +53,7 @@ SCREEN_KEYS: tuple[str, ...] = (
     "candidate.profile",
     "calendar",
     "client.orders",
+    "client.people",
     "contracts.order_mail",
     "contracts.b2b_generator",
     "finance",

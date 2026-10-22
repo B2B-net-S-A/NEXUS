@@ -34,7 +34,7 @@ if (!Element.prototype.hasPointerCapture) {
   });
 }
 
-import { OwnerPoolPanel } from "@/components/care/OwnerPoolPanel";
+import { AutoAssignBar, OwnerPoolPanel } from "@/components/care/OwnerPoolPanel";
 import { careKeys, type CareAutoAssignment } from "@/lib/api/care";
 
 const hanna = { id: 3, name: "Hanna Finansowa" };
@@ -166,5 +166,50 @@ describe("OwnerPoolPanel", () => {
       }),
     );
     await waitFor(() => expect(mocks.showToast).toHaveBeenCalledWith("Przypisano: 3 osoby", "success"));
+  });
+
+  it("okno ustawień: pula bez przydziału (przydział jest na pasku ekranu)", async () => {
+    mocks.get.mockResolvedValue({ data: preview() });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <OwnerPoolPanel withAutoPreview={false} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("table", { name: "Pula opiekunów" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Przypisz wg obłożenia/ })).toBeNull();
+  });
+});
+
+describe("AutoAssignBar", () => {
+  function renderBar() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <AutoAssignBar />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("pasek: ilu bez opiekuna, u kogo i od kiedy; podgląd i zapis par z podglądu", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.get.mockResolvedValue({ data: preview() });
+    mocks.post.mockResolvedValue({ data: { changed: 3, skipped: 0, notified: 0, by_owner: [] } });
+    renderBar();
+    expect(
+      await screen.findByText("3 konsultantów bez opiekuna (Klinika Testowa, Bank Przykładowy, start 01.10)."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Podgląd" }));
+    expect(screen.getByRole("table", { name: "Podgląd przydziału wg obłożenia" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Przypisz wg obłożenia (3)" }));
+    await user.click(await screen.findByRole("button", { name: "Zapisz przydział" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/care/assignment/auto", expect.anything()));
+  });
+
+  it("nikogo do przypisania — paska nie ma", async () => {
+    mocks.get.mockResolvedValue({ data: preview({ items: [] }) });
+    const { container } = renderBar();
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
   });
 });

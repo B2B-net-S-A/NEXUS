@@ -165,13 +165,16 @@ def normalize_checklist(items: Iterable[Any]) -> list[dict[str, Any]]:
     return result
 
 
-#: Pozycje checklisty sprawy „Koniec współpracy” (bez kwot).
-END_EQUIPMENT_ITEM = "Zwrot sprzętu i protokół zwrotu"
+#: Pozycje checklisty sprawy „Koniec współpracy” (bez kwot). Pozycja checklisty
+#: ma tylko ``{text, done}``, więc krótkie wyjaśnienie (makieta S5) stoi po „—”.
+END_EQUIPMENT_ITEM = "Zwrot sprzętu i protokół — pozycja z ewidencji sprzętu"
 END_ACCESS_PREFIX = "Odebranie dostępu: "
-END_ACCESS_GENERIC = "Odebranie dostępów u klienta"
-END_FEEDBACK_ITEM = "Ostatnia opinia menedżera u klienta"
+END_ACCESS_GENERIC = (
+    "Odebranie dostępów u klienta — lista z pakietu „Wejście u klienta”"
+)
+END_FEEDBACK_ITEM = "Ostatnia opinia menedżera — prośba o opinię przed końcem"
 END_DECISION_ITEM = "Decyzja: przekaż do front office albo „nie przepinamy”"
-END_SETTLEMENT_ITEM = "Rozliczenie ostatniego miesiąca"
+END_SETTLEMENT_ITEM = "Rozliczenie ostatniego miesiąca — Finanse, bez kwot"
 
 
 def end_of_cooperation_checklist(

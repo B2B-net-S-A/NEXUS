@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Users } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Users, X } from "lucide-react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -27,11 +27,14 @@ import {
 } from "@/lib/api/care";
 import { useCreateAnnouncement } from "@/lib/api/care-announcements";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { todayInBusinessTz } from "@/lib/candidate-followup";
+import { daysUntil } from "@/lib/client-order-list";
 import { formatDayMonthPl } from "@/lib/date-pl";
+import { useUrlWriter } from "@/lib/url-selection";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
-import { MAX_BULK_ASSIGN } from "./AssignmentPanel";
+import { MAX_BULK_ASSIGN } from "./team/team-format";
 import {
   CADENCE_BADGE,
   cadenceLabel,
@@ -47,7 +50,10 @@ import {
 import { CadenceDialog } from "./CadenceDialog";
 import { HEALTH_BADGE, healthLabel, healthWhy, needsAttention } from "./health-format";
 
-export type ConsultantsFilter = "all" | "biweekly" | "paused" | "attention" | "redeploy";
+export type ConsultantsFilter = "all" | "biweekly" | "paused" | "attention" | "redeploy" | "ending";
+
+/** Jak „Kończą w 60 dni” na liście „Klienci” (`portfolio.ENDING_DAYS`). */
+const ENDING_DAYS = 60;
 
 const FILTERS: { value: ConsultantsFilter; label: string }[] = [
   { value: "all", label: "Wszystkie rytmy" },
@@ -55,6 +61,7 @@ const FILTERS: { value: ConsultantsFilter; label: string }[] = [
   { value: "paused", label: "Wstrzymani" },
   { value: "attention", label: "Z sygnałem" },
   { value: "redeploy", label: "Do przepięcia" },
+  { value: "ending", label: `Kończą w ${ENDING_DAYS} dni` },
 ];
 
 const REASONS = Object.keys(OWNER_REASON_LABELS) as OwnerReason[];
@@ -63,7 +70,11 @@ const REASONS = Object.keys(OWNER_REASON_LABELS) as OwnerReason[];
  * „Z sygnałem” = zdrowie „Uwaga” albo „Ryzyko”; czytający spoza kręgu D11
  * (bez etykiety zdrowia) — dawne sygnały rytmu.
  */
-export function matchesConsultantsFilter(row: ConsultantRow, filter: ConsultantsFilter): boolean {
+export function matchesConsultantsFilter(
+  row: ConsultantRow,
+  filter: ConsultantsFilter,
+  today: string = todayInBusinessTz(),
+): boolean {
   switch (filter) {
     case "all":
       return true;
@@ -75,7 +86,26 @@ export function matchesConsultantsFilter(row: ConsultantRow, filter: Consultants
       return row.health != null ? needsAttention(row.health) : row.signals.length > 0;
     case "redeploy":
       return Boolean(row.redeploy_active);
+    case "ending": {
+      const left = daysUntil(row.end_date, today);
+      return left != null && left >= 0 && left < ENDING_DAYS;
+    }
   }
+}
+
+/** Filtr opiekuna z adresu (`?owner=<id>` albo `?owner=none`) — link z „Zespołu opiekunów”. */
+export type OwnerFilter = number | "none" | null;
+
+export function ownerFilterFrom(value: string | null | undefined): OwnerFilter {
+  if (value === "none") return "none";
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+export function matchesOwner(row: ConsultantRow, owner: OwnerFilter): boolean {
+  if (owner === null) return true;
+  if (owner === "none") return !row.owner;
+  return row.owner?.id === owner;
 }
 
 /** Treść startowa komunikatu — jak w edytorze (pola `{imię}` i `{opiekun}`). */
@@ -180,8 +210,34 @@ export function ConsultantsPanel({
   const owners = useCareOwners(canAssign && picked.size > 0);
   const assign = useAssignOwners();
   const createAnnouncement = useCreateAnnouncement();
+  const { replaceUrl } = useUrlWriter();
+  // `?owner=` czytany po zamontowaniu (link „Konsultanci” z „Zespołu
+  // opiekunów”); opiekun to zawsze cały zakres, nie „Moi”.
+  const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>(null);
+  useEffect(() => {
+    const owner = ownerFilterFrom(new URLSearchParams(window.location.search).get("owner"));
+    if (owner === null) return;
+    setOwnerFilter(owner);
+    onScopeChange("all");
+    // Tylko przy wejściu — dalej filtr zmienia się chipem.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const clearOwner = () => {
+    setOwnerFilter(null);
+    setPicked(new Set());
+    const params = new URLSearchParams(window.location.search);
+    params.delete("owner");
+    const qs = params.toString();
+    replaceUrl(qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  };
   const items = query.data?.items ?? [];
-  const inScope = consultantsIn(items, scope);
+  const inScope = consultantsIn(items, scope).filter((row) => matchesOwner(row, ownerFilter));
+  const ownerName =
+    ownerFilter === "none"
+      ? "bez opiekuna"
+      : ownerFilter !== null
+        ? (items.find((row) => row.owner?.id === ownerFilter)?.owner?.name ?? "wybrany opiekun")
+        : null;
   const rows = inScope.filter((row) => matchesConsultantsFilter(row, filter));
   const counts = Object.fromEntries(
     FILTERS.map(({ value }) => [value, inScope.filter((row) => matchesConsultantsFilter(row, value)).length]),
@@ -256,6 +312,17 @@ export function ConsultantsPanel({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div role="group" aria-label="Filtr konsultantów" className="flex flex-wrap gap-1">
+          {ownerName ? (
+            <button
+              type="button"
+              onClick={clearOwner}
+              aria-label={`Usuń filtr opiekuna: ${ownerName}`}
+              className="inline-flex items-center gap-1 rounded-full border border-primary bg-primary/10 px-3 py-1 text-xs text-foreground"
+            >
+              Opiekun: {ownerName}
+              <X className="size-3" aria-hidden />
+            </button>
+          ) : null}
           {FILTERS.map((item) => (
             <button
               key={item.value}

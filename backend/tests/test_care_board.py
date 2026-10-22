@@ -212,6 +212,9 @@ async def test_conversation_window_saves_card_case_and_demand(
     assert linked == saved["conversation_id"]
     key = f"demand:{client_id}:{saved['conversation_id']}"
     assert bell is not None and bell.link == f"/care?card={key}&area={area_id}"
+    # R4: „Popyt u klienta: <klient> — <role> (z rozmowy z konsultantem)”.
+    assert bell.title.startswith("Popyt u klienta: ")
+    assert bell.title.endswith("— Java Developer (z rozmowy z konsultantem)")
 
     timeline = await app_client.get(
         f"/api/care/contracts/{contract_id}/timeline", headers=headers(lead)
@@ -278,7 +281,7 @@ async def test_conversation_window_saves_card_case_and_demand(
     assert resolved.status_code == 201, resolved.text
     assert resolved.json()["jobs_new_url"] == (
         f"/jobs/new?client={client_id}&hm={manager_id}&skills={skill_id}"
-        "&title=Java%20Developer"
+        "&title=Java%20Developer&dept=P%C5%82atno%C5%9Bci"
     )
     assert len(resolved.json()["demand_keys"]) == 2
     after = await app_client.get("/api/care/board?scope=all", headers=headers(lead))
@@ -287,6 +290,23 @@ async def test_conversation_window_saves_card_case_and_demand(
         for c in after.json()["cards"]
         if c["kind"] == "demand" and c["client_id"] == client_id
     ]
+
+    # Ten sam dział, ale inne role = nowa pozycja i nowy dzwonek (R4).
+    qa_body = {
+        **body,
+        "cases": [],
+        "client_state": {
+            **body["client_state"],
+            "changes": {**body["client_state"]["changes"], "hiring_roles": ["QA"]},
+        },
+    }
+    qa = await app_client.post(
+        f"/api/care/contracts/{contract_id}/conversations",
+        json=qa_body,
+        headers=headers(admin),
+    )
+    assert qa.status_code == 201, qa.text
+    assert qa.json()["demand_notified"] == 1
 
 
 async def test_card_survives_sql_error_in_front_office_matches(
@@ -348,7 +368,7 @@ async def test_conversation_window_saves_without_card_when_no_technology(
 async def test_hiring_roles_without_client_state_reach_demand_card(
     app_client, care_on
 ) -> None:
-    lead, client_id, _area_id, _m, contract_id, _c = await _setup()
+    lead, client_id, _area_id, manager_id, contract_id, _c = await _setup()
     admin = await make_user(UserRole.admin)
     resp = await app_client.post(
         f"/api/care/contracts/{contract_id}/conversations",
@@ -370,6 +390,21 @@ async def test_hiring_roles_without_client_state_reach_demand_card(
     )
     assert card["demand"]["roles"] == ["Kotlin Developer"]
     assert card["demand"]["source"] == "slyszal"
+    # Menedżer działu = menedżer konsultanta ze źródła; rekrutacji klient nie ma.
+    assert card["demand"]["manager"]["contact_id"] == manager_id
+    assert card["manager"]["contact_id"] == manager_id
+    assert card["demand"]["open_job"] is None
+
+    # „Nie teraz” przeciągnięciem: bez daty wraca za 30 dni.
+    later = await app_client.put(
+        "/api/care/board/state",
+        json={"key": card["key"], "column": "waiting"},
+        headers=headers(lead),
+    )
+    assert later.status_code == 200, later.text
+    assert (
+        later.json()["retry_on"] == (business_today() + timedelta(days=30)).isoformat()
+    )
 
 
 async def test_conversation_cases_without_cases_permission(app_client, care_on) -> None:
@@ -558,3 +593,57 @@ async def test_automation_and_switched_off_care_do_not_open_the_board(
     automation = await make_user(UserRole.automation)
     resp = await app_client.get("/api/care/board", headers=headers(automation))
     assert resp.status_code == 403, resp.text
+
+
+async def test_order_end_decision_card_and_waiting_for_front_office(
+    app_client, care_on
+) -> None:
+    """Koniec zamówienia ≤ 60 dni bez wpisu = karta „Decyzja” (K3); pierwszy
+    ruch zakłada wpis „Do przepięcia”, „Czeka na front office” bez daty."""
+
+    lead, client_id, _a, _m, _contract_id, _c = await _setup()
+    ending, _ = await make_contract(client_id, started_days_ago=300, end_in_days=25)
+    board = await app_client.get("/api/care/board?scope=mine", headers=headers(lead))
+    assert board.status_code == 200, board.text
+    payload = board.json()
+    assert {"done", "total"} <= set(payload["week_progress"])
+    card = next(c for c in payload["cards"] if c["key"] == f"decision:end:{ending}")
+    assert card["kind"] == "decision" and card["column"] == "new"
+    assert card["end_on"] == (business_today() + timedelta(days=25)).isoformat()
+
+    moved = await app_client.put(
+        "/api/care/board/state",
+        json={"key": card["key"], "column": "waiting"},
+        headers=headers(lead),
+    )
+    assert moved.status_code == 200, moved.text
+    new_key = moved.json()["key"]
+    assert new_key.startswith("decision:") and not new_key.startswith("decision:end")
+    assert moved.json()["retry_on"] is None
+    async with AsyncSessionLocal() as db:
+        item = await db.get(RedeployQueueItem, int(new_key.split(":")[1]))
+    assert item.reason == "project_end" and item.contract_id == ending
+
+    again = await app_client.get("/api/care/board?scope=mine", headers=headers(lead))
+    keys = {c["key"]: c for c in again.json()["cards"]}
+    assert f"decision:end:{ending}" not in keys
+    assert keys[new_key]["column"] == "waiting"
+
+    stranger = await make_user(UserRole.delivery_lead)
+    await make_client(dl=stranger)
+    foreign = await app_client.put(
+        "/api/care/board/state",
+        json={"key": f"decision:end:{ending}", "column": "in_progress"},
+        headers=headers(stranger),
+    )
+    assert foreign.status_code == 403, foreign.text
+
+    # Ręczny klucz dla zamówienia poza horyzontem karty (tu: za 200 dni) nie
+    # zakłada wpisu — ta sama reguła co ``order_end_contracts``.
+    far, _ = await make_contract(client_id, started_days_ago=300, end_in_days=200)
+    beyond = await app_client.put(
+        "/api/care/board/state",
+        json={"key": f"decision:end:{far}", "column": "in_progress"},
+        headers=headers(lead),
+    )
+    assert beyond.status_code == 404, beyond.text

@@ -9,7 +9,6 @@ import { CaseFormDialog } from "@/components/admin-cases/CaseFormDialog";
 import { casePatchError } from "@/components/admin-cases/CaseConsultant";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
-import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +23,7 @@ import {
   type CaseCard,
   type CaseListFilters,
 } from "@/lib/api/admin-cases";
-import { useUpdateRedeploy } from "@/lib/api/care";
+import { useUpdateRedeploy, type CardCase } from "@/lib/api/care";
 import {
   useCareBoard,
   useSetCareBoardState,
@@ -41,19 +40,27 @@ import { canSeeCareBoard } from "./care-access";
 import { CaseTile } from "./CaseTile";
 import { CareTile } from "./CareTile";
 import { Chip } from "./Chip";
+import { DecisionDoneDialog, type DecisionOutcome } from "./DecisionDoneDialog";
 import { DoneColumn } from "./DoneColumn";
 import { WorkItemPanel } from "./WorkItemPanel";
 import { WorkList } from "./WorkList";
 import {
+  LIST_FILTER_LABELS,
   OPEN_WORK_COLUMNS,
   WORK_COLUMN_LABELS,
   buildColumns,
-  careCardHref,
+  careActionHref,
   careItem,
+  caseDueThisWeek,
   caseItem,
+  caseItemKey,
+  caseStubFromCardCase,
   decisionIdOf,
+  demandNeedsManager,
   filterCareCards,
+  isOrderEndDecision,
   itemColumn,
+  matchesListFilter,
   moveAction,
   planItemIdOf,
   readViewPreference,
@@ -61,6 +68,7 @@ import {
   showsCases,
   visibleColumnItems,
   writeViewPreference,
+  type ListFilter,
   type WorkArea,
   type WorkColumn,
   type WorkFilters,
@@ -96,6 +104,17 @@ export interface WorkBoardProps {
   /** Widok na start (harness); bez niego — zapamiętany wybór osoby. */
   initialView?: WorkView;
   initialArea?: WorkArea | null;
+  /**
+   * Filtr kolejki z adresu (`/care?filter=po-terminie|do-piatku|rozmowy|opinie|
+   * decyzje|dane|popyt` — linki z dzwonków): chip listy i filtr tablicy.
+   */
+  initialFilter?: ListFilter;
+  /** Karta konsultanta w panelu ekranu (/care) — klik w osobę i „Otwórz pełną kartę”. */
+  onOpenContract?: (contractId: number) => void;
+}
+
+function showCaseControlsFor(casesAllowed: boolean, casesQuiet: boolean): boolean {
+  return casesAllowed && !casesQuiet;
 }
 
 interface PendingState {
@@ -185,10 +204,11 @@ export function WorkBoard({
   onCloseSelected,
   initialView,
   initialArea = null,
+  initialFilter = "all",
+  onOpenContract,
 }: WorkBoardProps) {
   const router = useRouter();
   const { showToast } = useToast();
-  const { askConfirm, confirmDialog } = useConfirmV2();
   const user = useAuthStore((s) => s.user);
   const me = user?.id ?? null;
   const careAccess = canSeeCareBoard(user, config);
@@ -215,6 +235,12 @@ export function WorkBoard({
   const [expanded, setExpanded] = useState<ReadonlySet<WorkColumn>>(new Set());
   const [pending, setPending] = useState<PendingState | null>(null);
   const [pendingError, setPendingError] = useState<string | null>(null);
+  const [listFilter, setListFilter] = useState<ListFilter>(initialFilter);
+  const [closing, setClosing] = useState<CareBoardCard | null>(null);
+  const [closingError, setClosingError] = useState<string | null>(null);
+
+  // Link z dzwonka z innym `?filter=` przy otwartej tablicy (miękka nawigacja).
+  useEffect(() => setListFilter(initialFilter), [initialFilter]);
 
   // Link z dzwonka przy otwartej już tablicy (miękka nawigacja) — inicjalizator
   // `useState` działa tylko raz, więc nowy klucz z adresu dosyłamy efektem.
@@ -233,9 +259,10 @@ export function WorkBoard({
   const updateRedeploy = useUpdateRedeploy();
 
   // TEN SAM kształt filtrów co przed 22.10.2026 (`mine_care` tylko, gdy włączony) —
-  // inaczej klucz listy rozjeżdża się z zasianym cache harnessu.
+  // inaczej klucz listy rozjeżdża się z zasianym cache harnessu. „Moi podopieczni”
+  // = sprawy moich konsultantów niezależnie od tego, kto je prowadzi (K1) — bez `mine`.
   const casesFilters: CaseListFilters = {
-    mine: scope === "mine" || !canManageFromConfig,
+    mine: !mineCare && (scope === "mine" || !canManageFromConfig),
     area: area === "care" ? null : area,
     q: query,
     include_closed: showClosed,
@@ -260,26 +287,47 @@ export function WorkBoard({
   const casesQuiet =
     boardScope === "care" && (isForbiddenError(cases.error) || isNotFoundError(cases.error));
   const caseCards = useMemo(
-    () => (showsCases(filters) && !casesQuiet ? (cases.data?.items ?? []) : []),
+    () =>
+      showsCases(filters) && !casesQuiet
+        ? (cases.data?.items ?? []).filter(
+            // W „Opiece → Do zrobienia” sprawa tylko z terminem do piątku albo po terminie (S3).
+            (card) => boardScope !== "care" || caseDueThisWeek(card, weekEnd),
+          )
+        : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cases.data, area, casesQuiet],
+    [cases.data, area, casesQuiet, boardScope, weekEnd],
   );
   const allCareCards = useMemo(() => careData?.cards ?? [], [careData]);
   const careCards = useMemo(
-    () => filterCareCards(allCareCards, filters, weekEnd),
+    () =>
+      filterCareCards(allCareCards, filters, weekEnd).filter(
+        (card) => !mineCare || card.owner_user_id === me,
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allCareCards, area, week, unassigned, query, weekEnd],
+    [allCareCards, area, week, unassigned, query, weekEnd, mineCare, me],
   );
-  const items = useMemo<WorkItem[]>(
+  const allItems = useMemo<WorkItem[]>(
     () => [...caseCards.map(caseItem), ...careCards.map(careItem)],
     [caseCards, careCards],
+  );
+  // Filtr kolejki (chip listy albo `?filter=`) — na tablicy chowa otwarte karty spoza filtra.
+  const items = useMemo<WorkItem[]>(
+    () =>
+      view === "board" && listFilter !== "all"
+        ? allItems.filter((item) => {
+            const column = itemColumn(item);
+            // Zrobione i zamknięte zostają w wąskiej kolumnie — filtr dotyczy kolejki.
+            return column === "done" || column === "closed" || matchesListFilter(item, listFilter, weekEnd);
+          })
+        : allItems,
+    [allItems, view, listFilter, weekEnd],
   );
   const columns = useMemo(
     () => buildColumns(items, { careFirst: boardScope === "care", overrides }),
     [items, boardScope, overrides],
   );
 
-  const resolved = selectedKey ? (items.find((item) => item.key === selectedKey) ?? null) : null;
+  const resolved = selectedKey ? (allItems.find((item) => item.key === selectedKey) ?? null) : null;
   useEffect(() => {
     if (resolved) setSnapshot(resolved);
   }, [resolved]);
@@ -331,6 +379,8 @@ export function WorkBoard({
     });
 
   const careAction = (card: CareBoardCard): (() => void) | null => {
+    // Dane i popyt bez menedżera prowadzą do „Ludzie i technologie” klienta (link).
+    if (card.kind === "data" || demandNeedsManager(card)) return null;
     if (card.kind === "contact" && onOpenConversation && card.contract_id) {
       const contractId = card.contract_id;
       return () => onOpenConversation(contractId, planItemIdOf(card.key));
@@ -347,7 +397,7 @@ export function WorkBoard({
   const runCareAction = (card: CareBoardCard) => {
     const action = careAction(card);
     if (action) action();
-    else router.push(careCardHref(card));
+    else router.push(careActionHref(card));
   };
 
   const saveCareState = (card: CareBoardCard, column: CareBoardColumn, value: BoardStateValue = {}) => {
@@ -356,7 +406,10 @@ export function WorkBoard({
     setCareState.mutate(
       { key: card.key, column, ...value },
       {
-        onSuccess: () => setPending(null),
+        onSuccess: () => {
+          setPending(null);
+          if (card.kind === "demand" && column === "waiting") showToast("Nie teraz — popyt wróci za 30 dni", "success");
+        },
         onError: (err) => {
           const message = apiErrorMessage(err, "Nie udało się przesunąć karty.");
           if (pending) setPendingError(message);
@@ -367,24 +420,42 @@ export function WorkBoard({
     );
   };
 
-  const closeDecision = async (card: CareBoardCard) => {
-    const itemId = decisionIdOf(card.key);
-    if (itemId == null) return;
-    const confirmed = await askConfirm({
-      title: "Zamknąć decyzję?",
-      description: `${card.title} — wpis „Do przepięcia” będzie zrobiony i zniknie z tablicy.`,
-      confirmLabel: "Zamknij decyzję",
-    });
-    if (!confirmed) return;
+  const closeDecision = (card: CareBoardCard) => {
+    setClosingError(null);
+    setClosing(card);
+  };
+
+  /**
+   * „Przekazana” = wpis zrobiony, „Nie dotyczy” = odrzucony. Karta z samego
+   * końca zamówienia (`decision:end:<kontrakt>`) nie ma jeszcze wpisu —
+   * najpierw zakłada go ruch na „W toku” (serwer oddaje klucz `decision:<id>`).
+   */
+  const finishDecision = async (card: CareBoardCard, outcome: DecisionOutcome) => {
+    setClosingError(null);
     setOverride(card.key, "done");
-    updateRedeploy.mutate(
-      { itemId, status: "done" },
-      {
-        onSuccess: () => showToast("Decyzja zamknięta", "success"),
-        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zamknąć decyzji."), "error"),
-        onSettled: () => setOverride(card.key, null),
-      },
-    );
+    try {
+      let itemId = decisionIdOf(card.key);
+      if (itemId == null && isOrderEndDecision(card.key)) {
+        const created = (await setCareState.mutateAsync({ key: card.key, column: "in_progress" })) as {
+          key?: string;
+        };
+        itemId = decisionIdOf(created?.key ?? "");
+      }
+      if (itemId == null) throw new Error("decision without entry");
+      await updateRedeploy.mutateAsync({ itemId, status: outcome });
+      setClosing(null);
+      showToast(outcome === "done" ? "Decyzja przekazana" : "Decyzja: nie dotyczy", "success");
+    } catch (err) {
+      setClosingError(apiErrorMessage(err, "Nie udało się zamknąć decyzji."));
+    } finally {
+      setOverride(card.key, null);
+    }
+  };
+
+  /** „Sprawy tej osoby” w panelu karty opieki — ten sam panel, teraz ze sprawą. */
+  const openCaseFromCard = (item: CardCase) => {
+    const known = allItems.find((candidate) => candidate.key === caseItemKey(item.id));
+    selectItem(known ?? caseItem(caseStubFromCardCase(item, today)));
   };
 
   const requestMove = (item: WorkItem, target: WorkColumn) => {
@@ -423,7 +494,7 @@ export function WorkBoard({
         return;
       }
       case "close-decision":
-        if (item.type === "care") void closeDecision(item.card);
+        if (item.type === "care") closeDecision(item.card);
         return;
       case "open-conversation":
       case "open-feedback":
@@ -465,11 +536,18 @@ export function WorkBoard({
   const careUnassigned = careAccess
     ? filterCareCards(allCareCards, { ...filters, area: "care", week: false, unassigned: true }, weekEnd).length
     : 0;
+  // „Moi podopieczni” liczy sprawy moich konsultantów (serwer) i moje karty opieki.
+  const careMine = careAccess
+    ? filterCareCards(allCareCards, { ...filters, area: "care", week: false, unassigned: false }, weekEnd).filter(
+        (card) => card.owner_user_id === me,
+      ).length
+    : 0;
+  const unassignedCases = canManage && showCaseControlsFor(casesAllowed, casesQuiet);
   const haveCounts = Boolean(counts) || (careAccess && careBoard.isSuccess);
   const areaChips = CASE_AREAS.filter((key) => (counts?.areas[key] ?? 0) > 0 || key === area);
-  const filtered = Boolean(query.trim() || area || week || unassigned || mineCare);
+  const filtered = Boolean(query.trim() || area || week || unassigned || mineCare || listFilter !== "all");
   const showScope = canManage || careAccess;
-  const showCaseControls = casesAllowed && !casesQuiet;
+  const showCaseControls = showCaseControlsFor(casesAllowed, casesQuiet);
   const everythingReady =
     (!casesAllowed || cases.isSuccess || casesQuiet) && (!careAccess || careBoard.isSuccess);
 
@@ -488,6 +566,7 @@ export function WorkBoard({
           column={column}
           drag={drag}
           selected={selectedKey === item.key}
+          careLinks={careAccess}
         />
       );
     }
@@ -548,20 +627,28 @@ export function WorkBoard({
             <span className="tabular-nums opacity-70">{(counts?.week ?? 0) + careWeek}</span>
           ) : null}
         </Chip>
-        {canManage && showCaseControls ? (
+        {unassignedCases || careAccess ? (
           <Chip active={unassigned} onClick={() => setUnassigned((v) => !v)}>
             Bez osoby{" "}
             {haveCounts ? (
-              <span className="tabular-nums opacity-70">{(counts?.unassigned ?? 0) + careUnassigned}</span>
+              <span className="tabular-nums opacity-70">
+                {(unassignedCases ? (counts?.unassigned ?? 0) : 0) + careUnassigned}
+              </span>
             ) : null}
           </Chip>
         ) : null}
         {careAccess ? (
           <Chip active={mineCare} onClick={() => setMineCare((v) => !v)}>
             Moi podopieczni{" "}
-            {counts?.mine_care != null ? (
-              <span className="tabular-nums opacity-70">{counts.mine_care}</span>
+            {counts?.mine_care != null || careBoard.isSuccess ? (
+              <span className="tabular-nums opacity-70">{(counts?.mine_care ?? 0) + careMine}</span>
             ) : null}
+          </Chip>
+        ) : null}
+        {view === "board" && listFilter !== "all" ? (
+          <Chip active onClick={() => setListFilter("all")}>
+            {LIST_FILTER_LABELS[listFilter]} <span aria-hidden>×</span>
+            <span className="sr-only">— pokaż wszystko</span>
           </Chip>
         ) : null}
         <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -645,6 +732,10 @@ export function WorkBoard({
               selectedKey={selectedKey}
               onOpen={selectItem}
               careAction={careAction}
+              filter={listFilter}
+              onFilterChange={setListFilter}
+              progress={careAccess ? (careData?.week_progress ?? null) : null}
+              onOpenContract={onOpenContract}
             />
           ) : (
             <DragDropContext onDragEnd={onDragEnd}>
@@ -668,7 +759,7 @@ export function WorkBoard({
                       })
                     }
                     renderItem={renderItem}
-                    canDrag={(item) => item.type === "care" || canManage}
+                    canDrag={(item) => (item.type === "care" ? item.card.kind !== "data" : canManage)}
                   />
                 ))}
                 <DoneColumn
@@ -705,7 +796,23 @@ export function WorkBoard({
         canManageCases={canManage}
         onMove={requestMove}
         careAction={careAction}
+        onOpenCase={openCaseFromCard}
+        onOpenContract={onOpenContract}
+        canCreateCase={Boolean(config.open_modules.cases && canManageFromConfig)}
       />
+
+      {closing ? (
+        <DecisionDoneDialog
+          card={closing}
+          pending={setCareState.isPending || updateRedeploy.isPending}
+          error={closingError}
+          onCancel={() => {
+            setClosing(null);
+            setClosingError(null);
+          }}
+          onPick={(outcome) => void finishDecision(closing, outcome)}
+        />
+      ) : null}
 
       {pending && today ? (
         <BoardStateDialog
@@ -729,7 +836,6 @@ export function WorkBoard({
           onCreated={(id) => router.push(`/people/cases/${id}`)}
         />
       ) : null}
-      {confirmDialog}
     </div>
   );
 }

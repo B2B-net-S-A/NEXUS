@@ -8,6 +8,12 @@
  * go nie wybrał ani nie zaznaczył „Klient nie podał”) i wymagania (gdy żadne
  * nie jest wpisane). `?from=` (kopia rekrutacji) ma pierwszeństwo — wtedy
  * strona tych parametrów nie czyta.
+ *
+ * Od makiety R4 (22.10.2026) potwierdzony popyt niesie też dział (`dept`),
+ * liczbę osób (`headcount`) i miesiąc startu (`start`, „RRRR-MM”): liczba osób
+ * idzie w pole „Ile osób”, miesiąc — w „Start” (pierwszy dzień miesiąca),
+ * a dział — zdaniem „Dział u klienta: …” w opis projektu (formularz nie ma
+ * pola działu). Każde tylko do pustego pola.
  */
 
 import type { HiringManagerOption } from "@/lib/hiring-manager";
@@ -18,7 +24,15 @@ export interface JobPrefillParams {
   hmId: number | null;
   skillIds: number[];
   title: string | null;
+  department: string | null;
+  headcount: number | null;
+  /** „RRRR-MM”. */
+  startMonth: string | null;
 }
+
+/** Lustro `JobCreate.headcount` (1–99). */
+const HEADCOUNT_MAX = 99;
+const MONTH = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 function positiveInt(raw: string | null | undefined): number | null {
   if (!raw || !/^\d+$/.test(raw.trim())) return null;
@@ -31,6 +45,9 @@ export function parseJobPrefill(params: {
   hm?: string | null;
   skills?: string | null;
   title?: string | null;
+  dept?: string | null;
+  headcount?: string | null;
+  start?: string | null;
 }): JobPrefillParams {
   const skillIds: number[] = [];
   for (const part of (params.skills ?? "").split(",")) {
@@ -38,15 +55,33 @@ export function parseJobPrefill(params: {
     if (id !== null && !skillIds.includes(id)) skillIds.push(id);
   }
   const title = (params.title ?? "").trim().slice(0, 200);
+  const department = (params.dept ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const headcount = positiveInt(params.headcount);
+  const start = (params.start ?? "").trim();
   return {
     hmId: positiveInt(params.hm),
     skillIds: skillIds.slice(0, REQUIRED_ROWS_MAX),
     title: title || null,
+    department: department || null,
+    headcount: headcount !== null && headcount <= HEADCOUNT_MAX ? headcount : null,
+    startMonth: MONTH.test(start) ? start : null,
   };
 }
 
 export function hasJobPrefill(prefill: JobPrefillParams): boolean {
-  return prefill.hmId !== null || prefill.skillIds.length > 0 || prefill.title !== null;
+  return (
+    prefill.hmId !== null ||
+    prefill.skillIds.length > 0 ||
+    prefill.title !== null ||
+    prefill.department !== null ||
+    prefill.headcount !== null ||
+    prefill.startMonth !== null
+  );
+}
+
+/** Zdanie o dziale w opisie projektu (formularz nie ma pola działu). */
+export function departmentLine(department: string): string {
+  return `Dział u klienta: ${department}.`;
 }
 
 /** Nazwy umiejętności w kolejności z adresu; nieznane id odpadają. */
@@ -62,6 +97,10 @@ export interface JobPrefillValues {
   title: string | null;
   hiringManager: HiringManagerOption | null;
   skills: string[];
+  department?: string | null;
+  headcount?: number | null;
+  /** „RRRR-MM”. */
+  startMonth?: string | null;
 }
 
 /**
@@ -92,6 +131,15 @@ export function applyJobPrefill(form: IntakeForm, values: JobPrefillValues): Int
         level: "must" as const,
       })),
     };
+  }
+  if (values.headcount != null && !form.headcount.trim()) {
+    next = { ...next, headcount: String(values.headcount) };
+  }
+  if (values.startMonth && !form.startDate.trim()) {
+    next = { ...next, startDate: `${values.startMonth}-01` };
+  }
+  if (values.department && !form.about.trim()) {
+    next = { ...next, about: departmentLine(values.department) };
   }
   return next;
 }

@@ -24,6 +24,7 @@ from app.services.admin_cases.contract_links import (
     REASON_TEXT,
     LiveContract,
     names_in_text,
+    only_matches,
     rank_suggestions,
     sender_authenticated,
     sender_contract,
@@ -90,6 +91,35 @@ def test_suggestions_are_ranked_and_deduplicated() -> None:
         )
         == MAX_SUGGESTIONS
     )
+
+
+def test_suggestion_says_who_wrote_and_whether_the_name_is_unique() -> None:
+    """„Kogo dotyczy?” (S4): kontakt klienta i „jedyny nasz konsultant o tym
+    nazwisku u tego klienta”; dwie takie same osoby u klienta — nie jedyny."""
+
+    contracts = {
+        11: LiveContract(11, 1, "Anna Przykładowa", "Telekom Wzorcowy"),
+        12: LiveContract(12, 1, "Jan Nowak", "Telekom Wzorcowy"),
+        13: LiveContract(13, 1, "Nowak Jan", "Telekom Wzorcowy"),
+        14: LiveContract(14, 2, "Anna Przykładowa", "Bank Przykładowy"),
+    }
+    assert only_matches([11, 12, 13, 14, 99], contracts) == {11, 14}
+    out = rank_suggestions(
+        by_sender=[14],
+        client_named=[11, 12],
+        text_named=[13],
+        contracts=contracts,
+        sender_contacts={1: "Katarzyna Kierownicza"},
+    )
+    by_id = {item["contract_id"]: item for item in out}
+    assert by_id[11]["sender_kind"] == "client_contact"
+    assert by_id[11]["sender_contact_name"] == "Katarzyna Kierownicza"
+    assert by_id[11]["only_match"] is True
+    assert by_id[12]["only_match"] is False
+    assert by_id[13]["sender_kind"] is None
+    assert by_id[13]["sender_contact_name"] is None
+    assert by_id[14]["sender_kind"] == "consultant"
+    assert by_id[14]["sender_contact_name"] is None
 
 
 def test_end_checklist_from_pack_and_care_state() -> None:

@@ -102,6 +102,13 @@ beforeEach(() => {
 describe("ClientFeedbackDialog · popyt", () => {
   it("bez rozstrzygnięcia nic nie wysyła", async () => {
     renderDialog({ id: 8203, name: "Katarzyna Płatnicza" });
+    // R4: nagłówek „menedżer · klient · dział”, wyniki z podpisem, co się stanie.
+    expect(screen.getByText("Katarzyna Płatnicza · Bank Przykładowy · Płatności")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Potrzeba potwierdzona" })).toHaveAccessibleDescription(
+      "→ nowa rekrutacja",
+    );
+    expect(screen.getByRole("radio", { name: "Nie teraz" })).toHaveAccessibleDescription("wróci za 30 dni");
+    expect(screen.getByRole("radio", { name: "Nieaktualne" })).toHaveAccessibleDescription("sygnał zamknięty");
     expect(screen.getByText("Czego potrzebuje dział Płatności?")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Zapisz rozmowę" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Zaznacz, co z potrzebą działu.");
@@ -117,8 +124,13 @@ describe("ClientFeedbackDialog · popyt", () => {
     expect(screen.getByLabelText(/Rola/)).toHaveValue("Java Developer");
     fireEvent.change(screen.getByLabelText("Ile osób"), { target: { value: "2" } });
     fireEvent.change(screen.getByLabelText("Od kiedy"), { target: { value: "2026-12" } });
-    fireEvent.click(await screen.findByRole("button", { name: "Kafka" }));
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz i otwórz rekrutację" }));
+    const kafka = await screen.findByRole("button", { name: "Kafka" });
+    expect(kafka).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getAllByRole("button", { pressed: true }).map((b) => b.textContent)).toEqual([
+      expect.stringMatching(/^Java/),
+    ]);
+    fireEvent.click(kafka);
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz i utwórz rekrutację" }));
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
     const [url, body] = mocks.post.mock.calls[0];
     expect(url).toBe("/api/care/clients/7001/feedback");
@@ -131,7 +143,8 @@ describe("ClientFeedbackDialog · popyt", () => {
         role: "Java Developer",
         headcount: 2,
         start_month: "2026-12",
-        skill_ids: [803],
+        // R4: technologia z ról sygnału („Java Developer”) zaznaczona od razu.
+        skill_ids: [801, 803],
       },
     });
     await waitFor(() =>

@@ -112,10 +112,31 @@ def _local(moment: Optional[datetime]) -> Optional[date]:
     return moment.astimezone(ZoneInfo(DEFAULT_TZ)).date()
 
 
-def _average(value: Optional[float]) -> Optional[str]:
-    if value is None:
-        return None
-    return f"{value:.1f}".replace(".", ",") + "/5"
+CHANNEL_LABELS = {"phone": "telefon", "meeting": "spotkanie", "chat": "czat"}
+
+
+def conversation_title(
+    *,
+    plan_kind: Optional[str],
+    channel: Optional[str],
+    satisfaction: Optional[int],
+    signals: list[str],
+) -> str:
+    """„Rozmowa · telefon · 4/5 · chce zmiany projektu” (makieta P2).
+
+    Rozmowa, która zamknęła punkt planu, mówi który („dzień 7”) zamiast formy.
+    Cytat z notatki idzie do ``detail``.
+    """
+
+    parts = ["Rozmowa"]
+    if plan_kind is not None:
+        parts.append(care_plan.KIND_LABELS.get(plan_kind, plan_kind).lower())
+    elif channel:
+        parts.append(CHANNEL_LABELS.get(channel, channel))
+    if satisfaction:
+        parts.append(f"{satisfaction}/5")
+    parts.extend(SIGNAL_LABELS[s] for s in signals if s in SIGNAL_LABELS)
+    return " · ".join(parts)
 
 
 def _event(
@@ -191,23 +212,19 @@ async def _conversations(
     }
     out = []
     for conversation in conversations:
-        kind = closed.get(conversation.id)
-        title = "Rozmowa"
-        if kind is not None:
-            title += " · " + care_plan.KIND_LABELS.get(kind, kind).lower()
-        parts = [SIGNAL_LABELS[s] for s in conversation_signals(conversation)]
-        if conversation.satisfaction:
-            parts.append(f"zadowolenie {conversation.satisfaction}/5")
         note = excerpt(conversation.note)
-        if note:
-            parts.append(f"„{note}”")
         out.append(
             _event(
                 "conversation",
                 conversation.occurred_on,
-                title,
+                conversation_title(
+                    plan_kind=closed.get(conversation.id),
+                    channel=conversation.channel,
+                    satisfaction=conversation.satisfaction,
+                    signals=conversation_signals(conversation),
+                ),
                 today=today,
-                detail=" · ".join(parts) or None,
+                detail=f"„{note}”" if note else None,
             )
         )
     return out
@@ -269,14 +286,13 @@ async def _feedback(
     ).all()
     out = []
     for score, session, contact_name in rows:
-        parts = []
-        average = _average(
-            client_feedback.average(
-                [score.quality, score.communication, score.autonomy]
-            )
+        # „Opinia menedżera · 4,0 · przedłużenie: tak”, kto w ``detail`` (makieta P2).
+        parts = ["Opinia menedżera"]
+        average = client_feedback.average(
+            [score.quality, score.communication, score.autonomy]
         )
-        if average:
-            parts.append(average)
+        if average is not None:
+            parts.append(f"{average:.1f}".replace(".", ","))
         if session.extension_outlook:
             parts.append(
                 "przedłużenie: "
@@ -288,9 +304,9 @@ async def _feedback(
             _event(
                 "feedback",
                 session.held_on,
-                f"Opinia: {contact_name}" if contact_name else "Opinia klienta",
+                " · ".join(parts),
                 today=today,
-                detail=" · ".join(parts) or None,
+                detail=contact_name or None,
             )
         )
     return out
@@ -473,11 +489,43 @@ async def _owners(
     return out
 
 
-_CASE_TITLES = {
-    "case_opened": "Sprawa",
-    "case_linked": "Sprawa podpięta",
-    "case_closed": "Sprawa zamknięta",
-}
+MAIL_LINKED_DETAIL = "powiązana po e-mailu z kontraktu"
+
+
+def case_event_text(
+    kind: str,
+    title: str,
+    *,
+    from_mail: bool,
+    mail_linked: bool,
+    person: Optional[str],
+    checklist: tuple[int, int],
+) -> tuple[str, Optional[str]]:
+    """Tytuł i dopisek zdarzenia sprawy na osi (makieta S3, czysta reguła).
+
+    * założenie: „Sprawa otwarta: X · Natalia O.”, z maila — „Sprawa z maila:
+      X”, a gdy czytnik sam ją powiązał po e-mailu konsultanta — dopisek
+      „powiązana po e-mailu z kontraktu”;
+    * zamknięcie: „Sprawa zamknięta: X 4/4” (checklista, gdy jest);
+    * podpięcie ręczne: „Sprawa podpięta: X”.
+
+    ``person`` jest ``None``, gdy czytający nie widzi osoby (tytuł zastępczy).
+    """
+
+    if kind == "case_opened":
+        if from_mail:
+            return (
+                f"Sprawa z maila: {title}",
+                MAIL_LINKED_DETAIL if mail_linked else person,
+            )
+        return f"Sprawa otwarta: {title}", person
+    if kind == "case_closed":
+        done, total = checklist
+        return (
+            f"Sprawa zamknięta: {title}" + (f" {done}/{total}" if total else ""),
+            None,
+        )
+    return f"Sprawa podpięta: {title}", person
 
 
 async def _cases(
@@ -486,26 +534,108 @@ async def _cases(
     """Sprawy kontraktu z serwisu spraw (``contract_case_events``) — bez treści."""
 
     # Import w funkcji: moduł spraw ciągnie serwisy HR, a oś jest w opiece.
+    from app.models.admin_case import AdminCase  # noqa: PLC0415
     from app.services.admin_cases.queries import (  # noqa: PLC0415
         contract_case_events,
+        redact_case_title,
     )
+    from app.services.care.card import checklist_progress  # noqa: PLC0415
+
+    events = await contract_case_events(db, contract_id, viewer)
+    case_ids = sorted({event["case_id"] for event in events})
+    cases = (
+        {
+            case.id: case
+            for case in (
+                await db.scalars(select(AdminCase).where(AdminCase.id.in_(case_ids)))
+            ).all()
+        }
+        if case_ids
+        else {}
+    )
+    # Powiązanie przez czytnik poczty (nadawca = e-mail konsultanta z kontraktu).
+    mail_linked = (
+        {
+            int(entity_id)
+            for (entity_id,) in (
+                await db.execute(
+                    select(HrAuditEvent.entity_id).where(
+                        HrAuditEvent.entity_type == "admin_case",
+                        HrAuditEvent.action == "case_linked",
+                        HrAuditEvent.entity_id.in_([str(cid) for cid in case_ids]),
+                        HrAuditEvent.details["source"].astext == "mail_sender",
+                    )
+                )
+            ).all()
+        }
+        if case_ids
+        else set()
+    )
+    people = {
+        case.id: case.created_by or case.assignee_user_id
+        for case in cases.values()
+        if redact_case_title(case, viewer) is None
+    }
+    names = await care_access.user_names(db, [uid for uid in people.values() if uid])
 
     out = []
-    for event in await contract_case_events(db, contract_id, viewer):
+    for event in events:
+        case = cases.get(event["case_id"])
+        from_mail = case is not None and case.source == "mail"
+        if event["kind"] == "case_linked" and from_mail and case.id in mail_linked:
+            # Jedno zdarzenie „Sprawa z maila … powiązana po e-mailu”.
+            continue
+        person_id = people.get(event["case_id"])
+        title, detail = case_event_text(
+            event["kind"],
+            event["title"],
+            from_mail=from_mail,
+            mail_linked=case is not None and case.id in mail_linked,
+            person=names.get(person_id) if person_id else None,
+            checklist=checklist_progress(case.checklist) if case else (0, 0),
+        )
         at = event["at"]
         on = _local(at) if isinstance(at, datetime) else at
         item = _event(
             event["kind"],
             on,
-            f"{_CASE_TITLES.get(event['kind'], 'Sprawa')}: {event['title']}",
+            title,
             today=today,
-            detail=event.get("area_label"),
+            detail=detail,
             link=f"/people/cases/{event['case_id']}",
         )
         if item is not None:
             item["case_id"] = event["case_id"]
         out.append(item)
     return out
+
+
+#: Punkt planu na osi słowami opiekuna („Plan: kontakt przed końcem zamówienia”).
+PLAN_TITLES = {
+    "day_7": "rozmowa „dzień 7”",
+    "cadence": "rozmowa według rytmu",
+    "pre_end": "kontakt przed końcem zamówienia",
+}
+
+
+def _days_text(count: int) -> str:
+    return "1 dzień" if count == 1 else f"{count} dni"
+
+
+def plan_event_text(kind: str, due_on: date, today: date) -> tuple[str, str]:
+    """„Plan: kontakt przed końcem zamówienia” + „za 2 dni” / „dziś” / „zaległy 3 dni”."""
+
+    label = PLAN_TITLES.get(kind) or care_plan.KIND_LABELS.get(kind, kind).lower()
+    days = (due_on - today).days
+    if days < 0:
+        detail = f"zaległy {_days_text(-days)}"
+    elif days == 0:
+        detail = "dziś"
+    elif days == 1:
+        detail = "jutro"
+    else:
+        detail = f"za {days} dni"
+    return f"Plan: {label}", detail
 
 
 async def _next_plan(
@@ -522,13 +652,8 @@ async def _next_plan(
     )
     if item is None:
         return None
-    event = _event(
-        "plan",
-        item.due_on,
-        "Kontakt: " + care_plan.KIND_LABELS.get(item.kind, item.kind).lower(),
-        today=today,
-        detail="zaległy" if item.due_on < today else None,
-    )
+    title, detail = plan_event_text(item.kind, item.due_on, today)
+    event = _event("plan", item.due_on, title, today=today, detail=detail)
     if event is not None:
         # Zaległy punkt nie jest historią — stoi na końcu osi jak przyszły.
         event["future"] = True

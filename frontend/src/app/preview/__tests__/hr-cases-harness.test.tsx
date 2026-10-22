@@ -54,11 +54,12 @@ describe("/preview/hr-cases", () => {
     expect(columnCount("Czeka na kogoś")).toBe("1");
     // Wąska kolumna „Zrobione”: liczba z miesiąca, jedna sprawa z 30 dni na liście.
     expect(columnCount("Zrobione")).toBe("41");
-    expect(screen.getByText(/^41 w tym miesiącu/)).toBeInTheDocument();
+    expect(screen.getByText(/^41 spraw w miesiącu/)).toBeInTheDocument();
     const onboarding = screen.getByRole("listitem", { name: "Onboarding: Anna Kontraktorska" });
     expect(within(onboarding).getByText("z maila")).toBeInTheDocument();
     expect(within(onboarding).getByText("P1")).toBeInTheDocument();
-    expect(within(onboarding).getByText(/kontrakt w NEXUSIE/)).toBeInTheDocument();
+    // Makieta K1: sprawa z kontraktem pokazuje klienta konsultanta.
+    expect(within(onboarding).getByText(/Ubezpieczenia Fikcyjne/)).toBeInTheDocument();
     expect(within(onboarding).getByRole("progressbar", { name: "Lista kontrolna: 1 z 4" })).toBeInTheDocument();
     expect(within(onboarding).getByText(/^za 2 dni · |^jutro · |^dziś · |^\d{2}\.\d{2}$/)).toBeInTheDocument();
     const offboarding = screen.getByRole("listitem", { name: "Offboarding: Tomasz Podglądowy" });
