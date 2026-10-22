@@ -160,7 +160,7 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   (`cues` z `GET …/transcript`: czas, mówca, rola; szukanie; klik w cytat
   przenosi tu i podświetla wypowiedź; bez mówców — baner o ustawieniu Teams).
   Ocena sprzed v2 = stary widok punktów bez zakładki podsumowania.
-- **Prep 2 z notatką i dzwonek „Prep N oceniony” (0506, 22.10.2026).**
+- **Prep 2 z notatką i dzwonek „Prep N oceniony” (0507, 22.10.2026).**
   `GET /interview-cycle/preps/options` niesie `prep1_followup` (notatka na
   Prep 2 z najnowszej udanej oceny Prepu 1 pary, `prep_review.latest_prep1_review`);
   okno „Zaplanuj Prep 2” pokazuje ją jako „Notatka do follow-upu · widzi tylko
