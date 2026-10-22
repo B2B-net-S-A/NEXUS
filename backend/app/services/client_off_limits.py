@@ -165,7 +165,10 @@ def parse_confirmation_header(raw: Optional[str]) -> dict[int, str]:
         return {}
     try:
         data = json.loads(raw)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
+        # RecursionError: JSON zagnieżdżony na ~10 tys. poziomów (audyt
+        # 22.10, F111) — middleware stoi poza siatką błędów, więc to byłby
+        # 500 na każdej trasie, także bez logowania.
         return {}
     if not isinstance(data, dict):
         return {}
