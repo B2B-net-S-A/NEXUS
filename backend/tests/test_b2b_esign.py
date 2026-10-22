@@ -932,3 +932,36 @@ async def test_card_history_and_signer_list_know_the_contract_is_in_signing(
         "Wysłana do podpisu w NEXUSIE",
         "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
     ]
+
+
+def test_reminder_after_the_contractor_signed_goes_to_the_company_signer():
+    """Audyt 22.10, F48: po podpisie kontraktora zamiatacz ponagla reprezentanta
+    firmy — historia nie może pisać „Przypomnienie do kontraktora”."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.history import esign_history
+
+    t0 = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
+    waiting = SimpleNamespace(
+        id=4,
+        status="contractor_signed",
+        sent_at=t0 - timedelta(days=2),
+        sent_by=7,
+        last_reminder_at=t0 + timedelta(days=3),
+        contractor_signed_at=t0,
+        completed_at=None,
+        closed_at=None,
+        closed_by=None,
+        close_reason=None,
+        company_signer_id=9,
+    )
+
+    labels = [e.label for e in esign_history([waiting])]
+
+    assert labels == [
+        "Wysłana do podpisu w NEXUSIE",
+        "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
+        "Przypomnienie do podpisu za B2B Network",
+    ]
+
