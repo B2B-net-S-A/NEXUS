@@ -506,9 +506,10 @@ async def prep_suggestions(
 
     out: list[PrepSuggestion] = []
     avoid: list[tuple[datetime, datetime]] = []
+    # Oba zaplanowane prepy omijamy od początku — zaplanowany Prep 2 nie może
+    # dostać Prepu 1 w tej samej godzinie (audyt 22.10, F34).
+    scheduled: dict[int, Optional[CalendarEvent]] = {}
     for prep_no in (1, 2):
-        uid = suggested.get(prep_no)
-        user = users.get(uid) if uid else None
         existing = await prep_meetings.active_prep(
             db, candidate_id=candidate_id, job_id=job_id, prep_no=prep_no
         )
@@ -517,8 +518,13 @@ async def prep_suggestions(
             if existing
             else None
         )
+        scheduled[prep_no] = event
         if event is not None:
             avoid.append((event.start_time, event.end_time))
+    for prep_no in (1, 2):
+        uid = suggested.get(prep_no)
+        user = users.get(uid) if uid else None
+        event = scheduled[prep_no]
         user_busy = busy.get((user.email or "").lower()) if user else None
         calendar: Literal["ok", "unavailable", "off"] = (
             "off" if not enabled else ("ok" if user_busy is not None else "unavailable")

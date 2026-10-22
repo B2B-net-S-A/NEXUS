@@ -252,3 +252,66 @@ def test_choose_hour_on_a_fixed_slot_is_refused():
         interview_slots.choose(
             req, index, user_id=1, start=datetime(2026, 10, 22, 11, 0, tzinfo=WAW)
         )
+
+
+# ── Trasa podpowiedzi: zaplanowany Prep 2 a podpowiedzi Prepu 1 ─────────────
+
+
+async def test_suggestions_for_prep1_avoid_an_already_scheduled_prep2(monkeypatch):
+    """Audyt 22.10, F34: zaplanowany Prep 2 trafia do ``avoid`` przed liczeniem
+    Prepu 1 — kandydat nie dostaje dwóch prepów naraz."""
+    from types import SimpleNamespace
+
+    from app.api import prep_meetings as api
+    from app.models.calendar_event import CalendarEvent
+    from app.models.job import Job
+    from app.services import prep_meetings as svc
+
+    now = datetime.now(timezone.utc)
+    interview = (now + timedelta(days=6)).astimezone(WAW).replace(
+        hour=14, minute=0, second=0, microsecond=0
+    )
+    # Prep 2 stoi dokładnie na godzinie, którą Prep 1 podpowiedziałby jako pierwszą.
+    first = pa.suggest(prep_no=1, interview_start=interview, now=now, busy=None)[0]
+    prep2_event = SimpleNamespace(start_time=first.start, end_time=first.end)
+
+    class _Db:
+        async def get(self, model, _id):
+            if model is Job:
+                return SimpleNamespace(id=_id)
+            if model is CalendarEvent:
+                return prep2_event
+            return None
+
+    async def _noop(*_a, **_kw):
+        return None
+
+    async def _summary(*_a, **_kw):
+        return {1: None, 2: None}
+
+    async def _users(*_a, **_kw):
+        return {}
+
+    async def _active(_db, *, candidate_id, job_id, prep_no):
+        return SimpleNamespace(calendar_event_id=99) if prep_no == 2 else None
+
+    monkeypatch.setattr(api, "ensure_job_membership", _noop)
+    monkeypatch.setattr(svc, "suggestion_summary", _summary)
+    monkeypatch.setattr(api, "_active_users", _users)
+    monkeypatch.setattr(svc, "app_only_ready", lambda: False)
+    monkeypatch.setattr(svc, "active_prep", _active)
+
+    out = await api.prep_suggestions(
+        current_user=SimpleNamespace(id=1),
+        candidate_id=1,
+        job_id=2,
+        interview_start=interview,
+        candidate_from=None,
+        candidate_to=None,
+        db=_Db(),
+    )
+    prep1 = next(p for p in out.preps if p.prep_no == 1)
+    assert prep1.options
+    assert all(
+        not (o.start < first.end and first.start < o.end) for o in prep1.options
+    )
