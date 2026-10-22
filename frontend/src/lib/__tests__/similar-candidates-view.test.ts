@@ -9,6 +9,7 @@ import {
   addPlan,
   checksByCandidate,
   defaultSelected,
+  duplicateReasonText,
   mergePickableJobs,
   personName,
   prettySkill,
@@ -138,5 +139,17 @@ describe("teksty wiersza", () => {
     expect(rateText(null, null)).toBe("—");
     expect(rateText(20, "EUR")).toBe("20 EUR/h");
     expect(personName({ id: 7, name: null, lastname: null })).toBe("Osoba #7");
+  });
+});
+
+describe("duplicateReasonText", () => {
+  it("lists identity signals in server order", () => {
+    expect(duplicateReasonText(["name", "phone"])).toBe("to samo imię i nazwisko · ten sam telefon");
+    expect(duplicateReasonText(["cv_file"])).toBe("ten sam plik CV");
+  });
+
+  it("is empty for a person who is only similar", () => {
+    expect(duplicateReasonText([])).toBe("");
+    expect(duplicateReasonText(undefined)).toBe("");
   });
 });

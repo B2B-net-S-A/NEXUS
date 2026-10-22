@@ -766,6 +766,13 @@
    "file": "components/v2/similar-candidates/SimilarAssignSheet.tsx",
    "marker": "Dlaczego mimo to?",
    "home": "Zakładka „Podobni” → „Przypisz” / zaznaczeni"
+  },
+  {
+   "id": "c.similar-duplicate",
+   "opis": "„Możliwy duplikat · Scal…” w „Podobnych” — kosinus ≥ 0,90 i to samo imię i nazwisko, telefon, LinkedIn albo plik CV; „Scal…” otwiera okno scalania z tą osobą",
+   "file": "components/v2/similar-candidates/SimilarCandidatesTab.tsx",
+   "marker": "Możliwy duplikat",
+   "home": "Zakładka „Podobni” → wiersz osoby"
   }
  ]
 }
