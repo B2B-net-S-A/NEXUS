@@ -160,8 +160,8 @@ def test_sweeper_warns_once_before_expiry() -> None:
     req = _signed(valid_until=TODAY + timedelta(days=2))
     assert due_action(req, today=TODAY, now=NOW) == "expiring"
     req.last_reminder_at = NOW - timedelta(days=1)
-    # Przypomnienie wyszło już w oknie 3 dni — drugiego nie ma.
-    assert due_action(req, today=TODAY, now=NOW) is None
+    # Ostrzeżenie wyszło już w oknie 3 dni (zdarzenie „expiring”) — drugiego nie ma.
+    assert due_action(req, today=TODAY, now=NOW, expiring_sent=True) is None
 
 
 def test_sweeper_reminds_assignee_when_candidate_is_silent() -> None:
@@ -266,3 +266,88 @@ def test_pre_contract_bell_cannot_be_muted_and_has_a_group() -> None:
     assert (
         CATEGORY_BY_TYPE[NotificationType.pre_contract] is NotificationCategory.mentions
     )
+
+
+# ── Audyt 22.10.2026 ─────────────────────────────────────────────────────────
+
+
+def test_b2b_contract_requirement_is_not_late_right_after_client_acceptance() -> None:
+    # F49: akceptacja klienta przenosi kartę do „Akceptacja i umowa” — umowa
+    # B2B jest dopiero przed nami, więc plakietka nie może być od razu czerwona.
+    req = _req(needed_before="b2b_contract")
+    assert svc.badge(req, column="contract", today=TODAY).tone == "missing"
+    assert svc.badge(req, column="hired", today=TODAY).tone == "late"
+
+
+def test_move_into_contract_column_does_not_warn_for_b2b_contract_requirement() -> None:
+    needed = svc.NEEDED_COLUMN["b2b_contract"]
+    into_contract = _requirements("contract", pre_contract_column=needed)
+    assert not [i for i in into_contract["items"] if i["key"] == "pre_contract"]
+    hired = _requirements("hired", pre_contract_column=needed)
+    assert [i for i in hired["items"] if i["key"] == "pre_contract"]
+
+
+def test_sent_today_uses_company_calendar_not_utc() -> None:
+    # F85: 23.10 00:30 w Warszawie = 22.10 22:30 UTC — to wciąż „dziś”.
+    sent = datetime(2026, 10, 22, 22, 30, tzinfo=timezone.utc)
+    req = _req(document_id=5, sent_at=sent)
+    b = svc.badge(req, column="verified", today=date(2026, 10, 23))
+    assert b.label == "Przedwstępna wysłana dziś"
+
+
+def test_expiring_warning_survives_b2b_deadline_reminder_in_the_window() -> None:
+    # F104: przypomnienie o terminie B2B w pierwszym dniu okna ważności nie
+    # może zjeść ostrzeżenia „wkrótce wygaśnie”.
+    req = _signed(valid_until=date(2026, 10, 30), b2b_deadline=date(2026, 10, 27))
+    for day in (date(2026, 10, 26), date(2026, 10, 27)):
+        moment = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+        moment = moment.replace(hour=10)
+        assert due_action(req, today=day, now=moment) == "b2b_deadline"
+        req.last_reminder_at = moment
+    day = date(2026, 10, 28)
+    moment = datetime(2026, 10, 28, 10, 0, tzinfo=timezone.utc)
+    assert due_action(req, today=day, now=moment) == "expiring"
+    assert due_action(req, today=day, now=moment, expiring_sent=True) is None
+
+
+def test_expiring_message_does_not_claim_the_person_is_still_in_process() -> None:
+    # F53: odrzucona albo zatrudniona osoba nie jest „wciąż w procesie”.
+    from app.tasks.pre_contract_sweeper import expiring_message
+
+    req = _signed(valid_until=date(2026, 10, 30))
+    assert "wciąż w procesie" in expiring_message(req, column="client_interview")
+    closed = expiring_message(req, column="closed")
+    assert "wciąż w procesie" not in closed and "zamknij prośbę" in closed
+    hired = expiring_message(req, column="hired")
+    assert "wciąż w procesie" not in hired and "zatrudniona" in hired
+
+
+async def test_bell_names_the_person_and_the_recruitment(monkeypatch) -> None:
+    # F51: dzwonek i mail mówią, której osoby i rekrutacji dotyczą.
+    from app.models.pre_contract import PreContractEvent
+    from app.services import interview_change_notifications, notification_triggers
+
+    sent: list[dict] = []
+
+    async def fake_emit(db, **kw):
+        sent.append(kw)
+        return object()
+
+    async def fake_watchers(db, request_id):
+        return [7]
+
+    async def fake_labels(db, candidate_id, job_id):
+        assert (candidate_id, job_id) == (10, 20)
+        return "Anna Testowa", "Analityk systemowy"
+
+    monkeypatch.setattr(notification_triggers, "emit", fake_emit)
+    monkeypatch.setattr(svc, "watcher_ids", fake_watchers)
+    monkeypatch.setattr(interview_change_notifications, "_labels", fake_labels)
+    event = PreContractEvent(id=3, request_id=1, kind="expired")
+    await svc.notify(
+        None, _req(assignee_id=8), event, message="Umowa wygasła.", actor_id=None
+    )
+    assert [kw["user_id"] for kw in sent] == [7, 8]
+    assert {kw["message"] for kw in sent} == {
+        "Anna Testowa — Analityk systemowy: Umowa wygasła."
+    }

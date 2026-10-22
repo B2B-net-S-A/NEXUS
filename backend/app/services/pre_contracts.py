@@ -45,11 +45,13 @@ NEEDED_BEFORE_LABEL: dict[str, str] = {
     "date": "do daty",
 }
 
-#: Kolumna Tablicy, PRZED którą umowa ma być podpisana.
+#: Kolumna Tablicy, PRZED którą umowa ma być podpisana. „Przed umową B2B”
+#: liczy się od „Zatrudniony”: umowę B2B zawiera się w „Akceptacja i umowa”,
+#: do której karta trafia już przy akceptacji klienta (audyt 22.10.2026).
 NEEDED_COLUMN: dict[str, Optional[str]] = {
     "cv_sent": "cv_sent",
     "client_interview": "client_interview",
-    "b2b_contract": "contract",
+    "b2b_contract": "hired",
     "date": None,
 }
 
@@ -225,7 +227,11 @@ def badge(
         label = f"Przedwstępna {needed} — nie wysłana"
         tone = "late" if late else "missing"
     elif state == "sent":
-        waiting = _days(req.sent_at.date(), today) if req.sent_at is not None else 0
+        waiting = (
+            _days(req.sent_at.astimezone(_TZ).date(), today)
+            if req.sent_at is not None
+            else 0
+        )
         label = (
             f"Przedwstępna wysłana · czeka {waiting} {_plural_days(waiting)}"
             if waiting > 0
@@ -320,7 +326,12 @@ async def notify(
 ) -> list[int]:
     """Dzwonek do obserwujących i wystawiającego (bez autora zmiany).
 
-    Encja = zdarzenie, więc dwa kroki jednego dnia dają dwa dzwonki."""
+    Encja = zdarzenie, więc dwa kroki jednego dnia dają dwa dzwonki. Treść
+    zaczyna się od „{kandydat} — {rekrutacja}: ”, bo od #2576 idzie też
+    mailem, a odbiorca prowadzi kilka próśb naraz."""
+    from app.services.interview_change_notifications import (  # noqa: PLC0415
+        _labels,
+    )
     from app.services.notification_triggers import emit  # noqa: PLC0415
 
     if only_user_ids is not None:
@@ -333,6 +344,10 @@ async def notify(
     if actor_id is not None:
         recipients.discard(actor_id)
     sent: list[int] = []
+    if not recipients:
+        return sent
+    who, job = await _labels(db, req.candidate_id, req.job_id)
+    message = f"{who} — {job}: {message}"
     for uid in sorted(recipients):
         row = await emit(
             db,
