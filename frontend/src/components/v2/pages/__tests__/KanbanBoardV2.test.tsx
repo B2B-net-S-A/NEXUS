@@ -1358,6 +1358,8 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
   });
 
   it("okno „Zweryfikowany” podpowiada stawkę z profilu, a „Zostaw zapisaną stawkę” przesuwa bez nowej stawki", async () => {
+    // Bramki pól dotyczą rekrutera — admin i DL przesuwają mimo braków (22.10.2026).
+    useAuthStore.setState({ user: { id: 1, role: "recruiter", roles: ["recruiter"] } } as never);
     renderBoard(gateColumns({ candidate_expected_rate_hourly: "120.00" }));
     const menu = await openDockStageMenu();
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Zweryfikowany" }));
@@ -2328,6 +2330,8 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
   });
 
   it("strzałka „→” otwiera „Przesuń dalej”: braki blokują przycisk, akcja otwiera arkusz", async () => {
+    // Bramki pól dotyczą rekrutera — admin i DL przesuwają mimo braków (22.10.2026).
+    useAuthStore.setState({ user: { id: 1, role: "recruiter", roles: ["recruiter"] } } as never);
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     get.mockImplementation((url: string) =>
       url === "/api/pipeline/move-requirements"
@@ -3059,6 +3063,8 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
     ["krzyżyk doku", (panel: HTMLElement) => userEvent.click(within(panel).getByRole("button", { name: "Zamknij dok" }))],
     ["„Zwiń”", (panel: HTMLElement) => userEvent.click(within(panel).getByRole("button", { name: "Zwiń" }))],
   ])("okno „Przesuń dalej”, z którego rozwinięto panel, wraca po wyjściu: %s", async (_label, leave) => {
+    // Bramki pól dotyczą rekrutera — admin i DL przesuwają mimo braków (22.10.2026).
+    useAuthStore.setState({ user: { id: 1, role: "recruiter", roles: ["recruiter"] } } as never);
     get.mockImplementation((url: string) =>
       url === "/api/pipeline/move-requirements"
         ? Promise.resolve({
@@ -3668,6 +3674,8 @@ describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14
   });
 
   it("ze „Zweryfikowanego” bez CV firmowego strzałka otwiera „Przesuń dalej” (znany brak)", async () => {
+    // Bramki pól dotyczą rekrutera — admin i DL przesuwają mimo braków (22.10.2026).
+    useAuthStore.setState({ user: { id: 1, role: "recruiter", roles: ["recruiter"] } } as never);
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     columns[2] = {
       ...columns[2],
@@ -3720,6 +3728,8 @@ describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14
   });
 
   it("brak samego minimum dla DL: strzałka otwiera okno z brakującymi polami, bez ruchu (21.10.2026)", async () => {
+    // Bramki pól dotyczą rekrutera — admin i DL przesuwają mimo braków (22.10.2026).
+    useAuthStore.setState({ user: { id: 1, role: "recruiter", roles: ["recruiter"] } } as never);
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     columns[1] = {
       ...columns[1],
@@ -3752,6 +3762,74 @@ describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14
     // Karta stoi w „Screeningu” i nic nie idzie do serwera, dopóki pola nie są zapisane.
     expect(moveCalls()).toHaveLength(0);
     expect(columnOf(container, 2101)).toBe("def:301");
+  });
+
+  // 22.10.2026: Delivery Lead (i admin — to samo uprawnienie) przesuwa bez
+  // bramek pól: strzałka nie jest szara, karta idzie od razu, a komunikat
+  // wymienia braki. Stawki też nie pyta.
+  it("Delivery Lead: strzałka ze Screeningu bez arkusza, stawki i minimum przesuwa od razu z brakami w komunikacie", async () => {
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[1] = {
+      ...columns[1],
+      items: [
+        {
+          id: 1102,
+          candidate_id: 2102,
+          stage: "screening",
+          name: "Kandydat",
+          lastname: "Dlowy",
+          days_in_stage: 2,
+          screening_done: false,
+          minimum_missing: ["location"],
+        },
+      ],
+    };
+    const { container } = renderBoard(columns as never);
+    const card = (await screen.findByRole("link", { name: "Kandydat Dlowy" })).closest(
+      "[data-kanban-card]",
+    ) as HTMLElement;
+    const arrow = within(card).getByRole("button", { name: /Przesuń Kandydat Dlowy na następny etap/ });
+    expect(arrow).toHaveAttribute("data-gap", "false");
+    await clickArrow("Kandydat Dlowy");
+    expect(screen.queryByTestId("move-next-dialog")).toBeNull();
+    expect(screen.queryByLabelText("Kwota")).toBeNull();
+    expect(columnOf(container, 2102)).toBe("def:302");
+    expect(toastAction.mock.calls[0][0]).toBe(
+      "Kandydat Dlowy → Zweryfikowany · bez: arkusza screeningu, stawki kandydata, lokalizacja",
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(moveCalls()).toHaveLength(1);
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 2102, stage: "verified" });
+  });
+
+  it("karta przesunięta przez DL mimo braków ma odznakę „Przesunął DL”", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[2] = {
+      ...columns[2],
+      count: 1,
+      items: [
+        {
+          id: 7202,
+          candidate_id: 8202,
+          stage: "verified",
+          name: "Ola",
+          lastname: "Przeniesiona",
+          days_in_stage: 0,
+          requirements_skipped: ["screening_sheet", "candidate_rate"],
+          requirements_skipped_by_name: "Anna Nowak",
+        },
+      ],
+    };
+    renderBoard(columns as never);
+    const card = (await screen.findByRole("link", { name: "Ola Przeniesiona" })).closest(
+      "[data-kanban-card]",
+    ) as HTMLElement;
+    expect(within(card).getByTestId("card-requirements-skipped")).toHaveTextContent(
+      "Przesunął DL · bez arkusza i stawki",
+    );
   });
 });
 

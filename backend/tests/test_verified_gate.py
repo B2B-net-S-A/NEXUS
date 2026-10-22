@@ -16,7 +16,7 @@ import pytest
 import pytest_asyncio
 from fastapi import HTTPException
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -63,6 +63,11 @@ def gates_on(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def minimum_on(gates_on, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "VERIFIED_MINIMUM_FIELDS_ENABLED", True)
+
+
+@pytest.fixture
+def dl_skips_on(minimum_on, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "DL_SKIPS_FILL_GATES", True)
 
 
 async def _post_move(client: AsyncClient, headers: dict, world: dict, **body):
@@ -428,3 +433,159 @@ async def test_manual_hire_without_signed_via_is_refused(
         assert "opisz" in other.json()["detail"]["message"]
     finally:
         await _cleanup(world, [rec_id])
+
+
+# ── Delivery Lead przesuwa bez bramek pól (decyzja Artura 22.10.2026) ────────
+
+
+@pytest.mark.asyncio
+async def test_delivery_lead_moves_past_the_fill_gates_and_leaves_a_trace(
+    api_client: AsyncClient, dl_skips_on
+) -> None:
+    """DL sam przeprowadza osobę, którą rekruter pominął: bez arkusza, stawki
+    i minimum ruch przechodzi, a braki zostają śladem na karcie Tablicy.
+    Rekruter na tej samej parze dalej dostaje 409, a jako prowadzący dostaje
+    dzwonek o ruchu DL-a."""
+
+    from app.models.activity import Activity
+    from app.models.job import Job
+    from app.models.notification import Notification
+
+    world = await _seed_world(champion_profile=WITH_QUESTIONS)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
+    verified = world["defs"]["verified"]
+    try:
+        await seed_entry_row(world["candidate_id"], world["job_id"])
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, world["job_id"])
+            job.recruiter_id = rec_id
+            await db.commit()
+
+        refused = await _post_move(api_client, rec, world, stage_def_id=verified)
+        assert refused.status_code == 409, refused.text
+        missing = refused.json()["detail"]["missing"]
+        assert missing[:2] == ["screening_sheet", "candidate_rate"]
+
+        moved = await _post_move(api_client, dl, world, stage_def_id=verified)
+        assert moved.status_code == 200, moved.text
+
+        async with AsyncSessionLocal() as db:
+            trace = (
+                await db.execute(
+                    select(Activity).where(
+                        Activity.action == rules.REQUIREMENTS_SKIPPED_ACTION,
+                        Activity.user_id == dl_id,
+                    )
+                )
+            ).scalar_one()
+        assert trace.details["missing"] == missing
+        assert trace.details["job_id"] == world["job_id"]
+        async with AsyncSessionLocal() as db:
+            bell = (
+                await db.execute(
+                    select(Notification).where(
+                        Notification.user_id == rec_id,
+                        Notification.related_entity_id == world["candidate_id"],
+                    )
+                )
+            ).scalar_one()
+        assert "Zweryfikowany" in bell.title
+        assert "arkusz screeningu" in bell.message
+
+        board = await api_client.get(
+            f"/api/pipeline/kanban/{world['job_id']}", headers=dl
+        )
+        assert board.status_code == 200, board.text
+        cards = [
+            item
+            for column in board.json()["columns"]
+            for item in column["items"]
+            if item["candidate_id"] == world["candidate_id"]
+        ]
+        assert cards and cards[0]["requirements_skipped"] == missing
+        assert cards[0]["requirements_skipped_by_name"]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Activity).where(
+                    Activity.action == rules.REQUIREMENTS_SKIPPED_ACTION,
+                    Activity.user_id == dl_id,
+                )
+            )
+            await db.execute(delete(Notification).where(Notification.user_id == rec_id))
+            await db.execute(
+                update(Job).where(Job.id == world["job_id"]).values(recruiter_id=None)
+            )
+            await db.commit()
+        await _cleanup(world, [rec_id, dl_id])
+
+
+@pytest.mark.asyncio
+async def test_delivery_lead_switch_off_restores_the_gate(
+    api_client: AsyncClient, minimum_on
+) -> None:
+    world = await _seed_world(champion_profile=WITH_QUESTIONS)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    try:
+        await seed_entry_row(world["candidate_id"], world["job_id"])
+        refused = await _post_move(
+            api_client, dl, world, stage_def_id=world["defs"]["verified"]
+        )
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"]["code"] == "VERIFIED_REQUIREMENTS_MISSING"
+    finally:
+        await _cleanup(world, [dl_id])
+
+
+@pytest.mark.asyncio
+async def test_delivery_lead_bulk_move_keeps_the_gate(
+    api_client: AsyncClient, dl_skips_on
+) -> None:
+    """Ruch zbiorczy nie zostawia śladu `requirements_skipped`, więc bramka pól
+    obowiązuje w nim także Delivery Leada (przegląd 22.10.2026)."""
+
+    world = await _seed_world(champion_profile=WITH_QUESTIONS)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    try:
+        await seed_entry_row(world["candidate_id"], world["job_id"])
+        bulk = await api_client.post(
+            "/api/pipeline/bulk-move",
+            headers=dl,
+            json={
+                "candidate_ids": [world["candidate_id"]],
+                "job_id": world["job_id"],
+                "stage": "interview",
+            },
+        )
+        assert bulk.status_code == 409, bulk.text
+        assert bulk.json()["detail"]["code"] == "VERIFIED_REQUIREMENTS_MISSING"
+    finally:
+        await _cleanup(world, [dl_id])
+
+
+def test_board_badge_keeps_only_what_is_still_missing() -> None:
+    from app.api.pipeline import _still_missing
+
+    keys = ["screening_sheet", "candidate_rate", "location", "work_mode", "debrief"]
+    gaps = {
+        "screening_done": False,
+        "expected_rate_value": None,
+        "minimum_missing": ["location", "work_mode"],
+    }
+    assert _still_missing(keys, gaps) == keys
+    filled = {
+        "screening_done": True,
+        "expected_rate_value": "140.00",
+        "minimum_missing": ["work_mode"],
+    }
+    assert _still_missing(keys, filled) == ["work_mode", "debrief"]
+    # Stawka z profilu też gasi brak stawki.
+    assert (
+        _still_missing(["candidate_rate"], {"candidate_expected_rate_hourly": 120})
+        == []
+    )

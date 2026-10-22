@@ -14,6 +14,12 @@
  * zamkniętą kartę (12.10.2026): pokazuje powód z serwera, a zamkniętą kartę
  * przywraca ruchem karty (`usePipelineMoveCore`) — tym samym co na Tablicy,
  * więc z anulowaniem maila odmowy i oknem „Przenieś mimo to”.
+ *
+ * Delivery Lead (uprawnienie wysyłki CV) przy jednej osobie wybiera etap:
+ * „Nowi” albo od razu „Zweryfikowany” (decyzja Artura 22.10.2026 — DL sam
+ * przeprowadza osobę, którą rekruter pominął). Dodanie idzie jak zawsze,
+ * a drugi krok to zwykły ruch karty — serwer przepuszcza DL-a bez bramek pól
+ * i zapisuje ślad braków (`requirements_skipped`).
  */
 
 import { useMemo, useState } from "react";
@@ -27,6 +33,8 @@ import {
   type BulkSkippedRow,
 } from "@/lib/candidate-search-api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { hasPermission } from "@/lib/permissions";
+import { useAuthStore } from "@/store/auth";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { pluralPl } from "@/lib/plural-pl";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
@@ -228,7 +236,10 @@ export function AddToRecruitmentDialog({
   const [restoredIds, setRestoredIds] = useState<ReadonlySet<number>>(new Set());
   const [restoringId, setRestoringId] = useState<number | null>(null);
   const [skipEmployed, setSkipEmployed] = useState(false);
+  const [toVerified, setToVerified] = useState(false);
   const move = usePipelineMoveCore({ jobId: (result?.job ?? job)?.id ?? 0 });
+  const canPickStage =
+    hasPermission(useAuthStore((s) => s.user), "recruitment_manage") && candidateIds.length === 1;
 
   const employedInSelection = useMemo(() => {
     const selected = new Set(candidateIds);
@@ -246,6 +257,7 @@ export function AddToRecruitmentDialog({
     setResult(null);
     setRestoredIds(new Set());
     setSkipEmployed(false);
+    setToVerified(false);
   };
 
   const close = (next: boolean) => {
@@ -264,6 +276,15 @@ export function AddToRecruitmentDialog({
         source,
         ...(runId ? { run_id: runId } : {}),
       });
+      // DL: od razu na „Zweryfikowany” — zwykły ruch karty dodanej osoby.
+      if (canPickStage && toVerified) {
+        for (const candidateId of response.added) {
+          await move.send(
+            { candidate_id: candidateId, job_id: job.id, stage: "verified" },
+            { candidateName: subject ?? "Kandydat", fallbackMessage: "Dodano do „Nowych”, ale nie udało się przesunąć na „Zweryfikowany”." },
+          );
+        }
+      }
       void queryClient.invalidateQueries({ queryKey: ["kanban", String(job.id)] });
       void queryClient.invalidateQueries({ queryKey: ["kanban", job.id] });
       void queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
@@ -277,6 +298,7 @@ export function AddToRecruitmentDialog({
       else {
         setJob(null);
         setSkipEmployed(false);
+        setToVerified(false);
         onOpenChange(false);
       }
       if (response.total_added > 0 || !stay) onAdded?.({ job, response });
@@ -382,6 +404,32 @@ export function AddToRecruitmentDialog({
                 />
               )}
               <JobPicker value={job} onChange={setJob} />
+              {canPickStage ? (
+                <fieldset className="mt-3" data-testid="add-to-recruitment-stage">
+                  <legend className="mb-1.5 text-xs font-semibold text-muted-foreground">Na etap</legend>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: false, label: "Nowi" },
+                      { value: true, label: "Zweryfikowany" },
+                    ].map((option) => (
+                      <Button
+                        key={option.label}
+                        type="button"
+                        variant={toVerified === option.value ? "primary" : "outline"}
+                        aria-pressed={toVerified === option.value}
+                        onClick={() => setToVerified(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    {toVerified
+                      ? "Przesuwasz jako Delivery Lead — bez arkusza i stawki; braki zostaną na karcie, a proces zaliczy się Tobie."
+                      : "Osoba trafi do „Nowych”, jak przy dodaniu przez rekrutera."}
+                  </p>
+                </fieldset>
+              ) : null}
               {error ? (
                 <p role="alert" className="mt-3 text-sm text-destructive">
                   {error}
@@ -401,7 +449,11 @@ export function AddToRecruitmentDialog({
                 Anuluj
               </Button>
               <Button onClick={() => void submit()} disabled={!job || count === 0} loading={pending}>
-                {job ? `Dodaj do „${jobDisplayTitle(job)}”` : "Dodaj"}
+                {job
+                  ? canPickStage && toVerified
+                    ? "Dodaj na „Zweryfikowany”"
+                    : `Dodaj do „${jobDisplayTitle(job)}”`
+                  : "Dodaj"}
               </Button>
             </>
           )}

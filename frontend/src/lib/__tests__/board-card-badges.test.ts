@@ -20,6 +20,8 @@ import {
   criticalGapBadge,
   cvStateBadge,
   dlWaitingStatus,
+  fillGapsText,
+  requirementsSkippedBadge,
   shortStepLabel,
 } from "@/lib/board-card-badges";
 import { WHY_CANDIDATE_LABEL, nextActionFor } from "@/lib/pipeline-next-action";
@@ -236,6 +238,48 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
       "QC: 2 do poprawy",
     );
     expect(knownForwardGap(item({ qc: { status: "unchecked", blocking_failed: 0 } }), "cv_qc")).toBeNull();
+  });
+
+  // 22.10.2026: Delivery Lead przesuwa bez bramek pól — zna tylko brak QC.
+  it("Delivery Lead: strzałka nie jest szara przez arkusz, minimum ani CV firmowe", () => {
+    const dl = { skipsFillGates: true };
+    expect(knownForwardGap(item({ screening_done: false }), "screening", dl)).toBeNull();
+    expect(knownForwardGap(item({ screening_done: true, minimum_missing: ["location"] }), "screening", dl)).toBeNull();
+    expect(knownForwardGap(item({ company_cv: false }), "verified", dl)).toBeNull();
+    expect(knownForwardGap(item({ qc: { status: "failed", blocking_failed: 1 } }), "cv_qc", dl)).toBe("QC: 1 do poprawy");
+  });
+
+  it("komunikat strzałki DL-a wymienia braki", () => {
+    expect(
+      fillGapsText(item({ screening_done: false, minimum_missing: ["location", "work_mode"] }), "screening", "verified"),
+    ).toBe("bez: arkusza screeningu, stawki kandydata, lokalizacja, tryb pracy");
+    expect(
+      fillGapsText(
+        item({ screening_done: true, expected_rate_value: "140", minimum_missing: [] }),
+        "screening",
+        "verified",
+      ),
+    ).toBeNull();
+    // Z Nowych do Screeningu nie ma bramki — komunikat nic nie wymienia.
+    expect(fillGapsText(item({ screening_done: false }), "new", "screening")).toBeNull();
+    expect(fillGapsText(item({ company_cv: false }), "verified", "cv_qc")).toBe("bez: CV firmowego");
+  });
+
+  it("odznaka „Przesunął DL” od „Zweryfikowanego”, nie w Nowych i Zamkniętych", () => {
+    const moved = item({
+      requirements_skipped: ["screening_sheet", "candidate_rate"],
+      requirements_skipped_by_name: "Anna Nowak",
+    });
+    expect(requirementsSkippedBadge(moved, "verified")).toMatchObject({
+      label: "Przesunął DL · bez arkusza i stawki",
+      tone: "wait",
+    });
+    expect(requirementsSkippedBadge(moved, "verified")?.title).toContain("Anna Nowak");
+    expect(requirementsSkippedBadge(moved, "screening")).toBeNull();
+    expect(requirementsSkippedBadge(moved, "closed")).toBeNull();
+    expect(requirementsSkippedBadge(item({}), "verified")).toBeNull();
+    const many = item({ requirements_skipped: ["screening_sheet", "candidate_rate", "location"] });
+    expect(requirementsSkippedBadge(many, "cv_sent")?.label).toBe("Przesunął DL · bez 3 pól");
   });
 
   // 21.10.2026: minimum dla Delivery Leada blokuje „Zweryfikowany”.

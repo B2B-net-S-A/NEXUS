@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScreeningFormSave, ScreeningFormState } from "@/lib/api/screeningForm";
 import { createNoteFillChannel } from "@/lib/note-fill-channel";
 import { emptyMemory } from "@/lib/screening-memory";
+import { useAuthStore } from "@/store/auth";
 import { readScreeningMemory, useScreeningMemoryStore, writeScreeningMemory } from "@/store/screening-memory";
 import {
   FORM_CANDIDATE_ID,
@@ -714,6 +715,30 @@ describe("ScreeningFullForm — minimum dla Delivery Leada (21.10.2026)", () => 
     await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
     expect(lastPut().card?.fields).toMatchObject({ location: "Kraków", work_mode: "zdalnie" });
+  });
+
+  // 22.10.2026: Delivery Lead przekazuje dalej bez odpowiedzi i minimum —
+  // serwer też go przepuszcza; stopka dalej mówi, czego brakuje.
+  it("Delivery Lead przekazuje dalej bez odpowiedzi i bez minimum", async () => {
+    useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    try {
+      serverState = minimumState();
+      mocks.put.mockImplementation(() =>
+        Promise.resolve({ data: formSaveResult(serverState, { process_state_version: 2 }) }),
+      );
+      mocks.send.mockResolvedValue({ ok: true, data: {} });
+      const user = userEvent.setup();
+      mount({ forward });
+      await screen.findAllByLabelText("Odpowiedź");
+      await user.type(screen.getByLabelText("Lokalizacja"), "Kraków");
+
+      expect(screen.getByTestId("screening-form-minimum")).toHaveTextContent("brakuje");
+      await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ }));
+      await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+      expect(mocks.showError).not.toHaveBeenCalled();
+    } finally {
+      useAuthStore.setState({ user: null } as never);
+    }
   });
 });
 

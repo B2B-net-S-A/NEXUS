@@ -151,6 +151,9 @@ class PairFacts:
     # Użytkownik może wysłać CV do klienta (uprawnienie „Rekrutacje:
     # zakładanie, zamykanie, wysyłka CV do klienta”).
     is_client_sender: bool = False
+    # 22.10.2026: Delivery Lead przesuwa bez bramek pól — braki zostają na
+    # liście, ale nie blokują (`pipeline_move_rules.skips_fill_gates`).
+    skips_fill_gates: bool = False
     nordea: bool = False
     cpro_stage_def_id: Optional[int] = None
     qc_stage_def_id: Optional[int] = None
@@ -832,6 +835,26 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
     return []
 
 
+# Bramki pól, które Delivery Lead omija (22.10.2026): wszystko, co blokuje
+# wejście na „Zweryfikowany” (arkusz, stawka, minimum), CV firmowe przed
+# „QC CV” i debrief przed „Umową”. QC CV i wysyłka do klienta zostają.
+_FILL_GATE_ITEMS = frozenset({("cv_qc", "company_cv"), ("contract", "debrief")})
+DL_SKIP_DETAIL = "nie blokuje — przesuwasz jako Delivery Lead"
+
+
+def _is_fill_gate(item: _Item) -> bool:
+    return item.column == "verified" or (item.column, item.key) in _FILL_GATE_ITEMS
+
+
+def _skip_fill_gates(items: list[_Item]) -> None:
+    for item in items:
+        if item.blocks and _is_fill_gate(item):
+            item.blocking = False
+            item.detail = (
+                f"{item.detail} — {DL_SKIP_DETAIL}" if item.detail else DL_SKIP_DETAIL
+            )
+
+
 def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
     """Lista wymagań i główna akcja dla ruchu na ``to_column``."""
 
@@ -855,6 +878,8 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
     path = list(BOARD_COLUMN_ORDER[start + 1 : stop + 1])
     result["skipped_columns"] = path[:-1]
     items = [item for column in path for item in _items_for(column, facts)]
+    if facts.skips_fill_gates:
+        _skip_fill_gates(items)
     # Ruch za „Screening” z odpowiedzią, która narusza „Odpada, gdy…”:
     # ostrzeżenie (nie bramka) z akcją odrzucenia — 04.10.2026. Na prodzie
     # 2 z 3 takich osób wysłano do klienta, bo nic o tym nie mówiło.
@@ -1204,6 +1229,7 @@ async def load_pair_facts(
     from app.services import candidate_claim, cpro_sender  # noqa: PLC0415
     from app.services.board_tasks import classify_template  # noqa: PLC0415
     from app.services.debrief_gate import missing_debrief  # noqa: PLC0415
+    from app.services.pipeline_move_rules import skips_fill_gates  # noqa: PLC0415
     from app.core.config import settings  # noqa: PLC0415
     from app.services.action_permissions import (  # noqa: PLC0415
         ProductAction,
@@ -1431,6 +1457,7 @@ async def load_pair_facts(
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
         client_rate=client_rate,
         is_client_sender=has_permission(user, ProductAction.recruitment_manage),
+        skips_fill_gates=skips_fill_gates(user),
         nordea=nordea,
         cpro_stage_def_id=stages.cpro_id if stages is not None else None,
         qc_stage_def_id=stages.qc_id if stages is not None else None,

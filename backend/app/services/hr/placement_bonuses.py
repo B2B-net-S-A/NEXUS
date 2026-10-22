@@ -24,7 +24,9 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
   w rekrutacjach sprzed 10.2026 siedzi tam zwykle Delivery Lead); DL =
   ``jobs.delivery_lead_id``, a gdy go brak — prowadzący rekrutację, jeśli ma
   rolę Delivery Leada, a dopiero potem DL klienta (głowa albo jedyne
-  przypisanie). Bez weryfikującego premii rekrutera nie ma.
+  przypisanie). Bez weryfikującego premii rekrutera nie ma — ani gdy
+  weryfikującym jest ten sam Delivery Lead (22.10.2026: DL, który sam
+  przeprowadził osobę, dostaje jedną premię, DL-a).
 
 Kontrakt zakończony przed terminem (albo anulowany) → propozycje anulowane
 przez automat; cofnięcie zakończenia → przywrócone. Kontrakt usunięty trwale →
@@ -206,7 +208,8 @@ class PlacementContext:
 
         Rekruter = pierwszy weryfikujący kandydata w rekrutacji kontraktu;
         DL z rekrutacji, potem prowadzący z rolą DL, zapasowo DL klienta
-        (decyzje Artura 18.10.2026).
+        (decyzje Artura 18.10.2026). DL, który sam zweryfikował osobę, nie
+        dostaje do premii DL-a premii rekrutera (decyzja Artura 22.10.2026).
         """
 
         recruiter_id = (
@@ -214,19 +217,25 @@ class PlacementContext:
             if contract.candidate_id is not None and contract.job_id is not None
             else None
         )
+        dl_id, source = self._delivery_lead(contract)
+        if dl_id is not None and recruiter_id == dl_id:
+            recruiter_id = None
+        return dl_id, recruiter_id, source
+
+    def _delivery_lead(self, contract: Contract) -> tuple[Optional[int], str]:
         dl_id = self.jobs.get(contract.job_id)
         if dl_id is not None:
-            return dl_id, recruiter_id, "job"
+            return dl_id, "job"
         lead_id = self.job_leads.get(contract.job_id)
         if lead_id is not None:
-            return lead_id, recruiter_id, "job_lead"
+            return lead_id, "job_lead"
         rows = self.client_leads.get(contract.client_id, [])
         heads = [uid for uid, head in rows if head]
         if len(heads) == 1:
-            return heads[0], recruiter_id, "client_head"
+            return heads[0], "client_head"
         if len(rows) == 1:
-            return rows[0][0], recruiter_id, "client_assignment"
-        return None, recruiter_id, "none"
+            return rows[0][0], "client_assignment"
+        return None, "none"
 
     def names(self, contract: Contract) -> tuple[str, str]:
         """(konsultant, klient) do opisu premii — z zapasowymi słowami bez nazw."""

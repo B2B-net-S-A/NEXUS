@@ -145,8 +145,10 @@ import {
  cardStageBadge,
  cardNextStep,
  claimAction,
+ fillGapsText,
  knownForwardGap,
  minimumOnlyGap,
+ requirementsSkippedBadge,
  qcChip,
  type CardNextStep,
  type QcChipTone,
@@ -935,9 +937,13 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const reviewSend = Boolean(
  v5 && !readOnly && v5.canReviewAsDl && isReadyForDlSend(item, boardKey, stageBadge === "cpro")
  );
- const forwardGap = nextColumnLabel ? knownForwardGap(item, boardKey) : null;
+ const forwardGap = nextColumnLabel
+ ? knownForwardGap(item, boardKey, { skipsFillGates: v5?.canReviewAsDl })
+ : null;
  const qc = boardKey === "cv_qc" ? qcChip(item) : null;
  const cvBadge = cvStateBadge(item, boardKey);
+ // 22.10.2026: karta przeszła dalej mimo braków, bo przesunął ją DL.
+ const skippedBadge = requirementsSkippedBadge(item, boardKey);
  const normalizedMatchScore =
  typeof matchScore === "number" && Number.isFinite(matchScore)
  ? Math.max(0, Math.min(100, Math.round(matchScore)))
@@ -1361,6 +1367,19 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {/* Stan CV firmowego (14.10.2026, `cvStateBadge` — ta sama reguła
  co wiersz tabeli): automat pisze CV, „CV gotowe · QC: N do poprawy” /
  „bez uwag” po QC na „Zweryfikowanym”, „CV gotowe w tle” przed QC. */}
+ {skippedBadge && (
+ <span
+ data-testid="card-requirements-skipped"
+ className={cn(
+ "inline-flex items-center rounded px-1 text-[10px] font-semibold",
+ CARD_BADGE_TONE_CLASS[skippedBadge.tone],
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={skippedBadge.title}
+ >
+ {skippedBadge.label}
+ </span>
+ )}
  {cvBadge && (
  <span
  data-testid="card-cv-state"
@@ -2725,18 +2744,24 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const directToClient =
  toKey === "cv_sent" &&
  !(cproEnabled ? stageBadge === "cpro" : canReviewAsDl && item.qc?.status !== "failed");
- return toIndex - fromIndex > 1 || knownForwardGap(item, fromKey) != null || directToClient;
+ return (
+ toIndex - fromIndex > 1 ||
+ knownForwardGap(item, fromKey, { skipsFillGates: canReviewAsDl }) != null ||
+ directToClient
+ );
  },
  [boardFold, cproEnabled, canReviewAsDl]
  );
  // Minimum dla DL (21.10.2026): ze „Screeningu” na „Zweryfikowany” brakuje
  // tylko pól karty — zamiast „Przesuń dalej” małe okno z tymi polami.
+ // Delivery Lead przesuwa bez bramek pól (22.10.2026) — okna nie dostaje.
  const minimumGapBeforeVerified = useCallback(
  (item: KanbanItem, fromIndex: number, toIndex: number): boolean =>
+ !canReviewAsDl &&
  boardFold.columns[fromIndex]?.key === "screening" &&
  boardFold.columns[toIndex]?.key === "verified" &&
  minimumOnlyGap(item),
- [boardFold]
+ [boardFold, canReviewAsDl]
  );
  const routeMove = useCallback(
  (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
@@ -2783,7 +2808,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  !forwardNeedsMoveNext(item, fromIndex, toIndex) &&
  canMoveWithoutDialog(item, next.host)
  ) {
- deferMove(item, colId(src), next.host, { targetLabel: next.label });
+ deferMove(item, colId(src), next.host, {
+ targetLabel: next.label,
+ // Delivery Lead przesuwa mimo braków (22.10.2026) — komunikat je wymienia.
+ detail: canReviewAsDl
+ ? fillGapsText(
+ item,
+ boardFold.columns[fromIndex]?.key ?? null,
+ boardFold.columns[toIndex]?.key ?? null
+ )
+ : null,
+ });
  return;
  }
  openMoveNext(item, colId(src), next.host);

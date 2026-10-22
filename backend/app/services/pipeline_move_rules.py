@@ -14,6 +14,11 @@ Dwa wyjątki od „kanbanu bez bramek" (17.09.2026), oba świadome:
   uprawnieniem i wpisuje stawkę do Cpro; dalej wrzuca jedna osoba od Cpro na
   firmę (`services/cpro_sender.py`). Zatwierdzenia DZ od 24.09.2026 nie ma —
   przed wysłaniem liczy się QC CV (`services/cv_qc.py`).
+* **Delivery Lead przesuwa bez bramek pól** (decyzja Artura 22.10.2026).
+  DL czasem sam przeprowadza osobę, którą rekruter pominął (pasuje też na
+  inny request). Arkusz, stawka, minimum, CV firmowe i debrief go nie
+  zatrzymują (``skips_fill_gates``) — braki zostają przypomnieniem, a ruch
+  zostawia ``Activity(requirements_skipped)``. Rekruter dalej uzupełnia.
 * **Zamknięcie procesu mówi, kto je zakończył** — kandydat, my, Delivery Lead
   albo klient. Bez tego „odrzucony przez klienta" i „przez nas" wyglądały
   w statystykach tak samo.
@@ -156,6 +161,26 @@ VERIFIED_REQUIREMENT_LABELS = {
 }
 
 
+# Ślad ruchu Delivery Leada mimo braków — Tablica pokazuje z niego odznakę.
+REQUIREMENTS_SKIPPED_ACTION = "requirements_skipped"
+
+
+def skips_fill_gates(user: Any) -> bool:
+    """Czy konto przesuwa bez bramek pól (arkusz, stawka, minimum, CV
+    firmowe, debrief) — decyzja Artura 22.10.2026.
+
+    Uprawnienie „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”
+    (domyślnie Delivery Lead i admin) — to samo, które decyduje o wysyłce CV,
+    więc nie dochodzi nowa rola. Konto serwisowe API nie ma uprawnień
+    (``NO_RIGHTS_VIEWER``), więc integracja bramek nie omija.
+    """
+    from app.core.config import settings  # noqa: PLC0415
+
+    return settings.DL_SKIPS_FILL_GATES and has_permission(
+        user, ProductAction.recruitment_manage
+    )
+
+
 def verified_requirement_label(key: str) -> str:
     """Nazwa braku w komunikacie 409 — pola karty po nazwie z formularza."""
     from app.services.move_requirements import card_field_label  # noqa: PLC0415
@@ -173,7 +198,8 @@ async def assert_verified_requirements(
     user: User,
     target_column: str,
     pending_rate: bool,
-) -> None:
+    allow_skip: bool = True,
+) -> list[str]:
     """409 `VERIFIED_REQUIREMENTS_MISSING` — wejście na „Zweryfikowany” bez
     arkusza screeningu albo bez stawki kandydata (decyzja Artura 04.10.2026).
 
@@ -187,20 +213,24 @@ async def assert_verified_requirements(
     w „Zamkniętych” liczy się kolumną sprzed zamknięcia (``gate_stage_row``).
     Od 21.10.2026 także minimum dla Delivery Leada — pola karty
     (``move_requirements.minimum_missing``, wyłącznik
-    ``VERIFIED_MINIMUM_FIELDS_ENABLED``).
+    ``VERIFIED_MINIMUM_FIELDS_ENABLED``). Od 22.10.2026 Delivery Lead
+    (``skips_fill_gates``) przechodzi mimo braków: funkcja zwraca je
+    wołającemu do śladu ruchu zamiast odmowy. Pusta lista = nic nie brakuje.
+    ``allow_skip=False`` (ruch zbiorczy — bez śladu i bez okna) odmawia
+    każdemu.
     """
     from app.core.config import settings  # noqa: PLC0415
     from app.models.candidate import Candidate  # noqa: PLC0415
     from app.services import move_requirements  # noqa: PLC0415
 
     if not settings.VERIFIED_GATE_ENABLED or target_column not in VERIFIED_GATE_TARGETS:
-        return
+        return []
     _row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job.id)
     if column not in VERIFIED_GATE_FROM_COLUMNS:
-        return
+        return []
     candidate = await db.get(Candidate, candidate_id)
     if candidate is None:
-        return
+        return []
     facts = await move_requirements.load_pair_facts(
         db, candidate=candidate, job=job, user=user
     )
@@ -213,8 +243,8 @@ async def assert_verified_requirements(
     # Minimum dla DL (21.10.2026): pola karty — klucze jak w formularzu.
     card_missing = move_requirements.minimum_missing(facts)
     missing.extend(card_missing)
-    if not missing:
-        return
+    if not missing or (allow_skip and skips_fill_gates(user)):
+        return missing
     labels = [verified_requirement_label(key) for key in missing]
     raise HTTPException(
         status_code=409,
@@ -344,8 +374,13 @@ async def assert_no_esign_in_progress(
 
 
 async def assert_debrief_before_contract(
-    db: AsyncSession, *, candidate_id: int, job_id: int, target_column: str
-) -> None:
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    target_column: str,
+    user: Any = None,
+) -> list[str]:
     """409 `DEBRIEF_REQUIRED`, gdy osoba wchodzi do „Umowy"/„Zatrudnionego"
     bez debriefu po rozmowie u klienta — także gdy rozmowa jest dopiero
     zaplanowana (debrief będzie możliwy po niej, ``debrief_gate``).
@@ -354,17 +389,22 @@ async def assert_debrief_before_contract(
     okrężna droga Rozmowa → CV wysłane → Umowa omijała bramkę. Para
     w „Zamkniętych" liczy się kolumną sprzed zamknięcia (``gate_stage_row``).
     Ruchy wewnątrz „Umowy" i dalej nie są bramkowane (historia sprzed bramki).
+    Delivery Lead (``skips_fill_gates``, 22.10.2026) przechodzi bez debriefu
+    — dostaje ``["debrief"]`` do śladu ruchu. Pusta lista = nic nie brakuje.
     """
     from app.services.debrief_gate import missing_debrief
 
     if target_column not in ("contract", "hired"):
-        return
+        return []
     _row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job_id)
     if column not in PRE_CONTRACT_COLUMNS:
-        return
+        return []
     missing = await missing_debrief(db, candidate_id=candidate_id, job_id=job_id)
-    if missing is not None:
-        raise HTTPException(status_code=409, detail=missing)
+    if missing is None:
+        return []
+    if user is not None and skips_fill_gates(user):
+        return ["debrief"]
+    raise HTTPException(status_code=409, detail=missing)
 
 
 def requires_dl_client_rate(

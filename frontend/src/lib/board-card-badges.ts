@@ -828,7 +828,15 @@ export function qcChip(item: KanbanItem): QcChip {
 export function knownForwardGap(
   item: KanbanItem,
   from: BoardColumnKey | null,
+  options: { skipsFillGates?: boolean } = {},
 ): string | null {
+  // 22.10.2026: Delivery Lead przesuwa bez bramek pól — znany jest mu tylko
+  // brak QC (serwer: `pipeline_move_rules.skips_fill_gates`).
+  if (options.skipsFillGates) {
+    return from === "cv_qc" && item.qc?.status === "failed"
+      ? `QC: ${item.qc.blocking_failed} do poprawy`
+      : null;
+  }
   if (from === "screening" && item.screening_done === false) {
     return item.screening_requirement === "why_candidate"
       ? "Brak „Dlaczego ten kandydat”"
@@ -873,6 +881,60 @@ export function minimumFieldShortLabel(key: string): string {
  */
 export function minimumOnlyGap(item: Pick<KanbanItem, "screening_done" | "minimum_missing">): boolean {
   return item.screening_done !== false && (item.minimum_missing?.length ?? 0) > 0;
+}
+
+/**
+ * Braki, z którymi Delivery Lead przesuwa kartę dalej (22.10.2026) — do
+ * komunikatu „Imię Nazwisko → kolumna · bez: …”. Te same bramki, które DL
+ * omija na serwerze; `null` = nic nie brakuje albo karta tego nie wie.
+ */
+export function fillGapsText(
+  item: KanbanItem,
+  from: BoardColumnKey | null,
+  to: BoardColumnKey | null
+): string | null {
+  const gaps: string[] = [];
+  const pastScreening = to != null && to !== "new" && to !== "screening" && to !== "closed";
+  if ((from === "new" || from === "screening") && pastScreening) {
+    if (item.screening_done === false) {
+      gaps.push(item.screening_requirement === "why_candidate" ? "„Dlaczego ten kandydat”" : "arkusza screeningu");
+    }
+    if (item.expected_rate_value == null || item.expected_rate_value === "") gaps.push("stawki kandydata");
+    for (const key of item.minimum_missing ?? []) gaps.push(minimumFieldShortLabel(key));
+  }
+  if (from === "verified" && to === "cv_qc" && item.company_cv === false) gaps.push("CV firmowego");
+  return gaps.length > 0 ? `bez: ${gaps.join(", ")}` : null;
+}
+
+const SKIPPED_SHORT_LABEL: Readonly<Record<string, string>> = {
+  screening_sheet: "arkusza",
+  why_candidate: "„Dlaczego”",
+  candidate_rate: "stawki",
+  debrief: "debriefu",
+};
+
+/**
+ * Odznaka „Przesunął DL · bez arkusza” (22.10.2026): karta weszła dalej mimo
+ * braków, bo przesunął ją Delivery Lead. Od „Zweryfikowanego” do końca
+ * procesu; w Nowych, Screeningu i Zamkniętych nic nie mówi.
+ */
+export function requirementsSkippedBadge(
+  item: Pick<KanbanItem, "requirements_skipped" | "requirements_skipped_by_name">,
+  column: BoardColumnKey | null
+): CardBadge | null {
+  const keys = item.requirements_skipped ?? [];
+  if (keys.length === 0 || column == null || column === "closed" || BEFORE_VERIFIED_COLUMNS.has(column)) {
+    return null;
+  }
+  const labels = keys.map((key) => SKIPPED_SHORT_LABEL[key] ?? minimumFieldShortLabel(key));
+  const short = labels.length <= 2 ? labels.join(" i ") : `${labels.length} pól`;
+  const who = item.requirements_skipped_by_name?.trim();
+  return {
+    key: "requirements_skipped",
+    label: `Przesunął DL · bez ${short}`,
+    tone: "wait",
+    title: `${who ? `${who} przesunął(-ęła)` : "Delivery Lead przesunął"} kartę mimo braków: ${labels.join(", ")}. Uzupełnij je w screeningu, jeśli są potrzebne.`,
+  };
 }
 
 export interface CardNextStep {

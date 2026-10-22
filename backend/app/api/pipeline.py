@@ -982,6 +982,106 @@ def _reapplied_link_owners(
     }
 
 
+async def _requirements_skipped(
+    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+) -> dict[int, tuple[list[str], Optional[int]]]:
+    """Ostatni ruch mimo braków każdej pary: ``(braki, kto)`` — 22.10.2026.
+
+    Ślad zapisuje ``/move``, gdy Delivery Lead przeszedł bramki pól
+    (``pipeline_move_rules.skips_fill_gates``); jedno zapytanie na tablicę
+    przez wiersze etapów rekrutacji (``Activity.entity_id`` = wiersz).
+    """
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(CandidateStage.candidate_id, Activity.details, Activity.user_id)
+        .join(
+            Activity,
+            (Activity.entity_type == "pipeline")
+            & (Activity.entity_id == CandidateStage.id),
+        )
+        .where(
+            CandidateStage.job_id == job_id,
+            CandidateStage.candidate_id.in_(ids),
+            Activity.action == pipeline_move_rules.REQUIREMENTS_SKIPPED_ACTION,
+        )
+        .order_by(CandidateStage.candidate_id, Activity.id.desc())
+        .distinct(CandidateStage.candidate_id)
+    )
+    found: dict[int, tuple[list[str], Optional[int]]] = {}
+    for cid, details, user_id in rows.all():
+        missing = (details or {}).get("missing") or []
+        found[cid] = ([str(key) for key in missing], user_id)
+    return found
+
+
+def _still_missing(keys: list[str], payload: dict) -> list[str]:
+    """Braki ze śladu ``requirements_skipped``, których karta dalej nie ma.
+
+    Arkusz i „Dlaczego” — ``screening_done``; stawka — stawka etapu albo
+    z profilu; pola karty — ``minimum_missing``. Debrief zostaje, dopóki
+    jest w śladzie (karta nie zna jego stanu).
+    """
+    minimum = set(payload.get("minimum_missing") or ())
+    has_rate = (
+        payload.get("expected_rate_value") is not None
+        or payload.get("candidate_expected_rate_hourly") is not None
+    )
+    out: list[str] = []
+    for key in keys:
+        if key in ("screening_sheet", "why_candidate"):
+            if payload.get("screening_done") is False:
+                out.append(key)
+        elif key == "candidate_rate":
+            if not has_rate:
+                out.append(key)
+        elif key == "debrief" or key in minimum:
+            out.append(key)
+    return out
+
+
+async def _notify_recruiter_of_skip(
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidate_id: int,
+    mover: Optional[User],
+    stage_name: str,
+    missing: list[str],
+) -> None:
+    """Dzwonek do prowadzącego rekrutację: Delivery Lead przesunął osobę mimo
+    braków (22.10.2026) — rekruter wie, że osobę prowadzi już ktoś inny.
+
+    Tylko wejście na „Zweryfikowany” (DL przejmuje proces); sam przeskok
+    debriefu nikogo nie powiadamia. ``emit`` sprawdza odbiorcę i dzienny duplikat.
+    """
+    from app.services.notification_triggers import emit  # noqa: PLC0415
+
+    if mover is None or job.recruiter_id is None or job.recruiter_id == mover.id:
+        return
+    candidate = await db.get(Candidate, candidate_id)
+    person = (
+        f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+        if candidate is not None
+        else ""
+    ) or "Kandydat"
+    labels = ", ".join(
+        pipeline_move_rules.verified_requirement_label(key).strip("„”")
+        for key in missing
+    )
+    await emit(
+        db,
+        user_id=job.recruiter_id,
+        title=f"{mover.name} przesunął(-ęła) {person} na „{stage_name}”",
+        message=f"{job.title} · bez: {labels}",
+        ntype=NotificationType.stage_changed,
+        related_entity_type="candidate",
+        related_entity_id=candidate_id,
+        link=f"/jobs/{job.id}?candidate={candidate_id}",
+    )
+
+
 async def _process_cards(
     db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
 ) -> dict[int, tuple[int, Optional[int]]]:
@@ -1600,15 +1700,18 @@ async def apply_move(
     # Pipeline v4 (23.09.2026): wejście do „Umowy"/„Zatrudnionego" wymaga
     # debriefu po rozmowie u klienta (pytania klienta albo „klient nie zadawał
     # pytań") — pytania zasilają prep i profil Championa.
-    await pipeline_move_rules.assert_debrief_before_contract(
+    # Delivery Lead przechodzi mimo braków (22.10.2026) — braki idą do śladu
+    # ruchu (`requirements_skipped`), z którego Tablica rysuje odznakę.
+    skipped_requirements = await pipeline_move_rules.assert_debrief_before_contract(
         db,
         candidate_id=data.candidate_id,
         job_id=data.job_id,
         target_column=target_column,
+        user=policy.viewer,
     )
     # D1 (04.10.2026): „Zweryfikowany” z Nowych/Screeningu wymaga arkusza
     # screeningu i stawki kandydata — ta sama reguła co okno „Przesuń dalej”.
-    await pipeline_move_rules.assert_verified_requirements(
+    skipped_requirements += await pipeline_move_rules.assert_verified_requirements(
         db,
         candidate_id=data.candidate_id,
         job=job,
@@ -2129,6 +2232,30 @@ async def apply_move(
         stage_display_name=stage_display_name,
         extra_details=activity_extra,
     )
+    if skipped_requirements:
+        db.add(
+            Activity(
+                entity_type="pipeline",
+                entity_id=stage.id,
+                action=pipeline_move_rules.REQUIREMENTS_SKIPPED_ACTION,
+                user_id=policy.actor_id,
+                details={
+                    "candidate_id": data.candidate_id,
+                    "job_id": data.job_id,
+                    "stage": legacy_enum.value,
+                    "missing": skipped_requirements,
+                },
+            )
+        )
+        if target_column == "verified":
+            await _notify_recruiter_of_skip(
+                db,
+                job=job,
+                candidate_id=data.candidate_id,
+                mover=policy.mover,
+                stage_name=stage_display_name,
+                missing=skipped_requirements,
+            )
     if eligibility_block is not None:
         # Przeniesiono mimo ostrzeżenia — audyt widzi, co zignorowano i kto.
         db.add(
@@ -3447,6 +3574,19 @@ async def build_kanban_view(
     from app.services.cv_qc import pair_statuses
 
     qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
+    # 22.10.2026: Delivery Lead przesunął mimo braków — odznaka na karcie.
+    skipped_by_candidate = await _requirements_skipped(
+        db, job_id=job_id, candidate_ids=candidate_ids
+    )
+    missing_skip_names = {
+        uid for _keys, uid in skipped_by_candidate.values() if uid is not None
+    } - set(user_name_by_id)
+    if missing_skip_names:
+        srows = await db.execute(
+            select(User.id, User.name).where(User.id.in_(missing_skip_names))
+        )
+        for uid, uname in srows.all():
+            user_name_by_id[uid] = uname
     # 0413: stan karty rekomendacji każdej osoby („Karta gotowa” / „brakuje N”)
     # i liczba prób kontaktu — po jednym zapytaniu na tablicę.
     from sqlalchemy import func, or_
@@ -3702,6 +3842,16 @@ async def build_kanban_view(
             screening_met=bool(payload["screening_done"]),
             client_required=job_client_required,
         )
+        # 22.10.2026: ruch DL-a mimo braków — na karcie zostają tylko braki,
+        # których dalej brakuje (uzupełnione gaszą odznakę).
+        skipped = skipped_by_candidate.get(e.candidate_id)
+        if skipped is not None:
+            still_missing = _still_missing(skipped[0], payload)
+            if still_missing:
+                payload["requirements_skipped"] = still_missing
+                payload["requirements_skipped_by_name"] = (
+                    user_name_by_id.get(skipped[1]) if skipped[1] is not None else None
+                )
         in_base_at, in_base_exact, in_base_by = added_to_base_by_id.get(
             e.candidate_id, (None, False, None)
         )
@@ -4912,6 +5062,9 @@ async def bulk_move_candidates(
             user=current_user,
             target_column=bulk_target_column,
             pending_rate=False,
+            # Ruch zbiorczy nie zapisuje śladu `requirements_skipped` — bramka
+            # pól obowiązuje tu także Delivery Leada (22.10.2026).
+            allow_skip=False,
         )
 
     # Pipeline v4: cudza osoba zarezerwowana w „Nowych" blokuje całą paczkę.
