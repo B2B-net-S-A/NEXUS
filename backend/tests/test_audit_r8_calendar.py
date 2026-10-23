@@ -767,6 +767,11 @@ async def test_withdrawn_or_rejected_candidate_leaves_the_interview_board():
     from app.core.security import hash_password
     from app.models.client_interview_slot_request import ClientInterviewSlotRequest
     from app.models.job import Job
+    from app.models.pipeline_template import (
+        PipelineTemplate,
+        RejectionReason,
+        TerminalType,
+    )
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
     from app.models.user import User, UserRole
     from app.services.interview_cycle import load_overview
@@ -788,7 +793,16 @@ async def test_withdrawn_or_rejected_candidate_leaves_the_interview_board():
             is_active=True,
             profile_completed=True,
         )
-        db.add(dl)
+        template = PipelineTemplate(name=f"R8CalTemplate-{tag}")
+        db.add_all([dl, template])
+        await db.flush()
+        # DB wymaga powodu przy „withdrawn” (ck_candidate_stages_withdrawn_requires_reason).
+        resigned = RejectionReason(
+            template_id=template.id,
+            name=f"Kandydat zrezygnował {tag}",
+            category=TerminalType.withdrawn,
+        )
+        db.add(resigned)
         await db.flush()
         start = now + timedelta(days=2)
         for last_stage, (job_id, cand_id, client_id) in pairs.items():
@@ -821,6 +835,9 @@ async def test_withdrawn_or_rejected_candidate_leaves_the_interview_board():
                         candidate_id=cand_id,
                         job_id=job_id,
                         stage=last_stage,
+                        rejection_reason_id=resigned.id
+                        if last_stage == PipelineStage.withdrawn
+                        else None,
                         moved_at=now - timedelta(hours=1),
                     )
                 )
