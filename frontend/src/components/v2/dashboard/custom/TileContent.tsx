@@ -43,6 +43,7 @@ import { TeamSignalsTile } from "./TeamSignalsTile"
 import { TodayCycleTile } from "./TodayCycleTile"
 import { PreContractsTile } from "./PreContractsTile"
 import { ToCompleteTile } from "./ToCompleteTile"
+import { BoardTasksTile } from "./BoardTasksTile"
 
 function Unavailable({ reason }: { reason: string }) {
   return (
@@ -117,6 +118,9 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
     case "to_complete":
       // 21.10.2026: trzy listy zaległości z „Czeka na Ciebie” w kafelku.
       return <ToCompleteTile />
+    case "board_tasks":
+      // 23.10.2026: cały panel „Czeka na Ciebie” w kafelku (HoR i admin).
+      return <BoardTasksTile />
     case "pre_contracts":
       // 0506: umowy przedwstępne — liczniki zakładek listy.
       return <PreContractsTile />

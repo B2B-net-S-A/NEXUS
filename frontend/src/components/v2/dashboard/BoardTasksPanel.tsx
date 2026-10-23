@@ -60,6 +60,10 @@
  * (`toCompleteOnGrid`), panel tych list nie pokazuje; gdy go nie ma — stoją
  * tu jak dotąd, z linią „Przenieś na pulpit” (`onMoveToComplete`).
  *
+ * Cały panel jako kafelek (23.10.2026, Head of Recruitment i admin): menu „⋯”
+ * w nagłówku (`onMoveToGrid`, `onRemovePanel`) stawia go na siatce albo usuwa
+ * z pulpitu; w kafelku (`custom/BoardTasksTile`, `inTile`) nie stoi nad siatką.
+ *
  * Kolejka „Czeka na DZ" i przegląd DZ (0353) zniknęły — zastąpiło je QC CV.
  * Panel „Czeka na Ciebie" nie renderuje się, gdy nic nie czeka — pusta ramka
  * uczyłaby go ignorować (zostają wtedy najwyżej listy informacyjne: „Nowe
@@ -69,9 +73,15 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clock, ListOrdered } from "lucide-react";
+import { Clock, LayoutGrid, ListOrdered, MoreHorizontal, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { AllocationProposalsSection } from "@/components/v2/dashboard/AllocationProposalsSection";
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState";
 import { FollowupSection } from "@/components/v2/followups/FollowupSection";
@@ -120,7 +130,7 @@ function RowMeta({ row }: { row: BoardTaskRow }) {
 
 export { BOARD_TASKS_ROWS } from "./BoardTasksSection";
 
-interface BoardTasksPanelProps {
+export interface BoardTasksPanelProps {
   /** Listy usunięte z pulpitu (Head of Recruitment — `lib/dashboard-panels.ts`).
    *  Ukryta lista wygląda dla panelu jak pusta. */
   hiddenPanels?: ReadonlySet<DashboardPanelKey>;
@@ -134,6 +144,14 @@ interface BoardTasksPanelProps {
   onMoveToComplete?: () => void;
   onKeepToComplete?: () => void;
   moveBusy?: boolean;
+  /** „Postaw jako kafelek” (23.10.2026, Head of Recruitment i admin) — panel
+   *  przechodzi do kafelka `board_tasks` na siatce. Bez funkcji pozycji nie ma. */
+  onMoveToGrid?: () => void;
+  /** „Usuń z pulpitu” — cały panel znika; wraca z „Listy nad pulpitem”. */
+  onRemovePanel?: () => void;
+  /** Panel w kafelku „Czeka na Ciebie”: zdanie zamiast pustki, gdy nic nie
+   *  czeka (kafelek nie może stać pusty), i miejsce na menu kafelka w rogu. */
+  inTile?: boolean;
 }
 
 const NO_HIDDEN_PANELS: ReadonlySet<DashboardPanelKey> = new Set();
@@ -145,6 +163,9 @@ export function BoardTasksPanel({
   onMoveToComplete,
   onKeepToComplete,
   moveBusy = false,
+  onMoveToGrid,
+  onRemovePanel,
+  inTile = false,
 }: BoardTasksPanelProps = {}) {
   const query = useBoardTasks();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -264,7 +285,11 @@ export function BoardTasksPanel({
       fixes.length === 0 &&
       !fixesFailed
     ) {
-      return null;
+      return inTile ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Nic na Ciebie teraz nie czeka.
+        </p>
+      ) : null;
     }
     return (
       <div className="flex flex-col gap-3">
@@ -315,11 +340,36 @@ export function BoardTasksPanel({
       aria-label="Czeka na Ciebie"
       className="scroll-mt-20 rounded-xl border border-primary/30 bg-card p-4"
     >
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+      <div className={`mb-3 flex flex-wrap items-baseline justify-between gap-2 ${inTile ? "pr-9" : ""}`}>
         <h2 className="text-base font-semibold">Czeka na Ciebie</h2>
-        <p className="text-xs text-muted-foreground">
-          Ruchy na Tablicach z ostatnich {Math.max(data.window_days, data.dl_review_window_days ?? 0)} dni · najdłużej czekający na górze
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-xs text-muted-foreground">
+            Ruchy na Tablicach z ostatnich {Math.max(data.window_days, data.dl_review_window_days ?? 0)} dni · najdłużej czekający na górze
+          </p>
+          {onMoveToGrid || onRemovePanel ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Opcje panelu „Czeka na Ciebie”">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {onMoveToGrid ? (
+                  <DropdownMenuItem onSelect={onMoveToGrid}>
+                    <LayoutGrid className="h-4 w-4" />
+                    Postaw jako kafelek na pulpicie
+                  </DropdownMenuItem>
+                ) : null}
+                {onRemovePanel ? (
+                  <DropdownMenuItem onSelect={onRemovePanel} className="text-destructive">
+                    <Trash2 className="h-4 w-4" />
+                    Usuń z pulpitu
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
       </div>
       {!hasCpro && canSetSender ? (
         <div className="mb-3">

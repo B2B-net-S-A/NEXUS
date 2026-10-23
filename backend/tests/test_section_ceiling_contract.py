@@ -43,6 +43,9 @@ _SECTION_AWARE_HELPERS = {
     # contacts.py: `_require_contact_read_section` = Pipeline albo Delivery.
     "require_contact_read_access",
     "require_global_contact_access",
+    # pre_contracts.py: sekcja „Rekrutacje” (odczyt/zapis wg metody); Finanse,
+    # Rada nadzorcza i Automatyzacje z tytułu roli (decyzja Artura 22.10.2026, F54).
+    "require_pre_contract_access",
 }
 
 _SECTIONLESS_ALLOWLIST: dict[str, str] = {

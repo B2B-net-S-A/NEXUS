@@ -1,4 +1,5 @@
 import { getUserRoles, type UserRole } from "@/store/auth";
+import { PRE_CONTRACT_ROLES } from "@/lib/pre-contract-access";
 import {
   hasPermission,
   type Permission,
@@ -72,6 +73,8 @@ export type Capability =
   | "client.portfolio.manage"
   // ── Imienne wyniki zespołu ─────────────────────────────────────────────────
   | "dashboard.recruitment_stats.view"
+  // ── Umowy przedwstępne (0506; dostęp: decyzja Artura 22.10.2026) ──────────
+  | "pre_contract.work"
   // ── Wejścia nawigacyjne ────────────────────────────────────────────────────
   | "nav.candidates"
   | "nav.my_people"
@@ -252,6 +255,11 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // nieaktualny od 19.08, wiążący jest guard (`OperationalUser` zawiera
   // `UserRole.finance`).
   "dashboard.recruitment_stats.view": OPERATIONAL_READ,
+
+  // Wszystkie trasy /api/pre-contracts → `require_pre_contract_access`
+  // (`PRE_CONTRACT_ROLES`). Bez sufitu sekcji: Rada nie ma Rekrutacji, a
+  // Automatyzacje mają je tylko do odczytu — przedwstępne mają z tytułu roli.
+  "pre_contract.work": PRE_CONTRACT_ROLES,
 
   // Nawigacja — odwzorowanie ROLE_ROUTES z `middleware.ts` oraz bramek
   // sidebara. Trzymane tutaj, żeby Command Palette nie utrzymywała drugiej,

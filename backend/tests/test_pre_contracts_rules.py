@@ -160,8 +160,8 @@ def test_sweeper_warns_once_before_expiry() -> None:
     req = _signed(valid_until=TODAY + timedelta(days=2))
     assert due_action(req, today=TODAY, now=NOW) == "expiring"
     req.last_reminder_at = NOW - timedelta(days=1)
-    # Przypomnienie wyszło już w oknie 3 dni — drugiego nie ma.
-    assert due_action(req, today=TODAY, now=NOW) is None
+    # Ostrzeżenie wyszło już w oknie 3 dni (zdarzenie „expiring”) — drugiego nie ma.
+    assert due_action(req, today=TODAY, now=NOW, expiring_sent=True) is None
 
 
 def test_sweeper_reminds_assignee_when_candidate_is_silent() -> None:
@@ -266,3 +266,241 @@ def test_pre_contract_bell_cannot_be_muted_and_has_a_group() -> None:
     assert (
         CATEGORY_BY_TYPE[NotificationType.pre_contract] is NotificationCategory.mentions
     )
+
+
+# ── Audyt 22.10.2026 ─────────────────────────────────────────────────────────
+
+
+def test_b2b_contract_requirement_is_not_late_right_after_client_acceptance() -> None:
+    # F49: akceptacja klienta przenosi kartę do „Akceptacja i umowa” — umowa
+    # B2B jest dopiero przed nami, więc plakietka nie może być od razu czerwona.
+    req = _req(needed_before="b2b_contract")
+    assert svc.badge(req, column="contract", today=TODAY).tone == "missing"
+    assert svc.badge(req, column="hired", today=TODAY).tone == "late"
+
+
+def test_move_into_contract_column_does_not_warn_for_b2b_contract_requirement() -> None:
+    needed = svc.NEEDED_COLUMN["b2b_contract"]
+    into_contract = _requirements("contract", pre_contract_column=needed)
+    assert not [i for i in into_contract["items"] if i["key"] == "pre_contract"]
+    hired = _requirements("hired", pre_contract_column=needed)
+    assert [i for i in hired["items"] if i["key"] == "pre_contract"]
+
+
+def test_sent_today_uses_company_calendar_not_utc() -> None:
+    # F85: 23.10 00:30 w Warszawie = 22.10 22:30 UTC — to wciąż „dziś”.
+    sent = datetime(2026, 10, 22, 22, 30, tzinfo=timezone.utc)
+    req = _req(document_id=5, sent_at=sent)
+    b = svc.badge(req, column="verified", today=date(2026, 10, 23))
+    assert b.label == "Przedwstępna wysłana dziś"
+
+
+def test_expiring_warning_survives_b2b_deadline_reminder_in_the_window() -> None:
+    # F104: przypomnienie o terminie B2B w pierwszym dniu okna ważności nie
+    # może zjeść ostrzeżenia „wkrótce wygaśnie”.
+    req = _signed(valid_until=date(2026, 10, 30), b2b_deadline=date(2026, 10, 27))
+    for day in (date(2026, 10, 26), date(2026, 10, 27)):
+        moment = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+        moment = moment.replace(hour=10)
+        assert due_action(req, today=day, now=moment) == "b2b_deadline"
+        req.last_reminder_at = moment
+    day = date(2026, 10, 28)
+    moment = datetime(2026, 10, 28, 10, 0, tzinfo=timezone.utc)
+    assert due_action(req, today=day, now=moment) == "expiring"
+    assert due_action(req, today=day, now=moment, expiring_sent=True) is None
+
+
+def test_expiring_message_does_not_claim_the_person_is_still_in_process() -> None:
+    # F53: odrzucona albo zatrudniona osoba nie jest „wciąż w procesie”.
+    from app.tasks.pre_contract_sweeper import expiring_message
+
+    req = _signed(valid_until=date(2026, 10, 30))
+    assert "wciąż w procesie" in expiring_message(req, column="client_interview")
+    closed = expiring_message(req, column="closed")
+    assert "wciąż w procesie" not in closed and "zamknij prośbę" in closed
+    hired = expiring_message(req, column="hired")
+    assert "wciąż w procesie" not in hired and "zatrudniona" in hired
+
+
+async def test_bell_names_the_person_and_the_recruitment(monkeypatch) -> None:
+    # F51: dzwonek i mail mówią, której osoby i rekrutacji dotyczą.
+    from app.models.pre_contract import PreContractEvent
+    from app.services import interview_change_notifications, notification_triggers
+
+    sent: list[dict] = []
+
+    async def fake_emit(db, **kw):
+        sent.append(kw)
+        return object()
+
+    async def fake_watchers(db, request_id):
+        return [7]
+
+    async def fake_labels(db, candidate_id, job_id):
+        assert (candidate_id, job_id) == (10, 20)
+        return "Anna Testowa", "Analityk systemowy"
+
+    monkeypatch.setattr(notification_triggers, "emit", fake_emit)
+    monkeypatch.setattr(svc, "watcher_ids", fake_watchers)
+    monkeypatch.setattr(interview_change_notifications, "_labels", fake_labels)
+    event = PreContractEvent(id=3, request_id=1, kind="expired")
+    await svc.notify(
+        None, _req(assignee_id=8), event, message="Umowa wygasła.", actor_id=None
+    )
+    assert [kw["user_id"] for kw in sent] == [7, 8]
+    assert {kw["message"] for kw in sent} == {
+        "Anna Testowa — Analityk systemowy: Umowa wygasła."
+    }
+
+
+class _DocTypeDb:
+    async def scalar(self, _stmt):
+        return "preliminary_cez"
+
+
+async def _deadline_from(monkeypatch, *, accepted_on: date, **kw) -> date:
+    async def fake_event(db, req, kind, **_):
+        return None
+
+    async def fake_notify(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(svc, "today", lambda: date(2026, 10, 22))  # czwartek
+    monkeypatch.setattr(svc, "add_event", fake_event)
+    monkeypatch.setattr(svc, "notify", fake_notify)
+    req = _signed()
+    await svc.start_b2b_deadline(
+        _DocTypeDb(), req, accepted_on=accepted_on, actor_id=None, **kw
+    )
+    return req.b2b_deadline
+
+
+async def test_b2b_deadline_counts_from_backdated_client_acceptance(
+    monkeypatch,
+) -> None:
+    # F55 (decyzja Artura 22.10.2026): 5 dni roboczych od wpisanej daty
+    # akceptacji klienta, także wstecznej — nie od chwili zaznaczenia w NEXUSIE.
+    deadline = await _deadline_from(monkeypatch, accepted_on=date(2026, 10, 19))
+    assert deadline == date(2026, 10, 26)
+
+
+async def test_b2b_deadline_after_late_company_signature_counts_from_today(
+    monkeypatch,
+) -> None:
+    # F55: firma podpisała przedwstępną dopiero po akceptacji klienta —
+    # termin nie może zacząć się przed istnieniem umowy.
+    deadline = await _deadline_from(
+        monkeypatch, accepted_on=date(2026, 10, 19), from_today=True
+    )
+    assert deadline == date(2026, 10, 29)
+
+
+# ── F54: kto pracuje na umowach przedwstępnych (decyzja Artura 22.10.2026) ──
+
+
+def _account(role, *, sections: dict[str, str]):
+    from app.models.user import User
+
+    user = User(id=41, email=f"{role.value}@example.com", name=role.value, role=role)
+    user.roles = [role.value]
+    user.effective_section_access = sections
+    return user
+
+
+def _post_request():
+    from starlette.requests import Request
+
+    return Request(
+        {"type": "http", "method": "POST", "path": "/api/pre-contracts", "headers": []}
+    )
+
+
+class _JobDb:
+    def __init__(self, exists: bool) -> None:
+        self.exists = exists
+
+    async def get(self, _model, _id):
+        return object() if self.exists else None
+
+
+async def test_finance_board_and_automation_work_on_pre_contracts_like_a_recruiter() -> (
+    None
+):
+    # Finanse, Rada nadzorcza i Automatyzacje: odczyt, pliki i akcje jak
+    # rekruter — także bez zapisu (Automatyzacje) albo całej sekcji
+    # Rekrutacje (Rada).
+    from app.api import pre_contracts as api
+    from app.models.user import UserRole
+
+    for role, sections in (
+        (UserRole.finance, {"pipeline": "write"}),
+        (UserRole.automation, {"pipeline": "read"}),
+        (UserRole.board, {"insights": "read"}),
+    ):
+        user = _account(role, sections=sections)
+        assert await api.require_pre_contract_access(_post_request(), user) is user
+        await api._ensure_pair_access(_JobDb(exists=True), user, 5)
+
+
+async def test_pre_contracts_stay_closed_for_viewer_and_without_pipeline_section() -> (
+    None
+):
+    from fastapi import HTTPException
+
+    from app.api import pre_contracts as api
+    from app.models.user import UserRole
+
+    for role, sections in (
+        (UserRole.user, {"pipeline": "read", "sourcing": "read"}),
+        (UserRole.employee, {}),
+        (UserRole.trainee, {}),
+        (UserRole.recruiter, {"pipeline": "read"}),
+    ):
+        try:
+            await api.require_pre_contract_access(
+                _post_request(), _account(role, sections=sections)
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 403
+        else:
+            raise AssertionError(f"{role.value} przeszedł bramkę przedwstępnej")
+
+
+async def test_board_gets_404_for_a_missing_recruitment() -> None:
+    from fastapi import HTTPException
+
+    from app.api import pre_contracts as api
+    from app.models.user import UserRole
+
+    board = _account(UserRole.board, sections={"insights": "read"})
+    try:
+        await api._ensure_pair_access(_JobDb(exists=False), board, 5)
+    except HTTPException as exc:
+        assert exc.status_code == 404
+    else:
+        raise AssertionError("brak rekrutacji nie dał 404")
+
+
+def test_finance_board_and_automation_see_every_request_on_the_list() -> None:
+    # Decyzja Artura 23.10.2026: Finanse, Rada nadzorcza i Automatyzacje widzą
+    # na liście wszystkie prośby, jak Head of Recruitment. Wycofanie cudzej
+    # prośby i decyzja o karze zostają przy Head of Recruitment i adminie.
+    from app.api import pre_contracts as api
+    from app.models.user import UserRole
+
+    for role in (
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.finance,
+        UserRole.board,
+        UserRole.automation,
+    ):
+        assert api._lists_every_request(_account(role, sections={})), role
+    for role in (
+        UserRole.recruiter,
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+    ):
+        assert not api._lists_every_request(_account(role, sections={})), role
+    for role in (UserRole.finance, UserRole.board, UserRole.automation):
+        assert not api._sees_all(_account(role, sections={})), role
