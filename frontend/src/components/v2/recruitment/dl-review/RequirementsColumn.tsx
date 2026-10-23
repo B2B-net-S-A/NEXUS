@@ -9,10 +9,14 @@
  *
  * Układ D4 (09.10.2026): zakładka obok CV, a w bardzo szerokim panelu
  * środkowa kolumna 440 px; na wąskim ekranie sekcja pod CV.
+ *
+ * Nazwa wymagania to przycisk „Szukaj w CV” (23.10.2026): DL sprawdza, gdzie
+ * CV o nim mówi. Wymaganie „do oceny” (zdanie, branża) przycisku nie ma —
+ * lupa szukałaby całego zdania i zawsze mówiła „Brak wyników”.
  */
 
 import type { ReactNode } from "react";
-import { AlertTriangle, Check, CircleHelp, X } from "lucide-react";
+import { AlertTriangle, Check, CircleHelp, Search, X } from "lucide-react";
 
 import type {
   DlReviewContext,
@@ -50,7 +54,40 @@ function StatusCell({ status }: { status: DlReviewRequirement["status"] }) {
   );
 }
 
-export function RequirementsTable({ rows }: { rows: DlReviewRequirement[] }) {
+/** Nazwa wymagania jako „Szukaj w CV” — w tabeli i w skrócie decyzji. */
+export function RequirementSearchButton({
+  label,
+  onSearch,
+  className,
+}: {
+  label: string;
+  onSearch: (label: string) => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSearch(label)}
+      aria-label={`Szukaj w CV: ${label}`}
+      title="Szukaj w CV"
+      className={cn(
+        "group inline-flex items-start gap-1 rounded text-left hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className,
+      )}
+    >
+      <Search className="mt-0.5 size-3 shrink-0 opacity-60 group-hover:opacity-100" aria-hidden />
+      <span className="[overflow-wrap:anywhere]">{label}</span>
+    </button>
+  );
+}
+
+export function RequirementsTable({
+  rows,
+  onSearch,
+}: {
+  rows: DlReviewRequirement[];
+  onSearch?: (label: string) => void;
+}) {
   if (rows.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -76,7 +113,11 @@ export function RequirementsTable({ rows }: { rows: DlReviewRequirement[] }) {
           {rows.map((row) => (
             <tr key={row.key} data-requirement-status={row.status}>
               <td className="px-2 py-1.5 align-top">
-                <span className="font-medium text-foreground">{row.label}</span>
+                {onSearch && row.status !== "unknown" ? (
+                  <RequirementSearchButton label={row.label} onSearch={onSearch} className="font-medium text-foreground" />
+                ) : (
+                  <span className="font-medium text-foreground">{row.label}</span>
+                )}
                 <span className="block text-[10px] text-muted-foreground">{LEVEL_LABEL[row.level]}</span>
               </td>
               <td className="whitespace-nowrap px-2 py-1.5 align-top">
@@ -142,9 +183,18 @@ export interface RequirementsColumnProps {
    * i zwinięty arkusz: te same dane stały tu w trzech blokach.
    */
   screening?: ReactNode;
+  /** Klik w nazwę wymagania szuka go w CV obok. */
+  onSearchInCv?: (label: string) => void;
 }
 
-export function RequirementsColumn({ context, loading, error, onRetry, screening }: RequirementsColumnProps) {
+export function RequirementsColumn({
+  context,
+  loading,
+  error,
+  onRetry,
+  screening,
+  onSearchInCv,
+}: RequirementsColumnProps) {
   return (
     <div className="min-w-0 space-y-5" data-testid="dl-review-requirements">
       {loading ? (
@@ -174,7 +224,7 @@ export function RequirementsColumn({ context, loading, error, onRetry, screening
                 : undefined
             }
           >
-            <RequirementsTable rows={context.requirements} />
+            <RequirementsTable rows={context.requirements} onSearch={onSearchInCv} />
           </Section>
           {screening}
           <Section

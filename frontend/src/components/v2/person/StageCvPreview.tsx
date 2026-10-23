@@ -7,6 +7,12 @@
  * CV firmowe etapu (po poprawkach QC) ma pierwszeństwo przed surowym plikiem
  * z generatora — DL wysyła klientowi to, co ogląda. Bez zgody RODO serwer
  * odmawia pobrania (409), więc podgląd prosi o zrzut zamiast renderować.
+ *
+ * `searchable` (23.10.2026): nad CV pasek „Szukaj w CV” jak przy oryginale —
+ * to samo podświetlenie DOCX (`highlightDocumentMatches`) i Ctrl+F, gdy kursor
+ * albo fokus jest w podglądzie. `searchRequest` to klik w wymaganie: pole
+ * pokazuje nazwę, lupa szuka słów z serwera. Prośba Igora: DL sprawdza CV
+ * firmowe, a lupa była tylko w „CV oryginalne”.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -17,6 +23,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import {
+  DocumentSearchBar,
+  DocumentSearchTerms,
+  EMPTY_FIND_RESULT,
+  type DocumentFindResult,
+  type DocumentTextAvailability,
+} from "@/components/v2/files/DocumentSearchBar";
+import type { DocumentSearchRequest } from "@/components/v2/files/FilePreviewModal";
+import "@/components/v2/files/pdf-viewer.css";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/authenticated-files";
@@ -24,7 +39,14 @@ import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { observeDocxFit } from "@/lib/docx-fit";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
 import { withDownloadIntent } from "@/lib/cv-download-intent";
+import {
+  activateDocumentMatch,
+  hasSearchableText,
+  highlightDocumentMatches,
+} from "@/lib/document-text-search";
 import { fetchStageCvFile } from "@/lib/stage-cv-file";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useDocumentFindShortcut } from "@/lib/use-document-find-shortcut";
 
 // ── CV wygenerowane automatycznie ────────────────────────────────────────────
 
@@ -54,6 +76,8 @@ export function StageCvPreview({
   revision,
   loadStageCvFile = fetchStageCvFile,
   hideDownload = false,
+  searchable = false,
+  searchRequest = null,
 }: {
   candidateId: number;
   jobId: number;
@@ -73,6 +97,10 @@ export function StageCvPreview({
    * — drugi przycisk w treści byłby tym samym plikiem w innym miejscu.
    */
   hideDownload?: boolean;
+  /** Pasek „Szukaj w CV” nad dokumentem (przegląd DL). */
+  searchable?: boolean;
+  /** „Szukaj w CV” zlecone z zewnątrz (klik w wymaganie); działa z `searchable`. */
+  searchRequest?: DocumentSearchRequest | null;
 }) {
   const { showError } = useToast();
   const query = useQuery({
@@ -91,6 +119,26 @@ export function StageCvPreview({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [render, setRender] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [renderError, setRenderError] = useState<string | null>(null);
+  const rootRef = useRef<HTMLElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [findQuery, setFindQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(findQuery, 200);
+  const [availability, setAvailability] = useState<DocumentTextAvailability>("pending");
+  const [findResult, setFindResult] = useState<DocumentFindResult>(EMPTY_FIND_RESULT);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [requestTerms, setRequestTerms] = useState<{ text: string; terms: readonly string[] } | null>(null);
+
+  useEffect(() => {
+    if (!searchRequest) return;
+    setFindQuery(searchRequest.text);
+    setRequestTerms(
+      searchRequest.terms?.length ? { text: searchRequest.text, terms: searchRequest.terms } : null,
+    );
+  }, [searchRequest]);
+
+  // Słowa wymagania obowiązują, dopóki pole pokazuje jego nazwę — ręczna
+  // zmiana pola wraca do zwykłej frazy (jak przy oryginale).
+  const terms = requestTerms && findQuery === requestTerms.text ? requestTerms.terms : null;
   // Runda 7 (R7-X4-2): CV firmowe etapu (po poprawkach QC) ma pierwszeństwo
   // przed surowym plikiem z generatora — DL wysyła klientowi to, co ogląda.
   const fromStage = cvStageId != null && cvStageId > 0;
@@ -105,6 +153,7 @@ export function StageCvPreview({
     let cancelled = false;
     setRender("loading");
     setRenderError(null);
+    setAvailability("pending");
     (async () => {
       try {
         const blob = fromStage
@@ -125,6 +174,7 @@ export function StageCvPreview({
         });
         if (cancelled) return;
         alignB2bLetterheadPreview(host);
+        setAvailability(hasSearchableText(host) ? "has_text" : "no_text");
         setRender("ready");
       } catch (error) {
         if (cancelled) return;
@@ -150,6 +200,34 @@ export function StageCvPreview({
     return observeDocxFit(host);
   }, [render, sourceKey]);
 
+  useDocumentFindShortcut({
+    enabled: searchable && render === "ready",
+    scope: "container",
+    containerRef: rootRef,
+    inputRef: searchInputRef,
+  });
+
+  // Podświetlenie po wyrenderowaniu i przy każdej zmianie zapytania.
+  useEffect(() => {
+    if (!searchable || render !== "ready") return;
+    const host = hostRef.current;
+    if (!host) return;
+    const total = highlightDocumentMatches(host, terms ?? debouncedQuery);
+    setActiveIndex(0);
+    if (total > 0) activateDocumentMatch(host, 0);
+    setFindResult({ current: total > 0 ? 1 : 0, total, pending: false });
+  }, [searchable, render, debouncedQuery, terms, sourceKey, revision]);
+
+  const stepMatch = (previous: boolean) => {
+    const host = hostRef.current;
+    const total = findResult.total;
+    if (!host || total === 0) return;
+    const next = (activeIndex + (previous ? total - 1 : 1)) % total;
+    setActiveIndex(next);
+    activateDocumentMatch(host, next);
+    setFindResult({ current: next + 1, total, pending: false });
+  };
+
   const download = async () => {
     try {
       if (fromStage) {
@@ -168,35 +246,54 @@ export function StageCvPreview({
     }
   };
 
+  const shownFindResult = findQuery === debouncedQuery ? findResult : { ...findResult, pending: true };
+
   const previewBox = (
-    <div
-      className={
-        fill
-          ? "relative min-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-2"
-          : "relative max-h-[28rem] min-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-2"
-      }
-    >
-      {render !== "ready" ? (
-        <p className="absolute inset-0 flex items-center justify-center px-3 text-center text-xs">
-          {render === "error" ? (
-            <span role="alert" className="text-destructive">
-              {renderError ?? "Nie udało się wyświetlić podglądu — pobierz plik DOCX."}
-            </span>
-          ) : (
-            <span className="flex items-center text-muted-foreground">
-              <Loader2 className="mr-1.5 size-3 animate-spin" aria-hidden /> Renderowanie podglądu…
-            </span>
-          )}
-        </p>
+    <>
+      {searchable && render === "ready" ? (
+        <DocumentSearchTerms terms={terms} availability={availability} result={shownFindResult} />
       ) : null}
-      <div ref={hostRef} data-testid="dl-review-cv-host" className="docx-preview-host mx-auto" />
-    </div>
+      <div
+        className={
+          fill
+            ? "relative min-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-2"
+            : "relative max-h-[28rem] min-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-2"
+        }
+      >
+        {render !== "ready" ? (
+          <p className="absolute inset-0 flex items-center justify-center px-3 text-center text-xs">
+            {render === "error" ? (
+              <span role="alert" className="text-destructive">
+                {renderError ?? "Nie udało się wyświetlić podglądu — pobierz plik DOCX."}
+              </span>
+            ) : (
+              <span className="flex items-center text-muted-foreground">
+                <Loader2 className="mr-1.5 size-3 animate-spin" aria-hidden /> Renderowanie podglądu…
+              </span>
+            )}
+          </p>
+        ) : null}
+        <div ref={hostRef} data-testid="dl-review-cv-host" className="docx-preview-host mx-auto" />
+      </div>
+    </>
   );
 
   return (
-    <section aria-label="CV kandydata" className="space-y-2">
+    <section ref={rootRef} aria-label="CV kandydata" className="space-y-2">
       <header className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold">CV</h3>
+        {searchable && render === "ready" ? (
+          <DocumentSearchBar
+            query={findQuery}
+            onQueryChange={setFindQuery}
+            availability={availability}
+            result={shownFindResult}
+            onNext={() => stepMatch(false)}
+            onPrevious={() => stepMatch(true)}
+            inputRef={searchInputRef}
+            className="min-w-0 flex-1"
+          />
+        ) : null}
         {cv?.origin === "auto" ? (
           <Badge size="sm" variant="soft">
             Wygenerowane automatycznie

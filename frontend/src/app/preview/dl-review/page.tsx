@@ -590,6 +590,23 @@ function seededClient(): QueryClient {
     },
     fresh,
   );
+  // Słowa lupy „Szukaj w CV” przy wymaganiach (23.10.2026) — bez zapytania.
+  qc.setQueryData(
+    ["champion-profile", JOB_ID],
+    {
+      champion_profile: {},
+      job_values: {},
+      job_title: "Senior Java Developer",
+      requirement_find_words: {
+        "Java 17": ["Java"],
+        "Spring Boot": ["Spring Boot", "Spring"],
+        Kafka: ["Kafka"],
+        Oracle: ["Oracle", "PL/SQL"],
+        Kubernetes: ["Kubernetes", "K8s"],
+      },
+    },
+    fresh,
+  );
   // CV firmowe: jeden gotowy dokument — jego plik podaje interceptor niżej.
   qc.setQueryData(
     ["cv-generated", "dl-review", CANDIDATE_ID, JOB_ID],
