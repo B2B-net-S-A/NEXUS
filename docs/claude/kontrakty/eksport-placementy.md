@@ -1,4 +1,4 @@
-# Eksport „Placementy” w Kontraktach · układ arkusza Delivery, DL i rekruter jak w Płacach, data podpisu = oznaczenie w NEXUSIE
+# Eksport „Placementy” w Kontraktach · układ arkusza Delivery, DL i rekruter jak w Płacach, data podpisu z okna „Oznacz jako podpisaną”
 
 Decyzja Artura 23.10.2026 po analizie arkusza „Tablica Statusowa” prowadzonego
 ręcznie przez Delivery (makiety, kanwa prywatna:
@@ -45,11 +45,14 @@ front `components/v2/modals/PlacementsExportDialog.tsx`, `lib/placements-export.
   (`client_accepted_on`); bez niej dzień pierwszego ruchu karty na
   „Akceptację” z uwagą „Data akceptacji z ruchu karty” (przed 16.10.2026 okna
   nie było — ruch karty bywa 1–5 dni po akceptacji).
-- **Data podpisania = dzień oznaczenia podpisu w NEXUSIE**
-  (`b2b_generated_contracts.signed_at`, zapisywane jako „teraz”), nie dzień
-  podpisu na papierze. Na kopii produkcji z 22.10.2026 była zwykle 1–5 dni
-  późniejsza niż w arkuszu Delivery. Umowa spoza Generatora = pusta komórka
-  i uwaga. Prawdziwa data podpisu wymaga pola przy „Oznacz jako podpisaną”.
+- **Data podpisania = dzień podpisu z okna „Oznacz jako podpisaną”**
+  (`b2b_generated_contracts.signed_on`, 0514; przy e-podpisie dzień podpisu
+  kontraktora), a gdy go nie ma — dzień oznaczenia (`signed_at`). `signed_at`
+  to chwila kliknięcia: na kopii produkcji z 22.10.2026 była 1–5 dni
+  późniejsza niż w arkuszu Delivery w 23 z 33 październikowych placementów,
+  więc wiersze oznaczone przed 0514 mogą się dalej różnić. Kilka umów do
+  jednego kontraktu = najwcześniejszy dzień. Umowa spoza Generatora = pusta
+  komórka i uwaga.
 - **Premia:** premie automatu Płac do kontraktu (`source=contract_placement`,
   bez anulowanych, tylko widoczne dla pobierającego): „rekruter Jan Bąk 1500 zł; DL Ewa Kowal 772,80 zł
   (propozycja)”.

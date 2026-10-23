@@ -707,7 +707,13 @@ export interface MyKpiGoals {
   /** Delivery Lead: zamknięte jako „nie liczy się” — poza podstawą celu (21.10.2026). */
   closed_neutral?: number | null;
   /** Delivery Lead: „Sam przekazał” w tym miesiącu — procesy, które sam zweryfikował (22.10.2026). */
-  own_handoffs?: { verified: number; cv_sent: number; hired: number } | null;
+  own_handoffs?: {
+    verified: number;
+    cv_sent: number;
+    hired: number;
+    /** Match (22.10.2026): z tego wysłani przez DL-a do innych jego rekrutacji. */
+    match?: number;
+  } | null;
 }
 
 /** Liczniki „Moje KPI" — dzień, tydzień i miesiąc kalendarzowy. */
@@ -3961,6 +3967,8 @@ export interface B2BGeneratedContractRow {
   job_title: string | null;
   canonical_client_name: string | null;
   signed_at: string | null;
+  /** 0514: dzień podpisu umowy (`YYYY-MM-DD`); `signed_at` to chwila oznaczenia. */
+  signed_on?: string | null;
   signed_by_name: string | null;
   can_confirm_signed: boolean;
   blocked_reason: string | null;
@@ -4145,6 +4153,8 @@ export interface B2BConfirmFullySignedRequest {
    * pozostałych odmów (duplikaty, inny klient, umowa podpisana) nie obchodzi.
    */
   keep_existing_contract_terms?: boolean;
+  /** 0514: dzień podpisu (`YYYY-MM-DD`); brak = dziś w kalendarzu firmy. */
+  signed_on?: string;
 }
 
 export interface B2BConfirmFullySignedResult {

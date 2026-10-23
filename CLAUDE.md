@@ -190,6 +190,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd DL, podobne rekrutacje, przydział rekruterów, dzwonki przekazań.
 
 - `audyt-manualny-codexa-13-15-09-2026-reguly-ktore.md`: Audyt manualny Codexa 13–15.09.2026 — reguły, które łatwo cofnąć · budżet PLN/h, szkic Championa, „W procesie”, prep kit, tagi, pasek boczny
+- `dl-match-wyslij-tez-do.md`: „Match” — Delivery Lead wysyła osobę od razu do innych swoich rekrutacji · „Pasuje też do Twoich rekrutacji” w przeglądzie DL, „Wyślij też do…”, portfel DL, połączone zaznaczone, Nordea → Cpro, „w tym Match”
 - `dl-przesuwa-bez-blokad.md`: Delivery Lead przesuwa bez blokad pól · `skips_fill_gates`, `requirements_skipped`, odznaka „Przesunął DL”, premia rekrutera, rekruter dalej uzupełnia
 - `do-wyslania-do-klienta-kolejka-delivery-leada.md`: „Do wysłania do klienta” — kolejka Delivery Leada widoczna wszędzie
 - `dodaj-do-rekrutacji-zamknieta-karta.md`: „Dodaj do rekrutacji”: zamknięta karta to nie „już w rekrutacji” · powód `closed_in_job`, „Przywróć” ruchem karty
@@ -328,7 +329,7 @@ Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchroni
 - `dodanie-pliku-bez-podgladu-kwot.md`: Dodanie pliku do kontraktu bez podglądu kwot
 - `dokumenty-kontraktow-z-sharepointa.md`: Dokumenty kontraktów z SharePointa (ticket 9, 0402)
 - `domyslny-widok-modulu-kontrakty-aktywne-i-konczace.md`: Domyślny widok modułu Kontrakty: Aktywne **i** Kończące się
-- `eksport-placementy.md`: Eksport „Placementy” w Kontraktach · układ arkusza Delivery, DL i rekruter jak w Płacach, data podpisu = oznaczenie w NEXUSIE
+- `eksport-placementy.md`: Eksport „Placementy” w Kontraktach · układ arkusza Delivery, DL i rekruter jak w Płacach, data podpisu z okna „Oznacz jako podpisaną”
 - `foldery-w-dokumentach-kontraktu.md`: Foldery w zakładce Dokumenty kontraktu (0494)
 - `generator-umow-b2b-trzy-zakladki-cyklu-zycia-umowy.md`: Generator Umów B2B — trzy zakładki cyklu życia umowy
 - `kafelek-kontraktora-status-zamowienia-musi-zgadzac.md`: Kafelek kontraktora: status zamówienia musi zgadzać się z okresem

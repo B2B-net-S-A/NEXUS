@@ -1,6 +1,12 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,6 +14,7 @@ import type {
   B2BConfirmFullySignedResult,
   B2BGeneratedContractRow,
 } from "@/lib/api";
+import { warsawToday } from "@/lib/warsaw-date";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -424,6 +431,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
       expect(mocks.confirmFullySigned).toHaveBeenCalledWith(1, {
         candidate_id: 7,
         job_id: 20,
+        signed_on: warsawToday(),
       }),
     );
   });
@@ -571,6 +579,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
     expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
       candidate_id: 7,
       job_id: 20,
+      signed_on: warsawToday(),
     });
 
     const checkbox = within(dialog).getByRole("checkbox", {
@@ -588,6 +597,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
     expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
       candidate_id: 7,
       job_id: 20,
+      signed_on: warsawToday(),
       keep_existing_contract_terms: true,
     });
     await waitFor(() =>
@@ -713,6 +723,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
     expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
       candidate_id: 7,
       job_id: 21,
+      signed_on: warsawToday(),
     });
   });
 });
@@ -810,6 +821,101 @@ describe("GeneratedContractsTab — wyszukiwarka kandydata w potwierdzeniu podpi
     ).toBeInTheDocument();
     expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Ponów/ })).toBeInTheDocument();
+  });
+});
+
+describe("GeneratedContractsTab — data podpisu umowy (0514)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/jobs/20"
+        ? Promise.resolve({
+            data: { title: "Cloud Engineer", client_id: 3, client_name: "Nordea" },
+          })
+        : Promise.reject(new Error(`Unexpected GET ${url}`)),
+    );
+    mocks.confirmFullySigned.mockResolvedValue(confirmationResult("created"));
+  });
+
+  async function openDialog() {
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Oznacz jako podpisaną" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    await within(dialog).findByText("Cloud Engineer");
+    return dialog;
+  }
+
+  function nextDay(iso: string): string {
+    const day = new Date(`${iso}T12:00:00Z`);
+    day.setUTCDate(day.getUTCDate() + 1);
+    return day.toISOString().slice(0, 10);
+  }
+
+  it("domyślnie podpowiada dziś i wysyła tę datę", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    const field = within(dialog).getByLabelText("Data podpisu umowy");
+    expect(field).toHaveValue(warsawToday());
+    expect(field).toHaveAttribute("min", "2026-07-24");
+    expect(field).toHaveAttribute("max", warsawToday());
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    );
+    await waitFor(() =>
+      expect(mocks.confirmFullySigned).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ signed_on: warsawToday() }),
+      ),
+    );
+  });
+
+  it("wysyła dzień podpisu wybrany w oknie", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    fireEvent.change(within(dialog).getByLabelText("Data podpisu umowy"), {
+      target: { value: "2026-07-28" },
+    });
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    );
+    await waitFor(() =>
+      expect(mocks.confirmFullySigned).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ signed_on: "2026-07-28" }),
+      ),
+    );
+  });
+
+  it("data z przyszłości blokuje potwierdzenie z powodem", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    fireEvent.change(within(dialog).getByLabelText("Data podpisu umowy"), {
+      target: { value: nextDay(warsawToday()) },
+    });
+    expect(
+      within(dialog).getByText("Data podpisu nie może być z przyszłości."),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    ).toBeDisabled();
+  });
+
+  it("data sprzed wygenerowania umowy blokuje potwierdzenie z powodem", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    fireEvent.change(within(dialog).getByLabelText("Data podpisu umowy"), {
+      target: { value: "2026-07-23" },
+    });
+    expect(
+      within(dialog).getByText(
+        "Data podpisu nie może być wcześniejsza niż wygenerowanie umowy (24.07.2026).",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    ).toBeDisabled();
+    expect(mocks.confirmFullySigned).not.toHaveBeenCalled();
   });
 });
 

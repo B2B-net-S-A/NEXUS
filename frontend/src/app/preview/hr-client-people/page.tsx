@@ -106,7 +106,7 @@ function ClientHeader({ people, consultants }: { people: number; consultants: nu
           {people} osób klienta · {consultants} naszych konsultantów
         </span>
         {/* Akcje zakładki w nagłówku profilu (makieta P5) — ten sam komponent co strona. */}
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
           <PeopleTechHeaderActions clientId={ORG_CLIENT.id} />
         </div>
       </div>

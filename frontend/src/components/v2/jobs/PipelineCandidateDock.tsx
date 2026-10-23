@@ -94,6 +94,9 @@ import {
   BlacklistPopoverPill,
 } from "@/components/v2/candidate-profile/BlacklistDialogs";
 import { useAuthStore } from "@/store/auth";
+import { hasPermission } from "@/lib/permissions";
+import { DlMatchDialog } from "@/components/v2/recruitment/dl-review/DlMatchDialog";
+import type { ClientRateUnit } from "@/lib/person-facts";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
@@ -567,6 +570,7 @@ function PersonMoreMenu({
   onUndoClientAcceptance,
   onBlacklist,
   onPreContract,
+  onSendAlso,
 }: {
   onOpenCv: () => void;
   onSendEmail: () => void;
@@ -576,6 +580,8 @@ function PersonMoreMenu({
   onBlacklist?: () => void;
   /** 0506: umowa przedwstępna — zakładka „Umowa” albo okno prośby. */
   onPreContract?: () => void;
+  /** Match (22.10.2026): DL wysyła osobę także do innych swoich rekrutacji. */
+  onSendAlso?: () => void;
 }) {
   return (
     <DropdownMenu modal={false}>
@@ -596,6 +602,11 @@ function PersonMoreMenu({
             <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
           </Link>
         </DropdownMenuItem>
+        {onSendAlso && (
+          <DropdownMenuItem onSelect={() => deferMenuAction(onSendAlso)} data-testid="dock-send-also">
+            <Send className="h-3.5 w-3.5" /> Wyślij też do…
+          </DropdownMenuItem>
+        )}
         {onPreContract && (
           <DropdownMenuItem onSelect={() => deferMenuAction(onPreContract)} data-testid="dock-pre-contract">
             <FileSignature className="h-3.5 w-3.5" /> Umowa przedwstępna…
@@ -623,6 +634,13 @@ function PersonMoreMenu({
 }
 
 const NOTE_KEYS_HINT = "Enter dodaje notatkę · Shift+Enter nowa linia";
+/** Etapy po akceptacji DL-a, z których DL może wysłać osobę też gdzie indziej. */
+const SEND_ALSO_STAGES = new Set(["cv_sent", "client_interview", "acceptance", "negotiation"]);
+
+/** Jednostka stawki do klienta z karty — „Wyślij też do…” wysyła ją bez zmian. */
+export function sendAlsoUnit(unit: string | null | undefined): ClientRateUnit {
+  return unit === "daily" || unit === "monthly" ? unit : "hourly";
+}
 /** Akcje paska „Koniec kolejki” (14.10.2026). */
 const QUEUE_END_ACTION =
   "shrink-0 rounded-md px-1.5 py-0.5 font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:p-2";
@@ -877,6 +895,7 @@ export function PipelineCandidateDock({
   const [openEmail, setOpenEmail] = useState(false);
   const [openBlacklist, setOpenBlacklist] = useState(false);
   const [openPreContract, setOpenPreContract] = useState(false);
+  const [openSendAlso, setOpenSendAlso] = useState(false);
   // Szkic notatki per osoba + rekrutacja (12.10.2026): dok montuje się na
   // nowo dla każdej osoby (`key` w `KanbanBoardV2`), więc niewysłany tekst
   // wraca z pamięci karty przeglądarki, a nie ze stanu.
@@ -949,6 +968,10 @@ export function PipelineCandidateDock({
   const canWorkPreContracts = useCapability("pre_contract.work");
   const dockUser = useAuthStore((st) => st.user);
   const canRequestPreContract = canWorkPreContracts && !preContractReadOnly(dockUser, readOnly);
+  // Match (22.10.2026): osoba po akceptacji DL-a — wysyłka do innych rekrutacji
+  // z portfela; prawo to samo co wysyłka CV do klienta.
+  const canSendAlso =
+    !readOnly && hasPermission(dockUser, "recruitment_manage") && SEND_ALSO_STAGES.has(item.stage ?? "");
   const cvUpload = useStageCvUpload({ candidateId: item.candidate_id, stageId: item.id, jobId });
   // Nazwa kolejki strzałek za „‹ N z M ›”. Z menu „Kto dodał”, bo w widoku
   // „Rozwiń” Tablica (i przycisk w nagłówku) jest zasłonięta (14.10.2026).
@@ -1954,6 +1977,7 @@ export function PipelineCandidateDock({
                 profileHref={profileHref}
                 onUndoClientAcceptance={onUndoClientAcceptance}
                 onBlacklist={canBlacklist ? () => setOpenBlacklist(true) : undefined}
+                onSendAlso={canSendAlso ? () => setOpenSendAlso(true) : undefined}
                 onPreContract={
                   canRequestPreContract
                     ? () => (onOpenWorkbench ? onOpenWorkbench("contract") : setOpenPreContract(true))
@@ -2656,6 +2680,19 @@ export function PipelineCandidateDock({
           candidateId={item.candidate_id}
           candidateName={fullName}
           alreadyBlacklisted={candidate?.status === "blacklisted"}
+        />
+      )}
+      {openSendAlso && (
+        <DlMatchDialog
+          open
+          onOpenChange={setOpenSendAlso}
+          candidateId={item.candidate_id}
+          candidateName={fullName}
+          jobId={jobId}
+          jobLabel={jobLabel}
+          defaultRate={item.client_rate_value != null ? String(item.client_rate_value) : ""}
+          rateUnit={sendAlsoUnit(item.client_rate_unit)}
+          currency={item.client_rate_currency || "PLN"}
         />
       )}
       {openPreContract && (
