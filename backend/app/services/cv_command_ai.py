@@ -35,6 +35,15 @@ wiadomość). Dlatego:
 * model dostaje kilka ostatnich wiadomości rozmowy (ogrodzone) i wiersze
   zaznaczone w edytorze.
 
+23.10.2026 (zgłoszenie rekrutera: „dopisz obowiązki związane z Data Traffic …
+kandydat potwierdził to w rozmowie” → „Asystent nie znalazł zmian”): model
+widział tylko wiersze CV, więc nie miał z czego pisać. Teraz dostaje materiał
+z rozmowy tej rekrutacji (`_material`: odpowiedzi ze screeningu i notatki, ten
+sam tekst co generator, bez stawek), a kontrola faktów liczy odpowiedzi jako
+źródło (bez linii pytań). Gdy materiał ani rekruter nie mówią, co konkretnie
+kandydat robił, model zwraca ``question`` — asystent pyta rekrutera zamiast
+„nie znalazłem zmian”.
+
 16.10.2026 (zgłoszenie rekruterki: „ułóż miejsca pracy chronologicznie” →
 „żadna zmiana nie przeszła kontroli”): ``reorder_roles`` przestawia całe
 stanowiska. Kolejność od najnowszego / od najstarszego liczy kod z dat w linii
@@ -66,6 +75,9 @@ from app.services import dz_review as dz
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
 from app.services.cv_qc import _json_object
+from app.services.cv_generator_b2b.legacy_v7._helpers import (
+    screening_text_without_questions,
+)
 from app.services.cv_rodo_clause import is_rodo_text
 from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS
 from app.services.dz_review import Requirement
@@ -126,6 +138,9 @@ PROBLEM_MAX = 120
 # Źródła, na których wolno oprzeć nowy fakt (oryginał CV + notatki) — do kontroli,
 # nie do promptu; przycięte, żeby kontrola planu była tania.
 SOURCES_MAX = 60_000
+# Materiał z rozmowy w prompcie (odpowiedzi ze screeningu i notatki rekrutacji).
+MATERIAL_MAX = 12_000
+QUESTION_MAX = 300
 
 # Linia „Rozważany na stanowisko:” pod nagłówkiem CV (etykiety jak w
 # `docx_renderer`, PL i EN).
@@ -832,7 +847,9 @@ def _focus(payload: dict, lines: list[Line]) -> list[int]:
     return out
 
 
-def build_prompt(payload: dict, lines: list[Line], requirements: tuple) -> str:
+def build_prompt(
+    payload: dict, lines: list[Line], requirements: tuple, material: str = ""
+) -> str:
     """Prompt z danymi w znacznikach, których nie da się zamknąć od środka."""
     rows = [
         {
@@ -857,7 +874,22 @@ def build_prompt(payload: dict, lines: list[Line], requirements: tuple) -> str:
             json_for_prompt([r.label for r in requirements][:60]),
         ),
         lines=fence("cv_lines", json_for_prompt(rows)),
+        material=fence(
+            "candidate_material", _visible(material)[:MATERIAL_MAX] or "(brak)"
+        ),
     )
+
+
+def _question(raw: str) -> Optional[str]:
+    """Pytanie modelu do rekrutera, gdy nie ma z czego pisać (bez kwot)."""
+    try:
+        value = _json_object(raw).get("question")
+    except ValueError:
+        return None
+    text = " ".join(_visible(str(value or "")).split())[:QUESTION_MAX]
+    if not text or has_amount(text):
+        return None
+    return text
 
 
 def _call_model(system: str, prompt: str, chain: tuple[str, ...]) -> str:
@@ -943,6 +975,32 @@ async def _sources(db: AsyncSession, stage: CandidateStage) -> str:
     return f"{original}\n{notes}".strip()
 
 
+async def _material(db: AsyncSession, stage: CandidateStage, job: Optional[Job]) -> str:
+    """Odpowiedzi ze screeningu i notatki tej rekrutacji — to, co czyta generator.
+
+    Bez stawek i dostępności (`collect_screening_notes_text`). Awaria odczytu
+    = brak materiału; asystent wtedy pyta rekrutera o konkrety.
+    """
+    if job is None:
+        return ""
+    from app.services.cv_generator_b2b.standalone_service import (  # noqa: PLC0415
+        collect_screening_notes_text,
+    )
+
+    try:
+        async with db.begin_nested():
+            return await collect_screening_notes_text(
+                db, candidate_id=stage.candidate_id, stage=stage, job=job
+            )
+    except Exception:  # noqa: BLE001 — materiał to podpowiedź, nie warunek
+        logger.warning(
+            "[cv_command_ai] stage=%s: materiał z rozmowy niedostępny",
+            stage.id,
+            exc_info=True,
+        )
+        return ""
+
+
 async def propose_plan(
     db: AsyncSession, stage: CandidateStage, *, user_id: int, payload: dict
 ) -> dict:
@@ -972,8 +1030,17 @@ async def propose_plan(
         job = await db.get(Job, stage.job_id)
         must, nice = dz.job_requirements(job) if job is not None else ([], [])
         requirements = (*must, *nice)
-        sources = await _sources(db, stage)
-        prompt = build_prompt(payload, lines, requirements)
+        material = await _material(db, stage, job)
+        # Kontrola faktów: odpowiedzi tak, treść pytań nie (pytanie ≠ fakt).
+        sources = "\n".join(
+            part
+            for part in (
+                await _sources(db, stage),
+                screening_text_without_questions(material),
+            )
+            if part
+        )
+        prompt = build_prompt(payload, lines, requirements, material)
         system = CV_EDITOR_COMMAND.system_prompt or ""
         async with ai_feature(db, FEATURE, user_id=user_id):
             # Licznik AI zapisuje wiersz w tej sesji — commit PRZED modelem,
@@ -998,6 +1065,8 @@ async def propose_plan(
         message = (
             dropped_message(checked["dropped"]) if checked["dropped"] else MSG_EMPTY
         )
+        if not checked["dropped"]:
+            message = _question(raw) or message
         result = {"status": "empty", "message": message, **checked}
     await _log(db, stage, user_id, payload, result)
     return result

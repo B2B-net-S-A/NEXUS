@@ -1225,3 +1225,24 @@ poprawione części zostają, „Wróć do poprzedniej” jednym kliknięciem.
 - Harness `/preview/cv-to-client`: osoba „„Napisz od nowa” — Twoje poprawki
   zostają” — notatka, generacja, podmiana i powrót odpowiadają z pamięci.
 
+
+## Asystent pisze z materiału z rozmowy i pyta o konkrety (23.10.2026)
+
+Zgłoszenie rekrutera: „dopisz obowiązki związane z Data Traffic do
+podsumowania i do experience w najnowszym miejscu, kandydat potwierdził to
+w rozmowie” → dwa razy „Asystent nie znalazł zmian”. Model (`cv_command_ai`)
+widział tylko wiersze CV, a reguła „nie wymyślaj faktów” kazała mu zwrócić
+pustą listę.
+
+- `_material` podaje modelowi odpowiedzi ze screeningu i notatki tej
+  rekrutacji (`collect_screening_notes_text` — to samo, co czyta generator,
+  bez stawek i dostępności), ogrodzone jako `candidate_material`, do
+  `MATERIAL_MAX` znaków.
+- Kontrola faktów liczy odpowiedzi jako źródło, treści pytań nie
+  (`screening_text_without_questions`) — punkt z odpowiedzi wchodzi bez
+  „Kandydat mówił o tym na rozmowie?”.
+- Prompt `cv_editor_command` v4: gdy materiał ani wiadomość rekrutera nie
+  mówią, co konkretnie kandydat robił, model zwraca pustą listę i `question`
+  („Co dokładnie robił przy … i w której firmie?”). Pusty plan bez odrzuceń
+  pokazuje to pytanie zamiast „nie znalazł zmian”; pytanie z kwotą albo puste
+  — zwykły komunikat. Pole `question` nie wychodzi z trasy.
