@@ -72,6 +72,8 @@ export interface DecisionPanelProps {
    * brak: Oracle”) z „Pokaż”. `missing` — nazwy brakujących wymagań.
    */
   requirementsSummary?: { missing: string[]; onShow: () => void } | null;
+  /** Match (22.10.2026): ile innych rekrutacji pójdzie razem z tą. */
+  extraTargets?: number;
   className?: string;
 }
 
@@ -173,14 +175,23 @@ function budgetText(budget: DlReviewContext["budget"] | undefined): string | nul
   return min != null ? `${formatHourly(min).replace("/h", "")}–${formatHourly(max)}` : `do ${formatHourly(max)}`;
 }
 
-/** Nordea (`cpro`, 13.10.2026): akceptacja do kolejki Cpro zamiast wysyłki. */
+/**
+ * Nordea (`cpro`, 13.10.2026): akceptacja do kolejki Cpro zamiast wysyłki.
+ * `extra` (Match, 22.10.2026) — ile innych rekrutacji DL zaznaczył.
+ */
 export function acceptLabel(
   rateRaw: string,
   unit: ClientRateUnit,
   currency: string,
   cpro = false,
+  extra = 0,
 ): string {
   const text = rateText(rateRaw.replace(",", "."), unit, currency);
+  if (text && extra > 0) {
+    return cpro
+      ? `Akceptuj — do Cpro i do ${extra} ${extra === 1 ? "innej rekrutacji" : "innych rekrutacji"}`
+      : `Akceptuj — wysyłam do ${extra + 1} rekrutacji`;
+  }
   if (cpro) return text ? `Akceptuj — do Cpro za ${text}` : "Akceptuj — wpisz stawkę do Cpro";
   return text ? `Akceptuj — wysyłam za ${text}` : "Akceptuj — wpisz stawkę do klienta";
 }
@@ -209,6 +220,7 @@ export function DecisionPanel({
   footerNote,
   stickyActions = false,
   requirementsSummary = null,
+  extraTargets = 0,
   className,
 }: DecisionPanelProps) {
   // Nordea (13.10.2026): stawka idzie do Cpro, a decyzją jest akceptacja.
@@ -453,7 +465,7 @@ export function DecisionPanel({
           ) : null}
           <Button disabled={!sendReady || busy !== null} onClick={onAccept}>
             {busy === "send" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" />}
-            {acceptLabel(rateRaw, rateUnit, currency, task.cpro === true)}
+            {acceptLabel(rateRaw, rateUnit, currency, task.cpro === true, extraTargets)}
           </Button>
         </div>
         {footerNote}

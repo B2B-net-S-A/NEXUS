@@ -390,11 +390,14 @@ async def compute_my_goals(
         if isinstance(cached, dict):
             return GoalsResult.from_dict(cached)
         result = await _delivery_lead_goals(db, user=user, now=now)
-        from app.services.kpi_panel import month_own_handoffs  # noqa: PLC0415
-
-        result = replace(
-            result, own_handoffs=await month_own_handoffs(db, user=user, now=now)
+        from app.services.kpi_panel import (  # noqa: PLC0415
+            month_match_handoffs,
+            month_own_handoffs,
         )
+
+        own = await month_own_handoffs(db, user=user, now=now)
+        own["match"] = await month_match_handoffs(db, user=user, now=now)
+        result = replace(result, own_handoffs=own)
         await cache_set(cache_key, result.as_dict(), ttl_seconds=_CACHE_TTL_SECONDS)
         return result
 

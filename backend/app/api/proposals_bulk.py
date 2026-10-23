@@ -695,6 +695,7 @@ async def add_candidates_to_job(
     claim: bool = True,
     entry_meta: Optional[dict] = None,
     mark_proposals: bool = False,
+    reassign_from_job_id: Optional[int] = None,
 ) -> IntakeResult:
     """Dodaj kandydatów do pipeline'u rekrutacji — jedna logika dla trasy i automatu.
 
@@ -794,6 +795,10 @@ async def add_candidates_to_job(
     skipped: list[BulkSkippedRow] = []
     warnings: list[BulkWarningRow] = []
     reassign_sources = await _reassign_sources(db, job.id, lock_ordered_ids)
+    if reassign_from_job_id is not None:
+        # „Match” Delivery Leada (22.10.2026): przepięcie wskazane wprost —
+        # ta sama kopia CV i to samo źródło wejścia co przy propozycji.
+        reassign_sources = {cid: reassign_from_job_id for cid in lock_ordered_ids}
     off_limits_declined = await _off_limits_declined(
         db,
         job=job,

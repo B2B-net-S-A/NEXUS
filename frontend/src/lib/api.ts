@@ -707,7 +707,13 @@ export interface MyKpiGoals {
   /** Delivery Lead: zamknięte jako „nie liczy się” — poza podstawą celu (21.10.2026). */
   closed_neutral?: number | null;
   /** Delivery Lead: „Sam przekazał” w tym miesiącu — procesy, które sam zweryfikował (22.10.2026). */
-  own_handoffs?: { verified: number; cv_sent: number; hired: number } | null;
+  own_handoffs?: {
+    verified: number;
+    cv_sent: number;
+    hired: number;
+    /** Match (22.10.2026): z tego wysłani przez DL-a do innych jego rekrutacji. */
+    match?: number;
+  } | null;
 }
 
 /** Liczniki „Moje KPI" — dzień, tydzień i miesiąc kalendarzowy. */
