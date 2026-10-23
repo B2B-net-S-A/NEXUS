@@ -547,6 +547,8 @@ function CvTab({
               loadStageCvFile={loadStageCvFile}
               hideDownload
               fill
+              searchable
+              searchRequest={searchRequest}
             />
           </div>
         </>
@@ -822,6 +824,8 @@ export interface CandidateCvPreviewProps {
   sources?: ReadonlyArray<PreviewCvSource>;
   loadDocumentBlob?: typeof fetchDocumentBlob;
   loadOriginalBlob?: OriginalBlobLoader;
+  /** Klik w wymaganie w przeglądzie DL (23.10.2026). */
+  searchRequest?: DocumentSearchRequest | null;
 }
 
 /** Zakładka CV bez reszty podglądu — kolumna CV w przeglądzie DL (08.10.2026). */
@@ -833,6 +837,7 @@ export function CandidateCvPreview({
   sources,
   loadDocumentBlob = fetchDocumentBlob,
   loadOriginalBlob = defaultOriginalLoader,
+  searchRequest = null,
 }: CandidateCvPreviewProps) {
   const [source, setSource] = useState<PreviewCvSource>(defaultSource);
   return (
@@ -842,7 +847,7 @@ export function CandidateCvPreview({
       stageId={stageId}
       source={source}
       onSourceChange={setSource}
-      searchRequest={null}
+      searchRequest={searchRequest}
       loadDocumentBlob={loadDocumentBlob}
       loadOriginalBlob={loadOriginalBlob}
       sources={sources}
@@ -1041,21 +1046,30 @@ export function CandidatePreviewPane({
     changeTab("cv");
   }, [changeTab, cvCollapsed, setLayout]);
 
-  // „Szukaj w CV” przy wymaganiu. CV firmowe nie ma paska wyszukiwania, więc
-  // przełączamy na oryginał; otwarta historia osoby ustępuje CV, a zwinięte
-  // CV się rozwija. Lupa szuka słów wymagania z serwera („.NET lub C#” →
-  // „.NET”, „C#”), a pole pokazuje jego nazwę (16.10.2026).
-  const pickRequirement = useCallback(
-    (name: string, words: readonly string[] = []) => {
-      setPickedSource((current) => {
-        const effective = current ?? (companyReady ? "company" : "original");
-        return effective === "company" ? "original" : current;
-      });
+  // „Szukaj w CV” przy wymaganiu szuka w CV, które jest na ekranie — od
+  // 23.10.2026 także w CV firmowym (wcześniej przełączało na oryginał, bo CV
+  // firmowe nie miało paska). Zlecenie z zewnątrz (cytat z edytora CV —
+  // „Pokaż w oryginale”) dalej idzie do oryginału.
+  // Otwarta historia osoby ustępuje CV, a zwinięte CV się rozwija. Lupa szuka
+  // słów wymagania z serwera („.NET lub C#” → „.NET”, „C#”), a pole pokazuje
+  // jego nazwę (16.10.2026).
+  const searchCv = useCallback(
+    (name: string, words: readonly string[], toOriginal: boolean) => {
+      if (toOriginal) {
+        setPickedSource((current) => {
+          const effective = current ?? (companyReady ? "company" : "original");
+          return effective === "company" ? "original" : current;
+        });
+      }
       setSearchRequest({ text: name, nonce: Date.now(), terms: words });
       changeHistoryOpen(false);
       expandCv();
     },
     [changeHistoryOpen, companyReady, expandCv],
+  );
+  const pickRequirement = useCallback(
+    (name: string, words: readonly string[] = []) => searchCv(name, words, false),
+    [searchCv],
   );
 
   const showAllRequirements = useCallback(() => {
@@ -1077,12 +1091,12 @@ export function CandidatePreviewPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyOpen]);
 
-  // Wyszukanie zlecone z zewnątrz idzie tą samą drogą co klik w wymaganie:
-  // zakładka CV, oryginał zamiast CV firmowego, historia osoby ustępuje.
+  // Wyszukanie zlecone z zewnątrz: zakładka CV, oryginał zamiast CV firmowego
+  // (cytat pochodzi z oryginału), historia osoby ustępuje.
   const requestedNonce = requestedSearch?.nonce;
   const requestedText = requestedSearch?.text;
   useEffect(() => {
-    if (requestedNonce != null && requestedText) pickRequirement(requestedText);
+    if (requestedNonce != null && requestedText) searchCv(requestedText, [], true);
     // Reaguje na NOWE zlecenie (`nonce`), nie na zmianę stanu zakładek.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestedNonce]);

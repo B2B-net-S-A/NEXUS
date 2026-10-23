@@ -78,6 +78,15 @@ function findWordsFromResponse(raw: unknown): Record<string, string[]> {
   );
 }
 
+/**
+ * Same słowa lupy — przegląd DL (23.10.2026) nie potrzebuje reszty wymagań.
+ * Ten sam klucz co `useJobRequirements`, więc bez drugiego żądania.
+ */
+export function useRequirementFindWords(jobId: number): JobRequirements["findWords"] {
+  const query = useChampionProfile(jobId);
+  return findWordsFromResponse(query.data?.requirement_find_words);
+}
+
 export interface JobRequirementsQuery {
   state: ViewState;
   refetch: () => void;

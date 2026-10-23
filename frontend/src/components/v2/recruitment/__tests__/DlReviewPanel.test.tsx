@@ -18,6 +18,7 @@ const showActionToast = vi.fn();
 const renderDocxSafely = vi.fn();
 const loadJobRejectionReasons = vi.fn();
 const fetchStageCvFile = vi.fn();
+const championGet = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -35,6 +36,10 @@ vi.mock("@/lib/api", () => ({
   },
   candidatesApi: {
     get: (id: number) => get(`/api/candidates/${id}`),
+  },
+  // Słowa lupy „Szukaj w CV” dla wymagań (`requirement_find_words`).
+  championApi: {
+    get: (...a: unknown[]) => championGet(...a),
   },
 }));
 vi.mock("@/components/Toast", () => ({
@@ -1160,6 +1165,51 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
       expect(cv).not.toHaveAttribute("hidden");
       expect(requirements).toHaveAttribute("hidden");
       await waitFor(() => expect(renderDocxSafely).toHaveBeenCalledTimes(1));
+    });
+
+    it("zakładki: klik w wymaganie wraca do CV i szuka jego słów w CV firmowym", async () => {
+      layout.width = 1280;
+      mockApi();
+      championGet.mockResolvedValue({
+        data: { champion_profile: {}, job_values: {}, job_title: "Java", requirement_find_words: { Oracle: ["Oracle", "PL/SQL"] } },
+      });
+      renderDocxSafely.mockImplementation(async (_blob: Blob, host: HTMLElement) => {
+        host.innerHTML = "<p>PL/SQL na Oracle 19c, Java 17.</p>";
+      });
+      renderPanel();
+      await waitFor(() => expect(championGet).toHaveBeenCalledWith(31));
+      await screen.findByRole("searchbox", { name: "Szukaj w CV" });
+
+      await userEvent.click(screen.getByRole("button", { name: /Wymagania i ocena/ }));
+      const requirements = screen.getByTestId("dl-review-requirements-cell");
+      // „Do oceny” (zdanie, cecha) nie ma lupy — szukanie zdania zawsze dałoby „Brak wyników”.
+      expect(within(requirements).queryByRole("button", { name: "Szukaj w CV: komunikatywność" })).toBeNull();
+      await userEvent.click(within(requirements).getByRole("button", { name: "Szukaj w CV: Oracle" }));
+
+      expect(requirements).toHaveAttribute("hidden");
+      expect(screen.getByTestId("dl-review-cv")).not.toHaveAttribute("hidden");
+      expect(screen.getByRole("button", { name: "CV firmowe" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("searchbox", { name: "Szukaj w CV" })).toHaveValue("Oracle");
+      expect(await screen.findByText("1 z 2")).toBeInTheDocument();
+      expect(screen.getByTestId("document-search-terms")).toHaveTextContent("PL/SQL");
+    });
+
+    it("zakładki: brak w skrócie decyzji szuka się w CV bez przełączania widoku", async () => {
+      layout.width = 1280;
+      mockApi();
+      championGet.mockResolvedValue({ data: { champion_profile: {}, job_values: {}, job_title: "Java" } });
+      renderDocxSafely.mockImplementation(async (_blob: Blob, host: HTMLElement) => {
+        host.innerHTML = "<p>Java 17 w banku.</p>";
+      });
+      renderPanel();
+      const summary = screen.getByTestId("dl-review-requirements-summary");
+      await screen.findByRole("searchbox", { name: "Szukaj w CV" });
+
+      await userEvent.click(await within(summary).findByRole("button", { name: "Szukaj w CV: Oracle" }));
+      expect(screen.getByRole("searchbox", { name: "Szukaj w CV" })).toHaveValue("Oracle");
+      // Bez słów z serwera lupa szuka samej nazwy — w tym CV jej nie ma.
+      expect(await screen.findByText("Brak wyników")).toBeInTheDocument();
+      expect(screen.getByTestId("dl-review-requirements-cell")).toHaveAttribute("hidden");
     });
 
     it("zakładki: awaria kontekstu — skrót bez liczb, decyzja nadal możliwa", async () => {

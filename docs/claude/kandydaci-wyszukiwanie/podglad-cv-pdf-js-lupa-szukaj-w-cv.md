@@ -73,3 +73,24 @@ Decyzja Artura: przycisk w oknie + ślad + przejście między osobami.
   sessionStorage), nie serwer. Bez plakietki z napisem: przy 1280 px ścinała
   nazwisko. Otwarcie CV nie zapisuje `lastOpenedId` listy (plakietka „Ostatnio
   otwarta” zostaje dla powrotu z profilu).
+
+## „Szukaj w CV” także w CV firmowym (23.10.2026)
+
+Prośba Igora z przeglądu DL (Nordea → Cpro): DL ogląda CV firmowe, a lupa
+była tylko w „CV oryginalne”. Decyzja Artura: pasek wszędzie przy CV
+firmowym i klik w wymaganie w przeglądzie DL.
+
+- `StageCvPreview` ma `searchable` i `searchRequest`: ten sam pasek,
+  podświetlenie DOCX i Ctrl+F (zakres `container`) co przy oryginale. Włączone
+  w przeglądzie DL (`dl-review/CvColumn.tsx`) i w podglądzie panelu osoby
+  i screeningu (`CandidatePreviewPane`). Edytor CV go nie ma — ma własne
+  „Pokaż w oryginale”.
+- Klik w wymaganie szuka w CV, które jest na ekranie. Przy CV firmowym nie
+  przełącza już na oryginał (tak było, bo CV firmowe nie miało paska).
+  Cytat z edytora CV („Pokaż w oryginale”) dalej idzie do oryginału.
+- Przegląd DL: nazwa wymagania w tabeli „Wymagania klienta a kandydat” i braki
+  w skrócie „Wymagania 3/4 · brak: …” to przyciski „Szukaj w CV”. W układzie
+  z zakładkami klik wraca z wymagań do CV. Słowa z `requirement_find_words`
+  (`useRequirementFindWords`, ten sam klucz co Profil Championa). Wymaganie
+  „do oceny” przycisku nie ma: lupa szukałaby zdania i zawsze mówiła „Brak
+  wyników”.

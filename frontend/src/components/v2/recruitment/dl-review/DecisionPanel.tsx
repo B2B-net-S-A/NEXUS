@@ -25,6 +25,7 @@ import type { ReactNode } from "react";
 import { AlertTriangle, ArrowRight, Loader2, Send, Undo2, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { RequirementSearchButton } from "@/components/v2/recruitment/dl-review/RequirementsColumn";
 import type { RateUnit } from "@/lib/api";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
 import type { DlReviewContext, DlReviewRate, DlReviewSend } from "@/lib/api/dlReview";
@@ -69,9 +70,14 @@ export interface DecisionPanelProps {
   stickyActions?: boolean;
   /**
    * Wymagania są zakładką obok CV: skrót na górze kolumny („Wymagania 3/4,
-   * brak: Oracle”) z „Pokaż”. `missing` — nazwy brakujących wymagań.
+   * brak: Oracle”) z „Pokaż”. `missing` — nazwy brakujących wymagań;
+   * z `onSearch` każda nazwa szuka się w CV (23.10.2026).
    */
-  requirementsSummary?: { missing: string[]; onShow: () => void } | null;
+  requirementsSummary?: {
+    missing: string[];
+    onShow: () => void;
+    onSearch?: (label: string) => void;
+  } | null;
   /** Match (22.10.2026): ile innych rekrutacji pójdzie razem z tą. */
   extraTargets?: number;
   className?: string;
@@ -85,11 +91,13 @@ function RequirementsSummary({
   loading,
   missing,
   onShow,
+  onSearch,
 }: {
   context: DlReviewContext | undefined;
   loading: boolean;
   missing: string[];
   onShow: () => void;
+  onSearch?: (label: string) => void;
 }) {
   const fit = context?.assessment.overall_fit_label ?? null;
   return (
@@ -106,7 +114,16 @@ function RequirementsSummary({
           {missing.length > 0 ? (
             <span className="text-destructive [overflow-wrap:anywhere]">
               {" · brak: "}
-              {missing.slice(0, SUMMARY_MISSING_MAX).join(", ")}
+              {missing.slice(0, SUMMARY_MISSING_MAX).map((label, index) => (
+                <span key={label}>
+                  {index > 0 ? ", " : null}
+                  {onSearch ? (
+                    <RequirementSearchButton label={label} onSearch={onSearch} className="items-center align-bottom" />
+                  ) : (
+                    label
+                  )}
+                </span>
+              ))}
               {missing.length > SUMMARY_MISSING_MAX ? ` i ${missing.length - SUMMARY_MISSING_MAX} więcej` : ""}
             </span>
           ) : null}
@@ -263,6 +280,7 @@ export function DecisionPanel({
           loading={contextLoading}
           missing={requirementsSummary.missing}
           onShow={requirementsSummary.onShow}
+          onSearch={requirementsSummary.onSearch}
         />
       ) : null}
       {facts}

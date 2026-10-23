@@ -11,7 +11,10 @@
  *   wymagania (z liczbą braków),
  * - `CvColumn` — samo CV. Który widok pokazać, trzyma rodzic (`view`).
  *
- * CV firmowe renderuje `StageCvPreview` jak dotąd. Oryginał i inne pliki to
+ * CV firmowe renderuje `StageCvPreview` z paskiem „Szukaj w CV” (23.10.2026 —
+ * wcześniej lupa była tylko przy oryginale). Klik w wymaganie (tabela
+ * wymagań, braki w skrócie decyzji) przychodzi jako `searchRequest` i szuka
+ * w CV, które jest na ekranie. Oryginał i inne pliki to
  * zakładka CV z podglądu formularza screeningu (0424) — pdf.js i
  * `docx-preview` ładują się za `next/dynamic` (pilnuje
  * `heavy-bundle-boundaries.test.ts`), dopiero gdy DL przełączy podgląd.
@@ -43,6 +46,16 @@ const CandidateCvPreview = dynamic(
 );
 
 export type CvView = "company" | "original";
+
+/**
+ * „Szukaj w CV” zlecone z wymagań. Kształt `DocumentSearchRequest` spisany
+ * tutaj z tego samego powodu co `CvPreviewLoaders` (granica `next/dynamic`).
+ */
+export interface CvSearchRequest {
+  text: string;
+  nonce: number;
+  terms?: readonly string[];
+}
 
 const VIEWS: ReadonlyArray<{ value: CvView; label: string }> = [
   { value: "company", label: "CV firmowe" },
@@ -141,10 +154,19 @@ export interface CvColumnProps {
   /** Zakładka „Wymagania i ocena” zajmuje miejsce CV — ukryte, nie odmontowane. */
   hidden?: boolean;
   previewLoaders?: CvPreviewLoaders;
+  searchRequest?: CvSearchRequest | null;
   className?: string;
 }
 
-export function CvColumn({ task, view, fill = false, hidden = false, previewLoaders, className }: CvColumnProps) {
+export function CvColumn({
+  task,
+  view,
+  fill = false,
+  hidden = false,
+  previewLoaders,
+  searchRequest = null,
+  className,
+}: CvColumnProps) {
   return (
     <section
       aria-label="CV kandydata"
@@ -161,6 +183,8 @@ export function CvColumn({ task, view, fill = false, hidden = false, previewLoad
             jobId={task.job_id}
             cvStageId={task.cv_stage_id}
             fill={fill}
+            searchable
+            searchRequest={searchRequest}
           />
         </div>
       ) : (
@@ -171,6 +195,7 @@ export function CvColumn({ task, view, fill = false, hidden = false, previewLoad
             stageId={task.stage_id}
             defaultSource="original"
             sources={["original", "files"]}
+            searchRequest={searchRequest}
             {...previewLoaders}
           />
         </div>

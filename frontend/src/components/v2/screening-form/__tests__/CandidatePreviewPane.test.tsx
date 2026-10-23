@@ -1,7 +1,8 @@
 /**
  * Podgląd obok formularza screeningu (0424, D3): zakładki CV / Wymagania /
  * Po ludzku, przełącznik „CV oryginalne / CV firmowe / Inne pliki”, klik
- * w technologię szuka jej w CV (CV firmowe → oryginał, bo tam jest szukanie).
+ * w technologię szuka jej w CV, które jest na ekranie (od 23.10.2026 także
+ * w CV firmowym); cytat z edytora CV szuka w oryginale.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -112,13 +113,23 @@ vi.mock("@/components/v2/person/StageCvPreview", () => ({
     cvStageId,
     revision,
     hideDownload,
+    searchable,
+    searchRequest,
   }: {
     cvStageId: number;
     revision?: number;
     hideDownload?: boolean;
+    searchable?: boolean;
+    searchRequest?: { text: string } | null;
   }) => (
-    <div data-testid="stage-cv-preview" data-revision={revision} data-hide-download={String(hideDownload === true)}>
+    <div
+      data-testid="stage-cv-preview"
+      data-revision={revision}
+      data-hide-download={String(hideDownload === true)}
+      data-searchable={String(searchable === true)}
+    >
       CV firmowe etapu {cvStageId}
+      {searchRequest ? ` · szukam: ${searchRequest.text}` : ""}
     </div>
   ),
 }));
@@ -271,17 +282,29 @@ describe("CandidatePreviewPane", () => {
     expect(await screen.findByText(/CV firmowe jeszcze nie powstało/)).toBeInTheDocument();
   });
 
-  it("klik w technologię w „Wymaganiach” wraca do CV i szuka jej w oryginale", async () => {
+  it("klik w technologię przy CV firmowym wraca do CV i szuka jej w CV firmowym", async () => {
     const user = userEvent.setup();
     mount();
     await screen.findByTestId("file-preview");
     await user.click(screen.getByRole("button", { name: "CV firmowe" }));
-    await screen.findByTestId("stage-cv-preview");
+    expect(await screen.findByTestId("stage-cv-preview")).toHaveAttribute("data-searchable", "true");
 
     await user.click(screen.getByRole("tab", { name: "Wymagania" }));
     await user.click(screen.getByRole("button", { name: "Kafka" }));
 
     expect(screen.getByRole("tab", { name: "CV" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "CV firmowe" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("stage-cv-preview")).toHaveTextContent("szukam: Kafka");
+  });
+
+  it("klik w technologię przy oryginale szuka jej w oryginale", async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findByTestId("file-preview");
+
+    await user.click(screen.getByRole("tab", { name: "Wymagania" }));
+    await user.click(screen.getByRole("button", { name: "Kafka" }));
+
     expect(screen.getByRole("button", { name: "CV oryginalne" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("file-preview")).toHaveTextContent("szukam: Kafka");
   });

@@ -67,10 +67,12 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
+import { requirementFindWords, useRequirementFindWords } from "@/components/champion/use-job-requirements";
 import {
   CvColumn,
   CvToolbar,
   type CvPreviewLoaders,
+  type CvSearchRequest,
   type CvView,
 } from "@/components/v2/recruitment/dl-review/CvColumn";
 import { DecisionPanel, type DecisionAction } from "@/components/v2/recruitment/dl-review/DecisionPanel";
@@ -414,6 +416,14 @@ export function DlReviewBody({
   const [cvView, setCvView] = useState<CvView>("company");
   // Tylko układ `tabs`: wymagania w miejscu CV (trzecia pigułka paska).
   const [showRequirements, setShowRequirements] = useState(false);
+  // Klik w wymaganie (tabela, braki w skrócie) szuka go w CV na ekranie —
+  // słowa z serwera jak w screeningu („.NET lub C#” → „.NET”, „C#”).
+  const [cvSearch, setCvSearch] = useState<CvSearchRequest | null>(null);
+  const findWords = useRequirementFindWords(task.job_id);
+  const searchInCv = (label: string) => {
+    setShowRequirements(false);
+    setCvSearch({ text: label, nonce: Date.now(), terms: requirementFindWords(findWords, label) });
+  };
   const prefilled = useRef(false);
   const rejectRef = useRef<HTMLDivElement>(null);
   const warningRef = useRef<HTMLDivElement>(null);
@@ -422,6 +432,7 @@ export function DlReviewBody({
   useEffect(() => {
     setCvView("company");
     setShowRequirements(false);
+    setCvSearch(null);
     setQcStageId(null);
     setRateRaw("");
     setRateUnit("hourly");
@@ -832,6 +843,7 @@ export function DlReviewBody({
           fill={sideBySide}
           hidden={mode === "tabs" && showRequirements}
           previewLoaders={previewLoaders}
+          searchRequest={cvSearch}
         />
 
         <div
@@ -849,6 +861,7 @@ export function DlReviewBody({
             loading={context.isLoading}
             error={context.isError}
             onRetry={() => void context.refetch()}
+            onSearchInCv={searchInCv}
             screening={
               // 09.10.2026: jeden blok zamiast „Oceny rekrutera”, karty
               // rekomendacji i zwiniętego arkusza. Trafienie „Odpada, gdy…”
@@ -871,7 +884,7 @@ export function DlReviewBody({
           stickyActions={sideBySide}
           requirementsSummary={
             mode === "tabs"
-              ? { missing: missingRequirements, onShow: () => setShowRequirements(true) }
+              ? { missing: missingRequirements, onShow: () => setShowRequirements(true), onSearch: searchInCv }
               : null
           }
           task={task}
