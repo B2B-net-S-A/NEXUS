@@ -104,6 +104,17 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   zakładki Dokumenty kontraktu, nie pobiera go sam (pobranie wymaga
   uprawnienia do kwot). NEXUS nie sprawdza podpisów w tym pliku — to robi
   dopiero droga „podpis w NEXUSIE” (makiety z 21.10.2026, osobne PR-y).
+- **Data podpisu umowy w oknie „Oznacz jako podpisaną” (0513, 23.10.2026).**
+  `signed_at` to chwila kliknięcia; na kopii produkcji z 22.10.2026 była 1–5 dni
+  późniejsza niż data podpisu z arkusza Delivery w 23 z 33 październikowych
+  placementów. Pole „Data podpisu umowy” zapisuje się w
+  `b2b_generated_contracts.signed_on` (Date): domyślnie dziś
+  (`business_today()`), nie z przyszłości i nie sprzed dnia wygenerowania
+  umowy (`business_date(created_at)`) — 422 z serwera
+  (`signing_day_or_reject`), to samo sprawdza okno i blokuje przycisk.
+  `confirm-fully-signed` bez `signed_on` bierze dziś. Wiersze oznaczone przed
+  0513 mają `signed_on` NULL i zostają tak — prawdziwej daty nie znamy.
+  E-podpis: dzień podpisu kontraktora (`podpis-umowy-b2b-w-nexusie.md`).
 - **Potwierdzenie podpisu mimo różnic = „zachowaj warunki kontraktu", nigdy
   „nadpisz z dokumentu".** Gdy para (kandydat, rekrutacja) ma już żywy
   kontrakt o innych wypełnionych warunkach niż dokument, automatyzacja odmawia

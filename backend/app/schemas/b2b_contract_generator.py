@@ -625,6 +625,8 @@ class B2BGeneratedContractItem(BaseModel):
     job_title: Optional[str] = None
     canonical_client_name: Optional[str] = None
     signed_at: Optional[str] = None
+    # 0513: dzień podpisu umowy; ``signed_at`` to chwila oznaczenia w NEXUSIE.
+    signed_on: Optional[date] = None
     signed_by_name: Optional[str] = None
     can_confirm_signed: bool = False
     blocked_reason: Optional[str] = None
@@ -842,6 +844,9 @@ class B2BConfirmFullySignedRequest(BaseModel):
     candidate_id: Optional[int] = None
     job_id: Optional[int] = None
     keep_existing_contract_terms: bool = False
+    # 0513: dzień podpisu (``None`` = dziś w kalendarzu firmy). Nie z przyszłości
+    # i nie sprzed wygenerowania umowy — sprawdza trasa, bo zna wiersz.
+    signed_on: Optional[date] = None
 
     @model_validator(mode="after")
     def _source_links_are_a_pair(self) -> "B2BConfirmFullySignedRequest":

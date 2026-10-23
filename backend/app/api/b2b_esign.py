@@ -54,6 +54,7 @@ from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.config import settings as app_config
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.core.scheduling import business_date
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import B2BSigningRequest
 from app.models.candidate import Candidate
@@ -673,7 +674,15 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
     try:
         await confirm_generated_contract_fully_signed(
             generated_id=row_id,
-            payload=B2BConfirmFullySignedRequest(),
+            # Dzień podpisu = dzień podpisu kontraktora (Warszawa), nie dzień,
+            # w którym umowę podpisał reprezentant firmy.
+            payload=B2BConfirmFullySignedRequest(
+                signed_on=(
+                    business_date(request.contractor_signed_at)
+                    if request.contractor_signed_at
+                    else None
+                )
+            ),
             current_user=signer,
             db=db,
         )

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -28,6 +28,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
@@ -2786,3 +2787,97 @@ async def test_signed_file_follows_who_may_confirm_the_signature(
     assert own_item["can_attach_signed_file"] is True
     allowed = await _attach_file(app_client, headers, own["generated_id"])
     assert allowed.status_code == 200, allowed.text
+
+
+# ── dzień podpisu z okna „Oznacz jako podpisaną” (0513) ──────────────────────
+
+
+async def _backdate_generation(generated_id: int, days: int) -> None:
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, generated_id)
+        assert row is not None
+        row.created_at = datetime.now(timezone.utc) - timedelta(days=days)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_signing_day_defaults_to_today_and_is_kept_apart_from_the_click(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 200, response.text
+    today = business_today()
+    assert response.json()["generated_contract"]["signed_on"] == today.isoformat()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        assert row.signed_on == today
+        assert row.signed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_signing_day_from_the_dialog_is_stored(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    await _backdate_generation(scenario["generated_id"], days=10)
+    day = business_today() - timedelta(days=3)
+
+    response = await app_client.post(
+        CONFIRM_PATH.format(generated_id=scenario["generated_id"]),
+        json={"signed_on": day.isoformat()},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["generated_contract"]["signed_on"] == day.isoformat()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None and row.signed_on == day
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("offset_days", "message"),
+    [
+        (1, "z przyszłości"),
+        (-12, "wcześniejsza niż wygenerowanie umowy"),
+    ],
+)
+async def test_signing_day_in_the_future_or_before_generation_changes_nothing(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    offset_days: int,
+    message: str,
+):
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    await _backdate_generation(scenario["generated_id"], days=10)
+    day = business_today() + timedelta(days=offset_days)
+
+    response = await app_client.post(
+        CONFIRM_PATH.format(generated_id=scenario["generated_id"]),
+        json={"signed_on": day.isoformat()},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert message in response.json()["detail"]
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        0,
+        0,
+        0,
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        assert row.signature_status == "unsigned"
+        assert row.signed_on is None

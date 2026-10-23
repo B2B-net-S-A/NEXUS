@@ -58,6 +58,10 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   także przy wyłączonym przełączniku.
 - **Pliki przed podpisem leżą w `b2b_signing/{id}/`**, nie w Dokumentach
   kontraktu — kontraktu jeszcze nie ma.
+- **Dzień podpisu umowy = dzień podpisu kontraktora** (0513, 23.10.2026):
+  po podpisie firmy `_after_both_signed` przekazuje do potwierdzenia
+  `signed_on` = dzień `contractor_signed_at` w Europe/Warsaw, nie dzień podpisu
+  reprezentanta. Tę datę pokazuje eksport „Placementy”.
 
 ## Reszta systemu przy umowie w podpisie (etap 1b, 21.10.2026)
 

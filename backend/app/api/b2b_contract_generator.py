@@ -192,7 +192,7 @@ from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
 )
-from app.core.scheduling import business_today
+from app.core.scheduling import business_date, business_today
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +219,31 @@ def _reject_excel_row(row: B2BGeneratedContract) -> None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_EXCEL_ROW_READ_ONLY
         )
+
+
+def signing_day_or_reject(row: B2BGeneratedContract, requested: date | None) -> date:
+    """Dzień podpisu umowy z okna „Oznacz jako podpisaną” (0513).
+
+    Domyślnie dziś w kalendarzu firmy. Nie z przyszłości i nie sprzed dnia
+    wygenerowania umowy — podpisać można tylko dokument, który już powstał.
+    """
+    today = business_today()
+    day = requested or today
+    if day > today:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Data podpisu nie może być z przyszłości.",
+        )
+    generated_on = business_date(row.created_at) if row.created_at else None
+    if generated_on is not None and day < generated_on:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Data podpisu nie może być wcześniejsza niż wygenerowanie umowy "
+                f"({generated_on:%d.%m.%Y})."
+            ),
+        )
+    return day
 
 
 def _is_view_only_generator_user(user: User) -> bool:
@@ -1388,6 +1413,7 @@ async def _serialize_generated_contracts(
                 job_title=job.title if job else None,
                 canonical_client_name=clients.get(row.client_id),
                 signed_at=row.signed_at.isoformat() if row.signed_at else None,
+                signed_on=row.signed_on,
                 signed_by_name=users.get(row.signed_by_user_id),
                 can_confirm_signed=can_confirm,
                 blocked_reason=blocked_reason,
@@ -3818,6 +3844,7 @@ async def confirm_generated_contract_fully_signed(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=_ENDED_BLOCKS_SIGNATURE,
             )
+        signed_on = signing_day_or_reject(row, payload.signed_on)
 
         if (
             row.candidate_id is not None
@@ -3934,6 +3961,7 @@ async def confirm_generated_contract_fully_signed(
         row.client_id = job.client_id
         row.contract_id = result.contract.id
         row.signed_at = datetime.now(timezone.utc)
+        row.signed_on = signed_on
         row.signed_by_user_id = current_user.id
         await db.flush()
         from app.services.order_mail_signature import complete_signed_mail_drafts

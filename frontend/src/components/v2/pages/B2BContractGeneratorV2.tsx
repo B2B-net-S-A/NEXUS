@@ -123,7 +123,7 @@ import {
   agreementModeLabel,
   statusEventDetailsText,
 } from "@/lib/contract-termination";
-import { warsawToday } from "@/lib/warsaw-date";
+import { warsawDateOf, warsawToday } from "@/lib/warsaw-date";
 import { countPl } from "@/lib/plural-pl";
 import { positiveIntParam } from "@/lib/client-tab";
 import { DocumentsTab } from "@/components/v2/b2b-generator/documents/DocumentsTab";
@@ -817,6 +817,18 @@ export function ConfirmFullySignedDialog({
   const signedFileProblem = signedFile
     ? scanFileProblem(signedFile, SIGNED_FILE_FORMAT_MESSAGE)
     : null;
+  // Dzień podpisu umowy (0513) — nie dzień kliknięcia. Te same granice co na
+  // serwerze: nie z przyszłości, nie sprzed wygenerowania umowy.
+  const [signedOn, setSignedOn] = useState(() => warsawToday());
+  const today = warsawToday();
+  const generatedOn = warsawDateOf(row.created_at);
+  const signedOnProblem = !signedOn
+    ? "Podaj datę podpisu."
+    : signedOn > today
+      ? "Data podpisu nie może być z przyszłości."
+      : generatedOn && signedOn < generatedOn
+        ? `Data podpisu nie może być wcześniejsza niż wygenerowanie umowy (${formatIsoDatePl(generatedOn)}).`
+        : null;
 
   useEffect(() => {
     if (!open) return;
@@ -827,6 +839,7 @@ export function ConfirmFullySignedDialog({
     setSubmitError(null);
     setKeepExistingTerms(false);
     setSignedFile(null);
+    setSignedOn(warsawToday());
   }, [open, row.id]);
 
   const effectiveCandidateId = row.candidate_id ?? candidate?.id ?? null;
@@ -913,6 +926,7 @@ export function ConfirmFullySignedDialog({
       const result = await b2bGeneratorApi.confirmFullySigned(row.id, {
         candidate_id: effectiveCandidateId,
         job_id: effectiveJobId,
+        signed_on: signedOn,
         // Klucz dopiero po świadomym zaznaczeniu — `false` nie leci wcale,
         // żeby zwykłe potwierdzenie było bajt w bajt tym samym żądaniem co
         // przed tą zmianą. Czytamy WYŁĄCZNIE stan checkboxa: `onMutate`
@@ -994,6 +1008,7 @@ export function ConfirmFullySignedDialog({
     jobQuery.isSuccess &&
     !canonicalClientMismatch &&
     !signedFileProblem &&
+    !signedOnProblem &&
     !confirmMut.isPending;
 
   return (
@@ -1173,6 +1188,34 @@ export function ConfirmFullySignedDialog({
               }
             />
           ) : null}
+
+          <div className="space-y-1">
+            <Label htmlFor={`b2b-signed-on-${row.id}`} className="mb-1.5 block">
+              Data podpisu umowy
+            </Label>
+            <Input
+              id={`b2b-signed-on-${row.id}`}
+              type="date"
+              className="w-44"
+              value={signedOn}
+              min={generatedOn ?? undefined}
+              max={today}
+              disabled={confirmMut.isPending}
+              aria-invalid={signedOnProblem ? true : undefined}
+              aria-describedby={`b2b-signed-on-help-${row.id}`}
+              onChange={(e) => setSignedOn(e.target.value)}
+            />
+            <p
+              id={`b2b-signed-on-help-${row.id}`}
+              className={cn(
+                "text-xs",
+                signedOnProblem ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {signedOnProblem ??
+                "Dzień, w którym umowę podpisano, nie dzień oznaczenia w NEXUSIE."}
+            </p>
+          </div>
 
           <div className="space-y-1">
             <ScanFileField
@@ -2958,6 +3001,9 @@ export function GeneratedContractsTab({
                             title={
                               signed
                                 ? [
+                                    r.signed_on
+                                      ? `Podpisana: ${formatIsoDatePl(r.signed_on)}`
+                                      : null,
                                     r.signed_by_name
                                       ? `Potwierdził: ${r.signed_by_name}`
                                       : null,
