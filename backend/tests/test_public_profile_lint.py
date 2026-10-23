@@ -379,6 +379,28 @@ def test_career_url_falls_back_to_kariera_path_on_app_host(monkeypatch):
     )
 
 
+def test_career_url_ignores_stray_punctuation_after_domain(monkeypatch):
+    # 23.10.2026: na produkcji zmienna miała średnik na końcu i wszystkie
+    # linki wychodziły jako „https://kariera.b2bnetwork.pl;/artur-t" —
+    # przeglądarka takiego adresu nie otwiera.
+    from app.core.config import settings
+
+    monkeypatch.setattr(
+        settings, "CAREER_PUBLIC_BASE_URL", " https://kariera.b2bnetwork.pl; "
+    )
+    assert career_slugs.recruiter_link_url("artur-t") == (
+        "https://kariera.b2bnetwork.pl/artur-t"
+    )
+    assert career_slugs.job_link_url("a-1b2c") == (
+        "https://kariera.b2bnetwork.pl/r/a-1b2c"
+    )
+    assert career_slugs.career_base_url() == "https://kariera.b2bnetwork.pl"
+    monkeypatch.setattr(
+        settings, "CAREER_PUBLIC_BASE_URL", "https://kariera.b2bnetwork.pl/,"
+    )
+    assert career_slugs.recruiter_base_url() == "https://kariera.b2bnetwork.pl/"
+
+
 # ── Zgoda i pola opcjonalne ────────────────────────────────────────────────
 
 
