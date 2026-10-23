@@ -118,7 +118,13 @@ else
         CV_SRC="${SRC}/candidate-documents/current"
         log "korpus CV: brak CV_SOURCE_* — źródłem lustro w B2 (limit klasy B!)"
     fi
-    rclone mkdir "staging:${CV_BUCKET}"
+    # Przy RCLONE_S3_NO_CHECK_BUCKET=true (wyżej) `rclone mkdir` nie zakłada
+    # bucketu, a na pustym wolumenie versitygw każdy PutObject kończy się
+    # NoSuchBucket i sync nie kopiuje nic (22.10.2026: ~20 tys. błędów, xfr#0).
+    RCLONE_S3_NO_CHECK_BUCKET=false rclone mkdir "staging:${CV_BUCKET}"
+    buckets="$(rclone lsd staging:)" || fail "nie mogę wylistować bucketów lokalnego S3"
+    echo "$buckets" | awk '{print $NF}' | grep -qx "$CV_BUCKET" \
+        || fail "lokalny S3 nie ma bucketu ${CV_BUCKET} po rclone mkdir"
     log "korpus CV: rclone sync ${CV_SRC%%:*}: → staging:${CV_BUCKET}"
     rclone sync "$CV_SRC" "staging:${CV_BUCKET}" \
         --fast-list --transfers "${RESTORE_CV_TRANSFERS:-8}" \

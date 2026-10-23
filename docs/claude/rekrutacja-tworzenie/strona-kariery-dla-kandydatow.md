@@ -301,6 +301,15 @@ Reguły, które łatwo cofnąć:
     od 05.10, a druga nie miała prowadzącego ani linku (`_pick_link`,
     `_first_hor_id`). Zgłoszenie z karty idzie zwykłym `/apply` linku,
     więc blokada 12 h, „Z linków” i dzwonek należą do właściciela linku.
+  - **Linki osób z wyłączonym kontem się nie liczą** (decyzja Artura
+    22.10.2026, audyt F62): tablica i `canonical_job_slug` odrzucają linki,
+    których właściciel ma `is_active = false`, zanim wybiorą link karty
+    (`_links_of_active_owners`). Wyłączenie konta unieważnia tylko link
+    `recruiter`, więc link `job` osoby, która odeszła, wisiał „aktywny” bez
+    końca: karta pokazywała jej imię publicznie i w Google, a zapas na Head
+    of Recruitment się nie uruchamiał. Rekrutacja z samymi takimi linkami
+    dostaje link HoR jak rekrutacja bez prowadzącego. Sam stary link dalej
+    działa (zgłoszenie idzie do zespołu rekrutacji), tylko nie stoi na tablicy.
   - **„Zostaw CV” (bez rekrutacji):** stały link Head of Recruitment
     (`board_cv_link`, w odpowiedzi `cv: {slug, first_name}`), formularz
     `variant="general"` z jedną zgodą na przyszłe procesy — osoba ląduje

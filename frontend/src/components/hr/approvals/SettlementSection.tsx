@@ -23,7 +23,7 @@ import {
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
-import { ComparisonPill, settlementLine } from "./settlement-format";
+import { ComparisonPill, expiryHint, settlementLine } from "./settlement-format";
 import { moneyPl } from "./approvals-format";
 
 const ACCEPT = "application/pdf,image/jpeg,image/png";
@@ -402,7 +402,8 @@ export function SettlementSection({ row }: { row: ApprovalRequestRow }) {
             o dopłatę jednym przyciskiem, bez nowej zgody.
           </p>
           <p className="rounded-lg bg-muted/50 px-3 py-2.5 text-xs leading-relaxed text-foreground">
-            <b>Zgoda wygasa po 30 dniach</b>, jeśli nic nie dołączysz — Finanse nie widzą wtedy „wiszącej” kwoty.
+            <b>{expiryHint(row)[0]}</b>
+            {expiryHint(row)[1]}
             {row.kind === "trip" ? " Wyjazd jest już w kalendarzu zespołu." : ""}
             {row.kind === "gift" && settlement.client_name ? ` Prezent jest w Historii klienta ${settlement.client_name}.` : ""}
           </p>

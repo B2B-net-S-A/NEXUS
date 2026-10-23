@@ -163,6 +163,27 @@ describe("ClientPeopleTechTab · Działy", () => {
   });
 });
 
+describe("ClientPeopleTechTab · opiekun domyślny", () => {
+  it("awaria listy opiekunów: pole pokazuje obecnego opiekuna i komunikat, nie pustkę (audyt 22.10, F89)", async () => {
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url.endsWith("/tech-map")) {
+        return {
+          data: { ...peopleTechMap(TODAY), can_edit: true, default_owner: { id: 501, name: "Ola Opiekuńcza" } },
+        };
+      }
+      if (url.endsWith("/org")) return { data: clientOrgWithHealth(TODAY) };
+      if (url.endsWith("/structure-proposals")) return { data: bankStructure() };
+      if (url === "/api/care/owners") throw httpError(500);
+      throw new Error(`niezasiane: ${url}`);
+    });
+    renderTab();
+    const field = await screen.findByRole("combobox", { name: "Domyślny opiekun konsultantów klienta" });
+    expect(await screen.findByText(/Nie udało się wczytać listy opiekunów/)).toBeInTheDocument();
+    expect(field).toHaveTextContent("Ola Opiekuńcza");
+    expect(field).toBeDisabled();
+  });
+});
+
 describe("ClientPeopleTechTab · konto spoza kręgu D11", () => {
   it("Finanse: działy z mapy, bez drzewa, paska propozycji i zapisu opinii", async () => {
     useAuthStore.setState({ user: finance, hydrated: true });

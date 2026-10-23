@@ -1910,3 +1910,57 @@ async def test_every_link_of_a_job_points_google_to_one_canonical_slug(api, boar
         page = await api.get(f"/api/public/career/r/{link['slug']}")
         assert page.status_code == 200, page.text
         assert page.json()["canonical_slug"] == card["slug"]
+
+
+async def test_board_skips_the_link_of_a_deactivated_owner_and_gets_a_hor_link(
+    api, board
+):
+    """Decyzja Artura 22.10.2026 (audyt F62): link osoby z wyłączonym kontem
+    nie stoi na tablicy ani w canonical — rekrutacja dostaje link Head of
+    Recruitment jak rekrutacja bez prowadzącego."""
+    uid, headers, job_id = await _owner_with_job(api)
+    gone = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=f"career-hor-{uuid.uuid4().hex[:8]}@example.com",
+                password_hash=hash_password("T3st_hor!Car"),
+                name="Olga Rekrutacyjna",
+                role=UserRole.head_of_recruitment,
+                is_active=True,
+            )
+        )
+        await db.commit()
+    await _deactivate(uid)
+
+    cards = (await board())["jobs"]
+    assert gone["slug"] not in {card["slug"] for card in cards}
+    async with AsyncSessionLocal() as db:
+        link = await db.scalar(
+            select(CandidateInviteLink).where(
+                CandidateInviteLink.job_id == job_id,
+                CandidateInviteLink.slug.in_([card["slug"] for card in cards]),
+            )
+        )
+        assert link is not None
+        owner = await db.get(User, link.created_by)
+    assert owner.is_active and owner.has_role(UserRole.head_of_recruitment)
+
+    # Strona pod starym linkiem dalej działa, ale canonical wskazuje link HoR.
+    page = await api.get(f"/api/public/career/r/{gone['slug']}")
+    assert page.status_code == 200
+    assert page.json()["canonical_slug"] == link.slug
+
+
+async def test_links_of_inactive_owners_are_dropped_before_picking():
+    from datetime import datetime, timezone
+
+    from app.services.career_board import _links_of_active_owners, _pick_link
+
+    now = datetime.now(timezone.utc)
+    gone = CandidateInviteLink(created_by=7, slug="gone", revoked=False)
+    links = _links_of_active_owners([gone], active_ids={9})
+    assert links == []
+    # Bez prowadzącego i bez żywego linku — link zakłada Head of Recruitment.
+    assert _pick_link(links, None, now, fallback_id=9) == (None, 9)

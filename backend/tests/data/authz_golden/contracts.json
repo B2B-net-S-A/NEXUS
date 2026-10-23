@@ -36,6 +36,7 @@
   "GET /api/contracts/candidate-contact-report": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/contracts/expiring": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
   "GET /api/contracts/export": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/contracts/export/placements": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
   "GET /api/contracts/missing-orders-report": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
   "GET /api/contracts/order-sync-report": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/contracts/register/export": "PPDPPDDDPPPDPPPPDPPPDDDDDD",

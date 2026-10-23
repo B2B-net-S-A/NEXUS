@@ -17,7 +17,7 @@ import {
   slotConfirmedMessage,
   type SlotRequest,
 } from "@/lib/interview-cycle";
-import { hhmm, interviewStart, slotPassed, windowBounds } from "@/lib/interview-pick";
+import { hhmm, interviewStart, slotPassed, windowBounds, windowEarliest } from "@/lib/interview-pick";
 import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
@@ -205,6 +205,8 @@ export function ClientReplyDialog({
               {request.slots.map((s, i) => {
                 if (i === request.chosen_index) return null;
                 const bounds = windowBounds(s, request.duration_minutes);
+                // Okno, które już trwa: od teraz, nie od minionego początku (F36).
+                const earliest = windowEarliest(s, request.duration_minutes);
                 // Minionego terminu serwer nie przyjmie (422, audyt 21.10.2026).
                 const passed = slotPassed(s, request.duration_minutes);
                 return (
@@ -220,7 +222,7 @@ export function ClientReplyDialog({
                         disabled={passed}
                         onChange={() => {
                           setOther(i);
-                          setWindowTime(bounds?.from ?? "");
+                          setWindowTime(earliest ?? "");
                         }}
                         className="h-4 w-4"
                       />
@@ -237,7 +239,7 @@ export function ClientReplyDialog({
                         <input
                           type="time"
                           value={windowTime}
-                          min={bounds.from}
+                          min={earliest ?? bounds.from}
                           max={bounds.to}
                           step={900}
                           onChange={(e) => setWindowTime(e.target.value)}

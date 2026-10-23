@@ -1,6 +1,7 @@
 """Scoring weight profiles API (Phase D1) + panel „Ranking kandydatów”.
 
-CRUD profili zostaje dla administratora. Profiles are validated so the layers
+CRUD profili zostaje dla administratora — tylko profile klienta albo osoby
+(decyzja Artura 22.10.2026; profil ogólny wyłącznie przez panel). Profiles are validated so the layers
 sum to 100 (six layers; ``champion_fit`` optional and defaults to 0 for
 backward-compatible payloads). Scope resolution (user → client → global) is
 done by the scoring engine. Każda zmiana profilu trafia do historii
@@ -259,6 +260,24 @@ async def delete_panel_draft(
 
 # ── Profile (administrator) ──────────────────────────────────────────────────
 
+# Decyzja Artura 22.10.2026 (audyt F60): stary edytor tworzy i zmienia TYLKO
+# profile klienta albo osoby. Profil ogólny (bez klienta i osoby) to wagi dla
+# wszystkich — zmienia je wyłącznie panel, po pomiarze na historii. Wcześniej
+# „Nowy profil” bez zakresu lądował jako profil ogólny i, jako najnowszy,
+# od razu wypierał opublikowane wagi panelu.
+_GENERAL_PROFILE_DETAIL = (
+    "Wagi ogólne zmienia się w panelu „Ranking kandydatów”, po pomiarze "
+    "na historii. Tutaj tylko profil klienta albo osoby."
+)
+
+
+def _is_general(user_id: Optional[int], client_id: Optional[int]) -> bool:
+    return user_id is None and client_id is None
+
+
+def _refuse_general() -> None:
+    raise HTTPException(status_code=409, detail=_GENERAL_PROFILE_DETAIL)
+
 
 @router.get("", response_model=list[ScoringWeightProfileResponse])
 async def list_profiles(
@@ -285,6 +304,8 @@ async def create_profile(
     current_user: User = Depends(require_roles(UserRole.admin)),
     db: AsyncSession = Depends(get_db),
 ):
+    if _is_general(payload.user_id, payload.client_id):
+        _refuse_general()
     if await db.scalar(
         select(ScoringWeightProfile.id).where(ScoringWeightProfile.name == payload.name)
     ):
@@ -333,15 +354,20 @@ async def update_profile(
     )
     if not row:
         raise HTTPException(status_code=404, detail="not found")
-    before = _snapshot(row)
-    row.name = payload.name
     # Ekran wysyła tylko {name, weights, active}. Przypięcie do osoby albo
     # klienta zmienia się wyłącznie, gdy pole przyszło w żądaniu — inaczej
     # edycja z ekranu po cichu robiła z profilu klienta profil ogólny.
-    if "user_id" in payload.model_fields_set:
-        row.user_id = payload.user_id
-    if "client_id" in payload.model_fields_set:
-        row.client_id = payload.client_id
+    fields = payload.model_fields_set
+    user_id = payload.user_id if "user_id" in fields else row.user_id
+    client_id = payload.client_id if "client_id" in fields else row.client_id
+    # Profil ogólny jest tu tylko do odczytu, a profil klienta albo osoby nie
+    # może się nim stać (audyt 22.10, F60).
+    if _is_general(row.user_id, row.client_id) or _is_general(user_id, client_id):
+        _refuse_general()
+    before = _snapshot(row)
+    row.name = payload.name
+    row.user_id = user_id
+    row.client_id = client_id
     row.weights = payload.weights.model_dump()
     row.active = payload.active
     # Kolumna nie ma `onupdate` — bez tego „opublikowane” na ekranie
@@ -374,6 +400,8 @@ async def delete_profile(
     )
     if not row:
         raise HTTPException(status_code=404, detail="not found")
+    if _is_general(row.user_id, row.client_id):
+        _refuse_general()
     # Drop any cached scores computed under this profile before it disappears
     # (AI-P0-06 a) — otherwise they linger as dead, un-recomputable rows.
     await mark_stale_for_profile(db, profile_id)

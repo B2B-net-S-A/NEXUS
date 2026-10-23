@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -33,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.ai_feature import AIFeatureKey
+from app.models.calendar_event import CalendarEvent
 from app.models.interview_question import (
     InterviewQuestion,
     InterviewQuestionSource,
@@ -41,6 +43,7 @@ from app.models.interview_question import (
 from app.models.job import Job
 from app.models.note import Note, NoteType
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
+from app.services import prep_meetings
 from app.services.prep_review_config import PrepReviewConfig
 from app.services.prep_review_config import current as current_config
 from app.services.prep_review_scoring import (
@@ -291,28 +294,41 @@ def _call_model(model_chain: list[str], prompt: str) -> str:
 
 
 async def latest_prep1_review(
-    db: AsyncSession, *, candidate_id: int, job_id: int
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    at: Optional[datetime] = None,
 ) -> Optional[PrepReview]:
-    """Najnowsza udana ocena Prepu 1 pary — źródło notatki na Prep 2."""
+    """Udana ocena Prepu 1 BIEŻĄCEJ rundy pary — źródło notatki na Prep 2.
+
+    Decyzja Artura 22.10.2026 (audyt, F42): tylko Prep 1 tej samej rundy
+    rozmów (``prep_meetings.active_prep``, jak krok na karcie osoby). Gdy jego
+    ocena się nie udała albo jeszcze jej nie ma, notatka jest pusta — dotąd
+    brała najnowszą udaną ocenę pary i podsuwała punkty z poprzedniej rundy.
+    ``at`` = chwila, względem której liczy się runda (start Prepu 2).
+    """
+    prep1 = await prep_meetings.active_prep(
+        db, candidate_id=candidate_id, job_id=job_id, prep_no=1, at=at
+    )
+    if prep1 is None:
+        return None
     return await db.scalar(
-        select(PrepReview)
-        .join(PrepMeeting, PrepMeeting.id == PrepReview.prep_meeting_id)
-        .where(
-            PrepMeeting.candidate_id == candidate_id,
-            PrepMeeting.job_id == job_id,
-            PrepMeeting.prep_no == 1,
-            PrepReview.status == "ok",
+        select(PrepReview).where(
+            PrepReview.prep_meeting_id == prep1.id, PrepReview.status == "ok"
         )
-        .order_by(PrepReview.id.desc())
-        .limit(1)
     )
 
 
 async def _prep1_review(db: AsyncSession, prep: PrepMeeting) -> Optional[PrepReview]:
     if prep.prep_no != 2:
         return None
+    event = await db.get(CalendarEvent, prep.calendar_event_id)
     return await latest_prep1_review(
-        db, candidate_id=prep.candidate_id, job_id=prep.job_id
+        db,
+        candidate_id=prep.candidate_id,
+        job_id=prep.job_id,
+        at=event.start_time if event is not None else None,
     )
 
 

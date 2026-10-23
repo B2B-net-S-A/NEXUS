@@ -54,6 +54,7 @@ async def hit_ratio_closures(
             Job.closed_at,
             Job.duplicate_of_job_id,
             Job.delivery_lead_id,
+            Job.client_id,
             effective_name.label("client_name"),
         )
         .join(Client, Job.client_id == Client.id)
@@ -107,6 +108,7 @@ async def hit_ratio_closures(
             {
                 "job_id": r.id,
                 "title": r.title,
+                "client_id": r.client_id,
                 "client_name": r.client_name,
                 "close_reason": r.close_reason.value if r.close_reason else None,
                 "close_notes": r.close_notes,

@@ -565,3 +565,28 @@ async def test_profile_leave_ring_only_in_full_scope_without_type_counters(
     )
     assert as_colleague.json()["scope"] == "card"
     assert "leave_balance" not in as_colleague.json()
+
+
+@pytest.mark.asyncio
+async def test_board_member_with_a_leftover_profile_is_not_staff(
+    app_client, modules_on
+) -> None:
+    """Rada nadzorcza (0490) zakładana jest pierwszym logowaniem jako
+    „Pracownik” — kartoteka z tego logowania zostaje po zmianie roli. Nie
+    otwiera jej katalogu ludzi, samoobsługi ani wniosków o zgodę
+    (audyt 22.10.2026, F76)."""
+
+    from app.services.hr import people
+
+    async with AsyncSessionLocal() as db:
+        member = await _user(db, "board", profile=True)
+        worker = await _user(db, "employee", profile=True)
+        await db.commit()
+        assert await people.has_live_profile(db, worker.id)
+        assert not await people.has_live_profile(db, member.id)
+
+    directory = await app_client.get("/api/hr/people", headers=_headers(member))
+    assert directory.status_code == 403
+    assert (
+        await app_client.get("/api/hr/people", headers=_headers(worker))
+    ).status_code == 200

@@ -47,6 +47,16 @@ class TestConfirmationHeader:
         raw = '{"5": "referral", "6": 1, "abc": "job_ad"}'
         assert ol.parse_confirmation_header(raw) == {5: "referral"}
 
+    @pytest.mark.parametrize(
+        "raw", ["[" * 20_000, '{"1": ' * 20_000], ids=["lista", "slownik"]
+    )
+    def test_deeply_nested_json_means_no_confirmation(self, raw):
+        # Audyt 22.10 (F111): json.loads rzucał RecursionError, którego parser
+        # nie łapał — 500 na dowolnej trasie, także bez logowania. Python
+        # 3.12 rzuca go od ok. 10 tys. poziomów, 20 tys. „[” mieści się
+        # w limicie nagłówka (16 KB).
+        assert ol.parse_confirmation_header(raw) == {}
+
 
 class TestCompanyMatch:
     @pytest.mark.parametrize(
@@ -167,3 +177,19 @@ async def test_middleware_exposes_header_only_for_the_request():
     await middleware(scope, None, None)
     assert seen == [{9: "job_ad"}]
     assert ol.current_confirmations() == {}
+
+
+@pytest.mark.asyncio
+async def test_middleware_passes_request_with_deeply_nested_header():
+    seen: list[dict[int, str]] = []
+
+    async def app(scope, receive, send):
+        seen.append(ol.current_confirmations())
+
+    middleware = ol.OffLimitsConfirmationMiddleware(app)
+    scope = {
+        "type": "http",
+        "headers": [(b"x-off-limits-confirmation", b"[" * 15_000)],
+    }
+    await middleware(scope, None, None)
+    assert seen == [{}]

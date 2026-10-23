@@ -3265,11 +3265,19 @@ async def api_health_deep_check():
     from app.models.candidate_consent import CandidateConsent
     from app.models.placement_exclusion import PlacementExclusion
     from app.models.prep_meeting import (
+        Prep2Skip,
         PrepMeeting,
         PrepReview,
         PrepReviewConfigVersion,
         PrepTranscript,
     )
+    from app.models.b2b_signing_request import B2BSigningRequest
+    from app.models.pre_contract import (
+        PreContractEvent,
+        PreContractRequest,
+        PreContractWatcher,
+    )
+    from app.services.care.board_state import CARE_BOARD_STATES
     from app.models.job_board_connection import JobBoardConnection
     from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
     from app.models.candidate_followup import CandidateFollowup
@@ -3551,6 +3559,9 @@ async def api_health_deep_check():
         ("prep_reviews", PrepReview),
         # 0505: ustawienia oceny prepów — czyta je każda ocena prepu.
         ("prep_review_configs", PrepReviewConfigVersion),
+        # 0482: rozmowa u klienta bez Prepu 2 — agenda i cykl rozmowy czytają
+        # wyjątki, więc brak tabeli = 500 przy „Pomiń Prep 2” i w kalendarzu.
+        ("prep2_skips", Prep2Skip),
         # 0372: follow-up z kandydatem — „Czeka na Ciebie” i Tablica czytają
         # wyniki telefonów, więc brak tabeli = pulpit i kanban 500.
         ("candidate_followups", CandidateFollowup),
@@ -3632,6 +3643,16 @@ async def api_health_deep_check():
         ("approval_requests", ApprovalRequest),
         ("approval_documents", ApprovalDocument),
         ("approval_fixed_cost_sellers", ApprovalFixedCostSeller),
+        # 0499: podpis umowy B2B w NEXUSIE — brak tabeli = 500 przy wysłaniu
+        # do podpisu i w zakładce umowy (audyt 22.10, F79).
+        ("b2b_signing_requests", B2BSigningRequest),
+        # 0506: umowa przedwstępna w rekrutacji — prośba, obserwujący, historia.
+        ("pre_contract_requests", PreContractRequest),
+        ("pre_contract_watchers", PreContractWatcher),
+        ("pre_contract_events", PreContractEvent),
+        # 0509: tablica opieki — tabela bez modelu ORM; lekkie `table()` z
+        # `board_state` też wymusza rozwiązanie każdej kolumny.
+        ("care_board_states", CARE_BOARD_STATES),
     ]
 
     checks: dict[str, str] = {}

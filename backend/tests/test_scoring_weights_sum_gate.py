@@ -30,6 +30,13 @@ import pytest
 _FIVE_LAYERS = ("semantic", "skills", "salary", "location", "availability")
 
 
+async def _admin_id(app_client, headers) -> int:
+    """Profil musi mieć klienta albo osobę — ogólny tylko przez panel (F60)."""
+    me = await app_client.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200, me.text
+    return me.json()["id"]
+
+
 def _weights(**overrides) -> dict:
     base = {name: 20 for name in _FIVE_LAYERS}
     base.update(overrides)
@@ -68,7 +75,11 @@ async def test_legacy_five_layer_profile_summing_to_100_still_works(
     resp = await app_client.post(
         "/api/scoring-weights",
         headers=app_auth_headers,
-        json={"name": f"Suma-ok-{uuid.uuid4().hex[:8]}", "weights": _weights()},
+        json={
+            "name": f"Suma-ok-{uuid.uuid4().hex[:8]}",
+            "user_id": await _admin_id(app_client, app_auth_headers),
+            "weights": _weights(),
+        },
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["weights"]["champion_fit"] == 0
@@ -83,6 +94,7 @@ async def test_six_layer_profile_summing_to_100_still_works(
         headers=app_auth_headers,
         json={
             "name": f"Suma-6-{uuid.uuid4().hex[:8]}",
+            "user_id": await _admin_id(app_client, app_auth_headers),
             "weights": _weights(availability=10, champion_fit=10),
         },
     )

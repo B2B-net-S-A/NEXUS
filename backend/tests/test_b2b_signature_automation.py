@@ -2732,6 +2732,46 @@ async def test_signed_file_waits_for_the_signature_and_lands_in_contract_documen
 
 
 @pytest.mark.asyncio
+async def test_signed_file_locks_the_contract_before_the_register_row(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Audyt 22.10, F47: plik w Dokumentach kontraktu (FK → blokada kontraktu)
+    po blokadzie wiersza rejestru odwracał kolejność `/terminate` i nocnego
+    crona (kontrakt → wiersz) — groziło zakleszczenie."""
+    from sqlalchemy import event
+
+    from app.core.database import engine
+
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    headers = app_auth_headers
+    assert (
+        await _confirm(app_client, headers, scenario["generated_id"])
+    ).status_code == 200
+
+    statements: list[str] = []
+
+    def _before(_conn, _cursor, statement, *_args, **_kwargs):
+        statements.append(" ".join(statement.split()))
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _before)
+    try:
+        attached = await _attach_file(app_client, headers, scenario["generated_id"])
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _before)
+    assert attached.status_code == 200, attached.text
+
+    def _first_lock(table: str) -> int:
+        return next(
+            i
+            for i, sql in enumerate(statements)
+            if f"FROM {table} " in sql and "FOR UPDATE" in sql
+        )
+
+    assert _first_lock("contracts") < _first_lock("b2b_generated_contracts")
+
+
+@pytest.mark.asyncio
 async def test_signed_file_must_be_a_pdf_or_picture(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):

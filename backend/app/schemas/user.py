@@ -125,6 +125,12 @@ class UserResponse(BaseModel):
     # ``DL_CLIENT_SCOPE`` albo rola czytająca Delivery całej organizacji).
     # ``None`` dla kont spoza persony DL. Front chowa wtedy „Moi / Wszyscy”.
     delivery_client_scope: Optional[Literal["assigned", "all"]] = None
+    # Czy konto przesuwa karty bez bramek pól (arkusz, stawka, minimum) —
+    # ta sama reguła co serwer (``pipeline_move_rules.skips_fill_gates``:
+    # uprawnienie ``recruitment_manage`` i wyłącznik ``DL_SKIPS_FILL_GATES``).
+    # Tablica, okna screeningu i „Dodaj do rekrutacji” czytają tę flagę
+    # zamiast samego uprawnienia (audyt 22.10.2026, F109).
+    skips_fill_gates: bool = False
     created_at: datetime
     updated_at: datetime
 

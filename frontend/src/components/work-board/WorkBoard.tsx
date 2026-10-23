@@ -240,6 +240,7 @@ export function WorkBoard({
   const [listFilter, setListFilter] = useState<ListFilter>(initialFilter);
   const [closing, setClosing] = useState<CareBoardCard | null>(null);
   const [closingError, setClosingError] = useState<string | null>(null);
+  const [reopening, setReopening] = useState<string | null>(null);
 
   // Link z dzwonka z innym `?filter=` przy otwartej tablicy (miękka nawigacja).
   useEffect(() => setListFilter(initialFilter), [initialFilter]);
@@ -272,7 +273,12 @@ export function WorkBoard({
     unassigned,
     ...(mineCare ? { mine_care: true } : {}),
   };
-  const cases = useCases(casesFilters, casesAllowed);
+  // „Moi podopieczni” u opiekuna bez „Spraw” i bez własnej sprawy: serwer daje
+  // sprawy podopiecznych (bez treści cudzych spraw) — audyt 22.10, F11.
+  // `casesOn` = zapytanie o sprawy idzie — ładowanie i awaria liczą się tak samo
+  // jak przy uprawnieniu „Sprawy” (awaria ≠ pusta lista).
+  const casesOn = casesAllowed || (careAccess && mineCare && Boolean(config.open_modules.cases));
+  const cases = useCases(casesFilters, casesOn);
   const careBoard = useCareBoard(scope === "mine" || mineCare ? "mine" : "all", careAccess);
   // Wyłączone zapytanie i tak oddaje dane z cache (np. po zmianie konta) — bez
   // dostępu do opieki kart opieki nie pokazujemy wcale.
@@ -294,12 +300,13 @@ export function WorkBoard({
         ? (cases.data?.items ?? []).filter(
             // Opiekun bez „Spraw” widzi w „Do zrobienia” sprawę tylko z terminem do
             // piątku albo po terminie (S3). Obsługa skrzynki pracuje na pełnym
-            // kanbanie spraw — od #2567 jest on tylko tutaj (K1: „zostaje wszystko”).
-            (card) => boardScope !== "care" || canManage || caseDueThisWeek(card, weekEnd),
+            // kanbanie spraw — od #2567 jest on tylko tutaj (K1: „zostaje wszystko”),
+            // tak samo osoba przypisana do sprawy bez roli opieki (audyt 22.10, F12).
+            (card) => boardScope !== "care" || canManage || !careAccess || caseDueThisWeek(card, weekEnd),
           )
         : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cases.data, area, casesQuiet, boardScope, weekEnd, canManage],
+    [cases.data, area, casesQuiet, boardScope, weekEnd, canManage, careAccess],
   );
   const allCareCards = useMemo(() => careData?.cards ?? [], [careData]);
   const careCards = useMemo(
@@ -364,10 +371,10 @@ export function WorkBoard({
     );
   }
 
-  const loading = (casesAllowed && cases.isLoading) || (careAccess && careBoard.isLoading);
-  const casesFailed = casesAllowed && cases.isError && !casesQuiet;
+  const loading = (casesOn && cases.isLoading) || (careAccess && careBoard.isLoading);
+  const casesFailed = casesOn && cases.isError && !casesQuiet;
   const careFailed = careAccess && careBoard.isError;
-  const blockingError = boardScope === "cases" ? casesFailed : careFailed && (casesFailed || !casesAllowed);
+  const blockingError = boardScope === "cases" ? casesFailed : careFailed && (casesFailed || !casesOn);
 
   const selectItem = (item: WorkItem) => {
     setSnapshot(item);
@@ -454,6 +461,25 @@ export function WorkBoard({
     } finally {
       setOverride(card.key, null);
     }
+  };
+
+  /**
+   * „Otwórz ponownie” zamkniętej decyzji z „Zrobione” (decyzja Artura
+   * 22.10.2026, audyt F107): wpis „Do przepięcia” wraca na „W toku” i karta
+   * „Decyzja” wraca na tablicę.
+   */
+  const reopenDecision = (key: string) => {
+    const itemId = decisionIdOf(key);
+    if (itemId == null) return;
+    setReopening(key);
+    updateRedeploy.mutate(
+      { itemId, status: "in_progress" },
+      {
+        onSuccess: () => showToast("Decyzja otwarta ponownie — wraca na tablicę", "success"),
+        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się otworzyć decyzji."), "error"),
+        onSettled: () => setReopening(null),
+      },
+    );
   };
 
   /** „Sprawy tej osoby” w panelu karty opieki — ten sam panel, teraz ze sprawą. */
@@ -553,7 +579,7 @@ export function WorkBoard({
   const showScope = canManage || careAccess;
   const showCaseControls = showCaseControlsFor(casesAllowed, casesQuiet);
   const everythingReady =
-    (!casesAllowed || cases.isSuccess || casesQuiet) && (!careAccess || careBoard.isSuccess);
+    (!casesOn || cases.isSuccess || casesQuiet) && (!careAccess || careBoard.isSuccess);
 
   const renderItem = (item: WorkItem, drag: Parameters<typeof CaseTile>[0]["drag"]) => {
     const column = overrides.get(item.key) ?? itemColumn(item);
@@ -697,7 +723,7 @@ export function WorkBoard({
           state="error"
           description={boardScope === "cases" ? "Nie udało się wczytać spraw." : "Nie udało się wczytać tablicy opieki."}
           onRetry={() => {
-            if (casesAllowed) void cases.refetch();
+            if (casesOn) void cases.refetch();
             if (careAccess) void careBoard.refetch();
           }}
         />
@@ -775,6 +801,8 @@ export function WorkBoard({
                   showClosed={showClosed}
                   onToggleClosed={() => setShowClosed((value) => !value)}
                   onOpen={(card) => selectItem(caseItem(card))}
+                  onReopenDecision={reopenDecision}
+                  reopening={reopening}
                   dropDisabled={false}
                 />
               </div>

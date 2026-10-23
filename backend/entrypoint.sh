@@ -1103,6 +1103,16 @@ except Exception as _prep_review_config_err:  # noqa: BLE001
     print(f"prep review config DDL unavailable: {_prep_review_config_err!r}")
     _PREP_REVIEW_CONFIG_DDL = []
 
+# Pula dopełniania „Nowych” (migracja 0513) — JEDNO źródło z migracją
+# (`app/services/job_autofill_pool_schema.py`).
+try:
+    from app.services import job_autofill_pool_schema as _autofill_pool_schema
+
+    _AUTOFILL_POOL_DDL = list(_autofill_pool_schema.TABLE_DDL)
+except Exception as _autofill_pool_err:  # noqa: BLE001
+    print(f"autofill pool DDL unavailable: {_autofill_pool_err!r}")
+    _AUTOFILL_POOL_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1153,6 +1163,7 @@ _COLUMN_STATEMENTS = [
     *_CONTRACT_DOC_FOLDERS_DDL,
     *_RANKING_WEIGHT_CHANGES_DDL,
     *_PREP_REVIEW_CONFIG_DDL,
+    *_AUTOFILL_POOL_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (

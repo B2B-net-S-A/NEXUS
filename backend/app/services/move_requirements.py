@@ -1005,7 +1005,10 @@ async def company_cv_refs(
 
     from app.models.candidate_document import CandidateDocument  # noqa: PLC0415
     from app.models.candidate_stage_cv import CandidateStageCV  # noqa: PLC0415
-    from app.models.cv_generated_document import CvGeneratedDocument  # noqa: PLC0415
+    from app.models.cv_generated_document import (  # noqa: PLC0415
+        CvGeneratedDocument,
+        not_discarded_clause,
+    )
     from app.models.recruitment_pipeline import CandidateStage  # noqa: PLC0415
 
     wanted = sorted(set(pairs))
@@ -1063,6 +1066,8 @@ async def company_cv_refs(
                     ).in_(missing),
                     CvGeneratedDocument.status == "ready",
                     CvGeneratedDocument.render_payload.is_not(None),
+                    # „Odrzuć to CV” (audyt 22.10, F64): nie jest już CV pary.
+                    not_discarded_clause(),
                 )
                 .order_by(
                     CvGeneratedDocument.created_at.desc(),

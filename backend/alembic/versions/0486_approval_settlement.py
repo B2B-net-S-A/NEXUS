@@ -33,6 +33,17 @@ BEGIN
     END IF;
 END $$"""
 
+# Klucz AI zostaje w enumie po downgrade, a dziennik AI sprzed tej rewizji go
+# nie odczyta (wzór 0485, audyt 22.10.2026).
+REFUSE_WITH_USAGE = """DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM ai_usage_log WHERE feature::text = 'expense_document_read'
+    ) THEN
+        RAISE EXCEPTION 'Downgrade 0486 odmawia: ai_usage_log ma wpisy odczytu dokumentów wydatków, których kod sprzed tej rewizji nie odczyta.';
+    END IF;
+END $$"""
+
 
 def upgrade() -> None:
     # ADD VALUE wymaga autocommitu (nie może żyć w transakcji migracji), a seed
@@ -55,6 +66,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(REFUSE_WITH_LIVE_ROWS)
+    op.execute(REFUSE_WITH_USAGE)
     op.execute("DELETE FROM ai_features WHERE feature = 'expense_document_read'")
     for stmt in schema.DOWNGRADE_DDL:
         op.execute(stmt)

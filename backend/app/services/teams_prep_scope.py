@@ -68,7 +68,12 @@ def classify(status: Optional[int]) -> Access:
 
 async def calendar_access(email: str) -> Access:
     """Czy aplikacja prepów widzi kalendarz tej osoby. Nie czyta wydarzeń."""
+    import httpx  # noqa: PLC0415
+
     from app.services.m365 import teams_prep_graph as tpg  # noqa: PLC0415
+    from app.services.m365.app_graph_client import (  # noqa: PLC0415
+        AppOnlyTokenUnavailable,
+    )
     from app.services.m365.graph_client import GraphRequestError  # noqa: PLC0415
 
     try:
@@ -76,6 +81,10 @@ async def calendar_access(email: str) -> Access:
             await gc.get(f"{tpg._user(email)}/calendar", params={"$select": "id"})
     except GraphRequestError as exc:
         return classify(exc.status)
+    except (httpx.HTTPError, AppOnlyTokenUnavailable):
+        # Sieć albo token po ponowieniach — „nie wiadomo”, przebieg idzie dalej.
+        logger.warning("teams_prep_scope: probe failed for one user", exc_info=True)
+        return "unknown"
     return "ok"
 
 

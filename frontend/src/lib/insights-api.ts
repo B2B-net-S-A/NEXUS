@@ -1029,6 +1029,7 @@ export interface InsightsCompetenceMatrixResponse {
 export interface HitRatioClosureRow {
   job_id: number;
   title: string;
+  client_id: number | null;
   client_name: string | null;
   close_reason: JobCloseReason | null;
   close_notes: string | null;

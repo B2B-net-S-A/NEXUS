@@ -20,7 +20,13 @@ Zasady:
   `parsed_candidate_id` załącznika z tymi bajtami (nie skrót zapisany
   w dokumencie — ten przepisywało przepięcie);
 * dokument m365, którego bajty nie zgadzają się z `content_sha256`, wraca do
-  właściciela pliku, który nie ma jeszcze tego pliku w profilu. Bez takiego
+  właściciela pliku, który nie ma jeszcze tego pliku w profilu. Dokument, który
+  zły posiadacz usunął z profilu albo który synchronizacja miękko usunęła
+  u niego, wraca widoczny (zdjęte `removed_at`, `source_deleted_at`,
+  `removed_by`; audyt 22.10.2026, F113, decyzja Artura; plik, który właściciel
+  sam usunął ze swojego profilu, zostaje ukryty — 0435) — do 22.10 zostawał
+  u właściciela ukryty, a jego usunięcie liczyło się jak usunięcie przez
+  właściciela, więc właściciel nie dostawał też nowej kopii. Bez takiego
   właściciela (plik tylko z poczty wychodzącej) zostaje miękko usunięty u złego
   posiadacza (`source_deleted_at` / `removed_at`) — nic nie kasujemy (decyzja
   Artura z 26.09.2026: „nie usuwać nigdy żadnych CV”);
@@ -36,6 +42,15 @@ Zasady:
   główne CV z Traffita na CV z maila u osób, którym kod celowo go nie zmienił.
   Wskaźnik na kandydacie idzie za głównym CV, a nazwa albo bajty cudzego pliku
   są odpinane;
+* profil złego posiadacza czytany z cudzego dokumentu (`cv_highlights.
+  source_document_id`, a bez tego śladu: dokument był głównym CV i wskaźnik
+  ma jego nazwę) traci przy ``--apply`` fakty z tego odczytu jak w kwarantannie
+  tożsamości: tekst CV, umiejętności, doświadczenie, podsumowanie AI i wektor
+  (`clear_foreign_cv_projection`; audyt 22.10.2026, F114, decyzja Artura).
+  Ślad nie mówi, czy tekst był z bajtów cudzego pliku, czy z własnego
+  załącznika tej osoby (błąd przepinał dokument, a czytał załącznik), więc
+  próba na sucho wypisuje te osoby w ``projection_from_foreign``, a kto ma po
+  naprawie główne CV, idzie do ``--reread``;
 * kopie CV etapu z cudzym plikiem u złego posiadacza dostają jego bieżące CV
   (`restore_stage_copies_after_quarantine`). Próba na sucho wypisuje je razem
   z etapem karty (`client_exposure`) — CV wysłane do klienta to decyzja Artura;
@@ -44,6 +59,10 @@ Zasady:
   transakcji. Paragon ``app_settings['m365_document_repair_2026_10']`` niesie
   same liczby i id; ponowne ``--apply`` przy istniejącym paragonie jest
   odrzucane. Raport bez nazwisk i nazw plików (logi Actions są publiczne).
+
+Bieg z 20–21.10.2026 poszedł przed audytem 22.10 (F113, F114), a paragon
+blokuje ponowne ``--apply``. Kogo dotyczą obie luki, mówi raport tylko do
+odczytu ``backend/scripts/m365_cv_repair_followup_report.sql``.
 """
 
 from __future__ import annotations
@@ -116,6 +135,10 @@ class Plan:
     # (doc_id, holder, sha cudzego pliku, nazwa wiersza, rozmiar) — do kopii
     # CV etapu i wskaźnika.
     foreign: list[tuple[int, int, str, str, int]] = field(default_factory=list)
+    # doc_id zwracanych dokumentów, które zły posiadacz ukrył — wracają widoczne.
+    restores: list[int] = field(default_factory=list)
+    # (holder, doc_id, sha cudzego pliku) — profil czytany z cudzego dokumentu.
+    projections: list[tuple[int, int, str]] = field(default_factory=list)
     unverifiable_doc_ids: list[int] = field(default_factory=list)
     mail_cvs: dict[int, MailCv] = field(default_factory=dict)
 
@@ -129,6 +152,8 @@ class Plan:
                 (cid, before, str(after))
                 for cid, (before, after) in self.primaries.items()
             ),
+            "restores": sorted(self.restores),
+            "projections": sorted((cid, doc) for cid, doc, _ in self.projections),
         }
         digest = hashlib.sha256(json.dumps(payload).encode()).hexdigest()
         return digest[:12]
@@ -231,6 +256,25 @@ async def _documents(db, candidate_ids: set[int]) -> list[Doc]:
     ]
 
 
+async def _projection_sources(
+    db, candidate_ids: set[int]
+) -> dict[int, tuple[Optional[int], Optional[str]]]:
+    """Osoba → (dokument, z którego odczytano profil; wskaźnik `cv_filename`)."""
+    from app.models.candidate import Candidate
+
+    rows = await db.execute(
+        select(
+            Candidate.id,
+            Candidate.cv_extracted_data["cv_highlights"]["source_document_id"].astext,
+            Candidate.cv_filename,
+        ).where(Candidate.id.in_(sorted(candidate_ids)))
+    )
+    return {
+        int(cid): (int(source) if source and source.isdigit() else None, pointer)
+        for cid, source, pointer in rows.all()
+    }
+
+
 async def _quarantined_pairs(db, candidate_ids: set[int]) -> set[tuple[int, int]]:
     from app.models.candidate_source_identity_review import (
         CandidateSourceIdentityReview as Review,
@@ -293,6 +337,9 @@ async def plan(
         }
 
     used_keys = {d.external_id for d in docs if d.external_source == "m365"}
+    # Usunięcie liczy się u osoby, która usunęła — nie u właściciela, do
+    # którego dokument wraca (F113).
+    removed_by_person = {(d.candidate_id, sha_of[d.id]) for d in docs if d.removed}
 
     for doc in sorted(
         (d for d in docs if d.external_source == "m365"), key=lambda d: d.id
@@ -341,8 +388,29 @@ async def plan(
             )
             owners.add(target.candidate_id)
             owner_of[doc.id] = target.candidate_id
+            if (doc.deleted or doc.removed) and (
+                target.candidate_id,
+                doc.file_sha256,
+            ) not in removed_by_person:
+                # Ukrył go zły posiadacz (albo synchronizacja u niego) — u
+                # właściciela plik wraca widoczny. Plik, który właściciel sam
+                # usunął ze swojego profilu (0435), zostaje ukryty.
+                result.restores.append(doc.id)
+                gone.discard(doc.id)
 
-    removed_by_person = {(owner_of[d.id], sha_of[d.id]) for d in docs if d.removed}
+    if result.foreign:
+        sources = await _projection_sources(db, holders)
+        for doc_id, holder, sha, name, _ in result.foreign:
+            projected, pointer = sources.get(holder, (None, None))
+            fed = projected == doc_id or (
+                projected is None
+                and next(d for d in docs if d.id == doc_id).is_primary
+                and bool(pointer)
+                and pointer.lower() == name.lower()
+            )
+            if fed:
+                result.projections.append((holder, doc_id, sha))
+
     new_docs: dict[int, MailCv] = {}
     for (candidate_id, sha), item in sorted(mail.items()):
         if sha in active_shas(candidate_id):
@@ -504,7 +572,13 @@ def summarize(items: Plan, exposure: list[dict[str, Any]]) -> dict[str, Any]:
         "mail_candidates": len({m.candidate_id for m in items.mail_cvs.values()}),
         "foreign_documents": len(items.foreign),
         "returned": [
-            {"doc": d, "from": h, "to": o, "attachment": a}
+            {
+                "doc": d,
+                "from": h,
+                "to": o,
+                "attachment": a,
+                "restored": d in items.restores,
+            }
             for d, h, o, a in items.returns
         ],
         "soft_removed": [{"doc": d, "from": h} for d, h in items.removals],
@@ -519,6 +593,9 @@ def summarize(items: Plan, exposure: list[dict[str, Any]]) -> dict[str, Any]:
             {"candidate": c, "attachment": a, "reason": r} for c, a, r in items.skipped
         ],
         "unverifiable_doc_ids": items.unverifiable_doc_ids,
+        "projection_from_foreign": [
+            {"candidate": c, "doc": d} for c, d, _ in items.projections
+        ],
         "client_exposure": exposure,
     }
 
@@ -528,6 +605,9 @@ async def repair(db, items: Plan, *, now: Optional[datetime] = None) -> dict[str
     from app.models.activity import Activity
     from app.models.candidate import Candidate
     from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+    from app.services.candidate_identity_quarantine import (
+        clear_foreign_cv_projection,
+    )
     from app.services.candidate_stage_cv_service import (
         restore_stage_copies_after_quarantine,
     )
@@ -545,6 +625,8 @@ async def repair(db, items: Plan, *, now: Optional[datetime] = None) -> dict[str
         "primary_changed": 0,
         "pointer_detached": 0,
         "stage_copies": 0,
+        "restored": 0,
+        "projections_cleared": 0,
     }
     touched = (
         {h for _, h, _, _ in items.returns}
@@ -592,6 +674,7 @@ async def repair(db, items: Plan, *, now: Optional[datetime] = None) -> dict[str
         doc.removed_at = doc.removed_at or now
         history[holder]["removed_doc_ids"].append(doc_id)
         stats["soft_removed"] += 1
+    restores = set(items.restores)
     for doc_id, holder, owner, attachment_id in items.returns:
         source = items.mail_cvs[attachment_id]
         doc = await db.get(CandidateDocument, doc_id, populate_existing=True)
@@ -604,6 +687,11 @@ async def repair(db, items: Plan, *, now: Optional[datetime] = None) -> dict[str
         doc.uploaded_at = source.received_at
         doc.uploaded_by = None
         doc.document_kind = CandidateDocumentKind.cv
+        if doc_id in restores:
+            doc.source_deleted_at = None
+            doc.removed_at = None
+            doc.removed_by = None
+            stats["restored"] += 1
         history[holder]["removed_doc_ids"].append(doc_id)
         history[owner]["returned_doc_ids"].append(doc_id)
         stats["returned"] += 1
@@ -662,6 +750,17 @@ async def repair(db, items: Plan, *, now: Optional[datetime] = None) -> dict[str
         )
         if candidate is None:
             continue
+        # Fakty z cudzego dokumentu przed wskaźnikiem: czyszczenie nie rusza
+        # `cv_filename`, prowadzi go niżej ten skrypt (F114).
+        projection_cleared = False
+        for holder, doc_id, sha in items.projections:
+            if holder != candidate_id:
+                continue
+            await clear_foreign_cv_projection(
+                db, candidate_id=candidate_id, document_id=doc_id, document_hash=sha
+            )
+            projection_cleared = True
+            stats["projections_cleared"] += 1
         # Najpierw cudzy plik we wskaźniku (nazwa albo bajty), potem nazwa
         # nowego głównego CV — „CV.pdf” bywa nazwą obu plików.
         detached = False
@@ -703,6 +802,7 @@ async def repair(db, items: Plan, *, now: Optional[datetime] = None) -> dict[str
                     "primary_after": (doc_after.id if doc_after is not None else None)
                     if candidate_id in items.primaries
                     else before,
+                    "projection_cleared": projection_cleared,
                 },
             )
         )

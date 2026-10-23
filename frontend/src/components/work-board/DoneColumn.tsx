@@ -20,7 +20,8 @@ const DONE_PREVIEW = 5;
  * (sprawa = status „Zrobione”, karta opieki = okno zapisu) i — gdy tablica
  * pokazuje opiekę — zapisane w tym tygodniu rozmowy i opinie. Nagłówek ma
  * jedną liczbę (makieta K1): sprawy z miesiąca + opieka z tygodnia, pod nim
- * „41 spraw w miesiącu · 5 rozmów i opinii w tym tygodniu”.
+ * „41 spraw w miesiącu · 5 rozmów i opinii w tym tygodniu”. Zamknięta
+ * decyzja „Do przepięcia” ma „Otwórz ponownie” (wpis wraca na „W toku”).
  */
 export function DoneColumn({
   done,
@@ -31,6 +32,8 @@ export function DoneColumn({
   showClosed,
   onToggleClosed,
   onOpen,
+  onReopenDecision,
+  reopening = null,
   dropDisabled,
 }: {
   done: CaseCard[];
@@ -41,6 +44,10 @@ export function DoneColumn({
   showClosed: boolean;
   onToggleClosed: () => void;
   onOpen: (card: CaseCard) => void;
+  /** „Otwórz ponownie” zamkniętej decyzji „Do przepięcia” (klucz `decision:<id>`). */
+  onReopenDecision?: (key: string) => void;
+  /** Klucz decyzji, której ponowne otwarcie trwa. */
+  reopening?: string | null;
   dropDisabled: boolean;
 }) {
   const [all, setAll] = useState(false);
@@ -108,7 +115,21 @@ export function DoneColumn({
                       className="flex items-start gap-1.5 rounded-md bg-card px-2 py-1.5 text-[12.5px]"
                     >
                       <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden />
-                      <span className="line-clamp-2 flex-1">{item.title}</span>
+                      <span className="flex min-w-0 flex-1 flex-col items-start">
+                        <span className="line-clamp-2">{item.title}</span>
+                        {item.kind === "decision" && onReopenDecision ? (
+                          // Pomyłkowe „Nie dotyczy” da się cofnąć (decyzja Artura 22.10.2026, F107).
+                          <button
+                            type="button"
+                            disabled={reopening === item.key}
+                            aria-label={`Otwórz ponownie: ${item.title}`}
+                            className="text-[11.5px] text-primary hover:underline disabled:opacity-50"
+                            onClick={() => onReopenDecision(item.key)}
+                          >
+                            Otwórz ponownie
+                          </button>
+                        ) : null}
+                      </span>
                       <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                         {formatDayMonthPl(item.done_on)}
                       </span>
