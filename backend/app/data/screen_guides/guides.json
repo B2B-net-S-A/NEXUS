@@ -277,8 +277,8 @@
         "anchor": "candidates.list.search"
       },
       {
-        "q": "Jak wrócić do poprzedniego wyszukiwania?",
-        "a": "Po powrocie z profilu albo z innej strony lista sama wraca do ostatniego wyszukiwania, strony i miejsca na liście. Starsze wyszukiwania są pod „Ostatnie wyszukiwania”.",
+        "q": "Jak wrócić do poprzedniego wyszukiwania albo przejrzanych CV?",
+        "a": "Lista sama wraca do ostatniego wyszukiwania, strony i miejsca na liście; starsze są pod „Ostatnie wyszukiwania”. W oknie CV „Poprzednia” i „Następna” (Shift + ←/→) przechodzą po osobach z listy, a „Przypisz do rekrutacji” przypisuje oglądaną osobę. Obejrzane CV ma ✓ przy „CV”, ostatnio oglądana osoba — pasek z lewej.",
         "anchor": "candidates.list.saved"
       },
       {
