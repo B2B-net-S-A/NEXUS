@@ -224,7 +224,10 @@ def test_selector_hub_modules_do_not_select_half_the_suite() -> None:
     assert not indirect, "config.py importuje prawie każdy test — to zadanie kolejki."
     assert all(
         Path(t).name == "test_config.py" or Path(t).name.startswith("test_config_")
-        for t in direct - set(sel._ALWAYS) - {sel._AUTHZ_MATRIX}
+        for t in direct
+        - set(sel._ALWAYS)
+        - {sel._AUTHZ_MATRIX}
+        - set(sel._ROUTE_CONTRACTS)
     )
 
 
@@ -257,6 +260,18 @@ def test_selector_runs_the_route_guard_matrix_for_any_application_change() -> No
         assert sel._AUTHZ_MATRIX in direct, changed
     direct, indirect = sel.select(["frontend/src/components/EditOrderDialog.tsx"])
     assert sel._AUTHZ_MATRIX not in direct | indirect
+
+
+def test_selector_runs_route_contracts_for_a_router_that_does_not_name_them() -> None:
+    """#2611 (23.10.2026): własna bramka w ``api/pre_contracts.py`` przeszła sito,
+    a strażnik sekcji wyrzucił ją w kolejce — razem z każdym PR-em za nią."""
+    sel = _selector()
+    direct, _ = sel.select(["backend/app/api/pre_contracts.py"])
+    for contract in sel._ROUTE_CONTRACTS:
+        assert (_REPO / "backend" / contract).is_file(), f"Kontrakt {contract} zniknął."
+        assert contract in direct
+    direct, indirect = sel.select(["frontend/src/components/EditOrderDialog.tsx"])
+    assert not set(sel._ROUTE_CONTRACTS) & (direct | indirect)
 
 
 def test_selector_budget_keeps_direct_and_drops_slowest_indirect() -> None:
@@ -302,12 +317,14 @@ def test_guards_mode_lists_exactly_the_repo_guards() -> None:
         check=True,
         stdin=subprocess.DEVNULL,
     ).stdout.split()
-    assert out == list(_selector()._ALWAYS)
+    sel = _selector()
+    assert out == list(sel._ALWAYS + sel._ROUTE_CONTRACTS)
 
 
 def test_repo_guards_need_no_database() -> None:
     """Strażnicy biegną też w ci-gate przed migracjami — bez fixture'ów bazy."""
-    for guard in _selector()._ALWAYS:
+    sel = _selector()
+    for guard in sel._ALWAYS + sel._ROUTE_CONTRACTS:
         source = (_REPO / "backend" / guard).read_text(encoding="utf-8")
         assert not re.search(
             r"def test_\w+\([^)]*\b(db|db_session|app_client)\b", source

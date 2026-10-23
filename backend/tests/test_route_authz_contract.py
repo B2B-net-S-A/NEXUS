@@ -73,6 +73,9 @@ _GATE_QUALNAME_MARKERS = (
     # „Ludzie w NEXUSIE” (16.10.2026): kartoteka, samoobsługa i przełączniki
     # modułów — fabryki w ``app/api/hr_gates.py``.
     "require_hr_",
+    # Umowy przedwstępne (22.10.2026): rola z ``PRE_CONTRACT_ROLES`` i sekcja
+    # „Rekrutacje” — Finanse, Rada i Automatyzacje z tytułu roli.
+    "require_pre_contract_access",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.

@@ -57,6 +57,7 @@ import {
 } from "@/lib/dashboard-tiles/layout"
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature"
 import { TO_COMPLETE_TILE_TYPE } from "@/lib/dashboard-to-complete"
+import { BoardTasksPanelProvider } from "./BoardTasksTile"
 import { useAuthStore } from "@/store/auth"
 import {
   canCustomizeBoardPanel,
@@ -74,6 +75,7 @@ import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
 
 const CONTACT_OVERSIGHT_HASH = "#nadzor-kontaktu"
+const BOARD_TASKS_TILE_TYPE = "board_tasks"
 const ANNOUNCED_DISMISS_KEY = "nexus:dashboardAnnouncedDismissed:v1"
 const ROLE_LAYOUT_ACK_KEY = "nexus:dashboardRoleLayoutAck:v1"
 
@@ -381,8 +383,21 @@ export function CustomDashboard() {
       const tile = tiles.find((t) => t.id === id)
       if (tile) setDialog({ mode: "edit", tile })
     },
-    onDuplicate: (id: string) => commit(duplicateTile(tiles, id), "Kafelek zduplikowany."),
-    onRemove: (id: string) => commit(removeTile(tiles, id), "Kafelek usunięty z pulpitu."),
+    onDuplicate: (id: string) => {
+      if (tiles.find((t) => t.id === id)?.type === BOARD_TASKS_TILE_TYPE) {
+        showError("„Czeka na Ciebie” stoi na pulpicie tylko raz.")
+        return
+      }
+      commit(duplicateTile(tiles, id), "Kafelek zduplikowany.")
+    },
+    onRemove: (id: string) => {
+      // Usunięty kafelek „Czeka na Ciebie” nie wraca jako pas nad siatką —
+      // panel znika z pulpitu, a przywraca go „Listy nad pulpitem” albo katalog.
+      if (tiles.find((t) => t.id === id)?.type === BOARD_TASKS_TILE_TYPE) {
+        togglePanel(BOARD_TASKS_TILE_TYPE, true)
+      }
+      commit(removeTile(tiles, id), "Kafelek usunięty z pulpitu.")
+    },
     // FE-N07: poza trybem edycji każda akcja zapisuje od razu — w trakcie
     // zapisu menu kafelka jest wyłączone.
     busy: busy && !editing,
@@ -449,6 +464,40 @@ export function CustomDashboard() {
     commit(prependTemplate(tiles, toCompleteTemplate), "Kafelek „Do uzupełnienia” stoi na górze pulpitu.")
   }
 
+  // „Czeka na Ciebie” jako kafelek (23.10.2026, Head of Recruitment i admin):
+  // kafelek na pulpicie = panel tylko w nim; bez kafelka panel stoi nad siatką,
+  // chyba że osoba usunęła go z pulpitu (`board_tasks` w ukrytych listach).
+  const boardTasksOnGrid =
+    TILE_DEFINITIONS.board_tasks.availability(user).ok &&
+    saved.some((t) => t.type === BOARD_TASKS_TILE_TYPE)
+  const boardTasksAbove = !boardTasksOnGrid && !hiddenPanels.has(BOARD_TASKS_TILE_TYPE)
+  const boardTasksTemplate = TILE_TEMPLATES.find((t) => t.type === BOARD_TASKS_TILE_TYPE)
+  const moveBoardTasks = () => {
+    if (!boardTasksTemplate) return
+    if (tiles.length >= MAX_TILES) {
+      showError(`Pulpit mieści najwyżej ${MAX_TILES} kafelków.`)
+      return
+    }
+    commit(prependTemplate(tiles, boardTasksTemplate), "„Czeka na Ciebie” stoi na górze pulpitu jako kafelek.")
+  }
+  const removeBoardTasks = () =>
+    setPanelHidden.mutate(
+      { panel: BOARD_TASKS_TILE_TYPE, hidden: true },
+      {
+        onSuccess: () => showSuccess("„Czeka na Ciebie” usunięty z pulpitu — wróci z „Listy nad pulpitem”."),
+        onError: (error) =>
+          showError(apiErrorMessage(error, "Nie udało się zapisać list nad pulpitem.")),
+      },
+    )
+  const boardTasksProps = {
+    hiddenPanels,
+    dlSendBand,
+    toCompleteOnGrid,
+    onMoveToComplete: offerToComplete ? moveToComplete : undefined,
+    onKeepToComplete: () => dismissAnnounced(TO_COMPLETE_TILE_TYPE),
+    moveBusy: busy,
+  }
+
   return (
     // Powłoka (`<main>`) daje już `p-4 md:p-6` — bez drugiego marginesu.
     <div className="flex flex-col gap-5">
@@ -505,14 +554,11 @@ export function CustomDashboard() {
       {editing ? null : <DlSendQueueBand hiddenPanels={hiddenPanels} />}
       {/* Panel czeka na układ pulpitu: inaczej listy „Do uzupełnienia” mignęłyby
           w nim, zanim okaże się, że stoją w kafelku. */}
-      {editing || query.isPending ? null : (
+      {editing || query.isPending || !boardTasksAbove ? null : (
         <BoardTasksPanel
-          hiddenPanels={hiddenPanels}
-          dlSendBand={dlSendBand}
-          toCompleteOnGrid={toCompleteOnGrid}
-          onMoveToComplete={offerToComplete ? moveToComplete : undefined}
-          onKeepToComplete={() => dismissAnnounced(TO_COMPLETE_TILE_TYPE)}
-          moveBusy={busy}
+          {...boardTasksProps}
+          onMoveToGrid={canCustomizePanels && boardTasksTemplate ? moveBoardTasks : undefined}
+          onRemovePanel={canCustomizePanels ? removeBoardTasks : undefined}
         />
       )}
 
@@ -675,17 +721,19 @@ export function CustomDashboard() {
           disabled={save.isPending}
         />
       ) : (
-        <DashboardGrid
-          tiles={tiles}
-          editing={editing}
-          actions={actions}
-          onModeChange={setGridMode}
-          onLayoutChange={(next) => {
-            if (next === draft) return
-            setHistory((h) => [...h.slice(-UNDO_LIMIT + 1), draft])
-            setDraft(next)
-          }}
-        />
+        <BoardTasksPanelProvider value={boardTasksProps}>
+          <DashboardGrid
+            tiles={tiles}
+            editing={editing}
+            actions={actions}
+            onModeChange={setGridMode}
+            onLayoutChange={(next) => {
+              if (next === draft) return
+              setHistory((h) => [...h.slice(-UNDO_LIMIT + 1), draft])
+              setDraft(next)
+            }}
+          />
+        </BoardTasksPanelProvider>
       )}
 
       <TileCatalogSheet

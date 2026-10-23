@@ -573,6 +573,8 @@ Kod: `models/pre_contract.py`, `services/pre_contracts.py`, `api/pre_contracts.p
   (typ `pre_contract`, kategoria „Wzmianki” — imienne zadanie, nie do wyciszenia; ikona
   „Rekrutacje” z dymkiem), bez autora kroku. Encją dzwonka jest zdarzenie
   (`pre_contract_events`), więc dwa kroki jednego dnia dają dwa dzwonki.
+  Treść zaczyna się od „{kandydat} — {rekrutacja}: ” (dzwonek idzie też
+  mailem, a odbiorca prowadzi kilka próśb naraz).
   Druga prośba o tę samą osobę dopisuje proszącego do obserwujących — nie
   tworzy drugiej umowy (indeks `uq_pre_contract_open_per_pair`).
 - **Każda forma podpisu** (profil zaufany, podpis osobisty, kwalifikowany,
@@ -590,23 +592,60 @@ prośba nie zmienia — „Oznacz jako podpisany” ma tam własne bramki. Zamkn
 ważności), `cancelled` (z powodem), `withdrawn` (proszący albo HoR, tylko
 przed wysłaniem), `candidate_refused`, `candidate_withdrew`.
 
+- **Umowę podpina się tylko przed wysłaniem** (`/document` po wysyłce albo
+  podpisie = 409), a „Wysłana” po podpisie kandydata = 409, powtórna = bez
+  zmiany daty — ekran otwarty wcześniej nie podmieni dokumentu i daty
+  ważności, które są dowodem do decyzji o karze (audyt 22.10.2026).
+
 - **Rezygnacja kandydata** (`candidate-withdrew`) tylko przy umowie
   podpisanej obustronnie: zapisuje rodzaj, datę, opis i stan umowy w chwili
   zdarzenia; nic nie nalicza. **O karze decyduje wyłącznie Head of
   Recruitment albo admin** — wskazana osoba dostaje tylko dzwonek (zakładka
-  „Do decyzji o karze”).
+  „Do decyzji o karze”). Dzwonek o rezygnacji dostaje też każdy aktywny
+  Head of Recruitment, nawet gdy nie obserwuje prośby.
+- **Termin umowy B2B** (`b2b_deadline`, wzór CeZ: 5 dni roboczych) liczy się
+  od wpisanej daty akceptacji klienta, także wstecznej, a nie od chwili
+  zaznaczenia akceptacji w NEXUSIE (22.10.2026, decyzja Artura, audyt F55).
+  Od dziś tylko wtedy, gdy firma podpisała przedwstępną dopiero po
+  akceptacji klienta — termin nie zaczyna się przed istnieniem umowy
+  (`start_b2b_deadline(..., from_today=True)` w `company-signed`).
 - **Pliki** leżą w `/pre_contracts/{id}/` i mają PESEL. Każda trasa idzie
   przez `ensure_job_membership` (NIE `ensure_job_read_access`, który
   przepuszcza Finanse do każdej rekrutacji). Po podpisie firmy plików nie da
   się podmienić, a poprzednie wersje nie są kasowane (dowód do decyzji o karze).
+- **Kto pracuje na przedwstępnych** (22.10.2026, decyzja Artura, audyt F54):
+  osoby z rekrutacji (admin, Head of Recruitment, Delivery Lead, TCM,
+  rekruter — z sekcją „Rekrutacje”: odczyt na odczyt, zapis na krok) oraz
+  **Finanse, Rada nadzorcza i Automatyzacje — pełny dostęp jak rekruter:
+  odczyt, pliki z PESEL i akcje**, z tytułu roli, bez sekcji „Rekrutacje”
+  (Rada jej nie ma, Automatyzacje mają ją tylko do odczytu). Wcześniej front
+  pokazywał im wejścia (przycisk na /jobs, paleta, kafelek pulpitu, sekcja
+  w zakładce „Umowa”), a API odpowiadało 403 — „Nie udało się sprawdzić…
+  Ponów” bez końca. Jedna lista ról: `PRE_CONTRACT_ROLES` i bramka
+  `require_pre_contract_access` (`api/pre_contracts.py`), lustro na froncie
+  capability `pre_contract.work` (`lib/capabilities.ts`) — każde wejście
+  pyta o nią, więc Viewer, Praktykant i Pracownik nie widzą wejść, które
+  skończyłyby się błędem. Rada nie ma członkostwa w rekrutacjach, więc
+  `_ensure_pair_access` sprawdza jej tylko istnienie rekrutacji. Lista
+  „Umowy przedwstępne” pokazuje tym rolom **wszystkie prośby, jak Head of
+  Recruitment** (23.10.2026, decyzja Artura; `_lists_every_request`).
+  Wycofanie cudzej prośby i decyzja o karze zostają przy Head of Recruitment
+  i adminie (`_sees_all`) — nie dopisuj tam tych ról. Wzorzec bramek: `tests/data/authz_golden/pre_contracts.json`
+  (kolumny `automation` i `board` = P), wyjątki nazwane w
+  `test_automation_role_access.py` i `test_board_role_access.py`.
 - **Sweeper** (co godzinę, najwyżej jedno przypomnienie dziennie): wygasa
-  umowy po dacie ważności, ostrzega 3 dni przed końcem, przypomina
+  umowy po dacie ważności, ostrzega 3 dni przed końcem (raz na okno — liczy
+  zdarzenie `expiring`, nie `last_reminder_at`; osobie odrzuconej albo
+  zatrudnionej każe zamknąć prośbę), przypomina
   wystawiającemu po 3 dniach ciszy kandydata, ostrzega dzień roboczy przed
   terminem umowy B2B (`b2b_deadline`).
 
 ### Plakietka (`services/pre_contracts.badge`)
 
 Jedna reguła dla karty Tablicy, listy i panelu osoby; front tylko ją pokazuje.
+„Przed umową B2B” liczy się od „Zatrudniony” — umowę B2B zawiera się
+w „Akceptacja i umowa”, do której karta trafia już przy akceptacji klienta.
+Dni oczekiwania liczy kalendarz firmy (Europe/Warsaw), nie data UTC.
 Tony: `missing` (prośba / wystawiona, przed etapem), `late` (po etapie,
 wygasa ≤ 7 dni, termin B2B), `wait` (wysłana — liczy dni), `signer`
 (czeka podpis firmy), `ok` (podpisana, „do DD.MM”), `closed`.

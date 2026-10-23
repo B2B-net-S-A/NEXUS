@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { BOARD_HOME, isBoardAllowedPath } from "@/lib/board-access";
-import { visibleNavEntries } from "@/lib/nav-registry";
+import { visibleNavEntries, visibleNavSections } from "@/lib/nav-registry";
 import { isBoardOnly, postLoginDestination } from "@/store/auth";
 
 const board = {
@@ -16,11 +16,18 @@ const board = {
 };
 
 describe("menu Rady nadzorczej", () => {
-  it("ma tylko Insights, Pomoc i Ustawienia konta", () => {
+  it("menu boczne ma tylko Insights, Pomoc i Ustawienia konta", () => {
+    const ids = visibleNavSections(board, { contactQueueEnabled: true }).flatMap(
+      (section) => section.items.map((entry) => entry.id),
+    );
+    expect(ids).toEqual(["insights", "help", "settings"]);
+  });
+
+  it("paleta dokłada listę umów przedwstępnych (decyzja Artura 23.10.2026)", () => {
     const ids = visibleNavEntries(board, { contactQueueEnabled: true }).map(
       (entry) => entry.id,
     );
-    expect(ids).toEqual(["insights", "help", "settings"]);
+    expect([...ids].sort()).toEqual(["help", "insights", "pre-contracts", "settings"]);
   });
 
   it("kartoteka w „Ludziach” nie dokłada „Mój czas” ani „Ludzi”", () => {
@@ -28,7 +35,8 @@ describe("menu Rady nadzorczej", () => {
     const ids = visibleNavEntries(board, { contactQueueEnabled: true, hr }).map(
       (entry) => entry.id,
     );
-    expect(ids).toEqual(["insights", "help", "settings"]);
+    expect(ids).not.toContain("my-time");
+    expect(ids).not.toContain("people");
   });
 });
 
@@ -54,12 +62,29 @@ describe("lądowanie Rady nadzorczej", () => {
 });
 
 describe("trasy Rady nadzorczej", () => {
-  it.each(["/insights", "/insights/x", "/profile", "/settings", "/help", "/help/a"])(
+  it.each([
+    "/insights",
+    "/insights/x",
+    "/profile",
+    "/settings",
+    "/help",
+    "/help/a",
+    "/jobs/umowy-przedwstepne",
+  ])(
     "%s jest dozwolone",
     (path) => expect(isBoardAllowedPath(path)).toBe(true),
   );
 
-  it.each(["/", "/dashboard", "/settings/api-keys", "/jobs", "/insightsx", "/my-time"])(
+  it.each([
+    "/",
+    "/dashboard",
+    "/settings/api-keys",
+    "/jobs",
+    "/jobs/12",
+    "/jobs/umowy-przedwstepne/12",
+    "/insightsx",
+    "/my-time",
+  ])(
     "%s nie jest dozwolone",
     (path) => expect(isBoardAllowedPath(path)).toBe(false),
   );

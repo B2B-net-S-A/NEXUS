@@ -125,6 +125,12 @@ roli nie da się przyciąć. Powstała osobna rola `automation`, na ekranie
   automatyzacje kluczami API — ze śladem „Integracja: <nazwa>”. Jak stary
   Viewer zostawia tylko własne ślady: przebiegi wyszukiwania, rozmowy
   z Jarvisem, ustawienia pulpitu i powiadomień.
+- **Wyjątek: umowy przedwstępne** (22.10.2026, decyzja Artura, audyt F54) —
+  pełny dostęp jak rekruter: odczyt, pliki i akcje, także zapis, z tytułu roli
+  (`PRE_CONTRACT_ROLES` w `api/pre_contracts.py`). W panelu osoby sekcja
+  „Umowa przedwstępna” ma dla tej roli przyciski mimo podglądu Tablicy
+  (`pre_contract.work`); `test_automation_role_access.py` nazywa ten moduł
+  wyjątkiem od „nie zapisuje”.
 - **Rekrutacje bez członkostwa w zespole** (`_JOB_MEMBERSHIP_BYPASS_ROLES`),
   jak reszta firmy. Poczty M365 nie synchronizuje (`eligible_m365_owner`),
   także konto przerobione z rekrutera.

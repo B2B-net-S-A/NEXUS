@@ -287,6 +287,29 @@ async def test_unknown_panel_is_rejected_and_each_person_hides_their_own(app_cli
 
 @needs_db
 @pytest.mark.asyncio
+async def test_whole_board_panel_and_its_tile_are_for_head_and_admin(app_client):
+    """„Czeka na Ciebie” jako kafelek (23.10.2026): cały panel (`board_tasks`)
+    chowa tylko Head of Recruitment i admin, a kafelek zapisuje się jak inne."""
+    url = f"{URL}/panels/board_tasks"
+    recruiter, _ = await _login()
+    denied = await app_client.put(url, headers=recruiter, json={"hidden": True})
+    assert denied.status_code == 403
+
+    leader, _ = await _login("head_of_recruitment")
+    hide = await app_client.put(url, headers=leader, json={"hidden": True})
+    assert hide.status_code == 200, hide.text
+    assert hide.json()["hidden_panels"] == ["board_tasks"]
+    tile = _tile(type="board_tasks", w=12, h=6, config={})
+    saved = await app_client.put(
+        URL, headers=leader, json={"tiles": [tile], "expected_version": 0}
+    )
+    assert saved.status_code == 200, saved.text
+    assert [t["type"] for t in saved.json()["tiles"]] == ["board_tasks"]
+    assert saved.json()["hidden_panels"] == ["board_tasks"]
+
+
+@needs_db
+@pytest.mark.asyncio
 async def test_only_head_of_recruitment_hides_task_lists(app_client):
     """Listy „Czeka na Ciebie” poza „CV w drodze” usuwa wyłącznie Head of
     Recruitment i admin (06.10.2026); przywrócić może każdy."""

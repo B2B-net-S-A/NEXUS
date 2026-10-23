@@ -33,6 +33,8 @@ import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
 import { PersonPanelSideSection } from "@/components/v2/person/PersonPanelSide";
 import { PersonSidePreview } from "@/components/v2/person/PersonSidePreview";
 import { useCapability } from "@/hooks/useCapability";
+import { preContractReadOnly } from "@/lib/api/preContracts";
+import { useAuthStore } from "@/store/auth";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -406,6 +408,10 @@ export function PersonWorkbenchTabs({
   const jobLabel = ctx.jobTitle?.trim() || `Rekrutacja #${jobId}`;
   // „Wgraj CV” w podglądzie po lewej — ta sama bramka co kafelek w doku.
   const canManageDocuments = useCapability("candidate.document.manage");
+  // Przedwstępna: bramka API (`pre_contract.work`), nie sekcja — Viewer jej nie
+  // otworzy, a Finanse, Rada i Automatyzacje prowadzą ją jak rekruter (22.10.2026).
+  const canWorkPreContracts = useCapability("pre_contract.work");
+  const authUser = useAuthStore((s) => s.user);
   const cvUpload = !readOnly && canManageDocuments ? { candidateName: row.fullName, jobTitle: jobLabel } : undefined;
 
   const renderSection = (value: PersonPanelSection): ReactNode => {
@@ -509,12 +515,14 @@ export function PersonWorkbenchTabs({
                 i ten sam wiersz rejestru co w Generatorze. */}
             {/* 0506 (21.10.2026): umowa przedwstępna — prośba DL / HoR /
                 rekrutera, kroki podpisu i ważność przy tej osobie. */}
-            <PreContractSection
-              candidateId={candidateId}
-              jobId={jobId}
-              personLabel={[[row.item.name, row.item.lastname].filter(Boolean).join(" "), jobLabel].filter(Boolean).join(" · ")}
-              readOnly={readOnly}
-            />
+            {canWorkPreContracts ? (
+              <PreContractSection
+                candidateId={candidateId}
+                jobId={jobId}
+                personLabel={[[row.item.name, row.item.lastname].filter(Boolean).join(" "), jobLabel].filter(Boolean).join(" · ")}
+                readOnly={preContractReadOnly(authUser, readOnly)}
+              />
+            ) : null}
             <AgreementPanelTab
               candidateId={candidateId}
               jobId={jobId}

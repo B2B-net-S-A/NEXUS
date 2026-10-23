@@ -12,6 +12,23 @@
 import { useQuery, type QueryClient } from "@tanstack/react-query";
 
 import api from "@/lib/api";
+import { getUserRoles, type UserRole } from "@/store/auth";
+
+/** Role z przedwstępnymi z tytułu roli, bez zapisu w sekcji „Rekrutacje” —
+ *  lustro `_ROLE_GRANTED` (backend/app/api/pre_contracts.py, decyzja Artura
+ *  22.10.2026). Automatyzacje mają Tablicę tylko do odczytu, a kroki umowy
+ *  prowadzą jak rekruter. */
+const PRE_CONTRACT_ROLE_GRANTED: readonly UserRole[] = ["finance", "automation", "board"];
+
+/** Czy sekcja przedwstępnej jest tylko do odczytu: panel osoby bez zapisu,
+ *  chyba że konto ma przedwstępne z tytułu roli. */
+export function preContractReadOnly(
+  user: Parameters<typeof getUserRoles>[0],
+  panelReadOnly: boolean,
+): boolean {
+  if (!panelReadOnly || !user) return panelReadOnly;
+  return !getUserRoles(user).some((role) => PRE_CONTRACT_ROLE_GRANTED.includes(role));
+}
 
 export type PreContractNeededBefore =
   "cv_sent" | "client_interview" | "b2b_contract" | "date";

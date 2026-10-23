@@ -332,6 +332,16 @@ const EXPECTED: Record<
     recruiter: false,
     user: false,
   },
+  // /api/pre-contracts → `PRE_CONTRACT_ROLES` (backend/app/api/pre_contracts.py):
+  // osoby z rekrutacji oraz Finanse, Rada nadzorcza i Automatyzacje (decyzja
+  // Artura 22.10.2026, audyt F54). Viewer nie — jego wejścia kończyły się 403.
+  "pre_contract.work": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    recruiter: true,
+    user: false,
+  },
   // „Telefony na dziś” — wyłącznie praktykant (0374), nawet admin nie.
   "nav.trainee": {
     admin: false,
@@ -350,6 +360,12 @@ const EXPECTED: Record<
   },
 };
 
+/** Rada nadzorcza (0490) ma jedną capability: umowy przedwstępne jak rekruter
+ *  (decyzja Artura 22.10.2026) — Insights otwiera sekcja, nie capability. */
+function boardExpected(capability: Capability): boolean {
+  return capability === "pre_contract.work";
+}
+
 /** Praktykant (0374) ma jedną capability: własną listę telefonów. */
 function traineeExpected(capability: Capability): boolean {
   return capability === "nav.trainee";
@@ -364,6 +380,8 @@ const AUTOMATION_CAPABILITIES: ReadonlySet<Capability> = new Set([
   // Imienne statystyki rekrutacji i „Moi ludzie” czyta każdy, kto czyta
   // kandydatów (`OperationalUser`, `CandidateSearchAccess`).
   "dashboard.recruitment_stats.view",
+  // Umowy przedwstępne jak rekruter — z akcjami (decyzja Artura 22.10.2026).
+  "pre_contract.work",
   "nav.my_people",
   "nav.candidates",
   "nav.talents",
@@ -418,6 +436,7 @@ function talentCommunityManagerExpected(capability: Capability): boolean {
     "candidate.profile_fact.manage",
     "candidate.requirement.verify",
     "dashboard.recruitment_stats.view",
+    "pre_contract.work",
     "nav.candidates",
     "nav.my_people",
     "nav.talents",
@@ -516,9 +535,11 @@ describe("hasCapability — pełna macierz rola × capability", () => {
               ? traineeExpected(capability)
               : role === "automation"
                 ? automationExpected(capability)
-                : role === "employee" || role === "board"
+                : role === "employee"
                   ? false
-                  : EXPECTED[capability][role];
+                  : role === "board"
+                    ? boardExpected(capability)
+                    : EXPECTED[capability][role];
       it(`${role} ${expected ? "MA" : "NIE ma"} ${capability}`, () => {
         expect(hasCapability(mkUser(role), capability)).toBe(expected);
       });
@@ -578,11 +599,14 @@ describe("hasCapability — przypadki brzegowe", () => {
     }
   });
 
-  it("„Rada nadzorcza” (0490) nie ma ŻADNEJ capability — tylko Insights z sekcji", () => {
-    // Rada nie zakłada ani nie zmienia niczego; Talent Radar pokazuje
-    // kandydatów (RODO), a Insights otwiera sekcja, nie capability.
+  it("„Rada nadzorcza” (0490) ma tylko umowy przedwstępne — Insights z sekcji", () => {
+    // Rada nie zakłada rekrutacji ani kontraktów; Talent Radar pokazuje
+    // kandydatów (RODO), a Insights otwiera sekcja, nie capability. Wyjątek:
+    // umowy przedwstępne jak rekruter (decyzja Artura 22.10.2026).
     for (const capability of ALL_CAPABILITIES) {
-      expect(hasCapability(mkUser("board"), capability)).toBe(false);
+      expect(hasCapability(mkUser("board"), capability)).toBe(
+        capability === "pre_contract.work",
+      );
     }
   });
 
@@ -1048,6 +1072,7 @@ const BACKEND_FILES = {
   candidateAccess: "backend/app/api/candidate_access.py",
   recruitmentAccess: "backend/app/api/recruitment_access.py",
   clientAccess: "backend/app/services/client_access.py",
+  preContracts: "backend/app/api/pre_contracts.py",
   permissionCatalog: "backend/app/services/permission_catalog.py",
 } as const;
 
@@ -1338,6 +1363,8 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   },
   "client.portfolio.manage": { guards: [["deps", "AdminUser"]] },
   "dashboard.recruitment_stats.view": { guards: [["deps", "OperationalUser"]] },
+  // Wszystkie trasy /api/pre-contracts (`require_pre_contract_access`).
+  "pre_contract.work": { guards: [["preContracts", "PRE_CONTRACT_ROLES"]] },
   "nav.candidates": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
   "nav.my_people": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
   "nav.talents": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
