@@ -48,6 +48,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FormField, TextareaField } from "@/components/v2/forms";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { answerOriginBadge } from "@/lib/recommendation-card";
+import { SCREENING_ANSWER_PLACEHOLDER, screeningAnswerHint } from "@/lib/screening-answer-hint";
 import { cn } from "@/lib/utils";
 
 import { type PhraseController, PhraseButton, PhraseProposal } from "./PhraseSuggestion";
@@ -475,6 +476,7 @@ export function ScreeningFormFields({
         const answered = Boolean(
           (methods.watch(`answers.${q.id}.response`) ?? "").trim(),
         );
+        const answerHint = screeningAnswerHint(methods.watch(`answers.${q.id}.response`));
         const dealBreakerHit = Boolean(methods.watch(dealBreakerName));
         const skipped = Boolean(methods.watch("skip_missing")) && !answered;
         const skipReason = methods.watch("skip_reason");
@@ -561,11 +563,17 @@ export function ScreeningFormFields({
                 rows={3}
                 placeholder={
                   phrase
-                    ? "Jak odpowiedział kandydat? Możesz wpisać hasła i ułożyć z nich zdanie."
-                    : "Jak odpowiedział kandydat?"
+                    ? `${SCREENING_ANSWER_PLACEHOLDER} Możesz wpisać hasła i ułożyć z nich zdanie.`
+                    : SCREENING_ANSWER_PLACEHOLDER
                 }
               />
             </FormField>
+            {answerHint ? (
+              <p className="flex items-start gap-1.5 text-xs text-warning-muted-foreground">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span>{answerHint}</span>
+              </p>
+            ) : null}
             {phrase && !suggestion ? (
               <PhraseButton
                 disabled={!answered}

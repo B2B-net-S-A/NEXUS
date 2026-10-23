@@ -560,12 +560,67 @@ def _format_candidate_answers(screening_answers: Any, screening_questions: Any) 
         if not isinstance(a, dict):
             continue
         response = strip_rates_and_availability(str(a.get("response") or ""))
-        if not response:
+        if not response or _PLACEHOLDER_ANSWER_RE.fullmatch(response):
             continue
         qid = str(a.get("question_id") or "").strip()
-        question = saved_questions.get(qid) or q_by_id.get(qid, "")
+        question = strip_rates_and_availability(
+            saved_questions.get(qid) or q_by_id.get(qid, "")
+        )
+        if question and _confirms_question(response, question):
+            response = f"{response} (potwierdza pytanie: {question})"
         lines.append(f"P: {question}\nO: {response}" if question else f"O: {response}")
     return "\n\n".join(lines)
+
+
+# Odpowiedź-zaślepka („x”, „-”, „?”) nie jest odpowiedzią (23.10.2026: „x” na
+# pytanie Championa szło do modelu jako fakt o kandydacie).
+_PLACEHOLDER_ANSWER_RE = re.compile(r"[\W_]*(?:x+|n/?a|b/?d)?[\W_]*", re.IGNORECASE)
+_YES_WORDS = frozenset(
+    "tak owszem zgadza potwierdza potwierdzam oczywiście najbardziej yes yep sure "
+    "definitely".split()
+)
+# Samo potwierdzenie: same te słowa, w tym co najmniej jedno z _YES_WORDS
+# albo „ma / posiada / zna … doświadczenie”.
+_BARE_YES_WORDS = _YES_WORDS | frozenset(
+    "się jak kandydat kandydatka ma mam posiada posiadam zna znam doświadczenie "
+    "pracował pracowała pracowałem pracowałam robił robiła robiłem robiłam to "
+    "i he she have has do does did experience".split()
+)
+_REFERS_TO_QUESTION_RE = re.compile(
+    r"\b(?:takie|tego\s+typu|tego\s+rodzaju)\s+doświadczeni"
+    r"|\bw\s+tym\s+(?:zakresie|obszarze|temacie)\b"
+    r"|\b(?:such|this|that|similar)\s+experience\b",
+    re.IGNORECASE,
+)
+_RESERVATION_RE = re.compile(
+    r"\b(?:nie|brak|bez|ale|tylko|jedynie|teoretycz\w*|not|no|without|but|only)\b",
+    re.IGNORECASE,
+)
+_ALTERNATIVE_RE = re.compile(r"\b(?:albo|lub|bądź|or)\b", re.IGNORECASE)
+
+
+def _confirms_question(response: str, question: str) -> bool:
+    """Odpowiedź znaczy tyle, co pytanie: samo „Tak” albo „Posiadam takie
+    doświadczenie”.
+
+    Strażnik terminów i kontrola AI czytają odpowiedzi bez linii „P:”
+    (pytanie ≠ fakt, 13.10.2026), więc taka odpowiedź traciła treść, a rzecz
+    z pytania znikała z CV (23.10.2026, „Network SME”). Nie dotyczy odpowiedzi
+    z zastrzeżeniem („tylko teoretycznie”) i pytań z alternatywą („Kafka albo
+    RabbitMQ”) — nie wiadomo wtedy, co kandydat potwierdził. Odpowiedź, która
+    sama nazywa rzeczy („Tak, Grafana”), zostaje bez dopisku, żeby pytanie
+    nie dokładało tego, czego kandydat nie wymienił.
+    """
+    if _RESERVATION_RE.search(response) or _ALTERNATIVE_RE.search(question):
+        return False
+    if _REFERS_TO_QUESTION_RE.search(response):
+        return True
+    words = set(re.findall(r"\w+", response.lower()))
+    return (
+        bool(words)
+        and words <= _BARE_YES_WORDS
+        and bool(words & (_YES_WORDS | {"doświadczenie", "experience"}))
+    )
 
 
 # CV documents the pipeline can actually read. ``.doc`` (Word 97-2003) is
