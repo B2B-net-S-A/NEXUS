@@ -557,3 +557,17 @@ Makiety i decyzje Artura: https://claude.ai/artifact/H4QgdE9ou92M1dtr9QrygF
   (tylko okno miesiąca — cel jest miesięczny) i „W drodze dziś” (pierwszy
   weryfikujący, ta sama liczba co „Moje osoby w drodze”). Długi przypis pod
   tabelą zwinięty w „Jak liczymy tabelę?”.
+- **Firma v3** („Jak idzie firma?”): zdanie podsumowania (`lib/insights-firma.ts`),
+  kafle kwot bez zmian, „Ruch konsultantów w okresie” z
+  `/api/insights/board/flows` (`BoardReader`, jak kokpit): przyszli /
+  odeszli (w tym rezygnacje) / netto z `integration_insights.contract_flows`
+  (te same funkcje co rok do roku i API integracyjne) i kontrakty kończące
+  się w 30 dni bez kontynuacji (`order_continuation.ending_without_successor`,
+  reguła pigułki „Kończące się 30d”); lejek z „stoi dziś” (ten sam komponent
+  co Zespół); prognoza „z akceptacjami” tylko dla okresu, który trwa;
+  zwinięta lista akceptacji (bez kandydatów); „Skuteczność i popyt” (hit
+  ratio, otwarte i nowe rekrutacje). Akapit o ewidencji kontraktów przeniesiony
+  do „Jak liczymy widok Firma?”.
+- **Rada nadzorcza: zakładki Firma · Zespół · Raporty · Rywalizacja**
+  (`getVisibleInsightTabIds`), adres bez widoku ląduje na pierwszym widoku
+  osoby — u Rady na Firmie (decyzja Artura 22.10.2026).

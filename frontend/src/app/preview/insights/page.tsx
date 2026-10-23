@@ -471,6 +471,23 @@ function seeded(): QueryClient {
   });
 
   // Firma (liczby fikcyjne).
+  // Firma v3 (22.10.2026): ruch konsultantów, lejek kwartału.
+  qc.setQueryData(insightsQueryKeys.boardFlows(FIRMA_DEFAULT_PERIOD), {
+    period: monthFunnel.period,
+    window: { from: "2026-10-01", to: "2026-10-22" },
+    previous_window: { from: "2026-07-01", to: "2026-07-22" },
+    consultants: { starts: 22, ends: 9, resignations: 4, net: 13 },
+    previous_consultants: { starts: 17, ends: 9, resignations: 3, net: 8 },
+    ending_without_continuation: { days: 30, contracts: 7 },
+    jobs: { open: 84, open_clients: 31, new: 41, previous_new: 35 },
+  });
+  qc.setQueryData(
+    ["insights", "recruitment", "funnel", FIRMA_DEFAULT_PERIOD],
+    funnel(
+      { verified: 486, cv_sent: 171, client_interview: 72, acceptance: 27, hired: 22 },
+      { acceptance: "2026-10-12" },
+    ),
+  );
   qc.setQueryData(insightsQueryKeys.board(FIRMA_DEFAULT_PERIOD), {
     period: { kind: "quarter", start: "2026-07-01T00:00:00+02:00", end: "2026-10-01T00:00:00+02:00", timezone: "Europe/Warsaw" },
     kpis: {
