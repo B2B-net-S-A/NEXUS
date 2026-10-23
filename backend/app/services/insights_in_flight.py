@@ -167,7 +167,16 @@ async def _pairs_now(db: AsyncSession, params: dict[str, Any]) -> list[dict[str,
                        j.title AS job_title, j.client_id,
                        cl.name AS client_name,
                        dl.name AS delivery_lead_name,
-                       concat_ws(' ', cand.name, cand.lastname) AS candidate_name
+                       concat_ws(' ', cand.name, cand.lastname) AS candidate_name,
+                       (
+                         SELECT v.moved_by FROM candidate_stages v
+                         WHERE v.candidate_id = l.candidate_id
+                           AND v.job_id = l.job_id
+                           AND v.stage::text = 'verified'
+                           AND v.moved_by IS NOT NULL
+                         ORDER BY v.moved_at, v.id
+                         LIMIT 1
+                       ) AS verifier_id
                 FROM latest l
                 JOIN entered e
                   ON e.candidate_id = l.candidate_id AND e.job_id = l.job_id
@@ -259,6 +268,34 @@ async def _resolved_acceptances(
 
 
 OWNER_KINDS = ("verifier", "delivery_lead")
+
+
+async def in_flight_by_verifier(
+    db: AsyncSession, *, job_ids: Optional[Sequence[int]] = None
+) -> dict[int, int]:
+    """Ile par w drodze ma dziś każda osoba (pierwszy weryfikujący pary).
+
+    Ta sama zasługa co „Moje osoby w drodze” — kolumna „W drodze” tabeli
+    Ludzie w widoku Zespół zgadza się z liczbą, którą osoba widzi u siebie.
+    """
+
+    def_ids, def_keys = await _load_def_map(db)
+    pairs = await _pairs_now(
+        db,
+        {
+            "def_ids": def_ids,
+            "def_keys": def_keys,
+            "job_ids": list(job_ids) if job_ids is not None else None,
+            "owner_kind": None,
+            "owner_id": None,
+        },
+    )
+    counts: dict[int, int] = {}
+    for pair in pairs:
+        if pair["verifier_id"] is not None:
+            uid = int(pair["verifier_id"])
+            counts[uid] = counts.get(uid, 0) + 1
+    return counts
 
 
 async def compute_in_flight(

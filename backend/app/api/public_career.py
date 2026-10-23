@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.core.scheduling import business_date
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
 from app.models.job_public_profile import JobPublicProfile
@@ -131,6 +132,14 @@ async def _bump_visits(
     await db.commit()
 
 
+def _published_on(approved_at: Optional[datetime]) -> Optional[str]:
+    """Dzień zatwierdzenia w kalendarzu firmy (Europe/Warsaw), nie data UTC —
+    zatwierdzenie o 00:30 czasu polskiego to już nowy dzień."""
+    if approved_at is None:
+        return None
+    return business_date(approved_at).isoformat()
+
+
 def _no_cache(response: Response) -> None:
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -200,9 +209,7 @@ async def get_career_job(
     await _bump_visits(db, link, request)
     # Data zatwierdzenia opisu, bez godziny: „datePosted” danych JobPosting
     # (etap 6 linków, decyzja D3 Artura 20.10.2026 — oferty widoczne w Google).
-    published_at = (
-        profile.approved_at.date().isoformat() if profile.approved_at else None
-    )
+    published_at = _published_on(profile.approved_at)
     from app.services import career_board
 
     return {

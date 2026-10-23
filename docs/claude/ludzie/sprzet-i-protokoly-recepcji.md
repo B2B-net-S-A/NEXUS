@@ -189,6 +189,9 @@ logika modułu bez zmian).
   — bez listy sprzętu i kwot, link do „Mój czas → Kartoteka”. Konsultant, osoba
   spoza NEXUSA i uczestnik Akademii nie mają konta: trasa oddaje adres, recepcja
   wysyła wiadomość ze swojej poczty (jak link do podpisu); brak adresu = 409.
+  Konto wyłączone (odejście) = 409 „przypomnij telefonicznie”, bez wpisu
+  „przypomniano”; dzwonek, który nie wyszedł (wyciszone „Czas i ludzie” albo
+  przypomnienie już dziś), daje kanał `mail` z adresem konta (audyt 22.10.2026).
   Każde przypomnienie zostaje w `details` zadania (`reminded_on`, `reminders`),
   wiersz pokazuje „przypomniano dd.mm”. Na wierzchu tylko przy zwrocie po
   terminie, w terminie — w ⋯.

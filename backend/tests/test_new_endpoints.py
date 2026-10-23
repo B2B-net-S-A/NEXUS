@@ -77,9 +77,11 @@ async def test_scoring_weights_rejects_sum_not_100(
 async def test_scoring_weights_create_list_delete(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    # Create
+    # Create — profil osoby: ogólny tylko przez panel (audyt 22.10, F60).
+    me = await app_client.get("/api/auth/me", headers=app_auth_headers)
     payload = {
         "name": "Pytest Profile",
+        "user_id": me.json()["id"],
         "weights": {
             "semantic": 30,
             "skills": 40,
@@ -187,9 +189,12 @@ async def test_candidates_include_last_activity_adds_triage_fields(
             assert value is None or (isinstance(value, str) and len(value) > 0), (
                 f"{key} must be None or non-empty str, got {value!r}"
             )
-        # Preview length cap is 120 chars + optional ellipsis
+        # Limit podglądu: `_NOTE_PREVIEW_MAX_CHARS` (220 od podniesienia capu;
+        # wielokropek mieści się w limicie).
         if isinstance(it["last_note_preview"], str):
-            assert len(it["last_note_preview"]) <= 121
+            from app.api.candidates import _NOTE_PREVIEW_MAX_CHARS
+
+            assert len(it["last_note_preview"]) <= _NOTE_PREVIEW_MAX_CHARS
 
 
 @pytest.mark.asyncio

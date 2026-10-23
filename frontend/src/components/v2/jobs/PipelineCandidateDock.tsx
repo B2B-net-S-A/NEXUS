@@ -61,7 +61,7 @@ import {
 } from "lucide-react";
 
 import { PreContractRequestDialog } from "@/components/v2/person/pre-contract/PreContractDialogs";
-import { invalidatePreContract } from "@/lib/api/preContracts";
+import { invalidatePreContract, preContractReadOnly } from "@/lib/api/preContracts";
 import api, {
   candidatesApi,
   candidateStageCvApi,
@@ -963,11 +963,15 @@ export function PipelineCandidateDock({
   // „Czarna lista…” — ta sama bramka co zapis profilu (serwer: candidate write).
   const canWriteCandidate = useCapability("candidate.write");
   const canBlacklist = !readOnly && canWriteCandidate;
+  // „Umowa przedwstępna…” — bramka API przedwstępnych (`pre_contract.work`);
+  // Automatyzacje prowadzą ją mimo podglądu Tablicy (decyzja 22.10.2026).
+  const canWorkPreContracts = useCapability("pre_contract.work");
+  const dockUser = useAuthStore((st) => st.user);
+  const canRequestPreContract = canWorkPreContracts && !preContractReadOnly(dockUser, readOnly);
   // Match (22.10.2026): osoba po akceptacji DL-a — wysyłka do innych rekrutacji
   // z portfela; prawo to samo co wysyłka CV do klienta.
-  const viewer = useAuthStore((st) => st.user);
   const canSendAlso =
-    !readOnly && hasPermission(viewer, "recruitment_manage") && SEND_ALSO_STAGES.has(item.stage ?? "");
+    !readOnly && hasPermission(dockUser, "recruitment_manage") && SEND_ALSO_STAGES.has(item.stage ?? "");
   const cvUpload = useStageCvUpload({ candidateId: item.candidate_id, stageId: item.id, jobId });
   // Nazwa kolejki strzałek za „‹ N z M ›”. Z menu „Kto dodał”, bo w widoku
   // „Rozwiń” Tablica (i przycisk w nagłówku) jest zasłonięta (14.10.2026).
@@ -1975,9 +1979,9 @@ export function PipelineCandidateDock({
                 onBlacklist={canBlacklist ? () => setOpenBlacklist(true) : undefined}
                 onSendAlso={canSendAlso ? () => setOpenSendAlso(true) : undefined}
                 onPreContract={
-                  readOnly
-                    ? undefined
-                    : () => (onOpenWorkbench ? onOpenWorkbench("contract") : setOpenPreContract(true))
+                  canRequestPreContract
+                    ? () => (onOpenWorkbench ? onOpenWorkbench("contract") : setOpenPreContract(true))
+                    : undefined
                 }
               />
             </div>

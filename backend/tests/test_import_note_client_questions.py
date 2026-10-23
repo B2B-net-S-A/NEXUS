@@ -356,3 +356,143 @@ async def test_apply_respects_skipped_notes():
         await db.commit()
     assert receipt["pairs"] == 0
     assert receipt["event_ids"] == []
+
+
+# ── Cofnięcie nie zabiera pracy ludzi po imporcie (audyt 22.10.2026, F115) ──
+
+
+class _Feedback:
+    def __init__(self, client_questions: str) -> None:
+        self.client_questions = client_questions
+        self.no_client_questions = False
+
+
+class _Setting:
+    def __init__(self, value: dict) -> None:
+        self.value = value
+
+
+class _FakeDb:
+    """Tylko ``db.get`` — przebieg bez nowych wierszy nie woła ``execute``."""
+
+    def __init__(self, setting: _Setting, feedbacks: dict[int, _Feedback]) -> None:
+        self.setting = setting
+        self.feedbacks = feedbacks
+
+    async def get(self, model, key):
+        if model is InterviewFeedback:
+            return self.feedbacks.get(key)
+        return self.setting
+
+
+async def test_rollback_restores_a_debrief_only_when_nobody_edited_it_since():
+    written = "Pytanie sprzed importu\nPytanie z notatki"
+    untouched = _Feedback(written)
+    edited = _Feedback(written + "\nPytanie dopisane przez rekrutera")
+    legacy = _Feedback(written)
+    run = {
+        "updated_feedbacks": [
+            {
+                "id": 1,
+                "client_questions": "Pytanie sprzed importu",
+                "no_client_questions": False,
+                "written_client_questions": written,
+            },
+            {
+                "id": 2,
+                "client_questions": "Pytanie sprzed importu",
+                "no_client_questions": False,
+                "written_client_questions": written,
+            },
+            # Paragon sprzed poprawki nie wie, co import wpisał — nie zgadujemy.
+            {"id": 3, "client_questions": None, "no_client_questions": True},
+        ]
+    }
+    db = _FakeDb(_Setting({"runs": [run]}), {1: untouched, 2: edited, 3: legacy})
+    counts = await imp.rollback(db)
+    assert untouched.client_questions == "Pytanie sprzed importu"
+    assert edited.client_questions.endswith("Pytanie dopisane przez rekrutera")
+    assert legacy.client_questions == written and legacy.no_client_questions is False
+    assert counts["restored"] == 1
+    assert counts["kept_feedbacks"] == 2
+
+
+async def test_rollback_keeps_questions_and_meetings_people_used_after_the_import():
+    from app.models.app_setting import AppSetting
+    from app.models.job import Job, JobStatus
+
+    async with AsyncSessionLocal() as db:
+        setting = await db.get(AppSetting, imp.RECEIPT_KEY)
+        if setting is not None:
+            await db.delete(setting)
+            await db.commit()
+    job_id, cand_id, client_id, rec_id, note_id = await _pair_with_note()
+    async with AsyncSessionLocal() as db:
+        receipt = await imp.apply_plan(
+            db, _plan(job_id, cand_id, client_id, rec_id, note_id)
+        )
+        await db.commit()
+    assert len(receipt["question_ids"]) == 2 and len(receipt["event_ids"]) == 1
+    reused_id = receipt["question_ids"][0]
+    event_id = receipt["event_ids"][0]
+
+    # Tydzień później: rekrutacja B tego klienta przypina to samo pytanie,
+    # a DL dopisuje debrief od strony klienta do rozmowy z importu.
+    async with AsyncSessionLocal() as db:
+        other = Job(
+            title="NoteqJob-B",
+            status=JobStatus.published,
+            client_id=client_id,
+            recruiter_id=rec_id,
+        )
+        db.add(other)
+        await db.flush()
+        other_job_id = other.id
+        db.add(
+            JobQuestion(
+                job_id=other_job_id,
+                question_id=reused_id,
+                is_pinned=True,
+                added_by_user_id=rec_id,
+            )
+        )
+        db.add(
+            InterviewFeedback(
+                calendar_event_id=event_id,
+                candidate_id=cand_id,
+                job_id=job_id,
+                author_id=rec_id,
+                feedback_source=FeedbackSource.client_side,
+            )
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        counts = await imp.rollback(db)
+        await db.commit()
+    assert counts["pins"] == 2 and counts["feedbacks"] == 1
+    assert counts["questions"] == 1 and counts["kept_questions"] == 1
+    assert counts["events"] == 0 and counts["kept_events"] == 1
+    async with AsyncSessionLocal() as db:
+        assert await db.get(InterviewQuestion, reused_id) is not None
+        assert (
+            await db.scalar(
+                select(func.count(JobQuestion.id)).where(
+                    JobQuestion.job_id == other_job_id
+                )
+            )
+        ) == 1
+        assert (
+            await db.scalar(
+                select(func.count(JobQuestion.id)).where(JobQuestion.job_id == job_id)
+            )
+        ) == 0
+        assert await db.get(CalendarEvent, event_id) is not None
+        sides = (
+            await db.scalars(
+                select(InterviewFeedback.feedback_source).where(
+                    InterviewFeedback.calendar_event_id == event_id
+                )
+            )
+        ).all()
+        assert sides == [FeedbackSource.client_side]

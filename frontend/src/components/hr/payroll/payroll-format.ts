@@ -205,6 +205,24 @@ export function bonusDecision(
   return { approve: row.can_approve !== false, rejectLabel: ownManual ? "Wycofaj" : "Odrzuć" };
 }
 
+/**
+ * Przyciski wiersza „Premie przyznane”. Przełożony poprawia kwotę tylko we
+ * własnej propozycji — przyznaną zmieniają Płace (serwer odpowiada 403, audyt
+ * 21.10.2026). Anulować może każdą premię, którą sam przyznał, także po
+ * zatwierdzeniu przez Płace (decyzja Artura 22.10.2026, serwer na to pozwala).
+ */
+export function assignedBonusActions(
+  row: Pick<BonusRow, "recipient_user_id" | "proposed_by" | "status">,
+  ctx: { open: boolean; payroll: boolean; meId: number | undefined },
+): { edit: boolean; cancel: boolean } {
+  const allowed = ctx.open && ctx.meId !== row.recipient_user_id;
+  const own = ctx.meId !== undefined && row.proposed_by === ctx.meId;
+  return {
+    edit: allowed && (ctx.payroll || (own && row.status === "proposed")),
+    cancel: allowed && (ctx.payroll || own),
+  };
+}
+
 /** Komunikat po dodaniu premii ręcznej: od przełożonego czeka na Płace. */
 export function bonusCreatedToast(created: Pick<BonusRow, "status">): string {
   return created.status === "proposed" ? "Premia czeka na zatwierdzenie Płac" : "Premia przyznana";

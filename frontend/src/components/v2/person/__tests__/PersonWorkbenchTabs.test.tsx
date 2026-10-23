@@ -58,7 +58,9 @@ vi.mock("@/components/v2/jobs/JobContractTab", () => ({ JobContractTab: workbenc
 vi.mock("@/components/v2/pages/DopasowanieTab", () => ({ DopasowanieTab: workbenchMock("match") }));
 // 0506: sekcja umowy przedwstępnej ma własne testy (`PreContractSection.test.tsx`).
 vi.mock("@/components/v2/person/pre-contract/PreContractSection", () => ({
-  PreContractSection: () => <div data-testid="pre-contract-section" />,
+  PreContractSection: ({ readOnly }: { readOnly?: boolean }) => (
+    <div data-testid="pre-contract-section" data-read-only={String(Boolean(readOnly))} />
+  ),
 }));
 
 import {
@@ -73,6 +75,7 @@ import type { PersonPanelSection } from "@/components/v2/recruitment/types";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { formatWarsawDay } from "@/lib/added-to-base";
+import { useAuthStore, type UserRole } from "@/store/auth";
 
 import { item, template } from "../../recruitment/__tests__/recruitment-fixtures";
 
@@ -485,5 +488,35 @@ describe("zakładka „Umowa” — podpowiedź „Obsada kompletna”", () => {
     await userEvent.click(await screen.findByRole("button", { name: /Obsada kompletna — zamknij rekrutację/ }));
     expect(onRequestCloseJob).toHaveBeenCalledTimes(1);
     expect(mocks.workbenchProps.contract.hideCloseJob).toBe(true);
+  });
+});
+
+describe("umowa przedwstępna w zakładce „Umowa” — kto ją widzi (audyt F54)", () => {
+  function loginAs(role: UserRole) {
+    useAuthStore.setState({ user: { id: 7, role, roles: [role] } } as never);
+  }
+
+  it("Viewer nie dostaje sekcji, która zawsze kończyła się „Nie udało się sprawdzić…”", () => {
+    loginAs("user");
+    renderTabs({ candidateId: 5, section: "contract", readOnly: true });
+    expect(screen.queryByTestId("pre-contract-section")).toBeNull();
+  });
+
+  it("Finanse prowadzą przedwstępną jak rekruter (decyzja Artura 22.10.2026)", () => {
+    loginAs("finance");
+    renderTabs({ candidateId: 5, section: "contract" });
+    expect(screen.getByTestId("pre-contract-section").dataset.readOnly).toBe("false");
+  });
+
+  it("Automatyzacje mają przyciski przedwstępnej mimo podglądu Tablicy", () => {
+    loginAs("automation");
+    renderTabs({ candidateId: 5, section: "contract", readOnly: true });
+    expect(screen.getByTestId("pre-contract-section").dataset.readOnly).toBe("false");
+  });
+
+  it("rekruter bez zapisu w Rekrutacjach dalej tylko czyta", () => {
+    loginAs("recruiter");
+    renderTabs({ candidateId: 5, section: "contract", readOnly: true });
+    expect(screen.getByTestId("pre-contract-section").dataset.readOnly).toBe("true");
   });
 });

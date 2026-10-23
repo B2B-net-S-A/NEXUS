@@ -130,7 +130,9 @@ export type TeamPeopleSortKey =
   | "verifications_per_workday"
   | "recommendations"
   | "interviews"
+  | "acceptances"
   | "placements"
+  | "in_flight"
   | "precision_pct"
   | "placements_delta";
 
@@ -144,6 +146,11 @@ export function teamPeopleSortValue(
       return row.name || null;
     case "placements_delta":
       return row.placements - row.previous_placements;
+    // Pola od 22.10.2026 — w odpowiedzi sprzed wdrożenia ich nie ma.
+    case "acceptances":
+      return row.acceptances ?? null;
+    case "in_flight":
+      return row.in_flight ?? null;
     default:
       return row[key];
   }

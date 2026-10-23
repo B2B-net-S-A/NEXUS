@@ -49,6 +49,9 @@ https://claude.ai/artifact/1HLNAApCydpeY1nT8fzLre):
   layoucie), wołane z interceptora `lib/api.ts`, który ponawia TO SAMO żądanie
   raz. „Nie”/zamknięcie okna = błąd z czytelnym zdaniem
   (`detail.code = off_limits_declined`), pokazywany przez `apiErrorMessage`.
+  Wyjątek: partia (`candidate_ids` w ciele), w której są też osoby spoza
+  okna — same „Nie” idą nagłówkiem, przycisk mówi „Pomiń te osoby”, a serwer
+  wpisuje je do `skipped` i dodaje resztę (audyt 22.10.2026).
   Sposoby zgłoszenia: `lib/off-limits.ts` ↔ `HOW_LABELS` w serwisie.
 - **Wtyczka LinkedIn** (`POST /api/candidates/from-linkedin`, `fetch` bez
   okna) nie dostaje 409: osoba się zapisuje, przypisanie jest pomijane

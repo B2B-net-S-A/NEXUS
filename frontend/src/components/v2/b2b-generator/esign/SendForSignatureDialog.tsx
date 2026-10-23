@@ -66,6 +66,8 @@ export function SendForSignatureDialog({
     onSuccess: (data) => {
       setResult(data);
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["kanban"] });
+      queryClient.invalidateQueries({ queryKey: ["board-tasks"] });
     },
   });
 

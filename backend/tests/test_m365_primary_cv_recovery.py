@@ -399,3 +399,101 @@ async def test_unreadable_candidate_name_keeps_mail_cv_out_of_primary(
         assert attachment.parse_error == "identity_unreadable_not_primary"
         enrichment.assert_not_called()
         # Dane syntetyczne, bez commitu: zamknięcie sesji je wycofuje.
+
+
+class _NoopSavepoint:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _SessionWithoutDocuments:
+    """Atrapa sesji: profil bez dokumentów m365, nowy dokument dostaje id."""
+
+    def __init__(self, candidate) -> None:
+        self.candidate = candidate
+        self.added: list = []
+        self.execute = AsyncMock()
+
+    async def scalar(self, *_a, **_kw):
+        return None
+
+    async def get(self, _model, _id):
+        return self.candidate
+
+    def add(self, obj) -> None:
+        self.added.append(obj)
+
+    def begin_nested(self) -> _NoopSavepoint:
+        return _NoopSavepoint()
+
+    async def flush(self) -> None:
+        for obj in self.added:
+            if getattr(obj, "id", None) is None:
+                obj.id = 501
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("identity_proven", [True, False])
+async def test_unreadable_name_cv_is_read_when_identity_comes_from_the_cv(
+    monkeypatch, tmp_path, identity_proven
+):
+    """Audyt 22.10.2026 (F68, decyzja Artura): kandydat założony z tego CV
+    (albo dopasowany po e-mailu z CV) ma pewną tożsamość — imię cyrylicą nie
+    odcina wtedy CV od profilu. Mail dopasowany po wątku dalej nie zasila."""
+    (tmp_path / "olena.pdf").write_bytes(b"Synthetic Olena CV")
+    monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)
+    monkeypatch.setattr(
+        candidate_identity_quarantine,
+        "record_detected_identity",
+        AsyncMock(return_value=SimpleNamespace(is_quarantined=False)),
+    )
+    enrichment = AsyncMock()
+    monkeypatch.setattr(cv_ingest_service, "finish_cv_ingest", enrichment)
+    candidate = SimpleNamespace(
+        id=31,
+        name="Олена",
+        lastname="Петренко",
+        cv_parsed_at=None,
+        raw_cv_text=None,
+        cv_filename=None,
+    )
+    attachment = SimpleNamespace(
+        id=1,
+        is_cv_candidate=True,
+        storage_path="olena.pdf",
+        filename="olena.pdf",
+        content_type="application/pdf",
+        sha256=None,
+        m365_attachment_id=f"m365-olena-{uuid.uuid4().hex}",
+        parsed_candidate_id=None,
+        parse_error=None,
+        cv_parse_attempted_at=None,
+    )
+    email = SimpleNamespace(candidate_id=None, received_at=None)
+    db = _SessionWithoutDocuments(candidate)
+
+    await attachment_handler.try_parse_cv(
+        db,
+        attachment,
+        email,
+        preparsed=("Олена Петренко CV", {"first_name": "Олена"}),
+        candidate_id=candidate.id,
+        identity_proven=identity_proven,
+    )
+
+    (document,) = db.added
+    assert attachment.parsed_candidate_id == candidate.id
+    if identity_proven:
+        assert document.is_primary is True
+        assert attachment.parse_error is None
+        assert candidate.raw_cv_text == "Олена Петренко CV"
+        enrichment.assert_awaited_once()
+    else:
+        assert document.is_primary is False
+        assert attachment.parse_error == "identity_unreadable_not_primary"
+        assert candidate.raw_cv_text is None
+        enrichment.assert_not_called()

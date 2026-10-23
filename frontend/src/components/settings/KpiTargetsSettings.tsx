@@ -88,9 +88,10 @@ function TargetCell({ label, value, fallback, disabled, onSave }: CellProps) {
             type="button"
             onClick={() => {
               setDraft("");
-              void onSave(null).catch((err) =>
-                setError(apiErrorMessage(err, "Nie udało się przywrócić celu.")),
-              );
+              void onSave(null).catch((err) => {
+                setError(apiErrorMessage(err, "Nie udało się przywrócić celu."));
+                setDraft(value === null ? "" : String(value));
+              });
             }}
             className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-label={`Przywróć: ${label}`}

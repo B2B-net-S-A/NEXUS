@@ -165,8 +165,9 @@ describe("Zespół → Ludzie", () => {
     const former = within(table).getByText(/Byli w zespole \(2\)/).closest("tr")!;
     expect(former.textContent).toContain("Ewa Była, Olga Była");
     const cells = within(former).getAllByRole("cell").map((cell) => cell.textContent);
-    // Weryf./dzień —, CV 4+1, rozmowy 0+2, placementy 2+0, precyzja —, zmiana —.
-    expect(cells.slice(1)).toEqual(["—", "5", "2", "2", "—", "—"]);
+    // Weryf./dzień —, CV 4+1, rozmowy 0+2, akceptacje 0, placementy 2+0,
+    // w drodze —, precyzja —, zmiana —.
+    expect(cells.slice(1)).toEqual(["—", "5", "2", "0", "2", "—", "—", "—"]);
     expect(within(table).queryByText("był(a) w zespole")).toBeNull();
   });
 
@@ -224,10 +225,12 @@ describe("Zespół → Ludzie", () => {
     });
     const table = await peopleTable();
     const row = within(table).getByText("Nowa Rekruterka").closest("tr")!;
-    expect(within(row).getAllByRole("cell").map((cell) => cell.textContent).slice(1, 5)).toEqual([
+    // Weryf./dzień, CV, rozmowy, akceptacje („—”: odpowiedź bez pola), placementy.
+    expect(within(row).getAllByRole("cell").map((cell) => cell.textContent).slice(1, 6)).toEqual([
       "0",
       "0",
       "0",
+      "—",
       "0",
     ]);
     expect(within(table).queryByText("Cichy Lead")).toBeNull();

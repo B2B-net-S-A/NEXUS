@@ -85,12 +85,36 @@ export function offLimitsPeopleFrom(error: unknown): OffLimitsPerson[] | null {
   return people.length > 0 ? people : null;
 }
 
-/** Wartość nagłówka — `null`, gdy nikogo nie ma kogo dodać (same „Nie”). */
-export function offLimitsHeaderValue(answers: OffLimitsAnswers): string | null {
+/** Wartość nagłówka — `null`, gdy nikogo nie ma kogo dodać (same „Nie”).
+ *  Partia z osobami spoza okna (`othersInRequest`) idzie dalej także przy
+ *  samych „Nie”: serwer wpisze je do `skipped`, a resztę doda. */
+export function offLimitsHeaderValue(
+  answers: OffLimitsAnswers,
+  othersInRequest = false,
+): string | null {
   const entries = Object.entries(answers);
   if (entries.length === 0) return null;
-  if (entries.every(([, answer]) => answer === OFF_LIMITS_SKIP)) return null;
+  if (!othersInRequest && entries.every(([, answer]) => answer === OFF_LIMITS_SKIP)) {
+    return null;
+  }
   return JSON.stringify(Object.fromEntries(entries));
+}
+
+/** Czy żądanie partii (`candidate_ids` w ciele: proposals/bulk, przepięcie
+ *  z podobnych rekrutacji) dodaje też osoby, o które okno nie pytało. */
+export function offLimitsOthersInRequest(data: unknown, people: OffLimitsPerson[]): boolean {
+  let body = data;
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      return false;
+    }
+  }
+  const ids = (body as { candidate_ids?: unknown } | null | undefined)?.candidate_ids;
+  if (!Array.isArray(ids)) return false;
+  const asked = new Set(people.map((p) => p.candidate_id));
+  return ids.some((id) => typeof id === "number" && !asked.has(id));
 }
 
 /** Komunikat po „Nie, to my się odezwaliśmy”. */
@@ -114,7 +138,15 @@ export function offLimitsConfirmedDay(iso: string | null): string | null {
   });
 }
 
-type OffLimitsAsk = (people: OffLimitsPerson[]) => Promise<OffLimitsAnswers | null>;
+export interface OffLimitsAskOptions {
+  /** Partia dodaje też inne osoby — „Nie” przy tych z okna ich nie zatrzymuje. */
+  othersInRequest?: boolean;
+}
+
+type OffLimitsAsk = (
+  people: OffLimitsPerson[],
+  options?: OffLimitsAskOptions,
+) => Promise<OffLimitsAnswers | null>;
 
 let host: OffLimitsAsk | null = null;
 
@@ -127,6 +159,9 @@ export function registerOffLimitsHost(ask: OffLimitsAsk): () => void {
 }
 
 /** Zapytaj człowieka; bez zamontowanego okna = brak potwierdzenia. */
-export function askOffLimits(people: OffLimitsPerson[]): Promise<OffLimitsAnswers | null> {
-  return host ? host(people) : Promise.resolve(null);
+export function askOffLimits(
+  people: OffLimitsPerson[],
+  options?: OffLimitsAskOptions,
+): Promise<OffLimitsAnswers | null> {
+  return host ? host(people, options) : Promise.resolve(null);
 }

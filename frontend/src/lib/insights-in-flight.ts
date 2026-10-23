@@ -26,6 +26,22 @@ export function forecastLabel(forecast: InFlightResponse["forecast"]): string | 
     : `ok. ${forecast.low}–${forecast.high}`;
 }
 
+/**
+ * Prognoza okresu: placementy już zrobione + szacunek z akceptacji („ok. 29–30”).
+ * `null`, gdy szacunku jeszcze nie ma — wtedy pokazujemy same placementy.
+ */
+export function monthForecast(
+  placements: number,
+  forecast: InFlightResponse["forecast"],
+): string | null {
+  if (forecast.rate_pct === null || forecast.low === null || forecast.high === null) {
+    return null;
+  }
+  const low = placements + forecast.low;
+  const high = placements + forecast.high;
+  return low === high ? `ok. ${low}` : `ok. ${low}–${high}`;
+}
+
 /** Zdanie o szacunku albo powód, dla którego go nie ma. */
 export function forecastSentence(forecast: InFlightResponse["forecast"]): string {
   if (forecast.open === 0) return "Nie ma akceptacji do domknięcia.";

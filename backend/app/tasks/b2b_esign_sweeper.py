@@ -25,7 +25,7 @@ from sqlalchemy import or_, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.b2b_generated_contract import B2BGeneratedContract
-from app.models.b2b_signing_request import B2BSigningRequest
+from app.models.b2b_signing_request import OPEN_STATUSES, B2BSigningRequest
 from app.models.notification import NotificationType
 from app.services import loop_heartbeat
 from app.services.b2b_esign import mail as esign_mail
@@ -76,6 +76,10 @@ async def _handle(request_id: int, now: datetime) -> str | None:
             .with_for_update(skip_locked=True)
         )
         if request is None:
+            return None
+        # Lista powstała przed blokadą — wycofany albo podpisany w międzyczasie
+        # wniosek nie dostaje przypomnienia.
+        if request.status not in OPEN_STATUSES:
             return None
         row = await db.get(B2BGeneratedContract, request.generated_contract_id)
         number = row.contract_number if row else ""

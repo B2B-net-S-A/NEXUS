@@ -51,25 +51,26 @@ import type {
 const CURRENT_MONTH: InsightsPeriodParams = { period: "month", offset: 0 };
 
 const PEOPLE = [
-  { id: 11, name: "Ola K.", v: 96, r: 19, i: 9, p: 4, prev: 2, prec: 81 },
-  { id: 12, name: "Kuba M.", v: 84, r: 16, i: 8, p: 3, prev: 3, prec: 77 },
-  { id: 1, name: "Anna L.", v: 58, r: 11, i: 6, p: 2, prev: 1, prec: 64 },
-  { id: 14, name: "Marta W.", v: 78, r: 14, i: 7, p: 2, prev: 3, prec: 72 },
-  { id: 15, name: "Piotr S.", v: 58, r: 9, i: 4, p: 1, prev: 1, prec: 46 },
-  { id: 16, name: "Ewa D.", v: 62, r: 8, i: 3, p: 1, prev: 2, prec: 44 },
-  { id: 17, name: "Tomek R.", v: 48, r: 6, i: 2, p: 0, prev: 2, prec: 38 },
-  { id: 18, name: "Bartek N.", v: 34, r: 7, i: 3, p: 1, prev: 1, prec: null },
+  { id: 11, name: "Ola K.", v: 96, r: 19, i: 9, a: 5, p: 4, prev: 2, prec: 81, t: 2, f: 14 },
+  { id: 12, name: "Kuba M.", v: 84, r: 16, i: 8, a: 3, p: 3, prev: 3, prec: 77, t: 2, f: 11 },
+  { id: 1, name: "Anna L.", v: 58, r: 11, i: 6, a: 3, p: 2, prev: 1, prec: 64, t: 1, f: 11 },
+  { id: 14, name: "Marta W.", v: 78, r: 14, i: 7, a: 3, p: 2, prev: 3, prec: 72, t: 2, f: 9 },
+  { id: 15, name: "Piotr S.", v: 58, r: 9, i: 4, a: 1, p: 1, prev: 1, prec: 46, t: 2, f: 6 },
+  { id: 16, name: "Ewa D.", v: 62, r: 8, i: 3, a: 1, p: 1, prev: 2, prec: 44, t: 1, f: 5 },
+  { id: 17, name: "Tomek R.", v: 48, r: 6, i: 2, a: 0, p: 0, prev: 2, prec: 38, t: 1, f: 3 },
+  { id: 18, name: "Bartek N.", v: 34, r: 7, i: 3, a: 1, p: 1, prev: 1, prec: null, t: 1, f: 4 },
 ];
 // Konto wyłączone — w „Zespół → Ludzie” trafia do wiersza „Byli pracownicy”.
-const FORMER_PEOPLE = [{ id: 19, name: "Monika B.", v: 12, r: 5, i: 2, p: 1, prev: 2, prec: 70 }];
+const FORMER_PEOPLE = [{ id: 19, name: "Monika B.", v: 12, r: 5, i: 2, a: 0, p: 1, prev: 2, prec: 70, t: 0, f: 0 }];
 
-function funnel(counts: Record<string, number>) {
-  const stages = ["verified", "cv_sent", "client_interview", "hired"].map((stage) => ({
+function funnel(counts: Record<string, number>, countedFrom: Record<string, string> = {}) {
+  const stages = ["verified", "cv_sent", "client_interview", "acceptance", "hired"].map((stage) => ({
     stage,
     label: stage,
     count: counts[stage] ?? 0,
-    mapped_from_traffit: true,
+    mapped_from_traffit: stage !== "acceptance",
     share_pct: null,
+    counted_from: countedFrom[stage] ?? null,
   }));
   return {
     period: { kind: "month", start: "2026-09-01T00:00:00+02:00", end: "2026-10-01T00:00:00+02:00", timezone: "Europe/Warsaw" },
@@ -384,7 +385,40 @@ function seeded(): QueryClient {
       ],
     }],
   });
-  const monthFunnel = funnel({ verified: 412, cv_sent: 142, client_interview: 61, hired: 21 });
+  const monthFunnel = funnel(
+    { verified: 412, cv_sent: 142, client_interview: 61, acceptance: 25, hired: 21 },
+    { acceptance: "2026-10-12" },
+  );
+  // Zespół v3 (22.10.2026): cele zespołu, „w drodze” firmy, trend tygodni.
+  qc.setQueryData(insightsQueryKeys.teamGoals(), {
+    kind: "team", scope_label: "Zespół rekrutacji", people: 9,
+    goals: [
+      { goal_id: "team_daily_first_verifications", title_pl: "Weryfikacje zespołu dziś", short_title_pl: "Weryfikacje", period: "day", unit: "count", target: 36, current: 27, progress_pct: 75, state: "on_track", note: null, expected: 22 },
+      { goal_id: "team_weekly_cvs_sent", title_pl: "Rekomendacje zespołu w tygodniu", short_title_pl: "Rekomendacje", period: "week", unit: "count", target: 45, current: 24, progress_pct: 53, state: "behind", note: null, expected: 36 },
+      { goal_id: "team_monthly_placements", title_pl: "Placementy zespołu w miesiącu", short_title_pl: "Placementy", period: "month", unit: "count", target: 25, current: 21, progress_pct: 84, state: "on_track", note: "Suma celów osób z tym celem: 9", expected: 18 },
+    ],
+  });
+  qc.setQueryData(insightsQueryKeys.inFlight(), {
+    asof: "2026-10-22", stale_days: 10, columns: flightCols(38, 64, 23, 10),
+    acceptances: [
+      { job_id: 9201, job_title: "DevOps Engineer", client_id: 3, client_name: "Telekom Testowy", delivery_lead_name: "Paweł G.", stage_key: "contract_sent", stage_label: "Umowa wysłana", since: "2026-10-03", days: 19 },
+      { job_id: 9202, job_title: "Senior Java Developer", client_id: 1, client_name: "Bank Przykładowy", delivery_lead_name: "Kasia B.", stage_key: "acceptance", stage_label: "Akceptacja", since: "2026-10-07", days: 15 },
+      { job_id: 9203, job_title: "Analityk biznesowy", client_id: 2, client_name: "Ubezpieczenia Wzorcowe", delivery_lead_name: "Paweł G.", stage_key: "acceptance", stage_label: "Akceptacja", since: "2026-10-19", days: 3 },
+    ],
+    forecast: { open: 10, low: 8, high: 9, ...flightForecast },
+    definitions: { columns: "", forecast: "" },
+  });
+  const trendWeek = (week_start: string, v: number, r: number, i: number, a: number | null, p: number, partial = false) => ({
+    week_start, partial, counts: { verified: v, cv_sent: r, client_interview: i, acceptance: a, hired: p },
+  });
+  qc.setQueryData(insightsQueryKeys.weeklyTrend(8), {
+    weeks: [
+      trendWeek("2026-08-31", 88, 34, 12, null, 4), trendWeek("2026-09-07", 95, 31, 14, null, 5),
+      trendWeek("2026-09-14", 91, 36, 13, null, 6), trendWeek("2026-09-21", 104, 29, 11, null, 5),
+      trendWeek("2026-09-28", 99, 27, 12, null, 7), trendWeek("2026-10-05", 110, 25, 15, null, 6),
+      trendWeek("2026-10-12", 118, 26, 14, 9, 7), trendWeek("2026-10-19", 72, 15, 9, 6, 3, true),
+    ],
+  });
   qc.setQueryData(["insights", "recruitment", "funnel", CURRENT_MONTH], monthFunnel);
   const monthTeamTable = {
     period: monthFunnel.period, columns: [],
@@ -414,7 +448,7 @@ function seeded(): QueryClient {
   });
   qc.setQueryData(insightsTeamSignalsQueryKeys.people(ZESPOL_DEFAULT_PERIOD), {
     period: monthFunnel.period, workdays: 17, precision_target_pct: 75, low_precision_pct: 50,
-    rows: [...PEOPLE.map((p) => ({ ...p, active: true })), ...FORMER_PEOPLE.map((p) => ({ ...p, active: false }))].map((p) => ({ user_id: p.id, name: p.name, role: "recruiter", is_active: p.active, verifications: p.v, recommendations: p.r, interviews: p.i, placements: p.p, previous_placements: p.prev, verifications_per_workday: +(p.v / 17).toFixed(1), precision_pct: p.prec })),
+    rows: [...PEOPLE.map((p) => ({ ...p, active: true })), ...FORMER_PEOPLE.map((p) => ({ ...p, active: false }))].map((p) => ({ user_id: p.id, name: p.name, role: "recruiter", is_active: p.active, verifications: p.v, recommendations: p.r, interviews: p.i, acceptances: p.a, placements: p.p, placements_target: p.t || null, in_flight: p.f, previous_placements: p.prev, verifications_per_workday: +(p.v / 17).toFixed(1), precision_pct: p.prec })),
     totals: { verifications: 518, recommendations: 90, interviews: 42, placements: 14, precision_pct: 63, people: 8, unattributed: 3 },
     previous_totals: { verifications: 500, recommendations: 95, interviews: 40, placements: 15 },
     outside_scope: { label: "Konta administracyjne", people: 1, verifications: 0, recommendations: 4, interviews: 2, placements: 5, previous_placements: 3 },

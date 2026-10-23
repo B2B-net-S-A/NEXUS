@@ -142,6 +142,34 @@ def test_person_with_placements_only_in_previous_period_stays_visible() -> None:
     assert rows[2]["previous_placements"] == 3
 
 
+def test_rows_carry_acceptances_monthly_target_and_people_in_flight() -> None:
+    """Zespół v3 (22.10.2026): akceptacje, cel placementów i „w drodze” per osoba."""
+    member = TeamMemberRow(**{**_member(1, placements=2).__dict__, "akceptacje": 3})
+    people = TeamPeople(
+        current=_panel(member, _member(2)),
+        previous=_panel(),
+        workdays=10,
+        placements_targets={1: 2},
+        in_flight={1: 7},
+    )
+    rows = {r["user_id"]: r for r in people_payload(people)["rows"]}
+    assert rows[1]["acceptances"] == 3
+    assert rows[1]["placements_target"] == 2
+    assert rows[1]["in_flight"] == 7
+    # Osoba bez celu w mapie (np. bez ustawionego celu) — brak, nie zero celu.
+    assert rows[2]["placements_target"] is None
+    assert rows[2]["in_flight"] == 0
+
+
+def test_target_is_absent_outside_a_month_window() -> None:
+    """Cel placementów jest miesięczny — przy kwartale nie ma czego porównać."""
+    people = TeamPeople(
+        current=_panel(_member(1, placements=5)), previous=_panel(), workdays=60
+    )
+    [row] = people_payload(people)["rows"]
+    assert row["placements_target"] is None
+
+
 def test_unattributed_milestones_are_one_row_per_column() -> None:
     """Wiersz „Bez osoby z zasługą” (17.10.2026): kamienie bez kredytu per kolumna."""
     current = _panel(_member(1, placements=2))
@@ -167,6 +195,7 @@ def test_unattributed_milestones_are_one_row_per_column() -> None:
         "verifications": 1,
         "recommendations": 4,
         "interviews": 0,
+        "acceptances": 0,
         "placements": 1,
     }
     # Sumy firmy i wiersze osób bez zmian.

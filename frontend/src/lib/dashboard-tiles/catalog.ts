@@ -223,7 +223,12 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     defaultSize: { w: 4, h: 4 },
     minSize: { w: 3, h: 3 },
     ownChrome: false,
-    availability: needsSection("pipeline", "Rekrutacje"),
+    // Bramka API przedwstępnych, nie sekcja: Viewer ma odczyt Rekrutacji, a API
+    // mu odmawia; Rada sekcji nie ma, a przedwstępne prowadzi (22.10.2026).
+    availability: (user) =>
+      hasCapability(user, "pre_contract.work")
+        ? { ok: true }
+        : { ok: false, reason: "Wymaga dostępu do umów przedwstępnych" },
   },
   recruitment_activity: {
     type: "recruitment_activity",

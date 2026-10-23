@@ -48,6 +48,8 @@ import {
  PopoverTrigger,
 } from"@/components/ui/popover";
 import { ContractsBulkActionsBarV2 } from"@/components/v2/modals/ContractsBulkActionsBar";
+import { PlacementsExportDialog } from "@/components/v2/modals/PlacementsExportDialog";
+import { placementsExportFilename, type PlacementsRange } from "@/lib/placements-export";
 import {
  Table,
  TableBody,
@@ -647,6 +649,7 @@ export function ContractsListV2({
  const listRef = useRef<HTMLDivElement>(null);
  const [toast, setToast] = useState<string | null>(null);
  const [exporting, setExporting] = useState(false);
+ const [placementsOpen, setPlacementsOpen] = useState(false);
  const queryClient = useQueryClient();
  const restoredScroll = useRef(false);
  const ownNavigationUrl = useRef<string | null>(null);
@@ -823,6 +826,43 @@ export function ContractsListV2({
  setTimeout(() => URL.revokeObjectURL(url), 60_000);
  } catch {
  flashToast("Nie udało się pobrać raportu kontraktów bez zamówienia.");
+ } finally {
+ setExporting(false);
+ }
+ };
+
+ // Eksport „Placementy”: kontrakty ze startem w okresie w układzie arkusza
+ // Delivery (DL, rekruter, akceptacja, podpis, premia). Okres zamiast filtrów
+ // listy — arkusz liczy placementy po starcie, nie po tym, co widać na ekranie.
+ const doPlacementsExport = async (range: PlacementsRange): Promise<boolean> => {
+ if (exporting) return false;
+ setExporting(true);
+ try {
+ const params = new URLSearchParams({
+ start_from: range.from,
+ start_to: range.to,
+ });
+ const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+ const res = await fetch(`${apiBase}/api/contracts/export/placements?${params}`, {
+ headers: getAuthenticatedRequestHeaders(),
+ });
+ if (!res.ok) {
+ flashToast("Nie udało się pobrać placementów.");
+ return false;
+ }
+ const blob = await res.blob();
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = placementsExportFilename(range);
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
+ return true;
+ } catch {
+ flashToast("Nie udało się pobrać placementów.");
+ return false;
  } finally {
  setExporting(false);
  }
@@ -1054,6 +1094,12 @@ export function ContractsListV2({
  >
  CSV
  </button>
+ <button
+ onClick={() => setPlacementsOpen(true)}
+ className="block w-full whitespace-nowrap text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
+ >
+ Placementy (.xlsx)
+ </button>
  {canSeeContractAnalytics && (
  <>
  <div className="my-1 h-px bg-border" aria-hidden="true" />
@@ -1067,6 +1113,14 @@ export function ContractsListV2({
  )}
  </PopoverContent>
  </Popover>}
+ {canExport && (
+ <PlacementsExportDialog
+ open={placementsOpen}
+ onOpenChange={setPlacementsOpen}
+ busy={exporting}
+ onExport={doPlacementsExport}
+ />
+ )}
  {canCreateContract && (
  <Link href="/contracts/new">
  <Button size="sm" variant="primary">

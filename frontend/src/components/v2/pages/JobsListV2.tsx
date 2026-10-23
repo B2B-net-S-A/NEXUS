@@ -1137,10 +1137,13 @@ export function JobsListV2({
             </Button>
           )}
           <CareerQueueLink />
-          {/* 0506: umowy przedwstępne przy osobach — lista dla HoR, DL i rekruterów. */}
-          <Button size="sm" variant="outline" asChild>
-            <Link href="/jobs/umowy-przedwstepne">Umowy przedwstępne</Link>
-          </Button>
+          {/* 0506: umowy przedwstępne przy osobach — bramka API przedwstępnych
+              (Viewer nie; Finanse i Automatyzacje tak, decyzja 22.10.2026). */}
+          {can["pre_contract.work"] && (
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/jobs/umowy-przedwstepne">Umowy przedwstępne</Link>
+            </Button>
+          )}
           {/* Capability `job.create` = backendowy TacPlus (POST /api/jobs). */}
           {canCreateJob && (
             <Button size="sm" variant="primary" onClick={() => router.push("/jobs/new")} data-help="jobs.list.new">

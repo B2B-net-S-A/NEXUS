@@ -1378,6 +1378,62 @@ async def test_remind_holder_rings_the_account_and_records_the_reminder(
     assert row["details"]["reminded_on"] == business_today().isoformat()
 
 
+async def test_remind_holder_does_not_fake_success_when_nothing_went_out(
+    app_client, modules_on, people
+) -> None:
+    """Audyt 22.10, F23: wyłączone konto (odejście) nie dostaje dzwonka — 409
+    bez wpisu „przypomniano”; drugie przypomnienie tego samego dnia połyka
+    dzienny dedup — recepcja dostaje adres do własnego maila."""
+
+    headers = _headers(people["reception"])
+    model = await _model(app_client, headers, "akcesorium", "37.00")
+    item = await _item(app_client, headers, model["id"])
+    issued = await app_client.post(
+        "/api/equipment/issue",
+        json={
+            "holder_kind": "user",
+            "holder_id": people["worker"].id,
+            "lines": [{"item_id": item["id"]}],
+        },
+        headers=headers,
+    )
+    assert issued.status_code == 201, issued.text
+    async with AsyncSessionLocal() as db:
+        task = await equipment_tasks.tasks_for_person_exit(
+            db, people["worker"].id, business_today() - timedelta(days=2)
+        )
+        await db.commit()
+    url = f"/api/equipment/tasks/{task.id}/remind"
+
+    first = await app_client.post(url, headers=headers)
+    assert first.json()["channel"] == "powiadomienie", first.text
+    again = await app_client.post(url, headers=headers)
+    assert again.status_code == 200, again.text
+    assert again.json()["channel"] == "mail"
+    assert again.json()["email"] == people["worker"].email
+
+    async with AsyncSessionLocal() as db:
+        worker = await db.get(User, people["worker"].id)
+        worker.is_active = False
+        await db.commit()
+    gone = await app_client.post(url, headers=headers)
+    assert gone.status_code == 409, gone.text
+    assert "wyłączone" in gone.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(EquipmentTask, task.id)
+        bells = (
+            await db.scalars(
+                select(Notification).where(
+                    Notification.user_id == people["worker"].id,
+                    Notification.notification_type
+                    == NotificationType.equipment_return_reminder,
+                )
+            )
+        ).all()
+    assert len(bells) == 1
+    assert stored.details["reminders"] == 2
+
+
 async def test_remind_holder_without_account_returns_the_mail_address(
     app_client, modules_on, people
 ) -> None:

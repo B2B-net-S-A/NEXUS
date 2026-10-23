@@ -13,6 +13,14 @@
   available server”). `/api/health` zostaje sondą smoke testu po deployu i
   uptime-probe. Sonda w `docker-compose.yml` (jedyny plik czytany przez Coolify)
   i w overlayu prod musi być ta sama.
+- **Nowa tabela modułu = sonda w `core_checks` `/api/health/deep`** (decyzja
+  Artura 22.10.2026, audyt F79). Alembic na produkcji bywa osierocony, więc
+  nieudany `CREATE TABLE` z siatki entrypointu dawał zielony deploy i 500
+  `UndefinedTable` przy pierwszym użyciu modułu. Tak weszły bez sondy
+  `prep2_skips` (0482), `b2b_signing_requests` (0499), `pre_contract_*` (0506)
+  i `care_board_states` (0509) — dopisane 22.10. Tabela bez modelu ORM dostaje
+  sondę przez lekkie `table()` modułu (jak `CARE_BOARD_STATES`), bo `select()`
+  wymusza wtedy każdą kolumnę. Strażnik: `tests/test_health_deep_hot_tables.py`.
 - **Naprawy schematu przy starcie mają `lock_timeout` 10 s** (`startup_locks.py`,
   moduły `allocation_schema_bootstrap`, `cv_schema_bootstrap`,
   `signature_policy_bootstrap`). Nocny `pg_dump` trzyma locki, a DDL czekający bez
