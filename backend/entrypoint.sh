@@ -1113,6 +1113,16 @@ except Exception as _autofill_pool_err:  # noqa: BLE001
     print(f"autofill pool DDL unavailable: {_autofill_pool_err!r}")
     _AUTOFILL_POOL_DDL = []
 
+# Powody odrzucenia osób od systemu (migracja 0515) — JEDNO źródło z migracją
+# (`app/services/autofill_feedback_schema.py`).
+try:
+    from app.services import autofill_feedback_schema as _autofill_feedback_schema
+
+    _AUTOFILL_FEEDBACK_DDL = list(_autofill_feedback_schema.TABLE_DDL)
+except Exception as _autofill_feedback_err:  # noqa: BLE001
+    print(f"autofill feedback DDL unavailable: {_autofill_feedback_err!r}")
+    _AUTOFILL_FEEDBACK_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1164,6 +1174,7 @@ _COLUMN_STATEMENTS = [
     *_RANKING_WEIGHT_CHANGES_DDL,
     *_PREP_REVIEW_CONFIG_DDL,
     *_AUTOFILL_POOL_DDL,
+    *_AUTOFILL_FEEDBACK_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (

@@ -81,6 +81,7 @@ import {
   type ScreeningMemoryLink,
 } from "@/lib/screening-memory";
 import { placeStage } from "@/lib/board-stages";
+import { needsAutofillReason } from "@/lib/autofill-feedback";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { VERIFIED_STAGE, findStageColumn, isNewColumn, itemFullName } from "@/lib/pipeline-flow";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
@@ -312,6 +313,10 @@ export function ScreeningWorkbench({
           stageDefId: rejectedCol.stage_def_id ?? null,
           previousStage: col.stage,
           previousCategory: col.category === "external" ? ("external" as const) : ("internal" as const),
+          // Osoba od systemu (23.10.2026): okno odrzucenia pyta o powód dla systemu.
+          autofill: needsAutofillReason(item, placeStage(col).column)
+            ? { rateKnown: Boolean(item.entry_autofill?.rate_known), several: false }
+            : null,
         }
       : null;
   const afterCvSent = state?.board_column != null && AFTER_CV_SENT_COLUMNS.has(state.board_column);

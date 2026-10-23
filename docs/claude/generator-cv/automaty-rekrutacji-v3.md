@@ -58,6 +58,24 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   stałe — wygaśnięcie blokady 12 h nie przywraca terminu. Przesunięcie dalej
   albo odrzucenie zdejmuje kartę z „Nowych”, więc termin znika sam.
   Harness: `/preview/job-detail?autofill=1`.
+- **E. Odrzucenie z powodem (PR 4, 0515, decyzja Artura 23.10.2026).** Ruch na
+  „Odrzucony” osoby od systemu, która stoi w „Nowych” albo „Screeningu”
+  (`gate_stage_row`), wymaga `autofill_reason` (12 kodów w trzech grupach,
+  lista w `autofill_feedback_schema.REASONS`) i `autofill_learned_from`
+  (`profile` | `call`); bez nich 422 `{code: "AUTOFILL_REASON_REQUIRED"}`, przy
+  innej osobie — 422, „Inne” bez `notes` — 422. Walidacja przed zapisem, zapis
+  wiersza `autofill_feedback` w tej samej transakcji co ruch. **Kosz raportu**
+  (`autofill_feedback.bucket_for`) liczy się z migawki `entry_meta`, nie
+  z dzisiejszego profilu: wymagania → `search`; CV nieaktualne i profil się nie
+  zgadza → `data`; „za droga” → `search` tylko wtedy, gdy system ZNAŁ stawkę
+  powyżej budżetu (`resolve_job_budget_hourly`), inaczej `data`; nie szuka,
+  nie odbiera, już u nas → `person`; „Inne” → `other`. „Ile chce?”
+  (`autofill_rate_hourly`, PLN/h) idzie do „Stawki od” tą samą drogą co
+  stawka z „Zweryfikowanego” (`_record_rate_from_move`). Front: pole
+  `AutofillFeedbackField` w `RejectionV2` (prop `autofill`), lustro listy
+  w `lib/autofill-feedback.ts`; pytają `usePipelineMove` (Tablica, panel
+  osoby) i `ScreeningFullForm` (warsztat screeningu). Przy kilku osobach ten
+  sam powód idzie do każdej osoby od systemu, bez stawki.
 
 - **A. Co noc WSZYSTKIE rekrutacje w pracy (decyzja Artura 30.09.2026).**
   Nocna pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w
