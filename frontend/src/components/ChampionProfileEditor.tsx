@@ -71,6 +71,7 @@ import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookC
 import { clientPlaybookEditHref } from "@/lib/client-playbooks";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { screeningQuestionHint } from "@/lib/screening-question-hint";
 import { warsawDateOf } from "@/lib/warsaw-date";
 import { countPl } from "@/lib/plural-pl";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
@@ -1161,6 +1162,11 @@ export function ChampionProfileEditor({
                   </button>
                 )}
               </div>
+              {canEdit && screeningQuestionHint(q.question) ? (
+                <p className="text-xs text-warning-muted-foreground">
+                  {screeningQuestionHint(q.question)}
+                </p>
+              ) : null}
               <Labeled label="Dobra odpowiedź">
                 <textarea
                   disabled={disabled}

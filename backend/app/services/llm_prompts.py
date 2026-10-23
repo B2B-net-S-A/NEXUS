@@ -421,13 +421,28 @@ INTERVIEW_PREP = PromptTemplate(
 
 # ── Champion Profile AI Intake (Phase 14) ───────────────────────────────────
 
+# Pytania screeningowe mają dać fakt do CV (23.10.2026). Generator CV bierze
+# z odpowiedzi tylko fakty o kandydacie; pytania o metodę („Jak analizujesz…?”)
+# dawały odpowiedzi z teorii („Data trzeba odseparować na innych VLAN-ach”),
+# a pytania tak/nie — samo „tak”. Pytamy o to, co kandydat zrobił, gdzie i jak długo.
+_FACT_QUESTIONS_RULE = (
+    "Każde pytanie screeningowe pytaj o to, co kandydat ZROBIŁ — tak, żeby "
+    "odpowiedź dała fakt do CV: gdzie (firma albo projekt), co dokładnie i jak "
+    "długo albo w jakiej skali, np. „W jakim projekcie rozdzielałeś ruch Data "
+    "i Management i co tam konkretnie robiłeś?”. Nie zadawaj pytań o metodę "
+    "albo teorię („Jak analizujesz…?”, „Jak identyfikujesz…?”) ani pytań tak/nie "
+    "(„Czy znasz…?”) — dają odpowiedź bez faktów. "
+)
+
+
 CHAMPION_PROFILE_FROM_JD = PromptTemplate(
     name="champion_profile_from_jd",
     # v2 (audyt 25.09.2026, r3): basics.rate_raw — dosłowny cytat stawki;
     # budżet liczy kod (`champion_draft_service._ground_basics_rate`).
     # v3 (02.10.2026): deal_breaker proponowany przy każdym pytaniu — jest
     # wymagany przed „Przekaż do searchu”, a DL go zatwierdza albo poprawia.
-    version=3,
+    # v4 (23.10.2026): pytania o to, co kandydat zrobił (`_FACT_QUESTIONS_RULE`).
+    version=4,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji staffing. "
@@ -500,7 +515,8 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
         "  }}\n"
         "}}\n\n"
         "Stawka: basics.rate_value podawaj WYŁĄCZNIE razem z basics.rate_raw = DOSŁOWNY fragment źródła, w którym stoi stawka (np. „do 140 zł/h netto”). Bez takiego fragmentu zostaw oba pola puste — budżet liczy system z fragmentu, nie z liczby. "
-        "Limity: screening_questions max 8 pozycji, każda z krótkim ideal_answer "
+        + _FACT_QUESTIONS_RULE
+        + "Limity: screening_questions max 8 pozycji, każda z krótkim ideal_answer "
         "i krótkim deal_breaker (jaka odpowiedź dyskwalifikuje kandydata) — oba "
         "jako propozycja, którą Delivery Lead zatwierdza albo poprawia. "
         "project.about MUSI zmieścić się w 2 zdaniach — nadmiar POMIŃ, nie przenoś "
@@ -927,9 +943,12 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 # screeningowe niesie dobrą odpowiedź ORAZ odpowiedź dyskwalifikującą — obie
 # jako propozycja, którą Delivery Lead zatwierdza albo poprawia.
 
+# v13 (23.10.2026): pytania screeningowe o to, co kandydat zrobił — gdzie,
+# co i jak długo — zamiast o metodę i tak/nie (`_FACT_QUESTIONS_RULE`).
+
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=12,
+    version=13,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -1058,7 +1077,9 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "Pytania screeningowe: najpierw te, o które klient pyta albo które wynikają "
         "wprost z wymagań (from_request=true). Dla każdej dziedziny o level=must dodaj "
         "jedno pytanie o praktyczne doświadczenie w tej dziedzinie. Razem 3–6 pytań, "
-        "po polsku, do kandydata, jedno zdanie. Do KAŻDEGO pytania zaproponuj: "
+        "po polsku, do kandydata, jedno zdanie. "
+        + _FACT_QUESTIONS_RULE
+        + "Do KAŻDEGO pytania zaproponuj: "
         "ideal_answer — czego szukać w dobrej odpowiedzi, krótko; deal_breaker — "
         "jaka odpowiedź dyskwalifikuje kandydata w tej rekrutacji, jednym krótkim "
         "zdaniem, konkretnie (np. „Tylko praca zdalna.”, „Zna tylko teorię, nie "

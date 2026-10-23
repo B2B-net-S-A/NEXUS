@@ -693,7 +693,7 @@ def test_prompt_asks_for_keywords_and_a_deal_breaker() -> None:
     rendered = JOB_REQUEST_INTAKE.render(
         client_name="Klient", client_context="brak", request_text="mail"
     )
-    assert JOB_REQUEST_INTAKE.version == 12
+    assert JOB_REQUEST_INTAKE.version == 13
     assert '"requirements"' in rendered and '"deal_breaker"' in rendered
     assert '"keywords"' not in rendered
     assert '"must": [str]' not in rendered
@@ -750,3 +750,15 @@ def test_must_rows_over_the_limit_move_to_nice_and_are_reported(monkeypatch):
     levels = [row["level"] for row in result.requirements]
     assert levels == ["must"] * 10 + ["nice"] * 2
     assert result.dropped == []
+
+
+def test_screening_questions_ask_what_the_candidate_did() -> None:
+    # 23.10.2026: pytania o metodę („Jak analizujesz…?”) i tak/nie dawały
+    # odpowiedzi bez faktów, z których generator CV nic nie bierze.
+    from app.services.llm_prompts import CHAMPION_PROFILE_FROM_JD, JOB_REQUEST_INTAKE
+
+    for template in (JOB_REQUEST_INTAKE, CHAMPION_PROFILE_FROM_JD):
+        prompt = template.system_prompt + template.template
+        assert "co kandydat ZROBIŁ" in prompt, template.name
+        assert "„Jak analizujesz…?”" in prompt and "„Czy znasz…?”" in prompt
+    assert CHAMPION_PROFILE_FROM_JD.version == 4

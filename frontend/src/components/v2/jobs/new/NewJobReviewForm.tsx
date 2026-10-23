@@ -31,6 +31,7 @@ import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
 import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { screeningQuestionHint } from "@/lib/screening-question-hint";
 import { RequirementRowsEditor } from "@/components/champion/RequirementRowsEditor";
 import { TalkChecksPanel } from "@/components/champion/TalkChecksPanel";
 import { addTalkItem, joinLanguage } from "@/lib/champion-experience";
@@ -1344,6 +1345,11 @@ function QuestionsSection({
               onChange={(e) => edit(q.key, { question: e.target.value })}
               placeholder="Pytanie do kandydata"
             />
+            {screeningQuestionHint(q.question) ? (
+              <span className="text-xs text-warning-muted-foreground">
+                {screeningQuestionHint(q.question)}
+              </span>
+            ) : null}
             <div className="grid gap-2 md:grid-cols-2">
               <label className="flex flex-col gap-1 text-xs font-medium text-success-muted-foreground">
                 Dobra odpowiedź
