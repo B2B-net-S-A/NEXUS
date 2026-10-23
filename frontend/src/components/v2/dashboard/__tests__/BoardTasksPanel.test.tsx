@@ -252,6 +252,7 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
         in_review: [],
         sent: [],
         returned_total: 1,
+        returned_to_fix_total: 1,
         in_review_total: 0,
         sent_total: 0,
       },
@@ -912,10 +913,44 @@ describe("BoardTasksPanel — „Twoje CV w drodze”", () => {
     expect(within(section).getByText("Cofnięte do poprawy")).toBeTruthy();
     expect(within(section).getByText("Jan Dąb")).toBeTruthy();
     expect(within(section).getByText("Uwaga: Dopisz Spring Boot do ostatniego projektu")).toBeTruthy();
-    // Licznik przy nagłówku = tyle wróciło; reszta jest informacją pod „Pokaż”.
-    expect(within(section).getByText("2")).toBeTruthy();
+    // Licznik przy nagłówku = tyle wróciło do poprawy; odrzucenie przez DL to
+    // informacja, nie CV do poprawy (23.10.2026). Reszta jest pod „Pokaż”.
+    expect(within(section).getByText("1")).toBeTruthy();
+    expect(within(section).queryByText("2")).toBeNull();
     expect(within(section).queryByText("Tomasz Żak")).toBeNull();
     expect(within(section).getByText(/W przeglądzie: 1 · Wysłane do klienta: 0/)).toBeTruthy();
+  });
+
+  it("samo odrzucenie przez DL nie jest „Twoim ruchem” — wiersz zostaje jako informacja, bez licznika", async () => {
+    mockQueue({
+      cv_in_transit: transit({
+        returned: [transitRow("rejected_by_dl", { reason: "inny kandydat", actor_name: "Marta Kowalczyk" })],
+      }),
+    });
+    renderPanel();
+    const others = await screen.findByRole("group", { name: "U innych" });
+    const section = within(others).getByRole("region", { name: "Twoje CV w drodze" });
+    expect(within(section).getByText("Odrzucone przez DL")).toBeTruthy();
+    expect(within(section).getByText("inny kandydat")).toBeTruthy();
+    expect(within(section).queryByText("1")).toBeNull();
+    expect(screen.queryByText("Twój ruch")).toBeNull();
+  });
+
+  it("po rozwinięciu odrzucenia mają własny nagłówek, a „Wróciło do Ciebie” liczy tylko CV do poprawy", async () => {
+    mockQueue({
+      cv_in_transit: transit({
+        returned: [
+          transitRow("sent_back", { stage_id: 43, candidate_id: 53, candidate_name: "Julia Bąk" }),
+          transitRow("rejected_by_dl", { reason: "inny kandydat" }),
+        ],
+        in_review: [transitRow("in_review", { stage_id: 44, candidate_id: 54, candidate_name: "Tomasz Żak" })],
+      }),
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Twoje CV w drodze" });
+    await userEvent.click(within(section).getByRole("button", { name: /Pokaż/ }));
+    expect(within(section).getByText("Wróciło do Ciebie · 1")).toBeTruthy();
+    expect(within(section).getByText("Odrzucone przez DL · 1")).toBeTruthy();
   });
 
   it("lista usunięta z pulpitu (`null`) → nic się nie renderuje, jak przed zmianą", async () => {

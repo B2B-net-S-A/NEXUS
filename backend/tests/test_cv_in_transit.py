@@ -434,6 +434,10 @@ async def test_rejection_by_the_delivery_lead_comes_back_with_the_reason(
         assert [r["kind"] for r in returned] == ["rejected_by_dl"]
         assert returned[0]["reason"] == "stawka ponad budżet"
         assert returned[0]["actor_name"].startswith("BT delivery_lead")
+        # Odrzucenie to informacja, nie CV do poprawy (23.10.2026) — nie
+        # liczy się do „Twój ruch” ani do sekcji porannego maila.
+        transit = await _transit(api_client, rec)
+        assert transit["returned_to_fix_total"] == transit["returned_total"] - 1
         # Delivery Lead nie dostaje wiadomości o własnej decyzji.
         assert _mine(await _transit(api_client, dl), "returned", cid) == []
     finally:

@@ -341,6 +341,8 @@ class CvInTransitBlock(BaseModel):
     sent: list[CvTransitRow]
     # Liczby przed przycięciem list do `MAX_ROWS`.
     returned_total: int
+    # Bez odrzuceń przez DL — tylko to, co rekruter ma poprawić (23.10.2026).
+    returned_to_fix_total: int = 0
     in_review_total: int
     sent_total: int
     returned_window_days: int
@@ -863,6 +865,7 @@ def _transit_block(
         in_review=[CvTransitRow(**asdict(r)) for r in transit.in_review],
         sent=[CvTransitRow(**asdict(r)) for r in transit.sent],
         returned_total=transit.returned_total,
+        returned_to_fix_total=transit.returned_to_fix_total,
         in_review_total=transit.in_review_total,
         sent_total=transit.sent_total,
         returned_window_days=cv_in_transit.RETURNED_WINDOW_DAYS,

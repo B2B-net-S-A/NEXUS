@@ -44,7 +44,7 @@ from app.services.dl_send_queue import local_date, reviewer_scope_clause
 TO_CHECK_WINDOW_DAYS = 14
 MAX_ROWS = 30
 
-_FIX_KINDS = frozenset({transit.KIND_SENT_BACK, transit.KIND_CPRO_RETURNED})
+_FIX_KINDS = transit.RETURNED_TO_FIX_KINDS
 
 
 @dataclass(frozen=True)

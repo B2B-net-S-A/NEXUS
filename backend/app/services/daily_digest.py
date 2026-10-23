@@ -19,6 +19,7 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 from app.core.scheduling import business_today
+from app.services.cv_in_transit import RETURNED_TO_FIX_KINDS
 from app.services.dl_send_queue import local_date
 from app.services.email import absolute_link, open_button_html
 
@@ -137,11 +138,15 @@ def build_sections(
     )
     out.append(_section("Do wrzucenia do Cpro", _pair_rows(tasks.cpro_to_send)))
     if transit is not None:
+        # Odrzucenie przez DL to nie CV do poprawy — zamknięta karta stałaby
+        # w mailu codziennie przez 14 dni (zgłoszenie z 23.10.2026).
         out.append(
             _section(
                 "CV wróciło do poprawy",
-                _pair_rows(transit.returned),
-                transit.returned_total,
+                _pair_rows(
+                    [r for r in transit.returned if r.kind in RETURNED_TO_FIX_KINDS]
+                ),
+                transit.returned_to_fix_total,
             )
         )
     agreements = tasks.agreements

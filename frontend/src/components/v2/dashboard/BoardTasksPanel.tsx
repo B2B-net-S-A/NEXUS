@@ -95,6 +95,7 @@ import {
 import { countPl } from "@/lib/plural-pl";
 import { withoutHiddenPanels, type DashboardPanelKey } from "@/lib/dashboard-panels";
 import { toCompleteCounts, withoutToCompleteLists } from "@/lib/dashboard-to-complete";
+import { transitToFixTotal } from "@/lib/cv-in-transit";
 
 import {
   AgreementTasksSection,
@@ -319,9 +320,10 @@ export function BoardTasksPanel({
   }
 
   const cproGroups = groupCproByJob(data.cpro_to_send);
-  // „Twoje CV w drodze” z czymś, co wróciło, to Twój ruch (popraw i oddaj);
-  // samo czekanie na przegląd i klienta — „U innych”.
-  const transitIsMine = (transit?.returned_total ?? 0) > 0;
+  // „Twoje CV w drodze” z czymś, co wróciło do poprawy, to Twój ruch (popraw
+  // i oddaj); czekanie na przegląd i klienta albo samo odrzucenie przez DL —
+  // „U innych”.
+  const transitIsMine = transit ? transitToFixTotal(transit) > 0 : false;
   const othersGroup =
     (Boolean(transit) && !transitIsMine) ||
     data.cpro_sent.length > 0 ||

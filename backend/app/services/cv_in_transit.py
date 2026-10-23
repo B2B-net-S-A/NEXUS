@@ -69,6 +69,10 @@ KIND_CPRO_RETURNED = "cpro_returned"
 KIND_IN_REVIEW = "in_review"
 KIND_CPRO_QUEUE = "cpro_queue"
 KIND_SENT = "sent"
+# „Wróciło”, które jest ruchem rekrutera (popraw i oddaj). Odrzucenie przez
+# Delivery Leada to informacja o decyzji, nie CV do poprawy (23.10.2026):
+# zostaje na liście, ale nie liczy się do „Twój ruch” ani do porannego maila.
+RETURNED_TO_FIX_KINDS = frozenset({KIND_SENT_BACK, KIND_CPRO_RETURNED})
 
 CV_SENT_COLUMN = "cv_sent"
 _QC_INDEX = BOARD_COLUMN_ORDER.index(CV_QC_COLUMN)
@@ -129,6 +133,7 @@ class CvInTransit:
     in_review: list[TransitRow] = field(default_factory=list)
     sent: list[TransitRow] = field(default_factory=list)
     returned_total: int = 0
+    returned_to_fix_total: int = 0
     in_review_total: int = 0
     sent_total: int = 0
 
@@ -567,6 +572,9 @@ async def load_for_user(
     out.sent.sort(key=lambda t: t.since, reverse=True)
     out.in_review.sort(key=lambda t: t.since)
     out.returned_total = len(out.returned)
+    out.returned_to_fix_total = sum(
+        1 for r in out.returned if r.kind in RETURNED_TO_FIX_KINDS
+    )
     out.in_review_total = len(out.in_review)
     out.sent_total = len(out.sent)
     out.returned = out.returned[:MAX_ROWS]
