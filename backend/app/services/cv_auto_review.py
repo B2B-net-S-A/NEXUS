@@ -4,14 +4,18 @@ Dokument zakolejkowany przez system po ruchu na „Zweryfikowany"
 (``origin="auto"``) wymaga przeglądu, dopóki człowiek go nie zatwierdził
 istniejącą ścieżką: nie ma zatwierdzonej wersji z tej generacji
 (``cv_document_versions``) i żaden etap nie ma go jako ZATWIERDZONEGO
-brandowanego CV. Automat nigdy nie zatwierdza sam.
+brandowanego CV. Automat nigdy nie zatwierdza sam. Odrzucone w karcie
+„CV do klienta” (audyt 22.10, F64) nie czeka na przegląd.
 """
 
 from sqlalchemy import and_, exists, select
 
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_document_version import CvDocumentVersion
-from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.cv_generated_document import (
+    CvGeneratedDocument,
+    not_discarded_clause,
+)
 
 
 def needs_review_clause():
@@ -27,7 +31,10 @@ def needs_review_clause():
         )
     )
     return and_(
-        CvGeneratedDocument.origin == "auto", ~approved_version, ~finalized_on_stage
+        CvGeneratedDocument.origin == "auto",
+        ~approved_version,
+        ~finalized_on_stage,
+        not_discarded_clause(),
     )
 
 

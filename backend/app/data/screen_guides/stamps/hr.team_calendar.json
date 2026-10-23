@@ -2,6 +2,6 @@
   "entry": "b25bb84e80c7e2dfcec070f75ad68533abdae7dd8e52d8029e712932b6f74779",
   "guide": "hr.team_calendar",
   "sources": {
-    "frontend/src/components/hr/leave/TeamCalendar.tsx": "07d6ee21921964f80ab820d09751855eab28ccd880f5ab11f8972fc9e9fae910"
+    "frontend/src/components/hr/leave/TeamCalendar.tsx": "689547c5fef8791ce5b3c6d41c91d56d4b683899ebe85dfdb59521edc8b4304a"
   }
 }

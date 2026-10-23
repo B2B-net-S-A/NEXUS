@@ -19,7 +19,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from app.api.insights_recruitment import stage_counted_from
+from app.api.insights_recruitment import stage_counted_from, trend_weeks
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
@@ -73,6 +73,14 @@ def test_acceptance_before_cutover_is_counted_only_from_cutover() -> None:
     # Etapy z DynaReportera mają liczby także przed 12.10.
     for stage in ("verified", "cv_sent", "client_interview", "hired"):
         assert stage_counted_from(stage, september) is None
+
+
+def test_trend_weeks_end_with_the_current_monday() -> None:
+    weeks = trend_weeks(date(2026, 10, 22), 8)  # czwartek
+    assert len(weeks) == 8
+    assert weeks[-1] == date(2026, 10, 19)
+    assert weeks[0] == date(2026, 8, 31)
+    assert all(w.weekday() == 0 for w in weeks)
 
 
 # ── Liczby z prawdziwej bazy ─────────────────────────────────────────────────
@@ -395,3 +403,40 @@ async def test_funnel_marks_acceptance_as_counted_from_cutover(
     assert conversions["interview_to_acceptance"]["pct"] is None
     assert conversions["acceptance_to_hired"]["pct"] is None
     assert conversions["verified_to_cv_sent"]["partial_window"] is False
+
+
+@pytest.mark.asyncio
+async def test_weekly_trend_marks_acceptance_before_cutover_as_missing(
+    fx_client: AsyncClient,
+) -> None:
+    headers = await _login(fx_client, UserRole.recruiter)
+    resp = await fx_client.get(
+        "/api/insights/recruitment/weekly-trend", headers=headers, params={"weeks": 8}
+    )
+    assert resp.status_code == 200, resp.text
+    weeks = resp.json()["weeks"]
+    assert len(weeks) == 8
+    assert weeks[-1]["partial"] is True
+    for week in weeks:
+        assert set(week["counts"]) == {
+            "verified",
+            "cv_sent",
+            "client_interview",
+            "acceptance",
+            "hired",
+        }
+        if week["week_start"] < "2026-10-12":
+            assert week["counts"]["acceptance"] is None
+        assert isinstance(week["counts"]["hired"], int)
+
+
+@pytest.mark.asyncio
+async def test_team_goals_are_sums_for_any_insights_reader(
+    fx_client: AsyncClient,
+) -> None:
+    headers = await _login(fx_client, UserRole.recruiter)
+    resp = await fx_client.get("/api/insights/recruitment/team-goals", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["kind"] == "team"
+    assert isinstance(body["goals"], list)

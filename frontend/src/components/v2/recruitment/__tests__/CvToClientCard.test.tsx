@@ -428,6 +428,92 @@ describe("CvToClientCard — brak CV", () => {
     expect(order.indexOf("/api/notes")).toBeLessThan(order.indexOf("/api/cv-generator/generate"));
   });
 
+  // Audyt 22.10 (F66): świeżo wgrany Oryginał CV, którego lista generatora
+  // jeszcze nie zna — „Generuj” było wyłączone bez słowa.
+  it("plik spoza listy generatora: panel pyta listę od nowa, a potem mówi, czego brak", async () => {
+    const fresh: CvAiSourceFile = {
+      document_id: 32, filename: "Jan_CV_nowe.pdf", uploaded_at: null, is_primary: true, outdated: false, stage_original: true,
+    };
+    aiSources = { ...AI_SOURCES, original_cv: { ...AI_SOURCES.original_cv, document_id: 32, filename: "Jan_CV_nowe.pdf" }, cv_files: [fresh] };
+    let sourcesCalls = 0;
+    const base = mocks.apiGet.getMockImplementation()!;
+    mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+      if (url === "/api/cv-generator/candidates/121/cv-sources") {
+        sourcesCalls += 1;
+        return Promise.resolve({ data: CV_SOURCES });
+      }
+      return base(url, config);
+    });
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    await confirmAll(panel);
+    await waitFor(() => expect(sourcesCalls).toBe(2));
+    expect(await within(panel).findByTestId("cv-file-not-in-generator")).toHaveTextContent(
+      "Generator nie widzi tego pliku",
+    );
+    expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeDisabled();
+  });
+
+  it("plik, który lista generatora poznaje po odświeżeniu: „Generuj” się odblokowuje", async () => {
+    const fresh: CvAiSourceFile = {
+      document_id: 32, filename: "Jan_CV_nowe.pdf", uploaded_at: null, is_primary: true, outdated: false, stage_original: true,
+    };
+    aiSources = { ...AI_SOURCES, original_cv: { ...AI_SOURCES.original_cv, document_id: 32, filename: "Jan_CV_nowe.pdf" }, cv_files: [fresh] };
+    let sourcesCalls = 0;
+    const base = mocks.apiGet.getMockImplementation()!;
+    mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+      if (url === "/api/cv-generator/candidates/121/cv-sources") {
+        sourcesCalls += 1;
+        const list = sourcesCalls === 1 ? CV_SOURCES : [...CV_SOURCES, { id: 32, filename: "Jan_CV_nowe.pdf", is_primary: true, uploaded_at: null }];
+        return Promise.resolve({ data: list });
+      }
+      return base(url, config);
+    });
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    await confirmAll(panel);
+    const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    await waitFor(() => expect(generatePosts()).toHaveLength(1));
+    expect(generatePosts()[0][1]).toMatchObject({ cv_document_id: 32 });
+  });
+
+  // Audyt 22.10 (F67): nieudana generacja czyściła pole notatki i zdejmowała
+  // potwierdzenie — rekruter wpisywał ją drugi raz i w rekrutacji był duplikat.
+  it("odmowa generacji: notatka zostaje w polu i potwierdzona, ponowienie nie zapisuje jej drugi raz", async () => {
+    let attempt = 0;
+    mocks.apiPost.mockImplementation(async (url: string) => {
+      if (url === "/api/notes") return { data: { id: 1 } };
+      if (url === "/api/cv-generator/generate") {
+        attempt += 1;
+        if (attempt === 1) throw { response: { status: 422, data: { detail: "Ten klient wymaga numeru projektu w CV." } } };
+        return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+      }
+      throw new Error(`unexpected POST ${url}`);
+    });
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    await userEvent.click(await within(panel).findByRole("button", { name: "Potwierdź plik" }));
+    await userEvent.click(within(panel).getByRole("button", { name: /^Potwierdź (odpowiedzi|bez odpowiedzi)$/ }));
+    await userEvent.type(within(panel).getByRole("textbox", { name: "Dodatkowe notatki do CV" }), "Migracja Jenkinsa");
+    await userEvent.click(within(panel).getByRole("button", { name: "Potwierdź notatki" }));
+    const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    expect(await within(panel).findByRole("alert")).toHaveTextContent("Ten klient wymaga numeru projektu w CV.");
+    expect(within(panel).getByTestId("cv-confirm-count")).toHaveTextContent("Potwierdzone 3 z 3");
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    await waitFor(() => expect(attempt).toBe(2));
+    const notePosts = mocks.apiPost.mock.calls.filter(([url]) => url === "/api/notes");
+    expect(notePosts).toHaveLength(1);
+    expect(notePosts[0][1]).toMatchObject({ content: "Migracja Jenkinsa" });
+  }, 20000);
+
   it("odmowa serwera (reguła klienta, 422) stoi w panelu, a panel zostaje otwarty", async () => {
     mocks.apiPost.mockRejectedValue({
       response: { status: 422, data: { detail: "Ten klient wymaga numeru projektu w CV." } },
@@ -838,6 +924,41 @@ describe("CvToClientCard — „Napisz od nowa” (Edytor CV 3, PR 5)", () => {
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/api/cv-generator/generate", expect.anything(), expect.anything()));
     const payload = mocks.apiPost.mock.calls.find(([url]) => url === "/api/cv-generator/generate")![1];
     expect(payload).toMatchObject({ language: "en", project_ref: "PRJ-9" });
+  }, 20000);
+
+  // Audyt 22.10 (F65): „Napisz od nowa” brało plik domyślny zamiast pliku,
+  // z którego powstało poprawiane CV.
+  const CV_FILES: CvAiSourceFile[] = [
+    { document_id: 31, filename: "Jan_Kowalski_CV.pdf", uploaded_at: null, is_primary: true, outdated: false, stage_original: true },
+    { document_id: 30, filename: "stare.docx", uploaded_at: null, is_primary: false, outdated: false, stage_original: false },
+  ];
+
+  it("„Napisz od nowa” pisze z pliku, z którego powstało poprawiane CV", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    aiSources = {
+      ...AI_SOURCES,
+      cv_files: CV_FILES,
+      last_source_cv: { document_id: 30, filename: "stare.docx", outdated: false, stage_original: false, removed: false },
+    };
+    renderCard();
+    await startRewrite("");
+    await waitFor(() => expect(generatePosts()).toHaveLength(1));
+    expect(generatePosts()[0][1]).toMatchObject({ cv_document_id: 30 });
+  }, 20000);
+
+  it("„Napisz od nowa”: plik poprzedniego CV usunięty z profilu — wraca Oryginał CV", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    aiSources = {
+      ...AI_SOURCES,
+      cv_files: CV_FILES,
+      last_source_cv: { document_id: 99, filename: "usuniete.pdf", outdated: false, stage_original: false, removed: true },
+    };
+    renderCard();
+    await startRewrite("");
+    await waitFor(() => expect(generatePosts()).toHaveLength(1));
+    expect(generatePosts()[0][1]).toMatchObject({ cv_document_id: 31 });
   }, 20000);
 
   // Przegląd PR 5: każde ponowienie po błędzie dopisywało kolejną notatkę „Uwaga do CV”.
@@ -1497,7 +1618,9 @@ describe("CvToClientCard — miniatura i menu „⋯” (Edytor CV 3, „Ekran 5
     rows = [{ id: 5, status: "ready" }];
     mocks.discard.mockImplementation(async () => {
       mocks.brandedGet.mockResolvedValue({ data: { status: "none", edit_revision: 4, version: 1 } });
-      rows = [];
+      // Serwer nie kasuje dokumentu generatora — oznacza go jako odrzucony
+      // (audyt 22.10, F64), więc wiersz dalej jest na liście pary.
+      rows = [{ id: 5, status: "ready", discarded: true }];
       return { data: { status: "none", edit_revision: 4, version: 1 } };
     });
     renderCard();
@@ -1508,6 +1631,7 @@ describe("CvToClientCard — miniatura i menu „⋯” (Edytor CV 3, „Ekran 5
     await waitFor(() => expect(mocks.discard).toHaveBeenCalledWith(21, READY.edit_revision));
     expect(mocks.showSuccess).toHaveBeenCalledWith("CV odrzucone. Potwierdź, z czego zrobić nowe.");
     expect(await screen.findByTestId("cv-generate-panel")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Użyj tej wersji/ })).toBeNull();
   });
 
   it("tylko do odczytu: bez „Otwórz i popraw”; w „⋯” zostaje samo „Pobierz PDF”", async () => {

@@ -117,7 +117,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${STAGING_DATABASE_NAME:-nexus}
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
-      CORS_ORIGINS: '["http://localhost:3100"]'
+      # 3101 = front z gałęzi (`npm run dev`) na danych stagingu — wariant „po”
+      # w makietach, docs/claude/ui/makiety-na-stagingu.md
+      CORS_ORIGINS: '["http://localhost:3100", "http://localhost:3101"]'
       PUBLIC_BASE_URL: http://localhost:3100
       PUBLIC_API_BASE_URL: http://localhost:8100
       OBJECT_STORAGE_ENDPOINT: http://s3:7070

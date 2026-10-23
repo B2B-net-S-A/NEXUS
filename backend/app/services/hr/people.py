@@ -104,12 +104,23 @@ async def profile_of(db: AsyncSession, user_id: int) -> Optional[EmployeeProfile
 
 
 async def has_live_profile(db: AsyncSession, user_id: int) -> bool:
-    status = await db.scalar(
-        select(EmployeeProfile.employment_status).where(
-            EmployeeProfile.user_id == user_id
+    """Żywa kartoteka osoby w firmie.
+
+    Rada nadzorcza (0490) nie jest pracownikiem: konto zakłada pierwsze
+    logowanie jako „Pracownik” razem z kartoteką, która po zmianie roli
+    zostaje — nie otwiera katalogu ludzi, samoobsługi ani zgód (audyt 22.10.2026).
+    """
+    row = (
+        await db.execute(
+            select(EmployeeProfile.employment_status, User.role, User.roles)
+            .join(User, User.id == EmployeeProfile.user_id)
+            .where(EmployeeProfile.user_id == user_id)
         )
-    )
-    return status is not None and status != EmploymentStatus.exited
+    ).first()
+    if row is None or row.employment_status == EmploymentStatus.exited:
+        return False
+    board = UserRole.board
+    return row.role != board and board.value not in (row.roles or ())
 
 
 async def can_supervise(db: AsyncSession, user_id: Optional[int]) -> bool:

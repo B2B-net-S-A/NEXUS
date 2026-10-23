@@ -373,13 +373,72 @@ async def test_unchanged_request_is_reviewed_again_after_20_hours():
         await _finish_all(world["job_id"])
 
 
-async def test_job_without_owner_is_skipped():
+async def test_job_without_anyone_is_due_but_has_no_author():
+    """23.10.2026: rekrutacja bez rekrutera też jest w kolejce nocy (silnik
+    dopełniania „Nowych” potrzebuje puli każdej); bez nikogo, kto mógłby być
+    autorem (rekruter, przypisanie, DL, twórca) — pominięcie."""
     world = await _job(owner_id=None)
     async with AsyncSessionLocal() as db:
-        assert world["job_id"] not in await afr.pending_job_ids(
+        assert world["job_id"] in await afr.pending_job_ids(
             db, now=_at(2), limit=10_000
         )
         assert await afr.start_for_job(db, world["job_id"]) == (None, "no_owner")
+
+
+async def _set_job(job_id: int, **fields) -> None:
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        for key, value in fields.items():
+            setattr(job, key, value)
+        await db.commit()
+
+
+async def test_job_without_recruiter_is_reviewed_under_its_delivery_lead():
+    dl_id, _ = await _user(UserRole.delivery_lead)
+    creator_id, _ = await _user()
+    world = await _job(owner_id=None)
+    await _set_job(world["job_id"], delivery_lead_id=dl_id, created_by=creator_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            run_id, reason = await afr.start_for_job(db, world["job_id"])
+            await db.commit()
+        assert reason == "started"
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(CandidateSearchRun, run_id)).created_by == dl_id
+    finally:
+        await _finish_all(world["job_id"])
+
+
+async def test_active_recruiter_assignment_comes_before_the_delivery_lead():
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    dl_id, _ = await _user(UserRole.delivery_lead)
+    recruiter_id, _ = await _user()
+    released_id, _ = await _user()
+    world = await _job(owner_id=None)
+    await _set_job(world["job_id"], delivery_lead_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                JobWorkAssignment(
+                    job_id=world["job_id"],
+                    user_id=released_id,
+                    role="recruiter",
+                    source="manual",
+                    state="released",
+                ),
+                JobWorkAssignment(
+                    job_id=world["job_id"],
+                    user_id=recruiter_id,
+                    role="recruiter",
+                    source="manual",
+                    state="active",
+                ),
+            ]
+        )
+        await db.commit()
+        job = await db.get(Job, world["job_id"])
+        assert await afr._author_id(db, job) == recruiter_id
 
 
 async def test_tick_does_nothing_when_disabled_or_outside_the_window(monkeypatch):
@@ -737,6 +796,93 @@ async def test_finished_auto_run_publishes_only_good_matches(monkeypatch):
         ).all()
         assert event.action == "auto_full_review_finished"
         assert event.details["proposals"] == 1 and event.details["run_id"] == run_id
+
+
+async def _pool(job_id: int) -> list:
+    from app.models.job_autofill_pool import JobAutofillPool
+
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(JobAutofillPool)
+                    .where(JobAutofillPool.job_id == job_id)
+                    .order_by(JobAutofillPool.score.desc())
+                )
+            ).all()
+        )
+
+
+async def test_review_fills_the_autofill_pool_with_every_score(monkeypatch):
+    """23.10.2026: pula dopełniania „Nowych” bierze też osoby poniżej progu
+    propozycji i bez kompletu „musi mieć” — ale tylko dopuszczone i zmierzone,
+    a dowody to same nazwy wymagań."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_MATCH_REQUIRE_MUST", True)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=5)
+    run_id = await _finished_auto_run(world, owner_id)
+    good, below, gap, _unmeasured, _hidden = world["candidate_ids"]
+
+    async with AsyncSessionLocal() as db:
+        await afr.publish_on_finish(db, run_id, eligible=4)
+        await db.commit()
+
+    pool = await _pool(world["job_id"])
+    assert [(p.candidate_id, float(p.score)) for p in pool] == [
+        (good, 91.0),
+        (gap, 88.0),
+        (below, 55.0),
+    ]
+    assert {p.run_id for p in pool} == {run_id}
+    assert all(p.cv_revision for p in pool)
+    assert pool[0].evidence == {"matched_must": ["Python"], "missing_must": []}
+    assert pool[1].evidence == {"matched_must": [], "missing_must": ["Python"]}
+    flat = str([p.evidence for p in pool])
+    assert "cytat z CV" not in flat and "klienta X" not in flat
+    # Propozycje bez zmian: tylko dobre dopasowanie powyżej progu.
+    assert [p.candidate_id for p in await _proposals(world["job_id"])] == [good]
+    async with AsyncSessionLocal() as db:
+        [event] = (
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == afr.ACTIVITY_ENTITY,
+                    Activity.entity_id == world["job_id"],
+                )
+            )
+        ).all()
+    assert event.details["autofill_pool"] == 3
+
+
+async def test_newer_review_replaces_the_pool_and_keeps_its_size(monkeypatch):
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 2)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=4)
+    first, second, third, fourth = world["candidate_ids"]
+    old_run = await _run_with(world, owner_id, {first: 90, second: 80, third: 70})
+    async with AsyncSessionLocal() as db:
+        await afr.publish_on_finish(db, old_run, eligible=3)
+        await db.commit()
+    assert [p.candidate_id for p in await _pool(world["job_id"])] == [first, second]
+
+    new_run = await _run_with(world, owner_id, {third: 95, fourth: 60, first: 50})
+    async with AsyncSessionLocal() as db:
+        await afr.publish_on_finish(db, new_run, eligible=3)
+        await db.commit()
+    pool = await _pool(world["job_id"])
+    assert [p.candidate_id for p in pool] == [third, fourth]
+    assert {p.run_id for p in pool} == {new_run}
+
+
+async def test_job_out_of_work_keeps_no_new_pool(monkeypatch):
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=1)
+    await _set_job(world["job_id"], work_state="client_silent")
+    run_id = await _run_with(world, owner_id, {world["candidate_ids"][0]: 90})
+    async with AsyncSessionLocal() as db:
+        await afr.publish_on_finish(db, run_id, eligible=1)
+        await db.commit()
+    assert await _pool(world["job_id"]) == []
 
 
 async def test_every_good_match_above_the_threshold_is_published(monkeypatch):

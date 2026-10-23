@@ -135,7 +135,10 @@ import {
 } from "@/components/v2/b2b-generator/documents/DocumentDialogs";
 import { apiErrorMessage } from "@/lib/api-error";
 import { CompanySignaturesPanel } from "@/components/v2/b2b-generator/esign/CompanySignaturesPanel";
-import { EsignRowStatus } from "@/components/v2/b2b-generator/esign/EsignRowStatus";
+import {
+  EsignRowStatus,
+  EsignSignedPdfButton,
+} from "@/components/v2/b2b-generator/esign/EsignRowStatus";
 import { SendForSignatureDialog } from "@/components/v2/b2b-generator/esign/SendForSignatureDialog";
 import {
   RegisterAnnexLabel,
@@ -3065,6 +3068,9 @@ export function GeneratedContractsTab({
                                   Dołącz podpisaną umowę
                                 </button>
                               ) : null}
+                              {/* Podpis w NEXUSIE bez założonego kontraktu albo
+                                  pliku: skąd wziąć plik do „Dołącz” (F45). */}
+                              {r.signed_document_id ? null : <EsignSignedPdfButton row={r} />}
                             </div>
                           ) : r.esign || r.can_send_esign ? (
                             <div className="flex flex-col items-start gap-1.5">

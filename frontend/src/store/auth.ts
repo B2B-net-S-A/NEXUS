@@ -209,6 +209,11 @@ export interface User {
    *  "assigned" = tylko klienci z przypisania, "all" = wszyscy; brak dla kont
    *  spoza persony DL. Serwer jest arbitrem — front tylko dopasowuje UX. */
   delivery_client_scope?: "assigned" | "all" | null
+  /** Konto przesuwa karty bez bramek pól (arkusz, stawka, minimum) — ta sama
+   *  reguła co serwer (`pipeline_move_rules.skips_fill_gates`: uprawnienie
+   *  `recruitment_manage` i wyłącznik `DL_SKIPS_FILL_GATES`). Brak pola = nie.
+   *  Audyt 22.10.2026 (F109). */
+  skips_fill_gates?: boolean
 }
 
 /** Role, które muszą przejść blokujący onboarding po pierwszym logowaniu.

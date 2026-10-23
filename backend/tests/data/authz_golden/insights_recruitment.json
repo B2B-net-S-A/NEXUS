@@ -36,6 +36,8 @@
   "GET /api/insights/recruitment/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
   "GET /api/insights/recruitment/seniority": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
   "GET /api/insights/recruitment/team-activity": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/time-to-hire": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
+  "GET /api/insights/recruitment/team-goals": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/time-to-hire": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/weekly-trend": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
  }
 }

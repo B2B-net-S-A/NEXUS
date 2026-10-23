@@ -49,6 +49,9 @@ describe("/preview/finance-approved-expenses", () => {
     // Faktura ponad próg z dopłatą w drodze — „Rozliczone” wyłączone.
     expect(settle.some((button) => button.hasAttribute("disabled"))).toBe(true);
     expect(screen.getByText(/Premie poza umową tylko sumą/)).toBeInTheDocument();
+    // Zgoda „raz” bez dokumentu nie wygasa (decyzja Artura 22.10.2026).
+    expect(screen.getByText("Kosz upominkowy dla klienta")).toBeInTheDocument();
+    expect(screen.queryAllByText(/^wygasa/)).toEqual([]);
     expect(attempted()).toEqual([]);
   });
 

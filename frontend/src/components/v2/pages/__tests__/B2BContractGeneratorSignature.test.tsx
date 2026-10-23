@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   updateGenerated: vi.fn(),
   deleteGenerated: vi.fn(),
   downloadGenerated: vi.fn(),
+  signedPdf: vi.fn(),
+  downloadBlob: vi.fn(),
   showActionToast: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
@@ -71,6 +73,22 @@ vi.mock("@/lib/api", () => ({
   },
   extractErrorMsg: (error: unknown) =>
     error instanceof Error ? error.message : "Błąd",
+}));
+
+vi.mock("@/lib/api/b2bEsign", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/b2bEsign")>();
+  return {
+    ...actual,
+    b2bEsignApi: {
+      ...actual.b2bEsignApi,
+      signedPdf: (...args: unknown[]) => mocks.signedPdf(...args),
+    },
+  };
+});
+
+vi.mock("@/lib/cv-generator", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/cv-generator")>()),
+  downloadBlob: (...args: unknown[]) => mocks.downloadBlob(...args),
 }));
 
 import {
@@ -1033,5 +1051,45 @@ describe("GeneratedContractsTab — podpisany plik umowy (0496)", () => {
     expect(mocks.showSuccess).toHaveBeenCalledWith(
       "Podpisana umowa zapisana w Dokumentach kontraktu.",
     );
+  });
+
+  it("audyt 22.10, F45: wiersz oznaczony ręcznie po podpisie w NEXUSIE daje pobrać plik do „Dołącz”", async () => {
+    const blob = new Blob(["%PDF"]);
+    mocks.signedPdf.mockResolvedValue({ data: blob });
+    const esign = {
+      request_id: 4,
+      status: "completed" as const,
+      contractor_signed_at: "2026-10-21T10:00:00Z",
+      completed_at: "2026-10-22T10:00:00Z",
+      expires_at: "2026-11-04T10:00:00Z",
+      company_signer_name: "Olaf",
+    } as unknown as NonNullable<B2BGeneratedContractRow["esign"]>;
+    const signed = {
+      signature_status: "signed_both" as const,
+      signature_source: "manual_confirmation" as const,
+      contract_id: 91,
+      can_confirm_signed: false,
+      can_delete: false,
+      can_edit: false,
+      can_attach_signed_file: true,
+      esign,
+    };
+    renderTab([
+      generatedRow({ ...signed, id: 2, can_download_signed_esign: true }),
+      generatedRow({
+        ...signed,
+        id: 3,
+        contract_number: "1473/2026",
+        can_download_signed_esign: false,
+      }),
+    ]);
+
+    const buttons = await screen.findAllByRole("button", {
+      name: "Pobierz podpisaną umowę",
+    });
+    expect(buttons).toHaveLength(1);
+    await userEvent.click(buttons[0]);
+    await waitFor(() => expect(mocks.signedPdf).toHaveBeenCalledWith(4));
+    expect(mocks.downloadBlob).toHaveBeenCalledWith(blob, "umowa_4_podpisana.pdf");
   });
 });

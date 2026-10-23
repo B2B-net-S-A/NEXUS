@@ -252,3 +252,47 @@ def test_amount_text_reads_like_the_mockup() -> None:
     request.amount_basis = "gross"
     request.recurrence = "once"
     assert service.amount_text(request) == "1 500,50 zł brutto"
+
+
+@pytest.mark.asyncio
+async def test_context_months_and_years_start_at_warsaw_midnight() -> None:
+    """„NEXUS sprawdził” liczy miesiąc i rok w strefie firmy, jak Finanse
+    (audyt 22.10, F103): granice ``decided_at`` to północ w Warszawie, nie
+    goła data, którą Postgres rzutuje na północ UTC."""
+
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.models.hr_approval import ApprovalRequest
+
+    seen: list[dict] = []
+
+    class _Result:
+        def one(self):
+            return 0, 0
+
+    class _Db:
+        async def execute(self, stmt):
+            seen.append(stmt.compile().params)
+            return _Result()
+
+    request = ApprovalRequest(kind="training", currency="PLN")
+    await service.context_for(
+        _Db(), request, today=date(2026, 11, 1), include_bonuses=False
+    )
+    bounds = {
+        value
+        for params in seen
+        for key, value in params.items()
+        if key.startswith("decided_at")
+    }
+    warsaw = ZoneInfo("Europe/Warsaw")
+    expected = {
+        datetime(2026, 11, 1, tzinfo=warsaw),
+        datetime(2026, 12, 1, tzinfo=warsaw),
+        datetime(2026, 1, 1, tzinfo=warsaw),
+        datetime(2027, 1, 1, tzinfo=warsaw),
+    }
+    assert all(isinstance(value, datetime) for value in bounds), bounds
+    # Zgoda z 1.11 00:30 w Warszawie (31.10 23:30 UTC) wpada więc do listopada.
+    assert bounds == expected

@@ -388,6 +388,13 @@ z odnośnikiem `hr_documents.leave_request_id`.
   zmienić albo wycofać. Płace przyznają od razu jak dotąd. Listy premii niosą
   `can_approve` — front pokazuje „Zatwierdź” tylko wtedy, a po dodaniu przełożony
   widzi „Premia czeka na zatwierdzenie Płac”. Zamknięcie miesiąca i tak wymaga decyzji.
+- **Po zatwierdzeniu przez Płace przełożony nie zmienia kwoty, ale może anulować
+  premię, którą sam przyznał** (decyzja Artura 22.10.2026, audyt 22.10 F15):
+  `update_bonus` daje mu 403 „Przyznaną premię zmieniają Płace” (audyt 21.10.2026),
+  a `cancel_bonus` przepuszcza autora w każdym stanie przy otwartym miesiącu —
+  osoba dostaje dzwonek „Premia została anulowana”. Ekran pokazuje wtedy przy
+  przyznanej premii samo „Anuluj” (`payroll-format.assignedBonusActions`);
+  „Zmień” zostaje tylko przy propozycji i u Płac.
 - Trwałe usunięcie kontraktu anuluje jego propozycje premii automatu
   (`cancel_reason='contract_deleted'`, automat ich nie przywraca); przyznane zostają.
 - Premie: `source` manual / contract_placement / league / compass_import,

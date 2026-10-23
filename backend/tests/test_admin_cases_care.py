@@ -334,6 +334,45 @@ async def test_mine_care_alone_shows_cases_led_by_others(app_client, care_on) ->
     assert led_by_other["id"] not in {item["id"] for item in plain.json()["items"]}
 
 
+async def test_mine_care_for_carer_without_cases_permission_or_own_case(
+    app_client, care_on
+) -> None:
+    """Audyt 22.10, F11: „Moi podopieczni” u opiekuna bez „Spraw” i bez żadnej
+    własnej sprawy — lista spraw podopiecznych (bez treści cudzych), nie 403.
+    Bez ``mine_care`` i poza rolą opieki bramka zostaje jak była."""
+
+    admin = await make_user(UserRole.admin)
+    other = await make_user(UserRole.admin)
+    dl = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=dl)
+    contract_id, _ = await make_contract(client_id)
+    led_by_other = await _case(
+        app_client,
+        admin,
+        contract_id=contract_id,
+        title="Nowy monitor dla konsultanta",
+        assignee_user_id=other.id,
+    )
+
+    cared = await app_client.get(
+        "/api/cases", params={"mine_care": "true"}, headers=headers(dl)
+    )
+    assert cared.status_code == 200, cared.text
+    by_id = {item["id"]: item for item in cared.json()["items"]}
+    assert led_by_other["id"] in by_id
+    assert by_id[led_by_other["id"]]["content_hidden"] is True
+    assert "Nowy monitor" not in json.dumps(cared.json())
+    assert cared.json()["can_manage"] is False
+
+    plain = await app_client.get("/api/cases", headers=headers(dl))
+    assert plain.status_code == 403, plain.text
+    recruiter = await make_user(UserRole.recruiter)
+    refused = await app_client.get(
+        "/api/cases", params={"mine_care": "true"}, headers=headers(recruiter)
+    )
+    assert refused.status_code == 403, refused.text
+
+
 async def test_mine_care_search_does_not_reveal_hidden_case_text(
     app_client, care_on
 ) -> None:

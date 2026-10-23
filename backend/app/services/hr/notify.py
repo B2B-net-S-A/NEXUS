@@ -12,9 +12,11 @@ import logging
 from collections.abc import Iterable
 from typing import Optional
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.notification import NotificationType
+from app.core.scheduling import business_today, local_day_start_utc
+from app.models.notification import Notification, NotificationType
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +33,15 @@ async def notify_each(
     related_entity_id: Optional[int] = None,
     exclude: Iterable[Optional[int]] = (),
     log_tag: str = "hr",
+    fresh: bool = False,
 ) -> int:
-    """Liczba utworzonych powiadomień (deduplikacja ``emit`` też się liczy jako 0)."""
+    """Liczba utworzonych powiadomień (deduplikacja ``emit`` też się liczy jako 0).
+
+    ``fresh=True`` — nowa zmiana stanu tej samej sprawy tego samego dnia
+    (np. zgoda po poprawce): dzisiejszy wiersz osoby z tym typem i id encji
+    zostaje w dzwonku, ale traci ``related_entity_id``, więc dzienny dedup
+    (``ix_notif_dedup_daily``) nie połyka nowego dzwonka ani maila.
+    """
 
     # Import w funkcji: ``notification_triggers`` ciągnie pół aplikacji,
     # a serwisy HR importuje się też z tras i pętli.
@@ -45,6 +54,18 @@ async def notify_each(
             continue
         try:
             async with db.begin_nested():
+                if fresh and related_entity_id is not None:
+                    await db.execute(
+                        update(Notification)
+                        .where(
+                            Notification.user_id == user_id,
+                            Notification.notification_type == ntype,
+                            Notification.related_entity_id == related_entity_id,
+                            Notification.created_at
+                            >= local_day_start_utc(business_today()),
+                        )
+                        .values(related_entity_id=None)
+                    )
                 created = await emit(
                     db,
                     user_id=user_id,

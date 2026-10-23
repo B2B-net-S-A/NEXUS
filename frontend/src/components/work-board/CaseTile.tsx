@@ -194,14 +194,19 @@ export function CaseTile({
           <span className="sr-only">{card.priority}</span>
         </span>
         <div className="min-w-0">
-          <button
-            type="button"
-            onClick={onOpen}
-            aria-label={`Sprawa: ${card.title}`}
-            className="line-clamp-2 text-left font-semibold text-foreground hover:underline"
-          >
-            {card.title}
-          </button>
+          {card.content_hidden ? (
+            // Czytający nie otworzy sprawy (brak dostępu) — karta bez linku.
+            <span className="line-clamp-2 font-semibold text-foreground">{card.title}</span>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpen}
+              aria-label={`Sprawa: ${card.title}`}
+              className="line-clamp-2 text-left font-semibold text-foreground hover:underline"
+            >
+              {card.title}
+            </button>
+          )}
           {card.contract ? (
             <ContractSubline card={card} careLinks={careLinks} />
           ) : (

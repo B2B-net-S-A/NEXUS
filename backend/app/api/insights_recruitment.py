@@ -23,7 +23,7 @@ Trzy decyzje, które trzymają ten moduł uczciwym:
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -36,12 +36,13 @@ from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
-from app.core.scheduling import business_today, local_now
+from app.core.scheduling import business_today, local_day_start_utc, local_now
 from app.models.user import UserRole
 from app.services import competition_history
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
 from app.services.insights_competence_matrix import compute_competence_matrix
 from app.services.insights_in_flight import compute_in_flight
+from app.services.integration_insights import company_team_goals
 from app.services.insights_person_scope import (
     OUTSIDE_SCOPE_LABEL,
     outside_scope_user_ids,
@@ -514,6 +515,94 @@ async def insights_recruitment_in_flight_me(
             person["candidate_id"] = None
             person["candidate_name"] = None
     return result
+
+
+@router.get("/team-goals")
+async def insights_recruitment_team_goals(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cele zespołu rekrutacji — te same sumy, które Head of Recruitment ma
+    w liczniku górnego paska (`integration_insights.company_team_goals`).
+
+    Dla każdego, kto widzi Insights: same sumy celów i pracy, bez osób.
+    """
+    result = await company_team_goals(db, now=local_now())
+    return result.as_dict()
+
+
+TREND_STAGES = ("verified", "cv_sent", "client_interview", "acceptance", "hired")
+
+
+def trend_weeks(today: date, weeks: int) -> list[date]:
+    """Poniedziałki ostatnich `weeks` tygodni, ostatni = bieżący tydzień."""
+
+    monday = today - timedelta(days=today.weekday())
+    return [monday - timedelta(weeks=weeks - 1 - i) for i in range(weeks)]
+
+
+@router.get("/weekly-trend")
+async def insights_recruitment_weekly_trend(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    weeks: int = Query(8, ge=4, le=26),
+):
+    """Ostatnie tygodnie lejka: pierwsze wejścia par na etap w tygodniu.
+
+    Tydzień od poniedziałku w Europe/Warsaw, bieżący oznaczony `partial`.
+    Akceptacje sprzed 12.10.2026 to `None` (nikt ich nie odnotowywał), nie 0.
+    """
+    today = business_today()
+    mondays = trend_weeks(today, weeks)
+    start = local_day_start_utc(mondays[0])
+    end = local_day_start_utc(mondays[-1] + timedelta(days=7))
+    cache_key = f"insights:recruitment:weekly-trend:v1:{weeks}:{today.isoformat()}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+        rows = (
+            await db.execute(
+                text(
+                    """
+                    SELECT (date_trunc(
+                              'week', fm.first_reached_at AT TIME ZONE 'Europe/Warsaw'
+                           ))::date AS week_start,
+                           fm.stage::text AS stage,
+                           count(*) AS cnt
+                    FROM analytics_kpi_milestones fm
+                    WHERE fm.first_reached_at >= :start
+                      AND fm.first_reached_at < :end
+                      AND fm.stage::text = ANY(:stages)
+                    GROUP BY 1, 2
+                    """
+                ),
+                {"start": start, "end": end, "stages": list(TREND_STAGES)},
+            )
+        ).all()
+        counts: dict[tuple[date, str], int] = {
+            (week, stage): int(cnt) for week, stage, cnt in rows
+        }
+        cutover = competition_history.RESULTS_CUTOVER
+        result = {
+            "weeks": [
+                {
+                    "week_start": monday.isoformat(),
+                    "partial": monday + timedelta(days=7) > today,
+                    "counts": {
+                        stage: (
+                            None
+                            if stage not in HISTORY_STAGES and monday < cutover
+                            else counts.get((monday, stage), 0)
+                        )
+                        for stage in TREND_STAGES
+                    },
+                }
+                for monday in mondays
+            ],
+        }
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
 
 
 @router.get("/available-periods")

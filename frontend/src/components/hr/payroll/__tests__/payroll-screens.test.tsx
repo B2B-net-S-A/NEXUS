@@ -5,7 +5,7 @@ import type { BonusRow, PayrollMonthDetail, PayrollPerson } from "@/lib/api/hr-p
 
 import { BonusTable } from "../BonusTable";
 import { PayrollPeopleTable } from "../PayrollPeopleTable";
-import { monthStats, splitBonuses } from "../payroll-format";
+import { assignedBonusActions, monthStats, splitBonuses } from "../payroll-format";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -115,6 +115,33 @@ describe("Płace — premie", () => {
     expect(parts.toDecide.map((b) => b.id)).toEqual([11]);
     expect(parts.assigned.map((b) => b.id)).toEqual([12]);
     expect(parts.cancelled).toBe(1);
+  });
+
+  it("przyznana premia: przełożony nie zmienia kwoty, ale może anulować swoją (decyzja 22.10.2026)", () => {
+    const boss = { open: true, payroll: false, meId: 5 };
+    const assignedByBoss = proposal({ status: "assigned", source: "manual", proposed_by: 5 });
+    expect(assignedBonusActions(assignedByBoss, boss)).toEqual({ edit: false, cancel: true });
+    expect(assignedBonusActions({ ...assignedByBoss, status: "proposed" }, boss)).toEqual({
+      edit: true,
+      cancel: true,
+    });
+    expect(assignedBonusActions({ ...assignedByBoss, proposed_by: 9 }, boss)).toEqual({
+      edit: false,
+      cancel: false,
+    });
+    expect(assignedBonusActions(assignedByBoss, { ...boss, open: false })).toEqual({
+      edit: false,
+      cancel: false,
+    });
+    const payroll = { open: true, payroll: true, meId: 2 };
+    expect(assignedBonusActions({ ...assignedByBoss, proposed_by: 9 }, payroll)).toEqual({
+      edit: true,
+      cancel: true,
+    });
+    expect(assignedBonusActions({ ...assignedByBoss, recipient_user_id: 2 }, payroll)).toEqual({
+      edit: false,
+      cancel: false,
+    });
   });
 
   it("sumy miesiąca tylko dla Płac", () => {

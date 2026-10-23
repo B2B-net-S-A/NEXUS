@@ -37,6 +37,18 @@ Decyzje Artura 22.10.2026 (wszystkie rekomendowane warianty):
   (`pipeline._still_missing`: arkusz, stawka etapu albo profilu, `minimum_missing`;
   debrief zostaje) — uzupełnione ją gaszą. Formularz screeningu DL-a przekazuje dalej bez
   odpowiedzi i minimum; stopka dalej mówi, czego brakuje.
+- **Wyłącznik działa też na interfejs** (decyzja Artura 22.10.2026, audyt F109).
+  Front nie liczy „DL przesuwa bez bramek” z samego uprawnienia
+  `recruitment_manage`, tylko czyta `skips_fill_gates` z `/api/auth/me`
+  (`user_response.build_user_response` → `pipeline_move_rules.skips_fill_gates`,
+  czyli uprawnienie i `DL_SKIPS_FILL_GATES`). Przy `DL_SKIPS_FILL_GATES=false`
+  DL znowu widzi okna jak przed #2581: szarą strzałkę, okno minimum, okno stawki
+  przy „Zweryfikowany” i walidację formularzy screeningu, a w „Dodaj do rekrutacji”
+  nie ma wyboru „Na etap: Zweryfikowany”. Flagę czytają `KanbanBoardV2`
+  (`skipsFillGates`, osobno od `canReviewAsDl`, które dalej oznacza prawo wysyłki
+  do klienta), `usePipelineMove`, `ScreeningFullForm`, `JointScreeningForm`
+  i `AddToRecruitmentDialog`. Nowe miejsce, które omija bramki pól dla DL-a,
+  czyta tę flagę, nie uprawnienie.
 - **Dodanie od razu na „Zweryfikowany”.** W oknie „Dodaj do rekrutacji” osoba
   z tym uprawnieniem przy jednej osobie wybiera „Na etap: Nowi / Zweryfikowany”
   (`AddToRecruitmentDialog`). Dodanie idzie jak zawsze (`proposals/bulk`), a drugi
@@ -46,7 +58,12 @@ Decyzje Artura 22.10.2026 (wszystkie rekomendowane warianty):
 - **Dzwonek do prowadzącego.** Wejście DL-a na „Zweryfikowany” mimo braków dzwoni do
   `jobs.recruiter_id` (gdy to ktoś inny niż DL): „<DL> przesunął(-ęła) <osoba> na
   „Zweryfikowany”” z listą braków (`pipeline._notify_recruiter_of_skip`, typ
-  `stage_changed`). Sam przeskok debriefu nie dzwoni.
+  `stage_changed`). Sam przeskok debriefu nie dzwoni. Decyzja Artura 22.10.2026
+  (audyt, F58): dzwoni każde przejście DL-a przez „Zweryfikowany” od lewej, także
+  przeskok z Nowych/Screeningu od razu na „QC CV” czy dalej — wtedy tytuł wymienia
+  kolumnę docelową. Warunek to niepusta lista braków z
+  `assert_verified_requirements` (zwraca je tylko przy wejściu z Nowych/Screeningu),
+  nie `target_column == "verified"`.
 - **Rekruter bez zmian.** Każda bramka z `kanban-bez-bramek.md` i
   `minimum-dla-dl-przed-zweryfikowany.md` dalej go zatrzymuje.
 - **D4 — jedna premia.** Gdy pierwszym weryfikującym jest Delivery Lead kontraktu,

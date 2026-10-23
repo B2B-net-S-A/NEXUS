@@ -16,18 +16,21 @@ Przebudowa Insights z 24.09.2026 (makiety: widok Zespół). Trzy rzeczy, które
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Iterable, Optional
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.periods import Period
+from app.analytics.periods import Period, PeriodKind
+from app.models.user import User
+from app.services.insights_in_flight import in_flight_by_verifier
 from app.services.insights_person_scope import (
     OUTSIDE_SCOPE_LABEL,
     outside_scope_user_ids,
 )
+from app.services.kpi_targets import resolve_kpi_targets_bulk
 from app.services.kpi_team import TeamPanelResult, compute_team_panel
 from app.services.order_burn_rate import workdays_between
 from app.services.request_work_state import WORK_STATES
@@ -97,6 +100,11 @@ class TeamPeople:
     # Konta bez roli rekrutacyjnej (admin, Finanse…) — poza tabelą osób,
     # jednym wierszem (reguła Hall of Fame, `insights_person_scope`).
     outside_user_ids: frozenset[int] = frozenset()
+    # Cel placementów osoby — tylko w oknie miesiąca (cel jest miesięczny;
+    # przy kwartale czy roku „2 / 1” byłoby porównaniem dwóch różnych okien).
+    placements_targets: Optional[dict[int, int]] = None
+    # Pary w drodze dziś (pierwszy weryfikujący) — stan, nie okno.
+    in_flight: dict[int, int] = field(default_factory=dict)
 
 
 async def current_team_panel(
@@ -118,11 +126,27 @@ async def team_people(
     outside = await outside_scope_user_ids(
         db, [r.user_id for r in current.rows] + [r.user_id for r in previous.rows]
     )
+    targets: Optional[dict[int, int]] = None
+    if period.kind is PeriodKind.month:
+        users = list(
+            (
+                await db.scalars(
+                    select(User).where(User.id.in_([r.user_id for r in current.rows]))
+                )
+            ).all()
+        )
+        resolved = await resolve_kpi_targets_bulk(db, users, ["monthly_placements"])
+        targets = {
+            uid: per_kpi.get("monthly_placements", 0)
+            for uid, per_kpi in resolved.items()
+        }
     return TeamPeople(
         current=current,
         previous=previous,
         workdays=workdays_in_window(period.start, period.end, today),
         outside_user_ids=frozenset(outside),
+        placements_targets=targets,
+        in_flight=await in_flight_by_verifier(db),
     )
 
 
@@ -135,6 +159,7 @@ def people_payload(people: TeamPeople) -> dict:
         "verifications": 0,
         "recommendations": 0,
         "interviews": 0,
+        "acceptances": 0,
         "placements": 0,
         "previous_placements": sum(
             r.placementy for r in people.previous.rows if r.user_id in outside
@@ -150,6 +175,7 @@ def people_payload(people: TeamPeople) -> dict:
             outside_row["verifications"] += r.weryfikacje
             outside_row["recommendations"] += r.rekomendacje
             outside_row["interviews"] += r.interview
+            outside_row["acceptances"] += r.akceptacje
             outside_row["placements"] += r.placementy
             continue
         prev = previous.get(r.user_id)
@@ -162,7 +188,14 @@ def people_payload(people: TeamPeople) -> dict:
                 "verifications": r.weryfikacje,
                 "recommendations": r.rekomendacje,
                 "interviews": r.interview,
+                "acceptances": r.akceptacje,
                 "placements": r.placementy,
+                "placements_target": (
+                    people.placements_targets.get(r.user_id)
+                    if people.placements_targets is not None
+                    else None
+                ),
+                "in_flight": people.in_flight.get(r.user_id, 0),
                 "previous_placements": prev.placementy if prev else 0,
                 "verifications_per_workday": (
                     round(r.weryfikacje / people.workdays, 1)
@@ -189,7 +222,10 @@ def people_payload(people: TeamPeople) -> dict:
                 "verifications": 0,
                 "recommendations": 0,
                 "interviews": 0,
+                "acceptances": 0,
                 "placements": 0,
+                "placements_target": None,
+                "in_flight": people.in_flight.get(p.user_id, 0),
                 "previous_placements": p.placementy,
                 "verifications_per_workday": 0.0 if people.workdays else None,
                 "precision_pct": p.precision_pct,
@@ -208,6 +244,7 @@ def people_payload(people: TeamPeople) -> dict:
             "verifications": unattributed.get("verified", 0),
             "recommendations": unattributed.get("cv_sent", 0),
             "interviews": unattributed.get("client_interview", 0),
+            "acceptances": unattributed.get("acceptance", 0),
             "placements": unattributed.get("hired", 0),
         },
         "workdays": people.workdays,
@@ -217,6 +254,7 @@ def people_payload(people: TeamPeople) -> dict:
             "verifications": totals.weryfikacje,
             "recommendations": totals.rekomendacje,
             "interviews": totals.interview,
+            "acceptances": totals.akceptacje,
             "placements": totals.placementy,
             "precision_pct": totals.precision_pct,
             "people": totals.people,
@@ -226,6 +264,7 @@ def people_payload(people: TeamPeople) -> dict:
             "verifications": prev_totals.weryfikacje,
             "recommendations": prev_totals.rekomendacje,
             "interviews": prev_totals.interview,
+            "acceptances": prev_totals.akceptacje,
             "placements": prev_totals.placementy,
         },
     }

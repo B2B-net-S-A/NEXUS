@@ -5,18 +5,29 @@
  * „Ranking kandydatów” zmienia tylko wagi ogólne). Każda zmiana trafia do
  * historii panelu jako „edycja administratora” i NIE przechodzi pomiaru —
  * dlatego ten edytor widzi wyłącznie admin.
+ *
+ * Decyzja Artura 22.10.2026 (audyt F60): tutaj powstaje WYŁĄCZNIE profil
+ * klienta albo osoby. Profil ogólny (bez klienta i osoby) to wagi dla
+ * wszystkich — zmienia je tylko panel, po pomiarze; na liście jest do odczytu
+ * (serwer i tak odmawia 409).
  */
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Plus, Save, Trash2 } from "lucide-react";
 
-import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import {
+  ClientSinglePicker,
+  type ClientRef,
+} from "@/components/clients/ClientSinglePicker";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import api, {
   scoringWeightsApi,
   type ScoringWeightProfile,
+  type ScoringWeightProfileCreate,
   type ScoringWeights,
 } from "@/lib/api";
+import type { DirectoryPerson } from "@/lib/request-board";
 import { apiErrorMessage } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 
@@ -71,6 +82,100 @@ function normalizeWeights(w: ScoringWeights): Required<ScoringWeights> {
   return { ...w, champion_fit: w.champion_fit ?? 10 };
 }
 
+/** Profil ogólny — wagi dla wszystkich, zmienia je tylko panel. */
+function isGeneral(profile: ScoringWeightProfile): boolean {
+  return profile.client_id == null && profile.user_id == null;
+}
+
+type Scope = "client" | "user";
+
+/** Wybór klienta albo osoby — bez niego nowy profil byłby profilem ogólnym. */
+function ScopePicker({
+  scope,
+  onScope,
+  client,
+  onClient,
+  userId,
+  onUserId,
+}: {
+  scope: Scope;
+  onScope: (scope: Scope) => void;
+  client: ClientRef | null;
+  onClient: (client: ClientRef | null) => void;
+  userId: string;
+  onUserId: (userId: string) => void;
+}) {
+  // Ten sam klucz co inne listy osób — jedno zapytanie na ekran.
+  const people = useQuery<DirectoryPerson[]>({
+    queryKey: ["users-directory"],
+    queryFn: () => api.get("/api/users").then((r) => r.data),
+    staleTime: 60_000,
+    enabled: scope === "user",
+  });
+  const active = (Array.isArray(people.data) ? people.data : [])
+    .filter((person) => person.is_active !== false)
+    .sort((a, b) => a.name.localeCompare(b.name, "pl"));
+
+  return (
+    <fieldset className="min-w-0 space-y-2">
+      <legend className="text-xs font-medium text-foreground">
+        Dla kogo ten profil
+      </legend>
+      <div className="flex flex-wrap gap-4 text-sm text-foreground">
+        {(
+          [
+            ["client", "Klient"],
+            ["user", "Osoba"],
+          ] as const
+        ).map(([value, label]) => (
+          <label key={value} className="inline-flex items-center gap-1.5">
+            <input
+              type="radio"
+              name="scoring-profile-scope"
+              value={value}
+              checked={scope === value}
+              onChange={() => onScope(value)}
+              className="accent-primary"
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+      {scope === "client" ? (
+        <ClientSinglePicker
+          value={client}
+          onChange={onClient}
+          queryKey="scoring-profile-clients"
+        />
+      ) : people.isError ? (
+        <p role="alert" className="text-xs text-destructive">
+          {apiErrorMessage(people.error, "Nie udało się pobrać listy osób.")}
+        </p>
+      ) : (
+        <select
+          aria-label="Osoba"
+          value={userId}
+          onChange={(e) => onUserId(e.target.value)}
+          disabled={!people.isSuccess}
+          className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm text-foreground"
+        >
+          <option value="">
+            {people.isSuccess ? "Wybierz osobę…" : "Ładowanie listy osób…"}
+          </option>
+          {active.map((person) => (
+            <option key={person.id} value={person.id}>
+              {person.name}
+            </option>
+          ))}
+        </select>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Wagi ogólne zmienia się wyżej, w panelu — po pomiarze na historii.
+      </p>
+    </fieldset>
+  );
+}
+
 interface ProfileEditorProps {
   initial?: ScoringWeightProfile | null;
   onSaved: () => void;
@@ -83,18 +188,21 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
     initial?.weights ? normalizeWeights(initial.weights) : DEFAULT_WEIGHTS
   );
   const [active, setActive] = useState(initial?.active ?? true);
+  const [scope, setScope] = useState<Scope>("client");
+  const [client, setClient] = useState<ClientRef | null>(null);
+  const [userId, setUserId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const total = sum(weights);
-  const valid = total === 100 && name.trim().length >= 2;
+  // Istniejący profil zostaje przy swoim kliencie albo osobie (PATCH bez
+  // tych pól ich nie zmienia); nowy musi mieć jedno z dwóch.
+  const scoped = Boolean(initial) || (scope === "client" ? client !== null : userId !== "");
+  const valid = total === 100 && name.trim().length >= 2 && scoped;
 
   const qc = useQueryClient();
   const createMut = useMutation({
-    mutationFn: (payload: {
-      name: string;
-      weights: ScoringWeights;
-      active: boolean;
-    }) => scoringWeightsApi.create(payload),
+    mutationFn: (payload: ScoringWeightProfileCreate) =>
+      scoringWeightsApi.create(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["scoring-weights"] });
       onSaved();
@@ -120,13 +228,22 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
 
   const handleSubmit = () => {
     if (!valid) {
-      setError(`Suma wag musi wynosić 100 (obecnie: ${total})`);
+      setError(
+        scoped
+          ? `Suma wag musi wynosić 100 (obecnie: ${total})`
+          : "Wybierz klienta albo osobę.",
+      );
       return;
     }
     setError(null);
     const payload = { name: name.trim(), weights, active };
     if (initial) updateMut.mutate(payload);
-    else createMut.mutate(payload);
+    else
+      createMut.mutate(
+        scope === "client"
+          ? { ...payload, client_id: client!.id }
+          : { ...payload, user_id: Number(userId) },
+      );
   };
 
   const updateLayer = (layer: keyof ScoringWeights, value: number) => {
@@ -154,6 +271,17 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
           Aktywny
         </label>
       </div>
+
+      {!initial && (
+        <ScopePicker
+          scope={scope}
+          onScope={setScope}
+          client={client}
+          onClient={setClient}
+          userId={userId}
+          onUserId={setUserId}
+        />
+      )}
 
       {/* Stacked bar preview */}
       <div
@@ -277,6 +405,13 @@ function ProfileRow({
               nieaktywny
             </span>
           )}
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+            {isGeneral(profile)
+              ? "wagi ogólne — zmienia się w panelu"
+              : profile.user_id != null
+                ? "osoba"
+                : "klient"}
+          </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-muted-foreground dark:text-muted-foreground">
           {(Object.keys(profile.weights) as Array<keyof ScoringWeights>).map((k) => (
@@ -344,7 +479,8 @@ export function ScoringProfilesAdmin() {
       <div className="flex flex-wrap items-center gap-3">
         <p className="min-w-0 flex-1 basis-64 text-sm text-muted-foreground">
           Profil klienta albo osoby zastępuje wagi ogólne. Zmiana tutaj działa od razu, bez
-          pomiaru na historii — zostaje w historii zmian.
+          pomiaru na historii — zostaje w historii zmian. Wagi ogólne zmienia się tylko
+          w panelu wyżej.
         </p>
         {editing === null && (
           <button
@@ -384,7 +520,7 @@ export function ScoringProfilesAdmin() {
             <ProfileRow
               key={p.id}
               profile={p}
-              canEdit
+              canEdit={!isGeneral(p)}
               onEdit={() => setEditing(p)}
               onDelete={async () => {
                 if (

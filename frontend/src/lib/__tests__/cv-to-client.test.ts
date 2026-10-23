@@ -42,6 +42,22 @@ describe("stageCvStatus / stageCvBadge", () => {
 });
 
 describe("resolveCvToClient", () => {
+  it("audyt 22.10 (F64): CV odrzucone „Odrzuć to CV” nie wraca jako „Użyj tej wersji”", () => {
+    const state = resolveCvToClient({
+      branded: { status: "none", generated_document_id: null },
+      rows: [row({ id: 7, discarded: true }), row({ id: 5, discarded: true })],
+    });
+    expect(state.kind).toBe("none");
+    expect(state.candidate).toBeNull();
+    // Nowa generacja po odrzuceniu jest znowu CV do podpięcia.
+    const fresh = resolveCvToClient({
+      branded: { status: "none", generated_document_id: null },
+      rows: [row({ id: 9 }), row({ id: 7, discarded: true })],
+    });
+    expect(fresh.kind).toBe("unattached");
+    expect(fresh.candidate?.id).toBe(9);
+  });
+
   it("gotowe CV niesie brak zgody RODO i auto-CV do przejrzenia (bez osobnego licznika kontroli AI)", () => {
     const state = resolveCvToClient({
       branded: { status: "draft", from_generator: true, generated_document_id: 5 },

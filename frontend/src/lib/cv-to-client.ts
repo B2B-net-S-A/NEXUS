@@ -75,6 +75,8 @@ export interface StageGeneratedCvRow {
   consent_required?: boolean;
   /** …i dokument go nie ma — pobranie odpowie 409 `consent_required`. */
   consent_missing?: boolean;
+  /** Odrzucone „Odrzuć to CV” — zostaje w plikach, ale nie jest CV pary. */
+  discarded?: boolean;
 }
 
 /** Część `CVBrandedState`, której karta potrzebuje. */
@@ -234,7 +236,8 @@ export function resolveCvToClient({
   const pending = pendingGeneratedId != null
     ? (list.find((r) => r.id === pendingGeneratedId) ?? null)
     : null;
-  const latestReady = list.find((r) => r.status === "ready") ?? null;
+  // Odrzucone „Odrzuć to CV” nie wraca jako „Użyj tej wersji” (audyt 22.10).
+  const latestReady = list.find((r) => r.status === "ready" && !r.discarded) ?? null;
   const attachedPackage = attached?.package_id ?? null;
   // CV wybrane zamiast generacji (kopia, plik) nie ma wiersza generatora,
   // więc każda gotowa generacja wyglądałaby na „nowszą”. Proponujemy tylko

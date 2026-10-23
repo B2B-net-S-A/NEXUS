@@ -72,7 +72,6 @@ import { useCapability } from "@/hooks/useCapability";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { candidatesApi, type RateUnit, type ScreeningQuestion } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
-import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/auth";
 import { recommendationCardsApi, type NoteProposal } from "@/lib/api/recommendationCards";
 import type { NoteFillChannel, NoteFillReceiver } from "@/lib/note-fill-channel";
@@ -1209,8 +1208,9 @@ export function ScreeningFullForm({
   const { showSuccess, showError, showInfo, showActionToast } = useToast();
   const queryClient = useQueryClient();
   // 22.10.2026: Delivery Lead przekazuje dalej bez kompletu pól — serwer też
-  // go przepuszcza (`pipeline_move_rules.skips_fill_gates`).
-  const skipsFillGates = hasPermission(useAuthStore((s) => s.user), "recruitment_manage");
+  // go przepuszcza (`pipeline_move_rules.skips_fill_gates`, flaga z
+  // `/api/auth/me` — zna też wyłącznik `DL_SKIPS_FILL_GATES`; F109).
+  const skipsFillGates = useAuthStore((s) => s.user?.skips_fill_gates === true);
   const query = useScreeningFormState(candidateId, jobId);
   const state = query.data;
   const model = useScreeningFormModel(state, memory);

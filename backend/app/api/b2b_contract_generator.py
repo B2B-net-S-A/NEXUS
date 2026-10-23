@@ -406,6 +406,9 @@ _ENDED_BLOCKS_SIGNATURE = (
     "Przywróć status „W trakcie”, aby potwierdzić podpis."
 )
 _SIGNATURE_BLOCKING_STATUSES = frozenset({"closed", "suspended"})
+# Wnioski o podpis w NEXUSIE, przy których wiersza rejestru nie wolno usunąć:
+# w toku (najpierw „Przejdź na zwykłą drogę”) albo podpisane przez obie strony.
+_ESIGN_BLOCKS_DELETE = (*ESIGN_OPEN_STATUSES, "completed")
 
 _CLOSURE_REASON_LABEL_PL = {
     "no_client_budget": "Brak budżetu u klienta",
@@ -1321,9 +1324,10 @@ async def _serialize_generated_contracts(
         esign_open = esign is not None and esign.status in ESIGN_OPEN_STATUSES
         # Wysłany do podpisu PDF jest zamrożony — „Popraw” dopiero po wycofaniu.
         can_correct = can_correct and not esign_open
-        may_run_esign = (
-            esign_allowed
-            and not from_excel
+        # Przełącznik dotyczy tylko wysyłki: wniosek z pilotażu musi dać się
+        # wycofać także po wyłączeniu (trasa withdraw go nie sprawdza).
+        may_handle_esign = (
+            not from_excel
             and can_generate_documents
             and can_write_client
             and _may_correct_generated(current_user, row, team_job_ids)
@@ -1332,7 +1336,8 @@ async def _serialize_generated_contracts(
             )
         )
         can_send_esign = (
-            may_run_esign
+            esign_allowed
+            and may_handle_esign
             and not is_signed
             and row.contract_status == "in_progress"
             and not esign_open
@@ -1388,7 +1393,9 @@ async def _serialize_generated_contracts(
                 created_by_name=users.get(row.created_by),
                 created_by_role=user_roles.get(row.created_by),
                 pair_column=(columns.get((row.candidate_id, row.job_id)) or (None,))[0],
-                can_delete=can_manage,
+                # Wniosek w toku albo podpisany w NEXUSIE zginąłby w kaskadzie FK.
+                can_delete=can_manage
+                and not (esign is not None and esign.status in _ESIGN_BLOCKS_DELETE),
                 can_edit=can_correct,
                 # DOCX niesie stawkę — pobranie tylko przy widocznych stawkach.
                 can_download=(
@@ -1438,7 +1445,14 @@ async def _serialize_generated_contracts(
                     else None
                 ),
                 can_send_esign=can_send_esign,
-                can_withdraw_esign=may_run_esign and esign_open,
+                can_withdraw_esign=may_handle_esign and esign_open,
+                # Ta sama bramka co trasa `signed-pdf` (nadawca albo reprezentant).
+                can_download_signed_esign=(
+                    esign is not None
+                    and esign.status == "completed"
+                    and bool(esign.final_pdf_path)
+                    and (may_handle_esign or esign.company_signer_id == current_user.id)
+                ),
                 annex_rates=(
                     list((row.annex_rates or {}).get("items") or [])
                     if row.annex_rates
@@ -4215,6 +4229,9 @@ async def attach_generated_contract_signed_file(
     Wchodzi ten, kto mógłby ten podpis oznaczyć (``_may_confirm_row_signature``),
     bo plik ląduje w kontrakcie, który założył podpis."""
     _require_signature_confirmation(current_user)
+    # Plik w Dokumentach kontraktu (FK → blokada kontraktu): kontrakty osoby
+    # PRZED wierszem, jak `/terminate` i nocny cron (audyt 22.10.2026, F47).
+    await _lock_person_contracts_before_row(db, generated_id)
     row = await db.scalar(
         select(B2BGeneratedContract)
         .where(B2BGeneratedContract.id == generated_id)
@@ -4759,6 +4776,34 @@ async def delete_generated_contract(
                     "Do tej umowy jest podpisany dokument pochodny (aneks, "
                     "rozwiązanie albo wypowiedzenie) — usunięcie umowy "
                     "skasowałoby go razem z nią."
+                ),
+            )
+        # Audyt 22.10.2026 (F44): FK wniosku o podpis w NEXUSIE ma CASCADE —
+        # usunięcie kasowało podpis kontraktora albo obu stron bez śladu.
+        esign_statuses = set(
+            (
+                await db.scalars(
+                    select(B2BSigningRequest.status).where(
+                        B2BSigningRequest.generated_contract_id == row.id,
+                        B2BSigningRequest.status.in_(_ESIGN_BLOCKS_DELETE),
+                    )
+                )
+            ).all()
+        )
+        if "completed" in esign_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Umowa jest podpisana przez obie strony w NEXUSIE — oznacz ją "
+                    "jako podpisaną zamiast usuwać."
+                ),
+            )
+        if esign_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Umowa jest w podpisie w NEXUSIE. Najpierw „Przejdź na zwykłą "
+                    "drogę”, potem ją usuń."
                 ),
             )
         number, partner, rid = row.contract_number, row.partner_name, row.id

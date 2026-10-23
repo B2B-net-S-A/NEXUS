@@ -85,6 +85,7 @@ import {
   type FlowBlock,
   type NewJobLeadRow,
   type PendingJobs,
+  type PrepAttentionRow,
   type RequirementFixRow,
   type UnfinishedJobForm,
 } from "@/lib/api/boardTasks";
@@ -656,6 +657,14 @@ const UNFINISHED_FORMS: UnfinishedJobForm[] = [
 
 // „Wymagania do poprawy” (dane fikcyjne): jedna rekrutacja do zatwierdzenia,
 // druga bez słów do szukania — tej zatwierdzić się nie da.
+// Prepy przed rozmową u klienta (23.10.2026): w wariancie z kafelkiem
+// „Do uzupełnienia” stoją w kafelku, w „Pulpicie z kafelkami” — w panelu.
+const PREP_ATTENTION: PrepAttentionRow[] = [
+  { reason: "missing", prep_no: 1, candidate_id: 801, candidate_name: "Adam Pokazowy", job_id: 61, job_title: "Architekt IT · Pega", interview_event_id: 901, interview_start: `${TODAY_ISO}T08:00:00Z`, prep_event_id: null, owner_id: 1, urgent: true },
+  { reason: "weak", prep_no: 1, candidate_id: 802, candidate_name: "Joanna Przykładowa", job_id: 62, job_title: "Tester automatyzujący · C#", interview_event_id: 902, interview_start: `${TODAY_ISO}T11:00:00Z`, prep_event_id: 1902, owner_id: 1, urgent: true },
+  { reason: "missing", prep_no: 2, candidate_id: 803, candidate_name: "Michał Testowy", job_id: 63, job_title: "Analityk systemowy · UML", interview_event_id: 903, interview_start: "2030-01-15T12:30:00Z", prep_event_id: null, owner_id: 1, urgent: false },
+];
+
 const REQUIREMENT_FIXES: RequirementFixRow[] = [
   {
     job_id: 803,
@@ -997,6 +1006,7 @@ export default function CustomDashboardPreview() {
           unfinished_forms: UNFINISHED_FORMS,
           requirement_fixes: REQUIREMENT_FIXES,
           agreements: AGREEMENTS,
+          prep_attention: PREP_ATTENTION,
         },
         as,
       ),
@@ -1009,6 +1019,7 @@ export default function CustomDashboardPreview() {
           unfinished_forms: UNFINISHED_FORMS,
           requirement_fixes: REQUIREMENT_FIXES,
           agreements: AGREEMENTS,
+          prep_attention: PREP_ATTENTION,
         },
         as,
       ),
