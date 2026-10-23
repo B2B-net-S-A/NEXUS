@@ -198,6 +198,8 @@ export function CandidateMergeDialog({
       void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.detail(candidate.id) });
       void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
       void queryClient.invalidateQueries({ queryKey: ["candidate-timeline"] });
+      // Scalony duplikat znika z zakładki „Podobni”.
+      void queryClient.invalidateQueries({ queryKey: ["candidate-similar"] });
       showSuccess(`Scalono profil #${result.duplicate_id} z tym profilem.`);
       reset();
       onOpenChange(false);

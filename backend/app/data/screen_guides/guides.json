@@ -372,7 +372,7 @@
     "pitfalls": [
       "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem. Ramka „Pracuje u nas” na górze „Do propozycji” pokazuje klienta, koniec zamówienia i Delivery Leada; „Zaczyna u nas” to podpisana umowa ze startem w przyszłości, „Kończy u nas” — zamówienie bez kontynuacji w ciągu 30 dni. Linia „zadeklarowana od” pod „Stawką u nas” to niższa stawka podana w ostatnich 18 miesiącach.",
       "Przy zmianie stawki okno pokazuje trwające procesy od „Zweryfikowany” — zaznaczone dostają wpis o zmianie stawki, a Delivery Lead i Head of Recruitment powiadomienie.",
-      "„Przegląd” pokazuje, co jest do zrobienia po naszej stronie: zaległy telefon po ciszy klienta i procesy, w których ruch ma rekruter albo Delivery. Wszystkie procesy są w „Rekrutacje”: w toku jako tabela (klik w wiersz rozwija stawki, CV i ocenę dopasowania), zakończone pod spodem. „Pasujące rekrutacje” liczą się dopiero po „Pokaż”. „Podobni” to osoby z podobnym CV i umiejętnościami — kolejność nie zależy od rekrutacji; „Sprawdź pod rekrutację” pokazuje, kto spełnia jej umiejętności krytyczne, a dodanie osoby bez krytycznej wymaga zdania „dlaczego mimo to”, które trafia na kartę jako notatka.",
+      "„Przegląd” pokazuje, co jest do zrobienia po naszej stronie: zaległy telefon po ciszy klienta i procesy, w których ruch ma rekruter albo Delivery. Wszystkie procesy są w „Rekrutacje”: w toku jako tabela (klik w wiersz rozwija stawki, CV i ocenę dopasowania), zakończone pod spodem. „Pasujące rekrutacje” liczą się dopiero po „Pokaż”. „Podobni” to osoby z podobnym CV i umiejętnościami — kolejność nie zależy od rekrutacji; „Sprawdź pod rekrutację” pokazuje, kto spełnia jej umiejętności krytyczne, a dodanie osoby bez krytycznej wymaga zdania „dlaczego mimo to”, które trafia na kartę jako notatka. Przy drugim profilu tej samej osoby (to samo imię i nazwisko, telefon, LinkedIn albo plik CV) stoi „Możliwy duplikat” — „Scal…” (admin, Head of Recruitment) otwiera okno scalania.",
       "W „Notatkach” widać 10 najnowszych, starsze są pod „Pokaż starsze”. Ważną notatkę przypnij pinezką — zobaczy ją cały zespół, także w karcie kandydata w rekrutacji. Imię i nazwisko zapisuj bez dopisków w nawiasie: „Szuka aktywnie” ustawisz w Dostępności, czarną listę w menu „⋯” → „Czarna lista…” (u nas albo u klienta, z powodem — potem widać ją w ramce pod paskiem osoby), a zatrudnienie widać samo z umowy w Kontraktach."
     ],
     "anchors": [
@@ -965,7 +965,7 @@
       "Zatwierdzone wynagrodzenie dodatkowe jest od razu przyznane w Płacach — Płace nie zatwierdzają go drugi raz.",
       "Wynagrodzenie dodatkowe dla osoby na B2B wymaga „Podstawy w umowie” — punktu umowy albo numeru aneksu; bez niej wniosek nie wyjdzie.",
       "O zgodzie dla siebie (także o wynagrodzeniu dodatkowym dla siebie) nie decydujesz — nawet jako zatwierdzający.",
-      "Zgoda bez faktury i paragonu wygasa po 30 dniach. Rozliczają Finanse, nie autor; dopłatę zatwierdza zatwierdzający."
+      "Zgoda jednorazowa bez faktury i paragonu nie wygasa — rachunek z wyjazdu czy szkolenia dołączysz po wydarzeniu; cykliczna bez dokumentu wygasa po 30 dniach od startu. Rozliczają Finanse, nie autor; dopłatę zatwierdza zatwierdzający."
     ],
     "anchors": [
       {

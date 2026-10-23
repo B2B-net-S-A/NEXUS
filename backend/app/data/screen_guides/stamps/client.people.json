@@ -4,6 +4,6 @@
   "sources": {
     "frontend/src/components/care/client/ApprovalBar.tsx": "1611b7706ca78e1566615aa730061f394c7ea5e6a2ed8635c0d5ade368931ade",
     "frontend/src/components/care/client/ClientPeopleTechTab.tsx": "4fa6d7ff7e3f096d0284cfdc3fe5b49cef3e04971bd2e53c1d645bdb896a41c8",
-    "frontend/src/components/care/client/DepartmentsView.tsx": "7405a3279a542345a28db1caea55a5e10bc6837759fefd33bde9bff2814b3a25"
+    "frontend/src/components/care/client/DepartmentsView.tsx": "d18f2b78343f1878413e3da83e76ca170c10ca04249df4f8f40486ef2d27265d"
   }
 }

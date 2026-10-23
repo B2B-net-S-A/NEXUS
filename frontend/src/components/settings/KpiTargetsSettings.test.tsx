@@ -137,6 +137,28 @@ describe("KpiRoleTiles", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("liczbę całkowitą");
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  it("nieudane „Przywróć” zostawia w polu obowiązujący cel (audyt 22.10, F75)", async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error("403"));
+    const withOverride: KpiTargetsMatrix = {
+      ...MATRIX,
+      roles: [
+        {
+          ...MATRIX.roles[0],
+          targets: {
+            daily_first_verifications: { catalog_default: 4, override: 12, effective: 12 },
+          },
+        },
+      ],
+    };
+    render(<KpiRoleTiles data={withOverride} busy={false} onSave={onSave} />);
+    fireEvent.click(screen.getByLabelText("Przywróć: Weryfikacje dziś — Rekruter"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się przywrócić celu.");
+    const input = screen.getByLabelText("Weryfikacje dziś — Rekruter");
+    expect(input).toHaveValue("12");
+    fireEvent.blur(input);
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
 });
 
 const BOLEK = {

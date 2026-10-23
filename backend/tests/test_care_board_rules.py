@@ -512,3 +512,142 @@ def test_feedback_due_by_manager() -> None:
         5: TODAY - timedelta(days=6),
         9: TODAY,
     }
+
+
+async def test_done_counts_resolved_demand_card_once(monkeypatch) -> None:
+    """Audyt 22.10, F3: jedno rozstrzygnięcie karty popytu z dwoma źródłami
+    zapisuje oba klucze z tym samym czasem — „Zrobione” liczy kartę raz."""
+
+    from datetime import datetime, timezone
+
+    from app.services.care import board as care_board
+
+    now = datetime(2026, 10, 21, 10, 0, tzinfo=timezone.utc)
+
+    def state(key: str, outcome: str, at: datetime) -> board_state.BoardState:
+        return board_state.BoardState(
+            key=key,
+            kind="demand",
+            column="done",
+            scheduled_at=None,
+            retry_on=None,
+            outcome=outcome,
+            job_id=None,
+            note=None,
+            updated_by=1,
+            updated_at=at,
+        )
+
+    async def updated_between(_db, _first, _last, *, kind):
+        assert kind == "demand"
+        return [
+            state("demand:7:100", "confirmed", now),
+            state("demand:7:101", "confirmed", now),
+            # Inna karta tego klienta, rozstrzygnięta osobno — liczy się osobno.
+            state("demand:7:205", "stale", now + timedelta(hours=1)),
+        ]
+
+    monkeypatch.setattr(board_state, "updated_between", updated_between)
+    done = await care_board._done(
+        None,
+        contract_ids=[],
+        client_ids=None,
+        include_feedback=False,
+        include_demand=True,
+        monday=date(2026, 10, 19),
+        friday=date(2026, 10, 23),
+        names_by_contract={},
+    )
+    assert done["this_week"] == 2
+    assert sorted(row["key"] for row in done["recent"]) == [
+        "demand:7:101",
+        "demand:7:205",
+    ]
+
+
+async def test_demand_bell_keyed_by_signal_not_client(monkeypatch) -> None:
+    """Audyt 22.10, F5 (decyzja Artura): dzwonek popytu ma encję sygnału
+    (rozmowy), nie klienta — dobowy dedup ``emit`` (odbiorca + typ + encja)
+    nie zjada drugiego, innego popytu u tego samego klienta tego samego dnia."""
+
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from app.services.care import demand
+    from app.services.care import structure_proposals
+    from app.services.hr import notify as hr_notify
+
+    sent: list[dict] = []
+
+    async def client_leads(_db, client_ids):
+        return {client_ids[0]: [11]}
+
+    async def recent_recipients(_db, **_kwargs):
+        return set()
+
+    async def notify_each(_db, user_ids, **kwargs):
+        sent.append({"users": list(user_ids), **kwargs})
+        return len(user_ids)
+
+    monkeypatch.setattr(structure_proposals, "client_leads", client_leads)
+    monkeypatch.setattr(demand, "_recent_recipients", recent_recipients)
+    monkeypatch.setattr(hr_notify, "notify_each", notify_each)
+
+    contract = SimpleNamespace(client_id=7, client_name="Klient", candidate_name=None)
+    now = datetime(2026, 10, 22, 10, 0, tzinfo=timezone.utc)
+    for conversation_id, role in ((100, "Java"), (101, "QA")):
+        await demand.notify_leads(
+            None,
+            conversation=SimpleNamespace(id=conversation_id),
+            contract=contract,
+            area=None,
+            roles=[role],
+            actor_id=None,
+            now=now,
+        )
+    assert [(s["related_entity_type"], s["related_entity_id"]) for s in sent] == [
+        ("care_demand", 100),
+        ("care_demand", 101),
+    ]
+
+
+async def test_demand_recent_bells_read_old_client_and_new_signal_entity() -> None:
+    """Audyt 22.10, F5: limit 30 dni czyta dzwonki z encją sygnału i stare
+    (sprzed 22.10) z encją klienta — inaczej powtórzyłby dzwonki."""
+
+    from datetime import datetime, timezone
+
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.care import demand
+
+    seen: list[str] = []
+
+    class Result:
+        def all(self):
+            return []
+
+    class Db:
+        async def execute(self, statement):
+            seen.append(
+                str(
+                    statement.compile(
+                        dialect=postgresql.dialect(),
+                        compile_kwargs={"literal_binds": True},
+                    )
+                )
+            )
+            return Result()
+
+    found = await demand._recent_recipients(
+        Db(),
+        client_id=7,
+        area_id=None,
+        conversation_id=100,
+        roles=frozenset({"java"}),
+        now=datetime(2026, 10, 22, 10, 0, tzinfo=timezone.utc),
+    )
+    assert found == set()
+    sql = seen[0]
+    assert "'care_demand'" in sql
+    assert "'client'" in sql

@@ -15,6 +15,16 @@ nie ma po złożeniu do ASCII ani jednej litery.
   (`parse_error = identity_unreadable_not_primary`): nie zostaje głównym CV
   i nie nadpisuje tekstu CV ani pól. Główne CV wskazuje człowiek (decyzja
   Artura z 20.10.2026).
+  **Wyjątek (22.10.2026, decyzja Artura, audyt F68):** gdy kandydat powstał
+  z tego CV (`try_create_candidate_from_cv`) albo jest dopasowany po e-mailu
+  z tego CV (także po kolizji zapisu tego adresu), tożsamość jest pewna:
+  `try_parse_cv(..., identity_proven=True)` pomija bramkę `identity_unreadable`,
+  CV zostaje głównym i jest czytane do profilu (tekst, umiejętności, wektor).
+  Bez tego profil ukraińskiej kandydatki założony z jej CV zostawał z samym
+  imieniem i kontaktem. Ochrona zostaje w pozostałych przypadkach: mail
+  dopasowany po wątku albo temacie i dopasowanie po tym samym pliku (SHA-256)
+  dalej dają `identity_unreadable_not_primary`. Kwarantanna tożsamości
+  (`is_quarantined`) działa także przy `identity_proven`.
 - **Naprawa danych**: `python -m app.cli.m365_unreadable_name_rematch`
   (próba na sucho → `--apply --expected <odcisk>`, paragon w `app_settings`).
   Odpina maile `smart_name`/`smart_thread` takich osób, dopasowuje je obecnym

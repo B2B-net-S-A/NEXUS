@@ -7,6 +7,7 @@ import {
   cvFileChoices,
   cvFileDetail,
   NO_CONFIRMATIONS,
+  rewriteSourceFileId,
   sourceCvWarning,
 } from "@/lib/cv-generate-confirm";
 import type { CvAiSourceFile } from "@/lib/cv-ai-sources";
@@ -108,5 +109,21 @@ describe("„Powstało z” — kiedy źródło gotowego CV jest podejrzane", ()
     expect(
       sourceCvWarning({ original_cv: null, cv_files: [{ ...original, stage_original: false }], last_source_cv: used({ stage_original: false }) }),
     ).toBeNull();
+  });
+});
+
+describe("rewriteSourceFileId — „Napisz od nowa” z pliku poprawianego CV (audyt 22.10)", () => {
+  const used = { document_id: 9, filename: "Jan_CV_2026.pdf", outdated: false, stage_original: false, removed: false };
+
+  it("bierze plik, z którego powstało CV", () => {
+    expect(rewriteSourceFileId({ last_source_cv: used })).toBe(9);
+  });
+
+  it("usunięty, nieaktualny, „CV dla klienta” albo nieznany — plik domyślny", () => {
+    expect(rewriteSourceFileId({ last_source_cv: { ...used, removed: true } })).toBeNull();
+    expect(rewriteSourceFileId({ last_source_cv: { ...used, outdated: true } })).toBeNull();
+    expect(rewriteSourceFileId({ last_source_cv: { ...used, filename: "Jan_B2B_Orlen.docx" } })).toBeNull();
+    expect(rewriteSourceFileId({ last_source_cv: null })).toBeNull();
+    expect(rewriteSourceFileId(undefined)).toBeNull();
   });
 });

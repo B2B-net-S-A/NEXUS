@@ -48,6 +48,21 @@ const OUTCOME_TONE: Record<DebriefOutcome, string> = {
 export const DEBRIEF_QUESTIONS_REQUIRED =
   "Wpisz pytania klienta albo zaznacz, że klient ich nie zadawał.";
 
+/** 409 `DEBRIEF_EXISTS` z zapisu pytań pary → rozmowa z zapisanym debriefem. */
+function debriefExistsOf(error: unknown): { eventId: number; message: string } | null {
+  const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
+    ?.response;
+  const detail = response?.data?.detail as
+    | { code?: unknown; event_id?: unknown; message?: unknown }
+    | undefined;
+  if (response?.status !== 409 || !detail || detail.code !== "DEBRIEF_EXISTS") return null;
+  if (typeof detail.event_id !== "number") return null;
+  return {
+    eventId: detail.event_id,
+    message: typeof detail.message === "string" ? detail.message : "Ta rozmowa ma już zapisany debrief.",
+  };
+}
+
 /**
  * Formularz debriefu po telefonie do kandydata (≤30 min po rozmowie u klienta).
  * Trzy rzeczy, o które prosił zespół: jak poszło, jakie były pytania (trafiają
@@ -71,11 +86,17 @@ export const DEBRIEF_QUESTIONS_REQUIRED =
  * rozmowa — serwer zakłada odbytą rozmowę i debrief trafia pod nią
  * (`PUT /api/interview-cycle/pairs/{c}/{j}/debrief`). `initialQuestions`
  * (podpowiedź z notatki) dokłada pytania do listy.
+ *
+ * Rozmowa z tego dnia ma już debrief (inne okno zapisało go wcześniej) →
+ * serwer odmawia 409 `DEBRIEF_EXISTS`, a okno przechodzi na ten debrief do
+ * poprawy: wczytuje zapisaną ocenę, ofertę i pytania i dopisuje do nich
+ * pytania wpisane przed chwilą (decyzja Artura 22.10.2026, audyt F27 — dotąd
+ * zapis z pustego formularza nadpisywał debrief w całości).
  */
 export function DebriefDialog({
   open,
   onOpenChange,
-  eventId,
+  eventId: eventIdProp,
   title,
   description,
   intro,
@@ -109,6 +130,13 @@ export function DebriefDialog({
 }) {
   const toast = useToast();
   const qc = useQueryClient();
+  // 409 DEBRIEF_EXISTS: okno pary przechodzi na zapisany debrief tej rozmowy.
+  const [existsFor, setExistsFor] = useState<{
+    eventId: number;
+    message: string;
+    questions: string[];
+  } | null>(null);
+  const eventId = eventIdProp ?? existsFor?.eventId ?? null;
   const existing = useDebrief(open ? eventId : null);
   // Wydarzenie zawsze — debrief potrzebuje pary (kandydat, rekrutacja), żeby
   // pokazać bieżącą stawkę i kto dostanie informację o jej zmianie (0418).
@@ -218,6 +246,7 @@ export function DebriefDialog({
   useEffect(() => {
     if (!open) {
       initializedFor.current = null;
+      setExistsFor(null);
       return;
     }
     if (initKey == null || initializedFor.current === initKey) return;
@@ -226,7 +255,8 @@ export function DebriefDialog({
     const d = eventId != null && existing.isSuccess ? existing.data : null;
     setOutcome(d?.outcome ?? null);
     setComment(d?.candidate_comment ?? "");
-    const extra = initialQuestions ?? [];
+    // Po 409 DEBRIEF_EXISTS: pytania wpisane przed chwilą dopisane do zapisanych.
+    const extra = existsFor ? existsFor.questions : (initialQuestions ?? []);
     const merged = extra.length
       ? mergeQuestions(d?.questions ?? [], extra).questions
       : (d?.questions ?? []);
@@ -298,7 +328,14 @@ export function DebriefDialog({
       onSaved?.(res);
       onOpenChange(false);
     },
-    onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać debriefu.")),
+    onError: (err) => {
+      const exists = pairMode ? debriefExistsOf(err) : null;
+      if (exists) {
+        setExistsFor({ ...exists, questions: noQuestions ? [] : typedQuestions });
+        return;
+      }
+      setError(apiErrorMessage(err, "Nie udało się zapisać debriefu."));
+    },
   });
 
   const submit = () => {
@@ -394,6 +431,19 @@ export function DebriefDialog({
         </div>
       ) : intro ? (
         <div className="mb-4 text-sm text-muted-foreground">{intro}</div>
+      ) : null}
+      {existsFor && !readOnly ? (
+        <div
+          role="status"
+          data-testid="debrief-exists"
+          className="mb-3 rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+        >
+          <p className="font-semibold">{existsFor.message}</p>
+          <p>
+            Wczytaliśmy go do poprawy, a pytania wpisane przed chwilą dopisaliśmy na końcu listy.
+            Sprawdź ocenę i ofertę, zanim zapiszesz.
+          </p>
+        </div>
       ) : null}
       {existing.isError ? (
         <p role="alert" className="mb-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">

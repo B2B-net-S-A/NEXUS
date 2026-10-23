@@ -695,7 +695,7 @@ async def test_manual_bonus_from_manager_waits_for_payroll(
                     await db.scalars(
                         select(Notification.id).where(
                             Notification.user_id == worker.id,
-                            Notification.related_entity_id == bonus_id,
+                            Notification.related_entity_type == "hr_bonus",
                             Notification.notification_type
                             == NotificationType.hr_bonus_assigned,
                         )
@@ -760,6 +760,17 @@ async def test_manual_bonus_from_manager_waits_for_payroll(
         headers=_headers(finance),
     )
     assert by_payroll.status_code == 200, by_payroll.text
+    # Zmiana kwoty przez Płace tego samego dnia to nowy dzwonek.
+    assert await worker_bells() == 2
+
+    # Decyzja Artura 22.10.2026: kwoty po zatwierdzeniu przełożony nie zmienia,
+    # ale przyznaną przez siebie premię może anulować (osoba dostaje dzwonek).
+    withdrawn = await app_client.post(
+        f"/api/hr/payroll/bonuses/{bonus_id}/cancel", json={}, headers=_headers(boss)
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["status"] == "cancelled"
+    assert await worker_bells() == 3
 
     # Płace przyznają od razu, jak dotąd.
     direct = await app_client.post(

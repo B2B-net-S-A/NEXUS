@@ -19,6 +19,7 @@ import {
   type ClientStateView,
 } from "@/lib/api/care";
 import { useClientOrg } from "@/lib/api/client-people";
+import { apiErrorMessage } from "@/lib/api-error";
 import { formatDayMonthPl, monthYearPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
@@ -177,6 +178,8 @@ export function ClientStateSection({
   const modes = form.modes;
   const known = knownRows(state);
   const areas = useClientAreas(clientId ?? 0, modes.area === "change" && clientId != null);
+  // Bez klienta nie ma czego wczytywać — „Nowy dział…” jak dotąd.
+  const areasReady = areas.isSuccess || clientId == null;
   const org = useClientOrg(clientId ?? 0, modes.manager === "change" && clientId != null);
   const skillSearch = useCallback((q: string) => searchSkills(q), []);
   const vendorSearch = useCallback((q: string) => searchVendors(q), []);
@@ -194,6 +197,20 @@ export function ClientStateSection({
   const editor = (row: StateRow): ReactNode => {
     switch (row) {
       case "area":
+        // Awaria listy działów nie może wyglądać jak klient bez działów z „Nowy dział…”
+        // — inna pisownia założyłaby drugi dział (audyt 22.10, F88).
+        if (areas.isError) {
+          return (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs text-muted-foreground">
+                {apiErrorMessage(areas.error, "Nie udało się wczytać działów klienta.")}
+              </p>
+              <Button size="sm" variant="outline" className="h-7 px-2.5" onClick={() => void areas.refetch()}>
+                Ponów
+              </Button>
+            </div>
+          );
+        }
         return (
           <div className="grid gap-2 sm:grid-cols-2">
             <Select
@@ -206,13 +223,13 @@ export function ClientStateSection({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>Wybierz dział…</SelectItem>
+                <SelectItem value={NONE}>{areasReady ? "Wybierz dział…" : "Wczytywanie działów…"}</SelectItem>
                 {(areas.data ?? []).map((area) => (
                   <SelectItem key={area.id} value={String(area.id)}>
                     {area.name}
                   </SelectItem>
                 ))}
-                <SelectItem value={NEW_AREA}>Nowy dział…</SelectItem>
+                {areasReady ? <SelectItem value={NEW_AREA}>Nowy dział…</SelectItem> : null}
               </SelectContent>
             </Select>
             {form.areaId === "new" ? (

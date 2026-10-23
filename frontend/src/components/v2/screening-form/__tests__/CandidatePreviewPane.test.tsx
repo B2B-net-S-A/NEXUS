@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   candidateGet: vi.fn(),
   downloadOriginal: vi.fn(),
+  fetchBlob: vi.fn(),
+  previewLoader: { current: null as null | ((candidateId: number, docId: number) => Promise<Blob>) },
   downloadDocument: vi.fn(),
   downloadBlob: vi.fn(),
   stageCvFile: vi.fn(),
@@ -63,6 +65,7 @@ vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/authenticated-files")>()),
   downloadAuthenticatedFile: (...a: unknown[]) => mocks.downloadOriginal(...a),
   downloadBlob: (...a: unknown[]) => mocks.downloadBlob(...a),
+  fetchAuthenticatedBlob: (...a: unknown[]) => mocks.fetchBlob(...a),
 }));
 
 vi.mock("@/lib/stage-cv-file", () => ({
@@ -82,10 +85,13 @@ vi.mock("@/components/v2/files/FilePreviewModal", () => ({
   FilePreviewContent: ({
     doc,
     searchRequest,
+    loadDocumentBlob,
   }: {
     doc: { filename: string };
     searchRequest?: { text: string } | null;
+    loadDocumentBlob?: (candidateId: number, docId: number) => Promise<Blob>;
   }) => {
+    mocks.previewLoader.current = loadDocumentBlob ?? null;
     // Każde zamontowanie podglądu to ponowne pobranie pliku w prawdziwym komponencie.
     useEffect(() => {
       mocks.previewMounted();
@@ -1175,6 +1181,19 @@ describe("CandidatePreviewPane — Pobierz CV (D1–D5)", () => {
       "CV_ze_zgloszenia.pdf",
     );
     expect(mocks.downloadDocument).not.toHaveBeenCalled();
+  });
+
+  it("podgląd kopii ze zgłoszenia idzie do dziennika jako podgląd, nie zapis (audyt 22.10, F25)", async () => {
+    mocks.fetchBlob.mockReset();
+    mocks.fetchBlob.mockResolvedValue(new Blob(["pdf"]));
+    mocks.previewLoader.current = null;
+    mountPane();
+    await screen.findByTestId("file-preview");
+    expect(mocks.previewLoader.current).not.toBeNull();
+    await mocks.previewLoader.current!(101, 901);
+    expect(mocks.fetchBlob).toHaveBeenCalledWith(
+      "/api/candidates/stages/901/cv/original/download?disposition=inline",
+    );
   });
 
   it("bez kopii ze zgłoszenia pobiera główne CV z profilu", async () => {

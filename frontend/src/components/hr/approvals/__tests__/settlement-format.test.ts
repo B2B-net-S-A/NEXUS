@@ -4,6 +4,7 @@ import type { ApprovalRequestRow, ApprovalSettlement } from "@/lib/api/hr-approv
 
 import {
   comparisonLabel,
+  expiryHint,
   settlementLine,
   settlementNeedsAuthor,
   settlementPill,
@@ -46,6 +47,15 @@ describe("rozliczenie zgody — słowa", () => {
     expect(settlementLine(row(settlement()), settlement())).toMatch(/do 19\.11\.2026.*KSeF/);
     const expired = settlement({ status: "expired", status_label: "wygasła" });
     expect(settlementLine(row(expired), expired)).toMatch(/poproś o nową/);
+  });
+
+  it("zgoda „raz” nie wygasa, cykliczna — po 30 dniach bez dokumentu (decyzja 22.10.2026)", () => {
+    expect(expiryHint({ recurrence: "once" })).toEqual([
+      "Zgoda nie wygasa",
+      " — rachunek dołączysz także po wyjeździe czy szkoleniu.",
+    ]);
+    expect(expiryHint({ recurrence: "monthly" })[0]).toBe("Zgoda wygasa po 30 dniach");
+    expect(expiryHint({ recurrence: "yearly" })[1]).toMatch(/jeśli nic nie dołączysz/);
   });
 
   it("autor ma coś do zrobienia: brak faktury, dopłata do poproszenia, pytanie o odnowienie", () => {

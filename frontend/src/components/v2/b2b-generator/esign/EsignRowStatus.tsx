@@ -1,13 +1,14 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Clock, Undo2 } from "lucide-react";
+import { Check, Clock, Download, Undo2 } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { B2BGeneratedContractRow } from "@/lib/api";
 import { b2bEsignApi } from "@/lib/api/b2bEsign";
+import { downloadBlob } from "@/lib/cv-generator";
 import { cn } from "@/lib/utils";
 
 function formatDay(value: string | null | undefined): string {
@@ -47,6 +48,34 @@ export function esignSteps(row: B2BGeneratedContractRow): Step[] {
   return [];
 }
 
+/**
+ * „Pobierz podpisaną umowę” — plik z podpisami obu stron w NEXUSIE. Gdy
+ * automatyka nie założyła kontraktu (albo nie dołączyła pliku), nadawca oznacza
+ * umowę ręcznie i dołącza właśnie ten plik, więc przycisk zostaje też przy
+ * wierszu już oznaczonym jako podpisany (audyt 22.10, F45).
+ */
+export function EsignSignedPdfButton({ row }: { row: B2BGeneratedContractRow }) {
+  const toast = useToast();
+  const download = useMutation({
+    mutationFn: (requestId: number) => b2bEsignApi.signedPdf(requestId),
+    onSuccess: (res, requestId) => downloadBlob(res.data, `umowa_${requestId}_podpisana.pdf`),
+    onError: (error) => toast.showError(apiErrorMessage(error, "Nie udało się pobrać pliku.")),
+  });
+  const e = row.esign;
+  if (!e || e.status !== "completed" || !row.can_download_signed_esign) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => download.mutate(e.request_id)}
+      disabled={download.isPending}
+      className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-60"
+    >
+      <Download className="h-3 w-3" aria-hidden />
+      Pobierz podpisaną umowę
+    </button>
+  );
+}
+
 export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -56,7 +85,10 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
       b2bEsignApi.withdraw(requestId, "Przejście na drogę zwykłą"),
     onSuccess: () => {
       toast.showSuccess("Wysyłka wycofana — umowa wraca do drogi zwykłej.");
+      // Rejestr, karta Tablicy (plakietka „U kontraktora…”) i lista na pulpicie.
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["kanban"] });
+      queryClient.invalidateQueries({ queryKey: ["board-tasks"] });
     },
     onError: (error) => toast.showError(apiErrorMessage(error, "Nie udało się wycofać.")),
   });
@@ -108,6 +140,7 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
       {e.status === "sent" ? (
         <p className="text-xs text-muted-foreground">Link ważny do {formatDay(e.expires_at)}</p>
       ) : null}
+      <EsignSignedPdfButton row={row} />
       {row.can_withdraw_esign ? (
         <button
           type="button"

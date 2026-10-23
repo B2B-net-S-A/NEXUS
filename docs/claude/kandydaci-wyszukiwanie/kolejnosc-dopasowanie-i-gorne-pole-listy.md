@@ -97,6 +97,17 @@ Makiety: kanwa `LttSvWiuw2CLPPHU1jL7kN` (Jak to działa · Wagi z podglądem na
 - **D3 — tylko wagi ogólne.** Profile klienta i osoby zostają przy trasach
   admina; panel tylko ostrzega, że istnieją (`scoped_profiles`), bo wygrywają
   z wagami ogólnymi w `resolve_active_profile`.
+- **Stary edytor tworzy tylko profil klienta albo osoby** (decyzja Artura
+  22.10.2026, audyt F60). Profil ogólny (`user_id` i `client_id` puste)
+  powstaje i zmienia się wyłącznie przez panel, po pomiarze. `POST`
+  bez klienta i osoby, `PATCH` profilu ogólnego albo zamieniający profil
+  klienta/osoby w ogólny i `DELETE` profilu ogólnego dają 409 z odesłaniem
+  do panelu (`_refuse_general` w `api/scoring_weights.py`). Edytor ma
+  obowiązkowy wybór „Klient” albo „Osoba”, a profil ogólny stoi na liście
+  bez „Edytuj” i „Usuń”. Wcześniej „Nowy profil” bez zakresu zapisywał się
+  jako profil ogólny i jako najnowszy od razu wypierał opublikowane wagi
+  panelu, bez pomiaru, a Historia dalej pokazywała publikację HoR jako
+  obowiązującą.
 
 ### Jak to jest zapisane (`services/ranking_weights.py`)
 
@@ -169,6 +180,7 @@ Makiety: kanwa `LttSvWiuw2CLPPHU1jL7kN` (Jak to działa · Wagi z podglądem na
 - „Sprawdź na historii” zapisuje szkic i uruchamia pomiar, potem przechodzi
   do „Historia zmian”; odpytywanie co 5 s tylko w trakcie pomiaru.
 - Stary edytor profili klienta i osoby (`ScoringProfilesAdmin`) widzi tylko
-  admin, zwinięty pod zakładką „Wagi”.
+  admin, zwinięty pod zakładką „Wagi”; profilu ogólnego w nim nie da się
+  utworzyć, zmienić ani usunąć (22.10.2026, wyżej).
 - Harness `/preview/ranking-panel?stan=bez|szkic|pomiar|spadek|awaria`
   (dane fikcyjne z `previewFixtures.ts`, bez odpytywania).

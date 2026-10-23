@@ -75,8 +75,21 @@ async def has_assigned_cases(db: AsyncSession, user_id: int) -> bool:
     return found is not None
 
 
-async def get_case(db: AsyncSession, case_id: int) -> Optional[AdminCase]:
-    return await db.get(AdminCase, case_id)
+async def get_case(
+    db: AsyncSession, case_id: int, *, lock: bool = False
+) -> Optional[AdminCase]:
+    """``lock`` = ``SELECT … FOR UPDATE``: kontrola wersji przy „Weź” musi
+    czytać wiersz pod blokadą, inaczej dwa równoległe zapisy z tą samą
+    wersją przechodzą oba (audyt 22.10, F14)."""
+
+    if not lock:
+        return await db.get(AdminCase, case_id)
+    return await db.scalar(
+        select(AdminCase)
+        .where(AdminCase.id == case_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
 
 # ── Walidacja wejścia ────────────────────────────────────────────────────────

@@ -83,8 +83,15 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
 - **Wyjątek — możliwe przełożenie:** gdy para ma nieodbytą zaplanowaną
   rozmowę (`replaceable_interviews`), wybór czeka na DL-a jak dotąd — okno
   potwierdzenia pyta, czy to przełożenie (reguła 26.09.2026).
+  Prepy z okna „Umów rozmowę i prepy” idą wtedy od razu, a zaproszenie
+  kandydata podaje WYBRANY termin rozmowy (`PrepCreate.interview_start` →
+  `prep_meetings.create_prep`), nie starą rozmowę z kalendarza (decyzja
+  Artura 22.10.2026, audyt F37: dotąd treść brała `upcoming_interview_start`,
+  czyli rozmowę sprzed przełożenia, i kandydat dostawał złą datę). Prep po
+  wybranym terminie nie zapowiada rozmowy.
 - **Zadanie `slots_reply` „Odpisz klientowi”** dla autora wniosku (DL; w
-  zakresie „jobs” widzi je też DL rekrutacji), do startu rozmowy. Okno
+  zakresie „jobs” widzi je też DL rekrutacji), do startu rozmowy; rozmowa
+  odwołana w kalendarzu zdejmuje zadanie (audyt 22.10, F33). Okno
   `ClientReplyDialog`: gotowy tekst do skopiowania (`lib/client-reply.ts`,
   imię i nazwisko w mianowniku), „Wysłane klientowi”
   (`POST …/slots/{id}/client-replied`, idempotentne) i „Klient wybrał inny
@@ -127,6 +134,9 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
   w przeszłości. Okna `PickInterviewDialog` i `ClientReplyDialog` wyłączają
   takie terminy z dopiskiem „termin minął” (`interview-pick.slotPassed`, ta
   sama tolerancja; okno klienta mija, gdy nie zmieści się w nim rozmowa).
+  Okno, które już trwa, podsuwa godzinę od teraz w górę do kwadransa, nie
+  miniony początek okna (`interview-pick.windowEarliest`, wartość i `min`
+  pola; audyt 22.10, F36).
 - **Przycisk mówi, co robi:** bez prepów do zaproszenia główny przycisk
   `PickInterviewDialog` to „Wpisz do kalendarza” (jak dymek „Rozmowa jest
   w kalendarzu…”), nie „Wyślij do DL”. Nie wracaj do starej nazwy.
@@ -157,7 +167,9 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
   pokazuje wtedy „Zapisz mimo to”. Kalendarz nieznany (spoza grupy, błąd
   Grapha) niczego nie blokuje. Blok o tym samym początku i końcu co prep
   (±1 min) się nie liczy — to sierota z poprzedniej próby z tym samym
-  `client_request_id`. „Zapisz mimo to” znika po zmianie terminu, długości
+  `client_request_id`. Prep tego prowadzącego zapisany w NEXUSIE liczy się
+  zawsze, także w identycznym przedziale (`organizer_prep_spans`; audyt
+  22.10, F32: dwóch rekruterów o tę samą podpowiedź dla różnych kandydatów). „Zapisz mimo to” znika po zmianie terminu, długości
   albo prowadzącego. Zmiana terminu (`PATCH`) bez tej kontroli.
 - **`suggestions` niesie `busy`** — zajęte bloki prowadzącego od teraz do
   rozmowy (tylko „zajęte/wolne”, bez tytułów; to samo `getSchedule`, bez

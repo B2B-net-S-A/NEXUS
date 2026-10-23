@@ -811,3 +811,58 @@ async def test_quarantine_clear_keeps_a_manually_written_summary(
 
     assert candidate.raw_cv_text is None
     assert candidate.ai_summary == "Podsumowanie rekrutera."
+
+
+@pytest.mark.asyncio
+async def test_repair_clears_facts_read_from_a_foreign_document_but_not_the_pointer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Audyt 22.10.2026 (F114): skrypt naprawczy sam ustala, że profil czytano
+    z cudzego dokumentu, i sam prowadzi wskaźnik pliku — czyszczenie zabiera
+    fakty z CV, podsumowanie i wektor jak kwarantanna."""
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("app.services.match_score_cache.mark_stale_for_candidate", noop)
+    monkeypatch.setattr(
+        "app.services.embedding_service.delete_candidate_embedding",
+        AsyncMock(return_value=True),
+    )
+    candidate = _profile_with_cv_facts(
+        cv_extracted_data={
+            "cv_highlights": {"source_document_id": 22},
+            "skills": [{"name": "Wrong Person Skill"}],
+            "email": "own@example.com",
+            "phone": "+48 600 000 000",
+        }
+    )
+    candidate.skills = [{"name": "Wrong Person Skill"}]
+    candidate.cv_filename = "own-next.pdf"
+    candidate.email = "own@example.com"
+    candidate.phone = "+48 600 000 000"
+    candidate.embedding_id = "vec-11"
+    db = _ProjectionDB(candidate, language_batches=[[]])
+    db.execute = AsyncMock()
+
+    result = await quarantine.clear_foreign_cv_projection(
+        db,  # type: ignore[arg-type]
+        candidate_id=11,
+        document_id=22,
+        document_hash="a" * 64,
+    )
+
+    assert candidate.raw_cv_text is None
+    assert candidate.ai_summary is None
+    assert candidate.skills == []
+    assert candidate.cv_filename == "own-next.pdf"
+    # Odczyt mógł pochodzić z własnego załącznika osoby (#2449) — dane
+    # kontaktowe zostają, decyzja dotyczy tekstu, umiejętności, podsumowania
+    # i wektora.
+    assert candidate.email == "own@example.com"
+    assert candidate.phone == "+48 600 000 000"
+    assert candidate.embedding_id is None
+    assert isinstance(db.added[0], IndexOutboxEvent)
+    assert db.added[0].operation == "delete"
+    db.execute.assert_awaited_once()  # podsumowanie aktywności wyczyszczone
+    assert result["cleared_fields"] >= 3

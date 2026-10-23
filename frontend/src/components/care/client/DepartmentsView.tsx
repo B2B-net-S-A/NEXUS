@@ -483,35 +483,45 @@ function DefaultOwner({ map, clientId }: { map: ClientTechMap; clientId: number 
     return <span className="text-sm">{map.default_owner?.name ?? "Delivery Lead kontraktu"}</span>;
   }
   return (
-    <Select
-      value={map.default_owner ? String(map.default_owner.id) : DEFAULT_OWNER}
-      disabled={save.isPending}
-      onValueChange={(next) =>
-        save.mutate(next === DEFAULT_OWNER ? null : Number(next), {
-          onSuccess: () => showToast("Domyślny opiekun zapisany", "success"),
-          onError: (err) =>
-            showToast(apiErrorMessage(err, "Nie udało się zapisać opiekuna."), "error"),
-        })
-      }
-    >
-      <SelectTrigger aria-label="Domyślny opiekun konsultantów klienta" className="h-8">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={DEFAULT_OWNER}>Delivery Lead kontraktu</SelectItem>
-        {/* Opiekun spoza listy (wykluczony z puli, nieaktywne konto) — inaczej
-            pole byłoby puste, jak gdyby opiekuna nie było. */}
-        {map.default_owner && owners.isSuccess && !owners.data.some((o) => o.id === map.default_owner?.id) ? (
-          <SelectItem value={String(map.default_owner.id)}>
-            {map.default_owner.name} (spoza listy opiekunów)
-          </SelectItem>
-        ) : null}
-        {(owners.data ?? []).map((owner) => (
-          <SelectItem key={owner.id} value={String(owner.id)}>
-            {owner.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <>
+      <Select
+        value={map.default_owner ? String(map.default_owner.id) : DEFAULT_OWNER}
+        // Przy awarii listy wybór „Delivery Lead kontraktu” skasowałby opiekuna (audyt 22.10, F89).
+        disabled={save.isPending || owners.isError}
+        onValueChange={(next) =>
+          save.mutate(next === DEFAULT_OWNER ? null : Number(next), {
+            onSuccess: () => showToast("Domyślny opiekun zapisany", "success"),
+            onError: (err) =>
+              showToast(apiErrorMessage(err, "Nie udało się zapisać opiekuna."), "error"),
+          })
+        }
+      >
+        <SelectTrigger aria-label="Domyślny opiekun konsultantów klienta" className="h-8">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={DEFAULT_OWNER}>Delivery Lead kontraktu</SelectItem>
+          {/* Opiekun spoza listy (wykluczony z puli, nieaktywne konto) albo lista
+              jeszcze/wcale nie wczytana — inaczej pole byłoby puste, jak gdyby
+              opiekuna nie było. */}
+          {map.default_owner && !(owners.data ?? []).some((o) => o.id === map.default_owner?.id) ? (
+            <SelectItem value={String(map.default_owner.id)}>
+              {map.default_owner.name}
+              {owners.isSuccess ? " (spoza listy opiekunów)" : ""}
+            </SelectItem>
+          ) : null}
+          {(owners.data ?? []).map((owner) => (
+            <SelectItem key={owner.id} value={String(owner.id)}>
+              {owner.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {owners.isError ? (
+        <p className="text-xs text-destructive">
+          {apiErrorMessage(owners.error, "Nie udało się wczytać listy opiekunów.")}
+        </p>
+      ) : null}
+    </>
   );
 }

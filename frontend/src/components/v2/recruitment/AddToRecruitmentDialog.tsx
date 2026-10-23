@@ -33,7 +33,6 @@ import {
   type BulkSkippedRow,
 } from "@/lib/candidate-search-api";
 import { apiErrorMessage } from "@/lib/api-error";
-import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/auth";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { pluralPl } from "@/lib/plural-pl";
@@ -238,8 +237,10 @@ export function AddToRecruitmentDialog({
   const [skipEmployed, setSkipEmployed] = useState(false);
   const [toVerified, setToVerified] = useState(false);
   const move = usePipelineMoveCore({ jobId: (result?.job ?? job)?.id ?? 0 });
+  // Etap „Zweryfikowany” tylko dla konta, które serwer przepuszcza bez bramek
+  // pól (`/api/auth/me` → `skips_fill_gates`, zna wyłącznik; F109).
   const canPickStage =
-    hasPermission(useAuthStore((s) => s.user), "recruitment_manage") && candidateIds.length === 1;
+    useAuthStore((s) => s.user?.skips_fill_gates === true) && candidateIds.length === 1;
 
   const employedInSelection = useMemo(() => {
     const selected = new Set(candidateIds);

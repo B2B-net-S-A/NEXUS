@@ -294,12 +294,17 @@ async def try_parse_cv(
     *,
     preparsed: Optional[tuple[str, dict]] = None,
     candidate_id: Optional[int] = None,
+    identity_proven: bool = False,
 ) -> None:
     """If this attachment looks like a CV and the email is linked to a candidate,
     run it through cv_parser and merge results into the candidate profile.
 
     ``candidate_id`` (runda 6 audytu) — kandydat wskazany przez TREŚĆ tego CV,
     gdy mail z kilkoma CV niesie różne osoby; domyślnie kandydat maila.
+
+    ``identity_proven`` (audyt 22.10.2026, decyzja Artura) — kandydat powstał
+    z tego CV albo ma e-mail z tego CV, więc bramka „imię nieczytelne” nie
+    odcina CV od profilu. Kwarantanna tożsamości działa dalej.
 
     Swallows all exceptions into `attachment.parse_error` — never raises.
     """
@@ -504,11 +509,13 @@ async def try_parse_cv(
         attachment.parsed_candidate_id = candidate.id
         attachment.parse_error = "identity_mismatch_quarantined"
         return
-    if identity_unreadable(candidate.name, candidate.lastname):
+    if not identity_proven and identity_unreadable(candidate.name, candidate.lastname):
         # Imię kandydata cyrylicą: bramka zawsze daje `inconclusive`, więc nie
         # odróżnia jego CV od cudzego. Do 20.10.2026 cudze CV z maila
         # (dopasowanego po wątku) zostawało tu głównym CV i nadpisywało tekst
         # CV w profilu. Plik zostaje w profilu, główne CV wskazuje człowiek.
+        # Kandydat założony z tego CV albo z e-mailem z niego (`identity_proven`)
+        # tej bramki nie przechodzi — do 22.10.2026 zostawał z pustym profilem.
         document.is_primary = False
         attachment.parsed_candidate_id = candidate.id
         attachment.parse_error = "identity_unreadable_not_primary"
@@ -664,6 +671,9 @@ async def try_create_candidate_from_cv(
     from app.services.dedup_service import find_candidate_by_email
 
     matches = await find_candidate_by_email(db, email)
+    # Ten sam e-mail = ta sama osoba; ten sam plik to dowód pochodzenia pliku,
+    # nie tożsamości dla bramki „imię nieczytelne” (audyt 22.10.2026).
+    identity_proven = bool(matches)
     file_hash = getattr(attachment, "sha256", None)
     if not matches and file_hash:
         matches = await _duplicates_by_file_hash(db, digest=file_hash)
@@ -675,7 +685,14 @@ async def try_create_candidate_from_cv(
         return None
     if matches:
         return await _parse_into_existing(
-            db, attachment, email_row, matches[0], (text, parsed), link_email, now
+            db,
+            attachment,
+            email_row,
+            matches[0],
+            (text, parsed),
+            link_email,
+            now,
+            identity_proven=identity_proven,
         )
 
     from app.models.activity import Activity
@@ -708,7 +725,14 @@ async def try_create_candidate_from_cv(
             attachment.id,
         )
         return await _parse_into_existing(
-            db, attachment, email_row, matches[0], (text, parsed), link_email, now
+            db,
+            attachment,
+            email_row,
+            matches[0],
+            (text, parsed),
+            link_email,
+            now,
+            identity_proven=True,
         )
     db.add(
         Activity(
@@ -727,7 +751,12 @@ async def try_create_candidate_from_cv(
     if link_email:
         _link_email(email_row, candidate.id, 1.0, now)
     await try_parse_cv(
-        db, attachment, email_row, preparsed=(text, parsed), candidate_id=candidate.id
+        db,
+        attachment,
+        email_row,
+        preparsed=(text, parsed),
+        candidate_id=candidate.id,
+        identity_proven=True,
     )
     if attachment.parsed_candidate_id != candidate.id or attachment.parse_error:
         # Profil nie przeszedł wspólnej ścieżki (np. kolizja dokumentu), więc
@@ -747,8 +776,12 @@ async def _parse_into_existing(
     preparsed: tuple,
     link_email: bool,
     now,
+    *,
+    identity_proven: bool,
 ) -> int:
-    """CV z maila do profilu, który już ma ten adres albo ten plik."""
+    """CV z maila do profilu, który już ma ten adres albo ten plik.
+
+    ``identity_proven`` = dopasowanie po e-mailu z CV (nie po pliku)."""
     candidate_id = int(match["candidate_id"])
     if link_email:
         _link_email(email_row, candidate_id, float(match["match_score"]), now)
@@ -758,6 +791,7 @@ async def _parse_into_existing(
         email_row,
         preparsed=preparsed,
         candidate_id=candidate_id,
+        identity_proven=identity_proven,
     )
     return candidate_id
 

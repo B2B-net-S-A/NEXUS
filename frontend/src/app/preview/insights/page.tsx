@@ -6,7 +6,7 @@
 // `InsightsView`: ten przepisuje adres na `/insights`, czyli wyszedłby
 // z podglądu. Zmiana okresu w podglądzie prowadzi na `/insights` — nie klikaj.
 //
-// `?as=recruiter|hor|admin|board` wybiera rolę, `?view=` widok, `?report=` raport.
+// `?as=recruiter|hor|admin|board|dl` wybiera rolę, `?view=` widok, `?report=` raport.
 // Na „Rywalizacji” zasiane są dwa okresy: trwający (źródło mieszane) i Q3 2026
 // / wrzesień 2026 jako rozliczone z DynaReportera — inne okresy z listy wyboru
 // pokażą błąd pobierania, bo sieć jest odcięta.
@@ -27,6 +27,8 @@ import {
   ZESPOL_DL_PERIOD,
 } from "@/components/insights/views/ZespolView";
 import { api } from "@/lib/api";
+import { DL_SEND_QUEUE_QUERY_KEY } from "@/lib/api/boardTasks";
+import { payrollKeys } from "@/lib/api/hr-payroll";
 import { insightsCampaignQueryKeys } from "@/lib/insights-campaign-api";
 import { insightsQueryKeys, type InsightsPeriodParams } from "@/lib/insights-api";
 import { performanceFlagsQueryKey } from "@/lib/insights-flags-api";
@@ -124,6 +126,8 @@ function whoCountsSeed(today: string): RecruitmentActivityDetailResponse {
     ],
   };
 }
+
+let dlGoalsSeed: unknown = null;
 
 function seeded(): QueryClient {
   const qc = new QueryClient({
@@ -292,6 +296,94 @@ function seeded(): QueryClient {
     me: recruiterLeague[4], total: 9,
     context: recruiterLeague.slice(2, 7).map((e, i) => ({ ...e, rank: i + 3 })),
   });
+  // Cele z górnego paska i „w drodze” (22.10.2026).
+  const kpi = (
+    kpi_id: string,
+    period: "day" | "week" | "month",
+    title_pl: string,
+    short_title_pl: string,
+    target: number,
+    current: number,
+    state: "on_track" | "behind" | "hit",
+    expected_count: number,
+  ) => ({
+    kpi_id, period, title_pl, short_title_pl, target, current, state, expected_count,
+    description_pl: "", progress_pct: (100 * current) / target, deadline_hours_left: 6,
+  });
+  qc.setQueryData(["kpis", "me", "today"], [
+    kpi("daily_first_verifications", "day", "Weryfikacje dziś", "Weryfikacje", 4, 3, "on_track", 2.4),
+    kpi("weekly_cvs_sent", "week", "Rekomendacje w tygodniu", "Rekomendacje", 5, 2, "behind", 4),
+    kpi("monthly_placements", "month", "Placementy w tym miesiącu", "Placementy", 1, 2, "hit", 0.7),
+  ]);
+  // Cele DL tylko dla persony DL (efekt w `Harness`) — w aplikacji rekruter
+  // nigdy ich nie pobiera, a zasiana odpowiedź pokazałaby mu cudze cele.
+  dlGoalsSeed = {
+    kind: "delivery_lead", scope_label: "Q4 2026", people: null, closed_requests: 29,
+    goals: [
+      { goal_id: "dl_hit_ratio_quarter", title_pl: "Hit ratio portfela w kwartale", short_title_pl: "Hit ratio", period: "quarter", unit: "pct", target: 30, current: 31, progress_pct: null, state: "hit", note: null },
+      { goal_id: "dl_placements_quarter", title_pl: "Placementy portfela w kwartale", short_title_pl: "Placementy", period: "quarter", unit: "count", target: 9, current: 9, progress_pct: null, state: "hit", note: "Rekrutacje zamknięte w kwartale: 29" },
+    ],
+  };
+  const flightCols = (cv_qc: number, cv_sent: number, interview: number, contract: number) => [
+    { column: "cv_qc", label: "Czekają na wysyłkę CV", count: cv_qc, stale_count: 0, oldest_days: cv_qc ? 2 : null },
+    { column: "cv_sent", label: "Czekają na decyzję klienta", count: cv_sent, stale_count: Math.min(3, cv_sent), oldest_days: cv_sent ? 16 : null },
+    { column: "client_interview", label: "Rozmowy u klienta", count: interview, stale_count: 0, oldest_days: interview ? 4 : null },
+    { column: "contract", label: "Akceptacje do domknięcia", count: contract, stale_count: contract ? 1 : 0, oldest_days: contract ? 11 : null },
+  ];
+  const flightForecast = { hired: 12, resolved: 14, min_sample: 10, since: "2026-10-12", rate_pct: 85.7 };
+  const person = (candidate_id: number, candidate_name: string, job_id: number, job_title: string, client_name: string, column: string, stage_label: string, days: number) => ({
+    candidate_id, candidate_name, job_id, job_title, client_id: 1, client_name, delivery_lead_name: "Paweł G.",
+    column, stage_key: column, stage_label, since: "2026-10-12", days,
+  });
+  qc.setQueryData(insightsQueryKeys.inFlightMe("mine"), {
+    asof: "2026-10-22", stale_days: 10, columns: flightCols(0, 7, 2, 2), acceptances: null,
+    people: [
+      person(501, "Marek Próbny", 9201, "DevOps Engineer", "Telekom Testowy", "contract", "Umowa wysłana", 11),
+      person(502, "Kamil Wzorcowy", 9202, "Senior Java Developer", "Bank Przykładowy", "contract", "Akceptacja", 3),
+      person(503, "Ewa Fikcyjna", 9203, "Analityk biznesowy", "Ubezpieczenia Wzorcowe", "client_interview", "Rozmowa u klienta", 2),
+      person(504, "Jan Przykładowy", 9204, "Tester automatyzujący", "Bank Przykładowy", "client_interview", "Prep", 1),
+      person(505, "Ola Testowa", 9205, "Project Manager", "Energetyka Próbna", "cv_sent", "Wysłane do klienta", 16),
+      person(506, "Piotr Wzór", 9201, "DevOps Engineer", "Telekom Testowy", "cv_sent", "Wysłane do klienta", 4),
+    ],
+    forecast: { open: 2, low: 1, high: 2, ...flightForecast },
+    definitions: { columns: "", forecast: "" },
+  });
+  qc.setQueryData(insightsQueryKeys.inFlightMe("portfolio"), {
+    asof: "2026-10-22", stale_days: 10, columns: flightCols(3, 18, 5, 4), acceptances: null,
+    people: [
+      person(511, "Marek Próbny", 9201, "DevOps Engineer", "Telekom Testowy", "contract", "Umowa wysłana", 19),
+      person(512, "Kamil Wzorcowy", 9202, "Senior Java Developer", "Bank Przykładowy", "contract", "Akceptacja", 3),
+      person(513, "Ewa Fikcyjna", 9203, "Analityk biznesowy", "Ubezpieczenia Wzorcowe", "client_interview", "Rozmowa u klienta", 2),
+    ],
+    forecast: { open: 4, low: 3, high: 4, ...flightForecast },
+    definitions: { columns: "", forecast: "" },
+  });
+  qc.setQueryData(payrollKeys.me, {
+    current_rate: null, rates: [], business_days_required: 21,
+    bonuses: [
+      { id: 1, recipient_user_id: 1, recipient_name: "Anna L.", proposed_by: null, proposed_by_name: null, amount: "1500.00", currency: "PLN", category: "placement", category_label: "Placement", period_year: 2026, period_month: 10, status: "assigned", source: "contract_placement", contract_id: 77, eligible_on: "2026-10-20", eligible: true, description: "Premia rekrutera — placement: Jan Przykładowy (Bank Przykładowy)", assigned_by: null, assigned_at: "2026-10-20T08:00:00Z", cancelled_at: null },
+    ],
+    forecast: [
+      { key: "f1", contract_id: 78, role: "recruiter", category: "placement", category_label: "Placement", description: "Premia rekrutera — placement: Ewa Fikcyjna (Ubezpieczenia Wzorcowe)", amount: "1500.00", currency: "PLN", amount_missing_reason: null, start_date: "2026-11-03", started: false, eligible_on: "2026-12-02", business_days_elapsed: 0, business_days_required: 21 },
+    ],
+  });
+  qc.setQueryData(DL_SEND_QUEUE_QUERY_KEY, { ready: [], ready_total: 3, not_ready_total: 2, imported_total: 0, worst_urgency: null });
+  qc.setQueryData(["insights", "me", "position", "quarterly_champions_dl"], {
+    type: "quarterly_champions_dl", period: "2026-Q4", rank: 2, total: 5,
+    me: { user_id: 1, name: "Anna L.", metric_value: 9, rank: 2 }, context: [],
+  });
+  qc.setQueryData(insightsQueryKeys.dlPortfolio({ period: "quarter", offset: 0 }), {
+    period: { kind: "quarter", start: "2026-10-01T00:00:00+02:00", end: "2027-01-01T00:00:00+01:00", timezone: "Europe/Warsaw" },
+    hit_ratio_target_pct: 30, unattributed: { requests: 0, placements: 0 },
+    leads: [{
+      dl_id: 1, dl_name: "Anna L.", is_active: true, requests: 29, vacancies: 33, placements: 9, hit_ratio: 31, fill_rate: 27, open_requests: 15, target_achieved: true,
+      clients: [
+        { client_id: 1, client_name: "Bank Przykładowy", requests: 11, vacancies: 12, placements: 4, hit_ratio: 36, fill_rate: 33, open_jobs: 6, monthly_placements: [], top_hiring_manager: null },
+        { client_id: 2, client_name: "Ubezpieczenia Wzorcowe", requests: 9, vacancies: 10, placements: 3, hit_ratio: 33, fill_rate: 30, open_jobs: 4, monthly_placements: [], top_hiring_manager: null },
+        { client_id: 3, client_name: "Telekom Testowy", requests: 6, vacancies: 8, placements: 1, hit_ratio: 17, fill_rate: 12, open_jobs: 3, monthly_placements: [], top_hiring_manager: null },
+      ],
+    }],
+  });
   const monthFunnel = funnel({ verified: 412, cv_sent: 142, client_interview: 61, hired: 21 });
   qc.setQueryData(["insights", "recruitment", "funnel", CURRENT_MONTH], monthFunnel);
   const monthTeamTable = {
@@ -398,6 +490,8 @@ const ROLES = {
   admin: { role: "admin", roles: ["admin"], capabilities: ["view_team_kpi", "view_finance"] },
   // Rada nadzorcza (0490): Firma z kwotami rolą, zespół imiennie, bez „Mój miesiąc”.
   board: { role: "board", roles: ["board"], capabilities: ["view_team_kpi"] },
+  // Delivery Lead (22.10.2026): „Mój miesiąc” = portfel, cele DL.
+  dl: { role: "delivery_lead", roles: ["delivery_lead"], capabilities: ["view_team_kpi"] },
 } as const;
 
 const VIEWS = ["rywalizacja", "moj-miesiac", "zespol", "firma", "raporty"] as const;
@@ -432,9 +526,13 @@ function Harness() {
       } as never,
       hydrated: true,
     });
+    if (as === "dl") {
+      client.setQueryData(["kpis", "me", "goals"], dlGoalsSeed);
+      client.setQueryData(["kpis", "me", "today"], []);
+    }
     setReady(true);
     return () => api.interceptors.request.eject(blocker);
-  }, [as]);
+  }, [as, client]);
 
   if (!ready) return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;
 

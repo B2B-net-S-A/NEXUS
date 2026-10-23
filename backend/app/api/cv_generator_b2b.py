@@ -82,7 +82,7 @@ from app.models.activity import Activity
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.cv_generated_document import DISCARDED_KEY, CvGeneratedDocument
 from app.models.cv_generated_share import CvGeneratedShareToken
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
@@ -347,6 +347,9 @@ class GeneratedCvItem(BaseModel):
     stage_cv_status: Optional[Literal["draft", "finalized"]] = None
     stage_cv_updated_at: Optional[str] = None
     stage_cv_finalized_at: Optional[str] = None
+    # „Odrzuć to CV” (audyt 22.10, F64): dokument zostaje w plikach, ale karta
+    # „CV do klienta” nie proponuje go jako CV tej rekrutacji.
+    discarded: bool = False
 
 
 class GenerateEnqueuedResponse(BaseModel):
@@ -3310,6 +3313,7 @@ async def list_generated_cvs(
             consent_required=consent_gate.consent_required(r),
             consent_missing=consent_gate.consent_missing(r),
             job_title=job_title,
+            discarded=bool((r.render_payload or {}).get(DISCARDED_KEY)),
             **_stage_cv_fields(stage_cvs.get(r.id)),
         )
         for r, creator_name, job_status, client_name, row_needs_review, job_title in rows

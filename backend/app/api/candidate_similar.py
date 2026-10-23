@@ -63,13 +63,17 @@ class SimilarCandidateOut(SimilarPersonOut):
     shared_skills: list[str]
     only_source_skills: list[str]
     only_candidate_skills: list[str]
+    #: Niepuste = „Możliwy duplikat” (``name`` / ``phone`` / ``linkedin`` /
+    #: ``cv_file``) — reguła w ``services/similar_candidates.duplicate_signals``.
+    duplicate_signals: list[str] = []
 
 
 class SimilarCandidatesResponse(BaseModel):
     candidate_id: int
-    #: ``no_vector`` — osoba nie ma jeszcze wektora CV; ``unavailable`` —
+    #: ``no_vector`` — osoba nie ma jeszcze wektora CV; ``no_cv`` — ma wektor,
+    #: ale bez CV i umiejętności nie ma z czym porównać; ``unavailable`` —
     #: wyszukiwarka nie odpowiedziała (to nie znaczy „nikogo nie ma”).
-    status: Literal["ok", "no_vector", "unavailable"]
+    status: Literal["ok", "no_vector", "no_cv", "unavailable"]
     total: int
     #: Osoba z profilu — druga kolumna porównania.
     source: SimilarPersonOut
@@ -154,6 +158,7 @@ async def similar_candidates(
                 shared_skills=list(row.overlap.shared),
                 only_source_skills=list(row.overlap.only_source),
                 only_candidate_skills=list(row.overlap.only_other),
+                duplicate_signals=list(row.duplicate_signals),
             )
             for row in result.rows
         ],

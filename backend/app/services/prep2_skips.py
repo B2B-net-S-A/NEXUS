@@ -265,6 +265,11 @@ class SkipStat:
     with_reason: int = 0
     # Rozmowa się odbyła, prepów było mniej niż dwa i nikt nie zapisał powodu.
     silent: int = 0
+    # Rozmowa zapisana PO swoim starcie (pytania z datą wstecz, import z notatek,
+    # „Kiedy rozmowa?” wstecz): nie było jej w kalendarzu, więc nie dało się
+    # zrobić prepów ani zapisać powodu — nie jest „bez słowa” (decyzja Artura
+    # 22.10.2026, audyt F28).
+    after_the_fact: int = 0
     reasons: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -288,6 +293,7 @@ async def skip_stats(
                 CalendarEvent.job_id,
                 CalendarEvent.start_time,
                 owner,
+                CalendarEvent.created_at,
             ).where(
                 CalendarEvent.event_type == EventType.client_interview,
                 CalendarEvent.status != EventStatus.cancelled,
@@ -333,22 +339,48 @@ async def skip_stats(
     return tally_skip_stats(interviews, skips, preps, now=now)
 
 
+def recorded_after_the_fact(start: datetime, created_at: Optional[datetime]) -> bool:
+    """Rozmowa założona w NEXUSIE dopiero w chwili startu albo po nim."""
+    return created_at is not None and _utc(created_at) >= _utc(start)
+
+
+def tally_two_preps(
+    interviews: Sequence[tuple[int, int, datetime, Optional[datetime]]],
+    preps: dict[tuple[int, int], list[datetime]],
+) -> tuple[int, int, int]:
+    """Linia „Rozmowy u klienta z dwoma prepami” raportu „Jakość prepów”:
+    (rozmowy, z dwoma prepami, zapisane po fakcie). Rozmowy (kandydat,
+    rekrutacja, start, założona) zapisane po fakcie nie wchodzą do dwóch
+    pierwszych liczb (audyt 22.10.2026, F28)."""
+    counted = with_two = after = 0
+    for cid, jid, start, created_at in interviews:
+        if recorded_after_the_fact(start, created_at):
+            after += 1
+            continue
+        counted += 1
+        before = [s for s in preps.get((cid, jid), []) if _utc(s) <= _utc(start)]
+        if len(before) >= 2:
+            with_two += 1
+    return counted, with_two, after
+
+
 def tally_skip_stats(
-    interviews: Sequence[tuple[int, int, int, datetime, int]],
+    interviews: Sequence[tuple[int, int, int, datetime, int, Optional[datetime]]],
     skips: dict[int, tuple[str, datetime]],
     preps: dict[tuple[int, int], list[datetime]],
     *,
     now: datetime,
 ) -> dict[int, SkipStat]:
     """Liczenie raportu bez bazy: rozmowy (id, kandydat, rekrutacja, start,
-    właściciel), wyjątki po id rozmowy (powód, data zapisu) i prepy pary.
+    właściciel, założona), wyjątki po id rozmowy (powód, data zapisu) i prepy
+    pary. Rozmowa zapisana po fakcie liczy się osobno (``after_the_fact``).
 
     Wyjątek, który po przełożeniu rozmowy przestał obowiązywać
     (``prep2_skip_valid``), nie jest „powodem” — ekran i tak żąda wtedy
     Prepu 2, więc raport nie może liczyć tej rozmowy jako usprawiedliwionej.
     """
     stats: dict[int, SkipStat] = {}
-    for iv_id, cid, jid, start, owner_id in interviews:
+    for iv_id, cid, jid, start, owner_id, created_at in interviews:
         start = _utc(start)
         stat = stats.setdefault(owner_id, SkipStat(owner_id=owner_id))
         stat.interviews += 1
@@ -362,6 +394,8 @@ def tally_skip_stats(
         if reason is not None:
             stat.with_reason += 1
             stat.reasons[reason] = stat.reasons.get(reason, 0) + 1
+        elif recorded_after_the_fact(start, created_at):
+            stat.after_the_fact += 1
         elif start <= now:
             before = [
                 s

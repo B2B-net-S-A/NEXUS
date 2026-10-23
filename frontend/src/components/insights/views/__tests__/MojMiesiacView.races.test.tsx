@@ -39,12 +39,25 @@ vi.mock("@/lib/insights-api", async (importOriginal) => ({
   insightsApi: {
     recruitmentFunnel: () => new Promise(() => {}),
     seniority: () => new Promise(() => {}),
+    inFlightMe: () => new Promise(() => {}),
   },
 }));
 vi.mock("@/lib/insights-team-api", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   insightsTeamApi: { teamTableWithAnchoredAverage: () => new Promise(() => {}) },
   insightsTeamQueryKeys: { teamTableAnchored: () => ["insights", "team", "anchored"] },
+}));
+
+// Cele z paska i premia (22.10.2026) — tu nieistotne, nigdy nie wracają.
+vi.mock("@/hooks/useMyKpis", () => ({
+  useMyKpis: () => ({ isPending: true }),
+}));
+vi.mock("@/hooks/useMyGoals", () => ({
+  useMyGoals: () => ({ isPending: true }),
+}));
+vi.mock("@/lib/api/hr-payroll", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useMyPayroll: () => ({ isPending: true }),
 }));
 
 // Panel „Kto się liczy” (17.10.2026) czyta stan z adresu i pyta o listę —

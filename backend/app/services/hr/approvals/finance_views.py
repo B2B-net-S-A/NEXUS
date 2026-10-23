@@ -158,7 +158,7 @@ def _request_row(
         "recurrence": request.recurrence,
         "payer": request.payer,
         "decided_at": _iso(request.decided_at),
-        "expires_on": _iso(request.expires_on),
+        "expires_on": _iso(settlement.expiry(request)),
         "settlement_status": request.settlement_status,
         "seller_nip": request.seller_nip,
         "comparison": settlement.compare(request, attached).as_json()
@@ -199,7 +199,7 @@ async def to_settle(db: AsyncSession, viewer: User) -> dict[str, Any]:
         await db.scalars(
             select(ApprovalRequest)
             .where(ApprovalRequest.settlement_status == "open")
-            .order_by(ApprovalRequest.expires_on, ApprovalRequest.id)
+            .order_by(ApprovalRequest.decided_at, ApprovalRequest.id)
         )
     )
     docs = await settlement.documents_of(db, [r.id for r in with_docs])

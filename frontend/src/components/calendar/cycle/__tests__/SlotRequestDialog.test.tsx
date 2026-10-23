@@ -95,6 +95,21 @@ describe("SlotRequestDialog — terminy z maila klienta", () => {
     expect(body.respond_by).toBe(new Date(fromMail.respond_by as string).toISOString());
   });
 
+  it("długość z maila spoza przycisków nie ustawia się niewidocznie (audyt 22.10, F29)", async () => {
+    mocks.readSlotsFromMail.mockResolvedValue({ ...fromMail, duration_minutes: 150 });
+    const dialog = renderDialog();
+    fireEvent.change(within(dialog).getByLabelText(/Wklej maila od klienta/), { target: { value: "mail" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Odczytaj terminy" }));
+    await within(dialog).findByText(/„czwartek 12.06 o 10:00”/);
+    const checked = within(dialog)
+      .getAllByRole("radio")
+      .filter((el) => el.getAttribute("aria-checked") === "true");
+    expect(checked.map((el) => el.textContent)).toEqual(["60 min"]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wyślij rekruterowi" }));
+    await waitFor(() => expect(mocks.createSlots).toHaveBeenCalledTimes(1));
+    expect(mocks.createSlots.mock.calls[0][0].duration_minutes).toBe(60);
+  });
+
   it("poprawka ręczna zdejmuje ostrzeżenie z terminu", async () => {
     const dialog = renderDialog();
     fireEvent.change(within(dialog).getByLabelText(/Wklej maila od klienta/), { target: { value: "mail" } });
