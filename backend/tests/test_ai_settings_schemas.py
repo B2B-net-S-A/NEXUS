@@ -104,6 +104,8 @@ class TestFeatureKeyEnum:
             "expense_document_read",
             # 0488: „Po rozmowie” — pytania i oferta z notatki z telefonu.
             "debrief_from_text",
+            # 0518: raport poniedziałkowy „Jakość podpowiedzi systemu”.
+            "autofill_quality_report",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

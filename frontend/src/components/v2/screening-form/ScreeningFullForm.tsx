@@ -45,6 +45,7 @@ import { Button } from "@/components/ui/button";
 import { FormField, TextField, TextareaField } from "@/components/v2/forms";
 import { ScreeningReassignSuggestions } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { RejectionV2, type CandidateOfferResponse } from "@/components/v2/modals/RejectionV2";
+import { autofillMoveFields, type AutofillFeedbackChoice } from "@/lib/autofill-feedback";
 import type { RejectionEmailText } from "@/lib/rejection-email";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
@@ -1154,7 +1155,14 @@ export interface ScreeningFullFormProps {
   /** „Zapisz i przekaż dalej → Zweryfikowany” — tylko z „Nowych” i „Screeningu”. */
   forward?: (ScreeningFormMoveTarget & { label: string }) | null;
   /** „Odrzuć” z powodem — tylko z „Nowych” i „Screeningu”. */
-  reject?: (ScreeningFormMoveTarget & { previousStage: string; previousCategory: "internal" | "external" }) | null;
+  reject?:
+    | (ScreeningFormMoveTarget & {
+        previousStage: string;
+        previousCategory: "internal" | "external";
+        /** Osoba od systemu (23.10.2026) — okno pyta o powód dla systemu. */
+        autofill?: { rateKnown: boolean; several: boolean } | null;
+      })
+    | null;
   /** Panel osoby (13.10.2026): po udanym „Odrzuć” panel pokazuje następną
    *  osobę. Woła się przy kliknięciu — migawka kolejności Tablicy. */
   rejectFollowUp?: () => RejectFollowUp | undefined;
@@ -1547,6 +1555,7 @@ export function ScreeningFullForm({
       followUp?: RejectFollowUp;
       emailText?: RejectionEmailText | null;
       workMode?: RejectionWorkModeChoice | null;
+      autofill?: AutofillFeedbackChoice | null;
     }) => {
       if (!reject || !state) throw new Error("Brak etapu docelowego.");
       return moveCore.send(
@@ -1563,6 +1572,7 @@ export function ScreeningFullForm({
           rejection_email_body: vars.emailText?.body,
           work_mode_max_onsite_days: vars.workMode?.maxOnsiteDays,
           work_mode_save_to_profile: vars.workMode?.saveToProfile,
+          ...autofillMoveFields(vars.autofill),
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: state.process_state_version,
         },
@@ -1818,6 +1828,7 @@ export function ScreeningFullForm({
           pending={rejectMut.isPending}
           workModeJob={rejectWorkModeJob}
           profileWorkMode={rejectProfileWorkMode}
+          autofill={reject.autofill ?? null}
           onConfirm={(
             reasonId,
             notes,
@@ -1828,6 +1839,7 @@ export function ScreeningFullForm({
             _cancelAgreementId,
             emailText,
             workMode,
+            autofill,
           ) =>
             rejectMut.mutate({
               reasonId,
@@ -1838,6 +1850,7 @@ export function ScreeningFullForm({
               followUp: rejectSnapshot,
               emailText,
               workMode,
+              autofill,
             })
           }
         />

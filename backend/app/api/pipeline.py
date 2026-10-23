@@ -37,6 +37,7 @@ from app.services.process_entry_meta import (
     application_link_owner_id,
     application_screening_badge,
     auto_match_badge,
+    autofill_badge,
 )
 from app.models.contract import ContractType, RateUnit
 from app.services.board_stage_badges import (
@@ -1985,6 +1986,33 @@ async def apply_move(
                 "„Nie akceptuje trybu pracy”."
             ),
         )
+    # Osoba od systemu (23.10.2026): odrzucenie z „Nowych”/„Screeningu”
+    # wymaga powodu ze stałej listy i „skąd wiesz” — z powodów poprawiamy
+    # wyszukiwanie (`services/autofill_feedback.py`). Walidacja PRZED zapisem.
+    from app.services import autofill_feedback  # noqa: PLC0415
+
+    target_terminal = (
+        getattr(stage_def.terminal_type, "value", stage_def.terminal_type)
+        if is_terminal_move_stagedef
+        else legacy_enum.value
+    )
+    autofill_process = None
+    if target_terminal == PipelineStage.rejected.value:
+        _gate_row, autofill_from_column = await pipeline_move_rules.gate_stage_row(
+            db, candidate_id=data.candidate_id, job_id=data.job_id
+        )
+        autofill_process = await autofill_feedback.system_process_in_decision(
+            db,
+            candidate_id=data.candidate_id,
+            job_id=data.job_id,
+            from_column=autofill_from_column,
+        )
+    autofill_feedback.validate(
+        process=autofill_process,
+        reason=data.autofill_reason,
+        learned_from=data.autofill_learned_from,
+        note=data.notes,
+    )
     # 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
     # zostawiały w historii samo słowo. Opis przychodzi jako `notes` (okna
     # odrzucenia) albo `rejection_reason` (API integracyjne).
@@ -2182,6 +2210,30 @@ async def apply_move(
             is_minimum=data.expected_rate_is_minimum,
             actor_id=policy.actor_id,
         )
+    if autofill_process is not None:
+        await autofill_feedback.record(
+            db,
+            process=autofill_process,
+            job=job,
+            stage_id=stage.id,
+            reason=data.autofill_reason,
+            learned_from=data.autofill_learned_from,
+            rate_hourly=data.autofill_rate_hourly,
+            note=data.notes,
+            actor_id=policy.actor_id,
+        )
+        # „Ile chce?” z rozmowy — ta sama droga do „Stawki od” co stawka
+        # z okna „Zweryfikowany”.
+        if data.autofill_rate_hourly is not None:
+            await _record_rate_from_move(
+                db,
+                candidate_id=data.candidate_id,
+                value=Decimal(data.autofill_rate_hourly),
+                unit="hourly",
+                currency="PLN",
+                is_minimum=False,
+                actor_id=policy.actor_id,
+            )
     if work_mode_rejection and data.work_mode_save_to_profile:
         await _record_work_mode_from_rejection(
             db,
@@ -3487,6 +3539,18 @@ async def build_kanban_view(
             reassign_titles[rid] = rtitle
             reassign_refs[rid] = rref
     board_now = datetime.now(timezone.utc)
+    # Osoby od systemu (23.10.2026): termin decyzji liczy się od przypisania
+    # rekrutera; jedno zapytanie tylko wtedy, gdy na Tablicy są takie karty.
+    from app.services import autofill_decisions
+
+    autofill_recruiter_since = (
+        (await autofill_decisions.recruiter_since_for_jobs(db, [job_id])).get(job_id)
+        if any(
+            p.entry_source == candidate_claim.ENTRY_SYSTEM
+            for p in v4_processes.values()
+        )
+        else None
+    )
     # Odznaki terminarza rozmowy u klienta i status zamówienia zatrudnionych —
     # po jednym zapytaniu hurtowym (liczone w serwisach, front tylko rysuje).
     from app.services.hired_order_status import order_status_for_pairs
@@ -3850,6 +3914,19 @@ async def build_kanban_view(
         if v4 is not None:
             payload["entry_source"] = v4.entry_source
             payload["entry_auto_match"] = auto_match_badge(v4.entry_meta)
+            payload["entry_autofill"] = (
+                autofill_badge(
+                    v4.entry_meta,
+                    waiting_days=autofill_decisions.waiting_days(
+                        meta=v4.entry_meta,
+                        entered_at=v4.opened_at,
+                        recruiter_since=autofill_recruiter_since,
+                        now=board_now,
+                    ),
+                )
+                if v4.entry_source == candidate_claim.ENTRY_SYSTEM
+                else None
+            )
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
             payload["entry_off_limits"] = off_limits_badge(
                 v4.entry_meta, user_name_by_id
@@ -4824,6 +4901,11 @@ async def claim_candidate(
         else None
     )
     candidate_claim.set_claim(process, current_user.id, now)
+    # Osoba od systemu (23.10.2026): „Dzwonię” to decyzja na stałe — po
+    # wygaśnięciu blokady karta nie wraca do „Czeka na Ciebie”.
+    from app.services.autofill_decisions import record_call
+
+    record_call(process, current_user.id, now)
     db.add(
         Activity(
             entity_type="pipeline",

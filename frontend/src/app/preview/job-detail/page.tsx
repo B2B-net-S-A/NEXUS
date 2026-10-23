@@ -302,10 +302,58 @@ function col(
   } as unknown as KanbanColumn;
 }
 
+/**
+ * `?autofill=1` (23.10.2026): dwie osoby od silnika „Nowi na 20” na końcu
+ * „Nowych” — jedna czeka 3 dni na decyzję, druga dodana dziś. Bez parametru
+ * Tablica zostaje taka jak dotąd (pomiary wysokości doku).
+ */
+function autofillCards(): KanbanItem[] {
+  if (typeof window === "undefined") return [];
+  if (new URLSearchParams(window.location.search).get("autofill") !== "1") return [];
+  const system = {
+    entry_source: "system" as const,
+    added_to_job_by_id: null,
+    added_to_job_by_name: null,
+    claim_user_id: null,
+    claim_user_name: null,
+    claim_until: null,
+    can_take: true,
+  };
+  return [
+    card("Ewa", "Systemowa", {
+      ...system,
+      entry_autofill: {
+        score: 81,
+        matched_must: ["Java", "Spring Boot", "Kafka"],
+        missing_must: ["AWS"],
+        rate_known: false,
+        availability_known: false,
+        decided: false,
+        waiting_days: 3,
+        decision_due: true,
+      },
+    }),
+    card("Karol", "Dobrany", {
+      ...system,
+      entry_autofill: {
+        score: 63,
+        matched_must: ["Java"],
+        missing_must: ["Kafka", "AWS"],
+        rate_known: true,
+        availability_known: true,
+        decided: false,
+        waiting_days: 0,
+        decision_due: false,
+      },
+    }),
+  ];
+}
+
 function columns(): KanbanColumn[] {
   nextId = 1;
   return [
     col("new", "Nowi / Analiza CV", 21, [
+      ...autofillCards(),
       // „+1 rekrutacja” (14.10.2026): czeka też w Nowych innej rekrutacji.
       card("Anna", "Przykładowa", {
         other_open_jobs: [

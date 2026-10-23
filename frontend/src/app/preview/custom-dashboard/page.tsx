@@ -419,6 +419,30 @@ const FLOW: FlowBlock = {
     },
   ],
   top_proposals_per_job: 3,
+  // 23.10.2026: osoby od silnika „Nowi na 20” po terminie decyzji.
+  autofill_decisions: [
+    {
+      job_id: 501,
+      job_title: "Senior Java Developer",
+      job_working_title: null,
+      client_name: "Bank Przykładowy",
+      candidate_id: 9701,
+      candidate_name: "Ewa Systemowa",
+      score: 81,
+      waiting_days: 3,
+    },
+    {
+      job_id: 501,
+      job_title: "Senior Java Developer",
+      job_working_title: null,
+      client_name: "Bank Przykładowy",
+      candidate_id: 9702,
+      candidate_name: "Karol Dobrany",
+      score: 63,
+      waiting_days: 2,
+    },
+  ],
+  autofill_decisions_total: 2,
 };
 const DL_FLOW: FlowBlock = {
   ...FLOW,

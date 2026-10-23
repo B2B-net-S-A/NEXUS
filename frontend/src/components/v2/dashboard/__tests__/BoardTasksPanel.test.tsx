@@ -1419,6 +1419,43 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     );
   });
 
+  it("osoby od systemu: „Dzwonię” bierze osobę na 12 h i znika, „Otwórz” prowadzi do panelu", async () => {
+    const decision = {
+      job_id: 41,
+      job_title: "Senior Java Developer",
+      job_working_title: null,
+      client_name: "Bank Kappa",
+      candidate_id: 61,
+      candidate_name: "Ewa Lis",
+      score: 81,
+      waiting_days: 3,
+    };
+    const flow = emptyFlow({
+      autofill_decisions: [decision, { ...decision, candidate_id: 62, candidate_name: "Marek Wysocki", waiting_days: 2 }],
+      autofill_decisions_total: 2,
+    });
+    expect(flowWorkCount(flow as never, null)).toBe(2);
+    mockQueue({ flow });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Osoby od systemu czekają na decyzję" });
+    const [first] = within(section).getAllByTestId("autofill-decision-row");
+    expect(first).toHaveTextContent("Ewa Lis");
+    expect(within(first).getByText("81%")).toBeTruthy();
+    expect(within(first).getByText("3 dni")).toBeTruthy();
+    expect(within(section).getByRole("link", { name: "Otwórz Ewa Lis na Tablicy" })).toHaveAttribute(
+      "href",
+      "/jobs/41?candidate=61",
+    );
+    await userEvent.click(
+      within(section).getByRole("button", { name: "Dzwonię do Ewa Lis — biorę na 12 h" }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/pipeline/claim", { candidate_id: 61, job_id: 41 }),
+    );
+    await waitFor(() => expect(within(section).queryByText("Ewa Lis")).toBeNull());
+    expect(showSuccess).toHaveBeenCalledWith("Dzwonisz do: Ewa Lis — masz 12 h.");
+  });
+
   it("DL: „Czeka na klienta” jest w „U innych”, umowy do podpisu i zamówienia z maila w „Twój ruch”", async () => {
     useAuthStore.setState({ user: { id: 1, role: "delivery_lead" }, realUser: null } as never);
     mockQueue({

@@ -329,6 +329,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'expense_document_read'",
     # 0488: „Po rozmowie” — pytania i oferta z notatki z telefonu (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'debrief_from_text'",
+    # 0518: raport poniedziałkowy „Jakość podpowiedzi systemu” (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -767,6 +769,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cv_ready'",
     # 0444: osoba dodana do rekrutacji z „Pasuje też do” (do rekruterów tej rekrutacji).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'also_fits_added'",
+    # 0517: osoby od silnika „Nowi na 20” czekają na decyzję (do Rekruterów).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_decisions_due'",
+    # 0518: raport „Jakość podpowiedzi systemu” gotowy (do odbiorców raportu).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
@@ -1113,6 +1119,26 @@ except Exception as _autofill_pool_err:  # noqa: BLE001
     print(f"autofill pool DDL unavailable: {_autofill_pool_err!r}")
     _AUTOFILL_POOL_DDL = []
 
+# Powody odrzucenia osób od systemu (migracja 0516) — JEDNO źródło z migracją
+# (`app/services/autofill_feedback_schema.py`).
+try:
+    from app.services import autofill_feedback_schema as _autofill_feedback_schema
+
+    _AUTOFILL_FEEDBACK_DDL = list(_autofill_feedback_schema.TABLE_DDL)
+except Exception as _autofill_feedback_err:  # noqa: BLE001
+    print(f"autofill feedback DDL unavailable: {_autofill_feedback_err!r}")
+    _AUTOFILL_FEEDBACK_DDL = []
+
+# Raporty „Jakość podpowiedzi systemu” (migracja 0518) — JEDNO źródło z migracją
+# (`app/services/autofill_quality_schema.py`).
+try:
+    from app.services import autofill_quality_schema as _autofill_quality_schema
+
+    _AUTOFILL_QUALITY_DDL = list(_autofill_quality_schema.TABLE_DDL)
+except Exception as _autofill_quality_err:  # noqa: BLE001
+    print(f"autofill quality DDL unavailable: {_autofill_quality_err!r}")
+    _AUTOFILL_QUALITY_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1164,6 +1190,8 @@ _COLUMN_STATEMENTS = [
     *_RANKING_WEIGHT_CHANGES_DDL,
     *_PREP_REVIEW_CONFIG_DDL,
     *_AUTOFILL_POOL_DDL,
+    *_AUTOFILL_FEEDBACK_DDL,
+    *_AUTOFILL_QUALITY_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -7410,6 +7438,11 @@ _DATA_STATEMENTS = [
     "SELECT 'debrief_from_text', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'debrief_from_text')",
+    # 0518: seed klucza AI raportu „Jakość podpowiedzi systemu”.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'autofill_quality_report', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'autofill_quality_report')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.
@@ -9383,7 +9416,7 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT ck_recruitment_processes_entry_source
             CHECK (entry_source IS NULL OR entry_source IN (
                 'added_manual', 'application', 'proposal', 'reassign',
-                'auto_match', 'import'
+                'auto_match', 'import', 'system'
             ));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """DO $$ BEGIN

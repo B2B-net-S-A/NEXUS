@@ -4,7 +4,8 @@ Cztery automaty, wszystkie WŁĄCZONE domyślnie, każdy za wyłącznikiem env,
 którego stan OFF = zachowanie sprzed 21.09. **Nic zewnętrznego ani
 nieodwracalnego nie dzieje się bez kliknięcia człowieka**: żaden automat nie
 wysyła nic do klienta, nie przesuwa karty i nie dodaje nikogo do pipeline'u
-(wyjątek: jawnie ustawione `AUTO_MATCH_MODE=add`). Zdarzenia automatów lądują
+(wyjątki: jawnie ustawione `AUTO_MATCH_MODE=add` i automat E — dopełnianie
+„Nowych”, decyzja Artura 23.10.2026). Zdarzenia automatów lądują
 w `Activity(entity_type="job_automation", entity_id=<job_id>)` — osobny typ
 encji, żeby nie mieszać się z historią rekrutacji — i czyta je
 `GET /api/jobs/{id}/background-events` (zakładka „Praca w tle", bramka jak
@@ -17,6 +18,101 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
 | B. nowe CV → „Propozycje" (`new_cv`) | `AUTO_MATCH_MODE=dry_run` | `services/auto_match_service.py` |
 | C. auto-CV po ruchu na „Zweryfikowany" — od 21.10.2026 tylko QC istniejącego CV pary, generacja po potwierdzeniu w karcie (`cv-po-potwierdzeniu.md`) | `CV_AUTO_GENERATE_ON_VERIFIED`, `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION` | `services/cv_auto_generate.py` |
 | D. podpowiedź stawki/dostępności w arkuszu screeningu | brak (czysty odczyt) | `services/screening_suggestions.py` |
+| E. „System trzyma Nowych na 20” (23.10.2026) | `NEW_COLUMN_AUTOFILL_ENABLED` (domyślnie OFF) | `services/new_column_autofill.py`, `tasks/new_column_autofill.py` |
+
+- **E. System trzyma „Nowych” na 20 (decyzje Artura 23.10.2026, makiety
+  https://claude.ai/artifact/6qyrJf65QmsQdJteLZWVT2).** Dni robocze 7–19
+  (`is_business_day`): pełny przebieg co 15 min po rekrutacjach w pracy,
+  między nimi co tick (60 s) rekrutacje, w których człowiek ruszył kartę.
+  Brak = `TARGET` (20) − osoby w kolumnie „Nowi” (ta sama reguła kolumny co
+  Tablica; osoby dodane przez zespół też się liczą). Dobiera najlepszych
+  z `job_autofill_pool` (A) i otwartych propozycji `full_base`/`new_cv` —
+  **każdy wynik, także poniżej progu**. Nie dodaje: osób, które kiedykolwiek
+  były w tej rekrutacji, pominiętych propozycji, stojących dziś na
+  „Zatrudniony”, zgłoszeń z portali (`job_board`), każdego z decyzją bramki
+  innej niż „brak przeciwwskazań” (ostrzeżenia zostają człowiekowi) i osób
+  off-limits u klienta. Wejście przez `add_candidates_to_job` z
+  `entry_source="system"` (0515, CHECK + lustro w `entrypoint.sh`),
+  `actor_user_id=None` (puste `moved_by`), `claim=False` — bez blokady 12 h,
+  bierze pierwszy, kto ruszy kartę — i `mark_proposals=False`.
+  `entry_meta.kind="autofill"` to migawka: wynik, `matched_must`,
+  `missing_must`, „Stawka od” (`effective_rate`), dostępność — z niej raport
+  odróżni błąd wyszukiwania od braku danych. Wpis „Praca w tle”
+  `new_column_autofill` (`kind: "autofill"`, `count`).
+  **Bezpiecznik (23.10.2026):** najwyżej `NEW_COLUMN_AUTOFILL_MAX_PER_TICK`
+  (100) dodań na tick — każde dodanie pobiera CV z magazynu i zapisuje kopię
+  (`create_original_cv_snapshot`), a pierwszy przebieg na produkcji to ok.
+  2–3 tys. osób. Przerwany pełny przebieg (`_State.pending`) wraca w następnym
+  ticku od miejsca przerwania (także rekrutacja, przy której skończył się
+  limit); rekrutacje z ruchem karty idą przed nim.
+- **E. Na Tablicy i w panelu osoby (PR 3, 23.10.2026).** Karta Tablicy niesie
+  `entry_autofill` (`process_entry_meta.autofill_badge`: wynik, wymagania,
+  `rate_known`, `availability_known`, `decided`, `waiting_days`,
+  `decision_due`) tylko dla wejścia `system`. Karta: osoba = „System”
+  (`cardOwner`), plakietka źródła „Od systemu · 81%” (ikona z dymkiem jak
+  każde źródło), przycisk „Dzwonię” zamiast „Biorę”, w „Nowych” plakietka
+  „N dni bez decyzji”. Panel osoby: blok „Dlaczego system dodał”
+  (`DockAutofillReason`) i „Dzwonię — biorę na 12 h”. Filtr „Kto dodał” ma
+  pozycję „System” (`?added_by=system`); „Brak danych” jej nie liczy.
+  **Termin decyzji** (`services/autofill_decisions.py`, jedna reguła dla
+  Tablicy i kolejki decyzji): 2 PEŁNE dni robocze w „Nowych” od dodania albo
+  od przypisania pierwszego rekrutera, jeśli przyszedł później
+  (`recruiter_since_for_jobs`: najwcześniejsze aktywne przypisanie, prowadzący
+  bez przypisania — od utworzenia rekrutacji). Rekrutacja bez rekrutera =
+  bez terminu (decyzja Artura 23.10.2026). „Dzwonię” (`POST /api/pipeline/claim`)
+  zapisuje w `entry_meta` `decided_at`/`decided_by`/`decision="call"` na
+  stałe — wygaśnięcie blokady 12 h nie przywraca terminu. Przesunięcie dalej
+  albo odrzucenie zdejmuje kartę z „Nowych”, więc termin znika sam.
+  Harness: `/preview/job-detail?autofill=1`.
+- **E. Odrzucenie z powodem (PR 4, 0516, decyzja Artura 23.10.2026).** Ruch na
+  „Odrzucony” osoby od systemu, która stoi w „Nowych” albo „Screeningu”
+  (`gate_stage_row`), wymaga `autofill_reason` (12 kodów w trzech grupach,
+  lista w `autofill_feedback_schema.REASONS`) i `autofill_learned_from`
+  (`profile` | `call`); bez nich 422 `{code: "AUTOFILL_REASON_REQUIRED"}`, przy
+  innej osobie — 422, „Inne” bez `notes` — 422. Walidacja przed zapisem, zapis
+  wiersza `autofill_feedback` w tej samej transakcji co ruch. **Kosz raportu**
+  (`autofill_feedback.bucket_for`) liczy się z migawki `entry_meta`, nie
+  z dzisiejszego profilu: wymagania → `search`; CV nieaktualne i profil się nie
+  zgadza → `data`; „za droga” → `search` tylko wtedy, gdy system ZNAŁ stawkę
+  powyżej budżetu (`resolve_job_budget_hourly`), inaczej `data`; nie szuka,
+  nie odbiera, już u nas → `person`; „Inne” → `other`. „Ile chce?”
+  (`autofill_rate_hourly`, PLN/h) idzie do „Stawki od” tą samą drogą co
+  stawka z „Zweryfikowanego” (`_record_rate_from_move`). Front: pole
+  `AutofillFeedbackField` w `RejectionV2` (prop `autofill`), lustro listy
+  w `lib/autofill-feedback.ts`; pytają `usePipelineMove` (Tablica, panel
+  osoby) i `ScreeningFullForm` (warsztat screeningu). Przy kilku osobach ten
+  sam powód idzie do każdej osoby od systemu, bez stawki.
+- **E. Kolejka decyzji i poranny dzwonek (PR 5, 0517).** „Czeka na Ciebie”
+  (`board_flow._autofill_decisions`, pole `flow.autofill_decisions` +
+  `autofill_decisions_total`, sekcja `BoardAutofillDecisions`) pokazuje
+  Rekruterowi osoby od systemu z jego rekrutacji (`_recruiting_job_ids`) po
+  terminie decyzji — ta sama reguła co Tablica (`autofill_decisions.due_decisions`):
+  „Nowi”, wejście `system`, bez `decided_at`, rekrutacja z rekruterem. Akcje:
+  „Dzwonię” (`/claim`) i „Otwórz” (`/jobs/{id}?candidate={cid}`, tam „Odrzuć
+  z powodem”). Dzwonek `autofill_decisions_due` (kategoria „Kandydaci”, sekcja
+  pipeline, bez maila, `ALTER TYPE` w 0517 + lustro w `entrypoint.sh`):
+  `autofill_decisions_bell.send_decision_bells` z `run_all_triggers`, dni
+  robocze 8–17, raz dziennie (`app_settings['autofill_decisions_bell_state']`),
+  JEDEN na Rekrutera (`job_team.working`) — liczba osób i do trzech rekrutacji,
+  link `/dashboard#czeka-na-ciebie`.
+- **E. „Jakość podpowiedzi systemu” i raport poniedziałkowy (PR 6, 0518).**
+  Ekran `/insights/autofill` (link w nagłówku Insights, okruszek „Jakość
+  podpowiedzi systemu”, harness `/preview/autofill-quality`):
+  `GET /api/autofill-quality/summary?days=7|30|90` i `GET …/reports` za
+  bramką sekcji Insights (agregaty bez nazwisk), decyzja „Robimy / Nie”
+  (`POST …/reports/{id}/proposals/{i}/decision`) — admin i Head of
+  Recruitment. **Liczby liczy kod** (`autofill_quality.summary`): dodane,
+  „Dzwonię”, odrzucenia per kosz i powód, „Zweryfikowany” osób od systemu na
+  tle `added_manual`/`proposal`, czekający po terminie, najsłabsze rekrutacje
+  (od 3 odrzuceń, sort po udziale błędów wyszukiwania). **Propozycje układa
+  model** (klucz `autofill_quality_report`, F35, Sonnet 5, prompt
+  `AUTOFILL_QUALITY_REPORT`, do 30 opisów odrzuceń w znacznikach); kod
+  odrzuca propozycję bez tytułu albo z koszem spoza `search|data|person`, a
+  bez modelu raport idzie z `rule_proposals`. Raport (`autofill_quality_reports`,
+  jeden na tydzień, `week_start` = poniedziałek poprzedniego tygodnia) robi
+  `run_all_triggers` w pierwszym dniu roboczym tygodnia 8–17; dzwonek
+  `autofill_quality_report` do `AUTOFILL_REPORT_RECIPIENT_EMAILS` (bez
+  ustawienia — aktywni admini), tylko gdy w tygodniu coś się działo.
 
 - **A. Co noc WSZYSTKIE rekrutacje w pracy (decyzja Artura 30.09.2026).**
   Nocna pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w

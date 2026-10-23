@@ -34,6 +34,15 @@ import {
  type RejectionWorkModeProfile,
 } from "@/components/v2/modals/RejectionWorkModeField";
 import {
+ AutofillFeedbackField,
+ parseRateInput,
+} from "@/components/v2/modals/AutofillFeedbackField";
+import type {
+ AutofillFeedbackChoice,
+ AutofillLearnedFrom,
+ AutofillReason,
+} from "@/lib/autofill-feedback";
+import {
  HM_ALREADY_INTERVIEWED_REASON,
  WORK_MODE_MISMATCH_REASON,
  reasonNeedsDescription,
@@ -96,7 +105,10 @@ interface Props {
  emailText?: RejectionEmailText | null,
  /** Powód „Nie akceptuje trybu pracy” (14.10.2026): ile dni w biurze
   *  kandydat akceptuje i czy zapisać to na profilu; `null` przy innym powodzie. */
- workMode?: RejectionWorkModeChoice | null
+ workMode?: RejectionWorkModeChoice | null,
+ /** Osoba od systemu (23.10.2026): powód dla systemu; `null`, gdy okno
+  *  go nie pytało (żadna osoba od systemu z „Nowych”/„Screeningu”). */
+ autofill?: AutofillFeedbackChoice | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
@@ -137,6 +149,10 @@ interface Props {
  workModeJob?: RejectionWorkModeJob | null;
  /** Tryb pracy z profilu (tylko przy jednej osobie) — „Teraz na profilu: …”. */
  profileWorkMode?: RejectionWorkModeProfile | null;
+ /** Wśród odrzucanych jest osoba od systemu z „Nowych”/„Screeningu”
+  *  (silnik „Nowi na 20”, 23.10.2026) — okno pyta o powód dla systemu.
+  *  `rateKnown`: czy system znał stawkę (jedna osoba). */
+ autofill?: { rateKnown: boolean; several: boolean } | null;
 }
 
 const EMAIL_STATE_IDLE: RejectionEmailFieldState = {
@@ -170,6 +186,7 @@ export function RejectionV2({
  pending = false,
  workModeJob = null,
  profileWorkMode,
+ autofill = null,
 }: Props) {
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
  // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
@@ -214,6 +231,10 @@ export function RejectionV2({
  // na profilu — najświeższa deklaracja z rozmowy nadpisuje profil.
  const [officeDays, setOfficeDays] = useState(0);
  const [saveWorkMode, setSaveWorkMode] = useState(true);
+ // Osoba od systemu (23.10.2026): powód dla systemu.
+ const [autofillLearnedFrom, setAutofillLearnedFrom] = useState<AutofillLearnedFrom | null>(null);
+ const [autofillReason, setAutofillReason] = useState<AutofillReason | null>(null);
+ const [autofillRate, setAutofillRate] = useState("");
 
  // Reset defaults when modal re-opens (e.g. user bails, opens again).
  useEffect(() => {
@@ -228,6 +249,9 @@ export function RejectionV2({
  setCancelAgreement(true);
  setOfficeDays(0);
  setSaveWorkMode(true);
+ setAutofillLearnedFrom(null);
+ setAutofillReason(null);
+ setAutofillRate("");
  }
  }, [open, initialEndedBy]);
  const endedByValue: EndedBy = terminalType === "withdrawn" ? "candidate" : endedBy;
@@ -241,7 +265,22 @@ export function RejectionV2({
  const workModeReason = chosenReason?.name === WORK_MODE_MISMATCH_REASON;
  // 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
  // zostawiały w historii samo słowo — notatka jest wtedy opisem powodu.
- const descriptionRequired = hasReasons && reasonNeedsDescription(chosenReason);
+ const autofillAsked = terminalType === "rejected" && autofill != null;
+ // „Inne” dla systemu też potrzebuje opisu (serwer: 422 bez `notes`).
+ const descriptionRequired =
+ (hasReasons && reasonNeedsDescription(chosenReason)) ||
+ (autofillAsked && autofillReason === "other");
+ const autofillChoice: AutofillFeedbackChoice | null =
+ autofillAsked && autofillReason && autofillLearnedFrom
+ ? {
+ reason: autofillReason,
+ learnedFrom: autofillLearnedFrom,
+ rateHourly:
+ autofillReason === "too_expensive" && !autofill?.several
+ ? parseRateInput(autofillRate)
+ : null,
+ }
+ : null;
  const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
  const several = (emailPreview?.people.length ?? 1) > 1;
 
@@ -265,7 +304,8 @@ export function RejectionV2({
  emailText,
  workModeReason
  ? { maxOnsiteDays: officeDays, saveToProfile: saveWorkMode }
- : null
+ : null,
+ autofillChoice
  );
  return;
  }
@@ -285,7 +325,9 @@ export function RejectionV2({
  reasonText,
  endedByValue,
  cancelAgreementId,
- emailText
+ emailText,
+ null,
+ autofillChoice
  );
  };
 
@@ -294,6 +336,7 @@ export function RejectionV2({
  (hasReasons ? !reasonId : !freeReason.trim()) ||
  (descriptionRequired && !notes.trim()) ||
  (offerResponseRequired && !offerResponse) ||
+ (autofillAsked && autofillChoice == null) ||
  (emailAvailable && sendEmail && emailState.invalid);
 
  return (
@@ -389,6 +432,18 @@ export function RejectionV2({
  />
  )}
  </FormField>
+ {autofillAsked && autofill ? (
+ <AutofillFeedbackField
+ learnedFrom={autofillLearnedFrom}
+ onLearnedFromChange={setAutofillLearnedFrom}
+ reason={autofillReason}
+ onReasonChange={setAutofillReason}
+ rate={autofillRate}
+ onRateChange={setAutofillRate}
+ rateKnown={autofill.rateKnown}
+ several={autofill.several}
+ />
+ ) : null}
  {offerResponseRequired && (
  <FormField
  label="Reakcja kandydata na ofertę"

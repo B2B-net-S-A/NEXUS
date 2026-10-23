@@ -555,6 +555,22 @@ export interface FlowJobProposals {
   people: FlowProposalPerson[];
 }
 
+/**
+ * Osoba od systemu (silnik „Nowi na 20”, 23.10.2026) po 2 dniach roboczych
+ * w „Nowych” bez decyzji — „Dzwonię” albo odrzucenie z powodem.
+ */
+export interface FlowAutofillDecision {
+  job_id: number;
+  job_title: string;
+  job_working_title?: string | null;
+  client_name?: string | null;
+  candidate_id: number;
+  candidate_name: string;
+  score?: number | null;
+  /** Dni robocze bez decyzji. */
+  waiting_days: number;
+}
+
 export interface FlowContractRow {
   id: number;
   contract_number: string;
@@ -599,6 +615,9 @@ export interface FlowBlock {
   /** 07.10.2026 — starszy serwer pola nie zna (brak = pusta lista). */
   top_proposals?: FlowJobProposals[];
   top_proposals_per_job?: number;
+  /** 23.10.2026 — osoby od systemu czekają na decyzję (brak = pusta lista). */
+  autofill_decisions?: FlowAutofillDecision[];
+  autofill_decisions_total?: number;
 }
 
 export interface FinanceBlock {

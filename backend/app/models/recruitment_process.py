@@ -178,7 +178,7 @@ class RecruitmentProcess(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     # Skąd osoba weszła do rekrutacji: added_manual | application | proposal |
-    # reassign | auto_match | import. NULL = proces sprzed 0352.
+    # reassign | auto_match | import | system (0515). NULL = proces sprzed 0352.
     entry_source: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
     # Przepięcie: rekrutacja, z której osoba przyszła (jej odpowiedzi ze
     # screeningu podpowiada Luna). FK istnieje w bazie (ON DELETE SET NULL,

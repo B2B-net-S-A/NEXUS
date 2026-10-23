@@ -56,6 +56,12 @@ import { canViewClientRate } from "@/lib/client-rate-access";
 import { RejectionV2, type EndedBy } from "@/components/v2/modals/RejectionV2";
 import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
 import {
+  autofillMoveFields,
+  needsAutofillReason,
+  type AutofillFeedbackChoice,
+} from "@/lib/autofill-feedback";
+import { placeStage } from "@/lib/board-stages";
+import {
   useRejectionProfileWorkMode,
   useRejectionWorkModeJob,
 } from "@/hooks/useRejectionWorkModeContext";
@@ -266,6 +272,9 @@ interface MoveReason {
   // „Nie akceptuje trybu pracy” (14.10.2026): dni w biurze i zapis na profilu
   // — ten sam wybór dla każdej odrzucanej osoby.
   workMode?: RejectionWorkModeChoice | null;
+  // Osoba od systemu (23.10.2026): powód dla systemu — tylko przy osobie,
+  // która go wymaga (`needsAutofillReason`).
+  autofill?: AutofillFeedbackChoice | null;
 }
 
 interface SendMoveOptions {
@@ -674,6 +683,7 @@ export function usePipelineMove({
           work_mode_save_to_profile: reason?.workMode
             ? reason.workMode.saveToProfile
             : undefined,
+          ...autofillMoveFields(reason?.autofill),
           candidate_offer_response: reason?.candidateOfferResponse ?? undefined,
           expected_state_version:
             opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
@@ -1583,7 +1593,8 @@ export function usePipelineMove({
     endedBy?: EndedBy,
     cancelAgreementId?: number | null,
     emailText?: RejectionEmailText | null,
-    workMode?: RejectionWorkModeChoice | null
+    workMode?: RejectionWorkModeChoice | null,
+    autofill?: AutofillFeedbackChoice | null
   ) => {
     if (!pendingRejection) return;
     const { entries, destCol, followUp } = pendingRejection;
@@ -1608,6 +1619,7 @@ export function usePipelineMove({
             endedBy,
             emailText: entries.length === 1 ? emailText ?? null : null,
             workMode: workMode ?? null,
+            autofill: autofill && rejectionNeedsAutofill(item, srcColId) ? autofill : null,
           },
           {
             silent: entries.length > 1,
@@ -1669,6 +1681,25 @@ export function usePipelineMove({
       )
     : null;
 
+  // Osoba od systemu z „Nowych”/„Screeningu” (23.10.2026): okno pyta
+  // o powód dla systemu; ten sam wybór idzie do każdej takiej osoby.
+  function rejectionNeedsAutofill(item: KanbanItem, srcColId: string): boolean {
+    const src = columns.find((c) => colId(c) === srcColId);
+    return needsAutofillReason(item, src ? placeStage(src).column : null);
+  }
+  const autofillEntries = (pendingRejection?.entries ?? []).filter((entry) =>
+    rejectionNeedsAutofill(entry.item, entry.srcColId)
+  );
+  const rejectionAutofill =
+    pendingRejection?.terminalType === "rejected" && autofillEntries.length > 0
+      ? {
+          rateKnown:
+            autofillEntries.length === 1 &&
+            Boolean(autofillEntries[0].item.entry_autofill?.rate_known),
+          several: (pendingRejection?.entries.length ?? 0) > 1,
+        }
+      : null;
+
   const dialogs: ReactNode = (
     <>
       <RejectionV2
@@ -1717,6 +1748,7 @@ export function usePipelineMove({
         championNotice={rejectionChampionNotice}
         workModeJob={rejectionWorkModeJob}
         profileWorkMode={rejectionProfileWorkMode}
+        autofill={rejectionAutofill}
         emailPreview={
           pendingRejection
             ? {

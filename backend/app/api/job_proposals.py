@@ -824,6 +824,8 @@ _BACKGROUND_ENTITY = "job_automation"
 _BACKGROUND_KINDS = {
     "auto_full_review_finished": "auto_full_review",
     "auto_match_proposed": "new_cv_proposals",
+    # 23.10.2026: silnik „System trzyma Nowych na 20” dodał `count` osób.
+    "new_column_autofill": "autofill",
     "cv_auto_generate_started": "cv_auto_generate",
     "cv_auto_generate_skipped": "cv_auto_generate_skipped",
     "cv_auto_generate_failed": "cv_auto_generate_failed",

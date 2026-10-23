@@ -69,6 +69,28 @@ class StageMove(BaseModel):
     # trybu pracy na profilu (ptaszek w oknie, domyślnie włączony).
     work_mode_max_onsite_days: Optional[int] = Field(None, ge=0, le=4)
     work_mode_save_to_profile: bool = True
+    # Osoba od systemu (silnik „Nowi na 20”, 23.10.2026): odrzucenie z „Nowych”
+    # albo „Screeningu” wymaga powodu ze stałej listy i „skąd wiesz”
+    # (`services/autofill_feedback.py`); bez nich 422 `AUTOFILL_REASON_REQUIRED`,
+    # przy innej osobie — 422. Stawka z rozmowy trafia do „Stawki od”.
+    autofill_reason: Optional[
+        Literal[
+            "missing_skill",
+            "too_junior",
+            "other_level_or_role",
+            "location_mode",
+            "language",
+            "too_expensive",
+            "outdated_cv",
+            "profile_mismatch",
+            "not_looking",
+            "no_answer",
+            "in_other_process",
+            "other",
+        ]
+    ] = None
+    autofill_learned_from: Optional[Literal["profile", "call"]] = None
+    autofill_rate_hourly: Optional[Decimal] = Field(None, gt=0, le=10000)
 
     # ── Stawka kandydata przy ruchu na `verified` (0056, zmiana 17.09.2026) ─
     # OPCJONALNA. Do 17.09.2026 brak stawki dawał 422, a stawka ponad
@@ -365,6 +387,9 @@ class CandidateStageResponse(BaseModel):
     # 0399: wynik automatu przy wejściu („Auto-match 67/100 · JJIT”) —
     # {"score", "source", "must_hit", "must_total"}; `None` = wejście ręczne.
     entry_auto_match: Optional[dict] = None
+    # 23.10.2026: osoba od silnika „Nowi na 20” — wynik, wymagania, termin
+    # decyzji (`process_entry_meta.autofill_badge`); `None` przy innym wejściu.
+    entry_autofill: Optional[dict] = None
     # 0404: przegląd zgłoszenia z linku rekrutacji — {"verdict", "assessed",
     # "must_found", "must_total", "overridden"}; `None` = wejście bez przeglądu.
     entry_ai_screening: Optional[dict] = None

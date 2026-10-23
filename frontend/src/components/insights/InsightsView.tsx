@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
@@ -364,6 +365,12 @@ export function InsightsView() {
             })}
           </nav>
         </div>
+        <Link
+          href="/insights/autofill"
+          className="pb-3 text-xs font-medium text-primary hover:underline"
+        >
+          Jakość podpowiedzi systemu
+        </Link>
         {firmaVisible ? (
           <p className="pb-3 text-xs text-muted-foreground">
             Firma: widzą osoby z uprawnieniem „{permissionLabel(FIRMA_PERMISSION)}”

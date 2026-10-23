@@ -84,6 +84,8 @@ _JOBS = (
     _T.auto_match_proposals,
     _T.similar_job_candidates,
     _T.also_fits_added,
+    _T.autofill_decisions_due,
+    _T.autofill_quality_report,
     _T.match_digest,
     # Konsultant od opieki do obsadzenia w rekrutacji („Przekaż do front office”).
     _T.care_front_office_handoff,

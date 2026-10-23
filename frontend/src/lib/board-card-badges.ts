@@ -432,8 +432,48 @@ export function preContractCardBadge(meta: KanbanItem["pre_contract"]): CardBadg
   };
 }
 
+/** „2 dni”, „1 dzień” — dni robocze bez decyzji o osobie od systemu. */
+export function workdaysText(days: number): string {
+  return days === 1 ? "1 dzień" : `${days} dni`;
+}
+
+/**
+ * Osoba od systemu (silnik „Nowi na 20”, 23.10.2026): „Od systemu · 81%”,
+ * w dymku spełnione i brakujące wymagania. Wynik i powód liczy serwer
+ * (`process_entry_meta.autofill_badge`).
+ */
+export function autofillSourceBadge(meta: KanbanItem["entry_autofill"]): CardBadge | null {
+  if (!meta) return null;
+  const parts = ["Dodał system — najlepiej dopasowana osoba z bazy."];
+  if (meta.matched_must.length) parts.push(`Spełnia: ${meta.matched_must.join(", ")}.`);
+  if (meta.missing_must.length) parts.push(`Brakuje: ${meta.missing_must.join(", ")}.`);
+  if (!meta.rate_known) parts.push("Stawka nieznana.");
+  return {
+    key: "source",
+    label: `Od systemu · ${meta.score}%`,
+    tone: "info",
+    title: parts.join(" "),
+  };
+}
+
+/**
+ * Po 2 dniach roboczych w „Nowych” bez „Dzwonię”, ruchu ani odrzucenia
+ * (`services/autofill_decisions.py`). Rekrutacja bez rekrutera — bez terminu.
+ */
+export function autofillDecisionBadge(meta: KanbanItem["entry_autofill"]): CardBadge | null {
+  if (!meta?.decision_due || meta.waiting_days == null) return null;
+  return {
+    key: "autofill_due",
+    label: `${workdaysText(meta.waiting_days)} bez decyzji`,
+    tone: "wait",
+    title: "Osoba od systemu czeka na decyzję: zadzwoń („Dzwonię”) albo odrzuć z powodem.",
+  };
+}
+
 function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
   switch (item.entry_source) {
+    case "system":
+      return autofillSourceBadge(item.entry_autofill);
     case "added_manual": {
       const own = item.claim_user_id != null && item.claim_user_id === ctx.viewerId;
       return {
@@ -573,6 +613,10 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
     out.push(claimBadge(item, ctx));
     const fresh = newInBaseBadge(item, ctx);
     if (fresh) out.push(fresh);
+    if (column === "new") {
+      const due = autofillDecisionBadge(item.entry_autofill);
+      if (due) out.push(due);
+    }
   }
   // Przegląd DL (Rekrutacja v5): osoby w „QC CV" poza Nordeą — Delivery Lead
   // sprawdza CV, wpisuje stawkę do klienta i wysyła.
@@ -979,13 +1023,15 @@ export interface CardOwner {
  * dodającego. Filtr „Kto dodał” i kolejka panelu liczą po dodającym (D5).
  */
 export function cardOwner(
-  item: Pick<KanbanItem, "added_to_job_by_name" | "verified_by_name">,
+  item: Pick<KanbanItem, "added_to_job_by_name" | "verified_by_name" | "entry_source">,
   column: BoardColumnKey | null
 ): CardOwner {
   const verifier = item.verified_by_name?.trim();
   if (verifier && column != null && !BEFORE_VERIFIED_COLUMNS.has(column)) {
     return { name: verifier, role: "verified" };
   }
+  // Osoba od silnika „Nowi na 20” (23.10.2026) nie ma osoby dodającej.
+  if (item.entry_source === "system") return { name: "System", role: "added" };
   return { name: item.added_to_job_by_name?.trim() || null, role: "added" };
 }
 

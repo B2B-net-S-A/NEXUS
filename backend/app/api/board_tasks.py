@@ -427,6 +427,19 @@ class FlowJobProposals(BaseModel):
     people: list[FlowProposalPerson]
 
 
+class FlowAutofillDecision(BaseModel):
+    """Osoba od systemu czekająca na decyzję (silnik „Nowi na 20”, 23.10.2026)."""
+
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    candidate_id: int
+    candidate_name: str
+    score: Optional[int] = None
+    waiting_days: int
+
+
 class FlowContractRow(BaseModel):
     id: int
     contract_number: str
@@ -454,6 +467,9 @@ class FlowBlockOut(BaseModel):
     # 07.10.2026: najlepsze propozycje nocnego przeglądu w rekrutacjach osoby.
     top_proposals: list[FlowJobProposals] = []
     top_proposals_per_job: int = board_flow.TOP_PROPOSALS_PER_JOB
+    # 23.10.2026: osoby od systemu po 2 dniach roboczych bez decyzji.
+    autofill_decisions: list[FlowAutofillDecision] = []
+    autofill_decisions_total: int = 0
 
 
 class FinanceBlockOut(BaseModel):
@@ -816,6 +832,10 @@ def _flow_block(
             )
             for r in flow.top_proposals
         ],
+        autofill_decisions=[
+            FlowAutofillDecision(**asdict(r)) for r in flow.autofill_decisions
+        ],
+        autofill_decisions_total=flow.autofill_decisions_total,
     )
 
 

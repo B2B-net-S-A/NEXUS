@@ -1114,6 +1114,8 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
             db, now, latest
         ),
         "proposals_morning": await _proposals_morning(db, now),
+        "autofill_decisions": await _autofill_decisions(db, now),
+        "autofill_quality_report": await _autofill_quality_report(db, now),
         "prep_attention": await check_prep_attention(db, now),
         "rate_change_reminders": await _rate_change_reminders(db, now),
     }
@@ -1124,6 +1126,20 @@ async def _proposals_morning(db: AsyncSession, now: datetime) -> int:
     from app.services.proposals_morning_bell import send_morning_bells  # noqa: PLC0415
 
     return await send_morning_bells(db, now)
+
+
+async def _autofill_decisions(db: AsyncSession, now: datetime) -> int:
+    """Poranny dzwonek o osobach od systemu po terminie decyzji (23.10.2026)."""
+    from app.services.autofill_decisions_bell import send_decision_bells  # noqa: PLC0415
+
+    return await send_decision_bells(db, now)
+
+
+async def _autofill_quality_report(db: AsyncSession, now: datetime) -> int:
+    """Raport poniedziałkowy „Jakość podpowiedzi systemu” (23.10.2026)."""
+    from app.services.autofill_quality import send_weekly_report  # noqa: PLC0415
+
+    return await send_weekly_report(db, now)
 
 
 async def _rate_change_reminders(db: AsyncSession, now: datetime) -> int:

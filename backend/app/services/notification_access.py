@@ -166,6 +166,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.cv_ready: ProductSection.pipeline,
     # 0444: link prowadzi do panelu osoby na Tablicy rekrutacji, do której dodano.
     NotificationType.also_fits_added: ProductSection.pipeline,
+    NotificationType.autofill_decisions_due: ProductSection.pipeline,
+    NotificationType.autofill_quality_report: ProductSection.insights,
     # 0451: link prowadzi do panelu osoby na Tablicy rekrutacji.
     NotificationType.client_accepted: ProductSection.pipeline,
     # 0452: link prowadzi do panelu osoby na Tablicy rekrutacji.

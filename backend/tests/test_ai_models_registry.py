@@ -156,6 +156,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.expense_document_read: ("F33", "claude-sonnet-5"),
     # F34 — 20.10.2026: „Po rozmowie” — pytania i oferta z notatki z telefonu.
     AIFeatureKey.debrief_from_text: ("F34", "gpt-6-luna"),
+    # F35 — 23.10.2026: raport poniedziałkowy „Jakość podpowiedzi systemu”.
+    AIFeatureKey.autofill_quality_report: ("F35", "claude-sonnet-5"),
 }
 
 

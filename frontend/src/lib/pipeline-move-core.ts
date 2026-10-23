@@ -10,6 +10,7 @@
  * Kolejność rozpoznania jest ta sama co w `usePipelineMove.sendMove`:
  * ostrzeżenie → debrief → bramka „Zweryfikowany” → QC CV → konflikt wersji.
  */
+import type { AutofillLearnedFrom, AutofillReason } from "@/lib/autofill-feedback";
 import { pipelineApi, type RateUnit } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { ASSIGN_BLOCKED_LABELS } from "@/lib/assign-error";
@@ -51,6 +52,10 @@ export interface PipelineMovePayload {
    *  akceptuje (0 = tylko zdalnie), i zapis trybu pracy na profilu. */
   work_mode_max_onsite_days?: number;
   work_mode_save_to_profile?: boolean;
+  /** Osoba od systemu (23.10.2026): powód dla systemu — `lib/autofill-feedback.ts`. */
+  autofill_reason?: AutofillReason;
+  autofill_learned_from?: AutofillLearnedFrom;
+  autofill_rate_hourly?: number;
   candidate_offer_response?: "pending" | "accepted" | "declined";
   ended_by?: string;
   expected_rate_value?: number | string;

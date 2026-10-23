@@ -55,6 +55,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F32 | interview_slots_from_mail        | claude-sonnet-5 (z Haiku)|
 | F33 | expense_document_read            | claude-sonnet-5 (z Haiku)|
 | F34 | debrief_from_text                | gpt-6-luna (z Sonnet 5)  |
+| F35 | autofill_quality_report          | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -421,6 +422,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "gotowość do oferty i stawka z notatki rekrutera — „znajdź i zacytuj” jak F25 "
         "(Luna). Element bez cytatu z notatki odrzuca kod, kwotę tylko gdy stoi w tekście; "
         "całość sprawdza rekruter przed zapisem debriefu.",
+    ),
+    AIFeatureKey.autofill_quality_report: ModelChoice(
+        default=SONNET_5,
+        env_vars=("AUTOFILL_QUALITY_REPORT_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F35 (23.10.2026, POZA badaniem 16.09). Raport poniedziałkowy silnika "
+        "„Nowi na 20”: 3–5 propozycji poprawek z liczb policzonych przez kod i opisów "
+        "odrzuceń. Raz w tygodniu, krótko — Sonnet, bo to wnioskowanie z danych. "
+        "Liczby w raporcie są kodu; bez modelu raport idzie z propozycjami z reguł.",
     ),
 }
 

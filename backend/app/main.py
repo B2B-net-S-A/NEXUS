@@ -104,6 +104,7 @@ from app.models.recruitment_campaign import RecruitmentCampaign
 from app.api import insights_recruitment
 from app.api import insights_stage_breakdown
 from app.api import insights_board
+from app.api import autofill_quality as autofill_quality_api
 from app.api import insights_clients
 from app.api import insights_delivery_leads
 from app.api import insights_scoring
@@ -810,6 +811,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.candidate_auto_match import candidate_auto_match_loop
     from app.tasks.auto_full_review import auto_full_review_loop
+    from app.tasks.new_column_autofill import new_column_autofill_loop
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
@@ -999,6 +1001,9 @@ async def lifespan(app: FastAPI):
         "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),
         # 21.09.2026: nocny automatyczny pełny przegląd bazy → „Propozycje".
         "auto_full_review": asyncio.create_task(auto_full_review_loop()),
+        # 23.10.2026: „System trzyma Nowych na 20” — kończy się przed pętlą
+        # przy NEW_COLUMN_AUTOFILL_ENABLED=false.
+        "new_column_autofill": asyncio.create_task(new_column_autofill_loop()),
         "index_drift_reconciler": asyncio.create_task(index_drift_reconciler_loop()),
         "priority_work": asyncio.create_task(priority_work_loop()),
         "workforce_availability": asyncio.create_task(availability_loop()),
@@ -1645,6 +1650,10 @@ app.include_router(
     tags=["insights"],
 )
 app.include_router(insights_board.router, prefix="/api/insights", tags=["insights"])
+# 23.10.2026: „Jakość podpowiedzi systemu” (silnik „Nowi na 20”).
+app.include_router(
+    autofill_quality_api.router, prefix="/api/autofill-quality", tags=["insights"]
+)
 app.include_router(
     insights_clients.router, prefix="/api/insights/clients", tags=["insights"]
 )
