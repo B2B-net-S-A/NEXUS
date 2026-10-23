@@ -174,6 +174,9 @@ class AIFeatureKey(str, enum.Enum):
     # rozmowie u klienta model rozpisuje pytania klienta, gotowość do oferty
     # i stawkę — każdy element z cytatem, który sprawdza kod.
     debrief_from_text = "debrief_from_text"
+    # 0517 (23.10.2026): raport poniedziałkowy „Jakość podpowiedzi systemu” —
+    # propozycje poprawek wyszukiwania z policzonych przez kod powodów.
+    autofill_quality_report = "autofill_quality_report"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -213,6 +216,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.interview_slots_from_mail: "Terminy rozmowy u klienta z wklejonego maila",
     AIFeatureKey.expense_document_read: "Zgody — odczyt kwoty i sprzedawcy z faktury albo paragonu",
     AIFeatureKey.debrief_from_text: "Po rozmowie u klienta — pytania i oferta z notatki z telefonu",
+    AIFeatureKey.autofill_quality_report: "Jakość podpowiedzi systemu — propozycje poprawek w raporcie poniedziałkowym",
 }
 
 
@@ -375,6 +379,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.debrief_from_text: [
         "Notatka rekrutera z telefonu do kandydata po rozmowie u klienta",
         "(bez nazwy klienta, danych kandydata z bazy i historii stawek)",
+    ],
+    AIFeatureKey.autofill_quality_report: [
+        "Liczby z odrzuceń osób od systemu (powody, kosze, rekrutacje)",
+        "i do 30 opisów odrzuceń wpisanych przez rekruterów",
+        "(bez nazwisk kandydatów i nazw klientów)",
     ],
 }
 

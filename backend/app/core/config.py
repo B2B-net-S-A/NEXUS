@@ -585,6 +585,10 @@ class Settings(BaseSettings):
     # False = pętla kończy się przed startem (stan sprzed 23.10).
     NEW_COLUMN_AUTOFILL_ENABLED: bool = False
     NEW_COLUMN_AUTOFILL_INTERVAL_SECONDS: int = 60
+    # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
+    # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
+    # aktywni admini.
+    AUTOFILL_REPORT_RECIPIENT_EMAILS: str = ""
 
     # ── Auto-CV po ruchu na „Zweryfikowany" (21.09.2026) ─────────────────────
     # Po commicie pojedynczego ruchu na etap „Zweryfikowany" system w tle

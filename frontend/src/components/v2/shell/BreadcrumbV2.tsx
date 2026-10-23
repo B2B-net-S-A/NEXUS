@@ -70,6 +70,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "my-relationships": "Moje relacje",
   "order-mail": "Zamówienia z maila",
   insights: "Insights",
+  // 23.10.2026: /insights/autofill — „Jakość podpowiedzi systemu”.
+  autofill: "Jakość podpowiedzi systemu",
   finance: "Finanse",
   help: "Pomoc",
   onboarding: "Wprowadzenie",

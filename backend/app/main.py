@@ -104,6 +104,7 @@ from app.models.recruitment_campaign import RecruitmentCampaign
 from app.api import insights_recruitment
 from app.api import insights_stage_breakdown
 from app.api import insights_board
+from app.api import autofill_quality as autofill_quality_api
 from app.api import insights_clients
 from app.api import insights_delivery_leads
 from app.api import insights_scoring
@@ -1647,6 +1648,10 @@ app.include_router(
     tags=["insights"],
 )
 app.include_router(insights_board.router, prefix="/api/insights", tags=["insights"])
+# 23.10.2026: „Jakość podpowiedzi systemu” (silnik „Nowi na 20”).
+app.include_router(
+    autofill_quality_api.router, prefix="/api/autofill-quality", tags=["insights"]
+)
 app.include_router(
     insights_clients.router, prefix="/api/insights/clients", tags=["insights"]
 )

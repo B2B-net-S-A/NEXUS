@@ -89,6 +89,24 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   robocze 8–17, raz dziennie (`app_settings['autofill_decisions_bell_state']`),
   JEDEN na Rekrutera (`job_team.working`) — liczba osób i do trzech rekrutacji,
   link `/dashboard#czeka-na-ciebie`.
+- **E. „Jakość podpowiedzi systemu” i raport poniedziałkowy (PR 6, 0517).**
+  Ekran `/insights/autofill` (link w nagłówku Insights, okruszek „Jakość
+  podpowiedzi systemu”, harness `/preview/autofill-quality`):
+  `GET /api/autofill-quality/summary?days=7|30|90` i `GET …/reports` za
+  bramką sekcji Insights (agregaty bez nazwisk), decyzja „Robimy / Nie”
+  (`POST …/reports/{id}/proposals/{i}/decision`) — admin i Head of
+  Recruitment. **Liczby liczy kod** (`autofill_quality.summary`): dodane,
+  „Dzwonię”, odrzucenia per kosz i powód, „Zweryfikowany” osób od systemu na
+  tle `added_manual`/`proposal`, czekający po terminie, najsłabsze rekrutacje
+  (od 3 odrzuceń, sort po udziale błędów wyszukiwania). **Propozycje układa
+  model** (klucz `autofill_quality_report`, F35, Sonnet 5, prompt
+  `AUTOFILL_QUALITY_REPORT`, do 30 opisów odrzuceń w znacznikach); kod
+  odrzuca propozycję bez tytułu albo z koszem spoza `search|data|person`, a
+  bez modelu raport idzie z `rule_proposals`. Raport (`autofill_quality_reports`,
+  jeden na tydzień, `week_start` = poniedziałek poprzedniego tygodnia) robi
+  `run_all_triggers` w pierwszym dniu roboczym tygodnia 8–17; dzwonek
+  `autofill_quality_report` do `AUTOFILL_REPORT_RECIPIENT_EMAILS` (bez
+  ustawienia — aktywni admini), tylko gdy w tygodniu coś się działo.
 
 - **A. Co noc WSZYSTKIE rekrutacje w pracy (decyzja Artura 30.09.2026).**
   Nocna pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w

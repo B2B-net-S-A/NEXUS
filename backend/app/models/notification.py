@@ -281,6 +281,9 @@ class NotificationType(str, enum.Enum):
     # robocze na decyzję („Dzwonię” albo odrzucenie z powodem). Jeden poranny
     # dzwonek na Rekrutera; related_entity=(user, id). Bez maila.
     autofill_decisions_due = "autofill_decisions_due"
+    # 0517 (23.10.2026): raport poniedziałkowy „Jakość podpowiedzi systemu”
+    # gotowy — do odbiorców raportu; related_entity=(autofill_quality_report, id).
+    autofill_quality_report = "autofill_quality_report"
     # 0447: „Poprzedni rekruter” — rekrutacja zeszła z P1, osoba przeszła do
     # poprzednich rekruterów (``recruiter_parked``) albo wróciła na P1 i osoba
     # znowu nad nią pracuje (``recruiter_restored``). Do osób z zespołu poza

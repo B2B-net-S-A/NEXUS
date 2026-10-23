@@ -488,6 +488,8 @@ const PUBLIC_PATHS = [
   "/preview/job-detail",
   "/preview/my-people",
   "/preview/custom-dashboard",
+  // „Jakość podpowiedzi systemu” (silnik „Nowi na 20”, 23.10.2026), dane fikcyjne.
+  "/preview/autofill-quality",
   // Ustawienia → „Powiadomienia”: Moje · Kto co dostaje · Maile · Reguły etapów.
   "/preview/notification-settings",
   // Okienko „Wiadomości” (dawniej „Czaty”) z górnego paska: ikona i lista rozmów.
