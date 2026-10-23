@@ -72,6 +72,11 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       await expect(manager.page).toHaveURL(/\/people\/approvals/);
       // Skrzynka (makieta 19.10.2026): lista spraw po lewej, decyzja w szczegółach
       // po prawej. Notatka jest tylko w szczegółach — wiersz listy ma termin.
+      // Przełożona ma też Zgody, więc w „Wszystko” wnioski i zgody są jedną listą
+      // „Do decyzji” (#2556); dawną nazwę ma lista po filtrze „Nieobecności”.
+      const leaveChip = manager.page.getByRole("button", { name: /^Nieobecności/ });
+      await leaveChip.click();
+      await expect(leaveChip).toHaveAttribute("aria-pressed", "true");
       const queue = manager.page.getByRole("list", {
         name: "Wnioski do decyzji (umowa o pracę)",
       });

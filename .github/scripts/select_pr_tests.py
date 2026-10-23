@@ -32,8 +32,9 @@ Macierz bramek tras (~150 s w sicie, jeden plik) dzieli się po trasach między
 wszystkie aktywne części (``AUTHZ_MATRIX_SLICE``, ``--env-out``). Mały wybór
 zajmuje tylko jedną część; pozostałe kończą się bez instalacji zależności.
 
-``--guards`` wypisuje samych strażników ``_ALWAYS`` — dla szybkiego kroku
-kolejki merge'ów w ``ci-gate.yml`` (bez bazy).
+``--guards`` wypisuje strażników ``_ALWAYS`` i kontrakty tras
+``_ROUTE_CONTRACTS`` — dla szybkiego kroku kolejki merge'ów w ``ci-gate.yml``
+(bez bazy).
 
 Wejście: lista zmienionych plików (ścieżki od korzenia repo) na stdin.
 Wyjście: ścieżki testów od katalogu ``backend/``, po jednej w linii.
@@ -113,6 +114,16 @@ _AUTHZ_MATRIX = "tests/test_authz_guard_matrix.py"
 _AUTHZ_GOLDEN_DIR = "tests/data/authz_golden/"
 _AUTHZ_SLICE_ENV = "AUTHZ_MATRIX_SLICE"
 
+# Kontrakty tras: każda trasa ma bramkę sekcji (albo wpis z powodem) i bramkę
+# roli. Z tego samego powodu co macierz nie wymieniają routera z nazwy, więc
+# biegną przy każdej zmianie ``app/``. 23.10.2026 #2611 zastąpił bramkę routera
+# w ``api/pre_contracts.py`` własną zależnością: sito zielone, w kolejce
+# czerwony strażnik sekcji i 7 PR-ów za nim wypadło. Bez bazy, < 1 s każdy.
+_ROUTE_CONTRACTS = (
+    "tests/test_section_ceiling_contract.py",
+    "tests/test_route_authz_contract.py",
+)
+
 # Szacunek czasu sita = suma czasów plików z ``ci_test_durations.json`` (z
 # fixture'ami bazy — mapa liczy odstępy między testami w logu) + narzut
 # procesu pytest: kolekcja, import aplikacji i pierwszy test. Zmierzone
@@ -179,6 +190,8 @@ def select(changed: list[str]) -> tuple[set[str], set[str]]:
                 or (rel.startswith("app/") and rel.endswith(".py"))
             ):
                 direct.add(_AUTHZ_MATRIX)
+            if rel.startswith("app/") and rel.endswith(".py"):
+                direct.update(t for t in _ROUTE_CONTRACTS if t in tests)
             if (
                 rel.startswith("tests/")
                 and name.startswith("test_")
@@ -308,11 +321,13 @@ def main() -> None:
         help="plik (np. $GITHUB_ENV), do którego trafia AUTHZ_MATRIX_SLICE tej części",
     )
     parser.add_argument(
-        "--guards", action="store_true", help="tylko strażnicy całego repo (_ALWAYS)"
+        "--guards",
+        action="store_true",
+        help="tylko strażnicy całego repo (_ALWAYS + _ROUTE_CONTRACTS)",
     )
     args = parser.parse_args()
     if args.guards:
-        for test in _ALWAYS:
+        for test in _ALWAYS + _ROUTE_CONTRACTS:
             print(test)
         return
     if not 0 <= args.shard < args.shards:

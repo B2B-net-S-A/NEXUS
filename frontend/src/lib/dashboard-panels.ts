@@ -8,6 +8,9 @@
 //
 // Lustro `PANEL_KEYS` i `may_hide_panel` w
 // `backend/app/services/dashboard_tiles.py`.
+//
+// `board_tasks` (23.10.2026) to nie lista, tylko cały panel: ukryty = panel nie
+// stoi nad kafelkami. Stoi wtedy w kafelku „Czeka na Ciebie” albo nigdzie.
 
 import type { BoardTasksResponse } from "@/lib/api/boardTasks"
 import { hasRole, type UserRole } from "@/store/auth"
@@ -26,6 +29,7 @@ export const DASHBOARD_PANEL_KEYS = [
   "dl_review",
   "cpro",
   "prep_attention",
+  "board_tasks",
 ] as const
 
 export type DashboardPanelKey = (typeof DASHBOARD_PANEL_KEYS)[number]
@@ -44,6 +48,7 @@ export const PANEL_LABELS: Record<DashboardPanelKey, string> = {
   dl_review: "Do wysłania do klienta (DL)",
   cpro: "Cpro",
   prep_attention: "Prepy przed rozmową u klienta",
+  board_tasks: "Cały panel „Czeka na Ciebie” nad pulpitem",
 }
 
 /** Role, które mogą usuwać z pulpitu każdą listę panelu. */

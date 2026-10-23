@@ -3,9 +3,11 @@
 /**
  * Rekrutacje › Umowy przedwstępne (0506, 21.10.2026).
  *
- * Head of Recruitment widzi wszystkie prośby, Delivery Lead swoich klientów
- * i swoje prośby, rekruter to, co wystawia, i to, o co prosił (zakres liczy
- * serwer). Zakładka w adresie (`?tab=`) — link z kafelka i dzwonka.
+ * Head of Recruitment, Finanse, Rada nadzorcza i Automatyzacje widzą
+ * wszystkie prośby, Delivery Lead swoich klientów i swoje prośby, rekruter to,
+ * co wystawia, i to, o co prosił (zakres liczy serwer). Zakładka w adresie
+ * (`?tab=`) — link z kafelka i dzwonka. Rada nadzorcza nie otwiera panelu
+ * osoby (decyzja Artura 23.10.2026), więc osoba jest dla niej tekstem.
  */
 
 import Link from "next/link";
@@ -21,6 +23,7 @@ import {
 } from "@/lib/api/preContracts";
 import { useUrlWriter } from "@/lib/url-selection";
 import { cn } from "@/lib/utils";
+import { isBoardOnly, useAuthStore } from "@/store/auth";
 
 const TAB_KEYS = new Set<string>(PRE_CONTRACT_TABS.map((t) => t.value));
 
@@ -46,6 +49,7 @@ export function PreContractsList() {
   const { replaceUrl } = useUrlWriter();
   const tab = preContractTabFromParam(searchParams?.get("tab") ?? null);
   const list = usePreContractList(tab);
+  const opensPersonPanel = !isBoardOnly(useAuthStore((s) => s.user));
 
   const setTab = (next: PreContractTab) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
@@ -117,12 +121,16 @@ export function PreContractsList() {
                 return (
                   <tr key={r.id} className="border-t border-border align-top" data-testid="pre-contract-row">
                     <td className="px-3 py-2 font-medium">
-                      <Link
-                        href={`/jobs/${r.job_id}?candidate=${r.candidate_id}`}
-                        className="hover:underline"
-                      >
-                        {r.candidate_name}
-                      </Link>
+                      {opensPersonPanel ? (
+                        <Link
+                          href={`/jobs/${r.job_id}?candidate=${r.candidate_id}`}
+                          className="hover:underline"
+                        >
+                          {r.candidate_name}
+                        </Link>
+                      ) : (
+                        r.candidate_name
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       {r.job_title}
@@ -171,8 +179,9 @@ export function PreContractsList() {
         </div>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Head of Recruitment widzi wszystkie prośby, Delivery Lead swoich klientów i swoje prośby,
-        pozostali to, o co prosili, co wystawiają albo obserwują.
+        Head of Recruitment, Finanse, Rada nadzorcza i Automatyzacje widzą wszystkie prośby,
+        Delivery Lead swoich klientów i swoje prośby, pozostali to, o co prosili, co wystawiają
+        albo obserwują.
       </p>
     </div>
   );
