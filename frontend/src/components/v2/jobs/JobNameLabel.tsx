@@ -24,7 +24,7 @@ import { ClientReferenceChip, copyClientReference } from "./ClientReferenceChip"
  * `@/components/Toast` w testach ekranów, które montują ten wiersz, mają tylko
  * `useToast`. Hak woła się zawsze, więc kolejność haków się nie zmienia.
  */
-function useToastIfProvided(): ReturnType<typeof useToast> | null {
+export function useToastIfProvided(): ReturnType<typeof useToast> | null {
   try {
     return useToast() ?? null;
   } catch {

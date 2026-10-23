@@ -106,6 +106,29 @@ describe("RequestBoardView", () => {
     expect(screen.getByText(/Brak świeżych danych o urlopach/)).toBeInTheDocument()
   })
 
+  it("numer u klienta stoi przed nazwą requestu, a pole „Stanowisko” go znajduje", async () => {
+    const data = {
+      ...board,
+      requests: board.requests.map((r) =>
+        r.job_id === 1 ? { ...r, client_reference: "REQ-48213" } : r,
+      ),
+    }
+    render(<Board data={data} />)
+    const chip = within(rowOf("Senior Java Developer")).getByTestId(
+      "request-row-client-reference",
+    )
+    expect(chip).toHaveTextContent("REQ-48213")
+    expect(chip).toHaveAccessibleName("Numer u klienta REQ-48213 — kopiuj")
+    // Bez numeru wiersz nie ma pustego znacznika.
+    expect(
+      within(rowOf("React Developer")).queryByTestId("request-row-client-reference"),
+    ).toBeNull()
+
+    await userEvent.type(screen.getByPlaceholderText("np. Java albo numer"), "48213")
+    expect(screen.getByRole("link", { name: "Senior Java Developer" })).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "React Developer" })).toBeNull()
+  })
+
   it("mówi, że automat tylko proponuje, i ile propozycji czeka", () => {
     render(<Board />)
     expect(

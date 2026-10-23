@@ -32,6 +32,8 @@ export interface BoardRequest {
   job_id: number
   title: string
   client_name: string | null
+  /** Numer zapytania u klienta (Nordea, ZOB…); może mieć kilka części. */
+  client_reference?: string | null
   category_id: number | null
   deadline: string | null
   sent: number
