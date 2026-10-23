@@ -1,5 +1,5 @@
 """DDL źródła wejścia ``system`` (osoba dodana przez silnik dopełniania
-„Nowych”) — JEDNO źródło dla migracji 0514. ``entrypoint.sh`` trzyma tę samą
+„Nowych”) — JEDNO źródło dla migracji 0515. ``entrypoint.sh`` trzyma tę samą
 listę literalnie (blok 0352), bo co start zdejmuje i zakłada CHECK od nowa.
 """
 
@@ -12,7 +12,7 @@ ENTRY_SOURCES: tuple[str, ...] = (
     "reassign",
     "auto_match",
     "import",
-    # 0514 (23.10.2026): silnik dopełniania „Nowych”.
+    # 0515 (23.10.2026): silnik dopełniania „Nowych”.
     "system",
 )
 

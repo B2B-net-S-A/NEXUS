@@ -329,7 +329,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'expense_document_read'",
     # 0488: „Po rozmowie” — pytania i oferta z notatki z telefonu (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'debrief_from_text'",
-    # 0517: raport poniedziałkowy „Jakość podpowiedzi systemu” (Sonnet 5).
+    # 0518: raport poniedziałkowy „Jakość podpowiedzi systemu” (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
@@ -769,9 +769,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cv_ready'",
     # 0444: osoba dodana do rekrutacji z „Pasuje też do” (do rekruterów tej rekrutacji).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'also_fits_added'",
-    # 0516: osoby od silnika „Nowi na 20” czekają na decyzję (do Rekruterów).
+    # 0517: osoby od silnika „Nowi na 20” czekają na decyzję (do Rekruterów).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_decisions_due'",
-    # 0517: raport „Jakość podpowiedzi systemu” gotowy (do odbiorców raportu).
+    # 0518: raport „Jakość podpowiedzi systemu” gotowy (do odbiorców raportu).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
@@ -1119,7 +1119,7 @@ except Exception as _autofill_pool_err:  # noqa: BLE001
     print(f"autofill pool DDL unavailable: {_autofill_pool_err!r}")
     _AUTOFILL_POOL_DDL = []
 
-# Powody odrzucenia osób od systemu (migracja 0515) — JEDNO źródło z migracją
+# Powody odrzucenia osób od systemu (migracja 0516) — JEDNO źródło z migracją
 # (`app/services/autofill_feedback_schema.py`).
 try:
     from app.services import autofill_feedback_schema as _autofill_feedback_schema
@@ -1129,7 +1129,7 @@ except Exception as _autofill_feedback_err:  # noqa: BLE001
     print(f"autofill feedback DDL unavailable: {_autofill_feedback_err!r}")
     _AUTOFILL_FEEDBACK_DDL = []
 
-# Raporty „Jakość podpowiedzi systemu” (migracja 0517) — JEDNO źródło z migracją
+# Raporty „Jakość podpowiedzi systemu” (migracja 0518) — JEDNO źródło z migracją
 # (`app/services/autofill_quality_schema.py`).
 try:
     from app.services import autofill_quality_schema as _autofill_quality_schema
@@ -7438,7 +7438,7 @@ _DATA_STATEMENTS = [
     "SELECT 'debrief_from_text', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'debrief_from_text')",
-    # 0517: seed klucza AI raportu „Jakość podpowiedzi systemu”.
+    # 0518: seed klucza AI raportu „Jakość podpowiedzi systemu”.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'autofill_quality_report', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

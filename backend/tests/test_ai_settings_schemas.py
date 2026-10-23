@@ -104,7 +104,7 @@ class TestFeatureKeyEnum:
             "expense_document_read",
             # 0488: „Po rozmowie” — pytania i oferta z notatki z telefonu.
             "debrief_from_text",
-            # 0517: raport poniedziałkowy „Jakość podpowiedzi systemu”.
+            # 0518: raport poniedziałkowy „Jakość podpowiedzi systemu”.
             "autofill_quality_report",
         }
 

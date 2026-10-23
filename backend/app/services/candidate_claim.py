@@ -55,7 +55,7 @@ ENTRY_PROPOSAL = "proposal"
 ENTRY_REASSIGN = "reassign"
 ENTRY_AUTO_MATCH = "auto_match"
 ENTRY_IMPORT = "import"
-# 0514 (23.10.2026): silnik dopełniania „Nowych” — bez blokady 12 h, osobę
+# 0515 (23.10.2026): silnik dopełniania „Nowych” — bez blokady 12 h, osobę
 # bierze pierwszy, kto ją ruszy (`services/new_column_autofill.py`).
 ENTRY_SYSTEM = "system"
 # Wejścia, w których osobę do rekrutacji dodał człowiek — tylko one zamykają

@@ -1,4 +1,4 @@
-"""DDL powodów odrzucenia osób od systemu — JEDNO źródło dla migracji 0515
+"""DDL powodów odrzucenia osób od systemu — JEDNO źródło dla migracji 0516
 i siatki w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 ``autofill_feedback``: jeden wiersz na odrzucenie osoby dodanej przez silnik

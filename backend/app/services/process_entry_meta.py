@@ -52,7 +52,7 @@ def auto_match_badge(meta: Any) -> Optional[dict]:
     }
 
 
-# 0514 (23.10.2026): osoba dodana przez silnik „Nowi na 20” — plakietka
+# 0515 (23.10.2026): osoba dodana przez silnik „Nowi na 20” — plakietka
 # „Od systemu · 81%”, powód w panelu osoby i termin decyzji.
 AUTOFILL_KIND = "autofill"
 

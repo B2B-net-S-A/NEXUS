@@ -1,7 +1,7 @@
 """Źródło wejścia ``system`` — osoba dodana przez silnik dopełniania „Nowych”.
 
-Revision ID: 0514_entry_source_system
-Revises: 0513_job_autofill_pool
+Revision ID: 0515_entry_source_system
+Revises: 0514_b2b_generated_signed_on
 
 Decyzje Artura 23.10.2026. SQL ma jedno źródło
 (``app/services/new_column_autofill_schema.py``); lista w ``entrypoint.sh``
@@ -12,8 +12,8 @@ from alembic import op
 
 from app.services import new_column_autofill_schema as schema
 
-revision = "0514_entry_source_system"
-down_revision = "0513_job_autofill_pool"
+revision = "0515_entry_source_system"
+down_revision = "0514_b2b_generated_signed_on"
 branch_labels = None
 depends_on = None
 

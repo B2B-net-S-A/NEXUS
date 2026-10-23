@@ -188,7 +188,7 @@ export interface KanbanItem {
   | "reassign"
   | "auto_match"
   | "import"
-  // 0514 (23.10.2026): silnik „System trzyma Nowych na 20”.
+  // 0515 (23.10.2026): silnik „System trzyma Nowych na 20”.
   | "system"
   | null;
  /**

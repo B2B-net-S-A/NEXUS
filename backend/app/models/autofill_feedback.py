@@ -1,4 +1,4 @@
-"""Powód odrzucenia osoby od systemu (0515) — DDL w ``services/autofill_feedback_schema.py``."""
+"""Powód odrzucenia osoby od systemu (0516) — DDL w ``services/autofill_feedback_schema.py``."""
 
 from datetime import datetime
 from decimal import Decimal

@@ -1,7 +1,7 @@
 """notificationtype: ``autofill_decisions_due`` — osoby od systemu czekają na decyzję.
 
-Revision ID: 0516_autofill_decisions_due_notification
-Revises: 0515_autofill_feedback
+Revision ID: 0517_autofill_decisions_due_notification
+Revises: 0516_autofill_feedback
 
 Decyzja Artura 23.10.2026 (silnik „Nowi na 20”): osoba dodana przez system,
 o której przez 2 dni robocze nikt nie zdecydował („Dzwonię” albo odrzucenie
@@ -12,8 +12,8 @@ bez maila. Sama wartość enuma; lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0516_autofill_decisions_due_notification"
-down_revision = "0515_autofill_feedback"
+revision = "0517_autofill_decisions_due_notification"
+down_revision = "0516_autofill_feedback"
 branch_labels = None
 depends_on = None
 
@@ -29,7 +29,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'autofill_decisions_due'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0516 odmawia: notifications ma wpisy autofill_decisions_due, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0517 odmawia: notifications ma wpisy autofill_decisions_due, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

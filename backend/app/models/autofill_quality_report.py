@@ -1,4 +1,4 @@
-"""Raport „Jakość podpowiedzi systemu” (0517) — DDL w ``services/autofill_quality_schema.py``."""
+"""Raport „Jakość podpowiedzi systemu” (0518) — DDL w ``services/autofill_quality_schema.py``."""
 
 from datetime import date, datetime
 

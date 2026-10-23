@@ -32,7 +32,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   „Zatrudniony”, zgłoszeń z portali (`job_board`), każdego z decyzją bramki
   innej niż „brak przeciwwskazań” (ostrzeżenia zostają człowiekowi) i osób
   off-limits u klienta. Wejście przez `add_candidates_to_job` z
-  `entry_source="system"` (0514, CHECK + lustro w `entrypoint.sh`),
+  `entry_source="system"` (0515, CHECK + lustro w `entrypoint.sh`),
   `actor_user_id=None` (puste `moved_by`), `claim=False` — bez blokady 12 h,
   bierze pierwszy, kto ruszy kartę — i `mark_proposals=False`.
   `entry_meta.kind="autofill"` to migawka: wynik, `matched_must`,
@@ -58,7 +58,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   stałe — wygaśnięcie blokady 12 h nie przywraca terminu. Przesunięcie dalej
   albo odrzucenie zdejmuje kartę z „Nowych”, więc termin znika sam.
   Harness: `/preview/job-detail?autofill=1`.
-- **E. Odrzucenie z powodem (PR 4, 0515, decyzja Artura 23.10.2026).** Ruch na
+- **E. Odrzucenie z powodem (PR 4, 0516, decyzja Artura 23.10.2026).** Ruch na
   „Odrzucony” osoby od systemu, która stoi w „Nowych” albo „Screeningu”
   (`gate_stage_row`), wymaga `autofill_reason` (12 kodów w trzech grupach,
   lista w `autofill_feedback_schema.REASONS`) i `autofill_learned_from`
@@ -76,7 +76,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   w `lib/autofill-feedback.ts`; pytają `usePipelineMove` (Tablica, panel
   osoby) i `ScreeningFullForm` (warsztat screeningu). Przy kilku osobach ten
   sam powód idzie do każdej osoby od systemu, bez stawki.
-- **E. Kolejka decyzji i poranny dzwonek (PR 5, 0516).** „Czeka na Ciebie”
+- **E. Kolejka decyzji i poranny dzwonek (PR 5, 0517).** „Czeka na Ciebie”
   (`board_flow._autofill_decisions`, pole `flow.autofill_decisions` +
   `autofill_decisions_total`, sekcja `BoardAutofillDecisions`) pokazuje
   Rekruterowi osoby od systemu z jego rekrutacji (`_recruiting_job_ids`) po
@@ -84,12 +84,12 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   „Nowi”, wejście `system`, bez `decided_at`, rekrutacja z rekruterem. Akcje:
   „Dzwonię” (`/claim`) i „Otwórz” (`/jobs/{id}?candidate={cid}`, tam „Odrzuć
   z powodem”). Dzwonek `autofill_decisions_due` (kategoria „Kandydaci”, sekcja
-  pipeline, bez maila, `ALTER TYPE` w 0516 + lustro w `entrypoint.sh`):
+  pipeline, bez maila, `ALTER TYPE` w 0517 + lustro w `entrypoint.sh`):
   `autofill_decisions_bell.send_decision_bells` z `run_all_triggers`, dni
   robocze 8–17, raz dziennie (`app_settings['autofill_decisions_bell_state']`),
   JEDEN na Rekrutera (`job_team.working`) — liczba osób i do trzech rekrutacji,
   link `/dashboard#czeka-na-ciebie`.
-- **E. „Jakość podpowiedzi systemu” i raport poniedziałkowy (PR 6, 0517).**
+- **E. „Jakość podpowiedzi systemu” i raport poniedziałkowy (PR 6, 0518).**
   Ekran `/insights/autofill` (link w nagłówku Insights, okruszek „Jakość
   podpowiedzi systemu”, harness `/preview/autofill-quality`):
   `GET /api/autofill-quality/summary?days=7|30|90` i `GET …/reports` za

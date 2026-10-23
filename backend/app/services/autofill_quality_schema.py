@@ -1,4 +1,4 @@
-"""DDL raportów „Jakość podpowiedzi systemu” — JEDNO źródło dla migracji 0517
+"""DDL raportów „Jakość podpowiedzi systemu” — JEDNO źródło dla migracji 0518
 i siatki w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 ``autofill_quality_reports``: jeden raport na tydzień (``week_start`` =

@@ -174,7 +174,7 @@ class AIFeatureKey(str, enum.Enum):
     # rozmowie u klienta model rozpisuje pytania klienta, gotowość do oferty
     # i stawkę — każdy element z cytatem, który sprawdza kod.
     debrief_from_text = "debrief_from_text"
-    # 0517 (23.10.2026): raport poniedziałkowy „Jakość podpowiedzi systemu” —
+    # 0518 (23.10.2026): raport poniedziałkowy „Jakość podpowiedzi systemu” —
     # propozycje poprawek wyszukiwania z policzonych przez kod powodów.
     autofill_quality_report = "autofill_quality_report"
 
