@@ -244,6 +244,105 @@ describe("useCvAssistant — długa lista poprawek (15.10.2026)", () => {
   });
 });
 
+// Zgłoszenie rekrutera 23.10.2026: „Więcej o wymaganiach klienta” trzy razy
+// z rzędu kończyło się „CV zmieniło się w międzyczasie”, choć nikt nie ruszał
+// CV. Plan z tej podpowiedzi pogrubia wymagania, które już są pogrubione,
+// i przestawia punkty stojące w dwóch listach — edytor nie miał czego nałożyć,
+// a każda taka odmowa wyglądała jak zmiana CV.
+describe("useCvAssistant — plan, którego nie da się nałożyć na niezmienione CV (23.10.2026)", () => {
+  const TWO_LISTS =
+    "<h1>Dev – Anna Przykładowa</h1>" + // 0
+    '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>' + // 1
+    '<p data-cv-section="role"><strong>Senior Developer</strong> 2021 – 2024</p>' + // 2
+    '<p data-cv-section="employer">Bank Przykładowy · Bankowość</p>' + // 3
+    '<p data-cv-section="duties_label">Zakres zadań:</p>' + // 4
+    "<ul><li><p>Rozwój usług w <strong>Java 17</strong>.</p></li>" + // 5
+    "<li><p>Udział w planowaniu sprintów.</p></li></ul>" + // 6
+    "<p>Projekty:</p>" + // 7
+    "<ul><li><p>Migracja usług do <strong>Kubernetes</strong>.</p></li></ul>" + // 8
+    `<p data-cv-section="rodo">${CLAUSE}</p>`;
+
+  const op = (value: Partial<CvCommandResponse["operations"][number]>) => ({
+    id: 0,
+    type: "replace" as const,
+    lines: [],
+    text: null,
+    why: "",
+    loses: [],
+    new_words: [],
+    ...value,
+  });
+
+  function hookFor(editor: Editor, plan: CvCommandResponse, ensureDraft = async () => true) {
+    const commandApi = { plan: vi.fn(async () => plan), confirmFact: vi.fn(async () => undefined) };
+    return renderHook(() => useCvAssistant({ editor, stageId: 7, disabled: false, ensureDraft, api: commandApi }));
+  }
+
+  async function sendPreset(hook: ReturnType<typeof hookFor>) {
+    act(() => hook.result.current.send({ preset: "more_requirements", label: "Więcej o wymaganiach klienta" }));
+    await waitFor(() => expect(hook.result.current.busy).toBe(false));
+    await waitFor(() => expect(hook.result.current.messages.at(-1)?.role).toBe("assistant"));
+    return hook.result.current.messages.filter((message) => message.role === "assistant");
+  }
+
+  it("pogrubienie już pogrubionych wymagań i przestawienie punktów z dwóch list: bez „CV zmieniło się”", async () => {
+    const editor = open(TWO_LISTS);
+    const before = editor.getHTML();
+    const hook = hookFor(editor, {
+      status: "ok",
+      operations: [
+        op({ id: 0, type: "bold", terms: ["Java 17", "Kubernetes"] }),
+        op({ id: 1, type: "reorder", lines: [8, 6, 5] }),
+      ],
+      dropped: [],
+      message: null,
+    });
+    const replies = await sendPreset(hook);
+    const texts = replies.map((message) => message.text).join(" | ");
+    expect(texts).not.toContain("CV zmieniło się");
+    expect(texts).toContain("nic by nie zmieniła");
+    expect(texts).toContain("edytor nie umie");
+    expect(editor.getHTML()).toBe(before);
+  });
+
+  it("nienakładalna operacja nie blokuje reszty planu ani pytań", async () => {
+    const editor = open(TWO_LISTS);
+    const hook = hookFor(editor, {
+      status: "ok",
+      operations: [
+        op({ id: 0, type: "bold", terms: ["Java 17"] }),
+        op({ id: 1, type: "replace", lines: [6], text: "Planowanie sprintów w **Scrum**." }),
+        op({ id: 2, type: "add", lines: [8], text: "Infrastruktura w **Terraform**.", ask: "source", problem: "Terraform" }),
+      ],
+      dropped: [],
+      message: null,
+    });
+    const replies = await sendPreset(hook);
+    const done = replies.find((message) => message.text.startsWith("Zrobione"));
+    expect(done?.text).toContain("1 zmiana");
+    expect(done?.text).toContain("1 propozycja nic by nie zmieniła");
+    expect(done?.items).toEqual(["Przeredagowane"]);
+    expect(editor.getHTML()).toContain("Planowanie sprintów w <strong>Scrum</strong>.");
+    expect(replies.some((message) => message.question?.subject === "Terraform")).toBe(true);
+  });
+
+  it("szkic nie powstał: komunikat o szkicu, nie o zmianie CV", async () => {
+    const editor = open(TWO_LISTS);
+    const hook = hookFor(
+      editor,
+      {
+        status: "ok",
+        operations: [op({ id: 0, type: "replace", lines: [6], text: "Planowanie sprintów." })],
+        dropped: [],
+        message: null,
+      },
+      async () => false,
+    );
+    const replies = await sendPreset(hook);
+    expect(replies.at(-1)?.text).toBe("Nie udało się założyć nowej wersji CV — nic nie zmieniłem. Spróbuj jeszcze raz.");
+  });
+});
+
 describe("useCvAssistant — „Napisz od nowa” (PR 5)", () => {
   it("zdanie „napisz od nowa: …” idzie do karty, nie do planu zmian", () => {
     const editor = open();

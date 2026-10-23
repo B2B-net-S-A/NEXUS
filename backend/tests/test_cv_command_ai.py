@@ -858,8 +858,8 @@ def test_line_with_a_point_after_it_does_not_vanish_or_move() -> None:
 
 
 def test_bold_and_unbold_name_only_terms_that_stand_in_the_cv() -> None:
-    op = only(plan({"type": "bold", "terms": ["Kafka", "REST", "Terraform", "kafka"]}))
-    assert (op["type"], op["lines"], op["terms"]) == ("bold", [], ["Kafka", "REST"])
+    op = only(plan({"type": "bold", "terms": ["Javie", "REST", "Terraform", "javie"]}))
+    assert (op["type"], op["lines"], op["terms"]) == ("bold", [], ["Javie", "REST"])
     assert dropped(plan({"type": "unbold", "terms": ["Terraform"]})) == ["unknown_term"]
     # Tytuł (imię i nazwisko) nie jest miejscem na pogrubienie wymagań.
     assert dropped(plan({"type": "bold", "terms": ["Anna Przykładowa"]})) == [
@@ -869,10 +869,40 @@ def test_bold_and_unbold_name_only_terms_that_stand_in_the_cv() -> None:
 
 def test_formatting_does_not_block_other_operations_on_the_same_lines() -> None:
     result = plan(
-        {"type": "bold", "terms": ["Kafka"]},
-        {"type": "remove", "lines": [10]},
+        {"type": "bold", "terms": ["REST"]},
+        {"type": "remove", "lines": [9]},
     )
     assert [op["type"] for op in result["operations"]] == ["bold", "remove"]
+
+
+# Zgłoszenie 23.10.2026: „Więcej o wymaganiach klienta” na CV z generatora
+# pogrubiało wymagania, które już były pogrubione — plan bez żadnej zmiany,
+# a edytor mówił „CV zmieniło się w międzyczasie”.
+def test_bold_skips_terms_that_are_already_bold_everywhere() -> None:
+    # „Kafka” stoi tylko pogrubiona, „Spring Boot” raz pogrubiony, raz nie.
+    op = only(plan({"type": "bold", "terms": ["Kafka", "Spring Boot"]}))
+    assert op["terms"] == ["Spring Boot"]
+    result = plan({"type": "bold", "terms": ["Kafka"]})
+    assert dropped(result) == ["already_bold"]
+    assert cmd.dropped_message(result["dropped"]) == cmd.MSG_ALREADY_BOLD
+
+
+def test_unbold_skips_terms_that_are_not_bold_anywhere() -> None:
+    assert dropped(plan({"type": "unbold", "terms": ["REST"]})) == ["not_bold"]
+    assert only(plan({"type": "unbold", "terms": ["Kafka", "REST"]}))["terms"] == [
+        "Kafka"
+    ]
+    assert (
+        cmd.dropped_message([{"reason": "not_bold"}, {"reason": "not_bold"}])
+        == cmd.MSG_NOT_BOLD
+    )
+
+
+def test_mixed_refusals_keep_the_general_message() -> None:
+    assert (
+        cmd.dropped_message([{"reason": "already_bold"}, {"reason": "not_editable"}])
+        == cmd.MSG_ALL_DROPPED
+    )
 
 
 CONSIDERED = [
