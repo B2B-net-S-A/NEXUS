@@ -408,6 +408,13 @@
    "home": "Rekrutacje → wiersz → karta"
   },
   {
+   "id": "r.client_cv_preview",
+   "opis": "CV wysłane do klienta / Podgląd CV do klienta (plik jak „Pobierz”, bez edytora)",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "CV wysłane do klienta",
+   "home": "Rekrutacje → wiersz → karta"
+  },
+  {
    "id": "r.refresh_cv",
    "opis": "Odśwież CV oryginalne",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",

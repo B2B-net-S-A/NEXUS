@@ -5,6 +5,7 @@ import {
   recruitmentOutcome,
   recruitmentStageLabel,
   recruitmentStagePath,
+  reachedClient,
 } from "@/lib/recruitment-stage-label";
 import { cardStageBadge } from "@/lib/board-card-badges";
 
@@ -81,5 +82,19 @@ describe("ścieżka etapów i wynik zakończonego procesu (04.10.2026)", () => {
     expect(recruitmentOutcome({ latest_stage: "verified", job_status: "closed" }).label).toBe(
       "Rekrutacja zamknięta",
     );
+  });
+});
+
+describe("reachedClient — CV wyszło do klienta", () => {
+  it("„CV wysłane” i dalsze kolumny tak, wcześniejsze nie", () => {
+    expect(reachedClient([{ stage: "cv_sent" }])).toBe(true);
+    expect(reachedClient([{ stage: "client_interview" }])).toBe(true);
+    expect(reachedClient([{ stage: "verified" }, { stage: "screening" }])).toBe(false);
+    expect(reachedClient(null)).toBe(false);
+  });
+
+  it("proces zamknięty po wysyłce dalej się liczy; zamknięty przed nią nie", () => {
+    expect(reachedClient([{ stage: "rejected" }, { stage: "cv_sent" }])).toBe(true);
+    expect(reachedClient([{ stage: "rejected" }, { stage: "verified" }])).toBe(false);
   });
 });

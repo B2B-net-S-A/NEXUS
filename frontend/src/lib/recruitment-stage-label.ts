@@ -10,6 +10,7 @@
 import {
   BOARD_COLUMN_LABEL,
   BOARD_COLUMN_ORDER,
+  isAtClientColumn,
   placeStage,
 } from "@/lib/board-stages";
 
@@ -86,6 +87,18 @@ export function furthestBoardColumnLabel(
     best = Math.max(best, BOARD_COLUMN_ORDER.indexOf(column));
   }
   return best < 0 ? null : BOARD_COLUMN_LABEL[BOARD_COLUMN_ORDER[best]];
+}
+
+/**
+ * CV tej osoby wyszło do klienta: któryś ruch doszedł do „CV wysłane” albo
+ * dalej. Liczy się też proces zamknięty po wysyłce (odrzucony przez klienta).
+ */
+export function reachedClient(stages: RecruitmentStageMove[] | null | undefined): boolean {
+  return (Array.isArray(stages) ? stages : []).some(
+    (move) =>
+      !!move.stage &&
+      isAtClientColumn(placeStage({ stage: move.stage, name: move.stage_name ?? null }).column),
+  );
 }
 
 export type RecruitmentOutcomeTone = "success" | "neutral" | "danger" | "warning";

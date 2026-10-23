@@ -41,6 +41,7 @@ import {
   candidateViewerScopeKey,
 } from "@/components/v2/pages/candidate-query-keys";
 import { useAuthStore } from "@/store/auth";
+import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import type { RateOverview } from "@/lib/api/candidateRates";
 
 const CANDIDATE_ID = 9001;
@@ -190,6 +191,23 @@ const CANDIDATE = {
   nip: null,
 };
 
+const SENT_CV_STAGE_ID = 9501;
+
+/** CV do klienta procesu „CV wysłane”. Plik nie przyjdzie (harness bez sieci),
+ *  więc okno podglądu pokazuje treść w układzie kartki edytora. */
+const SENT_CV_BRANDED = {
+  status: "finalized",
+  from_generator: true,
+  generated_document_id: 1,
+  edit_revision: 3,
+  version: 2,
+  language: "pl",
+  content_html:
+    "<h1>Java Developer</h1><p><strong>Doświadczenie:</strong> 7 lat w Javie (Spring Boot, Kafka) w bankowości.</p>" +
+    "<h2>Projekty</h2><ul><li>System płatności natychmiastowych — mikroserwisy, Kafka, PostgreSQL.</li>" +
+    "<li>Migracja monolitu do Spring Boot 3 — zespół 6 osób.</li></ul>",
+};
+
 const HISTORY = {
   jobs: [
     {
@@ -200,7 +218,8 @@ const HISTORY = {
       client_name: "Bank Przykładowy",
       job_status: "published",
       latest_stage: "cv_sent",
-      latest_stage_id: null,
+      // Wiersz etapu z CV do klienta — przycisk „CV wysłane do klienta”.
+      latest_stage_id: SENT_CV_STAGE_ID,
       first_seen: daysAgo(18),
       last_seen: daysAgo(3),
       next_action_owner: "client",
@@ -1548,6 +1567,8 @@ function seededClient(employed: boolean, user: PreviewUser): QueryClient {
   );
   qc.setQueryData(candidateQueryKeys.history(CANDIDATE_ID, scope), historyFor(employed));
   qc.setQueryData(candidateQueryKeys.timeline(CANDIDATE_ID, 50), TIMELINE);
+  qc.setQueryData(stageBrandedQueryKey(SENT_CV_STAGE_ID), SENT_CV_BRANDED);
+  qc.setQueryData(["cv-original", SENT_CV_STAGE_ID], { has_snapshot: false });
   qc.setQueryData(candidateQueryKeys.notes(CANDIDATE_ID), NOTES);
   qc.setQueryData(candidateQueryKeys.documents(CANDIDATE_ID), DOCUMENTS);
   qc.setQueryData(
