@@ -5,7 +5,7 @@ import axios, { AxiosError } from "axios";
 import { messageFromApiResponse } from "./api-error";
 import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-capability";
 
-import { isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
+import { FILE_UPLOAD_TIMEOUT_MS, isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
 import type { WorkMode } from "./work-mode";
 import type { CallFactsPatch } from "./candidate-call-facts";
@@ -50,8 +50,25 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 export const api = axios.create({
   baseURL: API_BASE,
-  timeout: DEFAULT_REQUEST_TIMEOUT_MS,
   headers: { "Content-Type": "application/json" },
+});
+
+// Domyślny sufit ustawia ten interceptor, a nie `axios.create`: axios scala
+// domyślne pola instancji z polami wywołania, zanim zobaczy je interceptor,
+// więc przy `timeout` w instancji nie da się odróżnić „wywołanie nie podało”
+// od „podało 30 s”. Bez niego w instancji niepodany `timeout` dochodzi tu
+// jako 0 (domyślne axiosa). Żądanie z plikiem dostaje dłuższy sufit
+// `FILE_UPLOAD_TIMEOUT_MS` — powód w `lib/http-timeouts.ts`. Jawny `timeout`
+// wywołania zawsze wygrywa; świadomie nieskończonego `timeout: 0` nikt nie
+// używa, więc 0 znaczy tu „nie podano”.
+api.interceptors.request.use((config) => {
+  if (!config.timeout) {
+    config.timeout =
+      typeof FormData !== "undefined" && config.data instanceof FormData
+        ? FILE_UPLOAD_TIMEOUT_MS
+        : DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+  return config;
 });
 
 // Etykiety pól kontraktu żyją w `lib/api-error.ts` (czysty moduł tłumaczenia
