@@ -223,3 +223,28 @@ wymaganiom potrafiła wylądować na górze. Kod nie sprawdzał kolejności wcal
   (`reorder_roles`, `edytor-cv-pelny-ekran.md`). Kolejność, którą rekruter
   ustawi ręcznie w edytorze, zostaje — sortuje tylko generator.
 - CV wygenerowane wcześniej nie są przestawiane z mocy wstecznej.
+
+## Odpowiedź, która odsyła do pytania (23.10.2026)
+
+Zgłoszenie rekrutera: generator „średnio uwzględnia” odpowiedzi ze screeningu.
+Przypadek z produkcji (CV z 23.10.2026, rola sieciowa): odpowiedź „Posiadam takie
+doświadczenie, …” na pytanie o architekturę i VLAN-y, a kontrola AI oznaczyła
+„VLAN segmentation” jako „NOT IN SOURCE”. Strażnik terminów, bezpieczniki i kontrola AI
+czytają odpowiedzi bez linii `P:` (reguła „pytanie ≠ fakt” wyżej), więc
+„takie doświadczenie” i samo „Tak” traciły treść.
+
+- `_format_candidate_answers` dopisuje do takiej odpowiedzi „(potwierdza
+  pytanie: …)”, więc rzecz z pytania jest w linii `O:` i liczy się jako
+  odpowiedź (`_confirms_question`). Dotyczy: samego potwierdzenia („Tak”,
+  „Tak, ma doświadczenie”, „Yes, I have”) i odesłania („takie / tego typu
+  doświadczenie”, „w tym zakresie”, „such experience”).
+- Bez dopisku: odpowiedź z zastrzeżeniem („ale”, „tylko”, „nie”,
+  „teoretycznie”), pytanie z alternatywą („albo”, „lub”, „or”) i odpowiedź,
+  która sama nazywa rzeczy („Tak, Grafana i Prometheus” nie potwierdza
+  OpenTelemetry z pytania).
+- Zaślepka zamiast odpowiedzi („x”, „-”, „?”, „n/a”) znika razem z pytaniem.
+- Pytanie w linii `P:` też przechodzi przez `strip_rates_and_availability`.
+- Formularz screeningu podpowiada wzór odpowiedzi i ostrzega przy samym
+  „tak/nie” albo zaślepce (`lib/screening-answer-hint.ts`).
+- Testy: `test_cv_generator_b2b_pipeline.py` (sekcja „Odpowiedź, która odsyła
+  do pytania”).

@@ -33,6 +33,10 @@ from app.services.cv_generator_b2b.docx_renderer import (
     highlight_spans,
 )
 from app.services.skill_normalize import set_tech_taxonomy
+from app.services.cv_generator_b2b.legacy_v7._helpers import (
+    screening_text_without_questions,
+    strip_unsupported_terms,
+)
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     _build_download_filename,
@@ -732,6 +736,78 @@ def test_candidate_answers_empty_and_malformed_inputs():
     assert _format_candidate_answers({"answers": [{"response": "Java"}]}, None) == (
         "O: Java"
     )
+
+
+# Odpowiedź, która odsyła do pytania (23.10.2026): „Posiadam takie
+# doświadczenie” albo samo „Tak” znaczą tyle, co pytanie. Strażnik terminów
+# i kontrola AI czytają odpowiedzi bez linii „P:”, więc bez dopisku rzecz
+# z pytania znikała z CV jako „tylko w pytaniu rekrutera”.
+
+
+def _answer(question: str, response: str) -> str:
+    return _format_candidate_answers(
+        {
+            "answers": [
+                {"question_id": "q1", "question_text": question, "response": response}
+            ]
+        },
+        [],
+    )
+
+
+def test_candidate_answer_referring_to_question_carries_the_question():
+    text = _answer(
+        "Jakie masz doświadczenie w segmentacji VLAN i migracjach sieci?",
+        "Posiadam takie doświadczenie, tworzę sieci i przepusty na firewallach.",
+    )
+    answers_only = screening_text_without_questions(text)
+    assert "segmentacji VLAN" in answers_only
+    assert "przepusty na firewallach" in answers_only
+
+
+def test_candidate_bare_yes_carries_the_question():
+    for response in ("Tak", "tak.", "Tak, ma doświadczenie.", "Yes, I have."):
+        text = _answer("Czy pracowałeś z Terraform?", response)
+        assert "Terraform" in screening_text_without_questions(text), response
+
+
+def test_candidate_yes_with_own_content_stays_as_written():
+    # Kandydat sam powiedział, co zna — pytanie nie dokłada OpenTelemetry.
+    text = _answer(
+        "Czy pracowałeś z narzędziami observability (OpenTelemetry, Grafana)?",
+        "Tak, Grafana i Prometheus",
+    )
+    assert "OpenTelemetry" not in screening_text_without_questions(text)
+
+
+def test_candidate_yes_does_not_confirm_alternatives_or_reservations():
+    alternative = _answer("Czy znasz Kafkę albo RabbitMQ?", "Tak")
+    assert "Kafk" not in screening_text_without_questions(alternative)
+    reserved = _answer("Czy pracowałeś z Terraform?", "Tak, ale tylko teoretycznie")
+    assert "Terraform" not in screening_text_without_questions(reserved)
+
+
+def test_candidate_yes_does_not_carry_a_rate_from_the_question():
+    text = _answer("Czy akceptujesz stawkę 150 PLN/h na B2B?", "Tak")
+    assert "150" not in text
+
+
+def test_candidate_placeholder_answer_is_dropped_with_its_question():
+    for response in ("x", "-", "?", "..."):
+        assert _answer("Jak identyfikujesz backup na złej ścieżce?", response) == ""
+
+
+def test_guard_keeps_term_confirmed_by_bare_yes():
+    text = _answer("Czy pracowałeś z Terraform?", "Tak")
+    data = {"experience": [], "skills": [{"category": "IaC", "content": "Terraform"}]}
+    strip_unsupported_terms(
+        data,
+        cv_text="Administrator systemów Linux, Ansible.",
+        screening_notes_text=f"[Odpowiedzi kandydata na pytania screeningowe]\n{text}",
+        requirements=["Terraform"],
+        language="pl",
+    )
+    assert data["skills"] == [{"category": "IaC", "content": "Terraform"}]
 
 
 def test_has_candidate_answers_flag():
