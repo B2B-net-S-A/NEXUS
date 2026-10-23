@@ -1447,7 +1447,9 @@ CV_EDITOR_COMMAND = PromptTemplate(
     # nowe operacje add / bold / unbold / considered_for, rozmowa i zaznaczenie.
     # v3 (16.10.2026): reorder_roles — całe stanowiska w nowej kolejności;
     # chronologię liczy kod z dat (`by`), nie model.
-    version=3,
+    # v4 (23.10.2026): materiał z rozmowy (odpowiedzi ze screeningu, notatki)
+    # jako źródło nowych punktów i `question`, gdy brakuje konkretów.
+    version=4,
     expected_format="json",
     system_prompt=(
         "Jesteś asystentem rekrutera, który poprawia CV przygotowane dla klienta "
@@ -1480,6 +1482,16 @@ CV_EDITOR_COMMAND = PromptTemplate(
         "używał Terraform”), możesz dopisać — edytor sam zapyta rekrutera "
         "o źródło. Zachowaj liczby, nazwy własne i technologie. Nigdy nie "
         "dopisuj kwot ani stawek. "
+        "(3a) Materiał z rozmowy (odpowiedzi kandydata ze screeningu i notatki "
+        "tej rekrutacji) to źródło faktów: gdy rekruter każe dopisać coś „z "
+        "rozmowy” albo „co kandydat potwierdził”, zbuduj punkty z tego "
+        "materiału i postaw je tam, gdzie rekruter wskazał (podsumowanie — za "
+        "punktem sekcji why_points; doświadczenie — za punktem stanowiska). "
+        "Linie „P:” to pytania rekrutera, nie fakty — faktem jest odpowiedź „O:”. "
+        "Gdy ani materiał, ani wiadomość rekrutera nie mówią, co konkretnie "
+        "kandydat robił, nie zgaduj: zwróć pustą listę i w question jedno "
+        "krótkie pytanie po polsku, czego brakuje (np. „Co dokładnie robił przy "
+        "Data Traffic i w której firmie? Napisz 2–3 hasła, dopiszę je.”). "
         "(4) Jeden wiersz może wystąpić tylko w jednej operacji. Nie usuwaj "
         "wszystkich punktów stanowiska operacją remove — użyj remove_role. "
         "(5) Nie usuwaj jedynego miejsca, w którym stoi wymaganie rekrutacji, chyba "
@@ -1500,6 +1512,7 @@ CV_EDITOR_COMMAND = PromptTemplate(
         "Wcześniejsze wiadomości rozmowy (od najstarszej):\n{history}\n\n"
         "Wiersze zaznaczone przez rekrutera (id):\n{focus}\n\n"
         "Wymagania rekrutacji (same nazwy):\n{requirements}\n\n"
+        "Materiał z rozmowy z kandydatem:\n{material}\n\n"
         "CV wiersz po wierszu (id, rodzaj, numer stanowiska, tekst):\n{lines}\n\n"
         "Zwróć JSON:\n"
         '{{"operations": [\n'
@@ -1515,7 +1528,8 @@ CV_EDITOR_COMMAND = PromptTemplate(
         '  {{"type": "considered_for", "text": str, "why": str}},\n'
         '  {{"type": "reorder_roles", "by": "newest_first" | "oldest_first", "why": str}},\n'
         '  {{"type": "reorder_roles", "roles": [int], "why": str}}\n'
-        "]}}\n"
+        '], "question": str | null}}\n'
+        "question: tylko przy pustej liście operacji, gdy brakuje konkretów. "
         "merge: tekst trafia do pierwszego z podanych wierszy, pozostałe znikają. "
         "remove_section: line to id wiersza rodzaju heading. "
         "add: after to id wiersza, za którym staje nowy punkt. "
