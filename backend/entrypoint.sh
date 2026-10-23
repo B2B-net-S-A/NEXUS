@@ -767,6 +767,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cv_ready'",
     # 0444: osoba dodana do rekrutacji z „Pasuje też do” (do rekruterów tej rekrutacji).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'also_fits_added'",
+    # 0516: osoby od silnika „Nowi na 20” czekają na decyzję (do Rekruterów).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_decisions_due'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",

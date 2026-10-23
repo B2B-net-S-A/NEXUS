@@ -22,6 +22,10 @@ sama reguła kolumn co Tablica (`cv_in_transit._place`):
   potwierdzonego podpisu, zamówienia z maila do weryfikacji.
 * **Finanse** — braki zamówień, nowe PDF-y, zatrudnieni bez zamówienia,
   nieudane maile zamówień.
+* **Osoby od systemu czekają na decyzję** (23.10.2026, silnik „Nowi na 20”)
+  — w tych samych rekrutacjach co Ogłoszenia: osoby dodane przez system, które
+  po 2 dniach roboczych w „Nowych” nie mają „Dzwonię” ani odrzucenia
+  (``autofill_decisions.due_decisions``, reguła terminu wspólna z Tablicą).
 * **Najlepsze propozycje z bazy** (07.10.2026) — w tych samych rekrutacjach co
   Ogłoszenia: po ``TOP_PROPOSALS_PER_JOB`` najlepszych otwartych propozycji
   nocnego przeglądu (``full_base``), ta sama widoczność co skrzynka
@@ -160,6 +164,20 @@ class JobProposalsRow:
     people: tuple[ProposalPick, ...]
 
 
+@dataclass(frozen=True)
+class AutofillDecisionRow:
+    """Osoba od systemu czekająca na decyzję („Dzwonię” albo odrzucenie)."""
+
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str]
+    client_name: Optional[str]
+    candidate_id: int
+    candidate_name: str
+    score: Optional[int]
+    waiting_days: int
+
+
 @dataclass
 class FlowBlock:
     new_requests: list[NewRequestRow] = field(default_factory=list)
@@ -172,6 +190,8 @@ class FlowBlock:
     unsigned_contracts: list[ContractRow] = field(default_factory=list)
     order_mail_review: int = 0
     top_proposals: list[JobProposalsRow] = field(default_factory=list)
+    autofill_decisions: list[AutofillDecisionRow] = field(default_factory=list)
+    autofill_decisions_total: int = 0
     # Czy osoba ma w ogóle sekcje przepływu (rekruter, TCM, DL) — front pokazuje
     # wtedy zdanie „Nic na Ciebie teraz nie czeka” zamiast ukrywać panel.
     applies: bool = False
@@ -822,6 +842,55 @@ async def _top_proposals(db: AsyncSession, job_ids: list[int]) -> list[JobPropos
     return rows[:MAX_ROWS]
 
 
+async def _autofill_decisions(
+    db: AsyncSession, job_ids: list[int], now: datetime
+) -> tuple[list[AutofillDecisionRow], int]:
+    """Osoby od systemu po terminie decyzji w rekrutacjach osoby."""
+
+    from app.services.autofill_decisions import due_decisions
+
+    due = await due_decisions(db, job_ids, now)
+    if not due:
+        return [], 0
+    shown = due[:MAX_ROWS]
+    names = {
+        cid: _name(first, last)
+        for cid, first, last in (
+            await db.execute(
+                select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                    Candidate.id.in_(sorted({d.candidate_id for d in shown}))
+                )
+            )
+        ).all()
+    }
+    jobs = {
+        jid: (title, working, client)
+        for jid, title, working, client in (
+            await db.execute(
+                select(Job.id, Job.title, Job.working_title, Client.name)
+                .outerjoin(Client, Client.id == Job.client_id)
+                .where(Job.id.in_(sorted({d.job_id for d in shown})))
+            )
+        ).all()
+    }
+    rows = []
+    for d in shown:
+        title, working, client = jobs.get(d.job_id, (f"#{d.job_id}", None, None))
+        rows.append(
+            AutofillDecisionRow(
+                job_id=d.job_id,
+                job_title=title,
+                job_working_title=working,
+                client_name=client,
+                candidate_id=d.candidate_id,
+                candidate_name=names.get(d.candidate_id, "Kandydat"),
+                score=d.score,
+                waiting_days=d.waiting_days,
+            )
+        )
+    return rows, len(due)
+
+
 # ── Składanie ─────────────────────────────────────────────────────────────────
 
 
@@ -882,6 +951,12 @@ async def load_flow(
         block.claimed = await _safe(db, "blokady", lambda: _claimed(db, user, now), [])
         block.top_proposals = await _safe(
             db, "propozycje z bazy", lambda: _top_proposals(db, job_ids), []
+        )
+        block.autofill_decisions, block.autofill_decisions_total = await _safe(
+            db,
+            "osoby od systemu",
+            lambda: _autofill_decisions(db, job_ids, now),
+            ([], 0),
         )
 
     if leads:
@@ -950,6 +1025,7 @@ async def load_finance(
 
 
 __all__ = [
+    "AutofillDecisionRow",
     "ContractRow",
     "FinanceBlock",
     "FlowBlock",

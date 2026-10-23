@@ -17,6 +17,7 @@
  *  - blok Finansów (zmiany w zamówieniach, braki, nowe PDF-y, nieudane maile,
  *    zatrudnieni bez zamówienia),
  *  - „Najlepsze propozycje z bazy” (07.10.2026) — `BoardTopProposals`.
+ *  - „Osoby od systemu czekają na decyzję” (23.10.2026) — `BoardAutofillDecisions`.
  */
 
 import Link from "next/link";
@@ -38,6 +39,7 @@ import { ORDER_CHANGES_POLL_MS } from "@/lib/polling";
 
 import { Section } from "./BoardTasksSection";
 import { BoardTopProposals, topProposalsCount } from "./BoardTopProposals";
+import { BoardAutofillDecisions } from "./BoardAutofillDecisions";
 
 const MISSING_LABEL = {
   sheet: "arkusz",
@@ -105,7 +107,8 @@ export function flowWorkCount(
       flow.postings_total +
       flow.unsigned_contracts.length +
       flow.order_mail_review +
-      topProposalsCount(flow.top_proposals)
+      topProposalsCount(flow.top_proposals) +
+      (flow.autofill_decisions_total ?? 0)
     : 0;
   const fin = finance
     ? finance.gaps_open +
@@ -249,6 +252,16 @@ export function BoardFlowSections({
             </li>
           ))}
         </Section>
+      )}
+
+      {flow && (flow.autofill_decisions?.length ?? 0) > 0 && (
+        <BoardAutofillDecisions
+          rows={flow.autofill_decisions}
+          total={flow.autofill_decisions_total ?? 0}
+          expanded={expanded["flow_autofill_decisions"] === true}
+          onToggle={() => onToggle("flow_autofill_decisions")}
+          shown={shown}
+        />
       )}
 
       {flow && (flow.top_proposals?.length ?? 0) > 0 && (

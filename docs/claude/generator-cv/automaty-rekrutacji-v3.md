@@ -76,6 +76,19 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   w `lib/autofill-feedback.ts`; pytają `usePipelineMove` (Tablica, panel
   osoby) i `ScreeningFullForm` (warsztat screeningu). Przy kilku osobach ten
   sam powód idzie do każdej osoby od systemu, bez stawki.
+- **E. Kolejka decyzji i poranny dzwonek (PR 5, 0516).** „Czeka na Ciebie”
+  (`board_flow._autofill_decisions`, pole `flow.autofill_decisions` +
+  `autofill_decisions_total`, sekcja `BoardAutofillDecisions`) pokazuje
+  Rekruterowi osoby od systemu z jego rekrutacji (`_recruiting_job_ids`) po
+  terminie decyzji — ta sama reguła co Tablica (`autofill_decisions.due_decisions`):
+  „Nowi”, wejście `system`, bez `decided_at`, rekrutacja z rekruterem. Akcje:
+  „Dzwonię” (`/claim`) i „Otwórz” (`/jobs/{id}?candidate={cid}`, tam „Odrzuć
+  z powodem”). Dzwonek `autofill_decisions_due` (kategoria „Kandydaci”, sekcja
+  pipeline, bez maila, `ALTER TYPE` w 0516 + lustro w `entrypoint.sh`):
+  `autofill_decisions_bell.send_decision_bells` z `run_all_triggers`, dni
+  robocze 8–17, raz dziennie (`app_settings['autofill_decisions_bell_state']`),
+  JEDEN na Rekrutera (`job_team.working`) — liczba osób i do trzech rekrutacji,
+  link `/dashboard#czeka-na-ciebie`.
 
 - **A. Co noc WSZYSTKIE rekrutacje w pracy (decyzja Artura 30.09.2026).**
   Nocna pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w
