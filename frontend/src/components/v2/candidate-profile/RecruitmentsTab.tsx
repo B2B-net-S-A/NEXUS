@@ -63,6 +63,8 @@ import { daysSince, nextActionOwnerLabel } from "@/lib/candidate-overview";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { stageCvBadge, stageCvStatus } from "@/lib/cv-to-client";
+import { normalizeCvAlign } from "@/lib/cv-editor-align";
+import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
 import { useToast } from "@/components/Toast";
@@ -97,6 +99,7 @@ import {
   recruitmentOutcome,
   recruitmentStageLabel,
   recruitmentStagePath,
+  reachedClient,
 } from "@/lib/recruitment-stage-label";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
 import {
@@ -119,6 +122,11 @@ const CVBrandedEditModal = dynamic(
     import("@/components/v2/modals/CVBrandedEditModal").then(
       (m) => m.CVBrandedEditModal,
     ),
+  { ssr: false },
+);
+// Podgląd pliku CV (pdf.js) — też dopiero po kliknięciu.
+const CvFilePreviewDialog = dynamic(
+  () => import("@/components/v2/cv/CvFilePreviewDialog").then((m) => m.CvFilePreviewDialog),
   { ssr: false },
 );
 
@@ -1438,6 +1446,7 @@ function RecruitmentCard({
   const isFocused = focusedJobId === jobId;
   const recruitmentTitleId = `candidate-recruitment-${jobId}-title`;
   const [openOriginal, setOpenOriginal] = useState(false);
+  const [openClientCv, setOpenClientCv] = useState(false);
   const [openBranded, setOpenBranded] = useState(false);
   const [openGenerator, setOpenGenerator] = useState(false);
   const [openShare, setOpenShare] = useState(false);
@@ -1481,6 +1490,14 @@ function RecruitmentCard({
     (branded?.status as "none" | "draft" | "finalized" | undefined) ?? "none";
   const stageCv = stageCvStatus(branded);
   const stageCvBadgeInfo = stageCvBadge(branded);
+  // Prośba Igora (23.10.2026): DL chce zobaczyć CV, które poszło do klienta,
+  // bez otwierania edytora — także w zakończonym procesie. Szkic czyta się
+  // tylko z prawem zapisu (serwer: `CandidateWriteAccess`), zatwierdzoną
+  // wersję każdy, kto widzi dokumenty kandydata.
+  const sentToClient = reachedClient(job.stages);
+  const canPreviewClientCv =
+    stageCv === "ready" && (!readOnly || brandedStatus === "finalized");
+  const clientCvLabel = sentToClient ? "CV wysłane do klienta" : "Podgląd CV do klienta";
   const sourceLabel =
     entrySourceLabel(job.entry_source) && !autoMatchBadgeLabel(job.entry_auto_match)
       ? entrySourceLabel(job.entry_source)
@@ -1597,6 +1614,11 @@ function RecruitmentCard({
             >
               Pokaż CV oryginalne
             </Button>
+            {canPreviewClientCv ? (
+              <Button size="sm" variant="outline" onClick={() => setOpenClientCv(true)}>
+                {clientCvLabel}
+              </Button>
+            ) : null}
             {!readOnly && !ended ? (
               <>
                 {stageCv === "ready" ? (
@@ -1673,6 +1695,18 @@ function RecruitmentCard({
           stageId={stageId}
           jobTitle={job.job_title}
           candidateName={candidateName}
+        />
+      ) : null}
+      {openClientCv && cvStageId != null ? (
+        <CvFilePreviewDialog
+          open
+          onOpenChange={setOpenClientCv}
+          title={`${clientCvLabel} — ${candidateName}`}
+          loadPdf={() => fetchStageCvPdf(cvStageId).then((file) => file.blob)}
+          load={() => fetchStageCvFile(cvStageId).then((file) => file.blob)}
+          fallbackHtml={branded?.content_html ?? null}
+          language={branded?.language === "en" ? "en" : "pl"}
+          textAlign={normalizeCvAlign(branded?.text_align)}
         />
       ) : null}
       {!readOnly && openBranded && stageId != null ? (

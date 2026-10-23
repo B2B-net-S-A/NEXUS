@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const brandedGet = vi.fn();
+const stageCvPdf = vi.fn();
 
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }),
@@ -22,11 +23,25 @@ vi.mock("@/lib/api", () => ({
     },
   },
 }));
-// Edytor CV (TipTap) ładuje się dynamicznie — w teście zaślepka mówi, który
-// wiersz etapu dostał.
+vi.mock("@/lib/stage-cv-file", () => ({
+  fetchStageCvPdf: (...a: unknown[]) => stageCvPdf(...a),
+  fetchStageCvFile: vi.fn(async () => ({ blob: new Blob() })),
+}));
+// Edytor CV (TipTap) i podgląd pliku ładują się dynamicznie — zaślepka mówi,
+// który wiersz etapu dostał edytor, a podgląd pokazuje tytuł i czyta PDF.
 vi.mock("next/dynamic", () => ({
   default: () =>
-    function EditorStub(props: { stageId?: number }) {
+    function DynamicStub(props: { stageId?: number; title?: string; loadPdf?: () => unknown }) {
+      if (props.title) {
+        return (
+          <div data-testid="cv-preview">
+            {props.title}
+            <button type="button" onClick={() => props.loadPdf?.()}>
+              wczytaj
+            </button>
+          </div>
+        );
+      }
       return <div data-testid="editor-stub">{`editor:${props.stageId}`}</div>;
     },
 }));
@@ -50,7 +65,10 @@ vi.mock("@/components/CandidatePipelinesWidget", () => ({
 
 import { RecruitmentsTab } from "../RecruitmentsTab";
 
-function renderTab() {
+function renderTab({
+  stage = "cv_sent",
+  readOnly = false,
+}: { stage?: string; readOnly?: boolean } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -61,8 +79,9 @@ function renderTab() {
           {
             job_id: 7,
             job_title: "Programista Python",
-            latest_stage: "cv_sent",
+            latest_stage: stage,
             latest_stage_id: 21,
+            stages: [{ stage }],
           },
         ]}
         isPending={false}
@@ -72,7 +91,7 @@ function renderTab() {
         focusedJobId={null}
         defaultJobId={null}
         view={"overview" as never}
-        readOnly={false}
+        readOnly={readOnly}
       />
     </QueryClientProvider>,
   );
@@ -80,6 +99,8 @@ function renderTab() {
 
 beforeEach(() => {
   brandedGet.mockReset();
+  stageCvPdf.mockReset();
+  stageCvPdf.mockResolvedValue({ blob: new Blob() });
 });
 
 describe("RecruitmentsTab — CV do klienta z wiersza pary (runda 12)", () => {
@@ -122,5 +143,65 @@ describe("RecruitmentsTab — CV do klienta z wiersza pary (runda 12)", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Edytuj CV" }));
     expect(await screen.findByTestId("editor-stub")).toHaveTextContent("editor:21");
     expect(brandedGet).not.toHaveBeenCalledWith(20);
+  });
+});
+
+describe("RecruitmentsTab — podgląd CV do klienta (prośba Igora 23.10.2026)", () => {
+  const pairCv = (stageId: number) =>
+    Promise.resolve({
+      data:
+        stageId === 21
+          ? { status: "none", edit_revision: 0, version: 1, pair_source_stage_id: 20 }
+          : { status: "finalized", from_generator: true, edit_revision: 4, version: 2 },
+    });
+
+  it("po wysyłce: „CV wysłane do klienta” pokazuje plik z wiersza pary", async () => {
+    brandedGet.mockImplementation(pairCv);
+    renderTab();
+    const button = await screen.findByRole(
+      "button",
+      { name: "CV wysłane do klienta" },
+      { timeout: 5000 },
+    );
+    await userEvent.click(button);
+    expect(await screen.findByTestId("cv-preview")).toHaveTextContent(
+      "CV wysłane do klienta — Grzegorz Żebrowski",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "wczytaj" }));
+    expect(stageCvPdf).toHaveBeenCalledWith(20);
+  });
+
+  it("przed wysyłką ten sam podgląd nazywa się „Podgląd CV do klienta”", async () => {
+    brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, edit_revision: 1, version: 1 },
+    });
+    renderTab({ stage: "verified" });
+    expect(await screen.findByRole("button", { name: "Podgląd CV do klienta" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "CV wysłane do klienta" })).toBeNull();
+  });
+
+  it("bez prawa zapisu: zatwierdzone CV tak, szkic nie (serwer czyta szkic tylko z zapisem)", async () => {
+    brandedGet.mockImplementation(pairCv);
+    const { unmount } = renderTab({ readOnly: true });
+    expect(
+      await screen.findByRole("button", { name: "CV wysłane do klienta" }, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    unmount();
+
+    brandedGet.mockReset();
+    brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, edit_revision: 1, version: 1 },
+    });
+    renderTab({ readOnly: true });
+    await waitFor(() => expect(brandedGet).toHaveBeenCalledWith(21));
+    expect(await screen.findByRole("button", { name: "Pokaż CV oryginalne" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "CV wysłane do klienta" })).toBeNull();
+  });
+
+  it("brak CV do klienta: nie ma czego pokazać", async () => {
+    brandedGet.mockResolvedValue({ data: { status: "none", edit_revision: 0, version: 1 } });
+    renderTab();
+    expect(await screen.findByRole("button", { name: "Generuj CV" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "CV wysłane do klienta" })).toBeNull();
   });
 });
