@@ -1046,3 +1046,82 @@ async def test_sent_reads_the_board_column_from_the_stage_name(
     rows = {r["job_id"]: r for r in board["requests"]}
     assert rows[interview_job]["sent"] == 1
     assert rows[reserve_job]["sent"] == 0
+
+
+async def test_verified_and_cv_qc_count_people_in_those_board_columns_now(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """„Zweryf.” i „QC CV” obok „Wysłani” (23.10.2026, prośba Head of Recruitment).
+
+    Ta sama reguła co „Wysłani”: bieżący etap pary i kolumna Tablicy z nazwy
+    etapu szablonu. „QC CV” ma kod ``interview``, więc po samym kodzie
+    stanęłaby w „Zweryfikowanym”; kolejka Cpro stoi w kolumnie QC CV. Osoba,
+    która poszła dalej albo odpadła, nie liczy się już w żadnej z nich.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.pipeline_template import (
+        PipelineStageDef,
+        PipelineTemplate,
+        StageCategoryEnum,
+    )
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from tests._jarvis_helpers import make_candidate
+
+    job_id = await _seed_job(work_state="searching")
+    verified, verified_legacy, in_qc, in_cpro, sent_on, rejected = [
+        await make_candidate("Lejek") for _ in range(6)
+    ]
+    t0 = datetime(2026, 10, 7, 9, 0, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as db:
+        template = PipelineTemplate(name=f"Lejek {uuid.uuid4().hex[:8]}")
+        db.add(template)
+        await db.flush()
+        qc = PipelineStageDef(
+            template_id=template.id,
+            name="QC CV",
+            order=1,
+            category=StageCategoryEnum.internal,
+            legacy_enum_value="interview",
+        )
+        cpro = PipelineStageDef(
+            template_id=template.id,
+            name="Wysłać do Cpro",
+            order=2,
+            category=StageCategoryEnum.internal,
+            legacy_enum_value="screening",
+        )
+        db.add_all([qc, cpro])
+        await db.flush()
+        history = [
+            (verified, PipelineStage.verified, None, 1),
+            # Wiersz bez etapu szablonu z kodem ``interview`` — „Zweryfikowany”.
+            (verified_legacy, PipelineStage.interview, None, 1),
+            (in_qc, PipelineStage.verified, None, 1),
+            (in_qc, PipelineStage.interview, qc.id, 2),
+            (in_cpro, PipelineStage.screening, cpro.id, 2),
+            (sent_on, PipelineStage.interview, qc.id, 2),
+            (sent_on, PipelineStage.cv_sent, None, 3),
+            (rejected, PipelineStage.verified, None, 1),
+            (rejected, PipelineStage.rejected, None, 3),
+        ]
+        for candidate_id, stage, stage_def_id, hours in history:
+            db.add(
+                CandidateStage(
+                    candidate_id=candidate_id,
+                    job_id=job_id,
+                    stage=stage,
+                    stage_def_id=stage_def_id,
+                    moved_at=t0 + timedelta(hours=hours),
+                )
+            )
+        await db.commit()
+
+    board = (
+        await app_client.get("/api/request-board", headers=app_auth_headers)
+    ).json()
+    row = {r["job_id"]: r for r in board["requests"]}[job_id]
+    assert row["verified"] == 2
+    assert row["cv_qc"] == 2
+    assert row["sent"] == 1

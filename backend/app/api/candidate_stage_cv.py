@@ -80,13 +80,13 @@ from app.services.cv_document_assets import (
     CvAssetsError,
 )
 from app.core.http_headers import content_disposition_attachment
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 from app.services.html_sanitizer import sanitize_cv_html
-from app.services import cv_editor_issues
+from app.services import candidate_audit, cv_editor_issues
 from app.services.cv_download_log import log_cv_download
 from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.cv_rewrite_merge import MergeResult, merge_rewrite
@@ -356,6 +356,13 @@ async def download_original_cv(
     stage_id: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    disposition: Literal["attachment", "inline"] = Query(
+        "attachment",
+        description=(
+            "Tylko do dziennika dostępu: `inline` — podgląd w NEXUSIE, "
+            "`attachment` (domyślnie) — zapis na dysk."
+        ),
+    ),
 ) -> Response:
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
     if not snapshot_exists(csv):
@@ -380,6 +387,21 @@ async def download_original_cv(
             status_code=404,
             detail="Kandydat nie miał CV w momencie utworzenia rekrutacji.",
         )
+
+    # Ślad dla alarmu masowego przeglądania CV (0508) — jak każda inna droga
+    # do pliku kandydata (audyt 22.10, F25).
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.DOCUMENT_DOWNLOADED,
+        user_id=current_user.id,
+        entity_id=csv.candidate_id,
+        details={
+            "stage_id": stage_id,
+            "endpoint": "stage-cv-original",
+            "disposition": disposition,
+        },
+    )
+    await db.commit()
 
     filename = csv.original_cv_filename or f"cv_stage_{stage_id}.pdf"
     media_type, _ = mimetypes.guess_type(filename)
@@ -1606,10 +1628,60 @@ async def discard_branded_cv(
         raise HTTPException(409, "Ta rekrutacja nie ma CV do klienta do odrzucenia.")
     await _ensure_client_cv_replaceable(db, csv)
     snapshot_draft(db, csv, user_id=current_user.id, reason="replaced")
+    await _mark_pair_generations_discarded(db, csv)
     _clear_stage_draft(db, csv, user_id=current_user.id, action=DISCARD_ACTION)
     await db.commit()
     await db.refresh(csv)
     return _build_branded_response(csv)
+
+
+async def _mark_pair_generations_discarded(
+    db: AsyncSession, csv: CandidateStageCV
+) -> None:
+    """Gotowe CV generatora tej pary przestają być CV pary (audyt 22.10, F64).
+
+    Bez znacznika karta proponowała odrzucone CV jako „Użyj tej wersji”,
+    a wymagania ruchu, kolejki DL/Cpro i QC CV brały je jako CV firmowe pary
+    (fallback do najnowszej gotowej generacji). „Zacznij od nowa” dotyczy
+    wszystkich dotychczasowych generacji pary, nie tylko podpiętej; nowa
+    generacja jest znowu CV pary. Dokumenty zostają w plikach kandydata.
+    Bez commitu.
+    """
+    from app.models.cv_generated_document import DISCARDED_KEY, not_discarded_clause
+
+    stage = await db.get(CandidateStage, csv.candidate_stage_id)
+    scope = []
+    if csv.generated_document_id is not None:
+        scope.append(CvGeneratedDocument.id == csv.generated_document_id)
+    if stage is not None and stage.candidate_id and stage.job_id:
+        scope.append(
+            and_(
+                CvGeneratedDocument.candidate_id == stage.candidate_id,
+                CvGeneratedDocument.job_id == stage.job_id,
+            )
+        )
+    if not scope:
+        return
+    docs = (
+        await db.scalars(
+            select(CvGeneratedDocument)
+            .options(
+                defer(CvGeneratedDocument.docx_content),
+                defer(CvGeneratedDocument.template_content),
+                defer(CvGeneratedDocument.consent_content),
+            )
+            .where(
+                or_(*scope),
+                CvGeneratedDocument.status == "ready",
+                CvGeneratedDocument.render_payload.is_not(None),
+                not_discarded_clause(),
+            )
+        )
+    ).all()
+    discarded_at = datetime.now(timezone.utc).isoformat()
+    for doc in docs:
+        # Nowy słownik — kolumna JSON bez śledzenia mutacji.
+        doc.render_payload = {**doc.render_payload, DISCARDED_KEY: discarded_at}
 
 
 def _schedule_qc_after_attach(

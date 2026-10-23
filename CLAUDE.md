@@ -82,6 +82,10 @@ Każda ma pełny opis w pliku z indeksu; tu tylko to, o co najłatwiej się potk
   `ui/responsywnosc-reguly-po-audycie-23-09-2026.md`
 - **Ekran docelowy to laptop 1280 × 720**: po zmianie UI przeklikaj też w tym
   rozmiarze, nie tylko na dużym monitorze.
+- **Makiety i „jak to teraz wygląda”** pokazujesz na stagingu z laptopa:
+  „przed” to zrzut z `localhost:3100`, „po” to kod z gałęzi na porcie 3101
+  na tych samych danych; rysunek od zera tylko na wyraźną prośbę.
+  → `ui/makiety-na-stagingu.md`
 - **Nic nie znika z ekranów bez śladu:** inwentarze funkcji
   (`recruitment-feature-inventory.json`, `orders-contracts-feature-inventory.json`,
   `candidate-profile-feature-inventory.json`) i ich testy.
@@ -147,6 +151,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 - `klienci-kontrakty-finanse-spokojne-tabele.md`: Klienci, Kontrakty, Finanse — spokojne tabele
 - `licznik-celow-w-gornym-pasku.md`: Licznik celów w górnym pasku · podpisane segmenty, panel po kliknięciu, „poniżej tempa”, cel DL z 30% hit ratio
 - `liga-w-gornym-pasku.md`: Liga Mistrzów w górnym pasku · przycisk ligi przed licznikiem celów, `/api/competitions/my-league`, stany przycisku, menu „Wygląd”
+- `makiety-na-stagingu.md`: Makiety i „jak to teraz wygląda” — ze stagingu na laptopie, nie z wyobraźni · „przed” = zrzut ze stagingu 3100, „po” = kod z gałęzi na porcie 3101 na danych stagingu, rysunek tylko jako uzupełnienie
 - `nazewnictwo-rekrutacja-nie-oferta-modul-jobs.md`: Nazewnictwo: „Rekrutacja", nie „Oferta" (moduł `/jobs`)
 - `parametry-adresu-natywna-historia-nie-router-replace.md`: Filtr albo zakładka w adresie: `useUrlWriter`, nie `router.replace(…, { scroll: false })` · router Next przewija stronę na górę na produkcji
 - `responsywnosc-reguly-po-audycie-23-09-2026.md`: Responsywność — reguły po audycie 23.09.2026
@@ -322,6 +327,7 @@ Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchroni
 - `dodanie-pliku-bez-podgladu-kwot.md`: Dodanie pliku do kontraktu bez podglądu kwot
 - `dokumenty-kontraktow-z-sharepointa.md`: Dokumenty kontraktów z SharePointa (ticket 9, 0402)
 - `domyslny-widok-modulu-kontrakty-aktywne-i-konczace.md`: Domyślny widok modułu Kontrakty: Aktywne **i** Kończące się
+- `eksport-placementy.md`: Eksport „Placementy” w Kontraktach · układ arkusza Delivery, DL i rekruter jak w Płacach, data podpisu = oznaczenie w NEXUSIE
 - `foldery-w-dokumentach-kontraktu.md`: Foldery w zakładce Dokumenty kontraktu (0494)
 - `generator-umow-b2b-trzy-zakladki-cyklu-zycia-umowy.md`: Generator Umów B2B — trzy zakładki cyklu życia umowy
 - `kafelek-kontraktora-status-zamowienia-musi-zgadzac.md`: Kafelek kontraktora: status zamówienia musi zgadzać się z okresem

@@ -933,14 +933,24 @@ async def redeploy_queue(
 ) -> dict:
     allowed = await care_access.allowed_client_ids(current_user, db)
     statuses = ("open", "in_progress") if state == "active" else ("done", "dismissed")
+    # Zamknięte („Decyzje zamknięte” w Konsultantach, audyt 22.10, F107):
+    # najpierw ostatnio zamknięte, inaczej limit 300 ucina świeże pomyłki.
+    order = (
+        (
+            RedeployQueueItem.due_on.asc().nulls_last(),
+            RedeployQueueItem.created_at.desc(),
+        )
+        if state == "active"
+        else (
+            RedeployQueueItem.resolved_at.desc().nulls_last(),
+            RedeployQueueItem.id.desc(),
+        )
+    )
     query = (
         select(RedeployQueueItem)
         .join(Contract, Contract.id == RedeployQueueItem.contract_id)
         .where(RedeployQueueItem.status.in_(statuses))
-        .order_by(
-            RedeployQueueItem.due_on.asc().nulls_last(),
-            RedeployQueueItem.created_at.desc(),
-        )
+        .order_by(*order)
         .limit(300)
     )
     if allowed is not None:

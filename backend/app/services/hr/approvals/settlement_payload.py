@@ -133,7 +133,7 @@ def settlement_block(
     return {
         "status": request.settlement_status,
         "status_label": settlement.STATUS_LABELS[request.settlement_status],
-        "expires_on": _iso(request.expires_on),
+        "expires_on": _iso(settlement.expiry(request)),
         "renews_on": _iso(request.renews_on),
         "renewal_asked_for": _iso(request.renewal_asked_for),
         "renewal_confirmed_for": _iso(request.renewal_confirmed_for),

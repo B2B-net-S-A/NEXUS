@@ -38,7 +38,7 @@ from typing import Any, Optional
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import local_now
+from app.core.scheduling import local_day_start_utc, local_now
 from app.models.client import Client
 from app.models.hr_approval import ApprovalRequest
 from app.models.hr_payroll import HrBonus
@@ -889,6 +889,7 @@ async def _notify_deciders(
         related_entity_type="approval_request",
         related_entity_id=request.id,
         log_tag="approvals",
+        fresh=True,
     )
 
 
@@ -917,6 +918,7 @@ async def _notify_requester(
         related_entity_type="approval_request",
         related_entity_id=request.id,
         log_tag="approvals",
+        fresh=True,
     )
 
 
@@ -1033,8 +1035,9 @@ async def context_for(
         ).where(
             ApprovalRequest.status == "approved",
             ApprovalRequest.currency == "PLN",
-            ApprovalRequest.decided_at >= start,
-            ApprovalRequest.decided_at < end,
+            # Północ w strefie firmy, jak Finanse — goła data to północ UTC.
+            ApprovalRequest.decided_at >= local_day_start_utc(start),
+            ApprovalRequest.decided_at < local_day_start_utc(end),
         )
         if kind is not None:
             stmt = stmt.where(ApprovalRequest.kind == kind)

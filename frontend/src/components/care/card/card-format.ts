@@ -186,7 +186,7 @@ export const CASE_SOURCE_LABELS: Record<string, string> = {
   mail: "z maila",
   contract: "z kontraktu",
   lifecycle: "z wejścia albo odejścia",
-  compass: "z Compassa",
+  compass_import: "z Compassa",
 };
 
 /**

@@ -81,6 +81,20 @@ const fix = {
   talk: 2,
 }
 
+const prep = {
+  reason: "missing",
+  prep_no: 2,
+  candidate_id: 23,
+  candidate_name: "Ola Prep",
+  job_id: 33,
+  job_title: "Architekt IT",
+  interview_event_id: 601,
+  interview_start: "2026-10-23T08:00:00Z",
+  prep_event_id: null,
+  owner_id: 1,
+  urgent: true,
+}
+
 function renderTile() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -161,6 +175,39 @@ describe("ToCompleteTile — „Do uzupełnienia”", () => {
     renderTile()
     expect(await screen.findByText("Nie udało się wczytać list „Do uzupełnienia”.")).toBeTruthy()
     expect(screen.queryByText("Nic do uzupełnienia.")).toBeNull()
+  })
+
+  it("prepy (23.10.2026): pierwsze w przełączniku, szeroko w lewej kolumnie, reszta list w prawej", async () => {
+    queue = { prep_attention: [prep], pending_jobs: pending, requirement_fixes: [fix] }
+    renderTile()
+    const switcher = await screen.findByRole("group", { name: "Rodzaj zaległości" })
+    expect(within(switcher).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Prepy1",
+      "Rekrutacje1",
+      "Wymagania1",
+    ])
+    const preps = screen.getByRole("region", { name: "Prepy przed rozmową u klienta" })
+    expect(within(preps).getByRole("link", { name: "Ola Prep" })).toBeTruthy()
+    expect(within(preps).getByText("— pilne")).toBeTruthy()
+    const rest = screen.getByTestId("to-complete-rest")
+    expect(rest).toHaveClass("contents", "@min-[880px]/todo:flex")
+    expect(rest).not.toContainElement(screen.getByTestId("to-complete-preps"))
+    expect(rest).toContainElement(screen.getByTestId("to-complete-jobs"))
+    expect(rest).toContainElement(screen.getByTestId("to-complete-fixes"))
+    // Wąsko widać jedną listę naraz — na starcie prepy.
+    expect(screen.getByTestId("to-complete-preps").className).not.toContain("hidden")
+    expect(screen.getByTestId("to-complete-jobs").className).toContain("hidden")
+  })
+
+  it("same prepy → jedna lista bez przełącznika; ukryte w „Listy nad pulpitem” → nic", async () => {
+    queue = { prep_attention: [prep] }
+    const first = renderTile()
+    await screen.findByRole("region", { name: "Prepy przed rozmową u klienta" })
+    expect(screen.queryByRole("group", { name: "Rodzaj zaległości" })).toBeNull()
+    first.unmount()
+    hiddenPanels = ["prep_attention"]
+    renderTile()
+    expect(await screen.findByText("Nic do uzupełnienia.")).toBeTruthy()
   })
 
   it("lista odznaczona w „Listy nad pulpitem” jest w kafelku pusta, jak w panelu", async () => {

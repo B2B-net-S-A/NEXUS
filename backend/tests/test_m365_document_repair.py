@@ -472,3 +472,215 @@ async def test_apply_writes_receipt_and_rereads_only_the_listed_profile(
                 {"k": repair_cli.RECEIPT_KEY},
             )
             await db.commit()
+
+
+async def test_plan_returns_a_hidden_foreign_file_visible_and_lists_its_projection(
+    storage, monkeypatch
+):
+    """Audyt 22.10.2026 (F113, F114), bez bazy: plik, który zły posiadacz
+    usunął z profilu, wraca do właściciela widoczny (do 22.10 zostawał ukryty,
+    a nową kopię blokował powód „removed”); próba wypisuje osobę, której
+    profil czytano z cudzego dokumentu."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    now = datetime.now(timezone.utc)
+    owner_cv, holder_cv = b"%PDF owner hidden synthetic", b"%PDF holder synthetic"
+    (storage / "owner.pdf").write_bytes(owner_cv)
+    (storage / "holder.pdf").write_bytes(holder_cv)
+
+    def mail(candidate_id: int, attachment_id: int, content: bytes, name: str, days):
+        return repair_cli.MailCv(
+            candidate_id=candidate_id,
+            sha256=_sha(content),
+            attachment_id=attachment_id,
+            m365_attachment_id=f"AAMkSynthetic-{attachment_id}",
+            storage_path=name,
+            filename=name,
+            content_type="application/pdf",
+            received_at=now - timedelta(days=days),
+        )
+
+    hidden = repair_cli.Doc(
+        id=100,
+        candidate_id=2,
+        content_sha256=_sha(holder_cv),
+        file_sha256=_sha(owner_cv),
+        file_size=len(owner_cv),
+        external_id="AAMkSynthetic-truncated",
+        external_source="m365",
+        document_kind="cv",
+        is_primary=False,
+        deleted=True,
+        removed=True,
+        outdated=False,
+        uploaded_at=now - timedelta(days=1),
+        filename="holder.pdf",
+    )
+    monkeypatch.setattr(
+        repair_cli,
+        "_mail_cvs",
+        AsyncMock(
+            return_value={
+                (1, _sha(owner_cv)): mail(1, 11, owner_cv, "owner.pdf", 5),
+                (2, _sha(holder_cv)): mail(2, 12, holder_cv, "holder.pdf", 1),
+            }
+        ),
+    )
+    monkeypatch.setattr(repair_cli, "_documents", AsyncMock(return_value=[hidden]))
+    monkeypatch.setattr(repair_cli, "_quarantined_pairs", AsyncMock(return_value=set()))
+    monkeypatch.setattr(
+        repair_cli,
+        "_projection_sources",
+        AsyncMock(return_value={2: (100, "holder.pdf")}),
+        raising=False,
+    )
+
+    items = await repair_cli.plan(SimpleNamespace(), candidate_ids=[1, 2])
+
+    assert [(d, h, o) for d, h, o, _ in items.returns] == [(100, 2, 1)]
+    # Do 22.10: właścicielowi nowa kopia „removed”, a zwrócony plik ukryty.
+    assert [s for s in items.skipped if s[0] == 1] == []
+    assert items.primaries[1] == (None, 100)
+    assert items.restores == [100]
+    assert items.creates == [(2, 12)]
+    assert items.projections == [(2, 100, _sha(owner_cv))]
+    report = repair_cli.summarize(items, [])
+    assert report["returned"][0]["restored"] is True
+    assert report["projection_from_foreign"] == [{"candidate": 2, "doc": 100}]
+
+
+async def test_hidden_foreign_file_returns_visible_and_holder_loses_its_facts(
+    storage, monkeypatch
+):
+    """Audyt 22.10.2026 (F113, F114): zapis zdejmuje ukrycie ze zwracanego
+    dokumentu i czyści u złego posiadacza fakty odczytane z cudzego pliku."""
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.delete_candidate_embedding",
+        AsyncMock(return_value=True),
+    )
+    user_id = await _mailbox_user()
+    owner = await _person("Owner")
+    holder = await _person("Holder")
+    owner_cv, holder_cv = b"%PDF owner hidden db", b"%PDF holder own db"
+    _, truncated = await _mail_cv(
+        storage, user_id=user_id, candidate_id=owner, content=owner_cv, days_ago=5
+    )
+    await _mail_cv(
+        storage, user_id=user_id, candidate_id=holder, content=holder_cv, days_ago=1
+    )
+    poisoned = await _document(
+        holder,
+        content=owner_cv,
+        claimed_sha=_sha(holder_cv),
+        external_id=truncated,
+        removed=True,
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Candidate, holder)
+        row.raw_cv_text = "Synthetic foreign CV text"
+        row.ai_summary = "Synthetic foreign summary"
+        row.skills = [{"name": "Foreign Skill"}]
+        row.cv_extracted_data = {
+            "skills": [{"name": "Foreign Skill"}],
+            "cv_highlights": {"source_document_id": poisoned},
+        }
+        await db.commit()
+
+    items = await _run([owner, holder])
+
+    assert items.restores == [poisoned]
+    assert items.projections == [(holder, poisoned, _sha(owner_cv))]
+    [returned] = await _docs(owner)
+    assert returned.id == poisoned
+    assert returned.removed_at is None and returned.source_deleted_at is None
+    assert returned.removed_by is None
+    assert returned.is_primary is True
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Candidate, holder)
+        assert row.raw_cv_text is None
+        assert row.ai_summary is None
+        assert row.skills == []
+        trail = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == holder,
+                Activity.action == "m365_documents_repaired",
+            )
+        )
+        assert trail.details["projection_cleared"] is True
+
+
+async def test_hidden_foreign_file_stays_hidden_when_the_owner_removed_that_file(
+    storage, monkeypatch
+):
+    """Przegląd audytu 22.10.2026 (F113 a 0435), bez bazy: plik, który
+    właściciel sam usunął ze swojego profilu, wraca do niego, ale ukryty —
+    zdjęcie ukrycia złego posiadacza nie cofa decyzji właściciela."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    now = datetime.now(timezone.utc)
+    owner_cv, holder_cv = b"%PDF owner removed synthetic", b"%PDF holder synthetic"
+    (storage / "owner.pdf").write_bytes(owner_cv)
+    (storage / "holder.pdf").write_bytes(holder_cv)
+
+    def doc(doc_id: int, candidate_id: int, claimed: bytes, **kwargs):
+        return repair_cli.Doc(
+            id=doc_id,
+            candidate_id=candidate_id,
+            content_sha256=_sha(claimed),
+            file_sha256=_sha(owner_cv),
+            file_size=len(owner_cv),
+            document_kind="cv",
+            is_primary=False,
+            deleted=True,
+            removed=True,
+            outdated=False,
+            uploaded_at=now - timedelta(days=1),
+            filename="x.pdf",
+            **kwargs,
+        )
+
+    hidden = doc(
+        100,
+        2,
+        holder_cv,
+        external_id="AAMkSynthetic-truncated",
+        external_source="m365",
+    )
+    owner_removed = doc(101, 1, owner_cv, external_id=None, external_source="manual")
+    monkeypatch.setattr(
+        repair_cli,
+        "_mail_cvs",
+        AsyncMock(
+            return_value={
+                (1, _sha(owner_cv)): repair_cli.MailCv(
+                    candidate_id=1,
+                    sha256=_sha(owner_cv),
+                    attachment_id=11,
+                    m365_attachment_id="AAMkSynthetic-11",
+                    storage_path="owner.pdf",
+                    filename="owner.pdf",
+                    content_type="application/pdf",
+                    received_at=now - timedelta(days=5),
+                ),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        repair_cli, "_documents", AsyncMock(return_value=[hidden, owner_removed])
+    )
+    monkeypatch.setattr(repair_cli, "_quarantined_pairs", AsyncMock(return_value=set()))
+    monkeypatch.setattr(
+        repair_cli, "_projection_sources", AsyncMock(return_value={2: (None, None)})
+    )
+
+    items = await repair_cli.plan(SimpleNamespace(), candidate_ids=[1, 2])
+
+    assert [(d, h, o) for d, h, o, _ in items.returns] == [(100, 2, 1)]
+    assert items.restores == []
+    assert (1, 11, "removed") in items.skipped
+    assert repair_cli.summarize(items, [])["returned"][0]["restored"] is False

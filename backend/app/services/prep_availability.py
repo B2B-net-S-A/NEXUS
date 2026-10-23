@@ -164,7 +164,10 @@ _SAME_SPAN = timedelta(minutes=1)
 
 
 def busy_overlap(
-    start: datetime, end: datetime, busy: Optional[Sequence[Interval]]
+    start: datetime,
+    end: datetime,
+    busy: Optional[Sequence[Interval]],
+    nexus_preps: Sequence[Interval] = (),
 ) -> Optional[Interval]:
     """Zajęty przedział prowadzącego, na który wpada prep — albo ``None``.
 
@@ -174,6 +177,9 @@ def busy_overlap(
     początku i końcu co prep to zwykle ten sam prep z poprzedniej próby
     (Outlook przyjął spotkanie, NEXUS nie zdążył go zapisać) — powtórka
     z tym samym ``client_request_id`` nie może się o niego potknąć.
+    ``nexus_preps`` — prepy tego prowadzącego zapisane w NEXUSIE: liczą się
+    zawsze, także w identycznym przedziale (sierota z poprzedniej próby nie
+    ma wiersza w NEXUSIE, a prep innego kandydata ma — audyt 22.10, F32).
     """
     hits = [
         (s, e)
@@ -182,6 +188,7 @@ def busy_overlap(
         and s < end
         and not (abs(s - start) < _SAME_SPAN and abs(e - end) < _SAME_SPAN)
     ]
+    hits += [(s, e) for s, e in nexus_preps if start < e and s < end]
     if not hits:
         return None
     return min(s for s, _ in hits), max(e for _, e in hits)

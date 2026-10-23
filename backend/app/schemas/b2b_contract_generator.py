@@ -637,6 +637,9 @@ class B2BGeneratedContractItem(BaseModel):
     esign: Optional[B2BGeneratedEsign] = None
     can_send_esign: bool = False
     can_withdraw_esign: bool = False
+    # Plik podpisany przez obie strony (``GET /esign/{id}/signed-pdf``) — dla
+    # nadawcy i reprezentanta, gdy automatyka nie założyła kontraktu.
+    can_download_signed_esign: bool = False
     # Rejestr z Excela działu (0363). `excel` = wiersz z pliku, tylko do odczytu
     # poza statusem handlowym; `generator` = umowa wydana w NEXUSIE.
     source: Literal["generator", "excel"] = "generator"

@@ -22,6 +22,8 @@ import {
   type HitRatioClosureRow,
 } from "@/lib/insights-api";
 import { closeReasonLabel } from "@/lib/job-close-reasons";
+import { hasPermission } from "@/lib/permissions";
+import { useAuthStore } from "@/store/auth";
 
 import { LoadingSpinner, SectionError } from "./_shared";
 
@@ -34,6 +36,12 @@ const TILE_TONE = {
 
 export function HitRatioClosures() {
   const queryClient = useQueryClient();
+  // PATCH /close-reason wymaga „recruitment_manage” — bez niego raport jest
+  // tylko do odczytu (Rada nadzorcza, Finanse; audyt 22.10.2026).
+  const canChangeReason = hasPermission(
+    useAuthStore((s) => s.user),
+    "recruitment_manage",
+  );
   const [editing, setEditing] = useState<HitRatioClosureRow | null>(null);
   const { data, isPending, isSuccess, isError, error, refetch } = useQuery({
     queryKey: insightsQueryKeys.hitRatioClosures(),
@@ -96,7 +104,7 @@ export function HitRatioClosures() {
         lede="Zamknięte z powodem „Inny” albo bez powodu. Do przeglądu liczą się jak przegrane — wybierz, jak się skończyły."
         rows={data.unreviewed}
         empty="Nic nie czeka na przegląd."
-        onEdit={setEditing}
+        onEdit={canChangeReason ? setEditing : null}
         testId="closures-unreviewed"
       />
       <ClosureTable
@@ -104,11 +112,11 @@ export function HitRatioClosures() {
         lede="Kto i dlaczego wyłączył rekrutację. Zmiana powodu zostaje w historii rekrutacji."
         rows={data.neutral}
         empty="Żadna rekrutacja nie została wyłączona z hit ratio."
-        onEdit={setEditing}
+        onEdit={canChangeReason ? setEditing : null}
         testId="closures-neutral"
       />
 
-      {editing ? (
+      {editing && canChangeReason ? (
         <JobCloseWithReasonDialog
           mode="change"
           open
@@ -117,6 +125,7 @@ export function HitRatioClosures() {
           }}
           jobId={editing.job_id}
           jobTitle={editing.title}
+          clientId={editing.client_id}
           initial={{
             reason: editing.close_reason,
             notes: editing.close_notes,
@@ -143,7 +152,7 @@ function ClosureTable({
   lede: string;
   rows: HitRatioClosureRow[];
   empty: string;
-  onEdit: (row: HitRatioClosureRow) => void;
+  onEdit: ((row: HitRatioClosureRow) => void) | null;
   testId: string;
 }) {
   return (
@@ -169,7 +178,7 @@ function ClosureTable({
                 <th className="px-3 py-2 font-medium">Uzasadnienie</th>
                 <th className="px-3 py-2 font-medium">Zamknął(a)</th>
                 <th className="px-3 py-2 font-medium">Zamknięta</th>
-                <th className="px-3 py-2" aria-label="Akcje" />
+                {onEdit ? <th className="px-3 py-2" aria-label="Akcje" /> : null}
               </tr>
             </thead>
             <tbody>
@@ -193,11 +202,13 @@ function ClosureTable({
                   <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">
                     {formatIsoDatePl(row.closed_at)}
                   </td>
-                  <td className="px-3 py-2 text-right">
-                    <Button type="button" size="sm" variant="outline" onClick={() => onEdit(row)}>
-                      Zmień powód
-                    </Button>
-                  </td>
+                  {onEdit ? (
+                    <td className="px-3 py-2 text-right">
+                      <Button type="button" size="sm" variant="outline" onClick={() => onEdit(row)}>
+                        Zmień powód
+                      </Button>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>

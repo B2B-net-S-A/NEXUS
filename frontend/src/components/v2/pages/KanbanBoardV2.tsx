@@ -795,6 +795,8 @@ interface BoardV4Ctx {
  onOpenQc: (item: KanbanItem) => void;
  /** Patrzący MOŻE wysłać CV do klienta (`recruitment_manage`). */
  canReviewAsDl: boolean;
+ /** Patrzący przesuwa bez bramek pól (`/api/auth/me` → `skips_fill_gates`). */
+ skipsFillGates: boolean;
  /** Przegląd tej rekrutacji NALEŻY do patrzącego (serwer). */
  viewerOwnsDlReview: boolean;
  /** „Przejrzyj i wyślij” — przegląd przed wysłaniem do klienta. */
@@ -938,7 +940,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  v5 && !readOnly && v5.canReviewAsDl && isReadyForDlSend(item, boardKey, stageBadge === "cpro")
  );
  const forwardGap = nextColumnLabel
- ? knownForwardGap(item, boardKey, { skipsFillGates: v5?.canReviewAsDl })
+ ? knownForwardGap(item, boardKey, { skipsFillGates: v5?.skipsFillGates })
  : null;
  const qc = boardKey === "cv_qc" ? qcChip(item) : null;
  const cvBadge = cvStateBadge(item, boardKey);
@@ -2040,6 +2042,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // `pipeline_move_rules.assert_client_send_allowed`) — ona dostaje pełny
  // przegląd przed wysyłką zamiast okna „Przesuń dalej”.
  const canReviewAsDl = hasPermission(authUser, "recruitment_manage");
+ // Delivery Lead przesuwa bez bramek pól (22.10.2026) tylko wtedy, gdy serwer
+ // też go przepuszcza: flaga z `/api/auth/me` liczy uprawnienie i wyłącznik
+ // `DL_SKIPS_FILL_GATES` (audyt 22.10.2026, F109). Przy wyłączonym DL ma
+ // szarą strzałkę, okno minimum i okno stawki jak rekruter.
+ const skipsFillGates = authUser?.skips_fill_gates === true;
  // Terminy od klienta dodaje DL (lustro bramki `interview_slots`: admin, HoR,
  // DL z członkostwem — serwer i tak sprawdza członkostwo).
  const canAddClientSlots = !readOnly && isDlOrHor;
@@ -2249,12 +2256,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  onAdvance: onArrowAdvance,
  onOpenQc,
  canReviewAsDl,
+ skipsFillGates,
  viewerOwnsDlReview,
  onReviewSend,
  onOpenPerson: openPersonViaRef,
  onClientAccept,
  }),
- [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, viewerOwnsDlReview, onReviewSend, openPersonViaRef, onClientAccept]
+ [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, skipsFillGates, viewerOwnsDlReview, onReviewSend, openPersonViaRef, onClientAccept]
  );
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
@@ -2746,22 +2754,22 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  !(cproEnabled ? stageBadge === "cpro" : canReviewAsDl && item.qc?.status !== "failed");
  return (
  toIndex - fromIndex > 1 ||
- knownForwardGap(item, fromKey, { skipsFillGates: canReviewAsDl }) != null ||
+ knownForwardGap(item, fromKey, { skipsFillGates }) != null ||
  directToClient
  );
  },
- [boardFold, cproEnabled, canReviewAsDl]
+ [boardFold, cproEnabled, canReviewAsDl, skipsFillGates]
  );
  // Minimum dla DL (21.10.2026): ze „Screeningu” na „Zweryfikowany” brakuje
  // tylko pól karty — zamiast „Przesuń dalej” małe okno z tymi polami.
  // Delivery Lead przesuwa bez bramek pól (22.10.2026) — okna nie dostaje.
  const minimumGapBeforeVerified = useCallback(
  (item: KanbanItem, fromIndex: number, toIndex: number): boolean =>
- !canReviewAsDl &&
+ !skipsFillGates &&
  boardFold.columns[fromIndex]?.key === "screening" &&
  boardFold.columns[toIndex]?.key === "verified" &&
  minimumOnlyGap(item),
- [boardFold, canReviewAsDl]
+ [boardFold, skipsFillGates]
  );
  const routeMove = useCallback(
  (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
@@ -2811,7 +2819,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  deferMove(item, colId(src), next.host, {
  targetLabel: next.label,
  // Delivery Lead przesuwa mimo braków (22.10.2026) — komunikat je wymienia.
- detail: canReviewAsDl
+ detail: skipsFillGates
  ? fillGapsText(
  item,
  boardFold.columns[fromIndex]?.key ?? null,

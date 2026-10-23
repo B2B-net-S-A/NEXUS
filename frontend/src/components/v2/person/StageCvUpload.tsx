@@ -195,6 +195,10 @@ export function useStageCvUpload({
         candidateQueryKeys.quickView(candidateId),
         ["cv-original", stageId],
         ["cv-qc", stageId],
+        // Otwarty panel „Z czego zrobić CV?”: nowy plik to Oryginał CV
+        // rekrutacji i musi być na liście generatora (audyt 22.10).
+        cvAiSourcesQueryKey(stageId).slice(0, 1),
+        ["cv-gen-sources", candidateId],
         MOVE_REQUIREMENTS_PREFIX,
         ["kanban", String(jobId)],
         ["kanban", jobId],

@@ -543,8 +543,15 @@ async def remind_holder(
     today = business_today()
     channel = "powiadomienie" if holder.kind == "user" else "mail"
     if channel == "powiadomienie":
+        # Zwrot z odejścia jest po terminie, gdy konto już wyłączone — dzwonek
+        # by nie wyszedł, a firmowa skrzynka zwykle już nie istnieje.
+        account = await db.get(User, holder.id)
+        if account is None or not account.is_active:
+            raise EquipmentConflict(
+                "Konto tej osoby jest wyłączone — przypomnij telefonicznie."
+            )
         due = f" do {task.due_on:%d.%m.%Y}" if task.due_on else ""
-        await notify_each(
+        sent = await notify_each(
             db,
             [holder.id],
             title="Zwrot sprzętu do recepcji",
@@ -555,7 +562,11 @@ async def remind_holder(
             link=RETURN_REMINDER_LINK,
             log_tag="equipment",
         )
-    elif not holder.email:
+        # Wyciszone „Czas i ludzie” albo dzwonek już był dziś — recepcja
+        # pisze ze swojej poczty, zamiast widzieć „wysłane”.
+        if sent == 0:
+            channel = "mail"
+    if channel == "mail" and not holder.email:
         raise EquipmentConflict(
             "Ta osoba nie ma adresu e-mail w NEXUSIE — przypomnij telefonicznie."
         )

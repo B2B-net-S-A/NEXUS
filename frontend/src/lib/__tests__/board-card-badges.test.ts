@@ -260,6 +260,14 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
         "verified",
       ),
     ).toBeNull();
+    // Stawka z profilu kandydata spełnia bramkę na serwerze — komunikat jej nie wymienia.
+    expect(
+      fillGapsText(
+        item({ screening_done: true, expected_rate_value: null, candidate_expected_rate_hourly: 150, minimum_missing: [] }),
+        "screening",
+        "verified",
+      ),
+    ).toBeNull();
     // Z Nowych do Screeningu nie ma bramki — komunikat nic nie wymienia.
     expect(fillGapsText(item({ screening_done: false }), "new", "screening")).toBeNull();
     expect(fillGapsText(item({ company_cv: false }), "verified", "cv_qc")).toBe("bez: CV firmowego");

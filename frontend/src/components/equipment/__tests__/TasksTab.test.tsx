@@ -126,6 +126,21 @@ describe("TasksTab — „Przypomnij” przy zwrocie po terminie", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("konto NEXUSA, ale dzwonek nie wyszedł: okno poczty bez „nie ma konta” (audyt 22.10, F23)", async () => {
+    const user = userEvent.setup();
+    serve([task({ holder: { kind: "user", id: 7, name: "Anna Przykładowa" } })]);
+    post.mockResolvedValue({
+      data: { channel: "mail", email: "anna@example.com", reminded_on: warsawToday() },
+    });
+    renderTab();
+
+    await user.click(await screen.findByRole("button", { name: "Przypomnij" }));
+    const dialog = await screen.findByRole("dialog", { name: "Przypomnij: Anna Przykładowa" });
+    expect(dialog).not.toHaveTextContent("nie ma konta");
+    expect(dialog).toHaveTextContent("Dzwonek w NEXUSIE nie wyszedł");
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
   it("odmowa serwera (np. brak adresu) to komunikat, nie cisza", async () => {
     const user = userEvent.setup();
     serve([task({})]);

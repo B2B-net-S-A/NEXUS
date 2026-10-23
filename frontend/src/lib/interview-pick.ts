@@ -25,6 +25,24 @@ export function windowBounds(slot: SlotItem, durationMinutes: number): { from: s
   return { from: hhmm(slot.start), to: hhmm(latest.toISOString()) };
 }
 
+const QUARTER_MS = 15 * 60_000;
+
+/**
+ * Najwcześniejsza godzina startu w oknie klienta, która jeszcze nie minęła
+ * (audyt 22.10.2026, F36): okno, które już trwa, zaczyna się od „teraz”
+ * w górę do pełnego kwadransa, a nie od minionego początku okna (serwer
+ * odrzuca taki start: 422 „Ten termin już minął”). Domyślna wartość i `min`
+ * pola „Godzina z kandydatem”.
+ */
+export function windowEarliest(slot: SlotItem, durationMinutes: number, now: Date = new Date()): string | null {
+  const bounds = windowBounds(slot, durationMinutes);
+  if (!bounds) return null;
+  const next = new Date(Math.ceil(now.getTime() / QUARTER_MS) * QUARTER_MS);
+  const latest = new Date(slot.window_end as string).getTime() - durationMinutes * 60_000;
+  if (next.getTime() <= new Date(slot.start).getTime() || next.getTime() > latest) return bounds.from;
+  return hhmm(next.toISOString());
+}
+
 /** Tolerancja jak po stronie serwera (`normalize_slots`, `_ensure_slot_ahead`). */
 const PAST_TOLERANCE_MS = 5 * 60_000;
 

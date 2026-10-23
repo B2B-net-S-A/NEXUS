@@ -210,6 +210,32 @@ async def ensure_own_job_link(
     )
 
 
+def _links_of_active_owners(
+    links: list[CandidateInviteLink], active_ids: set[int]
+) -> list[CandidateInviteLink]:
+    """Linki osób z aktywnym kontem — decyzja Artura 22.10.2026 (audyt F62).
+
+    Wyłączenie konta unieważnia tylko link ``recruiter``; link ``job`` osoby,
+    która odeszła, zostaje „aktywny” bez końca. Na tablicy i w canonical nie
+    może stać (imię byłego pracownika publicznie i w Google), więc rekrutacja
+    z samymi takimi linkami dostaje link Head of Recruitment.
+    """
+    return [link for link in links if link.created_by in active_ids]
+
+
+async def _active_owner_ids(
+    db: AsyncSession, links: list[CandidateInviteLink]
+) -> set[int]:
+    owner_ids = {link.created_by for link in links}
+    if not owner_ids:
+        return set()
+    return set(
+        await db.scalars(
+            select(User.id).where(User.id.in_(owner_ids), User.is_active.is_(True))
+        )
+    )
+
+
 def _pick_link(
     links: list[CandidateInviteLink],
     lead_id: Optional[int],
@@ -225,7 +251,8 @@ def _pick_link(
     Recruitment (``fallback_id``), o ile ten swojego nie wyłączył. Wyłączony
     link to decyzja człowieka; wygasły nie — decyzja Artura 21.10.2026:
     tablica nie gubi rekrutacji przez wygasły link albo brak prowadzącego.
-    ``links`` są posortowane od najnowszego.
+    ``links`` są posortowane od najnowszego i należą wyłącznie do osób
+    z aktywnym kontem (``_links_of_active_owners``, decyzja 22.10.2026).
     """
     if lead_id is not None:
         own = [link for link in links if link.created_by == lead_id]
@@ -274,6 +301,7 @@ async def canonical_job_slug(db: AsyncSession, job: Job) -> Optional[str]:
             .order_by(CandidateInviteLink.created_at.desc())
         )
     )
+    links = _links_of_active_owners(links, await _active_owner_ids(db, links))
     now = _now()
     lead_id = await _lead_id(db, job, {})
     link, _owner = _pick_link(links, lead_id, now)
@@ -317,6 +345,13 @@ async def board_jobs(db: AsyncSession) -> list[dict[str, Any]]:
         )
     ).all():
         links_by_job.setdefault(link.job_id, []).append(link)
+    active_ids = await _active_owner_ids(
+        db, [link for links in links_by_job.values() for link in links]
+    )
+    links_by_job = {
+        job_id: _links_of_active_owners(links, active_ids)
+        for job_id, links in links_by_job.items()
+    }
 
     category_slugs = dict(
         (await db.execute(select(CompetenceCategory.id, CompetenceCategory.slug))).all()

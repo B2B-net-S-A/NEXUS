@@ -142,6 +142,9 @@ class SlotRef:
     event_id: Optional[int]
     # 0487: rozmowa wpisana przy wyborze rekrutera, DL jeszcze nie odpisał klientowi.
     client_reply_pending: bool = False
+    # Rozmowa z wyboru (``event_id``) odwołana w kalendarzu — nie ma czego
+    # potwierdzać klientowi (audyt 22.10, F33).
+    event_cancelled: bool = False
 
 
 @dataclass(frozen=True)
@@ -687,6 +690,7 @@ def compute_todos(
         req is not None
         and req.status == SLOT_STATUS_CONFIRMED
         and req.client_reply_pending
+        and not req.event_cancelled
         and (is_dl_view or req.created_by in me)
     ):
         chosen = _chosen_slot(req)
@@ -842,7 +846,9 @@ def _event_ref(ev: CalendarEvent) -> EventRef:
     )
 
 
-def slot_ref(req: ClientInterviewSlotRequest) -> SlotRef:
+def slot_ref(
+    req: ClientInterviewSlotRequest, *, event_cancelled: bool = False
+) -> SlotRef:
     return SlotRef(
         id=req.id,
         status=req.status,
@@ -855,6 +861,7 @@ def slot_ref(req: ClientInterviewSlotRequest) -> SlotRef:
         note=req.note,
         event_id=req.event_id,
         client_reply_pending=bool(req.client_reply_pending),
+        event_cancelled=event_cancelled,
     )
 
 
@@ -1251,13 +1258,30 @@ async def load_snapshots(
             .order_by(ClientInterviewSlotRequest.created_at)
         )
     ).scalars()
+    slot_rows = list(slot_rows)
+    # Rozmowy z wyboru odwołane w kalendarzu — „Odpisz klientowi” znika (F33).
+    reply_event_ids = {
+        r.event_id for r in slot_rows if r.client_reply_pending and r.event_id
+    }
+    cancelled_events: set[int] = set()
+    if reply_event_ids:
+        cancelled_events = set(
+            await db.scalars(
+                select(CalendarEvent.id).where(
+                    CalendarEvent.id.in_(reply_event_ids),
+                    CalendarEvent.status == EventStatus.cancelled,
+                )
+            )
+        )
     for req in slot_rows:
         snap = snaps.get((req.candidate_id, req.job_id))
         if snap is None:
             continue
         current = snap.slot_request
         if current is None or current.status not in OPEN_SLOT_STATUSES:
-            snap.slot_request = slot_ref(req)
+            snap.slot_request = slot_ref(
+                req, event_cancelled=req.event_id in cancelled_events
+            )
 
     # Najnowszy etap pary.
     latest = (

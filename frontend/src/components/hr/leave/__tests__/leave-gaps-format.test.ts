@@ -112,6 +112,8 @@ const person = (overrides: Partial<TeamCalendarPerson> = {}): TeamCalendarPerson
 });
 
 describe("kalendarz zespołu: zdalnie, wyjazd, filtr", () => {
+  const NOVEMBER = { start: "2026-11-01", end: "2026-11-30" };
+
   it("dzień → wyjątek obecności", () => {
     const map = presenceByDay([
       { date: "2026-11-03", kind: "remote" },
@@ -124,9 +126,32 @@ describe("kalendarz zespołu: zdalnie, wyjazd, filtr", () => {
 
   it("w bieżącym miesiącu filtr patrzy na dziś, w innym — na cały miesiąc", () => {
     const remoteTomorrow = person({ presence: [{ date: "2026-11-04", kind: "remote" }] });
-    expect(matchesStatusFilter(remoteTomorrow, "remote", "2026-11-03", "2026-11")).toBe(false);
-    expect(matchesStatusFilter(remoteTomorrow, "remote", "2026-10-20", "2026-11")).toBe(true);
-    expect(matchesStatusFilter(remoteTomorrow, "all", "2026-11-03", "2026-11")).toBe(true);
+    expect(matchesStatusFilter(remoteTomorrow, "remote", "2026-11-03", NOVEMBER)).toBe(false);
+    expect(matchesStatusFilter(remoteTomorrow, "remote", "2026-10-20", NOVEMBER)).toBe(true);
+    expect(matchesStatusFilter(remoteTomorrow, "all", "2026-11-03", NOVEMBER)).toBe(true);
+  });
+
+  it("dwa tygodnie bez dzisiejszego dnia: liczy się tylko to, co nachodzi na okno (audyt 22.10, F13)", () => {
+    const window = { start: "2026-11-02", end: "2026-11-15" };
+    const absence = {
+      id: null,
+      half_day: null,
+      label: "Nieobecność",
+      leave_type: null,
+      substitute_user_id: null,
+      substitute_name: null,
+      status: "approved" as const,
+    };
+    const later = person({ absences: [{ ...absence, start_date: "2026-11-20", end_date: "2026-11-21" }] });
+    const across = person({ absences: [{ ...absence, start_date: "2026-10-30", end_date: "2026-11-02" }] });
+    const remoteLater = person({ presence: [{ date: "2026-11-25", kind: "remote" }] });
+    const remoteInside = person({ presence: [{ date: "2026-11-15", kind: "remote" }] });
+    const tripLater = person({ presence: [{ date: "2026-11-16", kind: "business_trip" }] });
+    expect(matchesStatusFilter(later, "absent", "2026-10-22", window)).toBe(false);
+    expect(matchesStatusFilter(across, "absent", "2026-10-22", window)).toBe(true);
+    expect(matchesStatusFilter(remoteLater, "remote", "2026-10-22", window)).toBe(false);
+    expect(matchesStatusFilter(remoteInside, "remote", "2026-10-22", window)).toBe(true);
+    expect(matchesStatusFilter(tripLater, "absent", "2026-10-22", window)).toBe(false);
   });
 
   it("nieobecni = zatwierdzona nieobecność albo delegacja; wniosek czekający się nie liczy", () => {
@@ -143,10 +168,10 @@ describe("kalendarz zespołu: zdalnie, wyjazd, filtr", () => {
     const away = person({ absences: [{ ...absence, status: "approved" }] });
     const waiting = person({ absences: [{ ...absence, status: "pending" }] });
     const trip = person({ presence: [{ date: "2026-11-03", kind: "business_trip" }] });
-    expect(matchesStatusFilter(away, "absent", "2026-11-03", "2026-11")).toBe(true);
-    expect(matchesStatusFilter(waiting, "absent", "2026-11-03", "2026-11")).toBe(false);
-    expect(matchesStatusFilter(trip, "absent", "2026-11-03", "2026-11")).toBe(true);
-    expect(matchesStatusFilter(trip, "remote", "2026-11-03", "2026-11")).toBe(false);
+    expect(matchesStatusFilter(away, "absent", "2026-11-03", NOVEMBER)).toBe(true);
+    expect(matchesStatusFilter(waiting, "absent", "2026-11-03", NOVEMBER)).toBe(false);
+    expect(matchesStatusFilter(trip, "absent", "2026-11-03", NOVEMBER)).toBe(true);
+    expect(matchesStatusFilter(trip, "remote", "2026-11-03", NOVEMBER)).toBe(false);
   });
 });
 

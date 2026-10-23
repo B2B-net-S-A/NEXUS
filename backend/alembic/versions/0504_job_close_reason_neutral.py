@@ -37,6 +37,18 @@ def upgrade() -> None:
     )
 
 
+# Etykiet enuma Postgres nie usuwa, a kod sprzed tej rewizji ich nie zna —
+# zamknięta rekrutacja z takim powodem dałaby po cofnięciu 500 (audyt 22.10.2026).
+REFUSE_WITH_NEUTRAL_CLOSES = """DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM jobs WHERE close_reason::text IN ('duplicate', 'no_match')
+    ) THEN
+        RAISE EXCEPTION 'Downgrade 0504 odmawia: jobs ma rekrutacje zamknięte z powodem duplicate albo no_match, których kod sprzed tej rewizji nie odczyta.';
+    END IF;
+END $$"""
+
+
 def downgrade() -> None:
-    # Etykiet enuma Postgres nie usuwa; zostają nieużywane.
+    op.execute(REFUSE_WITH_NEUTRAL_CLOSES)
     op.execute("ALTER TABLE jobs DROP COLUMN IF EXISTS duplicate_of_job_id")

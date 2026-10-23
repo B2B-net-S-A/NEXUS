@@ -580,6 +580,58 @@ async def test_unknown_sender_cv_resent_file_goes_to_the_profile_that_has_it(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("by_email", "same_file", "proven"),
+    [
+        # Kandydat założony z tego CV — tożsamość pewna.
+        ([], [], True),
+        # Dopasowany po e-mailu z tego CV — tożsamość pewna.
+        (
+            [{"candidate_id": 42, "match_score": 1.0, "match_reasons": ["email"]}],
+            [],
+            True,
+        ),
+        # Ten sam plik w czyimś profilu — to nie dowód tożsamości dla bramki.
+        (
+            [],
+            [{"candidate_id": 77, "match_score": 1.0, "match_reasons": ["file"]}],
+            False,
+        ),
+    ],
+)
+async def test_mail_cv_tells_the_gate_when_identity_comes_from_the_cv(
+    monkeypatch, tmp_path, by_email, same_file, proven
+):
+    """Audyt 22.10.2026 (F68, decyzja Artura): kandydat z imieniem cyrylicą
+    założony z CV z maila albo dopasowany po e-mailu z tego CV dostaje to CV
+    jako główne — bramka „imię nieczytelne” dotyczy tylko maila z wątku."""
+    from app.services import index_outbox_service
+
+    handler, parse = _patch_m365(
+        monkeypatch,
+        tmp_path,
+        {
+            "first_name": "Олена",
+            "last_name": "Петренко",
+            "email": "olena@example.com",
+        },
+        by_email,
+        same_file=same_file,
+    )
+    monkeypatch.setattr(
+        index_outbox_service, "schedule_or_embed_candidate", AsyncMock()
+    )
+    attachment, email = _m365_inputs(tmp_path)
+    attachment.sha256 = "b" * 64
+
+    await handler.try_create_candidate_from_cv(
+        _db_that_assigns_id(88), attachment, email
+    )
+
+    assert parse.await_args.kwargs["identity_proven"] is proven
+
+
+@pytest.mark.asyncio
 async def test_unknown_sender_cv_without_contact_creates_nothing(monkeypatch, tmp_path):
     handler, _ = _patch_m365(
         monkeypatch, tmp_path, {"first_name": "Jan", "last_name": "Bez"}, []
