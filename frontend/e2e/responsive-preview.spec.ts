@@ -77,7 +77,6 @@ const PAGES = [
   "/preview/insights?as=hor&view=zespol",
   "/preview/insights?as=admin&view=firma",
   "/preview/insights?as=hor&view=raporty",
-  "/preview/insights-campaign",
   "/preview/inactive-clients-cleanup",
   "/preview/contract-docs-sharepoint",
   "/preview/insights-seniority",

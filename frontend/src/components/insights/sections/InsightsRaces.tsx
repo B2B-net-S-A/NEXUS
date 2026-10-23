@@ -433,15 +433,24 @@ function RaceCard({
           </>
         )}
 
-        <div className="mt-auto space-y-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
-          {copy.populationNote ? <p>{copy.populationNote}</p> : null}
-          {/* Wyjaśnienie progu także bez hovera — `title` przy liczbie
-              weryfikacji jest nieosiągalny dotykiem (audyt 23.09.2026). */}
-          {variant === "recommendations" && ranking.length > 0 ? (
-            <p>{RACE_THRESHOLD_TOOLTIP}</p>
-          ) : null}
-          <p>{copy.tieRule}</p>
-        </div>
+        {/* Zasady zwinięte (22.10.2026) — treść bez zmian, dostępna kliknięciem
+            także na dotyku (to było powodem przeniesienia jej spod `title`). */}
+        <details className="group mt-auto border-t border-border pt-2 text-[11px] text-muted-foreground">
+          <summary className="flex min-h-9 cursor-pointer items-center justify-between gap-2 font-semibold text-foreground">
+            Zasady: kto na liście, próg i remisy
+            <span className="text-primary group-open:hidden">Pokaż ▾</span>
+            <span className="hidden text-primary group-open:inline">Zwiń ▴</span>
+          </summary>
+          <div className="space-y-1 pt-1">
+            {copy.populationNote ? <p>{copy.populationNote}</p> : null}
+            {/* Wyjaśnienie progu także bez hovera — `title` przy liczbie
+                weryfikacji jest nieosiągalny dotykiem (audyt 23.09.2026). */}
+            {variant === "recommendations" && ranking.length > 0 ? (
+              <p>{RACE_THRESHOLD_TOOLTIP}</p>
+            ) : null}
+            <p>{copy.tieRule}</p>
+          </div>
+        </details>
       </div>
     </article>
   );

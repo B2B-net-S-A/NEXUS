@@ -24,12 +24,6 @@ vi.mock("@/lib/api", () => ({
   api: { get: (...args: unknown[]) => mocks.get(...args) },
 }));
 // Kampania i remisy mają własne testy; tu tylko wybór okresu.
-vi.mock("@/components/insights/sections/InsightsCampaignBanner", () => ({
-  InsightsCampaignBanner: () => null,
-}));
-vi.mock("@/components/insights/sections/InsightsCampaignAdmin", () => ({
-  InsightsCampaignAdmin: () => null,
-}));
 vi.mock("@/components/insights/sections/CompetitionTiesAdmin", () => ({
   CompetitionTiesAdmin: () => null,
 }));

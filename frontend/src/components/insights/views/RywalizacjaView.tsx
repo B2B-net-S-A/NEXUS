@@ -3,8 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { InsightsCampaignAdmin } from "@/components/insights/sections/InsightsCampaignAdmin";
-import { InsightsCampaignBanner } from "@/components/insights/sections/InsightsCampaignBanner";
 import { ChampionsSection } from "@/components/insights/sections/ChampionsSection";
 import { CompetitionPeriodSelect } from "@/components/insights/sections/CompetitionPeriod";
 import { CompetitionTiesAdmin } from "@/components/insights/sections/CompetitionTiesAdmin";
@@ -43,9 +41,6 @@ export function RywalizacjaView() {
         question="Kto wygrywa i o co gramy?"
         lede="Liga Mistrzów liczy cały kwartał, wyścigi — miesiąc. Wybierz okres, żeby zobaczyć rozliczone wyniki. Twój wiersz jest podświetlony."
       />
-      {/* Bez aktywnej kampanii baner nie renderuje nic — to normalny stan. */}
-      <InsightsCampaignBanner />
-      <InsightsCampaignAdmin />
       <CompetitionTiesAdmin />
 
       <ChampionsSection

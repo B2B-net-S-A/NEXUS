@@ -39,7 +39,6 @@ vi.mock("@/store/auth", () => ({
     selector({ user: { role: mocks.role.current } }),
 }));
 
-import { InsightsCampaignAdmin } from "@/components/insights/sections/InsightsCampaignAdmin";
 import {
   InsightsFlagAdmin,
   assignableTypes,
@@ -94,74 +93,6 @@ beforeEach(() => {
   mocks.post.mockResolvedValue({ data: {} });
   mocks.patch.mockResolvedValue({ data: {} });
   mocks.del.mockResolvedValue({ data: undefined });
-});
-
-describe("InsightsCampaignAdmin", () => {
-  it("nie renderuje się dla nie-admina", () => {
-    mocks.role.current = "recruiter";
-    const { container } = renderWithClient(<InsightsCampaignAdmin />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("nie rusza sieci, dopóki panel jest zwinięty", () => {
-    renderWithClient(<InsightsCampaignAdmin />);
-    // Lista kampanii jest admin-only i nikomu nie jest potrzebna, zanim
-    // ktoś faktycznie otworzy panel.
-    expect(mocks.get).not.toHaveBeenCalled();
-  });
-
-  it("odmawia odwróconego okna PO POLSKU, zamiast wysyłać je do bazy", async () => {
-    renderWithClient(<InsightsCampaignAdmin />);
-    fireEvent.click(screen.getByRole("button", { name: /Kampanie/ }));
-
-    fireEvent.change(await screen.findByLabelText("Nazwa kampanii"), {
-      target: { value: "Jesienna" },
-    });
-    fireEvent.change(screen.getByLabelText("Data startu"), {
-      target: { value: "2026-10-01" },
-    });
-    fireEvent.change(screen.getByLabelText("Data końca"), {
-      target: { value: "2026-09-01" },
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: /Załóż i pokaż baner/ }),
-    );
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /Data końca jest wcześniejsza/,
-    );
-    expect(mocks.post).not.toHaveBeenCalled();
-  });
-
-  it("zakłada kampanię od razu aktywną — inaczej baner dalej nic nie pokazuje", async () => {
-    renderWithClient(<InsightsCampaignAdmin />);
-    fireEvent.click(screen.getByRole("button", { name: /Kampanie/ }));
-
-    fireEvent.change(await screen.findByLabelText("Nazwa kampanii"), {
-      target: { value: "Jesienna" },
-    });
-    fireEvent.change(screen.getByLabelText("Data startu"), {
-      target: { value: "2026-09-01" },
-    });
-    fireEvent.change(screen.getByLabelText("Data końca"), {
-      target: { value: "2026-10-31" },
-    });
-    fireEvent.change(screen.getByLabelText("Cel netto"), {
-      target: { value: "40" },
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: /Załóż i pokaż baner/ }),
-    );
-
-    await waitFor(() => expect(mocks.post).toHaveBeenCalled());
-    expect(mocks.post.mock.calls[0][1]).toMatchObject({
-      name: "Jesienna",
-      start_date: "2026-09-01",
-      end_date: "2026-10-31",
-      target_net: 40,
-      is_active: true,
-    });
-  });
 });
 
 describe("InsightsFlagAdmin", () => {
@@ -260,40 +191,6 @@ describe("InsightsFlagAdmin", () => {
 });
 
 describe("Awaria zapisu nie moze wygladac jak brak reakcji", () => {
-  it("nieudane przelaczenie banera mowi, ze serwer odmowil", async () => {
-    mocks.get.mockResolvedValue({
-      data: {
-        campaigns: [
-          {
-            id: 3,
-            name: "Jesienna",
-            emoji: null,
-            start_date: "2026-09-01",
-            end_date: "2026-10-31",
-            target_net: 40,
-            is_active: false,
-            created_at: null,
-          },
-        ],
-      },
-    });
-    mocks.patch.mockRejectedValue({
-      response: { data: { detail: "Kampania zostala usunieta." } },
-    });
-
-    renderWithClient(<InsightsCampaignAdmin />);
-    fireEvent.click(screen.getByRole("button", { name: /Kampanie/ }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Pokaz baner|Pokaż baner/ }),
-    );
-
-    // Bez tej galezi panel wyglada dokladnie tak jak przed klikiem, wiec
-    // odmowa serwera czyta sie jako „przycisk nie dziala".
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /Kampania zostala usunieta/,
-    );
-  });
-
   it("nieudane nadanie plakietki mowi, ze serwer odmowil", async () => {
     mocks.post.mockRejectedValue({
       response: { data: { detail: "Ta osoba ma juz to ostrzezenie." } },
