@@ -549,6 +549,30 @@ async def month_own_handoffs(
     return {key: by_stage.get(stage, 0) for key, stage in OWN_HANDOFF_STAGES.items()}
 
 
+_MATCH_SQL = text(
+    """
+    SELECT count(*) AS n
+    FROM recruitment_processes rp
+    WHERE rp.credit_user_id = :uid
+      AND rp.entry_meta ->> 'via' = 'dl_match'
+      AND rp.opened_at >= :month_start
+    """
+)
+
+
+async def month_match_handoffs(
+    db: AsyncSession, *, user: User, now: Optional[datetime] = None
+) -> int:
+    """Ile z „Sam przekazał” w tym miesiącu powstało z „Match” (22.10.2026) —
+    osoby wysłane przez DL-a z przeglądu do innych jego rekrutacji
+    (``dl_match.MATCH_VIA`` na procesie)."""
+    if now is None:
+        now = datetime.now(WARSAW)
+    month_start, _ = period_bounds(KpiPeriod.month, now)
+    value = await db.scalar(_MATCH_SQL, {"uid": user.id, "month_start": month_start})
+    return int(value or 0)
+
+
 async def compute_my_panel(
     db: AsyncSession, *, user: User, now: Optional[datetime] = None
 ) -> PanelResult:
@@ -645,6 +669,7 @@ __all__ = [
     "PanelResult",
     "PrecisionResult",
     "VERIFIER_ANCHORED_CTE",
+    "month_match_handoffs",
     "month_own_handoffs",
     "compute_my_panel",
 ]

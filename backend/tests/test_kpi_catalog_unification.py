@@ -503,7 +503,7 @@ async def test_goals_endpoint_shapes(api_client: AsyncClient):
     assert body["kind"] == "delivery_lead"
     assert body["closed_requests"] == 0
     assert body["closed_neutral"] == 0
-    assert body["own_handoffs"] == {"verified": 0, "cv_sent": 0, "hired": 0}
+    assert body["own_handoffs"] == {"verified": 0, "cv_sent": 0, "hired": 0, "match": 0}
     assert {g["short_title_pl"] for g in body["goals"]} == {"Hit ratio", "Placementy"}
 
 

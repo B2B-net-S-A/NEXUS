@@ -33,7 +33,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -332,17 +332,22 @@ async def _generated(
     rows = await db.execute(
         select(
             B2BGeneratedContract.contract_id,
-            func.count(B2BGeneratedContract.id),
-            func.min(B2BGeneratedContract.signed_at),
-        )
-        .where(B2BGeneratedContract.contract_id.in_(contract_ids))
-        .group_by(B2BGeneratedContract.contract_id)
+            B2BGeneratedContract.signed_on,
+            B2BGeneratedContract.signed_at,
+        ).where(B2BGeneratedContract.contract_id.in_(contract_ids))
     )
+    counts: dict[int, int] = {}
+    earliest: dict[int, date] = {}
+    for contract_id, signed_on, signed_at in rows.all():
+        counts[contract_id] = counts.get(contract_id, 0) + 1
+        # Dzień z okna „Oznacz jako podpisaną” (0514); wiersz oznaczony
+        # wcześniej ma tylko chwilę oznaczenia — wtedy jej dzień.
+        day = signed_on or (business_date(signed_at) if signed_at else None)
+        if day is not None and day < earliest.get(contract_id, date.max):
+            earliest[contract_id] = day
     return {
-        contract_id: SignedContracts(
-            count, business_date(signed_at) if signed_at is not None else None
-        )
-        for contract_id, count, signed_at in rows.all()
+        contract_id: SignedContracts(count, earliest.get(contract_id))
+        for contract_id, count in counts.items()
     }
 
 

@@ -74,6 +74,12 @@ import {
   type CvView,
 } from "@/components/v2/recruitment/dl-review/CvColumn";
 import { DecisionPanel, type DecisionAction } from "@/components/v2/recruitment/dl-review/DecisionPanel";
+import {
+  DlMatchSection,
+  matchTargets,
+  summarizeResults,
+  useDlMatch,
+} from "@/components/v2/recruitment/dl-review/DlMatchSection";
 import { RequirementsColumn } from "@/components/v2/recruitment/dl-review/RequirementsColumn";
 import { ReturnForFixDialog } from "@/components/v2/recruitment/dl-review/ReturnForFixDialog";
 import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
@@ -93,6 +99,7 @@ import {
   screeningSummaryRows,
 } from "@/lib/screening-summary";
 import { parseRateInput } from "@/lib/dl-review-margin";
+import { dlMatchApi, type DlMatchTarget } from "@/lib/dl-match-api";
 import { invalidateAfterPipelineVersionConflict } from "@/lib/pipeline-version-conflict";
 import type { PipelineMovePayload } from "@/lib/pipeline-move-core";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
@@ -539,6 +546,34 @@ export function DlReviewBody({
     : null;
   // D9 (08.10.2026): marża na żywo w panelu decyzji — `DecisionPanel`.
   const clientRate = parseRateInput(rateRaw);
+  // Match (22.10.2026): inne rekrutacje DL-a, do których osoba pójdzie razem
+  // z tą — po udanej akceptacji tutaj, każda osobno (wynik per rekrutacja).
+  const match = useDlMatch(task.candidate_id, task.job_id, canSend);
+  const { targets: matchSendTargets, missingRate: matchMissingRate } = matchTargets(
+    match.jobs,
+    match.selection,
+    { rate: rateRaw, unit: rateUnit, currency },
+  );
+  const sendMatch = async (targets: DlMatchTarget[]) => {
+    try {
+      const response = await dlMatchApi.send({
+        candidate_id: task.candidate_id,
+        from_job_id: task.job_id,
+        targets,
+      });
+      const summary = summarizeResults(response.results);
+      if (summary.sent) showSuccess(summary.sent);
+      if (summary.problems.length > 0) showError(summary.problems.join(" · "));
+      for (const r of response.results) {
+        void queryClient.invalidateQueries({ queryKey: ["kanban", String(r.job_id)] });
+        void queryClient.invalidateQueries({ queryKey: ["kanban", r.job_id] });
+      }
+    } catch (error) {
+      showError(
+        apiErrorMessage(error, "W tej rekrutacji wysłano, ale wysyłka do pozostałych się nie udała."),
+      );
+    }
+  };
   const location = profile?.city || profile?.location || null;
   // Dostępność z profilu, a gdy profil jej nie zna — z karty rekomendacji
   // (ta sama wartość stoi niżej na karcie; „—” obok niej wyglądało na brak).
@@ -637,6 +672,7 @@ export function DlReviewBody({
       });
       if (outcome.ok) {
         showSuccess(`${task.candidate_name} — ${actionTextFor(action, cpro).done}`);
+        if (action === "send" && matchSendTargets.length > 0) await sendMatch(matchSendTargets);
         if (action === "reject") {
           announceRejectionEmail(outcome.data, {
             requested: emailFlag,
@@ -683,7 +719,8 @@ export function DlReviewBody({
         interviews: earlierInterviews,
       })) &&
     !(sendEmail && emailState.invalid);
-  const sendReady = canSend && clientRate != null && task.target_stage_def_id != null;
+  const sendReady =
+    canSend && clientRate != null && task.target_stage_def_id != null && matchMissingRate === 0;
   const canReturn = (canSend || canReject) && task.return_stage_def_id != null;
 
   return (
@@ -902,6 +939,7 @@ export function DlReviewBody({
           canReject={canReject && !rejecting}
           busy={busy}
           onAccept={() => void move("send")}
+          extraTargets={matchSendTargets.length}
           onReturn={() => setReturnOpen(true)}
           onReject={() => setRejecting(true)}
           footerNote={
@@ -922,6 +960,9 @@ export function DlReviewBody({
             ) : null
           }
         >
+          {canSend ? (
+            <DlMatchSection model={match} fallbackRate={rateRaw} disabled={busy !== null} />
+          ) : null}
           {qcOverride ? (
             <div
               role="note"

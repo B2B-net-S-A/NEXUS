@@ -137,6 +137,7 @@ async def also_fits_for_candidate(
     from_job_id: int,
     profile_user_id: Optional[int],
     scope_clause: Optional[ColumnElement] = None,
+    limit: int = ALSO_FITS_LIMIT,
 ) -> AlsoFitsResult:
     from app.services.auto_match_service import AutoMatchUnavailable, scoped_similarity
     from app.services.embedding_service import _build_candidate_text
@@ -163,7 +164,7 @@ async def also_fits_for_candidate(
         )
         return AlsoFitsResult(status="unavailable")
     nearest = sorted(similarity, key=lambda jid: (-similarity[jid], jid))[
-        :ALSO_FITS_PREFILTER
+        : max(ALSO_FITS_PREFILTER, limit)
     ]
     if not nearest:
         return AlsoFitsResult(status="ok")
@@ -204,7 +205,7 @@ async def also_fits_for_candidate(
         details[job_id] = fit.breakdown
 
     out: list[AlsoFitsJob] = []
-    for s in select_also_fits(scored):
+    for s in select_also_fits(scored, limit=limit):
         job, client_name = jobs[s.job_id]
         breakdown = details.get(s.job_id)
         out.append(
