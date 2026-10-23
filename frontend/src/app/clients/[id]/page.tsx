@@ -1375,7 +1375,7 @@ export default function ClientDetailPage() {
             clientId={Number(id)}
             className="ml-auto justify-end max-sm:order-last max-sm:ml-0 max-sm:w-full max-sm:justify-start"
           />
-          <div className="flex items-center gap-1.5 max-sm:ml-auto">
+          <div className="flex flex-wrap items-center justify-end gap-1.5 max-sm:ml-auto">
             {/* „Ludzie i technologie”: akcje zakładki w nagłówku (makieta P5). */}
             {careOpen && activeTab === "ludzie" ? <PeopleTechHeaderActions clientId={Number(id)} /> : null}
             {canUpdateClient && (
