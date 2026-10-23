@@ -101,6 +101,13 @@ describe("filters", () => {
     expect(matchesFilters(row, { ...EMPTY_FILTERS, q: "BEZPIECZENSTWA" }, TODAY)).toBe(true)
   })
 
+  it("pole „Stanowisko” znajduje request po numerze u klienta", () => {
+    const row = req({ job_id: 10, title: "Java Developer", client_reference: "REQ-48213" })
+    expect(matchesFilters(row, { ...EMPTY_FILTERS, q: "48213" }, TODAY)).toBe(true)
+    expect(matchesFilters(row, { ...EMPTY_FILTERS, q: "99999" }, TODAY)).toBe(false)
+    expect(matchesFilters(req({ job_id: 11 }), { ...EMPTY_FILTERS, q: "48213" }, TODAY)).toBe(false)
+  })
+
   it("deadline buckets", () => {
     const late = req({ job_id: 1, deadline: "2026-09-20" })
     const week = req({ job_id: 2, deadline: "2026-09-30" })

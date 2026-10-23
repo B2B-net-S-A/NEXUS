@@ -96,6 +96,9 @@ class BoardRequest(BaseModel):
     job_id: int
     title: str
     client_name: Optional[str]
+    # Numer zapytania u klienta (Nordea, ZOB…) — przed tytułem jak na liście
+    # rekrutacji (prośba Head of Recruitment, 23.10.2026).
+    client_reference: Optional[str] = None
     category_id: Optional[int]
     deadline: Optional[date]
     sent: int
@@ -301,6 +304,7 @@ async def get_request_board(
             job_id=job.id,
             title=display_title(job),
             client_name=clients.get(job.client_id),
+            client_reference=job.client_reference,
             category_id=job.competence_category_id,
             deadline=job.deadline,
             sent=int(sent.get(job.id, 0)),

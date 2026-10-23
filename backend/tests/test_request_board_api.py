@@ -133,6 +133,7 @@ async def test_board_shows_manual_person_and_champion_is_not_load(
         job = await db.get(Job, champion)
         job.champion_found_at = datetime.now(timezone.utc)
         (await db.get(Job, urgent)).priority = JobPriority.urgent
+        (await db.get(Job, urgent)).client_reference = "ZOB 48213"
         await db.commit()
 
     board = (
@@ -148,6 +149,9 @@ async def test_board_shows_manual_person_and_champion_is_not_load(
     assert rows[searching]["priority_level"] == "p2"
     assert rows[searching]["delivery_lead"] is None
     assert rows[searching]["opened_effective_at"] is not None
+    # Numer u klienta jedzie z wierszem (prośba Head of Recruitment, 23.10.2026).
+    assert rows[urgent]["client_reference"] == "ZOB 48213"
+    assert rows[searching]["client_reference"] is None
     # Obłożenie liczy tylko P1 (decyzja Artura 14.10.2026); request bez
     # priorytetu to `outside_p1`, champion nie liczy się nigdzie.
     load = {p["user_id"]: p for p in board["load"]}

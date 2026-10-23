@@ -84,7 +84,7 @@ export function RequestBoardFilters({
             id={id}
             data-active={q.active}
             className={q.className}
-            placeholder="np. Java"
+            placeholder="np. Java albo numer"
             value={filters.q}
             onChange={(e) => set("q", e.target.value)}
           />

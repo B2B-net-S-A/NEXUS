@@ -38,12 +38,18 @@ import {
   competenceShortLabel,
   competenceTone,
 } from "@/components/v2/CompetenceCategoryBadge"
+import {
+  ClientReferenceChip,
+  copyClientReference,
+} from "@/components/v2/jobs/ClientReferenceChip"
 import { JobDeadlineCell } from "@/components/v2/jobs/JobListCells"
+import { useToastIfProvided } from "@/components/v2/jobs/JobNameLabel"
 import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips"
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip"
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2"
 import { useCapability } from "@/hooks/useCapability"
 import { apiErrorMessage } from "@/lib/api-error"
+import { copyTextToClipboard } from "@/lib/clipboard"
 import {
   addBoardPerson,
   decideProposal,
@@ -335,6 +341,7 @@ function RequestRow({
   onAcceptProposal,
   busyKeys,
 }: RowProps) {
+  const toast = useToastIfProvided()
   const people = boardPeople(request)
   const busy = (person: BoardPerson) =>
     busyKeys?.has(boardPersonKey(request.job_id, person.user_id)) === true
@@ -382,6 +389,17 @@ function RequestRow({
         )}
       >
         <div className="flex min-w-0 items-start gap-1.5">
+          {/* Numer u klienta przed nazwą jak na liście rekrutacji (prośba Head
+              of Recruitment, 23.10.2026): po uogólnionym tytule nie widać,
+              który request Nordei to który. Klik kopiuje numer. */}
+          <ClientReferenceChip
+            reference={request.client_reference}
+            onCopy={(reference) =>
+              void (toast ? copyClientReference(reference, toast) : copyTextToClipboard(reference))
+            }
+            testId="request-row-client-reference"
+            className="mt-px"
+          />
           <Link
             href={`/jobs/${request.job_id}`}
             title={request.title}

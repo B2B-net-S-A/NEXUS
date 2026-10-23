@@ -281,7 +281,12 @@ export function matchesFilters(
   filters: BoardFilters,
   today: string,
 ): boolean {
-  if (filters.q && !fold(request.title).includes(fold(filters.q.trim()))) return false
+  // Pole „Stanowisko” znajduje request także po numerze u klienta (Nordea).
+  if (
+    filters.q &&
+    !fold(`${request.title} ${request.client_reference ?? ""}`).includes(fold(filters.q.trim()))
+  )
+    return false
   if (filters.client && request.client_name !== filters.client) return false
   if (filters.cat) {
     const cat = filters.cat === "none" ? null : Number(filters.cat)
