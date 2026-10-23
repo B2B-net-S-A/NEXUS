@@ -528,6 +528,9 @@ export function FilePreviewModal({
   onClose,
   onDownload,
   loadDocumentBlob,
+  candidateName,
+  headerActions,
+  onCloseAutoFocus,
 }: {
   doc?: CandidateDocument | null;
   documents?: CandidateDocument[];
@@ -536,6 +539,12 @@ export function FilePreviewModal({
   onClose: () => void;
   onDownload: (doc: CandidateDocument) => void;
   loadDocumentBlob?: typeof fetchDocumentBlob;
+  /** Imię osoby pod nazwą pliku — nazwa pliku często go nie zawiera. */
+  candidateName?: string;
+  /** Akcje ekranu, który otwiera okno (np. „Przypisz do rekrutacji”), przed „Pobierz”. */
+  headerActions?: ReactNode;
+  /** Gdzie wrócić fokusem po zamknięciu (domyślnie przycisk, który otworzył okno). */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const gallery = useMemo(() => {
     if (documents?.length) {
@@ -573,6 +582,8 @@ export function FilePreviewModal({
   useEffect(() => {
     if (!open || gallery.length <= 1) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      // Shift + strzałka zostaje dla przejścia między osobami (lista kandydatów).
+      if (event.shiftKey) return;
       // Strzałki w polu „Szukaj w CV” przesuwają kursor w tekście.
       const target = event.target;
       if (
@@ -605,6 +616,7 @@ export function FilePreviewModal({
         className="h-[92dvh] p-0 gap-0"
         hideClose
         onEscapeKeyDown={keepDialogOpenOnDocumentSearchEscape}
+        onCloseAutoFocus={onCloseAutoFocus}
       >
         <DialogHeader className="flex-row items-center justify-between gap-3 py-3 pr-3">
           <div className="min-w-0">
@@ -616,6 +628,9 @@ export function FilePreviewModal({
               aria-live="polite"
             >
               {galleryLabel} {activeIndex + 1} z {gallery.length}
+              {candidateName ? (
+                <span className="text-foreground"> · {candidateName}</span>
+              ) : null}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -648,6 +663,7 @@ export function FilePreviewModal({
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
+            {headerActions}
             {activeDocument && (
               <button
                 type="button"

@@ -5,7 +5,9 @@ import {
   JOB_MEMORY_TTL_MS,
   RECENT_LIMIT,
   clearSearchMemory,
+  markCvSeen,
   pushRecentSearch,
+  readCvSeen,
   readJobSearch,
   readListSearch,
   readRecentSearches,
@@ -30,6 +32,20 @@ afterEach(() => {
 });
 
 describe("search-memory", () => {
+  it("CV oglądane w karcie: zapis dopisuje osobę z czasem, śmieci w pamięci są pomijane", () => {
+    expect(readCvSeen()).toEqual({});
+    const first = markCvSeen(12);
+    expect(Object.keys(first)).toEqual(["12"]);
+    expect(typeof first[12]).toBe("number");
+    markCvSeen(34);
+    expect(Object.keys(readCvSeen()).sort()).toEqual(["12", "34"]);
+
+    window.sessionStorage.setItem("nexus.candidates.cvSeen", JSON.stringify({ 5: "wczoraj", 6: 1 }));
+    expect(readCvSeen()).toEqual({ 6: 1 });
+    window.sessionStorage.setItem("nexus.candidates.cvSeen", "[1,2]");
+    expect(readCvSeen()).toEqual({});
+  });
+
   it("ostatnie wyszukiwanie listy: nowe filtry zerują przewinięcie i wyróżnienie", () => {
     writeListSearch({ query: "q_all=Java" });
     writeListSearch({ query: "q_all=Java", scrollTop: 640, lastOpenedId: 12 });

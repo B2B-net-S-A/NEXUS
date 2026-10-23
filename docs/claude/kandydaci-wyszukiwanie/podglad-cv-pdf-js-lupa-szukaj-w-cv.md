@@ -45,3 +45,31 @@ takiego zdania nie ma, więc „Brak wyników”, choć C# stał w CV.
   Cytat z edytora CV („Pokaż w oryginale”) zostaje frazą — zlecenie bez `terms`.
 - Brak słowa w słowniku („Unit Tests” vs „unit testing”, „OWASP Top 10” vs
   „OWASP”) naprawia alias w Ustawienia → Słownik umiejętności, nie kod.
+
+## Okno CV listy: kolejna osoba, „Przypisz”, ślad „✓ CV” (23.10.2026)
+
+Prośba rekruterów: przegląda się CV z listy kandydatów, zamyka okno i potem
+nie wiadomo, czyje to było; do tego każde kolejne CV to zamknij–znajdź–otwórz.
+Decyzja Artura: przycisk w oknie + ślad + przejście między osobami.
+
+- Okno CV listy żyje na poziomie listy (`CandidateCvBrowser`), nie w komórce.
+  `CandidateCvCell` tylko je otwiera (`onOpen`). Nie wracaj do okna w komórce:
+  nie przejdzie wtedy do następnego wiersza.
+- „‹ Poprzednia · Osoba 3 z 50 · Następna ›” chodzi po osobach z CV z bieżącej
+  strony listy, w jej kolejności; Shift + ←/→ to samo z klawiatury (same
+  strzałki przełączają pliki CV jednej osoby, dlatego `FilePreviewModal`
+  ignoruje strzałki z Shiftem). Napisy przy strzałkach są celowe — obok stoją
+  strzałki plików. Osoba bez pliku: komunikat, zostaje poprzednia.
+- Przejście przewija listę do wiersza tej osoby; po zamknięciu fokus i pasek
+  są na ostatnio oglądanej, nie na tej, od której się zaczęło (Radix wracałby
+  na przycisk „CV” pierwszej osoby — `onCloseAutoFocus`).
+- W nagłówku „Przypisz do rekrutacji” przed „Pobierz” i imię osoby pod nazwą
+  pliku. Przycisk otwiera ten sam panel co „Rekrutacja” w wierszu
+  (`QuickAssignV2`) i zamyka okno CV, bo panel to Sheet (z-50), a okno to
+  Dialog (z-110) — panel byłby pod spodem. W oknie rekrutacji („Szukaj
+  ręcznie”) przycisku nie ma — tam wiersz ma własne „Dodaj”.
+- Obejrzane CV ma w wierszu ✓ (godzina w dymku), ostatnio oglądany wiersz pasek
+  z lewej. Pamięć karty (`readCvSeen` / `markCvSeen` w `lib/search-memory.ts`,
+  sessionStorage), nie serwer. Bez plakietki z napisem: przy 1280 px ścinała
+  nazwisko. Otwarcie CV nie zapisuje `lastOpenedId` listy (plakietka „Ostatnio
+  otwarta” zostaje dla powrotu z profilu).

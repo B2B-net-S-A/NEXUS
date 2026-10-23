@@ -99,6 +99,28 @@ export function clearListSearch(): void {
   }
 }
 
+// ── CV oglądane w tej karcie ───────────────────────────────────────────────
+// Rekruter przegląda CV z listy, zamyka okno i potem nie wie, czyje to było
+// (Michał W., 23.10.2026). Pamięć karty: id kandydata → kiedy otwarto CV.
+
+const CV_SEEN_KEY = "nexus.candidates.cvSeen";
+
+export function readCvSeen(): Record<number, number> {
+  const v = readJson(session(), CV_SEEN_KEY);
+  if (!isRecord(v)) return {};
+  const out: Record<number, number> = {};
+  for (const [id, at] of Object.entries(v)) {
+    if (typeof at === "number") out[Number(id)] = at;
+  }
+  return out;
+}
+
+export function markCvSeen(candidateId: number): Record<number, number> {
+  const next = { ...readCvSeen(), [candidateId]: Date.now() };
+  writeJson(session(), CV_SEEN_KEY, next);
+  return next;
+}
+
 // ── „Ostatnie wyszukiwania” ────────────────────────────────────────────────
 
 export interface RecentSearch {
