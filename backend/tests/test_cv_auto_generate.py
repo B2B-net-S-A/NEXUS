@@ -414,6 +414,57 @@ async def test_return_to_verified_with_the_same_cv_does_not_pay_twice(monkeypatc
     ]
 
 
+async def test_return_to_verified_does_not_reattach_a_discarded_cv(monkeypatch):
+    """Audyt 22.10 (F64, dopięcie): odrzucone auto-CV („Odrzuć to CV”) nie
+    wraca przy powrocie karty na „Zweryfikowany” jako szkic nowego etapu —
+    automat robi CV od nowa, bez pominięcia ``already_generated``."""
+    from app.models.cv_generated_document import DISCARDED_KEY
+
+    world = await _world()
+    calls = _fake_generator(monkeypatch)
+    attached: list[dict] = []
+
+    async def _attach(**kwargs):
+        attached.append(kwargs)
+        return True
+
+    monkeypatch.setattr(auto, "attach_as_stage_draft", _attach)
+    async with AsyncSessionLocal() as db:
+        first = await auto._enqueue(
+            db, stage_id=world["stage_id"], user_id=world["user_id"]
+        )
+        await db.execute(
+            update(CvGeneratedDocument)
+            .where(CvGeneratedDocument.stage_id == world["stage_id"])
+            .values(
+                status="ready",
+                render_payload={
+                    "name": "Auto CV",
+                    DISCARDED_KEY: "2026-10-22T10:00:00+00:00",
+                },
+            )
+        )
+        stage = CandidateStage(
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            stage=PipelineStage.verified,
+            moved_by=world["user_id"],
+        )
+        db.add(stage)
+        await db.commit()
+        new_stage_id = stage.id
+    async with AsyncSessionLocal() as db:
+        second = await auto._enqueue(
+            db, stage_id=new_stage_id, user_id=world["user_id"]
+        )
+
+    assert first is not None and second is not None
+    assert attached == [], "odrzucone CV wróciło jako szkic nowego etapu"
+    assert len(calls) == 2
+    events = await _events(world["job_id"])
+    assert all((e.details or {}).get("reason") != "already_generated" for e in events)
+
+
 async def test_database_enforces_the_idempotency_key():
     world = await _world()
 
@@ -648,6 +699,31 @@ async def test_kanban_card_says_auto_cv_is_ready_until_someone_approves_it(
     assert await _flag() is True
     await _approve(doc_id, world["user_id"])
     assert await _flag() is False
+
+
+@pytest.mark.asyncio
+async def test_discarded_auto_cv_is_not_ready_for_review_on_the_board():
+    """Audyt 22.10 (F64, dopięcie): po „Odrzuć to CV” karta nie świeci
+    „Auto-CV gotowe do przejrzenia” i generacja nie jest przypięta na liście."""
+    from app.models.cv_generated_document import DISCARDED_KEY
+    from app.services.cv_auto_review import job_stages_with_ready_auto_cv
+
+    world = await _world()
+    doc_id = await _auto_doc(world)
+    async with AsyncSessionLocal() as db:
+        assert world["stage_id"] in await job_stages_with_ready_auto_cv(
+            db, world["job_id"]
+        )
+        doc = await db.get(CvGeneratedDocument, doc_id)
+        doc.render_payload = {
+            **doc.render_payload,
+            DISCARDED_KEY: "2026-10-22T10:00:00+00:00",
+        }
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert world["stage_id"] not in await job_stages_with_ready_auto_cv(
+            db, world["job_id"]
+        )
 
 
 def test_kanban_flag_is_one_batched_query():

@@ -32,7 +32,9 @@ i dodatkowych notatek; domyślny plik = kopia „Oryginał CV” rekrutacji.
   (zapis jako notatka rekrutacji przed generacją, jak w oknie generatora;
   „Nie mam nic do dodania”). Kolejność dowolna; „Generuj” po trzech. Zmiana
   pliku albo treści notatki po potwierdzeniu zdejmuje potwierdzenie.
-  „Napisz od nowa” potwierdzeń nie ma — poprawia CV, które już powstało.
+  „Napisz od nowa” potwierdzeń nie ma — poprawia CV, które już powstało,
+  z jego pliku (`last_source_cv`, `rewriteSourceFileId`); plik domyślny tylko,
+  gdy tamten jest usunięty, nieaktualny, to „CV dla klienta” albo go nie znamy.
 - **Plik domyślny = kopia „Oryginał CV”** (`GET …/cv/ai-sources`, `_cv_files`
   w `api/cv_ai_sources.py`): plik profilu o tym samym SHA co kopia etapu (także
   z wiersza sprzed ruchu karty). Bez kopii — główne albo najnowsze CV
@@ -64,6 +66,17 @@ i dodatkowych notatek; domyślny plik = kopia „Oryginał CV” rekrutacji.
   `cv_document_versions`, dokument generatora w plikach kandydata. 409 przy
   innej rewizji, przy etapie bez CV i od „CV wysłane”
   (`client_cv_locked_after_send`). Pytanie przez `useConfirmV2`.
+- **Odrzucone CV nie jest już CV pary** (audyt 22.10.2026): wszystkie gotowe
+  generacje pary dostają `render_payload["discarded_at"]`
+  (`_mark_pair_generations_discarded`). Pomijają je fallbacki do „najnowszego
+  gotowego CV z generatora”: `move_requirements.company_cv_refs` (wymagania
+  ruchu, kolejki DL i Cpro), `dz_review._generated_cv` (QC CV) i karta —
+  `GET /generated` niesie `discarded`, a `resolveCvToClient` nie proponuje
+  takiego wiersza jako „Użyj tej wersji”. Nowa generacja jest znowu CV pary.
+  Odrzucone auto-CV nie czeka też na przegląd (`cv_auto_review.needs_review_clause`:
+  flaga `auto_cv_ready` na Tablicy, przypięcie na liście generatora, „CV do
+  sprawdzenia”), a przy powrocie karty na „Zweryfikowany” automat nie podpina
+  go jako szkicu nowego etapu (`cv_auto_generate._enqueue`) — robi CV od nowa.
 
 ## Czego nie zmienia
 

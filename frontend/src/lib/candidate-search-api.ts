@@ -376,7 +376,9 @@ export type BulkAddSource =
   | "recommendation"
   | "my_people"
   // 14.10.2026: „Pasuje też do” pod osobą dodaną do innej rekrutacji.
-  | "also_fits";
+  | "also_fits"
+  // 22.10.2026: zakładka „Podobni” na profilu kandydata.
+  | "similar_candidates";
 
 export interface BulkProposalsRequest {
   candidate_ids: number[];
@@ -394,6 +396,11 @@ export interface BulkProposalsRequest {
   source?: BulkAddSource | null;
   /** „Pasuje też do”: rekrutacja, przy której padła podpowiedź (historia i dzwonek). */
   origin_job_id?: number | null;
+  /**
+   * „Podobni”: zdanie „dlaczego mimo to” dla osoby bez umiejętności krytycznej
+   * (tylko przy `similar_candidates`; bez niego serwer odpowiada 422).
+   */
+  reasons?: Record<number, string>;
 }
 
 /**

@@ -30,14 +30,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.analytics.periods import ANALYTICS_TIMEZONE, PeriodError, resolve_period
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
+from app.core.scheduling import business_today, local_now
+from app.models.user import UserRole
 from app.services import competition_history
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
 from app.services.insights_competence_matrix import compute_competence_matrix
+from app.services.insights_in_flight import compute_in_flight
 from app.services.insights_person_scope import (
     OUTSIDE_SCOPE_LABEL,
     outside_scope_user_ids,
@@ -52,6 +56,11 @@ from app.services.insights_seniority_journal import (
     load_open_regressions,
 )
 from app.services.insights_team_activity import compute_team_activity
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +207,37 @@ CONVERSIONS: list[dict] = [
         "numerator": "hired",
         "denominator": "verified",
     },
+    # Akceptacje (22.10.2026): etap odnotowywany tylko na Tablicy, od 12.10.2026.
+    {
+        "key": "interview_to_acceptance",
+        "label": "Rozmowy u klienta → Akceptacje",
+        "numerator": "acceptance",
+        "denominator": "client_interview",
+    },
+    {
+        "key": "acceptance_to_hired",
+        "label": "Akceptacje → Zatrudnienia",
+        "numerator": "hired",
+        "denominator": "acceptance",
+    },
 ]
+
+# Etapy, które przed 12.10.2026 mają liczby z DynaReportera (widok
+# `analytics_kpi_milestones`). Pozostałe liczą się wyłącznie z Tablicy, więc
+# w oknie zaczynającym się wcześniej obejmują tylko jego część — i to musi
+# jechać w odpowiedzi, bo inaczej „0 akceptacji we wrześniu” czyta się jak
+# obserwacja, a to brak ewidencji.
+HISTORY_STAGES = frozenset({"verified", "cv_sent", "client_interview", "hired"})
+
+
+def stage_counted_from(stage: str, window_start: datetime) -> date | None:
+    """Dzień, od którego etap jest liczony w oknie (`None` = całe okno)."""
+
+    if stage in HISTORY_STAGES:
+        return None
+    if window_start >= competition_history.cutover_utc():
+        return None
+    return competition_history.RESULTS_CUTOVER
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
@@ -212,6 +251,10 @@ def _ratio(numerator: int, denominator: int) -> float | None:
     if denominator <= 0:
         return None
     return round(numerator / denominator * 100, 1)
+
+
+def _iso(day: date | None) -> str | None:
+    return day.isoformat() if day is not None else None
 
 
 def _resolve(kind: str, offset: int, anchor: date | None, date_from, date_to):
@@ -244,7 +287,7 @@ async def insights_recruitment_funnel(
 
     # Klucz cache'u NIESIE OKNO. Bez tego liczby jednego okresu wyszłyby pod
     # etykietą drugiego — i nikt by się nie dowiedział, bo obie są wiarygodne.
-    cache_key = f"insights:recruitment:funnel:v2:{resolved.cache_suffix}"
+    cache_key = f"insights:recruitment:funnel:v3:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -354,22 +397,30 @@ async def insights_recruitment_funnel(
                 "source": "milestones" if s["in_milestones"] else "stage_log",
                 # Udział względem najliczniejszego etapu — do szerokości paska.
                 "share_pct": _ratio(counts.get(s["stage"], 0), max_count),
+                # Etap liczony tylko od tego dnia (część okna) — `None` = całe.
+                "counted_from": _iso(stage_counted_from(s["stage"], resolved.start)),
             }
             for s in FUNNEL_STAGES
         ]
 
-        conversions = [
-            {
+        def _conversion(c: dict) -> dict:
+            numerator = counts.get(c["numerator"], 0)
+            denominator = counts.get(c["denominator"], 0)
+            # Etapy liczone z różnych części okna nie dają ilorazu: 0 akceptacji
+            # z 1–11.10 przeciw rozmowom z całego miesiąca to nie konwersja.
+            partial = stage_counted_from(
+                c["numerator"], resolved.start
+            ) != stage_counted_from(c["denominator"], resolved.start)
+            return {
                 "key": c["key"],
                 "label": c["label"],
-                "numerator": counts.get(c["numerator"], 0),
-                "denominator": counts.get(c["denominator"], 0),
-                "pct": _ratio(
-                    counts.get(c["numerator"], 0), counts.get(c["denominator"], 0)
-                ),
+                "numerator": numerator,
+                "denominator": denominator,
+                "pct": None if partial else _ratio(numerator, denominator),
+                "partial_window": partial,
             }
-            for c in CONVERSIONS
-        ]
+
+        conversions = [_conversion(c) for c in CONVERSIONS]
 
         result = {
             "period": resolved.as_payload(),
@@ -390,6 +441,79 @@ async def insights_recruitment_funnel(
         }
         await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
         return result
+
+
+@router.get("/in-flight")
+async def insights_recruitment_in_flight(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„W drodze” — co stoi dziś za weryfikacją i ile może z tego wpaść.
+
+    Liczby kolumn i prognoza — każdy, kto widzi Insights (jak lejek, bez
+    nazwisk). Lista akceptacji niesie klientów, rekrutacje i Delivery Leadów,
+    więc tylko z ``VIEW_TEAM_KPI`` (liderzy, Finanse, admin, Rada) — tak jak
+    tabela ludzi w widoku Zespół. Nazwisk kandydatów nie ma nigdy.
+    """
+    with_acceptances = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_TEAM_KPI
+    )
+    today = business_today()
+    scope = "list" if with_acceptances else "counts"
+    cache_key = f"insights:recruitment:in-flight:v1:{scope}:{today.isoformat()}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+        result = await compute_in_flight(
+            db,
+            today=today,
+            now=local_now(),
+            with_acceptances=with_acceptances,
+        )
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
+
+
+@router.get("/in-flight/me")
+async def insights_recruitment_in_flight_me(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    scope: str = Query("mine", pattern="^(mine|portfolio)$"),
+):
+    """„Moje osoby w drodze” do widoku „Mój miesiąc”.
+
+    ``mine`` — pary, które osoba zweryfikowała (zasługa jak w celach i
+    wyścigach); ``portfolio`` — rekrutacje Delivery Leada (tylko ta rola).
+    Nazwiska kandydatów jadą tylko z odczytem sekcji Rekrutacja — konto bez
+    niej dostaje same rekrutacje.
+    """
+    if scope == "portfolio" and not current_user.has_role(UserRole.delivery_lead):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Portfel rekrutacji ma tylko Delivery Lead.",
+        )
+    owner = (
+        ("delivery_lead", current_user.id)
+        if scope == "portfolio"
+        else ("verifier", current_user.id)
+    )
+    result = await compute_in_flight(
+        db,
+        today=business_today(),
+        now=local_now(),
+        with_acceptances=False,
+        owner=owner,
+        with_people=True,
+    )
+    if (
+        section_access_for_user(current_user, ProductSection.pipeline)
+        < SectionAccess.read
+    ):
+        for person in result["people"]:
+            person["candidate_id"] = None
+            person["candidate_name"] = None
+    return result
 
 
 @router.get("/available-periods")

@@ -3973,6 +3973,9 @@ async def export_candidates_v2(
             detail="candidate_ids must contain positive integers",
         )
 
+    # Liczba osób w pliku dla alarmu masowego pobierania (0508): eksport
+    # z filtrem ma zawsze puste ``candidate_ids`` (audyt 22.10, F24).
+    row_count = len(unique_ids)
     if payload.scope == "selected":
         if not unique_ids:
             raise HTTPException(
@@ -4015,6 +4018,7 @@ async def export_candidates_v2(
         )
         total_query = select(func.count()).select_from(query.order_by(None).subquery())
         total = int(await db.scalar(total_query) or 0)
+        row_count = total
         if total > payload.limit:
             raise HTTPException(
                 status_code=422,
@@ -4071,6 +4075,7 @@ async def export_candidates_v2(
             "format": payload.format,
             "scope": payload.scope,
             "selected_count": len(unique_ids),
+            "row_count": row_count,
             "limit": payload.limit,
         },
     )

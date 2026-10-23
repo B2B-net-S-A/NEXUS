@@ -589,3 +589,49 @@ async def test_pickers_are_for_handlers_and_carry_no_amounts(
     for path in ("/api/cases/assignees", "/api/cases/contract-options?q=ab"):
         refused = await app_client.get(path, headers=_headers(team["plain"]))
         assert refused.status_code == 403, path
+
+
+@pytest.mark.asyncio
+async def test_concurrent_take_with_same_version_ends_in_conflict(
+    app_client, modules_on, team
+) -> None:
+    """Audyt 22.10, F14: dwa równoległe „Weź” z tą samą wersją — drugie czeka
+    na blokadę wiersza, widzi nową wersję i dostaje konflikt (409), zamiast
+    po cichu nadpisać przypisanie."""
+
+    import asyncio
+    from datetime import datetime
+
+    from app.services.admin_cases import service
+
+    created = await _create(app_client, team["tcm"])
+    version = datetime.fromisoformat(created["updated_at"])
+    async with AsyncSessionLocal() as first, AsyncSessionLocal() as second:
+        case_a = await service.get_case(first, created["id"], lock=True)
+        waiting = asyncio.create_task(
+            service.get_case(second, created["id"], lock=True)
+        )
+        await asyncio.sleep(0.3)
+        assert not waiting.done()
+        await service.update_case(
+            first,
+            case_a,
+            actor=team["tcm"],
+            changes={"assignee_user_id": team["tcm"].id},
+            expected_updated_at=version,
+        )
+        await first.commit()
+        case_b = await waiting
+        with pytest.raises(service.CaseConflict):
+            await service.update_case(
+                second,
+                case_b,
+                actor=team["granted"],
+                changes={"assignee_user_id": team["granted"].id},
+                expected_updated_at=version,
+            )
+        await second.rollback()
+
+    async with AsyncSessionLocal() as db:
+        saved = await db.get(AdminCase, created["id"])
+    assert saved.assignee_user_id == team["tcm"].id

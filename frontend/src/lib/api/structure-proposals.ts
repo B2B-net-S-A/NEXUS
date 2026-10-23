@@ -189,6 +189,7 @@ function useAfterWrite(clientId: number) {
 
 export function useApplyManagers(clientId: number) {
   const after = useAfterWrite(clientId);
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (items: ManagerChoice[]) =>
       (
@@ -197,7 +198,14 @@ export function useApplyManagers(clientId: number) {
           { items },
         )
       ).data,
-    onSuccess: (result) => after(result.client),
+    onSuccess: (result) => {
+      after(result.client);
+      // Menedżer kontraktu widać też w Konsultantach, na tablicy (popyt) i w Klientach
+      // (audyt 22.10, F8).
+      void queryClient.invalidateQueries({ queryKey: careKeys.consultants });
+      void queryClient.invalidateQueries({ queryKey: ["care", "board"] });
+      void queryClient.invalidateQueries({ queryKey: ["care", "clients"] });
+    },
   });
 }
 

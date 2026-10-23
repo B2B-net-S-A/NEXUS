@@ -228,7 +228,10 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
     from app.api.cv_generator_b2b import enqueue_candidate_generation
     from app.models.candidate import Candidate
     from app.models.candidate_stage_cv import CandidateStageCV
-    from app.models.cv_generated_document import CvGeneratedDocument
+    from app.models.cv_generated_document import (
+        CvGeneratedDocument,
+        not_discarded_clause,
+    )
     from app.models.job import Job
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
     from app.models.user import User
@@ -311,6 +314,8 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
     # wersja CV) go nie łapał i automat płacił drugi raz za ten sam dokument.
     # Dokument dla tej samej osoby, rekrutacji i wersji CV (nieudany się nie
     # liczy) = pominięcie; gotowy podpinamy jako szkic nowego etapu.
+    # Odrzucony w karcie „CV do klienta” (audyt 22.10, F64) też się nie liczy:
+    # nie wraca jako szkic, automat robi CV od nowa.
     earlier = (
         await db.execute(
             select(CvGeneratedDocument.id, CvGeneratedDocument.status)
@@ -320,6 +325,7 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
                 CvGeneratedDocument.job_id == job.id,
                 CvGeneratedDocument.source_cv_revision == revision,
                 CvGeneratedDocument.status != "failed",
+                not_discarded_clause(),
             )
             .order_by(CvGeneratedDocument.id.desc())
             .limit(1)

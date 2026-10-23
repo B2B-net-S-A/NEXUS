@@ -141,3 +141,14 @@ class CvGeneratedDocument(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<CvGeneratedDocument id={self.id} name={self.candidate_name!r}>"
+
+
+# „Odrzuć to CV i zacznij od nowa” (audyt 22.10.2026, F64): dokument zostaje
+# w plikach kandydata, ale przestaje być CV pary — znacznik w `render_payload`
+# (bez migracji; `public_view` wybiera pola, więc klient go nie widzi).
+DISCARDED_KEY = "discarded_at"
+
+
+def not_discarded_clause():
+    """Dokument, którego nikt nie odrzucił w karcie „CV do klienta”."""
+    return CvGeneratedDocument.render_payload[DISCARDED_KEY].as_string().is_(None)

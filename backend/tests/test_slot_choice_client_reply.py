@@ -57,6 +57,14 @@ def test_no_reply_todo_without_the_flag_or_after_the_interview_started():
     )
 
 
+def test_no_reply_todo_when_the_interview_was_cancelled_in_the_calendar():
+    """Audyt 22.10, F33: odwołana rozmowa nie zostawia „Odpisz klientowi”."""
+    from dataclasses import replace
+
+    req = replace(_req(pending=True), event_id=7, event_cancelled=True)
+    assert "slots_reply" not in _kinds(PairSnapshot(1, 2, slot_request=req), user_id=22)
+
+
 def test_mark_client_replied_is_idempotent_and_needs_a_confirmed_request():
     req = ClientInterviewSlotRequest(status="confirmed", client_reply_pending=True)
     interview_slots.mark_client_replied(req, user_id=22)

@@ -132,9 +132,11 @@ def docker_exec(args: argparse.Namespace) -> list[str]:
     if not getattr(args, "_docker_command", None):
         raise CloneError("Local Docker target has not been verified")
     # Pin the daemon and container; clear libpq redirection inherited inside it.
-    return args._docker_command + ["exec", "-i", "-e", "PGHOSTADDR=", "-e", "PGSERVICE=",
-                                   "-e", "PGSERVICEFILE=", "-e", "PGOPTIONS=",
-                                   args.local_postgres_container]
+    # Empty PGSERVICE/PGSERVICEFILE values still ask libpq to load an empty
+    # service/file name. Remove inherited overrides from the child environment.
+    return args._docker_command + ["exec", "-i", args.local_postgres_container,
+                                   "env", "-u", "PGHOSTADDR", "-u", "PGSERVICE",
+                                   "-u", "PGSERVICEFILE", "-u", "PGOPTIONS"]
 
 
 def prepare_local_target(args: argparse.Namespace) -> None:

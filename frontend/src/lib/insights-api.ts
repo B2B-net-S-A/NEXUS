@@ -57,6 +57,11 @@ export interface FunnelStage {
    */
   mapped_from_traffit: boolean;
   share_pct: number | null;
+  /**
+   * Dzień, od którego etap jest liczony w tym oknie (np. akceptacje od
+   * 12.10.2026 — wcześniej nikt ich nie odnotowywał). `null` = całe okno.
+   */
+  counted_from: string | null;
 }
 
 export interface FunnelConversion {
@@ -64,8 +69,65 @@ export interface FunnelConversion {
   label: string;
   numerator: number;
   denominator: number;
-  /** `null` = zerowy mianownik, czyli luka. Nigdy nie mylić z 0. */
+  /** `null` = zerowy mianownik albo etapy z różnych części okna. Nigdy nie mylić z 0. */
   pct: number | null;
+  /** Licznik i mianownik liczone od różnych dni okna — ilorazu nie ma. */
+  partial_window: boolean;
+}
+
+/** `GET /api/insights/recruitment/in-flight` — stan na dziś za weryfikacją. */
+export interface InFlightColumn {
+  column: "cv_qc" | "cv_sent" | "client_interview" | "contract";
+  label: string;
+  count: number;
+  /** Ile par stoi w kolumnie dłużej niż `stale_days`. */
+  stale_count: number;
+  oldest_days: number | null;
+}
+
+export interface InFlightAcceptance {
+  job_id: number;
+  job_title: string;
+  client_id: number | null;
+  client_name: string | null;
+  delivery_lead_name: string | null;
+  stage_key: "acceptance" | "contract_sent" | "contract_signed";
+  stage_label: string;
+  since: string;
+  days: number;
+}
+
+export type InFlightScope = "mine" | "portfolio";
+
+/** Para w „Moje osoby w drodze” (`/in-flight/me`). */
+export interface InFlightPerson extends Omit<InFlightAcceptance, "stage_key"> {
+  column: InFlightColumn["column"];
+  stage_key: string;
+  /** `null` = konto bez odczytu sekcji Rekrutacja. */
+  candidate_id: number | null;
+  candidate_name: string | null;
+}
+
+export interface InFlightResponse {
+  asof: string;
+  stale_days: number;
+  columns: InFlightColumn[];
+  /** `null` = konto bez `view_team_kpi` (lista ma klientów i Delivery Leadów). */
+  acceptances: InFlightAcceptance[] | null;
+  /** Tylko `/in-flight/me` — własne pary osoby. */
+  people?: InFlightPerson[] | null;
+  forecast: {
+    open: number;
+    hired: number;
+    resolved: number;
+    min_sample: number;
+    since: string;
+    /** `null` = mniej niż `min_sample` rozstrzygniętych akceptacji. */
+    rate_pct: number | null;
+    low: number | null;
+    high: number | null;
+  };
+  definitions: Record<"columns" | "forecast", string>;
 }
 
 export interface FunnelCoverage {
@@ -373,6 +435,19 @@ export const insightsApi = {
     api
       .get<RecruitmentFunnelResponse>("/api/insights/recruitment/funnel", {
         params: periodQuery(p),
+      })
+      .then((r) => r.data),
+
+  inFlight: () =>
+    api
+      .get<InFlightResponse>("/api/insights/recruitment/in-flight")
+      .then((r) => r.data),
+
+  /** `mine` = pary, które zweryfikowałem; `portfolio` = rekrutacje Delivery Leada. */
+  inFlightMe: (scope: InFlightScope) =>
+    api
+      .get<InFlightResponse>("/api/insights/recruitment/in-flight/me", {
+        params: { scope },
       })
       .then((r) => r.data),
 
@@ -907,6 +982,7 @@ export interface InsightsCompetenceMatrixResponse {
 export interface HitRatioClosureRow {
   job_id: number;
   title: string;
+  client_id: number | null;
   client_name: string | null;
   close_reason: JobCloseReason | null;
   close_notes: string | null;
@@ -950,6 +1026,10 @@ export const insightsQueryKeys = {
     ["insights", "delivery-leads", "portfolio", p] as const,
   competenceMatrix: () =>
     ["insights", "recruitment", "competence-matrix"] as const,
+  // Stan na dziś — bez okresu w kluczu.
+  inFlight: () => ["insights", "recruitment", "in-flight"] as const,
+  inFlightMe: (scope: InFlightScope) =>
+    ["insights", "recruitment", "in-flight", "me", scope] as const,
   hitRatioClosures: () => ["insights", "hit-ratio-closures"] as const,
 };
 

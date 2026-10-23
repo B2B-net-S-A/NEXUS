@@ -1122,8 +1122,194 @@ async function generatedCvDocx(): Promise<Blob> {
 /** Skrzynka M365 niepodłączona — okno maila pokazuje drogę do Ustawień. */
 const M365_CONNECTION = { connected: false };
 
+// Zakładka „Podobni” (22.10.2026) — osoby fikcyjne.
+const similarPerson = (
+  id: number,
+  name: string,
+  lastname: string,
+  title: string,
+  extra: Record<string, unknown>,
+) => ({
+  id,
+  name,
+  lastname,
+  title,
+  company: null,
+  city: "Warszawa",
+  location: null,
+  years_it_experience: 7,
+  competence_category: "Software Development",
+  rate_hourly: 150,
+  rate_currency: "PLN",
+  availability_status: "actively_looking",
+  availability_date: null,
+  active_processes: 0,
+  score: 0.84,
+  level: "very",
+  shared_skills: ["java", "spring boot", "kafka", "postgresql"],
+  only_source_skills: ["aws", "kubernetes"],
+  only_candidate_skills: ["azure"],
+  duplicate_signals: [],
+  ...extra,
+});
+const SIMILAR = {
+  candidate_id: CANDIDATE_ID,
+  status: "ok",
+  total: 7,
+  source: {
+    ...similarPerson(CANDIDATE_ID, "Marta", "Kowalczyk", "Senior Java Developer", {}),
+    years_it_experience: 8,
+    rate_hourly: 120,
+    availability_status: "open_to_offers",
+    availability_date: "2026-10-01",
+    active_processes: 3,
+  },
+  items: [
+    // Drugi profil tej samej osoby: inny e-mail, to samo imię i telefon.
+    similarPerson(9100, "Marta", "Kowalczyk", "Senior Java Developer", {
+      score: 0.95,
+      years_it_experience: 8,
+      rate_hourly: 120,
+      availability_status: "unknown",
+      shared_skills: ["java", "spring boot", "kafka", "postgresql", "aws", "kubernetes"],
+      only_source_skills: [],
+      only_candidate_skills: [],
+      duplicate_signals: ["name", "phone"],
+    }),
+    similarPerson(9101, "Paweł", "Przykładowy", "Java Developer", {
+      score: 0.88,
+      shared_skills: ["java", "spring boot", "kafka", "postgresql", "docker"],
+      only_candidate_skills: ["azure", "terraform"],
+    }),
+    similarPerson(9102, "Karolina", "Testowa", "Backend Engineer", {
+      score: 0.83,
+      city: "Kraków",
+      rate_hourly: 175,
+      availability_status: "open_to_offers",
+    }),
+    similarPerson(9103, "Michał", "Wzorcowy", "Java Developer", {
+      score: 0.79,
+      level: "similar",
+      years_it_experience: 5,
+      rate_hourly: 120,
+      shared_skills: ["java", "spring boot", "hibernate"],
+    }),
+    similarPerson(9104, "Rafał", "Fikcyjny", "Software Engineer", {
+      score: 0.76,
+      level: "similar",
+      city: "Łódź",
+      rate_hourly: 140,
+      availability_status: "unknown",
+      shared_skills: ["java", "postgresql", "git"],
+    }),
+    similarPerson(9105, "Ewa", "Próbna", "Kotlin Developer", {
+      score: 0.72,
+      level: "similar",
+      active_processes: 1,
+      shared_skills: ["kafka", "docker"],
+    }),
+    similarPerson(9106, "Natalia", "Demo", "Full-stack Developer", {
+      score: 0.66,
+      level: "partial",
+      city: "Gdańsk",
+      rate_hourly: 130,
+      availability_status: "open_to_offers",
+      shared_skills: ["java"],
+    }),
+  ],
+};
+/** „Scal…” przy możliwym duplikacie (9100) — podgląd scalenia z fikcyjnymi danymi. */
+const MERGE_PREVIEW_9100 = {
+  survivor_id: CANDIDATE_ID,
+  duplicate_id: 9100,
+  survivor: { id: CANDIDATE_ID, name: "Marta", lastname: "Kowalczyk", email: "marta.kowalczyk@example.com", phone: "+48 000 000 107", city: "Warszawa", external_source: "manual", created_at: "2025-11-02T10:00:00Z", updated_at: "2026-10-20T08:00:00Z" },
+  duplicate: { id: 9100, name: "Marta", lastname: "Kowalczyk", email: "m.kowalczyk@example.com", phone: "+48 000 000 107", city: "Warszawa", external_source: "traffit", created_at: "2024-03-14T10:00:00Z", updated_at: "2025-09-21T08:00:00Z" },
+  fields: [
+    { field: "email", label: "E-mail", survivor: "marta.kowalczyk@example.com", duplicate: "m.kowalczyk@example.com", conflict: true, default: "survivor" },
+    { field: "phone", label: "Telefon", survivor: "+48 000 000 107", duplicate: "+48 000 000 107", conflict: false, default: "survivor" },
+  ],
+  references: [
+    { table: "notes", column: "candidate_id", rows: 4, conflicts: 0, unresolvable: false },
+    { table: "candidate_documents", column: "candidate_id", rows: 1, conflicts: 0, unresolvable: false },
+  ],
+  polymorphic: [{ table: "activities", rows: 6 }],
+  moved_rows: 11,
+  conflicts: 1,
+  blockers: [],
+  can_apply: true,
+  fingerprint: "0".repeat(64),
+};
+const MY_OPEN_JOBS = {
+  items: [
+    {
+      id: 601,
+      title: "Java Developer",
+      working_title: "Senior Java · Spring Boot · 6+ lat",
+      client_reference: "ZOB-3100",
+      client_name: "Ubezpieczenia Demo",
+    },
+  ],
+  total: 1,
+};
+/** Krytyczne rekrutacji i kto je spełnia (`POST …/similar/check`). */
+const SIMILAR_CRITICAL: Record<number, { labels: string[]; missing: Record<number, string[]> }> = {
+  501: { labels: ["Java", "Kafka"], missing: { 9103: ["Kafka"], 9104: ["Kafka"] } },
+  502: { labels: [], missing: {} },
+  503: { labels: ["Selenium"], missing: { 9101: ["Selenium"], 9102: ["Selenium"], 9103: ["Selenium"], 9104: ["Selenium"], 9105: ["Selenium"], 9106: ["Selenium"] } },
+  601: { labels: ["Spring Boot"], missing: { 9105: ["Spring Boot"], 9106: ["Spring Boot"] } },
+};
+
+function similarCheck(config: InternalAxiosRequestConfig) {
+  const body = (typeof config.data === "string" ? JSON.parse(config.data) : config.data) as {
+    job_ids: number[];
+    candidate_ids: number[];
+  };
+  return {
+    jobs: body.job_ids.map((jobId) => {
+      const rule = SIMILAR_CRITICAL[jobId] ?? { labels: [], missing: {} };
+      return {
+        job_id: jobId,
+        critical_labels: rule.labels,
+        candidates: body.candidate_ids.map((id) => {
+          const missing = rule.missing[id] ?? [];
+          return {
+            candidate_id: id,
+            critical: rule.labels.map((label) => ({
+              label,
+              status: missing.includes(label) ? "missing" : "met",
+              sources: missing.includes(label) ? [] : ["cv"],
+            })),
+            missing,
+            in_job:
+              jobId === 501 && id === 9102
+                ? { label: "Screening od 14.10.2026", column: "screening", closed: false }
+                : null,
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function similarScores(config: InternalAxiosRequestConfig) {
+  const body = (typeof config.data === "string" ? JSON.parse(config.data) : config.data) as {
+    candidate_ids: number[];
+  };
+  return {
+    scores: Object.fromEntries(body.candidate_ids.map((id, i) => [String(id), 82 - i * 6])),
+    breakdowns: {},
+  };
+}
+
+/** Odczyty wysyłane POST-em (nic nie zapisują) — reszta POST-ów dostaje 404. */
+const READ_ONLY_POSTS: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> = [
+  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/similar/check$`), similarCheck],
+  [/^\/api\/search\/candidates\/scores$/, similarScores],
+];
+
 /** Odpowiedzi lokalnego adaptera: [wzorzec ścieżki, dane]. */
 const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> = [
+  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/merge-preview$`), () => MERGE_PREVIEW_9100],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}$`), () => CANDIDATE],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/history$`), () => historyFor(variant.employed)],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/timeline`), () => TIMELINE],
@@ -1159,6 +1345,8 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
   [/^\/api\/cv-generator\/generated\/\d+\/docx$/, () => generatedCvDocx()],
   [/^\/api\/microsoft365\/connection$/, () => M365_CONNECTION],
   [/^\/api\/interview-feedback$/, () => []],
+  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/similar$`), () => SIMILAR],
+  [/^\/api\/jobs$/, () => MY_OPEN_JOBS],
 ];
 
 /**
@@ -1243,7 +1431,11 @@ function localResponse(config: InternalAxiosRequestConfig):
     };
   }
   const route =
-    method === "get" ? ROUTES.find(([pattern]) => pattern.test(path)) : undefined;
+    method === "get"
+      ? ROUTES.find(([pattern]) => pattern.test(path))
+      : method === "post"
+        ? READ_ONLY_POSTS.find(([pattern]) => pattern.test(path))
+        : undefined;
   if (!route) {
     const error = new AxiosError("preview: brak danych", "ERR_BAD_REQUEST");
     error.response = {

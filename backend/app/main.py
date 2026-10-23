@@ -134,6 +134,7 @@ from app.api import my_clients as my_clients_api
 from app.api import my_relationships as my_relationships_api
 from app.api import my_people as my_people_api
 from app.api import also_fits as also_fits_api
+from app.api import candidate_similar as candidate_similar_api
 from app.api import academy as academy_api
 from app.api import academy_edition as academy_edition_api
 from app.api import trainee as trainee_api
@@ -1385,6 +1386,9 @@ app.include_router(
     tags=["my-people"],
 )
 app.include_router(also_fits_api.router, prefix="/api", tags=["also-fits"])
+app.include_router(
+    candidate_similar_api.router, prefix="/api", tags=["candidate-similar"]
+)
 app.include_router(
     academy_api.router,
     prefix="/api/academy",

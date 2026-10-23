@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.contact import Contact
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_care import ClientFeedbackScore, ClientFeedbackSession
+from app.services.care import board_state
 from app.services.contract_care_schema import FEEDBACK_SCORE_FIELDS
 from app.services.hr import audit
 
@@ -146,6 +147,9 @@ async def save_feedback(
             "contract_ids": sorted(contract_ids),
         },
     )
+    # Klucz karty opinii jest per kontakt i wraca przy następnej prośbie —
+    # zapis opinii kończy życie jej stanu na tablicy (audyt 22.10, F2).
+    await board_state.clear(db, [f"feedback:{contact.id}"])
     return session
 
 

@@ -72,6 +72,13 @@ export function PrepQualitySection() {
               <span className="font-semibold tabular-nums">
                 {n(data.interviews_with_two_preps)} z {n(data.interviews)}
               </span>
+              {/* Rozmowy zapisane po fakcie nie miały szansy na prepy w NEXUSIE (F28). */}
+              {data.interviews_after_the_fact ? (
+                <span className="text-muted-foreground">
+                  {" "}
+                  · bez rozmów zapisanych po fakcie: {n(data.interviews_after_the_fact)}
+                </span>
+              ) : null}
             </p>
           ) : null}
           {viewState === "empty" ? (
@@ -197,7 +204,9 @@ export function Prep2SkipTable({
       </h3>
       <p className="mb-3 text-xs text-muted-foreground">
         „Z powodem” — rekruter zapisał powód i zadzwonił do kandydata przed rozmową. „Bez słowa” —
-        rozmowa się odbyła, prepów było mniej niż dwa i nikt nie zapisał dlaczego. Próg: powyżej{" "}
+        rozmowa się odbyła, prepów było mniej niż dwa i nikt nie zapisał dlaczego. „Zapisane po
+        fakcie” — rozmowę wpisano do NEXUSA dopiero po niej (pytania z datą wstecz, import z
+        notatek), więc nie dało się zaplanować prepów ani zapisać powodu. Próg: powyżej{" "}
         {pct(threshold)} rozmów z powodem.
       </p>
       <div className="overflow-x-auto">
@@ -215,6 +224,9 @@ export function Prep2SkipTable({
               </th>
               <th scope="col" className="py-2 pr-3 text-right font-medium">
                 Pominięte bez słowa
+              </th>
+              <th scope="col" className="py-2 pr-3 text-right font-medium">
+                Zapisane po fakcie
               </th>
               <th scope="col" className="py-2 font-medium">
                 Powody
@@ -261,6 +273,9 @@ export function Prep2SkipTable({
                   )}
                 >
                   {n(row.silent)}
+                </td>
+                <td className="py-1.5 pr-3 text-right tabular-nums text-muted-foreground">
+                  {n(row.after_the_fact ?? 0)}
                 </td>
                 <td className="py-1.5 text-xs text-muted-foreground">
                   {reasonsLine(row.reasons) || "—"}

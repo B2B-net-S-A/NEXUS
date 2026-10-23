@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import cache_get
 from app.core.scheduling import DEFAULT_TZ
+from app.models.client import Client
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 from app.models.contact import Contact
 from app.models.contract import Contract
@@ -122,26 +123,38 @@ async def _delivery_leads(
     out: dict[int, list[tuple[int, str]]] = defaultdict(list)
     if not client_ids:
         return out
+    # DL przypisany tylko do scalonego duplikatu jest DL-em klienta
+    # kanonicznego — jak na tablicy i w portfelu DL (audyt 22.10, F81).
+    canonical = {client_id: client_id for client_id in client_ids}
+    for duplicate_id, target_id in (
+        await db.execute(
+            select(Client.id, Client.merged_into_client_id).where(
+                Client.merged_into_client_id.in_(list(client_ids))
+            )
+        )
+    ).all():
+        canonical.setdefault(duplicate_id, target_id)
     rows = (
         await db.execute(
             select(DeliveryLeadClientAssignment.client_id, User)
             .join(User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id)
             .where(
-                DeliveryLeadClientAssignment.client_id.in_(list(client_ids)),
+                DeliveryLeadClientAssignment.client_id.in_(sorted(canonical)),
                 User.is_active.is_(True),
             )
             .order_by(
-                DeliveryLeadClientAssignment.client_id,
                 DeliveryLeadClientAssignment.is_head.desc(),
+                DeliveryLeadClientAssignment.client_id,
                 DeliveryLeadClientAssignment.id,
             )
         )
     ).all()
     for client_id, user in rows:
+        leads = out[canonical[client_id]]
         if user.has_role(UserRole.delivery_lead) and all(
-            uid != user.id for uid, _ in out[client_id]
+            uid != user.id for uid, _ in leads
         ):
-            out[client_id].append((user.id, user.name))
+            leads.append((user.id, user.name))
     return out
 
 
