@@ -185,8 +185,9 @@ PRESETS = {
     # Edytor CV 3, PR 4 — podpowiedzi pod polem asystenta.
     "more_requirements": (
         "Wyeksponuj to, co w CV odpowiada wymaganiom klienta: pogrub nazwy "
-        "wymagań, ustaw pasujące punkty wyżej i przeredaguj punkty tak, żeby "
-        "nazwy wymagań były widoczne. Nie dopisuj faktów."
+        "wymagań, które nie są jeszcze pogrubione (**x**), ustaw pasujące punkty "
+        "wyżej i przeredaguj punkty tak, żeby nazwy wymagań były widoczne. Nie "
+        "dopisuj faktów."
     ),
     "proofread": (
         "Popraw język i styl w całym CV: literówki, interpunkcja, pisownia nazw "
@@ -210,6 +211,8 @@ MSG_NO_DATES = (
     "Nie widzę dat przy stanowiskach (np. 03.2020 – obecnie), więc nie ułożę ich "
     "po kolei. Przestaw je ręcznie: kursor w stanowisku, „Więcej” → wyżej / niżej."
 )
+MSG_ALREADY_BOLD = "Te słowa już są pogrubione — nic nie zmieniłem."
+MSG_NOT_BOLD = "Te słowa nie są pogrubione — nic nie zmieniłem."
 MSG_NO_ROLES = (
     "Nie rozpoznaję stanowisk w tym CV, więc nie mogę ich przestawić. Przestaw "
     "je ręcznie: kursor w stanowisku, „Więcej” → wyżej / niżej."
@@ -223,6 +226,12 @@ _DROPPED_MESSAGES = {
 
 def dropped_message(dropped: list[dict]) -> str:
     """Zdanie dla planu, z którego nic nie przeszło — konkretne, gdy się da."""
+    # Same pogrubienia bez zmiany: to nie odmowa kontroli, tylko nic do zrobienia.
+    reasons = {item.get("reason") for item in dropped}
+    if reasons == {"already_bold"}:
+        return MSG_ALREADY_BOLD
+    if reasons == {"not_bold"}:
+        return MSG_NOT_BOLD
     for item in dropped:
         message = _DROPPED_MESSAGES.get(item.get("reason") or "")
         if message:
@@ -505,18 +514,33 @@ class _Plan:
         text, ask, problem = self._new_text(basis, op.get("text"))
         return _Change(ids, text, ask, problem)
 
-    def _terms(self, op: dict) -> tuple[str, ...]:
-        """Terminy do (od)pogrubienia — tylko te, które naprawdę stoją w CV."""
+    def _terms(self, op: dict, *, bold: bool) -> tuple[str, ...]:
+        """Terminy do (od)pogrubienia — tylko te, które naprawdę stoją w CV
+        i których pogrubienie coś zmieni.
+
+        Termin pogrubiony w każdym miejscu CV wypada z ``bold`` (a niepogrubiony
+        nigdzie — z ``unbold``). Zgłoszenie 23.10.2026: „Więcej o wymaganiach
+        klienta” na CV z generatora (wymagania już pogrubione) dawało plan bez
+        żadnej zmiany, a edytor mówił wtedy „CV zmieniło się w międzyczasie”.
+        """
         raw = op.get("terms")
         if not isinstance(raw, list) or not raw:
             raise _Dropped("unknown_term")
-        content = [
-            cv_selection_ai.plain(item.text).casefold()
+        texts = [
+            item.text
             for item in self.lines.values()
             if item.kind not in ("title", "heading")
             and not is_rodo_text(cv_selection_ai.plain(item.text))
         ]
+        content = [cv_selection_ai.plain(text).casefold() for text in texts]
+        # Tekst poza pogrubieniem i w pogrubieniu; odcinki rozdziela nowa linia,
+        # żeby „**Java** i **Spring**” nie dało terminu „Java Spring”.
+        outside = [re.sub(r"\*\*.*?\*\*", "\n", text).casefold() for text in texts]
+        inside = [
+            "\n".join(re.findall(r"\*\*(.*?)\*\*", text)).casefold() for text in texts
+        ]
         found: list[str] = []
+        unchanged = False
         for value in raw[:TERMS_MAX]:
             if not isinstance(value, str):
                 continue
@@ -526,17 +550,25 @@ class _Plan:
             folded = term.casefold()
             if folded in {t.casefold() for t in found}:
                 continue
-            if any(folded in text for text in content):
-                found.append(term)
+            if not any(folded in text for text in content):
+                continue
+            if not any(folded in text for text in (outside if bold else inside)):
+                unchanged = True
+                continue
+            found.append(term)
         if not found:
-            raise _Dropped("unknown_term")
+            raise _Dropped(
+                ("already_bold" if bold else "not_bold")
+                if unchanged
+                else "unknown_term"
+            )
         return tuple(found)
 
     def bold(self, op: dict) -> _Change:
-        return _Change([], terms=self._terms(op))
+        return _Change([], terms=self._terms(op, bold=True))
 
     def unbold(self, op: dict) -> _Change:
-        return _Change([], terms=self._terms(op))
+        return _Change([], terms=self._terms(op, bold=False))
 
     def considered_for(self, op: dict) -> _Change:
         """Cel rekrutacji w linii „Rozważany na stanowisko:” — bez kontroli faktów.

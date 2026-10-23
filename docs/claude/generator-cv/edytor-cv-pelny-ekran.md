@@ -1113,6 +1113,32 @@ planu. Rekruter pisze jak do czatu („rolę w Logistyce skróć do 3 punktów�
   zamienia stanowiska miejscami, a sama kolejność wystąpienia w całym CV
   wskazywała punkt w innym stanowisku — fakt lądował u innego pracodawcy),
   a gdy liczba wystąpień się zmieniła — „CV zmieniło się…”, bez zgadywania.
+- **„CV zmieniło się” tylko wtedy, gdy CV naprawdę się zmieniło** (zgłoszenie
+  rekrutera 23.10.2026: „Więcej o wymaganiach klienta” trzy razy z rzędu
+  kończyło się tym zdaniem na nieruszanym CV). Plan pogrubiał wymagania, które
+  już były pogrubione (CV z generatora), więc transakcja nic nie zmieniała,
+  `applyChanges` zwracał `null`, a każdy `null` był „zmianą CV” — i gubił
+  pytania z tej samej odpowiedzi. Teraz:
+  - edytor dzieli plan (`cv-editor-command.splitPlan`): operacja, której nie
+    umie nałożyć (`canApply`, np. przestawienie punktów z dwóch list), albo
+    która nic nie zmienia, wypada ze zdaniem w odpowiedzi („1 propozycja nic
+    by nie zmieniła (np. słowa już są pogrubione)”, „… edytor nie umie
+    nałożyć … zrób to ręcznie”), reszta planu i pytania idą dalej; operacje
+    idą po kolei, więc pogrubienie słowa z punktu dopisanego w tym samym
+    planie wchodzi,
+  - przyczyny mają osobne zdania: wiersza już nie ma → „CV zmieniło się…”,
+    szkic nie powstał (`ensureDraft` = `false`) → „Nie udało się założyć nowej
+    wersji CV — nic nie zmieniłem…”, nic do nałożenia → „Nic nie
+    zmieniłem. …”,
+  - serwer (`_terms`) nie przepuszcza `bold` terminu pogrubionego w każdym
+    miejscu CV (`already_bold`) ani `unbold` terminu nigdzie niepogrubionego
+    (`not_bold`); plan z samych takich odmów dostaje „Te słowa już są
+    pogrubione — nic nie zmieniłem.”, a edytor liczy je (i `unchanged`) jako
+    „nic by nie zmieniły”, nie „odrzuciła kontrola”. Podpowiedź
+    `more_requirements` mówi modelowi, żeby pogrubiał tylko niepogrubione.
+  Przestawienia punktów z dwóch list serwer nie odrzuca: wiersze w żądaniu nie
+  niosą granic list (pusty albo złożony punkt w liście ma ten sam rodzaj
+  `label` co etykieta między listami), więc tę odmowę mówi edytor.
 - **Zapis czeka na asystenta**: „Gotowe” i „Gotowe, przekaż do DL” są
   wyłączone, dopóki asystent liczy albo nakłada odpowiedź na pytanie.
   Odpowiedź, która przyjdzie po zablokowaniu edytora, nie wchodzi

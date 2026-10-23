@@ -11,6 +11,7 @@ import {
   commandLines,
   cvLines,
   setAssistantHighlight,
+  splitPlan,
   type CvLine,
 } from "../cv-editor-command";
 import { cvEditorExtensions, loadCvHtml } from "../cv-editor-structure";
@@ -382,5 +383,43 @@ describe("kolejność stanowisk", () => {
     expect(canApply(op(0, "reorder_roles", [12]), lines)).toBe(false);
     // Stanowisko usunięte w tym samym planie — kolejność nie zgadza się z CV.
     expect(applyChanges(editor.state, lines, [op(0, "reorder_roles", [12, 5]), op(1, "remove_role", [12, 13, 14])])).toBeNull();
+  });
+});
+
+// Zgłoszenie 23.10.2026: jedna jałowa albo nienakładalna operacja unieważniała
+// cały plan, a asystent mówił wtedy „CV zmieniło się w międzyczasie”.
+describe("splitPlan — operacje, które nic nie zmieniają albo których edytor nie nałoży", () => {
+  const bold = (id: number, terms: string[]): CvPlanOperation => ({ ...op(id, "bold", []), terms });
+
+  it("pogrubienie już pogrubionego słowa i przestawienie punktów z dwóch list wypadają, reszta wchodzi", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    const split = splitPlan(editor.state, lines, [
+      bold(0, ["Java 17"]),
+      op(1, "reorder", [14, 8]),
+      op(2, "replace", [9], "Planowanie sprintów w **Scrum**."),
+    ]);
+    expect(split.applied.map((item) => item.id)).toEqual([2]);
+    expect(split.idle.map((item) => item.id)).toEqual([0]);
+    expect(split.unsupported.map((item) => item.id)).toEqual([1]);
+    editor.view.dispatch(split.result!.transaction);
+    expect(editor.getHTML()).toContain("Planowanie sprintów w <strong>Scrum</strong>.");
+  });
+
+  it("nic do zrobienia: bez transakcji", () => {
+    const editor = open();
+    const split = splitPlan(editor.state, cvLines(editor.state.doc), [bold(0, ["Java 17"]), op(1, "replace", [9], "Udział w planowaniu sprintów.")]);
+    expect(split.result).toBeNull();
+    expect(split.idle.map((item) => item.id)).toEqual([0, 1]);
+  });
+
+  it("pogrubienie słowa z punktu dopisanego wcześniej w tym samym planie wchodzi", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    // „Kafka” stoi w CV tylko w linii technologii — po dopisaniu punktu jest i w nim.
+    const split = splitPlan(editor.state, lines, [op(0, "add", [10], "Przetwarzanie zdarzeń w Kafka."), bold(1, ["Kafka"])]);
+    expect(split.applied.map((item) => item.id)).toEqual([0, 1]);
+    editor.view.dispatch(split.result!.transaction);
+    expect(editor.getHTML()).toContain("Przetwarzanie zdarzeń w <strong>Kafka</strong>.");
   });
 });

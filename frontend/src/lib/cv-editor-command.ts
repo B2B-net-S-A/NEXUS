@@ -402,6 +402,46 @@ export function applyChanges(
   return { transaction: closeHistory(transaction), changed: changed.filter((range) => range.to > range.from) };
 }
 
+/** Plan podzielony na to, co edytor nałoży, i to, czego nałożyć nie umie albo co nic nie zmienia. */
+export interface CvPlanSplit {
+  /** Zmiana do nałożenia (wszystkie `applied` naraz) albo `null`, gdy nic nie weszło. */
+  result: { transaction: Transaction; changed: ChangedRange[] } | null;
+  applied: CvPlanOperation[];
+  /** Edytor nie umie nałożyć (`canApply`: np. punkty z dwóch list). */
+  unsupported: CvPlanOperation[];
+  /** Nic by nie zmieniła (np. pogrubienie słów, które już są pogrubione). */
+  idle: CvPlanOperation[];
+}
+
+/**
+ * Jak `applyChanges`, ale operacja, która nic nie zmienia albo której edytor
+ * nie umie nałożyć, wypada z planu zamiast unieważniać cały plan (zgłoszenie
+ * 23.10.2026: pogrubienie już pogrubionych wymagań kończyło się „CV zmieniło
+ * się w międzyczasie”). Operacje idą po kolei: każda wchodzi, gdy plan z nią
+ * daje inny dokument niż bez niej — pogrubienie liczone jest więc także na
+ * treści dopisanej wcześniejszymi operacjami. Wiersze muszą być bieżące —
+ * zmienione CV sprawdza wołający.
+ */
+export function splitPlan(state: EditorState, lines: readonly CvLine[], operations: readonly CvPlanOperation[]): CvPlanSplit {
+  const split: CvPlanSplit = { result: null, applied: [], unsupported: [], idle: [] };
+  let doc = state.doc;
+  for (const operation of operations) {
+    if (!canApply(operation, lines)) {
+      split.unsupported.push(operation);
+      continue;
+    }
+    const trial = applyChanges(state, lines, [...split.applied, operation]);
+    if (!trial || trial.transaction.doc.eq(doc)) {
+      split.idle.push(operation);
+      continue;
+    }
+    split.applied.push(operation);
+    split.result = trial;
+    doc = trial.transaction.doc;
+  }
+  return split;
+}
+
 // ── Podświetlenie zmian asystenta (Edytor CV 3, PR 4) ───────────────────────
 
 const highlightKey = new PluginKey<DecorationSet>("cvAssistantHighlight");
