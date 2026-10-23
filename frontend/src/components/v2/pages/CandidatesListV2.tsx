@@ -74,6 +74,8 @@ import {
   readListSearch,
   writeJobSearch,
   writeListSearch,
+  readCvSeen,
+  markCvSeen,
 } from "@/lib/search-memory";
 import { RecentSearchesMenu } from "@/components/v2/filters/RecentSearchesMenu";
 import {
@@ -103,6 +105,10 @@ import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summa
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { CandidateCvCell } from "@/components/v2/candidates/CandidateCvCell";
+import {
+  CandidateCvBrowser,
+  type CvBrowserPerson,
+} from "@/components/v2/candidates/CandidateCvBrowser";
 import { CandidatePhoneCell } from "@/components/v2/candidates/CandidatePhoneCell";
 import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProcessCell";
 import { AvailabilityPill } from "@/components/ds/AvailabilityPill";
@@ -1226,6 +1232,20 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  ? initialList.memory?.lastOpenedId ?? null
  : null,
  );
+ // CV oglądane w tej karcie: ✓ przy „CV” i pasek przy ostatnim (bez plakietki —
+ // ta ściskała nazwisko przy 1280 px).
+ const [cvSeen, setCvSeen] = useState<Record<number, number>>(() => readCvSeen());
+ const [lastCvId, setLastCvId] = useState<number | null>(() => {
+ const seen = Object.entries(cvSeen);
+ if (!seen.length) return null;
+ return Number(seen.reduce((a, b) => (b[1] > a[1] ? b : a))[0]);
+ });
+ const [cvPerson, setCvPerson] = useState<CvBrowserPerson | null>(null);
+ const [cvLoadingId, setCvLoadingId] = useState<number | null>(null);
+ const onCvOpened = (candidateId: number) => {
+ setCvSeen(markCvSeen(candidateId));
+ setLastCvId(candidateId);
+ };
  const scrollSavedAtRef = useRef(0);
  const onListScroll = (event: UIEvent<HTMLDivElement>) => {
  if (embed) return;
@@ -1460,6 +1480,23 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  useEffect(() => {
  virtualizer.measure();
  }, [virtualizer, data, hasSearchTerms]);
+ // Okno CV przechodzi po osobach z CV z bieżącej strony, w kolejności listy.
+ const cvPeople = useMemo<CvBrowserPerson[]>(
+ () =>
+ items
+ .filter((c) => c.has_cv_document ?? Boolean(c.cv_filename))
+ .map((c) => ({ id: c.id, name: candidateFullName(c) })),
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ [data],
+ );
+ const changeCvPerson = (person: CvBrowserPerson | null) => {
+ setCvPerson(person);
+ if (!person) return;
+ // Wiersz oglądanej osoby w zasięgu wirtualizacji — po zamknięciu okna
+ // fokus i pasek trafiają na niego, a nie na pierwszego otwartego.
+ const index = items.findIndex((c) => c.id === person.id);
+ if (index >= 0) virtualizer.scrollToIndex(index, { align: "center" });
+ };
 
  // Selection ---------------------------------------------------
  // `?sel=` odtwarza zaznaczenie po powrocie z porównania (UAT B21) — czytane
@@ -2597,7 +2634,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                           "group flex cursor-pointer flex-col overflow-clip border-b border-border transition-colors",
                           "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                           isNewMatch ? "bg-success-muted/40" : "bg-card",
-                          candidate.id === lastOpenedId && "bg-primary/5 shadow-[inset_3px_0_0_var(--primary)]",
+                          (candidate.id === lastOpenedId || candidate.id === lastCvId) &&
+                            "bg-primary/5 shadow-[inset_3px_0_0_var(--primary)]",
                           "hover:bg-muted/50",
                           isSelected && "bg-primary/5!",
                         )}
@@ -2757,9 +2795,11 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   return (
 <div className="min-w-0">
                             <CandidateCvCell
-                              candidateId={candidate.id}
                               candidateName={fullName}
                               hasCv={candidate.has_cv_document ?? Boolean(candidate.cv_filename)}
+                              seenAt={cvSeen[candidate.id] ?? null}
+                              loading={cvLoadingId === candidate.id}
+                              onOpen={() => setCvPerson({ id: candidate.id, name: fullName })}
                             />
                           </div>
                                   );
@@ -3059,6 +3099,25 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
           // Runda 10 (R10-N15-5): kolumna „W procesie” — jak profil i podgląd.
           if (assignFor) invalidateCandidateMutation(queryClient, assignFor.id, "assignment");
         }}
+      />
+
+      <CandidateCvBrowser
+        people={cvPeople}
+        current={cvPerson}
+        onChange={changeCvPerson}
+        onOpened={(person) => onCvOpened(person.id)}
+        onLoadingChange={setCvLoadingId}
+        onAssign={
+          embed
+            ? undefined
+            : (person) =>
+                setAssignFor({
+                  id: person.id,
+                  name: person.name,
+                  employment: items.find((c) => c.id === person.id)?.employment_marker,
+                })
+        }
+        focusPerson={(candidateId) => focusCandidateRow(candidateId)}
       />
 
       {/* Szybki podgląd kandydata. */}
