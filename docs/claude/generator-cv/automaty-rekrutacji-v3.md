@@ -52,7 +52,10 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   Wywrotka jednej rekrutacji nie blokuje następnej (`_skipped_tonight`).
 - **A. `version_trace.origin = "auto"`** (`candidate_search_store.is_auto_run`,
   `auto_origin_clause`; w `version_trace`, bo `metrics` nadpisuje telemetria):
-  autor = `recruiter_id` albo `tac_id` (brak obu = pominięcie), ale taki
+  autor = `recruiter_id`, `tac_id`, aktywne przypisanie rekrutera, Delivery
+  Lead, twórca (`_author_id`; brak wszystkich = pominięcie). Do 23.10.2026
+  rekrutacja bez `recruiter_id`/`tac_id` nie miała przeglądu w ogóle (133 z 203
+  w pracy) — silnik dopełniania „Nowych” potrzebuje puli każdej. Taki
   przegląd **nie zajmuje żadnego z dwóch slotów autora** (`start_search`),
   **nie jest chroniony przez retencję** (filtr stoi WEWNĄTRZ rankingu
   `protected_run_ids` — inaczej zdjąłby ochronę z ręcznego przeglądu tej samej
@@ -68,6 +71,14 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
   CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
   `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
+- **A. Pula dopełniania „Nowych” (0513, decyzja Artura 23.10.2026).** Najnowszy
+  przegląd rekrutacji w pracy (ten sam warunek co wygaszanie `expired`) zastępuje
+  `job_autofill_pool` rekrutacji: `AUTOFILL_POOL_SIZE` (150) najlepszych
+  `eligible ∧ measured`, z KAŻDYM wynikiem i bez `is_good_match` — silnik trzyma
+  „Nowych” na 20 także osobami poniżej progu. Dowody = same nazwy wymagań
+  (`matched_must`, `missing_must`). Pula przeżywa retencję przeglądu (2 dni) do
+  następnego przeglądu tej rekrutacji; przegląd bez wektora jej nie rusza.
+  Propozycje bez zmian. Wpis „Praca w tle” niesie `autofill_pool` (liczba).
 - **A. Znani zespołowi wyżej (decyzje Artura 07.10.2026, flaga
   `KNOWN_PEOPLE_BOOST_ENABLED`, domyślnie OFF).** `services/known_people_signal.py`:
   punkty za weryfikację (verified+) przy 25 najbardziej podobnych rekrutacjach

@@ -140,14 +140,13 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
   const failed = parts.find((part) => part.isError);
   const serverToday = data?.today ?? today;
   const todayInView = serverToday >= frame.start && serverToday <= frame.end;
-  // Chipy stanu: stan na dziś, gdy dziś jest w oknie; inaczej ktokolwiek w okresie.
-  const statusMonth = todayInView ? serverToday.slice(0, 7) : "-";
+  // Chipy stanu: stan na dziś, gdy dziś jest w oknie; inaczej ktokolwiek w oknie.
   const searched = (data?.people ?? []).filter((person) => matchesPerson(person, query));
   const people = status
-    ? searched.filter((person) => matchesStatusFilter(person, status, serverToday, statusMonth))
+    ? searched.filter((person) => matchesStatusFilter(person, status, serverToday, frame))
     : searched;
   const statusCount = (kind: "absent" | "remote") =>
-    searched.filter((person) => matchesStatusFilter(person, kind, serverToday, statusMonth)).length;
+    searched.filter((person) => matchesStatusFilter(person, kind, serverToday, frame)).length;
   const allSearched = (allData?.people ?? []).filter((person) => matchesPerson(person, query));
   const departmentOf = scope.startsWith("dept:") ? scope.slice(5) : null;
   const departments = [...(allData?.departments ?? [])];
@@ -403,7 +402,7 @@ function Legend({ withPresence }: { withPresence: boolean }) {
   );
 }
 
-/** Znacznik pracy zdalnej („Z”) albo delegacji („D”) — wyjątek obecności, nie nieobecność. */
+/** Znacznik pracy zdalnej („Z”) albo wyjazdu („W”) — wyjątek obecności, nie nieobecność. */
 function PresenceMark({ kind }: { kind: CalendarPresenceKind }) {
   return (
     <span

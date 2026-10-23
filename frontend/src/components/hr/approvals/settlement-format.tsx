@@ -34,6 +34,17 @@ export function ComparisonPill({ comparison }: { comparison: ApprovalComparison 
   );
 }
 
+/**
+ * Podpowiedź o terminie przy rozliczeniu: [pogrubiony początek, reszta].
+ * Zgoda „raz” bez dokumentu nie wygasa (decyzja Artura 22.10.2026) —
+ * delegacja czy szkolenie rozliczają się rachunkiem po wydarzeniu.
+ */
+export function expiryHint(row: Pick<ApprovalRequestRow, "recurrence">): [string, string] {
+  return row.recurrence === "once"
+    ? ["Zgoda nie wygasa", " — rachunek dołączysz także po wyjeździe czy szkoleniu."]
+    : ["Zgoda wygasa po 30 dniach", ", jeśli nic nie dołączysz — Finanse nie widzą wtedy „wiszącej” kwoty."];
+}
+
 /** Jedno zdanie: co dalej z rozliczeniem tej zgody. */
 export function settlementLine(row: ApprovalRequestRow, settlement: ApprovalSettlement): string {
   switch (settlement.status) {

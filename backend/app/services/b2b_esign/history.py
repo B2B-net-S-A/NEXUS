@@ -36,11 +36,18 @@ def esign_history(requests: Iterable[B2BSigningRequest]) -> list[EsignHistoryEnt
             )
         )
         if r.last_reminder_at is not None:
+            # Po podpisie kontraktora zamiatacz ponagla reprezentanta firmy.
+            to_company = (
+                r.contractor_signed_at is not None
+                and r.last_reminder_at > r.contractor_signed_at
+            )
             out.append(
                 EsignHistoryEntry(
                     f"esign-{r.id}-reminder",
                     r.last_reminder_at,
-                    "Przypomnienie do kontraktora",
+                    "Przypomnienie do podpisu za B2B Network"
+                    if to_company
+                    else "Przypomnienie do kontraktora",
                 )
             )
         if r.contractor_signed_at is not None:

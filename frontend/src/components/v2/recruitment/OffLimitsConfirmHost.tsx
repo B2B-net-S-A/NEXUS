@@ -40,6 +40,8 @@ type Choice = "self" | "left" | "us";
 
 interface PendingAsk {
   people: OffLimitsPerson[];
+  /** Partia dodaje też inne osoby — „Nie” tylko je pomija. */
+  othersInRequest: boolean;
   resolve: (answers: OffLimitsAnswers | null) => void;
 }
 
@@ -78,9 +80,12 @@ export function OffLimitsConfirmHost() {
   useEffect(
     () =>
       registerOffLimitsHost(
-        (people) =>
+        (people, options) =>
           new Promise<OffLimitsAnswers | null>((resolve) => {
-            setQueue((q) => [...q, { people, resolve }]);
+            setQueue((q) => [
+              ...q,
+              { people, othersInRequest: options?.othersInRequest ?? false, resolve },
+            ]);
           }),
       ),
     [],
@@ -99,7 +104,7 @@ export function OffLimitsConfirmHost() {
   );
 
   if (!current) return null;
-  const { people } = current;
+  const { people, othersInRequest } = current;
   const single = people.length === 1 ? people[0] : null;
   const answers = answersFromState(people, state);
   const nobodyAdded =
@@ -233,7 +238,7 @@ export function OffLimitsConfirmHost() {
             Anuluj
           </Button>
           <Button disabled={answers === null} onClick={() => finish(answers)}>
-            {nobodyAdded ? "Nie dodawaj" : "Dodaj"}
+            {nobodyAdded ? (othersInRequest ? "Pomiń te osoby" : "Nie dodawaj") : "Dodaj"}
           </Button>
         </DialogFooter>
       </DialogContent>

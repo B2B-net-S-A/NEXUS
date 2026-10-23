@@ -250,11 +250,13 @@ CONSTRAINT_DDL: tuple[str, ...] = (
 )
 
 #: Zgody zatwierdzone przed etapem 3 dostają rozliczenie (wydatek raz = do
-#: rozliczenia z terminem 30 dni od decyzji, cykliczny = w rejestrze).
+#: rozliczenia bez terminu — decyzja Artura 22.10.2026; cykliczny = w rejestrze
+#: z terminem 30 dni od decyzji).
 DATA_DDL: tuple[str, ...] = (
     "UPDATE approval_requests SET "
     "settlement_status = CASE WHEN recurrence = 'once' THEN 'open' ELSE 'active' END, "
-    f"expires_on = (decided_at AT TIME ZONE 'Europe/Warsaw')::date + {EXPIRY_DAYS} "
+    "expires_on = CASE WHEN recurrence = 'once' THEN NULL ELSE "
+    f"(decided_at AT TIME ZONE 'Europe/Warsaw')::date + {EXPIRY_DAYS} END "
     "WHERE status = 'approved' AND kind <> 'bonus' AND settlement_status IS NULL",
 )
 TABLES: tuple[str, ...] = ("approval_documents", "approval_fixed_cost_sellers")

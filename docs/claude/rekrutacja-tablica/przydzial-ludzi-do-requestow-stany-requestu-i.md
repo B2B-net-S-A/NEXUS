@@ -113,6 +113,15 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   `board_column_for`). Do 21.10.2026 licznik czytał sam kod etapu, więc
   „Po Interview” (kod `interview`) nie był liczony, a „Rezerwa” (kod
   `cv_sent`) była.
+- **„Zweryf.” i „QC CV” obok „Wysłani”** (23.10.2026, prośba Head of
+  Recruitment, wariant 1A z makiet
+  https://claude.ai/artifact/EpgxNpGii158FV3mXdrcVN): `verified` i `cv_qc`
+  w `GET /api/request-board` = osoby, których karta stoi TERAZ w kolumnie
+  „Zweryfikowany” / „QC CV” (z kolejką Cpro), ta sama reguła co „Wysłani”
+  (`job_similarity.board_column_counts`). Nie licznik narastający — po
+  wysyłce osoba przechodzi z „QC CV” do „Wysłani”. Kolumny stoją w każdej
+  szerokości tabeli, więc progi `rtable` to 820 / 1120 px, a „Obłożenie”
+  staje z boku od 1140 px pulpitu.
 
 ## „Nowe rekrutacje P1 — kto prowadzi” i obłożenie P1 (D1–D7, 14.10.2026)
 

@@ -20,6 +20,10 @@ przeszedł staging. Plan z etapami: `docs/staging-laptop-plan.md`.
   (age + B2) → baza, uploady, Qdrant; potem `sanitize.sql`. Korpus CV z bucketu
   produkcji kluczem tylko do odczytu (`CV_SOURCE_*`, decyzja Artura 22.10.2026),
   bo lustro w B2 ma dzienny limit pobrań klasy B.
+  Bucket `nexus-candidate-documents` w lokalnym S3 skrypt zakłada z
+  `RCLONE_S3_NO_CHECK_BUCKET=false`: przy `true` (ustawionym w skrypcie
+  dla całego biegu) `rclone mkdir` go nie tworzy i na świeżym wolumenie
+  sync kończy się samymi `NoSuchBucket` bez skopiowanego pliku.
   Klucz prywatny age bierze z pęku kluczy macOS (`nexus-backup-age`).
 - `scripts/staging/env.staging.example` — wzór `.env.staging.local`.
 

@@ -30,6 +30,13 @@
    "b_home": "Nagłówek, menu „Eksport”"
   },
   {
+   "id": "k.export-placements",
+   "opis": "Eksport „Placementy” — kontrakty ze startem w okresie w układzie arkusza Delivery (DL, rekruter, akceptacja, podpis, premia)",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Placementy (.xlsx)",
+   "b_home": "Nagłówek, menu „Eksport”"
+  },
+  {
    "id": "k.new",
    "opis": "Nowy kontrakt",
    "file": "components/v2/pages/ContractsListV2.tsx",

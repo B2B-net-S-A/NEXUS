@@ -465,31 +465,31 @@ export type CalendarStatusFilter = "all" | "absent" | "remote";
 
 /**
  * Filtr „wszyscy / nieobecni / zdalnie” (Compass `VacationCalendar`): gdy
- * dziś jest w oglądanym miesiącu — stan na dziś, inaczej — ktokolwiek
- * w miesiącu (przeglądanie innych miesięcy nie daje pustej listy).
- * Delegacja liczy się do „nieobecnych” (poza biurem, jak „OOO” w Compassie).
+ * dziś jest w oglądanym oknie (miesiąc albo dwa tygodnie) — stan na dziś,
+ * inaczej — ktokolwiek w tym oknie (przeglądanie innych okresów nie daje
+ * pustej listy). Dane przychodzą całymi miesiącami, więc wpisy spoza okna
+ * odcinamy datami. Delegacja liczy się do „nieobecnych” (poza biurem, jak
+ * „OOO” w Compassie).
  */
 export function matchesStatusFilter(
   person: TeamCalendarPerson,
   filter: CalendarStatusFilter,
   today: string,
-  month: string,
+  window: { start: string; end: string },
 ): boolean {
   if (filter === "all") return true;
-  const todayInView = today.startsWith(month);
+  const todayInView = window.start <= today && today <= window.end;
+  const from = todayInView ? today : window.start;
+  const to = todayInView ? today : window.end;
   const presence = person.presence ?? [];
+  const onDay = (date: string) => from <= date && date <= to;
   if (filter === "remote") {
-    return presence.some(
-      (item) => item.kind === "remote" && (!todayInView || item.date === today),
-    );
+    return presence.some((item) => item.kind === "remote" && onDay(item.date));
   }
-  const trip = presence.some(
-    (item) => item.kind === "business_trip" && (!todayInView || item.date === today),
-  );
+  const trip = presence.some((item) => item.kind === "business_trip" && onDay(item.date));
   const absent = person.absences.some(
     (absence) =>
-      absence.status === "approved" &&
-      (!todayInView || (absence.start_date <= today && today <= absence.end_date)),
+      absence.status === "approved" && absence.start_date <= to && from <= absence.end_date,
   );
   return trip || absent;
 }

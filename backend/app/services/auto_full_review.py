@@ -265,7 +265,10 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
             # 0371: „Klient milczy” i „Zakończony” to requesty, nad którymi
             # nikt nie pracuje — nocny limit przeglądów idzie na te w pracy.
             Job.work_state.in_(IN_WORK_STATES),
-            or_(Job.recruiter_id.is_not(None), Job.tac_id.is_not(None)),
+            # Bez warunku „ma rekrutera” (23.10.2026): 133 z 203 rekrutacji
+            # w pracy nie miało nikogo w `recruiter_id`/`tac_id`, a silnik
+            # dopełniania „Nowych” potrzebuje puli każdej. Autora wybiera
+            # `_author_id`.
             ~ran_tonight,
         )
         # Zdarzenie od ostatniego przeglądu (albo stara wersja reguł) pierwsze,
@@ -295,7 +298,36 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
 
 
 async def _author_id(db, job: Job) -> Optional[int]:
-    wanted = [uid for uid in (job.recruiter_id, job.tac_id) if uid]
+    """Autor przeglądu to tylko wymagany klucz obcy: przegląd automatyczny nie
+    zajmuje slotu autora, nie dzwoni do niego i czyta go cały zespół.
+
+    Kolejność (23.10.2026): prowadzący, aktywne przypisanie rekrutera
+    (najstarsze), Delivery Lead, twórca rekrutacji."""
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    assignees = (
+        await db.scalars(
+            select(JobWorkAssignment.user_id)
+            .where(
+                JobWorkAssignment.job_id == job.id,
+                JobWorkAssignment.state == "active",
+            )
+            .order_by(JobWorkAssignment.assigned_at, JobWorkAssignment.id)
+        )
+    ).all()
+    wanted = list(
+        dict.fromkeys(
+            uid
+            for uid in (
+                job.recruiter_id,
+                job.tac_id,
+                *assignees,
+                job.delivery_lead_id,
+                job.created_by,
+            )
+            if uid
+        )
+    )
     if not wanted:
         return None
     active = set(
@@ -725,6 +757,82 @@ async def publish_run_proposals(
     return published
 
 
+# Pula dopełniania „Nowych” (0513, decyzja Artura 23.10.2026): najlepsi
+# z przeglądu z KAŻDYM wynikiem, bo silnik trzyma „Nowych” na 20 także osobami
+# poniżej progu propozycji. Zapas ponad 20 na wykluczenia (osoby już
+# w rekrutacji, pominięte propozycje, „Nie szuka pracy”).
+AUTOFILL_POOL_SIZE = 150
+
+
+async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
+    """Zastąp pulę rekrutacji najlepszymi wynikami tego przeglądu. Bez commitu.
+
+    Ten sam filtr co propozycje (dopuszczony, oceniony, zmierzony), bez progu
+    i bez ``is_good_match``. Dowody = same nazwy wymagań, jak w propozycjach.
+    """
+    from sqlalchemy import delete, insert
+
+    from app.models.job_autofill_pool import JobAutofillPool
+    from app.services.auto_match_outbox import candidate_revision
+
+    if run.job_id is None:
+        return 0
+    rows = (
+        await db.execute(
+            select(
+                CandidateSearchResult.candidate_id,
+                CandidateSearchResult.fit_score,
+                CandidateSearchResult.evidence,
+            )
+            .where(
+                CandidateSearchResult.run_id == run.id,
+                CandidateSearchResult.state == "evaluated",
+                CandidateSearchResult.eligible.is_(True),
+                CandidateSearchResult.measurement == "measured",
+                CandidateSearchResult.fit_score.is_not(None),
+            )
+            .order_by(
+                CandidateSearchResult.fit_score.desc(),
+                CandidateSearchResult.candidate_id,
+            )
+            .limit(AUTOFILL_POOL_SIZE)
+        )
+    ).all()
+    candidates = {
+        c.id: c
+        for c in (
+            await db.scalars(
+                select(Candidate).where(Candidate.id.in_([r[0] for r in rows]))
+            )
+        ).all()
+    }
+    payload = []
+    for candidate_id, score, evidence in rows:
+        candidate = candidates.get(candidate_id)
+        if candidate is None:
+            continue
+        requirements = (evidence or {}).get("requirements") or []
+        payload.append(
+            {
+                "job_id": run.job_id,
+                "candidate_id": candidate_id,
+                "score": round(float(score), 2),
+                "run_id": run.id,
+                "cv_revision": candidate_revision(candidate),
+                "evidence": {
+                    "matched_must": _requirement_names(requirements, met=True),
+                    "missing_must": _requirement_names(requirements, met=False),
+                },
+            }
+        )
+    await db.execute(
+        delete(JobAutofillPool).where(JobAutofillPool.job_id == run.job_id)
+    )
+    if payload:
+        await db.execute(insert(JobAutofillPool), payload)
+    return len(payload)
+
+
 async def _newest_result_run(db, run: CandidateSearchRun) -> bool:
     """Czy to najnowszy przegląd automatyczny tej rekrutacji z wynikami.
 
@@ -859,6 +967,7 @@ async def _publish(db, run: CandidateSearchRun, *, eligible: Optional[int]) -> i
     # rozstrzyga `expire_full_base` per osoba: osoby bez oceny zostają, więc
     # niepełny przegląd też porządkuje tych, których ocenił (przegląd #2058).
     expired = 0
+    pool = None
     if (
         newest
         and run.job_id is not None
@@ -867,12 +976,14 @@ async def _publish(db, run: CandidateSearchRun, *, eligible: Optional[int]) -> i
         from app.services.job_proposals import expire_full_base
 
         expired = await expire_full_base(db, job_id=run.job_id, run_id=run.id)
+        pool = await refresh_autofill_pool(db, run)
     # Po `finish_run` telemetria już nie nadpisuje `metrics`.
     metrics = {**(run.metrics or {}), PROPOSALS_METRIC: count}
     details = {
         "run_id": run.id,
         "proposals": count,
         "expired": expired,
+        "autofill_pool": pool,
         "eligible": eligible,
         "state": run.state,
         # Pamięć automatu po retencji przeglądu (runda 6 audytu).

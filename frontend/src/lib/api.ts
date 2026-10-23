@@ -19,6 +19,7 @@ import {
   OFF_LIMITS_HEADER,
   offLimitsDeclinedMessage,
   offLimitsHeaderValue,
+  offLimitsOthersInRequest,
   offLimitsPeopleFrom,
 } from "./off-limits";
 import type {
@@ -263,8 +264,11 @@ api.interceptors.response.use(
     if (!config || !people || config._offLimitsAsked || typeof window === "undefined") {
       return Promise.reject(err);
     }
-    const answers = await askOffLimits(people);
-    const header = answers ? offLimitsHeaderValue(answers) : null;
+    // Partia (audyt 22.10.2026): „Nie” przy osobach z okna nie zatrzymuje
+    // reszty — serwer wpisze je do `skipped`, pozostałe doda.
+    const othersInRequest = offLimitsOthersInRequest(config.data, people);
+    const answers = await askOffLimits(people, { othersInRequest });
+    const header = answers ? offLimitsHeaderValue(answers, othersInRequest) : null;
     if (!header) {
       if (err.response) {
         err.response.data = {
@@ -3975,6 +3979,8 @@ export interface B2BGeneratedContractRow {
   } | null;
   can_send_esign?: boolean;
   can_withdraw_esign?: boolean;
+  /** Czy to konto pobierze plik podpisany przez obie strony w NEXUSIE. */
+  can_download_signed_esign?: boolean;
   can_delete: boolean;
   can_edit: boolean;
   can_download: boolean;

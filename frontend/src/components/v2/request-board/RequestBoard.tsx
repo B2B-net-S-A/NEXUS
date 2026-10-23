@@ -89,28 +89,30 @@ import { RequestBoardFilters } from "./RequestBoardFilters"
 // szerokości dużego monitora. Dwa nazwane kontenery:
 //
 //  `rboard` (cały pulpit) — gdzie stoją „Obłożenie” i „Zmiany od wczoraj”:
-//    · od 1040 px po prawej (kolumna 300 px; tabeli zostaje ≥ 724 px, czyli
+//    · od 1140 px po prawej (kolumna 300 px; tabeli zostaje ≥ 824 px, czyli
 //      mieści się bez przewijania),
-//    · 640–1039 px pod tabelą, obok siebie,
+//    · 640–1139 px pod tabelą, obok siebie,
 //    · poniżej 640 px pod tabelą, jedno pod drugim.
 //
 //  `rtable` (sama tabela) — ile kolumn:
-//    · poniżej 700 px: cztery kolumny o stałej szerokości (razem 700 px),
+//    · poniżej 820 px: sześć kolumn o stałej szerokości (razem 820 px),
 //      tabela przewija się w poziomie, pierwsza kolumna jest przyklejona;
-//    · 700–1059 px: cztery kolumny elastyczne; Kategoria, Delivery Lead
+//    · 820–1119 px: sześć kolumn elastycznych; Kategoria, Delivery Lead
 //      i „Otwarta” stoją drobnym drukiem pod tytułem;
-//    · od 1060 px: siedem kolumn jak na liście rekrutacji. Próg = pięć kolumn
-//      stałych (480 px) + odstępy i marginesy (104 px) + minimum na tytuł
-//      (260 px) i osoby (220 px).
+//    · od 1120 px: dziewięć kolumn jak na liście rekrutacji. Próg = siedem
+//      kolumn stałych (572 px) + odstępy i marginesy (128 px) + minimum na
+//      tytuł (225 px) i osoby (195 px).
+// „Zweryf.” i „QC CV” obok „Wysłani” (23.10.2026, prośba Head of Recruitment)
+// stoją w każdej szerokości — progi przesunęły się o ich szerokość.
 const GRID_COLS =
-  "grid-cols-[192px_104px_92px_276px] @min-[700px]/rtable:grid-cols-[minmax(0,2fr)_104px_92px_minmax(0,1.6fr)] @min-[1060px]/rtable:grid-cols-[minmax(0,2fr)_84px_116px_84px_104px_92px_minmax(0,1.7fr)]"
+  "grid-cols-[192px_104px_56px_56px_92px_260px] @min-[820px]/rtable:grid-cols-[minmax(0,2fr)_104px_56px_56px_92px_minmax(0,1.6fr)] @min-[1120px]/rtable:grid-cols-[minmax(0,2fr)_84px_104px_84px_104px_56px_56px_92px_minmax(0,1.7fr)]"
 /** Komórka kolumny, która istnieje dopiero w szerokiej tabeli. */
-const WIDE_ONLY = "hidden @min-[1060px]/rtable:block"
+const WIDE_ONLY = "hidden @min-[1120px]/rtable:block"
 /** Ta sama informacja drobnym drukiem pod tytułem — znika, gdy ma własną kolumnę. */
-const FOLDED_ONLY = "@min-[1060px]/rtable:hidden"
+const FOLDED_ONLY = "@min-[1120px]/rtable:hidden"
 /** Pierwsza kolumna przyklejona tam, gdzie tabela przewija się w poziomie. */
 const STICKY_FIRST =
-  "@max-[699px]/rtable:sticky @max-[699px]/rtable:left-0 @max-[699px]/rtable:z-10 @max-[699px]/rtable:border-r @max-[699px]/rtable:border-border/60 @max-[699px]/rtable:bg-card"
+  "@max-[819px]/rtable:sticky @max-[819px]/rtable:left-0 @max-[819px]/rtable:z-10 @max-[819px]/rtable:border-r @max-[819px]/rtable:border-border/60 @max-[819px]/rtable:bg-card"
 
 export function warsawToday(now: Date = new Date()): string {
   return now.toLocaleDateString("sv-SE", { timeZone: "Europe/Warsaw" })
@@ -432,6 +434,12 @@ function RequestRow({
       <div className="self-center py-2">
         <JobDeadlineCell deadline={request.deadline} now={now} />
       </div>
+      <div className="self-center" data-testid="request-verified-cell">
+        <span className="font-mono tabular-nums">{request.verified ?? 0}</span>
+      </div>
+      <div className="self-center" data-testid="request-cv-qc-cell">
+        <span className="font-mono tabular-nums">{request.cv_qc ?? 0}</span>
+      </div>
       <div className="flex items-center gap-2 self-center">
         <span className="font-mono tabular-nums">{request.sent}</span>
         {request.champion && <Badge variant="success">Champion</Badge>}
@@ -584,7 +592,7 @@ export function RequestBoardView({
         </div>
       )}
 
-      <div className="flex flex-col gap-4 @min-[1040px]/rboard:flex-row @min-[1040px]/rboard:items-start">
+      <div className="flex flex-col gap-4 @min-[1140px]/rboard:flex-row @min-[1140px]/rboard:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <RequestBoardFilters
             board={board}
@@ -597,7 +605,7 @@ export function RequestBoardView({
           {/* `relative`: nazwy dla czytników ekranu w komórkach są pozycjonowane
               absolutnie i mają zostać w obrębie przewijanej tabeli. */}
           <div className="@container/rtable relative overflow-x-auto rounded-lg border border-border bg-card">
-            <div className="min-w-[700px] @min-[700px]/rtable:min-w-0">
+            <div className="min-w-[820px] @min-[820px]/rtable:min-w-0">
               <div
                 className={cn(
                   "grid gap-x-3 border-b border-border text-xs font-semibold uppercase tracking-wide text-muted-foreground",
@@ -609,6 +617,12 @@ export function RequestBoardView({
                 <div className={cn(WIDE_ONLY, "py-2")}>Delivery Lead</div>
                 <div className={cn(WIDE_ONLY, "py-2")}>Otwarta</div>
                 <div className="py-2">Termin</div>
+                <div className="py-2" title="Stoją teraz w kolumnie „Zweryfikowany”">
+                  Zweryf.
+                </div>
+                <div className="py-2" title="Stoją teraz w kolumnie „QC CV”">
+                  QC CV
+                </div>
                 <div className="py-2">Wysłani</div>
                 <div className="py-2 pr-4">Rekruter</div>
               </div>
@@ -650,7 +664,7 @@ export function RequestBoardView({
         {/* Na daily „Zmiany od wczoraj” stoją na górze — z boku tylko obłożenie. */}
         <aside
           className={cn(
-            "grid w-full gap-4 @min-[1040px]/rboard:w-[300px] @min-[1040px]/rboard:shrink-0 @min-[1040px]/rboard:grid-cols-1",
+            "grid w-full gap-4 @min-[1140px]/rboard:w-[300px] @min-[1140px]/rboard:shrink-0 @min-[1140px]/rboard:grid-cols-1",
             !daily && "@min-[640px]/rboard:grid-cols-2",
           )}
         >

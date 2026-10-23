@@ -10,12 +10,17 @@
 // (`withoutToCompleteLists`). Szeroki kafelek ma listy obok siebie, wąski —
 // przełącznik i jedną listę naraz. Listy odznaczone w „Listy nad pulpitem”
 // są tu puste, tak jak w panelu.
+//
+// Prepy przed rozmową u klienta (23.10.2026, wariant 2A z makiet
+// https://claude.ai/artifact/EpgxNpGii158FV3mXdrcVN) stoją pierwsze: mają
+// termin. W szerokim kafelku zajmują lewą kolumnę, reszta list — prawą.
 
 import { useMemo, useState, type ReactNode } from "react"
 
 import { Skeleton } from "@/components/ui/skeleton"
 import { AgreementTasksSection } from "@/components/v2/dashboard/AgreementTasksSection"
 import { PendingJobsSection } from "@/components/v2/dashboard/PendingJobsSection"
+import { PrepAttentionSection } from "@/components/v2/dashboard/PrepAttentionSection"
 import { RequirementFixesSection } from "@/components/v2/dashboard/RequirementFixesSection"
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
 import { useBoardTasks } from "@/lib/api/boardTasks"
@@ -25,7 +30,14 @@ import { toCompleteCounts } from "@/lib/dashboard-to-complete"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 
-type ListKey = "agreements" | "jobs" | "fixes"
+type ListKey = "preps" | "agreements" | "jobs" | "fixes"
+
+interface TileList {
+  key: ListKey
+  label: string
+  count: number
+  node: ReactNode
+}
 
 // Od tej szerokości kafelka listy stoją obok siebie (A1), niżej — przełącznik (A3).
 const COLUMNS: Record<number, string> = {
@@ -58,7 +70,15 @@ export function ToCompleteTile() {
   const data = withoutHiddenPanels(query.data, hidden)
   const counts = toCompleteCounts(data)
   const fixesFailed = data.requirement_fixes === null
-  const lists: { key: ListKey; label: string; count: number; node: ReactNode }[] = []
+  const lists: TileList[] = []
+  if (counts.preps > 0) {
+    lists.push({
+      key: "preps",
+      label: "Prepy",
+      count: counts.preps,
+      node: <PrepAttentionSection rows={data.prep_attention ?? []} />,
+    })
+  }
   if (counts.agreements > 0 && data.agreements) {
     lists.push({
       key: "agreements",
@@ -104,6 +124,17 @@ export function ToCompleteTile() {
   }
 
   const active = lists.some((l) => l.key === picked) ? picked : lists[0].key
+  const item = (list: TileList) => (
+    <div
+      key={list.key}
+      data-testid={`to-complete-${list.key}`}
+      className={cn("min-w-0", list.key !== active && "hidden @min-[880px]/todo:block")}
+    >
+      {list.node}
+    </div>
+  )
+  const preps = lists.find((l) => l.key === "preps")
+  const rest = lists.filter((l) => l.key !== "preps")
   return (
     <div className="@container/todo flex min-w-0 flex-col gap-3">
       {lists.length > 1 ? (
@@ -131,17 +162,21 @@ export function ToCompleteTile() {
           ))}
         </div>
       ) : null}
-      <div className={cn("grid min-w-0 gap-4", COLUMNS[lists.length])}>
-        {lists.map((list) => (
+      {preps && rest.length > 0 ? (
+        <div className="grid min-w-0 gap-4 @min-[880px]/todo:grid-cols-2">
+          {item(preps)}
+          {/* Wąsko `contents`: listy są zwykłymi wierszami siatki i przełącznik
+              chowa je pojedynczo; szeroko — jedna kolumna pod sobą. */}
           <div
-            key={list.key}
-            data-testid={`to-complete-${list.key}`}
-            className={cn("min-w-0", list.key !== active && "hidden @min-[880px]/todo:block")}
+            data-testid="to-complete-rest"
+            className="contents @min-[880px]/todo:flex @min-[880px]/todo:min-w-0 @min-[880px]/todo:flex-col @min-[880px]/todo:gap-4"
           >
-            {list.node}
+            {rest.map(item)}
           </div>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div className={cn("grid min-w-0 gap-4", COLUMNS[lists.length])}>{lists.map(item)}</div>
+      )}
     </div>
   )
 }
