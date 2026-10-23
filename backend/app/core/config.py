@@ -585,6 +585,9 @@ class Settings(BaseSettings):
     # False = pętla kończy się przed startem (stan sprzed 23.10).
     NEW_COLUMN_AUTOFILL_ENABLED: bool = False
     NEW_COLUMN_AUTOFILL_INTERVAL_SECONDS: int = 60
+    # Bezpiecznik: najwyżej tyle dodań na tick (każde = odczyt CV z magazynu
+    # i zapis kopii). Pierwszy przebieg (~2–3 tys. osób) rozkłada się w czasie.
+    NEW_COLUMN_AUTOFILL_MAX_PER_TICK: int = 100
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.

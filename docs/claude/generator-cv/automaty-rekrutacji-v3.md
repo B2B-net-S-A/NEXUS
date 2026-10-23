@@ -39,6 +39,12 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `missing_must`, „Stawka od” (`effective_rate`), dostępność — z niej raport
   odróżni błąd wyszukiwania od braku danych. Wpis „Praca w tle”
   `new_column_autofill` (`kind: "autofill"`, `count`).
+  **Bezpiecznik (23.10.2026):** najwyżej `NEW_COLUMN_AUTOFILL_MAX_PER_TICK`
+  (100) dodań na tick — każde dodanie pobiera CV z magazynu i zapisuje kopię
+  (`create_original_cv_snapshot`), a pierwszy przebieg na produkcji to ok.
+  2–3 tys. osób. Przerwany pełny przebieg (`_State.pending`) wraca w następnym
+  ticku od miejsca przerwania (także rekrutacja, przy której skończył się
+  limit); rekrutacje z ruchem karty idą przed nim.
 - **E. Na Tablicy i w panelu osoby (PR 3, 23.10.2026).** Karta Tablicy niesie
   `entry_autofill` (`process_entry_meta.autofill_badge`: wynik, wymagania,
   `rate_known`, `availability_known`, `decided`, `waiting_days`,

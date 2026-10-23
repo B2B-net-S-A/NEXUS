@@ -296,7 +296,7 @@ async def test_tick_runs_a_full_pass_then_only_touched_jobs(monkeypatch):
     monkeypatch.setattr(autofill, "_state", autofill._State())
     seen: list[list[int]] = []
 
-    async def _fill_job(db, job_id, *, now):
+    async def _fill_job(db, job_id, *, now, limit=None):
         seen[-1].append(job_id)
         return []
 
@@ -318,7 +318,43 @@ async def test_tick_runs_a_full_pass_then_only_touched_jobs(monkeypatch):
     seen.append([])
     much_later = _WORKDAY + autofill.FULL_PASS_EVERY
     assert (await autofill.tick(now=much_later))["pass"] == "full"
-    assert seen == [[1, 2, 3], [2], [1, 2, 3]]
+    # Rekrutacja z ruchem karty idzie pierwsza, potem reszta pełnego przebiegu.
+    assert seen == [[2, 1, 3], [2], [2, 1, 3]]
+
+
+async def test_budget_spreads_the_first_pass_over_ticks(monkeypatch):
+    """Bezpiecznik: najwyżej ``NEW_COLUMN_AUTOFILL_MAX_PER_TICK`` dodań na tick;
+    przebieg wraca w następnym ticku od miejsca przerwania, także do
+    rekrutacji, której limit nie dał dojść do 20."""
+    monkeypatch.setattr(autofill.settings, "NEW_COLUMN_AUTOFILL_ENABLED", True)
+    monkeypatch.setattr(autofill.settings, "NEW_COLUMN_AUTOFILL_MAX_PER_TICK", 25)
+    monkeypatch.setattr(autofill, "_state", autofill._State())
+    missing = {1: 20, 2: 20, 3: 20}
+    calls: list[tuple[int, int]] = []
+
+    async def _fill_job(db, job_id, *, now, limit=None):
+        n = min(missing[job_id], limit)
+        missing[job_id] -= n
+        calls.append((job_id, n))
+        return list(range(n))
+
+    async def _all(db):
+        return [1, 2, 3]
+
+    async def _touched(db, since):
+        return []
+
+    monkeypatch.setattr(autofill, "fill_job", _fill_job)
+    monkeypatch.setattr(autofill, "_jobs_in_work", _all)
+    monkeypatch.setattr(autofill, "_jobs_touched_since", _touched)
+
+    first = await autofill.tick(now=_WORKDAY)
+    assert first["filled"] == {1: 20, 2: 5} and first["pending"] == 2
+    second = await autofill.tick(now=_WORKDAY + timedelta(minutes=1))
+    assert second["pass"] == "touched" and second["filled"] == {2: 15, 3: 10}
+    third = await autofill.tick(now=_WORKDAY + timedelta(minutes=2))
+    assert third["filled"] == {3: 10} and third["pending"] == 0
+    assert missing == {1: 0, 2: 0, 3: 0}
 
 
 async def test_tick_does_nothing_when_disabled_or_after_hours(monkeypatch):

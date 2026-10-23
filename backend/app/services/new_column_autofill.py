@@ -29,7 +29,7 @@ Reguły, które łatwo cofnąć „przy okazji”:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -247,8 +247,11 @@ def entry_meta(pick: Pick, candidate: Candidate) -> dict:
 # ── Dopełnienie jednej rekrutacji ───────────────────────────────────────────
 
 
-async def fill_job(db, job_id: int, *, now: datetime) -> list[int]:
-    """Dopełnij „Nowych” do ``TARGET``. Zwraca id dodanych osób. Bez commitu."""
+async def fill_job(
+    db, job_id: int, *, now: datetime, limit: Optional[int] = None
+) -> list[int]:
+    """Dopełnij „Nowych” do ``TARGET`` (najwyżej ``limit`` osób naraz).
+    Zwraca id dodanych osób. Bez commitu."""
     from app.api.proposals_bulk import add_candidates_to_job
 
     job = await db.get(Job, job_id)
@@ -260,6 +263,8 @@ async def fill_job(db, job_id: int, *, now: datetime) -> list[int]:
         return []
     have = (await new_column_counts(db, [job_id])).get(job_id, 0)
     missing = TARGET - have
+    if limit is not None:
+        missing = min(missing, limit)
     if missing <= 0:
         return []
     picks = await ranked_picks(db, job_id, limit=missing * _PICK_HEADROOM + 10)
@@ -361,6 +366,15 @@ async def _jobs_touched_since(db, since: datetime) -> list[int]:
 class _State:
     last_full_pass: Optional[datetime] = None
     last_tick: Optional[datetime] = None
+    # Rekrutacje pełnego przebiegu, do których bezpiecznik jeszcze nie doszedł.
+    pending: list[int] = field(default_factory=list)
+
+
+def _budget() -> int:
+    """Bezpiecznik (23.10.2026): najwyżej tyle dodań na tick. Każde dodanie
+    pobiera CV z magazynu i zapisuje jego kopię, a pierwszy przebieg na
+    produkcji to ok. 2–3 tys. osób — limit rozkłada to na kilkadziesiąt minut."""
+    return max(1, int(getattr(settings, "NEW_COLUMN_AUTOFILL_MAX_PER_TICK", 100)))
 
 
 _state = _State()
@@ -376,22 +390,30 @@ async def tick(*, now: Optional[datetime] = None) -> dict:
     if not in_work_hours(now):
         _state.last_tick = None
         return {"skipped": "outside_hours"}
-    full = (
+    full = not _state.pending and (
         _state.last_full_pass is None or now - _state.last_full_pass >= FULL_PASS_EVERY
     )
     async with AsyncSessionLocal() as db:
+        touched = await _jobs_touched_since(db, _state.last_tick or now)
         if full:
-            job_ids = await _jobs_in_work(db)
-        else:
-            job_ids = await _jobs_touched_since(db, _state.last_tick or now)
-    if full:
-        _state.last_full_pass = now
+            _state.pending = await _jobs_in_work(db)
+            _state.last_full_pass = now
     _state.last_tick = now
+    # Najpierw rekrutacje z ruchem karty (ktoś właśnie odrzucił), potem reszta
+    # pełnego przebiegu — od miejsca, w którym bezpiecznik przerwał.
+    job_ids = list(dict.fromkeys([*touched, *_state.pending]))
+    budget = _budget()
     filled: dict[int, int] = {}
+    done: set[int] = set()
+    # Rekrutacja, przy której skończył się limit — mogła nie dojść do 20.
+    cut_short: Optional[int] = None
     for job_id in job_ids:
+        if budget <= 0:
+            break
+        done.add(job_id)
         async with AsyncSessionLocal() as db:
             try:
-                added = await fill_job(db, job_id, now=now)
+                added = await fill_job(db, job_id, now=now, limit=budget)
                 await db.commit()
             except Exception as exc:  # noqa: BLE001 — jedna rekrutacja nie blokuje reszty
                 await db.rollback()
@@ -403,8 +425,13 @@ async def tick(*, now: Optional[datetime] = None) -> dict:
                 continue
         if added:
             filled[job_id] = len(added)
+            budget -= len(added)
+            if budget <= 0:
+                cut_short = job_id
+    _state.pending = [j for j in _state.pending if j not in done or j == cut_short]
     return {
         "pass": "full" if full else "touched",
-        "jobs": len(job_ids),
+        "jobs": len(done),
+        "pending": len(_state.pending),
         "filled": filled,
     }
