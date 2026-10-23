@@ -29,6 +29,12 @@ def _json_serializer(value: Any) -> str:
     return json.dumps(jsonable_encoder(value))
 
 
+# Limit pojedynczego zapytania sesji aplikacji (ms) i czekania na połączenie
+# z puli (s). Zob. NEXUS-BE-57.
+STATEMENT_TIMEOUT_MS = 60_000
+POOL_TIMEOUT_SECONDS = 10
+
+
 def _connect_args(url: str) -> dict[str, Any]:
     """`application_name` odróżnia połączenia NEXUSA w `pg_stat_activity`.
 
@@ -38,7 +44,17 @@ def _connect_args(url: str) -> dict[str, Any]:
     """
     if not url.startswith("postgresql+asyncpg://"):
         return {}
-    return {"server_settings": {"application_name": "nexus-backend"}}
+    return {
+        "server_settings": {
+            "application_name": "nexus-backend",
+            # NEXUS-BE-57 (15.10.2026): zastój bazy trzymał zapytania po kilka-
+            # dziesiąt sekund, każde z połączeniem z puli — pula (60) się
+            # wyczerpała i padały WSZYSTKIE trasy. Górny limit zwalnia
+            # połączenie zamiast wisieć. Dłuższe operacje (skrypty, raporty)
+            # podnoszą go lokalnie przez ``SET LOCAL statement_timeout``.
+            "statement_timeout": str(STATEMENT_TIMEOUT_MS),
+        }
+    }
 
 
 engine = create_async_engine(
@@ -47,6 +63,9 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=20,
     max_overflow=40,
+    # Przy wyczerpanej puli lepiej szybko oddać 503 niż trzymać żądanie 30 s
+    # (domyślne) i dokładać kolejkę oczekujących (NEXUS-BE-57).
+    pool_timeout=POOL_TIMEOUT_SECONDS,
     json_serializer=_json_serializer,
     connect_args=_connect_args(settings.DATABASE_URL),
     # Treść błędu SQLAlchemy (IntegrityError, DataError…) domyślnie niesie
@@ -107,6 +126,14 @@ def session_has_uncommitted_writes(db: AsyncSession) -> bool:
     return bool(
         db.new or db.dirty or db.deleted or db.info.get(_UNCOMMITTED_WRITES_KEY)
     )
+
+
+def pool_status() -> str:
+    """Stan puli do logu przy jej wyczerpaniu (zajęte, wolne, overflow)."""
+    try:
+        return engine.pool.status()
+    except Exception:  # noqa: BLE001 - diagnostyka nie może maskować błędu
+        return "unavailable"
 
 
 async def release_idle_connection(db: AsyncSession) -> bool:
