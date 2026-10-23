@@ -150,6 +150,16 @@ PARTNER_FIELDS: tuple[FieldDef, ...] = (
     ),
     FieldDef("partner_legal_name", "Nazwa firmy", group="partner"),
     FieldDef("partner_business_address", "Adres siedziby firmy", group="partner"),
+    FieldDef(
+        "partner_address_for_service",
+        "W CEIDG tylko adres do doręczeń",
+        "bool",
+        help=(
+            "Brak stałego miejsca wykonywania działalności — dokument powie "
+            "„pod adresem do doręczeń”. Z umowy bazowej albo z CEIDG."
+        ),
+        group="partner",
+    ),
     FieldDef("partner_nip", "NIP", group="partner"),
     FieldDef("partner_regon", "REGON", group="partner"),
 )
@@ -226,13 +236,17 @@ ANNEX_PARAGRAPH_FIELDS: tuple[FieldDef, ...] = (
 )
 
 #: Rejestr → pola formularza przy „Pobierz z rejestru” (Biała Lista/CEIDG/KRS).
-_REGISTRY_FILLS_JDG = (
+_REGISTRY_FILLS_COMMON = (
     ("name", "partner_legal_name"),
     ("address", "partner_business_address"),
     ("regon", "partner_regon"),
 )
+_REGISTRY_FILLS_JDG = (
+    *_REGISTRY_FILLS_COMMON,
+    ("address_kind", "partner_address_for_service"),
+)
 _REGISTRY_FILLS_COMPANY = (
-    *_REGISTRY_FILLS_JDG,
+    *_REGISTRY_FILLS_COMMON,
     ("krs", "partner_krs"),
     ("seat_locative", "partner_seat_locative"),
     ("registry_court", "partner_registry_court"),
@@ -300,6 +314,17 @@ ANNEX_PARTNER_FIELDS: tuple[FieldDef, ...] = (
         "Adres (z CEIDG / siedziby spółki)",
         required=True,
         group="partner",
+    ),
+    FieldDef(
+        "partner_address_for_service",
+        "W CEIDG tylko adres do doręczeń",
+        "bool",
+        help=(
+            "Brak stałego miejsca wykonywania działalności — dokument powie "
+            "„pod adresem do doręczeń”. Z umowy bazowej albo z CEIDG."
+        ),
+        group="partner",
+        show_if=_JDG,
     ),
     FieldDef("partner_regon", "REGON", required=True, group="partner"),
     FieldDef(

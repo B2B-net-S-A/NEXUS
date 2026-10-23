@@ -636,7 +636,7 @@
     "tasks": [
       {
         "q": "Jak wygenerować umowę?",
-        "a": "W „Generatorze” wybierz „Umowa JDG” albo „Umowa spółka”, kandydata i rekrutację (stawka i data startu podpowiedzą się z rekrutacji), sprawdź „Podgląd” i kliknij „Pobierz DOCX”. Dla spółki siedziba, sąd i kapitał przyjdą z KRS, osobę reprezentującą wpisz ręcznie. Przed pobraniem generator sprawdza firmę w CEIDG/KRS — ostrzeżenia nie blokują umowy.",
+        "a": "W „Generatorze” wybierz „Umowa JDG” albo „Umowa spółka”, kandydata i rekrutację (stawka i start podpowiedzą się same), sprawdź „Podgląd” i kliknij „Pobierz DOCX”. Dane spółki przyjdą z KRS, osobę reprezentującą wpisz ręcznie. Gdy JDG ma w CEIDG tylko adres do doręczeń, zaznaczy się to pod adresem. Ostrzeżenia z CEIDG/KRS nie blokują umowy.",
         "anchor": "contracts.b2b_generator.docx"
       },
       {

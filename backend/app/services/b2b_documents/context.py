@@ -328,6 +328,10 @@ def build_document_context(
     }
     partner["display_name"] = partner.get("legal_name") or partner.get("name")
     partner["is_company"] = values.get("partner_variant") == "company"
+    # JDG bez stałego miejsca w CEIDG — „pod adresem do doręczeń” (jak umowa).
+    partner["address_for_service"] = (
+        bool(values.get("partner_address_for_service")) and not partner["is_company"]
+    )
     capital = str(values.get("partner_share_capital") or "").strip()
     if capital and not any(u in capital.lower() for u in ("zł", "pln")):
         capital = f"{capital} zł"

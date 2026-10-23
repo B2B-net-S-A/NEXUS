@@ -322,6 +322,7 @@ Profil i karta klienta, scalanie i usuwanie klientów, Historia zdarzeń, Centru
 
 Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchronizacja kontrakt ↔ zamówienia, dokumenty, zakładki rejestru.
 
+- `adres-do-doreczen-z-ceidg.md`: Adres do doręczeń z CEIDG — „pod adresem do doręczeń” w umowie, DPA i dokumentach · JDG bez stałego miejsca działalności, `address_kind` z karty firmy CEIDG, `partner_address_for_service`, przełącznik pod „Adres z CEIDG”
 - `aktywacja-umowy-end-date-nie-jest-wymagane-umowa.md`: Aktywacja umowy: `end_date` NIE jest wymagane (umowa bezterminowa)
 - `analityka-kontraktow-utylizacja-i-kafle-sum.md`: Analityka kontraktów: utylizacja i kafle sum
 - `cofnij-zakonczenie-i-powrot-po-przerwie.md`: „Cofnij zakończenie" i „Powrót po przerwie" (0368)

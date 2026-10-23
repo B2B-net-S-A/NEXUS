@@ -137,6 +137,11 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
             "project_city": req.project_city,
             "project_description": req.project_description,
             "correspondence_address": correspondence,
+            # „pod adresem do doręczeń” zamiast „pod adresem” — tylko JDG.
+            "address_for_service": bool(
+                getattr(req, "partner_address_for_service", False)
+            )
+            and not company,
             "rate_in_words": words,
             "rate_clause": rate_clause,
             "language": lang,

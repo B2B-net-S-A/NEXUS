@@ -275,6 +275,10 @@ class B2BRenderRequest(BaseModel):
     partner_instrumental: Optional[str] = None
     partner_legal_name: Optional[str] = Field(None, max_length=255)
     partner_business_address: Optional[str] = None
+    # JDG bez stałego miejsca wykonywania działalności w CEIDG — jedynym
+    # adresem wpisu jest adres do doręczeń, więc komparycja i DPA mówią
+    # „pod adresem do doręczeń”. Ustawia lookup z CEIDG, człowiek może zmienić.
+    partner_address_for_service: bool = False
     partner_correspondence_address: Optional[str] = None
     partner_nip: Optional[str] = None
     partner_regon: Optional[str] = None
@@ -447,6 +451,10 @@ class B2BCompanyLookupResponse(BaseModel):
     regon: Optional[str] = None
     krs: Optional[str] = None
     address: Optional[str] = None
+    # Rodzaj adresu z CEIDG: „place_of_business” (stałe miejsce wykonywania
+    # działalności) albo „service” (wpisany tylko adres do doręczeń).
+    # None = rejestr tego nie powiedział (Biała Lista, spółka, awaria).
+    address_kind: Optional[str] = None
     source: Optional[str] = None
     # Klasyfikacja gotowa, nie surowe `source`/`krs` do interpretacji na
     # frontendzie: `source` przychodzi w czterech niespójnych formatach

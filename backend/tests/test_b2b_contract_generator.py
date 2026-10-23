@@ -1254,3 +1254,46 @@ def test_contract_file_carries_no_author_from_the_template(language):
     data = render_from_context(build_render_context(req, None), language=language)
     props = Document(io.BytesIO(data)).core_properties
     assert (props.author, props.last_modified_by) == ("", "")
+
+
+# ── Adres do doręczeń z CEIDG (JDG bez stałego miejsca działalności) ─────────
+
+
+@pytest.mark.parametrize(
+    "language,phrase",
+    [
+        ("pl", "Gospodarczej pod adresem do doręczeń: ul. Testowa 1"),
+        ("en", "Economic Activity at the address for service: ul. Testowa 1"),
+    ],
+)
+def test_address_for_service_in_comparison_and_dpa(language, phrase):
+    """Komparycja i Załącznik nr 2 (DPA) mówią „pod adresem do doręczeń”,
+    gdy JDG nie ma w CEIDG stałego miejsca wykonywania działalności."""
+    import io
+
+    from docx import Document
+
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+    from app.services.b2b_contract_generator.docx_renderer import render_from_context
+    from app.services.b2b_contract_generator.render_context import build_render_context
+
+    def text(for_service: bool, variant: str = "jdg") -> str:
+        req = B2BRenderRequest(
+            language=language,
+            partner_name="Jan Kowalski",
+            partner_business_address="ul. Testowa 1, 00-001 Warszawa",
+            partner_address_for_service=for_service,
+            contract_variant=variant,
+            client_name="ACME Bank S.A.",
+            rate_candidate=150,
+        )
+        data = render_from_context(build_render_context(req, None), language=language)
+        return "\n".join(p.text for p in Document(io.BytesIO(data)).paragraphs)
+
+    assert text(True).count(phrase) == 2
+    plain = phrase.replace(" do doręczeń", "").replace(" for service", "")
+    assert text(False).count(plain) == 2
+    assert "do doręczeń" not in text(False) and "for service" not in text(False)
+    # Spółka ma siedzibę z KRS — flaga JDG nie zmienia jej komparycji.
+    company = text(True, "company")
+    assert "do doręczeń" not in company and "for service" not in company

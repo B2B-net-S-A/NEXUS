@@ -472,6 +472,23 @@ describe("generator aneksów — wariant Partnera i rejestr", () => {
     });
   });
 
+  it("maps the CEIDG address kind to the address-for-service flag", () => {
+    const fills: [string, string][] = [
+      ["address_kind", "partner_address_for_service"],
+    ];
+    const seat = (city: string) => city;
+    expect(
+      registryLookupValues(fills, { address_kind: "service" }, seat),
+    ).toEqual({ partner_address_for_service: true });
+    expect(
+      registryLookupValues(fills, { address_kind: "place_of_business" }, seat),
+    ).toEqual({ partner_address_for_service: false });
+    // Brak odpowiedzi rejestru nie nadpisuje wyboru z umowy bazowej.
+    expect(
+      registryLookupValues(fills, { address_kind: null }, seat),
+    ).toEqual({});
+  });
+
   it("sends every annex link to the annex generator tab", () => {
     expect(documentsHref({ newType: "annex_rate_change", contractId: 7 })).toBe(
       "/contracts/b2b-generator?tab=annexes&new=annex_rate_change&contract=7",
