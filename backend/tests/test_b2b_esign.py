@@ -534,9 +534,17 @@ async def test_failed_refresh_keeps_the_last_good_eu_list(monkeypatch):
 
 
 async def _sign_both(
-    app_client, sender_headers, signer_headers, generated_id, signer_id
+    app_client,
+    sender_headers,
+    signer_headers,
+    generated_id,
+    signer_id,
+    contractor_days_ago: int = 0,
 ):
+    from datetime import timedelta
+
     from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
     from app.models.user import User
 
     partner = await _partner(generated_id)
@@ -553,6 +561,10 @@ async def _sign_both(
     assert signed.status_code == 200, signed.text
     async with AsyncSessionLocal() as db:
         signer_name = (await db.get(User, signer_id)).name
+        if contractor_days_ago:
+            request = await db.get(B2BSigningRequest, request_id)
+            request.contractor_signed_at -= timedelta(days=contractor_days_ago)
+            await db.commit()
     _FakeValidator.report = _report(
         (f"CN={partner}", "TOTAL_PASSED", "QESig"),
         (f"CN={signer_name}", "TOTAL_PASSED", "QESig"),
@@ -617,6 +629,48 @@ async def test_both_signatures_run_the_signed_automation_with_the_file(
         assert row.contract_id is not None and row.signed_document_id is not None
     titles = await _notices(admin_id, request_id)
     assert any("podpisana przez obie strony" in t for t in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_signing_day_is_the_contractor_day_not_the_company_day(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Kontraktor podpisał dwa dni przed reprezentantem firmy — „Data
+    podpisania” w eksporcie „Placementy” to dzień podpisu kontraktora (0514)."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_date, business_today
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.b2b_signing_request import B2BSigningRequest
+
+    admin_id = esign_env["admin_id"]
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db,
+            esign_settings.EsignSettings(mode="all", company_signer_ids=(admin_id,)),
+            actor_id=admin_id,
+        )
+        await db.commit()
+    scenario = await _seed_in_progress(created_by=admin_id)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        row.created_at = datetime.now(timezone.utc) - timedelta(days=10)
+        await db.commit()
+    request_id = await _sign_both(
+        app_client,
+        app_auth_headers,
+        app_auth_headers,
+        scenario["generated_id"],
+        admin_id,
+        contractor_days_ago=2,
+    )
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None and row.signature_status == "signed_both"
+        assert row.signed_on == business_date(request.contractor_signed_at)
+        assert row.signed_on < business_today()
 
 
 @pytest.mark.asyncio

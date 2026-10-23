@@ -641,7 +641,7 @@
       },
       {
         "q": "Jak podpisać umowę i co dalej?",
-        "a": "„Wyślij do podpisu” (gdy włączony podpis w NEXUSIE): link do kontraktora, potem podpis za B2B Network — kontrakt i plik powstaną same. Droga mailowa: po podpisie „Oznacz jako podpisaną” (bez uprawnienia „Podpis B2B” poproś DL) i dołącz plik. Wtedy powstaje kontrakt, szkic zamówienia, a kandydat przechodzi na „Zatrudniony”.",
+        "a": "„Wyślij do podpisu” (gdy włączony podpis w NEXUSIE): link do kontraktora, potem podpis za B2B Network — kontrakt i plik powstaną same. Droga mailowa: po podpisie „Oznacz jako podpisaną” (bez uprawnienia „Podpis B2B” poproś DL), wpisz dzień podpisu i dołącz plik. Wtedy powstaje kontrakt, szkic zamówienia, a kandydat przechodzi na „Zatrudniony”.",
         "anchor": "contracts.b2b_generator.tabs"
       },
       {

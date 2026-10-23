@@ -328,7 +328,7 @@ Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchroni
 - `dodanie-pliku-bez-podgladu-kwot.md`: Dodanie pliku do kontraktu bez podglądu kwot
 - `dokumenty-kontraktow-z-sharepointa.md`: Dokumenty kontraktów z SharePointa (ticket 9, 0402)
 - `domyslny-widok-modulu-kontrakty-aktywne-i-konczace.md`: Domyślny widok modułu Kontrakty: Aktywne **i** Kończące się
-- `eksport-placementy.md`: Eksport „Placementy” w Kontraktach · układ arkusza Delivery, DL i rekruter jak w Płacach, data podpisu = oznaczenie w NEXUSIE
+- `eksport-placementy.md`: Eksport „Placementy” w Kontraktach · układ arkusza Delivery, DL i rekruter jak w Płacach, data podpisu z okna „Oznacz jako podpisaną”
 - `foldery-w-dokumentach-kontraktu.md`: Foldery w zakładce Dokumenty kontraktu (0494)
 - `generator-umow-b2b-trzy-zakladki-cyklu-zycia-umowy.md`: Generator Umów B2B — trzy zakładki cyklu życia umowy
 - `kafelek-kontraktora-status-zamowienia-musi-zgadzac.md`: Kafelek kontraktora: status zamówienia musi zgadzać się z okresem

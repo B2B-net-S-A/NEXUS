@@ -363,3 +363,80 @@ async def test_export_requires_both_dates(
         headers=app_auth_headers,
     )
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_signing_day_comes_from_the_dialog_then_from_the_click(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """0514: „Data podpisania” = ``signed_on``; wiersz bez niego — dzień
+    ``signed_at``. Kilka umów do kontraktu — najwcześniejszy dzień."""
+    from datetime import timezone
+
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    with_day = await _seed(ContractStatus.active, date(2002, 5, 10))
+    legacy = await _seed(ContractStatus.active, date(2002, 5, 20))
+
+    def _row(contract_id: int, signed_on, signed_at) -> B2BGeneratedContract:
+        seq = int(uuid.uuid4().hex[:7], 16)
+        return B2BGeneratedContract(
+            year=2099,
+            seq=seq,
+            contract_number=f"{seq}/2099",
+            contract_id=contract_id,
+            signature_status="signed_both",
+            signed_on=signed_on,
+            signed_at=signed_at,
+        )
+
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                # Podpis 05.05, oznaczony 09.05.
+                _row(
+                    with_day[0],
+                    date(2002, 5, 5),
+                    datetime(2002, 5, 9, 10, tzinfo=timezone.utc),
+                ),
+                # Późniejsza umowa (np. po korekcie) nie przesuwa daty.
+                _row(
+                    with_day[0],
+                    None,
+                    datetime(2002, 5, 7, 10, tzinfo=timezone.utc),
+                ),
+                # Sprzed 0514: tylko chwila oznaczenia; 23:30 UTC = 18.05 w Warszawie.
+                _row(
+                    legacy[0], None, datetime(2002, 5, 17, 23, 30, tzinfo=timezone.utc)
+                ),
+            ]
+        )
+        await db.commit()
+    try:
+        r = await app_client.get(
+            "/api/contracts/export/placements",
+            params={"start_from": "2002-05-01", "start_to": "2002-05-31"},
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ws = load_workbook(BytesIO(r.content)).active
+        rows = [
+            dict(zip(PLACEMENT_EXPORT_COLUMNS, row))
+            for row in ws.iter_rows(min_row=2, values_only=True)
+        ]
+        assert [row["Data podpisania"] for row in rows] == [
+            datetime(2002, 5, 5),
+            datetime(2002, 5, 18),
+        ]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(B2BGeneratedContract).where(
+                    B2BGeneratedContract.contract_id.in_([with_day[0], legacy[0]])
+                )
+            )
+            await db.commit()
+        await _cleanup([with_day, legacy])

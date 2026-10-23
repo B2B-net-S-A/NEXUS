@@ -3961,6 +3961,8 @@ export interface B2BGeneratedContractRow {
   job_title: string | null;
   canonical_client_name: string | null;
   signed_at: string | null;
+  /** 0514: dzień podpisu umowy (`YYYY-MM-DD`); `signed_at` to chwila oznaczenia. */
+  signed_on?: string | null;
   signed_by_name: string | null;
   can_confirm_signed: boolean;
   blocked_reason: string | null;
@@ -4145,6 +4147,8 @@ export interface B2BConfirmFullySignedRequest {
    * pozostałych odmów (duplikaty, inny klient, umowa podpisana) nie obchodzi.
    */
   keep_existing_contract_terms?: boolean;
+  /** 0514: dzień podpisu (`YYYY-MM-DD`); brak = dziś w kalendarzu firmy. */
+  signed_on?: string;
 }
 
 export interface B2BConfirmFullySignedResult {
