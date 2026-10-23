@@ -982,20 +982,53 @@ def _reapplied_link_owners(
     }
 
 
-async def _requirements_skipped(
-    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+def _merge_skip_traces(
+    rows: Iterable[tuple[int, Optional[dict], Optional[int], Optional[datetime]]],
+    since: Mapping[int, Optional[datetime]],
 ) -> dict[int, tuple[list[str], Optional[int]]]:
-    """Ostatni ruch mimo braków każdej pary: ``(braki, kto)`` — 22.10.2026.
+    """Suma braków ze śladów pary (od najstarszego) i autor najnowszego.
+
+    Kolejny ruch mimo braków (np. przeskok debriefu) nie chowa braków
+    z wejścia na „Zweryfikowany”; ślad sprzed bieżącej próby (``since``
+    = początek próby, gdy osoba wróciła do rekrutacji) się nie liczy.
+    """
+    found: dict[int, tuple[list[str], Optional[int]]] = {}
+    for cid, details, user_id, moved_at in rows:
+        start = since.get(cid)
+        if start is not None and moved_at is not None and moved_at < start:
+            continue
+        keys = found[cid][0] if cid in found else []
+        for key in (details or {}).get("missing") or []:
+            if str(key) not in keys:
+                keys.append(str(key))
+        found[cid] = (keys, user_id)
+    return found
+
+
+async def _requirements_skipped(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    candidate_ids: Iterable[int],
+    since: Optional[Mapping[int, Optional[datetime]]] = None,
+) -> dict[int, tuple[list[str], Optional[int]]]:
+    """Ruchy mimo braków każdej pary: ``(braki, kto)`` — 22.10.2026.
 
     Ślad zapisuje ``/move``, gdy Delivery Lead przeszedł bramki pól
     (``pipeline_move_rules.skips_fill_gates``); jedno zapytanie na tablicę
     przez wiersze etapów rekrutacji (``Activity.entity_id`` = wiersz).
+    Braki z bieżącej próby sumują się (:func:`_merge_skip_traces`).
     """
     ids = sorted(set(candidate_ids))
     if not ids:
         return {}
     rows = await db.execute(
-        select(CandidateStage.candidate_id, Activity.details, Activity.user_id)
+        select(
+            CandidateStage.candidate_id,
+            Activity.details,
+            Activity.user_id,
+            CandidateStage.moved_at,
+        )
         .join(
             Activity,
             (Activity.entity_type == "pipeline")
@@ -1006,14 +1039,9 @@ async def _requirements_skipped(
             CandidateStage.candidate_id.in_(ids),
             Activity.action == pipeline_move_rules.REQUIREMENTS_SKIPPED_ACTION,
         )
-        .order_by(CandidateStage.candidate_id, Activity.id.desc())
-        .distinct(CandidateStage.candidate_id)
+        .order_by(CandidateStage.candidate_id, Activity.id)
     )
-    found: dict[int, tuple[list[str], Optional[int]]] = {}
-    for cid, details, user_id in rows.all():
-        missing = (details or {}).get("missing") or []
-        found[cid] = ([str(key) for key in missing], user_id)
-    return found
+    return _merge_skip_traces(rows.all(), since or {})
 
 
 def _still_missing(keys: list[str], payload: dict) -> list[str]:
@@ -1041,6 +1069,16 @@ def _still_missing(keys: list[str], payload: dict) -> list[str]:
     return out
 
 
+# Krótkie nazwy braków w dzwonku — etykiety komunikatu 409 mają cudzysłowy
+# i dopiski („ta rekrutacja nie ma pytań…”), które w dzwonku nie pasują.
+_SKIP_BELL_LABELS = {
+    "screening_sheet": "arkusz screeningu",
+    "why_candidate": "Dlaczego ten kandydat",
+    "candidate_rate": "stawka kandydata",
+    "debrief": "debrief",
+}
+
+
 async def _notify_recruiter_of_skip(
     db: AsyncSession,
     *,
@@ -1053,8 +1091,9 @@ async def _notify_recruiter_of_skip(
     """Dzwonek do prowadzącego rekrutację: Delivery Lead przesunął osobę mimo
     braków (22.10.2026) — rekruter wie, że osobę prowadzi już ktoś inny.
 
-    Tylko wejście na „Zweryfikowany” (DL przejmuje proces); sam przeskok
-    debriefu nikogo nie powiadamia. ``emit`` sprawdza odbiorcę i dzienny duplikat.
+    Każde przejście przez „Zweryfikowany” od lewej — ruch na „Zweryfikowany”
+    albo przeskok dalej, np. na „QC CV” (DL przejmuje proces; audyt
+    22.10.2026, F58); sam przeskok debriefu nikogo nie powiadamia. ``emit`` sprawdza odbiorcę i dzienny duplikat.
     """
     from app.services.notification_triggers import emit  # noqa: PLC0415
 
@@ -1067,7 +1106,7 @@ async def _notify_recruiter_of_skip(
         else ""
     ) or "Kandydat"
     labels = ", ".join(
-        pipeline_move_rules.verified_requirement_label(key).strip("„”")
+        _SKIP_BELL_LABELS.get(key) or move_requirements.card_field_label(key)
         for key in missing
     )
     await emit(
@@ -1702,7 +1741,7 @@ async def apply_move(
     # pytań") — pytania zasilają prep i profil Championa.
     # Delivery Lead przechodzi mimo braków (22.10.2026) — braki idą do śladu
     # ruchu (`requirements_skipped`), z którego Tablica rysuje odznakę.
-    skipped_requirements = await pipeline_move_rules.assert_debrief_before_contract(
+    debrief_skipped = await pipeline_move_rules.assert_debrief_before_contract(
         db,
         candidate_id=data.candidate_id,
         job_id=data.job_id,
@@ -1711,7 +1750,9 @@ async def apply_move(
     )
     # D1 (04.10.2026): „Zweryfikowany” z Nowych/Screeningu wymaga arkusza
     # screeningu i stawki kandydata — ta sama reguła co okno „Przesuń dalej”.
-    skipped_requirements += await pipeline_move_rules.assert_verified_requirements(
+    # Lista niepusta tylko przy przejściu przez „Zweryfikowany” od lewej
+    # (z Nowych/Screeningu na „Zweryfikowany” albo dalej).
+    verified_skipped = await pipeline_move_rules.assert_verified_requirements(
         db,
         candidate_id=data.candidate_id,
         job=job,
@@ -1720,6 +1761,7 @@ async def apply_move(
         pending_rate=data.expected_rate_value is not None
         and data.expected_rate_value > 0,
     )
+    skipped_requirements = debrief_skipped + verified_skipped
     # D6 (08.10.2026): „Wróć do poprawy” z „QC CV” niesie listę pól do poprawy.
     # Walidacja PRZED zapisem ruchu — zła lista nie może cofnąć karty bez niej.
     fix_keys: list[str] = []
@@ -2247,7 +2289,10 @@ async def apply_move(
                 },
             )
         )
-        if target_column == "verified":
+        # Audyt 22.10.2026 (F58), decyzja Artura: dzwonek przy każdym
+        # przejściu DL-a przez „Zweryfikowany” od lewej, także przeskoku
+        # od razu na „QC CV” czy dalej. Sam przeskok debriefu nie dzwoni.
+        if verified_skipped:
             await _notify_recruiter_of_skip(
                 db,
                 job=job,
@@ -3575,8 +3620,14 @@ async def build_kanban_view(
 
     qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
     # 22.10.2026: Delivery Lead przesunął mimo braków — odznaka na karcie.
+    # Tylko ślady bieżącej próby — po ponownym dodaniu osoby dawne nie wracają.
+    from app.services.recommendation_cards import attempt_started
+
     skipped_by_candidate = await _requirements_skipped(
-        db, job_id=job_id, candidate_ids=candidate_ids
+        db,
+        job_id=job_id,
+        candidate_ids=candidate_ids,
+        since={cid: attempt_started(p) for cid, p in v4_processes.items()},
     )
     missing_skip_names = {
         uid for _keys, uid in skipped_by_candidate.values() if uid is not None

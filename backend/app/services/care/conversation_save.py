@@ -388,8 +388,10 @@ async def save_client_state(
         hiring = bool(roles) or conversation.client_hiring
         hiring_source = changes.get("hiring_source") if hiring else None
     else:
-        roles = list(base.hiring_roles or []) if base is not None else []
-        hiring = conversation.client_hiring or bool(base is not None and base.hiring)
+        # „Klient zatrudnia” to zdarzenie tej rozmowy, nie stan karty: bez
+        # zaznaczenia nowa karta nie dziedziczy popytu (audyt 22.10, F1).
+        hiring = conversation.client_hiring
+        roles = list(base.hiring_roles or []) if base is not None and hiring else []
         hiring_source = (
             (changes.get("hiring_source") or (base.hiring_source if base else None))
             if hiring

@@ -800,6 +800,9 @@ async def _done(
                 }
             )
     if include_demand:
+        # Jedno rozstrzygnięcie karty zapisuje wszystkie jej źródła z tym samym
+        # czasem — w „Zrobione” karta liczy się raz (audyt 22.10, F3).
+        resolved: dict[tuple[Any, ...], tuple[int, board_state.BoardState]] = {}
         for state in await board_state.updated_between(db, first, last, kind="demand"):
             if state.outcome in ("confirmed", "stale"):
                 parsed = board_state.parse_key(state.key)
@@ -807,19 +810,23 @@ async def _done(
                     client_ids is not None and parsed.ids[0] not in client_ids
                 ):
                     continue
-                done.append(
-                    {
-                        "key": state.key,
-                        "kind": "demand",
-                        "title": "Popyt: "
-                        + (
-                            "potwierdzony"
-                            if state.outcome == "confirmed"
-                            else "nieaktualny"
-                        ),
-                        "done_on": _local_day(state.updated_at),
-                    }
-                )
+                group = (parsed.ids[0], state.outcome, state.updated_at)
+                if group not in resolved or parsed.ids[1] > resolved[group][0]:
+                    resolved[group] = (parsed.ids[1], state)
+        for _conversation_id, state in resolved.values():
+            done.append(
+                {
+                    "key": state.key,
+                    "kind": "demand",
+                    "title": "Popyt: "
+                    + (
+                        "potwierdzony"
+                        if state.outcome == "confirmed"
+                        else "nieaktualny"
+                    ),
+                    "done_on": _local_day(state.updated_at),
+                }
+            )
     done.sort(key=lambda row: (row["done_on"] or date.min, row["key"]), reverse=True)
     return {"this_week": len(done), "recent": done[:RECENT_DONE]}
 

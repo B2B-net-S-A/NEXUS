@@ -115,3 +115,18 @@ export function sourceCvWarning(
   if (original && !used.stage_original) return `CV powstało z ${name}, a nie z Oryginału CV tej rekrutacji.${tail}`;
   return null;
 }
+
+/**
+ * Plik dla „Napisz od nowa” (audyt 22.10.2026): ten, z którego powstało
+ * poprawiane CV — „Napisz od nowa” poprawia to CV, a nie przełącza po cichu
+ * źródła. `null` = plik domyślny (Oryginał CV), gdy poprzedniego źródła nie
+ * znamy albo jest usunięty, nieaktualny lub to „CV dla klienta” (ramka przy
+ * gotowym CV i tak mówi wtedy, że źródło jest złe).
+ */
+export function rewriteSourceFileId(
+  data: Pick<CvAiSources, "last_source_cv"> | null | undefined,
+): number | null {
+  const used = data?.last_source_cv;
+  if (!used || used.removed || used.outdated || isClientCvFilename(used.filename)) return null;
+  return used.document_id;
+}

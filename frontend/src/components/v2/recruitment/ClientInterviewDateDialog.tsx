@@ -62,11 +62,15 @@ export function ClientInterviewDateDialog({
   const pickSlot = (slot: SlotFromMail) => {
     const local = isoToLocalInput(slot.start);
     setDay(local.slice(0, 10));
-    setTime(local.slice(11));
+    // Okno klienta („między 9 a 12”): godzinę w oknie ustala się z kandydatem —
+    // nie wpisujemy po cichu początku okna (audyt 22.10, F95).
+    setTime(slot.window ? "" : local.slice(11));
     setPicked(slot.start);
     setUnknown(false);
     setError(null);
   };
+
+  const pickedWindow = mailSlots.find((s) => s.start === picked && s.window) ?? null;
 
   const submit = () => {
     if (unknown) {
@@ -121,9 +125,12 @@ export function ClientInterviewDateDialog({
             if (result.slots.length === 1) pickSlot(result.slots[0]);
           }}
         />
-        {mailSlots.length > 1 ? (
+        {/* Także przy jednym terminie: cytat i ostrzeżenie odczytu muszą być widoczne (F95). */}
+        {mailSlots.length > 0 ? (
           <div role="radiogroup" aria-label="Terminy z maila" className="space-y-1.5">
-            <p className="text-xs font-semibold text-muted-foreground">Który termin wybrał kandydat?</p>
+            <p className="text-xs font-semibold text-muted-foreground">
+              {mailSlots.length > 1 ? "Który termin wybrał kandydat?" : "Termin z maila"}
+            </p>
             {mailSlots.map((slot) => {
               const warning = warningLabel(slot.warning);
               return (
@@ -189,6 +196,12 @@ export function ClientInterviewDateDialog({
             </select>
           </div>
         </fieldset>
+        {pickedWindow && !unknown ? (
+          <p className="text-xs text-muted-foreground">
+            Okno klienta {isoToLocalInput(pickedWindow.start).slice(11)}–{isoToLocalInput(pickedWindow.end).slice(11)} —
+            wpisz godzinę ustaloną z kandydatem.
+          </p>
+        ) : null}
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"

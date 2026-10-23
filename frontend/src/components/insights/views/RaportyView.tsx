@@ -18,6 +18,8 @@ import {
   type ReportDef,
   type ReportId,
 } from "@/lib/insights-reports";
+import { holdsCapabilityGrant } from "@/lib/capabilities";
+import { hasSectionAccess } from "@/lib/section-access";
 import { useAuthStore } from "@/store/auth";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
@@ -213,7 +215,17 @@ function ReportBody({
       return (
         <div className="space-y-6">
           <InsightsIntegrations />
-          <SourcesFunnelSection />
+          {/* Lustro `CandidatePIIAccess` z GET /api/reports/sources: rola
+              z odczytem kandydatów i sekcja Sourcing albo Pipeline. Rada
+              nadzorcza go nie ma (audyt 22.10.2026) — notka zamiast 403. */}
+          {holdsCapabilityGrant(user, "nav.candidates") &&
+          (hasSectionAccess(user, "sourcing") || hasSectionAccess(user, "pipeline")) ? (
+            <SourcesFunnelSection />
+          ) : (
+            <p className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+              Źródła kandydatów nie są dostępne dla tej roli.
+            </p>
+          )}
           <InviteLinksWithPeriod />
         </div>
       );

@@ -23,7 +23,7 @@ from app.services.interview_cycle import (
     prep2_skip_status,
     prep2_skip_valid,
 )
-from app.services.prep2_skips import tally_skip_stats
+from app.services.prep2_skips import tally_skip_stats, tally_two_preps
 
 # Wtorek 20.10.2026, 14:00 w Warszawie.
 NOW = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
@@ -272,9 +272,9 @@ def test_skip_validity_is_one_rule_for_screen_and_report() -> None:
 def test_report_does_not_count_a_skip_lost_by_moving_the_interview() -> None:
     past_iv = NOW - timedelta(hours=1)
     interviews = [
-        # (id, kandydat, rekrutacja, start, właściciel)
-        (1, 10, 20, past_iv, 11),
-        (2, 12, 20, past_iv, 11),
+        # (id, kandydat, rekrutacja, start, właściciel, założona)
+        (1, 10, 20, past_iv, 11, NOW - timedelta(days=8)),
+        (2, 12, 20, past_iv, 11, NOW - timedelta(days=8)),
     ]
     skips = {
         1: ("no_slot", NOW - timedelta(hours=3)),
@@ -287,3 +287,36 @@ def test_report_does_not_count_a_skip_lost_by_moving_the_interview() -> None:
     assert stat.reasons == {"no_slot": 1}
     # Nieważny wyjątek = rozmowa bez Prepu 2 i bez powodu.
     assert stat.silent == 1
+
+
+# Audyt 22.10.2026 (F28), decyzja Artura: rozmowa zapisana PO FAKCIE (pytania
+# z datą wstecz, import z notatek, „Kiedy rozmowa?” wstecz) nie była w kalendarzu
+# przed startem — nie dało się do niej zrobić prepów ani zapisać „bez Prepu 2”.
+# Raport liczy ją osobno jako „zapisane po fakcie”, nie jako „bez słowa”.
+
+
+def test_interview_recorded_after_the_fact_is_its_own_bucket_not_silent() -> None:
+    held = NOW - timedelta(days=2)
+    interviews = [
+        # Założona dzień przed rozmową, bez prepów — „bez słowa”.
+        (1, 10, 20, held, 11, held - timedelta(days=1)),
+        # Założona po rozmowie (pytania z datą wstecz) — „po fakcie”.
+        (2, 12, 20, held, 11, NOW - timedelta(hours=1)),
+        # Założona w chwili startu — też po fakcie (nie było jej wcześniej).
+        (3, 13, 20, held, 11, held),
+    ]
+    stat = tally_skip_stats(interviews, {}, preps={}, now=NOW)[11]
+    assert stat.interviews == 3
+    assert stat.silent == 1
+    assert stat.after_the_fact == 2
+
+
+def test_two_preps_line_leaves_out_interviews_recorded_after_the_fact() -> None:
+    held = NOW - timedelta(days=2)
+    preps = {(10, 20): [held - timedelta(days=2), held - timedelta(days=1)]}
+    interviews = [
+        (10, 20, held, held - timedelta(days=5)),  # dwa prepy
+        (12, 20, held, held - timedelta(days=5)),  # bez prepów
+        (13, 20, held, NOW - timedelta(hours=1)),  # zapisana po fakcie
+    ]
+    assert tally_two_preps(interviews, preps) == (2, 1, 1)

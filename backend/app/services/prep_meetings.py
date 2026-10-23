@@ -139,7 +139,12 @@ def app_only_ready() -> bool:
 
 
 async def active_prep(
-    db: AsyncSession, *, candidate_id: int, job_id: int, prep_no: int
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    prep_no: int,
+    at: Optional[datetime] = None,
 ) -> Optional[PrepMeeting]:
     """Prep o tym numerze w BIEŻĄCEJ rundzie rozmów pary.
 
@@ -161,8 +166,11 @@ async def active_prep(
     dwa dni wcześniej; ekran poprosił o Prep 1 jeszcze raz, serwer go założył
     i kandydat miał dwa zaproszenia). Lustro ``late_preps`` w
     ``interview_cycle.load_snapshots``.
+
+    ``at`` = chwila, względem której liczy się runda (domyślnie teraz);
+    ocena Prepu 2 podaje start tego prepu (audyt 22.10.2026, F42).
     """
-    now = datetime.now(timezone.utc)
+    now = _utc(at) if at is not None else datetime.now(timezone.utc)
     starts = [
         _utc(s)
         for s in (
@@ -196,6 +204,30 @@ async def active_prep(
     if round_end is not None:
         q = q.where(CalendarEvent.start_time <= round_end)
     return await db.scalar(q.order_by(PrepMeeting.id.desc()).limit(1))
+
+
+async def organizer_prep_spans(
+    db: AsyncSession, *, organizer_id: int, start: datetime, end: datetime
+) -> list[tuple[datetime, datetime]]:
+    """Nieodwołane prepy prowadzącego w NEXUSIE, które nachodzą na [start, end).
+
+    Kontrola zajętości przy zapisie prepu pomija blok z Outlooka o tym samym
+    przedziale (sierota z poprzedniej próby), więc prep innego kandydata
+    w tej samej godzinie trzeba znać z bazy (audyt 22.10, F32).
+    """
+    rows = (
+        await db.execute(
+            select(CalendarEvent.start_time, CalendarEvent.end_time)
+            .join(PrepMeeting, PrepMeeting.calendar_event_id == CalendarEvent.id)
+            .where(
+                PrepMeeting.organizer_user_id == organizer_id,
+                CalendarEvent.status != EventStatus.cancelled,
+                CalendarEvent.start_time < end,
+                CalendarEvent.end_time > start,
+            )
+        )
+    ).all()
+    return [(_utc(s), _utc(e)) for s, e in rows if s is not None and e is not None]
 
 
 async def already_scheduled_message(db: AsyncSession, prep: PrepMeeting) -> str:
@@ -258,12 +290,17 @@ async def create_prep(
     client_request_id: Optional[str],
     client_name: Optional[str] = None,
     extra_emails: Sequence[str] = (),
+    interview_start: Optional[datetime] = None,
 ) -> CreatedPrep:
     """Spotkanie w kalendarzu organizatora + wiersze NEXUSA. Flush, bez commitu.
 
     ``extra_emails`` — zaproszeni spoza NEXUSA (decyzja D1, 17.10.2026: Delivery
     Lead chciał dopisać kogoś spoza zespołu rekrutacji, a lista pozwalała tylko
     na zespół).
+
+    ``interview_start`` — termin rozmowy wybrany w oknie, który czeka jeszcze
+    na DL-a (przełożenie). Wygrywa z najbliższą rozmową z kalendarza, bo ta
+    jest wtedy STARĄ rozmową (decyzja Artura 22.10.2026, audyt F37).
     """
     if not organizer.email:
         raise HTTPException(
@@ -280,9 +317,12 @@ async def create_prep(
     title = prep_invitation.title(prep_no, candidate_name(candidate), client_name)
     # Termin rozmowy trafia do treści tylko wtedy, gdy prep jest PRZED nią —
     # zaproszenie na prep po rozmowie nie może jej zapowiadać.
-    interview_start = await upcoming_interview_start(
-        db, candidate_id=candidate.id, job_id=job.id
-    )
+    if interview_start is not None:
+        interview_start = _utc(interview_start)
+    else:
+        interview_start = await upcoming_interview_start(
+            db, candidate_id=candidate.id, job_id=job.id
+        )
     if interview_start is not None and _utc(start) >= interview_start:
         interview_start = None
     invitation = prep_invitation.text(

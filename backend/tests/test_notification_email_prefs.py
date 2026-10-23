@@ -226,6 +226,13 @@ def test_delivery_lead_admin_head_and_finance_get_their_own_emails():
     assert "chat_unread" not in finance
 
 
+def test_board_member_can_switch_off_the_board_report_they_receive():
+    """Mail zarządu trafia do roli Rada nadzorcza (`reads_board_money`), więc
+    „Maile do Ciebie” musi pozwolić go wyłączyć (audyt 22.10.2026, F101)."""
+    board = _applies(_user(UserRole.board))
+    assert "board_monthly_report" in board
+
+
 # ── Stan wiersza w „Moje” ───────────────────────────────────────────────────
 
 

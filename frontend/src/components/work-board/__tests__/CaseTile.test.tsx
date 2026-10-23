@@ -49,4 +49,10 @@ describe("CaseTile", () => {
     renderTile(card({ assignee_hidden: true, content_hidden: true }));
     expect(screen.queryByText("bez osoby")).toBeNull();
   });
+
+  it("sprawa bez dostępu (content_hidden) nie otwiera panelu — tytuł bez przycisku (audyt 22.10, F9)", () => {
+    renderTile(card({ title: "Sprawa: Negocjacje", assignee_hidden: true, content_hidden: true }));
+    expect(screen.getByText("Sprawa: Negocjacje")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Sprawa:/ })).toBeNull();
+  });
 });

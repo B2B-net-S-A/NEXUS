@@ -12,11 +12,13 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from app.models.notification import NotificationType
 from app.services import notification_access as na
 from app.services import prep_meetings, teams_prep_scope as tps
+from app.services.m365.app_graph_client import AppOnlyTokenUnavailable
 from app.services.notification_categories import (
     CATEGORY_BY_TYPE,
     NotificationCategory,
@@ -146,6 +148,32 @@ async def test_scan_skips_without_app_only_config(scan, monkeypatch) -> None:
         raise AssertionError("probe without app-only config")
 
     assert await tps.scan_once(_FakeDb(), probe=probe) == 0
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        httpx.ConnectError("zerwane połączenie"),
+        httpx.ReadTimeout("timeout"),
+        AppOnlyTokenUnavailable("brak tokenu"),
+    ],
+)
+async def test_probe_network_or_token_error_is_unknown(monkeypatch, error) -> None:
+    """Audyt 22.10, F98: błąd jednej osoby nie przerywa przebiegu."""
+    from app.services.m365 import teams_prep_graph as tpg
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, *_a, **_kw):
+            raise error
+
+    monkeypatch.setattr(tpg, "_client", lambda: _Client())
+    assert await tps.calendar_access("anna@example.test") == "unknown"
 
 
 def test_type_is_admin_only_system_and_mailed_at_once() -> None:

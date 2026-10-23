@@ -442,6 +442,8 @@ async def test_closures_list_groups_rows_and_counts() -> None:
     assert {r["close_reason"] for r in result["neutral"]} == {"duplicate", "paused"}
     assert {r["close_reason"] for r in result["unreviewed"]} == {"other", None}
     assert len(mine) == 4
+    # „Zmień powód” w Insights zna klienta — lista rekrutacji przy duplikacie.
+    assert {r["client_id"] for r in mine} == {client_id}
     # 0 wygranych z 3 liczonych (konkurencja + dwa do przejrzenia).
     assert result["hit_ratio"] == 0.0
 

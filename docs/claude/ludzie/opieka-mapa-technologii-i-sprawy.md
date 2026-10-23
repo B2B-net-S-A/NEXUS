@@ -17,6 +17,12 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   `structure`, `redeploy`, `review`) prowadzą w nowe miejsca — dzwonki z linkami dalej działają.
   „Do przepięcia” to karty „Decyzja” na tablicy i filtr w Konsultantach; kolejka nazw technologii
   jest w Ustawienia → Słownik umiejętności („Nazwy z rozmów do przejrzenia”).
+- **Zamkniętą decyzję da się cofnąć** (decyzja Artura 22.10.2026, audyt F107): pozycja „Decyzja”
+  w kolumnie „Zrobione” ma „Otwórz ponownie”, a Konsultanci mają chip „Decyzje zamknięte” (lista
+  `GET /api/care/redeploy?state=closed`, najpierw ostatnio zamknięte, wynik Przekazana / Nie dotyczy,
+  notatka, „Otwórz ponownie”). Oba robią `PATCH /api/care/redeploy/{id}` `{status: "in_progress"}`
+  (409, gdy ten konsultant ma już aktywny wpis z tym powodem); karta „Decyzja” wraca na tablicę.
+  Zamknięcie nie jest jednokierunkowe — nie usuwaj tych wejść ani trasy listy zamkniętych.
 - **Profil klienta**: jedna zakładka „Ludzie i technologie” (`?tab=ludzie`, po „Kontaktach
   klienta”) z widokami Działy · Drzewo osób · Mapa; `struktura` i `technologie` przekierowują.
   Rzadkie zakładki (Importy MD, Faktury, Analityka) są pod „Więcej”.
@@ -96,6 +102,12 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   `jobs_new_url` (`/jobs/new?client=&hm=&skills=&title=&dept=&headcount=&start=`, odczyt tylko
   pustych pól; dział trafia do opisu jako „Dział u klienta: X.”, start = pierwszy dzień miesiąca), nie teraz →
   wraca za 30 dni, nieaktualne → znika. **ATLAS (`/api/care/atlas/*`) bez rozbudowy.**
+- **Osobny dzwonek na każdy nowy sygnał** (decyzja Artura 22.10.2026, audyt F5): inny dział albo
+  inne role u tego samego klienta dają DL nowy dzwonek także tego samego dnia. Encja dzwonka to
+  rozmowa (`related_entity_type="care_demand"`, `related_entity_id=<rozmowa>`), nie klient —
+  dobowy dedup `emit` (`ix_notif_dedup_daily`: odbiorca + typ + encja) zjadał drugi popyt. Ten sam
+  sygnał i ten sam dział + zbiór ról w 30 dniach pilnuje `_recent_recipients` (czyta też stare
+  dzwonki z encją `client`). Nie wracaj do encji klienta.
 - Klucz karty popytu `demand:<klient>:<rozmowa>` — BEZ działu: dział liczy się przy odczycie, więc
   po zmianie działu menedżera rozstrzygnięcie by się zgubiło. Dział łączy tylko karty, a w linku
   dzwonka (`/care?card=<klucz>&area=<dział|0>`) służy do limitu raz na 7 dni.
