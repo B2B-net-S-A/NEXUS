@@ -365,6 +365,9 @@ class CandidateStageResponse(BaseModel):
     # 0399: wynik automatu przy wejściu („Auto-match 67/100 · JJIT”) —
     # {"score", "source", "must_hit", "must_total"}; `None` = wejście ręczne.
     entry_auto_match: Optional[dict] = None
+    # 23.10.2026: osoba od silnika „Nowi na 20” — wynik, wymagania, termin
+    # decyzji (`process_entry_meta.autofill_badge`); `None` przy innym wejściu.
+    entry_autofill: Optional[dict] = None
     # 0404: przegląd zgłoszenia z linku rekrutacji — {"verdict", "assessed",
     # "must_found", "must_total", "overridden"}; `None` = wejście bez przeglądu.
     entry_ai_screening: Optional[dict] = None
