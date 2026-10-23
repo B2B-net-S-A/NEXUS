@@ -14,6 +14,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -316,6 +317,16 @@ async def test_invoice_over_ten_percent_needs_a_topup_from_the_approver(
         headers=_headers(team["ceo"]),
     )
     assert decided.status_code == 200, decided.text
+    # Ten sam dzień co „Zgoda zatwierdzona” — dzienny dedup powiadomień nie
+    # połyka decyzji o dopłacie (audyt 22.10, F19).
+    titles = [
+        n.title
+        for n in await _notifications(
+            team["worker"], NotificationType.hr_approval_decided
+        )
+    ]
+    assert any(t.startswith("Zgoda zatwierdzona") for t in titles), titles
+    assert any(t.startswith("Dopłata zatwierdzona") for t in titles), titles
     second = await client.post(
         f"{BASE}/{approved['id']}/documents/{doc['id']}/topup/decide",
         json={"action": "approve"},
@@ -439,9 +450,91 @@ async def test_ksef_cost_invoice_pins_to_the_request_with_its_seller(
     assert row["last_document"]["comparison"]["status"] == "fits"
 
 
+def _ksef_item(nip: str, issue_date, gross: float = 240.0) -> dict:
+    return {
+        "invoiceNumber": f"FV {uuid.uuid4().hex[:6]}",
+        "issueDate": issue_date.isoformat(),
+        "seller": {"nip": nip, "name": "Dostawca Testowy"},
+        "netAmount": round(gross / 1.23, 2),
+        "vatAmount": round(gross - gross / 1.23, 2),
+        "grossAmount": gross,
+        "currency": "PLN",
+        "invoiceType": "Vat",
+    }
+
+
+async def _store_ksef(item: dict) -> str:
+    nip = item["seller"]["nip"]
+    async with AsyncSessionLocal() as db:
+        state = await cost_invoices.store(
+            db,
+            item,
+            ksef_number=f"{nip}-20261020-{uuid.uuid4().hex[:12].upper()}-AC",
+            now=datetime.now(timezone.utc),
+        )
+        await db.commit()
+    return state
+
+
 @pytest.mark.asyncio
-async def test_request_without_document_expires_after_thirty_days(client, team) -> None:
-    approved = await _approved(client, team, _training("300"))
+async def test_ksef_match_window_is_thirty_days_before_the_request_not_after(
+    client, team
+) -> None:
+    """Prośba nie później niż 30 dni po wystawieniu faktury (audyt 22.10, F18):
+    kolejna faktura subskrypcji przypina się sama, stara faktura sprzedawcy
+    z kolejki nie przypina się do świeżej zgody."""
+
+    nip = _nip(int(uuid.uuid4().int % 10**8))
+    await _approved(
+        client,
+        team,
+        {
+            **_training("240"),
+            "kind": "subscription",
+            "recurrence": "monthly",
+            "seller_nip": nip,
+        },
+    )
+    later = business_today() + timedelta(days=40)
+    assert await _store_ksef(_ksef_item(nip, later)) == "pinned"
+
+    old_nip = _nip(int(uuid.uuid4().int % 10**8))
+    old = _ksef_item(old_nip, business_today() - timedelta(days=40))
+    assert await _store_ksef(old) == "unmatched"
+    await _approved(
+        client,
+        team,
+        {
+            **_training("240"),
+            "kind": "subscription",
+            "recurrence": "monthly",
+            "seller_nip": old_nip,
+        },
+    )
+    async with AsyncSessionLocal() as db:
+        doc = await db.scalar(
+            select(ApprovalDocument).where(
+                ApprovalDocument.seller_nip == old_nip,
+                ApprovalDocument.invoice_number == old["invoiceNumber"],
+            )
+        )
+    assert doc is not None
+    assert (doc.status, doc.match_reason, doc.approval_request_id) == (
+        "unmatched",
+        "no_approval",
+        None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_recurring_request_without_document_expires_after_thirty_days(
+    client, team
+) -> None:
+    approved = await _approved(
+        client,
+        team,
+        {**_training("240"), "kind": "subscription", "recurrence": "monthly"},
+    )
     async with AsyncSessionLocal() as db:
         request = await db.get(ApprovalRequest, approved["id"])
         request.expires_on = business_today() - timedelta(days=1)
@@ -455,6 +548,85 @@ async def test_request_without_document_expires_after_thirty_days(client, team) 
     ).json()
     assert after["settlement"]["status"] == "expired"
     assert (await _upload(client, team["worker"], approved["id"])).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_one_time_request_without_document_never_expires(
+    client, team, monkeypatch
+) -> None:
+    """Decyzja Artura 22.10.2026: zgoda „raz” bez dokumentu nie wygasa —
+    delegacja czy szkolenie za dwa miesiące czekają na rachunek po wydarzeniu.
+    Zgody sprzed decyzji mają termin z backfillu i też go nie odpalają."""
+
+    start = business_today() + timedelta(days=60)
+    approved = await _approved(
+        client, team, _training("300", starts_on=start.isoformat())
+    )
+    assert approved["settlement"]["status"] == "open"
+    assert approved["settlement"]["expires_on"] is None
+    async with AsyncSessionLocal() as db:
+        request = await db.get(ApprovalRequest, approved["id"])
+        assert request.expires_on is None
+        request.expires_on = business_today() - timedelta(days=1)  # jak z backfillu
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await settlement.expire_stale(db, business_today() + timedelta(days=90))
+        await db.commit()
+    after = (
+        await client.get(f"{BASE}/{approved['id']}", headers=_headers(team["worker"]))
+    ).json()
+    assert after["settlement"]["status"] == "open"
+    assert after["settlement"]["expires_on"] is None
+    monkeypatch.setattr(reader, "read_document", _read("300.00"))
+    uploaded = await _upload(client, team["worker"], approved["id"])
+    assert uploaded.status_code == 201, uploaded.text
+
+
+@pytest.mark.asyncio
+async def test_on_approved_gives_one_time_request_no_expiry_date() -> None:
+    """Bez bazy: termin wygaśnięcia dostaje tylko wydatek cykliczny (22.10.2026)."""
+
+    today = business_today()
+    db = AsyncMock()
+    once = ApprovalRequest(
+        kind="training",
+        status="approved",
+        recurrence="once",
+        starts_on=today + timedelta(days=60),
+    )
+    await settlement.on_approved(db, once, User(id=1))
+    assert (once.settlement_status, once.expires_on) == ("open", None)
+    assert settlement.expiry(once) is None
+    monthly = ApprovalRequest(
+        kind="subscription",
+        status="approved",
+        recurrence="monthly",
+        starts_on=today + timedelta(days=90),
+    )
+    await settlement.on_approved(db, monthly, User(id=1))
+    assert monthly.expires_on == today + timedelta(days=120)
+    assert settlement.expiry(monthly) == monthly.expires_on
+    # Zgoda „raz” sprzed decyzji ma datę z backfillu — na ekranie jej nie ma.
+    once.expires_on = today
+    assert settlement.expiry(once) is None
+
+
+@pytest.mark.asyncio
+async def test_expire_stale_skips_one_time_requests_without_database() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    captured = []
+
+    async def execute(stmt):
+        captured.append(stmt)
+        return MagicMock(all=lambda: [])
+
+    db = AsyncMock()
+    db.execute = execute
+    assert await settlement.expire_stale(db, business_today()) == 0
+    (stmt,) = captured
+    where = str(stmt.whereclause.compile(dialect=postgresql.dialect()))
+    assert "approval_requests.recurrence !=" in where
 
 
 @pytest.mark.asyncio

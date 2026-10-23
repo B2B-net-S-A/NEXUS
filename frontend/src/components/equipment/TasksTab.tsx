@@ -360,7 +360,11 @@ export function TasksTab({ onIssue, onReturn, onOpenProtocol }: TasksTabProps) {
             if (!next) setMailTo(null);
           }}
           title={`Przypomnij: ${mailTo.task.holder.name ?? "osoba"}`}
-          description="Ta osoba nie ma konta w NEXUSIE — przypomnienie wysyłasz ze swojej poczty."
+          description={
+            mailTo.task.holder.kind === "user"
+              ? "Dzwonek w NEXUSIE nie wyszedł (powiadomienia wyciszone albo przypomnienie było już dziś) — przypomnienie wysyłasz ze swojej poczty."
+              : "Ta osoba nie ma konta w NEXUSIE — przypomnienie wysyłasz ze swojej poczty."
+          }
           footer={
             <>
               <Button variant="ghost" onClick={() => setMailTo(null)}>

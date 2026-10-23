@@ -168,7 +168,7 @@ function doc(partial: Partial<ApprovalDocument> & Pick<ApprovalDocument, "id">):
 
 function settlement(partial: Partial<ApprovalSettlement> & Pick<ApprovalSettlement, "status" | "status_label">): ApprovalSettlement {
   return {
-    expires_on: iso(21),
+    expires_on: null,
     renews_on: null,
     renewal_asked_for: null,
     renewal_confirmed_for: null,

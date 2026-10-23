@@ -213,6 +213,9 @@ async def _notify(db: AsyncSession, bonus: HrBonus, *, event: str) -> None:
         related_entity_type="hr_bonus",
         related_entity_id=bonus.id,
         log_tag="payroll",
+        # Zmiana i anulowanie tego samego dnia co przyznanie to nowy dzwonek,
+        # nie duplikat do połknięcia przez dzienny dedup (audyt 22.10, F15).
+        fresh=True,
     )
 
 

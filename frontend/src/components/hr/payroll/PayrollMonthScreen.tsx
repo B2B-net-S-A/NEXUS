@@ -53,6 +53,7 @@ import { PayrollPeopleTable } from "./PayrollPeopleTable";
 import { SymfoniaExportButton } from "./payments/SymfoniaExportButton";
 import { ReopenMonthDialog } from "./ReopenMonthDialog";
 import {
+  assignedBonusActions,
   bonusDecision,
   closeSteps,
   decidableBonuses,
@@ -243,12 +244,6 @@ export function PayrollMonthScreen({
     writeUrlParams({ view: value === MONTH_VIEW ? null : value, settlement: null });
   };
   const mine = (row: BonusRow) => me?.id === row.recipient_user_id;
-  // Przełożony poprawia tylko własną propozycję; przyznaną zmieniają Płace
-  // (serwer odpowiada wtedy 403 — audyt 21.10.2026).
-  const canEdit = (row: BonusRow) =>
-    open &&
-    !mine(row) &&
-    (payroll || (row.proposed_by === me?.id && row.status === "proposed"));
 
   return (
     <div className="space-y-4">
@@ -469,18 +464,24 @@ export function PayrollMonthScreen({
               ) : (
                 <BonusTable
                   rows={assigned}
-                  renderActions={(row) =>
-                    canEdit(row) ? (
+                  renderActions={(row) => {
+                    const actions = assignedBonusActions(row, { open, payroll, meId: me?.id });
+                    if (!actions.edit && !actions.cancel) return null;
+                    return (
                       <div className="flex justify-end gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
-                          Zmień
-                        </Button>
-                        <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
-                          Anuluj
-                        </Button>
+                        {actions.edit ? (
+                          <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
+                            Zmień
+                          </Button>
+                        ) : null}
+                        {actions.cancel ? (
+                          <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
+                            Anuluj
+                          </Button>
+                        ) : null}
                       </div>
-                    ) : null
-                  }
+                    );
+                  }}
                 />
               )}
             </section>

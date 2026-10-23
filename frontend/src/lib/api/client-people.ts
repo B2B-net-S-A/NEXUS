@@ -275,6 +275,9 @@ export function useSaveClientFeedback(clientId: number) {
       void queryClient.invalidateQueries({ queryKey: ["care", "board"] });
       void queryClient.invalidateQueries({ queryKey: ["care", "contract"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-cases"] });
+      // „Klienci”: ostatnia opinia i „czeka na opinię” (audyt 22.10, F91).
+      void queryClient.invalidateQueries({ queryKey: ["care", "clients"] });
+      void queryClient.invalidateQueries({ queryKey: careKeys.summary });
       for (const contractId of saved.contract_ids) {
         void queryClient.invalidateQueries({
           queryKey: clientPeopleKeys.contractFeedback(contractId),

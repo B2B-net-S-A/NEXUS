@@ -44,7 +44,7 @@ from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.models.user import User, UserRole
 from app.schemas.job_team import JobRecruiterOut
 from app.services.job_priority import level_of
-from app.services.job_similarity import at_client_counts
+from app.services.job_similarity import at_client_counts, board_column_counts
 from app.services.job_team import (
     TeamPerson,
     recruiters_for_jobs,
@@ -99,6 +99,10 @@ class BoardRequest(BaseModel):
     category_id: Optional[int]
     deadline: Optional[date]
     sent: int
+    # Osoby, których karta stoi teraz w „Zweryfikowany” / „QC CV” (23.10.2026,
+    # prośba Head of Recruitment) — ta sama reguła kolumn Tablicy co ``sent``.
+    verified: int = 0
+    cv_qc: int = 0
     champion: bool
     people: list[BoardPerson]
     delivery_lead: Optional[BoardLead] = None
@@ -266,6 +270,8 @@ async def get_request_board(
         ).all()
     )
     sent = await at_client_counts(db, ids)
+    verified = await board_column_counts(db, ids, ("verified",))
+    cv_qc = await board_column_counts(db, ids, ("cv_qc",))
     # Jedna reguła „kto pracuje” — także prowadzący i ręczny współpracownik,
     # których w ``job_work_assignments`` nie ma (do 02.10.2026 pulpit czytał
     # samą tabelę przypisań i przy 19 z 20 requestów pokazywał „nikt”).
@@ -298,6 +304,8 @@ async def get_request_board(
             category_id=job.competence_category_id,
             deadline=job.deadline,
             sent=int(sent.get(job.id, 0)),
+            verified=int(verified.get(job.id, 0)),
+            cv_qc=int(cv_qc.get(job.id, 0)),
             champion=job.champion_found_at is not None,
             people=[
                 _board_person(person, row_sources.get((job.id, person.user_id)))

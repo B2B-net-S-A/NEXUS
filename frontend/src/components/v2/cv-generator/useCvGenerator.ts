@@ -106,6 +106,8 @@ export function useCvGenerator({
   const [sourceChoice, setSourceChoice] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const notedInstruction = useRef<string | null>(null);
+  // Notatka zapisana przy nieudanej generacji — ponowienie jej nie dopisuje.
+  const notedDraft = useRef<string | null>(null);
   const [championOverride, setChampionOverride] = useState<ChampionOverride | null>(null);
   const [championPreview, setChampionPreview] = useState<{ file: File; data: ChampionPreview } | null>(null);
   const [championBusy, setChampionBusy] = useState(false);
@@ -342,17 +344,21 @@ export function useCvGenerator({
   const generateMut = useMutation({
     mutationFn: async (): Promise<CvGenerateEnqueued> => {
       if (!recruitment || cvDocumentId == null) throw new Error("Brak rekrutacji albo pliku CV");
-      if (noteDraft.trim()) {
+      const note = noteDraft.trim();
+      if (note && notedDraft.current !== note) {
         // Notatka zapisuje się w rekrutacji PRZED generacją — serwer czyta
-        // notatki z bazy.
+        // notatki z bazy. Pole czyści się dopiero po udanej generacji: po
+        // odmowie zostaje z potwierdzeniem, a ponowienie nie zapisuje jej
+        // drugi raz (audyt 22.10).
         await api.post("/api/notes", {
-          content: noteDraft.trim(),
+          content: note,
           note_type: "call",
           candidate_id: candidate.id,
           job_id: recruitment.job_id,
         });
-        setNoteDraft("");
+        notedDraft.current = note;
         void queryClient.invalidateQueries({ queryKey: ["cv-gen-recruitments", candidate.id] });
+        void queryClient.invalidateQueries({ queryKey: cvAiSourcesQueryKey(recruitment.stage_id) });
       }
       // Uwaga raz na treść — ponowienie po błędzie generacji nie dopisuje
       // kolejnej notatki (każda byłaby źródłem dla modelu).
@@ -388,6 +394,8 @@ export function useCvGenerator({
         }))).data;
     },
     onSuccess: (data) => {
+      setNoteDraft("");
+      notedDraft.current = null;
       void queryClient.invalidateQueries({ queryKey: ["cv-generated"] });
       setResult({
         id: data.id,

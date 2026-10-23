@@ -31,6 +31,11 @@ export interface Prep2SkipRow {
   with_reason: number;
   /** Rozmowa się odbyła, prepów było mniej niż dwa, a powodu nikt nie zapisał. */
   silent: number;
+  /**
+   * Rozmowa zapisana w NEXUSIE dopiero po swoim starcie (pytania z datą wstecz,
+   * import z notatek) — osobno, nie „bez słowa” (audyt 22.10, F28). Starszy serwer = brak.
+   */
+  after_the_fact?: number;
   /** `with_reason / interviews` (0..1). */
   share: number;
   /** Ponad próg i co najmniej dwie rozmowy — Head of Recruitment dostał dzwonek. */
@@ -41,10 +46,12 @@ export interface Prep2SkipRow {
 export interface PrepQualityResponse {
   days: number;
   rows: PrepQualityRow[];
-  /** Rozmowy u klienta w oknie. */
+  /** Rozmowy u klienta w oknie (bez zapisanych po fakcie). */
   interviews: number;
   /** …z których przed rozmową odbyły się oba prepy. */
   interviews_with_two_preps: number;
+  /** Rozmowy zapisane po fakcie — poza linią o dwóch prepach (audyt 22.10, F28). */
+  interviews_after_the_fact?: number;
   /** 0482; starszy serwer = brak. */
   skip_days?: number;
   skip_threshold?: number;

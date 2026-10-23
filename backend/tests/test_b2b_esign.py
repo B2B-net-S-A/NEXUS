@@ -645,6 +645,9 @@ async def test_without_the_confirm_permission_the_sender_is_asked_to_finish(
         f"/api/b2b-generator/esign/{request_id}/signed-pdf", headers=app_auth_headers
     )
     assert pdf.status_code == 200 and pdf.content.endswith(b"% firma\n")
+    # Audyt 22.10, F45: rejestr pokazuje nadawcy „Pobierz podpisaną umowę”.
+    item = await _register_item(app_client, app_auth_headers, scenario["generated_id"])
+    assert item["can_download_signed_esign"] is True
 
 
 # ── wygasanie i przypomnienia (PR 4b) ────────────────────────────────────────
@@ -932,3 +935,193 @@ async def test_card_history_and_signer_list_know_the_contract_is_in_signing(
         "Wysłana do podpisu w NEXUSIE",
         "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
     ]
+
+
+def test_reminder_after_the_contractor_signed_goes_to_the_company_signer():
+    """Audyt 22.10, F48: po podpisie kontraktora zamiatacz ponagla reprezentanta
+    firmy — historia nie może pisać „Przypomnienie do kontraktora”."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.history import esign_history
+
+    t0 = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
+    waiting = SimpleNamespace(
+        id=4,
+        status="contractor_signed",
+        sent_at=t0 - timedelta(days=2),
+        sent_by=7,
+        last_reminder_at=t0 + timedelta(days=3),
+        contractor_signed_at=t0,
+        completed_at=None,
+        closed_at=None,
+        closed_by=None,
+        close_reason=None,
+        company_signer_id=9,
+    )
+
+    labels = [e.label for e in esign_history([waiting])]
+
+    assert labels == [
+        "Wysłana do podpisu w NEXUSIE",
+        "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
+        "Przypomnienie do podpisu za B2B Network",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sweeper_skips_a_request_closed_after_the_due_list(monkeypatch):
+    """Audyt 22.10, F106: wniosek wycofany albo podpisany między listą a blokadą
+    nie dostaje przypomnienia — bez dzwonka i bez maila do kontraktora."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.tasks import b2b_esign_sweeper
+
+    now = datetime(2026, 11, 5, 9, 0, tzinfo=timezone.utc)
+    calls: list[str] = []
+
+    for status in ("withdrawn", "completed", "expired"):
+        request = SimpleNamespace(
+            id=12,
+            status=status,
+            generated_contract_id=5,
+            sent_at=now - timedelta(days=4),
+            expires_at=now + timedelta(days=10),
+            contractor_signed_at=None,
+            last_reminder_at=None,
+            sent_by=7,
+            company_signer_id=9,
+            contractor_email="anna@example.com",
+            contractor_name="Anna",
+        )
+
+        class _Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def scalar(self, _stmt, _request=request):
+                return _request
+
+            async def get(self, _model, _id):
+                return SimpleNamespace(contract_number="B2B/1", candidate_id=3)
+
+            async def commit(self):
+                calls.append("commit")
+
+        async def _emit(*_a, **_k):
+            calls.append("notify")
+
+        async def _send_from(*_a, **_k):
+            calls.append("mail")
+
+        monkeypatch.setattr(b2b_esign_sweeper, "AsyncSessionLocal", _Session)
+        monkeypatch.setattr(b2b_esign_sweeper, "emit_notification", _emit)
+        monkeypatch.setattr(b2b_esign_sweeper.esign_mail, "send_from", _send_from)
+
+        assert await b2b_esign_sweeper._handle(12, now) is None, status
+        assert request.last_reminder_at is None, status
+    assert calls == []
+
+
+async def _register_item(app_client, headers, generated_id: int) -> dict[str, Any]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, generated_id)
+        assert row is not None
+        number = row.contract_number
+    listed = await app_client.get(
+        "/api/b2b-generator/generated", headers=headers, params={"q": number}
+    )
+    assert listed.status_code == 200, listed.text
+    return next(i for i in listed.json() if i["id"] == generated_id)
+
+
+@pytest.mark.asyncio
+async def test_contract_in_nexus_signing_or_signed_there_cannot_be_deleted(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Audyt 22.10, F44: kaskada FK kasowała wniosek razem z podpisem
+    kontraktora albo obu stron. Usunąć można dopiero po wycofaniu wysyłki."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.b2b_signing_request import B2BSigningRequest
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    generated_id = scenario["generated_id"]
+    sent = await _send(
+        app_client, app_auth_headers, generated_id, esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+    request_id = sent.json()["request"]["id"]
+
+    assert (await _register_item(app_client, app_auth_headers, generated_id))[
+        "can_delete"
+    ] is False
+    deleted = await app_client.delete(
+        f"/api/b2b-generator/generated/{generated_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 409, deleted.text
+    assert "zwykłą drogę" in deleted.json()["detail"]
+
+    # Obie strony podpisały, ale automatyka nie oznaczyła wiersza.
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        request.status = "completed"
+        request.contractor_token_hash = None
+        await db.commit()
+    assert (await _register_item(app_client, app_auth_headers, generated_id))[
+        "can_delete"
+    ] is False
+    deleted = await app_client.delete(
+        f"/api/b2b-generator/generated/{generated_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 409, deleted.text
+    async with AsyncSessionLocal() as db:
+        assert await db.get(B2BGeneratedContract, generated_id) is not None
+        assert await db.get(B2BSigningRequest, request_id) is not None
+
+    # Wycofana wysyłka nie blokuje usunięcia.
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        request.status = "withdrawn"
+        await db.commit()
+    assert (await _register_item(app_client, app_auth_headers, generated_id))[
+        "can_delete"
+    ] is True
+    deleted = await app_client.delete(
+        f"/api/b2b-generator/generated/{generated_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+
+
+@pytest.mark.asyncio
+async def test_withdraw_stays_available_after_the_switch_goes_off(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Audyt 22.10, F46: przełącznik dotyczy wysyłki, nie wycofania — wniosek
+    z pilotażu musi dać się przenieść na drogę zwykłą."""
+    from app.core.database import AsyncSessionLocal
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    generated_id = scenario["generated_id"]
+    sent = await _send(
+        app_client, app_auth_headers, generated_id, esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db, esign_settings.EsignSettings(mode="off"), actor_id=esign_env["admin_id"]
+        )
+        await db.commit()
+
+    item = await _register_item(app_client, app_auth_headers, generated_id)
+    assert item["can_send_esign"] is False
+    assert item["can_withdraw_esign"] is True

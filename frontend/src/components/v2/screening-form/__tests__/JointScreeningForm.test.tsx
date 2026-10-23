@@ -16,6 +16,7 @@ import {
 } from "@/lib/api/screeningForm";
 import { formSaveResult, formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 import { readScreeningMemory, useScreeningMemoryStore, writeScreeningMemory } from "@/store/screening-memory";
+import { useAuthStore } from "@/store/auth";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -323,6 +324,34 @@ describe("JointScreeningForm", () => {
     expect(alert).toHaveTextContent("Angular Developer: 1 pytanie bez odpowiedzi");
     expect(mocks.put).not.toHaveBeenCalled();
   });
+
+  // Audyt 22.10.2026 (F109): DL przekazuje dalej bez kompletu tylko, gdy
+  // serwer też go przepuszcza (`skips_fill_gates` z `/api/auth/me`).
+  it.each([
+    [true, false],
+    [false, true],
+  ])(
+    "Delivery Lead with skips_fill_gates=%s — blockers before forwarding: %s",
+    async (skips, blocked) => {
+      useAuthStore.setState({
+        user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"], skips_fill_gates: skips },
+      } as never);
+      try {
+        const user = userEvent.setup();
+        mount();
+        await user.type(await screen.findByLabelText("Jak używałeś RxJS w produkcji?"), "Strumienie");
+        await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej w 2/ }));
+        if (blocked) {
+          expect(await screen.findByRole("alert")).toHaveTextContent("1 pytanie bez odpowiedzi");
+          expect(mocks.put).not.toHaveBeenCalled();
+        } else {
+          await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+        }
+      } finally {
+        useAuthStore.setState({ user: null } as never);
+      }
+    },
+  );
 
   it("a field filled from the note is saved with its origin in every recruitment", async () => {
     const user = userEvent.setup();

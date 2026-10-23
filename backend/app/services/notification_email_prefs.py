@@ -37,7 +37,11 @@ from app.api.candidate_access import (
 )
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
-from app.services.action_permissions import ProductAction, has_permission
+from app.services.action_permissions import (
+    ProductAction,
+    has_permission,
+    reads_board_money,
+)
 from app.services.hr.modules import load_modules, module_open_for
 from app.services.hr_foundation_schema import HR_MODULE_KEYS
 from app.services.notification_access import (
@@ -230,9 +234,8 @@ def _hire_documents(user: User, _: _Context) -> bool:
 
 
 def _board_monthly(user: User, _: _Context) -> bool:
-    return has_permission(user, ProductAction.finance_module) and _section_read(
-        user, ProductSection.insights
-    )
+    # Lustro odbiorców `kpi_email_reports._board_readers` (rola Rada też).
+    return reads_board_money(user) and _section_read(user, ProductSection.insights)
 
 
 # Czy mail w ogóle może trafić do konta. Nie mówi, że trafi dziś — o tym

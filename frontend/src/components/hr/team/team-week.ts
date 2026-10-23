@@ -34,7 +34,7 @@ export const WEEK_STATE_LABELS: Record<TeamWeekState, string> = {
 
 export interface WeekCell {
   date: string;
-  /** „pn”…„pt” — albo „D” (delegacja), „Z” (zdalnie), „½” (pół dnia). */
+  /** „pn”…„pt” — albo „W” (wyjazd), „Z” (zdalnie), „½” (pół dnia). */
   mark: string;
   state: TeamWeekState;
   half: boolean;
@@ -50,7 +50,7 @@ export function weekCells(person: TeamPerson, today: string): WeekCell[] | null 
     const half = Boolean(day.half_day) && (day.state === "absent" || day.state === "pending");
     const mark =
       day.state === "business_trip"
-        ? "D"
+        ? "W"
         : day.state === "remote"
           ? "Z"
           : half
@@ -86,7 +86,7 @@ function firstName(name: string): string {
 
 /**
  * Status osoby na pasku „Dziś”: nieobecność do kiedy (rodzaj tylko z serwera),
- * delegacja albo praca zdalna z mini-tygodnia, kogo zastępuje, „w pracy”.
+ * wyjazd albo praca zdalna z mini-tygodnia, kogo zastępuje, „w pracy”.
  */
 export function todayStatus(person: TeamPerson, today: string): TodayStatus {
   const absent = person.today?.absent ? person.today : null;
@@ -118,7 +118,7 @@ export function todayStatus(person: TeamPerson, today: string): TodayStatus {
   return { kind: "work", text: "dostępny(a)" };
 }
 
-/** „4 w pracy · 1 osoba nieobecna · 1 w delegacji”. */
+/** „dostępni: 4 · 1 osoba nieobecna · na wyjeździe: 1”. */
 export function todaySummary(people: readonly TeamPerson[], today: string): string {
   const counts = { work: 0, absent: 0, trip: 0 };
   for (const person of people) {

@@ -764,8 +764,14 @@ async def notify(
     title: str,
     message: str,
     actor_id: int,
+    daily_dedup: bool = True,
 ) -> None:
-    """Dzwonek przekazania — nigdy do osoby, która sama kliknęła."""
+    """Dzwonek przekazania — nigdy do osoby, która sama kliknęła.
+
+    ``daily_dedup=False`` — zdarzenie, które może przyjść kilka razy dziennie
+    po innym dzwonku tego samego wniosku (zmiana terminu): bez id encji
+    indeks ``ix_notif_dedup_daily`` go nie połyka (jak ``interview_changed``).
+    """
     if not user_id or user_id == actor_id:
         return
     from app.services.notification_triggers import emit
@@ -778,8 +784,10 @@ async def notify(
                 title=title,
                 message=message,
                 ntype=ntype,
-                related_entity_type=SLOT_ENTITY,
-                related_entity_id=req.id,
+                related_entity_type=SLOT_ENTITY
+                if daily_dedup
+                else f"{SLOT_ENTITY}_changed",
+                related_entity_id=req.id if daily_dedup else None,
                 link=cycle_link(req.candidate_id, req.job_id),
             )
     except Exception:  # noqa: BLE001 — dzwonek nie może cofnąć przejścia

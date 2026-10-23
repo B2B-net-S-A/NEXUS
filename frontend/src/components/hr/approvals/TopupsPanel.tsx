@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -89,6 +90,16 @@ function TopupItem({ item }: { item: ApprovalTopupRow }) {
 export function TopupsPanel() {
   const topups = usePendingTopups();
   const items = topups.data ?? [];
+  // Licznik Akceptacji dolicza dopłaty — awaria nie może wyglądać jak „nic nie czeka”.
+  if (topups.isError) {
+    return (
+      <QueryStateNotice
+        state="error"
+        description={apiErrorMessage(topups.error, "Nie udało się wczytać dopłat do decyzji.")}
+        onRetry={() => topups.refetch()}
+      />
+    );
+  }
   if (!topups.isSuccess || items.length === 0) return null;
   return (
     <section aria-label="Dopłaty do decyzji" className="overflow-hidden rounded-xl border border-border bg-card">

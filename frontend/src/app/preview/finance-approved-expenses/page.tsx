@@ -130,7 +130,7 @@ function request(partial: Partial<ExpenseRequestRow> & Pick<ExpenseRequestRow, "
     recurrence: "once",
     payer: "company_invoice",
     decided_at: iso(-10),
-    expires_on: iso(20),
+    expires_on: null,
     settlement_status: "documented",
     seller_nip: null,
     comparison: null,
@@ -173,8 +173,8 @@ function toSettle() {
       }),
     ],
     awaiting: [
-      request({ id: 23, kind: "gift", kind_label: "Prezent", title: "Kosz upominkowy dla klienta", requester_name: HR_CAST.adam.name, amount_text: "450 zł brutto", settlement_status: "open", expires_on: iso(18) }),
-      request({ id: 24, kind: "other", kind_label: "Inny wydatek", title: "Monitor do pracy zdalnej", amount_text: "1 080 zł brutto", settlement_status: "open", expires_on: iso(4) }),
+      request({ id: 23, kind: "gift", kind_label: "Prezent", title: "Kosz upominkowy dla klienta", requester_name: HR_CAST.adam.name, amount_text: "450 zł brutto", settlement_status: "open" }),
+      request({ id: 24, kind: "other", kind_label: "Inny wydatek", title: "Monitor do pracy zdalnej", amount_text: "1 080 zł brutto", settlement_status: "open" }),
     ],
   };
 }

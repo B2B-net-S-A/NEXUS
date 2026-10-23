@@ -42,6 +42,7 @@ from app.api.b2b_contract_generator import (
     _assert_generator_client_access,
     confirm_generated_contract_fully_signed,
     _jobs_led_by,
+    _lock_person_contracts_before_row,
     _may_correct_generated,
     _reject_excel_row,
     _render_generated_row_docx,
@@ -691,6 +692,8 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
         await db.rollback()
     if reason is None and final_path:
         try:
+            # Kontrakty osoby PRZED wierszem rejestru (audyt 22.10.2026, F47).
+            await _lock_person_contracts_before_row(db, row_id)
             locked = await db.scalar(
                 select(B2BGeneratedContract)
                 .where(B2BGeneratedContract.id == row_id)

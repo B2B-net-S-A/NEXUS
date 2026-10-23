@@ -142,6 +142,18 @@ def test_busy_overlap_ignores_the_prep_itself_from_an_earlier_attempt():
     assert pa.busy_overlap(own[0], own[1], [own, other]) == other
 
 
+def test_busy_overlap_counts_another_nexus_prep_even_with_the_same_span():
+    """Audyt 22.10, F32: prep innego kandydata u tego samego prowadzącego
+    w identycznym przedziale to kolizja, nie „sierota z poprzedniej próby”."""
+    span = (_at_waw(10), _at_waw(10, 45))
+    assert pa.busy_overlap(span[0], span[1], [span], nexus_preps=[span]) == span
+    # Kalendarz nieznany, ale NEXUS wie o prepie prowadzącego.
+    assert pa.busy_overlap(span[0], span[1], None, nexus_preps=[span]) == span
+    # Prep NEXUS obok — bez kolizji.
+    later = (_at_waw(10, 45), _at_waw(11, 30))
+    assert pa.busy_overlap(span[0], span[1], [span], nexus_preps=[later]) is None
+
+
 def test_busy_overlap_unknown_calendar_is_never_a_clash():
     assert pa.busy_overlap(_at_waw(11), _at_waw(11, 45), None) is None
 
@@ -240,3 +252,66 @@ def test_choose_hour_on_a_fixed_slot_is_refused():
         interview_slots.choose(
             req, index, user_id=1, start=datetime(2026, 10, 22, 11, 0, tzinfo=WAW)
         )
+
+
+# ── Trasa podpowiedzi: zaplanowany Prep 2 a podpowiedzi Prepu 1 ─────────────
+
+
+async def test_suggestions_for_prep1_avoid_an_already_scheduled_prep2(monkeypatch):
+    """Audyt 22.10, F34: zaplanowany Prep 2 trafia do ``avoid`` przed liczeniem
+    Prepu 1 — kandydat nie dostaje dwóch prepów naraz."""
+    from types import SimpleNamespace
+
+    from app.api import prep_meetings as api
+    from app.models.calendar_event import CalendarEvent
+    from app.models.job import Job
+    from app.services import prep_meetings as svc
+
+    now = datetime.now(timezone.utc)
+    interview = (now + timedelta(days=6)).astimezone(WAW).replace(
+        hour=14, minute=0, second=0, microsecond=0
+    )
+    # Prep 2 stoi dokładnie na godzinie, którą Prep 1 podpowiedziałby jako pierwszą.
+    first = pa.suggest(prep_no=1, interview_start=interview, now=now, busy=None)[0]
+    prep2_event = SimpleNamespace(start_time=first.start, end_time=first.end)
+
+    class _Db:
+        async def get(self, model, _id):
+            if model is Job:
+                return SimpleNamespace(id=_id)
+            if model is CalendarEvent:
+                return prep2_event
+            return None
+
+    async def _noop(*_a, **_kw):
+        return None
+
+    async def _summary(*_a, **_kw):
+        return {1: None, 2: None}
+
+    async def _users(*_a, **_kw):
+        return {}
+
+    async def _active(_db, *, candidate_id, job_id, prep_no):
+        return SimpleNamespace(calendar_event_id=99) if prep_no == 2 else None
+
+    monkeypatch.setattr(api, "ensure_job_membership", _noop)
+    monkeypatch.setattr(svc, "suggestion_summary", _summary)
+    monkeypatch.setattr(api, "_active_users", _users)
+    monkeypatch.setattr(svc, "app_only_ready", lambda: False)
+    monkeypatch.setattr(svc, "active_prep", _active)
+
+    out = await api.prep_suggestions(
+        current_user=SimpleNamespace(id=1),
+        candidate_id=1,
+        job_id=2,
+        interview_start=interview,
+        candidate_from=None,
+        candidate_to=None,
+        db=_Db(),
+    )
+    prep1 = next(p for p in out.preps if p.prep_no == 1)
+    assert prep1.options
+    assert all(
+        not (o.start < first.end and first.start < o.end) for o in prep1.options
+    )

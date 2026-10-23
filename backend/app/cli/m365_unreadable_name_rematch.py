@@ -37,6 +37,13 @@ Zasady:
   maili) jest miękko usuwany (`removed_at`, `source_deleted_at`) — nic nie
   kasujemy. Gdy był głównym CV, główne przechodzi na plik ze wskaźnika
   kandydata (`cv_filename`), a bez niego na najnowsze bieżące CV;
+* profil czytany z usuwanego pliku (`cv_highlights.source_document_id`, a bez
+  tego śladu: plik był głównym CV i wskaźnik `cv_filename` ma jego nazwę)
+  traci przy ``--apply`` fakty z tego CV jak w kwarantannie tożsamości: tekst
+  CV, umiejętności, doświadczenie, podsumowanie AI i wektor
+  (`clear_foreign_cv_projection`; audyt 22.10.2026, F114, decyzja Artura).
+  Próba na sucho wypisuje te osoby w ``projection_from_foreign`` — kto po
+  naprawie ma główne CV, idzie do ``--reread``;
 * kopia CV etapu z usuwanym plikiem przerywa ``--apply`` (CV u klienta to
   decyzja Artura). Pomiar 20.10: zero;
 * ``--apply`` wymaga ``--expected`` równego odciskowi z próby na sucho. Próba
@@ -44,6 +51,10 @@ Zasady:
   ``app_settings['m365_unreadable_name_rematch_2026_10']`` niesie same liczby
   i id; drugie ``--apply`` przy paragonie jest odrzucane. Raport bez nazwisk,
   adresów i tematów (logi Actions są publiczne).
+
+Bieg z 20–21.10.2026 poszedł przed audytem 22.10 (F113, F114), a paragon
+blokuje ponowne ``--apply``. Kogo dotyczą obie luki, mówi raport tylko do
+odczytu ``backend/scripts/m365_cv_repair_followup_report.sql``.
 """
 
 from __future__ import annotations
@@ -84,6 +95,8 @@ class Plan:
     )
     # poszkodowany → (nazwa pliku ze wskaźnika po naprawie)
     pointers: dict[int, Optional[str]] = field(default_factory=dict)
+    # (poszkodowany, doc_id, skrót pliku) — profil czytany z usuwanego pliku
+    projections: list[tuple[int, int, Optional[str]]] = field(default_factory=list)
     stage_copies: int = 0
 
     def fingerprint(self) -> str:
@@ -95,8 +108,30 @@ class Plan:
             "primaries": sorted(
                 (cid, before, after) for cid, (before, after) in self.primaries.items()
             ),
+            "projections": sorted((cid, doc) for cid, doc, _ in self.projections),
         }
         return hashlib.sha256(json.dumps(payload).encode()).hexdigest()[:12]
+
+
+def projected_document(candidate, docs) -> Optional[Any]:
+    """Dokument, z którego odczytano profil, spośród ``docs`` (albo None).
+
+    Ślad odczytu (`cv_highlights.source_document_id`) wygrywa; profil bez
+    śladu (odczyt sprzed 17.09.2026) liczy się jak w kwarantannie: plik był
+    głównym CV, a wskaźnik `cv_filename` ma jego nazwę.
+    """
+    extracted = candidate.cv_extracted_data
+    highlights = extracted.get("cv_highlights") if isinstance(extracted, dict) else None
+    source_id = (
+        highlights.get("source_document_id") if isinstance(highlights, dict) else None
+    )
+    if source_id is not None:
+        return next((d for d in docs if d.id == source_id), None)
+    pointer = (candidate.cv_filename or "").lower()
+    return next(
+        (d for d in docs if d.is_primary and pointer and d.filename.lower() == pointer),
+        None,
+    )
 
 
 async def find_victims(db) -> list[int]:
@@ -323,6 +358,9 @@ async def plan_and_stage(db, *, now: Optional[datetime] = None) -> Plan:
             or 0
         )
         before = next((d.id for d in docs if d.is_primary), None)
+        fed = projected_document(candidate, docs)
+        if fed is not None:
+            items.projections.append((victim, fed.id, fed.content_sha256))
         removed_names = {d.filename.lower() for d in docs if d.filename}
         for doc in docs:
             doc.is_primary = False
@@ -384,8 +422,29 @@ def summarize(items: Plan) -> dict[str, Any]:
         "removed_documents": items.removals,
         "primaries": {str(c): list(v) for c, v in items.primaries.items()},
         "pointer_changed": sorted(items.pointers),
+        "projection_from_foreign": [
+            {"candidate": cid, "doc": doc} for cid, doc, _ in items.projections
+        ],
         "stage_copies_with_removed_file": items.stage_copies,
     }
+
+
+async def clear_projections(db, items: Plan) -> int:
+    """Fakty z cudzego CV znikają z profilu (tylko przy ``--apply``).
+
+    Czyszczenie kasuje też wektor w Qdrancie od razu, więc nie biegnie
+    w próbie na sucho, którą zamyka rollback.
+    """
+    from app.services.candidate_identity_quarantine import (
+        clear_foreign_cv_projection,
+    )
+
+    for victim, doc_id, sha in items.projections:
+        await clear_foreign_cv_projection(
+            db, candidate_id=victim, document_id=doc_id, document_hash=sha
+        )
+    await db.flush()
+    return len(items.projections)
 
 
 async def write_history(db, items: Plan) -> None:
@@ -406,6 +465,9 @@ async def write_history(db, items: Plan) -> None:
                     ),
                     "removed_doc_ids": [d for d, v in items.removals if v == victim],
                     "primary": list(items.primaries.get(victim, (None, None))),
+                    "projection_cleared": any(
+                        v == victim for v, _, _ in items.projections
+                    ),
                 },
             )
         )
@@ -490,11 +552,13 @@ async def main(argv: Optional[list[str]] = None) -> int:
                 file=sys.stderr,
             )
             return 2
+        projections_cleared = await clear_projections(db, items)
         await write_history(db, items)
         receipt = {
             "finished_at": datetime.now(timezone.utc).isoformat(),
             **{k: v for k, v in report.items() if k != "removed_documents"},
             "removed_doc_ids": [d for d, _ in items.removals],
+            "projections_cleared": projections_cleared,
         }
         await _write_receipt(db, receipt)
         await db.commit()

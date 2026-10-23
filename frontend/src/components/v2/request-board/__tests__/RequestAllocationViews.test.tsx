@@ -30,7 +30,7 @@ const board: RequestBoard = {
   ],
   requests: [
     // Sama propozycja automatu — to jeszcze nie praca.
-    { job_id: 1, title: "Senior Java Developer", client_name: "Klient Gamma", category_id: 2, deadline: "2026-09-23", sent: 0, champion: false, priority_level: "p1", delivery_lead: { id: 31, name: "Gosia Delivery" }, opened_effective_at: "2026-09-20T08:00:00Z", people: [{ ...anna, proposed: true, source: "auto", via: "assignment", assigned_by_name: null }] },
+    { job_id: 1, title: "Senior Java Developer", client_name: "Klient Gamma", category_id: 2, deadline: "2026-09-23", sent: 0, verified: 2, cv_qc: 1, champion: false, priority_level: "p1", delivery_lead: { id: 31, name: "Gosia Delivery" }, opened_effective_at: "2026-09-20T08:00:00Z", people: [{ ...anna, proposed: true, source: "auto", via: "assignment", assigned_by_name: null }] },
     { job_id: 2, title: "React Developer", client_name: "Klient Alfa", category_id: 2, deadline: "2026-09-28", sent: 3, champion: true, priority_level: "p2", delivery_lead: null, opened_effective_at: null, people: [] },
     { job_id: 3, title: "Tester automatyzujący", client_name: "Klient Beta", category_id: 4, deadline: null, sent: 0, champion: false, priority_level: "accepting", delivery_lead: { id: 32, name: "Henryk Kierujący" }, opened_effective_at: "2026-09-01T08:00:00Z", people: [] },
     // Dwie pracujące osoby: prowadzący i osoba z przypisania.
@@ -157,7 +157,7 @@ describe("RequestBoardView", () => {
 
   it("ma kolumny listy rekrutacji: kategoria, Delivery Lead, data otwarcia, priorytet", () => {
     render(<Board />)
-    for (const header of ["Request", "Kategoria", "Delivery Lead", "Otwarta", "Termin", "Wysłani", "Rekruter"]) {
+    for (const header of ["Request", "Kategoria", "Delivery Lead", "Otwarta", "Termin", "Zweryf.", "QC CV", "Wysłani", "Rekruter"]) {
       // Nagłówek kolumny (filtry mają etykiety o tych samych nazwach).
       expect(screen.getAllByText(header).length).toBeGreaterThan(0)
     }
@@ -174,6 +174,11 @@ describe("RequestBoardView", () => {
     const champion = within(rowOf("React Developer"))
     expect(champion.getByTestId("request-lead-cell")).toHaveTextContent("—")
     expect(champion.getByTestId("request-opened-cell")).toHaveTextContent("—")
+    // „Zweryf.” i „QC CV” (23.10.2026): liczby z API, stara odpowiedź bez pól = 0.
+    expect(row.getByTestId("request-verified-cell")).toHaveTextContent("2")
+    expect(row.getByTestId("request-cv-qc-cell")).toHaveTextContent("1")
+    expect(champion.getByTestId("request-verified-cell")).toHaveTextContent("0")
+    expect(champion.getByTestId("request-cv-qc-cell")).toHaveTextContent("0")
   })
 
   it("kolumny zależą od szerokości kontenera tabeli, nie okna", () => {
@@ -181,10 +186,10 @@ describe("RequestBoardView", () => {
     const row = rowOf("Senior Java Developer")
     // Wąski kontener (kafelek): kategoria, DL i data otwarcia stoją drobnym
     // drukiem pod tytułem, a ich kolumny są ukryte.
-    expect(within(row).getByTestId("request-category-cell")).toHaveClass("hidden", "@min-[1060px]/rtable:block")
+    expect(within(row).getByTestId("request-category-cell")).toHaveClass("hidden", "@min-[1120px]/rtable:block")
     const folded = within(row).getByTitle("Delivery Lead: Gosia Delivery")
     expect(folded).toHaveTextContent("DL: Gosia D.")
-    expect(folded).toHaveClass("@min-[1060px]/rtable:hidden")
+    expect(folded).toHaveClass("@min-[1120px]/rtable:hidden")
     expect(within(row).getByTitle("Otwarta 20.09.2026")).toHaveTextContent("otwarta 20.09")
     expect(within(row).getByTitle("Kategoria: Development")).toHaveTextContent("Dev")
     // Układ pulpitu nie ma reguł zależnych od szerokości okna: każdy element
@@ -198,7 +203,7 @@ describe("RequestBoardView", () => {
     const table = row.closest(".overflow-x-auto")
     expect(table).toHaveClass("@container/rtable", "relative")
     // Pierwsza kolumna przyklejona tam, gdzie tabela się przewija.
-    expect(row.firstElementChild).toHaveClass("@max-[699px]/rtable:sticky", "@max-[699px]/rtable:left-0")
+    expect(row.firstElementChild).toHaveClass("@max-[819px]/rtable:sticky", "@max-[819px]/rtable:left-0")
   })
 
   it("Rekruter: pracujący jako chipy, propozycja przerywaną ramką, „Bez rekrutera” tylko gdy nie ma nikogo", () => {

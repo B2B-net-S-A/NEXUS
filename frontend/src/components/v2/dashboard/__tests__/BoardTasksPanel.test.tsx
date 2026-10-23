@@ -1545,6 +1545,27 @@ describe("BoardTasksPanel — „Do uzupełnienia” (21.10.2026)", () => {
     expect(within(panel).queryByRole("button", { name: "Przenieś na pulpit" })).toBeNull();
   });
 
+  it("kafelek na pulpicie: prepy są w kafelku, nie w panelu (23.10.2026)", async () => {
+    const prep = {
+      reason: "missing",
+      prep_no: 1,
+      candidate_id: 21,
+      candidate_name: "Ewa Prep",
+      job_id: 31,
+      job_title: "Java Developer",
+      interview_event_id: 501,
+      interview_start: "2026-09-25T08:00:00Z",
+      prep_event_id: null,
+      owner_id: 1,
+      urgent: true,
+    };
+    mockQueue({ ...lists, prep_attention: [prep] });
+    renderPanel({ toCompleteOnGrid: true });
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    expect(within(panel).queryByRole("region", { name: "Prepy przed rozmową u klienta" })).toBeNull();
+    expect(within(panel).queryByText("Ewa Prep")).toBeNull();
+  });
+
   it("kafelek na pulpicie i nic innego → panelu nie ma (także przy awarii liczenia wymagań)", async () => {
     mockQueue({ ...lists, requirement_fixes: null, agreements: { ...lists.agreements, to_confirm: [] } });
     const { container } = renderPanel({ toCompleteOnGrid: true });

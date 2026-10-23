@@ -511,6 +511,58 @@ async def test_dismissed_project_end_does_not_come_back_for_the_same_date(
     assert reopen.status_code == 409
 
 
+async def test_closed_decisions_newest_first_and_reopen(app_client, care_on) -> None:
+    """Audyt 22.10, F107 (decyzja Artura): „Decyzje zamknięte” w Konsultantach
+    pokazują najpierw ostatnio zamknięte, „Otwórz ponownie” wraca wpis na
+    „W toku” i zdejmuje go z listy zamkniętych."""
+
+    tcm = await make_user(UserRole.talent_community_manager)
+    client_id = await make_client()
+    first_contract, _ = await make_contract(client_id)
+    second_contract, _ = await make_contract(client_id)
+    today = business_today()
+    ids = []
+    for contract_id, due_on in (
+        (first_contract, (today - timedelta(days=400)).isoformat()),
+        (second_contract, None),
+    ):
+        created = await app_client.post(
+            f"/api/care/contracts/{contract_id}/redeploy",
+            headers=headers(tcm),
+            json={"reason": "wants_change", "due_on": due_on},
+        )
+        assert created.status_code == 201, created.text
+        ids.append(created.json()["id"])
+    for item_id in ids:
+        closed = await app_client.patch(
+            f"/api/care/redeploy/{item_id}",
+            headers=headers(tcm),
+            json={"status": "dismissed"},
+        )
+        assert closed.status_code == 200, closed.text
+
+    listing = await app_client.get(
+        "/api/care/redeploy?state=closed", headers=headers(tcm)
+    )
+    assert listing.status_code == 200, listing.text
+    order = [row["id"] for row in listing.json()["items"] if row["id"] in ids]
+    # Zamknięty później (bez terminu) przed zamkniętym wcześniej z dawnym terminem.
+    assert order == [ids[1], ids[0]]
+
+    reopened = await app_client.patch(
+        f"/api/care/redeploy/{ids[0]}",
+        headers=headers(tcm),
+        json={"status": "in_progress"},
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["status"] == "in_progress"
+    assert reopened.json()["resolved_at"] is None
+    after = await app_client.get(
+        "/api/care/redeploy?state=closed", headers=headers(tcm)
+    )
+    assert ids[0] not in [row["id"] for row in after.json()["items"]]
+
+
 # ── Karta technologiczna i kolejka technologii ──────────────────────────────
 
 

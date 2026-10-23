@@ -524,6 +524,55 @@ async def test_returned_request_is_fixed_and_sent_again_or_withdrawn(
 
 
 @pytest.mark.asyncio
+async def test_same_day_changes_each_ring_the_bell_and_mail_again(
+    client, team
+) -> None:
+    """Dopytaj → poprawka → zatwierdzenie tego samego dnia: każda zmiana daje
+    nowy dzwonek (i mail), dzienny dedup ich nie połyka (audyt 22.10, F19)."""
+
+    worker, boss = team["worker"], team["boss"]
+    created = (
+        await client.post(BASE, json=_trip("900"), headers=_headers(worker))
+    ).json()
+    returned = await client.post(
+        f"{BASE}/{created['id']}/decide",
+        json={"action": "return", "note": "Dopisz, ile nocy w hotelu."},
+        headers=_headers(boss),
+    )
+    assert returned.status_code == 200, returned.text
+    again = await client.put(
+        f"{BASE}/{created['id']}",
+        json={**_trip("950"), "purpose": "Warsztat, jedna noc w hotelu."},
+        headers=_headers(worker),
+    )
+    assert again.status_code == 200, again.text
+    decided = await client.post(
+        f"{BASE}/{created['id']}/decide",
+        json={"action": "approve"},
+        headers=_headers(boss),
+    )
+    assert decided.status_code == 200, decided.text
+
+    asked = sorted(
+        await _notifications(boss, NotificationType.hr_approval_requested),
+        key=lambda n: n.id,
+    )
+    assert len(asked) == 2
+    # Dzisiejszy starszy wiersz jest odpięty od zgody — jego mail już nie wyjdzie,
+    # a nowy (z nowym znacznikiem odpowiedzi) wskazuje zgodę.
+    assert asked[0].related_entity_id is None
+    assert asked[1].related_entity_id == created["id"]
+    async with AsyncSessionLocal() as db:
+        assert await approval_mail.render(db, asked[0], boss) is None
+    titles = [
+        n.title
+        for n in await _notifications(worker, NotificationType.hr_approval_decided)
+    ]
+    assert any(t.startswith("Pytanie do Twojej zgody") for t in titles), titles
+    assert any(t.startswith("Zgoda zatwierdzona") for t in titles), titles
+
+
+@pytest.mark.asyncio
 async def test_strangers_see_nothing_and_rules_are_admin_only(client, team) -> None:
     worker, stranger, ceo = team["worker"], team["stranger"], team["ceo"]
     created = (

@@ -120,8 +120,11 @@ CATALOG = (
         label="Prep: odmowa albo zmiana terminu",
         module="Rekrutacje",
         trigger="Kandydat odmówił prepu albo proponuje inny termin; ktoś z pary "
-        "przełożył prep w Twoim kalendarzu.",
-        recipient_rule="Prowadzący prep (osoba, w której kalendarzu stoi spotkanie).",
+        "zaplanował, przełożył, odwołał albo zmienił zaproszonych na prep "
+        "w Twoim kalendarzu.",
+        recipient_rule="Odmowa i inny termin: cała para (Delivery Lead, rekruter, "
+        "planujący) bez autora; zmiana prepu: prowadzący, w którego kalendarzu "
+        "stoi spotkanie.",
     ),
     dict(
         id="client_accepted",
