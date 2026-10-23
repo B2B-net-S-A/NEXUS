@@ -11,6 +11,7 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { AxiosError } from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 interface TestUser {
@@ -250,5 +251,59 @@ describe("Nowa umowa ramowa — odwrócone daty (runda 10, F12)", () => {
       expect.stringMatching(/status code/),
       "error",
     );
+  });
+});
+
+describe("Nowa umowa ramowa — plik nie dotarł do serwera (23.10.2026)", () => {
+  // Skan podpisanej umowy wysyłał się dłużej niż 30 s domyślnego limitu
+  // instancji `api`; przeglądarka zrywała wysyłkę, serwer nie widział żądania,
+  // a okno mówiło tylko „Nie udało się zapisać umowy ramowej.”.
+  async function submitWith(error: AxiosError) {
+    mocks.create.mockRejectedValue(error);
+    mocks.list.mockResolvedValue({ data: { items: [] } });
+    renderTab();
+    fireEvent.click(await screen.findByText(NEW_BUTTON));
+    fireEvent.change(screen.getByPlaceholderText("np. MSA 2026"), {
+      target: { value: "MSA test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
+    await waitFor(() => expect(mocks.showToast).toHaveBeenCalled());
+    return mocks.showToast.mock.calls[0];
+  }
+
+  it("limit czasu przeglądarki mówi, że plik się nie wysłał, i co zrobić", async () => {
+    const [message, tone] = await submitWith(
+      new AxiosError("timeout of 120000ms exceeded", "ECONNABORTED"),
+    );
+    expect(tone).toBe("error");
+    expect(message).toMatch(/nie została zapisana/);
+    expect(message).toMatch(/mniejsz/);
+  });
+
+  it("zerwane połączenie albo nieczytelny plik nie udaje ogólnej awarii", async () => {
+    const [message] = await submitWith(
+      new AxiosError("Network Error", "ERR_NETWORK"),
+    );
+    expect(message).not.toBe("Nie udało się zapisać umowy ramowej.");
+    expect(message).toMatch(/nie dotarł do serwera/);
+  });
+});
+
+describe("dlPortalApi — wysyłka umowy ramowej i aneksu z plikiem", () => {
+  it("nie jest ucinana po 30 s domyślnego limitu instancji", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/api/dlPortal")>(
+      "@/lib/api/dlPortal",
+    );
+    const { api } = await import("@/lib/api");
+    const post = vi.spyOn(api, "post").mockResolvedValue({ data: {} });
+
+    await actual.dlPortalApi.createFrameworkContract(3, new FormData());
+    await actual.dlPortalApi.createAmendment(3, 7, new FormData());
+
+    for (const call of post.mock.calls) {
+      expect(call[2]?.timeout).toBeGreaterThan(30_000);
+    }
+    expect(post).toHaveBeenCalledTimes(2);
+    post.mockRestore();
   });
 });
