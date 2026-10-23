@@ -78,6 +78,10 @@ DEFAULT_DAYS_AHEAD = 30
 # z klientem” w tym oknie — dłużej wisząca to już nie agenda, tylko pipeline.
 STAGE_LOOKBACK_DAYS = 30
 MAX_PAIRS = 300
+# Karta zamknięta (kolumna „Zamknięci” Tablicy) — para znika z tablicy cyklu.
+_CLOSED_STAGES = frozenset(
+    {PipelineStage.rejected.value, PipelineStage.withdrawn.value}
+)
 
 
 @dataclass(frozen=True)
@@ -1398,6 +1402,12 @@ async def load_overview(
     agenda: list[dict] = []
     todos: list[dict] = []
     for key, snap in snaps.items():
+        # 23.10.2026: kandydat zrezygnował, karta poszła na „Wycofany”, a otwarty
+        # wniosek o terminy trzymał go w „Wybór terminu”. Ruch na etap końcowy
+        # wniosku nie zamyka (każda ścieżka ruchu by musiała), więc zamknięta
+        # karta znika stąd; przywrócona wraca z tym samym wnioskiem.
+        if snap.latest_stage in _CLOSED_STAGES:
+            continue
         cid, jid = key
         title, client_id, client_name, delivery_lead_id = jobs.get(
             jid, (None, None, None, None)
