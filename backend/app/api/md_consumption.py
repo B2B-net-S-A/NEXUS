@@ -994,6 +994,41 @@ async def create_import(
     return await _detail(db, batch, parsed_sheet=parsed)
 
 
+def _reimport_persons(
+    rows: Iterable[MdConsumptionImportRow],
+    *,
+    candidates: list[LineMatch],
+    line_pools: Iterable[Iterable[LineMatch]],
+) -> set[tuple[str, int]]:
+    """Pary (osoba, klient) z wierszy MD paczki — klucz powtórki miesiąca.
+
+    Audyt 22.10.2026 (F70): klient wiersza to klient zamówienia, na które
+    trafił (albo z którego czeka), a bez dopasowania — klienci linii, między
+    którymi trzeba wybrać, albo linii tej osoby w miesiącu. Samo nazwisko
+    unieważniało oczekujące MD tej osoby u innego klienta i u imiennika.
+    """
+    line_clients = {
+        match.order.id: match.order.client_id for pool in line_pools for match in pool
+    }
+    persons: set[tuple[str, int]] = set()
+    for row in rows:
+        if row.awaiting_origin_order_id is not None:
+            order_ids = [row.awaiting_origin_order_id]
+        elif row.matched_order_id is not None:
+            order_ids = [row.matched_order_id]
+        else:
+            order_ids = list(row.candidate_order_ids or []) or [
+                match.order.id
+                for match in match_by_name(candidates, row.consultant_name)
+            ]
+        persons |= {
+            (row.consultant_name, line_clients[order_id])
+            for order_id in order_ids
+            if order_id in line_clients
+        }
+    return persons
+
+
 async def run_md_import(
     db: AsyncSession,
     *,
@@ -1090,7 +1125,7 @@ async def run_md_import(
     name_only_md: list[tuple[MdConsumptionImportRow, LineMatch]] = []
     # Osoby z wierszami MD w tej paczce — powtórka miesiąca poprawia ich
     # wcześniejsze wiersze oczekujące (`apply_reimport`).
-    md_row_names: list[str] = []
+    md_import_rows: list[MdConsumptionImportRow] = []
 
     for parsed_row in parsed.rows:
         row = MdConsumptionImportRow(
@@ -1134,7 +1169,7 @@ async def run_md_import(
             db.add(row)
             continue
 
-        md_row_names.append(row.consultant_name)
+        md_import_rows.append(row)
         # Parser dochodzi tutaj wyłącznie po znalezieniu jawnie rozpoznanej
         # kolumny MD. Wspólna pula nie próbuje wyliczać dni z faktury, godzin
         # ani innej kolumny zastępczej, dopóki Finanse nie ustalą formatu.
@@ -1330,7 +1365,17 @@ async def run_md_import(
         db,
         import_id=batch.id,
         period_month=period_month,
-        consultant_names=md_row_names,
+        persons=_reimport_persons(
+            md_import_rows,
+            candidates=candidates,
+            line_pools=(
+                candidates,
+                numbered_candidates or (),
+                shared_md_candidates,
+                cost_candidates,
+                exhausted_cost_candidates,
+            ),
+        ),
     )
     awaiting_clients = [
         (row, md_orders[row.awaiting_origin_order_id][0].client_id)

@@ -759,6 +759,7 @@ describe("/preview/insights zasiewa każdy stały klucz widoków", () => {
     for (const file of [
       "components/insights/views/RywalizacjaView.tsx",
       "components/insights/views/MojMiesiacView.tsx",
+      "components/insights/views/my-month/MyPortfolioView.tsx",
       "components/insights/views/ZespolView.tsx",
       "components/insights/views/FirmaView.tsx",
       "components/insights/sections/InsightsRaces.tsx",

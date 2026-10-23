@@ -3768,7 +3768,9 @@ describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14
   // bramek pól: strzałka nie jest szara, karta idzie od razu, a komunikat
   // wymienia braki. Stawki też nie pyta.
   it("Delivery Lead: strzałka ze Screeningu bez arkusza, stawki i minimum przesuwa od razu z brakami w komunikacie", async () => {
-    useAuthStore.setState({ user: { id: 1, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    useAuthStore.setState({
+      user: { id: 1, role: "delivery_lead", roles: ["delivery_lead"], skips_fill_gates: true },
+    } as never);
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     columns[1] = {
       ...columns[1],
@@ -3803,6 +3805,44 @@ describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14
     });
     expect(moveCalls()).toHaveLength(1);
     expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 2102, stage: "verified" });
+  });
+
+  // Audyt 22.10.2026 (F109): wyłącznik `DL_SKIPS_FILL_GATES=false` działa też
+  // na Tablicę — DL z uprawnieniem wysyłki ma szarą strzałkę i okno minimum,
+  // jak przed #2581 (front czyta `skips_fill_gates` z `/api/auth/me`).
+  it("Delivery Lead przy wyłączonym DL_SKIPS_FILL_GATES ma szarą strzałkę i okno minimum", async () => {
+    useAuthStore.setState({
+      user: { id: 1, role: "delivery_lead", roles: ["delivery_lead"], skips_fill_gates: false },
+    } as never);
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[1] = {
+      ...columns[1],
+      items: [
+        {
+          id: 1103,
+          candidate_id: 2103,
+          stage: "screening",
+          name: "Kandydat",
+          lastname: "Wyłączony",
+          days_in_stage: 2,
+          screening_done: true,
+          minimum_missing: ["location"],
+          expected_rate_value: "140.00",
+          expected_rate_unit: "hourly",
+          expected_rate_currency: "PLN",
+        },
+      ],
+    };
+    const { container } = renderBoard(columns as never);
+    const card = (await screen.findByRole("link", { name: "Kandydat Wyłączony" })).closest(
+      "[data-kanban-card]",
+    ) as HTMLElement;
+    const arrow = within(card).getByRole("button", { name: /Przesuń Kandydat Wyłączony na następny etap/ });
+    expect(arrow).toHaveAttribute("data-gap", "true");
+    fireEvent.click(arrow);
+    expect(await screen.findByText("Kandydat Wyłączony → Zweryfikowany")).toBeTruthy();
+    expect(moveCalls()).toHaveLength(0);
+    expect(columnOf(container, 2103)).toBe("def:301");
   });
 
   it("karta przesunięta przez DL mimo braków ma odznakę „Przesunął DL”", async () => {

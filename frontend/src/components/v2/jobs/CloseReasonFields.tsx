@@ -63,6 +63,10 @@ export function CloseReasonFields({ value, onChange, jobId, clientId }: CloseRea
     staleTime: 60_000,
   });
   const siblingOptions = (siblings.data ?? []).filter((j) => j.id !== jobId);
+  // Zapisana rekrutacja, która zostaje, bywa już zamknięta (lista ma tylko
+  // otwarte) — pole ma pokazać to, co pójdzie w zapisie (audyt 22.10.2026).
+  const savedMissing =
+    value.duplicateOfJobId != null && !siblingOptions.some((j) => j.id === value.duplicateOfJobId);
 
   const pickGroup = (key: CloseReasonGroup) => {
     if (key === group) return;
@@ -149,6 +153,9 @@ export function CloseReasonFields({ value, onChange, jobId, clientId }: CloseRea
             className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:outline-hidden"
           >
             <option value="">— żadna, założona przez pomyłkę —</option>
+            {savedMissing ? (
+              <option value={value.duplicateOfJobId ?? ""}>#{value.duplicateOfJobId}</option>
+            ) : null}
             {siblingOptions.map((j) => (
               <option key={j.id} value={j.id}>
                 {j.title} · #{j.id}

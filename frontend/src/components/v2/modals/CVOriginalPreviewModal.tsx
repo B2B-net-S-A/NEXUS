@@ -81,6 +81,9 @@ export function CVOriginalPreviewModal({
   const isPdfFile = isPdf(filename);
   const showInlinePdf = hasSnapshot && isPdfFile;
   const downloadPath = `/api/candidates/stages/${stageId}/cv/original/download`;
+  // Podgląd = `inline` w dzienniku dostępu; tylko „Pobierz” liczy się alarmowi
+  // masowego przeglądania CV jako zapis na dysk (audyt 22.10, F25).
+  const previewPath = `${downloadPath}?disposition=inline`;
 
   const [downloading, setDownloading] = useState(false);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
@@ -100,7 +103,7 @@ export function CVOriginalPreviewModal({
 
     (async () => {
       try {
-        const blob = await fetchAuthenticatedBlob(downloadPath);
+        const blob = await fetchAuthenticatedBlob(previewPath);
         if (!cancelled) setPdfBlob(blob);
       } catch {
         if (!cancelled) setPdfError(true);
@@ -110,7 +113,7 @@ export function CVOriginalPreviewModal({
     return () => {
       cancelled = true;
     };
-  }, [open, showInlinePdf, downloadPath]);
+  }, [open, showInlinePdf, previewPath]);
 
   const handleDownload = async () => {
     setDownloading(true);

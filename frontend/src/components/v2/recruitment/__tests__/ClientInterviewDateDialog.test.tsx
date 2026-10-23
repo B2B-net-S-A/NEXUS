@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ClientInterviewDateDialog } from "@/components/v2/recruitment/ClientInterviewDateDialog";
 import { interviewCycleApi } from "@/lib/api/interviewCycle";
-import type { SlotsFromMail } from "@/lib/interview-slot-mail";
+import { type SlotsFromMail, warningLabel } from "@/lib/interview-slot-mail";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -100,6 +100,59 @@ describe("ClientInterviewDateDialog", () => {
         durationMinutes: 45,
       }),
     );
+  });
+
+  const oneSlot = (slot: SlotsFromMail["slots"][number]): SlotsFromMail => ({
+    status: "ok",
+    message: null,
+    slots: [slot],
+    extra_slots: 0,
+    dropped: 0,
+    duration_minutes: null,
+    respond_by: null,
+    format: null,
+    location_note: null,
+    people: null,
+    unclear: [],
+  });
+
+  async function readMail(dialog: HTMLElement) {
+    fireEvent.change(within(dialog).getByLabelText(/Wklej maila od klienta/), { target: { value: "mail" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Odczytaj terminy" }));
+  }
+
+  it("jeden termin z maila: cytat i ostrzeżenie są widoczne (audyt 22.10, F95)", async () => {
+    vi.spyOn(interviewCycleApi, "readSlotsFromMail").mockResolvedValue(
+      oneSlot({
+        start: "2026-10-23T08:00:00Z",
+        end: "2026-10-23T09:00:00Z",
+        window: false,
+        quote: "Zapraszamy w czwartek 23.10 o 10:00",
+        warning: "weekday_mismatch",
+      }),
+    );
+    const { dialog } = renderDialog();
+    await readMail(dialog);
+    expect(await within(dialog).findByText(warningLabel("weekday_mismatch") as string)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Zapraszamy w czwartek 23.10 o 10:00/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Godzina")).toHaveValue(
+      new Date("2026-10-23T08:00:00Z").toTimeString().slice(0, 5),
+    );
+  });
+
+  it("jedno okno klienta z maila: godzina pusta, podpowiedź zakresu (F95)", async () => {
+    const start = new Date(2026, 9, 23, 9, 0).toISOString();
+    const end = new Date(2026, 9, 23, 12, 0).toISOString();
+    vi.spyOn(interviewCycleApi, "readSlotsFromMail").mockResolvedValue(
+      oneSlot({ start, end, window: true, quote: "piątek między 9 a 12", warning: null }),
+    );
+    const { dialog, onConfirm } = renderDialog();
+    await readMail(dialog);
+    expect(await within(dialog).findByText(/Okno klienta 09:00–12:00/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Dzień")).toHaveValue("2026-10-23");
+    expect(within(dialog).getByLabelText("Godzina")).toHaveValue("");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń" }));
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   it("mail bez terminów zostawia ręczne wpisanie i mówi dlaczego", async () => {

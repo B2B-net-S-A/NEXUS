@@ -417,6 +417,10 @@ export function usePipelineMove({
   const authUser = useAuthStore((s) => s.user);
   const canEditRates = getUserRoles(authUser).some((r) => RATE_EDIT_ROLES.has(r));
   const canSendToClient = hasPermission(authUser, "recruitment_manage");
+  // Bez okna stawki przesuwa tylko konto, które serwer przepuszcza bez bramek
+  // pól (`/api/auth/me` → `skips_fill_gates`) — przy wyłączonym
+  // `DL_SKIPS_FILL_GATES` DL znowu dostaje okno (audyt 22.10.2026, F109).
+  const skipsFillGates = authUser?.skips_fill_gates === true;
   const canEndAsDeliveryLead = getUserRoles(authUser).some((r) => DL_REJECT_ROLES.has(r));
 
   // Ref, nie zależność: adapter jest zwykle świeżym obiektem przy każdym
@@ -946,7 +950,7 @@ export function usePipelineMove({
       // inny (serwer przenosi stawkę; brak arkusza = 409 i formularz).
       // 22.10.2026: Delivery Lead przesuwa bez bramek pól — także bez okna
       // stawki (brak zostaje odznaką na karcie, `requirements_skipped`).
-      if (dialog === "verified_rate" && (hasStageRate(item) || canSendToClient)) {
+      if (dialog === "verified_rate" && (hasStageRate(item) || skipsFillGates)) {
         applyOptimistic(item, srcColId, dst);
         void sendMove(item, dst);
         return;
@@ -1032,6 +1036,7 @@ export function usePipelineMove({
       canEditRates,
       canWriteClientRate,
       canSendToClient,
+      skipsFillGates,
       cproEnabled,
       columns,
     ]
@@ -1056,7 +1061,7 @@ export function usePipelineMove({
         case "none":
           return true;
         case "verified_rate":
-          return hasStageRate(latest(item)) || canSendToClient;
+          return hasStageRate(latest(item)) || skipsFillGates;
         case "client_rate":
           return cproEnabled && !canWriteClientRate;
         case "interview_date":
@@ -1065,7 +1070,7 @@ export function usePipelineMove({
           return false;
       }
     },
-    [readOnly, latest, cproEnabled, canWriteClientRate, canSendToClient]
+    [readOnly, latest, cproEnabled, canWriteClientRate, skipsFillGates]
   );
 
   const deferMove = useCallback(

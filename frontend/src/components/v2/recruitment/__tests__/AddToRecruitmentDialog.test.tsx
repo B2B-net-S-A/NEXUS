@@ -347,7 +347,7 @@ describe("AddToRecruitmentDialog", () => {
     });
 
     it("„Zweryfikowany”: dodanie, potem ruch karty dodanej osoby", async () => {
-      useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+      useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"], skips_fill_gates: true } } as never);
       renderDialog({ candidateIds: [5], subject: "Marta Lis" });
       fireEvent.click(screen.getByRole("button", { name: /Wybierz Java Developer/ }));
       fireEvent.click(screen.getByRole("button", { name: "Zweryfikowany" }));
@@ -357,10 +357,20 @@ describe("AddToRecruitmentDialog", () => {
     });
 
     it("domyślnie „Nowi” — bez ruchu karty", async () => {
-      useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+      useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"], skips_fill_gates: true } } as never);
       renderDialog({ candidateIds: [5] });
       await addToJavaDeveloper();
       expect(mocks.send).not.toHaveBeenCalled();
+    });
+
+    // Audyt 22.10.2026 (F109): przy wyłączonym `DL_SKIPS_FILL_GATES` serwer
+    // nie przepuści DL-a na „Zweryfikowany” bez pól — okno nie proponuje etapu.
+    it("Delivery Lead przy wyłączonym DL_SKIPS_FILL_GATES nie widzi wyboru etapu", () => {
+      useAuthStore.setState({
+        user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"], skips_fill_gates: false },
+      } as never);
+      renderDialog({ candidateIds: [5] });
+      expect(screen.queryByTestId("add-to-recruitment-stage")).toBeNull();
     });
 
     it("rekruter i wybór wielu osób nie widzą wyboru etapu", () => {

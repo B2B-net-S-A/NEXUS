@@ -220,6 +220,11 @@ export interface PrepCreateInput {
   client_request_id?: string | null;
   /** Prowadzący ma wtedy zajęte, a planujący zapisuje mimo to (22.10.2026). */
   accept_busy?: boolean;
+  /**
+   * Termin rozmowy wybrany w oknie, którego jeszcze nie ma w kalendarzu
+   * (przełożenie czeka na DL-a) — trafia do treści zaproszenia (audyt 22.10, F37).
+   */
+  interview_start?: string | null;
 }
 
 /** Zmiana prepu. Brak pola = bez zmian; `attendee_*` podane = pełna nowa lista. */

@@ -58,6 +58,15 @@ KEY_LABELS = {
     "contract_sent": "Umowa wysłana",
     "contract_signed": "Umowa podpisana",
 }
+# Etykiety pozostałych kluczy w kolumnach „w drodze” — jak wiersze raportu.
+STAGE_LABELS = {
+    "qc": "QC CV",
+    "cpro": "W kolejce Cpro",
+    "cv_sent": "Wysłane do klienta",
+    "prep": "Prep",
+    "client_interview": "Rozmowa u klienta",
+    "after_interview": "Po rozmowie",
+}
 
 # Para stoi „długo”, gdy w kolumnie jest dłużej niż tyle dni.
 STALE_DAYS = 10
@@ -157,14 +166,32 @@ async def _pairs_now(db: AsyncSession, params: dict[str, Any]) -> list[dict[str,
                        e.at AS entered_at,
                        j.title AS job_title, j.client_id,
                        cl.name AS client_name,
-                       dl.name AS delivery_lead_name
+                       dl.name AS delivery_lead_name,
+                       concat_ws(' ', cand.name, cand.lastname) AS candidate_name
                 FROM latest l
                 JOIN entered e
                   ON e.candidate_id = l.candidate_id AND e.job_id = l.job_id
                 JOIN jobs j ON j.id = l.job_id
+                JOIN candidates cand ON cand.id = l.candidate_id
                 LEFT JOIN clients cl ON cl.id = j.client_id
                 LEFT JOIN users dl ON dl.id = j.delivery_lead_id
                 WHERE l.col IS NOT NULL
+                  AND (
+                    CAST(:owner_kind AS text) IS NULL
+                    OR (CAST(:owner_kind AS text) = 'delivery_lead'
+                        AND j.delivery_lead_id = :owner_id)
+                    -- Ta sama zasługa co „Mój miesiąc” i wyścigi: pierwszy
+                    -- weryfikujący pary.
+                    OR (CAST(:owner_kind AS text) = 'verifier' AND (
+                      SELECT v.moved_by FROM candidate_stages v
+                      WHERE v.candidate_id = l.candidate_id
+                        AND v.job_id = l.job_id
+                        AND v.stage::text = 'verified'
+                        AND v.moved_by IS NOT NULL
+                      ORDER BY v.moved_at, v.id
+                      LIMIT 1
+                    ) = :owner_id)
+                  )
                 """
                 ),
                 params,
@@ -231,25 +258,40 @@ async def _resolved_acceptances(
     return int(row["hired"] or 0), int(row["resolved"] or 0)
 
 
+OWNER_KINDS = ("verifier", "delivery_lead")
+
+
 async def compute_in_flight(
     db: AsyncSession,
     *,
     today: date,
     now: datetime,
     with_acceptances: bool,
+    owner: Optional[tuple[str, int]] = None,
+    with_people: bool = False,
     job_ids: Optional[Sequence[int]] = None,
 ) -> dict[str, Any]:
-    """Stan „w drodze”. `with_acceptances=False` = bez listy rekrutacji i osób.
+    """Stan „w drodze”. `with_acceptances=False` = bez listy rekrutacji.
+
+    `owner` zawęża pary do jednej osoby: `("verifier", id)` — pary, które
+    zweryfikowała (zasługa jak w „Mój miesiąc”), `("delivery_lead", id)` —
+    rekrutacje Delivery Leada. `with_people` dokłada listę par z nazwiskiem
+    kandydata — wyłącznie dla widoku własnych osób. Skuteczność prognozy jest
+    zawsze firmowa: próbka jednej osoby jest za mała.
 
     `job_ids` zawęża wynik (testy na wspólnej bazie); API go nie przekazuje.
     """
 
+    if owner is not None and owner[0] not in OWNER_KINDS:
+        raise ValueError(f"nieznany zakres: {owner[0]}")
     def_ids, def_keys = await _load_def_map(db)
     params: dict[str, Any] = {
         "def_ids": def_ids,
         "def_keys": def_keys,
         "job_ids": list(job_ids) if job_ids is not None else None,
         "since": competition_history.cutover_utc(),
+        "owner_kind": owner[0] if owner else None,
+        "owner_id": owner[1] if owner else None,
     }
     pairs = await _pairs_now(db, params)
 
@@ -270,25 +312,41 @@ async def compute_in_flight(
             }
         )
 
+    def common(p: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "job_id": p["job_id"],
+            "job_title": p["job_title"],
+            "client_id": p["client_id"],
+            "client_name": p["client_name"],
+            "delivery_lead_name": p["delivery_lead_name"],
+            "stage_key": p["key"],
+            "stage_label": KEY_LABELS.get(p["key"], STAGE_LABELS.get(p["key"], "")),
+            "since": p["entered_at"].date().isoformat(),
+            "days": days_in(p),
+        }
+
     acceptances = None
     if with_acceptances:
         acceptances = sorted(
+            (common(p) for p in pairs if p["col"] == "contract"),
+            key=lambda a: (-a["days"], a["client_name"] or "", a["job_id"]),
+        )
+
+    people = None
+    if with_people:
+        order = {col: i for i, (col, _label, _keys) in enumerate(COLUMNS)}
+        people = sorted(
             (
                 {
-                    "job_id": p["job_id"],
-                    "job_title": p["job_title"],
-                    "client_id": p["client_id"],
-                    "client_name": p["client_name"],
-                    "delivery_lead_name": p["delivery_lead_name"],
-                    "stage_key": p["key"],
-                    "stage_label": KEY_LABELS.get(p["key"], "Akceptacja"),
-                    "since": p["entered_at"].date().isoformat(),
-                    "days": days_in(p),
+                    **common(p),
+                    "candidate_id": p["candidate_id"],
+                    "candidate_name": p["candidate_name"],
+                    "column": p["col"],
                 }
                 for p in pairs
-                if p["col"] == "contract"
             ),
-            key=lambda a: (-a["days"], a["client_name"] or "", a["job_id"]),
+            # Najpierw najbliżej placementu, w kolumnie — najdłużej czekający.
+            key=lambda x: (-order[x["column"]], -x["days"], x["candidate_id"]),
         )
 
     hired, resolved = await _resolved_acceptances(db, params)
@@ -298,6 +356,7 @@ async def compute_in_flight(
         "stale_days": STALE_DAYS,
         "columns": columns,
         "acceptances": acceptances,
+        "people": people,
         "forecast": {
             "open": open_count,
             "hired": hired,

@@ -899,7 +899,11 @@ export function fillGapsText(
     if (item.screening_done === false) {
       gaps.push(item.screening_requirement === "why_candidate" ? "„Dlaczego ten kandydat”" : "arkusza screeningu");
     }
-    if (item.expected_rate_value == null || item.expected_rate_value === "") gaps.push("stawki kandydata");
+    // Stawka etapu albo z profilu — ta sama reguła co serwer (`load_pair_facts`).
+    const hasRate =
+      (item.expected_rate_value != null && item.expected_rate_value !== "") ||
+      item.candidate_expected_rate_hourly != null;
+    if (!hasRate) gaps.push("stawki kandydata");
     for (const key of item.minimum_missing ?? []) gaps.push(minimumFieldShortLabel(key));
   }
   if (from === "verified" && to === "cv_qc" && item.company_cv === false) gaps.push("CV firmowego");

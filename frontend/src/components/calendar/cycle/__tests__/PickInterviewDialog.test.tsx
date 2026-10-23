@@ -138,6 +138,19 @@ describe("PickInterviewDialog", () => {
     expect(mocks.toast.showSuccess).toHaveBeenCalledWith(expect.stringContaining("(2)"));
   });
 
+  it("termin czeka na DL (przełożenie): prepy idą od razu z WYBRANYM terminem rozmowy w treści (audyt 22.10, F37)", async () => {
+    mocks.chooseSlot.mockResolvedValue({ status: "awaiting_dl" });
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    expect(await within(dialog).findByText("kalendarz sprawdzony")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wybierz termin i zaproś na prepy (2)" }));
+
+    await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(2));
+    for (const [body] of mocks.createPrep.mock.calls) {
+      expect(body).toMatchObject({ interview_start: "2031-06-12T12:30:00.000Z" });
+    }
+  });
+
   it("„Zaplanuję później” i „Tylko termin” nie wysyłają zaproszeń", async () => {
     const dialog = renderDialog();
     fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
@@ -198,6 +211,66 @@ describe("PickInterviewDialog", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /Wybierz termin i zaproś/ }));
     await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(2));
     expect(mocks.createPrep.mock.calls[1][0].start).toBe("2031-06-12T10:00:00Z");
+  });
+
+  it("Prep 1 nie zaznacza się sam na godzinie już zaplanowanego Prepu 2 (audyt 22.10, F34)", async () => {
+    mocks.suggestions.mockResolvedValue({
+      enabled: true,
+      preps: [
+        suggestions.preps[0],
+        { ...suggestions.preps[1], scheduled_start: "2031-06-11T14:00:00Z", options: [] },
+      ],
+    });
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    const prep1 = await within(dialog).findByRole("radiogroup", { name: "Godzina Prepu 1" });
+    await waitFor(() => expect(within(prep1).getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true"));
+    expect(within(prep1).getAllByRole("radio")[0]).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wybierz termin i zaproś na prepy (1)" }));
+    await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(1));
+    expect(mocks.createPrep.mock.calls[0][0]).toMatchObject({ prep_no: 1, start: "2031-06-11T15:00:00Z" });
+  });
+
+  it("jedyna podpowiedź Prepu 1 na zaplanowanym Prepie 2 nie idzie do zaproszeń (F34)", async () => {
+    mocks.suggestions.mockResolvedValue({
+      enabled: true,
+      preps: [
+        { ...suggestions.preps[0], options: [suggestions.preps[0].options[0]] },
+        { ...suggestions.preps[1], scheduled_start: "2031-06-11T14:00:00Z", options: [] },
+      ],
+    });
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    await within(dialog).findByRole("radiogroup", { name: "Godzina Prepu 1" });
+    await waitFor(() => expect(mocks.suggestions).toHaveBeenCalled());
+    expect(within(dialog).queryByRole("button", { name: /Wybierz termin i zaproś na prepy/ })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wpisz do kalendarza" }));
+    await waitFor(() => expect(mocks.chooseSlot).toHaveBeenCalled());
+    expect(mocks.createPrep).not.toHaveBeenCalled();
+  });
+
+  it("okno klienta, które już trwa: godzina startu nie jest w przeszłości (audyt 22.10, F36)", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2031, 5, 13, 10, 16));
+    try {
+      const req: SlotRequest = {
+        ...request,
+        duration_minutes: 60,
+        slots: [
+          {
+            start: new Date(2031, 5, 13, 9, 0).toISOString(),
+            end: new Date(2031, 5, 13, 10, 0).toISOString(),
+            window_end: new Date(2031, 5, 13, 12, 0).toISOString(),
+          },
+        ],
+      };
+      const dialog = renderDialog(vi.fn(), req);
+      const time = within(dialog).getByLabelText("Godzina z kandydatem");
+      expect(time).toHaveValue("10:30");
+      expect(time).toHaveAttribute("min", "10:30");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("bez prepów do zaproszenia przycisk mówi, co się stanie: rozmowa trafia do kalendarza", async () => {

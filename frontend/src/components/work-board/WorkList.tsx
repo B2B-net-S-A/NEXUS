@@ -239,14 +239,19 @@ function Row({
     >
       <span className={cn("size-2 shrink-0 rounded-full", PRIORITY_DOT[card.priority])} title={card.priority} />
       <div className="min-w-0 flex-1">
-        <button
-          type="button"
-          onClick={onOpen}
-          aria-label={`Sprawa: ${card.title}`}
-          className="block max-w-full truncate text-left text-sm font-semibold text-foreground hover:underline"
-        >
-          {card.title}
-        </button>
+        {card.content_hidden ? (
+          // Czytający nie otworzy sprawy (brak dostępu) — wiersz bez linku.
+          <span className="block max-w-full truncate text-sm font-semibold text-foreground">{card.title}</span>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label={`Sprawa: ${card.title}`}
+            className="block max-w-full truncate text-left text-sm font-semibold text-foreground hover:underline"
+          >
+            {card.title}
+          </button>
+        )}
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           {card.contract?.health ? <HealthDot health={card.contract.health} /> : null}
           <span className="truncate">

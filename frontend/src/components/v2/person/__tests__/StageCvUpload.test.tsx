@@ -104,6 +104,10 @@ describe("Wgraj nowe CV — kafelek i upuszczenie na panel", () => {
     expect(keys).toContain(JSON.stringify(["cv-original", 900]));
     expect(keys).toContain(JSON.stringify(["candidate-documents", 41]));
     expect(keys).toContain(JSON.stringify(["kanban", "7"]));
+    // Audyt 22.10 (F66): otwarty panel „Z czego zrobić CV?” bierze nowy plik
+    // jako Oryginał CV i generator go zna (bez cichego wyłączenia „Generuj”).
+    expect(keys).toContain(JSON.stringify(["cv-ai-sources"]));
+    expect(keys).toContain(JSON.stringify(["cv-gen-sources", 41]));
   });
 
   it("zły format z kafelka: komunikat w kafelku, bez wysyłki", async () => {

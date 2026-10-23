@@ -256,6 +256,39 @@ def test_followup_respects_switches_and_limit() -> None:
     assert [f["label"] for f in followup] == ["Kubernetes"]
 
 
+def test_missing_must_is_never_labelled_as_unpracticed_client_question() -> None:
+    """Audyt 22.10, F41: must-have to nie pytanie klienta."""
+    data = cfg.defaults().model_dump()
+    data["followup"].update(
+        {"weak_answers": False, "unpracticed_client_questions": True}
+    )
+    parsed = {
+        "answers": [
+            {
+                "key": "must:Java",
+                "label": "Java",
+                "kind": "must",
+                "grade": "missing",
+                "quote": None,
+                "note": None,
+            },
+            {
+                "key": "q:1",
+                "label": "Jak testujesz?",
+                "kind": "question",
+                "grade": "missing",
+                "quote": None,
+                "note": None,
+            },
+        ],
+        "topics": [],
+    }
+    followup = followup_items(parsed, cfg.PrepReviewConfig.model_validate(data))
+    assert [(f["label"], f["reason"]) for f in followup] == [
+        ("Jak testujesz?", "unpracticed")
+    ]
+
+
 def test_prep2_grades_followup_points_and_compares_with_prep1() -> None:
     prep1_followup = [
         {

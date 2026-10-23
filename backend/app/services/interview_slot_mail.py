@@ -88,6 +88,10 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _QUOTE_DATE_RE = re.compile(r"(?<!\d)(\d{1,2})[./](\d{1,2})(?:[./]\d{2,4})?(?!\d)")
 # Godzina w cytacie: „10:00”, „10.30” po „o”, albo sama liczba („o 10”, „9 a 12”).
 _QUOTE_TIME_RE = re.compile(r"(?<!\d)(\d{1,2})(?:[:.](\d{2}))?(?!\d)")
+# „o 10.10”, „godz. 9.05” — po tych słowach „D.M” to godzina, nie data.
+_QUOTE_TIME_MARK_RE = re.compile(
+    r"(?:(?<!\w)(?:o|godz|godz\.|g\.|ok\.|około|at)\s*)$", re.IGNORECASE
+)
 _TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 
@@ -136,11 +140,19 @@ def quote_contradicts(quote: str, day: date, start: time) -> bool:
     z terminem 29.10 albo 11:00 to pomyłka modelu, którą dzień tygodnia nie
     wykryje. Cytat bez daty („albo 14:30”) sprawdzamy tylko po godzinie.
     """
-    dates = [(int(d), int(m)) for d, m in _QUOTE_DATE_RE.findall(quote)]
-    dates = [(d, m) for d, m in dates if 1 <= d <= 31 and 1 <= m <= 12]
+    dates: list[tuple[int, int]] = []
+    without_dates = quote
+    for match in reversed(list(_QUOTE_DATE_RE.finditer(quote))):
+        if _QUOTE_TIME_MARK_RE.search(quote[: match.start()]):
+            continue  # „o 10.10” to godzina — zostaje do sprawdzenia niżej
+        without_dates = (
+            without_dates[: match.start()] + " " + without_dates[match.end() :]
+        )
+        d, m = int(match.group(1)), int(match.group(2))
+        if 1 <= d <= 31 and 1 <= m <= 12:
+            dates.append((d, m))
     if dates and (day.day, day.month) not in dates:
         return True
-    without_dates = _QUOTE_DATE_RE.sub(" ", quote)
     times = [
         (int(h), int(m) if m else None)
         for h, m in _QUOTE_TIME_RE.findall(without_dates)

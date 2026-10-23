@@ -47,7 +47,7 @@ from app.core import docx_cells
 from app.core.zip_guard import assert_safe_ooxml
 from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
-from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.cv_generated_document import CvGeneratedDocument, not_discarded_clause
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.services.cv_enrichment import company_norm
@@ -976,6 +976,8 @@ async def _generated_cv(
                 CvGeneratedDocument.job_id == job_id,
                 CvGeneratedDocument.status == "ready",
                 CvGeneratedDocument.render_payload.is_not(None),
+                # „Odrzuć to CV” (audyt 22.10, F64): QC nie ocenia odrzuconego.
+                not_discarded_clause(),
             )
             .order_by(
                 CvGeneratedDocument.created_at.desc(), CvGeneratedDocument.id.desc()

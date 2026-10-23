@@ -216,11 +216,31 @@ def test_slot_that_contradicts_its_quote_is_flagged(slot):
         ("piątek między 9 a 12", date(2026, 10, 23), "09:00"),
         ("Thursday 22nd October at 10:00", date(2026, 10, 22), "10:00"),
         ("piątek rano", date(2026, 10, 23), "09:00"),
+        # Godzina z kropką i minutami 01–12 to nie data „10.10” (audyt 22.10, F30).
+        ("w czwartek o 10.10", date(2026, 10, 22), "10:10"),
+        ("jutro o 9.05", date(2026, 10, 23), "09:05"),
+        ("czwartek 22.10 godz. 10.10", date(2026, 10, 22), "10:10"),
+        ("czwartek 22.10 o 10.10", date(2026, 10, 22), "10:10"),
     ],
 )
 def test_quote_that_agrees_is_not_flagged(quote, day, start):
     h, m = start.split(":")
     assert ism.quote_contradicts(quote, day, time(int(h), int(m))) is False
+
+
+@pytest.mark.parametrize(
+    "quote,day,start",
+    [
+        # Data obok godziny z kropką nadal jest sprawdzana (audyt 22.10, F30).
+        ("czwartek 23.10 o 10.10", date(2026, 10, 22), "10:10"),
+        ("w czwartek o 10.10", date(2026, 10, 22), "10:20"),
+        ("22.10", date(2026, 10, 23), "10:00"),
+        ("od 22.10 o 10:00", date(2026, 10, 23), "10:00"),
+    ],
+)
+def test_quote_with_dotted_hour_still_catches_contradiction(quote, day, start):
+    h, m = start.split(":")
+    assert ism.quote_contradicts(quote, day, time(int(h), int(m))) is True
 
 
 @pytest.mark.parametrize(

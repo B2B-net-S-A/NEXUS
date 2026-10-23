@@ -37,6 +37,7 @@ from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.core.scheduling import business_today, local_now
+from app.models.user import UserRole
 from app.services import competition_history
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
 from app.services.insights_competence_matrix import compute_competence_matrix
@@ -55,6 +56,11 @@ from app.services.insights_seniority_journal import (
     load_open_regressions,
 )
 from app.services.insights_team_activity import compute_team_activity
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -467,6 +473,47 @@ async def insights_recruitment_in_flight(
         )
         await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
         return result
+
+
+@router.get("/in-flight/me")
+async def insights_recruitment_in_flight_me(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    scope: str = Query("mine", pattern="^(mine|portfolio)$"),
+):
+    """„Moje osoby w drodze” do widoku „Mój miesiąc”.
+
+    ``mine`` — pary, które osoba zweryfikowała (zasługa jak w celach i
+    wyścigach); ``portfolio`` — rekrutacje Delivery Leada (tylko ta rola).
+    Nazwiska kandydatów jadą tylko z odczytem sekcji Rekrutacja — konto bez
+    niej dostaje same rekrutacje.
+    """
+    if scope == "portfolio" and not current_user.has_role(UserRole.delivery_lead):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Portfel rekrutacji ma tylko Delivery Lead.",
+        )
+    owner = (
+        ("delivery_lead", current_user.id)
+        if scope == "portfolio"
+        else ("verifier", current_user.id)
+    )
+    result = await compute_in_flight(
+        db,
+        today=business_today(),
+        now=local_now(),
+        with_acceptances=False,
+        owner=owner,
+        with_people=True,
+    )
+    if (
+        section_access_for_user(current_user, ProductSection.pipeline)
+        < SectionAccess.read
+    ):
+        for person in result["people"]:
+            person["candidate_id"] = None
+            person["candidate_name"] = None
+    return result
 
 
 @router.get("/available-periods")

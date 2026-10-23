@@ -36,6 +36,7 @@ import {
   slotPassed,
   spanOf,
   windowBounds,
+  windowEarliest,
   type ManualPrepCheck,
   type Span,
 } from "@/lib/interview-pick";
@@ -93,7 +94,7 @@ export function PickInterviewDialog({
     const only =
       request?.slots.length === 1 && !slotPassed(request.slots[0], request.duration_minutes) ? 0 : null;
     setIndex(only);
-    setWindowTime(only != null && request ? (windowBounds(request.slots[0], request.duration_minutes)?.from ?? "") : "");
+    setWindowTime(only != null && request ? (windowEarliest(request.slots[0], request.duration_minutes) ?? "") : "");
     setCandFrom("");
     setCandTo("");
     setPicks({});
@@ -128,13 +129,18 @@ export function PickInterviewDialog({
   // rekrutera zostaje, dopóki ta godzina jest na liście.
   useEffect(() => {
     if (!suggestions.data) return;
+    const preps = suggestions.data.preps;
     setPicks((prev) => {
       const next: Record<number, PrepPick | undefined> = {};
-      for (const p of suggestions.data.preps) {
+      for (const p of preps) {
         const kept = prev[p.prep_no];
+        // Polecana godzina nie może wpaść na już zaplanowany drugi prep (audyt 22.10, F34).
+        const scheduledOther = preps.find((o) => o.prep_no !== p.prep_no && o.scheduled_start);
+        const otherSpan = scheduledOther ? spanOf(scheduledOther.scheduled_start as string, scheduledOther.minutes) : null;
+        const first = p.options.find((o) => !otherSpan || !overlaps(o, otherSpan));
         if (kept?.kind === "none" || kept?.kind === "manual") next[p.prep_no] = kept;
         else if (kept?.kind === "option" && p.options.some((o) => o.start === kept.start)) next[p.prep_no] = kept;
-        else next[p.prep_no] = p.options[0] ? { kind: "option", ...p.options[0] } : undefined;
+        else next[p.prep_no] = first ? { kind: "option", ...first } : undefined;
       }
       return next;
     });
@@ -207,10 +213,17 @@ export function PickInterviewDialog({
     () =>
       (suggestions.data?.preps ?? []).filter((p) => {
         if (!openPrep(p)) return false;
-        const kind = picks[p.prep_no]?.kind;
-        if (kind === "option") return true;
+        const pick = picks[p.prep_no];
+        const kind = pick?.kind;
+        if (pick?.kind === "option") {
+          // Podpowiedź nachodząca na drugi prep tej osoby nie idzie do zaproszeń (F34).
+          const other = otherOf(p.prep_no);
+          return !(other && overlaps(pick, other));
+        }
         return kind === "manual" && spans[p.prep_no] != null && (checks[p.prep_no]?.blocks.length ?? 0) === 0;
       }),
+    // otherOf czyta tylko spans i suggestions.data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [suggestions.data, picks, spans, checks],
   );
   // „Inna godzina…” bez godziny albo z blokadą — główny przycisk czeka.
@@ -244,6 +257,9 @@ export function PickInterviewDialog({
               client_request_id: requestIds.current[p.prep_no],
               // Ostrzeżenie „ma wtedy zajęte” było na ekranie — zapis świadomy.
               accept_busy: checks[p.prep_no]?.busy != null,
+              // Przełożenie czeka na DL-a, a prepy idą od razu: kandydat ma
+              // w zaproszeniu WYBRANY termin, nie starą rozmowę (audyt 22.10, F37).
+              interview_start: start,
             });
           } catch (err) {
             failed.push(`Prep ${p.prep_no}: ${apiErrorMessage(err, "nie powstał")}`);
@@ -346,6 +362,7 @@ export function PickInterviewDialog({
             <legend className="mb-1 text-xs font-semibold text-muted-foreground">Termin u klienta</legend>
             {request.slots.map((s, i) => {
               const bounds = windowBounds(s, duration);
+              const earliest = windowEarliest(s, duration);
               const selected = index === i;
               const passed = slotPassed(s, duration);
               return (
@@ -365,7 +382,7 @@ export function PickInterviewDialog({
                       disabled={passed}
                       onChange={() => {
                         setIndex(i);
-                        setWindowTime(bounds?.from ?? "");
+                        setWindowTime(earliest ?? "");
                       }}
                       className="h-4 w-4"
                     />
@@ -382,7 +399,7 @@ export function PickInterviewDialog({
                       <input
                         type="time"
                         value={windowTime}
-                        min={bounds.from}
+                        min={earliest ?? bounds.from}
                         max={bounds.to}
                         step={900}
                         onChange={(e) => setWindowTime(e.target.value)}

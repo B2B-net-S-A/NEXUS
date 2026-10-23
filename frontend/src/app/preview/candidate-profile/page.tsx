@@ -1149,12 +1149,13 @@ const similarPerson = (
   shared_skills: ["java", "spring boot", "kafka", "postgresql"],
   only_source_skills: ["aws", "kubernetes"],
   only_candidate_skills: ["azure"],
+  duplicate_signals: [],
   ...extra,
 });
 const SIMILAR = {
   candidate_id: CANDIDATE_ID,
   status: "ok",
-  total: 6,
+  total: 7,
   source: {
     ...similarPerson(CANDIDATE_ID, "Marta", "Kowalczyk", "Senior Java Developer", {}),
     years_it_experience: 8,
@@ -1164,6 +1165,17 @@ const SIMILAR = {
     active_processes: 3,
   },
   items: [
+    // Drugi profil tej samej osoby: inny e-mail, to samo imię i telefon.
+    similarPerson(9100, "Marta", "Kowalczyk", "Senior Java Developer", {
+      score: 0.95,
+      years_it_experience: 8,
+      rate_hourly: 120,
+      availability_status: "unknown",
+      shared_skills: ["java", "spring boot", "kafka", "postgresql", "aws", "kubernetes"],
+      only_source_skills: [],
+      only_candidate_skills: [],
+      duplicate_signals: ["name", "phone"],
+    }),
     similarPerson(9101, "Paweł", "Przykładowy", "Java Developer", {
       score: 0.88,
       shared_skills: ["java", "spring boot", "kafka", "postgresql", "docker"],
@@ -1205,6 +1217,27 @@ const SIMILAR = {
       shared_skills: ["java"],
     }),
   ],
+};
+/** „Scal…” przy możliwym duplikacie (9100) — podgląd scalenia z fikcyjnymi danymi. */
+const MERGE_PREVIEW_9100 = {
+  survivor_id: CANDIDATE_ID,
+  duplicate_id: 9100,
+  survivor: { id: CANDIDATE_ID, name: "Marta", lastname: "Kowalczyk", email: "marta.kowalczyk@example.com", phone: "+48 000 000 107", city: "Warszawa", external_source: "manual", created_at: "2025-11-02T10:00:00Z", updated_at: "2026-10-20T08:00:00Z" },
+  duplicate: { id: 9100, name: "Marta", lastname: "Kowalczyk", email: "m.kowalczyk@example.com", phone: "+48 000 000 107", city: "Warszawa", external_source: "traffit", created_at: "2024-03-14T10:00:00Z", updated_at: "2025-09-21T08:00:00Z" },
+  fields: [
+    { field: "email", label: "E-mail", survivor: "marta.kowalczyk@example.com", duplicate: "m.kowalczyk@example.com", conflict: true, default: "survivor" },
+    { field: "phone", label: "Telefon", survivor: "+48 000 000 107", duplicate: "+48 000 000 107", conflict: false, default: "survivor" },
+  ],
+  references: [
+    { table: "notes", column: "candidate_id", rows: 4, conflicts: 0, unresolvable: false },
+    { table: "candidate_documents", column: "candidate_id", rows: 1, conflicts: 0, unresolvable: false },
+  ],
+  polymorphic: [{ table: "activities", rows: 6 }],
+  moved_rows: 11,
+  conflicts: 1,
+  blockers: [],
+  can_apply: true,
+  fingerprint: "0".repeat(64),
 };
 const MY_OPEN_JOBS = {
   items: [
@@ -1276,6 +1309,7 @@ const READ_ONLY_POSTS: Array<[RegExp, (config: InternalAxiosRequestConfig) => un
 
 /** Odpowiedzi lokalnego adaptera: [wzorzec ścieżki, dane]. */
 const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> = [
+  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/merge-preview$`), () => MERGE_PREVIEW_9100],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}$`), () => CANDIDATE],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/history$`), () => historyFor(variant.employed)],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/timeline`), () => TIMELINE],

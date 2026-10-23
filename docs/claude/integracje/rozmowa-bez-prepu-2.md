@@ -35,11 +35,22 @@ z warunkami, a telefon do kandydata przed rozmową jest obowiązkowy.
 - **Hamulec = pomiar, nie blokada.** Raport „Jakość prepów” ma tabelę
   „Rozmowy bez Prepu 2 · ostatnie 30 dni” per właściciel rozmowy
   (rekruter): z powodem, „pominięte bez słowa” (rozmowa się odbyła, prepów
-  < 2, bez wpisu) i powody. Próg: > 20% rozmów i co najmniej 2 — wiersz
+  < 2, bez wpisu), „zapisane po fakcie” i powody. Próg: > 20% rozmów i co najmniej 2 — wiersz
   na pomarańczowo, a przy zapisie pominięcia każdy HoR dostaje
   `prep2_skip_threshold` raz na 30 dni na osobę (bez pętli w tle). Zgody DL
   przed pominięciem świadomie nie ma: przy rozmowie jutro rano przyszłaby
   za późno.
+- **Rozmowa zapisana po fakcie to nie „bez słowa” (decyzja Artura
+  22.10.2026, audyt F28).** Rozmowa założona w NEXUSIE w chwili startu albo
+  po nim (`created_at >= start_time`: pytania z rozmowy z datą wstecz,
+  `import_note_client_questions`, „Kiedy rozmowa?” wstecz) nie była
+  w kalendarzu, więc nie dało się do niej zaplanować prepów ani zapisać
+  pominięcia. Raport liczy ją osobno: kolumna „Zapisane po fakcie”
+  (`SkipStat.after_the_fact`), a linia „Rozmowy u klienta z dwoma prepami”
+  pomija ją w obu liczbach i podaje osobno (`interviews_after_the_fact`,
+  `prep2_skips.tally_two_preps`). Dotąd takie rozmowy szły do „bez słowa”
+  rekrutera i zaniżały linię o dwóch prepach. Udział „z powodem” (próg)
+  liczy się bez zmian od wszystkich rozmów osoby.
 - Prep 2 założony po zapisie (`POST /preps`, `prep_no=2`) kasuje
   pominięcie przed przyszłą rozmową (`prep2_skips.clear_upcoming`) — inaczej
   raport liczyłby rozmowę jako „bez Prepu 2”.
