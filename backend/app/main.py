@@ -19,7 +19,9 @@ if settings.NEXUS_ENV == "staging":
 
     install_egress_guard(settings.STAGING_EXTRA_ALLOWED_HOSTS.split(","))
 
-from app.core.database import engine, Base
+from sqlalchemy.exc import TimeoutError as PoolCheckoutTimeout
+
+from app.core.database import engine, Base, pool_status
 from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
@@ -458,6 +460,43 @@ if settings.SENTRY_DSN:
         logger.warning("Sentry init failed: %s", e)
 
 
+def _pool_exhausted_response(request: Request, exc: Exception) -> JSONResponse:
+    """Wyczerpana pula połączeń → 503 z ``Retry-After`` (NEXUS-BE-57).
+
+    To przeciążenie całego procesu, nie błąd trasy: do 15.10.2026 jeden zastój
+    bazy dawał dziesiątki 500-ek z różnych tras, a issue w Sentry nosiło nazwę
+    trasy, która akurat padła ostatnia. Jeden stały fingerprint grupuje je
+    w jedno issue, a stan puli w logu pokazuje, ile połączeń było zajętych.
+    Log na WARNING, żeby LoggingIntegration nie zrobiła drugiego zdarzenia.
+    """
+    status = pool_status()
+    logger.warning(
+        "DB pool exhausted on %s %s (pool: %s)",
+        request.method,
+        request.url.path,
+        status,
+    )
+    try:
+        import sentry_sdk
+
+        with sentry_sdk.new_scope() as scope:
+            scope.fingerprint = ["db-pool-exhausted"]
+            scope.set_tag("failure_kind", "db_pool_exhausted")
+            scope.set_context("db_pool", {"status": status})
+            sentry_sdk.capture_exception(exc)
+    except Exception:  # noqa: BLE001 - brak Sentry nie może maskować 503
+        pass
+    return JSONResponse(
+        status_code=503,
+        headers={"Retry-After": "5"},
+        content={
+            "detail": (
+                "Serwer jest chwilowo przeciążony. Spróbuj ponownie za kilka sekund."
+            )
+        },
+    )
+
+
 # ── Nieobsłużony wyjątek → 500 Z nagłówkami CORS ───────────────────────────
 class UnhandledErrorMiddleware(BaseHTTPMiddleware):
     """Zamień nieobsłużony wyjątek na JSON-owe 500, ZANIM minie CORS.
@@ -495,6 +534,8 @@ class UnhandledErrorMiddleware(BaseHTTPMiddleware):
                     "Integer out of range on %s %s", request.method, request.url.path
                 )
                 return JSONResponse(status_code=422, content={"detail": OUT_OF_RANGE})
+            if isinstance(exc, PoolCheckoutTimeout):
+                return _pool_exhausted_response(request, exc)
             logger.exception(
                 "Unhandled error on %s %s", request.method, request.url.path
             )

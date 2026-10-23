@@ -106,6 +106,9 @@ def test_connect_args_name_the_application_only_for_asyncpg() -> None:
     from app.core.database import _connect_args
 
     assert _connect_args("postgresql+asyncpg://u:p@h/db") == {
-        "server_settings": {"application_name": "nexus-backend"}
+        "server_settings": {
+            "application_name": "nexus-backend",
+            "statement_timeout": "60000",
+        }
     }
     assert _connect_args("sqlite+aiosqlite:///:memory:") == {}
