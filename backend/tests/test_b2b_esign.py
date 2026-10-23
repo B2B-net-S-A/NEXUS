@@ -636,7 +636,7 @@ async def test_signing_day_is_the_contractor_day_not_the_company_day(
     app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
 ):
     """Kontraktor podpisał dwa dni przed reprezentantem firmy — „Data
-    podpisania” w eksporcie „Placementy” to dzień podpisu kontraktora (0513)."""
+    podpisania” w eksporcie „Placementy” to dzień podpisu kontraktora (0514)."""
     from datetime import datetime, timedelta, timezone
 
     from app.core.database import AsyncSessionLocal

@@ -1,4 +1,4 @@
-"""Dzień podpisu umowy B2B z okna „Oznacz jako podpisaną” (0513) — bez bazy.
+"""Dzień podpisu umowy B2B z okna „Oznacz jako podpisaną” (0514) — bez bazy.
 
 ``signing_day_or_reject`` pilnuje pola „Data podpisu”: domyślnie dziś
 w kalendarzu firmy, nie z przyszłości, nie sprzed dnia wygenerowania umowy.

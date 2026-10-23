@@ -248,10 +248,10 @@ class B2BGeneratedContract(Base, TimestampMixin):
     signed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # 0513: dzień podpisu umowy (kalendarz firmy) — z pola „Data podpisu”
+    # 0514: dzień podpisu umowy (kalendarz firmy) — z pola „Data podpisu”
     # w oknie „Oznacz jako podpisaną” albo z podpisu kontraktora w NEXUSIE.
     # `signed_at` to chwila oznaczenia, zwykle 1–5 dni później. NULL = wiersz
-    # oznaczony przed 0513.
+    # oznaczony przed 0514.
     signed_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     signed_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True

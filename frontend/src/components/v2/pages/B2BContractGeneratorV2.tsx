@@ -820,7 +820,7 @@ export function ConfirmFullySignedDialog({
   const signedFileProblem = signedFile
     ? scanFileProblem(signedFile, SIGNED_FILE_FORMAT_MESSAGE)
     : null;
-  // Dzień podpisu umowy (0513) — nie dzień kliknięcia. Te same granice co na
+  // Dzień podpisu umowy (0514) — nie dzień kliknięcia. Te same granice co na
   // serwerze: nie z przyszłości, nie sprzed wygenerowania umowy.
   const [signedOn, setSignedOn] = useState(() => warsawToday());
   const today = warsawToday();

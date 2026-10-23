@@ -5206,7 +5206,7 @@ END $$""",
     # 0496: podpisany plik umowy przy wierszu rejestru Generatora.
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
     "signed_document_id INTEGER REFERENCES contract_documents(id) ON DELETE SET NULL",
-    # 0513: prawdziwy dzień podpisu umowy (pole w „Oznacz jako podpisaną”).
+    # 0514: prawdziwy dzień podpisu umowy (pole w „Oznacz jako podpisaną”).
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS signed_on DATE",
     # 0499: wnioski o podpis umowy B2B w NEXUSIE (kontraktor → firma).
     """CREATE TABLE IF NOT EXISTS b2b_signing_requests (

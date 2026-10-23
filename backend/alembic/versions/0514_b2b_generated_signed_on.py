@@ -1,7 +1,7 @@
 """Dzień podpisu umowy B2B z Generatora.
 
-Revision ID: 0513_b2b_generated_signed_on
-Revises: 0512_care_board_waiting_decision
+Revision ID: 0514_b2b_generated_signed_on
+Revises: 0513_job_autofill_pool
 
 * ``b2b_generated_contracts.signed_on`` — dzień, w którym umowę podpisano,
   wpisany w oknie „Oznacz jako podpisaną” (domyślnie dziś) albo dzień podpisu
@@ -15,8 +15,8 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0513_b2b_generated_signed_on"
-down_revision = "0512_care_board_waiting_decision"
+revision = "0514_b2b_generated_signed_on"
+down_revision = "0513_job_autofill_pool"
 branch_labels = None
 depends_on = None
 

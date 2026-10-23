@@ -222,7 +222,7 @@ def _reject_excel_row(row: B2BGeneratedContract) -> None:
 
 
 def signing_day_or_reject(row: B2BGeneratedContract, requested: date | None) -> date:
-    """Dzień podpisu umowy z okna „Oznacz jako podpisaną” (0513).
+    """Dzień podpisu umowy z okna „Oznacz jako podpisaną” (0514).
 
     Domyślnie dziś w kalendarzu firmy. Nie z przyszłości i nie sprzed dnia
     wygenerowania umowy — podpisać można tylko dokument, który już powstał.
