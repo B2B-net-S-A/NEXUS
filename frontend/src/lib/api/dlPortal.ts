@@ -452,7 +452,12 @@ export const dlPortalApi = {
     api.post<FrameworkContractRead>(
       `/api/clients/${clientId}/framework-contracts`,
       formData,
-      { headers: { "Content-Type": "multipart/form-data" } }
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+        // Skan podpisanej umowy (do 25 MB) na wolniejszym łączu nie mieści się
+        // w 30 s instancji — przeglądarka zrywała wysyłkę (23.10.2026).
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      }
     ),
 
   updateFrameworkContract: (clientId: number, fcId: number, payload: FrameworkContractUpdate) =>
@@ -474,7 +479,11 @@ export const dlPortalApi = {
     api.post<AmendmentRead>(
       `/api/clients/${clientId}/framework-contracts/${fcId}/amendments`,
       formData,
-      { headers: { "Content-Type": "multipart/form-data" } }
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+        // Jak umowa ramowa: skan aneksu nie mieści się w 30 s instancji.
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      }
     ),
 
   deleteAmendment: (clientId: number, fcId: number, amendmentId: number) =>

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import {
   ChevronRight,
   Download,
@@ -22,6 +23,7 @@ import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { ConfirmButton } from "@/components/ConfirmDialog";
 import { apiErrorMessage } from "@/lib/api-error";
+import { isClientTimeout } from "@/lib/http-timeouts";
 import { resolveViewState } from "@/lib/view-state";
 import type {
   FrameworkContractRead,
@@ -467,6 +469,24 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
   );
 }
 
+/** Zapis z plikiem, na który serwer nie odpowiedział. 23.10.2026 skan
+ *  podpisanej umowy wysyłał się dłużej niż limit przeglądarki: serwer nie
+ *  dostał żądania, a okno mówiło tylko „Nie udało się zapisać umowy
+ *  ramowej.” — bez słowa o tym, że chodzi o plik i co z nim zrobić. */
+function uploadErrorMessage(
+  err: unknown,
+  notSaved: string,
+  fallback: string,
+): string {
+  if (isClientTimeout(err)) {
+    return `${notSaved}: plik wysyłał się dłużej niż 2 minuty. Spróbuj ponownie przy szybszym łączu albo z mniejszym plikiem (np. skan w niższej rozdzielczości).`;
+  }
+  if (isAxiosError(err) && !err.response) {
+    return `${notSaved}: formularz nie dotarł do serwera. Sprawdź połączenie i czy wybrany plik jest dostępny na dysku (plik z OneDrive musi być pobrany), potem spróbuj ponownie.`;
+  }
+  return apiErrorMessage(err, fallback);
+}
+
 interface CreateFrameworkContractDialogProps {
   clientId: number;
   onClose: () => void;
@@ -517,7 +537,14 @@ function CreateFrameworkContractDialog({
       showToast("Umowa ramowa dodana", "success");
       onCreated();
     } catch (err: unknown) {
-      showToast(apiErrorMessage(err, "Nie udało się zapisać umowy ramowej."), "error");
+      showToast(
+        uploadErrorMessage(
+          err,
+          "Umowa nie została zapisana",
+          "Nie udało się zapisać umowy ramowej.",
+        ),
+        "error",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -685,7 +712,14 @@ function CreateAmendmentDialog({
       showToast("Aneks dodany", "success");
       onCreated();
     } catch (err: unknown) {
-      showToast(apiErrorMessage(err, "Nie udało się zapisać aneksu."), "error");
+      showToast(
+        uploadErrorMessage(
+          err,
+          "Aneks nie został zapisany",
+          "Nie udało się zapisać aneksu.",
+        ),
+        "error",
+      );
     } finally {
       setSubmitting(false);
     }
