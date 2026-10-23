@@ -584,3 +584,17 @@ Makiety i decyzje Artura: https://claude.ai/artifact/H4QgdE9ou92M1dtr9QrygF
   w toku”, „Źródła, portale i linki”, „Zamknięcia i hit ratio” (`notBoard`
   w `lib/insights-reports.ts`); „Rekrutacje bez ruchu” zostaje, bo prowadzi
   do niego „Do uwagi”, a Hall of Fame i Ścieżka — bo Rada widzi Rywalizację.
+- **Mail „Nowy placement” do Rady** (`board_placement_alert`,
+  `services/board_placement_alerts.py`, pętla `tasks/kpi_email_reports`):
+  przy pierwszym „Zatrudniony” pary (widok `analytics_first_milestones`, bez
+  wykluczonych) do aktywnych kont z rolą „Rada nadzorcza”: klient, rekrutacja,
+  rekruter (zasługa jak w wyścigach), DL, start kontraktu, marża/h
+  (`placement_margin_per_hour_by_user` — ta sama funkcja pieniędzy co remis
+  wyścigu i kafel Rady; bez kontraktu albo kursu linii nie ma), który to
+  placement w miesiącu i akceptacje w drodze. **Bez danych kandydata.** Jeden
+  mail na parę (znacznik `kpi_email_report_runs`, klucz `kandydat:rekrutacja`),
+  tylko placementy po dacie „wysyłaj od” i nie starsze niż 3 dni — włączenie
+  rodzaju w Ustawieniach → Powiadomienia nie wysyła historii. Konto Rady może
+  go wyłączyć w „Maile do Ciebie”; od 22.10 także podsumowanie miesięczne
+  (wcześniej `_board_monthly` wymagał „Modułu Finanse”, choć mail szedł też
+  do Rady).

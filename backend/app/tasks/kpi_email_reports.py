@@ -1,6 +1,6 @@
 """Raporty KPI mailem (plan PR3, 23.09.2026).
 
-Dwa rodzaje, oba w `notification_delivery.CATALOG` i domyślnie WYŁĄCZONE
+Trzy rodzaje, wszystkie w `notification_delivery.CATALOG` i domyślnie WYŁĄCZONE
 (poczta M365 aplikacji ma dziś 403 — włączenie to decyzja admina
 w Ustawieniach → Powiadomienia):
 
@@ -15,6 +15,11 @@ w Ustawieniach → Powiadomienia):
   + tabela rok-do-roku) do osób z uprawnieniem „Moduł Finanse” i do Rady
   nadzorczej (= `BoardReader`; domyślnie admin i Finanse — Head of Recruitment nie
   dostaje kwot od 24.09.2026).
+* ``board_placement_alert`` — **każdy tick** (co 10 min): mail „Nowy
+  placement” do Rady nadzorczej przy pierwszym „Zatrudniony” pary
+  (`services/board_placement_alerts.py`, decyzja Artura 22.10.2026); klucz
+  znacznika = ``<kandydat>:<rekrutacja>``, więc jeden mail na parę, a tylko
+  placementy po dacie „wysyłaj od” tego rodzaju — bez wysyłki historii.
 
 Bez duplikatu po restarcie: przed wysyłką pętla ZAKŁADA wiersz
 `kpi_email_report_runs` (UNIQUE kind+period_key). Od rundy 9 (R9-N6-3) raport
@@ -37,7 +42,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Awaitable, Callable, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +66,8 @@ logger = logging.getLogger(__name__)
 
 WEEKLY_KIND = "kpi_weekly_report"
 MONTHLY_KIND = "board_monthly_report"
+# Lustro `board_placement_alerts.KIND` (bez importu na poziomie modułu).
+PLACEMENT_KIND = "board_placement_alert"
 SEND_HOUR = 8
 CHECK_INTERVAL_SECONDS = 600
 
@@ -533,6 +540,38 @@ async def _reclaim_report(db: AsyncSession, kind: str, period_key: str) -> str:
     return "retry"
 
 
+def drops_stale_pending(kind: str) -> bool:
+    """Czy nowy klucz sprząta odroczonych poprzednich kluczy tego rodzaju.
+
+    Raporty okresowe: tak — nowy okres zastępuje stary. Mail „Nowy placement”:
+    nie — każda para ma własny klucz i własnych odroczonych, więc sprzątanie
+    przy parze B kasowało ponowienie pary A (przegląd 23.10.2026). Jego stare
+    wpisy sprząta `_drop_expired_placement_pending`.
+    """
+    return kind != PLACEMENT_KIND
+
+
+async def _drop_expired_placement_pending(db: AsyncSession, floor: datetime) -> None:
+    """Odroczeni par starszych niż okno maila nie mają już ponowienia."""
+    await db.execute(
+        text(
+            """
+            DELETE FROM app_settings s
+            USING kpi_email_report_runs r
+            WHERE r.kind = :kind
+              AND r.claimed_at < :floor
+              AND s.key = :prefix || r.period_key
+            """
+        ),
+        {
+            "kind": PLACEMENT_KIND,
+            "floor": floor,
+            "prefix": f"{_PENDING_PREFIX}{PLACEMENT_KIND}:",
+        },
+    )
+    await db.commit()
+
+
 async def _drop_stale_pending(db: AsyncSession, kind: str, period_key: str) -> None:
     """Runda 8 (R8-V3-10): odroczeni odbiorcy STAREGO okresu nie mają już
     ponowienia (klucz okresu się zmienił), a wpis zostawał w `app_settings`
@@ -623,7 +662,8 @@ async def _send_report(
             if decision == "retry":
                 return await _retry_deferred(db, kind, period_key, build, now_utc)
             run_id = int(decision.split(":", 1)[1])
-        await _drop_stale_pending(db, kind, period_key)
+        if drops_stale_pending(kind):
+            await _drop_stale_pending(db, kind, period_key)
         try:
             mails = await build(db)
         except Exception:
@@ -651,6 +691,59 @@ async def _send_report(
         return status
 
 
+async def _placement_mails(
+    db: AsyncSession, placement, now_local: datetime
+) -> list[_Mail]:
+    from app.services import board_placement_alerts as alerts
+
+    recipients = [
+        user
+        for user in await alerts.board_members(db)
+        # Własny wyłącznik maila („Maile do Ciebie”).
+        if not email_opted_out(user, alerts.KIND)
+    ]
+    if not recipients:
+        return []
+    facts = await alerts.placement_facts(
+        db, placement, today=now_local.date(), now=now_local
+    )
+    subject, text_body = alerts.render_placement_alert(
+        facts, _link("/insights?tab=firma")
+    )
+    return [_Mail(u.email, subject, text_body) for u in recipients]
+
+
+async def _send_placement_alerts(now_local: datetime, now_utc: datetime) -> str:
+    """Mail „Nowy placement” do Rady — jeden na parę, tylko po dacie „wysyłaj od”."""
+    from app.services import board_placement_alerts as alerts
+    from app.services.notification_delivery import load_policy
+
+    async with AsyncSessionLocal() as db:
+        policy = await load_policy(db)
+        if not policy.kind_enabled(alerts.KIND):
+            return "disabled"
+        cutoff = policy.cutoff_for(alerts.KIND)
+        if cutoff is None:
+            return "disabled"
+        await _drop_expired_placement_pending(db, now_utc - alerts.LOOKBACK)
+        pending = await alerts.pending_placements(
+            db,
+            since=cutoff,
+            now=now_utc,
+            pending_prefix=f"{_PENDING_PREFIX}{alerts.KIND}:",
+        )
+    results = [
+        await _send_report(
+            alerts.KIND,
+            alerts.pair_key(p.candidate_id, p.job_id),
+            lambda db, p=p: _placement_mails(db, p, now_local),
+            now_utc,
+        )
+        for p in pending
+    ]
+    return ",".join(results) if results else "nothing"
+
+
 async def run_once(now: Optional[datetime] = None) -> dict[str, str]:
     """Jeden tick: wyślij należne raporty. Zwraca `{kind: wynik}` (testy, logi)."""
     now_local = (now or local_now()).astimezone(ZoneInfo(DEFAULT_TZ))
@@ -672,6 +765,11 @@ async def run_once(now: Optional[datetime] = None) -> dict[str, str]:
             lambda db: _monthly_mails(db, now_local, monthly_key),
             now_utc,
         )
+    # Wyłączony rodzaj i tick bez nowych placementów nie wchodzą do wyniku —
+    # jak raport poza terminem.
+    placements = await _send_placement_alerts(now_local, now_utc)
+    if placements not in ("disabled", "nothing"):
+        out[PLACEMENT_KIND] = placements
     return out
 
 
