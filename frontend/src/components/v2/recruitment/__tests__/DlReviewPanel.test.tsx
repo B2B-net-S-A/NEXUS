@@ -28,6 +28,7 @@ vi.mock("@/lib/api", () => ({
   // Lista osób do „@” (`useMentionableUsers`) czyta nazwany eksport.
   api: {
     get: (...a: unknown[]) => get(...a),
+    post: (...a: unknown[]) => post(...a),
   },
   pipelineApi: {
     move: (data: unknown) => post("/api/pipeline/move", data),
@@ -198,13 +199,16 @@ function mockApi({
   availability = { status: "open_to_offers", available_from: null, notice_period: 1, notice_period_unit: "months" },
   context = CONTEXT,
   form = FORM,
+  match = null,
 }: {
   cvs?: Array<Record<string, unknown>>;
   availability?: Record<string, unknown> | null;
   context?: Record<string, unknown> | null;
   form?: ScreeningFormState;
+  match?: Record<string, unknown> | null;
 } = {}) {
   get.mockImplementation((url: string) => {
+    if (url === "/api/dl-match/candidates/21" && match) return Promise.resolve({ data: match });
     if (url === "/api/dl-review/context") {
       return context ? Promise.resolve({ data: context }) : Promise.reject(new Error("boom"));
     }
@@ -364,6 +368,52 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     );
     expect(showSuccess).toHaveBeenCalledWith("Anna Nowak — CV wysłane do klienta.");
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("Match (22.10.2026): połączona rekrutacja jest zaznaczona i idzie razem z tą, ze stawką z decyzji", async () => {
+    mockApi({
+      match: {
+        candidate_id: 21,
+        from_job_id: 31,
+        status: "ok",
+        jobs: [
+          { job_id: 41, title: "Java B", client_name: "PKO BP", client_reference: "ZOB-41", score: null,
+            matching_must: [], gap_must: [], linked: true, destination: "cv_sent", sendable: true },
+          { job_id: 42, title: "Java C", client_name: "PKO BP", client_reference: "ZOB-42", score: 81,
+            matching_must: [], gap_must: ["Kafka"], linked: false, destination: "cv_sent", sendable: true },
+        ],
+        already_in: [],
+      },
+    });
+    post.mockImplementation((url: string) =>
+      url === "/api/dl-match/send"
+        ? Promise.resolve({
+            data: {
+              candidate_id: 21,
+              from_job_id: 31,
+              results: [{ job_id: 41, title: "ZOB-41 Java B", status: "sent", destination: "cv_sent",
+                qc: "passed", reason: null, cv_carried: true }],
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    renderPanel();
+    const section = await screen.findByTestId("dl-match-section");
+    expect(await within(section).findByRole("checkbox", { name: /ZOB-41/ })).toBeChecked();
+    expect(within(section).getByRole("checkbox", { name: /ZOB-42/ })).not.toBeChecked();
+    expect(within(section).getByText(/brak w CV: Kafka/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
+    const send = screen.getByRole("button", { name: "Akceptuj — wysyłam do 2 rekrutacji" });
+    await userEvent.click(send);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/dl-match/send", {
+        candidate_id: 21,
+        from_job_id: 31,
+        targets: [{ job_id: 41, client_rate_value: 180, client_rate_unit: "hourly", client_rate_currency: "PLN" }],
+      }),
+    );
+    expect(post.mock.calls[0][0]).toBe("/api/pipeline/move");
+    expect(showSuccess).toHaveBeenCalledWith("Match: wysłano też do 1 rekrutacji (do klienta: 1)");
   });
 
   it("Nordea (13.10.2026): akceptacja do kolejki Cpro — stawka do Cpro, ruch na etap Cpro, uwaga dla osoby od Cpro", async () => {

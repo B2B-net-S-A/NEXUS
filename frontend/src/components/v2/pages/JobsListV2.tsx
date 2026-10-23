@@ -1127,7 +1127,9 @@ export function JobsListV2({
               : listSummary}
         </p>
         {similarBanner("inline-flex 2xl:hidden", true)}
-        <div className="ml-auto flex items-center gap-2">
+        {/* `flex-wrap`: od „Umów przedwstępnych” (#2545) cztery przyciski
+            nie mieszczą się w rzędzie przy 360 px i rozpychały stronę w poziomie. */}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {/* Stany requestów ustawia DL (lustro bramki strony i API
               `request_work_states`) — bez tego linku ekran był osiągalny
               wyłącznie z kafelka pulpitu, którego nikt jeszcze nie miał. */}

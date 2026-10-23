@@ -326,6 +326,19 @@ describe("licznik celów — Delivery Lead", () => {
     expect(none?.facts).toEqual([{ label: "Zamknięte rekrutacje w kwartale", value: "10" }]);
   });
 
+  it("„w tym Match” pod „Sam przekazał”, tylko gdy był Match (22.10.2026)", () => {
+    const model = buildKpiTopbarModel([], {
+      ...dlGoals({ placements: 2, closed: 10 }),
+      own_handoffs: { verified: 5, cv_sent: 3, hired: 1, match: 2 },
+    });
+    expect(model?.facts.at(-1)).toEqual({ label: "Sam przekazał: w tym Match", value: "2" });
+    const without = buildKpiTopbarModel([], {
+      ...dlGoals({ placements: 2, closed: 10 }),
+      own_handoffs: { verified: 5, cv_sent: 3, hired: 1, match: 0 },
+    });
+    expect(without?.facts.map((f) => f.label)).not.toContain("Sam przekazał: w tym Match");
+  });
+
   it("cel zrobiony i brakujące placementy w liczbie mnogiej", () => {
     const done = buildKpiTopbarModel([], dlGoals({ placements: 3, closed: 10 }));
     expect(done?.segments[0].mark).toBe("hit");

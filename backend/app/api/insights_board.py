@@ -94,7 +94,7 @@ from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.core.scheduling import local_day_start_utc
+from app.core.scheduling import local_day_start_utc, local_now
 from app.services.action_permissions import reads_board_money
 from app.services.insights_board_yoy import (
     DEFAULT_YEARS,
@@ -104,6 +104,7 @@ from app.services.insights_board_yoy import (
     without_money,
 )
 from app.services.insights_board import _today_warsaw, compute_board
+from app.services.insights_board_flows import compute_board_flows
 from app.services import competition_history
 from app.services.hit_ratio_closures import hit_ratio_closures
 
@@ -175,6 +176,36 @@ async def insights_board(
     result = await compute_board(db, resolved, today=today)
     await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
     return result
+
+
+@router.get("/board/flows")
+@limiter.limit("30/minute")
+async def insights_board_flows(
+    request: Request,
+    current_user: BoardReader,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("quarter", pattern="^(day|week|month|quarter|year|custom)$"),
+    offset: int = Query(0),
+    anchor: Optional[date] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+):
+    """Firma: ruch konsultantów (przyszli / odeszli / netto), kontrakty
+    kończące się w 30 dni bez kontynuacji i popyt (rekrutacje).
+
+    Ta sama bramka co kokpit (`BoardReader`): ruch kontraktów to dane
+    Delivery, a obok stoją kwoty — HoR widzi rekrutację w widoku Zespół.
+    """
+    resolved = _resolve(period, offset, anchor, date_from, date_to)
+    today = _today_warsaw()
+    cache_key = f"insights:board:flows:v1:{resolved.cache_suffix}:{today.isoformat()}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+        result = await compute_board_flows(db, resolved, today=today, now=local_now())
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
 
 
 @router.get("/board/yoy")

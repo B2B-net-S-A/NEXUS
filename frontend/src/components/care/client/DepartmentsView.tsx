@@ -53,7 +53,7 @@ function ConsultantRow({ consultant }: { consultant: OrgConsultant }) {
     consultant.end_date ? `do ${formatDayMonthPl(consultant.end_date)}` : null,
   ].filter(Boolean);
   return (
-    <span className="inline-flex min-w-0 items-baseline gap-1">
+    <span className="flex min-w-0 items-baseline gap-1">
       {health ? (
         <span
           aria-hidden

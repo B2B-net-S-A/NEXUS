@@ -244,13 +244,21 @@ export function PeriodPicker({
         </div>
       )}
 
+      {/* Zwinięte (22.10.2026): pięć linijek nad liczbami na każdym widoku
+          przykrywało to, po co ktoś wszedł. Plakietka mówi, że okno sięga
+          przed 12.10, a treść jest pod kliknięciem — w DOM-ie jak dotąd. */}
       {beforeNexus && (
-        <p
-          data-testid="insights-history-note"
-          className="max-w-[26rem] rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] leading-snug text-muted-foreground sm:text-right"
-        >
-          {INSIGHTS_HISTORY_NOTE}
-        </p>
+        <details className="group max-w-[26rem] text-[11px] leading-snug text-muted-foreground sm:text-right">
+          <summary className="inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 font-medium text-foreground">
+            Dni do 11.10.2026 z DynaReportera — jak liczymy?
+          </summary>
+          <p
+            data-testid="insights-history-note"
+            className="mt-1 rounded-md border border-border bg-muted/50 px-2 py-1"
+          >
+            {INSIGHTS_HISTORY_NOTE}
+          </p>
+        </details>
       )}
 
       {cappedAllTime && (

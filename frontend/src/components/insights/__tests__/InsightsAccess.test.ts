@@ -64,7 +64,30 @@ describe("widoki Insights per rola", () => {
   it.each(ALL_ROLES)("rola %s widzi Rywalizację, Zespół i Raporty", (role) => {
     const tabs = getVisibleInsightTabIds(user(role));
     expect(tabs).toEqual(expect.arrayContaining(["rywalizacja", "zespol", "raporty"]));
-    expect(tabs[0]).toBe("rywalizacja");
+    // Rada nadzorcza: Rywalizacja zostaje, ale ostatnia (decyzja 22.10.2026).
+    expect(tabs[0]).toBe(role === "board" ? "firma" : "rywalizacja");
+  });
+
+  it("Rada nadzorcza bez widoku w adresie ląduje na Firmie", () => {
+    const tabs = getVisibleInsightTabIds(user("board"));
+    expect(resolveInsightsLocation({ tab: null, ch: null, report: null, hash: "" }, tabs).tab).toBe(
+      "firma",
+    );
+    expect(
+      resolveInsightsLocation(
+        { tab: null, ch: null, report: null, hash: "" },
+        getVisibleInsightTabIds(user("recruiter")),
+      ).tab,
+    ).toBe("rywalizacja");
+  });
+
+  it("Rada nadzorcza: Firma pierwsza, Rywalizacja ostatnia", () => {
+    expect(getVisibleInsightTabIds(user("board"))).toEqual([
+      "firma",
+      "zespol",
+      "raporty",
+      "rywalizacja",
+    ]);
   });
 
   it("Firma idzie za uprawnieniem „Moduł Finanse” — domyślnie mają je administrator i Finanse", () => {
@@ -128,10 +151,10 @@ describe("widoki Insights per rola", () => {
     expect(getVisibleInsightTabIds(null)).toEqual(ALL_TABS);
   });
 
-  it("domyślny widok to Rywalizacja dla każdego", () => {
+  it("domyślny widok to Rywalizacja dla każdego poza Radą (Firma)", () => {
     expect(DEFAULT_INSIGHTS_TAB).toBe("rywalizacja");
     for (const role of ALL_ROLES) {
-      expect(getDefaultTabForUser(user(role))).toBe("rywalizacja");
+      expect(getDefaultTabForUser(user(role))).toBe(role === "board" ? "firma" : "rywalizacja");
     }
   });
 });
@@ -199,6 +222,26 @@ describe("raporty per rola", () => {
     expect(ids("delivery_lead")).toContain("propozycje-ai");
     expect(ids("recruiter")).not.toContain("propozycje-ai");
     expect(ids("finance")).not.toContain("propozycje-ai");
+  });
+
+  it("Rada nadzorcza nie widzi raportów-narzędzi zespołu (22.10.2026)", () => {
+    const board = visibleReports(user("board", { capabilities: ["view_team_kpi"] })).map((r) => r.id);
+    expect(board).not.toContain("kompetencje");
+    expect(board).not.toContain("doplyw");
+    expect(board).not.toContain("zamkniecia-hit-ratio");
+    // Wynik i listy, do których prowadzą widoki, zostają.
+    expect(board).toEqual(
+      expect.arrayContaining(["akceptacje-w-toku", "bez-ruchu", "ranking-klientow", "rok-do-roku", "hall-of-fame"]),
+    );
+    const hor = visibleReports(user("head_of_recruitment", { capabilities: ["view_team_kpi"] })).map((r) => r.id);
+    expect(hor).toEqual(expect.arrayContaining(["kompetencje", "doplyw", "zamkniecia-hit-ratio"]));
+  });
+
+  it("akceptacje w toku — tylko z view_team_kpi (lista ma klientów i DL)", () => {
+    expect(visibleReports(user("recruiter")).map((r) => r.id)).not.toContain("akceptacje-w-toku");
+    expect(
+      visibleReports(user("delivery_lead", { capabilities: ["view_team_kpi"] })).map((r) => r.id),
+    ).toContain("akceptacje-w-toku");
   });
 
   it("nic nie znika: każdy raport ma pytanie i okno", () => {

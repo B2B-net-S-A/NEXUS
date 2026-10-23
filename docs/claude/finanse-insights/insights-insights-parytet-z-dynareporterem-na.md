@@ -557,3 +557,44 @@ Makiety i decyzje Artura: https://claude.ai/artifact/H4QgdE9ou92M1dtr9QrygF
   (tylko okno miesiąca — cel jest miesięczny) i „W drodze dziś” (pierwszy
   weryfikujący, ta sama liczba co „Moje osoby w drodze”). Długi przypis pod
   tabelą zwinięty w „Jak liczymy tabelę?”.
+- **Firma v3** („Jak idzie firma?”): zdanie podsumowania (`lib/insights-firma.ts`),
+  kafle kwot bez zmian, „Ruch konsultantów w okresie” z
+  `/api/insights/board/flows` (`BoardReader`, jak kokpit): przyszli /
+  odeszli (w tym rezygnacje) / netto z `integration_insights.contract_flows`
+  (te same funkcje co rok do roku i API integracyjne) i kontrakty kończące
+  się w 30 dni bez kontynuacji (`order_continuation.ending_without_successor`,
+  reguła pigułki „Kończące się 30d”); lejek z „stoi dziś” (ten sam komponent
+  co Zespół); prognoza „z akceptacjami” tylko dla okresu, który trwa;
+  zwinięta lista akceptacji (bez kandydatów); „Skuteczność i popyt” (hit
+  ratio, otwarte i nowe rekrutacje). Akapit o ewidencji kontraktów przeniesiony
+  do „Jak liczymy widok Firma?”.
+- **Rada nadzorcza: zakładki Firma · Zespół · Raporty · Rywalizacja**
+  (`getVisibleInsightTabIds`), adres bez widoku ląduje na pierwszym widoku
+  osoby — u Rady na Firmie (decyzja Artura 22.10.2026).
+- **Rywalizacja v3**: kampanii już nie prowadzimy (Artur, 22.10.2026) —
+  baner i panel „Kampanie rekrutacyjne” zdjęte z ekranu, a frontowy kod
+  kampanii (komponenty, `/preview/insights-campaign`, klient API) usunięty;
+  backendowe API i dane kampanii zostają. Zasady lig i wyścigów zwinięte
+  pod „Zasady…” (treść bez zmian), pasek źródła okresu to plakietka, a notka
+  „Dni do 11.10.2026 z DynaReportera” przy pasku okresu — zwijana (treść
+  i `data-testid` bez zmian).
+- **Raporty v3**: nowy raport „Akceptacje w toku” (pełna lista z
+  `/in-flight`, `VIEW_TEAM_KPI`; prowadzi do niego „Do uwagi” i lista na
+  Firmie). Rada nadzorcza nie widzi raportów-narzędzi zespołu: „Kompetencje
+  w toku”, „Źródła, portale i linki”, „Zamknięcia i hit ratio” (`notBoard`
+  w `lib/insights-reports.ts`); „Rekrutacje bez ruchu” zostaje, bo prowadzi
+  do niego „Do uwagi”, a Hall of Fame i Ścieżka — bo Rada widzi Rywalizację.
+- **Mail „Nowy placement” do Rady** (`board_placement_alert`,
+  `services/board_placement_alerts.py`, pętla `tasks/kpi_email_reports`):
+  przy pierwszym „Zatrudniony” pary (widok `analytics_first_milestones`, bez
+  wykluczonych) do aktywnych kont z rolą „Rada nadzorcza”: klient, rekrutacja,
+  rekruter (zasługa jak w wyścigach), DL, start kontraktu, marża/h
+  (`placement_margin_per_hour_by_user` — ta sama funkcja pieniędzy co remis
+  wyścigu i kafel Rady; bez kontraktu albo kursu linii nie ma), który to
+  placement w miesiącu i akceptacje w drodze. **Bez danych kandydata.** Jeden
+  mail na parę (znacznik `kpi_email_report_runs`, klucz `kandydat:rekrutacja`),
+  tylko placementy po dacie „wysyłaj od” i nie starsze niż 3 dni — włączenie
+  rodzaju w Ustawieniach → Powiadomienia nie wysyła historii. Konto Rady może
+  go wyłączyć w „Maile do Ciebie”; od 22.10 także podsumowanie miesięczne
+  (wcześniej `_board_monthly` wymagał „Modułu Finanse”, choć mail szedł też
+  do Rady).

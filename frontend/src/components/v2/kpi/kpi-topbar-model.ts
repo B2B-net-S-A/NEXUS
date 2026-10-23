@@ -412,6 +412,10 @@ function closedFacts(goals: MyKpiGoals): { label: string; value: string }[] {
       { label: "Sam przekazał: CV wysłane", value: String(own.cv_sent) },
       { label: "Sam przekazał: zatrudnienia", value: String(own.hired) },
     );
+    // Match (22.10.2026): ile z nich DL wysłał z przeglądu do innych rekrutacji.
+    if ((own.match ?? 0) > 0) {
+      facts.push({ label: "Sam przekazał: w tym Match", value: String(own.match) });
+    }
   }
   return facts;
 }

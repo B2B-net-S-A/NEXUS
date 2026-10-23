@@ -640,6 +640,25 @@ export interface InsightsBoardResponse {
   degraded: InsightsBoardDegraded | null;
 }
 
+/** `GET /api/insights/board/flows` — ruch konsultantów i popyt (22.10.2026). */
+export interface InsightsBoardFlowsCounts {
+  starts: number;
+  ends: number;
+  /** Podzbiór `ends`: konsultant zrezygnował (bez „klient zabrał”). */
+  resignations: number;
+  net: number;
+}
+
+export interface InsightsBoardFlowsResponse {
+  period: InsightsPeriod;
+  window: { from: string; to: string };
+  previous_window: { from: string; to: string };
+  consultants: InsightsBoardFlowsCounts;
+  previous_consultants: InsightsBoardFlowsCounts;
+  ending_without_continuation: { days: number; contracts: number };
+  jobs: { open: number; open_clients: number; new: number; previous_new: number };
+}
+
 export interface InsightsClientRankingRow {
   client_id: number;
   name: string;
@@ -1050,6 +1069,7 @@ export const insightsQueryKeys = {
   // Siatka rok-do-roku NIE zależy od paska okresu — patrzy na pełne lata
   // kalendarzowe, więc klucz nie może nieść `period`.
   boardYoY: (p: InsightsYoYParams) => ["insights", "board", "yoy", p] as const,
+  boardFlows: (p: InsightsPeriodParams) => ["insights", "board", "flows", p] as const,
   dlPortfolio: (p: InsightsPeriodParams) =>
     ["insights", "delivery-leads", "portfolio", p] as const,
   competenceMatrix: () =>
@@ -1068,6 +1088,13 @@ export const insightsBoardApi = {
   hitRatioClosures: () =>
     api
       .get<HitRatioClosuresResponse>("/api/insights/hit-ratio-closures")
+      .then((r) => r.data),
+
+  boardFlows: (p: InsightsPeriodParams) =>
+    api
+      .get<InsightsBoardFlowsResponse>("/api/insights/board/flows", {
+        params: periodQuery(p),
+      })
       .then((r) => r.data),
 
   board: (p: InsightsPeriodParams) =>

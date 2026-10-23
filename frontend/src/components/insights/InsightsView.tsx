@@ -155,7 +155,9 @@ type AuthUser = ReturnType<typeof useAuthStore.getState>["user"];
 
 export const DEFAULT_INSIGHTS_TAB: TabId = "rywalizacja";
 
-export function getDefaultTabForUser(_user: AuthUser): TabId {
+export function getDefaultTabForUser(user: AuthUser): TabId {
+  // Rada nadzorcza startuje na Firmie (jak `BOARD_HOME`) — 22.10.2026.
+  if (user && hasRole(user, "board")) return "firma";
   return DEFAULT_INSIGHTS_TAB;
 }
 
@@ -166,7 +168,7 @@ export function getDefaultTabForUser(_user: AuthUser): TabId {
  * store powie, że to admin.
  */
 export function getVisibleInsightTabIds(user: AuthUser): TabId[] {
-  return TABS.filter((tab) => {
+  const ids = TABS.filter((tab) => {
     if (!user) return true;
     if (tab.permission) {
       return (
@@ -176,7 +178,15 @@ export function getVisibleInsightTabIds(user: AuthUser): TabId[] {
     }
     return !tab.roles || hasRole(user, ...tab.roles);
   }).map((tab) => tab.id);
+  // Rada nadzorcza (decyzja Artura 22.10.2026): start na Firmie, Rywalizacja
+  // zostaje, ale ostatnia — liga i wyścigi to sprawa zespołu, nie Rady.
+  if (user && hasRole(user, "board")) {
+    return BOARD_TAB_ORDER.filter((id) => ids.includes(id));
+  }
+  return ids;
 }
+
+const BOARD_TAB_ORDER: TabId[] = ["firma", "zespol", "raporty", "rywalizacja"];
 
 export function isTabId(v: string | null): v is TabId {
   return TABS.some((tab) => tab.id === v);
@@ -229,8 +239,9 @@ export function resolveInsightsLocation(
         ? LEGACY_CHAPTERS[input.ch]
         : undefined;
     const fromAlias = input.tab ? LEGACY_TAB_ALIASES[input.tab] : undefined;
+    // Bez widoku w adresie — pierwszy widok tej osoby (Rada: Firma).
     target = fromAnchor ?? fromChapter ??
-      fromAlias ?? { tab: DEFAULT_INSIGHTS_TAB };
+      fromAlias ?? { tab: allowedTabs[0] ?? DEFAULT_INSIGHTS_TAB };
     dropHash = Boolean(anchor);
   }
   if (input.ch) rewrite = true;
@@ -262,8 +273,9 @@ export function InsightsView() {
   const hydrated = useAuthStore((s) => s.hydrated);
 
   const visibleTabIds = useMemo(() => getVisibleInsightTabIds(user), [user]);
+  // Kolejność z `getVisibleInsightTabIds` — u Rady inna niż w `TABS`.
   const visibleTabs = useMemo(
-    () => TABS.filter((t) => visibleTabIds.includes(t.id)),
+    () => visibleTabIds.map((id) => TABS.find((t) => t.id === id)!),
     [visibleTabIds],
   );
   const allowedReports = useMemo(

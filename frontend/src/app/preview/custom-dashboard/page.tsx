@@ -158,6 +158,14 @@ const TILES_TO_COMPLETE: DashboardTile[] = [
   ...TILES.map((t) => ({ ...t, y: t.y + 5 })),
 ];
 
+// „Czeka na Ciebie” jako kafelek (23.10.2026, Head of Recruitment i admin):
+// panel stoi w kafelku pod „Do uzupełnienia”, nie nad siatką.
+const TILES_BOARD_TASKS: DashboardTile[] = [
+  { id: "t0", type: "to_complete", x: 0, y: 0, w: 12, h: 5, config: {} },
+  { id: "tb", type: "board_tasks", x: 0, y: 5, w: 12, h: 6, config: {} },
+  ...TILES.map((t) => ({ ...t, y: t.y + 11 })),
+];
+
 const CATALOG: MetricCatalog = {
   sources: [
     { key: "pipeline_moves", label: "Ruchy w pipeline", available: true, reason: null, measures: [{ key: "first_reach", label: "Liczba pierwszych wejść na etap", snapshot: false }], group_by: ["none", "week", "month", "client", "recruiter", "stage", "competence_category"], filters: ["client_ids", "competence_category_ids", "job_ids"], supports_author: true },
@@ -789,12 +797,13 @@ const AGREEMENTS: BoardTasksResponse["agreements"] = {
   waiting_on_others: [],
 };
 
-type Variant = "role" | "filled" | "todo" | "empty" | "bar" | "bar-empty";
+type Variant = "role" | "filled" | "todo" | "panel" | "empty" | "bar" | "bar-empty";
 
 const VARIANT_LABEL: Record<Variant, string> = {
   role: "Układ roli",
   filled: "Pulpit z kafelkami",
   todo: "Do uzupełnienia",
+  panel: "Czeka na Ciebie w kafelku",
   empty: "Pusty pulpit",
   bar: "CV w drodze: pasek",
   "bar-empty": "CV w drodze: pusto",
@@ -1036,6 +1045,19 @@ export default function CustomDashboardPreview() {
       ),
       todo: seededClient(
         TILES_TO_COMPLETE,
+        {
+          ...BOARD_TASKS,
+          cv_in_transit: TRANSIT_RETURNED,
+          pending_jobs: PENDING_JOBS,
+          unfinished_forms: UNFINISHED_FORMS,
+          requirement_fixes: REQUIREMENT_FIXES,
+          agreements: AGREEMENTS,
+          prep_attention: PREP_ATTENTION,
+        },
+        as,
+      ),
+      panel: seededClient(
+        TILES_BOARD_TASKS,
         {
           ...BOARD_TASKS,
           cv_in_transit: TRANSIT_RETURNED,

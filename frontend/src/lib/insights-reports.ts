@@ -19,6 +19,7 @@ import { hasAnalyticsCapability, hasRole, type User } from "@/store/auth";
 
 export type ReportId =
   | "lejek-etapy"
+  | "akceptacje-w-toku"
   | "czas-konwersje"
   | "placementy"
   | "kompetencje"
@@ -76,6 +77,10 @@ const seesProposalOutcomes = (user: ReportUser) =>
 const seesMoney = (user: ReportUser) =>
   hasPermission(user, "finance_module") || hasRole(user, "board");
 const MONEY_PERMISSION_LABEL = permissionLabel("finance_module");
+// Rada nadzorcza (decyzja Artura 22.10.2026): raporty-narzędzia pracy zespołu
+// (profile w toku, źródła kandydatów, lista kontrolna zamknięć) jej nie
+// dotyczą — wynik ma na widoku Firma. Zespół widzi je jak dotąd.
+const notBoard = (user: ReportUser) => !hasRole(user, "board");
 
 /**
  * Tabele rok do roku Rady (`GET /api/insights/board/yoy`, `BoardTrendReader`):
@@ -100,6 +105,17 @@ export const REPORTS: readonly ReportDef[] = [
     defaultPeriod: MONTH_CLOSED,
   },
   {
+    id: "akceptacje-w-toku",
+    group: "Rekrutacja",
+    title: "Akceptacje w toku",
+    question:
+      "Które akceptacje czekają na domknięcie — u jakiego klienta, od kiedy i na jakim etapie umowy?",
+    window: "stan na dziś",
+    defaultPeriod: null,
+    // Lista ma klientów i Delivery Leadów — ta sama bramka co tabela ludzi.
+    visible: seesTeam,
+  },
+  {
     id: "czas-konwersje",
     group: "Rekrutacja",
     title: "Czas i konwersje",
@@ -122,6 +138,7 @@ export const REPORTS: readonly ReportDef[] = [
     question: "Jakich profili szukamy teraz i na jakim są etapie?",
     window: "stan na dziś",
     defaultPeriod: null,
+    visible: notBoard,
   },
   {
     id: "propozycje-ai",
@@ -180,6 +197,7 @@ export const REPORTS: readonly ReportDef[] = [
     question: "Skąd przychodzą kandydaci i które źródło kończy się placementem?",
     window: "7 / 30 / 90 dni",
     defaultPeriod: null,
+    visible: notBoard,
   },
   {
     id: "portfele-dl",
@@ -198,8 +216,9 @@ export const REPORTS: readonly ReportDef[] = [
     window: "od 12.10.2026",
     defaultPeriod: null,
     note: "bez kwot",
-    // Lista kontrolna wyłączeń (21.10.2026) — ta sama bramka co rok do roku.
-    visible: seesBoardTrend,
+    // Lista kontrolna wyłączeń (21.10.2026) — ta sama bramka co rok do roku,
+    // bez Rady (22.10.2026): to narzędzie kontroli zamknięć, nie wynik.
+    visible: (user) => seesBoardTrend(user) && notBoard(user),
   },
   {
     id: "ranking-klientow",

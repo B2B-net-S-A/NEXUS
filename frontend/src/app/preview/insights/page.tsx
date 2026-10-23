@@ -29,7 +29,6 @@ import {
 import { api } from "@/lib/api";
 import { DL_SEND_QUEUE_QUERY_KEY } from "@/lib/api/boardTasks";
 import { payrollKeys } from "@/lib/api/hr-payroll";
-import { insightsCampaignQueryKeys } from "@/lib/insights-campaign-api";
 import { insightsQueryKeys, type InsightsPeriodParams } from "@/lib/insights-api";
 import { performanceFlagsQueryKey } from "@/lib/insights-flags-api";
 import { isReportId } from "@/lib/insights-reports";
@@ -135,18 +134,6 @@ function seeded(): QueryClient {
     defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } },
   });
   const today = new Date();
-
-  qc.setQueryData(insightsCampaignQueryKeys.active(), {
-    id: 1, name: "Kampania Q3", emoji: "🎯", start_date: "2026-07-01", end_date: "2026-09-30",
-    target_net: 70, is_active: true, created_at: "2026-06-20T09:00:00+02:00",
-    window: { kind: "custom", start: "2026-07-01T00:00:00+02:00", end: "2026-10-01T00:00:00+02:00", timezone: "Europe/Warsaw" },
-    days_remaining: 6, has_started: true, placements: 68, resignations: 7, net: 61, progress_pct: 87,
-    remaining_to_target: 9, placements_definition: "first_hired_per_candidate_job",
-    placements_definition_note: "Placement = pierwsze wejście na etap „Zatrudniony”.",
-    resignations_definition: "ended_engagement_by_effective_end_date_v2",
-    resignations_definition_note: "Rezygnacja = kontrakt zakończony w oknie kampanii.",
-    net_definition_note: "netto = placementy − rezygnacje",
-  });
 
   const recruiterLeague = [
     leagueEntry(14, "Marta W.", 71, 9), leagueEntry(11, "Ola K.", 58, 7), leagueEntry(12, "Kuba M.", 44, 5),
@@ -471,6 +458,23 @@ function seeded(): QueryClient {
   });
 
   // Firma (liczby fikcyjne).
+  // Firma v3 (22.10.2026): ruch konsultantów, lejek kwartału.
+  qc.setQueryData(insightsQueryKeys.boardFlows(FIRMA_DEFAULT_PERIOD), {
+    period: monthFunnel.period,
+    window: { from: "2026-10-01", to: "2026-10-22" },
+    previous_window: { from: "2026-07-01", to: "2026-07-22" },
+    consultants: { starts: 22, ends: 9, resignations: 4, net: 13 },
+    previous_consultants: { starts: 17, ends: 9, resignations: 3, net: 8 },
+    ending_without_continuation: { days: 30, contracts: 7 },
+    jobs: { open: 84, open_clients: 31, new: 41, previous_new: 35 },
+  });
+  qc.setQueryData(
+    ["insights", "recruitment", "funnel", FIRMA_DEFAULT_PERIOD],
+    funnel(
+      { verified: 486, cv_sent: 171, client_interview: 72, acceptance: 27, hired: 22 },
+      { acceptance: "2026-10-12" },
+    ),
+  );
   qc.setQueryData(insightsQueryKeys.board(FIRMA_DEFAULT_PERIOD), {
     period: { kind: "quarter", start: "2026-07-01T00:00:00+02:00", end: "2026-10-01T00:00:00+02:00", timezone: "Europe/Warsaw" },
     kpis: {

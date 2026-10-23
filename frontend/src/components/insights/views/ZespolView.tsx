@@ -188,6 +188,7 @@ export function ZespolView() {
                       kind: "stale_acceptances",
                       count: staleAcceptances,
                       label: `akceptacji czeka dłużej niż ${ACCEPTANCE_ATTENTION_DAYS} dni`,
+                      report: "akceptacje-w-toku" as ReportId,
                     },
                   ]
                 : []
@@ -211,8 +212,8 @@ export function ZespolView() {
 function AttentionPanel({
   extra = [],
 }: {
-  /** Sygnały liczone na froncie (np. akceptacje stojące za długo) — bez odnośnika. */
-  extra?: { kind: string; count: number; label: string }[];
+  /** Sygnały liczone na froncie (np. akceptacje stojące za długo). */
+  extra?: { kind: string; count: number; label: string; report?: ReportId }[];
 }) {
   // „Pokaż listę” prowadzi do listy rekrutacji — bez sekcji Pipeline (Rada
   // nadzorcza, 0490) zostaje odsyłacz do raportu, jeśli sygnał go ma.
@@ -276,7 +277,17 @@ function AttentionPanel({
               <span className="min-w-8 text-xl font-semibold tabular-nums text-warning-muted-foreground">
                 {item.count}
               </span>
-              <p className="min-w-0 text-sm leading-snug text-foreground">{item.label}</p>
+              <div className="min-w-0 text-sm leading-snug">
+                <p className="text-foreground">{item.label}</p>
+                {item.report ? (
+                  <Link
+                    href={reportHref(item.report)}
+                    className="font-semibold text-primary hover:underline"
+                  >
+                    Pokaż listę
+                  </Link>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>
