@@ -3,7 +3,7 @@
 <p>No. {{ base.contract_number }} signed on {{ base.signing_date }} in Warsaw, between:</p>
 <p><strong>{{ company.name }}</strong> with its registered office in {{ company.place }}, {{ company.address }}, NIP (Tax Identification Number): {{ company.nip }}, represented by {{ company.representative }},</p>
 <p>hereinafter referred to as the “<strong>Company</strong>” or  “<strong>B2BNET</strong>”</p>
-<p>and <strong>{{ g.g_mr }} {{ partner.name or '…' }}</strong> conducting business activity under the name: {{ partner.legal_name or '…' }}, registered in the Central Register and Information on Economic Activity at the address: {{ partner.business_address or '…' }}, Tax Identification Number (NIP): {{ partner.nip or '…' }}, National Business Registry Number (REGON): {{ partner.regon or '…' }},</p>
+<p>and <strong>{{ g.g_mr }} {{ partner.name or '…' }}</strong> conducting business activity under the name: {{ partner.legal_name or '…' }}, registered in the Central Register and Information on Economic Activity at the address{% if partner.address_for_service %} for service{% endif %}: {{ partner.business_address or '…' }}, Tax Identification Number (NIP): {{ partner.nip or '…' }}, National Business Registry Number (REGON): {{ partner.regon or '…' }},</p>
 <p>hereinafter referred to as “<strong>Partner</strong><strong>”</strong></p>
 <p>B2BNET and the Partner are hereinafter referred to as the "<strong>Parties</strong>"</p>
 <h2>§ 1</h2>

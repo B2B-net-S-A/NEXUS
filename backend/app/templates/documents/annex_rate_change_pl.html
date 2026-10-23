@@ -7,7 +7,7 @@
 {% if partner.is_company %}
 <p><strong>{{ partner.legal_name or '…' }}</strong> z siedzibą {{ partner.seat_locative or '…' }}, pod adresem {{ partner.business_address or '…' }}, wpisaną do Rejestru Przedsiębiorców Krajowego Rejestru Sądowego, prowadzonego przez {{ partner.registry_court or '…' }}, pod numerem KRS: {{ partner.krs or '…' }}, NIP: {{ partner.nip or '…' }}, REGON: {{ partner.regon or '…' }}, o kapitale zakładowym {{ partner.share_capital or '…' }}, reprezentowaną przez {{ partner.representation or '…' }},</p>
 {% else %}
-<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong> {{ g.g_prowadzacy }} działalność gospodarczą pod firmą: {{ partner.legal_name or '…' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ partner.business_address or '…' }}, NIP: {{ partner.nip or '…' }}, REGON: {{ partner.regon or '…' }},</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong> {{ g.g_prowadzacy }} działalność gospodarczą pod firmą: {{ partner.legal_name or '…' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem{% if partner.address_for_service %} do doręczeń{% endif %}: {{ partner.business_address or '…' }}, NIP: {{ partner.nip or '…' }}, REGON: {{ partner.regon or '…' }},</p>
 {% endif %}
 <p>{{ g.g_zwanym }} dalej „<strong>Partnerem</strong>”</p>
 <p>B2BNET i Partner łącznie są zwani „<strong>Stronami</strong>”</p>

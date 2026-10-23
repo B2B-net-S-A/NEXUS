@@ -272,6 +272,15 @@ export function registryLookupValues(
   const out: DocumentValues = {};
   for (const [source, target] of fills) {
     let value: unknown;
+    if (source === "address_kind") {
+      // CEIDG: „service” = tylko adres do doręczeń; brak odpowiedzi nie
+      // nadpisuje wyboru z umowy bazowej.
+      const kind = data.address_kind;
+      if (kind === "service" || kind === "place_of_business") {
+        out[target] = kind === "service";
+      }
+      continue;
+    }
     if (source === "seat_locative") {
       const seat = typeof data.seat === "string" ? data.seat.trim() : "";
       value = seat ? seatLocative(seat) : null;

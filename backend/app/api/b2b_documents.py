@@ -1642,6 +1642,7 @@ async def document_prefill(
         "partner_instrumental",
         "partner_legal_name",
         "partner_business_address",
+        "partner_address_for_service",
         "partner_nip",
         "partner_regon",
     ):
@@ -1677,6 +1678,10 @@ async def document_prefill(
                     values[key] = value
                 else:
                     values.setdefault(key, value)
+    if annex_done:
+        # Po aneksie „dane firmy” adres jest nowy, a rodzaj adresu z payloadu
+        # opisuje stary — o nowym mówi „Pobierz z CEIDG”.
+        values.pop("partner_address_for_service", None)
     values.setdefault("gender", "m")
     values = {k: v for k, v in values.items() if v not in (None, "")}
 

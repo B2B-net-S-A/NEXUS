@@ -18,7 +18,10 @@ Moczydłowski"), a nie samo imię i nazwisko właściciela.
     imię+nazwisko właściciela) + REGON + KRS. Zawsze dostępna; fallback nazwy.
   - **KRS OpenAPI** (`api-krs.ms.gov.pl`) — po numerze KRS (spółki).
 
-Zwracany kształt: ``{name, person, nip, regon, krs, address, source}``.
+Zwracany kształt: ``{name, person, nip, regon, krs, address, address_kind, source}``.
+``address_kind`` (karta firmy w CEIDG): ``place_of_business`` = wpisane stałe
+miejsce wykonywania działalności, ``service`` = tylko adres do doręczeń
+(wtedy umowa mówi „pod adresem do doręczeń”), ``None`` = rejestr nie powiedział.
 ``name`` = pełna nazwa firmy; ``person`` = osoba fizyczna (JDG) → pole „Imię i
 nazwisko". Błędy/timeouty → ``None`` (UI wraca do wpisu ręcznego).
 """
@@ -70,6 +73,48 @@ def _digits(value: str | None) -> str:
     return "".join(ch for ch in (value or "") if ch.isdigit())
 
 
+ADDRESS_PLACE_OF_BUSINESS = "place_of_business"
+ADDRESS_SERVICE = "service"
+
+
+def address_kind_from_biznes_details(details: dict) -> str | None:
+    """Rodzaj adresu z karty firmy CEIDG (``GetCompanyDetails``).
+
+    JDG bez stałego miejsca wykonywania działalności nie ma w ``addressData``
+    klucza ``placeOfBusinessAddress`` — jest tylko ``correspondenceAddress``
+    (adres do doręczeń). Biała Lista MF zwraca ten adres jako zwykły
+    ``workingAddress``, więc stamtąd tego nie widać (23.10.2026: 24 z 75 JDG
+    z generatora)."""
+    addresses = details.get("addressData") or {}
+    if addresses.get("placeOfBusinessAddress"):
+        return ADDRESS_PLACE_OF_BUSINESS
+    if addresses.get("correspondenceAddress"):
+        return ADDRESS_SERVICE
+    return None
+
+
+async def _biznes_address_kind(
+    client: httpx.AsyncClient, company_id: str | None
+) -> str | None:
+    if not company_id:
+        return None
+    resp = await client.get(
+        f"{_BIZNES_BASE}/GetCompanyDetails",
+        params={"id": company_id, "source": "CEIDG"},
+    )
+    if resp.status_code != 200:
+        logger.info("biznes.gov.pl details non-200 (%s)", resp.status_code)
+        return None
+    return address_kind_from_biznes_details(resp.json())
+
+
+async def lookup_address_kind(nip: str) -> str | None:
+    """Rodzaj adresu JDG z CEIDG po NIP — dla ścieżki z tokenem CEIDG API,
+    gdzie nazwa nie idzie przez biznes.gov.pl. Awaria = ``None``."""
+    found = await lookup_by_biznes(nip)
+    return (found or {}).get("address_kind")
+
+
 async def lookup_by_biznes(nip: str) -> dict | None:
     """Wyszukiwarka firm biznes.gov.pl — pełna nazwa firmy (JDG i spółki)."""
     clean = _digits(nip)
@@ -100,12 +145,21 @@ async def lookup_by_biznes(nip: str) -> dict | None:
                 return None
             c = companies[0]
             name = (c.get("name") or "").strip() or None
+            source = (c.get("source") or "").upper()
+            # Karta firmy tylko dla JDG; jej awaria nie psuje nazwy.
+            address_kind = None
+            if source == "CEIDG":
+                try:
+                    address_kind = await _biznes_address_kind(client, c.get("id"))
+                except (httpx.HTTPError, ValueError) as exc:
+                    logger.info("biznes.gov.pl details failed NIP %s: %s", clean, exc)
             return {
                 "name": name,
                 "nip": c.get("nip"),
                 "regon": c.get("regon"),
                 "krs": c.get("krs"),
-                "source": (c.get("source") or "").upper(),  # CEIDG (JDG) | KRS
+                "address_kind": address_kind,
+                "source": source,  # CEIDG (JDG) | KRS
             }
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("biznes.gov.pl lookup failed NIP %s: %s", clean, exc)
@@ -450,6 +504,7 @@ def _merge(name_src: dict, bl: dict | None) -> dict:
         "regon": name_src.get("regon") or (bl.get("regon") if bl else None),
         "krs": (bl.get("krs") if bl else None) or name_src.get("krs"),
         "address": (bl.get("address") if bl else None) or name_src.get("address"),
+        "address_kind": name_src.get("address_kind") if is_jdg else None,
         "source": name_src.get("source") or "biznes",
     }
 
@@ -497,6 +552,8 @@ async def _lookup_company_base(
             )
             if not (name_src and name_src.get("name")):
                 name_src = await lookup_by_biznes(nip)
+            elif not name_src.get("address_kind"):
+                name_src = {**name_src, "address_kind": await lookup_address_kind(nip)}
         else:
             bl, name_src = await asyncio.gather(
                 lookup_by_nip(nip), lookup_by_biznes(nip)

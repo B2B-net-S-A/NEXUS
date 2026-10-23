@@ -3472,6 +3472,8 @@ export interface B2BRenderPayload {
   partner_instrumental?: string | null;
   partner_legal_name?: string | null;
   partner_business_address?: string | null;
+  /** JDG bez stałego miejsca w CEIDG → „pod adresem do doręczeń”. */
+  partner_address_for_service?: boolean;
   partner_correspondence_address?: string | null;
   partner_nip?: string | null;
   /**
@@ -3616,6 +3618,8 @@ export const b2bGeneratorApi = {
         regon: string | null;
         krs: string | null;
         address: string | null;
+        // Rodzaj adresu z CEIDG; null = rejestr tego nie powiedział.
+        address_kind?: "place_of_business" | "service" | null;
         source: string | null;
         // Gotowa klasyfikacja z backendu, nie `source`/`krs` do interpretacji
         // tutaj: `source` przychodzi w czterech niespójnych formatach, a wiedzę

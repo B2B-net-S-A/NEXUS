@@ -3932,6 +3932,13 @@ export function GeneratorForm({
   const [partnerNip, setPartnerNip] = useState("");
   const [partnerRegon, setPartnerRegon] = useState("");
   const [partnerBusinessAddress, setPartnerBusinessAddress] = useState("");
+  // JDG bez stałego miejsca wykonywania działalności w CEIDG: umowa i DPA
+  // mówią „pod adresem do doręczeń”. `fromRegistry` = ustawił to lookup.
+  const [partnerAddressForService, setPartnerAddressForService] =
+    useState(false);
+  const [addressKindFromRegistry, setAddressKindFromRegistry] = useState<
+    "place_of_business" | "service" | null
+  >(null);
   const [partnerCorrespondenceAddress, setPartnerCorrespondenceAddress] =
     useState("");
   const [partnerEmail, setPartnerEmail] = useState("");
@@ -4273,6 +4280,7 @@ export function GeneratorForm({
     // To najcichszy możliwy błąd w tej ścieżce: nic nie zgłasza awarii, a lista
     // pokazuje zdublowane nazwisko.
     setPartnerEntityType(null);
+    setAddressKindFromRegistry(null);
     if (nip.length !== 10) {
       setPartnerLookup("idle");
       return;
@@ -4294,6 +4302,9 @@ export function GeneratorForm({
         if (d.name) setPartnerLegalName(d.name);
         if (d.regon) setPartnerRegon(d.regon);
         if (d.address) setPartnerBusinessAddress(d.address);
+        setAddressKindFromRegistry(d.address_kind ?? null);
+        if (d.address_kind)
+          setPartnerAddressForService(d.address_kind === "service");
         setPartnerEntityType(d.entity_type ?? null);
         if (d.entity_type === "company") applyKrsDetails(d);
         setPartnerLookup("ok");
@@ -4386,6 +4397,7 @@ export function GeneratorForm({
       setPartnerNip("");
       setPartnerRegon("");
       setPartnerBusinessAddress("");
+      setPartnerAddressForService(false);
       setPartnerCorrespondenceAddress("");
       setPartnerEmail("");
       setPartnerPhone("");
@@ -4589,6 +4601,7 @@ export function GeneratorForm({
     partner_instrumental: partnerInstrumental.trim() || null,
     partner_legal_name: partnerLegalName.trim() || null,
     partner_business_address: partnerBusinessAddress.trim() || null,
+    partner_address_for_service: !isCompany && partnerAddressForService,
     partner_correspondence_address: partnerCorrespondenceAddress.trim() || null,
     partner_nip: partnerNip.trim() || null,
     // Podpowiedź wyświetlania, nie dane umowy: backend zapisuje ją jako
@@ -4669,7 +4682,8 @@ export function GeneratorForm({
     if (!partnerLegalName.trim()) missing.push("Nazwa Firmy");
     if (!partnerNip.trim()) missing.push("NIP");
     if (!partnerRegon.trim()) missing.push("REGON");
-    if (!partnerBusinessAddress.trim()) missing.push("Adres siedziby firmy");
+    if (!partnerBusinessAddress.trim())
+      missing.push(isCompany ? "Adres siedziby firmy" : "Adres z CEIDG");
     if (!partnerEmail.trim()) missing.push("E-mail");
     if (!partnerPhone.trim()) missing.push("Telefon");
     if (!clientName.trim()) missing.push("Pełna nazwa Klienta");
@@ -4843,6 +4857,7 @@ export function GeneratorForm({
     setPartnerNip(form.partner_nip ?? "");
     setPartnerRegon(form.partner_regon ?? "");
     setPartnerBusinessAddress(form.partner_business_address ?? "");
+    setPartnerAddressForService(Boolean(form.partner_address_for_service));
     setPartnerCorrespondenceAddress(form.partner_correspondence_address ?? "");
     setPartnerEntityType(form.partner_entity_type ?? null);
     setContractVariant(form.contract_variant === "company" ? "company" : "jdg");
@@ -4913,6 +4928,7 @@ export function GeneratorForm({
     setPartnerNip("");
     setPartnerRegon("");
     setPartnerBusinessAddress("");
+    setPartnerAddressForService(false);
     setPartnerCorrespondenceAddress("");
     setPartnerEmail("");
     setPartnerPhone("");
@@ -5434,12 +5450,23 @@ export function GeneratorForm({
               onChange={(e) => setPartnerRegon(e.target.value)}
             />
           </Field>
-          <Field label="Adres siedziby firmy" full required>
+          <Field
+            label={isCompany ? "Adres siedziby firmy" : "Adres z CEIDG"}
+            full
+            required
+          >
             <Input
               value={partnerBusinessAddress}
               onChange={(e) => setPartnerBusinessAddress(e.target.value)}
               placeholder="ul., kod, miasto"
             />
+            {!isCompany ? (
+              <AddressKindSwitch
+                forService={partnerAddressForService}
+                fromRegistry={addressKindFromRegistry}
+                onChange={setPartnerAddressForService}
+              />
+            ) : null}
           </Field>
           {isCompany ? (
             <>
@@ -6029,6 +6056,58 @@ export function GeneratorForm({
           </CardContent>
         </Card>
       ) : null}
+    </div>
+  );
+}
+
+/** Rodzaj adresu JDG w CEIDG — decyduje o „pod adresem” / „pod adresem do
+ *  doręczeń” w komparycji umowy i w Załączniku nr 2 (DPA). */
+function AddressKindSwitch({
+  forService,
+  fromRegistry,
+  onChange,
+}: {
+  forService: boolean;
+  fromRegistry: "place_of_business" | "service" | null;
+  onChange: (forService: boolean) => void;
+}) {
+  const options = [
+    [false, "Stałe miejsce wykonywania działalności"],
+    [true, "Tylko adres do doręczeń"],
+  ] as const;
+  const registryMatches =
+    fromRegistry !== null && (fromRegistry === "service") === forService;
+  return (
+    <div className="mt-2">
+      <div className="flex flex-wrap gap-2">
+        {options.map(([value, label]) => (
+          <Button
+            key={label}
+            type="button"
+            size="sm"
+            variant={forService === value ? "primary" : "outline"}
+            aria-pressed={forService === value}
+            onClick={() => onChange(value)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {registryMatches ? (
+          <span className="text-emerald-600">
+            {fromRegistry === "service"
+              ? "✓ CEIDG: brak stałego miejsca wykonywania działalności, wpisany tylko adres do doręczeń. "
+              : "✓ CEIDG: wpisane stałe miejsce wykonywania działalności. "}
+          </span>
+        ) : fromRegistry !== null ? (
+          <span className="text-amber-600">
+            Zmienione ręcznie — CEIDG mówi co innego.{" "}
+          </span>
+        ) : null}
+        W umowie i w DPA: „zarejestrowaną w CEIDG pod adresem
+        {forService ? " do doręczeń" : ""}: …”.
+      </p>
     </div>
   );
 }

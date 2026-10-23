@@ -825,7 +825,7 @@ describe("GeneratorForm — sprawdzenie firmy w CEIDG/KRS przed pobraniem (ticke
       partner_legal_name: "JK Software Jan Kowalski",
     });
     expect(
-      (screen.getByLabelText("Adres siedziby firmy *") as HTMLInputElement).value,
+      (screen.getByLabelText("Adres z CEIDG *") as HTMLInputElement).value,
     ).toBe("UL. NOWA 7/2, 00-950 WARSZAWA");
   });
 
@@ -1042,5 +1042,68 @@ describe("GeneratorForm — umowa z rekrutacji (04.10.2026)", () => {
       expect(onSaved).toHaveBeenCalledWith({ id: 88, number: "1500/2026" }),
     );
     expect(screen.queryByRole("button", { name: /Nowa umowa/ })).toBeNull();
+  });
+});
+
+describe("GeneratorForm — adres do doręczeń z CEIDG", () => {
+  it("lookup ustawia „Tylko adres do doręczeń”, ręczna zmiana zostawia ślad i trafia do umowy", async () => {
+    const user = setupUser();
+    mocks.renderDocx.mockResolvedValue(docxResponse("79"));
+    mocks.companyLookup.mockResolvedValue({
+      name: "JK Software Jan Kowalski",
+      person: "Jan Kowalski",
+      nip: "1234563218",
+      regon: "123456785",
+      krs: null,
+      address: "UL. TESTOWA 1, 00-001 WARSZAWA",
+      address_kind: "service",
+      source: "CEIDG",
+      entity_type: "sole_trader",
+    });
+    renderForm();
+    await fillForm(user);
+
+    const service = await screen.findByRole("button", {
+      name: "Tylko adres do doręczeń",
+    });
+    await waitFor(() =>
+      expect(service).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(screen.getByText(/CEIDG: brak stałego miejsca/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Adres z CEIDG *")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Stałe miejsce wykonywania działalności",
+      }),
+    );
+    expect(screen.getByText(/Zmienione ręcznie/)).toBeInTheDocument();
+    await user.click(service);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
+      partner_address_for_service: true,
+      partner_business_address: "UL. TESTOWA 1, 00-001 WARSZAWA",
+    });
+  });
+
+  it("bez odpowiedzi rejestru zostaje „Stałe miejsce” i dzisiejszy tekst umowy", async () => {
+    const user = setupUser();
+    mocks.renderDocx.mockResolvedValue(docxResponse("80"));
+    renderForm();
+    await fillForm(user);
+
+    expect(
+      screen.getByRole("button", {
+        name: "Stałe miejsce wykonywania działalności",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText(/Zmienione ręcznie/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
+      partner_address_for_service: false,
+    });
   });
 });

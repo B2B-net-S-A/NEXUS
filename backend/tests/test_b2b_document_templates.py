@@ -713,3 +713,42 @@ def test_participation_jdg_and_person_differ_only_where_the_source_does():
     assert "legitymującym się dowodem osobistym" in person_text
     # Bez cyfr kary wpisanych na sztywno — kwota z formularza.
     assert "10.000" not in jdg_text and "10.000" not in person_text
+
+
+_SERVICE_PHRASE = {
+    "pl": ("Gospodarczej pod adresem do doręczeń: ", "Gospodarczej pod adresem: "),
+    "en": (
+        "Economic Activity at the address for service: ",
+        "Activity at the address: ",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("key", "lang"),
+    [
+        ("annex_rate_change", "pl"),
+        ("annex_rate_change", "en"),
+        ("annex_start_date", "pl"),
+        ("annex_subcontractor", "pl"),
+        ("termination_agreement", "pl"),
+        ("termination_agreement", "en"),
+        ("termination_notice", "pl"),
+    ],
+)
+def test_partner_without_place_of_business_gets_address_for_service(key, lang):
+    """JDG z samym adresem do doręczeń w CEIDG: dokument mówi to samo co umowa."""
+    doc_type = TYPES[key]
+    variant = (
+        {"partner_variant": "sole_trader"}
+        if any(f.key == "partner_variant" for f in doc_type.fields)
+        else {}
+    )
+    service, plain = _SERVICE_PHRASE[lang]
+    for flag, present, absent in ((True, service, plain), (False, plain, service)):
+        _, docx_bytes, html = _render(
+            doc_type, lang, "m", {**variant, "partner_address_for_service": flag}
+        )
+        _, text = _docx_text(docx_bytes)
+        assert present in text and present in html
+        assert absent not in text and absent not in html
