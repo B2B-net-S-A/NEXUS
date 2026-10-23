@@ -27,6 +27,14 @@ export function transitIsEmpty(transit: CvInTransit): boolean {
   return transit.returned_total + transit.in_review_total + transit.sent_total === 0;
 }
 
+/** Ile CV wróciło do poprawy. Odrzucenie przez DL to informacja o decyzji,
+ *  nie ruch rekrutera (23.10.2026) — ta sama reguła co ikona „CV” i mail. */
+export function transitToFixTotal(transit: CvInTransit): number {
+  return (
+    transit.returned_to_fix_total ?? transit.returned.filter((row) => row.kind !== "rejected_by_dl").length
+  );
+}
+
 /** Jedna linia pod listą zwróconych: ile CV jest jeszcze w drodze. */
 export function transitSummary(transit: CvInTransit): string {
   return `W przeglądzie: ${transit.in_review_total} · Wysłane do klienta: ${transit.sent_total}`;

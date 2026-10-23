@@ -10,6 +10,7 @@ import {
   transitReturnedDetail,
   transitRowWho,
   transitSummary,
+  transitToFixTotal,
 } from "@/lib/cv-in-transit";
 
 function row(over: Partial<CvTransitRow> = {}): CvTransitRow {
@@ -48,6 +49,12 @@ describe("cv-in-transit — teksty listy „Twoje CV w drodze”", () => {
     expect(transitSummary(transit({ in_review_total: 3, sent_total: 2 }))).toBe(
       "W przeglądzie: 3 · Wysłane do klienta: 2",
     );
+  });
+
+  it("do poprawy liczy się bez odrzuceń przez DL (23.10.2026); starszy serwer bez pola — z wierszy", () => {
+    expect(transitToFixTotal(transit({ returned_total: 40, returned_to_fix_total: 31 }))).toBe(31);
+    const returned = [row({ kind: "rejected_by_dl" }), row({ kind: "sent_back" }), row({ kind: "cpro_returned" })];
+    expect(transitToFixTotal(transit({ returned, returned_total: 3 }))).toBe(2);
   });
 
   it("rekrutacja pokazuje tytuł dla rekrutera, a nazwę od klienta, gdy go nie ma", () => {

@@ -272,6 +272,64 @@ def test_dl_send_row_says_how_many_days_the_card_waits(ready_since, suffix):
     assert section.rows[0].text == f"Jan Nowak — Java Developer (Klient){suffix}"
 
 
+def _transit_row(i: int, kind: str, name: str) -> dict:
+    return dict(
+        kind=kind,
+        stage_id=i,
+        candidate_id=200 + i,
+        candidate_name=name,
+        job_id=7,
+        job_title="Ops person",
+        client_name="Nordea",
+        since=datetime(2026, 10, 20, tzinfo=timezone.utc),
+    )
+
+
+def _transit(returned: list[dict], to_fix_total: int) -> dict:
+    return dict(
+        returned=returned,
+        in_review=[],
+        sent=[],
+        returned_total=len(returned),
+        returned_to_fix_total=to_fix_total,
+        in_review_total=0,
+        sent_total=0,
+        returned_window_days=14,
+        sent_window_days=7,
+    )
+
+
+def test_dl_rejection_is_not_a_cv_to_fix_in_the_digest():
+    """23.10.2026 (zgłoszenie rekruterki): kandydat odrzucony przez DL wracał
+    co rano przez 14 dni jako „CV wróciło do poprawy”, choć CV nie było do
+    poprawy. Odrzucenie zostaje na pulpicie jako informacja, mail go nie
+    zawiera — ta sama reguła co ikona „CV” w górnym pasku."""
+    tasks = _empty_tasks(
+        cv_in_transit=_transit(
+            [
+                _transit_row(1, "rejected_by_dl", "Anna Odrzucona"),
+                _transit_row(2, "sent_back", "Piotr Poprawka"),
+                _transit_row(3, "cpro_returned", "Ewa Zwrot"),
+            ],
+            to_fix_total=2,
+        )
+    )
+    (section,) = daily_digest.build_sections(tasks)
+    assert section.title == "CV wróciło do poprawy"
+    assert section.total == 2
+    assert [r.text for r in section.rows] == [
+        "Piotr Poprawka — Ops person (Nordea)",
+        "Ewa Zwrot — Ops person (Nordea)",
+    ]
+    # Same odrzucenia nie dają maila.
+    only_rejected = _empty_tasks(
+        cv_in_transit=_transit(
+            [_transit_row(1, "rejected_by_dl", "Anna Odrzucona")], to_fix_total=0
+        )
+    )
+    assert daily_digest.build_sections(only_rejected) == []
+
+
 def test_counts_and_deadlines_make_sections():
     sections = daily_digest.build_sections(
         _empty_tasks(),

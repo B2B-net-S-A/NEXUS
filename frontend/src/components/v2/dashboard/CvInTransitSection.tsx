@@ -40,6 +40,7 @@ import {
   transitReturnedDetail,
   transitRowWho,
   transitSummary,
+  transitToFixTotal,
 } from "@/lib/cv-in-transit";
 import { cn } from "@/lib/utils";
 
@@ -233,12 +234,21 @@ function TransitList({
   onToggle: () => void;
 }) {
   const inTransit = transit.in_review_total + transit.sent_total;
+  // Odrzucenie przez DL to informacja o decyzji, nie CV do poprawy
+  // (23.10.2026) — pod własnym nagłówkiem, za tym, co rekruter ma poprawić.
+  const toFix = transit.returned.filter((row) => row.kind !== "rejected_by_dl");
+  const rejected = transit.returned.filter((row) => row.kind === "rejected_by_dl");
+  const toFixTotal = transitToFixTotal(transit);
   return (
     <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-      {open && transit.returned.length > 0 ? (
-        <GroupHeading>Wróciło do Ciebie · {transit.returned_total}</GroupHeading>
+      {open && toFix.length > 0 ? <GroupHeading>Wróciło do Ciebie · {toFixTotal}</GroupHeading> : null}
+      {toFix.map((row) => (
+        <ReturnedRow key={row.stage_id} row={row} />
+      ))}
+      {open && rejected.length > 0 ? (
+        <GroupHeading>Odrzucone przez DL · {transit.returned_total - toFixTotal}</GroupHeading>
       ) : null}
-      {transit.returned.map((row) => (
+      {rejected.map((row) => (
         <ReturnedRow key={row.stage_id} row={row} />
       ))}
       {open && transit.in_review.length > 0 ? (
@@ -292,13 +302,14 @@ function SectionBody({
   open: boolean;
   onToggle: () => void;
 }) {
+  const toFixTotal = transitToFixTotal(transit);
   return (
     <section aria-label={CV_TRANSIT_TITLE} className="min-w-0">
       <header className="mb-2 flex items-center gap-2">
         <h3 className="text-sm font-semibold">{CV_TRANSIT_TITLE}</h3>
-        {transit.returned_total > 0 ? (
+        {toFixTotal > 0 ? (
           <span className="rounded-full bg-primary/10 px-1.5 text-xs font-semibold tabular-nums text-primary">
-            {transit.returned_total}
+            {toFixTotal}
           </span>
         ) : null}
         <span className="flex-1" />

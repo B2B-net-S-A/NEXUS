@@ -419,6 +419,8 @@ export interface CvInTransit {
   sent: CvTransitRow[];
   /** Liczby przed przycięciem list przez serwer. */
   returned_total: number;
+  /** Bez odrzuceń przez DL — tylko CV do poprawy (23.10.2026). Starszy serwer pola nie ma. */
+  returned_to_fix_total?: number;
   in_review_total: number;
   sent_total: number;
   returned_window_days: number;

@@ -33,6 +33,13 @@ kolejkę tylko osobie od Cpro). Makieta: https://claude.ai/artifact/LaqZviMeU41V
 - **Awaria liczenia albo lista usunięta = `cv_in_transit: null`** i panel
   działa jak wcześniej (`load_safely`, savepoint). Do porannego dzwonka
   zbiorczego lista nie wchodzi; licznik przy nagłówku to tylko „wróciło”.
+- **Odrzucenie przez DL to informacja, nie CV do poprawy (23.10.2026,
+  zgłoszenie rekruterki):** poranny mail wrzucał je do „CV wróciło do poprawy”
+  codziennie przez 14 dni, bo zamknięta karta już się nie rusza. Teraz
+  `returned_to_fix_total` (`RETURNED_TO_FIX_KINDS`: cofnięte z „QC CV”, zwrot
+  z Cpro) liczy sekcję maila, licznik przy nagłówku i „Twój ruch” na pulpicie.
+  Wiersz odrzucenia zostaje na liście pod własnym nagłówkiem „Odrzucone przez
+  DL”; samo odrzucenie stawia listę w „U innych”.
 - Harness: `/preview/custom-dashboard` (stany „CV w drodze: pasek / pusto”).
 - **Ikona „CV” w górnym pasku (16.10.2026, bez dzwonka)** czyta tę listę
   bezpośrednio (`load_for_user`, nie `load_safely` — usunięcie panelu

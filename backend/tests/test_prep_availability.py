@@ -218,7 +218,15 @@ def test_window_over_midnight_is_refused():
     assert exc.value.status_code == 422
 
 
-def test_choose_hour_inside_window_rewrites_the_slot():
+@pytest.fixture
+def frozen_now(monkeypatch):
+    """Wybór terminu odrzuca termin, który minął (`local_now`). Terminy w tych
+    testach są z 23.10.2026 — bez zamrożenia „teraz” test z godziną 10:30
+    padł 23.10.2026 po 10:30 w kolejce merge'ów."""
+    monkeypatch.setattr(interview_slots, "local_now", lambda: NOW)
+
+
+def test_choose_hour_inside_window_rewrites_the_slot(frozen_now):
     req = _window_request()
     index = next(i for i, s in enumerate(req.slots) if "window_end" in s)
     interview_slots.choose(
@@ -234,7 +242,7 @@ def test_choose_hour_inside_window_rewrites_the_slot():
 @pytest.mark.parametrize(
     "hour,minute", [(8, 30), (11, 30)]  # przed oknem; koniec po 12:00
 )
-def test_choose_hour_outside_window_is_refused(hour, minute):
+def test_choose_hour_outside_window_is_refused(frozen_now, hour, minute):
     req = _window_request()
     index = next(i for i, s in enumerate(req.slots) if "window_end" in s)
     with pytest.raises(HTTPException) as exc:
@@ -245,7 +253,7 @@ def test_choose_hour_outside_window_is_refused(hour, minute):
     assert req.status == "awaiting_recruiter"
 
 
-def test_choose_hour_on_a_fixed_slot_is_refused():
+def test_choose_hour_on_a_fixed_slot_is_refused(frozen_now):
     req = _window_request()
     index = next(i for i, s in enumerate(req.slots) if "window_end" not in s)
     with pytest.raises(HTTPException):
