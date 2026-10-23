@@ -760,6 +760,102 @@ async def test_closed_job_does_not_ask_dl_for_client_slots():
     assert all(c != cand_id for c, _kind in todos)
 
 
+async def test_withdrawn_or_rejected_candidate_leaves_the_interview_board():
+    """Zgłoszenie 23.10.2026: kandydat zrezygnował, karta poszła na
+    „Wycofany”, a otwarty wniosek o terminy trzymał go w „Wybór terminu”."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+    from app.models.job import Job
+    from app.models.pipeline_template import (
+        PipelineTemplate,
+        RejectionReason,
+        TerminalType,
+    )
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.models.user import User, UserRole
+    from app.services.interview_cycle import load_overview
+
+    tag = uuid.uuid4().hex[:8]
+    now = datetime.now(timezone.utc)
+    pairs = {
+        PipelineStage.withdrawn: await _seed_pair(),
+        PipelineStage.rejected: await _seed_pair(),
+        PipelineStage.client_interview: await _seed_pair(),
+    }
+    async with AsyncSessionLocal() as db:
+        dl = User(
+            email=f"r8cal-withdrawn-{tag}@example.com",
+            password_hash=hash_password(f"Dl_{tag}!pw9"),
+            name=f"DL {tag}",
+            role=UserRole.delivery_lead,
+            roles=[UserRole.delivery_lead.value],
+            is_active=True,
+            profile_completed=True,
+        )
+        template = PipelineTemplate(name=f"R8CalTemplate-{tag}")
+        db.add_all([dl, template])
+        await db.flush()
+        # DB wymaga powodu przy „withdrawn” (ck_candidate_stages_withdrawn_requires_reason).
+        resigned = RejectionReason(
+            template_id=template.id,
+            name=f"Kandydat zrezygnował {tag}",
+            category=TerminalType.withdrawn,
+        )
+        db.add(resigned)
+        await db.flush()
+        start = now + timedelta(days=2)
+        for last_stage, (job_id, cand_id, client_id) in pairs.items():
+            (await db.get(Job, job_id)).delivery_lead_id = dl.id
+            db.add(
+                ClientInterviewSlotRequest(
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    client_id=client_id,
+                    created_by=dl.id,
+                    slots=[
+                        {
+                            "start": start.isoformat(),
+                            "end": (start + timedelta(hours=1)).isoformat(),
+                        }
+                    ],
+                )
+            )
+            db.add(
+                CandidateStage(
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    stage=PipelineStage.client_interview,
+                    moved_at=now - timedelta(days=2),
+                )
+            )
+            if last_stage != PipelineStage.client_interview:
+                db.add(
+                    CandidateStage(
+                        candidate_id=cand_id,
+                        job_id=job_id,
+                        stage=last_stage,
+                        rejection_reason_id=resigned.id
+                        if last_stage == PipelineStage.withdrawn
+                        else None,
+                        moved_at=now - timedelta(hours=1),
+                    )
+                )
+        await db.commit()
+        dl_id = dl.id
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, dl_id)
+        overview = await load_overview(db, user, scope="jobs")
+    on_board = {i["candidate_id"]: i["current_step"] for i in overview["items"]}
+    in_todos = {t["candidate_id"] for t in overview["todos"]}
+    open_cand = pairs[PipelineStage.client_interview][1]
+    assert on_board.get(open_cand) == "choice"  # kontrola: aktywna para jest
+    for closed in (PipelineStage.withdrawn, PipelineStage.rejected):
+        cand_id = pairs[closed][1]
+        assert cand_id not in on_board
+        assert cand_id not in in_todos
+
+
 async def _seed_feedback(cand_id, job_id, event_id, **fields):
     from app.core.database import AsyncSessionLocal
     from app.models.interview_feedback import FeedbackSource, InterviewFeedback
