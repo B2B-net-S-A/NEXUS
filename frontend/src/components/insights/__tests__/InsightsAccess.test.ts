@@ -224,6 +224,26 @@ describe("raporty per rola", () => {
     expect(ids("finance")).not.toContain("propozycje-ai");
   });
 
+  it("Rada nadzorcza nie widzi raportów-narzędzi zespołu (22.10.2026)", () => {
+    const board = visibleReports(user("board", { capabilities: ["view_team_kpi"] })).map((r) => r.id);
+    expect(board).not.toContain("kompetencje");
+    expect(board).not.toContain("doplyw");
+    expect(board).not.toContain("zamkniecia-hit-ratio");
+    // Wynik i listy, do których prowadzą widoki, zostają.
+    expect(board).toEqual(
+      expect.arrayContaining(["akceptacje-w-toku", "bez-ruchu", "ranking-klientow", "rok-do-roku", "hall-of-fame"]),
+    );
+    const hor = visibleReports(user("head_of_recruitment", { capabilities: ["view_team_kpi"] })).map((r) => r.id);
+    expect(hor).toEqual(expect.arrayContaining(["kompetencje", "doplyw", "zamkniecia-hit-ratio"]));
+  });
+
+  it("akceptacje w toku — tylko z view_team_kpi (lista ma klientów i DL)", () => {
+    expect(visibleReports(user("recruiter")).map((r) => r.id)).not.toContain("akceptacje-w-toku");
+    expect(
+      visibleReports(user("delivery_lead", { capabilities: ["view_team_kpi"] })).map((r) => r.id),
+    ).toContain("akceptacje-w-toku");
+  });
+
   it("nic nie znika: każdy raport ma pytanie i okno", () => {
     for (const report of REPORTS) {
       expect(report.question.length, report.id).toBeGreaterThan(10);
