@@ -3,12 +3,12 @@
 Reguły: ``app/services/pre_contracts.py`` i
 ``docs/claude/kontrakty/generator-umow-b2b-trzy-zakladki-cyklu-zycia-umowy.md (sekcja „Umowa przedwstępna w rekrutacji”)``.
 
-Dostęp: sekcja „Rekrutacje” i członkostwo w rekrutacji
-(``ensure_job_membership`` — admin i Head of Recruitment zawsze). Nie
-``ensure_job_read_access``: ten przepuszcza Finanse do każdej rekrutacji,
-a pliki mają PESEL, a trasy zmieniają stan (przegląd bezpieczeństwa 21.10.2026). Kto widzi
-Tablicę, może poprosić o umowę i prowadzić jej kroki (decyzja „Kanban bez
-bramek”). Wycofanie prośby — proszący albo Head of Recruitment; decyzja
+Dostęp: ``PRE_CONTRACT_ROLES`` (``require_pre_contract_access``) i członkostwo
+w rekrutacji (``ensure_job_membership`` — admin i Head of Recruitment zawsze).
+Osoby z rekrutacji potrzebują też sekcji „Rekrutacje”; Finanse, Rada nadzorcza
+i Automatyzacje mają przedwstępne z tytułu roli — odczyt, pliki i akcje jak
+rekruter (decyzja Artura 22.10.2026, audyt F54). Kto widzi Tablicę, może
+poprosić o umowę i prowadzić jej kroki (decyzja „Kanban bez bramek”). Wycofanie prośby — proszący albo Head of Recruitment; decyzja
 o karze — Head of Recruitment albo admin. Podpisane pliki mają PESEL, ale
 pobiera je ten sam krąg co Tablicę pary — jak CV i notatki osoby.
 """
@@ -16,18 +16,26 @@ pobiera je ten sam krąg co Tablicę pary — jak CV i notatki osoby.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidatePIIAccess
+from app.api.deps import get_current_user
 from app.api.recruitment_access import ensure_job_membership
-from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.models.b2b_contract_document import B2BContractDocument
@@ -47,9 +55,15 @@ from app.services import pre_contracts as svc
 from app.services import storage_service
 from app.services.b2b_documents.signed_scan import read_scan
 from app.services.board_tasks import dl_portfolio_client_ids
+from app.services.request_semantics import is_read_only_http_request
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 from app.services.stage_handoff_recipients import pair_recruiter_id
 
-router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
+router = APIRouter()
 
 MSG_NOT_FOUND = "Nie ma takiej prośby o umowę przedwstępną."
 MSG_CLOSED = "Ta prośba jest już zamknięta."
@@ -74,20 +88,78 @@ MSG_LOCKED = (
     "o karze). Anuluj prośbę i wystaw nową umowę, jeśli trzeba."
 )
 MSG_ASSIGNEE = "Wybierz aktywne konto."
+MSG_ALREADY_SENT = (
+    "Umowa jest już wysłana kandydatowi — nie podmieniamy jej. Odśwież panel; "
+    "jeśli trzeba innej umowy, anuluj prośbę i wystaw nową."
+)
+MSG_CANDIDATE_SIGNED = (
+    "Kandydat już podpisał tę umowę — odśwież panel i wgraj umowę podpisaną "
+    "przez firmę."
+)
 
 _OVERSIGHT = (UserRole.admin, UserRole.head_of_recruitment)
-#: Role, które prowadzą rekrutacje. ``ensure_job_membership`` przepuszcza też
-#: Finanse i „Automatyzacje” (podgląd rekrutacji), a pliki mają PESEL i trasy
-#: zmieniają stan — te role (i Rada nadzorcza) tu nie wchodzą.
-_WORKING_ROLES = (
+#: Kto pracuje na umowach przedwstępnych: osoby z rekrutacji, a od decyzji
+#: Artura 22.10.2026 (audyt F54) także Finanse, Rada nadzorcza i Automatyzacje
+#: — odczyt, pliki z PESEL i akcje jak rekruter. Lustro na froncie:
+#: capability ``pre_contract.work`` (``lib/capabilities.ts``).
+PRE_CONTRACT_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.recruiter,
+    UserRole.finance,
+    UserRole.automation,
+    UserRole.board,
+)
+#: Role z przedwstępnymi z tytułu roli, bez sekcji „Rekrutacje” — Rada
+#: nadzorcza jej nie ma, a Automatyzacje mają ją tylko do odczytu.
+_ROLE_GRANTED: tuple[UserRole, ...] = (
+    UserRole.finance,
+    UserRole.automation,
+    UserRole.board,
 )
 MSG_ROLE = "Umowy przedwstępne prowadzą osoby z rekrutacji."
 MSG_RACE = "Ktoś właśnie poprosił o tę umowę — odśwież panel i dołącz do obserwujących."
+
+
+async def require_pre_contract_access(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Bramka wszystkich tras ``/api/pre-contracts``.
+
+    Rola z ``PRE_CONTRACT_ROLES`` (konto z rolą Viewer — nie). Osoby
+    z rekrutacji potrzebują też sekcji „Rekrutacje”: odczytu na odczyt,
+    zapisu na krok umowy. Finanse, Rada nadzorcza i Automatyzacje — z tytułu
+    roli (decyzja Artura 22.10.2026)."""
+
+    if current_user.has_role(UserRole.user) or not current_user.has_any_role(
+        *PRE_CONTRACT_ROLES
+    ):
+        raise HTTPException(status_code=403, detail=MSG_ROLE)
+    if current_user.has_any_role(*_ROLE_GRANTED):
+        return current_user
+    required = (
+        SectionAccess.read
+        if is_read_only_http_request(request.method, request.url.path)
+        else SectionAccess.write
+    )
+    granted = section_access_for_user(current_user, ProductSection.pipeline)
+    if granted < required:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "section_access_denied",
+                "section": ProductSection.pipeline.value,
+                "required": required.name,
+                "granted": granted.name,
+            },
+        )
+    return current_user
+
+
+PreContractUser = Annotated[User, Depends(require_pre_contract_access)]
 
 # ── Schematy ─────────────────────────────────────────────────────────────────
 
@@ -232,6 +304,17 @@ def _sees_all(user: User) -> bool:
     return user.has_any_role(*_OVERSIGHT)
 
 
+#: Kto widzi na liście wszystkie prośby: Head of Recruitment i admin, a od
+#: decyzji Artura 23.10.2026 także Finanse, Rada nadzorcza i Automatyzacje.
+#: Tylko odczyt listy — wycofanie cudzej prośby i decyzja o karze zostają
+#: przy ``_sees_all``.
+_LISTS_EVERY_REQUEST: tuple[UserRole, ...] = (*_OVERSIGHT, *_ROLE_GRANTED)
+
+
+def _lists_every_request(user: User) -> bool:
+    return user.has_any_role(*_LISTS_EVERY_REQUEST)
+
+
 async def _load(
     db: AsyncSession, request_id: int, *, lock: bool = False
 ) -> PreContractRequest:
@@ -245,8 +328,14 @@ async def _load(
 
 
 async def _ensure_pair_access(db: AsyncSession, user: User, job_id: int) -> None:
-    if not user.has_any_role(*_WORKING_ROLES):
+    if not user.has_any_role(*PRE_CONTRACT_ROLES):
         raise HTTPException(status_code=403, detail=MSG_ROLE)
+    if user.has_role(UserRole.board):
+        # Rada nadzorcza nie ma członkostwa w rekrutacjach, a przedwstępne
+        # prowadzi jak rekruter — w każdej rekrutacji (decyzja 22.10.2026).
+        if await db.get(Job, job_id) is None:
+            raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+        return
     await ensure_job_membership(db, user, job_id)
 
 
@@ -283,7 +372,10 @@ async def _serialize(
     reqs: list[PreContractRequest],
     *,
     with_events: bool = False,
+    last_event_only: bool = False,
 ) -> list[PreContractRequestOut]:
+    """``last_event_only`` — tylko ostatni krok każdej prośby (kolumna
+    „Ostatni krok” listy), bez całej historii."""
     if not reqs:
         return []
     ids = [r.id for r in reqs]
@@ -306,6 +398,20 @@ async def _serialize(
             )
         ).all():
             events.setdefault(ev.request_id, []).append(ev)
+    elif last_event_only:
+        for ev in (
+            await db.scalars(
+                select(PreContractEvent)
+                .where(PreContractEvent.request_id.in_(ids))
+                .distinct(PreContractEvent.request_id)
+                .order_by(
+                    PreContractEvent.request_id,
+                    PreContractEvent.at.desc(),
+                    PreContractEvent.id.desc(),
+                )
+            )
+        ).all():
+            events[ev.request_id] = [ev]
     people_ids: set[int] = set()
     for r in reqs:
         people_ids.update(
@@ -481,7 +587,7 @@ def _valid_until_of(doc: B2BContractDocument) -> Optional[date]:
 @router.post("/pre-contracts", response_model=PreContractRequestOut)
 async def create_request(
     body: PreContractCreateRequest,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Poproś o przedwstępną dla osoby. Gdy prośba w toku już jest — dopisz się
@@ -580,7 +686,7 @@ async def create_request(
 async def update_request(
     request_id: int,
     body: PreContractUpdateRequest,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     req = await _load_for(db, current_user, request_id)
@@ -624,7 +730,7 @@ async def update_request(
 
 @router.get("/pre-contracts/pair", response_model=PreContractPairOut)
 async def pair_requests(
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     candidate_id: int = Query(...),
     job_id: int = Query(...),
     db: AsyncSession = Depends(get_db),
@@ -680,7 +786,7 @@ async def pair_requests(
 @router.get("/pre-contracts/{request_id}", response_model=PreContractRequestOut)
 async def get_request(
     request_id: int,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     req = await _load_for(db, current_user, request_id, lock=False)
@@ -694,12 +800,13 @@ TABS = ("todo", "mine", "expiring", "b2b", "penalty", "all")
 
 @router.get("/pre-contracts", response_model=PreContractListOut)
 async def list_requests(
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     tab: Literal["todo", "mine", "expiring", "b2b", "penalty", "all"] = Query("todo"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Lista dla Head of Recruitment (wszystko), Delivery Leada (swoi klienci
-    i swoje prośby) i rekrutera (to, co ma wystawić, i to, o co prosił).
+    """Lista dla Head of Recruitment, Finansów, Rady nadzorczej i Automatyzacji
+    (wszystko), Delivery Leada (swoi klienci i swoje prośby) i rekrutera (to,
+    co ma wystawić, i to, o co prosił).
 
     Liczniki zakładek liczy ta sama reguła widoczności."""
     uid = current_user.id
@@ -713,7 +820,7 @@ async def list_requests(
             )
         ),
     )
-    if _sees_all(current_user):
+    if _lists_every_request(current_user):
         visible = None
     elif current_user.has_role(UserRole.delivery_lead):
         portfolio = await dl_portfolio_client_ids(db, uid)
@@ -756,7 +863,8 @@ async def list_requests(
     stmt = stmt.order_by(PreContractRequest.requested_at.desc()).limit(300)
     rows = list((await db.scalars(stmt)).all())
     return PreContractListOut(
-        items=await _serialize(db, current_user, rows), counts=counts
+        items=await _serialize(db, current_user, rows, last_event_only=True),
+        counts=counts,
     )
 
 
@@ -769,13 +877,18 @@ async def list_requests(
 async def link_document(
     request_id: int,
     body: PreContractLinkDocument,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Wskaż umowę wystawioną w Generatorze dokumentów (rodzina „preliminary”,
-    ta sama osoba i rekrutacja). Data ważności przychodzi z umowy."""
+    ta sama osoba i rekrutacja). Data ważności przychodzi z umowy.
+
+    Tylko przed wysłaniem: ekran otwarty wcześniej nie podmieni umowy, którą
+    kandydat już dostał albo podpisał (audyt 22.10.2026)."""
     req = await _load_for(db, current_user, request_id)
     _require_open(req)
+    if req.sent_at is not None or req.candidate_signed_at is not None:
+        raise HTTPException(status_code=409, detail=MSG_ALREADY_SENT)
     doc = await db.get(B2BContractDocument, body.document_id)
     if (
         doc is None
@@ -812,13 +925,20 @@ async def link_document(
 async def mark_sent(
     request_id: int,
     body: PreContractMarkSent,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     req = await _load_for(db, current_user, request_id)
     _require_open(req)
     if req.document_id is None:
         raise HTTPException(status_code=409, detail=MSG_NO_DOC)
+    if req.company_signed_at is not None:
+        raise HTTPException(status_code=409, detail=MSG_LOCKED)
+    if req.candidate_signed_at is not None:
+        raise HTTPException(status_code=409, detail=MSG_CANDIDATE_SIGNED)
+    if req.sent_at is not None:
+        # Powtórne kliknięcie (stary ekran) nie przesuwa daty wysyłki.
+        return await _one(db, current_user, req)
     req.sent_at = svc.now_utc()
     event = await svc.add_event(
         db,
@@ -853,7 +973,7 @@ async def _store(
 )
 async def candidate_signed(
     request_id: int,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     signature_form: SignatureForm = Form(...),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -895,7 +1015,7 @@ async def candidate_signed(
 )
 async def company_signed(
     request_id: int,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
@@ -931,7 +1051,11 @@ async def company_signed(
     )
     if accepted_on is not None:
         await svc.start_b2b_deadline(
-            db, req, accepted_on=accepted_on, actor_id=current_user.id
+            db,
+            req,
+            accepted_on=accepted_on,
+            actor_id=current_user.id,
+            from_today=True,
         )
     await db.commit()
     return await _one(db, current_user, req)
@@ -941,7 +1065,7 @@ async def company_signed(
 async def download_file(
     request_id: int,
     kind: Literal["candidate", "company"],
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     req = await _load_for(db, current_user, request_id, lock=False)
@@ -972,7 +1096,7 @@ async def download_file(
 @router.post("/pre-contracts/{request_id}/watch", response_model=PreContractRequestOut)
 async def watch(
     request_id: int,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     req = await _load_for(db, current_user, request_id, lock=False)
@@ -986,7 +1110,7 @@ async def watch(
 )
 async def unwatch(
     request_id: int,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy import delete  # noqa: PLC0415
@@ -1013,12 +1137,20 @@ async def _close(
     actor: User,
     message: str,
     payload: Optional[dict[str, Any]] = None,
+    extra_user_ids: tuple[int, ...] = (),
 ) -> None:
     req.closed_at = svc.now_utc()
     req.close_reason = reason
     req.closed_by = actor.id
     event = await svc.add_event(db, req, reason, actor_id=actor.id, payload=payload)
-    await svc.notify(db, req, event, message=message, actor_id=actor.id)
+    await svc.notify(
+        db,
+        req,
+        event,
+        message=message,
+        actor_id=actor.id,
+        extra_user_ids=extra_user_ids,
+    )
 
 
 @router.post(
@@ -1026,7 +1158,7 @@ async def _close(
 )
 async def withdraw_request(
     request_id: int,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Proszący wycofuje prośbę, dopóki umowa nie wyszła do kandydata."""
@@ -1051,7 +1183,7 @@ async def withdraw_request(
 async def cancel_request(
     request_id: int,
     body: PreContractCloseBody,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     req = await _load_for(db, current_user, request_id)
@@ -1075,7 +1207,7 @@ async def cancel_request(
 async def candidate_refused(
     request_id: int,
     body: PreContractCloseBody,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     req = await _load_for(db, current_user, request_id)
@@ -1102,7 +1234,7 @@ async def candidate_refused(
 )
 async def mark_fulfilled(
     request_id: int,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Umowa spełniła rolę (np. podpisana umowa B2B) — zamknij bez kary."""
@@ -1130,7 +1262,7 @@ async def mark_fulfilled(
 async def candidate_withdrew(
     request_id: int,
     body: PreContractWithdrawalBody,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Kandydat zrezygnował, gdy umowa obowiązywała — zbiera dowód do decyzji
@@ -1162,6 +1294,10 @@ async def candidate_withdrew(
         },
         "decision": None,
     }
+    # Wskazana osoba obserwuje prośbę od teraz i dostaje TEN dzwonek; Head of
+    # Recruitment — jedyny, kto decyduje o karze — też (obiecuje to okno).
+    if decision_user:
+        await svc.add_watchers(db, req.id, [decision_user])
     await _close(
         db,
         req,
@@ -1172,9 +1308,8 @@ async def candidate_withdrew(
             "Umowa przedwstępna obowiązywała — decyzja o karze."
         ),
         payload={"kind": body.kind, "event_on": body.event_on.isoformat()},
+        extra_user_ids=tuple(await svc.head_of_recruitment_ids(db)),
     )
-    if decision_user:
-        await svc.add_watchers(db, req.id, [decision_user])
     await db.commit()
     return await _one(db, current_user, req)
 
@@ -1185,7 +1320,7 @@ async def candidate_withdrew(
 async def penalty_decision(
     request_id: int,
     body: PreContractPenaltyDecision,
-    current_user: CandidatePIIAccess,
+    current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ):
     req = await _load_for(db, current_user, request_id)

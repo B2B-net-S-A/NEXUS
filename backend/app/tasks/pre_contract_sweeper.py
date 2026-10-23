@@ -2,8 +2,10 @@
 
 * Podpisana umowa po dacie ważności: prośba zamknięta jako ``expired``,
   dzwonek do obserwujących i wystawiającego.
-* Do końca ważności zostały ≤ 3 dni, a osoba wciąż w toku: dzwonek „wkrótce
-  wygaśnie” (raz).
+* Do końca ważności zostały ≤ 3 dni: dzwonek „wkrótce wygaśnie” (raz na okno;
+  czy już poszedł, mówi zdarzenie ``expiring``, nie ``last_reminder_at``,
+  który zajmuje też przypomnienie o terminie B2B). Treść zależy od kolumny
+  pary: odrzucona albo zatrudniona osoba nie jest „wciąż w procesie”.
 * Umowa wysłana, kandydat milczy ``REMIND_EVERY``: dzwonek do wystawiającego.
 * Termin umowy B2B z przedwstępnej (po akceptacji klienta) za ≤ 1 dzień
   roboczy: dzwonek do obserwujących.
@@ -17,13 +19,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.models.pre_contract import PreContractRequest
+from app.models.pre_contract import PreContractEvent, PreContractRequest
 from app.services import loop_heartbeat
 from app.services import pre_contracts as svc
 
@@ -33,8 +35,25 @@ INTERVAL_SECONDS = 3600
 REMIND_EVERY = timedelta(days=3)
 
 
-def due_action(req: PreContractRequest, *, today: date, now: datetime) -> Optional[str]:
-    """Co sweeper ma zrobić z prośbą (czysta funkcja — testy bez bazy)."""
+def expiring_window_start(req: PreContractRequest) -> Optional[datetime]:
+    """Początek okna „wkrótce wygaśnie” (północ w strefie firmy)."""
+    if req.valid_until is None:
+        return None
+    first_day = req.valid_until - timedelta(days=svc.REMIND_EXPIRING_DAYS)
+    return datetime.combine(first_day, time(0), tzinfo=svc._TZ)
+
+
+def due_action(
+    req: PreContractRequest,
+    *,
+    today: date,
+    now: datetime,
+    expiring_sent: bool = False,
+) -> Optional[str]:
+    """Co sweeper ma zrobić z prośbą (czysta funkcja — testy bez bazy).
+
+    ``expiring_sent`` — ostrzeżenie „wkrótce wygaśnie” wyszło już w bieżącym
+    oknie ważności (zdarzenie ``expiring`` od :func:`expiring_window_start`)."""
     if req.closed_at is not None:
         return None
     if svc.is_signed(req) and req.valid_until is not None and req.valid_until < today:
@@ -57,11 +76,7 @@ def due_action(req: PreContractRequest, *, today: date, now: datetime) -> Option
         svc.is_signed(req)
         and req.valid_until is not None
         and (req.valid_until - today).days <= svc.REMIND_EXPIRING_DAYS
-        and (
-            req.last_reminder_at is None
-            or req.last_reminder_at.astimezone(svc._TZ).date()
-            < req.valid_until - timedelta(days=svc.REMIND_EXPIRING_DAYS)
-        )
+        and not expiring_sent
     ):
         return "expiring"
     if (
@@ -71,6 +86,32 @@ def due_action(req: PreContractRequest, *, today: date, now: datetime) -> Option
     ):
         return "reminder_waiting"
     return None
+
+
+def expiring_message(req: PreContractRequest, *, column: Optional[str]) -> str:
+    """Treść ostrzeżenia „wkrótce wygaśnie” — zależy od kolumny pary."""
+    until = f"Umowa przedwstępna jest ważna do {req.valid_until:%d.%m.%Y}. "
+    if column == "closed":
+        return until + "Osoba nie jest już w procesie — zamknij prośbę."
+    if column == "hired":
+        return until + "Osoba zatrudniona — zamknij prośbę jako zrealizowaną."
+    return until + "Osoba jest wciąż w procesie — przedłuż umowę albo zamknij prośbę."
+
+
+async def _expiring_sent(db, req: PreContractRequest) -> bool:
+    start = expiring_window_start(req)
+    if start is None:
+        return False
+    found = await db.scalar(
+        select(PreContractEvent.id)
+        .where(
+            PreContractEvent.request_id == req.id,
+            PreContractEvent.kind == "expiring",
+            PreContractEvent.at >= start,
+        )
+        .limit(1)
+    )
+    return found is not None
 
 
 async def _open_ids() -> list[int]:
@@ -91,7 +132,12 @@ async def _handle(request_id: int, now: datetime) -> Optional[str]:
         )
         if req is None:
             return None
-        action = due_action(req, today=today, now=now)
+        action = due_action(
+            req,
+            today=today,
+            now=now,
+            expiring_sent=await _expiring_sent(db, req),
+        )
         if action is None:
             return None
         if action == "expire":
@@ -103,10 +149,9 @@ async def _handle(request_id: int, now: datetime) -> Optional[str]:
         elif action == "expiring":
             req.last_reminder_at = now
             event = await svc.add_event(db, req, "expiring", actor_id=None)
-            message = (
-                f"Umowa przedwstępna jest ważna do {req.valid_until:%d.%m.%Y}. "
-                "Osoba jest wciąż w procesie — przedłuż umowę albo zamknij prośbę."
-            )
+            columns = await svc.pair_columns(db, [(req.candidate_id, req.job_id)])
+            column = columns.get((req.candidate_id, req.job_id), (None, None))[0]
+            message = expiring_message(req, column=column)
             await svc.notify(db, req, event, message=message, actor_id=None)
         elif action == "b2b_deadline":
             req.last_reminder_at = now

@@ -45,11 +45,13 @@ NEEDED_BEFORE_LABEL: dict[str, str] = {
     "date": "do daty",
 }
 
-#: Kolumna Tablicy, PRZED którą umowa ma być podpisana.
+#: Kolumna Tablicy, PRZED którą umowa ma być podpisana. „Przed umową B2B”
+#: liczy się od „Zatrudniony”: umowę B2B zawiera się w „Akceptacja i umowa”,
+#: do której karta trafia już przy akceptacji klienta (audyt 22.10.2026).
 NEEDED_COLUMN: dict[str, Optional[str]] = {
     "cv_sent": "cv_sent",
     "client_interview": "client_interview",
-    "b2b_contract": "contract",
+    "b2b_contract": "hired",
     "date": None,
 }
 
@@ -225,7 +227,11 @@ def badge(
         label = f"Przedwstępna {needed} — nie wysłana"
         tone = "late" if late else "missing"
     elif state == "sent":
-        waiting = _days(req.sent_at.date(), today) if req.sent_at is not None else 0
+        waiting = (
+            _days(req.sent_at.astimezone(_TZ).date(), today)
+            if req.sent_at is not None
+            else 0
+        )
         label = (
             f"Przedwstępna wysłana · czeka {waiting} {_plural_days(waiting)}"
             if waiting > 0
@@ -304,6 +310,22 @@ async def watcher_ids(db: AsyncSession, request_id: int) -> list[int]:
     return sorted(set(rows.all()))
 
 
+async def head_of_recruitment_ids(db: AsyncSession) -> list[int]:
+    """Aktywne konta Head of Recruitment — decydują o karze z przedwstępnej."""
+    from sqlalchemy import or_  # noqa: PLC0415
+
+    from app.models.user import User, UserRole  # noqa: PLC0415
+
+    role = UserRole.head_of_recruitment
+    rows = await db.scalars(
+        select(User.id).where(
+            User.is_active.is_(True),
+            or_(User.role == role, User.roles.contains([role.value])),
+        )
+    )
+    return sorted(rows.all())
+
+
 def pair_link(req: PreContractRequest) -> str:
     return f"/jobs/{req.job_id}?candidate={req.candidate_id}"
 
@@ -320,7 +342,12 @@ async def notify(
 ) -> list[int]:
     """Dzwonek do obserwujących i wystawiającego (bez autora zmiany).
 
-    Encja = zdarzenie, więc dwa kroki jednego dnia dają dwa dzwonki."""
+    Encja = zdarzenie, więc dwa kroki jednego dnia dają dwa dzwonki. Treść
+    zaczyna się od „{kandydat} — {rekrutacja}: ”, bo od #2576 idzie też
+    mailem, a odbiorca prowadzi kilka próśb naraz."""
+    from app.services.interview_change_notifications import (  # noqa: PLC0415
+        _labels,
+    )
     from app.services.notification_triggers import emit  # noqa: PLC0415
 
     if only_user_ids is not None:
@@ -333,6 +360,10 @@ async def notify(
     if actor_id is not None:
         recipients.discard(actor_id)
     sent: list[int] = []
+    if not recipients:
+        return sent
+    who, job = await _labels(db, req.candidate_id, req.job_id)
+    message = f"{who} — {job}: {message}"
     for uid in sorted(recipients):
         row = await emit(
             db,
@@ -489,9 +520,12 @@ async def start_b2b_deadline(
     *,
     accepted_on: date,
     actor_id: Optional[int],
+    from_today: bool = False,
 ) -> None:
-    """Termin umowy B2B z przedwstępnej od akceptacji klienta (albo od dziś,
-    gdy umowę podpisano już po akceptacji). Nic, gdy wzór terminu nie zna."""
+    """Termin umowy B2B z przedwstępnej od wpisanej daty akceptacji klienta,
+    także wstecznej (decyzja Artura 22.10.2026). ``from_today`` — umowę
+    podpisano dopiero po akceptacji, więc termin liczy się od dziś. Nic, gdy
+    wzór terminu nie zna."""
     from app.models.b2b_contract_document import B2BContractDocument  # noqa: PLC0415
     from app.services.candidate_followups import add_business_days  # noqa: PLC0415
 
@@ -509,7 +543,7 @@ async def start_b2b_deadline(
     days = b2b_term_days(doc_type)
     if not days:
         return
-    start = max(accepted_on, today())
+    start = max(accepted_on, today()) if from_today else accepted_on
     req.b2b_deadline = add_business_days(
         datetime.combine(start, time(12), tzinfo=_TZ), days
     )

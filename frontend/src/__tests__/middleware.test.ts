@@ -1085,4 +1085,39 @@ describe("„Rada nadzorcza” (0490)", () => {
       expect(res.headers.get("location")).toBeNull()
     },
   )
+
+  // Decyzja Artura 23.10.2026: Rada otwiera samą listę umów przedwstępnych —
+  // panel osoby i reszta rekrutacji zostają zamknięte.
+  it("lista „Umowy przedwstępne” otwiera się bez przekierowania", () => {
+    expect(destination("/jobs/umowy-przedwstepne", validBoard)).toBe("pass")
+  })
+
+  it.each(["/jobs/12", "/jobs/umowy-przedwstepne/12", "/jobs/strona-kariery"])(
+    "%s nadal prowadzi do kokpitu Firma",
+    (path) => {
+      expect(destination(path, validBoard)).toBe("/insights")
+    },
+  )
+})
+
+describe("lista „Umowy przedwstępne” — role z bramki API", () => {
+  const automation = makeToken({
+    role: "automation",
+    roles: ["automation"],
+    sa: { pipeline: "read" },
+    exp: now() + HOUR,
+  })
+
+  it.each([
+    ["Finanse", validFinance],
+    ["Automatyzacje", automation],
+    ["rekruter", validRecruiter],
+    ["Head of Recruitment", validHeadOfRecruitment],
+  ])("%s wchodzi", (_label, token) => {
+    expect(destination("/jobs/umowy-przedwstepne", token)).toBe("pass")
+  })
+
+  it("Viewer dostaje /403 — API przedwstępnych mu odmawia", () => {
+    expect(destination("/jobs/umowy-przedwstepne", validViewer)).toBe("/403")
+  })
 })
