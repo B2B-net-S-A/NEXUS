@@ -137,4 +137,17 @@ describe("katalog kafelków", () => {
     const result = templateAvailability(template("my_recruitments"), noPipeline);
     expect(result.ok).toBe(false);
   });
+
+  it("kafelek „Umowy przedwstępne” widzi każdy z dostępem do przedwstępnych, Viewer nie (F54)", () => {
+    // Decyzja Artura 22.10.2026: Finanse, Rada i Automatyzacje pracują na
+    // przedwstępnych jak rekruter. Viewer ma odczyt Rekrutacji, ale API
+    // odmawia mu 403 — kafelek byłby kartą błędu.
+    const tile = TILE_DEFINITIONS.pre_contracts;
+    for (const role of ["recruiter", "finance", "automation", "board"] as UserRole[]) {
+      expect(tile.availability(user(role)).ok, role).toBe(true);
+    }
+    for (const role of ["user", "employee", "trainee"] as UserRole[]) {
+      expect(tile.availability(user(role)).ok, role).toBe(false);
+    }
+  });
 });
