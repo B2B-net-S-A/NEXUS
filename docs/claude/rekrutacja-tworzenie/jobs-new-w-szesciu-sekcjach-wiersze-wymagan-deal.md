@@ -125,3 +125,19 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   pojawią się z pierwszym wpisanym polem).
 - Harness `/preview/new-job?state=request|noclient|manual|attempted|review|gaps|offers|champion|shadow|passive|off`;
   profil z wierszami: przypadek 4 w `/preview/champion-profile`.
+
+## Pytania screeningowe o to, co kandydat zrobił (23.10.2026)
+
+Generator CV bierze z odpowiedzi ze screeningu tylko fakty o kandydacie.
+Pytania o metodę („Jak analizujesz…?”) dawały odpowiedzi z teorii, a pytania
+tak/nie — samo „tak” (zgłoszenie rekrutera, CV roli sieciowej z 23.10.2026).
+
+- Prompty `job_request_intake` (v13) i `champion_profile_from_jd` (v4)
+  dostają `_FACT_QUESTIONS_RULE`: pytanie o to, gdzie (firma, projekt), co
+  i jak długo; bez pytań o metodę i tak/nie.
+- `/jobs/new` i edytor Profilu Championa pokazują pod treścią pytania
+  podpowiedź (`lib/screening-question-hint.ts`), gdy pytanie zaczyna się od
+  „Czy…” albo pyta o metodę („Jak…”, „W jaki sposób…” bez czasu przeszłego,
+  „doświadczenie”, „projekt”, „gdzie”, „kiedy”, „jak długo”). Nie blokuje.
+- Odpowiedzi: `generator-cv/silnik-cv-bez-wypelniacza.md` („Odpowiedź, która
+  odsyła do pytania”).
