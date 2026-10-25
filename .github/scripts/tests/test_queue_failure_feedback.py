@@ -204,6 +204,44 @@ class MessageTests(unittest.TestCase):
         own = QFF.build_comment(1766, [1749, 1766], 1766, "u", [], [])
         self.assertIn("zniknie przy następnym", own)
 
+    def test_failure_seen_in_a_group_without_this_pr_is_shared(self):
+        """25.10.2026: `M365ForwardsPanel.test.tsx` (data w teście) i noc zmiany
+        czasu padały na samym mainie — w grupach [#2646], [#2647], [#2648]
+        osobno. Każda sesja poprawiała swój zielony PR i zdejmowała go z kolejki
+        (7 ręcznych zdjęć w godzinę)."""
+        dates = QFF.Failure("vitest", "src/M365ForwardsPanel.test.tsx > lists")
+        own = QFF.Failure("pytest", "tests/test_rate.py::test_guard")
+        others = [
+            ([2646], [dates]),
+            ([2647, 2649], [dates, own]),  # wspólny #2649 — nie dowód
+            ([2648], [QFF.Failure("pytest", "tests/test_other.py::t")]),
+        ]
+        self.assertEqual(
+            QFF.shared_with_other_groups([dates, own], [2649], others),
+            {dates.test_id: [2646]},
+        )
+        self.assertEqual(QFF.shared_with_other_groups([own], [2649], others), {})
+
+    def test_shared_failure_says_main_is_red_in_comment_and_status(self):
+        dates = QFF.Failure("vitest", "src/M365ForwardsPanel.test.tsx > lists")
+        own = QFF.Failure("pytest", "tests/test_rate.py::test_guard")
+        shared = {dates.test_id: [2646, 2647]}
+        body = QFF.build_comment(
+            2649, [2649], 2649, "u", [dates, own], [], shared=shared
+        )
+        self.assertIn("Pada też bez tego PR-a", body)
+        self.assertIn("#2646, #2647", body)
+        self.assertIn("nie zdejmuj PR-a z kolejki", body)
+        self.assertIn(f"`{dates.test_id}` — także w grupach bez tego PR-a", body)
+        self.assertNotIn(f"`{own.test_id}` — także", body)
+        self.assertEqual(
+            QFF.status_description([dates, own], [], shared),
+            "Wypadł z kolejki: 2 testy, 1 pada też bez tego PR-a — szczegóły w komentarzu",
+        )
+        self.assertNotIn(
+            "Pada też bez", QFF.build_comment(2649, [2649], 2649, "u", [own], [])
+        )
+
     def test_single_pr_comment_has_no_group_note(self):
         body = QFF.build_comment(
             1766, [1766], 1766, "u", [QFF.Failure("tsc", "a.ts(1,1)")], []

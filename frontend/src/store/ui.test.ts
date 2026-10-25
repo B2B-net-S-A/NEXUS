@@ -7,7 +7,7 @@ describe("useUiStore — migracja v6", () => {
     window.localStorage.clear();
   });
 
-  it("stan zapisany w v5 dostaje ukryte puste kolumny i 50 wierszy na stronę", async () => {
+  it("stan zapisany w v5 dostaje 50 wierszy na stronę, reszta zostaje", async () => {
     window.localStorage.setItem(
       "nexus-ui",
       JSON.stringify({
@@ -16,7 +16,7 @@ describe("useUiStore — migracja v6", () => {
           candidatesView: "tiles",
           jobsView: "list",
           columnPreferences: { "candidates-v2": ["rate"] },
-          hideEmptyKanbanColumns: false,
+          candidatesPageSize: 20,
         },
         version: 5,
       }),
@@ -25,7 +25,6 @@ describe("useUiStore — migracja v6", () => {
     await useUiStore.persist.rehydrate();
 
     const state = useUiStore.getState();
-    expect(state.hideEmptyKanbanColumns).toBe(true);
     expect(state.candidatesPageSize).toBe(50);
     // Pozostałe preferencje przechodzą bez zmian, a gęstość (usunięta w v9) znika.
     expect(state).not.toHaveProperty("density");
@@ -33,31 +32,13 @@ describe("useUiStore — migracja v6", () => {
     expect(state.columnPreferences).toEqual({ "candidates-v2": ["rate"] });
   });
 
-  it("migrate z v5 ustawia oba pola bez gubienia reszty", () => {
-    const migrate = useUiStore.persist.getOptions().migrate;
-    expect(migrate).toBeTypeOf("function");
-    const migrated = migrate!(
-      { density: "cozy", hideEmptyKanbanColumns: false },
-      5,
-    ) as Record<string, unknown>;
-    expect(migrated).toMatchObject({
-      hideEmptyKanbanColumns: true,
-      candidatesPageSize: 50,
-    });
-    expect(migrated).not.toHaveProperty("density");
-  });
-
   it("wybór rozmiaru strony w v6 nie jest nadpisywany przy odczycie", async () => {
     window.localStorage.setItem(
       "nexus-ui",
-      JSON.stringify({
-        state: { candidatesPageSize: 100, hideEmptyKanbanColumns: false },
-        version: 6,
-      }),
+      JSON.stringify({ state: { candidatesPageSize: 100 }, version: 6 }),
     );
     await useUiStore.persist.rehydrate();
     expect(useUiStore.getState().candidatesPageSize).toBe(100);
-    expect(useUiStore.getState().hideEmptyKanbanColumns).toBe(false);
   });
 });
 
@@ -86,5 +67,30 @@ describe("useUiStore — migracja v10 (lista rekrutacji bez widoku kafelków)", 
     ) as Record<string, unknown>;
     expect(migrated).toMatchObject({ candidatesPageSize: 100, candidatesView: "tiles" });
     expect(migrated).not.toHaveProperty("jobsView");
+  });
+});
+
+describe("useUiStore — migracja v11 (Tablica zawsze z pustymi kolumnami)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("stan z v10 traci przełącznik pustych kolumn, reszta zostaje", () => {
+    const migrate = useUiStore.persist.getOptions().migrate;
+    const migrated = migrate!(
+      { candidatesPageSize: 100, hideEmptyKanbanColumns: true },
+      10,
+    ) as Record<string, unknown>;
+    expect(migrated).toMatchObject({ candidatesPageSize: 100 });
+    expect(migrated).not.toHaveProperty("hideEmptyKanbanColumns");
+  });
+
+  it("odczyt zapisu z v10 nie zostawia pola w stanie", async () => {
+    window.localStorage.setItem(
+      "nexus-ui",
+      JSON.stringify({ state: { hideEmptyKanbanColumns: true }, version: 10 }),
+    );
+    await useUiStore.persist.rehydrate();
+    expect(useUiStore.getState()).not.toHaveProperty("hideEmptyKanbanColumns");
   });
 });
