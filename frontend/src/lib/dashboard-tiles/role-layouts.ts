@@ -40,8 +40,8 @@ const ROLE_LAYOUTS: Partial<Record<UserRole, Entry[]>> = {
     { key: "margin_monthly", w: 12, h: 3 },
   ],
   head_of_recruitment: [
-    { key: "team_signals", w: 6, h: 4 },
-    { key: "team_funnel_week", w: 6, h: 4 },
+    { key: "team_results", w: 8, h: 6 },
+    { key: "team_signals", w: 4, h: 6 },
     { key: "request_board", w: 12, h: 8 },
     { key: "contact_oversight", w: 12, h: 5 },
   ],

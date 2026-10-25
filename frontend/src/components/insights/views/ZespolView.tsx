@@ -169,6 +169,7 @@ export function ZespolView() {
           previousLabel={previous?.label}
           inFlight={inFlightQuery.data}
           period={period}
+          canOpenList={seesTeam}
         />
       )}
 

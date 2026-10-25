@@ -427,6 +427,25 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     ownChrome: false,
     availability: needsSection("insights", "Insights"),
   },
+  // Prośba Head of Recruitment 23.10.2026: okres na kafelku i lista osób
+  // pod liczbą. Lustro `_TEAM_DETAIL_ROLES` trasy listy „Kto się liczy”.
+  team_results: {
+    type: "team_results",
+    label: "Wyniki zespołu",
+    description:
+      "Weryfikacje, rekomendacje, akceptacje i placementy zespołu w wybranym okresie — kliknij liczbę, żeby zobaczyć osoby.",
+    category: "team",
+    defaultSize: { w: 8, h: 6 },
+    minSize: { w: 5, h: 3 },
+    ownChrome: false,
+    availability: both(
+      needsSection("insights", "Insights"),
+      needsRole(
+        ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "finance"],
+        "Dla liderów zespołu",
+      ),
+    ),
+  },
   // „Ludzie w NEXUSIE” (17.10.2026). Moduł i kartotekę zna dopiero
   // `/api/hr/config` — rozstrzyga je `hrTileGate`; tu tylko to, co widać z konta.
   hr_substitution: {

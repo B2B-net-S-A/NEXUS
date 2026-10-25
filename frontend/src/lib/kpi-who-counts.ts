@@ -7,6 +7,7 @@
  * w okresie celu równa się liczbie w pasku. Tu jest tylko prezentacja: okresy,
  * etykiety, grupowanie po dniach i podsumowanie — komponenty to rysują.
  */
+import { NEXUS_FIRST_DAY } from "@/lib/insights-history"
 import { pluralPl } from "@/lib/plural-pl"
 import type {
   RecruitmentActivityDetailItem,
@@ -476,4 +477,46 @@ export const WHO_COUNTS_FOOTNOTES: Record<WhoCountsMetric, string> = {
     "Liczy się pierwsza akceptacja klienta w danej rekrutacji, przypisana osobie, która zweryfikowała kandydata.",
   placement:
     "Liczy się pierwsze zatrudnienie osoby w danej rekrutacji, przypisane osobie, która zweryfikowała kandydata.",
+}
+
+// ── Lista całego zespołu otwarta z lejka (25.10.2026) ───────────────────────
+
+export interface TeamListReconcile {
+  /** „Do tego 1 rekomendacja bez osoby z zasługą.” — `null`, gdy takich nie ma. */
+  unattributed: string | null
+  /** Zdanie o różnicy z klikniętą liczbą — `null`, gdy lista się z nią zgadza. */
+  mismatch: string | null
+}
+
+/**
+ * Lejek liczy pierwsze wejście pary na etap, a lista zasługę jak cele i wyścigi
+ * (pierwszy zaakceptowany weryfikator). Zwykle to ta sama liczba; gdy nie,
+ * ekran mówi obie zamiast udawać, że się zgadzają (staging 25.10.2026:
+ * rekomendacje 447 + 1 bez zasługi = 448 jak lejek, weryfikacje 506 + 1 = 507
+ * przy 506 w lejku).
+ */
+export function teamListReconcile(
+  metric: WhoCountsMetric,
+  clicked: number | null,
+  team: number,
+  unattributed: number,
+): TeamListReconcile {
+  const [one, few, many] = WHO_COUNTS_METRICS[metric].noun
+  const listed = team + unattributed
+  return {
+    unattributed:
+      unattributed > 0
+        ? `Do tego ${unattributed} ${pluralPl(unattributed, one, few, many)} bez osoby z zasługą.`
+        : null,
+    mismatch:
+      clicked !== null && clicked !== listed
+        ? `Lejek pokazuje ${clicked}, lista ${listed}: lejek liczy pierwsze wejście pary na etap, lista — zasługę tak jak cele i wyścigi.`
+        : null,
+  }
+}
+
+/** Akceptacje liczymy od 12.10.2026 — wcześniej „nie liczono”, nie zero. */
+export function countedSince(metric: WhoCountsMetric, range: DayRange): "none" | "partial" | "full" {
+  if (metric !== "acceptance" || range.start >= NEXUS_FIRST_DAY) return "full"
+  return range.end < NEXUS_FIRST_DAY ? "none" : "partial"
 }

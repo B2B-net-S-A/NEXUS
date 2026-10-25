@@ -379,6 +379,7 @@ Finanse → Zmiany w zamówieniach, Zamówienia PDF, Insights (Rywalizacja, Zesp
 - `finanse-zmiany-w-zamowieniach.md`: Finanse → Zmiany w zamówieniach
 - `finanse-zrobione-w-zmianach-zip-y-i-pobrania-w.md`: Finanse: „Zrobione" w Zmianach, ZIP-y i pobrania w Zamówieniach PDF (0354)
 - `insights-insights-parytet-z-dynareporterem-na.md`: Insights (`/insights`) — parytet z DynaReporterem na danych NEXUSA
+- `lista-za-liczba-lejka-i-wyniki-zespolu.md`: Lista osób za liczbą lejka i kafelek „Wyniki zespołu” · klik w liczbę lejka Zespół/Firma → „Kto się liczy · Cały zespół”, pary bez zasługi, kafelek HoR z okresem, nazwiska od 12.10
 
 ### Powiadomienia i maile — `powiadomienia/`
 

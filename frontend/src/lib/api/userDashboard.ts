@@ -38,6 +38,7 @@ export const TILE_TYPES = [
   "team_signals",
   "system_status",
   "my_week",
+  "team_results",
   "hr_substitution",
   "hr_my_time",
   "hr_approvals",
