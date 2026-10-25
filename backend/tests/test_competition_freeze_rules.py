@@ -578,7 +578,7 @@ async def test_dl_league_counts_pairs_and_divides_by_closed_jobs() -> None:
         await db.commit()
 
         start, end = competitions.quarter_bounds(year, 3)
-        ranked = await competitions._rank_dls_by_placements(db, start=start, end=end)
+        ranked = await competitions._rank_dls_by_hit_ratio(db, start=start, end=end)
     mine = next(r for r in ranked if r.user_id == dl.id)
     assert mine.metric_value == 3
     assert mine.extras["requests"] == 1

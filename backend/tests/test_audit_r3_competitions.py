@@ -23,6 +23,7 @@ from app.services import competitions
 from app.services.competition_rules import TieGroup  # noqa: F401
 from app.services.insights_scoring_config import SCORING_DEFAULTS
 
+
 @pytest.fixture(autouse=True)
 def _periods_are_open(monkeypatch):
     """Od 15.10.2026 okres zamknięty `/current` i `/monthly-races` pokazują
@@ -440,7 +441,7 @@ async def test_dl_league_user_query_accepts_secondary_delivery_lead_role(
         return _Result([SimpleNamespace(id=5, name="DL dodatkowy")])
 
     db = SimpleNamespace(execute=fake_execute)
-    ranked = await competitions._rank_dls_by_placements(
+    ranked = await competitions._rank_dls_by_hit_ratio(
         db,
         start=datetime(2026, 1, 1, tzinfo=timezone.utc),
         end=datetime(2026, 4, 1, tzinfo=timezone.utc),

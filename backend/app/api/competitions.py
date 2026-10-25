@@ -4,7 +4,6 @@
 Dostęp: sekcja Insights; POST /freeze dodatkowo tylko admin.
 """
 
-import math
 from typing import Awaitable, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -193,11 +192,22 @@ async def _compute_current(
         )
         prize_pool = sum(comp_service.QUARTERLY_PRIZES_PLN.values())
         if ctype == CompetitionType.quarterly_champions_dl:
-            requirement = (
-                f"Wymagane hit ratio ≥ {int(comp_service.HIT_RATIO_TARGET)}% "
-                f"oraz minimum {comp_service.QUARTERLY_MIN_PLACEMENTS} placementy "
-                "w kwartale."
-            )
+            if comp_service.dl_league_pays(period):
+                # Kwartały do Q3 2026 — zasady, którymi je rozliczono.
+                requirement = (
+                    f"Wymagane hit ratio ≥ {int(comp_service.HIT_RATIO_TARGET)}% "
+                    f"oraz minimum {comp_service.QUARTERLY_MIN_PLACEMENTS} "
+                    "placementy w kwartale."
+                )
+            else:
+                # Od Q4 2026 liga DL to statystyka bez nagród (25.10.2026).
+                prize_pool = None
+                requirement = (
+                    "Miejsce w klasyfikacji: minimum "
+                    f"{comp_service.DL_LEAGUE_MIN_PLACEMENTS} placementy i "
+                    f"{comp_service.DL_LEAGUE_MIN_CLOSED_REQUESTS} zamkniętych "
+                    "rekrutacji w kwartale. Liga DL nie ma nagród."
+                )
         else:
             # Wagi i próg z konfiguracji (D3). Stała `QUARTERLY_MIN_PLACEMENTS`
             # została usunięta — sensem D3 jest JEDNO źródło reguły.
@@ -253,10 +263,10 @@ async def _compute_current(
         "points_formula": points_formula,
         "quarterly_prizes_pln": (
             comp_service.QUARTERLY_PRIZES_PLN
-            if ctype
-            in (
-                CompetitionType.quarterly_champions_dl,
-                CompetitionType.quarterly_champions_recruiter,
+            if ctype == CompetitionType.quarterly_champions_recruiter
+            or (
+                ctype == CompetitionType.quarterly_champions_dl
+                and comp_service.dl_league_pays(period)
             )
             else None
         ),
@@ -459,11 +469,12 @@ async def _topbar_cached(
 
 
 async def _dl_league_numbers(db: AsyncSession, user_id: int, period: str) -> dict:
-    """Liczby Delivery Leada w lidze DL — także poniżej progu.
+    """Liczby Delivery Leada w lidze DL — także bez portfela w kwartale.
 
-    Ranking DL (`_rank_dls_by_placements`) pomija osobę poniżej progu i tnie
-    listę do 10, więc stąd bierze się „ile brakuje do ligi”. Liczniki to te same
-    `dl_portfolio_counts` co liga i cel portfela, jeden wpis dla całej firmy.
+    Ranking DL (`_rank_dls_by_hit_ratio`) ma tylko osoby z portfelem, więc stąd
+    bierze się „ile brakuje do miejsca” i hit ratio osoby spoza listy. Liczniki
+    to te same `dl_portfolio_counts` co liga i cel portfela, jeden wpis dla
+    całej firmy.
     """
 
     async def compute() -> dict:
@@ -480,24 +491,24 @@ async def _dl_league_numbers(db: AsyncSession, user_id: int, period: str) -> dic
     closed = int(counts["requests"].get(user_id, 0))
     # Wpis cache sprzed 21.10.2026 nie ma klucza — wtedy 0, nie błąd.
     closed_neutral = int(counts.get("neutral", {}).get(user_id, 0))
-    target = comp_service.HIT_RATIO_TARGET
-    min_placements = comp_service.QUARTERLY_MIN_PLACEMENTS
+    min_placements = comp_service.DL_LEAGUE_MIN_PLACEMENTS
+    min_closed = comp_service.DL_LEAGUE_MIN_CLOSED_REQUESTS
     # Ta sama arytmetyka co ranking DL: hit ratio zaokrąglone do 0,1.
     hit_ratio = round(placements / closed * 100, 1) if closed else None
-    qualified = (
-        hit_ratio is not None and placements >= min_placements and hit_ratio >= target
-    )
-    # Najpierw mnożenie, potem dzielenie (jak cel portfela w `kpi_goals`).
-    needed = max(min_placements, math.ceil(closed * target / 100))
+    missing_placements = max(min_placements - placements, 0)
+    missing_closed = max(min_closed - closed, 0)
     return {
         "placements": placements,
         "closed_requests": closed,
         "closed_neutral": closed_neutral,
         "hit_ratio": hit_ratio,
-        "hit_ratio_target": target,
+        # Cel hit ratio DL (`kpi_goals`) — punkt odniesienia, nie próg ligi.
+        "hit_ratio_target": comp_service.HIT_RATIO_TARGET,
         "min_placements": min_placements,
-        "missing_placements": 0 if qualified else max(needed - placements, 0),
-        "qualified": qualified,
+        "min_closed_requests": min_closed,
+        "missing_placements": missing_placements,
+        "missing_closed_requests": missing_closed,
+        "qualified": not missing_placements and not missing_closed,
     }
 
 
@@ -550,14 +561,26 @@ async def my_league(
         "type": ctype.value,
         "period": period,
         "days_remaining": comp_service.days_left_in_quarter(today),
-        "prizes_pln": comp_service.QUARTERLY_PRIZES_PLN,
+        # Liga DL od Q4 2026 bez nagród — pusty słownik, pasek nie pisze kwot.
+        "prizes_pln": (
+            comp_service.QUARTERLY_PRIZES_PLN
+            if ctype == CompetitionType.quarterly_champions_recruiter
+            or comp_service.dl_league_pays(quarter)
+            else {}
+        ),
         "total": len(rows),
     }
     if kind == "spectator":
         payload["leaders"] = league_leaders(rows)
         return payload
 
-    payload["standing"] = league_standing(rows, current_user.id, current.get("ties"))
+    # Liga DL szereguje po hit ratio — dystanse w punktach procentowych.
+    payload["standing"] = league_standing(
+        rows,
+        current_user.id,
+        current.get("ties"),
+        value_key="hit_ratio" if kind == "delivery_lead" else "metric_value",
+    )
     if kind == "delivery_lead":
         payload["dl"] = await _dl_league_numbers(db, current_user.id, period)
         return payload

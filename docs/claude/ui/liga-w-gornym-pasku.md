@@ -14,7 +14,7 @@ i rekomendacje D1–D6. Raport: `docs/league-topbar-completion-report.md`.
   13.10.2026: dopiski w dolnej linii („· bez miejsca”, punkty lidera) zabierały
   okruszkom do 105 px przy 1280 px, a forma pełna od 1536 px (222–238 px)
   spychała cele do jednego segmentu. Stan idzie do górnej linii
-  („Liga · bez miejsca”, „Liga DL · poza ligą”, „Liga · remis”), dystans —
+  („Liga · bez miejsca”, „Liga DL · bez miejsca”, „Liga · remis”), dystans —
   do panelu i nazwy dla czytnika ekranu. Nowy dopisek w przycisku = najpierw
   pomiar na harnessie.
 - **Kto widzi którą ligę — z ról, nie z zakresu pulpitu**
@@ -57,10 +57,13 @@ i rekomendacje D1–D6. Raport: `docs/league-topbar-completion-report.md`.
     „—” z „Ponów”, nigdy „0 pkt”;
   - remis o płatne miejsce (`tied`) — „Liga · remis”, w panelu, że rozstrzygnie
     admin;
-  - DL poza ligą — próg (≥3 placementy i hit ratio ≥30%) i ile brakuje; DL
-    spełniający próg, ale spoza listy 10 (`_rank_dls_by_placements` tnie do
-    dziesięciu) — „poza 10.”, nie „poza ligą”; bez zamkniętych rekrutacji hit
-    ratio jest niepoliczone, nie zerowe.
+  - Delivery Lead (od 25.10.2026 liga po hit ratio, bez nagród —
+    `finanse-insights/liga-dl-po-hit-ratio-bez-nagrod.md`): wynikiem jest hit
+    ratio („36,4%”), dystanse w punktach procentowych; bez miejsca (mniej niż
+    3 placementy albo 5 zamkniętych rekrutacji) — „Liga DL · bez miejsca”,
+    panel mówi, czego brakuje; bez portfela — „Jeszcze bez wyniku”; bez
+    zamkniętych rekrutacji hit ratio jest niepoliczone („—”), nie zerowe.
+    Stanów „poza ligą” i „poza 10.” już nie ma.
 - **Dystans przeliczony na pracę** (`workToClose`): najwyżej dwie drogi z wag
   ligi, „To 1 placement albo 6 rozmów u klienta.” Rozmów powyżej 20 nie podajemy.
 - **Awans, nie spadek** (D5): strzałka „↑ z 6.” do końca dnia, liczona od

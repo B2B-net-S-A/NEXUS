@@ -30,7 +30,8 @@ import { resolveViewState } from "@/lib/view-state";
 import { parseAmount } from "./payroll-format";
 
 export const LEAGUE_TYPE_LABELS: Record<string, string> = {
-  quarterly_champions_dl: "Liga Mistrzów DL (kwartał)",
+  // Od Q4 2026 liga DL nie ma nagród — premie przychodzą tylko z kwartałów do Q3 2026.
+  quarterly_champions_dl: "Liga Mistrzów DL (kwartały do Q3 2026, potem bez nagród)",
   quarterly_champions_recruiter: "Liga Mistrzów rekruterów (kwartał)",
   monthly_recommendations: "Wyścig rekomendacji (miesiąc, voucher)",
   monthly_placements: "Wyścig placementów (miesiąc, voucher)",
