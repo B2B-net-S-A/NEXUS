@@ -629,17 +629,20 @@ function LeagueCard({
                                     (Ty)
                                   </span>
                                 ) : null}
-                                {disqualified ? (
-                                  <span className="ml-2 text-xs font-normal text-warning-muted-foreground">
-                                    ({disqualified})
-                                  </span>
-                                ) : null}
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 {ROLE_LABEL[entry.role ?? ""] ??
                                   entry.role ??
                                   "—"}
                               </p>
+                              {/* Powód we własnej linii, zawijany — dwa powody ligi DL
+                                  (placementy i zamknięte rekrutacje) obok nazwiska
+                                  ucinały się w połowie drugiego. */}
+                              {disqualified ? (
+                                <p className="text-xs text-warning-muted-foreground">
+                                  {disqualified}
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                           <div className="shrink-0 text-right">

@@ -487,7 +487,8 @@ export default function KpiTopbarPreviewPage() {
         <div className="flex flex-wrap items-start gap-6">
           <LeaguePanelFrame title="Liga — rekruter na 4. miejscu" model={LEAGUE_RECRUITER} />
           <LeaguePanelFrame title="Liga — bez miejsca" model={league(LEAGUE_RECRUITER_UNQUALIFIED)} />
-          <LeaguePanelFrame title="Liga — Delivery Lead poza ligą" model={LEAGUE_DL} />
+          <LeaguePanelFrame title="Liga — Delivery Lead bez miejsca" model={LEAGUE_DL} />
+          <LeaguePanelFrame title="Liga — Delivery Lead z miejscem" model={league(LEAGUE_DL_SECOND)} />
           <LeaguePanelFrame title="Liga — kto nie gra" model={LEAGUE_HEAD} />
         </div>
 
