@@ -30,6 +30,7 @@ from app.services.hr.placement_bonuses import (
     PlacementContext,
     contract_margin,
     holds_dl_role,
+    holds_recruiter_role,
 )
 
 #: Sam kalendarz ustawowy (bez dni wolnych firmy) — czyste granice reguły.
@@ -251,6 +252,39 @@ def test_dl_who_verified_himself_gets_no_recruiter_bonus() -> None:
         jobs={10: None}, client_leads={100: [(6, True)]}, verifiers={(1, 10): 6}
     )
     assert client_head.people(_placement_contract()) == (6, None, "client_head")
+
+
+def test_dl_with_recruiter_role_who_verified_gets_both_bonuses() -> None:
+    # Decyzja Artura 25.10.2026: DL, który ma też rolę rekrutera (np. Marlena
+    # w Orlenie), dostaje za osobę zweryfikowaną przez siebie obie premie.
+    context = _context(
+        jobs={10: 7}, verifiers={(1, 10): 7}, recruiter_roles=frozenset({7})
+    )
+    assert context.people(_placement_contract()) == (7, 7, "job")
+
+
+def test_recruiter_role_of_someone_else_does_not_restore_dl_bonus() -> None:
+    # Rola rekrutera liczy się u weryfikującego DL-a, nie u kogokolwiek.
+    context = _context(
+        jobs={10: 7}, verifiers={(1, 10): 7}, recruiter_roles=frozenset({8})
+    )
+    assert context.people(_placement_contract()) == (7, None, "job")
+
+
+@pytest.mark.parametrize(
+    ("role", "roles", "expected"),
+    [
+        ("recruiter", ["recruiter"], True),
+        ("delivery_lead", ["delivery_lead", "recruiter"], True),
+        (UserRole.delivery_lead, ["delivery_lead"], False),
+        ("sourcer", None, True),  # wycofana rola = rekruter
+        ("delivery_lead", ["tac"], True),
+        ("head_of_recruitment", ["head_of_recruitment"], False),
+        ("delivery_lead", "recruiter", False),  # nie-lista nie jest listą ról
+    ],
+)
+def test_recruiter_role_is_primary_or_secondary(role, roles, expected) -> None:
+    assert holds_recruiter_role(role, roles) is expected
 
 
 def test_dl_verifying_in_someone_elses_recruitment_keeps_recruiter_bonus() -> None:

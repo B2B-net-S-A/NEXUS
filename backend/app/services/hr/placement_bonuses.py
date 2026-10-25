@@ -25,8 +25,9 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
   ``jobs.delivery_lead_id``, a gdy go brak — prowadzący rekrutację, jeśli ma
   rolę Delivery Leada, a dopiero potem DL klienta (głowa albo jedyne
   przypisanie). Bez weryfikującego premii rekrutera nie ma — ani gdy
-  weryfikującym jest ten sam Delivery Lead (22.10.2026: DL, który sam
-  przeprowadził osobę, dostaje jedną premię, DL-a).
+  weryfikującym jest ten sam Delivery Lead bez roli rekrutera (22.10.2026:
+  DL, który sam przeprowadził osobę, dostaje jedną premię, DL-a). DL, który
+  ma też rolę rekrutera, dostaje obie (decyzja Artura 25.10.2026).
 
 Kontrakt zakończony przed terminem (albo anulowany) → propozycje anulowane
 przez automat; cofnięcie zakończenia → przywrócone. Kontrakt usunięty trwale →
@@ -202,6 +203,8 @@ class PlacementContext:
     verifiers: dict[tuple[int, int], int] = field(default_factory=dict)
     #: rekrutacja bez DL → prowadzący (``jobs.recruiter_id``) z rolą Delivery Leada
     job_leads: dict[int, int] = field(default_factory=dict)
+    #: weryfikujący z rolą rekrutera (główną albo dodatkową)
+    recruiter_roles: frozenset[int] = frozenset()
 
     def people(self, contract: Contract) -> tuple[Optional[int], Optional[int], str]:
         """(Delivery Lead, rekruter, skąd DL).
@@ -209,7 +212,8 @@ class PlacementContext:
         Rekruter = pierwszy weryfikujący kandydata w rekrutacji kontraktu;
         DL z rekrutacji, potem prowadzący z rolą DL, zapasowo DL klienta
         (decyzje Artura 18.10.2026). DL, który sam zweryfikował osobę, nie
-        dostaje do premii DL-a premii rekrutera (decyzja Artura 22.10.2026).
+        dostaje do premii DL-a premii rekrutera (decyzja Artura 22.10.2026) —
+        chyba że ma też rolę rekrutera: wtedy dostaje obie (25.10.2026).
         """
 
         recruiter_id = (
@@ -218,7 +222,11 @@ class PlacementContext:
             else None
         )
         dl_id, source = self._delivery_lead(contract)
-        if dl_id is not None and recruiter_id == dl_id:
+        if (
+            dl_id is not None
+            and recruiter_id == dl_id
+            and recruiter_id not in self.recruiter_roles
+        ):
             recruiter_id = None
         return dl_id, recruiter_id, source
 
@@ -248,7 +256,7 @@ class PlacementContext:
 async def load_context(
     db: AsyncSession, contracts: Sequence[Contract]
 ) -> PlacementContext:
-    """Najwyżej pięć zapytań niezależnie od liczby kontraktów."""
+    """Najwyżej sześć zapytań niezależnie od liczby kontraktów."""
 
     job_ids = sorted({c.job_id for c in contracts if c.job_id is not None})
     jobs: dict[int, Optional[int]] = {}
@@ -273,6 +281,18 @@ async def load_context(
             if c.candidate_id is not None and c.job_id is not None
         },
     )
+    recruiter_roles: set[int] = set()
+    if verifiers:
+        rows = await db.execute(
+            select(User.id, User.role, User.roles).where(
+                User.id.in_(sorted(set(verifiers.values())))
+            )
+        )
+        recruiter_roles = {
+            user_id
+            for user_id, role, roles in rows.all()
+            if holds_recruiter_role(role, roles)
+        }
     # DL klienta potrzebny tylko tam, gdzie rekrutacja go nie wskazuje.
     fallback_clients = sorted(
         {
@@ -314,7 +334,13 @@ async def load_context(
         )
         clients = {client_id: name for client_id, name in rows.all() if name}
     return PlacementContext(
-        jobs, client_leads, candidates, clients, verifiers, job_leads
+        jobs,
+        client_leads,
+        candidates,
+        clients,
+        verifiers,
+        job_leads,
+        frozenset(recruiter_roles),
     )
 
 
@@ -326,6 +352,15 @@ def holds_dl_role(role: object, roles: object) -> bool:
         return True
     extra = roles if isinstance(roles, (list, tuple)) else ()
     return UserRole.delivery_lead in known_roles(extra)
+
+
+def holds_recruiter_role(role: object, roles: object) -> bool:
+    """Czy konto ma rolę rekrutera — główną albo dodatkową (``sourcer``/``tac`` też)."""
+
+    if UserRole.recruiter in known_roles([role] if role is not None else ()):
+        return True
+    extra = roles if isinstance(roles, (list, tuple)) else ()
+    return UserRole.recruiter in known_roles(extra)
 
 
 async def load_verifiers(
