@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQueries } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,9 @@ import {
   type DayRange,
   type WhoCountsMetric,
   type WhoCountsPeriodKind,
+  teamListReconcile,
 } from "@/lib/kpi-who-counts";
+import { getRecruitmentActivityDetails } from "@/lib/recruitment-activity-api";
 import { useUrlWriter } from "@/lib/url-selection";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -236,7 +239,20 @@ export function myWhoCountsQuery(
 /** Kogo lider otworzył z tabeli Insights → Zespół → Ludzie. */
 export type TeamWhoCountsSubject =
   | { kind: "person"; id: number; name: string }
-  | { kind: "unattributed" };
+  | { kind: "unattributed" }
+  // Liczba z lejka zespołu (23.10.2026) — wszyscy z zasługą razem.
+  | { kind: "team" };
+
+function subjectQuery(subject: TeamWhoCountsSubject): Partial<WhoCountsQuery> {
+  if (subject.kind === "person") return { subjectUserId: subject.id };
+  if (subject.kind === "team") return { teamScope: true };
+  return { unattributed: true };
+}
+
+const SUBJECT_LABEL = {
+  unattributed: "Bez osoby z zasługą",
+  team: "Cały zespół",
+} as const;
 
 /**
  * Lista osoby z tabeli „Ludzie” w okresie z paska Insights. Wiersze liczy ta
@@ -246,25 +262,30 @@ export function TeamWhoCountsPanel({
   subject,
   metric,
   range,
+  metrics = TEAM_WHO_COUNTS,
+  notice,
   onMetricChange,
   onClose,
 }: {
+  /** Linijka nad listą (lejek: pary bez osoby z zasługą, różnica z liczbą). */
+  notice?: ReactNode;
   subject: TeamWhoCountsSubject;
   metric: WhoCountsMetric;
   range: DayRange;
+  metrics?: readonly WhoCountsMetric[];
   onMetricChange: (metric: WhoCountsMetric) => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const { viewerId, cacheKey } = useViewer();
   const today = useMemo(() => warsawToday(), []);
-  const subjectKey = subject.kind === "person" ? subject.id : "unattributed";
+  const subjectKey = subject.kind === "person" ? subject.id : subject.kind;
 
   useEffect(() => {
     ref.current?.scrollIntoView({ block: "nearest" });
   }, [subjectKey]);
 
-  const who = subject.kind === "person" ? subject.name : "Bez osoby z zasługą";
+  const who = subject.kind === "person" ? subject.name : SUBJECT_LABEL[subject.kind];
   return (
     <div ref={ref} id={WHO_COUNTS_ANCHOR} className="scroll-mt-20">
       <Panel
@@ -284,7 +305,8 @@ export function TeamWhoCountsPanel({
           </Button>
         }
       >
-        <MetricTabs metrics={TEAM_WHO_COUNTS} active={metric} onChange={onMetricChange} />
+        <MetricTabs metrics={metrics} active={metric} onChange={onMetricChange} />
+        {notice}
         <WhoCountsList
           metric={metric}
           viewerId={viewerId}
@@ -295,12 +317,73 @@ export function TeamWhoCountsPanel({
             month: range.start.slice(0, 7),
             dateFrom: range.start,
             dateTo: range.end,
-            ...(subject.kind === "person"
-              ? { subjectUserId: subject.id }
-              : { unattributed: true }),
+            ...subjectQuery(subject),
           }}
         />
       </Panel>
     </div>
+  );
+}
+
+/**
+ * Pod listą całego zespołu z lejka: ile par nie ma osoby z zasługą i czy suma
+ * zgadza się z klikniętą liczbą. Dwa lekkie zapytania (strona po 1 wierszu).
+ */
+export function TeamListReconcileLine({
+  metric,
+  range,
+  clicked,
+  onShowUnattributed,
+}: {
+  metric: WhoCountsMetric;
+  range: DayRange;
+  clicked: number | null;
+  onShowUnattributed: () => void;
+}) {
+  const { cacheKey } = useViewer();
+  const base = {
+    metric,
+    window: "range" as const,
+    day: range.start,
+    month: range.start.slice(0, 7),
+    dateFrom: range.start,
+    dateTo: range.end,
+    page: 1,
+    pageSize: 1,
+  };
+  const [team, without] = useQueries({
+    queries: [
+      { teamScope: true },
+      { unattributed: true },
+    ].map((scope) => ({
+      queryKey: ["who-counts-reconcile", cacheKey, metric, range.start, range.end, scope],
+      queryFn: () => getRecruitmentActivityDetails({ ...base, ...scope }),
+      staleTime: 30_000,
+    })),
+  });
+  if (!team.data || !without.data) return null;
+  const sentence = teamListReconcile(
+    metric,
+    clicked,
+    team.data.period_total ?? team.data.total,
+    without.data.period_total ?? without.data.total,
+  );
+  if (!sentence.unattributed && !sentence.mismatch) return null;
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-muted-foreground">
+      {sentence.unattributed ? (
+        <span>
+          {sentence.unattributed}{" "}
+          <button
+            type="button"
+            onClick={onShowUnattributed}
+            className="font-semibold text-primary hover:underline"
+          >
+            Pokaż
+          </button>
+        </span>
+      ) : null}
+      {sentence.mismatch ? <span>{sentence.mismatch}</span> : null}
+    </p>
   );
 }

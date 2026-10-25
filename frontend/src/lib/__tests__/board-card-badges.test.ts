@@ -825,4 +825,13 @@ describe("cardOwner — czyja karta (20.10.2026)", () => {
     expect(cardOwner(item(added), null)).toEqual({ name: "Piotr Szkicowy", role: "added" });
     expect(cardOwner(item({ added_to_job_by_name: null }), "cv_qc")).toEqual({ name: null, role: "added" });
   });
+
+  it("osoba przypisana „Prowadzi” wygrywa w każdej kolumnie (25.10.2026)", () => {
+    for (const column of ["new", "screening", "verified", "cv_sent", "closed", null] as const) {
+      expect(cardOwner(item({ ...added, owner_name: "Maria Przypisana" }), column)).toEqual({
+        name: "Maria Przypisana",
+        role: "assigned",
+      });
+    }
+  });
 });

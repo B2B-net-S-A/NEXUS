@@ -247,11 +247,21 @@ async def default_recruiter_ids(
             )
         ).all()
     )
+    # „Prowadzi” (25.10.2026): przypisanie admina/HoR idzie przed właścicielem
+    # procesu — dzwonki, rozmowy i „moje” trafiają do przypisanej osoby.
+    from app.services.pair_owner import owner_ids
+
+    assigned = await owner_ids(db, wanted)
     chains = {
         pair: [
             user_id
             for user_id in dict.fromkeys(
-                (owners.get(pair), verifiers.get(pair), job_recruiters.get(pair[1]))
+                (
+                    assigned.get(pair),
+                    owners.get(pair),
+                    verifiers.get(pair),
+                    job_recruiters.get(pair[1]),
+                )
             )
             if user_id
         ]
@@ -269,8 +279,8 @@ async def default_recruiter_ids(
 async def default_recruiter_id(
     db: AsyncSession, *, candidate_id: int, job_id: int
 ) -> Optional[int]:
-    """Rekruter kandydata: właściciel procesu → pierwszy weryfikator → rekruter
-    rekrutacji. Ta sama kolejność co przy „Moich ludziach” (weryfikator).
+    """Rekruter kandydata: przypisany „Prowadzi” → właściciel procesu →
+    pierwszy weryfikator → rekruter rekrutacji. Ta sama kolejność co przy „Moich ludziach” (weryfikator).
 
     Każdy kandydat na rekrutera przechodzi ``slot_recruiter_eligible`` —
     wygrywa pierwszy, który ją spełnia; nikt = ``None`` (wniosek bez

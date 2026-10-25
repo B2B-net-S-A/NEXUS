@@ -256,7 +256,7 @@ class PlacementContext:
 async def load_context(
     db: AsyncSession, contracts: Sequence[Contract]
 ) -> PlacementContext:
-    """Najwyżej sześć zapytań niezależnie od liczby kontraktów."""
+    """Najwyżej siedem zapytań niezależnie od liczby kontraktów."""
 
     job_ids = sorted({c.job_id for c in contracts if c.job_id is not None})
     jobs: dict[int, Optional[int]] = {}
@@ -366,7 +366,9 @@ def holds_recruiter_role(role: object, roles: object) -> bool:
 async def load_verifiers(
     db: AsyncSession, pairs: set[tuple[int, int]]
 ) -> dict[tuple[int, int], int]:
-    """Pierwszy weryfikujący per (kandydat, rekrutacja) — jedno zapytanie.
+    """Pierwszy weryfikujący per (kandydat, rekrutacja) — dwa zapytania.
+
+    Przypisanie „Prowadzi” (``pair_owner``) wygrywa z weryfikującym.
 
     Kolejność jak w KPI (``kpi_panel.VERIFIER_ANCHORED_CTE``): czas akceptacji
     etapu „Zweryfikowany”, a bez niej czas ruchu, potem id. Wiersz bez autora
@@ -397,6 +399,11 @@ async def load_verifiers(
         pair = (candidate_id, job_id)
         if pair in pairs:
             found.setdefault(pair, moved_by)
+    # „Prowadzi” (25.10.2026): osoba przypisana przez admina/HoR przejmuje
+    # premię rekrutera, także gdy nikt jeszcze nie dał „Zweryfikowany”.
+    from app.services.pair_owner import owner_ids
+
+    found.update(await owner_ids(db, pairs))
     return found
 
 

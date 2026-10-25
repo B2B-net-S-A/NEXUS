@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   candidateJobsBadge,
+  countedSince,
   currentPeriodHint,
   groupByDay,
   historyNote,
@@ -16,6 +17,7 @@ import {
   stateFilters,
   stateText,
   summaryParts,
+  teamListReconcile,
   warsawToday,
   whoCountsHref,
 } from "@/lib/kpi-who-counts";
@@ -251,5 +253,49 @@ describe("wiersze i podsumowanie", () => {
       ["Zatrudnienia", 1],
       ["Klient odrzucił", 5],
     ]);
+  });
+});
+
+describe("teamListReconcile — lista całego zespołu z lejka (25.10.2026)", () => {
+  it("lista równa liczbie z lejka: bez dopisków", () => {
+    expect(teamListReconcile("placement", 15, 15, 0)).toEqual({ unattributed: null, mismatch: null });
+  });
+
+  it("pary bez osoby z zasługą domykają sumę: dopisek, bez zdania o różnicy", () => {
+    // Staging 25.10.2026: rekomendacje 447 z zasługą + 1 bez = 448 jak w lejku.
+    expect(teamListReconcile("recommendation", 448, 447, 1)).toEqual({
+      unattributed: "Do tego 1 rekomendacja bez osoby z zasługą.",
+      mismatch: null,
+    });
+  });
+
+  it("suma inna niż kliknięta liczba: mówi obie i dlaczego", () => {
+    // Staging 25.10.2026: weryfikacje 506 + 1 bez zasługi = 507 przy 506 w lejku.
+    const result = teamListReconcile("verification", 506, 506, 1);
+    expect(result.unattributed).toBe("Do tego 1 weryfikacja bez osoby z zasługą.");
+    expect(result.mismatch).toMatch(/^Lejek pokazuje 506, lista 507:/);
+  });
+
+  it("odmiana przez liczby i brak klikniętej liczby (kafelek)", () => {
+    expect(teamListReconcile("placement", null, 3, 5).unattributed).toBe(
+      "Do tego 5 placementów bez osoby z zasługą.",
+    );
+    expect(teamListReconcile("placement", null, 3, 5).mismatch).toBeNull();
+  });
+});
+
+describe("countedSince — akceptacje liczone od 12.10.2026", () => {
+  it("okres w całości przed 12.10: nie liczono", () => {
+    expect(countedSince("acceptance", { start: "2026-09-01", end: "2026-09-30" })).toBe("none");
+    expect(countedSince("acceptance", { start: "2026-10-01", end: "2026-10-11" })).toBe("none");
+  });
+
+  it("okres przez 12.10: liczone od 12.10", () => {
+    expect(countedSince("acceptance", { start: "2026-10-01", end: "2026-10-12" })).toBe("partial");
+  });
+
+  it("okres od 12.10 i inne etapy: całe okno", () => {
+    expect(countedSince("acceptance", { start: "2026-10-12", end: "2026-10-25" })).toBe("full");
+    expect(countedSince("placement", { start: "2026-09-01", end: "2026-09-30" })).toBe("full");
   });
 });

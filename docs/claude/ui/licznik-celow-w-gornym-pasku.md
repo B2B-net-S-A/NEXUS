@@ -134,6 +134,8 @@ https://claude.ai/artifact/X92X1KagSUsdb4EQ32F4Wv.
   Insights → Zespół → Ludzie: liczby CV wysłane, rozmowy i placementy otwierają
   listę osoby w okresie z paska (`?kto=…&osoba=<id>`, „Wstecz” zamyka);
   kafel pulpitu — ten sam komponent `WhoCountsList`, z oknem „Tydzień”.
+  Od 25.10.2026 także liczby lejka Zespół/Firma (`?kto=…&osoba=zespol`) i kafelek
+  „Wyniki zespołu” → `finanse-insights/lista-za-liczba-lejka-i-wyniki-zespolu.md`.
 - **Dostęp bez zmian (D5 z propozycji):** rekruter widzi swoją listę, role
   z `_TEAM_DETAIL_ROLES` każdą. Lider może otworzyć osobę spoza listy
   aktywnych rekruterów (`any_subject`) — tabela Zespół ma wiersze osób

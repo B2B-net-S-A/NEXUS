@@ -66,14 +66,20 @@ def _owned_pairs_cte(*, single_user: bool) -> str:
 
     Dla jednego użytkownika zapytanie zaczyna od JEGO wierszy (indeks
     ``ix_candidate_stages_moved_by_stage``), zamiast liczyć pierwszego
-    weryfikatora dla każdej pary w bazie.
+    weryfikatora dla każdej pary w bazie. Przypisanie „Prowadzi”
+    (``candidate_job_owners``, 25.10.2026) wygrywa z weryfikującym — dlatego
+    zakres jednej osoby obejmuje też pary jej przypisane.
     """
     scope = (
         """
         scope AS (
-            SELECT DISTINCT candidate_id, job_id
+            SELECT candidate_id, job_id
             FROM candidate_stages
             WHERE moved_by = :uid AND stage IN ('verified', 'cv_sent')
+            UNION
+            SELECT candidate_id, job_id
+            FROM candidate_job_owners
+            WHERE owner_user_id = :uid
         ),"""
         if single_user
         else """
@@ -83,10 +89,9 @@ def _owned_pairs_cte(*, single_user: bool) -> str:
             WHERE stage = 'cv_sent'
         ),"""
     )
+    owner = "COALESCE(o.owner_user_id, v.moved_by, s.moved_by)"
     owner_filter = (
-        "WHERE COALESCE(v.moved_by, s.moved_by) = :uid"
-        if single_user
-        else ("WHERE COALESCE(v.moved_by, s.moved_by) IS NOT NULL")
+        f"WHERE {owner} = :uid" if single_user else f"WHERE {owner} IS NOT NULL"
     )
     return f"""
     WITH {scope}
@@ -108,10 +113,12 @@ def _owned_pairs_cte(*, single_user: bool) -> str:
     ),
     owned AS (
         SELECT s.candidate_id, s.job_id,
-               COALESCE(v.moved_by, s.moved_by) AS owner_id
+               {owner} AS owner_id
         FROM first_sent s
         LEFT JOIN first_verified v
           ON v.candidate_id = s.candidate_id AND v.job_id = s.job_id
+        LEFT JOIN candidate_job_owners o
+          ON o.candidate_id = s.candidate_id AND o.job_id = s.job_id
         {owner_filter}
     )
     """
