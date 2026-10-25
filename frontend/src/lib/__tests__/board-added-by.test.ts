@@ -127,3 +127,30 @@ describe("napisy filtra", () => {
     );
   });
 });
+
+describe("„Prowadzi” w filtrze „Kto dodał” (25.10.2026)", () => {
+  const assigned = {
+    ...person(1, 7, "Tomasz Rybak"),
+    owner_user_id: 9,
+    owner_name: "Maria Przypisana",
+  };
+
+  it("przypisana osoba liczy się zamiast dodającej", () => {
+    expect(matchesAddedBy(assigned, { kind: "user", userId: 9 })).toBe(true);
+    expect(matchesAddedBy(assigned, { kind: "user", userId: 7 })).toBe(false);
+  });
+
+  it("osoba od systemu z przypisaniem nie jest już „System”", () => {
+    const fromSystem = { ...assigned, added_to_job_by_id: null, entry_source: "system" };
+    expect(matchesAddedBy(fromSystem, { kind: "system" })).toBe(false);
+    expect(matchesAddedBy(fromSystem, { kind: "user", userId: 9 })).toBe(true);
+  });
+
+  it("menu podpisuje osobę przypisaną jej imieniem", () => {
+    const labels = addedByOptions([assigned, person(2, 7, "Tomasz Rybak")], { id: null }).map(
+      (o) => o.label,
+    );
+    expect(labels).toContain("Maria Przypisana");
+    expect(labels).toContain("Tomasz Rybak");
+  });
+});

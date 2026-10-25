@@ -3491,6 +3491,11 @@ async def build_kanban_view(
     # zapytanie niesie właściciela procesu (`recruiter_id` karty).
     process_cards = await _process_cards(db, job_id=job_id, candidate_ids=candidate_ids)
     process_versions = {cid: card[0] for cid, card in process_cards.items()}
+    # „Prowadzi” (25.10.2026): przypisanie admina/HoR wygrywa z właścicielem
+    # procesu i osobą, która dodała — karta, panel i „kto ma ruch”.
+    from app.services.pair_owner import owners_for_job
+
+    pair_owners = await owners_for_job(db, job_id)
     owner_ids = {card[1] for card in process_cards.values() if card[1] is not None}
     # Pipeline v4 (0352): blokada 12 h, źródło wejścia i przepięcie.
     v4_processes = await _process_v4_cards(
@@ -3873,18 +3878,32 @@ async def build_kanban_view(
             else None
         )
         payload["contact_attempts"] = contact_attempts.get(e.candidate_id, 0)
-        # Rekruter karty: właściciel procesu (Priority Work), a gdy proces go
-        # nie ma — osoba, która dodała kandydata do rekrutacji.
+        # Rekruter karty: przypisany „Prowadzi”, potem właściciel procesu
+        # (Priority Work), a gdy proces go nie ma — osoba, która dodała
+        # kandydata do rekrutacji.
+        assigned = pair_owners.get(e.candidate_id)
         process_owner = process_cards.get(e.candidate_id, (0, None))[1]
         recruiter_id = (
-            process_owner
+            assigned.owner_user_id
+            if assigned is not None
+            else process_owner
             if process_owner is not None
             else (first.moved_by if first is not None else None)
         )
         payload["recruiter_id"] = recruiter_id
         payload["recruiter_name"] = (
-            user_name_by_id.get(recruiter_id) if recruiter_id is not None else None
+            assigned.owner_name
+            if assigned is not None
+            else user_name_by_id.get(recruiter_id)
+            if recruiter_id is not None
+            else None
         )
+        if assigned is not None:
+            payload["owner_user_id"] = assigned.owner_user_id
+            payload["owner_name"] = assigned.owner_name
+            payload["owner_assigned_by_name"] = assigned.assigned_by_name
+            payload["owner_assigned_at"] = assigned.assigned_at
+            payload["owner_previous_name"] = assigned.previous_owner_name
         if e.task_assignee_id is not None:
             payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
         if e.stage in _CLOSED_CARD_STAGES:
