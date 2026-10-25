@@ -18,10 +18,6 @@ interface UiStoreState {
    * semantics without bumping `version` and writing a migrator.
    */
   columnPreferences: Record<string, string[]>;
-  /** Pipeline kanban (04 „Pipeline" — flow C2 PR3): ukryj kolumny szablonu bez
-   *  kandydatów. Globalne (nie per-job) — świadomie proste.
-   *  Domyślnie włączone od v6 (przegląd UX 17.09.2026). */
-  hideEmptyKanbanColumns: boolean;
   /** Liczba wierszy na stronę listy kandydatów (20 / 50 / 100, domyślnie 50). */
   candidatesPageSize: CandidatesPageSize;
   /** Ukryj postać „Moi ludzie" w rogu — wejście zostaje w topbarze. */
@@ -32,7 +28,6 @@ interface UiStoreState {
   setCandidatesView: (v: CandidatesView) => void;
   setColumnPreference: (entity: string, hidden: string[]) => void;
   clearColumnPreference: (entity: string) => void;
-  setHideEmptyKanbanColumns: (v: boolean) => void;
   setCandidatesPageSize: (v: CandidatesPageSize) => void;
 }
 
@@ -42,7 +37,6 @@ export const useUiStore = create<UiStoreState>()(
       sidebarCollapsed: false,
       candidatesView: "list",
       columnPreferences: {},
-      hideEmptyKanbanColumns: true,
       candidatesPageSize: 50,
       hideMyPeopleBuddy: false,
       setHideMyPeopleBuddy: (hideMyPeopleBuddy) => set({ hideMyPeopleBuddy }),
@@ -59,30 +53,20 @@ export const useUiStore = create<UiStoreState>()(
           delete next[entity];
           return { columnPreferences: next };
         }),
-      setHideEmptyKanbanColumns: (hideEmptyKanbanColumns) =>
-        set({ hideEmptyKanbanColumns }),
       setCandidatesPageSize: (candidatesPageSize) => set({ candidatesPageSize }),
     }),
     {
       name: "nexus-ui",
-      version: 10,
+      version: 11,
       migrate: (persisted, fromVersion) => {
         let state = (persisted ?? {}) as Partial<UiStoreState>;
         if (fromVersion < 2) {
           state = { ...state, candidatesView: state.candidatesView ?? "list" };
         }
-        if (fromVersion < 4) {
-          state = {
-            ...state,
-            hideEmptyKanbanColumns: state.hideEmptyKanbanColumns ?? false,
-          };
-        }
         if (fromVersion < 6) {
-          // Przegląd UX rekrutera (17.09.2026): puste kolumny kanbanu są
-          // domyślnie ukryte, a lista kandydatów pokazuje 50 wierszy na stronę.
-          // Jednorazowy reset — do v5 `false` nie odróżniało świadomego wyboru
-          // od starej wartości domyślnej.
-          state = { ...state, hideEmptyKanbanColumns: true, candidatesPageSize: 50 };
+          // Przegląd UX rekrutera (17.09.2026): lista kandydatów pokazuje
+          // 50 wierszy na stronę (jednorazowy reset).
+          state = { ...state, candidatesPageSize: 50 };
         }
         if (fromVersion < 8) {
           // 25.09.2026: lista rekrutacji ma pasek filtrów nad tabelą zamiast
@@ -105,6 +89,15 @@ export const useUiStore = create<UiStoreState>()(
           // „lista / kafelki” (`jobsView`, v3–v9) znika.
           const { jobsView: _dropped, ...rest } = state as Partial<UiStoreState> & {
             jobsView?: unknown;
+          };
+          state = rest;
+        }
+        if (fromVersion < 11) {
+          // 25.10.2026: Tablica rekrutacji zawsze pokazuje puste kolumny —
+          // przełącznik „Ukryj puste kolumny” (`hideEmptyKanbanColumns`,
+          // v4–v10) znika.
+          const { hideEmptyKanbanColumns: _dropped, ...rest } = state as Partial<UiStoreState> & {
+            hideEmptyKanbanColumns?: unknown;
           };
           state = rest;
         }

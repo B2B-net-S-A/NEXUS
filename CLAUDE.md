@@ -204,6 +204,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `konflikty-z-klientem-blacklist-nda-konkurent-sa.md`: Konflikty z klientem (blacklist / NDA / konkurent) są OSTRZEŻENIEM, nie blokadą (decyzja Artura)
 - `lista-rekrutacji-pamieta-ostatnie-filtry.md`: Lista rekrutacji pamięta ostatnie filtry · goły `/jobs` = ostatni widok osoby, link z parametrami wygrywa, `keepScope`
 - `mail-odrzucenia-tresc-i-podglad.md`: Mail odrzucenia: treść domyślna i podgląd w oknie odrzucenia · treść domyślna w kodzie, podgląd przed potwierdzeniem
+- `menu-rekrutacji-dziewiec-pozycji.md`: Menu „⋯” rekrutacji — dziewięć pozycji, puste kolumny zawsze widoczne · bez dubli nagłówka i okna „Zlecenie”, podmenu „Dodaj kandydatów”, Tablica bez przełącznika pustych kolumn
 - `minimum-dla-dl-przed-zweryfikowany.md`: Minimum dla Delivery Leada przed „Zweryfikowany” · lokalizacja, tryb, dostępność, „Dlaczego ten kandydat”; okno na Tablicy
 - `narzedzia-rekrutera-reguly-po-audycie-17-09-2026.md`: Narzędzia rekrutera — reguły po audycie 17.09.2026 · HoR = rekruter, stawka do klienta, werdykt HM, kalendarz, powiadomienia
 - `nastepna-osoba-po-odrzuceniu.md`: Po odrzuceniu z panelu osoby — od razu następna osoba · kolejka „‹ ›” = kolumna + „Kto dodał”, pasek „Odrzucono · Pokaż”

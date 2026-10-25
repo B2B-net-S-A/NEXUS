@@ -19,7 +19,6 @@ function renderHeader(
   const onViewChange = vi.fn<(view: JobDetailView) => void>();
   const onOpenOrder = vi.fn();
   const onOpenHistoryChat = vi.fn();
-  const onOpenQuestions = vi.fn();
 
   const { unmount } = render(
     <JobDetailCompactHeader
@@ -31,18 +30,24 @@ function renderHeader(
       onViewChange={onViewChange}
       onOpenOrder={onOpenOrder}
       onOpenHistoryChat={onOpenHistoryChat}
-      onOpenQuestions={onOpenQuestions}
       chatUnreadCount={3}
       {...overrides}
     />,
   );
 
-  return { onViewChange, onOpenOrder, onOpenHistoryChat, onOpenQuestions, unmount };
+  return { onViewChange, onOpenOrder, onOpenHistoryChat, unmount };
 }
 
 async function openMenu() {
   await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
   return screen.findByRole("menu");
+}
+
+/** Podmenu „Dodaj kandydatów” (25.10.2026) — zwraca jego listę pozycji. */
+async function openAddSubmenu() {
+  await userEvent.click(within(await openMenu()).getByTestId("menu-add-candidates"));
+  const menus = await screen.findAllByRole("menu");
+  return menus[menus.length - 1];
 }
 
 describe("JobDetailCompactHeader", () => {
@@ -160,7 +165,7 @@ describe("JobDetailCompactHeader", () => {
   });
 
   it("nie ma liczników, ścieżki ani przycisków, które zeszły do menu i na kafle", () => {
-    renderHeader({ onOpenChampions: vi.fn(), onAddByName: vi.fn() });
+    renderHeader({ onAddByName: vi.fn() });
     expect(screen.queryByTestId("job-header-kpis")).toBeNull();
     expect(screen.queryByTestId("job-recruitment-path")).toBeNull();
     expect(screen.queryByText(/Najbliższy krok/i)).toBeNull();
@@ -219,15 +224,47 @@ describe("JobDetailCompactHeader", () => {
     expect(onOpenHistoryChat).toHaveBeenCalled();
   });
 
-  it("menu „⋯”: skrót zlecenia i baza pytań są zawsze", async () => {
-    const { onOpenOrder, onOpenQuestions } = renderHeader();
+  it("menu „⋯”: dziewięć pozycji, bez dubli nagłówka i okna „Zlecenie” (25.10.2026)", async () => {
+    renderHeader({
+      onAddByName: vi.fn(),
+      onEditFullChampion: vi.fn(),
+      onEdit: vi.fn(),
+      onOpenFiles: vi.fn(),
+      filesCount: 1,
+      onWriteAnnouncement: vi.fn(),
+      onCopyLink: vi.fn(),
+      onGenerateInviteLink: vi.fn(),
+      onOpenAiTools: vi.fn(),
+      onCloseJob: vi.fn(),
+    });
+    const menu = await openMenu();
+    const names = within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent?.trim());
+    expect(names).toEqual([
+      "Dodaj kandydatów",
+      "Zlecenie — skrót",
+      "Edytuj Profil Championa",
+      "Edytuj dane rekrutacji",
+      "Pliki (1)",
+      "Kopiuj link do rekrutacji",
+      "Link do zgłoszeń kandydatów",
+      "Narzędzia AI (administrator)",
+      "Zamknij rekrutację…",
+    ]);
+    // Championi — plakietka statusu, Zespół — fakt „Rekruter”, Ogłoszenie —
+    // megafon w nagłówku; Baza pytań i Karta klienta — okno „Zlecenie”;
+    // puste kolumny Tablica pokazuje zawsze.
+    for (const gone of [/Championi/, /Zespół/, /Ogłoszenie/, /Baza pytań/, /Karta klienta/, /puste kolumny/]) {
+      expect(within(menu).queryByText(gone)).toBeNull();
+    }
+  });
+
+  it("menu „⋯”: skrót zlecenia jest zawsze", async () => {
+    const { onOpenOrder } = renderHeader();
     const menu = await openMenu();
     await userEvent.click(within(menu).getByTestId("open-order"));
     await waitFor(() => expect(onOpenOrder).toHaveBeenCalled());
-
-    const again = await openMenu();
-    await userEvent.click(within(again).getByTestId("open-questions"));
-    await waitFor(() => expect(onOpenQuestions).toHaveBeenCalled());
   });
 
   it("menu „⋯”: „Pliki” z liczbą otwiera okno plików rekrutacji", async () => {
@@ -244,76 +281,33 @@ describe("JobDetailCompactHeader", () => {
     expect(within(await openMenu()).getByTestId("menu-files")).toHaveTextContent(/^Pliki$/);
   });
 
-  it("menu „⋯”: „Zespół” mówi, kto jest rekruterem, i otwiera panel zespołu", async () => {
-    const onOpenTeam = vi.fn();
-    const first = renderHeader({ onOpenTeam, teamSummary: "Rekruter: Marta N. +1" });
-    const item = within(await openMenu()).getByTestId("menu-team");
-    expect(item).toHaveTextContent("Zespół");
-    expect(item).toHaveTextContent("Rekruter: Marta N. +1");
-    await userEvent.click(item);
-    await waitFor(() => expect(onOpenTeam).toHaveBeenCalled());
-    first.unmount();
-
-    renderHeader();
-    expect(within(await openMenu()).queryByTestId("menu-team")).toBeNull();
-  });
-
-  it("menu „⋯”: „Championi…” otwiera okienko championów tylko roli z prawem (D2)", async () => {
-    const onOpenChampions = vi.fn();
-    const first = renderHeader({ onOpenChampions });
-    const menu = await openMenu();
-    const item = within(menu).getByTestId("toggle-champion");
-    expect(item).toHaveTextContent("Championi…");
-    await userEvent.click(item);
-    await waitFor(() => expect(onOpenChampions).toHaveBeenCalled());
-    first.unmount();
-
-    renderHeader();
-    expect(within(await openMenu()).queryByTestId("toggle-champion")).toBeNull();
-  });
-
-  it("menu „⋯”: dodanie po nazwisku, z pliku CV i przegląd całej bazy przez AI", async () => {
+  it("podmenu „Dodaj kandydatów”: po nazwisku, z pliku CV, z moich ludzi, przegląd całej bazy", async () => {
     const onAddByName = vi.fn();
     const onAddFromCv = vi.fn();
     const onStartFullReview = vi.fn();
     const onOpenMyPeople = vi.fn();
     renderHeader({ onAddByName, onAddFromCv, onStartFullReview, onOpenMyPeople });
 
-    await userEvent.click(within(await openMenu()).getByTestId("menu-add-by-name"));
+    const sub = await openAddSubmenu();
+    expect(
+      within(sub)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent?.trim()),
+    ).toEqual(["Po nazwisku", "Z pliku CV", "Z moich ludzi", "Przeszukaj całą bazę (AI)"]);
+    await userEvent.click(within(sub).getByTestId("menu-add-by-name"));
     await waitFor(() => expect(onAddByName).toHaveBeenCalled());
-    await userEvent.click(within(await openMenu()).getByTestId("menu-add-from-cv"));
+    await userEvent.click(within(await openAddSubmenu()).getByTestId("menu-add-from-cv"));
     await waitFor(() => expect(onAddFromCv).toHaveBeenCalled());
-    const review = within(await openMenu()).getByTestId("menu-full-review");
-    expect(review).toHaveTextContent("Przeszukaj całą bazę (AI)");
-    await userEvent.click(review);
+    await userEvent.click(within(await openAddSubmenu()).getByTestId("menu-full-review"));
     await waitFor(() => expect(onStartFullReview).toHaveBeenCalled());
-    const mine = within(await openMenu()).getByTestId("menu-my-people");
-    expect(mine).toHaveTextContent("Moi ludzie do tej rekrutacji");
-    await userEvent.click(mine);
+    await userEvent.click(within(await openAddSubmenu()).getByTestId("menu-my-people"));
     await waitFor(() => expect(onOpenMyPeople).toHaveBeenCalled());
   });
 
-  it("bez prawa dodawania menu nie ma sekcji „Kandydaci”", async () => {
+  it("bez prawa dodawania menu nie ma „Dodaj kandydatów”", async () => {
     renderHeader();
     const menu = await openMenu();
-    expect(within(menu).queryByText("Kandydaci")).toBeNull();
-    expect(within(menu).queryByTestId("menu-full-review")).toBeNull();
-    expect(within(menu).queryByTestId("menu-my-people")).toBeNull();
-  });
-
-  it("menu „⋯”: puste kolumny Tablicy — etykieta mówi, co zrobi kliknięcie", async () => {
-    const onToggleEmptyColumns = vi.fn();
-    const first = renderHeader({ onToggleEmptyColumns, emptyColumnsHidden: true });
-    const item = within(await openMenu()).getByTestId("toggle-empty-columns");
-    expect(item).toHaveTextContent("Pokaż puste kolumny");
-    await userEvent.click(item);
-    await waitFor(() => expect(onToggleEmptyColumns).toHaveBeenCalled());
-    first.unmount();
-
-    renderHeader({ onToggleEmptyColumns, emptyColumnsHidden: false });
-    expect(within(await openMenu()).getByTestId("toggle-empty-columns")).toHaveTextContent(
-      "Ukryj puste kolumny",
-    );
+    expect(within(menu).queryByTestId("menu-add-candidates")).toBeNull();
   });
 
   it("menu „⋯”: pozycje zależne od uprawnień pojawiają się tylko z funkcją", async () => {
@@ -321,19 +315,11 @@ describe("JobDetailCompactHeader", () => {
     const onCloseJob = vi.fn();
     const onCopyLink = vi.fn();
     const onOpenAiTools = vi.fn();
-    const first = renderHeader({
-      onEdit,
-      onCloseJob,
-      onCopyLink,
-      onOpenAiTools,
-      clientCardHref: "/help?tab=clients&client=7",
-    });
+    const onGenerateInviteLink = vi.fn();
+    const first = renderHeader({ onEdit, onCloseJob, onCopyLink, onOpenAiTools, onGenerateInviteLink });
     const menu = await openMenu();
-    expect(within(menu).getByRole("menuitem", { name: "Edytuj" })).toBeTruthy();
-    expect(within(menu).getByTestId("open-client-card")).toHaveAttribute(
-      "href",
-      "/help?tab=clients&client=7",
-    );
+    expect(within(menu).getByRole("menuitem", { name: "Edytuj dane rekrutacji" })).toBeTruthy();
+    expect(within(menu).getByRole("menuitem", { name: "Link do zgłoszeń kandydatów" })).toBeTruthy();
     expect(within(menu).getByTestId("copy-job-link")).toBeTruthy();
     expect(within(menu).getByTestId("open-ai-tools")).toBeTruthy();
     await userEvent.click(within(menu).getByTestId("close-job"));
@@ -342,13 +328,13 @@ describe("JobDetailCompactHeader", () => {
 
     renderHeader();
     const bare = await openMenu();
-    expect(within(bare).queryByRole("menuitem", { name: "Edytuj" })).toBeNull();
+    expect(within(bare).queryByRole("menuitem", { name: "Edytuj dane rekrutacji" })).toBeNull();
+    expect(within(bare).queryByRole("menuitem", { name: "Link do zgłoszeń kandydatów" })).toBeNull();
     expect(within(bare).queryByTestId("close-job")).toBeNull();
     expect(within(bare).queryByTestId("open-ai-tools")).toBeNull();
-    expect(within(bare).queryByTestId("toggle-empty-columns")).toBeNull();
   });
 
-  it("„Ogłoszenie” to widoczny przycisk z kropkami i pozycja menu (21.10.2026)", async () => {
+  it("„Ogłoszenie” to widoczny przycisk z kropkami, już nie pozycja menu (25.10.2026)", async () => {
     const onWriteAnnouncement = vi.fn();
     renderHeader({
       onWriteAnnouncement,
@@ -360,10 +346,7 @@ describe("JobDetailCompactHeader", () => {
     expect(onWriteAnnouncement).toHaveBeenCalledTimes(1);
 
     const menu = await openMenu();
-    await userEvent.click(
-      within(menu).getByRole("menuitem", { name: "Ogłoszenie — strona kariery i portale" }),
-    );
-    await waitFor(() => expect(onWriteAnnouncement).toHaveBeenCalledTimes(2));
+    expect(within(menu).queryByRole("menuitem", { name: /Ogłoszenie/ })).toBeNull();
   });
 
   it("„Ogłoszenie” bez publikacji mówi, że nigdzie nie wisi; bez prawa — nie ma przycisku", () => {
