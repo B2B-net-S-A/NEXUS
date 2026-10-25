@@ -70,6 +70,11 @@ Decyzje Artura 22.10.2026 (wszystkie rekomendowane warianty):
   premii rekrutera nie ma — DL dostaje premię DL-a
   (`placement_bonuses.PlacementContext.people`). Nieruszone propozycje sprzed zmiany
   automat anuluje przy uzgodnieniu (`rule_no_longer_applies`).
+  **Wyjątek od 25.10.2026 (decyzja Artura):** DL, który ma też rolę rekrutera
+  (główną albo dodatkową, `holds_recruiter_role`), dostaje za osobę zweryfikowaną
+  przez siebie obie premie — rekrutera i DL-a. Propozycje anulowane wcześniej
+  regułą D4 automat przywraca przy uzgodnieniu (`rule_no_longer_applies` jest
+  w `AUTO_CANCEL_REASONS`).
 
 Statystyki: proces zalicza się temu, kto pierwszy przesunął na „Zweryfikowany”
 (`credit_user_id`) — więc DL, który sam zweryfikował, już dziś ma go w Insights →
