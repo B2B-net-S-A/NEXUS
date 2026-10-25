@@ -45,5 +45,16 @@ a ludzie chcieli też dokładać osoby ręcznie i trzymać własne listy.
   (aktywne + „Kończące się” z końcem w oknie) bez `prolongation_status = yes`
   i bez kwot, więc bez redakcji finansowej. Nie ruszaj `/expiring` pod ten
   ekran: zasila baner i niesie pełny `ContractResponse`.
+- **„Zespół” (Head of Recruitment i admin):** zakładka panelu „czyja lista
+  leży”. `GET /api/my-people/team` (limit 10/min) liczy każdą aktywną osobę
+  z rolą rekrutera, DL, HoR albo TCM (`services/my_people.TEAM_ROLES`)
+  tymi samymi definicjami co jej dymek: aktywni, pracujący, czekający
+  (`MyPeople.idle` — bez procesu, CV dłużej niż `IDLE_DAYS` temu) i
+  nieobejrzane dopasowania. `GET /api/my-people/team/{user_id}` to podgląd
+  listy osoby z zespołu (404 dla spoza zespołu), na froncie bez uśpień
+  i dodawania. Obie trasy: `CandidateSearchAccess` + `HeadOfRecruitmentPlus`.
+  Klucz zapytań `["my-people-team"]` stoi CELOWO poza `["my-people"]`:
+  zdarzenia gniazda unieważniają „Moich ludzi” wiele razy na minutę,
+  a odświeżanie całego zespołu wpadałoby w limit trasy.
 - **Poza zakresem świadomie:** przekazanie listy rekruterowi z terminem
   (decyzja 25.10: nie teraz), edycja cudzej listy przez Head of Recruitment.

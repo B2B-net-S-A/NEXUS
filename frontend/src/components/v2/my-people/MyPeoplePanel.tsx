@@ -22,6 +22,7 @@ import {
   useMyPeople,
   useMyPeopleForJob,
   useMyPeopleSummary,
+  useMyPeopleTeam,
   type SnoozeReason,
 } from "@/lib/api/myPeople";
 import { recommendationsApi } from "@/lib/api";
@@ -55,8 +56,9 @@ import { useEndingConsultants } from "@/lib/api/endingConsultants";
 import { hasPermission } from "@/lib/permissions";
 import { ListsTab } from "./CandidateListsViews";
 import { EndingAtClientsView } from "./EndingAtClientsView";
+import { TeamListsView } from "./TeamListsView";
 
-type PanelTab = "all" | "job" | "move" | "lists" | "ending";
+type PanelTab = "all" | "job" | "move" | "lists" | "ending" | "team";
 
 const JOB_PATH = /^\/jobs\/(\d+)/;
 const CANDIDATE_PATH = /^\/candidates\/(\d+)/;
@@ -168,6 +170,9 @@ export function MyPeoplePanel() {
   // to samo uprawnienie, którego wymaga trasa; zakres klientów liczy serwer.
   const showEnding = hasRole(me, "delivery_lead") && hasPermission(me, "delivery_view");
   const ending = useEndingConsultants(open && showEnding);
+  // „Zespół” (25.10.2026): Head of Recruitment i admin — tak jak bramka trasy.
+  const showTeam = hasRole(me, "head_of_recruitment", "admin");
+  const team = useMyPeopleTeam(open && showTeam && tab === "team");
   const forJob = useMyPeopleForJob(jobId, open && tab === "job");
 
   // Obejrzenie zakładki rekrutacji zeruje jej dopasowania w liczniku awatara.
@@ -259,6 +264,7 @@ export function MyPeoplePanel() {
     ...(showEnding
       ? [{ value: "ending", label: "Kończą u klientów", count: ending.data?.length }]
       : []),
+    ...(showTeam ? [{ value: "team", label: "Zespół" }] : []),
     ...(jobId != null ? [{ value: "job", label: "Do tej rekrutacji" }] : []),
     ...(isMine ? [{ value: "move", label: "Gdzie przepiąć" }] : []),
   ];
@@ -372,6 +378,26 @@ export function MyPeoplePanel() {
             </p>
           ) : (
             <EndingAtClientsView rows={ending.data} onAdd={(row) => setAddFor(row)} />
+          )
+        ) : null}
+
+        {tab === "team" && showTeam && me ? (
+          team.isError ? (
+            <ErrorView
+              message={apiErrorMessage(team.error, "Nie udało się wczytać list zespołu.")}
+              onRetry={() => void team.refetch()}
+            />
+          ) : !team.isSuccess ? (
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+              Liczę listy zespołu…
+            </p>
+          ) : (
+            <TeamListsView
+              members={team.data.members}
+              idleDays={team.data.idle_days}
+              selfId={me.id}
+              categories={categories.data ?? []}
+            />
           )
         ) : null}
       </div>
