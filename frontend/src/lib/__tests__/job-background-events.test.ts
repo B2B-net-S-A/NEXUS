@@ -29,6 +29,9 @@ describe("job-background-events", () => {
     expect(backgroundEventMessage(ev({ kind: "new_cv_proposals", count: 5, trigger: "job_publish" }))).toBe(
       "Po publikacji rekrutacji: 5 propozycji.",
     );
+    expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 3 }))).toBe(
+      "System wycofał z „Nowych” 3 swoje osoby — stawka ponad 25% nad budżetem.",
+    );
   });
 
   it("auto-CV: stan dokumentu czytany na żywo; zredagowane nazwisko to „Kandydat #id”", () => {

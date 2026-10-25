@@ -237,6 +237,25 @@ async def off_limits_labels(db: AsyncSession) -> list[tuple[str, int, str]]:
             )
         )
     ).all()
+    result = await _labels(db, clients)
+    db.info[_LABELS_CACHE_KEY] = result
+    return result
+
+
+async def client_labels(db: AsyncSession, client_id: int) -> list[tuple[str, int, str]]:
+    """Etykiety jednego klienta (nazwa, wyświetlana, prawna, aliasy) — bez
+    warunku aktywnego zamówienia. Czyta je automat „Nowych” (25.10.2026)."""
+    clients = (
+        await db.execute(
+            select(
+                Client.id, Client.name, Client.display_name, Client.legal_name
+            ).where(Client.id == client_id, Client.deleted_at.is_(None))
+        )
+    ).all()
+    return await _labels(db, clients)
+
+
+async def _labels(db: AsyncSession, clients) -> list[tuple[str, int, str]]:
     shown = {row.id: (row.display_name or row.name) for row in clients}
     names: list[tuple[int, Optional[str]]] = []
     for row in clients:
@@ -259,7 +278,6 @@ async def off_limits_labels(db: AsyncSession) -> list[tuple[str, int, str]]:
     result = [(label, cid, shown_name) for label, (cid, shown_name) in labels.items()]
     # Najdłuższa nazwa wygrywa: „bnp paribas cardif” przed „bnp paribas”.
     result.sort(key=lambda item: len(item[0]), reverse=True)
-    db.info[_LABELS_CACHE_KEY] = result
     return result
 
 
@@ -277,8 +295,15 @@ def _match_label(
     return None
 
 
-def current_companies(candidate: PersonLike) -> list[tuple[str, str]]:
-    """``(firma, źródło)`` — gdzie osoba pracuje teraz według naszych danych."""
+def current_companies(
+    candidate: PersonLike, *, undated_counts: bool = False
+) -> list[tuple[str, str]]:
+    """``(firma, źródło)`` — gdzie osoba pracuje teraz według naszych danych.
+
+    ``undated_counts``: wpis CV bez daty końca liczy się także bez daty startu
+    (automat „Nowych”, decyzja Artura 25.10.2026 — system woli pominąć osobę,
+    niż dodać kogoś, kto już pracuje u klienta). Bramka człowieka zostaje przy
+    ``entry_says_current``."""
     out: list[tuple[str, str]] = []
     linkedin = (candidate.linkedin_current_company or "").strip()
     if linkedin:
@@ -293,18 +318,21 @@ def current_companies(candidate: PersonLike) -> list[tuple[str, str]]:
                 isinstance(company, str)
                 and company.strip()
                 and is_current_end(entry.get("end"))
-                and entry_says_current(entry)
+                and (undated_counts or entry_says_current(entry))
             ):
                 out.append((company.strip(), "cv"))
     return out
 
 
 def find_hit(
-    candidate: PersonLike, labels: list[tuple[str, int, str]]
+    candidate: PersonLike,
+    labels: list[tuple[str, int, str]],
+    *,
+    undated_counts: bool = False,
 ) -> Optional[OffLimitsHit]:
     if not labels:
         return None
-    for company, source in current_companies(candidate):
+    for company, source in current_companies(candidate, undated_counts=undated_counts):
         matched = _match_label(company, labels)
         if matched is not None:
             return OffLimitsHit(
