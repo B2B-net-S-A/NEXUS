@@ -86,6 +86,10 @@ Każda ma pełny opis w pliku z indeksu; tu tylko to, o co najłatwiej się potk
   „przed” to zrzut z `localhost:3100`, „po” to kod z gałęzi na porcie 3101
   na tych samych danych; rysunek od zera tylko na wyraźną prośbę.
   → `ui/makiety-na-stagingu.md`
+- **Zmiana na styku ról** (rekruter → DL → HoR, kwota tylko dla części ról)
+  przechodzi na stagingu całą ścieżkę każdą rolą, zanim powstanie PR;
+  logowanie jako dowolna osoba: `python -m scripts.staging_login_as`.
+  → `podstawy/test-calej-sciezki-na-stagingu.md`
 - **Nic nie znika z ekranów bez śladu:** inwentarze funkcji
   (`recruitment-feature-inventory.json`, `orders-contracts-feature-inventory.json`,
   `candidate-profile-feature-inventory.json`) i ich testy.
@@ -125,6 +129,7 @@ Deploy przez Coolify, `/api/health`, zmienne środowiskowe, CI i kolejka merge'�
 - `stabilizacja-pod-obciazeniem-reguly-po-audycie-13.md`: Stabilizacja pod obciążeniem — reguły po audycie 13.09 i reaudycie 14.09.2026 · deploy = przerwa, ponowienia HTTP, polling, single-flight cache, XLSX, uploady
 - `staging-na-laptopie.md`: Staging na laptopie — pełna kopia produkcji bez wyjścia na świat · `NEXUS_ENV=staging`, lista pętli, zapora HTTP, odtworzenie z backupu
 - `tabele-worda-z-wgranych-plikow.md`: Tabele Worda z wgranych plików — komórki przez `app/core/docx_cells.py`
+- `test-calej-sciezki-na-stagingu.md`: Test całej ścieżki na stagingu — zmiana na styku ról przechodzi każdą rolę przed PR-em · mapa „kto → co robi → co widzi następny”, „Zaloguj jako” (`scripts.staging_login_as`), backend z gałęzi na 8101, rola, która nie powinna widzieć, raport w artefakcie
 - `wersja-frontu-w-otwartej-karcie.md`: Otwarta karta sama przechodzi na nową wersję frontu
 
 ### Role i uprawnienia — `uprawnienia/`
