@@ -172,3 +172,33 @@ async def test_apply_skips_a_card_someone_touched_after_the_plan(monkeypatch):
     async with AsyncSessionLocal() as db:
         assert await autofill_withdraw.apply(db, pairs) == []
         await db.commit()
+
+
+async def test_a_saved_screening_or_scorecard_counts_as_touched(monkeypatch):
+    """Arkusz screeningu, scorecard i ocena zapisują się na tym samym wierszu
+    etapu bez ruchu karty — a archiwum ich nie przechowuje, więc takiej karty
+    system nie zdejmuje."""
+    world = await _system_cards(monkeypatch, 4)
+    job_id = world["job_id"]
+    screened, scored, rated, untouched = world["ids"]
+    await _rates(job_id, 100, {cid: 140 for cid in world["ids"]})
+    async with AsyncSessionLocal() as db:
+        stages = {
+            s.candidate_id: s
+            for s in (
+                await db.scalars(
+                    select(CandidateStage).where(CandidateStage.job_id == job_id)
+                )
+            ).all()
+        }
+        stages[screened].screening_answers = {
+            "answers": [{"question_id": "q1", "value": "tak"}]
+        }
+        stages[scored].scorecard_answers = {"technical": 4}
+        stages[rated].rating = 3
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        assert await autofill_withdraw.plan(db, job_ids=[job_id]) == [
+            (untouched, job_id)
+        ]

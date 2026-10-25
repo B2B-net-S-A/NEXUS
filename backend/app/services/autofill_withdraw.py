@@ -11,7 +11,9 @@ Reguły, które łatwo cofnąć „przy okazji”:
 
 * Tylko karta, której nikt nie dotknął: proces ``entry_source = "system"``,
   otwarty, bez „Dzwonię” i bez decyzji (``entry_meta.decided_at``), dokładnie
-  jeden wiersz etapu pary i bez osoby (``moved_by`` puste), żadnej notatki
+  jeden wiersz etapu pary i bez osoby (``moved_by`` puste), bez arkusza
+  screeningu, scorecardu, oceny i notatki etapu (zapisują się na tym samym
+  wierszu bez ruchu karty, a archiwum ich nie przechowuje), żadnej notatki
   pary. Wszystko sprawdzane drugi raz pod blokadą kandydata przy wykonaniu.
 * Zdjęcie tą samą drogą co ręczne „Usuń z rekrutacji”: archiwum
   ``candidate_stage_removals`` (bez autora — zdejmuje system), proces
@@ -28,7 +30,7 @@ import logging
 from collections import defaultdict
 from typing import Iterable, Optional
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import and_, exists, func, or_, select
 
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -46,6 +48,11 @@ ACTIVITY_ENTITY = "job_automation"
 ACTION = "autofill_withdrawn"
 
 
+def _empty_json(column):
+    """SQL NULL albo JSONB ``null`` — oba znaczą „nikt nic nie zapisał”."""
+    return or_(column.is_(None), func.jsonb_typeof(column) == "null")
+
+
 def _untouched_pairs(job_ids: Optional[list[int]] = None):
     """Zapytanie o pary ``(candidate_id, job_id)`` nietkniętych kart od systemu."""
     single = (
@@ -53,7 +60,18 @@ def _untouched_pairs(job_ids: Optional[list[int]] = None):
         .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
         .having(
             func.count() == 1,
-            func.bool_and(CandidateStage.moved_by.is_(None)),
+            func.bool_and(
+                and_(
+                    CandidateStage.moved_by.is_(None),
+                    _empty_json(CandidateStage.screening_answers),
+                    _empty_json(CandidateStage.scorecard_answers),
+                    CandidateStage.rating.is_(None),
+                    or_(
+                        CandidateStage.notes.is_(None),
+                        func.btrim(CandidateStage.notes) == "",
+                    ),
+                )
+            ),
         )
     )
     if job_ids is not None:
@@ -95,14 +113,20 @@ async def _over_budget(db, pairs: Iterable[tuple[int, int]]) -> list[tuple[int, 
     jobs = {
         j.id: j
         for j in (
-            await db.scalars(select(Job).where(Job.id.in_({j for _, j in pairs})))
+            await db.scalars(
+                select(Job)
+                .where(Job.id.in_({j for _, j in pairs}))
+                .execution_options(populate_existing=True)
+            )
         ).all()
     }
     candidates = {
         c.id: c
         for c in (
             await db.scalars(
-                select(Candidate).where(Candidate.id.in_({c for c, _ in pairs}))
+                select(Candidate)
+                .where(Candidate.id.in_({c for c, _ in pairs}))
+                .execution_options(populate_existing=True)
             )
         ).all()
     }
