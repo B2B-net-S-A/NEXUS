@@ -22,6 +22,7 @@ a globalne sondy (`_search_busy`, `_started_since`) są podstawiane.
 
 import uuid
 from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import AsyncClient
@@ -191,8 +192,18 @@ def test_window_is_half_open_in_business_timezone(monkeypatch):
     assert not afr.in_window(_at(0)) and not afr.in_window(_at(5))
     assert not afr.in_window(_at(14))
     # „Ta noc" zaczyna się o 01:00 lokalnie — także oglądana o 04:30.
+    # Porównanie na zegarze lokalnym, nie w UTC: w noc zmiany czasu
+    # (25.10.2026) od 01:00 CEST do 04:30 CET mijają 4,5 h i test oparty na
+    # różnicy w UTC wywracał kolejkę merge'ów przez cały dzień.
     start = afr.night_start(_at(4))
-    assert start <= _at(4) and _at(4) - start < timedelta(hours=4)
+    local_start = start.astimezone(ZoneInfo(settings.BUSINESS_TZ))
+    local_seen = _at(4).astimezone(ZoneInfo(settings.BUSINESS_TZ))
+    assert start <= _at(4)
+    assert (local_start.date(), local_start.hour, local_start.minute) == (
+        local_seen.date(),
+        1,
+        0,
+    )
     # Równe godziny = okno zamknięte (wyłącznik bez deployu).
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 1)
     assert not afr.in_window(_at(1))
@@ -221,6 +232,25 @@ def test_clock_helper_keeps_the_real_clock_inside_its_night(real_clock_utc):
         assert tonight <= real_now < tonight + timedelta(hours=24)
         # Następna noc zaczyna się po prawdziwym „teraz”.
         assert afr.night_start(_at(2) + timedelta(days=1)) > real_now
+
+
+@pytest.mark.parametrize(
+    ("seen_utc", "night_utc"),
+    [
+        # Koniec czasu letniego: 03:00 CEST → 02:00 CET, noc ma 25 godzin.
+        ("2026-10-25T03:30:00+00:00", "2026-10-24T23:00:00+00:00"),  # 04:30 CET
+        ("2026-10-25T21:40:00+00:00", "2026-10-24T23:00:00+00:00"),  # 22:40 CET
+        # Początek czasu letniego: 02:00 CET → 03:00 CEST, noc ma 23 godziny.
+        ("2027-03-28T02:30:00+00:00", "2027-03-28T00:00:00+00:00"),  # 04:30 CEST
+    ],
+)
+def test_night_starts_at_local_one_on_clock_change_days(
+    monkeypatch, seen_utc, night_utc
+):
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_START_HOUR", 1)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 5)
+    seen = datetime.fromisoformat(seen_utc)
+    assert afr.night_start(seen) == datetime.fromisoformat(night_utc)
 
 
 # ── wybór i start ───────────────────────────────────────────────────────────
