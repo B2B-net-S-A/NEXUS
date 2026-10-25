@@ -500,7 +500,7 @@ def settle_dr_period(
             award,
             primary=primary,
             tiebreak=None,
-            paid_slots=paid_slots(ctype),
+            paid_slots=paid_slots(ctype, period),
             admin_on_tie=True,
             reason="points_tie",
         )
@@ -513,7 +513,7 @@ def settle_dr_period(
             award,
             primary=primary,
             tiebreak=None,
-            paid_slots=paid_slots(ctype),
+            paid_slots=paid_slots(ctype, period),
             admin_on_tie=True,
             reason="placements_tie",
         )
@@ -535,7 +535,7 @@ def settle_dr_period(
                 award,
                 primary=primary,
                 tiebreak=precision_tiebreak,
-                paid_slots=paid_slots(ctype),
+                paid_slots=paid_slots(ctype, period),
                 admin_on_tie=True,
                 reason="recommendations",
             )
@@ -547,7 +547,7 @@ def settle_dr_period(
                 award,
                 primary=primary,
                 tiebreak=None,
-                paid_slots=paid_slots(ctype),
+                paid_slots=paid_slots(ctype, period),
                 admin_on_tie=True,
                 reason="placements_tie",
             )
@@ -573,6 +573,7 @@ def settle_dr_period(
         exclusion_source="dynareporter_quarter_leader" if excluded else None,
         exclusion_quarter=exclusion_quarter if excluded else None,
         tie_break_rule=rule,
+        period=period,
     )
     held = {pos for tie in ties for pos in tie.positions}
     if ties:
@@ -586,7 +587,7 @@ def settle_dr_period(
             "rank": idx,
             "user_id": entry.user_id,
             "metric_value": entry.metric_value,
-            "prize_pln": _prize_for(ctype, idx),
+            "prize_pln": _prize_for(ctype, idx, period),
         }
         for idx, entry in enumerate(ordered[:PODIUM_ROWS], start=1)
         if idx not in held

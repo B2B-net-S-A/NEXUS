@@ -225,6 +225,25 @@ def test_clock_helper_keeps_the_real_clock_inside_its_night(real_clock_utc):
         assert afr.night_start(_at(2) + timedelta(days=1)) > real_now
 
 
+@pytest.mark.parametrize(
+    ("seen_utc", "night_utc"),
+    [
+        # Koniec czasu letniego: 03:00 CEST → 02:00 CET, noc ma 25 godzin.
+        ("2026-10-25T03:30:00+00:00", "2026-10-24T23:00:00+00:00"),  # 04:30 CET
+        ("2026-10-25T21:40:00+00:00", "2026-10-24T23:00:00+00:00"),  # 22:40 CET
+        # Początek czasu letniego: 02:00 CET → 03:00 CEST, noc ma 23 godziny.
+        ("2027-03-28T02:30:00+00:00", "2027-03-28T00:00:00+00:00"),  # 04:30 CEST
+    ],
+)
+def test_night_starts_at_local_one_on_clock_change_days(
+    monkeypatch, seen_utc, night_utc
+):
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_START_HOUR", 1)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 5)
+    seen = datetime.fromisoformat(seen_utc)
+    assert afr.night_start(seen) == datetime.fromisoformat(night_utc)
+
+
 # ── wybór i start ───────────────────────────────────────────────────────────
 
 

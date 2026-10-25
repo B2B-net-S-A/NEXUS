@@ -94,7 +94,33 @@ export const LEAGUE_RECRUITER_ZERO: MyLeague = recruiterBase(
   standingFor(LEAGUE_ROWS, 999, { gap_to_podium: 470 }),
 );
 
-const DL_ROWS: LeagueRow[] = [row(201, "Piotr Zając", 5, 1), row(202, "Ewa Michalska", 4, 2)];
+// Liga DL od 25.10.2026: kolejność po hit ratio, bez nagród, `metric_value` = placementy.
+function dlRow(userId: number, name: string, placements: number, hitRatio: number | null, rank: number | null): LeagueRow {
+  return { rank, user_id: userId, name, metric_value: placements, hit_ratio: hitRatio, prize_pln: rank ? 0 : null, tied: false };
+}
+
+const DL_ROWS: LeagueRow[] = [
+  dlRow(201, "Piotr Zając", 5, 41.7, 1),
+  dlRow(202, "Ewa Michalska", 4, 36.4, 2),
+  dlRow(203, "Tomasz Wrona", 3, 30, 3),
+  dlRow(204, "Jola Kruk", 2, 25, null),
+];
+
+function dlStanding(userId: number, extra: Partial<LeagueStanding> = {}): LeagueStanding {
+  const index = DL_ROWS.findIndex((r) => r.user_id === userId);
+  const me = index >= 0 ? DL_ROWS[index] : null;
+  return {
+    me: me ? { ...me, qualified: me.rank !== null } : null,
+    rank: me?.rank ?? null,
+    value: me?.hit_ratio ?? 0,
+    position_by_value: me ? 1 + DL_ROWS.filter((r) => (r.hit_ratio ?? 0) > (me.hit_ratio ?? 0)).length : null,
+    gap_to_place_above: null,
+    lead_over_next: null,
+    gap_to_podium: null,
+    neighbours: index >= 0 ? DL_ROWS.slice(Math.max(0, index - 2), index + 3) : [],
+    ...extra,
+  };
+}
 
 function dlBase(standing: LeagueStanding, dl: MyLeague["dl"]): MyLeague {
   return {
@@ -102,51 +128,44 @@ function dlBase(standing: LeagueStanding, dl: MyLeague["dl"]): MyLeague {
     type: "quarterly_champions_dl",
     period: "Q4 2026",
     days_remaining: 80,
-    prizes_pln: PRIZES,
+    prizes_pln: {},
     total: DL_ROWS.length,
     standing,
     dl,
   };
 }
 
-export const LEAGUE_DL_SECOND: MyLeague = dlBase(standingFor(DL_ROWS, 202, { gap_to_place_above: 1 }), {
+const DL_RULES = { hit_ratio_target: 30, min_placements: 3, min_closed_requests: 5 };
+
+export const LEAGUE_DL_SECOND: MyLeague = dlBase(dlStanding(202, { gap_to_place_above: 5.3, lead_over_next: 6.4 }), {
+  ...DL_RULES,
   placements: 4,
   closed_requests: 11,
   hit_ratio: 36.4,
-  hit_ratio_target: 30,
-  min_placements: 3,
   missing_placements: 0,
+  missing_closed_requests: 0,
   qualified: true,
 });
 
-export const LEAGUE_DL_OUTSIDE: MyLeague = dlBase(standingFor(DL_ROWS, 999), {
+/** Na liście, ale bez miejsca: 2 placementy z 8 zamkniętych. */
+export const LEAGUE_DL_UNPLACED: MyLeague = dlBase(dlStanding(204, { gap_to_podium: 5 }), {
+  ...DL_RULES,
   placements: 2,
   closed_requests: 8,
   hit_ratio: 25,
-  hit_ratio_target: 30,
-  min_placements: 3,
   missing_placements: 1,
+  missing_closed_requests: 0,
   qualified: false,
 });
 
-export const LEAGUE_DL_NO_CLOSED: MyLeague = dlBase(standingFor(DL_ROWS, 999), {
+export const LEAGUE_DL_NO_CLOSED: MyLeague = dlBase(dlStanding(999), {
+  ...DL_RULES,
   placements: 0,
   closed_requests: 0,
   hit_ratio: null,
-  hit_ratio_target: 30,
-  min_placements: 3,
   missing_placements: 3,
+  missing_closed_requests: 5,
   qualified: false,
-});
-
-export const LEAGUE_DL_BEYOND_TEN: MyLeague = dlBase(standingFor(DL_ROWS, 999), {
-  placements: 3,
-  closed_requests: 9,
-  hit_ratio: 33.3,
-  hit_ratio_target: 30,
-  min_placements: 3,
-  missing_placements: 0,
-  qualified: true,
 });
 
 export const LEAGUE_SPECTATOR: MyLeague = {

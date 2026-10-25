@@ -363,3 +363,102 @@ async def test_tick_does_nothing_when_disabled_or_after_hours(monkeypatch):
     monkeypatch.setattr(autofill.settings, "NEW_COLUMN_AUTOFILL_ENABLED", True)
     evening = datetime(2026, 10, 21, 20, 0, tzinfo=_WARSAW).astimezone(timezone.utc)
     assert await autofill.tick(now=evening) == {"skipped": "outside_hours"}
+
+
+# ── Reguły z odrzuceń (decyzje Artura 25.10.2026) ───────────────────────────
+
+
+async def _rates(job_id: int, budget: float | None, rates: dict[int, float]) -> None:
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.rate_budget_hourly = Decimal(str(budget)) if budget is not None else None
+        for cid, rate in rates.items():
+            candidate = await db.get(Candidate, cid)
+            candidate.rate_from_hourly = Decimal(str(rate))
+            candidate.rate_from_computed_at = datetime.now(timezone.utc)
+        await db.commit()
+
+
+async def test_budget_skips_far_above_and_puts_slightly_above_last(monkeypatch):
+    """Ponad 25% nad budżetem = nie dodaje; 0–25% nad budżetem = za osobami
+    w budżecie i z nieznaną stawką. Stawka poniżej 20 zł/h to błąd odczytu,
+    nie stawka — liczy się jak nieznana."""
+    monkeypatch.setattr(autofill, "TARGET", 5)
+    world = await _world(6)
+    far, slight, fits, unknown, garbage, consents = world["ids"]
+    await _pool(
+        world["job_id"],
+        {far: 99, slight: 98, consents: 97, fits: 50, unknown: 40, garbage: 30},
+    )
+    await _rates(
+        world["job_id"],
+        100,
+        {far: 126, slight: 125, fits: 100, garbage: 0.6, consents: 200},
+    )
+    async with AsyncSessionLocal() as db:
+        # Zgoda z rozmowy na ofertę poniżej minimum — stawka nie przeszkadza.
+        (await db.get(Candidate, consents)).accepts_below_min_rate = True
+        await db.commit()
+
+    assert await _fill(world["job_id"]) == [consents, fits, unknown, garbage, slight]
+
+
+async def test_budget_rules_need_a_budget(monkeypatch):
+    monkeypatch.setattr(autofill, "TARGET", 2)
+    world = await _world(2)
+    pricey, cheap = world["ids"]
+    await _pool(world["job_id"], {pricey: 90, cheap: 50})
+    await _rates(world["job_id"], None, {pricey: 400, cheap: 80})
+
+    assert await _fill(world["job_id"]) == [pricey, cheap]
+
+
+async def test_skips_people_who_work_at_the_client_now(monkeypatch):
+    """Osoba, która według CV albo LinkedIna pracuje teraz u klienta tej
+    rekrutacji, nie wchodzi od systemu — także przy wpisie CV bez dat
+    (import gubi daty, a rekruterzy odrzucali takie osoby: „pracuje
+    w Nordei przez inną firmę”)."""
+    monkeypatch.setattr(autofill, "TARGET", 5)
+    world = await _world(4)
+    undated, linkedin, left, ok = world["ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        client = await db.get(Client, job.client_id)
+        company = f"{client.name} Sp. z o.o."
+        (await db.get(Candidate, undated)).experience = [
+            {"company": "Inna firma", "role": "Dev", "start": "2015", "end": "2019"},
+            {"company": company, "role": "Dev", "start": "", "end": ""},
+        ]
+        (await db.get(Candidate, linkedin)).linkedin_current_company = client.name
+        (await db.get(Candidate, left)).experience = [
+            {"company": company, "role": "Dev", "start": "2018", "end": "2021"}
+        ]
+        await db.commit()
+    await _pool(world["job_id"], {undated: 90, linkedin: 80, left: 70, ok: 60})
+
+    assert await _fill(world["job_id"]) == [left, ok]
+
+
+async def test_never_readds_people_removed_from_the_recruitment(monkeypatch):
+    """Usunięcie z rekrutacji kasuje wiersze etapu — archiwum
+    ``candidate_stage_removals`` zostaje i system tej osoby nie przywraca."""
+    from app.models.candidate_stage_removal import CandidateStageRemoval
+
+    monkeypatch.setattr(autofill, "TARGET", 5)
+    world = await _world(2)
+    removed, ok = world["ids"]
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStageRemoval(
+                candidate_id=removed,
+                job_id=world["job_id"],
+                reason="remove_from_recruitment: test",
+                last_stage="new",
+                stage_count=1,
+                stages_snapshot=[],
+            )
+        )
+        await db.commit()
+    await _pool(world["job_id"], {removed: 90, ok: 60})
+
+    assert await _fill(world["job_id"]) == [ok]

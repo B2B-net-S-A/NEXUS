@@ -1,22 +1,29 @@
-"""Indeks reguł w ``CLAUDE.md`` powstaje z plików ``docs/claude/<obszar>/*.md``.
+"""Indeks reguł z plików ``docs/claude/<obszar>/*.md``: obszary w ``CLAUDE.md``, pliki z hooka.
 
 ``CLAUDE.md`` jest wklejany w całości do kontekstu każdej sesji Claude'a.
 10.10.2026 miał 926 KB (ok. 530 tys. tokenów z okna 1 mln): sesja startowała
 w połowie zapełniona, a po każdej zmianie pliku aplikacja wklejała go drugi
 raz i sesje kończyły się błędem „Prompt is too long”, którego kompaktowanie
-nie naprawiało. Dlatego reguły modułów leżą w ``docs/claude/``, a w
-``CLAUDE.md`` zostaje krótki rdzeń i ten indeks (tytuł pliku = pierwsza linia
-``# …``; opcjonalna podpowiedź w linii ``<!-- indeks: … -->``).
+nie naprawiało. Dlatego reguły modułów leżą w ``docs/claude/``.
+
+Do 25.10.2026 ``CLAUDE.md`` trzymał też listę wszystkich plików reguł. Dwa PR-y,
+które dopisywały regułę w tym samym obszarze, dopisywały linię w tym samym
+miejscu i miały konflikt w kolejce merge'ów (25.10: #2648 z #2653; 50 z 360
+commitów maina od 15.10 dotykało ``CLAUDE.md``). Teraz w ``CLAUDE.md`` jest tylko
+lista obszarów (zmienia się przy nowym katalogu), a pliki każdego obszaru
+wypisują hooki ``SessionStart`` z ``.claude/settings.json`` (``--print --part N``).
+Hook ma twardy limit 10 000 znaków kontekstu, dlatego wypis to same nazwy plików,
+bez tytułów, w ``HOOK_PARTS`` częściach.
 
 Użycie (z katalogu ``backend/``)::
 
-    python3 scripts/build_claude_index.py            # przepisz indeks w CLAUDE.md
+    python3 scripts/build_claude_index.py            # przepisz listę obszarów w CLAUDE.md
     python3 scripts/build_claude_index.py --check    # tylko sprawdź (kod wyjścia 1 przy rozjeździe)
+    python3 scripts/build_claude_index.py --print --part 1   # pliki reguł, część 1 z HOOK_PARTS (hook SessionStart)
 """
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
@@ -26,15 +33,17 @@ RULES_DIR = REPO_ROOT / "docs" / "claude"
 
 START = "<!-- INDEKS:START (generuje backend/scripts/build_claude_index.py — nie edytuj ręcznie) -->"
 END = "<!-- INDEKS:END -->"
-HINT_PREFIX = "<!-- indeks:"
 
 # Limit całego CLAUDE.md w bajtach. Nowa reguła idzie do docs/claude/, nie tutaj.
 MAX_CLAUDE_MD_BYTES = 40_000
 
-# Data w nawiasie tytułu („(0405, 30.09.2026)”, „(decyzja Artura 25.09.2026)”, „(09.2026)”)
-# zostaje w pliku reguły, a w indeksie wypada: to ok. 2 KB z 40 KB, a czytający szuka po temacie.
-_TRAILING_DATE = re.compile(r"(?:^|\s+)(?:\d{1,2}(?:[–-]\d{1,2})?\.)?\d{2}\.\d{4}$")
-_PARENS = re.compile(r"( ?)\(([^()]*)\)")
+# Wyjście hooka SessionStart ponad 10 000 znaków Claude Code zapisuje do pliku
+# i daje sesji tylko ścieżkę i 2 000 znaków podglądu. Limit jest na hook, więc
+# wypis idzie w HOOK_PARTS częściach (tyle hooków w .claude/settings.json).
+# 25.10.2026 całość miała 9,4 tys. znaków i rosła o ~1,4 tys. tygodniowo
+# (34 nowe pliki reguł w tygodniu); test pada, gdy część przekroczy limit.
+HOOK_MAX_CHARS = 9_500
+HOOK_PARTS = 3
 
 # (katalog, nagłówek w indeksie, kiedy czytać). Kolejność = kolejność w indeksie.
 GROUPS: tuple[tuple[str, str, str], ...] = (
@@ -147,34 +156,7 @@ class RuleIndexError(RuntimeError):
     """Pliki reguł nie dają się złożyć w indeks (komunikat mówi, co poprawić)."""
 
 
-def _title_and_hint(path: Path) -> tuple[str, str]:
-    lines = path.read_text(encoding="utf-8").splitlines()
-    if not lines or not lines[0].startswith("# "):
-        raise RuleIndexError(
-            f"{path.relative_to(REPO_ROOT)}: pierwsza linia ma być tytułem „# …” — z niej powstaje indeks."
-        )
-    hint = ""
-    for line in lines[1:6]:
-        stripped = line.strip()
-        if stripped.startswith(HINT_PREFIX) and stripped.endswith("-->"):
-            hint = stripped[len(HINT_PREFIX) : -3].strip()
-            break
-    return lines[0][2:].strip(), hint
-
-
-def _without_dates(title: str) -> str:
-    """Tytuł do indeksu: bez daty kończącej człon nawiasu. Data w środku zdania zostaje."""
-
-    def strip(match: re.Match[str]) -> str:
-        parts = [_TRAILING_DATE.sub("", part) for part in match.group(2).split(", ")]
-        kept = [part for part in parts if part.strip()]
-        return f"{match.group(1)}({', '.join(kept)})" if kept else ""
-
-    return _PARENS.sub(strip, title).strip()
-
-
-def render() -> str:
-    """Tekst indeksu między znacznikami START/END (ze znacznikami)."""
+def _check_tree() -> None:
     known = {name for name, _, _ in GROUPS}
     found = {p.name for p in RULES_DIR.iterdir() if p.is_dir()}
     unknown = sorted(found - known)
@@ -190,24 +172,50 @@ def render() -> str:
             "Pliki reguł leżą w docs/claude/<obszar>/, nie bezpośrednio w docs/claude/: " + ", ".join(loose)
         )
 
+
+def render() -> str:
+    """Lista obszarów między znacznikami START/END (ze znacznikami)."""
+    _check_tree()
     out: list[str] = [START, ""]
     for name, heading, when in GROUPS:
-        files = sorted((RULES_DIR / name).glob("*.md"))
-        if not files:
+        if not any((RULES_DIR / name).glob("*.md")):
             continue
-        out.append(f"### {heading} — `{name}/`")
-        out.append("")
-        out.append(when)
-        out.append("")
-        for path in files:
-            title, hint = _title_and_hint(path)
-            line = f"- `{path.name}`: {_without_dates(title)}"
-            if hint:
-                line += f" · {hint}"
-            out.append(line)
-        out.append("")
-    out.append(END)
+        out.append(f"- **{heading}** — `{name}/`: {when}")
+    out += ["", END]
     return "\n".join(out)
+
+
+def _area_lines() -> list[str]:
+    _check_tree()
+    lines = []
+    for name, _heading, _when in GROUPS:
+        stems = [p.stem for p in sorted((RULES_DIR / name).glob("*.md"))]
+        if stems:
+            lines.append(f"{name}/: " + ", ".join(stems))
+    return lines
+
+
+def render_files(part: int, parts: int = HOOK_PARTS) -> str:
+    """Część ``part`` (od 1) wypisu plików reguł per obszar — wyjście hooka.
+
+    Obszary w kolejności GROUPS, cięte na ``parts`` kolejnych kawałków
+    o zbliżonej długości (obszar nie dzieli się między części).
+    """
+    if not 1 <= part <= parts:
+        raise RuleIndexError(f"--part {part} poza zakresem 1..{parts}")
+    lines = _area_lines()
+    total = sum(len(line) + 1 for line in lines)
+    chunks: list[list[str]] = [[] for _ in range(parts)]
+    done = 0
+    for line in lines:
+        index = min(parts - 1, int(done * parts / total))
+        chunks[index].append(line)
+        done += len(line) + 1
+    head = (
+        f"Pliki reguł NEXUSA, część {part}/{parts} (docs/claude/<obszar>/<nazwa>.md; "
+        "tytuł w pierwszej linii). Przed zmianą w obszarze przeczytaj pasujące pliki w całości."
+    )
+    return "\n".join([head, *chunks[part - 1]])
 
 
 def current(text: str | None = None) -> str:
@@ -233,10 +241,14 @@ def write() -> bool:
 
 def main(argv: list[str]) -> int:
     try:
+        if "--print" in argv:
+            part = int(argv[argv.index("--part") + 1]) if "--part" in argv else 1
+            print(render_files(part))
+            return 0
         if "--check" in argv:
             if current() != render():
                 print(
-                    "Indeks w CLAUDE.md nie zgadza się z docs/claude/. "
+                    "Lista obszarów w CLAUDE.md nie zgadza się z docs/claude/. "
                     "Uruchom: cd backend && python3 scripts/build_claude_index.py",
                     file=sys.stderr,
                 )

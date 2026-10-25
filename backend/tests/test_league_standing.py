@@ -105,9 +105,56 @@ def test_tie_flag_reaches_the_neighbours() -> None:
         "user_id",
         "name",
         "metric_value",
+        "hit_ratio",
         "prize_pln",
         "tied",
     }
+
+
+def _dl_row(user_id: int, placements: int, hit_ratio, rank: int | None) -> dict:
+    return {
+        "user_id": user_id,
+        "name": f"DL {user_id}",
+        "metric_value": placements,
+        "hit_ratio": hit_ratio,
+        "rank": rank,
+        "tied": False,
+        "prize_pln": 0 if rank else None,
+    }
+
+
+# Liga DL od 25.10.2026: kolejność po hit ratio, `metric_value` = placementy.
+DL_ROWS = [
+    _dl_row(21, 5, 41.7, 1),
+    _dl_row(22, 4, 36.4, 2),
+    _dl_row(25, 7, 30.0, 3),
+    _dl_row(26, 3, 27.3, 4),
+    _dl_row(23, 2, 50.0, None),
+    _dl_row(24, 0, None, None),
+]
+
+
+def test_dl_league_distances_are_in_hit_ratio_points() -> None:
+    second = league_standing(DL_ROWS, 22, value_key="hit_ratio")
+    assert second["value"] == 36.4
+    assert second["gap_to_place_above"] == 5.3
+    assert second["lead_over_next"] == 6.4
+    # Więcej placementów, ale niższe hit ratio — dystans liczy procent.
+    fourth = league_standing(DL_ROWS, 26, value_key="hit_ratio")
+    assert fourth["gap_to_podium"] == 2.7
+
+
+def test_dl_without_a_place_is_compared_by_hit_ratio() -> None:
+    # 2 z 4 to 50%, ale bez 3 placementów nie ma miejsca: podium ma problem
+    # z warunkiem, nie z procentem — dystans 0, pozycja po samym procencie 1.
+    standing = league_standing(DL_ROWS, 23, value_key="hit_ratio")
+    assert standing["rank"] is None
+    assert standing["gap_to_podium"] == 0
+    assert standing["position_by_value"] == 1
+    # Bez zamkniętych rekrutacji hit ratio nie istnieje — liczy się jak 0.
+    none = league_standing(DL_ROWS, 24, value_key="hit_ratio")
+    assert none["value"] == 0
+    assert none["gap_to_podium"] == 30.0
 
 
 def test_leaders_skip_people_without_a_place() -> None:

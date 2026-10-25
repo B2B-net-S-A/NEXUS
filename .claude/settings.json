@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/backend/scripts/build_claude_index.py\" --print --part 1"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/backend/scripts/build_claude_index.py\" --print --part 2"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/backend/scripts/build_claude_index.py\" --print --part 3"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -826,6 +826,8 @@ _BACKGROUND_KINDS = {
     "auto_match_proposed": "new_cv_proposals",
     # 23.10.2026: silnik „System trzyma Nowych na 20” dodał `count` osób.
     "new_column_autofill": "autofill",
+    # 25.10.2026: system zdjął swoje nietknięte karty ponad budżetem.
+    "autofill_withdrawn": "autofill_withdrawn",
     "cv_auto_generate_started": "cv_auto_generate",
     "cv_auto_generate_skipped": "cv_auto_generate_skipped",
     "cv_auto_generate_failed": "cv_auto_generate_failed",

@@ -14,7 +14,7 @@ i rekomendacje D1–D6. Raport: `docs/league-topbar-completion-report.md`.
   13.10.2026: dopiski w dolnej linii („· bez miejsca”, punkty lidera) zabierały
   okruszkom do 105 px przy 1280 px, a forma pełna od 1536 px (222–238 px)
   spychała cele do jednego segmentu. Stan idzie do górnej linii
-  („Liga · bez miejsca”, „Liga DL · poza ligą”, „Liga · remis”), dystans —
+  („Liga · bez miejsca”, „Liga DL · bez miejsca”, „Liga · remis”), dystans —
   do panelu i nazwy dla czytnika ekranu. Nowy dopisek w przycisku = najpierw
   pomiar na harnessie.
 - **Kto widzi którą ligę — z ról, nie z zakresu pulpitu**
@@ -57,10 +57,13 @@ i rekomendacje D1–D6. Raport: `docs/league-topbar-completion-report.md`.
     „—” z „Ponów”, nigdy „0 pkt”;
   - remis o płatne miejsce (`tied`) — „Liga · remis”, w panelu, że rozstrzygnie
     admin;
-  - DL poza ligą — próg (≥3 placementy i hit ratio ≥30%) i ile brakuje; DL
-    spełniający próg, ale spoza listy 10 (`_rank_dls_by_placements` tnie do
-    dziesięciu) — „poza 10.”, nie „poza ligą”; bez zamkniętych rekrutacji hit
-    ratio jest niepoliczone, nie zerowe.
+  - Delivery Lead (od 25.10.2026 liga po hit ratio, bez nagród —
+    sekcja „Liga DL po hit ratio” niżej): wynikiem jest hit
+    ratio („36,4%”), dystanse w punktach procentowych; bez miejsca (mniej niż
+    3 placementy albo 5 zamkniętych rekrutacji) — „Liga DL · bez miejsca”,
+    panel mówi, czego brakuje; bez portfela — „Jeszcze bez wyniku”; bez
+    zamkniętych rekrutacji hit ratio jest niepoliczone („—”), nie zerowe.
+    Stanów „poza ligą” i „poza 10.” już nie ma.
 - **Dystans przeliczony na pracę** (`workToClose`): najwyżej dwie drogi z wag
   ligi, „To 1 placement albo 6 rozmów u klienta.” Rozmów powyżej 20 nie podajemy.
 - **Awans, nie spadek** (D5): strzałka „↑ z 6.” do końca dnia, liczona od
@@ -76,9 +79,52 @@ i rekomendacje D1–D6. Raport: `docs/league-topbar-completion-report.md`.
   zachowuje segmenty celów, okruszki na ekranie rekrutacji 177 → 128 px;
   Head of Recruitment i Delivery Lead na pulpicie 2 → 1 segment; przy 1536 px
   liczba segmentów bez zmian. Przycisk: 117 px rekruter, 147 px lider u widza,
-  163 px DL poza ligą. W najgorszym zestawie (HoR z rolą DL, „Do wysłania”,
+  178 px DL bez miejsca (25.10.2026, było 163 px „poza ligą”; wyszukiwarka dalej 220 px przy 1280, 1366 i 1536 px). W najgorszym zestawie (HoR z rolą DL, „Do wysłania”,
   pigułka po rozmowie, długie okruszki, 1280 px) okruszki zostają skrótem
   10 px (było 105) — ustępują ostatnie, jak przed zmianą. Pilnuje tego e2e
   „górny pasek — licznik celów” (najciaśniejszy pasek ma najszerszy przycisk).
 - Harness: `/preview/kpi-topbar` (paski, sekcja „Liga Mistrzów — stany
   przycisku”, panele), dane fikcyjne w `league/league-fixtures.ts`.
+
+## Liga DL po hit ratio, bez nagród (od Q4 2026)
+
+Decyzja Artura z 25.10.2026, po makietach trzech wariantów (punkty, hit ratio,
+dwa puchary): liga DL szereguje po hit ratio, liczy się już od Q4 2026
+i „dla Delivery Leadów nie robimy żadnych nagród — sama statystyka”.
+
+Powód zmiany (staging, kopia produkcji z 22.10.2026): w Q4 nikt z siedmiu DL-i
+nie spełniał starego progu (hit ratio ≥ 30% i 3 placementy), więc karta była
+pusta, a pasek każdemu mówił „poza ligą”. W Q1–Q3 na podium stała ta sama
+trójka, bo ranking po samych placementach wygrywa wielkość portfela.
+
+- **Ranking:** hit ratio = placementy w portfelu ÷ rekrutacje zamknięte
+  w kwartale (`dl_portfolio_counts`, przegrana tylko z konkurencją, zamknięcia
+  „nie liczy się” poza mianownikiem). Przy równym procencie wyżej więcej
+  placementów (`dl_hit_ratio_key`). `metric_value` to dalej placementy —
+  zamrożenie trzyma je w kolumnie całkowitej; procent jest w `hit_ratio`.
+- **Miejsce w klasyfikacji** od 3 placementów i 5 zamkniętych rekrutacji
+  (`DL_LEAGUE_MIN_PLACEMENTS`, `DL_LEAGUE_MIN_CLOSED_REQUESTS`). Próg
+  zamkniętych chroni przed „2 z 2 = 100%”. Kto go nie spełnia, zostaje na
+  liście bez numeru, z powodami (`MIN_PLACEMENTS_NOT_MET`,
+  `MIN_CLOSED_REQUESTS_NOT_MET`) — jak w Lidze rekruterów. Lista nie jest
+  ucinana do dziesięciu; jest na niej każdy DL z portfelem w kwartale.
+- **Bez nagród od Q4 2026:** `dl_league_pays(period)` jest prawdziwe tylko dla
+  kwartałów do Q3 2026. Od Q4 `paid_slots` = 0 (remis nie czeka na admina),
+  `_prize_for` = 0, `/current` oddaje `prize_pool_pln` i `quarterly_prizes_pln`
+  = `null`, `/my-league` — `prizes_pln: {}`. Zamrożenie zapisuje podium
+  z kwotą 0, a płace biorą tylko wiersze z `prize_pln > 0`, więc premii nie ma.
+- **Kwartały do Q3 2026 zostają, jak je rozliczono** (z wpisów DL
+  DynaReportera, placementy, 5000 / 3000 / 2000 zł). Kwoty i remisy liczą się
+  po okresie (`period` w `paid_slots`, `_prize_for`, `AwardOrder.period`),
+  więc rozstrzygnięcie dawnego remisu dalej wypłaca dawną kwotę. Front
+  przełącza kartę po okresie (`dlLeagueByHitRatio`): wcześniejszy kwartał
+  pokazuje placementy i kwoty.
+- **Cel DL 30% hit ratio zostaje** (`kpi_goals`, licznik celów). To cel, nie
+  próg ligi; `/my-league` oddaje go jako `hit_ratio_target` do odniesienia.
+- **Pasek:** wynik DL to hit ratio („36,4%”), dystanse w punktach
+  procentowych (`league_standing(value_key="hit_ratio")`), stany „Liga DL · Q4”,
+  „Liga DL · bez miejsca” i „Jeszcze bez wyniku”. Warunek miejsca w panelu
+  mówi, ile brakuje placementów i zamkniętych rekrutacji (stany wyżej).
+- Testy: `backend/tests/test_dl_league_hit_ratio.py`,
+  `test_competitions_my_league.py`, `test_league_standing.py`; front
+  `insights-champions.test.tsx`, `league-topbar-model.test.ts`.
