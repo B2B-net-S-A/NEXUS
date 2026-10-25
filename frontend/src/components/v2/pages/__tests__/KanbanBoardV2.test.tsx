@@ -239,13 +239,6 @@ import { KANBAN_VIEW_MODE_STORAGE_KEY } from "@/lib/kanban-view-preferences";
 import { PIPELINE_VERSION_CONFLICT_CODE } from "@/lib/pipeline-version-conflict";
 import { ADDED_BY_ALL, type AddedByFilter } from "@/lib/board-added-by";
 
-// Domyślnie `nexus-ui` chowa puste kolumny (przegląd UX 17.09.2026). Te testy
-// liczą kolumny szablonu, więc startują z pełną tablicą; testy ukrywania
-// ustawiają flagę same.
-beforeEach(() => {
-  useUiStore.setState({ hideEmptyKanbanColumns: false } as never);
-});
-
 beforeAll(() => {
   // Radix Select uses pointer-capture APIs that jsdom does not implement.
   if (!HTMLElement.prototype.hasPointerCapture) {
@@ -1800,7 +1793,6 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
     post.mockResolvedValue({ data: {} });
     useAuthStore.setState({ user: { id: 1, role: "admin" } } as never);
-    useUiStore.setState({ hideEmptyKanbanColumns: false } as never);
   });
 
   it("nad tablicą nie ma paska filtrów ani liczników (02.10.2026)", async () => {
@@ -2460,14 +2452,21 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(screen.getByText("Brak następnej akcji")).toBeTruthy();
   });
 
-  it("„Ukryj puste kolumny” (ustawienie z menu „⋯”) zostawia tylko kolumny z kartami", async () => {
+  it("puste kolumny są zawsze widoczne — stary zapis „ukryj puste” nic nie chowa (25.10.2026)", async () => {
+    const first = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+    const all = first.container.querySelectorAll("[data-colid]").length;
+    first.unmount();
+    // Zapis `nexus-ui` sprzed v11 mógł mieć tę flagę; migracja ją kasuje,
+    // a Tablica i tak jej nie czyta.
     useUiStore.setState({ hideEmptyKanbanColumns: true } as never);
     const { container } = renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
 
-    // Zostają „Nowi” (zawsze) i „Screening” (1 karta); odrzuceni stoją
-    // w kolumnie „Zamknięci” obok tablicy.
-    expect(container.querySelectorAll("[data-colid]")).toHaveLength(2);
+    // Więcej niż „Nowi” i „Screening” (jedyne z kartami) — puste też stoją.
+    expect(all).toBeGreaterThan(2);
+    expect(container.querySelectorAll("[data-colid]")).toHaveLength(all);
+    expect(screen.queryByTestId("toggle-empty-columns")).toBeNull();
     expect(screen.getByTestId("board-closed-column")).toBeTruthy();
   });
 });
@@ -2485,7 +2484,6 @@ describe("KanbanBoardV2 — „Do wysłania do klienta” (13.10.2026)", () => {
     kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
     post.mockResolvedValue({ data: {} });
     useAuthStore.setState({ user: DELIVERY_LEAD } as never);
-    useUiStore.setState({ hideEmptyKanbanColumns: false } as never);
   });
 
   // „QC CV” (etap „Przepuszczony przez DZ”): Iga gotowa od wczoraj, Kuba od
