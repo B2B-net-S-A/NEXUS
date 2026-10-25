@@ -344,6 +344,17 @@ export function isClosedQuarter(
 }
 
 /**
+ * Liga DL od Q4 2026 szereguje po hit ratio i nie ma nagród (decyzja Artura
+ * 25.10.2026). Kwartały wcześniejsze rozliczono po placementach, z nagrodami —
+ * ich karta pokazuje placementy. Nierozpoznany okres = liga bieżąca.
+ */
+export function dlLeagueByHitRatio(period: string | null | undefined): boolean {
+  const parsed = period ? parseQuarterKey(period) : null;
+  if (!parsed) return true;
+  return parsed[0] * 4 + parsed[1] >= 2026 * 4 + 4;
+}
+
+/**
  * Pierwszy okres z wynikami w NEXUS-ie — styczeń 2026. Wcześniejszych wyników
  * z DynaReportera nie przenosiliśmy, więc lista wyboru zaczyna się tutaj.
  */
@@ -428,6 +439,8 @@ export interface MyCompetitionPositionEntry {
   /** `null` = na liście, ale bez miejsca w klasyfikacji nagrodowej. */
   rank?: number | null;
   placements?: number | null;
+  /** Liga DL: placementy ÷ zamknięte rekrutacje; `null` = brak zamkniętych. */
+  hit_ratio?: number | null;
   qualified?: boolean;
 }
 
@@ -448,6 +461,8 @@ export interface LeagueRow {
   name: string;
   /** Punkty (liga rekruterów) albo placementy (liga DL). */
   metric_value: number;
+  /** Wynik ligi DL od Q4 2026; `null` = brak zamkniętych rekrutacji. */
+  hit_ratio?: number | null;
   prize_pln: number | null;
   /** Remis na płatnym miejscu, którego regulamin nie rozstrzyga. */
   tied: boolean;
@@ -459,13 +474,13 @@ export interface LeagueMe extends LeagueRow {
   placements?: number;
   interviews?: number;
   recommendations?: number;
-  hit_ratio?: number | null;
 }
 
 export interface LeagueStanding {
-  /** `null` = osoby nie ma w rankingu (zero punktów albo DL poniżej progu). */
+  /** `null` = osoby nie ma w rankingu (zero punktów albo DL bez portfela). */
   me: LeagueMe | null;
   rank: number | null;
+  /** Punkty (liga rekruterów) albo hit ratio w % (liga DL); dystanse w tej samej jednostce. */
   value: number;
   /** Pozycja po samym wyniku, także bez miejsca w klasyfikacji. */
   position_by_value: number | null;
@@ -489,9 +504,13 @@ export interface LeagueDlNumbers {
   closed_neutral?: number;
   /** `null` = brak zamkniętych rekrutacji w kwartale (hit ratio niepoliczone). */
   hit_ratio: number | null;
+  /** Cel hit ratio DL — punkt odniesienia, nie próg ligi. */
   hit_ratio_target: number;
   min_placements: number;
+  min_closed_requests?: number;
   missing_placements: number;
+  missing_closed_requests?: number;
+  /** Miejsce w klasyfikacji: dość placementów i zamkniętych rekrutacji. */
   qualified: boolean;
 }
 

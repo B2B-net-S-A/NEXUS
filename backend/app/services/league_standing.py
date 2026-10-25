@@ -9,7 +9,7 @@ niezakwalifikowani), w kolejności wyniku.
 nie dało się z niego policzyć. Tu dystans liczy się z całej listy.
 """
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from app.models.user import User, UserRole
 
@@ -21,8 +21,18 @@ LeagueKind = Literal["recruiter", "delivery_lead", "spectator"]
 
 # Pola wiersza, które pasek pokazuje o innych osobach. Wynik i nagroda są
 # jawne na „Rywalizacji” dla każdego zalogowanego; marżę `award_ranked_rows`
-# wycina wcześniej (`_MARGIN_EXTRAS`).
-_PUBLIC_KEYS = ("rank", "user_id", "name", "metric_value", "prize_pln", "tied")
+# wycina wcześniej (`_MARGIN_EXTRAS`). `hit_ratio` — wynik ligi DL.
+_PUBLIC_KEYS = (
+    "rank",
+    "user_id",
+    "name",
+    "metric_value",
+    "hit_ratio",
+    "prize_pln",
+    "tied",
+)
+
+Number = Union[int, float]
 
 
 def league_kind(user: User) -> LeagueKind:
@@ -45,10 +55,24 @@ def _public(row: dict) -> dict:
     return {key: row.get(key) for key in _PUBLIC_KEYS}
 
 
+def _gap(high: Number, low: Number) -> Number:
+    """Różnica wyników; hit ratio (ułamek) zaokrąglone do 0,1 jak w rankingu."""
+    diff = high - low
+    return round(diff, 1) if isinstance(diff, float) else diff
+
+
 def league_standing(
-    rows: list[dict], user_id: int, ties: Optional[list[dict]] = None
+    rows: list[dict],
+    user_id: int,
+    ties: Optional[list[dict]] = None,
+    *,
+    value_key: str = "metric_value",
 ) -> dict:
     """Miejsce, dystanse i sąsiedzi osoby `user_id`.
+
+    `value_key` — pole wyniku: `metric_value` (punkty Ligi rekruterów) albo
+    `hit_ratio` (liga DL od 25.10.2026, dystanse w punktach procentowych).
+    Hit ratio niepoliczone (brak zamkniętych rekrutacji) liczy się jak 0.
 
     - `position_by_value` — pozycja po samym wyniku, także dla osoby bez
       miejsca w klasyfikacji („po punktach to 7. pozycja”).
@@ -71,25 +95,32 @@ def league_standing(
         (i for i, row in enumerate(rows) if row.get("user_id") == user_id), None
     )
     me = rows[index] if index is not None else None
-    value = int(me["metric_value"]) if me else 0
+
+    def score(row: dict) -> Number:
+        raw = row.get(value_key)
+        if raw is None:
+            return 0
+        return float(raw) if value_key == "hit_ratio" else int(raw)
+
+    value = score(me) if me else 0
     rank: Optional[int] = me.get("rank") if me else None
 
     by_rank = {row["rank"]: row for row in rows if row.get("rank") is not None}
     third = by_rank.get(PODIUM_SIZE)
 
-    gap_to_place_above: Optional[int] = None
-    lead_over_next: Optional[int] = None
+    gap_to_place_above: Optional[Number] = None
+    lead_over_next: Optional[Number] = None
     if rank is not None:
         above = by_rank.get(rank - 1)
         if above is not None:
-            gap_to_place_above = int(above["metric_value"]) - value
+            gap_to_place_above = _gap(score(above), value)
         below = by_rank.get(rank + 1)
         if below is not None:
-            lead_over_next = value - int(below["metric_value"])
+            lead_over_next = _gap(value, score(below))
 
-    gap_to_podium: Optional[int] = None
+    gap_to_podium: Optional[Number] = None
     if third is not None and (rank is None or rank > PODIUM_SIZE):
-        gap_to_podium = max(int(third["metric_value"]) - value, 0)
+        gap_to_podium = max(_gap(score(third), value), 0)
 
     neighbours: list[dict] = []
     position_by_value: Optional[int] = None
@@ -98,9 +129,7 @@ def league_standing(
         neighbours = [
             _public(row) for row in rows[start : index + NEIGHBOURS_EACH_SIDE + 1]
         ]
-        position_by_value = 1 + sum(
-            1 for row in rows if int(row["metric_value"]) > value
-        )
+        position_by_value = 1 + sum(1 for row in rows if score(row) > value)
 
     tie_for: Optional[int] = None
     for tie in ties or []:

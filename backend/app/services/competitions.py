@@ -5,10 +5,11 @@ Port formuł z InfraReportera (dynareporter), źródło:
   - deliveryLead.ts:576-629 (quarterly champions DL)
 
 Formuły:
-  - Quarterly DL: hit_ratio >= 30% AND placements >= 3, ORDER BY placements DESC
-    LIMIT 3. Nagrody: 5000 / 3000 / 2000 PLN.
-  - Quarterly Recruiter (TAC+recruiter+sourcer): min 3 placements.
-    Ranking po placements, nagrody jak DL.
+  - Quarterly DL (od Q4 2026, decyzja Artura 25.10.2026): ranking po hit ratio,
+    miejsce od 3 placementów i 5 zamkniętych rekrutacji. BEZ nagród — sama
+    statystyka. Do Q3 2026: hit_ratio >= 30% AND placements >= 3, ranking po
+    placementach, 5000 / 3000 / 2000 PLN (rozliczone z DynaReportera).
+  - Quarterly Recruiter: Liga punktowa, nagrody 5000 / 3000 / 2000 PLN.
   - Monthly Most Recommendations: TOP 1, nagroda 1500 PLN.
   - Monthly Most Placements: TOP 1 z min 2 placementami, nagroda 1500 PLN.
   - Hall of Fame: all-time TOP 5 po placement count.
@@ -66,8 +67,21 @@ logger = logging.getLogger(__name__)
 
 # ── Konfiguracja nagród ──────────────────────────────────────────────────
 
-HIT_RATIO_TARGET = DL_HIT_RATIO_TARGET_PCT  # % — próg wejścia na podium DL
+# Cel hit ratio Delivery Leada (`kpi_goals`). Od 25.10.2026 NIE jest progiem
+# ligi DL — liga szereguje po hit ratio, a próg to liczba placementów
+# i zamkniętych rekrutacji (niżej).
+HIT_RATIO_TARGET = DL_HIT_RATIO_TARGET_PCT
 QUARTERLY_MIN_PLACEMENTS = 3
+
+# Liga DL (decyzja Artura 25.10.2026): ranking po hit ratio, miejsce od
+# 3 placementów i 5 zamkniętych rekrutacji w kwartale, bez nagród pieniężnych.
+# Próg zamkniętych chroni przed „2 z 2 = 100%”. Do Q3 2026 liga liczyła
+# placementy przy progu hit ratio 30% — te kwartały są rozliczone z
+# DynaReportera i zamrożone (`competition_history`), tej logiki nie przeliczamy.
+DL_LEAGUE_MIN_PLACEMENTS = 3
+DL_LEAGUE_MIN_CLOSED_REQUESTS = 5
+# Pierwszy kwartał ligi DL bez nagród (rok, kwartał).
+DL_LEAGUE_UNPAID_FROM = (2026, 4)
 
 QUARTERLY_PRIZES_PLN = {1: 5000, 2: 3000, 3: 2000}
 MONTHLY_RACE_PRIZE_PLN = 1500
@@ -866,15 +880,27 @@ async def dl_neutral_closed_counts(
     return out
 
 
-async def _rank_dls_by_placements(
+def dl_hit_ratio_key(entry: RankedUser) -> tuple:
+    """Kolejność ligi DL: hit ratio, potem placementy (większy portfel przy
+    tym samym procencie). Hit ratio niepoliczone (brak zamkniętych) — na końcu."""
+    hit_ratio = entry.hit_ratio if entry.hit_ratio is not None else -1.0
+    return (hit_ratio, entry.metric_value)
+
+
+async def _rank_dls_by_hit_ratio(
     db: AsyncSession,
     *,
     start: datetime,
     end: datetime,
-    min_placements: int = QUARTERLY_MIN_PLACEMENTS,
-    limit: Optional[int] = None,
 ) -> list[RankedUser]:
-    """Ranking DL-i po placementach w okresie (liczniki: `dl_portfolio_counts`)."""
+    """Ranking DL-i po hit ratio w okresie (liczniki: `dl_portfolio_counts`).
+
+    Na liście jest każdy DL z portfelem w okresie (placement albo zamknięta
+    rekrutacja). Kto nie ma 3 placementów i 5 zamkniętych rekrutacji, zostaje
+    na liście bez miejsca (`qualified: False` + powody) — tak jak Liga
+    rekruterów. `metric_value` to placementy (zamrożenie trzyma je w kolumnie
+    całkowitej), hit ratio jest w `hit_ratio`.
+    """
     placements_by_dl, requests_by_dl = await dl_portfolio_counts(
         db, start=start, end=end
     )
@@ -899,31 +925,39 @@ async def _rank_dls_by_placements(
     name_map = {u.id: u.name for u in users_rows}
 
     ranked: list[RankedUser] = []
-    for dl_id, placements in placements_by_dl.items():
-        if placements < min_placements:
-            continue
+    for dl_id in dl_ids:
         if dl_id not in name_map:
             continue
+        placements = placements_by_dl.get(dl_id, 0)
         requests = requests_by_dl.get(dl_id, 0)
-        hit_ratio = round(placements / requests * 100, 1) if requests else 0.0
-        if hit_ratio < HIT_RATIO_TARGET:
-            continue
+        hit_ratio = round(placements / requests * 100, 1) if requests else None
+        reasons: list[str] = []
+        if placements < DL_LEAGUE_MIN_PLACEMENTS:
+            reasons.append("MIN_PLACEMENTS_NOT_MET")
+        if requests < DL_LEAGUE_MIN_CLOSED_REQUESTS:
+            reasons.append("MIN_CLOSED_REQUESTS_NOT_MET")
         ranked.append(
             RankedUser(
                 user_id=dl_id,
                 name=name_map[dl_id],
                 metric_value=placements,
                 hit_ratio=hit_ratio,
-                extras={"requests": requests, "requests_basis": "closed_in_quarter"},
+                extras={
+                    "role": UserRole.delivery_lead.value,
+                    "placements": placements,
+                    "requests": requests,
+                    "requests_basis": "closed_in_quarter",
+                    "qualified": not reasons,
+                    "disqualification_reasons": reasons,
+                    "required_placements": DL_LEAGUE_MIN_PLACEMENTS,
+                    "required_closed_requests": DL_LEAGUE_MIN_CLOSED_REQUESTS,
+                },
             )
         )
 
-    # Kolejność prezentacji: placementy, potem `user_id`. Remis na płatnym
-    # miejscu NIE jest tu rozstrzygany — przy zamrożeniu idzie do admina
-    # (`competition_rules.order_with_ties`).
-    ranked.sort(key=lambda r: (-r.metric_value, r.user_id))
-    if limit:
-        ranked = ranked[:limit]
+    # Kolejność prezentacji: hit ratio, placementy, potem `user_id`. Nagród nie
+    # ma, więc remis nie idzie do admina — zostaje kolejność prezentacji.
+    ranked.sort(key=lambda r: (tuple(-v for v in dl_hit_ratio_key(r)), r.user_id))
     return ranked
 
 
@@ -933,7 +967,7 @@ async def _rank_dls_by_placements(
 async def quarterly_champions_dl(db: AsyncSession, period: str) -> list[RankedUser]:
     year, q = parse_quarter(period)
     start, end = quarter_bounds(year, q)
-    return await _rank_dls_by_placements(db, start=start, end=end, limit=10)
+    return await _rank_dls_by_hit_ratio(db, start=start, end=end)
 
 
 def required_placements_for_quarter(
@@ -1507,8 +1541,26 @@ _QUARTERLY_TYPES = (
 )
 
 
-def paid_slots(type_: CompetitionType) -> int:
+def dl_league_pays(period: Optional[str]) -> bool:
+    """Czy liga DL tego kwartału ma nagrody — tylko kwartały do Q3 2026.
+
+    Od Q4 2026 liga DL to sama statystyka (decyzja Artura 25.10.2026).
+    Wcześniejsze kwartały rozliczył DynaReporter z kwotami 5000/3000/2000 zł
+    i te kwoty zostają, także przy rozstrzyganiu ich remisów.
+    """
+    if not period:
+        return False
+    try:
+        return parse_quarter(period) < DL_LEAGUE_UNPAID_FROM
+    except ValueError:
+        return False
+
+
+def paid_slots(type_: CompetitionType, period: Optional[str] = None) -> int:
     """Ile miejsc podium niesie pieniądze."""
+    if type_ == CompetitionType.quarterly_champions_dl:
+        # Bez nagród remis nie czeka na admina.
+        return len(QUARTERLY_PRIZES_PLN) if dl_league_pays(period) else 0
     if type_ in _QUARTERLY_TYPES:
         return len(QUARTERLY_PRIZES_PLN)
     if type_ in _MONTHLY_TYPES:
@@ -1526,6 +1578,8 @@ class AwardOrder:
     exclusion_source: Optional[str]
     exclusion_quarter: Optional[str]
     tie_break_rule: str
+    # Okres rankingu — od niego zależą kwoty ligi DL (`dl_league_pays`).
+    period: Optional[str] = None
 
 
 async def award_order(
@@ -1580,7 +1634,7 @@ async def award_order(
             award,
             primary=primary,
             tiebreak=margin_tiebreak,
-            paid_slots=paid_slots(type_),
+            paid_slots=paid_slots(type_, period),
             admin_on_tie=True,
             reason="placements_margin_unresolved",
         )
@@ -1599,23 +1653,29 @@ async def award_order(
             award,
             primary=primary,
             tiebreak=recommendation_tiebreak,
-            paid_slots=paid_slots(type_),
+            paid_slots=paid_slots(type_, period),
             admin_on_tie=False,
             reason="recommendations",
         )
         rule = "recommendations→precision→earliest_last_recommendation"
+    elif type_ == CompetitionType.quarterly_champions_dl:
+        ordered, ties = order_with_ties(
+            award,
+            primary=dl_hit_ratio_key,
+            tiebreak=None,
+            paid_slots=paid_slots(type_, period),
+            admin_on_tie=False,
+            reason="hit_ratio_tie",
+        )
+        rule = "hit_ratio→placements"
     elif type_ in _QUARTERLY_TYPES:
         ordered, ties = order_with_ties(
             award,
             primary=primary,
             tiebreak=None,
-            paid_slots=paid_slots(type_),
+            paid_slots=paid_slots(type_, period),
             admin_on_tie=True,
-            reason=(
-                "points_tie"
-                if type_ == CompetitionType.quarterly_champions_recruiter
-                else "placements_tie"
-            ),
+            reason="points_tie",
         )
         rule = "metric→admin"
     else:
@@ -1627,6 +1687,7 @@ async def award_order(
         exclusion_source=source,
         exclusion_quarter=quarter,
         tie_break_rule=rule,
+        period=period,
     )
 
 
@@ -1654,7 +1715,7 @@ def award_ranked_rows(
         if rank is None:
             prize = None
         else:
-            prize = 0 if tied else _prize_for(type_, rank)
+            prize = 0 if tied else _prize_for(type_, rank, order.period)
         return {
             **{
                 key: value
@@ -1981,11 +2042,10 @@ async def compute_live(
     raise ValueError(f"Unknown competition type: {type_}")
 
 
-def _prize_for(type_: CompetitionType, rank: int) -> int:
-    if type_ in (
-        CompetitionType.quarterly_champions_dl,
-        CompetitionType.quarterly_champions_recruiter,
-    ):
+def _prize_for(type_: CompetitionType, rank: int, period: Optional[str] = None) -> int:
+    if type_ == CompetitionType.quarterly_champions_dl:
+        return QUARTERLY_PRIZES_PLN.get(rank, 0) if dl_league_pays(period) else 0
+    if type_ == CompetitionType.quarterly_champions_recruiter:
         return QUARTERLY_PRIZES_PLN.get(rank, 0)
     if type_ in (
         CompetitionType.monthly_recommendations,
@@ -2163,7 +2223,7 @@ async def freeze_competition(
             rank=idx,
             metric_value=r.metric_value,
             points=r.metric_value,
-            prize_pln=_prize_for(type_, idx),
+            prize_pln=_prize_for(type_, idx, period),
             frozen_snapshot={"top": full_snapshot, **meta},
         )
         db.add(winner)
@@ -2285,7 +2345,7 @@ async def frozen_result(
                 "rank": idx,
                 "tied": idx in held,
                 "excluded": False,
-                "prize_pln": 0 if idx in held else _prize_for(type_, idx),
+                "prize_pln": 0 if idx in held else _prize_for(type_, idx, period),
             }
             for idx, entry in enumerate(details.get("top") or [], start=1)
         ]
@@ -2418,7 +2478,7 @@ async def pending_competition_ties(db: AsyncSession) -> list[dict]:
                     {
                         **tie,
                         "prizes_pln": {
-                            str(pos): _prize_for(ctype, pos)
+                            str(pos): _prize_for(ctype, pos, closure.period)
                             for pos in tie.get("positions", [])
                         },
                     }
@@ -2500,7 +2560,7 @@ async def resolve_competition_tie(
     resolution = {
         "user_ids": user_ids,
         "assignments": [
-            {"rank": pos, "user_id": uid, "prize_pln": _prize_for(type_, pos)}
+            {"rank": pos, "user_id": uid, "prize_pln": _prize_for(type_, pos, period)}
             for pos, uid, _entry in assignments
         ],
         "resolved_by": actor_id,
@@ -2516,7 +2576,7 @@ async def resolve_competition_tie(
                 rank=pos,
                 metric_value=metric,
                 points=metric,
-                prize_pln=_prize_for(type_, pos),
+                prize_pln=_prize_for(type_, pos, period),
                 frozen_snapshot={
                     "top": details.get("top", []),
                     "freeze_reason": details.get("freeze_reason"),

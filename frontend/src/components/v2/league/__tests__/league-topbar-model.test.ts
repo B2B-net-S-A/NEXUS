@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  LEAGUE_DL_BEYOND_TEN,
   LEAGUE_DL_NO_CLOSED,
-  LEAGUE_DL_OUTSIDE,
   LEAGUE_DL_SECOND,
+  LEAGUE_DL_UNPLACED,
   LEAGUE_RECRUITER_FOURTH,
   LEAGUE_RECRUITER_LEADER,
   LEAGUE_RECRUITER_SECOND,
@@ -177,65 +176,87 @@ describe("buildLeagueTopbarModel — rekruter", () => {
   });
 });
 
-describe("buildLeagueTopbarModel — Delivery Lead", () => {
-  it("w lidze: placementy zamiast punktów i hit ratio w panelu", () => {
+describe("buildLeagueTopbarModel — Delivery Lead (liga po hit ratio od 25.10.2026)", () => {
+  it("z miejscem: hit ratio jako wynik, dystans w punktach procentowych, bez nagród", () => {
     const model = buildLeagueTopbarModel(LEAGUE_DL_SECOND);
     expect(model?.medal).toEqual({ text: "2", tone: "silver" });
     expect(model?.label).toBe("Liga DL · Q4");
-    expect(model?.value).toBe("4 placementy");
+    expect(model?.value).toBe("36,4%");
     expect(texts(model)).toEqual([
-      "Do 1. miejsca brakuje 1 placementu.",
+      "Do 1. miejsca brakuje 5,3 punktu procentowego.",
+      "Przewaga nad 3. miejscem: 6,4 punktu procentowego.",
       "Hit ratio 36,4% (4 z 11 zamkniętych rekrutacji).",
     ]);
-    expect(model?.panel.breakdown).toBeNull();
-    expect(model?.panel.rowsUnit).toBe("placementy");
-    expect(model?.spoken).toBe("Liga Mistrzów DL, Q4 2026: 2. miejsce, 4 placementy.");
+    expect(model?.panel.sub).toBe("4 osoby w lidze");
+    expect(model?.panel.headlineValue).toBe("36,4% hit ratio");
+    expect(model?.panel.condition).toEqual({
+      met: true,
+      text: "Warunek spełniony: co najmniej 3 placementy i 5 zamkniętych rekrutacji.",
+    });
+    expect(model?.panel.rowsUnit).toBe("hit ratio");
+    expect(model?.panel.rows.map((r) => [r.name, r.value, r.prize])).toEqual([
+      ["Piotr Zając", "41,7%", null],
+      ["Ty", "36,4%", null],
+      ["Tomasz Wrona", "30%", null],
+      ["Jola Kruk", "25%", null],
+    ]);
+    expect(model?.panel.footnote).toContain("bez nagród");
+    expect(model?.spoken).toBe("Liga Mistrzów DL, Q4 2026: 2. miejsce, hit ratio 36,4%.");
   });
 
   it("zamknięcia „nie liczy się” dopisane do zdania o hit ratio (21.10.2026)", () => {
     const one = buildLeagueTopbarModel({ ...LEAGUE_DL_SECOND, dl: { ...LEAGUE_DL_SECOND.dl!, closed_neutral: 1 } });
-    expect(texts(one)[1]).toBe(
+    expect(texts(one)[2]).toBe(
       "Hit ratio 36,4% (4 z 11 zamkniętych rekrutacji). Jedna zamknięta nie liczy się (duplikat, anulowana, wewnętrzna…).",
     );
     const three = buildLeagueTopbarModel({ ...LEAGUE_DL_SECOND, dl: { ...LEAGUE_DL_SECOND.dl!, closed_neutral: 3 } });
-    expect(texts(three)[1]).toContain("3 zamknięte nie liczą się");
+    expect(texts(three)[2]).toContain("3 zamknięte nie liczą się");
     const five = buildLeagueTopbarModel({ ...LEAGUE_DL_SECOND, dl: { ...LEAGUE_DL_SECOND.dl!, closed_neutral: 5 } });
-    expect(texts(five)[1]).toContain("5 zamkniętych nie liczy się");
+    expect(texts(five)[2]).toContain("5 zamkniętych nie liczy się");
   });
 
-  it("poza ligą: droga do progu", () => {
-    const model = buildLeagueTopbarModel(LEAGUE_DL_OUTSIDE);
-    expect(model?.medal).toEqual({ text: "–", tone: "warn" });
-    expect(model?.label).toBe("Liga DL · poza ligą");
-    expect(model?.value).toBe("2 placementy");
-    expect(texts(model)).toEqual([
-      "Do ligi potrzeba co najmniej 3 placementów i hit ratio 30%.",
-      "Hit ratio 25% (2 z 8 zamkniętych rekrutacji).",
-      "Brakuje 1 placementu.",
+  it("dystans w pełnych punktach procentowych odmienia się jak liczba", () => {
+    const model = buildLeagueTopbarModel({
+      ...LEAGUE_DL_SECOND,
+      standing: { ...LEAGUE_DL_SECOND.standing!, gap_to_place_above: 2, lead_over_next: 1 },
+    });
+    expect(texts(model).slice(0, 2)).toEqual([
+      "Do 1. miejsca brakuje 2 punktów procentowych.",
+      "Przewaga nad 3. miejscem: 1 punkt procentowy.",
     ]);
+  });
+
+  it("bez miejsca: na liście z hit ratio, warunek mówi, czego brakuje", () => {
+    const model = buildLeagueTopbarModel(LEAGUE_DL_UNPLACED);
+    expect(model?.medal).toEqual({ text: "–", tone: "warn" });
+    expect(model?.label).toBe("Liga DL · bez miejsca");
+    expect(model?.value).toBe("25%");
+    expect(texts(model)).toEqual([
+      "Hit ratio 25% (2 z 8 zamkniętych rekrutacji).",
+      "Po hit ratio to 4. pozycja.",
+    ]);
+    expect(model?.panel.condition).toEqual({
+      met: false,
+      text: "Miejsce w klasyfikacji od 3 placementów i 5 zamkniętych rekrutacji w kwartale. Brakuje 1 placementu.",
+    });
   });
 
   it("bez zamkniętych rekrutacji hit ratio jest niepoliczone, nie zerowe", () => {
     const model = buildLeagueTopbarModel(LEAGUE_DL_NO_CLOSED);
-    expect(model?.value).toBe("0 placementów");
-    expect(texts(model)).toContain("Hit ratio liczy się od pierwszej rekrutacji zamkniętej w kwartale.");
-    expect(texts(model)).toContain("Brakuje 3 placementów.");
+    expect(model?.value).toBe("—");
+    expect(model?.medal.tone).toBe("off");
+    expect(model?.panel.headline).toBe("Jeszcze bez wyniku");
+    expect(texts(model)).toEqual(["Hit ratio liczy się od pierwszej rekrutacji zamkniętej w kwartale."]);
+    expect(model?.panel.condition?.text).toContain("Brakuje 3 placementów i 5 zamkniętych rekrutacji.");
   });
 
   it("hit ratio z jedną zamkniętą rekrutacją w liczbie pojedynczej", () => {
     const model = buildLeagueTopbarModel({
-      ...LEAGUE_DL_OUTSIDE,
-      dl: { ...LEAGUE_DL_OUTSIDE.dl!, placements: 1, closed_requests: 1, hit_ratio: 100, missing_placements: 2 },
+      ...LEAGUE_DL_UNPLACED,
+      dl: { ...LEAGUE_DL_UNPLACED.dl!, placements: 1, closed_requests: 1, hit_ratio: 100, missing_placements: 2, missing_closed_requests: 4 },
     });
     expect(texts(model)).toContain("Hit ratio 100% (1 z 1 zamkniętej rekrutacji).");
-  });
-
-  it("próg spełniony, ale poza pierwszą dziesiątką rankingu — to nie „poza ligą”", () => {
-    const model = buildLeagueTopbarModel(LEAGUE_DL_BEYOND_TEN);
-    expect(model?.panel.sub).toBe("ponad 2 osoby w lidze · podium: 5000 / 3000 / 2000 zł");
-    expect(model?.label).toBe("Liga DL · poza 10.");
-    expect(model?.panel.headline).toBe("W lidze");
-    expect(model?.medal.tone).toBe("neutral");
+    expect(model?.panel.condition?.text).toContain("Brakuje 2 placementów i 4 zamkniętych rekrutacji.");
   });
 });
 

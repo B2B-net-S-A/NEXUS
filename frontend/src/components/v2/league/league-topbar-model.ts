@@ -5,7 +5,8 @@
  * rysują, więc każda reguła tekstu idzie tutaj i do testu modelu.
  *
  * - Rekruter: miejsce i punkty w Lidze rekruterów (bieżący kwartał).
- * - Delivery Lead: miejsce i placementy w Lidze DL — ta liga punktów nie ma.
+ * - Delivery Lead: miejsce i hit ratio w Lidze DL — od 25.10.2026 ranking
+ *   po hit ratio, bez punktów i bez nagród.
  * - Kto nie gra: kto prowadzi Ligę rekruterów i pierwsza piątka.
  *
  * Bez miejsca to nie zero, a „0 pkt” to nie awaria (awarię rysuje
@@ -152,11 +153,8 @@ function podiumPrizes(prizes: Record<string, number>): string | null {
   return `podium: ${values.map(formatLeagueNumber).join(" / ")} zł`;
 }
 
-function leagueSub(data: MyLeague, { moreThanListed = false } = {}): string | null {
-  // Ranking DL tnie listę do 10 — osoba spełniająca próg spoza listy wie, że jest ich więcej.
-  const people = moreThanListed
-    ? `ponad ${countPl(data.total, "osoba", "osoby", "osób")} w lidze`
-    : `${countPl(data.total, "osoba", "osoby", "osób")} w lidze`;
+function leagueSub(data: MyLeague): string | null {
+  const people = `${countPl(data.total, "osoba", "osoby", "osób")} w lidze`;
   const prizes = podiumPrizes(data.prizes_pln);
   return prizes ? `${people} · ${prizes}` : people;
 }
@@ -186,7 +184,7 @@ export function workToClose(
 function panelRows(
   rows: readonly LeagueRow[],
   meId: number | null,
-  formatValue: (value: number) => string,
+  formatValue: (row: LeagueRow) => string,
 ): LeaguePanelRow[] {
   return rows.map((row) => {
     const onPodium = row.rank !== null && row.rank <= PODIUM;
@@ -198,7 +196,7 @@ function panelRows(
       rank: row.rank !== null ? `${row.rank}.` : "–",
       rankTone: rankTone(row.rank),
       name: row.user_id === meId ? "Ty" : row.name,
-      value: formatValue(row.metric_value),
+      value: formatValue(row),
       prize,
       me: row.user_id === meId,
     };
@@ -392,7 +390,7 @@ function recruiterModel(data: MyLeague, standing: LeagueStanding, options: Leagu
       condition,
       rowsTitle: standing.neighbours.length ? "Obok Ciebie" : null,
       rowsUnit: standing.neighbours.length ? "pkt" : null,
-      rows: panelRows(standing.neighbours, me?.user_id ?? null, formatLeagueNumber),
+      rows: panelRows(standing.neighbours, me?.user_id ?? null, (row) => formatLeagueNumber(row.metric_value)),
       footnote: "Punkty liczą się osobie, która zweryfikowała kandydata.",
       link: LEAGUE_LINK,
       failed: false,
@@ -400,17 +398,54 @@ function recruiterModel(data: MyLeague, standing: LeagueStanding, options: Leagu
   };
 }
 
+/** „36,4%”, bez zbędnego „,0”; `null` = hit ratio niepoliczone. */
+export function formatHitRatio(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return `${value.toLocaleString("pl-PL", { maximumFractionDigits: 1 })}%`;
+}
+
+/** Dystans w lidze DL po „brakuje”: „5,3 punktu procentowego”, „2 punktów procentowych”. */
+function hitRatioPointsMissing(gap: number): string {
+  if (!Number.isInteger(gap)) return `${gap.toLocaleString("pl-PL")} punktu procentowego`;
+  return countPl(gap, "punktu procentowego", "punktów procentowych", "punktów procentowych");
+}
+
+/** Przewaga w lidze DL: „6,4 punktu procentowego”, „2 punkty procentowe”. */
+function hitRatioPoints(gap: number): string {
+  if (!Number.isInteger(gap)) return `${gap.toLocaleString("pl-PL")} punktu procentowego`;
+  return countPl(gap, "punkt procentowy", "punkty procentowe", "punktów procentowych");
+}
+
+/** „Brakuje 1 placementu i 2 zamkniętych rekrutacji.” albo `null`, gdy warunek spełniony. */
+function dlMissingSentence(dl: NonNullable<MyLeague["dl"]>): string | null {
+  const parts: string[] = [];
+  if (dl.missing_placements > 0) parts.push(placementsMissing(dl.missing_placements));
+  const closed = dl.missing_closed_requests ?? 0;
+  if (closed > 0) {
+    parts.push(countPl(closed, "zamkniętej rekrutacji", "zamkniętych rekrutacji", "zamkniętych rekrutacji"));
+  }
+  return parts.length ? `Brakuje ${parts.join(" i ")}.` : null;
+}
+
+/**
+ * Liga DL od 25.10.2026: ranking po hit ratio, miejsce od 3 placementów
+ * i 5 zamkniętych rekrutacji, bez nagród. `standing.value` i dystanse są
+ * w procentach (backend: `league_standing(value_key="hit_ratio")`).
+ */
 function deliveryLeadModel(data: MyLeague, standing: LeagueStanding, options: LeagueModelOptions): LeagueTopbarModel {
   const quarter = quarterOf(data.period);
   const dl = data.dl;
   const me = standing.me;
   const rank = standing.rank;
-  const myPlacements = me ? standing.value : (dl?.placements ?? 0);
+  const hitRatio = me ? (me.hit_ratio ?? null) : (dl?.hit_ratio ?? null);
+  const hitValue = formatHitRatio(hitRatio);
   const up = upArrow(rank, options.baselineRank);
+  const minPlacements = dl?.min_placements ?? 3;
+  const minClosed = dl?.min_closed_requests ?? 5;
 
   const hitLine =
     dl && dl.hit_ratio !== null
-      ? `Hit ratio ${String(dl.hit_ratio).replace(".", ",")}% (${dl.placements} z ${dl.closed_requests} ${pluralPl(dl.closed_requests, "zamkniętej rekrutacji", "zamkniętych rekrutacji", "zamkniętych rekrutacji")}).`
+      ? `Hit ratio ${formatHitRatio(dl.hit_ratio)} (${dl.placements} z ${dl.closed_requests} ${pluralPl(dl.closed_requests, "zamkniętej rekrutacji", "zamkniętych rekrutacji", "zamkniętych rekrutacji")}).`
       : "Hit ratio liczy się od pierwszej rekrutacji zamkniętej w kwartale.";
   // 21.10.2026: duplikaty, anulowane przez klienta i obsadzone wewnętrznie nie
   // wchodzą do hit ratio — zdanie mówi, ile ich było, żeby liczby się zgadzały.
@@ -429,47 +464,44 @@ function deliveryLeadModel(data: MyLeague, standing: LeagueStanding, options: Le
 
   if (me !== null && rank !== null) {
     medal = { text: String(rank), tone: medalTone(rank) };
-    if (tieFor(standing, rank) !== null) label = "Liga DL · remis";
     headline = `${rank}. miejsce`;
-    spokenState = `${rank}. miejsce, ${placements(myPlacements)}`;
+    spokenState = `${rank}. miejsce, hit ratio ${hitValue}`;
     sentences = [
-      ...placedSentences(standing, rank, { missing: placementsMissing, amount: placements }, () => null),
+      ...placedSentences(standing, rank, { missing: hitRatioPointsMissing, amount: hitRatioPoints }, () => null),
       { text: hitText, tone: "default" },
     ];
-  } else if (dl?.qualified) {
-    medal = { text: "–", tone: "neutral" };
-    label = "Liga DL · poza 10.";
-    headline = "W lidze";
-    spokenState = `${placements(myPlacements)}, w lidze poza pierwszą dziesiątką`;
-    sentences = [
-      { text: "Próg ligi spełniony. Ranking pokazuje pierwszą dziesiątkę, a Ty jesteś dalej.", tone: "default" },
-      { text: hitText, tone: "default" },
-    ];
-  } else {
+  } else if (me !== null) {
     medal = { text: "–", tone: "warn" };
-    label = "Liga DL · poza ligą";
-    headline = "Poza ligą";
-    spokenState = `${placements(myPlacements)}, poza ligą`;
-    const minimum = dl?.min_placements ?? 3;
-    const target = dl?.hit_ratio_target ?? 30;
-    sentences = [
-      {
-        text: `Do ligi potrzeba co najmniej ${placementsMissing(minimum)} i hit ratio ${target}%.`,
-        tone: "default",
-      },
-      { text: hitText, tone: "default" },
-    ];
-    if (dl && dl.missing_placements > 0) {
-      sentences.push({ text: `Brakuje ${placementsMissing(dl.missing_placements)}.`, tone: "warn" });
+    label = "Liga DL · bez miejsca";
+    headline = "Bez miejsca";
+    spokenState = `hit ratio ${hitValue}, bez miejsca w klasyfikacji`;
+    sentences = [{ text: hitText, tone: "default" }];
+    if (standing.position_by_value !== null) {
+      sentences.push({ text: `Po hit ratio to ${standing.position_by_value}. pozycja.`, tone: "default" });
     }
+  } else {
+    medal = { text: "–", tone: "off" };
+    headline = "Jeszcze bez wyniku";
+    spokenState = "jeszcze bez wyniku";
+    sentences = [{ text: hitText, tone: "default" }];
   }
 
   if (up) sentences.unshift({ text: `Dziś awans z ${options.baselineRank}. na ${rank}. miejsce.`, tone: "good" });
 
+  const missing = dl ? dlMissingSentence(dl) : null;
+  const condition: LeaguePanelModel["condition"] = dl
+    ? {
+        met: dl.qualified,
+        text: dl.qualified
+          ? `Warunek spełniony: co najmniej ${placements(minPlacements)} i ${minClosed} zamkniętych rekrutacji.`
+          : `Miejsce w klasyfikacji od ${placementsMissing(minPlacements)} i ${minClosed} zamkniętych rekrutacji w kwartale.${missing ? ` ${missing}` : ""}`,
+      }
+    : null;
+
   return {
     medal,
     label,
-    value: placements(myPlacements),
+    value: hitValue,
     up,
     spoken:
       `Liga Mistrzów DL, ${data.period}: ${spokenState}.` + (up ? ` Dziś awans z ${options.baselineRank}. miejsca.` : ""),
@@ -478,15 +510,16 @@ function deliveryLeadModel(data: MyLeague, standing: LeagueStanding, options: Le
       aside: daysAside(data.days_remaining),
       medal,
       headline,
-      headlineValue: placements(myPlacements),
-      sub: leagueSub(data, { moreThanListed: me === null && Boolean(dl?.qualified) }),
+      headlineValue: `${hitValue} hit ratio`,
+      sub: leagueSub(data),
       sentences,
       breakdown: null,
-      condition: null,
+      condition,
       rowsTitle: standing.neighbours.length ? "Obok Ciebie" : null,
-      rowsUnit: standing.neighbours.length ? "placementy" : null,
-      rows: panelRows(standing.neighbours, me?.user_id ?? null, formatLeagueNumber),
-      footnote: "Liga DL liczy placementy w Twoim portfelu; hit ratio to placementy przez rekrutacje zamknięte w kwartale.",
+      rowsUnit: standing.neighbours.length ? "hit ratio" : null,
+      rows: panelRows(standing.neighbours, me?.user_id ?? null, (row) => formatHitRatio(row.hit_ratio)),
+      footnote:
+        "Liga DL to statystyka bez nagród: hit ratio = placementy w portfelu ÷ rekrutacje zamknięte w kwartale.",
       link: LEAGUE_LINK,
       failed: false,
     },
@@ -519,7 +552,7 @@ function spectatorModel(data: MyLeague): LeagueTopbarModel | null {
       condition: null,
       rowsTitle: "Pierwsza piątka",
       rowsUnit: "pkt",
-      rows: panelRows(leaders, null, formatLeagueNumber),
+      rows: panelRows(leaders, null, (row) => formatLeagueNumber(row.metric_value)),
       footnote: "Punkty dają placementy, rozmowy u klienta i CV wysłane do klienta.",
       link: LEAGUE_LINK,
       failed: false,

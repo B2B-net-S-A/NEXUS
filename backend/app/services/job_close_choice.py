@@ -1,7 +1,7 @@
 """Wybór powodu zamknięcia rekrutacji — reguły wspólne dla zamknięcia i zmiany.
 
 Decyzja Artura 21.10.2026: powód z grupy „Nie liczy się” wycina rekrutację
-z hit ratio (Liga DL z nagrodami, cel DL), więc wymaga uzasadnienia, a
+z hit ratio (Liga DL, cel DL), więc wymaga uzasadnienia, a
 rekrutacja z zatrudnieniem od nas nie może do tej grupy trafić. „Inny” nie
 jest już do wyboru — stare zamknięcia z nim czekają na przegląd.
 Grupy: `metric_definitions.HIT_RATIO_*_CLOSE_REASONS`.

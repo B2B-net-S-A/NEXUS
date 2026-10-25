@@ -18,6 +18,7 @@ import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { DL_HIT_RATIO_LEAGUE_NOTE } from "@/lib/insights-views";
 import {
+  dlLeagueByHitRatio,
   isClosedQuarter,
   type CompetitionClosure,
 } from "@/lib/insights-races-api";
@@ -69,6 +70,8 @@ interface LeagueEntry {
   /** Brak pola = zakwalifikowany (lustro `extras.get("qualified", True)`). */
   qualified?: boolean;
   required_placements?: number | null;
+  /** Liga DL od Q4 2026: próg zamkniętych rekrutacji. */
+  required_closed_requests?: number | null;
   disqualification_reasons?: string[] | null;
   /**
    * Miejsce podium objęte remisem, którego regulamin nie rozstrzyga —
@@ -173,6 +176,7 @@ const DISQUALIFICATION_REASON: Record<string, string> = {
   MIN_PLACEMENTS_NOT_MET: "Brakuje placementu do progu",
   MIN_VERIFICATIONS_NOT_MET: "Za mało weryfikacji",
   MIN_PRECISION_NOT_MET: "Za niska skuteczność rekomendacji",
+  MIN_CLOSED_REQUESTS_NOT_MET: "Za mało zamkniętych rekrutacji",
 };
 
 /**
@@ -189,16 +193,25 @@ function describeDisqualification(entry: LeagueEntry): string | null {
     .map((code) => {
       const label =
         DISQUALIFICATION_REASON[code] ?? `Warunek niespełniony: ${code}`;
-      return code === "MIN_PLACEMENTS_NOT_MET" &&
-        entry.required_placements !== null &&
-        entry.required_placements !== undefined
-        ? `${label} (wymagane: ${entry.required_placements})`
+      const required =
+        code === "MIN_PLACEMENTS_NOT_MET"
+          ? entry.required_placements
+          : code === "MIN_CLOSED_REQUESTS_NOT_MET"
+            ? entry.required_closed_requests
+            : null;
+      return required !== null && required !== undefined
+        ? `${label} (wymagane: ${required})`
         : label;
     })
     .join(" · ");
 }
 
-type LeagueVariant = "points" | "placements";
+/**
+ * `points` — Liga Rekrutacja; `placements` — Liga DL do Q3 2026 (placementy,
+ * próg hit ratio, nagrody); `hit_ratio` — Liga DL od Q4 2026 (ranking po hit
+ * ratio, bez nagród, decyzja Artura 25.10.2026).
+ */
+type LeagueVariant = "points" | "placements" | "hit_ratio";
 
 /** Rozbicie pod liczbą — „9P / 25I / 60R" w Lidze Rekrutacja, hit ratio w DL. */
 function breakdownLabel(entry: LeagueEntry, variant: LeagueVariant): string {
@@ -207,7 +220,16 @@ function breakdownLabel(entry: LeagueEntry, variant: LeagueVariant): string {
       entry.recommendations,
     )}R`;
   }
+  if (variant === "hit_ratio") {
+    // `metric_value` ligi DL to placementy; mianownik — rekrutacje zamknięte.
+    return `${count(entry.metric_value)} placem. / ${count(entry.requests)} zamkn.`;
+  }
   return `hit ratio ${pct(entry.hit_ratio)} · ${count(entry.requests)} zapytań`;
+}
+
+/** Wynik w dużej liczbie: hit ratio w lidze DL od Q4 2026, inaczej `metric_value`. */
+function mainValue(entry: LeagueEntry, variant: LeagueVariant): string {
+  return variant === "hit_ratio" ? pct(entry.hit_ratio) : count(entry.metric_value);
 }
 
 function PodiumColumn({
@@ -263,7 +285,7 @@ function PodiumColumn({
         {entry ? (
           <>
             <p className={cn("mt-1 text-2xl font-extrabold", style.value)}>
-              {count(entry.metric_value)}{" "}
+              {mainValue(entry, variant)}{" "}
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {metricLabel}
               </span>
@@ -533,13 +555,15 @@ function LeagueCard({
                           {data.points_formula.recommendation} pkt
                         </strong>
                       </>
+                    ) : variant === "hit_ratio" ? (
+                      "Ranking liczy hit ratio: placementy ÷ rekrutacje zamknięte w kwartale. Przy równym procencie wyżej jest więcej placementów. Liga DL nie ma nagród — to statystyka."
                     ) : (
                       // Liga DL nie przelicza na punkty — milczący kafel sugerowałby,
                       // że formuła istnieje, tylko się nie doczytała.
                       "Ranking liczy placementy — bez przeliczania na punkty."
                     )}
                   </p>
-                  {variant === "placements" ? (
+                  {variant !== "points" ? (
                     <p className="mt-1 text-xs text-muted-foreground">
                       {DL_HIT_RATIO_LEAGUE_NOTE}
                     </p>
@@ -605,22 +629,25 @@ function LeagueCard({
                                     (Ty)
                                   </span>
                                 ) : null}
-                                {disqualified ? (
-                                  <span className="ml-2 text-xs font-normal text-warning-muted-foreground">
-                                    ({disqualified})
-                                  </span>
-                                ) : null}
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 {ROLE_LABEL[entry.role ?? ""] ??
                                   entry.role ??
                                   "—"}
                               </p>
+                              {/* Powód we własnej linii, zawijany — dwa powody ligi DL
+                                  (placementy i zamknięte rekrutacje) obok nazwiska
+                                  ucinały się w połowie drugiego. */}
+                              {disqualified ? (
+                                <p className="text-xs text-warning-muted-foreground">
+                                  {disqualified}
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                           <div className="shrink-0 text-right">
                             <p className="text-sm font-bold text-foreground">
-                              {count(entry.metric_value)} {metricLabel}
+                              {mainValue(entry, variant)} {metricLabel}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {breakdownLabel(entry, variant)}
@@ -688,14 +715,25 @@ export function ChampionsSection({
           // kłamał przy `metric_value` będącym sumą punktów.
           metricLabel="pkt"
         />
-        <LeagueCard
-          competitionType="quarterly_champions_dl"
-          period={period}
-          title="Liga Mistrzów DL"
-          subtitle="Kwartalne podium Delivery Leadów"
-          variant="placements"
-          metricLabel="placementów"
-        />
+        {dlLeagueByHitRatio(period) ? (
+          <LeagueCard
+            competitionType="quarterly_champions_dl"
+            period={period}
+            title="Liga Mistrzów DL"
+            subtitle="Ranking Delivery Leadów po hit ratio · bez nagród"
+            variant="hit_ratio"
+            metricLabel="hit ratio"
+          />
+        ) : (
+          <LeagueCard
+            competitionType="quarterly_champions_dl"
+            period={period}
+            title="Liga Mistrzów DL"
+            subtitle="Kwartalne podium Delivery Leadów"
+            variant="placements"
+            metricLabel="placementów"
+          />
+        )}
       </div>
     </section>
   );
