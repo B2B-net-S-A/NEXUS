@@ -45,12 +45,13 @@ class _Rows:
 class _Db:
     """Udaje bazę dla ścieżki kolejki prepów i liczy KAŻDE zapytanie."""
 
-    def __init__(self, *, pairs, jobs, users, owners=(), verifiers=()):
+    def __init__(self, *, pairs, jobs, users, owners=(), verifiers=(), assigned=()):
         self.pairs = pairs
         self.jobs = {job.id: job for job in jobs}
         self.users = {user.id: user for user in users}
         self.owners = list(owners)  # (cid, jid, user_id)
         self.verifiers = list(verifiers)
+        self.assigned = list(assigned)  # „Prowadzi” (cid, jid, user_id)
         self.calls = 0
 
     @staticmethod
@@ -67,6 +68,8 @@ class _Db:
             return _Rows(self.pairs)
         if tables[0] == "recruitment_processes":
             return _Rows(self.owners)
+        if tables[0] == "candidate_job_owners":
+            return _Rows(self.assigned)
         if tables[0] == "candidate_stages":
             return _Rows(self.verifiers)
         if tables[0] == "jobs":
@@ -156,6 +159,27 @@ async def test_default_recruiter_keeps_the_owner_verifier_recruiter_order():
         await interview_slots.default_recruiter_id(db, candidate_id=1, job_id=5) == 32
     )
     db.users[31] = _user(31)
+    assert (
+        await interview_slots.default_recruiter_id(db, candidate_id=1, job_id=5) == 31
+    )
+
+
+@pytest.mark.asyncio
+async def test_assigned_lead_goes_before_the_process_owner():
+    """„Prowadzi” (25.10.2026): przypisanie admina/HoR wygrywa z właścicielem
+    procesu; nieaktywna przypisana osoba ustępuje dalszym w kolejce."""
+    db = _Db(
+        pairs=[],
+        jobs=[_job(5, recruiter=35)],
+        users=[_user(31), _user(32), _user(35), _user(36)],
+        owners=[(1, 5, 31)],
+        verifiers=[(1, 5, 32)],
+        assigned=[(1, 5, 36)],
+    )
+    assert (
+        await interview_slots.default_recruiter_id(db, candidate_id=1, job_id=5) == 36
+    )
+    db.users[36] = _user(36, active=False)
     assert (
         await interview_slots.default_recruiter_id(db, candidate_id=1, job_id=5) == 31
     )
