@@ -37,5 +37,13 @@ a ludzie chcieli też dokładać osoby ręcznie i trzymać własne listy.
   kandydatów — moje listy na górze i „Utwórz i dodaj”. Pierwsza zakładka
   panelu nazywa się „Z procesów” (wcześniej „Wszyscy”), żeby nie myliła się
   z listami.
+- **„Kończą u klientów” (Delivery Lead):** zakładka panelu dla osoby z rolą
+  Delivery Leada i uprawnieniem „podgląd Delivery” (to samo, którego wymaga
+  trasa). `GET /api/contracts/ending-consultants?days=60` (router Kontraktów,
+  bramka sekcji Delivery, `DeliveryViewUser`, zakres
+  `resolve_delivery_lead_client_ids`) — ten sam zbiór co `/expiring`
+  (aktywne + „Kończące się” z końcem w oknie) bez `prolongation_status = yes`
+  i bez kwot, więc bez redakcji finansowej. Nie ruszaj `/expiring` pod ten
+  ekran: zasila baner i niesie pełny `ContractResponse`.
 - **Poza zakresem świadomie:** przekazanie listy rekruterowi z terminem
   (decyzja 25.10: nie teraz), edycja cudzej listy przez Head of Recruitment.

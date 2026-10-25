@@ -34,6 +34,7 @@
   "DELETE /api/contracts/{contract_id}/onboarding/{item_id}": "PPDPDDDDPPPDDPDDDDDDDDDDDD",
   "GET /api/contracts": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
   "GET /api/contracts/candidate-contact-report": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contracts/ending-consultants": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
   "GET /api/contracts/expiring": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
   "GET /api/contracts/export": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
   "GET /api/contracts/export/placements": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
