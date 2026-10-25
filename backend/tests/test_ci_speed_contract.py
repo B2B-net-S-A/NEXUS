@@ -228,6 +228,7 @@ def test_selector_hub_modules_do_not_select_half_the_suite() -> None:
         - set(sel._ALWAYS)
         - {sel._AUTHZ_MATRIX}
         - set(sel._ROUTE_CONTRACTS)
+        - set(sel.tree_scanner_nodes(sel._test_files()))
     )
 
 
@@ -305,6 +306,65 @@ def test_one_application_file_runs_the_guards_that_ejected_prs_on_21_10() -> Non
         assert set(_NEW_GUARDS_21_10) <= set(kept), "Strażnik nie podlega budżetowi."
 
 
+_RATE_GUARD = (
+    "tests/test_rate_from_readers_guard.py"
+    "::test_profile_rate_is_read_only_by_allowed_modules"
+)
+
+
+def test_any_change_runs_every_tree_scanner_without_listing_it() -> None:
+    """#2649 (25.10.2026): ``services/new_column_autofill.py:250`` czytał
+    ``expected_rate_hourly`` poza listą strażnika stawki. Sito zielone (strażnika
+    nie było w ``_ALWAYS``), w kolejce czerwony w każdej grupie z #2649. 31
+    z 41 plików skanujących drzewo nie było na liście — teraz sito znajduje
+    je samo, bez dopisywania."""
+    sel = _selector()
+    for changed in (
+        "backend/app/services/new_column_autofill.py",
+        "frontend/src/components/EditOrderDialog.tsx",
+    ):
+        direct, _ = sel.select([changed])
+        assert _RATE_GUARD in direct, changed
+        kept, _ = sel.apply_budget(direct, set(), 0.0, sel._load_durations())
+        assert _RATE_GUARD in kept, "Strażnik nie podlega budżetowi."
+    nodes = sel.tree_scanner_nodes(sel._test_files())
+    assert len(nodes) >= 50, len(nodes)
+    for node in nodes:
+        assert node not in sel._QUEUE_ONLY_SCANNERS
+
+
+def test_tree_scanner_already_selected_as_a_file_is_not_run_twice() -> None:
+    sel = _selector()
+    direct, _ = sel.select(["backend/tests/test_rate_from_readers_guard.py"])
+    assert "tests/test_rate_from_readers_guard.py" in direct
+    assert _RATE_GUARD not in direct
+
+
+def test_tree_scanner_discovery_skips_database_and_slow_tests() -> None:
+    sel = _selector()
+    source = (
+        "from pathlib import Path\n"
+        "APP = Path('app')\n"
+        "def _files():\n"
+        "    return list(APP.rglob('*.py'))\n"
+        "def test_helper_scan():\n"
+        "    assert _files()\n"
+        "def test_direct_scan(monkeypatch):\n"
+        "    assert list(APP.rglob('*.py'))\n"
+        "async def test_async_scan(db_session):\n"
+        "    assert _files()\n"
+        "def test_client_scan(client):\n"
+        "    assert _files()\n"
+        "def test_no_scan():\n"
+        "    assert True\n"
+    )
+    nodes = sel.tree_scanner_nodes({"tests/test_x.py": source})
+    assert nodes == [
+        "tests/test_x.py::test_direct_scan",
+        "tests/test_x.py::test_helper_scan",
+    ]
+
+
 def test_guards_mode_lists_exactly_the_repo_guards() -> None:
     out = subprocess.run(
         [
@@ -318,7 +378,11 @@ def test_guards_mode_lists_exactly_the_repo_guards() -> None:
         stdin=subprocess.DEVNULL,
     ).stdout.split()
     sel = _selector()
-    assert out == list(sel._ALWAYS + sel._ROUTE_CONTRACTS)
+    guards = list(sel._ALWAYS + sel._ROUTE_CONTRACTS)
+    assert out[: len(guards)] == guards
+    scanners = out[len(guards) :]
+    assert _RATE_GUARD in scanners
+    assert all(node.split("::")[0] not in guards for node in scanners)
 
 
 def test_repo_guards_need_no_database() -> None:

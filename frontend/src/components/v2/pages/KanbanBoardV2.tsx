@@ -68,7 +68,6 @@ import { isPlainLeftClick } from "@/lib/plain-left-click";
 import { markerLabel } from "@/lib/employment-marker";
 import { eligibilityWarningBadges } from "@/lib/eligibility-reason-labels";
 import { encodeJobBackRef } from"@/lib/url-filters";
-import { useUiStore } from"@/store/ui";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
@@ -1976,10 +1975,6 @@ const MIN_COLUMN_HEIGHT = 280;
 const MOBILE_MAIN_PADDING_Y = 32;
 
 export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange }: KanbanBoardV2Props) {
- // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik —
- // świadomie nie per-job.
- const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
- const setHideEmptyColumns = useUiStore((s) => s.setHideEmptyKanbanColumns);
  // Widok tablicy: kafelki ↔ kolumny. Reguła automatyczna (szeroki szablon
  // otwiera się kafelkowo) jest WARTOŚCIĄ DOMYŚLNĄ, wybór użytkownika ją
  // nadpisuje i jest pamiętany — patrz `lib/kanban-view-preferences.ts`.
@@ -3638,34 +3633,25 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  );
 
  // Kolumny do renderu: 8 kolumn Tablicy (+ rozwinięci zamknięci + kubełek
- // „Poza szablonem"). „Ukryj puste kolumny" usuwa CAŁE kolumny bez kart —
- // bezpieczne dla `@hello-pangea/dnd` (pusta kolumna nie ma indeksów).
- // „Nowi" nie znikają nigdy: tam trafiają osoby dodane z kafli nad tablicą.
+ // „Poza szablonem"). Puste kolumny są zawsze widoczne, bez przełącznika
+ // (decyzja Artura 25.10.2026) — do tego dnia domyślnie je chowano, a Tablica
+ // nie mówiła, że coś ukryła.
  const allOffTemplateCols = useMemo(() => cols.filter((c) => isOffTemplate(c)), [cols]);
  const offTemplateCols = useMemo(
  () => allOffTemplateCols.map((c) => withAddedByFilter(c, addedBy)),
  [allOffTemplateCols, addedBy]
  );
- // Liczba osób w kolumnie bez filtra „Kto dodał” — licznik „N z M”, napis
- // w kolumnie pustej przez filtr i „Ukryj puste kolumny” (kolumna pusta przez
- // filtr nie znika, tylko mówi, że filtr schował wszystkich).
+ // Liczba osób w kolumnie bez filtra „Kto dodał” — licznik „N z M” i napis
+ // w kolumnie pustej przez filtr (mówi, że filtr schował wszystkich).
  const totalCountByColId = useMemo(() => {
  const m = new Map<string, number>();
  for (const c of [...allDisplayCols, ...allOffTemplateCols]) m.set(colId(c), c.count);
  return m;
  }, [allDisplayCols, allOffTemplateCols]);
- const visibleCols = useMemo(() => {
- const base = [
- ...displayCols,
- ...(showClosed ? boardFold.closed : []),
- ...offTemplateCols,
- ];
- return hideEmptyColumns
- ? base.filter(
- (c) => (totalCountByColId.get(colId(c)) ?? c.count) > 0 || boardKeyByColId.get(colId(c)) === "new"
- )
- : base;
- }, [displayCols, boardFold, showClosed, offTemplateCols, hideEmptyColumns, boardKeyByColId, totalCountByColId]);
+ const visibleCols = useMemo(
+ () => [...displayCols, ...(showClosed ? boardFold.closed : []), ...offTemplateCols],
+ [displayCols, boardFold, showClosed, offTemplateCols]
+ );
  // Filtr schował część osób — zaznaczenie ich nie trzyma, żeby pasek
  // zaznaczonych nie działał na kimś, kogo nie widać.
  useEffect(() => {
@@ -4270,20 +4256,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  {boardEntries.length === 0 ? (
  <div className="flex-1 py-12 text-center text-sm text-muted-foreground">
  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
- {cols.length === 0 ? (
- "Brak kolumn w tej kategorii."
- ) : (
- <>
- Wszystkie kolumny są dziś puste.{" "}
- <button
- type="button"
- className="underline underline-offset-2 font-medium"
- onClick={() => setHideEmptyColumns(false)}
- >
- Pokaż puste kolumny
- </button>
- </>
- )}
+ Brak kolumn w tej kategorii.
  </div>
  ) : (
  <>

@@ -98,7 +98,7 @@ wszystkie D1–D5, wdrażaj”.
   (`peopleInProgress`: bez zamkniętych, z „Poza szablonem”). Karty innych
   znikają (nie są przygaszane); licznik kolumny „N z M”; kolumna pusta przez
   filtr mówi „Brak osób dodanych przez…” i ma „Pokaż wszystkich (M)”, nie
-  zwęża się i nie znika przy „Ukryj puste kolumny”. Kafle „Kandydaci do
+  zwęża się (od 25.10.2026 puste kolumny są zawsze widoczne). Kafle „Kandydaci do
   dodania”, „Zamknięci”, „Porównaj (N)” i „Obsada N z M” liczą bez filtra.
 - **Tylko w adresie (D3).** `?added_by=<numer>|none` (`lib/board-added-by.ts`),
   zapis przez `useUrlWriter` (bez routera Nexta). Nowe wejście w rekrutację =
