@@ -190,9 +190,11 @@ def test_window_is_half_open_in_business_timezone(monkeypatch):
     assert afr.in_window(_at(1)) and afr.in_window(_at(4))
     assert not afr.in_window(_at(0)) and not afr.in_window(_at(5))
     assert not afr.in_window(_at(14))
-    # „Ta noc" zaczyna się o 01:00 lokalnie — także oglądana o 04:30.
+    # „Ta noc" zaczyna się o 01:00 lokalnie — także oglądana o 04:30. Noc
+    # zmiany czasu na zimowy (ostatnia niedziela października) ma godzinę
+    # więcej, więc granica to 5 h prawdziwego czasu, nie 4.
     start = afr.night_start(_at(4))
-    assert start <= _at(4) and _at(4) - start < timedelta(hours=4)
+    assert start <= _at(4) and _at(4) - start < timedelta(hours=5)
     # Równe godziny = okno zamknięte (wyłącznik bez deployu).
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 1)
     assert not afr.in_window(_at(1))
