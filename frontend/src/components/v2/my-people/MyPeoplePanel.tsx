@@ -50,8 +50,10 @@ import {
   type RowActions,
 } from "./MyPeopleViews";
 import { shouldCloseOnEscape } from "@/lib/panel-escape";
+import { useCandidateLists } from "@/lib/api/candidateLists";
+import { ListsTab } from "./CandidateListsViews";
 
-type PanelTab = "all" | "job" | "move";
+type PanelTab = "all" | "job" | "move" | "lists";
 
 const JOB_PATH = /^\/jobs\/(\d+)/;
 const CANDIDATE_PATH = /^\/candidates\/(\d+)/;
@@ -122,6 +124,7 @@ export function MyPeoplePanel() {
   const pathname = usePathname();
   // Pasek „Podgląd jako” (h-9) przesuwa topbar w dół — panel startuje pod nim.
   const impersonating = useAuthStore((s) => !!s.realUser);
+  const me = useAuthStore((s) => s.user);
   const { jobId, candidateId } = contextFromPath(pathname);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -156,6 +159,8 @@ export function MyPeoplePanel() {
   const people = useMyPeople(open);
   const summary = useMyPeopleSummary(open);
   const categories = useCompetenceCategories();
+  // Listy ręczne (25.10.2026) — licznik w zakładce, treść w `ListsTab`.
+  const lists = useCandidateLists(me?.id, open);
   const forJob = useMyPeopleForJob(jobId, open && tab === "job");
 
   // Obejrzenie zakładki rekrutacji zeruje jej dopasowania w liczniku awatara.
@@ -238,7 +243,12 @@ export function MyPeoplePanel() {
     (people.data?.rows ?? []).some((r) => r.candidate_id === candidateId && !r.snoozed);
 
   const tabs = [
-    { value: "all", label: "Wszyscy", count: people.data?.active_count },
+    { value: "all", label: "Z procesów", count: people.data?.active_count },
+    {
+      value: "lists",
+      label: "Listy",
+      count: lists.data ? lists.data.mine.length + lists.data.shared.length : undefined,
+    },
     ...(jobId != null ? [{ value: "job", label: "Do tej rekrutacji" }] : []),
     ...(isMine ? [{ value: "move", label: "Gdzie przepiąć" }] : []),
   ];
@@ -335,6 +345,10 @@ export function MyPeoplePanel() {
         ) : null}
 
         {tab === "move" && candidateId != null ? <WhereToMove candidateId={candidateId} /> : null}
+
+        {tab === "lists" && me ? (
+          <ListsTab userId={me.id} onAdd={(row) => setAddFor(row)} />
+        ) : null}
       </div>
 
       <footer className="border-t border-border px-4 py-2 text-xs text-muted-foreground">

@@ -20,6 +20,7 @@ from app.services.talent_pool_cc import (
     classify_pool_name_to_cc_slug,
     resolve_cc_id_for_pool_name,
 )
+from app.services import talent_pool_visibility as visibility
 
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 
@@ -36,6 +37,17 @@ class TalentPoolCreate(BaseModel):
     # Pula osobista (migracja 0137). True = pula indywidualna usera (widoczna
     # dla zespołu, zarządzana tylko przez właściciela). False = pula firmowa.
     is_personal: bool = False
+    # Lista „Tylko ja” (False) albo „Widzi zespół” (True, migracja 0519).
+    # Domyślne True = dotychczasowe zachowanie pul osobistych z /talents;
+    # panel „Moi ludzie” zakłada listy z False. Pula firmowa zawsze True.
+    team_visible: bool = True
+
+
+class TalentPoolUpdate(BaseModel):
+    """Zmiana listy przez właściciela: nazwa i „Widzi zespół”."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    team_visible: Optional[bool] = None
 
 
 class TalentPoolOut(BaseModel):
@@ -58,6 +70,7 @@ class TalentPoolOut(BaseModel):
     # Runda 10 (R10-N7-4): Targ kandydatów to singleton z własnymi trasami
     # (termin `marketplace_until`) — okna „Dodaj do puli" go pomijają.
     is_marketplace: bool = False
+    team_visible: bool = True
 
     class Config:
         from_attributes = True
@@ -98,16 +111,40 @@ class CandidateInPoolOut(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-async def _get_pool_or_404(pool_id: int, db: AsyncSession) -> TalentPool:
+async def _get_pool_or_404(pool_id: int, db: AsyncSession, user: User) -> TalentPool:
     result = await db.execute(
         select(TalentPool)
         .options(selectinload(TalentPool.memberships))
         .where(TalentPool.id == pool_id)
     )
     pool = result.scalar_one_or_none()
-    if not pool:
+    # Cudza lista „Tylko ja” wygląda jak nieistniejąca — nawet dla admina.
+    if not pool or not visibility.is_visible_to(pool, user.id):
         raise HTTPException(status_code=404, detail="Pula talentów nie istnieje")
     return pool
+
+
+def _pool_out(pool: TalentPool, count: int, owner_name: Optional[str]) -> TalentPoolOut:
+    return TalentPoolOut(
+        id=pool.id,
+        name=pool.name,
+        description=pool.description,
+        criteria=pool.criteria,
+        created_by=pool.created_by,
+        created_at=pool.created_at,
+        candidate_count=count,
+        competence_category_id=pool.competence_category_id,
+        competence_category_slug=(
+            classify_pool_name_to_cc_slug(pool.name)
+            if pool.competence_category_id is not None
+            else None
+        ),
+        is_personal=pool.is_personal,
+        owner_id=pool.created_by,
+        owner_name=owner_name,
+        is_marketplace=bool(pool.is_marketplace),
+        team_visible=visibility.is_public(pool),
+    )
 
 
 def _assert_can_modify_pool(pool: TalentPool, user: User) -> None:
@@ -167,6 +204,7 @@ async def list_talent_pools(
             selectinload(TalentPool.competence_category),
             selectinload(TalentPool.creator),
         )
+        .where(visibility.visible_clause(current_user.id))
         .order_by(TalentPool.created_at.desc())
     )
 
@@ -187,6 +225,7 @@ async def list_talent_pools(
             owner_id=p.created_by,
             owner_name=(p.creator.name if p.creator else None),
             is_marketplace=bool(p.is_marketplace),
+            team_visible=visibility.is_public(p),
         )
         for p, cnt in result.all()
     ]
@@ -213,30 +252,58 @@ async def create_talent_pool(
         criteria=data.criteria or {},
         competence_category_id=cc_id,
         is_personal=data.is_personal,
+        team_visible=data.team_visible or not data.is_personal,
         created_by=current_user.id,
     )
     db.add(pool)
     await db.commit()
     await db.refresh(pool)
 
-    return TalentPoolOut(
-        id=pool.id,
-        name=pool.name,
-        description=pool.description,
-        criteria=pool.criteria,
-        created_by=pool.created_by,
-        created_at=pool.created_at,
-        candidate_count=0,
-        competence_category_id=pool.competence_category_id,
-        competence_category_slug=(
-            classify_pool_name_to_cc_slug(pool.name)
-            if pool.competence_category_id is not None
-            else None
-        ),
-        is_personal=pool.is_personal,
-        owner_id=pool.created_by,
-        owner_name=current_user.name,
-    )
+    return _pool_out(pool, 0, current_user.name)
+
+
+@router.patch("/talent-pools/{pool_id}", response_model=TalentPoolOut)
+async def update_talent_pool(
+    pool_id: int,
+    data: TalentPoolUpdate,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Właściciel zmienia swoją listę: nazwę albo „Tylko ja” / „Widzi zespół”.
+
+    Tylko pule osobiste i tylko właściciel — także admin nie przełącza cudzej
+    listy, bo „Tylko ja” to obietnica dla właściciela.
+    """
+    pool = await _get_pool_or_404(pool_id, db, current_user)
+    if not pool.is_personal or pool.is_marketplace:
+        raise HTTPException(
+            status_code=409,
+            detail="Zmieniać można tylko własne listy, nie pule firmowe.",
+        )
+    if pool.created_by != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="To lista innej osoby — może ją zmienić tylko właściciel.",
+        )
+    if data.name is not None:
+        name = data.name.strip()
+        if not name:
+            raise HTTPException(
+                status_code=422, detail="Nazwa listy nie może być pusta."
+            )
+        pool.name = name
+    if data.team_visible is not None:
+        pool.team_visible = data.team_visible
+    await db.commit()
+    await db.refresh(pool)
+    count = (
+        await db.scalar(
+            select(func.count())
+            .select_from(TalentPoolMembership)
+            .where(TalentPoolMembership.talent_pool_id == pool.id)
+        )
+    ) or 0
+    return _pool_out(pool, int(count), current_user.name)
 
 
 @router.post("/talent-pools/{pool_id}/add", status_code=201)
@@ -247,7 +314,7 @@ async def add_candidate_to_pool(
     db: AsyncSession = Depends(get_db),
 ):
     # Verify pool exists + the user is allowed to modify it (osobiste = owner/admin)
-    pool = await _get_pool_or_404(pool_id, db)
+    pool = await _get_pool_or_404(pool_id, db, current_user)
     _assert_can_modify_pool(pool, current_user)
 
     # Verify candidate exists
@@ -309,7 +376,7 @@ async def bulk_add_candidates_to_pool(
     kandydatów. Używane przez floating bulk-action bar na liście /candidates
     (Phase „Otwartość na dodatkowe projekty" Faza 2.5).
     """
-    pool = await _get_pool_or_404(pool_id, db)
+    pool = await _get_pool_or_404(pool_id, db, current_user)
     _assert_can_modify_pool(pool, current_user)
 
     if not data.candidate_ids:
@@ -362,7 +429,7 @@ async def remove_candidate_from_pool(
     db: AsyncSession = Depends(get_db),
 ):
     # Pula osobista — tylko właściciel/admin może usuwać kandydatów.
-    pool = await _get_pool_or_404(pool_id, db)
+    pool = await _get_pool_or_404(pool_id, db, current_user)
     _assert_can_modify_pool(pool, current_user)
 
     result = await db.execute(
@@ -394,7 +461,7 @@ async def delete_talent_pool(
     * Pula Targu (``is_marketplace``) — nieusuwalna (singleton zarządzany przez
       marketplace_service).
     """
-    pool = await _get_pool_or_404(pool_id, db)
+    pool = await _get_pool_or_404(pool_id, db, current_user)
     is_admin = current_user.has_role(UserRole.admin)
 
     if pool.is_marketplace:
@@ -436,7 +503,7 @@ async def list_pool_candidates(
     # Verify pool
     pool_result = await db.execute(select(TalentPool).where(TalentPool.id == pool_id))
     pool = pool_result.scalar_one_or_none()
-    if not pool:
+    if not pool or not visibility.is_visible_to(pool, current_user.id):
         raise HTTPException(status_code=404, detail="Pula talentów nie istnieje")
 
     # True total (cheap aggregate) — after the cv_sent backfill the largest
@@ -489,6 +556,9 @@ async def list_pool_candidates(
             "name": pool.name,
             "description": pool.description,
             "candidate_count": int(total),
+            "is_personal": pool.is_personal,
+            "owner_id": pool.created_by,
+            "team_visible": visibility.is_public(pool),
         },
         "total": int(total),
         "returned": len(candidates),
@@ -504,10 +574,16 @@ async def get_pools_for_candidate(
     current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    """Zwraca listę pul, do których należy kandydat (do dropdownu)."""
+    """Zwraca listę pul, do których należy kandydat (do dropdownu).
+
+    Bez cudzych list „Tylko ja” — sama obecność na nich jest prywatna.
+    """
     result = await db.execute(
-        select(TalentPoolMembership.talent_pool_id).where(
-            TalentPoolMembership.candidate_id == candidate_id
+        select(TalentPoolMembership.talent_pool_id)
+        .join(TalentPool, TalentPool.id == TalentPoolMembership.talent_pool_id)
+        .where(
+            TalentPoolMembership.candidate_id == candidate_id,
+            visibility.visible_clause(current_user.id),
         )
     )
     pool_ids = [r[0] for r in result.all()]

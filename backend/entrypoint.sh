@@ -2615,6 +2615,10 @@ _COLUMN_STATEMENTS = [
     "BOOLEAN NOT NULL DEFAULT false",
     "CREATE INDEX IF NOT EXISTS ix_talent_pools_is_personal "
     "ON talent_pools (is_personal, created_by)",
+    # Listy kandydatów (migracja 0519_talent_pool_team_visible): „Tylko ja”
+    # albo „Widzi zespół”. Każdy odczyt puli SELECT-uje tę kolumnę.
+    "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS team_visible "
+    "BOOLEAN NOT NULL DEFAULT true",
     # Progresywne stawki kontraktów (migracje 0151 + 0154). KAŻDE zapytanie o
     # kontrakty (list/expiring/detail) robi selectinload OBU harmonogramów
     # stawek, a selectinload SELECT-uje wszystkie mapowane kolumny modelu.

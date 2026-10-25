@@ -266,6 +266,7 @@ Lista i profil kandydata, słowa kluczowe, kolejność „Dopasowanie”, Talent
 - `imie-cyrylica-w-dopasowaniu-maili.md`: Imię cyrylicą w dopasowaniu maili i w bramce CV
 - `indeks-wektorowy-dryf-degradacja-i-pula-ofert.md`: Indeks wektorowy: dryf, degradacja i pula ofert
 - `kolejnosc-dopasowanie-i-gorne-pole-listy.md`: Kolejność „Dopasowanie” i górne pole listy
+- `listy-kandydatow-w-moich-ludziach.md`: Listy kandydatów w „Moich ludziach” — „Tylko ja” / „Widzi zespół” · zakładka „Listy”, „Na listę” na profilu, masowo z listy kandydatów, `talent_pools.team_visible` (0519), cudza prywatna lista = 404
 - `moi-ludzie-lista-rekrutera-dzwonek-przy-nowej.md`: „Moi ludzie" — lista rekrutera, dzwonek przy nowej rekrutacji, postać w rogu
 - `podglad-cv-pdf-js-lupa-szukaj-w-cv.md`: Podgląd CV: pdf.js + lupa „Szukaj w CV”
 - `podobni-kandydaci.md`: Zakładka „Podobni” na profilu kandydata — podobny ≠ pasujący

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import api, { savedSearchesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { candidateListsApi } from "@/lib/api/candidateLists";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useToast } from "@/components/Toast";
@@ -3218,9 +3219,31 @@ export function BulkAddToPoolModal({
  // Pokazujemy ją (jest team-visible), ale wyłączoną + z oznaczeniem właściciela.
  const canUsePool = (p: { is_personal?: boolean; owner_id?: number | null }) =>
  !p.is_personal || isAdmin || p.owner_id === (currentUser?.id ?? -1);
- const filtered = pools.filter((p) =>
- p.name.toLowerCase().includes(filter.toLowerCase())
- );
+ const isMyList = (p: { is_personal?: boolean; owner_id?: number | null }) =>
+ !!p.is_personal && p.owner_id === (currentUser?.id ?? -1);
+ // Moje listy (25.10.2026, „Moi ludzie” → „Listy”) na górze — tam zwykle
+ // trafia zaznaczenie; pule firmowe i listy zespołu pod nimi.
+ const filtered = pools
+ .filter((p) => p.name.toLowerCase().includes(filter.toLowerCase()))
+ .sort((a, b) => Number(isMyList(b)) - Number(isMyList(a)));
+ const firstShared = filtered.findIndex((p) => !isMyList(p));
+ const [newListName, setNewListName] = useState("");
+ const [creatingList, setCreatingList] = useState(false);
+ const [createError, setCreateError] = useState<string | null>(null);
+ const createAndAdd = async () => {
+ const name = newListName.trim();
+ if (!name || creatingList) return;
+ setCreatingList(true);
+ setCreateError(null);
+ try {
+ const list = await candidateListsApi.create(name);
+ onConfirm(list.id);
+ } catch (e) {
+ setCreateError(apiErrorMessage(e, "Nie udało się utworzyć listy."));
+ } finally {
+ setCreatingList(false);
+ }
+ };
  // Awaria pobrania NIE może wyglądać jak „Brak pul” — pusta lista czyta się
  // jak brak danych, a rekruter zakładałby duplikat puli.
  const poolsView = resolveViewState({
@@ -3241,10 +3264,10 @@ export function BulkAddToPoolModal({
  onClick={(e) => e.stopPropagation()}
  >
  <h3 className="text-base font-semibold">
- Dodaj {selectedCount} {selectedCount === 1 ?"kandydata" :"kandydatów"} do puli
+ Dodaj {selectedCount} {selectedCount === 1 ?"kandydata" :"kandydatów"} na listę albo do puli
  </h3>
  <Input
- placeholder="Szukaj puli…"
+ placeholder="Szukaj listy albo puli…"
  value={filter}
  onChange={(e) => setFilter(e.target.value)}
  autoFocus
@@ -3268,14 +3291,25 @@ export function BulkAddToPoolModal({
  {(poolsView === "empty" || poolsView === "ready") && filtered.length === 0 && (
  <div className="text-xs text-muted-foreground py-4 text-center">
  {pools.length === 0 ? "Nie ma jeszcze żadnej puli." : `Brak pul dla „${filter}".`}{" "}
- <Link href="/talents" className="underline">Stwórz nową</Link>.
+ Załóż nową listę poniżej.
  </div>
  )}
- {(poolsView === "empty" || poolsView === "ready") && filtered.map((p) => {
+ {(poolsView === "empty" || poolsView === "ready") && filtered.map((p, index) => {
  const usable = canUsePool(p);
+ const heading =
+ index === 0 && isMyList(p)
+ ? "Moje listy"
+ : index === firstShared
+ ? "Pule i listy zespołu"
+ : null;
  return (
+ <Fragment key={p.id}>
+ {heading ? (
+ <p className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+ {heading}
+ </p>
+ ) : null}
  <button
- key={p.id}
  type="button"
  onClick={() => usable && onConfirm(p.id)}
  disabled={pending || !usable}
@@ -3299,9 +3333,38 @@ export function BulkAddToPoolModal({
  {p.candidate_count} {p.candidate_count === 1 ?"kandydat" :"kandydatów"}
  </span>
  </button>
+ </Fragment>
  );
  })}
  </div>
+ <form
+ className="flex gap-2 border-t border-border pt-3"
+ onSubmit={(e) => {
+ e.preventDefault();
+ void createAndAdd();
+ }}
+ >
+ <Input
+ value={newListName}
+ maxLength={255}
+ onChange={(e) => setNewListName(e.target.value)}
+ placeholder="Nowa lista (widzisz ją tylko Ty)…"
+ aria-label="Nazwa nowej listy"
+ />
+ <Button
+ type="submit"
+ size="sm"
+ loading={creatingList}
+ disabled={!newListName.trim() || pending}
+ >
+ Utwórz i dodaj
+ </Button>
+ </form>
+ {createError ? (
+ <p role="alert" className="text-xs text-destructive">
+ {createError}
+ </p>
+ ) : null}
  <div className="flex justify-end gap-2 pt-2 border-t border-border dark:border-border">
  <Button size="sm" variant="ghost" onClick={onCancel} disabled={pending}>
  Anuluj
