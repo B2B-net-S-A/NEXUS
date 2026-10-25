@@ -13,6 +13,10 @@ nikt nie wrócił do dopisywania ich do ``CLAUDE.md``.
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
+
 from scripts import build_claude_index as index
 
 _FIX = "Uruchom: cd backend && python3 scripts/build_claude_index.py"
@@ -27,37 +31,73 @@ def test_claude_md_stays_small() -> None:
     )
 
 
-def test_index_matches_rule_files() -> None:
+def test_area_list_matches_rule_directories() -> None:
     assert index.current() == index.render(), (
-        "Indeks w CLAUDE.md nie zgadza się z plikami w docs/claude/ "
-        "(nowy plik, zmieniony tytuł albo ręczna edycja indeksu). " + _FIX
+        "Lista obszarów w CLAUDE.md nie zgadza się z katalogami docs/claude/ "
+        "(nowy katalog, zmieniony opis w GROUPS albo ręczna edycja). " + _FIX
     )
 
 
-def test_every_rule_file_is_listed_once() -> None:
+def test_claude_md_does_not_list_rule_files() -> None:
+    """25.10.2026: dwa PR-y z regułą w tym samym obszarze dopisywały linię
+    w tym samym miejscu listy plików w CLAUDE.md i #2648 miał konflikt z #2653
+    w kolejce merge'ów. Pliki wypisuje hook SessionStart, CLAUDE.md ich nie zna."""
+    text = index.CLAUDE_MD.read_text(encoding="utf-8")
+    listed = [p.name for p in index.RULES_DIR.rglob("*.md") if f"`{p.name}`" in index.current(text)]
+    assert not listed, "Pliki reguł w liście obszarów CLAUDE.md: " + ", ".join(listed)
+
+
+def test_every_rule_file_reaches_the_session_once() -> None:
     files = sorted(index.RULES_DIR.rglob("*.md"))
     assert files, "docs/claude/ jest puste — reguły modułów zniknęły."
-    listed = index.current()
-    missing = [str(p.relative_to(index.REPO_ROOT)) for p in files if listed.count(f"`{p.name}`") < 1]
-    assert not missing, "Pliki reguł poza indeksem: " + ", ".join(missing) + ". " + _FIX
+    printed = [index.render_files(part) for part in range(1, index.HOOK_PARTS + 1)]
+    stems = [
+        stem
+        for text in printed
+        for line in text.splitlines()[1:]
+        for stem in line.split("/: ", 1)[1].split(", ")
+    ]
+    assert sorted(stems) == sorted(p.stem for p in files)
+    untitled = [
+        str(p.relative_to(index.REPO_ROOT)) for p in files if not p.read_text(encoding="utf-8").startswith("# ")
+    ]
+    assert not untitled, "Pierwsza linia pliku reguły ma być tytułem „# …”: " + ", ".join(untitled)
+
+
+def test_each_hook_part_fits_the_session_start_limit() -> None:
+    """Claude Code obcina wyjście hooka ponad 10 000 znaków do ścieżki pliku
+    i 2 000 znaków podglądu, a sesji nie każe go czytać."""
+    for part in range(1, index.HOOK_PARTS + 1):
+        size = len(index.render_files(part))
+        assert size <= index.HOOK_MAX_CHARS, (
+            f"Część {part}/{index.HOOK_PARTS} wypisu reguł ma {size} znaków (limit "
+            f"{index.HOOK_MAX_CHARS}). Podnieś HOOK_PARTS w build_claude_index.py "
+            "i dopisz hook z --part w .claude/settings.json."
+        )
+
+
+def test_settings_run_one_hook_per_part() -> None:
+    settings = json.loads((index.REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    commands = [hook["command"] for entry in settings["hooks"]["SessionStart"] for hook in entry["hooks"]]
+    assert commands == [
+        f'python3 "$CLAUDE_PROJECT_DIR/backend/scripts/build_claude_index.py" --print --part {part}'
+        for part in range(1, index.HOOK_PARTS + 1)
+    ]
+
+
+def test_hook_runs_on_the_system_python_without_dependencies() -> None:
+    """Hook odpala systemowy ``python3`` (na Macu Artura 3.9) przed każdą sesją."""
+    out = subprocess.run(
+        [sys.executable, str(index.REPO_ROOT / "backend" / "scripts" / "build_claude_index.py"), "--print", "--part", "1"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd="/",
+    ).stdout
+    assert out.startswith("Pliki reguł NEXUSA, część 1/")
 
 
 def test_core_points_at_the_rules_directory() -> None:
     text = index.CLAUDE_MD.read_text(encoding="utf-8")
     assert "docs/claude/" in text
-    assert "build_claude_index.py" in text, "CLAUDE.md ma mówić, jak dopisać regułę bez powiększania go."
-
-
-def test_index_drops_only_trailing_dates_in_parentheses() -> None:
-    strip = index._without_dates
-    assert strip("Pliki rekrutacji (0428, 09.10.2026)") == "Pliki rekrutacji (0428)"
-    assert strip("Kafelek „Do uzupełnienia” (21.10.2026)") == "Kafelek „Do uzupełnienia”"
-    assert strip("Bez typów (decyzja Artura 25.09.2026)") == "Bez typów (decyzja Artura)"
-    assert strip("Audyt (13–15.09.2026)") == "Audyt"
-    assert strip("Kontakt (09.2026, migracja 0320)") == "Kontakt (migracja 0320)"
-    # Data w środku nawiasu albo poza nim jest treścią — zostaje.
-    assert strip("Kategorie (od 24.09.2026 CZTERY)") == "Kategorie (od 24.09.2026 CZTERY)"
-    assert strip("Audyt 22.09.2026 — reguły") == "Audyt 22.09.2026 — reguły"
-    # Nawias bez daty nie zmienia się, łącznie z brakiem spacji przed nim.
-    assert strip("Czy sam(a) się zgłosił(a)?") == "Czy sam(a) się zgłosił(a)?"
-    assert strip("Role (decyzje Artura 19.08 i 31.08)") == "Role (decyzje Artura 19.08 i 31.08)"
+    assert "build_claude_index.py" in text, "CLAUDE.md ma mówić, jak dodać obszar bez powiększania go."
