@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
 const post = vi.fn();
@@ -110,6 +110,15 @@ beforeEach(() => {
   get.mockReset();
   post.mockReset();
   showToast.mockReset();
+  // „Dziś” panelu (`warsawToday`) idzie z zegara — dane wyżej są z tygodnia
+  // 19–23.10.2026, więc bez zamrożenia test padał od 24.10. Tylko `Date`:
+  // obietnice i userEvent zostają na prawdziwych timerach.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-20T10:00:00+02:00"));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("M365ForwardsPanel", () => {

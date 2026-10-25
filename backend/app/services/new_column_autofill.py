@@ -217,9 +217,20 @@ def budget_tier(candidate, budget_hourly: Optional[float]) -> Optional[int]:
     from app.services.candidate_rate_from import effective_rate
     from app.services.dealbreaker_filters import candidate_consents_below_min_rate
 
-    if budget_hourly is None or candidate_consents_below_min_rate(candidate):
-        return 0
     rate, currency = effective_rate(candidate)
+    return _rate_tier(
+        rate,
+        currency,
+        consents=candidate_consents_below_min_rate(candidate),
+        budget_hourly=budget_hourly,
+    )
+
+
+def _rate_tier(
+    rate, currency, *, consents: bool, budget_hourly: Optional[float]
+) -> Optional[int]:
+    if budget_hourly is None or consents:
+        return 0
     if rate is None or str(currency or "").strip().upper() != "PLN":
         return 0
     rate = Decimal(str(rate))
@@ -239,16 +250,19 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
     from types import SimpleNamespace
 
     from app.services import client_off_limits
+    from app.services.candidate_rate_from import (
+        effective_currency_sql,
+        effective_rate_sql,
+    )
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
     if not picks:
         return []
     columns = (
         Candidate.id,
-        Candidate.rate_from_hourly,
-        Candidate.rate_from_computed_at,
-        Candidate.expected_rate_hourly,
-        Candidate.expected_rate_currency,
+        # „Stawka od” tą samą regułą co `effective_rate` (strażnik 0414).
+        effective_rate_sql(Candidate).label("rate"),
+        effective_currency_sql(Candidate).label("currency"),
         Candidate.accepts_below_min_rate,
         Candidate.linkedin_current_company,
         Candidate.experience,
@@ -276,7 +290,12 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
         person = people.get(pick.candidate_id)
         if person is None:
             continue
-        tier = budget_tier(person, budget)
+        tier = _rate_tier(
+            person.rate,
+            person.currency,
+            consents=person.accepts_below_min_rate is True,
+            budget_hourly=budget,
+        )
         if tier is None:
             continue
         if client_off_limits.find_hit(person, labels, undated_counts=True):
