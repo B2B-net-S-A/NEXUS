@@ -51,6 +51,8 @@ export interface WhoCountsListViewProps {
   onPageChange: (page: number) => void
   /** Odpowiedź dla nowej strony albo filtra jeszcze idzie. */
   isFetching?: boolean
+  /** Wąskie miejsce (kafelek pulpitu): wiersz w dwóch liniach zamiast tabeli. */
+  compact?: boolean
 }
 
 /**
@@ -66,6 +68,7 @@ export function WhoCountsListView({
   onStateChange,
   onPageChange,
   isFetching = false,
+  compact = false,
 }: WhoCountsListViewProps) {
   const definition = WHO_COUNTS_METRICS[metric]
   const showCredited = response.scope === "team"
@@ -118,6 +121,13 @@ export function WhoCountsListView({
               ? "Na liście nikogo — wynik tego okresu to wpisy z DynaReportera."
               : "Nikogo w tym okresie."}
         </p>
+      ) : compact ? (
+        <CompactRows
+          groups={groups}
+          today={today}
+          showCredited={showCredited}
+          isFetching={isFetching}
+        />
       ) : (
         <div
           className={cn(
@@ -251,7 +261,111 @@ export function WhoCountsListView({
         </div>
       )}
 
+      {compact && totalPages > 1 ? (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">
+            Strona {response.page} z {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={response.page <= 1}
+              onClick={() => onPageChange(response.page - 1)}
+            >
+              Wstecz
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={response.page >= totalPages}
+              onClick={() => onPageChange(response.page + 1)}
+            >
+              Dalej
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <p className="text-xs text-muted-foreground">{WHO_COUNTS_FOOTNOTES[metric]}</p>
+    </div>
+  )
+}
+
+/** Kafelek pulpitu: osoba i dzień w pierwszej linii, rekrutacja i stan w drugiej. */
+function CompactRows({
+  groups,
+  today,
+  showCredited,
+  isFetching,
+}: {
+  groups: ReturnType<typeof groupByDay>
+  today: string
+  showCredited: boolean
+  isFetching: boolean
+}) {
+  return (
+    <div className={cn("flex flex-col gap-2", isFetching && "opacity-70")}>
+      {groups.map((group) => (
+        <div key={group.day} className="flex flex-col">
+          <span className="px-1 pb-1 text-xs font-semibold text-muted-foreground">{group.label}</span>
+          <ul className="divide-y divide-border/60 rounded-lg border border-border bg-card">
+            {group.items.map((item, index) => {
+              const badge = candidateJobsBadge(item)
+              const now = stateText(item, today)
+              return (
+                <li
+                  key={`${item.candidate.id}-${item.job.id}-${item.reached_at}-${index}`}
+                  className="flex flex-col gap-0.5 px-3 py-2 text-sm"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0">
+                      <Link
+                        href={item.candidate.href}
+                        className="font-medium text-foreground hover:text-primary hover:underline"
+                      >
+                        {item.candidate.name}
+                      </Link>
+                      {badge ? (
+                        <Badge variant="info" size="sm" className="ml-1.5 align-middle normal-case">
+                          {badge}
+                        </Badge>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                      {formatTime(item.reached_at)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                    <JobNameLabel
+                      job={{
+                        id: item.job.id,
+                        title: item.job.title,
+                        working_title: item.job.working_title ?? null,
+                        client_reference: item.job.client_reference ?? null,
+                      }}
+                      href={item.job.href}
+                      wrap
+                      titleClassName="text-foreground"
+                    />
+                    <span>· {item.job.client_name}</span>
+                    {showCredited && item.credited_user ? (
+                      <span>· liczy się: {item.credited_user.name}</span>
+                    ) : null}
+                    {now ? (
+                      <Badge variant={TONE_BADGE[now.tone]} size="sm" className="normal-case">
+                        {now.label}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ))}
     </div>
   )
 }
@@ -343,6 +457,7 @@ export function WhoCountsList({
   viewerId,
   cacheKey,
   pageSize = 50,
+  compact = false,
 }: {
   metric: WhoCountsMetric
   query: WhoCountsQuery
@@ -350,6 +465,7 @@ export function WhoCountsList({
   /** Oddziela cache po zmianie konta albo uprawnień. */
   cacheKey: string
   pageSize?: number
+  compact?: boolean
 }) {
   const scopeKey = JSON.stringify(query)
   // Filtr i strona należą do jednego celu i jednej osoby: po zmianie wracają
@@ -407,6 +523,7 @@ export function WhoCountsList({
       onStateChange={(next) => setView({ key: viewKey, state: next, page: 1 })}
       onPageChange={(next) => setView({ key: viewKey, state, page: next })}
       isFetching={details.isFetching && details.isPlaceholderData}
+      compact={compact}
     />
   )
 }

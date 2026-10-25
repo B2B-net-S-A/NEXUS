@@ -44,9 +44,12 @@ describe("układ pulpitu dla roli", () => {
     expect(keys).toContain("today_cycle");
   });
 
-  it("Head of Recruitment: „Gdzie stoi”, lejek zespołu i pełna tablica requestów", () => {
+  it("Head of Recruitment: „Wyniki zespołu” z okresem, „Gdzie stoi” i pełna tablica requestów", () => {
     const keys = keysOf(user("head_of_recruitment"));
-    expect(keys).toEqual(expect.arrayContaining(["team_signals", "team_funnel_week", "request_board"]));
+    expect(keys[0]).toBe("team_results");
+    expect(keys).toEqual(expect.arrayContaining(["team_signals", "request_board"]));
+    // Decyzja Artura 25.10.2026: „Wyniki zespołu” zastępują „Lejek zespołu · 7 dni”.
+    expect(keys).not.toContain("team_funnel_week");
     expect(keys).not.toContain("my_recruitments");
   });
 

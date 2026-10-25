@@ -31,6 +31,7 @@ import { SectionError } from "@/components/insights/sections/_shared";
 import { AcceptancesTable } from "./AcceptancesReport";
 import { TeamFunnelPanel } from "./team/TeamFunnelPanel";
 import { Panel, PanelLoading, Takeaway, Tile, TileRow, ViewHeader } from "./ViewKit";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 export const FIRMA_DEFAULT_PERIOD: InsightsPeriodParams = {
   period: "quarter",
@@ -78,6 +79,9 @@ export function placementsDeltaLabel(
  */
 export function FirmaView() {
   const { period, setPeriod } = useInsightsPeriod(FIRMA_DEFAULT_PERIOD);
+  // Rada nadzorcza widzi liczby bez nazwisk (jak mail „Nowy placement”).
+  const user = useAuthStore((state) => state.user);
+  const canOpenList = hasRole(user, "admin") || hasRole(user, "finance");
   const boardQuery = useQuery({
     queryKey: insightsQueryKeys.board(period),
     queryFn: () => insightsBoardApi.board(period),
@@ -226,6 +230,7 @@ export function FirmaView() {
           previousLabel={undefined}
           inFlight={inFlight}
           period={period}
+          canOpenList={canOpenList}
         />
       ) : funnelQuery.isError ? (
         <SectionError

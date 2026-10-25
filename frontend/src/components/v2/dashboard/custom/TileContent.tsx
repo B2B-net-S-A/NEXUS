@@ -37,6 +37,7 @@ import { HrTileGate } from "./HrTileGate"
 import { MetricTileBody } from "./MetricTileBody"
 import { MyRecruitmentsTile } from "./MyRecruitmentsTile"
 import { MyWeekTile } from "./MyWeekTile"
+import { TeamResultsTile } from "./TeamResultsTile"
 import { CalendarTodayBody, MyPeopleBody, NoteBody } from "./SmallTiles"
 import { SystemStatusTile } from "./SystemStatusTile"
 import { TeamSignalsTile } from "./TeamSignalsTile"
@@ -154,6 +155,8 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
       return <SystemStatusTile />
     case "my_week":
       return <MyWeekTile />
+    case "team_results":
+      return <TeamResultsTile tileId={tile.id} />
     // „Ludzie w NEXUSIE”: moduł, kartotekę i rolę przełożonego zna dopiero
     // `/api/hr/config` — rozstrzyga `HrTileGate` tą samą regułą co katalog.
     case "hr_substitution":
