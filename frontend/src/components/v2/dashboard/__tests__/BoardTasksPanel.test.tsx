@@ -50,7 +50,18 @@ import { BoardTasksPanel } from "@/components/v2/dashboard/BoardTasksPanel";
 import { flowWorkCount } from "@/components/v2/dashboard/BoardFlowSections";
 import { useAuthStore } from "@/store/auth";
 
-const since = new Date(Date.now() - 3 * 86_400_000).toISOString();
+// Dzień kalendarza w Warszawie N dni temu (10:00 UTC), a nie N × 24 h: w tygodniu
+// po zmianie czasu (25.10.2026, doba 25 h) „24 h temu” o 23:30 to jeszcze ten sam
+// dzień i „od wczoraj” zamieniało się w „od dziś”. Zero = teraz.
+const calendarDaysAgo = (days: number): string => {
+  if (days === 0) return new Date().toISOString();
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Warsaw" }).format(new Date());
+  const day = new Date(`${today}T10:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - days);
+  return day.toISOString();
+};
+
+const since = calendarDaysAgo(3);
 
 function row(kind: string, over: Record<string, unknown> = {}) {
   return {
@@ -984,7 +995,7 @@ function pendingRow(over: Record<string, unknown> = {}) {
     title: "Analityk danych",
     client_name: "Bank Kappa",
     kind: "legacy_draft",
-    created_at: new Date(Date.now() - 12 * 86_400_000).toISOString(),
+    created_at: calendarDaysAgo(12),
     delivery_lead_name: "Anna Lis",
     missing: ["Budżet PLN/h", "Tryb pracy"],
     ...over,

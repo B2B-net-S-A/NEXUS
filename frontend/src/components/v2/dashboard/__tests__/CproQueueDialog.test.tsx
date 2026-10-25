@@ -42,7 +42,18 @@ import { CproAcceptance, CproQueueDialog } from "@/components/v2/dashboard/CproQ
 import type { CproQueueItem, CproQueueResponse } from "@/lib/api/boardTasks";
 import { useAuthStore } from "@/store/auth";
 
-const since = new Date(Date.now() - 2 * 86_400_000).toISOString();
+// Dzień kalendarza w Warszawie N dni temu (10:00 UTC), a nie N × 24 h: w tygodniu
+// po zmianie czasu (25.10.2026, doba 25 h) „24 h temu” o 23:30 to jeszcze ten sam
+// dzień i „od wczoraj” zamieniało się w „od dziś”. Zero = teraz.
+const calendarDaysAgo = (days: number): string => {
+  if (days === 0) return new Date().toISOString();
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Warsaw" }).format(new Date());
+  const day = new Date(`${today}T10:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - days);
+  return day.toISOString();
+};
+
+const since = calendarDaysAgo(2);
 
 const item = (over: Partial<CproQueueItem>): CproQueueItem => ({
   stage_id: 1,
