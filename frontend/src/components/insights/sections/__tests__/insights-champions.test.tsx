@@ -419,6 +419,90 @@ const FROZEN_Q2 = {
   source_note: DR_NOTE,
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Liga DL od Q4 2026 (decyzja Artura 25.10.2026): ranking po hit ratio, bez
+// nagród. Kwartały do Q3 2026 zostają w starym układzie (placementy, kwoty).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function dlEntry(over: Record<string, unknown> = {}) {
+  return entry({ role: "delivery_lead", prize_pln: 0, ...over });
+}
+
+const DL_HIT_RATIO_LEAGUE = {
+  ...EMPTY_LEAGUE,
+  period: "Q4 2026",
+  prize_pool_pln: null,
+  quarterly_prizes_pln: null,
+  requirement:
+    "Miejsce w klasyfikacji: minimum 3 placementy i 5 zamkniętych rekrutacji w kwartale. Liga DL nie ma nagród.",
+  top3: [
+    dlEntry({ user_id: 31, name: "Iza Pawlak", metric_value: 4, hit_ratio: 36.4, requests: 11, rank: 1 }),
+    dlEntry({ user_id: 32, name: "Paweł Gil", metric_value: 6, hit_ratio: 30, requests: 20, rank: 2 }),
+  ],
+  full_ranking: [
+    dlEntry({ user_id: 31, name: "Iza Pawlak", metric_value: 4, hit_ratio: 36.4, requests: 11, rank: 1 }),
+    dlEntry({ user_id: 32, name: "Paweł Gil", metric_value: 6, hit_ratio: 30, requests: 20, rank: 2 }),
+    dlEntry({
+      user_id: 33,
+      name: "Ola Sowa",
+      metric_value: 2,
+      hit_ratio: 50,
+      requests: 4,
+      rank: null,
+      prize_pln: null,
+      qualified: false,
+      required_placements: 3,
+      required_closed_requests: 5,
+      disqualification_reasons: ["MIN_PLACEMENTS_NOT_MET", "MIN_CLOSED_REQUESTS_NOT_MET"],
+    }),
+  ],
+};
+
+describe("ChampionsSection — Liga DL po hit ratio (od Q4 2026)", () => {
+  it("wynikiem jest hit ratio, a pod nim placementy i zamknięte rekrutacje", async () => {
+    respond({ [RECRUITER]: RECRUITER_LEAGUE, [DL]: DL_HIT_RATIO_LEAGUE });
+    renderSection();
+    expect(await screen.findByText("Iza Pawlak")).toBeInTheDocument();
+    expect(screen.getByText("Ranking Delivery Leadów po hit ratio · bez nagród")).toBeInTheDocument();
+    expect(screen.getByText("4 placem. / 11 zamkn.")).toBeInTheDocument();
+    // Więcej placementów, ale niższy procent — drugie miejsce.
+    expect(screen.getByText("6 placem. / 20 zamkn.")).toBeInTheDocument();
+  });
+
+  it("bez nagród: żadnych kafli z kwotą przy podium ligi DL", async () => {
+    respond({ [RECRUITER]: RECRUITER_LEAGUE, [DL]: DL_HIT_RATIO_LEAGUE });
+    renderSection();
+    await screen.findByText("Iza Pawlak");
+    // Kafle kwot ma tylko Liga Rekrutacja (trzy miejsca).
+    expect(screen.getAllByTestId(/^league-prize-/)).toHaveLength(3);
+    expect(screen.getByText(/Liga DL nie ma nagród — to statystyka/)).toBeInTheDocument();
+  });
+
+  it("niespełniony próg zamkniętych rekrutacji jest nazwany z liczbą", async () => {
+    respond({ [RECRUITER]: RECRUITER_LEAGUE, [DL]: DL_HIT_RATIO_LEAGUE });
+    renderSection();
+    expect(await screen.findByText("Ola Sowa")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Brakuje placementu do progu \(wymagane: 3\) · Za mało zamkniętych rekrutacji \(wymagane: 5\)/),
+    ).toBeInTheDocument();
+  });
+
+  it("kwartał sprzed Q4 2026 dalej pokazuje placementy i kwoty, którymi go rozliczono", async () => {
+    respond({
+      [Q2_RECRUITER]: FROZEN_Q2,
+      [Q2_DL]: {
+        ...EMPTY_LEAGUE,
+        period: "Q2 2026",
+        top3: [dlEntry({ metric_value: 23, hit_ratio: null, requests: 0, prize_pln: 5000 })],
+        full_ranking: [dlEntry({ metric_value: 23, hit_ratio: null, requests: 0, prize_pln: 5000 })],
+      },
+    });
+    renderSectionFor("Q2 2026");
+    expect(await screen.findByText("Kwartalne podium Delivery Leadów")).toBeInTheDocument();
+    expect(await screen.findAllByText("placementów")).not.toHaveLength(0);
+  });
+});
+
 describe("ChampionsSection — wybrany kwartał", () => {
   it("bez okresu pyta dokładnie jak dotąd, z okresem dokleja `period` z zakodowaną spacją", async () => {
     respond({

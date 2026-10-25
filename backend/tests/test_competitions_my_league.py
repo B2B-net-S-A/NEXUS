@@ -61,13 +61,23 @@ def _recruiters() -> list[competitions.RankedUser]:
 
 
 def _dls() -> list[competitions.RankedUser]:
+    # Liga DL od 25.10.2026: kolejność po hit ratio, miejsce od 3 placementów
+    # i 5 zamkniętych rekrutacji. Liczby zgodne z `dl_portfolio_counts` niżej.
+    rows = [
+        (21, 5, 12, True),
+        (22, 4, 11, True),
+        (25, 3, 10, True),
+        (23, 2, 8, False),
+    ]
     return [
         competitions.RankedUser(
-            user_id=21, name="DL 21", metric_value=5, hit_ratio=41.7
-        ),
-        competitions.RankedUser(
-            user_id=22, name="DL 22", metric_value=4, hit_ratio=36.4
-        ),
+            user_id=uid,
+            name=f"DL {uid}",
+            metric_value=placements,
+            hit_ratio=round(placements / closed * 100, 1),
+            extras={"requests": closed, "qualified": qualified},
+        )
+        for uid, placements, closed, qualified in rows
     ]
 
 
@@ -165,9 +175,14 @@ async def test_delivery_lead_in_the_league(league) -> None:
     data = await competitions_api.my_league(_user(22, UserRole.delivery_lead), None)
     assert data["kind"] == "delivery_lead"
     assert data["type"] == CompetitionType.quarterly_champions_dl.value
+    # Liga DL od Q4 2026 jest bez nagród.
+    assert data["prizes_pln"] == {}
+    assert data["total"] == 4
     assert data["standing"]["rank"] == 2
-    assert data["standing"]["value"] == 4
-    assert data["standing"]["gap_to_place_above"] == 1
+    # Wynik i dystanse w hit ratio, nie w placementach.
+    assert data["standing"]["value"] == 36.4
+    assert data["standing"]["gap_to_place_above"] == 5.3
+    assert data["standing"]["lead_over_next"] == 6.4
     assert data["dl"] == {
         "placements": 4,
         "closed_requests": 11,
@@ -175,37 +190,46 @@ async def test_delivery_lead_in_the_league(league) -> None:
         "hit_ratio": 36.4,
         "hit_ratio_target": 30.0,
         "min_placements": 3,
+        "min_closed_requests": 5,
         "missing_placements": 0,
+        "missing_closed_requests": 0,
         "qualified": True,
     }
     assert "points_formula" not in data
 
 
-async def test_delivery_lead_below_the_threshold_gets_the_way_in(league) -> None:
+async def test_delivery_lead_below_the_threshold_is_listed_without_a_place(
+    league,
+) -> None:
     data = await competitions_api.my_league(_user(23, UserRole.delivery_lead), None)
-    assert data["standing"]["me"] is None
-    # 2 placementy z 8 zamkniętych = 25%: brakuje 1 do trzech (i do 30%).
+    # 2 placementy z 8 zamkniętych = 25%: na liście, ale bez miejsca —
+    # brakuje 1 placementu do trzech; zamkniętych jest dość.
+    assert data["standing"]["me"]["user_id"] == 23
+    assert data["standing"]["rank"] is None
+    assert data["standing"]["position_by_value"] == 4
     assert data["dl"]["hit_ratio"] == 25.0
     assert data["dl"]["missing_placements"] == 1
+    assert data["dl"]["missing_closed_requests"] == 0
     assert data["dl"]["qualified"] is False
 
 
 async def test_delivery_lead_without_closed_requests_has_no_hit_ratio(league) -> None:
     data = await competitions_api.my_league(_user(24, UserRole.delivery_lead), None)
+    assert data["standing"]["me"] is None
     assert data["dl"]["hit_ratio"] is None
     assert data["dl"]["closed_requests"] == 0
     assert data["dl"]["missing_placements"] == 3
+    assert data["dl"]["missing_closed_requests"] == 5
     assert data["dl"]["qualified"] is False
 
 
-async def test_qualified_delivery_lead_outside_the_list_is_still_in_the_league(
-    league,
-) -> None:
-    # Ranking DL tnie listę do 10 — osoba spełniająca próg może jej nie mieć.
+async def test_threshold_not_hit_ratio_decides_the_place(league) -> None:
+    # 3 z 10 = 30%: przed 25.10.2026 próg hit ratio, dziś miejsce 3. — liga
+    # nie ucina listy do dziesięciu i nie ma progu procentowego.
     data = await competitions_api.my_league(_user(25, UserRole.delivery_lead), None)
-    assert data["standing"]["me"] is None
+    assert data["standing"]["rank"] == 3
+    assert data["standing"]["gap_to_place_above"] == 6.4
     assert data["dl"]["qualified"] is True
-    assert data["dl"]["missing_placements"] == 0
 
 
 async def test_head_of_recruitment_with_dl_role_sees_the_dl_league(league) -> None:

@@ -75,7 +75,7 @@ export function ChampionEditDrawer({
               if (!next) void requestClose();
             }}
             title={`Edycja: ${meta.title}`}
-            description="Zapis zmienia tylko ten blok. Cały profil: menu ⋯ → „Edytuj cały Profil Championa”."
+            description="Zapis zmienia tylko ten blok. Cały profil: menu ⋯ → „Edytuj Profil Championa”."
             footer={footer}
             data-testid="champion-edit-drawer"
           >

@@ -14,7 +14,6 @@
  * z Windows: 1280 × 720, 1366 × 768, 1536 × 864
  * (`e2e/responsive-preview.spec.ts`).
  *
- * `?empty=1` — puste kolumny widoczne (ustawienie z menu „⋯”),
  * `?rail=1` — menu zwinięte do szyny 60 px także od 1280 px,
  * `?sources=similar|postings|base|search|manual` — okno „Kandydaci do dodania”
  * otwarte od razu na tej zakładce (14.10.2026: dopasowanie liczone bez
@@ -128,7 +127,6 @@ import {
 } from "@/lib/board-added-by";
 import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
 import { useAuthStore } from "@/store/auth";
-import { useUiStore } from "@/store/ui";
 
 import {
   currentJobNotes,
@@ -1598,7 +1596,6 @@ function harnessClientCv(stageId: number, filename: string | null): Record<strin
 
 function JobDetailHarness() {
   const params = useSearchParams();
-  const showEmpty = params.get("empty") === "1";
   const railOnly = params.get("rail") === "1";
   const initialSources = params.get("sources");
   const reopenOnStart = params.get("reopen") === "1";
@@ -1645,7 +1642,6 @@ function JobDetailHarness() {
       : null,
   );
   const [ready, setReady] = useState(false);
-  const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
   useEffect(() => {
     const blocker = api.interceptors.request.use((config) => {
       // Dopasowanie liczone bez przycisku (14.10.2026) — odpowiedź z zasiewu.
@@ -1883,10 +1879,9 @@ function JobDetailHarness() {
       } as never,
       hydrated: true,
     });
-    useUiStore.setState({ hideEmptyKanbanColumns: !showEmpty });
     setReady(true);
     return () => api.interceptors.request.eject(blocker);
-  }, [showEmpty, championMode]);
+  }, [championMode]);
   // Filtr „Kto dodał” (14.10.2026) — harness nie czyta adresu, trzyma go w stanie.
   const [addedBy, setAddedBy] = useState<AddedByFilter>(ADDED_BY_ALL);
   const addedByMenuOptions = useMemo(
@@ -2030,22 +2025,12 @@ function JobDetailHarness() {
                         onWriteAnnouncement={readOnlyRole ? undefined : noop}
                         adChannels={{ career: true, pracuj: false, jjit: false }}
                         onOpenHistoryChat={noop}
-                        onOpenQuestions={noop}
                         onOpenFiles={() => setFilesOpen(true)}
                         filesCount={PREVIEW_FILES.items.length}
-                        onOpenChampions={
-                          readOnlyRole || closed ? undefined : () => setChampionsOpen(true)
-                        }
                         onAddByName={noop}
                         onAddFromCv={noop}
                         onStartFullReview={() => setSourceTab("base")}
                         onOpenMyPeople={noop}
-                        teamSummary="Rekruter: Marta N. +1"
-                        onOpenTeam={noop}
-                        emptyColumnsHidden={hideEmptyColumns}
-                        onToggleEmptyColumns={() =>
-                          useUiStore.setState({ hideEmptyKanbanColumns: !hideEmptyColumns })
-                        }
                         onCopyLink={noop}
                         onCloseJob={closed ? undefined : () => setCloseOpen(true)}
                         onReopenJob={closed ? () => setReopenOpen(true) : undefined}

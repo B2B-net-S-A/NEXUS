@@ -14,10 +14,12 @@ czy coś się zmieści przy 1280 × 720 z prawdziwymi nazwami i liczbami.
 - Staging: front `http://localhost:3100`, API `http://localhost:8100`
   (`docker ps | grep nexus-staging`). Nie działa → powiedz to i podaj komendę
   z `staging-na-laptopie.md`; nie zastępuj go produkcją ani harnessem `/preview/*`.
-- Wbudowana przeglądarka, rozmiar 1280 × 720, logowanie hasłem na koncie
-  o roli, której dotyczy pytanie (rekruter, Delivery Lead, finanse…) — ekran
-  admina wygląda inaczej niż ekran rekrutera. Hasło podaje Artur w czacie albo
-  jest w `.env.staging.local`; nie zgadujesz i nie zmieniasz haseł.
+- Wbudowana przeglądarka, rozmiar 1280 × 720, konto o roli, której dotyczy
+  pytanie (rekruter, Delivery Lead, finanse…) — ekran admina wygląda inaczej
+  niż ekran rekrutera. Logujesz się przez „Zaloguj jako”
+  (`python -m scripts.staging_login_as`, opis w
+  `podstawy/test-calej-sciezki-na-stagingu.md`); nie zgadujesz i nie
+  zmieniasz haseł.
 - Zrzut każdego stanu, o który chodzi: pusty, pełny, błąd, otwarte okno, wąski
   ekran. Wybierz prawdziwy rekord, na którym problem widać (długa nazwa, dużo
   kart), i napisz, który to (id, nie nazwisko).

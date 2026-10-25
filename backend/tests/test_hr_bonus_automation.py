@@ -319,6 +319,62 @@ async def test_unverified_candidate_gives_no_recruiter_bonus(payroll_on) -> None
     assert set(await _bonuses(world["contract"])) == {"dl"}
 
 
+async def _verified_by_dl(world: dict, *, dl_roles: list[str]) -> None:
+    """Kandydata zweryfikował DL rekrutacji; ``dl_roles`` — jego role."""
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, world["contract"])
+        stage = await db.scalar(
+            select(CandidateStage).where(
+                CandidateStage.candidate_id == contract.candidate_id,
+                CandidateStage.job_id == contract.job_id,
+            )
+        )
+        stage.moved_by = world["dl"]
+        dl = await db.get(User, world["dl"])
+        dl.roles = dl_roles
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_dl_who_verified_without_recruiter_role_gets_only_dl_bonus(
+    payroll_on,
+) -> None:
+    world = await _placement(started_days_ago=40)
+    await _verified_by_dl(world, dl_roles=["delivery_lead"])
+    assert (await _reconcile(world["contract"]))["created"] == 1
+    assert set(await _bonuses(world["contract"])) == {"dl"}
+
+
+@pytest.mark.asyncio
+async def test_dl_with_recruiter_role_who_verified_gets_both_bonuses(
+    payroll_on,
+) -> None:
+    # Decyzja Artura 25.10.2026: DL, który rekrutuje i sam zweryfikował osobę.
+    world = await _placement(started_days_ago=40)
+    await _verified_by_dl(world, dl_roles=["delivery_lead", "recruiter"])
+    assert (await _reconcile(world["contract"]))["created"] == 2
+    found = await _bonuses(world["contract"])
+    assert found["dl"].recipient_user_id == world["dl"]
+    assert found["recruiter"].recipient_user_id == world["dl"]
+
+
+@pytest.mark.asyncio
+async def test_recruiter_role_added_later_restores_cancelled_recruiter_bonus(
+    payroll_on,
+) -> None:
+    # Propozycje anulowane regułą z 22.10 wracają przy uzgodnieniu.
+    world = await _placement(started_days_ago=40)
+    await _reconcile(world["contract"])
+    await _verified_by_dl(world, dl_roles=["delivery_lead"])
+    assert (await _reconcile(world["contract"]))["cancelled"] == 1
+    await _verified_by_dl(world, dl_roles=["delivery_lead", "recruiter"])
+    assert (await _reconcile(world["contract"]))["restored"] == 1
+    found = await _bonuses(world["contract"])
+    assert found["recruiter"].status == "proposed"
+    assert found["recruiter"].recipient_user_id == world["dl"]
+
+
 @pytest.mark.asyncio
 async def test_md_contract_is_converted_before_tiers(payroll_on) -> None:
     world = await _placement(

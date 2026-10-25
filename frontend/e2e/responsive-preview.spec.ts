@@ -292,7 +292,7 @@ const WINDOWS_LAPTOP_WINDOWS = [
 const PRIMARY_CONTENT = [
   // Tablica: nagłówek kolumny „Nowi” — 0,54 (28.09.2026), 0,46 (02.10), 0,30 po
   // kompaktowym nagłówku z „Kandydatami do dodania” w środku (14.10.2026, K-D1).
-  { path: "/preview/job-detail?empty=1", selector: "h3:text-is('Nowi')", maxTop: 0.4, shell: true },
+  { path: "/preview/job-detail", selector: "h3:text-is('Nowi')", maxTop: 0.4, shell: true },
   // Lista rekrutacji: pierwszy wiersz tabeli (0,42).
   { path: "/preview/jobs-list-v3", selector: "tbody tr", maxTop: 0.5, shell: false },
   // Kandydaci: pierwszy wiersz listy (0,59 — panel słów kluczowych jest duży z założenia).

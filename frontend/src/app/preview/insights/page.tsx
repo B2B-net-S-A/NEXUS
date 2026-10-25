@@ -163,19 +163,30 @@ function seeded(): QueryClient {
   qc.setQueryData(["insights", "champions", "quarterly_champions_recruiter", "Q3 2026"], {
     ...recruiterCurrent, period: "Q3 2026", ...settled, closure_status: "frozen",
   });
+  // Liga DL od Q4 2026: kolejność po hit ratio (placementy ÷ zamknięte), bez nagród.
   const dlLeague = [
-    { user_id: 31, name: "Paweł G.", metric_value: 12, role: "delivery_lead", requests: 35 },
-    { user_id: 32, name: "Kasia B.", metric_value: 9, role: "delivery_lead", requests: 31 },
-    { user_id: 33, name: "Michał T.", metric_value: 7, role: "delivery_lead", requests: 32 },
-    { user_id: 34, name: "Iza P.", metric_value: 4, role: "delivery_lead", requests: 12 },
-  ];
+    { user_id: 34, name: "Iza P.", metric_value: 4, hit_ratio: 33.3, role: "delivery_lead", requests: 12 },
+    { user_id: 31, name: "Paweł G.", metric_value: 12, hit_ratio: 34.3, role: "delivery_lead", requests: 35 },
+    { user_id: 32, name: "Kasia B.", metric_value: 9, hit_ratio: 29, role: "delivery_lead", requests: 31 },
+    { user_id: 33, name: "Michał T.", metric_value: 7, hit_ratio: 21.9, role: "delivery_lead", requests: 32 },
+  ].sort((a, b) => b.hit_ratio - a.hit_ratio);
+  const dlUnplaced = {
+    user_id: 35, name: "Ola S.", metric_value: 2, hit_ratio: 50, role: "delivery_lead", requests: 4,
+    qualified: false, disqualification_reasons: ["MIN_PLACEMENTS_NOT_MET", "MIN_CLOSED_REQUESTS_NOT_MET"],
+    required_placements: 3, required_closed_requests: 5,
+  };
   // Liga DL liczy tylko NEXUS — DynaReporter jej nie prowadził, więc bez paska źródła.
   const nexusOnly = { is_frozen: false, closure_status: null, source: "nexus", source_note: null };
   const dlCurrent = {
     type: "quarterly_champions_dl", period: currentQuarterKey(), days_remaining: 6, ...nexusOnly,
-    top3: dlLeague.slice(0, 3).map((e, i) => ({ ...e, rank: i + 1 })),
-    full_ranking: dlLeague.map((e, i) => ({ ...e, rank: i + 1 })),
-    requirement: null, points_formula: null, quarterly_prizes_pln: null, prize_pool_pln: null,
+    top3: dlLeague.slice(0, 3).map((e, i) => ({ ...e, rank: i + 1, prize_pln: 0 })),
+    full_ranking: [
+      ...dlLeague.map((e, i) => ({ ...e, rank: i + 1, prize_pln: 0 })),
+      { ...dlUnplaced, rank: null, prize_pln: null },
+    ],
+    requirement:
+      "Miejsce w klasyfikacji: minimum 3 placementy i 5 zamkniętych rekrutacji w kwartale. Liga DL nie ma nagród.",
+    points_formula: null, quarterly_prizes_pln: null, prize_pool_pln: null,
   };
   qc.setQueryData(["insights", "champions", "quarterly_champions_dl", "current"], dlCurrent);
   // Q3 2026 w lidze DL: nikt nie spełnił warunku — okres bez zwycięzcy.

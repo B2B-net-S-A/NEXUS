@@ -182,22 +182,8 @@ test.describe("Pipeline rekrutacji @stack", () => {
       .filter({ has: page.getByRole("link", { name: fullName }) })
       .first();
     await expect(card).toBeVisible();
-    // Puste kolumny są domyślnie ukryte (store/ui.ts hideEmptyKanbanColumns),
-    // a świeża rekrutacja ma tylko jedną niepustą — bez celu strzałka nic nie robi.
-    // Przełącznik „Ukryj puste kolumny" (aria-pressed = puste ukryte) wyłączamy
-    // jawnie; do 22.09.2026 nazywał się „Kolumny: pokaż puste" i test po
-    // zmianie nazwy nic nie klikał, więc karta nie miała dokąd pojechać.
-    // Od 02.10.2026 paska filtrów nie ma — przełącznik jest pozycją menu „⋯”
-    // w nagłówku rekrutacji, a jej nazwa mówi, co zrobi kliknięcie.
-    await page.getByRole("button", { name: "Więcej akcji rekrutacji" }).click();
-    const emptyColumns = page.getByTestId("toggle-empty-columns");
-    await expect(emptyColumns).toBeVisible();
-    if ((await emptyColumns.textContent())?.includes("Pokaż puste kolumny")) {
-      await emptyColumns.click();
-    } else {
-      await page.keyboard.press("Escape");
-    }
-    await expect(page.getByTestId("toggle-empty-columns")).toBeHidden();
+    // Od 25.10.2026 Tablica zawsze pokazuje puste kolumny (bez przełącznika
+    // w menu „⋯”), więc karta ma dokąd pojechać bez żadnego przygotowania.
     // Przeciąganie klawiaturą (@hello-pangea/dnd): Spacja podnosi kartę,
     // strzałka przenosi ją do sąsiedniej kolumny, Spacja upuszcza.
     await card.focus();

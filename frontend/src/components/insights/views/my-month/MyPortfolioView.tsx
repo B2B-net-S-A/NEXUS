@@ -88,7 +88,8 @@ export function MyPortfolioView() {
               ) : (
                 <strong>bez miejsca w klasyfikacji</strong>
               )}{" "}
-              · {league.data.me.metric_value} plac. w kwartale (z {league.data.total} DL)
+              · hit ratio {pct(league.data.me.hit_ratio ?? null)}, {league.data.me.metric_value} plac.
+              w kwartale (z {league.data.total} DL)
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">

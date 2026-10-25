@@ -76,7 +76,7 @@
       },
       {
         "q": "Gdzie są rzadsze akcje, np. championi albo dodanie po nazwisku?",
-        "a": "W menu „⋯” w prawym górnym rogu: „Championi…” (ta sama lista co pod plakietką statusu), „Dodaj po nazwisku”, „Dodaj z pliku CV”, „Przeszukaj całą bazę (AI)”, „Moi ludzie do tej rekrutacji”, skrót zlecenia, zespół, baza pytań i ukrywanie pustych kolumn."
+        "a": "W menu „⋯” w prawym górnym rogu: „Dodaj kandydatów” (po nazwisku, z pliku CV, z moich ludzi, przeszukanie całej bazy przez AI), skrót zlecenia, edycja, pliki i linki. Championów wskazujesz w plakietce statusu przy tytule, zespół w „Rekruter”, a bazę pytań i kartę klienta masz w skrócie zlecenia."
       },
       {
         "q": "Gdzie są odrzuceni i ci, którzy zrezygnowali?",
@@ -206,7 +206,7 @@
     "tasks": [
       {
         "q": "Jak szybko wypełnić profil z maila klienta?",
-        "a": "Otwórz menu „⋯” w nagłówku i kliknij „Edytuj cały Profil Championa”. W kolumnie „Wypełnij szybciej” kliknij „Wygeneruj z opisu klienta”, wklej opis i zatwierdź. AI wypełni sekcje, a Ty je poprawisz. Obok jest też import pliku Word/PDF.",
+        "a": "Otwórz menu „⋯” w nagłówku i kliknij „Edytuj Profil Championa”. W kolumnie „Wypełnij szybciej” kliknij „Wygeneruj z opisu klienta”, wklej opis i zatwierdź. AI wypełni sekcje, a Ty je poprawisz. Obok jest też import pliku Word/PDF.",
         "anchor": "job.champion.intake"
       },
       {
@@ -216,12 +216,12 @@
       },
       {
         "q": "Profil i pola rekrutacji się różnią — co zrobić?",
-        "a": "W menu „⋯” → „Edytuj cały Profil Championa”, potem w kolumnie „Wypełnij szybciej” kliknij „Uzgodnij profil i pola rekrutacji”. Zobaczysz różnice obok siebie i zdecydujesz, która wartość zostaje.",
+        "a": "W menu „⋯” → „Edytuj Profil Championa”, potem w kolumnie „Wypełnij szybciej” kliknij „Uzgodnij profil i pola rekrutacji”. Zobaczysz różnice obok siebie i zdecydujesz, która wartość zostaje.",
         "anchor": "job.champion.reconcile"
       },
       {
         "q": "Jak oznaczyć championa — osobę, którą chce klient?",
-        "a": "Delivery Lead klika plakietkę statusu obok tytułu rekrutacji (np. „Szukamy”), zaznacza jedną albo kilka osób i klika „Zapisz”. Ta sama lista jest w menu „⋯” → „Championi…”. Rekrutacja przestaje szukać, a P1 czeka; gdy odpadnie ostatni champion, wraca sama do „Szukamy”.",
+        "a": "Delivery Lead klika plakietkę statusu obok tytułu rekrutacji (np. „Szukamy”), zaznacza jedną albo kilka osób i klika „Zapisz”. Rekrutacja przestaje szukać, a P1 czeka; gdy odpadnie ostatni champion, wraca sama do „Szukamy”.",
         "anchor": "job.champion.found"
       },
       {
@@ -244,10 +244,10 @@
       {
         "id": "job.champion.found",
         "label": "Championi",
-        "describe": "Plakietka statusu obok tytułu rekrutacji — lista „Championi” do zaznaczenia (także menu „⋯” → „Championi…”).",
+        "describe": "Plakietka statusu obok tytułu rekrutacji — lista „Championi” do zaznaczenia.",
         "requires": {"roles": ["admin", "delivery_lead", "head_of_recruitment"]}
       },
-      {"id": "job.champion.sections", "label": "Spis sekcji", "describe": "Spis sekcji w pełnym formularzu (menu „⋯” → „Edytuj cały Profil Championa”)."}
+      {"id": "job.champion.sections", "label": "Spis sekcji", "describe": "Spis sekcji w pełnym formularzu (menu „⋯” → „Edytuj Profil Championa”)."}
     ],
     "help_slug": null,
     "sources": [

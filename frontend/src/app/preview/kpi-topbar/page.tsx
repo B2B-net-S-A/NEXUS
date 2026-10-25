@@ -28,10 +28,9 @@ import { LeaguePanel } from "@/components/v2/league/LeaguePanel";
 import { LeagueTopbarButton } from "@/components/v2/league/LeagueTopbarButton";
 import { LeagueTopbarPopover } from "@/components/v2/league/MyLeagueWidget";
 import {
-  LEAGUE_DL_BEYOND_TEN,
   LEAGUE_DL_NO_CLOSED,
-  LEAGUE_DL_OUTSIDE,
   LEAGUE_DL_SECOND,
+  LEAGUE_DL_UNPLACED,
   LEAGUE_RECRUITER_FOURTH,
   LEAGUE_RECRUITER_LEADER,
   LEAGUE_RECRUITER_SECOND,
@@ -239,7 +238,7 @@ function league(data: Parameters<typeof buildLeagueTopbarModel>[0], baselineRank
 
 const LEAGUE_RECRUITER = league(LEAGUE_RECRUITER_FOURTH);
 const LEAGUE_HEAD = league(LEAGUE_SPECTATOR);
-const LEAGUE_DL = league(LEAGUE_DL_OUTSIDE);
+const LEAGUE_DL = league(LEAGUE_DL_UNPLACED);
 
 const LEAGUE_STATES: { title: string; note: string; model: LeagueTopbarModel }[] = [
   { title: "Lider", note: "złote kółko, w panelu przewaga nad 2. miejscem", model: league(LEAGUE_RECRUITER_LEADER) },
@@ -250,9 +249,8 @@ const LEAGUE_STATES: { title: string; note: string; model: LeagueTopbarModel }[]
   { title: "Bez miejsca", note: "punkty są, warunek udziału nie", model: league(LEAGUE_RECRUITER_UNQUALIFIED) },
   { title: "Bez punktów", note: "też 1. dnia kwartału", model: league(LEAGUE_RECRUITER_ZERO) },
   { title: "Awaria", note: "„—”, nigdy „0 pkt”", model: leagueErrorModel() },
-  { title: "DL w lidze", note: "liga DL liczy placementy", model: league(LEAGUE_DL_SECOND) },
-  { title: "DL poza 10.", note: "próg spełniony, poza listą 10", model: league(LEAGUE_DL_BEYOND_TEN) },
-  { title: "DL poza ligą", note: "w panelu droga do progu", model: LEAGUE_DL },
+  { title: "DL z miejscem", note: "liga DL po hit ratio, bez nagród", model: league(LEAGUE_DL_SECOND) },
+  { title: "DL bez miejsca", note: "w panelu, czego brakuje do miejsca", model: LEAGUE_DL },
   { title: "DL bez zamkniętych", note: "hit ratio niepoliczone", model: league(LEAGUE_DL_NO_CLOSED) },
   { title: "Kto nie gra", note: "HoR, TCM, admin, Finanse", model: LEAGUE_HEAD },
 ];
@@ -489,7 +487,8 @@ export default function KpiTopbarPreviewPage() {
         <div className="flex flex-wrap items-start gap-6">
           <LeaguePanelFrame title="Liga — rekruter na 4. miejscu" model={LEAGUE_RECRUITER} />
           <LeaguePanelFrame title="Liga — bez miejsca" model={league(LEAGUE_RECRUITER_UNQUALIFIED)} />
-          <LeaguePanelFrame title="Liga — Delivery Lead poza ligą" model={LEAGUE_DL} />
+          <LeaguePanelFrame title="Liga — Delivery Lead bez miejsca" model={LEAGUE_DL} />
+          <LeaguePanelFrame title="Liga — Delivery Lead z miejscem" model={league(LEAGUE_DL_SECOND)} />
           <LeaguePanelFrame title="Liga — kto nie gra" model={LEAGUE_HEAD} />
         </div>
 

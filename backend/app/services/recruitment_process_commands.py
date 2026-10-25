@@ -1355,13 +1355,14 @@ async def void_process(
     *,
     candidate_id: int,
     job_id: int,
-    actor_user: User,
+    actor_user: Optional[User],
 ) -> Optional[RecruitmentProcess]:
     """Mark the canonical process void before the legacy corrective delete.
 
     Under enforcement this is a HoR correction only.  ``off`` and
     ``shadow`` retain the old endpoint behaviour while still leaving a durable
-    canonical audit record.
+    canonical audit record.  ``actor_user=None`` = system withdraws its own
+    untouched card (``autofill_withdraw``) — no person, no priority check.
     """
 
     locked_candidate = await db.scalar(
@@ -1370,9 +1371,11 @@ async def void_process(
     if locked_candidate is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    mode = await effective_priority_mode(db, actor_user.id)
-    if mode is PriorityMode.enforce and not actor_user.has_role(
-        UserRole.head_of_recruitment
+    mode = await effective_priority_mode(db, actor_user.id) if actor_user else None
+    if (
+        actor_user is not None
+        and mode is PriorityMode.enforce
+        and not actor_user.has_role(UserRole.head_of_recruitment)
     ):
         decision = PriorityWorkDecision(
             allowed=False,
