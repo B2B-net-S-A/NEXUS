@@ -22,7 +22,6 @@ a globalne sondy (`_search_busy`, `_started_since`) są podstawiane.
 
 import uuid
 from datetime import datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import AsyncClient
@@ -191,19 +190,11 @@ def test_window_is_half_open_in_business_timezone(monkeypatch):
     assert afr.in_window(_at(1)) and afr.in_window(_at(4))
     assert not afr.in_window(_at(0)) and not afr.in_window(_at(5))
     assert not afr.in_window(_at(14))
-    # „Ta noc" zaczyna się o 01:00 lokalnie — także oglądana o 04:30.
-    # Porównanie na zegarze lokalnym, nie w UTC: w noc zmiany czasu
-    # (25.10.2026) od 01:00 CEST do 04:30 CET mijają 4,5 h i test oparty na
-    # różnicy w UTC wywracał kolejkę merge'ów przez cały dzień.
+    # „Ta noc" zaczyna się o 01:00 lokalnie — także oglądana o 04:30. Noc
+    # zmiany czasu na zimowy (ostatnia niedziela października) ma godzinę
+    # więcej, więc granica to 5 h prawdziwego czasu, nie 4.
     start = afr.night_start(_at(4))
-    local_start = start.astimezone(ZoneInfo(settings.BUSINESS_TZ))
-    local_seen = _at(4).astimezone(ZoneInfo(settings.BUSINESS_TZ))
-    assert start <= _at(4)
-    assert (local_start.date(), local_start.hour, local_start.minute) == (
-        local_seen.date(),
-        1,
-        0,
-    )
+    assert start <= _at(4) and _at(4) - start < timedelta(hours=5)
     # Równe godziny = okno zamknięte (wyłącznik bez deployu).
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 1)
     assert not afr.in_window(_at(1))

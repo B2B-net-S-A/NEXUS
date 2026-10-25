@@ -3,13 +3,11 @@
 import type { MouseEvent, ReactNode } from "react";
 import {
   ArrowLeft,
-  BookOpen,
   Paperclip,
   Building2,
   ChevronDown,
   ChevronUp,
   ClipboardList,
-  Columns3,
   Copy,
   Ellipsis,
   FileText,
@@ -23,7 +21,6 @@ import {
   ScanSearch,
   Send,
   Sparkles,
-  Trophy,
   UserPlus,
   Users,
   Wallet,
@@ -41,8 +38,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -148,8 +147,7 @@ interface JobDetailCompactHeaderProps {
   onOpenHistoryChat: () => void;
   chatUnreadCount?: number;
 
-  // ── Menu „⋯" — wszystko, co zeszło z widoku, żyje tutaj ─────────────────
-  onOpenQuestions: () => void;
+  // ── Menu „⋯" — 9 pozycji (decyzja Artura 25.10.2026) ────────────────────
   /** Okno „Pliki” — request klienta i załączniki rekrutacji (0428). */
   onOpenFiles?: () => void;
   /** Liczba plików; `undefined` = jeszcze nie wiadomo (bez liczby w menu). */
@@ -157,55 +155,38 @@ interface JobDetailCompactHeaderProps {
   /** Okno „Zlecenie” — skrót: braki, fakty, wymagania. */
   onOpenOrder: () => void;
   /**
-   * „Zespół” — kto pracuje nad rekrutacją („Rekruter: Marta N. +1” albo
-   * „Bez rekrutera”); klik otwiera zakładkę „Zespół i ogłoszenie” Profilu
-   * Championa.
-   * Do 02.10.2026 ta informacja stała w podtytule nagłówka.
-   */
-  teamSummary?: string | null;
-  onOpenTeam?: () => void;
-  /**
-   * „Edytuj cały Profil Championa” (04.10.2026): pełny formularz z „Wypełnij
+   * „Edytuj Profil Championa” (04.10.2026): pełny formularz z „Wypełnij
    * szybciej”. Na co dzień edycja idzie blokami z Briefu. `undefined` = rola
    * bez edycji Championa (brak pozycji).
    */
   onEditFullChampion?: () => void;
-  /**
-   * „Championi…” (D2, 15.10.2026) — otwiera to samo okienko co plakietka
-   * statusu w nagłówku (`JobChampionsStatus`). `undefined` = rola bez prawa
-   * wskazywania championów (brak pozycji).
-   */
-  onOpenChampions?: () => void;
-  /** „Dodaj po nazwisku” / „Dodaj z pliku CV” — brak = rola bez prawa dodawania. */
+  /** Podmenu „Dodaj kandydatów”: po nazwisku / z pliku CV — brak = rola bez prawa dodawania. */
   onAddByName?: () => void;
   onAddFromCv?: () => void;
   /** Ręczny przegląd całej bazy przez AI (ok. 3 minut) — wyniki w „Propozycjach z bazy”. */
   onStartFullReview?: () => void;
   /**
-   * „Moi ludzie do tej rekrutacji” — otwiera panel „Moi ludzie” (na stronie
-   * rekrutacji startuje na zakładce tej rekrutacji). Do 02.10.2026 zakładka
-   * okna „Dodaj kandydatów”.
+   * „Z moich ludzi” — otwiera panel „Moi ludzie” (na stronie rekrutacji
+   * startuje na zakładce tej rekrutacji). Do 02.10.2026 zakładka okna „Dodaj
+   * kandydatów”.
    */
   onOpenMyPeople?: () => void;
-  /** „Ukryj / pokaż puste kolumny” Tablicy; `undefined` poza Tablicą. */
-  emptyColumnsHidden?: boolean;
-  onToggleEmptyColumns?: () => void;
+  /** „Edytuj dane rekrutacji” — okno z opisem, wymaganiami i danymi firmy. */
   onEdit?: () => void;
   /**
-   * Okno „Ogłoszenie” — od 21.10.2026 widoczny przycisk w nagłówku (wcześniej
-   * pozycja menu „⋯”), z kropkami: gdzie ogłoszenie wisi.
+   * Okno „Ogłoszenie” — od 21.10.2026 przycisk w nagłówku z kropkami: gdzie
+   * ogłoszenie wisi. Od 25.10.2026 już nie także w menu „⋯”.
    */
   onWriteAnnouncement?: () => void;
   /** Gdzie ogłoszenie wisi — kropki przy „Ogłoszenie”. Brak = bez kropek. */
   adChannels?: AdChannelDots | null;
+  /** „Link do zgłoszeń kandydatów” — link, przez który kandydat sam się zgłasza. */
   onGenerateInviteLink?: () => void;
   /**
    * Narzędzia AI administratora (kryteria, scoring, embedding). Strona podaje
    * je WYŁĄCZNIE adminowi.
    */
   onOpenAiTools?: () => void;
-  /** „Karta klienta” (link do Pomocy). Brak = rekrutacja bez klienta. */
-  clientCardHref?: string;
   onCopyLink?: () => void;
   /** „Zamknij rekrutację…” — pełna edycja i rekrutacja nie zamknięta. */
   onCloseJob?: () => void;
@@ -312,8 +293,10 @@ function ViewTab({ view, activeView, onViewChange, href, testId, children }: Vie
  * i „Rekruter”; (3) na Tablicy źródła kandydatów i „Kto dodał”. Nazwa od
  * klienta i numery są w dymku tytułu. Zwinięty = sama linia 1.
  *
- * 15.10.2026 (D2): championów wskazuje się w okienku plakietki statusu;
- * pozycja „Championi…” w menu „⋯” otwiera to samo okienko.
+ * 15.10.2026 (D2): championów wskazuje się w okienku plakietki statusu.
+ *
+ * 25.10.2026: menu „⋯” z 17 pozycji na 9 — bez dubli nagłówka i okna
+ * „Zlecenie”; przy 1280×720 dawne menu ucinało „Zamknij rekrutację…”.
  */
 export function JobDetailCompactHeader({
   title,
@@ -338,26 +321,19 @@ export function JobDetailCompactHeader({
   orderMissingCount,
   onOpenHistoryChat,
   chatUnreadCount = 0,
-  onOpenQuestions,
   onOpenFiles,
   filesCount,
   onOpenOrder,
-  teamSummary,
-  onOpenTeam,
   onEditFullChampion,
-  onOpenChampions,
   onAddByName,
   onAddFromCv,
   onStartFullReview,
   onOpenMyPeople,
-  emptyColumnsHidden,
-  onToggleEmptyColumns,
   onEdit,
   onWriteAnnouncement,
   adChannels = null,
   onGenerateInviteLink,
   onOpenAiTools,
-  clientCardHref,
   onCopyLink,
   onCloseJob,
   onReopenJob,
@@ -556,65 +532,64 @@ export function JobDetailCompactHeader({
                 </>
               ) : null}
 
-              {onOpenChampions ? (
-                <>
-                  <DropdownMenuItem
-                    onSelect={() => deferMenuAction(onOpenChampions)}
-                    data-testid="toggle-champion"
-                    title="Kto jest championem tej rekrutacji — to samo okienko co status w nagłówku"
-                  >
-                    <Trophy className="h-4 w-4" />
-                    Championi…
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>
-              ) : null}
-
+              {/* 9 pozycji (decyzja Artura 25.10.2026,
+                  https://claude.ai/artifact/Vd1qKUVRy1yGTAgXb7ofz6): bez
+                  tego, co stoi w nagłówku — „Championi…” (plakietka statusu),
+                  „Zespół” (fakt „Rekruter”), „Ogłoszenie” (megafon) — bez
+                  „Baza pytań” i „Karta klienta” (okno „Zlecenie”) i bez
+                  przełącznika pustych kolumn (Tablica pokazuje wszystkie).
+                  Cztery sposoby dodania kandydata w jednym podmenu. */}
               {hasAdding ? (
                 <>
-                  <DropdownMenuLabel>Kandydaci</DropdownMenuLabel>
-                  {onAddByName ? (
-                    <DropdownMenuItem
-                      onSelect={() => deferMenuAction(onAddByName)}
-                      data-testid="menu-add-by-name"
-                    >
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="gap-2" data-testid="menu-add-candidates">
                       <UserPlus className="h-4 w-4" />
-                      Dodaj po nazwisku
-                    </DropdownMenuItem>
-                  ) : null}
-                  {onAddFromCv ? (
-                    <DropdownMenuItem
-                      onSelect={() => deferMenuAction(onAddFromCv)}
-                      data-testid="menu-add-from-cv"
-                    >
-                      <FileUp className="h-4 w-4" />
-                      Dodaj z pliku CV
-                    </DropdownMenuItem>
-                  ) : null}
-                  {onStartFullReview ? (
-                    <DropdownMenuItem
-                      onSelect={() => deferMenuAction(onStartFullReview)}
-                      data-testid="menu-full-review"
-                      title="AI przegląda całą bazę pod tę rekrutację — ok. 3 minut. Wyniki trafią do „Propozycji z bazy”."
-                    >
-                      <ScanSearch className="h-4 w-4" />
-                      Przeszukaj całą bazę (AI)
-                    </DropdownMenuItem>
-                  ) : null}
-                  {onOpenMyPeople ? (
-                    <DropdownMenuItem
-                      onSelect={() => deferMenuAction(onOpenMyPeople)}
-                      data-testid="menu-my-people"
-                    >
-                      <Users className="h-4 w-4" />
-                      Moi ludzie do tej rekrutacji
-                    </DropdownMenuItem>
-                  ) : null}
+                      Dodaj kandydatów
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-60">
+                      {onAddByName ? (
+                        <DropdownMenuItem
+                          onSelect={() => deferMenuAction(onAddByName)}
+                          data-testid="menu-add-by-name"
+                        >
+                          <UserPlus className="h-4 w-4" />
+                          Po nazwisku
+                        </DropdownMenuItem>
+                      ) : null}
+                      {onAddFromCv ? (
+                        <DropdownMenuItem
+                          onSelect={() => deferMenuAction(onAddFromCv)}
+                          data-testid="menu-add-from-cv"
+                        >
+                          <FileUp className="h-4 w-4" />
+                          Z pliku CV
+                        </DropdownMenuItem>
+                      ) : null}
+                      {onOpenMyPeople ? (
+                        <DropdownMenuItem
+                          onSelect={() => deferMenuAction(onOpenMyPeople)}
+                          data-testid="menu-my-people"
+                        >
+                          <Users className="h-4 w-4" />
+                          Z moich ludzi
+                        </DropdownMenuItem>
+                      ) : null}
+                      {onStartFullReview ? (
+                        <DropdownMenuItem
+                          onSelect={() => deferMenuAction(onStartFullReview)}
+                          data-testid="menu-full-review"
+                          title="AI przegląda całą bazę pod tę rekrutację — ok. 3 minut. Wyniki trafią do „Propozycji z bazy”."
+                        >
+                          <ScanSearch className="h-4 w-4" />
+                          Przeszukaj całą bazę (AI)
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                   <DropdownMenuSeparator />
                 </>
               ) : null}
 
-              <DropdownMenuLabel>Rekrutacja</DropdownMenuLabel>
               <DropdownMenuItem
                 onSelect={() => deferMenuAction(onOpenOrder)}
                 data-testid="open-order"
@@ -628,32 +603,15 @@ export function JobDetailCompactHeader({
                   data-testid="menu-edit-full-champion"
                 >
                   <PencilLine className="h-4 w-4" />
-                  Edytuj cały Profil Championa
+                  Edytuj Profil Championa
                 </DropdownMenuItem>
               ) : null}
-              {onOpenTeam ? (
-                <DropdownMenuItem
-                  onSelect={() => deferMenuAction(onOpenTeam)}
-                  data-testid="menu-team"
-                >
-                  <Users className="h-4 w-4" />
-                  <span className="min-w-0">
-                    Zespół
-                    {teamSummary ? (
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {teamSummary}
-                      </span>
-                    ) : null}
-                  </span>
+              {onEdit ? (
+                <DropdownMenuItem onSelect={() => deferMenuAction(onEdit)}>
+                  <PencilLine className="h-4 w-4" />
+                  Edytuj dane rekrutacji
                 </DropdownMenuItem>
               ) : null}
-              <DropdownMenuItem
-                onSelect={() => deferMenuAction(onOpenQuestions)}
-                data-testid="open-questions"
-              >
-                <BookOpen className="h-4 w-4" />
-                Baza pytań
-              </DropdownMenuItem>
               {onOpenFiles ? (
                 <DropdownMenuItem
                   onSelect={() => deferMenuAction(onOpenFiles)}
@@ -663,49 +621,29 @@ export function JobDetailCompactHeader({
                   {filesCount != null && filesCount > 0 ? `Pliki (${filesCount})` : "Pliki"}
                 </DropdownMenuItem>
               ) : null}
-              {onEdit ? (
-                <DropdownMenuItem onSelect={() => deferMenuAction(onEdit)}>
-                  <PencilLine className="h-4 w-4" />
-                  Edytuj
-                </DropdownMenuItem>
-              ) : null}
-              {onWriteAnnouncement ? (
-                <DropdownMenuItem onSelect={() => deferMenuAction(onWriteAnnouncement)}>
-                  <Megaphone className="h-4 w-4" />
-                  Ogłoszenie — strona kariery i portale
-                </DropdownMenuItem>
-              ) : null}
-              {onGenerateInviteLink ? (
-                <DropdownMenuItem onSelect={() => deferMenuAction(onGenerateInviteLink)}>
-                  <Link2 className="h-4 w-4" />
-                  Wygeneruj link
-                </DropdownMenuItem>
-              ) : null}
-              {clientCardHref ? (
-                <DropdownMenuItem asChild>
-                  <a href={clientCardHref} data-testid="open-client-card">
-                    <Building2 className="h-4 w-4" />
-                    Karta klienta
-                  </a>
-                </DropdownMenuItem>
-              ) : null}
-              {onCopyLink ? (
-                <DropdownMenuItem
-                  onSelect={() => deferMenuAction(onCopyLink)}
-                  data-testid="copy-job-link"
-                >
-                  <Copy className="h-4 w-4" />
-                  Kopiuj link do rekrutacji
-                </DropdownMenuItem>
-              ) : null}
-              {onToggleEmptyColumns ? (
-                <DropdownMenuItem
-                  onSelect={() => deferMenuAction(onToggleEmptyColumns)}
-                  data-testid="toggle-empty-columns"
-                >
-                  <Columns3 className="h-4 w-4" />
-                  {emptyColumnsHidden ? "Pokaż puste kolumny" : "Ukryj puste kolumny"}
-                </DropdownMenuItem>
+
+              {onCopyLink || onGenerateInviteLink ? (
+                <>
+                  <DropdownMenuSeparator />
+                  {onCopyLink ? (
+                    <DropdownMenuItem
+                      onSelect={() => deferMenuAction(onCopyLink)}
+                      data-testid="copy-job-link"
+                    >
+                      <Copy className="h-4 w-4" />
+                      Kopiuj link do rekrutacji
+                    </DropdownMenuItem>
+                  ) : null}
+                  {onGenerateInviteLink ? (
+                    <DropdownMenuItem
+                      onSelect={() => deferMenuAction(onGenerateInviteLink)}
+                      title="Link, przez który kandydat sam zgłasza się do tej rekrutacji"
+                    >
+                      <Link2 className="h-4 w-4" />
+                      Link do zgłoszeń kandydatów
+                    </DropdownMenuItem>
+                  ) : null}
+                </>
               ) : null}
               {onOpenAiTools ? (
                 <>

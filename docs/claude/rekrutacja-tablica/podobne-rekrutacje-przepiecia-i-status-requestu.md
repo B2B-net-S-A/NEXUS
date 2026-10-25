@@ -104,14 +104,14 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   Pierwsza kolumna
   „Do przejrzenia" = `BoardReviewSection` na TEJ SAMEJ scalonej liście co
   ekran propozycji (`useJobProposals`), wpięta w kolumnę etapu „Ogłoszenia"
-  i nigdy nie chowana przez „Ukryj puste kolumny"; ✓ dodaje
+  (od 25.10.2026 puste kolumny są zawsze widoczne); ✓ dodaje
   z `initial_stage_legacy: "screening"`.
 - **Dok osoby: sekcje zamiast zakładek** — „Teraz" wg etapu
   (`nowSectionForStage`: posting/new/verified → CV, screening → Screening,
   reszta → W procesie), główna akcja pod nazwiskiem, notatka zawsze na dole.
   **Okno Zlecenie** to od 29.09.2026 skrót (braki, fakty, wymagania), a
   zespół, ogłoszenie i priorytet są w panelu obok Profilu Championa;
-  „Baza pytań" w menu „⋯".
+  „Baza pytań" w oknie Zlecenie (od 25.10.2026 już nie w menu „⋯”).
 - *(Od 24.09.2026 Tablica ma 8 kolumn, a DZ zastąpiło QC CV — sekcja „Rekrutacja v5”. Opis niżej do „Pipeline v4” włącznie mówi, jak składa się szablon; reguły DZ są historyczne.)*
 - **Tablica: jeden etap = jedna kolumna, reszta to odznaki** (decyzja Artura
   22.09.2026, `lib/board-stages.ts` → `foldBoardColumns`; od 23.09.2026
@@ -221,8 +221,8 @@ https://claude.ai/artifact/VsMAfe4GgPC3g9LHEx2M1z. Kod: tabela `job_champions`
   DL o wskazanie osób, haki ich nie ruszają.
 - **Jedno miejsce oznaczania (D2).** Plakietka statusu w nagłówku
   (`JobChampionsStatus`) otwiera okienko „Championi tej rekrutacji”: DL
-  zaznacza osoby i zapisuje raz; rekruter widzi listę do odczytu. Ta sama
-  lista pod „⋯” → „Championi…”. **Przy kandydatach nie ma przycisków
+  zaznacza osoby i zapisuje raz; rekruter widzi listę do odczytu. (Do
+  25.10.2026 także pod „⋯” → „Championi…”; pozycja zniknęła jako dubel.) **Przy kandydatach nie ma przycisków
   oznaczania** — Artur odrzucił je jako dodatkowe pole przy każdej osobie.
 - **Gdzie widać championa (D3) — tylko cztery istniejące elementy:**
   plakietka statusu (`Champion: Karol W.` / `Championi: Karol W. +1` /

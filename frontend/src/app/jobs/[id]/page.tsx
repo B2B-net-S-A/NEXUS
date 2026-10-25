@@ -28,7 +28,7 @@ import { positiveIntParam } from "@/lib/client-tab";
 import { resolveUrlTab } from "@/lib/url-tab";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { jobHeaderFacts } from "@/lib/job-header-facts";
-import { recruitersOf, recruitersSummary, workingRecruiters } from "@/lib/job-team";
+import { recruitersOf, workingRecruiters } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
   JOB_DETAIL_DEFAULT_VIEW,
@@ -87,7 +87,6 @@ import {
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { cn } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
-import { useUiStore } from "@/store/ui";
 import { useMyPeoplePanel } from "@/store/my-people";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { hasPermission } from "@/lib/permissions";
@@ -213,9 +212,6 @@ export default function JobDetailPage() {
   // „Przeszukaj całą bazę (AI)” z menu „⋯” — licznik żądań; okno źródeł
   // startuje przegląd raz na każdą nową wartość (nigdy z adresu).
   const [fullReviewRequest, setFullReviewRequest] = useState<number | null>(null);
-  // „Ukryj puste kolumny” Tablicy — globalne ustawienie użytkownika (menu „⋯”).
-  const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
-  const setHideEmptyColumns = useUiStore((s) => s.setHideEmptyKanbanColumns);
   const [showAddFromCv, setShowAddFromCv] = useState(false);
   const [emailCandidateId, setEmailCandidateId] = useState<number | null>(null);
   // Narzędzia AI administratora z menu „…" — niezależnie od tego, czy
@@ -689,16 +685,6 @@ export default function JobDetailPage() {
     staleTime: 30_000,
     retry: false,
   });
-  // „Rekruter: X +N” albo „Bez rekrutera” — do 02.10.2026 w podtytule
-  // nagłówka, teraz przy pozycji „Zespół” w menu „⋯”.
-  const teamSummary = useMemo(() => {
-    if (!job) return null;
-    const team = recruitersSummary(recruitersOf(job));
-    const recruiterLead = team.lead;
-    if (!recruiterLead) return "Bez rekrutera";
-    return `Rekruter: ${recruiterLead}${team.more > 0 ? ` +${team.more}` : ""}`;
-  }, [job]);
-
   // Priorytet i „Rekruter” w nagłówku (14.10.2026) — te same prawa co zakładka
   // „Zespół” (`useJobTeamPermissions`).
   const { editScope: teamEditScope, canSetPriority } = useJobTeamPermissions(job);
@@ -954,15 +940,9 @@ export default function JobDetailPage() {
         }
         orderMissingCount={orderMissingCount}
         onOpenHistoryChat={() => openSlideOver("history-chat")}
-        onOpenQuestions={() => openSlideOver("questions")}
         onOpenFiles={() => openSlideOver("files")}
         filesCount={jobFiles?.items.length}
-        teamSummary={teamSummary}
-        onOpenTeam={() => openChampion({ panelTab: "team" })}
         onEditFullChampion={canEditChampion ? () => openChampion({ edit: true }) : undefined}
-        onOpenChampions={
-          canEditChampions && championsStatusShown ? () => setChampionsOpen(true) : undefined
-        }
         onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
         onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}
         onOpenMyPeople={canOpenMyPeople ? openMyPeople : undefined}
@@ -974,18 +954,11 @@ export default function JobDetailPage() {
               }
             : undefined
         }
-        emptyColumnsHidden={hideEmptyColumns}
-        onToggleEmptyColumns={
-          showBoard ? () => setHideEmptyColumns(!hideEmptyColumns) : undefined
-        }
         onEdit={onEdit}
         onWriteAnnouncement={onWriteAnnouncement}
         adChannels={adChannels}
         onGenerateInviteLink={onGenerateInviteLink}
         chatUnreadCount={chatUnread?.unread_count ?? 0}
-        clientCardHref={
-          job.client_id != null ? `/help?tab=clients&client=${job.client_id}` : undefined
-        }
         onCopyLink={copyJobLink}
         onCloseJob={canCloseJob && job.status !== "closed" ? () => setShowCloseJob(true) : undefined}
         onReopenJob={publishAction === "reopen" ? () => changeReopenOpen(true) : undefined}
@@ -1355,7 +1328,7 @@ export default function JobDetailPage() {
       )}
 
       {/* ── Widok „Profil Championa” (04.10.2026): cztery zakładki albo pełny
-          formularz (`?mode=edit`, menu „⋯ → Edytuj cały Profil Championa”). ── */}
+          formularz (`?mode=edit`, menu „⋯ → Edytuj Profil Championa”). ── */}
       {activeView === "champion" && (
         <div className="space-y-3" data-testid="job-champion-view">
           {championMode === "edit" ? (

@@ -15,6 +15,10 @@ Dla każdego OTWARTEGO PR-a z grupy skrypt:
 * dopisuje albo aktualizuje komentarz (znacznik ``<!-- queue-failure-feedback -->``)
   z listą czerwonych testów i linkiem do biegu.
 
+Test, który padł też w niedawnej grupie bez żadnego PR-a z tej (do 6 h, do
+4 biegów), komentarz oznacza „pada też bez tego PR-a” — najpewniej czerwony
+jest sam ``main`` i PR-a nie trzeba poprawiać ani zdejmować z kolejki.
+
 PR-y w grupie: commity od ``main`` do HEAD gałęzi kolejki (po jednym
 squashu na PR, ``(#N)`` w tytule); awaryjnie ``pr-<N>`` z nazwy gałęzi.
 Stdlib + ``gh`` (``GH_TOKEN``). ``--dry-run`` tylko wypisuje, co by wysłał.
@@ -30,12 +34,15 @@ import subprocess
 import urllib.request
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 MARKER = "<!-- queue-failure-feedback -->"
 STATUS_CONTEXT = "Kolejka merge'ów"
 MAX_TESTS = 20
 MAX_JOB_ERRORS = 5
 MAX_REASON = 160
+OTHER_RUNS_HOURS = 6
+MAX_OTHER_RUNS = 4
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z ?")
@@ -162,10 +169,41 @@ def plural_tests(count: int) -> str:
     return f"{count} testów"
 
 
+def shared_with_other_groups(
+    failures: list[Failure],
+    group: list[int],
+    others: list[tuple[list[int], list[Failure]]],
+) -> dict[str, list[int]]:
+    """Testy, które padły też w niedawnej grupie bez żadnego PR-a z tej.
+
+    Grupa ze wspólnym PR-em niczego nie dowodzi (winny może być ten wspólny).
+    Rozłączna grupa z tym samym czerwonym testem = czerwony jest sam ``main``
+    (test z datą, strefa czasu) albo coś poza PR-ami — 25.10.2026 każda sesja
+    poprawiała wtedy swój zielony PR i zdejmowała go z kolejki.
+    """
+    mine = set(group)
+    shared: dict[str, set[int]] = {}
+    for other_group, other_failures in others:
+        if mine & set(other_group):
+            continue
+        seen = {f.test_id for f in other_failures}
+        for failure in failures:
+            if failure.test_id in seen:
+                shared.setdefault(failure.test_id, set()).update(other_group)
+    return {test: sorted(prs) for test, prs in shared.items()}
+
+
 def status_description(
-    failures: list[Failure], job_errors: list[tuple[str, str]]
+    failures: list[Failure],
+    job_errors: list[tuple[str, str]],
+    shared: dict[str, list[int]] | None = None,
 ) -> str:
-    if failures:
+    if failures and shared:
+        text = (
+            f"Wypadł z kolejki: {plural_tests(len(failures))}, {len(shared)} pada też "
+            "bez tego PR-a — szczegóły w komentarzu"
+        )
+    elif failures:
         text = (
             f"Wypadł z kolejki: {plural_tests(len(failures))} — szczegóły w komentarzu"
         )
@@ -183,7 +221,9 @@ def build_comment(
     run_url: str,
     failures: list[Failure],
     job_errors: list[tuple[str, str]],
+    shared: dict[str, list[int]] | None = None,
 ) -> str:
+    shared = shared or {}
     lines = [
         MARKER,
         "### Wypadł z kolejki merge'ów",
@@ -193,10 +233,24 @@ def build_comment(
         "zestaw biegnie w kolejce na drzewie razem z PR-ami przed nim.",
         "",
     ]
+    if shared:
+        groups = sorted({pr for prs in shared.values() for pr in prs})
+        lines += [
+            f"**Pada też bez tego PR-a** ({plural_tests(len(shared))}): ten sam "
+            f"test był czerwony w grupach bez żadnego PR-a stąd "
+            f"({', '.join(f'#{n}' for n in groups)}). Najpewniej czerwony jest sam "
+            "`main` (np. test z datą albo strefą czasu) — nie poprawiaj tych testów "
+            "w tym PR-ze i nie zdejmuj PR-a z kolejki; sprawdź, czy poprawka już "
+            "jest (`gh pr list --search <plik testu>`). Po jej wejściu ponów "
+            "`gh pr merge <nr> --squash --auto`.",
+            "",
+        ]
     if failures:
         lines.append(f"**Czerwone testy ({len(failures)}):**")
         for failure in failures[:MAX_TESTS]:
             reason = f" — {failure.reason}" if failure.reason else ""
+            if failure.test_id in shared:
+                reason = " — także w grupach bez tego PR-a" + reason
             lines.append(f"- `{failure.test_id}`{reason}")
         if len(failures) > MAX_TESTS:
             lines.append(
@@ -327,6 +381,48 @@ def collect_failures(
     return failures, job_errors
 
 
+def recent_other_failures(
+    repo: str, run: dict, base: str, group: list[int]
+) -> list[tuple[list[int], list[Failure]]]:
+    """Czerwone testy z niedawnych biegów kolejki grup rozłącznych z tą.
+
+    Najwyżej ``MAX_OTHER_RUNS`` z ``OTHER_RUNS_HOURS`` godzin przed tym biegiem
+    — każdy to pobranie logów. Błąd API = brak porównania, nie przerwanie.
+    """
+    started = run.get("run_started_at") or run.get("created_at") or ""
+    try:
+        since = datetime.fromisoformat(started.replace("Z", "+00:00")) - timedelta(
+            hours=OTHER_RUNS_HOURS
+        )
+        listing = gh_json(
+            f"repos/{repo}/actions/workflows/{run['workflow_id']}/runs"
+            f"?event=merge_group&status=failure&per_page=30"
+            f"&created=%3E%3D{since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        )
+    except (KeyError, ValueError, RuntimeError) as exc:
+        print(f"::warning::bez porównania z innymi grupami: {exc}")
+        return []
+    mine = set(group)
+    found: list[tuple[list[int], list[Failure]]] = []
+    for other in listing.get("workflow_runs", []):
+        if other.get("id") == run.get("id") or len(found) >= MAX_OTHER_RUNS:
+            continue
+        try:
+            compare = gh_json(f"repos/{repo}/compare/{base}...{other['head_sha']}")
+        except RuntimeError:
+            compare = None
+        other_group = group_prs(compare, other.get("head_branch", ""))
+        if not other_group or mine & set(other_group):
+            continue
+        try:
+            failures, _ = collect_failures(repo, other["id"])
+        except RuntimeError as exc:
+            print(f"::warning::bieg {other['id']}: {exc}")
+            continue
+        found.append((other_group, failures))
+    return found
+
+
 def upsert_comment(repo: str, pr: int, body: str) -> str:
     raw = gh(
         "api",
@@ -386,13 +482,25 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::warning::Nie rozpoznano PR-ów w grupie {branch}")
         return 0
     failures, job_errors = collect_failures(args.repo, args.run_id)
-    description = status_description(failures, job_errors)
+    shared = (
+        shared_with_other_groups(
+            failures, group, recent_other_failures(args.repo, run, args.base, group)
+        )
+        if failures
+        else {}
+    )
+    description = status_description(failures, job_errors, shared)
     print(
         f"Bieg: {run_url}\nGałąź: {branch}\nGrupa: {', '.join(f'#{n}' for n in group)}"
     )
     print(f"Czerwone testy: {len(failures)}; joby bez testów: {len(job_errors)}")
     for failure in failures[:MAX_TESTS]:
-        print(f"  {failure.test_id} — {failure.reason}")
+        also = (
+            f" [też bez tego PR-a: {shared[failure.test_id]}]"
+            if failure.test_id in shared
+            else ""
+        )
+        print(f"  {failure.test_id} — {failure.reason}{also}")
     for job, message in job_errors[:MAX_JOB_ERRORS]:
         print(f"  [{job}] {message}")
 
@@ -403,7 +511,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"#{pr}: {state} — pomijam")
             continue
         sha = info["head"]["sha"]
-        body = build_comment(pr, group, queue_pr, run_url, failures, job_errors)
+        body = build_comment(
+            pr, group, queue_pr, run_url, failures, job_errors, shared=shared
+        )
         committed = (
             gh_json(f"repos/{args.repo}/commits/{sha}")
             .get("commit", {})

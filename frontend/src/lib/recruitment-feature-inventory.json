@@ -131,7 +131,7 @@
    "opis": "Dodaj kandydata (szybko po nazwisku)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "AddCandidatesQuickModal",
-   "v3_home": "menu „⋯” → Dodaj po nazwisku; „Dodaj ▾” w linii „Kandydaci do dodania” nagłówka"
+   "v3_home": "menu „⋯” → Dodaj kandydatów → Po nazwisku; „Dodaj ▾” w linii „Kandydaci do dodania” nagłówka"
   },
   {
    "id": "header.ai-writer",
@@ -171,7 +171,7 @@
    "opis": "Wygeneruj link aplikacyjny",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "GenerateInviteLinkV2",
-   "v3_home": "menu … / Profil Championa → Zespół i ogłoszenie"
+   "v3_home": "menu „⋯” → Link do zgłoszeń kandydatów / Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "header.managed",
@@ -257,9 +257,9 @@
    "id": "header.recruiter-subtitle",
    "area": "naglowek",
    "opis": "Kto jest rekruterem rekrutacji: „Rekruter: X +N” albo „Bez rekrutera” (dawniej podtytuł nagłówka)",
-   "file": "app/jobs/[id]/page.tsx",
-   "marker": "recruiterLead",
-   "v3_home": "menu „⋯” → Zespół (otwiera panel „Zespół”)"
+   "file": "components/v2/jobs/JobRecruiterFact.tsx",
+   "marker": "Zespół rekrutacji",
+   "v3_home": "fakt „Rekruter” w nagłówku → okienko „Zespół rekrutacji” z linkiem do zakładki „Zespół” (od 25.10.2026 bez pozycji „Zespół” w menu „⋯”)"
   },
   {
    "id": "header.priority",
@@ -604,7 +604,7 @@
    "opis": "Edytor profilu Championa",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "ChampionProfileEditor",
-   "v3_home": "Profil Championa → menu ⋯ → Edytuj cały Profil Championa; blok — „Edytuj” w Briefie (szuflada)"
+   "v3_home": "Profil Championa → menu ⋯ → Edytuj Profil Championa; blok — „Edytuj” w Briefie (szuflada)"
   },
   {
    "id": "champ.handoff",
@@ -628,7 +628,7 @@
    "opis": "Import Championa z dokumentu",
    "file": "components/ChampionProfileEditor.tsx",
    "marker": "ChampionIntake",
-   "v3_home": "Profil Championa → menu ⋯ → Edytuj cały Profil Championa → Wypełnij szybciej"
+   "v3_home": "Profil Championa → menu ⋯ → Edytuj Profil Championa → Wypełnij szybciej"
   },
   {
    "id": "champ.readiness",
@@ -893,9 +893,9 @@
    "id": "header.champion-found",
    "area": "naglowek",
    "opis": "Championi — Delivery Lead wskazuje osoby (kilka), szukanie zatrzymane, P1 wstrzymany",
-   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
-   "marker": "toggle-champion",
-   "v3_home": "plakietka statusu w nagłówku → okienko „Championi”; menu „⋯” → Championi…"
+   "file": "components/v2/jobs/JobChampionsStatus.tsx",
+   "marker": "job-champions-status",
+   "v3_home": "plakietka statusu w nagłówku → okienko „Championi” (od 25.10.2026 bez pozycji w menu „⋯”)"
   },
   {
    "id": "header.champions-popover",
@@ -1452,7 +1452,7 @@
    "opis": "Ręczny pełny przegląd bazy przez AI — otwiera „Propozycje z bazy” i startuje przegląd raz na kliknięcie",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "menu-full-review",
-   "v3_home": "menu „⋯” → Przeszukaj całą bazę (AI)"
+   "v3_home": "menu „⋯” → Dodaj kandydatów → Przeszukaj całą bazę (AI)"
   },
   {
    "id": "header.menu-add-from-cv",
@@ -1460,7 +1460,7 @@
    "opis": "Dodanie kandydata z pliku CV do rekrutacji",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "menu-add-from-cv",
-   "v3_home": "menu „⋯” → Dodaj z pliku CV; „Dodaj ▾” w linii „Kandydaci do dodania” nagłówka"
+   "v3_home": "menu „⋯” → Dodaj kandydatów → Z pliku CV; „Dodaj ▾” w linii „Kandydaci do dodania” nagłówka"
   },
   {
    "id": "header.menu-empty-columns",
@@ -1468,7 +1468,8 @@
    "opis": "Ukryj / pokaż puste kolumny Tablicy (ustawienie w przeglądarce)",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "toggle-empty-columns",
-   "v3_home": "menu „⋯” → Ukryj puste kolumny"
+   "v3_home": "menu „⋯” → Ukryj puste kolumny",
+   "removed_reason": "Decyzja Artura 25.10.2026 (uproszczenie menu „⋯”): Tablica zawsze pokazuje puste kolumny, bez przełącznika. Do tego dnia domyślnie je chowano, a Tablica nie mówiła, że coś ukryła; pole `hideEmptyKanbanColumns` znika z `nexus-ui` (migracja v11)."
   },
   {
    "id": "board.sources-strip",
@@ -1540,7 +1541,7 @@
    "opis": "„Moi ludzie do tej rekrutacji” — lista własnych ludzi z dopasowaniem do rekrutacji i dodaniem (dawniej zakładka okna „Dodaj kandydatów”)",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "menu-my-people",
-   "v3_home": "menu „⋯” → Moi ludzie do tej rekrutacji (panel „Moi ludzie”)"
+   "v3_home": "menu „⋯” → Dodaj kandydatów → Z moich ludzi (panel „Moi ludzie”)"
   },
   {
    "id": "new.source-tiles",
@@ -2008,8 +2009,8 @@
    "area": "zlecenie",
    "opis": "Pełny formularz Profilu Championa z „Wypełnij szybciej” (?mode=edit, powrót „Wróć do Profilu Championa”)",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
-   "marker": "Edytuj cały Profil Championa",
-   "v3_home": "menu ⋯ w nagłówku rekrutacji"
+   "marker": "Edytuj Profil Championa",
+   "v3_home": "menu ⋯ w nagłówku rekrutacji → Edytuj Profil Championa"
   },
   {
    "id": "champion.todo-strip",
@@ -2829,7 +2830,7 @@
    "opis": "Okno „Dodaj z CV” przy osobie z bazy: „Dodaj do rekrutacji z tym CV” (CV na górę profilu i „Nowi”), „Podmień CV w tej rekrutacji” przy osobie w toku, „Przywróć” przy zamkniętej karcie",
    "file": "components/v2/modals/AddCandidateFromCVModal.tsx",
    "marker": "Dodaj do rekrutacji z tym CV",
-   "v3_home": "menu „⋯” → Dodaj z pliku CV"
+   "v3_home": "menu „⋯” → Dodaj kandydatów → Z pliku CV"
   },
   {
    "id": "board.cv-qc-dismiss",

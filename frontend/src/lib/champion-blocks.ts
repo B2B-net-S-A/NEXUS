@@ -5,7 +5,7 @@
  * Podzakładki widoku i bloki, które da się edytować w szufladzie. Blok to
  * kawałek Briefu (albo zakładki „Klient i historia”), a jego edycja pokazuje
  * WYŁĄCZNIE sekcje edytora z tej listy — reszta formularza zostaje pod
- * „⋯ → Edytuj cały Profil Championa”.
+ * „⋯ → Edytuj Profil Championa”.
  */
 
 import {
