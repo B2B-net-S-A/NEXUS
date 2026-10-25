@@ -384,7 +384,6 @@ Finanse → Zmiany w zamówieniach, Zamówienia PDF, Insights (Rywalizacja, Zesp
 - `finanse-zmiany-w-zamowieniach.md`: Finanse → Zmiany w zamówieniach
 - `finanse-zrobione-w-zmianach-zip-y-i-pobrania-w.md`: Finanse: „Zrobione" w Zmianach, ZIP-y i pobrania w Zamówieniach PDF (0354)
 - `insights-insights-parytet-z-dynareporterem-na.md`: Insights (`/insights`) — parytet z DynaReporterem na danych NEXUSA
-- `liga-dl-po-hit-ratio-bez-nagrod.md`: Liga Mistrzów DL po hit ratio, bez nagród (od Q4 2026) · ranking po hit ratio, miejsce od 3 placementów i 5 zamkniętych rekrutacji, bez kwot od Q4 2026, `dl_league_pays`, Q1–Q3 2026 zostają z nagrodami
 
 ### Powiadomienia i maile — `powiadomienia/`
 

@@ -243,7 +243,7 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   co do grosza → admin; wyścig rekomendacji — precyzja, potem wcześniejsza
   ostatnia rekomendacja, bez admina; Liga i liga DL do Q3 2026 — każdy remis
   na płatnym miejscu → admin (liga DL od Q4 2026 nie ma nagród ani płatnych
-  miejsc — `liga-dl-po-hit-ratio-bez-nagrod.md`). Każde zamrożenie zapisuje `competition_period_closures`
+  miejsc — `ui/liga-w-gornym-pasku.md`, sekcja „Liga DL po hit ratio”). Każde zamrożenie zapisuje `competition_period_closures`
   (`frozen`/`no_winner`/`tie_pending`/`tie_resolved`), więc okres bez
   zwycięzcy albo z remisem nie jest liczony od nowa. Miejsca z remisu nie mają
   wierszy podium (0 zł) do `POST /api/competitions/{type}/{period}/resolve-tie`
