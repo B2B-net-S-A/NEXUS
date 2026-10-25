@@ -232,7 +232,8 @@ jobs:
       # 21.10.2026: z 48 czerwonych biegów kolejki ~17 to strażnicy całego repo
       # (stemple, daty przy imporcie, `spawn`, snapshot API v1…), których PR
       # nie widział. Pytest kolejki wyrzucał grupę dopiero po ~25 min — i każdy
-      # PR za nią. Ten sam zestaw co `_ALWAYS` sita PR-a (bez bazy, ~90 s), tu
+      # PR za nią. Ten sam zestaw co strażnicy sita PR-a (`_ALWAYS`, kontrakty
+      # tras i od 25.10.2026 wykrywane skanery drzewa; bez bazy, ~3 min), tu
       # w wymaganym kontekście: zły PR wypada po ~3 min. Na PR-ze biegnie
       # w sicie, na pushu na maina już przeszedł.
       - name: Strażnicy repo (bez bazy, kolejka merge'ów)

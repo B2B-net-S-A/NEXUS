@@ -15,8 +15,9 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
   mamy championa”, „Dodaj po nazwisku”, „Dodaj z pliku CV”, „Przeszukaj całą
   bazę (AI)”, „Moi ludzie do tej rekrutacji” (otwiera panel „Moi ludzie”),
   „Zlecenie — skrót”, „Zespół” (z „Rekruter: X +N”), „Baza pytań”, „Ukryj /
-  Pokaż puste kolumny” + dotychczasowe pozycje. Nowa akcja zdjęta z widoku =
-  pozycja w tym menu i wpis w `recruitment-feature-inventory.json`. Kotwica
+  Pokaż puste kolumny” + dotychczasowe pozycje. **Od 25.10.2026 menu ma
+  dziewięć pozycji bez dubli nagłówka** — `menu-rekrutacji-dziewiec-pozycji.md`;
+  akcja z drugim widocznym wejściem nie wraca do menu. Kotwica
   pomocy `job.champion.found` stoi na przycisku menu (pozycji zamkniętego menu
   nie ma w DOM).
 - **„Kandydaci do dodania” = cztery źródła** (`CandidateSourcesStrip`; do

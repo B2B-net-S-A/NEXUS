@@ -33,8 +33,10 @@ front `components/v2/modals/PlacementsExportDialog.tsx`, `lib/placements-export.
   która porównuje plik ze swoim arkuszem.
 - **DL i rekruter z reguły premii** (`placement_bonuses.load_context` /
   `PlacementContext.people`), nie z własnej logiki: plik i Płace muszą wskazać
-  te same osoby. Rekruter = pierwszy weryfikujący; gdy zweryfikował sam DL,
-  kolumna pokazuje DL-a, a uwaga „Zweryfikował DL — bez premii rekrutera”.
+  te same osoby. Rekruter = pierwszy weryfikujący; gdy zweryfikował sam DL
+  bez roli rekrutera, kolumna pokazuje DL-a, a uwaga „Zweryfikował DL — bez
+  premii rekrutera”. DL z rolą rekrutera ma premię rekrutera i uwagi nie ma
+  (25.10.2026).
   Różnica z arkuszem Delivery (inny DL Nordei, „domknęła X”) to sygnał do
   poprawy rekrutacji albo reguły premii, nie do obejścia w eksporcie.
 - **Stawki i marża z dnia startu, w zł/h** (`contract_margin`, jak premia):

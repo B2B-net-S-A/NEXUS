@@ -447,11 +447,11 @@ describe("strona rekrutacji — poprawki po integracji v3", () => {
     expect(window.location.search).not.toContain("mode=edit");
   });
 
-  it("menu „⋯ → Edytuj cały Profil Championa” otwiera pełny formularz", async () => {
+  it("menu „⋯ → Edytuj Profil Championa” otwiera pełny formularz", async () => {
     renderPage("tab=champion");
     await screen.findByTestId("champion-workspace");
     await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
-    await userEvent.click(await screen.findByRole("menuitem", { name: /Edytuj cały Profil Championa/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Edytuj Profil Championa/ }));
     expect(await screen.findByTestId("champion-editor")).toBeInTheDocument();
     expect(window.location.search).toContain("mode=edit");
   });
@@ -526,6 +526,8 @@ describe("strona rekrutacji — nagłówek i „Kandydaci do dodania” (02.10.2
     await screen.findByTestId("kanban");
     const before = (seen.add?.fullReviewRequest as number | undefined) ?? 0;
     await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    // Od 25.10.2026 w podmenu „Dodaj kandydatów”.
+    await userEvent.click(await screen.findByTestId("menu-add-candidates"));
     await userEvent.click(await screen.findByTestId("menu-full-review"));
     await waitFor(() => expect(seen.add).toMatchObject({ open: true, tab: "base" }));
     expect(seen.add?.fullReviewRequest).toBe(before + 1);
@@ -534,7 +536,7 @@ describe("strona rekrutacji — nagłówek i „Kandydaci do dodania” (02.10.2
     await waitFor(() => expect(seen.add?.fullReviewRequest).toBeNull());
   });
 
-  it("„Championi…” w menu „⋯” otwiera okienko statusu i pyta o listę (D2)", async () => {
+  it("plakietka statusu otwiera okienko championów i pyta o listę (D2); menu „⋯” już nie (25.10.2026)", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/api/jobs/42") {
         return Promise.resolve({ data: { ...JOB, request_status: "searching", champions: [] } });
@@ -571,7 +573,10 @@ describe("strona rekrutacji — nagłówek i „Kandydaci do dodania” (02.10.2
     expect(await screen.findByTestId("job-champions-status")).toHaveTextContent("Szukamy");
     expect(apiMock.get).not.toHaveBeenCalledWith("/api/jobs/42/champions");
     await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
-    await userEvent.click(await screen.findByTestId("toggle-champion"));
+    await screen.findByTestId("open-order");
+    expect(screen.queryByTestId("toggle-champion")).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByTestId("job-champions-status"));
     const popover = await screen.findByTestId("job-champions-popover");
     expect(await within(popover).findByText("Karol Wzorcowy")).toBeInTheDocument();
     expect(apiMock.get).toHaveBeenCalledWith("/api/jobs/42/champions");

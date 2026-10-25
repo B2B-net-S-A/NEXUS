@@ -91,6 +91,10 @@ Każda ma pełny opis w pliku w `docs/claude/`; tu tylko to, o co najłatwiej si
   „przed” to zrzut z `localhost:3100`, „po” to kod z gałęzi na porcie 3101
   na tych samych danych; rysunek od zera tylko na wyraźną prośbę.
   → `ui/makiety-na-stagingu.md`
+- **Zmiana na styku ról** (rekruter → DL → HoR, kwota tylko dla części ról)
+  przechodzi na stagingu całą ścieżkę każdą rolą, zanim powstanie PR;
+  logowanie jako dowolna osoba: `python -m scripts.staging_login_as`.
+  → `podstawy/test-calej-sciezki-na-stagingu.md`
 - **Nic nie znika z ekranów bez śladu:** inwentarze funkcji
   (`recruitment-feature-inventory.json`, `orders-contracts-feature-inventory.json`,
   `candidate-profile-feature-inventory.json`) i ich testy.

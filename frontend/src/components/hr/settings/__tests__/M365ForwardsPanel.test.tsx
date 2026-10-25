@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 const get = vi.fn();
 const post = vi.fn();
@@ -114,6 +114,13 @@ beforeEach(() => {
 
 describe("M365ForwardsPanel", () => {
   it("lists saved forwards with their state and the right action per row", async () => {
+    // Urlop 19–23.10.2026 „jeszcze trwa” tylko przy dniu z odpowiedzi
+    // (20.10) — bez zamrożonej daty test padał od 24.10.2026.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-20T10:00:00+02:00"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     mockApi();
     renderPanel();
     const running = (await screen.findByText("Anna Przykładowa")).closest("tr") as HTMLElement;
