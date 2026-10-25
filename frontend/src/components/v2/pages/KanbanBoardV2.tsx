@@ -988,7 +988,11 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item.added_to_job_at ? ` · dodano ${formatDate(item.added_to_job_at)}` : ""
  }`;
  const addedAttribution =
- owner.role === "verified"
+ owner.role === "assigned"
+ ? `Prowadzi: ${owner.name}${
+ item.owner_assigned_by_name ? ` · przypisał(a) ${item.owner_assigned_by_name}` : ""
+ }\n${addedLine}`
+ : owner.role === "verified"
  ? `Zweryfikował(a): ${owner.name}${
  item.verified_at ? ` · ${formatDate(item.verified_at)}` : ""
  }\n${addedLine}`

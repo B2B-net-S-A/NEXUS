@@ -68,6 +68,14 @@ export interface KanbanItem {
  verified_by_name?: string | null;
  verified_by_id?: number | null;
  verified_at?: string | null;
+ /** „Prowadzi” (25.10.2026): osoba przypisana przez admina albo HoR —
+  *  wygrywa z weryfikującym i dodającym na karcie, w panelu i w filtrze.
+  *  Pola są tylko przy przypisaniu. */
+ owner_user_id?: number | null;
+ owner_name?: string | null;
+ owner_assigned_by_name?: string | null;
+ owner_assigned_at?: string | null;
+ owner_previous_name?: string | null;
  /** Komentarz z okna ruchu (przy odrzuceniu — wpisany w oknie powodu). */
  notes?: string | null;
  // Karty w „Odrzuconych” i „Rezygnacjach” (19.10.2026): etykieta powodu

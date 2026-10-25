@@ -183,6 +183,7 @@ from app.api import b2b_contract_generator
 from app.api import b2b_documents
 from app.api import b2b_esign
 from app.api import pre_contracts as pre_contracts_api
+from app.api import pair_owners as pair_owners_api
 from app.api import b2b_register_import
 from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
@@ -1520,6 +1521,7 @@ app.include_router(
     tags=["ai-matching-diagnostics"],
 )
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
+app.include_router(pair_owners_api.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(
     rejection_emails_api.router,
     prefix="/api/rejection-emails",
@@ -3289,6 +3291,7 @@ async def api_health_deep_check():
         PreContractWatcher,
     )
     from app.services.care.board_state import CARE_BOARD_STATES
+    from app.models.candidate_job_owner import CandidateJobOwner
     from app.models.job_board_connection import JobBoardConnection
     from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
     from app.models.candidate_followup import CandidateFollowup
@@ -3664,6 +3667,8 @@ async def api_health_deep_check():
         # 0509: tablica opieki — tabela bez modelu ORM; lekkie `table()` z
         # `board_state` też wymusza rozwiązanie każdej kolumny.
         ("care_board_states", CARE_BOARD_STATES),
+        # 0519: przypisania „Prowadzi” — karta, premia i Liga czytają je co ruch.
+        ("candidate_job_owners", CandidateJobOwner),
     ]
 
     checks: dict[str, str] = {}

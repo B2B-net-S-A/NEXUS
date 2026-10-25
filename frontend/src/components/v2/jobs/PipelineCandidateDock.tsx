@@ -78,6 +78,7 @@ import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { Badge } from "@/components/ui/badge";
+import { PairOwnerLine } from "@/components/v2/jobs/PairOwnerLine";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -1763,6 +1764,8 @@ export function PipelineCandidateDock({
             </div>
             {/* 09.10.2026: telefon i e-mail bez wchodzenia w profil. */}
             <PersonContactLine phone={candidate?.phone} email={candidate?.email} personName={fullName} />
+            {/* „Prowadzi” (25.10.2026): czyja to osoba w tej rekrutacji. */}
+            <PairOwnerLine item={item} jobId={jobId} />
           </div>
         </div>
 

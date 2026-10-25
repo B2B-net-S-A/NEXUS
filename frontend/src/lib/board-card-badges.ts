@@ -1012,7 +1012,7 @@ const BEFORE_VERIFIED_COLUMNS: ReadonlySet<BoardColumnKey> = new Set(["new", "sc
 export interface CardOwner {
   /** Pełne imię i nazwisko; `null` = brak zapisanej osoby. */
   name: string | null;
-  role: "verified" | "added";
+  role: "verified" | "added" | "assigned";
 }
 
 /**
@@ -1021,11 +1021,15 @@ export interface CardOwner {
  * w prawo (i w „Zamkniętych”) osoba, która zweryfikowała. Rekruterka
  * weryfikowała osobę dodaną przez kogoś innego, a karta dalej pokazywała
  * dodającego. Filtr „Kto dodał” i kolejka panelu liczą po dodającym (D5).
+ * Osoba przypisana „Prowadzi” przez admina albo HoR (25.10.2026) wygrywa
+ * w każdej kolumnie.
  */
 export function cardOwner(
-  item: Pick<KanbanItem, "added_to_job_by_name" | "verified_by_name" | "entry_source">,
+  item: Pick<KanbanItem, "added_to_job_by_name" | "verified_by_name" | "entry_source" | "owner_name">,
   column: BoardColumnKey | null
 ): CardOwner {
+  const assigned = item.owner_name?.trim();
+  if (assigned) return { name: assigned, role: "assigned" };
   const verifier = item.verified_by_name?.trim();
   if (verifier && column != null && !BEFORE_VERIFIED_COLUMNS.has(column)) {
     return { name: verifier, role: "verified" };

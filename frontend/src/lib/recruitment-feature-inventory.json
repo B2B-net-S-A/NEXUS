@@ -286,6 +286,14 @@
    "v3_home": "nagłówek"
   },
   {
+   "id": "dock.pair-owner",
+   "area": "panel",
+   "opis": "„Prowadzi” — kto prowadzi osobę w tej rekrutacji; admin i Head of Recruitment przypisują osobę z rolą rekrutera (25.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "PairOwnerLine",
+   "v3_home": "panel osoby → nagłówek"
+  },
+  {
    "id": "dock.match",
    "area": "panel",
    "opis": "Dopasowanie — uzasadnienie AI",

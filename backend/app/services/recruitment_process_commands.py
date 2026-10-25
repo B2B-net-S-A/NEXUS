@@ -1437,6 +1437,10 @@ async def delete_voided_stage_history(
             CandidateStage.job_id == job_id,
         )
     )
+    # Przypisanie „Prowadzi” należy do pary — znika razem z jej historią.
+    from app.services.pair_owner import forget_pair
+
+    await forget_pair(db, candidate_id=candidate_id, job_id=job_id)
     return int(result.rowcount or 0)
 
 

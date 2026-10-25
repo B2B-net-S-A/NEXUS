@@ -455,8 +455,13 @@ async def _notify_target_recruiter(
 async def _source_recruiter_id(
     db: AsyncSession, *, source: Job, candidate_id: int, user: User
 ) -> Optional[int]:
-    """Kto prowadzi osobę w A: pierwszy, kto ją zweryfikował, bez niego —
-    rekruter rekrutacji. Nigdy sam DL."""
+    """Kto prowadzi osobę w A: przypisany „Prowadzi”, potem pierwszy, kto ją
+    zweryfikował, bez nich — rekruter rekrutacji. Nigdy sam DL."""
+    from app.services.pair_owner import owner_ids
+
+    assigned = (await owner_ids(db, [(candidate_id, source.id)])).get(
+        (candidate_id, source.id)
+    )
     verifier = await db.scalar(
         select(CandidateStage.moved_by)
         .where(
@@ -468,7 +473,7 @@ async def _source_recruiter_id(
         .order_by(CandidateStage.moved_at, CandidateStage.id)
         .limit(1)
     )
-    for candidate_user in (verifier, source.recruiter_id):
+    for candidate_user in (assigned, verifier, source.recruiter_id):
         if candidate_user is not None and candidate_user != user.id:
             return int(candidate_user)
     return None

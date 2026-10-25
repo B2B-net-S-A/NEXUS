@@ -71,8 +71,9 @@ _PANEL_KPI_IDS = (
 #      attempt. Pending/rejected `verified` nie jest kamieniem milowym KPI,
 #      a akceptacja pending liczy się od `approved_at`, nie od pierwotnego ruchu.
 #   3) `classified_credited` — zamrożone `kpi_eligible=true` (albo obserwacja
-#      z importu, patrz niżej) i `credit_user_id`; handoff ownera nigdy nie
-#      zmienia creditu.
+#      z importu, patrz niżej) i `credit_user_id`; handoff ownera procesu
+#      nie zmienia creditu. Zmienia go dopiero przypisanie „Prowadzi”
+#      (`candidate_job_owners`, 25.10.2026) — nakładane w `credited_nexus`.
 #
 # DECYZJA WŁAŚCICIELA 2026-08-13 — obserwacje z importu LICZĄ SIĘ do KPI.
 # Do tej pory obie gałęzie „classified" wymagały `kpi_eligible IS TRUE`, a
@@ -315,12 +316,21 @@ VERIFIER_ANCHORED_CTE = """
         LEFT JOIN legacy_anchor a USING (candidate_id, job_id)
         WHERE a.kpi_eligible IS DISTINCT FROM FALSE
     ),
-    credited_nexus AS (
+    credited_derived AS (
         SELECT * FROM classified_credited
         UNION ALL
         SELECT * FROM classified_fallback
         UNION ALL
         SELECT * FROM legacy_credited
+    ),
+    -- „Prowadzi” (decyzja Artura 25.10.2026): osoba przypisana przez admina
+    -- albo HoR przejmuje wszystkie kamienie milowe pary — Liga, cele, KPI.
+    credited_nexus AS (
+        SELECT d.stage, d.reached_at, d.candidate_id, d.job_id,
+               COALESCE(o.owner_user_id, d.credit_user) AS credit_user
+        FROM credited_derived d
+        LEFT JOIN candidate_job_owners o
+          ON o.candidate_id = d.candidate_id AND o.job_id = d.job_id
     ),
     credited AS (
         SELECT * FROM credited_nexus

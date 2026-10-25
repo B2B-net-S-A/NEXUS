@@ -31,6 +31,14 @@ export interface AddedByItem {
   added_to_job_by_id?: number | null;
   added_to_job_by_name?: string | null;
   entry_source?: string | null;
+  /** „Prowadzi” (25.10.2026) — przypisana osoba liczy się jak dodająca. */
+  owner_user_id?: number | null;
+  owner_name?: string | null;
+}
+
+/** Osoba karty w filtrze: przypisana „Prowadzi”, inaczej ta, która dodała. */
+function adderId(item: AddedByItem): number | null {
+  return item.owner_user_id ?? item.added_to_job_by_id ?? null;
 }
 
 interface AddedByColumn extends StageLike {
@@ -57,15 +65,17 @@ export function addedByKey(filter: AddedByFilter): string {
   return filter.kind;
 }
 
-export function isSystemAdded(item: Pick<AddedByItem, "entry_source">): boolean {
-  return item.entry_source === "system";
+export function isSystemAdded(
+  item: Pick<AddedByItem, "entry_source" | "owner_user_id">,
+): boolean {
+  return item.entry_source === "system" && item.owner_user_id == null;
 }
 
 export function matchesAddedBy(item: AddedByItem, filter: AddedByFilter): boolean {
   if (filter.kind === "all") return true;
   if (filter.kind === "system") return isSystemAdded(item);
   if (isSystemAdded(item)) return false;
-  const id = item.added_to_job_by_id ?? null;
+  const id = adderId(item);
   return filter.kind === "none" ? id == null : id === filter.userId;
 }
 
@@ -120,14 +130,17 @@ export function addedByOptions(
       bySystem += 1;
       continue;
     }
-    const id = person.added_to_job_by_id ?? null;
+    const id = adderId(person);
     if (id == null) {
       withoutAdder += 1;
       continue;
     }
     const entry = byUser.get(id) ?? { count: 0, name: null };
     entry.count += 1;
-    entry.name ??= person.added_to_job_by_name?.trim() || null;
+    entry.name ??=
+      (person.owner_user_id != null
+        ? person.owner_name?.trim()
+        : person.added_to_job_by_name?.trim()) || null;
     byUser.set(id, entry);
   }
 

@@ -316,11 +316,16 @@ latest AS (
 SELECT l.candidate_id, l.job_id, l.stage, l.stage_def_id, l.moved_at, l.sent_at,
        COALESCE(j.pipeline_template_id, :default_template_id) AS template_id,
        j.title, j.client_id, cl.name AS client_name, j.recruiter_id,
-       (SELECT v.moved_by FROM candidate_stages v
-         WHERE v.candidate_id = l.candidate_id AND v.job_id = l.job_id
-           AND v.stage = 'verified' AND v.verification_status = 'active'
-           AND v.moved_by IS NOT NULL
-         ORDER BY v.moved_at, v.id LIMIT 1) AS verifier_id,
+       -- „Prowadzi” (25.10.2026): przypisanie admina/HoR przed weryfikującym.
+       COALESCE(
+           (SELECT o.owner_user_id FROM candidate_job_owners o
+             WHERE o.candidate_id = l.candidate_id AND o.job_id = l.job_id),
+           (SELECT v.moved_by FROM candidate_stages v
+             WHERE v.candidate_id = l.candidate_id AND v.job_id = l.job_id
+               AND v.stage = 'verified' AND v.verification_status = 'active'
+               AND v.moved_by IS NOT NULL
+             ORDER BY v.moved_at, v.id LIMIT 1)
+       ) AS verifier_id,
        (SELECT s.moved_by FROM candidate_stages s
          WHERE s.candidate_id = l.candidate_id AND s.job_id = l.job_id
            AND s.stage = 'cv_sent' AND s.moved_by IS NOT NULL

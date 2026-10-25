@@ -1139,6 +1139,16 @@ except Exception as _autofill_quality_err:  # noqa: BLE001
     print(f"autofill quality DDL unavailable: {_autofill_quality_err!r}")
     _AUTOFILL_QUALITY_DDL = []
 
+# Przypisania „Prowadzi” (migracja 0519) — JEDNO źródło z migracją
+# (`app/services/pair_owner_schema.py`).
+try:
+    from app.services import pair_owner_schema as _pair_owner_schema
+
+    _PAIR_OWNER_DDL = list(_pair_owner_schema.TABLE_DDL)
+except Exception as _pair_owner_err:  # noqa: BLE001
+    print(f"pair owner DDL unavailable: {_pair_owner_err!r}")
+    _PAIR_OWNER_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1192,6 +1202,7 @@ _COLUMN_STATEMENTS = [
     *_AUTOFILL_POOL_DDL,
     *_AUTOFILL_FEEDBACK_DDL,
     *_AUTOFILL_QUALITY_DDL,
+    *_PAIR_OWNER_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (

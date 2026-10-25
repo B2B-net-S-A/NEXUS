@@ -315,6 +315,12 @@ class CandidateStageResponse(BaseModel):
     # kandydata do rekrutacji. `moved_by` to mover BIEŻĄCEGO etapu — co innego.
     recruiter_id: Optional[int] = None
     recruiter_name: Optional[str] = None
+    # „Prowadzi” (25.10.2026): ręczne przypisanie admina/HoR — tylko gdy jest.
+    owner_user_id: Optional[int] = None
+    owner_name: Optional[str] = None
+    owner_assigned_by_name: Optional[str] = None
+    owner_assigned_at: Optional[datetime] = None
+    owner_previous_name: Optional[str] = None
     # 0348: kto wysyła osobę do Cpro — tylko na wierszu „Wysłać do Cpro".
     # Nazwisko wypełnia tablica.
     task_assignee_id: Optional[int] = None

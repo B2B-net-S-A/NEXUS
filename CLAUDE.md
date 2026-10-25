@@ -215,6 +215,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `pipeline-v4-6-kolumn-blokada-12-h-przeglad-dl.md`: Pipeline v4 — 6 kolumn, blokada 12 h, przegląd DL (0352)
 - `podobne-rekrutacje-przepiecia-i-status-requestu.md`: Podobne rekrutacje, przepięcia i status requestu (0341)
 - `prostszy-ekran-rekrutacji-fakty-kafle-kandydaci-do.md`: Prostszy ekran rekrutacji — fakty, kafle „Kandydaci do dodania”, kolumna „Zamknięci”
+- `prowadzi-przypisanie-osoby.md`: „Prowadzi” — przypisanie osoby prowadzącej kandydata w rekrutacji · admin i HoR przypisują, osoba z rolą rekrutera (też DL), `candidate_job_owners`, karta, Moi ludzie, Liga, premia
 - `przeglad-delivery-leada-v2.md`: Przegląd Delivery Leada v2 (D6, D9, D10)
 - `przydzial-ludzi-do-requestow-stany-requestu-i.md`: Przydział ludzi do requestów, stany requestu i pulpit „Requesty i obłożenie” (0371)
 - `qc-cv-tryb-doradczy-role-z-odczytu-potwierdzenie.md`: QC CV: tryb doradczy, role z odczytu CV, „Potwierdzone z kandydatem” · `CV_QC_ADVISORY`, potwierdzenie jako notatka
