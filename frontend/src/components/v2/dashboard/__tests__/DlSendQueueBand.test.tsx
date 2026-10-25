@@ -77,7 +77,17 @@ import { DlSendQueueBand, showsDlSendBand } from "@/components/v2/dashboard/DlSe
 import type { DashboardPanelKey } from "@/lib/dashboard-panels";
 import { useAuthStore } from "@/store/auth";
 
-const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+// Dzień kalendarza w Warszawie N dni temu (10:00 UTC), a nie N × 24 h: w tygodniu
+// po zmianie czasu (25.10.2026, doba 25 h) „24 h temu” o 23:30 to jeszcze ten sam
+// dzień i „od wczoraj” zamieniało się w „od dziś”. Zero = teraz.
+const calendarDaysAgo = (days: number): string => {
+  if (days === 0) return new Date().toISOString();
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Warsaw" }).format(new Date());
+  const day = new Date(`${today}T10:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - days);
+  return day.toISOString();
+};
+const daysAgo = calendarDaysAgo;
 
 function row(over: Record<string, unknown> = {}) {
   return {
