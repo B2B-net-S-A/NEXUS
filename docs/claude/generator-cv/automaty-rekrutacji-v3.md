@@ -45,6 +45,36 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   2–3 tys. osób. Przerwany pełny przebieg (`_State.pending`) wraca w następnym
   ticku od miejsca przerwania (także rekrutacja, przy której skończył się
   limit); rekrutacje z ruchem karty idą przed nim.
+- **E. Reguły z odrzuceń (decyzje Artura 25.10.2026).** Analiza pierwszego
+  dnia: 34 odrzucenia z powodem na 1 557 osób od systemu, z czego 16 to „za
+  droga” przy stawce, którą system znał; 31% osób od systemu miało znaną
+  „Stawkę od” ponad budżetem (wśród osób wysłanych przez zespół w 180 dni:
+  7,8%). Od tej zmiany silnik (`_by_rules` przed bramką kwalifikacji, okno
+  `_RULES_WINDOW` = 150 najlepszych):
+  * nie dodaje osoby ze znaną stawką PLN ponad `BUDGET_HARD_OVER` (25%) nad
+    `resolve_job_budget_hourly` (u osób wysłanych przez zespół 1,5%, u osób
+    od systemu 14%); 0–25% nad budżetem = za osobami w budżecie i z nieznaną
+    stawką (kolejność wyniku w obrębie poziomu zostaje). Zgoda z rozmowy na
+    ofertę poniżej minimum (`accepts_below_min_rate`) i brak budżetu = bez
+    reguły; stawka < 20 zł/h to błąd odczytu i liczy się jak nieznana.
+    Jedna z 4 pierwszych przyjętych osób była 21% nad budżetem i poszła do
+    klienta — stąd próg 25%, nie 0%;
+  * nie dodaje osoby, która według LinkedIna albo CV pracuje teraz u klienta
+    tej rekrutacji (nazwa, wyświetlana, prawna, aliasy —
+    `client_off_limits.client_labels`), także przy wpisie CV bez żadnej daty
+    (`find_hit(…, undated_counts=True)`; bramka człowieka zostaje przy
+    `entry_says_current`). 3 z 5 „Inne” to „pracuje w Nordei przez inną
+    firmę” / „nie chce do Nordei”;
+  * nie przywraca osoby usuniętej z rekrutacji (archiwum
+    `candidate_stage_removals` tej rekrutacji).
+  Jednorazowo `scripts/autofill_withdraw_over_budget.py` (podgląd, `--apply`)
+  zdejmuje nietknięte karty od systemu ponad 25% nad budżetem
+  (`services/autofill_withdraw.py`: jeden wiersz etapu bez osoby, bez
+  „Dzwonię”, decyzji i notatki pary, sprawdzane drugi raz pod blokadą) drogą
+  „Usuń z rekrutacji” z archiwum bez autora (`autofill_withdrawn_over_budget`),
+  bez wpisu w `autofill_feedback`; „Praca w tle” `autofill_withdrawn`.
+  `void_process(actor_user=None)` = system zdejmuje własną kartę, bez
+  sprawdzania priorytetu.
 - **E. Na Tablicy i w panelu osoby (PR 3, 23.10.2026).** Karta Tablicy niesie
   `entry_autofill` (`process_entry_meta.autofill_badge`: wynik, wymagania,
   `rate_known`, `availability_known`, `decided`, `waiting_days`,

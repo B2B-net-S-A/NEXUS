@@ -13,11 +13,20 @@ Reguły, które łatwo cofnąć „przy okazji”:
   kartę od poprzedniego ticku (odrzucenie albo przesunięcie z „Nowych”).
 * Zawsze do ``TARGET``, także poniżej progu propozycji (decyzja „zawsze 20”).
 * System NIE dodaje: osób, które kiedykolwiek były w tej rekrutacji (także
-  zamknięta karta), pominiętych propozycji tej rekrutacji, osób, które dziś
-  stoją na „Zatrudniony” gdziekolwiek, oraz każdego, przy kim bramka
+  zamknięta karta i osoba usunięta z rekrutacji — archiwum
+  ``candidate_stage_removals``), pominiętych propozycji tej rekrutacji, osób,
+  które dziś stoją na „Zatrudniony” gdziekolwiek, oraz każdego, przy kim bramka
   kwalifikacji mówi cokolwiek innego niż „brak przeciwwskazań” (ostrzeżenia
   o konflikcie z klientem zostawiamy człowiekowi). Off-limits u klienta:
   system nie zna odpowiedzi „sam się zgłosił”, więc pomija.
+* Reguły z odrzuceń (decyzje Artura 25.10.2026, analiza 34 powodów i 1 557
+  osób od systemu): znana „Stawka od” ponad ``BUDGET_HARD_OVER`` nad budżetem
+  rekrutacji = nie dodaje (16 z 34 odrzuceń to „za droga” przy stawce, którą
+  system znał; wśród osób wysłanych przez zespół takich jest 1,5%), do 25% nad
+  budżetem = za osobami w budżecie i z nieznaną stawką. Osoba, która według
+  CV albo LinkedIna pracuje teraz u klienta tej rekrutacji, nie wchodzi —
+  także przy wpisie CV bez dat (``client_off_limits.find_hit``
+  z ``undated_counts``).
 * Wejście ``entry_source = "system"``, ``moved_by`` puste (dodał nie
   człowiek), ``entry_meta`` = migawka tego, co system wiedział: wynik,
   wymagania, „Stawka od”, dostępność. Z niej raport odróżnia błąd
@@ -31,6 +40,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -40,6 +50,7 @@ from app.core.config import settings
 from app.core.scheduling import is_business_day
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.candidate_stage_removal import CandidateStageRemoval
 from app.models.job import Job, JobStatus
 from app.models.job_autofill_pool import JobAutofillPool
 from app.models.job_proposal import JobProposal
@@ -64,6 +75,15 @@ ENTRY_KIND = "autofill"
 _PROPOSAL_SOURCES = ("full_base", "new_cv")
 # Zapas kandydatów ponad brak: część odpadnie na bramce kwalifikacji.
 _PICK_HEADROOM = 3
+# Ilu najlepszych przechodzi przez reguły z odrzuceń przed bramką — tyle, ile
+# ma pula nocnego przeglądu, żeby osoba w budżecie z dalszego miejsca mogła
+# wyprzedzić droższą (w top 20 wyniki różnią się średnio o 3,5 pkt).
+_RULES_WINDOW = 150
+# Stawka ponad tyle nad budżetem = system nie dodaje (25.10.2026).
+BUDGET_HARD_OVER = Decimal("0.25")
+# „Stawka od” poniżej tej kwoty to błąd odczytu (na produkcji 0,6 zł/h), nie
+# stawka — liczy się jak nieznana.
+_MIN_PLAUSIBLE_RATE = Decimal("20")
 
 
 def enabled() -> bool:
@@ -155,6 +175,9 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
     ever_in_job = select(CandidateStage.candidate_id).where(
         CandidateStage.job_id == job_id
     )
+    removed = select(CandidateStageRemoval.candidate_id).where(
+        CandidateStageRemoval.job_id == job_id
+    )
     dismissed = select(JobProposal.candidate_id).where(
         JobProposal.job_id == job_id, JobProposal.status == "dismissed"
     )
@@ -164,6 +187,7 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
             select(both.c.candidate_id, both.c.score, both.c.run_id, both.c.evidence)
             .where(
                 both.c.candidate_id.not_in(ever_in_job),
+                both.c.candidate_id.not_in(removed),
                 both.c.candidate_id.not_in(dismissed),
                 both.c.candidate_id.not_in(hired_now),
             )
@@ -185,6 +209,101 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
         if len(picks) >= limit:
             break
     return list(picks.values())
+
+
+def budget_tier(candidate, budget_hourly: Optional[float]) -> Optional[int]:
+    """``0`` = w budżecie, stawka nieznana albo brak budżetu; ``1`` = do
+    ``BUDGET_HARD_OVER`` nad budżetem; ``None`` = system nie dodaje."""
+    from app.services.candidate_rate_from import effective_rate
+    from app.services.dealbreaker_filters import candidate_consents_below_min_rate
+
+    rate, currency = effective_rate(candidate)
+    return _rate_tier(
+        rate,
+        currency,
+        consents=candidate_consents_below_min_rate(candidate),
+        budget_hourly=budget_hourly,
+    )
+
+
+def _rate_tier(
+    rate, currency, *, consents: bool, budget_hourly: Optional[float]
+) -> Optional[int]:
+    if budget_hourly is None or consents:
+        return 0
+    if rate is None or str(currency or "").strip().upper() != "PLN":
+        return 0
+    rate = Decimal(str(rate))
+    budget = Decimal(str(budget_hourly))
+    if rate < _MIN_PLAUSIBLE_RATE or rate <= budget:
+        return 0
+    if rate > budget * (1 + BUDGET_HARD_OVER):
+        return None
+    return 1
+
+
+async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
+    """Reguły z odrzuceń: bez osób daleko ponad budżetem i pracujących teraz
+    u klienta; osoby trochę ponad budżetem za resztą (kolejność wyniku
+    w obrębie poziomu zostaje). Czyta tylko potrzebne kolumny — okno ma do
+    ``_RULES_WINDOW`` osób, a pełny wiersz kandydata niesie tekst CV."""
+    from types import SimpleNamespace
+
+    from app.services import client_off_limits
+    from app.services.candidate_rate_from import (
+        effective_currency_sql,
+        effective_rate_sql,
+    )
+    from app.services.dealbreaker_filters import resolve_job_budget_hourly
+
+    if not picks:
+        return []
+    columns = (
+        Candidate.id,
+        # „Stawka od” tą samą regułą co `effective_rate` (strażnik 0414).
+        effective_rate_sql(Candidate).label("rate"),
+        effective_currency_sql(Candidate).label("currency"),
+        Candidate.accepts_below_min_rate,
+        Candidate.linkedin_current_company,
+        Candidate.experience,
+        Candidate.name,
+        Candidate.lastname,
+    )
+    people = {
+        row.id: SimpleNamespace(**row._mapping)
+        for row in (
+            await db.execute(
+                select(*columns).where(
+                    Candidate.id.in_([p.candidate_id for p in picks])
+                )
+            )
+        ).all()
+    }
+    budget = resolve_job_budget_hourly(job)
+    labels = (
+        await client_off_limits.client_labels(db, job.client_id)
+        if job.client_id
+        else []
+    )
+    tiered: list[tuple[int, Pick]] = []
+    for pick in picks:
+        person = people.get(pick.candidate_id)
+        if person is None:
+            continue
+        tier = _rate_tier(
+            person.rate,
+            person.currency,
+            consents=person.accepts_below_min_rate is True,
+            budget_hourly=budget,
+        )
+        if tier is None:
+            continue
+        if client_off_limits.find_hit(person, labels, undated_counts=True):
+            continue
+        tiered.append((tier, pick))
+    # Sortowanie stabilne: w obrębie poziomu zostaje kolejność wyniku.
+    tiered.sort(key=lambda item: item[0])
+    return [pick for _, pick in tiered]
 
 
 async def _allowed(db, job: Job, picks: list[Pick], now: datetime) -> list[Pick]:
@@ -267,7 +386,10 @@ async def fill_job(
         missing = min(missing, limit)
     if missing <= 0:
         return []
-    picks = await ranked_picks(db, job_id, limit=missing * _PICK_HEADROOM + 10)
+    picks = await _by_rules(
+        db, job, await ranked_picks(db, job_id, limit=_RULES_WINDOW)
+    )
+    picks = picks[: missing * _PICK_HEADROOM + 10]
     chosen = (await _allowed(db, job, picks, now))[:missing]
     if not chosen:
         return []
