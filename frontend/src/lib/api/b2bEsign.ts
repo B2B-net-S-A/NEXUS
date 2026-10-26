@@ -137,6 +137,6 @@ export const b2bEsignApi = {
 export function signedPdfProblem(file: File): string | null {
   if (!/\.pdf$/i.test(file.name)) return "Wgraj podpisany plik PDF.";
   if (file.size === 0) return "Plik jest pusty.";
-  if (file.size > 20 * 1024 * 1024) return "Plik jest za duży — może mieć najwyżej 20 MB.";
+  if (file.size > 20 * 1024 * 1024) return "Plik jest za duży, może mieć najwyżej 20 MB.";
   return null;
 }

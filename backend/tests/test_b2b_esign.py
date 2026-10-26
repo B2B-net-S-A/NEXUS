@@ -707,6 +707,24 @@ async def test_without_the_confirm_permission_the_sender_is_asked_to_finish(
 # ── nazwa pliku i termin przypomnienia (prośby Sandry i Klaudii, 26.10.2026) ──
 
 
+def test_messages_for_the_contractor_have_no_em_dash():
+    """Klaudia, 26.10.2026: strona dla konsultanta bez myślników „—”."""
+    from app.services.b2b_esign import service, verdict
+
+    contractor_messages = [
+        service.MSG_LINK,
+        service.MSG_ALREADY_SIGNED,
+        service.MSG_CLOSED,
+        service.MSG_RACE,
+        service.MSG_TOO_BIG,
+        service.MSG_TOO_MANY_ATTEMPTS,
+        verdict.MSG_NOT_PDF,
+        verdict.MSG_CHANGED,
+        verdict.MSG_NOT_SIGNED,
+    ]
+    assert [m for m in contractor_messages if "—" in m] == []
+
+
 def test_contract_file_name_is_number_then_surname_first_without_diacritics():
     from app.services.b2b_contract_filename import contract_file_name
 

@@ -261,6 +261,25 @@ describe("strona kontraktora — instrukcja per narzędzie (etap 1b)", () => {
     expect(screen.getByRole("tabpanel")).toHaveTextContent("SimplySign na telefonie");
     expect(screen.getByText(/zostanie odrzucony/)).toBeInTheDocument();
   });
+
+  it("bez myślników „—” w tekście dla konsultanta (Klaudia, 26.10.2026)", async () => {
+    const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
+    const { signedPdfProblem } = await import("@/lib/api/b2bEsign");
+    const { unmount } = render(<B2BSignForm token="t" initialState="waiting" />);
+    for (const tab of ["mObywatel", "SimplySign", "Szafir / karta", "Inny"]) {
+      await userEvent.click(screen.getByRole("tab", { name: tab }));
+      expect(document.body.textContent).not.toContain("—");
+    }
+    unmount();
+    for (const state of ["signed_by_you", "completed"] as const) {
+      const view = render(<B2BSignForm token="t" initialState={state} />);
+      expect(document.body.textContent).not.toContain("—");
+      view.unmount();
+    }
+    const big = new File(["x"], "umowa.pdf", { type: "application/pdf" });
+    Object.defineProperty(big, "size", { value: 21 * 1024 * 1024 });
+    expect(signedPdfProblem(big)).not.toContain("—");
+  });
 });
 
 describe("EsignRowStatus (audyt 22.10)", () => {

@@ -68,6 +68,11 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   przez kontraktora”) i podpisanej umowy („… podpisana”). Imię i nazwisko leżą
   w jednym polu `partner_name` — nazwisko to ostatnie słowo. Front bierze
   nazwę z `Content-Disposition`, nie układa jej sam.
+- **Tekst dla konsultanta bez myślników „—”** (Klaudia, 26.10.2026): strona
+  `/sign/b2b/{token}` i komunikaty, które z niej widać (`service.MSG_*`
+  kontraktora, `verdict.MSG_*`, `signedPdfProblem`). Pilnują tego testy
+  `test_messages_for_the_contractor_have_no_em_dash` i „bez myślników”
+  w `esign.test.tsx`; zamiast „—” dwukropek, przecinek albo nowe zdanie.
 - **Pliki przed podpisem leżą w `b2b_signing/{id}/`**, nie w Dokumentach
   kontraktu — kontraktu jeszcze nie ma.
 - **Dzień podpisu umowy = dzień podpisu kontraktora** (0514, 23.10.2026):

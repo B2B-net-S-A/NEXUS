@@ -28,7 +28,7 @@ from app.services.signing.provider import (
 
 MSG_NOT_PDF = "Wgraj podpisany plik PDF."
 MSG_CHANGED = (
-    "To nie jest ten sam dokument, który wysłaliśmy do podpisu — podpisz "
+    "To nie jest ten sam dokument, który wysłaliśmy do podpisu. Podpisz "
     "pobrany plik bez zmian i bez zapisywania go jako nowy PDF."
 )
 MSG_NOT_SIGNED = "W pliku nie ma nowego podpisu."
