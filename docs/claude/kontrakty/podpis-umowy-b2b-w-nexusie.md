@@ -100,6 +100,12 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   w `label` i ujemnym `id`.
 - **Strona kontraktora ma zakładki narzędzi** (mObywatel, SimplySign, Szafir,
   inne) i stałą ramkę „podpis w pliku PDF (PAdES)”.
+- **„Wyślij do podpisu” jest w dwóch miejscach** (26.10.2026): w wierszu
+  rejestru Generatora i w zakładce „Umowa” panelu osoby / rekrutacji
+  (`AgreementPanelTab`) — to samo okno `SendForSignatureDialog`, widoczne,
+  gdy serwer zwróci `can_send_esign`. Rekruterzy generują umowę w panelu,
+  więc przycisk tylko w Generatorze był dla nich niewidoczny. Obok zostaje
+  „Pobierz DOCX” i „Oznacz jako podpisaną” (droga mailowa, podpis offline).
 - **Wysyłka NIE przesuwa karty na „Umowa wysłana”** (świadomie): to ruch na etap
   szablonu, który Insights liczy jako kamień milowy; plakietka karty mówi to samo.
 

@@ -8,7 +8,9 @@
  * i ten sam wiersz rejestru, więc Generator jest lustrem tej zakładki.
  *  - brak żywej umowy pary: formularz z podpowiedziami z rekrutacji,
  *  - jest umowa: numer, stan, „Pobierz DOCX”, „Popraw umowę” (ten sam numer,
- *    `can_edit` liczy serwer: autor, zespół rekrutacji, TCM, admin) i podpis.
+ *    `can_edit` liczy serwer: autor, zespół rekrutacji, TCM, admin) i podpis,
+ *    a przy włączonym podpisie w NEXUSIE („can_send_esign”, 26.10.2026) także
+ *    „Wyślij do podpisu” — to samo okno co w Generatorze, z drogą mailową obok.
  * Formularz ładuje się leniwie — moduł Generatora jest duży.
  */
 
@@ -16,7 +18,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, PencilLine } from "lucide-react";
+import { Download, Loader2, PencilLine, Send } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +27,7 @@ import {
   AgreementSignatureAction,
   invalidateAgreementQueries,
 } from "@/components/v2/b2b-generator/AgreementSignatureAction";
+import { SendForSignatureDialog } from "@/components/v2/b2b-generator/esign/SendForSignatureDialog";
 import { hasActionAccess } from "@/lib/action-access";
 import { b2bGeneratorApi, type B2BGeneratedContractRow } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -89,6 +92,7 @@ export function AgreementPanelTab({
     hasActionAccess(user, "b2b_contract_generator", "generate");
   const [editing, setEditing] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [sending, setSending] = useState(false);
 
   // Ten sam klucz co sekcja w wąskim panelu i warsztat — jedno zapytanie.
   const contracts = useQuery<B2BGeneratedContractRow[]>({
@@ -172,6 +176,8 @@ export function AgreementPanelTab({
   const signed = row.signature_status === "signed_both";
   const inEsign =
     !signed && (row.esign?.status === "sent" || row.esign?.status === "contractor_signed");
+  // Serwer liczy `can_send_esign` z przełącznika i prawa poprawki umowy.
+  const canSendEsign = !readOnly && Boolean(row.can_send_esign);
   return (
     <section
       aria-label="Umowa B2B"
@@ -198,7 +204,9 @@ export function AgreementPanelTab({
           ? " Kontrakt i zamówienie są w Delivery."
           : inEsign
             ? " Wysłana do podpisu w NEXUSIE."
-            : " Wyślij DOCX Partnerowi; po podpisie obu stron potwierdź podpis."}
+            : canSendEsign
+              ? " Wyślij do podpisu w NEXUSIE albo pobierz DOCX i wyślij mailem; po podpisie mailowym potwierdź podpis."
+              : " Wyślij DOCX Partnerowi; po podpisie obu stron potwierdź podpis."}
       </p>
       {inEsign && !readOnly && canGenerate ? (
         <p
@@ -222,6 +230,12 @@ export function AgreementPanelTab({
             Popraw umowę
           </Button>
         ) : null}
+        {canSendEsign ? (
+          <Button size="sm" variant="outline" onClick={() => setSending(true)}>
+            <Send className="h-3.5 w-3.5" aria-hidden />
+            Wyślij do podpisu
+          </Button>
+        ) : null}
         <AgreementSignatureAction
           row={row}
           jobId={jobId}
@@ -229,6 +243,15 @@ export function AgreementPanelTab({
           readOnly={readOnly}
         />
       </div>
+      {sending ? (
+        <SendForSignatureDialog
+          row={row}
+          onClose={() => {
+            setSending(false);
+            invalidateAgreementQueries(queryClient, jobId);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
