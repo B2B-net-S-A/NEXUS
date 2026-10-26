@@ -4,6 +4,11 @@ import * as React from"react";
 import { useState, useEffect } from"react";
 import { AlertTriangle, Trophy } from"lucide-react";
 import {
+ RejectionRateField,
+ type RejectionRateChoice,
+ type RejectionRateProfile,
+} from "./RejectionRateField";
+import {
  Dialog,
  DialogBody,
  DialogContent,
@@ -45,6 +50,7 @@ import type {
 import {
  HM_ALREADY_INTERVIEWED_REASON,
  WORK_MODE_MISMATCH_REASON,
+ isRateTooHighReason,
  reasonNeedsDescription,
 } from "@/lib/rejection-reasons";
 
@@ -108,7 +114,10 @@ interface Props {
  workMode?: RejectionWorkModeChoice | null,
  /** Osoba od systemu (23.10.2026): powód dla systemu; `null`, gdy okno
   *  go nie pytało (żadna osoba od systemu z „Nowych”/„Screeningu”). */
- autofill?: AutofillFeedbackChoice | null
+ autofill?: AutofillFeedbackChoice | null,
+ /** „Za wysokie oczekiwania finansowe” (26.10.2026): ile osoba teraz chce;
+  *  `null` przy innym powodzie, kilku osobach albo pustym polu. */
+ rate?: RejectionRateChoice | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
@@ -149,6 +158,9 @@ interface Props {
  workModeJob?: RejectionWorkModeJob | null;
  /** Tryb pracy z profilu (tylko przy jednej osobie) — „Teraz na profilu: …”. */
  profileWorkMode?: RejectionWorkModeProfile | null;
+ /** „Stawka od” z profilu (tylko przy jednej osobie) — przy „Za wysokie
+  *  oczekiwania finansowe”. */
+ profileRate?: RejectionRateProfile | null;
  /** Wśród odrzucanych jest osoba od systemu z „Nowych”/„Screeningu”
   *  (silnik „Nowi na 20”, 23.10.2026) — okno pyta o powód dla systemu.
   *  `rateKnown`: czy system znał stawkę (jedna osoba). */
@@ -186,6 +198,7 @@ export function RejectionV2({
  pending = false,
  workModeJob = null,
  profileWorkMode,
+ profileRate,
  autofill = null,
 }: Props) {
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
@@ -231,6 +244,9 @@ export function RejectionV2({
  // na profilu — najświeższa deklaracja z rozmowy nadpisuje profil.
  const [officeDays, setOfficeDays] = useState(0);
  const [saveWorkMode, setSaveWorkMode] = useState(true);
+ // „Za wysokie oczekiwania finansowe” (26.10.2026): ile teraz chce.
+ const [newRate, setNewRate] = useState("");
+ const [newRateIsMinimum, setNewRateIsMinimum] = useState(true);
  // Osoba od systemu (23.10.2026): powód dla systemu.
  const [autofillLearnedFrom, setAutofillLearnedFrom] = useState<AutofillLearnedFrom | null>(null);
  const [autofillReason, setAutofillReason] = useState<AutofillReason | null>(null);
@@ -249,6 +265,8 @@ export function RejectionV2({
  setCancelAgreement(true);
  setOfficeDays(0);
  setSaveWorkMode(true);
+ setNewRate("");
+ setNewRateIsMinimum(true);
  setAutofillLearnedFrom(null);
  setAutofillReason(null);
  setAutofillRate("");
@@ -263,6 +281,7 @@ export function RejectionV2({
  const hasReasons = filtered.length > 0;
  const chosenReason = filtered.find((r) => r.id === reasonId);
  const workModeReason = chosenReason?.name === WORK_MODE_MISMATCH_REASON;
+ const rateReason = isRateTooHighReason(chosenReason);
  // 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
  // zostawiały w historii samo słowo — notatka jest wtedy opisem powodu.
  const autofillAsked = terminalType === "rejected" && autofill != null;
@@ -270,19 +289,26 @@ export function RejectionV2({
  const descriptionRequired =
  (hasReasons && reasonNeedsDescription(chosenReason)) ||
  (autofillAsked && autofillReason === "other");
+ const several = (emailPreview?.people.length ?? 1) > 1;
+ const parsedNewRate = parseRateInput(newRate);
+ const rateChoice: RejectionRateChoice | null =
+ rateReason && !several && parsedNewRate !== null
+ ? { rateHourly: parsedNewRate, isMinimum: newRateIsMinimum }
+ : null;
  const autofillChoice: AutofillFeedbackChoice | null =
  autofillAsked && autofillReason && autofillLearnedFrom
  ? {
  reason: autofillReason,
  learnedFrom: autofillLearnedFrom,
  rateHourly:
- autofillReason === "too_expensive" && !autofill?.several
+ // Przy powodzie „za drogo” kwotę niesie pole pod powodem — bez
+ // drugiego „Ile chce?” niżej.
+ autofillReason === "too_expensive" && !autofill?.several && !rateReason
  ? parseRateInput(autofillRate)
  : null,
  }
  : null;
  const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
- const several = (emailPreview?.people.length ?? 1) > 1;
 
  const handleConfirm = () => {
  // Zawsze jawny boolean — serwer planuje mail WYŁĄCZNIE przy `true`.
@@ -305,7 +331,8 @@ export function RejectionV2({
  workModeReason
  ? { maxOnsiteDays: officeDays, saveToProfile: saveWorkMode }
  : null,
- autofillChoice
+ autofillChoice,
+ rateChoice
  );
  return;
  }
@@ -420,6 +447,15 @@ export function RejectionV2({
  onSaveToProfileChange={setSaveWorkMode}
  />
  ) : null}
+ {r.id === reasonId && rateReason && !several ? (
+ <RejectionRateField
+ profile={profileRate}
+ rate={newRate}
+ onRateChange={setNewRate}
+ isMinimum={newRateIsMinimum}
+ onIsMinimumChange={setNewRateIsMinimum}
+ />
+ ) : null}
  </React.Fragment>
  ))}
  </RadioGroup>
@@ -442,6 +478,7 @@ export function RejectionV2({
  onRateChange={setAutofillRate}
  rateKnown={autofill.rateKnown}
  several={autofill.several}
+ askRate={!rateReason}
  />
  ) : null}
  {offerResponseRequired && (

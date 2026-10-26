@@ -78,7 +78,12 @@ import {
 } from "@/components/v2/modals/RejectionV2";
 import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
 import {
+  rejectionRateMoveFields,
+  type RejectionRateChoice,
+} from "@/components/v2/modals/RejectionRateField";
+import {
   useRejectionProfileWorkMode,
+  useRejectionProfileRate,
   useRejectionWorkModeJob,
 } from "@/hooks/useRejectionWorkModeContext";
 import {
@@ -281,6 +286,10 @@ export function JobInterviewsTab({
     pendingTerminal?.entry.item.candidate_id ?? null,
     pendingTerminal !== null,
   );
+  const terminalProfileRate = useRejectionProfileRate(
+    pendingTerminal?.entry.item.candidate_id ?? null,
+    pendingTerminal !== null,
+  );
 
   // ── Ruch bez dialogu — ta sama droga co drag&drop na tablicy ─────────
   // Rdzeń ruchu (`usePipelineMoveCore`) obsługuje ostrzeżenie „Przenieś mimo
@@ -320,6 +329,7 @@ export function JobInterviewsTab({
       freeReason?: string;
       emailText?: RejectionEmailText | null;
       workMode?: RejectionWorkModeChoice | null;
+      rate?: RejectionRateChoice | null;
     }) =>
       moveCore.send(
         {
@@ -337,6 +347,7 @@ export function JobInterviewsTab({
           rejection_email_merge: vars.emailText?.merge,
           work_mode_max_onsite_days: vars.workMode?.maxOnsiteDays,
           work_mode_save_to_profile: vars.workMode?.saveToProfile,
+          ...rejectionRateMoveFields(vars.rate),
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: expectedStateVersionOf(vars.item),
         },
@@ -507,6 +518,7 @@ export function JobInterviewsTab({
           }}
           workModeJob={terminalWorkModeJob}
           profileWorkMode={terminalProfileWorkMode}
+          profileRate={terminalProfileRate}
           onConfirm={(
             reasonId,
             notes,
@@ -517,6 +529,8 @@ export function JobInterviewsTab({
             _cancelAgreementId,
             emailText,
             workMode,
+            _autofill,
+            rate,
           ) =>
             terminalMutation.mutate({
               item: pendingTerminal.entry.item,
@@ -528,6 +542,7 @@ export function JobInterviewsTab({
               freeReason,
               emailText,
               workMode,
+              rate,
             })
           }
         />

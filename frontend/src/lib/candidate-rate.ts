@@ -146,6 +146,9 @@ const SOURCE_LABEL: Record<string, string> = {
   profile_notes_ai: "Z notatek (AI)",
   profile_notes_removed: "Z notatek (usunięte)",
   profile_candidate_merge: "Scalenie duplikatów",
+  // 26.10.2026: „Ile teraz chce?” przy odrzuceniu „Za wysokie oczekiwania finansowe”.
+  profile_rejection_minimum: "Minimum z odrzucenia (za wysokie oczekiwania)",
+  profile_rejection: "Odrzucenie (za wysokie oczekiwania)",
   // 0418: zmiana stawki w trakcie procesu.
   rate_requested: "Zgłoszona zmiana stawki",
   rate_agreed: "Ustalona po negocjacji",

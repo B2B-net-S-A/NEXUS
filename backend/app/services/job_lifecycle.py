@@ -1588,10 +1588,11 @@ async def apply_job_create(
     record_cc_override(db, job, data.cc_override, current_user)
     # 0428: pliki dodane na `/jobs/new` przechodzą na rekrutację — PRZED
     # usunięciem formularza (klucz obcy zrobiłby z nich sieroty).
-    await job_files_service.attach_intake_files(
+    attached = await job_files_service.attach_intake_files(
         db, job_id=job.id, form_id=data.intake_form_id, user_id=current_user.id
     )
     # 0521: formularz CV klienta z Plików staje się wzorem od razu.
-    await job_files_service.auto_mark_client_form(db, job.id)
+    if attached:
+        await job_files_service.auto_mark_client_form(db, job.id)
     await delete_intake_form(db, data.intake_form_id, current_user.id)
     return job
