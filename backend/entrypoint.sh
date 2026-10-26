@@ -331,6 +331,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'debrief_from_text'",
     # 0518: raport poniedziałkowy „Jakość podpowiedzi systemu” (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
+    # 0522: formularz CV klienta z CV i screeningu (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_form_fill'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -6096,6 +6098,10 @@ END $$""",
     "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS client_form BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS client_form_structure JSONB NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_files_client_form ON job_files (job_id) WHERE client_form AND job_id IS NOT NULL",
+    # 0522: wypełniony formularz CV klienta pary osoba × rekrutacja. Lustro 1:1
+    # z `client_form_schema.FILL_DDL` — PO `job_files`, na którą wskazuje klucz obcy.
+    "CREATE TABLE IF NOT EXISTS candidate_client_forms (id SERIAL PRIMARY KEY, candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, job_file_id INTEGER NULL REFERENCES job_files(id) ON DELETE SET NULL, template_sha256 VARCHAR(64) NULL, fields JSONB NOT NULL DEFAULT '{}'::jsonb, extra_rows JSONB NOT NULL DEFAULT '[]'::jsonb, missing_count INTEGER NOT NULL DEFAULT 0, model VARCHAR(80) NULL, filled_at TIMESTAMPTZ NULL, filled_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT uq_candidate_client_forms_pair UNIQUE (candidate_id, job_id))",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_client_forms_job ON candidate_client_forms (job_id)",
     # 0430: ogłoszenie rekrutacji do wklejenia na portale (Pracuj.pl,
     # JustJoin.IT). Lustro 1:1 z `app/services/job_ad_schema.py` (pilnuje
     # test_job_ads_migration_mirror).
@@ -7471,6 +7477,11 @@ _DATA_STATEMENTS = [
     "SELECT 'autofill_quality_report', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'autofill_quality_report')",
+    # 0522: seed klucza AI formularza CV klienta.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'client_form_fill', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'client_form_fill')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

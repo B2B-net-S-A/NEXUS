@@ -84,7 +84,6 @@ async def _send_chat_email(user: User, notif: Notification) -> bool:
 
         ok = send_chat_fallback_email(
             to_email=user.email,
-            recipient_name=user.name or user.email,
             notification_title=notif.title,
             notification_message=notif.message or "",
             deep_link_path=notif.link or "/",

@@ -3,7 +3,7 @@
 Kolejność stron jest stała: kontraktor (link z maila, bez konta), potem
 reprezentant B2B Network wskazany przy wysyłce (w NEXUSIE). Każde wgranie:
 
-1. plik musi zaczynać się bajtami poprzedniej wersji (``verdict.builds_on``),
+1. plik musi zaczynać się bajtami poprzedniej wersji (``verdict.upload_problem``),
 2. walidacja (EU DSS) i ``verdict.judge`` — BEZ blokady wiersza, bo trwa do 30 s,
 3. blokada wniosku i ponowne sprawdzenie stanu oraz odcisku — wycofanie albo
    drugie wgranie w czasie walidacji wygrywa (w torze z czerwca wycofanie
@@ -28,11 +28,10 @@ from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import OPEN_STATUSES, B2BSigningRequest
 from app.services import storage_service
 from app.services.b2b_esign.verdict import (
-    MSG_CHANGED,
     MSG_NOT_PDF,
     Fingerprint,
-    builds_on,
     judge,
+    upload_problem,
 )
 from app.services.signing.provider import ValidationReport
 
@@ -328,9 +327,10 @@ async def contractor_submit(
     source = Fingerprint(request.source_sha256, request.source_size)
     contractor_name = request.contractor_name
     check_pdf_upload(data)
-    if not builds_on(data, source):
+    problem = upload_problem(data, source)
+    if problem:
         await _count_failed_attempt(db, request_id)
-        raise HTTPException(status_code=422, detail=MSG_CHANGED)
+        raise HTTPException(status_code=422, detail=problem)
     # Walidacja trwa do 30 s — bez otwartej transakcji i bez połączenia z puli.
     # ``commit`` (nic nie zmieniono), nie ``rollback``: sesja ma
     # ``expire_on_commit=False``, a rollback wygasiłby też zalogowanego
@@ -400,8 +400,9 @@ async def company_submit(
         request.contractor_sha256 or "", request.contractor_size or 0
     )
     check_pdf_upload(data)
-    if not builds_on(data, contractor_version):
-        raise HTTPException(status_code=422, detail=MSG_CHANGED)
+    problem = upload_problem(data, contractor_version)
+    if problem:
+        raise HTTPException(status_code=422, detail=problem)
     await db.commit()  # jak wyżej — bez transakcji na czas walidacji
     report = await validator.validate(data)
     verdict = judge(

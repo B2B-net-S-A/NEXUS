@@ -1400,6 +1400,13 @@ async def _assert_cv_qc_gate(
         )
         if is_cpro_stage(current_name):
             return
+    # 0521 (26.10.2026): klient bierze formularz CV z Plików rekrutacji, nie
+    # CV firmowe — QC CV firmowego nie ma czego sprawdzać (decyzja D3:
+    # o brakach formularza przypomina lista wymagań, bez blokady).
+    from app.services import client_form_status
+
+    if await client_form_status.client_takes_client_form(db, client_id):
+        return
     await cv_qc.assert_qc_passed(
         db, candidate_id=candidate_id, job_id=job_id, user=user, stage=current
     )
@@ -3826,6 +3833,15 @@ async def build_kanban_view(
         if with_cv_state
         else None
     )
+    # 0521 (26.10.2026): klient bierze formularz CV — karta pokazuje stan
+    # formularza zamiast CV firmowego. `None` = klient bierze CV firmowe.
+    from app.services import client_form_status
+
+    client_forms = (
+        await client_form_status.job_states(db, job_id, candidate_ids)
+        if with_cv_state
+        else None
+    )
     # „Do wysłania do klienta” (`dl_send_queue`): kolejka Delivery Leada bierze
     # tylko opublikowane rekrutacje, a etap z importu Traffita nie liczy się do
     # „Czeka na Ciebie” — karta mówi to samo co pas na pulpicie (audyt 13.10.2026).
@@ -3951,6 +3967,12 @@ async def build_kanban_view(
         payload["company_cv"] = (
             (e.candidate_id, job_id) in company_cv_pairs
             if company_cv_pairs is not None
+            else None
+        )
+        form_state = client_forms.get(e.candidate_id) if client_forms else None
+        payload["client_form"] = (
+            {"template": form_state.template is not None, "missing": form_state.missing}
+            if form_state is not None
             else None
         )
         payload["qc"] = qc_by_pair.get((e.candidate_id, job_id))

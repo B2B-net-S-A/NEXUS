@@ -53,6 +53,19 @@ export function approvalsSearch(
   return query ? `?${query}` : "?";
 }
 
+/**
+ * Wniosek z linku maila (26.10.2026): `?leave=<id>[&decide=approve|reject]`.
+ * Decyzja tylko otwiera okno potwierdzenia — nic nie zapisuje sama.
+ */
+export function leaveLinkFromParams(
+  params: Pick<URLSearchParams, "get">,
+): { id: string; decision: "approve" | "reject" | null } | null {
+  const id = params.get("leave")?.trim();
+  if (!id) return null;
+  const decide = params.get("decide");
+  return { id, decision: decide === "approve" || decide === "reject" ? decide : null };
+}
+
 export interface ApprovalsAccess {
   leave: boolean;
   time: boolean;

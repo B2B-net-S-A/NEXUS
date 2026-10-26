@@ -66,6 +66,19 @@ def builds_on(data: bytes, previous: Fingerprint) -> bool:
     return hashlib.sha256(data[: previous.size]).hexdigest() == previous.sha256
 
 
+def upload_problem(data: bytes, previous: Fingerprint) -> str | None:
+    """Powód odmowy przed walidacją albo ``None``.
+
+    Plik bajt w bajt taki jak poprzednia wersja to ten sam dokument bez
+    podpisu, nie inny dokument (Olaf 26.10.2026 dostał „To nie jest ten sam
+    dokument” po wgraniu pobranego pliku)."""
+    if Fingerprint.of(data) == previous:
+        return MSG_NOT_SIGNED
+    if not builds_on(data, previous):
+        return MSG_CHANGED
+    return None
+
+
 def _tokens(name: str | None) -> set[str]:
     return set(normalize_person_text(name).split())
 

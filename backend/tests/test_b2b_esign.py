@@ -50,6 +50,22 @@ def test_signed_file_must_extend_the_issued_bytes():
     assert not builds_on(SOURCE.replace(b"umowa", b"UMOWA") + b"% podpis", issued)
 
 
+def test_the_same_file_without_a_signature_says_there_is_no_new_signature():
+    """Olaf 26.10.2026: wgrał pobrany plik bez podpisu i dostał „To nie jest
+    ten sam dokument” — a to JEST ten sam dokument, tylko bez podpisu."""
+    from app.services.b2b_esign.verdict import (
+        MSG_CHANGED,
+        MSG_NOT_SIGNED,
+        upload_problem,
+    )
+
+    issued = Fingerprint.of(SOURCE)
+    assert upload_problem(SOURCE, issued) == MSG_NOT_SIGNED
+    assert upload_problem(SOURCE + b"% podpis\n", issued) is None
+    assert upload_problem(SOURCE.replace(b"umowa", b"UMOWA"), issued) == MSG_CHANGED
+    assert upload_problem(SOURCE[:-10], issued) == MSG_CHANGED
+
+
 def test_name_from_the_certificate_may_carry_a_middle_name_and_any_order():
     assert name_matches("Jan Kowalski", "CN=Kowalski Jan Piotr, C=PL")
     assert name_matches("Łukasz Żółć", "Common Name: Lukasz Zolc, Country: PL")

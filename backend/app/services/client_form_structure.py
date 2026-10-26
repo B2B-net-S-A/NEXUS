@@ -37,7 +37,9 @@ from docx.oxml.ns import qn
 
 from app.core import docx_cells
 
-STRUCTURE_VERSION = 1
+# 2 (PR 2, 26.10.2026): tabela z „…” pamięta wiersz wzorcowy i jego kolumny
+# — dopisywanie wierszy. Struktura starszej wersji czyta się ponownie z pliku.
+STRUCTURE_VERSION = 2
 
 MAX_ZIP_ENTRIES = 1000
 MAX_UNPACKED_BYTES = 60 * 1024 * 1024
@@ -79,6 +81,10 @@ class FormTable:
     title: Optional[str]
     rows: int
     extendable: bool
+    # Wiersz, którego kopie dokłada wypełnianie: ostatni wiersz danych przed
+    # „…”, i wszystkie jego kolumny poza „Lp.” (``c<kolumna siatki>`` → etykieta).
+    template_row: Optional[int] = None
+    columns: Optional[dict[str, str]] = None
 
 
 @dataclass(frozen=True)
@@ -218,6 +224,8 @@ def _table_fields(
     section: Optional[str] = None
     extendable = False
     data_rows = 0
+    last_row: Optional[tuple[int, dict[str, str]]] = None
+    template: Optional[tuple[int, dict[str, str]]] = None
     for r_index, cells in enumerate(rows):
         texts = [(start, span, _clean(cell.text)) for start, span, cell in cells]
         filled = [text for _, _, text in texts if text]
@@ -231,6 +239,8 @@ def _table_fields(
             continue  # pusty wiersz bez numeru w tabeli numerowanej
         if any(_ELLIPSIS.match(text) for _, _, text in texts):
             extendable = True
+            if template is None and last_row is not None:
+                template = last_row
             continue
         if len(filled) == len(texts):
             if not headers or any(_LP.match(text) for text in filled):
@@ -270,7 +280,25 @@ def _table_fields(
             added += 1
         if added:
             data_rows += 1
-    return fields, FormTable(t_index, title, data_rows, extendable)
+            last_row = (
+                r_index,
+                {
+                    f"c{start}": (names[position] if by_order else None)
+                    or _header_for(headers, start, span)
+                    or f"Kolumna {start + 1}"
+                    for position, (start, span, _) in enumerate(own)
+                },
+            )
+    if extendable and template is None:
+        template = last_row
+    return fields, FormTable(
+        t_index,
+        title,
+        data_rows,
+        extendable,
+        template_row=template[0] if template else None,
+        columns=template[1] if template else None,
+    )
 
 
 def read_structure(content: bytes) -> FormStructure:

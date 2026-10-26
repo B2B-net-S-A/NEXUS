@@ -333,6 +333,7 @@ async def _create(
             span=span,
             days_text=days_text,
             today=today,
+            request_id=request.id,
         )
         return "oof_request_created"
 

@@ -817,6 +817,7 @@ from app.models.recommendation_card import RecommendationCard  # noqa: F401
 # 0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
 from app.models.job_intake_form import JobIntakeForm  # noqa: F401
 from app.models.job_file import JobFile  # noqa: F401
+from app.models.candidate_client_form import CandidateClientForm  # noqa: F401
 
 # 0430: ogłoszenie rekrutacji do wklejenia na portale.
 from app.models.job_ad import JobAd  # noqa: F401

@@ -158,6 +158,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.debrief_from_text: ("F34", "gpt-6-luna"),
     # F35 — 23.10.2026: raport poniedziałkowy „Jakość podpowiedzi systemu”.
     AIFeatureKey.autofill_quality_report: ("F35", "claude-sonnet-5"),
+    # F36 — 26.10.2026: formularz CV klienta z CV i screeningu, jak F4.
+    AIFeatureKey.client_form_fill: ("F36", "claude-sonnet-5"),
 }
 
 

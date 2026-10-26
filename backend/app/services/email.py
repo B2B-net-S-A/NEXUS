@@ -413,37 +413,134 @@ def open_button_html(url: str, label: str = "Otwórz w Nexusie") -> str:
     )
 
 
-def render_notification_email(
-    *, recipient_name: str, title: str, message: str, deep_link_path: str
-) -> tuple[str, str, str]:
-    """Mail z jednego powiadomienia: (temat, tekst, HTML) z przyciskiem do ekranu.
+# Kolory maila z makiet 26.10.2026 (PPYRVzq7cKrskFgPZdYqrJ). Mail nie ma
+# tokenów aplikacji — klient poczty dostaje stałe kolory w stylach inline.
+_MAIL_PRIMARY = "#4f46e5"
+_MAIL_FG = "#1b1f2a"
+_MAIL_MUTED = "#5d6577"
+_MAIL_LINE = "#e4e7ee"
+_MAIL_SOFT = "#f6f7fb"
+_CHIP = ("#eceafd", "#3730a3")
+_CHIP_WAITING = ("#fdf0dc", "#8a4705")
+REQUIRED_FOOTER = "Ten mail przychodzi zawsze, bo ktoś czeka na Twój ruch."
+OPTIONAL_FOOTER = "Ten mail możesz wyłączyć sobie w Ustawienia → Moje konto."
 
-    Wspólny dla czatu (`chat_email_fallback`) i maili natychmiast
-    (`notification_email_outbox`).
+
+def _mail_button_html(label: str, url: str, style: str) -> str:
+    # Przycisk jako tabela `align=left`: Outlook na Windows ignoruje padding
+    # na <a>, a tabele wyrównane do lewej zawijają się całe na wąskim ekranie.
+    if style == "primary":
+        bg, fg, border = _MAIL_PRIMARY, "#ffffff", _MAIL_PRIMARY
+    elif style == "neg":
+        bg, fg, border = "#ffffff", "#3d4454", "#c9ccd6"
+    else:
+        bg, fg, border = "#ffffff", _MAIL_PRIMARY, _MAIL_PRIMARY
+    return (
+        '<table role="presentation" align="left" cellpadding="0" cellspacing="0" '
+        'style="margin:0 8px 8px 0"><tr>'
+        f'<td bgcolor="{bg}" style="border:1px solid {border};border-radius:7px">'
+        f'<a href="{html.escape(url, quote=True)}" style="display:inline-block;'
+        f"padding:10px 16px;font-weight:600;font-size:14px;color:{fg};"
+        f'white-space:nowrap;text-decoration:none">{html.escape(label)}</a>'
+        "</td></tr></table>"
+    )
+
+
+def render_card_email(card) -> tuple[str, str, str]:
+    """Mail z karty (`notification_mail_card.MailCard`): (temat, tekst, HTML).
+
+    Znaczek, tytuł, opis, 2–4 fakty sprawy, przyciski z gotową akcją i stopka
+    „przychodzi zawsze” dla rodzajów obowiązkowych (decyzja Artura 26.10.2026).
     """
-    link = absolute_link(deep_link_path)
-    subject = f"[Nexus] {title}"
-    text_body = (
-        f"Cześć {recipient_name},\n\n"
-        f"{title}\n\n"
-        f"{message}\n\n"
-        f"Otwórz w Nexusie: {link}\n\n"
-        "— Nexus ATS"
+    footer = REQUIRED_FOOTER if card.required else OPTIONAL_FOOTER
+    settings_link = absolute_link("/settings?item=my-notifications")
+    buttons = [(b.label, absolute_link(b.path), b.style) for b in card.buttons]
+
+    text_lines = [card.title, "", card.text]
+    if card.facts:
+        text_lines += ["", *(f"{k}: {v}" for k, v in card.facts)]
+    text_lines += ["", *(f"{label}: {url}" for label, url, _ in buttons)]
+    text_lines += ["", footer, f"NEXUS · Moje maile: {settings_link}"]
+    text_body = "\n".join(text_lines)
+
+    chip_bg, chip_fg = _CHIP_WAITING if card.waiting else _CHIP
+    facts_html = ""
+    if card.facts:
+        rows = "".join(
+            "<tr>"
+            f'<td style="padding:3px 16px 3px 0;color:{_MAIL_MUTED};white-space:nowrap;'
+            f'vertical-align:top">{html.escape(k)}</td>'
+            f'<td style="padding:3px 0;font-weight:500;color:{_MAIL_FG}">'
+            f"{html.escape(v)}</td></tr>"
+            for k, v in card.facts
+        )
+        facts_html = (
+            f'<tr><td style="padding:0 0 16px"><table role="presentation" width="100%" '
+            f'cellpadding="0" cellspacing="0" style="background:{_MAIL_SOFT};'
+            f'border:1px solid {_MAIL_LINE};border-radius:8px">'
+            f'<tr><td style="padding:12px 14px"><table role="presentation" '
+            f'cellpadding="0" cellspacing="0" style="font-size:14px">{rows}</table>'
+            "</td></tr></table></td></tr>"
+        )
+    buttons_html = "".join(
+        _mail_button_html(label, url, style) for label, url, style in buttons
     )
     html_body = (
-        f"<p>Cześć {html.escape(recipient_name)},</p>"
-        f"<p><strong>{html.escape(title)}</strong></p>"
-        f"<p>{html.escape(message)}</p>"
-        f"<p>{open_button_html(link)}</p>"
-        '<hr><p style="color:#888;font-size:12px">Nexus ATS</p>'
+        # Podgląd na liście maili: opis sprawy zamiast „NEXUS Czeka na Ciebie”.
+        '<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">'
+        f"{html.escape(card.text)}</div>"
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'style="background:#ffffff"><tr><td>'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'style="max-width:600px;font-family:Segoe UI,Arial,sans-serif;font-size:15px;'
+        f'line-height:1.5;color:{_MAIL_FG}">'
+        '<tr><td style="padding:0 0 16px"><table role="presentation" width="100%" '
+        'cellpadding="0" cellspacing="0"><tr>'
+        f'<td style="font-weight:700;letter-spacing:1px;font-size:13px;'
+        f'color:{_MAIL_PRIMARY}">NEXUS</td>'
+        f'<td align="right"><span style="display:inline-block;font-size:12px;'
+        f"font-weight:600;padding:3px 10px;border-radius:999px;background:{chip_bg};"
+        f'color:{chip_fg}">{html.escape(card.chip)}</span></td>'
+        "</tr></table></td></tr>"
+        f'<tr><td style="padding:0 0 8px;font-size:20px;font-weight:600;'
+        f'line-height:1.3">{html.escape(card.title)}</td></tr>'
+        f'<tr><td style="padding:0 0 16px">{html.escape(card.text)}</td></tr>'
+        f"{facts_html}"
+        f'<tr><td style="padding:0 0 8px">{buttons_html}</td></tr>'
+        f'<tr><td style="border-top:1px solid {_MAIL_LINE};padding:12px 0 0;'
+        f'font-size:12px;color:{_MAIL_MUTED}">{html.escape(footer)}<br>'
+        f'NEXUS · <a href="{html.escape(settings_link, quote=True)}" '
+        f'style="color:{_MAIL_MUTED}">Moje maile</a></td></tr>'
+        "</table></td></tr></table>"
     )
-    return subject, text_body, html_body
+    return card.subject, text_body, html_body
+
+
+def render_notification_email(
+    *, title: str, message: str, deep_link_path: str
+) -> tuple[str, str, str]:
+    """Mail z powiadomienia bez opisu w `notification_mail_card.SPECS` (czat).
+
+    Ten sam wygląd co maile z kolejki „od razu” — tytuł jako „co zrobić”
+    i jeden przycisk do ekranu.
+    """
+    from app.services.notification_mail_card import build_card
+
+    return render_card_email(
+        build_card(
+            notification_type="",
+            kind=None,
+            title=title,
+            message=message,
+            link=deep_link_path,
+            required=False,
+        )
+    )
 
 
 def send_chat_fallback_email(
     *,
     to_email: str,
-    recipient_name: str,
     notification_title: str,
     notification_message: str,
     deep_link_path: str,
@@ -455,7 +552,6 @@ def send_chat_fallback_email(
     send_mention_email — pokazuje tytuł + wiadomość bez quotation.
     """
     subject, text_body, html_body = render_notification_email(
-        recipient_name=recipient_name,
         title=notification_title,
         message=notification_message,
         deep_link_path=deep_link_path,

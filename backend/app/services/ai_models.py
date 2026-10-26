@@ -56,6 +56,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F33 | expense_document_read            | claude-sonnet-5 (z Haiku)|
 | F34 | debrief_from_text                | gpt-6-luna (z Sonnet 5)  |
 | F35 | autofill_quality_report          | claude-sonnet-5 (z Haiku)|
+| F36 | client_form_fill                 | claude-sonnet-5 (z Opus) |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -431,6 +432,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "„Nowi na 20”: 3–5 propozycji poprawek z liczb policzonych przez kod i opisów "
         "odrzuceń. Raz w tygodniu, krótko — Sonnet, bo to wnioskowanie z danych. "
         "Liczby w raporcie są kodu; bez modelu raport idzie z propozycjami z reguł.",
+    ),
+    AIFeatureKey.client_form_fill: ModelChoice(
+        default=SONNET_5,
+        env_vars=("CLIENT_FORM_FILL_MODEL",),
+        fallbacks=("claude-opus-4-8",),
+        rationale="F36 (26.10.2026, POZA badaniem 16.09). Formularz CV klienta (SWZ CEZ) "
+        "z CV, screeningu i notatek — ta sama robota co generator CV (F4), więc jego model "
+        "i fallback. Każda wartość z cytatem ze źródła; wartość bez cytatu odrzuca kod, "
+        "ocen 1–10 i numerów certyfikatów model nie zgaduje. Całość sprawdza rekruter.",
     ),
 }
 

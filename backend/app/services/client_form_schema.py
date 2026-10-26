@@ -60,3 +60,37 @@ DOWNGRADE_DDL = (
     "ALTER TABLE clients DROP COLUMN IF EXISTS cv_client_document",
     f"DELETE FROM app_settings WHERE key = '{SEED_MARKER}'",
 )
+
+
+# ── 0522: wypełniony formularz pary osoba × rekrutacja ────────────────────
+# Jeden wiersz na parę (nie na wiersz etapu — etap ma kilka wierszy historii).
+# ``fields`` = {id pola: {"value", "source", "quote"}}; plik DOCX powstaje
+# przy pobraniu z wzoru ``job_file_id`` — edycja rekrutera nie rozjedzie się
+# z zapisanym plikiem. ``template_sha256`` mówi, że DL podmienił wzór.
+FILL_TABLE_DDL = (
+    "CREATE TABLE IF NOT EXISTS candidate_client_forms ("
+    "id SERIAL PRIMARY KEY, "
+    "candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE, "
+    "job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, "
+    "job_file_id INTEGER NULL REFERENCES job_files(id) ON DELETE SET NULL, "
+    "template_sha256 VARCHAR(64) NULL, "
+    "fields JSONB NOT NULL DEFAULT '{}'::jsonb, "
+    "extra_rows JSONB NOT NULL DEFAULT '[]'::jsonb, "
+    "missing_count INTEGER NOT NULL DEFAULT 0, "
+    "model VARCHAR(80) NULL, "
+    "filled_at TIMESTAMPTZ NULL, "
+    "filled_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, "
+    "updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, "
+    "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), "
+    "updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), "
+    "CONSTRAINT uq_candidate_client_forms_pair UNIQUE (candidate_id, job_id))"
+)
+
+FILL_INDEX_DDL = (
+    "CREATE INDEX IF NOT EXISTS ix_candidate_client_forms_job "
+    "ON candidate_client_forms (job_id)",
+)
+
+FILL_DDL = (FILL_TABLE_DDL, *FILL_INDEX_DDL)
+
+FILL_DOWNGRADE_DDL = ("DROP TABLE IF EXISTS candidate_client_forms",)

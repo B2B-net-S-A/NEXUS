@@ -510,7 +510,10 @@ async def test_outbox_sends_once_with_kind_and_skips_old_and_unmapped(monkeypatc
             await outbox.dispatch(db)
             await outbox.dispatch(db)  # drugi przebieg nic nie dokłada
             mine = [s for s in sent if s[0] == user.email]
-            assert mine == [(user.email, f"[Nexus] {TITLE_QC_RETURNED} Jan Nowak")]
+            # Temat „co zrobić · czego dotyczy” (26.10.2026); część po „·”
+            # to kandydat i klient z bazy — w bazie testowej mogą ich nie mieć.
+            assert [to for to, _ in mine] == [user.email]
+            assert mine[0][1].startswith("[NEXUS] Popraw CV")
             stamped = (
                 await db.execute(
                     select(Notification.id, Notification.email_sent_at).where(
