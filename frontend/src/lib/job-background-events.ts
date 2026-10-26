@@ -88,6 +88,8 @@ const SKIP_REASON_PL: Record<string, string> = {
     "CV z tego samego pliku już wygenerowano w tej rekrutacji — nowego nie tworzono",
   // 09.10.2026: CV firmowe wybrane wcześniej (np. w screeningu z profilu).
   pair_cv_exists: "CV firmowe tej osoby już jest w tej rekrutacji — nowego nie generowano",
+  // 0521: klient bierze własny formularz CV zamiast CV firmowego.
+  client_form: "klient bierze swój formularz CV — CV firmowego nie generowano",
 };
 
 /** Polski powód pominięcia auto-CV; nieznany kod nie udaje znanego. */

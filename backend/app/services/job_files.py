@@ -305,8 +305,8 @@ async def client_document_of_job(db: AsyncSession, job_id: int) -> str:
     return value or COMPANY_CV
 
 
-def read_form_structure(row: JobFile) -> dict[str, Any]:
-    """Pola wzoru z pliku na dysku; odmowa = ``JobFileRefused`` 422 ze zdaniem."""
+def read_template(row: JobFile) -> bytes:
+    """Treść wzoru Word z dysku; odmowa = ``JobFileRefused`` ze zdaniem."""
     if not row.filename.lower().endswith(".docx"):
         raise JobFileRefused(422, client_form_structure.MSG_NOT_DOCX)
     try:
@@ -315,10 +315,32 @@ def read_form_structure(row: JobFile) -> dict[str, Any]:
         raise JobFileRefused(404, MSG_FORM_GONE) from exc
     if path.stat().st_size > MAX_FILE_BYTES:
         raise JobFileRefused(413, MSG_TOO_BIG)
+    return path.read_bytes()
+
+
+def read_form_structure(row: JobFile) -> dict[str, Any]:
+    """Pola wzoru z pliku na dysku; odmowa = ``JobFileRefused`` 422 ze zdaniem."""
+    content = read_template(row)
     try:
-        return client_form_structure.read_structure(path.read_bytes()).to_json()
+        return client_form_structure.read_structure(content).to_json()
     except client_form_structure.FormRejected as exc:
         raise JobFileRefused(422, str(exc)) from exc
+
+
+async def current_structure(db: AsyncSession, row: JobFile) -> dict[str, Any]:
+    """Struktura wzoru w bieżącej wersji — starszą czyta ponownie z pliku."""
+    structure = row.client_form_structure or {}
+    if structure.get("version") != client_form_structure.STRUCTURE_VERSION:
+        structure = read_form_structure(row)
+        row.client_form_structure = structure
+        await db.flush()
+    return structure
+
+
+async def client_form_of_job(db: AsyncSession, job_id: int) -> Optional[JobFile]:
+    return await db.scalar(
+        select(JobFile).where(JobFile.job_id == job_id, JobFile.client_form.is_(True))
+    )
 
 
 async def set_client_form(db: AsyncSession, row: JobFile, *, on: bool) -> None:

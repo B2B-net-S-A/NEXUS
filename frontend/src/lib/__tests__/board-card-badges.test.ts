@@ -835,3 +835,26 @@ describe("cardOwner — czyja karta (20.10.2026)", () => {
     }
   });
 });
+
+describe("0521: plakietka formularza CV klienta", () => {
+  it("mówi o formularzu zamiast CV firmowego i tylko na „Zweryfikowanym” i „QC CV”", async () => {
+    const { clientFormBadge, cvStateBadge } = await import("@/lib/board-card-badges");
+    const base = { id: 1, candidate_id: 2 } as unknown as Parameters<typeof clientFormBadge>[0];
+    const at = (client_form: unknown, column: Parameters<typeof clientFormBadge>[1] = "verified") =>
+      clientFormBadge({ ...base, client_form } as typeof base, column);
+    expect(at({ template: false, missing: null })?.label).toBe("Formularz: brak wzoru");
+    expect(at({ template: true, missing: null })?.label).toBe("Formularz do wypełnienia");
+    expect(at({ template: true, missing: 7 })?.label).toBe("Formularz: 7 do uzupełnienia");
+    expect(at({ template: true, missing: 7 })?.tone).toBe("wait");
+    expect(at({ template: true, missing: 0 }, "cv_qc")?.label).toBe("Formularz gotowy");
+    expect(at({ template: true, missing: 0 }, "cv_sent")).toBeNull();
+    expect(at(null)).toBeNull();
+    // Formularz wygrywa z CV firmowym w tej samej plakietce.
+    expect(
+      cvStateBadge(
+        { ...base, client_form: { template: true, missing: 2 }, company_cv: true } as typeof base,
+        "verified",
+      )?.label,
+    ).toBe("Formularz: 2 do uzupełnienia");
+  });
+});

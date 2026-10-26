@@ -180,6 +180,7 @@ import { useCapability } from "@/hooks/useCapability";
 import { CvFileDropTarget, StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
 import { DockCvFreshness, profileReadPending } from "@/components/v2/jobs/DockCvFreshness";
 import { CompanyCvStaleNotice } from "@/components/v2/recruitment/CompanyCvStaleNotice";
+import { ClientFormCard } from "@/components/v2/recruitment/client-form/ClientFormCard";
 import {
   ClientQuestionsNoteHint,
   DockClientInterviewQuestions,
@@ -893,6 +894,8 @@ export function PipelineCandidateDock({
   const [openOriginal, setOpenOriginal] = useState(false);
   const [openBranded, setOpenBranded] = useState(false);
   const [openGenerator, setOpenGenerator] = useState(false);
+  // 0521: okno braków formularza CV klienta („Uzupełnij formularz” z wymagań).
+  const [clientFormOpen, setClientFormOpen] = useState(false);
   const [openShare, setOpenShare] = useState(false);
   const [openEmail, setOpenEmail] = useState(false);
   const [openBlacklist, setOpenBlacklist] = useState(false);
@@ -1264,6 +1267,7 @@ export function PipelineCandidateDock({
       case "open_qc":
       case "generate_cv":
       case "open_card":
+      case "open_client_form":
         return true;
       case "set_candidate_rate":
         return verifiedTarget != null;
@@ -1292,6 +1296,10 @@ export function PipelineCandidateDock({
         return;
       case "generate_cv":
         setOpenGenerator(true);
+        return;
+      case "open_client_form":
+        setOpenSections((prev) => new Set(prev).add("cv"));
+        setClientFormOpen(true);
         return;
       case "set_candidate_rate":
         // Stawkę kandydata zapisuje ruch na „Zweryfikowany” (okno stawki).
@@ -2254,6 +2262,18 @@ export function PipelineCandidateDock({
           onToggle={() => toggleSection("cv")}
         >
           <div className="space-y-3">
+            {/* 0521: klient bierze swój formularz CV zamiast CV firmowego —
+                formularz pierwszy, CV firmowe tylko na żądanie (decyzja D2). */}
+            {item.client_form ? (
+              <ClientFormCard
+                stageId={item.id}
+                candidateName={fullName}
+                readOnly={readOnly}
+                openDialog={clientFormOpen}
+                onOpenDialogChange={setClientFormOpen}
+                onGenerateCompanyCv={() => setOpenGenerator(true)}
+              />
+            ) : null}
             {/* Dwa dokumenty, dwa zdania, a pod każdym jego akcje (D1, 14.10.2026):
                 CV firmowe pary i oryginał — ze zgłoszenia albo z profilu. Brak
                 kopii w zgłoszeniu to nie „brak CV”, jeśli profil je ma. */}

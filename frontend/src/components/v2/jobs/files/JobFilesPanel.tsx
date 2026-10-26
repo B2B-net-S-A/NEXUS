@@ -12,6 +12,11 @@
  *
  * Awaria odczytu to komunikat z „Ponów”, nigdy pusta lista: pustka czyta się
  * jak „nikt niczego nie dodał”.
+ *
+ * 0521 (26.10.2026): u klienta, który bierze własny formularz CV zamiast CV
+ * firmowego (`client_document = client_form`), plik Word może być wzorem
+ * formularza — NEXUS wypełnia go za każdą osobę. Serwer sam oznacza plik
+ * z „formularz” w nazwie; inny DL oznacza tu ręcznie.
  */
 
 import { useRef, useState } from "react";
@@ -36,6 +41,7 @@ import {
   jobFilePreviewable,
   jobFileRefusal,
   jobFilesKey,
+  markJobFileClientForm,
   uploadJobFile,
   type JobFileItem,
   type JobFilesOwner,
@@ -110,6 +116,8 @@ export function JobFilesPanel({
   const canEdit = editable && !disabled && (owner?.kind === "form" || owner == null
     ? true
     : query.data?.can_edit === true);
+  // 0521: klient bierze formularz CV — wzór (DOCX) oznacza się w tej liście.
+  const takesForm = owner?.kind === "job" && query.data?.client_document === "client_form";
   const limit = query.data?.max_files ?? JOB_FILES_MAX;
   const full = files.length >= limit;
 
@@ -175,6 +183,22 @@ export function JobFilesPanel({
     }
   };
 
+  const markForm = async (file: JobFileItem, clientForm: boolean) => {
+    if (owner?.kind !== "job") return;
+    setBusyId(file.id);
+    try {
+      await markJobFileClientForm(owner.id, file.id, clientForm);
+      setProblems([]);
+      await refresh(owner);
+    } catch (error) {
+      setProblems([
+        `„${file.filename}”: ${apiErrorMessage(error, "nie udało się zmienić wzoru formularza.")}`,
+      ]);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const download = async (file: JobFileItem) => {
     if (!owner) return;
     setBusyId(file.id);
@@ -214,7 +238,8 @@ export function JobFilesPanel({
       ) : (
         <ul className="flex flex-col divide-y divide-border" aria-label="Pliki rekrutacji">
           {files.map((file) => (
-            <li key={file.id} className="flex items-center gap-3 py-2">
+            <li key={file.id} className="flex flex-col py-2">
+              <div className="flex items-center gap-3">
               <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-foreground" title={file.filename}>
@@ -224,6 +249,14 @@ export function JobFilesPanel({
                   {file.source === "request" ? (
                     <span className="mr-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
                       Request klienta
+                    </span>
+                  ) : null}
+                  {takesForm && file.client_form ? (
+                    <span
+                      className="mr-1.5 rounded-full bg-success-muted px-1.5 py-0.5 font-medium text-success-muted-foreground"
+                      data-testid="job-file-client-form-badge"
+                    >
+                      Wzór formularza
                     </span>
                   ) : null}
                   {formatFileSize(file.size_bytes)} · dodano {formatIsoDatePl(file.created_at)}
@@ -265,6 +298,32 @@ export function JobFilesPanel({
                 >
                   <Trash2 className="h-4 w-4" aria-hidden />
                 </Button>
+              ) : null}
+              </div>
+              {takesForm && file.client_form ? (
+                <div className="ml-7 mt-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">NEXUS wypełni ten formularz za każdą osobę</p>
+                  {file.client_form_summary ? <p>{file.client_form_summary}</p> : null}
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      className="mt-1 font-medium text-muted-foreground underline"
+                      disabled={busyId === file.id}
+                      onClick={() => void markForm(file, false)}
+                    >
+                      To nie jest wzór
+                    </button>
+                  ) : null}
+                </div>
+              ) : takesForm && canEdit && /\.docx$/i.test(file.filename) ? (
+                <button
+                  type="button"
+                  className="ml-7 mt-1 self-start text-xs font-medium text-primary underline"
+                  disabled={busyId === file.id}
+                  onClick={() => void markForm(file, true)}
+                >
+                  Ustaw jako wzór formularza CV klienta
+                </button>
               ) : null}
             </li>
           ))}

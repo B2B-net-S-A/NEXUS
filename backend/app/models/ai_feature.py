@@ -177,6 +177,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0518 (23.10.2026): raport poniedziałkowy „Jakość podpowiedzi systemu” —
     # propozycje poprawek wyszukiwania z policzonych przez kod powodów.
     autofill_quality_report = "autofill_quality_report"
+    # 0522 (26.10.2026): formularz CV klienta (np. ze SWZ Centrum e-Zdrowia)
+    # wypełniany z CV, screeningu i notatek — każda wartość z cytatem ze źródła.
+    client_form_fill = "client_form_fill"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -217,6 +220,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.expense_document_read: "Zgody — odczyt kwoty i sprzedawcy z faktury albo paragonu",
     AIFeatureKey.debrief_from_text: "Po rozmowie u klienta — pytania i oferta z notatki z telefonu",
     AIFeatureKey.autofill_quality_report: "Jakość podpowiedzi systemu — propozycje poprawek w raporcie poniedziałkowym",
+    AIFeatureKey.client_form_fill: "Formularz CV klienta — wypełnienie z CV, screeningu i notatek",
 }
 
 
@@ -384,6 +388,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Liczby z odrzuceń osób od systemu (powody, kosze, rekrutacje)",
         "i do 30 opisów odrzuceń wpisanych przez rekruterów",
         "(bez nazwisk kandydatów i nazw klientów)",
+    ],
+    AIFeatureKey.client_form_fill: [
+        "Pola formularza CV klienta (etykiety ze wzoru w Plikach rekrutacji)",
+        "Tekst CV kandydata, odpowiedzi ze screeningu i notatki tej rekrutacji",
+        "(bez stawek, dostępności i danych kontaktowych)",
     ],
 }
 

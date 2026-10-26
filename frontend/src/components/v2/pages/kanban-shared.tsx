@@ -146,6 +146,10 @@ export interface KanbanItem {
  // Para ma CV firmowe (szkic albo zatwierdzone) — `knownForwardGap` z
  // „Zweryfikowany” na „QC CV”. Brak pola / `null` = nie wiadomo (bez blokady).
  company_cv?: boolean | null;
+ // 0521: klient bierze formularz CV zamiast CV firmowego — `template` = jest
+ // wzór w Plikach, `missing` = puste pola (`null` = jeszcze nie wypełniony).
+ // Brak pola / `null` = klient bierze CV firmowe.
+ client_form?: { template: boolean; missing: number | null } | null;
  // Stawka z profilu kandydata (PLN/h) — podpowiedź w oknie „Zweryfikowany".
  candidate_expected_rate_hourly?: string | number | null;
  // „Stawka od” (0414): najniższa stawka z 18 miesięcy — podpowiedź, gdy karta

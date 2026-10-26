@@ -25,6 +25,8 @@ export type CvRuleSectionKey =
   | "languages"
   | "skills";
 export type CvRuleDateFormat = "MM.YYYY" | "MM/YYYY" | "YYYY-MM" | "YYYY";
+/** 0521: co idzie do klienta — CV firmowe albo jego formularz z Plików rekrutacji. */
+export type CvClientDocument = "company_cv" | "client_form";
 
 export const CV_RULE_SECTIONS: ReadonlyArray<{
   value: CvRuleSectionKey;
@@ -88,6 +90,7 @@ export interface ClientCvRule {
   version: number;
   cv_content_mode_cap: CvContentMode | null;
   cv_interactive_enabled: boolean;
+  cv_client_document?: CvClientDocument;
   seed_key: string | null;
   confirmed_at: string | null;
   confirmed_by_name: string | null;
@@ -172,6 +175,7 @@ export interface ClientCvRulePayload {
   glossary: GlossaryEntry[];
   cv_content_mode_cap: CvContentMode | null;
   cv_interactive_enabled: boolean;
+  cv_client_document: CvClientDocument;
   confirm: boolean;
 }
 
@@ -313,6 +317,7 @@ export interface CvRuleForm {
   glossary: GlossaryEntry[];
   cv_content_mode_cap: "" | CvContentMode;
   cv_interactive_enabled: boolean;
+  cv_client_document: CvClientDocument;
 }
 
 export function ruleToForm(published: ClientCvRule): CvRuleForm {
@@ -350,6 +355,7 @@ export function ruleToForm(published: ClientCvRule): CvRuleForm {
     glossary: (rule.glossary ?? []).map((g) => ({ from: g.from, to: g.to })),
     cv_content_mode_cap: rule.cv_content_mode_cap ?? "",
     cv_interactive_enabled: rule.cv_interactive_enabled,
+    cv_client_document: rule.cv_client_document ?? "company_cv",
   };
 }
 
@@ -393,6 +399,7 @@ export function formToPayload(form: CvRuleForm, confirm: boolean): ClientCvRuleP
       .filter((g) => g.from && g.to),
     cv_content_mode_cap: form.cv_content_mode_cap || null,
     cv_interactive_enabled: form.cv_interactive_enabled,
+    cv_client_document: form.cv_client_document,
     confirm,
   };
 }
@@ -471,5 +478,6 @@ export const RULE_FIELD_LABELS: Record<string, string> = {
   glossary: "Słownik",
   cv_content_mode_cap: "Sufit trybu treści",
   cv_interactive_enabled: "Interaktywne CV na linku",
+  cv_client_document: "Dokument do klienta",
   source_client_id: "Skopiowano z klienta",
 };

@@ -30,7 +30,9 @@ export type MoveRequirementActionKind =
   // Odpowiedź narusza „Odpada, gdy…” z Championa — okno odrzucenia z notatką.
   | "reject"
   // 0506: umowa przedwstępna niepodpisana — panel osoby, zakładka „Umowa”.
-  | "open_pre_contract";
+  | "open_pre_contract"
+  // 0521: formularz CV klienta do uzupełnienia — panel osoby, sekcja CV.
+  | "open_client_form";
 
 export interface MoveRequirementAction {
   kind: MoveRequirementActionKind | null;
