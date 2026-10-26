@@ -146,7 +146,26 @@ def test_template_file_carries_no_author_or_sharepoint_parts():
 def test_generated_file_carries_no_author_metadata():
     with zipfile.ZipFile(io.BytesIO(mandate.render_docx(_payload()))) as zf:
         core = zf.read("docProps/core.xml").decode("utf-8")
+        app = zf.read("docProps/app.xml").decode("utf-8")
     assert "B2B.net S.A." not in re.sub(r"<dc:title>.*?</dc:title>", "", core)
+    assert not _APP_NAMES.search(app)
+
+
+_APP_NAMES = re.compile(r"<((?:\w+:)?(?:Company|Manager))>[^<]+</\1>")
+
+
+def test_no_template_carries_a_company_or_manager_name():
+    """Wzory działu miały w ``app.xml`` nazwę kancelarii (także jako
+    ``<ap:Company>``) — repo jest publiczne, a plik idzie do Partnera."""
+    root = mandate.DOCX_TEMPLATE.parents[1]
+    paths = sorted([*root.glob("contract/*.docx"), *root.glob("documents/*.docx")])
+    assert paths
+    for path in paths:
+        with zipfile.ZipFile(path) as zf:
+            if "docProps/app.xml" not in zf.namelist():
+                continue
+            app = zf.read("docProps/app.xml").decode("utf-8")
+        assert not _APP_NAMES.search(app), path.name
 
 
 # ── Walidacja i zapis ────────────────────────────────────────────────────────
