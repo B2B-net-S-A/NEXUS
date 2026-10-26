@@ -175,6 +175,13 @@ SPECS: dict[str, _Spec] = {
     ),
     "hr_timesheet_submitted": _Spec("Zatwierdź raport godzin", label="Otwórz raport"),
     "hr_timesheet_reminder": _Spec("Wyślij raport godzin", label="Otwórz mój miesiąc"),
+    # Nowe maile z PR 3 planu (26.10.2026); typy dochodzą tamtym PR-em.
+    "client_job_opened": _Spec(
+        "Nowa rekrutacja u Twojego klienta", label="Otwórz rekrutację"
+    ),
+    "hr_bonus_assigned": _Spec(
+        "Masz nową premię", chip="Premia", label="Zobacz premię"
+    ),
 }
 
 CV_RETURNED = _Spec("Popraw CV", label="Popraw CV")
