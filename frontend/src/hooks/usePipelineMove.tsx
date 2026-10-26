@@ -63,6 +63,7 @@ import {
 import { placeStage } from "@/lib/board-stages";
 import {
   useRejectionProfileWorkMode,
+  useRejectionProfileRate,
   useRejectionWorkModeJob,
 } from "@/hooks/useRejectionWorkModeContext";
 import type { RejectFollowUp } from "@/lib/reject-follow-up";
@@ -1666,6 +1667,12 @@ export function usePipelineMove({
       : null,
     rejectionOpen
   );
+  const rejectionProfileRate = useRejectionProfileRate(
+    pendingRejection?.entries.length === 1
+      ? pendingRejection.entries[0].item.candidate_id
+      : null,
+    rejectionOpen
+  );
   // Odrzucenie championa (D7): co stanie się z rekrutacją — z detalu
   // w cache'u (to samo zapytanie trzyma `useRejectionWorkModeJob`). Tylko
   // przy jednej osobie; bez detalu okno nic nie zapowiada.
@@ -1748,6 +1755,7 @@ export function usePipelineMove({
         championNotice={rejectionChampionNotice}
         workModeJob={rejectionWorkModeJob}
         profileWorkMode={rejectionProfileWorkMode}
+        profileRate={rejectionProfileRate}
         autofill={rejectionAutofill}
         emailPreview={
           pendingRejection

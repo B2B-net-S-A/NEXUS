@@ -16,7 +16,9 @@ import type {
   RejectionWorkModeJob,
   RejectionWorkModeProfile,
 } from "@/components/v2/modals/RejectionWorkModeField";
+import type { RejectionRateProfile } from "@/components/v2/modals/RejectionRateField";
 import api, { candidatesApi } from "@/lib/api";
+import { toAmount } from "@/lib/candidate-rate";
 import { profileWorkMode } from "@/lib/work-mode";
 
 interface JobWorkModeFields {
@@ -63,4 +65,23 @@ export function useRejectionProfileWorkMode(
   });
   if (!query.data) return undefined;
   return profileWorkMode(query.data.preferences, query.data.max_onsite_days_per_week);
+}
+
+/** „Stawka od” jednej osoby do pytania „Ile teraz chce?” (26.10.2026) — ten
+ *  sam wpis cache'u co tryb pracy wyżej. */
+export function useRejectionProfileRate(
+  candidateId: number | null | undefined,
+  enabled = true,
+): RejectionRateProfile | undefined {
+  const query = useQuery<{ rate_from_hourly?: string | number | null; rate_from_at?: string | null }>({
+    queryKey: candidateQueryKeys.detail(candidateId ?? 0),
+    queryFn: () => candidatesApi.get(candidateId as number).then((r) => r.data),
+    enabled: enabled && candidateId != null,
+    staleTime: 60_000,
+  });
+  if (!query.data) return undefined;
+  return {
+    rateFromHourly: toAmount(query.data.rate_from_hourly),
+    rateFromAt: query.data.rate_from_at ?? null,
+  };
 }
