@@ -386,31 +386,9 @@ export function BoardTasksPanel({
         </h3>
       ) : null}
       <div className="grid gap-4 lg:grid-cols-3">
-        <AllocationProposalsSection
-          rows={proposals}
-          leaveKnown={data.allocation_leave_known !== false}
-        />
-        <NewJobLeadsSection rows={leads} />
-        {showLoad ? <TeamLoadSection /> : null}
-        {movePrompt}
-        <PendingJobsSection
-          pending={data.pending_jobs}
-          forms={data.unfinished_forms}
-          collapsed={collapsePending}
-        />
-        <RequirementFixesSection rows={fixes} collapsed={collapsePending} />
-        {fixesFailed ? <RequirementFixesFailed /> : null}
-        <BoardFlowSections
-          flow={data.flow}
-          finance={data.finance}
-          expanded={expanded}
-          onToggle={toggle}
-          shown={shown}
-        />
-        <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
-        <AgreementTasksSection tasks={data.agreements} />
-        <RateChangesSection rows={data.rate_changes} />
-        {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
+        {/* Kolejka Cpro pierwsza (decyzja Artura 26.10.2026): to codzienna
+            praca osoby od Cpro, a pod Finansami i follow-upami trzeba było
+            do niej przewijać. Widzi ją tylko osoba od Cpro. */}
         {data.cpro_to_send.length > 0 && (
           <Section
             title="Do wrzucenia do Cpro"
@@ -445,7 +423,31 @@ export function BoardTasksPanel({
             </li>
           </Section>
         )}
-
+        <AllocationProposalsSection
+          rows={proposals}
+          leaveKnown={data.allocation_leave_known !== false}
+        />
+        <NewJobLeadsSection rows={leads} />
+        {showLoad ? <TeamLoadSection /> : null}
+        {movePrompt}
+        <PendingJobsSection
+          pending={data.pending_jobs}
+          forms={data.unfinished_forms}
+          collapsed={collapsePending}
+        />
+        <RequirementFixesSection rows={fixes} collapsed={collapsePending} />
+        {fixesFailed ? <RequirementFixesFailed /> : null}
+        <BoardFlowSections
+          flow={data.flow}
+          finance={data.finance}
+          expanded={expanded}
+          onToggle={toggle}
+          shown={shown}
+        />
+        <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
+        <AgreementTasksSection tasks={data.agreements} />
+        <RateChangesSection rows={data.rate_changes} />
+        {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
         <PrepAttentionSection rows={preps} />
 
       </div>

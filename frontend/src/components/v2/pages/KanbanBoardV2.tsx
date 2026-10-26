@@ -2011,6 +2011,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  for (const f of boardFold.columns) if (f.key) m.set(colId(f.host), f.key);
  return m;
  }, [boardFold]);
+ // Nordea: kolumna „Do Cpro” (kolejka osoby od Cpro) — ten sam klucz
+ // `cv_qc` co „QC CV”, ale bez przeglądu DL i bez numeru kroku.
+ const cproQueueColIds = useMemo(
+ () => new Set(boardFold.columns.filter((f) => f.cproQueue).map((f) => colId(f.host))),
+ [boardFold]
+ );
  const boardLabelByColId = useMemo(() => {
  const m = new Map<string, string>();
  for (const f of boardFold.columns) m.set(colId(f.host), f.label);
@@ -3247,13 +3253,26 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // przeglądu — etap Cpro. Karta już w kolejce czeka na osobę od Cpro.
  const openDlReviewIfSending = useCallback(
  (item: KanbanItem, dst: KanbanColumn): boolean => {
+ const from = columnByItemId.get(item.id);
+ // Kolumna „Do Cpro” (etap kolejki), nie „Wysłane do Cpro” — obie mają
+ // „Cpro” w nazwie.
+ const toCpro = cproStageCol != null && colId(dst) === colId(cproStageCol);
+ // Nordea: DL tej rekrutacji odkłada kartę na „QC CV” — przegląd czekałby
+ // na niego samego (dzwonek do siebie resolver odsiewa), a osoba od Cpro nic
+ // by nie dostała (26.10.2026). Akceptacja od razu.
+ const qcHost = boardFold.columns.find((f) => f.key === "cv_qc" && !f.cproQueue)?.host;
+ const ownQcDrop =
+ cproEnabled && viewerOwnsDlReview && qcHost != null && colId(dst) === colId(qcHost);
  const sendTarget = cproEnabled
- ? dst.stage === "cv_sent" || isCproStageName(dst.name)
+ ? dst.stage === "cv_sent" || toCpro || ownQcDrop
  : dst.stage === "cv_sent";
+ const fromOk =
+ from === "cv_qc" ||
+ (cproEnabled && (toCpro || ownQcDrop) && (from === "new" || from === "screening" || from === "verified"));
  if (
  !sendTarget ||
  !canReviewAsDl ||
- columnByItemId.get(item.id) !== "cv_qc" ||
+ !fromOk ||
  boardFold.badgeByItemId.get(item.id) === "cpro" ||
  item.qc?.status === "failed"
  ) {
@@ -3309,7 +3328,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  .catch(() => undefined);
  return true;
  },
- [cproEnabled, cproStageCol, canReviewAsDl, columnByItemId, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold]
+ [cproEnabled, cproStageCol, canReviewAsDl, columnByItemId, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold, viewerOwnsDlReview]
  );
  useEffect(() => {
  openDlReviewRef.current = openDlReviewIfSending;
@@ -4284,7 +4303,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  group={groupByColId.get(entry.key)}
  slaDays={slaDays}
  badgeByItemId={boardFold.badgeByItemId}
- step={boardColumnStep(boardKeyByColId.get(entry.key))}
+ step={cproQueueColIds.has(entry.key) ? null : boardColumnStep(boardKeyByColId.get(entry.key))}
  totalCount={addedBy.kind === "all" ? undefined : totalCountByColId.get(entry.key)}
  filterEmpty={
  onAddedByChange && addedBy.kind !== "all" && (totalCountByColId.get(entry.key) ?? 0) > 0
@@ -4295,7 +4314,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  : null
  }
 headerAction={
- boardKeyByColId.get(entry.key) === "cv_qc" && canReviewAsDl && (totalCountByColId.get(entry.key) ?? entry.col.count) >= 2 && !readOnly ? (
+ boardKeyByColId.get(entry.key) === "cv_qc" && !cproQueueColIds.has(entry.key) && canReviewAsDl && (totalCountByColId.get(entry.key) ?? entry.col.count) >= 2 && !readOnly ? (
  <Button
  type="button"
  size="sm"
@@ -4315,7 +4334,7 @@ headerAction={
  // u Delivery Leada tej rekrutacji i od dwóch gotowych osób (jedną
  // otwiera przycisk na karcie). Nic nie dochodzi nad tablicą.
  purposeAction={
- boardKeyByColId.get(entry.key) === "cv_qc" && viewerOwnsDlReview && canReviewAsDl && !readOnly && dlReadyItems.length >= 2 ? (
+ boardKeyByColId.get(entry.key) === "cv_qc" && !cproQueueColIds.has(entry.key) && viewerOwnsDlReview && canReviewAsDl && !readOnly && dlReadyItems.length >= 2 ? (
  <button
  type="button"
  onClick={startReviewSequence}
@@ -4329,7 +4348,7 @@ headerAction={
  headerExtra={contractCountsByColId.has(entry.key) ? (
  <ContractStepChips counts={contractCountsByColId.get(entry.key)!} />
  ) : null}
- purpose={boardColumnPurpose(boardKeyByColId.get(entry.key), {
+ purpose={cproQueueColIds.has(entry.key) ? "Wrzuca osoba od Cpro" : boardColumnPurpose(boardKeyByColId.get(entry.key), {
  cproEnabled,
  hired: totalCountByColId.get(entry.key) ?? entry.col.count,
  headcount: workbenchContext?.headcount ?? null,

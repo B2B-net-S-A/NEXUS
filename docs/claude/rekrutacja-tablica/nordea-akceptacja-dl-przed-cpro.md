@@ -69,3 +69,26 @@ Makiety i decyzje D1–D6: https://claude.ai/artifact/Si7j1pcC3cXxUKYMNVGWa1.
 - Harnessy: `/preview/dl-review?client=cpro`, `/preview/cpro-queue`
   (wiersz zaakceptowany i „Bez akceptacji DL”), `/preview/dl-send` (wiersze
   z plakietką „do Cpro”).
+- **Kolejka Cpro to własna kolumna „Do Cpro” (26.10.2026, decyzje Artura D1–D3).**
+  Zgłoszenie osoby od Cpro: DL Nordei położył kartę z „Nowi” na „QC CV” we
+  własnej rekrutacji (od 22.10 przesuwa bez blokad pól). Przegląd czekał na
+  niego samego, dzwonek „CV do przeglądu” do siebie resolver odsiał, a osoba
+  od Cpro nie dostała nic. Źródło: etap „Wysłać do Cpro” wpadał do kolumny
+  „QC CV” jako znacznik, więc „QC CV” znaczyło u Nordei i „czeka na DL-a”,
+  i „czeka na osobę od Cpro”. Makiety: https://claude.ai/artifact/GhCnn3mBFRhQLBLiHbHXJs.
+  - **D1.** `foldBoardColumns(…, { cproEnabled })` daje etapowi Cpro własną
+    kolumnę „Do Cpro” (`CPRO_QUEUE_COLUMN_LABEL`, `cproQueue: true`, klucz
+    dalej `cv_qc`, bez numeru kroku) zaraz po „QC CV”, z podpisem „Wrzuca
+    osoba od Cpro”. Poza Nordeą etap Cpro zostaje znacznikiem w „QC CV”.
+    Upuszczenie na „Do Cpro” przez osobę z prawem wysyłki z „Nowi”,
+    „Screeningu”, „Zweryfikowanego” albo „QC CV” otwiera przegląd z celem
+    Cpro i stawką. Cel rozpoznaje się po etapie (`cproStageCol`), nie po
+    nazwie, bo „Wysłane do Cpro” też ma „Cpro” w nazwie.
+  - **D2.** Delivery Lead tej rekrutacji (`viewerOwnsDlReview`), który kładzie
+    kartę na „QC CV” u Nordei, od razu dostaje przegląd z akceptacją do Cpro,
+    a nie zwykły ruch. DL z cudzej rekrutacji przesuwa na „QC CV” jak dotąd,
+    czyli przekazuje kartę do przeglądu DL-a rekrutacji.
+  - **D3.** U osoby od Cpro „Do wrzucenia do Cpro” stoi pierwsze w „Czeka na
+    Ciebie”, przed Finansami i follow-upami (`BoardTasksPanel`).
+  - Serwer bez zmian: bramka `requires_dl_client_rate`, dzwonek osoby od Cpro
+    po akceptacji i kolumny w liczeniu lejka (`board_column_for` → `cv_qc`).
