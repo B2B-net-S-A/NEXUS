@@ -572,12 +572,17 @@ async def company_sign(
         actor_id=current_user.id,
         signer_ids=current.company_signer_ids,
     )
-    actor_name = current_user.name
+    # Wgrywa osoba wskazana przy wysyłce, a podpisać za firmę może każdy
+    # reprezentant z listy (Artur 26.10.2026: Olaf wgrywa podpis Artura).
+    names = await _names(db, list(current.company_signer_ids))
+    representative_names = [
+        names[uid] for uid in current.company_signer_ids if names.get(uid)
+    ] or [current_user.name]
     data = await _upload_bytes(file)
     updated = await service.company_submit(
         db,
         request=request,
-        actor_name=actor_name,
+        representative_names=representative_names,
         data=data,
         validator=_validator(),
         now=_now(),

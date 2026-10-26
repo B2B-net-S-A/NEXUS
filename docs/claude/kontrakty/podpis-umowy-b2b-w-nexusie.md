@@ -24,9 +24,12 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   (`verdict.builds_on`) — podpis PAdES dopisuje się na końcu pliku.
 - **Kolejność stała: kontraktor → reprezentant B2B Network.** Kontraktor
   podpisuje z linku (`/sign/b2b/{token}`, API `/api/public/b2b-sign/{token}`,
-  token w bazie tylko jako SHA-256), bez konta. Za firmę podpisuje osoba
-  wskazana przy wysyłce, z listy `company_signer_ids` w ustawieniach (imienny
-  reprezentant — pieczęć firmy nie zastępuje podpisu osoby).
+  token w bazie tylko jako SHA-256), bez konta. Plik za firmę wgrywa osoba
+  wskazana przy wysyłce (z listy `company_signer_ids`), a w pliku wystarczy
+  podpis kwalifikowany JEDNEJ z osób z tej listy (`judge(any_of_signers=…)`;
+  decyzja Artura 26.10.2026: Olaf wgrywa plik podpisany podpisem Artura —
+  Artur musi być na liście). Imienny reprezentant — pieczęć firmy nie
+  zastępuje podpisu osoby; podpis kontraktora się nie liczy za firmę.
 - **Kontrakt nie powstaje przy wysyłce** (reguła „jedna droga do kontraktu”,
   17.09.2026). Wniosek `completed` uruchamia tę samą automatykę co „Oznacz jako
   podpisaną” (PR 5).
