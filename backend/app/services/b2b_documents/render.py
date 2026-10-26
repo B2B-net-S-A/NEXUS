@@ -89,7 +89,12 @@ def _html_env() -> SandboxedEnvironment:
 
 
 def render_docx(key: str, context: dict) -> bytes:
-    tpl = DocxTemplate(str(docx_path(key)))
+    return render_docx_file(docx_path(key), context)
+
+
+def render_docx_file(path: Path, context: dict) -> bytes:
+    """Ten sam render dla szablonu spoza katalogu dokumentów (umowa zlecenia)."""
+    tpl = DocxTemplate(str(path))
     tpl.render(context, jinja_env=_docx_env())
     # Plik idzie do Partnera: bez autora i kancelarii z szablonu.
     clear_author_metadata(tpl.docx)
@@ -99,5 +104,9 @@ def render_docx(key: str, context: dict) -> bytes:
 
 
 def render_html(key: str, context: dict) -> str:
-    source = html_path(key).read_text(encoding="utf-8")
+    return render_html_file(html_path(key), context)
+
+
+def render_html_file(path: Path, context: dict) -> str:
+    source = path.read_text(encoding="utf-8")
     return _html_env().from_string(source).render(**context)

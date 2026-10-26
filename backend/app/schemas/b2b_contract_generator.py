@@ -376,6 +376,65 @@ class B2BRenderRequest(BaseModel):
         return self
 
 
+class B2BMandateRenderRequest(BaseModel):
+    """Umowa zlecenia z generatora (26.10.2026) — formularz bez firmy Partnera.
+
+    ``home_address``, ``id_document`` i ``pesel`` trafiają WYŁĄCZNIE do pliku:
+    serwer nie zapisuje ich w ``render_payload`` (``mandate.stored_payload``).
+    Puste = w pliku zostają kropki do wpisania ręcznie."""
+
+    candidate_id: Optional[int] = None
+    job_id: Optional[int] = None
+    client_name: Optional[str] = Field(None, max_length=255)
+    signing_date: date
+    period_from: date
+    period_to: date
+    gender: Literal["m", "f"] = "m"
+    partner_name: str = Field(min_length=1, max_length=255)
+    partner_instrumental: Optional[str] = Field(None, max_length=255)
+    partner_email: Optional[str] = Field(None, max_length=255)
+    partner_phone: Optional[str] = Field(None, max_length=64)
+    home_address: Optional[str] = Field(None, max_length=400)
+    id_document: Optional[str] = Field(None, max_length=32)
+    pesel: Optional[str] = Field(None, max_length=11)
+    tasks: list[str] = Field(min_length=1, max_length=10)
+    gross_hourly_rate: float = Field(gt=0, le=9999.99)
+    with_dpa: bool = True
+    dpa_purpose: Optional[str] = Field(None, max_length=2000)
+
+    @field_validator("partner_name")
+    @classmethod
+    def _name_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Wpisz imię i nazwisko Zleceniobiorcy.")
+        return v.strip()
+
+    @field_validator("tasks")
+    @classmethod
+    def _tasks_filled(cls, v: list[str]) -> list[str]:
+        items = [t.strip() for t in v if t and t.strip()]
+        if not items:
+            raise ValueError("Wpisz co najmniej jedną czynność z § 1.")
+        if any(len(t) > 1000 for t in items):
+            raise ValueError("Czynność może mieć najwyżej 1000 znaków.")
+        return items
+
+    @field_validator("gross_hourly_rate")
+    @classmethod
+    def _rate_in_grosze(cls, v: float) -> float:
+        return _round_to_grosze(v)
+
+    @model_validator(mode="after")
+    def _period_and_links(self) -> "B2BMandateRenderRequest":
+        if (self.candidate_id is None) != (self.job_id is None):
+            raise ValueError(
+                "candidate_id i job_id muszą być przekazane razem albo pominięte"
+            )
+        if self.period_to < self.period_from:
+            raise ValueError("Koniec zlecenia nie może być przed jego początkiem.")
+        return self
+
+
 class B2BRenderHtmlResponse(BaseModel):
     html: str
     contract_number: Optional[str] = None

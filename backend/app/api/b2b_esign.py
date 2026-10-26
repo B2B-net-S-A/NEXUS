@@ -68,7 +68,7 @@ from app.services.m365 import sender as m365_sender
 from app.services.b2b_esign import service
 from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_esign import settings as esign_settings
-from app.services.b2b_contract_generator import signed_file
+from app.services.b2b_contract_generator import mandate, signed_file
 from app.services.b2b_esign.qualified import QualifiedValidator
 from app.services.notification_triggers import emit as emit_notification
 from app.services.cv_pdf_preview import PdfPreviewUnavailable, pdf_from_docx
@@ -81,6 +81,10 @@ router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 public_router = APIRouter()
 
 MSG_OFF = "Podpis w NEXUSIE nie jest włączony dla Twojego konta."
+MSG_MANDATE = (
+    "Podpis w NEXUSIE działa dla umów B2B. Umowę zlecenia podpiszcie poza "
+    "NEXUSEM i oznacz ją jako podpisaną w rejestrze."
+)
 MSG_SIGNER = "Wybierz osobę, która podpisze za B2B Network, z listy w ustawieniach."
 MSG_PDF = (
     "Nie udało się zrobić PDF-a z umowy. Spróbuj za chwilę albo wyślij umowę jak dotąd."
@@ -348,6 +352,8 @@ async def send_for_esign(
     if row is None:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
     _reject_excel_row(row)
+    if mandate.is_mandate(row):
+        raise HTTPException(status_code=409, detail=MSG_MANDATE)
     await _assert_row_sender(db, current_user, row)
     service.assert_sendable(row)
     docx = await _render_generated_row_docx(db, row)

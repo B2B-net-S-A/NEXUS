@@ -46,7 +46,8 @@ def clear_author_metadata(document: Document) -> None:
 
 
 _APP_PART = "docProps/app.xml"
-_APP_FIELDS = re.compile(rb"<(Company|Manager)>[^<]+</\1>")
+# Z prefiksem przestrzeni nazw też (`<ap:Company>` — wzór umowy zlecenia, 26.10.2026).
+_APP_FIELDS = re.compile(rb"<((?:\w+:)?(?:Company|Manager))>[^<]+</\1>")
 
 
 def clear_app_properties(docx: bytes) -> bytes:

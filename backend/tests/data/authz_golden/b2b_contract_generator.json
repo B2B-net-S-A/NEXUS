@@ -52,6 +52,7 @@
   "POST /api/b2b-generator/generated/{generated_id}/rerender": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/generated/{generated_id}/signature-request": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/generated/{generated_id}/signed-file": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/b2b-generator/mandate/render": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/render": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/b2b-generator/roles": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }

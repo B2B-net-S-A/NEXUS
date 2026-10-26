@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -544,6 +545,9 @@ async def fill_contract_from_linked_agreement(
         if job_client_id == contract.client_id:
             contract.job_id = generated.job_id
             filled.append("job_id")
+    if generated.contract_kind == "mandate":
+        # Umowa zlecenia nie ma szczegółów B2B (numer, firma, NIP).
+        return filled
 
     await _upsert_b2b_detail(
         db,
@@ -1084,6 +1088,8 @@ async def ensure_b2b_employment_draft(
     reject_signed_generated_link: bool = False,
     keep_existing_terms: bool = False,
     contract_type: ContractType = ContractType.b2b,
+    require_contract_type: bool = False,
+    fill_terms: Callable[[Contract], Awaitable[None]] | None = None,
 ) -> B2BEmploymentDraftResult:
     """Lock the candidate, then reuse/create exactly one compatible B2B draft.
 
@@ -1101,6 +1107,10 @@ async def ensure_b2b_employment_draft(
     same money per hour). Without conflicts the flag is a no-op. It never
     bypasses the identity guards (duplicate contractors, other client,
     non-B2B, open-order duplicates, signed link).
+
+    ``require_contract_type`` + ``fill_terms`` — podpis umowy zlecenia
+    (26.10.2026): istniejący kontrakt innego typu to 409, a warunki z dokumentu
+    wpisuje wołający (fill-only), zanim powstanie szkic zamówienia.
     """
 
     if job.client_id is None:
@@ -1248,6 +1258,17 @@ async def ensure_b2b_employment_draft(
                     contract_ids=[contract.id],
                 ),
             )
+        if require_contract_type and contract.contract_type != contract_type:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_conflict_detail(
+                    (
+                        "Istniejący kontrakt tej osoby u klienta to inny typ "
+                        "umowy niż podpisywana. Nie zmieniono żadnych danych."
+                    ),
+                    contract_ids=[contract.id],
+                ),
+            )
         if contract.client_id != job.client_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -1321,6 +1342,8 @@ async def ensure_b2b_employment_draft(
             ),
         )
         _seed_candidate_rate_schedule(contract, payload, actor_id=actor_id)
+    if fill_terms is not None:
+        await fill_terms(contract)
     if ensure_detail:
         await _upsert_b2b_detail(
             db,

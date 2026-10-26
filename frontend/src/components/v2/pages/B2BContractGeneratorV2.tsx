@@ -84,6 +84,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
@@ -145,6 +146,12 @@ import {
   RegisterStartDate,
 } from "@/components/v2/b2b-generator/RegisterAnnexLabel";
 import { RegistryCheckDialog } from "@/components/v2/b2b-generator/RegistryCheckDialog";
+import { MandateAgreementForm } from "@/components/v2/b2b-generator/MandateAgreementForm";
+import {
+  PREVIEW_STYLE,
+  instrumentalPl,
+  printHtml,
+} from "@/lib/b2b-agreement-preview";
 import {
   needsRegistryDialog,
   registryDiffs,
@@ -487,71 +494,6 @@ export function reuseOrGenerateContractId({
   return pending;
 }
 
-/** Heurystyczna odmiana imienia i nazwiska do narzędnika („z Panem Janem
- * Kowalskim"). Best-effort — przy nietypowych/obcych nazwiskach pole jest
- * edytowalne. */
-function titleCase(w: string): string {
-  return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w;
-}
-
-function declineInstrumentalToken(raw: string, gender: "m" | "k"): string {
-  const w = titleCase(raw);
-  const lw = w.toLowerCase();
-  const cut = (n: number, suf: string) => w.slice(0, w.length - n) + suf;
-  if (gender === "k") {
-    if (lw.endsWith("ska") || lw.endsWith("cka") || lw.endsWith("dzka"))
-      return cut(1, "ą");
-    if (lw.endsWith("a")) return cut(1, "ą");
-    return w; // nazwisko żeńskie zakończone spółgłoską — nieodmienne
-  }
-  if (lw.endsWith("ski") || lw.endsWith("cki") || lw.endsWith("dzki"))
-    return cut(1, "im");
-  if (lw.endsWith("y")) return cut(1, "ym");
-  if (lw.endsWith("ek")) return cut(2, "kiem");
-  if (lw.endsWith("eł")) return cut(2, "łem");
-  if (lw.endsWith("k") || lw.endsWith("g")) return w + "iem";
-  if (lw.endsWith("a")) return cut(1, "ą");
-  if (
-    lw.endsWith("o") ||
-    lw.endsWith("i") ||
-    lw.endsWith("e") ||
-    lw.endsWith("u")
-  )
-    return w; // nieoczywiste zakończenie → zostaw (sprawdź ręcznie)
-  return w + "em"; // typowa spółgłoska twarda
-}
-
-function instrumentalPl(fullName: string, gender: "m" | "k"): string {
-  const tokens = (fullName || "").trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length) return "";
-  return tokens.map((t) => declineInstrumentalToken(t, gender)).join(" ");
-}
-
-function printHtml(bodyHtml: string, title: string) {
-  const w = window.open("", "_blank", "width=820,height=1000");
-  if (!w) return;
-  w.document.write(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>` +
-      "<style>body{font-family:Helvetica,Arial,sans-serif;max-width:780px;margin:24px auto;" +
-      "line-height:1.55;color:#222;padding:0 20px}h1,h2,h3{color:#111}" +
-      // §nagłówek nie zostaje sam na końcu strony (#4)
-      "h1,h2,h3{break-after:avoid;page-break-after:avoid;break-inside:avoid}" +
-      "table{border-collapse:collapse;width:100%;margin:1em 0}" +
-      "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}" +
-      "@media print{body{margin:0;padding:0}}</style>" +
-      "<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),300))</script>" +
-      `</head><body>${bodyHtml}</body></html>`,
-  );
-  w.document.close();
-}
-
-const PREVIEW_STYLE =
-  "body{font-family:Helvetica,Arial,sans-serif;margin:18px;line-height:1.5;color:#222;font-size:13px}" +
-  "h1{font-size:18px}h2{font-size:15px;margin-top:1.4em}h3{font-size:13px}" +
-  "h1,h2,h3{break-after:avoid;page-break-after:avoid;break-inside:avoid}" +
-  "table{border-collapse:collapse;width:100%;margin:1em 0}" +
-  "th,td{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top}";
-
 // Prefiksy telefoniczne do wyboru przed numerem (#2). +48 domyślnie.
 const PHONE_PREFIXES = [
   "+48",
@@ -608,6 +550,14 @@ export function B2BContractGeneratorV2() {
   const [activeTab, setActiveTab] = useState<GeneratorTab>(
     requestedTab ?? defaultTab,
   );
+  // Umowa zlecenia (26.10.2026) — ten sam rejestr, własny formularz. Wejście
+  // z rekrutacji (`?candidate=`, `?edit=`) dotyczy umowy B2B.
+  const [agreementKind, setAgreementKind] = useState<"b2b" | "mandate">("b2b");
+  // „Popraw” i link z rekrutacji to miękka nawigacja — bez tego formularz B2B
+  // wczytałby umowę pod ukrytym formularzem zlecenia.
+  useEffect(() => {
+    if (editParam || candidateParam) setAgreementKind("b2b");
+  }, [editParam, candidateParam]);
   // Efekt na WARTOŚCI parametru — sam inicjalizator useState nie zobaczy
   // miękkiej nawigacji (link na tej samej stronie nie odmontowuje komponentu).
   useEffect(() => {
@@ -723,6 +673,27 @@ export function B2BContractGeneratorV2() {
                 forceMount
                 className="data-[state=inactive]:hidden"
               >
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <span
+                    id="b2b-agreement-kind-label"
+                    className="text-sm font-medium"
+                  >
+                    Rodzaj umowy
+                  </span>
+                  <SegmentedRadio<"b2b" | "mandate">
+                    labelledBy="b2b-agreement-kind-label"
+                    value={agreementKind}
+                    onChange={setAgreementKind}
+                    options={[
+                      { value: "b2b", label: "B2B" },
+                      { value: "mandate", label: "Zlecenie" },
+                    ]}
+                  />
+                </div>
+                <div className={agreementKind === "mandate" ? undefined : "hidden"}>
+                  <MandateAgreementForm />
+                </div>
+                <div className={agreementKind === "b2b" ? undefined : "hidden"}>
                 <GeneratorForm
                   prefillCandidateId={candidateParam}
                   prefillJobId={jobParam}
@@ -749,6 +720,7 @@ export function B2BContractGeneratorV2() {
                     replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
                   }}
                 />
+                </div>
               </TabsContent>
             ) : null}
             <TabsContent value="generated">

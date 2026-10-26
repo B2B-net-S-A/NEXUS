@@ -1275,6 +1275,11 @@ def scrub_package(data: bytes, title: str) -> bytes:
             body = src.read(name)
             if name == "docProps/core.xml":
                 body = _CORE_XML.format(title=_esc(title)).encode()
+            elif name == "docProps/app.xml":
+                # Firma i kierownik ze wzoru (nazwa kancelarii), także z prefiksem.
+                body = re.sub(
+                    rb"<((?:\w+:)?(?:Company|Manager))>[^<]+</\1>", rb"<\1/>", body
+                )
             elif name.endswith(".rels"):
                 text = body.decode("utf-8")
                 text = _REL.sub(

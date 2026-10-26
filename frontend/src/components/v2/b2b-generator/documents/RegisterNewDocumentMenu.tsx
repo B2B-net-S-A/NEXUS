@@ -30,6 +30,7 @@ export interface RegisterNewDocumentMenuProps {
     partner_name: string | null;
     template_version?: string | null;
     contract_id?: number | null;
+    contract_kind?: string | null;
   };
 }
 
@@ -45,8 +46,11 @@ export function RegisterNewDocumentMenu({ row }: RegisterNewDocumentMenuProps) {
     staleTime: 10 * 60_000,
   });
   // Umowa przedwstępna poprzedza umowę — z wiersza rejestru nie ma sensu.
+  // Umowa zlecenia dostaje tylko dokumenty zlecenia, a umowa B2B — tylko B2B
+  // (ta sama reguła co `_assert_parent_kind` na serwerze).
+  const parentKind = row.contract_kind === "mandate" ? "mandate" : "b2b";
   const groups = typesByFamily(
-    (types.data?.types ?? []).filter((t) => t.parent !== "none"),
+    (types.data?.types ?? []).filter((t) => t.parent === parentKind),
   );
   return (
     <>

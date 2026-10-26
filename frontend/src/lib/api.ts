@@ -3462,6 +3462,32 @@ export interface B2BCompanyRepresentative {
   function: string | null;
 }
 
+/**
+ * Umowa zlecenia z Generatora (26.10.2026) — `POST /api/b2b-generator/mandate/render`.
+ * `home_address`, `id_document` i `pesel` idą tylko do pliku; serwer ich nie
+ * zapisuje (puste = kropki do wpisania ręcznie).
+ */
+export interface B2BMandatePayload {
+  candidate_id: number | null;
+  job_id: number | null;
+  client_name: string | null;
+  signing_date: string;
+  period_from: string;
+  period_to: string;
+  gender: "m" | "f";
+  partner_name: string;
+  partner_instrumental: string | null;
+  partner_email: string | null;
+  partner_phone: string | null;
+  home_address: string | null;
+  id_document: string | null;
+  pesel: string | null;
+  tasks: string[];
+  gross_hourly_rate: number;
+  with_dpa: boolean;
+  dpa_purpose: string | null;
+}
+
 export interface B2BRenderPayload {
   candidate_id?: number | null;
   job_id?: number | null;
@@ -3601,6 +3627,19 @@ export const b2bGeneratorApi = {
     api.post(`/api/b2b-generator/generated/${id}/rerender`, body, {
       responseType: "blob",
     }),
+  renderMandateDocx: (body: B2BMandatePayload) =>
+    api.post("/api/b2b-generator/mandate/render", body, {
+      params: { format: "docx" },
+      responseType: "blob",
+    }),
+  renderMandateHtml: (body: B2BMandatePayload) =>
+    api
+      .post<{ html: string; contract_number: string | null }>(
+        "/api/b2b-generator/mandate/render",
+        body,
+        { params: { format: "html" } },
+      )
+      .then((r) => r.data),
   renderHtml: (body: B2BRenderPayload) =>
     api
       .post<{ html: string; contract_number: string | null }>(
