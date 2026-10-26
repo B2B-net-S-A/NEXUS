@@ -98,7 +98,11 @@ async def test_code_in_the_champion_falls_back_to_the_cleaned_client_title(
         ("", True),
         ("Senior ETL / Snowflake Engineer", False),
         ("SQL Server 2019 Administrator", False),
-        ("C# Developer", True),
+        # Przegląd PR-a: „#” to kod tylko z numerem — „C#”, „F#” to role.
+        ("C# Developer", False),
+        ("Senior C#/.NET Developer", False),
+        ("F# Engineer", False),
+        ("Developer TP# 40379", True),
     ],
 )
 def test_looks_like_code(value, expected) -> None:

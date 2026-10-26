@@ -46,8 +46,9 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   - stanowisko = `basics.role_name` Championa po `cv_role_title`, a gdy go nie
     ma albo wygląda jak kod (`looks_like_code`: `#`, `_`, ≥ 5 cyfr, ZOB/RITM/
     PKN/EITE/PEP/TP, „replacement”; lustro `looksLikeRoleCode`
-    w `lib/prep-invitation.ts`) — `cv_role_title(jobs.title)`. Z Championa
-    czyste wychodzi 11 z 25 tytułów Nordei, które dawały kod;
+    w `lib/prep-invitation.ts`; „#” tylko przed numerem, bo „C#” to rola)
+    — `cv_role_title(jobs.title)`. Staging 26.10: 33 z 207 otwartych
+    rekrutacji dawało w zaproszeniu kod, z Championa czyste jest 27;
   - opis składa KOD (bez AI): o projekcie, obowiązki jako punkty (podział po
     „;” i nowej linii), wymagania kluczowe (`_stack_names` must), doświadczenie
     (dziedziny/certyfikaty/regulacje „must”), mile widziane (do 8, bez

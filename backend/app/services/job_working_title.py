@@ -297,12 +297,13 @@ _CV_TITLE_LEADING = (
     # małą literą). „UI-UX Designer” i „SAP-ABAP Developer” zostają.
     re.compile(r"^(?:(?:[A-Z]{2,5}-){2,}(?=[A-Z])|[A-Z]{2,5}-(?=[a-ząćęłńóśźż]))"),
     # Nordea (26.10.2026, D4): „Replacement- …”, kraj „PL_”/„PL - ” (nie
-    # „PL/SQL”), kod „PEP4989_”, liczba osób „3 x ”, „…Services_Role: ”.
+    # „PL/SQL”, „PL-SQL”, „PL_SQL”), kod „PEP4989_”, liczba osób „3 x ”,
+    # „…Services_Role: ” (tylko po „_” — „(Key Role: …)” to część nazwy).
     re.compile(r"^replacement\s*[-–—:_]\s*", re.I),
-    re.compile(r"^PL\s*[-_–—]\s*"),
+    re.compile(r"^PL\s*[-_–—]\s*(?!SQL\b)"),
     re.compile(r"^PEP\d+[_\s-]+", re.I),
     re.compile(r"^\d+\s*[xX]\s+"),
-    re.compile(r"^[^:]{1,60}?[_\s]Role:\s*"),
+    re.compile(r"^[^:()]{1,60}?_Role:\s*"),
 )
 
 
@@ -353,7 +354,8 @@ def _role_without_codes(base: str, names: list[str]) -> str:
     # „Transaction Monitoring_IT Developer Expert” — dwie części nazwy.
     if "_" in text:
         sep = " – " if " " in text else " "
-        text = re.sub(r"\s*_+\s*", sep, text).strip(" –")
+        # „PL_SQL” to technologia, nie kraj przed nazwą.
+        text = re.sub(r"\s*(?<!\bPL)_+\s*", sep, text).strip(" –")
     text = _clean(text)
     # „RFX-wsparcie…” → „Wsparcie…”; nazwa bez zmian („iOS Developer”, „dbt
     # Engineer”) zostaje z małej litery.

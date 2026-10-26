@@ -185,6 +185,12 @@ def test_client_codes_and_process_notes_leave_the_header(
         "PL/SQL Developer",
         "Replacement Planner",
         "Expert IT Analyst",
+        # Przegląd PR-a: „PL-SQL” to technologia, a „Role:” w środku nazwy
+        # to nie prefiks Nordei.
+        "PL-SQL Developer",
+        "PL_SQL Developer",
+        "Data Engineer (Key Role: Payments)",
+        "Senior C# Developer",
     ],
 )
 def test_real_role_names_are_not_cut(title):

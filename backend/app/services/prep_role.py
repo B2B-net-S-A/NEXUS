@@ -37,9 +37,10 @@ SOURCE_CLIENT = "client"
 
 # Kod zamiast nazwy roli: numery zapytań, kody stanowisk, „_” Nordei,
 # „Replacement” (imię zastępowanej osoby). Rok w nazwie („SQL Server 2019”)
-# to nie kod — numer ma co najmniej 5 cyfr.
+# to nie kod — numer ma co najmniej 5 cyfr; „#” tylko przed numerem („C#”
+# to rola).
 _CODE_LIKE = re.compile(
-    r"#|_|\d{5,}|(?<![A-Za-z])(?:ZOB|RITM|PKN|EITE|PEP|TP)(?![A-Za-z])|replacement",
+    r"#\s*\d|_|\d{5,}|(?<![A-Za-z])(?:ZOB|RITM|PKN|EITE|PEP|TP)(?![A-Za-z])|replacement",
     re.I,
 )
 _LETTER = re.compile(r"[^\W\d_]")

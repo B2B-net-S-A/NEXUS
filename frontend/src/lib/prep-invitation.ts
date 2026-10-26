@@ -59,8 +59,9 @@ export function roleSectionHeading(role: string): string {
 }
 
 // Lustro `prep_role._CODE_LIKE` (backend/app/services/prep_role.py): numery
-// zapytań, kody stanowisk, „_” Nordei, „Replacement”. Rok to nie kod.
-const CODE_LIKE = /#|_|\d{5,}|(?<![A-Za-z])(?:ZOB|RITM|PKN|EITE|PEP|TP)(?![A-Za-z])|replacement/i;
+// zapytań, kody stanowisk, „_” Nordei, „Replacement”. Rok to nie kod,
+// „#” tylko przed numerem („C#” to rola).
+const CODE_LIKE = /#\s*\d|_|\d{5,}|(?<![A-Za-z])(?:ZOB|RITM|PKN|EITE|PEP|TP)(?![A-Za-z])|replacement/i;
 const LETTER = /\p{L}/u;
 
 /** Stanowisko trzeba poprawić, zanim pójdzie do kandydata. */

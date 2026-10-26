@@ -108,7 +108,12 @@ describe("stanowisko i opis roli (26.10.2026)", () => {
     for (const code of ["PL_IT_Developer_expert_TP#40379", "Dev RITM0867849", "(43020)", "Replacement for Jan"]) {
       expect(looksLikeRoleCode(code)).toBe(true);
     }
-    for (const role of ["Senior ETL / Snowflake Engineer", "SQL Server 2019 Administrator"]) {
+    for (const role of [
+      "Senior ETL / Snowflake Engineer",
+      "SQL Server 2019 Administrator",
+      "Senior C# Developer",
+      "F# Engineer",
+    ]) {
       expect(looksLikeRoleCode(role)).toBe(false);
     }
   });
