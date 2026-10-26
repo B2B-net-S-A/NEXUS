@@ -7,7 +7,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ create: vi.fn(), followup: [] as unknown[] }));
+const mocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  followup: [] as unknown[],
+  // Pola stanowiska i opisu roli (26.10.2026); pusty obiekt = starszy serwer.
+  role: {} as Record<string, unknown>,
+}));
 
 vi.mock("@/lib/api/prepMeetings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/prepMeetings")>()),
@@ -34,6 +39,7 @@ vi.mock("@/lib/api/prepMeetings", async (importOriginal) => ({
         },
       },
       prep1_followup: mocks.followup,
+      ...mocks.role,
     },
   }),
 }));
@@ -205,5 +211,100 @@ describe("PlanPrepDialog — prowadzący ma wtedy zajęte (22.10.2026)", () => {
     const later = new Date(start.getTime() - 2 * 3_600_000);
     fireEvent.change(field, { target: { value: toLocalInput(later) } });
     expect(screen.queryByRole("button", { name: "Zapisz mimo to" })).toBeNull();
+  });
+});
+
+describe("PlanPrepDialog — stanowisko i opis roli (26.10.2026)", () => {
+  const ROLE_BODY =
+    "Dzień dobry,\n\nZapraszam na spotkanie przygotowujące do rozmowy z Klientem Nordea na stanowisko {role}.\n\n{role_hint}\n\n{note}\n\nW razie pytań pozostaję do dyspozycji.\n\nPozdrawiam\n{organizer}";
+  const ROLE = {
+    role_title: "Senior ETL / Snowflake Engineer",
+    role_title_source: "champion",
+    role_title_needs_fix: false,
+    role_description: "Projekt hurtowni danych.\n\nZakres obowiązków:\n• ETL w Snowflake",
+    role_description_findings: [],
+    invitation: {
+      "1": {
+        title: "Przygotowanie do spotkania z Klientem Nordea - Piotr Nowak",
+        body: ROLE_BODY,
+        interview_line: null,
+        role_hint: "Przed spotkaniem przejrzyj, proszę, opis roli poniżej.",
+      },
+    },
+  };
+
+  function interview() {
+    const start = new Date();
+    start.setDate(start.getDate() + 4);
+    start.setHours(10, 0, 0, 0);
+    return { start: start.toISOString(), end: new Date(start.getTime() + 3_600_000).toISOString() };
+  }
+
+  it("podgląd ma stanowisko z Championa, zdanie o opisie i sekcję „O roli”", () => {
+    mocks.role = ROLE;
+    renderDialog(interview());
+    const preview = screen.getByTestId("prep-invitation-preview");
+    expect(preview).toHaveTextContent("na stanowisko Senior ETL / Snowflake Engineer.");
+    expect(preview).toHaveTextContent("Przed spotkaniem przejrzyj, proszę, opis roli poniżej.");
+    expect(screen.getByTestId("prep-invitation-role")).toHaveTextContent(
+      "O roli: Senior ETL / Snowflake Engineer",
+    );
+    expect(preview).not.toHaveTextContent("{role");
+    expect(screen.queryByTestId("prep-role-title-warning")).toBeNull();
+
+    fireEvent.click(screen.getByLabelText(/Dołącz opis roli/));
+    expect(screen.queryByTestId("prep-invitation-role")).toBeNull();
+    expect(preview).not.toHaveTextContent("opis roli poniżej");
+  });
+
+  it("kod klienta w stanowisku ostrzega, a poprawka idzie do zapisu", async () => {
+    mocks.role = { ...ROLE, role_title: "PL_IT_Developer_expert_TP#40379", role_title_source: "client" };
+    mocks.create.mockReset();
+    mocks.create.mockResolvedValue({ prep_no: 1, transcription_setup: "enabled" });
+    renderDialog(interview());
+    expect(screen.getByTestId("prep-role-title-warning")).toHaveTextContent(/nie wygląda na nazwę roli/);
+
+    fireEvent.change(screen.getByLabelText("Stanowisko w zaproszeniu"), {
+      target: { value: "IT Developer (Expert)" },
+    });
+    expect(screen.queryByTestId("prep-role-title-warning")).toBeNull();
+    fireEvent.click(screen.getByText("Edytuj w tym zaproszeniu"));
+    fireEvent.change(screen.getByLabelText("Opis roli w zaproszeniu"), {
+      target: { value: "Krótki opis." },
+    });
+    fireEvent.click(screen.getByText("Zaplanuj w Teams"));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({
+      role_title: "IT Developer (Expert)",
+      role_description: "Krótki opis.",
+    });
+  });
+
+  it("wyłączony opis = pusty opis w zapisie; Champion bez opisu mówi to wprost", async () => {
+    mocks.role = ROLE;
+    mocks.create.mockReset();
+    mocks.create.mockResolvedValue({ prep_no: 1, transcription_setup: "enabled" });
+    const first = renderDialog(interview());
+    fireEvent.click(screen.getByLabelText(/Dołącz opis roli/));
+    fireEvent.click(screen.getByText("Zaplanuj w Teams"));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({ role_description: "" });
+    first.unmount();
+
+    mocks.role = { ...ROLE, role_description: "" };
+    renderDialog(interview());
+    expect(screen.getByTestId("prep-role-missing")).toHaveTextContent(/nie ma opisu projektu/);
+    expect(screen.queryByTestId("prep-invitation-role")).toBeNull();
+  });
+
+  it("starszy serwer bez pól roli — okno ich nie pokazuje i nie wysyła", async () => {
+    mocks.role = {};
+    mocks.create.mockReset();
+    mocks.create.mockResolvedValue({ prep_no: 1, transcription_setup: "enabled" });
+    renderDialog(interview());
+    expect(screen.queryByTestId("prep-role")).toBeNull();
+    fireEvent.click(screen.getByText("Zaplanuj w Teams"));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+    expect(mocks.create.mock.calls[0][0]).not.toHaveProperty("role_description");
   });
 });

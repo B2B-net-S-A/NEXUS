@@ -37,9 +37,38 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   (`options.invitation`, pola `{note}`/`{organizer}` podstawia
   `lib/prep-invitation.ts`) i mówi, w czyim kalendarzu powstaje spotkanie
   i kto dostaje zaproszenie.
-  Stanowisko w treści = `cv_role_title_for_job` (nazwa roli jak w nagłówku
-  CV), nie surowe `jobs.title`: do 22.10.2026 kandydat dostawał numer
-  zapytania klienta („… Prioritization (42874)”, zgłoszenie z Nordei).
+  Stanowisko w treści: do 22.10.2026 surowe `jobs.title` (kandydat dostawał
+  numer zapytania klienta „… Prioritization (42874)”), potem nazwa jak
+  w nagłówku CV, która przepuszczała kody Nordei („PL_IT_Developer_expert_TP#40379”).
+- **Stanowisko i opis roli z Championa (26.10.2026, prośba zespołu, decyzje
+  D1–D4, makiety https://claude.ai/artifact/KzvuFKEgZTbzzwtFFax9hK).**
+  `services/prep_role.py`:
+  - stanowisko = `basics.role_name` Championa po `cv_role_title`, a gdy go nie
+    ma albo wygląda jak kod (`looks_like_code`: `#`, `_`, ≥ 5 cyfr, ZOB/RITM/
+    PKN/EITE/PEP/TP, „replacement”; lustro `looksLikeRoleCode`
+    w `lib/prep-invitation.ts`) — `cv_role_title(jobs.title)`. Z Championa
+    czyste wychodzi 11 z 25 tytułów Nordei, które dawały kod;
+  - opis składa KOD (bez AI): o projekcie, obowiązki jako punkty (podział po
+    „;” i nowej linii), wymagania kluczowe (`_stack_names` must), doświadczenie
+    (dziedziny/certyfikaty/regulacje „must”), mile widziane (do 8, bez
+    powtórzeń z must), tryb pracy (Champion zapisuje go po polsku —
+    `public_params` czyta tylko `remote/hybrid/onsite`). Nigdy stawka,
+    budżet, sekcja `client`, notatki stacku, dyskwalifikatory. Champion bez
+    „O projekcie” i obowiązków = brak opisu;
+  - opis w Prepie 1 i 2 (D3), pod podpisem jako sekcja „O roli: <stanowisko>”
+    między dwiema kreskami (`role_section`, `as_html`, `as_plain`), a w treści
+    akapit `ROLE_HINT` przed dopiskiem;
+  - okno „Zaplanuj prep”: pole „Stanowisko w zaproszeniu” z ostrzeżeniem przy
+    kodzie, „Dołącz opis roli”, „Edytuj w tym zaproszeniu”. Poprawki idą
+    w `PrepCreate.role_title` / `role_description` (pusty opis = bez opisu,
+    brak pola = z Championa) i nie wracają do Championa. Podgląd: treść
+    z polami `{role}` i `{role_hint}`, które podstawia przeglądarka;
+  - kontrola opisu = `lint_public_texts` bez nazwy klienta. Opis z okna ze
+    znaleziskiem → 422 `PREP_ROLE_DESCRIPTION_FINDINGS`; opis domyślny ze
+    znaleziskiem po cichu wypada (okno „Umów rozmowę i prepy” wysyła prepy
+    bez pól roli i nie może przez to stracić prepu). Zmiana prowadzącego
+    składa stanowisko i opis od nowa z Championa (poprawek z okna nie
+    zapisujemy, jak dopisku).
 - **Prep po rozmowie u klienta należy do jej rundy** (`PairSnapshot.late_preps`,
   lustro w `prep_meetings.active_prep`, 02.10.2026). Rekruter zaplanował
   Prep 1, zanim DL potwierdził termin rozmowy na dwa dni wcześniej; prep nie

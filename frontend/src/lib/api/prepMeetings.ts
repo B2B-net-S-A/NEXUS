@@ -44,6 +44,22 @@ export interface PrepOptions {
   invitation?: Record<string, PrepInvitation>;
   /** Notatka na Prep 2 z oceny Prepu 1 pary (22.10.2026); pusta = brak oceny. */
   prep1_followup?: PrepOptionsFollowup[];
+  /**
+   * Stanowisko i opis roli dla kandydata (26.10.2026): z Profilu Championa,
+   * do poprawienia w oknie. Starszy serwer = brak pól.
+   */
+  role_title?: string;
+  role_title_source?: "champion" | "client";
+  role_title_needs_fix?: boolean;
+  /** Pusty = Champion nie ma opisu projektu ani obowiązków. */
+  role_description?: string;
+  role_description_findings?: PrepRoleFinding[];
+}
+
+export interface PrepRoleFinding {
+  code: string;
+  message: string;
+  excerpt: string;
 }
 
 export interface PrepOptionsFollowup {
@@ -225,6 +241,10 @@ export interface PrepCreateInput {
    * (przełożenie czeka na DL-a) — trafia do treści zaproszenia (audyt 22.10, F37).
    */
   interview_start?: string | null;
+  /** Stanowisko z okna; brak = z Championa (26.10.2026). */
+  role_title?: string | null;
+  /** Opis roli z okna; brak = z Championa, pusty = bez opisu. */
+  role_description?: string | null;
 }
 
 /** Zmiana prepu. Brak pola = bez zmian; `attendee_*` podane = pełna nowa lista. */
