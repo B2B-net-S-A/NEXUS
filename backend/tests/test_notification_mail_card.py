@@ -7,6 +7,7 @@ do potwierdzenia; nic nie wykonuje się z samego kliknięcia w mail.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, timezone
 from urllib.parse import parse_qs, urlsplit
 
@@ -214,7 +215,8 @@ def test_hired_order_missing_opens_contractor_panel():
     }
 
 
-LEAVE_LINK = "/people/approvals?leave=3f2b1c4e-0000-4000-8000-000000000001"
+# Numer wniosku budowany w teście: literał UUID gitleaks bierze za klucz API.
+LEAVE_LINK = f"/people/approvals?leave={uuid.UUID(int=1)}"
 
 
 def test_leave_request_offers_approve_and_reject_to_confirm_on_screen():
