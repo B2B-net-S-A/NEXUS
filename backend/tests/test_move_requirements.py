@@ -790,3 +790,54 @@ def test_delivery_lead_skips_company_cv_and_debrief_but_not_qc() -> None:
         replace(dl, from_column="cv_qc", company_cv=True, qc_status="failed"), "cv_sent"
     )
     assert failed_qc["primary"]["kind"] == "blocked"
+
+
+# ── 0521: klient z formularzem CV zamiast CV firmowego (decyzja D3) ──────────
+
+FORM_CLIENT = replace(
+    VERIFIED_READY, client_form=True, client_form_template="Zal 4b Formularz CV.docx"
+)
+
+
+def test_form_client_gets_a_reminder_instead_of_the_company_cv() -> None:
+    not_filled = build_requirements(FORM_CLIENT, "cv_qc")
+    assert _keys(not_filled) == ["client_form"]
+    form = _item(not_filled, "client_form")
+    assert form["status"] == "waiting" and form["blocking"] is False
+    assert form["detail"] == "jeszcze nie wypełniony"
+    assert form["action"]["kind"] == "open_client_form"
+    assert not_filled["primary"] == {"kind": "move", "label": "Przesuń na „QC CV”"}
+
+    gaps = build_requirements(replace(FORM_CLIENT, client_form_missing=7), "cv_qc")
+    assert _item(gaps, "client_form")["detail"] == "7 pól do uzupełnienia"
+    assert _item(
+        build_requirements(replace(FORM_CLIENT, client_form_missing=2), "cv_qc"),
+        "client_form",
+    )["detail"] == "2 pola do uzupełnienia"
+
+    done = build_requirements(replace(FORM_CLIENT, client_form_missing=0), "cv_qc")
+    assert _item(done, "client_form")["status"] == "ok"
+    assert _item(done, "client_form")["action"] is None
+
+
+def test_form_client_without_template_points_to_the_delivery_lead() -> None:
+    result = build_requirements(
+        replace(FORM_CLIENT, client_form_template=None), "cv_qc"
+    )
+    form = _item(result, "client_form")
+    assert form["detail"].startswith("brak wzoru w Plikach rekrutacji")
+    assert form["action"] is None and form["blocking"] is False
+
+
+def test_form_client_sends_without_company_cv_qc() -> None:
+    facts = replace(
+        FORM_CLIENT,
+        from_column="cv_qc",
+        client_form_missing=3,
+        is_client_sender=True,
+        client_rate=True,
+    )
+    result = build_requirements(facts, "cv_sent")
+    assert "cv_qc" not in _keys(result)
+    assert _item(result, "client_form")["blocking"] is False
+    assert result["primary"] == {"kind": "move", "label": "Przesuń na „CV wysłane”"}

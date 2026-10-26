@@ -292,6 +292,11 @@ class CandidateStageResponse(BaseModel):
     # co wymaganie ruchu na „QC CV”). `None` = endpoint tego nie liczy
     # (ruch, historia). Wypełnia tylko tablica.
     company_cv: Optional[bool] = None
+    # 0521 (26.10.2026): klient bierze formularz CV zamiast CV firmowego —
+    # `{"template": bool, "missing": int | None}` (`None` braków = formularz
+    # jeszcze nie wypełniony). `None` = klient bierze CV firmowe albo endpoint
+    # tego nie liczy. Wypełnia tylko tablica.
+    client_form: Optional[dict] = None
     # QC CV (Rekrutacja v5, 0361): `{"status": "passed|failed|overridden|
     # unchecked", "blocking_failed": int, "warnings_count": int, …}` —
     # najnowszy przebieg pary (`cv_qc.pair_statuses`). Wypełnia tylko tablica.

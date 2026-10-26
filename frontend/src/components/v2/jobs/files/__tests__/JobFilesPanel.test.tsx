@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   deleteJobFile: vi.fn(),
   downloadJobFile: vi.fn(),
   fetchJobFileBlob: vi.fn(),
+  markJobFileClientForm: vi.fn(),
 }));
 
 vi.mock("@/lib/api/jobFiles", async (importOriginal) => ({
@@ -19,6 +20,7 @@ vi.mock("@/lib/api/jobFiles", async (importOriginal) => ({
   deleteJobFile: (...a: unknown[]) => mocks.deleteJobFile(...a),
   downloadJobFile: (...a: unknown[]) => mocks.downloadJobFile(...a),
   fetchJobFileBlob: (...a: unknown[]) => mocks.fetchJobFileBlob(...a),
+  markJobFileClientForm: (...a: unknown[]) => mocks.markJobFileClientForm(...a),
 }));
 // Okno podglądu ciągnie pdf.js — tu wystarczy wiedzieć, który plik otwarto.
 vi.mock("@/components/v2/files/FilePreviewModal", () => ({
@@ -210,5 +212,73 @@ describe("JobFilesPanel", () => {
       expect(screen.getByRole("list", { name: "Pliki rekrutacji" })).toBeInTheDocument();
       expect(mocks.fetchJobFiles).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("0521: wzór formularza CV klienta", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("u klienta z formularzem pokazuje wzór, co NEXUS rozpoznał, i pozwala zmienić wzór", async () => {
+    mocks.fetchJobFiles.mockResolvedValue(
+      response({
+        client_document: "client_form",
+        items: [
+          file({
+            id: 5,
+            filename: "Zal 4b do SWZ Formularz CV.docx",
+            source: "upload",
+            client_form: true,
+            client_form_summary: "50 pól do wypełnienia · 3 pola nagłówka",
+          }),
+          file({ id: 6, filename: "wzor.docx", source: "upload" }),
+          file({ id: 7, filename: "Opis oceny.pdf", source: "upload" }),
+        ],
+      }),
+    );
+    mocks.markJobFileClientForm.mockResolvedValue(file({ id: 6 }));
+    renderPanel();
+
+    expect(await screen.findByTestId("job-file-client-form-badge")).toHaveTextContent(
+      "Wzór formularza",
+    );
+    expect(screen.getByText("50 pól do wypełnienia · 3 pola nagłówka")).toBeInTheDocument();
+    // Wzorem może być tylko Word — przy PDF nie ma akcji.
+    expect(screen.getAllByText("Ustaw jako wzór formularza CV klienta")).toHaveLength(1);
+    fireEvent.click(screen.getByText("Ustaw jako wzór formularza CV klienta"));
+    await waitFor(() => expect(mocks.markJobFileClientForm).toHaveBeenCalledWith(7, 6, true));
+    fireEvent.click(screen.getByText("To nie jest wzór"));
+    await waitFor(() => expect(mocks.markJobFileClientForm).toHaveBeenCalledWith(7, 5, false));
+  });
+
+  it("odmowę serwera pokazuje po polsku przy pliku", async () => {
+    mocks.fetchJobFiles.mockResolvedValue(
+      response({
+        client_document: "client_form",
+        items: [file({ id: 6, filename: "opis.docx", source: "upload" })],
+      }),
+    );
+    mocks.markJobFileClientForm.mockRejectedValue({
+      response: { status: 422, data: { detail: "W tym pliku nie ma pustych pól do wypełnienia." } },
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByText("Ustaw jako wzór formularza CV klienta"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "„opis.docx”: W tym pliku nie ma pustych pól do wypełnienia.",
+    );
+  });
+
+  it("u klienta z CV firmowym niczego o wzorze nie pokazuje", async () => {
+    mocks.fetchJobFiles.mockResolvedValue(
+      response({
+        client_document: "company_cv",
+        items: [file({ id: 5, filename: "Formularz.docx", source: "upload", client_form: true })],
+      }),
+    );
+    renderPanel();
+    await screen.findByText("Formularz.docx");
+    expect(screen.queryByTestId("job-file-client-form-badge")).toBeNull();
+    expect(screen.queryByText("Ustaw jako wzór formularza CV klienta")).toBeNull();
   });
 });

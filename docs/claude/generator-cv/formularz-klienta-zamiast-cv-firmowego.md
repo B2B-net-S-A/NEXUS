@@ -79,3 +79,31 @@ Reguły, które łatwo cofnąć:
   etapu: rola czyta albo pisze dokumenty kandydata, a do pary wymagany jest
   dostęp do rekrutacji (`ensure_job_read_access` / `ensure_job_membership`).
   Plik do klienta nie ma żółtych „UZUPEŁNIJ” — puste pole zostaje puste.
+
+## Ekrany i bramki (PR 3)
+
+- **Lista wymagań ruchu:** u klienta z formularzem „QC CV” ma jedną pozycję
+  „Formularz CV klienta” (`client_form`, nigdy blokująca; akcja
+  `open_client_form` otwiera sekcję CV osoby i okno braków), a „CV wysłane” —
+  tę pozycję zamiast „QC CV”. Brak wzoru = „brak wzoru w Plikach rekrutacji —
+  dodaje go Delivery Lead”, bez akcji.
+- **Serwer nie liczy QC CV firmowego takiej pary** (`pipeline._assert_cv_qc_gate`
+  → `client_form_status.client_takes_client_form`): nie ma czego sprawdzać,
+  a decyzja D3 mówi „przypomnienie, nie blokada”.
+- **Automat CV firmowego pomija klienta z formularzem** (`cv_auto_generate`,
+  powód `client_form`, bez dzwonka) — działa tylko przy włączonym
+  `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`.
+- **Tablica:** `KanbanEntry.client_form = {template, missing}`; plakietka karty
+  (`clientFormBadge`) na „Zweryfikowanym” i „QC CV” mówi o formularzu zamiast
+  o CV firmowym. Panel osoby: karta `ClientFormCard` na górze sekcji CV
+  („Wypełnij z CV i screeningu”, „Uzupełnij braki”, „Pobierz Word”, „Wygeneruj
+  też CV firmowe”), okno `ClientFormDialog` z brakami najpierw i źródłem
+  każdej wartości; pusty opis w „Wiersz N” pokazuje pierwszą wypełnioną komórkę
+  wiersza (firmę). Pliki rekrutacji: plakietka „Wzór formularza”, co NEXUS
+  rozpoznał, „Ustaw jako wzór” / „To nie jest wzór”. Edytor reguły CV:
+  „Dokument do klienta”.
+- **Odczyt cytatów (po próbie na stagingu 26.10.2026):** tekst CV
+  z dwukolumnowego PDF-a przeplata punkty z kolumną boczną, więc model sklejał
+  cytat z kilku punktów i kod odrzucał opisy projektów. Cytat może być listą
+  fragmentów — każdy musi stać w źródle osobno. Miejsce zamieszkania wpisuje
+  kod z profilu (`candidates.city`), jak imię i nazwisko.

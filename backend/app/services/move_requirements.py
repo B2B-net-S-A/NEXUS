@@ -145,6 +145,12 @@ class PairFacts:
     client_name: Optional[str] = None
     minimum_enabled: bool = True
     company_cv: bool = False
+    # 0521 (26.10.2026): klient bierze formularz CV z Plików rekrutacji zamiast
+    # CV firmowego — przypomnienie zamiast wymogu CV i jego QC (decyzja D3).
+    client_form: bool = False
+    client_form_template: Optional[str] = None
+    # Liczba pustych pól; None = formularz jeszcze nie wypełniony.
+    client_form_missing: Optional[int] = None
     qc_status: str = "unchecked"
     qc_blocking_failed: int = 0
     client_rate: bool = False
@@ -627,8 +633,44 @@ def _minimum_items(column: str, f: PairFacts) -> list[_Item]:
     return items
 
 
+def _fields_word(count: int) -> str:
+    if count == 1:
+        return "pole"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return "pola"
+    return "pól"
+
+
+def _client_form_item(column: str, f: PairFacts) -> _Item:
+    """Formularz CV klienta zamiast CV firmowego — przypomnienie, nie bramka."""
+    if f.client_form_template is None:
+        detail: Optional[str] = (
+            "brak wzoru w Plikach rekrutacji — dodaje go Delivery Lead"
+        )
+    elif f.client_form_missing is None:
+        detail = "jeszcze nie wypełniony"
+    elif f.client_form_missing:
+        detail = f"{f.client_form_missing} {_fields_word(f.client_form_missing)} do uzupełnienia"
+    else:
+        detail = None
+    done = f.client_form_template is not None and f.client_form_missing == 0
+    return _Item(
+        column,
+        "client_form",
+        "Formularz CV klienta",
+        OK if done else WAITING,
+        False,
+        detail,
+        None
+        if done or f.client_form_template is None
+        else _action("open_client_form", "Uzupełnij formularz", f.stage_id),
+    )
+
+
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
     sid = f.stage_id
+    if f.client_form and column == "cv_qc":
+        return [_client_form_item(column, f)]
     if column == "verified":
         return [
             _screening_item(column, f),
@@ -708,7 +750,11 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
         if not f.qc_gate_enabled and not qc_ok:
             qc_detail = "QC CV jest wyłączone — nie blokuje wysyłki"
         items = [
-            _Item(
+            # Klient z formularzem: QC CV firmowego nie ma czego sprawdzać
+            # (serwer go nie liczy — `pipeline._assert_cv_qc_gate`).
+            _client_form_item(column, f)
+            if f.client_form
+            else _Item(
                 column,
                 "cv_qc",
                 "QC CV",
@@ -1418,6 +1464,11 @@ async def load_pair_facts(
     from app.services import screening_sheets  # noqa: PLC0415
 
     client_fields, client_fields_owner = await client_required_fields(db, job.client_id)
+    from app.services import client_form_status  # noqa: PLC0415
+
+    form_state = (
+        await client_form_status.job_states(db, job.id, [candidate.id]) or {}
+    ).get(candidate.id)
 
     (
         pre_contract_column,
@@ -1458,6 +1509,9 @@ async def load_pair_facts(
         client_name=client_fields_owner,
         minimum_enabled=settings.VERIFIED_MINIMUM_FIELDS_ENABLED,
         company_cv=cv is not None,
+        client_form=form_state is not None,
+        client_form_template=form_state.template if form_state else None,
+        client_form_missing=form_state.missing if form_state else None,
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
         client_rate=client_rate,

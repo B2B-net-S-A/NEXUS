@@ -223,3 +223,38 @@ async def test_roles_without_candidate_documents_are_refused(
             "/api/candidates/stages/999999999/client-form", headers=app_auth_headers
         )
     ).status_code == 404
+
+
+# ── PR 3: QC CV firmowego nie dotyczy klienta z formularzem (decyzja D3) ─────
+
+
+@pytest.mark.asyncio
+async def test_qc_gate_skips_company_cv_qc_for_form_clients(monkeypatch):
+    from app.api import pipeline
+    from app.core.config import settings
+    from app.services import cv_qc
+
+    monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+    calls: list[int] = []
+
+    async def _qc(db, *, candidate_id, job_id, user, stage):
+        calls.append(job_id)
+
+    monkeypatch.setattr(cv_qc, "assert_qc_passed", _qc)
+    for document in ("client_form", "company_cv"):
+        job_id, stage_id = await _pair(document)
+        async with AsyncSessionLocal() as db:
+            stage = await db.get(CandidateStage, stage_id)
+            job = await db.get(Job, job_id)
+            await pipeline._assert_cv_qc_gate(
+                db,
+                None,
+                candidate_id=stage.candidate_id,
+                job_id=job_id,
+                stage_def=None,
+                legacy_value="cv_sent",
+                client_id=job.client_id,
+            )
+        if document == "client_form":
+            assert calls == []
+    assert len(calls) == 1
