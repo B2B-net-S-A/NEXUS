@@ -20,6 +20,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from jinja2 import TemplateError
+from pydantic import BaseModel
 from sqlalchemy import String, case, cast, distinct, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +48,7 @@ from app.models.contract import (
     ContractStatus,
     ContractTerminationReason,
     EngagementModel,
+    ProlongationStatus,
     RateUnit,
 )
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
@@ -3768,6 +3770,77 @@ async def expiring_contracts(
         for item in items:
             _redact_contract_finance(item, finance_client_ids)
     return items
+
+
+class EndingConsultant(BaseModel):
+    """Wiersz „Kończą u klientów” w panelu „Moi ludzie” Delivery Leada."""
+
+    contract_id: int
+    candidate_id: int
+    candidate_name: Optional[str] = None
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    job_title: Optional[str] = None
+    end_date: date
+    prolongation_status: Optional[str] = None
+
+
+@router.get("/ending-consultants", response_model=List[EndingConsultant])
+async def ending_consultants(
+    current_user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+    days: int = Query(60, ge=1, le=90),
+):
+    """Konsultanci u klientów z umową kończącą się w ``days`` dni (decyzja 25.10.2026).
+
+    Zakładka „Kończą u klientów” w „Moich ludziach”: kogo przepiąć, zanim
+    odejdzie. Ten sam zbiór co ``/expiring`` (aktywne + „Kończące się”, zakres
+    klientów Delivery Leada), bez potwierdzonych przedłużeń i bez kwot — sam
+    termin, klient i rekrutacja, więc nic do redakcji finansowej.
+    """
+    today = business_today()
+    query = (
+        select(Contract)
+        .where(
+            Contract.end_date <= today + timedelta(days=days),
+            Contract.end_date >= today,
+            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
+            Contract.prolongation_status != ProlongationStatus.yes,
+        )
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+        )
+        .order_by(Contract.end_date, Contract.id)
+    )
+    allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    query = apply_delivery_lead_client_scope(
+        query, Contract.client_id, allowed_client_ids
+    )
+    rows = (await db.execute(query)).scalars().all()
+    return [
+        EndingConsultant(
+            contract_id=c.id,
+            candidate_id=c.candidate_id,
+            candidate_name=(
+                f"{c.candidate.name} {c.candidate.lastname}".strip()
+                if c.candidate
+                else None
+            ),
+            client_id=c.client_id,
+            client_name=client_display_name(c.client) if c.client else None,
+            job_title=c.job.title if c.job else None,
+            end_date=c.end_date,
+            prolongation_status=(
+                c.prolongation_status.value
+                if hasattr(c.prolongation_status, "value")
+                else c.prolongation_status
+            ),
+        )
+        for c in rows
+        if c.candidate_id is not None
+    ]
 
 
 @router.get("/{contract_id}", response_model=ContractDetailResponse)

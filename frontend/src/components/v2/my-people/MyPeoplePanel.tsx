@@ -31,7 +31,7 @@ import { matchesQuery, splitPeople, summarySentences } from "@/lib/my-people-sum
 import { isForbiddenError } from "@/lib/view-state";
 import { useMyPeoplePanel } from "@/store/my-people";
 import { useUiStore } from "@/store/ui";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCompetenceCategories } from "@/components/v2/CompetenceCategoryBadge";
 import { AddToRecruitmentDialog, addToRecruitmentSummary } from "@/components/v2/recruitment/AddToRecruitmentDialog";
@@ -51,9 +51,12 @@ import {
 } from "./MyPeopleViews";
 import { shouldCloseOnEscape } from "@/lib/panel-escape";
 import { useCandidateLists } from "@/lib/api/candidateLists";
+import { useEndingConsultants } from "@/lib/api/endingConsultants";
+import { hasPermission } from "@/lib/permissions";
 import { ListsTab } from "./CandidateListsViews";
+import { EndingAtClientsView } from "./EndingAtClientsView";
 
-type PanelTab = "all" | "job" | "move" | "lists";
+type PanelTab = "all" | "job" | "move" | "lists" | "ending";
 
 const JOB_PATH = /^\/jobs\/(\d+)/;
 const CANDIDATE_PATH = /^\/candidates\/(\d+)/;
@@ -161,6 +164,10 @@ export function MyPeoplePanel() {
   const categories = useCompetenceCategories();
   // Listy ręczne (25.10.2026) — licznik w zakładce, treść w `ListsTab`.
   const lists = useCandidateLists(me?.id, open);
+  // „Kończą u klientów” (25.10.2026): Delivery Lead z podglądem Delivery —
+  // to samo uprawnienie, którego wymaga trasa; zakres klientów liczy serwer.
+  const showEnding = hasRole(me, "delivery_lead") && hasPermission(me, "delivery_view");
+  const ending = useEndingConsultants(open && showEnding);
   const forJob = useMyPeopleForJob(jobId, open && tab === "job");
 
   // Obejrzenie zakładki rekrutacji zeruje jej dopasowania w liczniku awatara.
@@ -249,6 +256,9 @@ export function MyPeoplePanel() {
       label: "Listy",
       count: lists.data ? lists.data.mine.length + lists.data.shared.length : undefined,
     },
+    ...(showEnding
+      ? [{ value: "ending", label: "Kończą u klientów", count: ending.data?.length }]
+      : []),
     ...(jobId != null ? [{ value: "job", label: "Do tej rekrutacji" }] : []),
     ...(isMine ? [{ value: "move", label: "Gdzie przepiąć" }] : []),
   ];
@@ -348,6 +358,21 @@ export function MyPeoplePanel() {
 
         {tab === "lists" && me ? (
           <ListsTab userId={me.id} onAdd={(row) => setAddFor(row)} />
+        ) : null}
+
+        {tab === "ending" && showEnding ? (
+          ending.isError ? (
+            <ErrorView
+              message={apiErrorMessage(ending.error, "Nie udało się wczytać kończących się umów.")}
+              onRetry={() => void ending.refetch()}
+            />
+          ) : !ending.isSuccess ? (
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+              Sprawdzam umowy Twoich klientów…
+            </p>
+          ) : (
+            <EndingAtClientsView rows={ending.data} onAdd={(row) => setAddFor(row)} />
+          )
         ) : null}
       </div>
 
