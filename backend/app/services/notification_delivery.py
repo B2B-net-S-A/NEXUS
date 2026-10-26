@@ -103,6 +103,17 @@ CATALOG = (
         trigger="Ktoś (albo automat przydziału) przypisał Cię do prowadzenia rekrutacji.",
         recipient_rule="Nowo przypisana osoba; bez maila do osoby, która przypisała samą siebie.",
     ),
+    # Mail obowiązkowy (26.10.2026) — `services/client_job_opened.py`.
+    dict(
+        id="client_job_opened",
+        label="Nowa rekrutacja u Twojego klienta",
+        module="Rekrutacje",
+        trigger="Ktoś inny niż Ty założył albo ponownie otworzył rekrutację "
+        "u Twojego klienta. Kilka w ciągu 10 minut przychodzi jednym mailem.",
+        recipient_rule="Delivery Lead rekrutacji (bez niego: Head of Recruitment), "
+        "bez osoby, która rekrutację otworzyła. W mailu: rekrutacja, klient, "
+        "data otwarcia i kto ją prowadzi.",
+    ),
     # Maile natychmiast (22.10.2026, „brak maila o terminach rozmów”) — typy
     # dzwonka z `BELL_MAIL_TYPES`, treść = tytuł i opis wpisu w dzwonku.
     dict(
@@ -207,6 +218,16 @@ CATALOG = (
         "Leadzi, przy zgodzie — przełożony autora albo zatwierdzający z Ustawień. W mailu "
         "nie ma rodzaju nieobecności ani kwot — poza mailem do decydującego o zgodzie "
         "(kwota i „po co”, decyzja Artura 20.10.2026).",
+    ),
+    # Mail obowiązkowy (26.10.2026) — treść składa `services/hr/hr_mail.py`.
+    dict(
+        id="hr_bonus",
+        label="Masz nową premię",
+        module="Ludzie",
+        trigger="Płace przyznały, zmieniły albo anulowały Ci premię (na B2B "
+        "i zleceniu: wynagrodzenie dodatkowe), także premię poza umową po zgodzie.",
+        recipient_rule="Osoba, której premia dotyczy. W mailu: za co i za który "
+        "miesiąc, bez kwoty (decyzja Artura 26.10.2026); kwota jest w „Moim czasie”.",
     ),
     # Poranny skrót (07.10.2026) — `tasks/daily_digest_email.py`.
     dict(
@@ -334,6 +355,8 @@ class DeliveryPolicy:
 
 
 HR_MAIL_KIND = "hr_people"
+HR_BONUS_KIND = "hr_bonus"
+CLIENT_JOB_KIND = "client_job_opened"
 
 # Maile obowiązkowe (decyzja Artura 26.10.2026): sprawy, na które ktoś czeka.
 # Pomiar na kopii produkcji z 22.10: nikt z 38 kont nie wyłączył sobie maila,
@@ -346,6 +369,7 @@ HR_MAIL_KIND = "hr_people"
 REQUIRED_KINDS = frozenset(
     {
         "request_assigned",
+        CLIENT_JOB_KIND,
         "client_interview",
         "dl_review",
         "cv_returned",
@@ -354,6 +378,7 @@ REQUIRED_KINDS = frozenset(
         "signature_request",
         "delivery_alert",
         HR_MAIL_KIND,
+        HR_BONUS_KIND,
         "data_access_alert",
         "system_failure",
     }
@@ -369,7 +394,10 @@ class RequiredKindReasonMissing(ValueError):
 # Raport godzin wysłany do akceptacji (`hr_timesheet_submitted`) idzie mailem
 # od 18.10.2026 — jak w Compassie akceptujący dowiaduje się o nim od razu,
 # a nie dopiero z licznika w „Akceptacjach” (od 1.11 raporty składa się
-# w NEXUSIE). Bez maila zostają premie i stawki (kwoty) i opieka
+# w NEXUSIE). Premia (`hr_bonus_assigned`) ma od 26.10.2026 własny mail
+# obowiązkowy „Masz nową premię” (`HR_BONUS_KIND`, bez kwoty — treść składa
+# `hr_mail.bonus_mail`), więc tej listy nie dotyczy. Bez maila zostają stawki
+# (kwoty) i opieka
 # (`care_contact_due`, sekcja Delivery), a z rozliczeń — informacja o zapłacie
 # (`hr_settlement_paid`; prośba o korektę faktury i rozliczenie do decyzji
 # Płac idą mailem). Przypomnienia o terminie
@@ -448,6 +476,8 @@ def notification_kind(notification_type: Any) -> str | None:
         "automation_failing": "system_failure",
         "teams_prep_scope_missing": "system_failure",
         "candidate_data_access_alert": "data_access_alert",
+        "client_job_opened": CLIENT_JOB_KIND,
+        "hr_bonus_assigned": HR_BONUS_KIND,
     }.get(getattr(notification_type, "value", notification_type))
 
 
@@ -529,6 +559,8 @@ IMMEDIATE_KINDS = (
     "system_failure",
     "data_access_alert",
     HR_MAIL_KIND,
+    HR_BONUS_KIND,
+    CLIENT_JOB_KIND,
     *BELL_MAIL_TYPES,
 )
 

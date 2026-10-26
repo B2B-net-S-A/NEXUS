@@ -8,8 +8,13 @@ rekrutacja, prośba o potwierdzenie podpisu, awaria automatu, od 17.10.2026
 sprawy „Czas i ludzie” — treść składa `services/hr/hr_mail.py`, bez rodzaju
 nieobecności i kwot, od 22.10.2026 rodzaje z `BELL_MAIL_TYPES`: rozmowy
 u klienta, prepy, akceptacja klienta, umowa przedwstępna, zadania od zespołu,
-zatrudniony bez dokumentów). Resztę zbiera poranny skrót
-(`tasks/daily_digest_email.py`).
+zatrudniony bez dokumentów, od 26.10.2026 „Nowa rekrutacja u Twojego
+klienta” i „Masz nową premię” bez kwoty — `hr_mail.bonus_mail`). Resztę zbiera
+poranny skrót (`tasks/daily_digest_email.py`).
+
+„Nowa rekrutacja u Twojego klienta” (`CLIENT_JOB_KIND`) idzie paczką: wiersz
+czeka, aż najstarszy wpis osoby ma `client_job_opened.GROUP_WINDOW`, a potem
+jeden mail bierze wszystkie wpisy tej osoby, które czekają na wysyłkę.
 
 Pętla co minutę bierze wiersze `Notification` tych typów bez `email_sent_at`
 i wysyła je wzorcem `job_deadline_alerts`: rezerwacja `email_send_started_at`
@@ -41,11 +46,11 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
-from app.services import loop_heartbeat
+from app.services import client_job_opened, loop_heartbeat
 from app.services.email import email_channel_enabled, render_notification_email
 from app.services.hr.approvals import mail as approval_mail
 from app.services.hr.approvals import mail_reply as approval_mail_reply
-from app.services.hr.hr_mail import mail_text
+from app.services.hr.hr_mail import bonus_mail, mail_text
 from app.services.m365.system_mail import DELIVERY_UNCERTAIN, app_mail_send_outcome
 from app.services.notification_access import (
     user_can_receive_notification,
@@ -53,6 +58,8 @@ from app.services.notification_access import (
 )
 from app.services.notification_delivery import (
     BELL_MAIL_TYPES,
+    CLIENT_JOB_KIND,
+    HR_BONUS_KIND,
     HR_MAIL_KIND,
     HR_MAIL_TYPES,
     IMMEDIATE_KINDS,
@@ -116,6 +123,10 @@ def kind_clause(kind: str):
         return ntype == NotificationType.candidate_data_access_alert
     if kind == HR_MAIL_KIND:
         return ntype.in_([NotificationType(value) for value in HR_MAIL_TYPES])
+    if kind == HR_BONUS_KIND:
+        return ntype == NotificationType.hr_bonus_assigned
+    if kind == CLIENT_JOB_KIND:
+        return ntype == NotificationType.client_job_opened
     if kind in BELL_MAIL_TYPES:
         return ntype.in_([NotificationType(value) for value in BELL_MAIL_TYPES[kind]])
     raise ValueError(kind)
@@ -142,9 +153,10 @@ async def _claim(db: AsyncSession, notif_id: int) -> bool:
     return claimed
 
 
-async def _set(db: AsyncSession, notif_id: int, **values) -> None:
+async def _set(db: AsyncSession, notif_id: int | list[int], **values) -> None:
+    ids = notif_id if isinstance(notif_id, list) else [notif_id]
     await db.execute(
-        update(Notification).where(Notification.id == notif_id).values(**values)
+        update(Notification).where(Notification.id.in_(ids)).values(**values)
     )
     await db.commit()
 
@@ -229,7 +241,7 @@ async def dispatch(db: AsyncSession) -> int:
         after = (last.created_at, last.id)
         await resolve_effective_section_access_for_users(db, [u for _, u in pairs])
         for notif, user in pairs:
-            outcome = await _deliver(db, notif, user, kinds)
+            outcome = await _deliver(db, notif, user, kinds, cutoffs)
             if outcome is None:
                 continue
             attempted += 1
@@ -241,8 +253,39 @@ async def dispatch(db: AsyncSession) -> int:
     return sent
 
 
+async def _pending_client_jobs(
+    db: AsyncSession, notif: Notification, user: User, cutoff: datetime | None
+) -> list[Notification]:
+    """Wpisy „Nowa rekrutacja u Twojego klienta” osoby czekające na wysyłkę."""
+    now = datetime.now(timezone.utc)
+    floor = max(c for c in (cutoff, now - MAX_AGE) if c is not None)
+    stale_cutoff = now - timedelta(minutes=_CLAIM_STALE_MIN)
+    rows = (
+        await db.scalars(
+            select(Notification)
+            .where(
+                Notification.user_id == user.id,
+                kind_clause(CLIENT_JOB_KIND),
+                Notification.created_at >= floor,
+                Notification.email_sent_at.is_(None),
+                Notification.email_delivery_uncertain.is_(False),
+                or_(
+                    Notification.email_send_started_at.is_(None),
+                    Notification.email_send_started_at <= stale_cutoff,
+                ),
+            )
+            .order_by(Notification.created_at.asc(), Notification.id.asc())
+        )
+    ).all()
+    return [row for row in rows if _can_receive(user, row, CLIENT_JOB_KIND)] or [notif]
+
+
 async def _deliver(
-    db: AsyncSession, notif: Notification, user: User, kinds: list[str]
+    db: AsyncSession,
+    notif: Notification,
+    user: User,
+    kinds: list[str],
+    cutoffs: dict | None = None,
 ) -> bool | None:
     """``True`` wysłany, ``False`` próba bez wysyłki, ``None`` bez próby."""
 
@@ -255,8 +298,17 @@ async def _deliver(
         # Bez rezerwacji: wiersz wypadnie z kolejki po `MAX_AGE`, a przebieg
         # idzie dalej kursorem, więc nie zajmuje miejsca innym.
         return None
-    if not await _claim(db, notif.id):
+    batch = [notif]
+    if kind == CLIENT_JOB_KIND:
+        group_from = datetime.now(timezone.utc) - client_job_opened.GROUP_WINDOW
+        if notif.created_at > group_from:
+            # Paczka jeszcze się zbiera — wiersz wróci w następnym przebiegu.
+            return None
+        batch = await _pending_client_jobs(db, notif, user, (cutoffs or {}).get(kind))
+    batch = [row for row in batch if await _claim(db, row.id)]
+    if not batch:
         return None
+    ids = [row.id for row in batch]
     # Rola, sekcje i wyciszenia mogły się zmienić między odczytem a rezerwacją.
     await db.refresh(
         user,
@@ -270,7 +322,7 @@ async def _deliver(
     )
     await resolve_effective_section_access(db, user)
     if not _can_receive(user, notif, kind):
-        await _set(db, notif.id, email_send_started_at=None)
+        await _set(db, ids, email_send_started_at=None)
         return None
 
     extra: dict[str, str] = {}
@@ -287,15 +339,33 @@ async def _deliver(
         if reply_to and notif.related_entity_type == "approval_request":
             extra["reply_to"] = reply_to
     else:
-        title, message = notif.title, notif.message
+        title, message, link = notif.title, notif.message, notif.link
         if kind == HR_MAIL_KIND:
             # Mail wychodzi poza aplikację: bez rodzaju nieobecności i kwot (D6).
             title, message = mail_text(notif.notification_type, title, message)
+        elif kind == HR_BONUS_KIND:
+            # Za co i za który miesiąc, bez kwoty (decyzja Artura 26.10.2026).
+            bonus = await bonus_mail(db, notif)
+            if bonus is None:
+                await _set(db, ids, email_send_started_at=None)
+                return None
+            title, message = bonus
+        elif kind == CLIENT_JOB_KIND:
+            grouped = await client_job_opened.render(db, batch)
+            if grouped is None:
+                await _set(db, ids, email_send_started_at=None)
+                return None
+            title, message, link, sent_ids = grouped
+            # Rekrutacja zamknięta przed wysyłką wypada z maila bez stempla.
+            dropped = [i for i in ids if i not in sent_ids]
+            if dropped:
+                await _set(db, dropped, email_send_started_at=None)
+            ids = sent_ids
         subject, text_body, html_body = render_notification_email(
             recipient_name=user.name or user.email,
             title=title,
             message=message,
-            deep_link_path=notif.link or "/dashboard",
+            deep_link_path=link or "/dashboard",
         )
     to_addr = user.email
     created_at = notif.created_at
@@ -328,12 +398,12 @@ async def _deliver(
             type(exc).__name__,
         )
     if ok is DELIVERY_UNCERTAIN:
-        await _set(db, notif.id, email_delivery_uncertain=True)
+        await _set(db, ids, email_delivery_uncertain=True)
         return False
     if ok:
-        await _set(db, notif.id, email_sent_at=func.now())
+        await _set(db, ids, email_sent_at=func.now())
         return True
-    await _set(db, notif.id, email_send_started_at=None)
+    await _set(db, ids, email_send_started_at=None)
     return False
 
 

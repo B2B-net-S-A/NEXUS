@@ -55,7 +55,9 @@ from app.services.notification_categories import (
 )
 from app.services.notification_delivery import (
     CATALOG,
+    CLIENT_JOB_KIND,
     DIGEST_KIND,
+    HR_BONUS_KIND,
     HR_MAIL_KIND,
     REQUIRED_KINDS,
     RESUMED_KEY,
@@ -85,6 +87,8 @@ BELL_TYPE_BY_KIND: dict[str, NotificationType] = {
     "job_deadline": NotificationType.job_deadline_7d,
     HR_MAIL_KIND: NotificationType.hr_leave_decided,
     "hire_documents": NotificationType.hire_missing_contract,
+    HR_BONUS_KIND: NotificationType.hr_bonus_assigned,
+    CLIENT_JOB_KIND: NotificationType.client_job_opened,
 }
 
 
@@ -143,6 +147,14 @@ def _request_assigned(user: User, _: _Context) -> bool:
     return user.has_any_role(
         UserRole.recruiter, UserRole.delivery_lead, UserRole.admin
     ) and user_may_receive_type(user, NotificationType.request_assignment_changed)
+
+
+def _client_job_opened(user: User, _: _Context) -> bool:
+    # Delivery Lead rekrutacji, a bez niego Head of Recruitment
+    # (`client_job_opened.emit_opened`).
+    return user.has_any_role(
+        UserRole.delivery_lead, UserRole.head_of_recruitment
+    ) and user_may_receive_type(user, NotificationType.client_job_opened)
 
 
 def _signature_request(user: User, _: _Context) -> bool:
@@ -219,6 +231,13 @@ def _hr_people(user: User, ctx: _Context) -> bool:
     ) and user_may_receive_type(user, NotificationType.hr_leave_decided)
 
 
+def _hr_bonus(user: User, ctx: _Context) -> bool:
+    # Premie żyją w module płac „Ludzi”; odbiorca to osoba z premii.
+    return module_open_for(user, ctx.hr_modules, "payroll") and user_may_receive_type(
+        user, NotificationType.hr_bonus_assigned
+    )
+
+
 def _candidate_bell(ntype: NotificationType) -> Callable[[User, _Context], bool]:
     # Rozmowy, prepy, akceptacje i zadania od zespołu: odbiorcę wybiera para
     # osoba–rekrutacja, nie rola — mail może trafić do każdego konta z dostępem
@@ -264,6 +283,7 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "dl_review": _dl_review,
     "cv_returned": _cv_returned,
     "request_assigned": _request_assigned,
+    CLIENT_JOB_KIND: _client_job_opened,
     "signature_request": _signature_request,
     "system_failure": _system_failure,
     "data_access_alert": _data_access_alert,
@@ -274,6 +294,7 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "team_task": _candidate_bell(NotificationType.note_reply),
     "hire_documents": _hire_documents,
     HR_MAIL_KIND: _hr_people,
+    HR_BONUS_KIND: _hr_bonus,
     DIGEST_KIND: _digest,
     "kpi_weekly_report": _kpi_weekly,
     "board_monthly_report": _board_monthly,

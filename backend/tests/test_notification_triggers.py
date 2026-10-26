@@ -104,6 +104,8 @@ async def test_all_triggers_return_zero_when_no_data(empty_db):
         "autofill_decisions",
         # 23.10.2026: raport poniedziałkowy „Jakość podpowiedzi systemu”.
         "autofill_quality_report",
+        # 26.10.2026: „Nowa rekrutacja u Twojego klienta” (`client_job_opened`).
+        "client_job_opened",
     }
     assert all(isinstance(v, int) and v >= 0 for v in results.values())
     # Time-gated trigger musi zwrócić 0 o 21:00.
