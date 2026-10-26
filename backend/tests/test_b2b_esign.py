@@ -128,6 +128,53 @@ def test_both_parties_signed_with_qualified_signatures_is_accepted():
     assert verdict.accepted
 
 
+def test_any_listed_company_representative_may_sign_for_the_firm():
+    """Artur 26.10.2026: Olaf wgrywa plik podpisany podpisem Artura — za firmę
+    wystarczy podpis kwalifikowany jednej z osób z listy reprezentantów."""
+    representatives = ["Olaf Firma", "Artur Prezes"]
+    by_artur = judge(
+        _report(
+            ("CN=Jan Kowalski", "TOTAL_PASSED", "QESig"),
+            ("CN=Artur Prezes", "TOTAL_PASSED", "QESig"),
+        ),
+        authoritative=True,
+        required_signers=["Jan Kowalski"],
+        any_of_signers=representatives,
+    )
+    assert by_artur.accepted
+
+    only_contractor = judge(
+        _report(("CN=Jan Kowalski", "TOTAL_PASSED", "QESig")),
+        authoritative=True,
+        required_signers=["Jan Kowalski"],
+        any_of_signers=representatives,
+    )
+    assert not only_contractor.accepted
+    assert only_contractor.code == "missing_signer"
+    assert "Olaf Firma" in (only_contractor.message or "")
+    assert "Artur Prezes" in (only_contractor.message or "")
+
+    stranger = judge(
+        _report(
+            ("CN=Jan Kowalski", "TOTAL_PASSED", "QESig"),
+            ("CN=Ktoś Obcy", "TOTAL_PASSED", "QESig"),
+        ),
+        authoritative=True,
+        required_signers=["Jan Kowalski"],
+        any_of_signers=representatives,
+    )
+    assert not stranger.accepted
+
+    # Kontraktor nie podpisze „za firmę”, nawet gdyby był na liście.
+    same_person = judge(
+        _report(("CN=Jan Kowalski", "TOTAL_PASSED", "QESig")),
+        authoritative=True,
+        required_signers=["Jan Kowalski"],
+        any_of_signers=["Jan Kowalski"],
+    )
+    assert not same_person.accepted
+
+
 def test_dss_mapping_keeps_the_level_of_every_signature():
     report = ValidationService._map_dss_report(
         {

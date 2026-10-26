@@ -387,7 +387,7 @@ async def company_submit(
     db: AsyncSession,
     *,
     request: B2BSigningRequest,
-    actor_name: str,
+    representative_names: list[str],
     data: bytes,
     validator: Validator,
     now: datetime,
@@ -408,7 +408,10 @@ async def company_submit(
     verdict = judge(
         report,
         authoritative=validator.authoritative,
-        required_signers=[contractor_name, actor_name],
+        required_signers=[contractor_name],
+        # Za firmę: podpis kwalifikowany jednej z osób z listy reprezentantów,
+        # niekoniecznie osoby, która wgrywa plik (26.10.2026).
+        any_of_signers=representative_names,
     )
     if not verdict.accepted:
         raise HTTPException(status_code=422, detail=verdict.message)

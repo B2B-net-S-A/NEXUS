@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import Sequence
 
 from app.services.signing.provider import (
     ValidationReport,
@@ -120,11 +121,14 @@ def judge(
     *,
     authoritative: bool,
     required_signers: list[str],
+    any_of_signers: Sequence[str] = (),
 ) -> Verdict:
     """Raport walidacji → przyjąć albo nie, z powodem dla człowieka.
 
     ``required_signers`` — imiona i nazwiska, które MUSZĄ być wśród ważnych
-    podpisów kwalifikowanych (kontraktor; potem kontraktor i reprezentant)."""
+    podpisów kwalifikowanych (kontraktor). ``any_of_signers`` — za firmę
+    wystarczy podpis JEDNEJ z tych osób (lista reprezentantów z ustawień;
+    26.10.2026 plik wgrywa Olaf, a podpisuje Artur)."""
     if not authoritative:
         return Verdict.no("no_validator", MSG_NO_VALIDATOR)
     results = report.signature_results
@@ -145,9 +149,18 @@ def judge(
                 f"W pliku nie ma podpisu kwalifikowanego osoby: {name}. "
                 "Podpisuje osoba, której imię i nazwisko jest w umowie.",
             )
-    if len(required_signers) > 1 and len(report.positive_signer_identities) < len(
-        required_signers
+    if any_of_signers and not any(
+        is_positive_indication(r.get("indication"))
+        and any(name_matches(name, r.get("signer")) for name in any_of_signers)
+        for r in results
     ):
+        return Verdict.no(
+            "missing_signer",
+            "W pliku nie ma podpisu kwalifikowanego osoby reprezentującej "
+            f"B2B Network ({', '.join(any_of_signers)}).",
+        )
+    expected = len(required_signers) + (1 if any_of_signers else 0)
+    if expected > 1 and len(report.positive_signer_identities) < expected:
         return Verdict.no(
             "same_person",
             "Obie strony podpisała ta sama osoba — potrzebny jest podpis "
