@@ -237,6 +237,33 @@ describe("Akceptacje — jedna lista", () => {
     expect(screen.queryByText("Kamil Testowy")).toBeNull();
   });
 
+  it("„Zatwierdź” z maila: ten wniosek otwarty i okno potwierdzenia — bez decyzji z samego linku", async () => {
+    const user = userEvent.setup();
+    open("?leave=lv-2&decide=approve");
+    const dialog = await screen.findByRole("dialog", { name: "Zaakceptować wniosek?" });
+    // Okno zasłania tło (`aria-hidden`) — szczegół wniosku stoi pod nim.
+    expect(screen.getByRole("region", { name: "Szczegóły: Julia Próbna", hidden: true })).toBeInTheDocument();
+    expect(window.location.search).toBe("?leave=lv-2");
+    expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ method: "post" }));
+    await user.click(within(dialog).getByRole("button", { name: "Jeszcze nie" }));
+    expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ method: "post" }));
+  });
+
+  it("„Odrzuć” z maila otwiera okno odrzucenia z powodem", async () => {
+    open("?leave=lv-1&decide=reject");
+    expect(await screen.findByRole("dialog", { name: "Odrzucić wniosek?" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Szczegóły: Kamil Testowy", hidden: true })).toBeInTheDocument();
+  });
+
+  it("wniosek z maila „do wiadomości” (bez decyzji) nie otwiera okna", async () => {
+    const client = seed({ pending: false });
+    const pending = [leave("lv-9", "Ewa Zastępowana", "2026-10-18T09:00:00+02:00", { can_decide: false })];
+    client.setQueryData(leaveKeys.pending, { items: pending, total: 1, covering: [], reported: [] });
+    open("?leave=lv-9&decide=approve", client);
+    expect(screen.getByRole("region", { name: "Szczegóły: Ewa Zastępowana" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("link z powiadomienia o raporcie godzin: chip „Raporty godzin”, bez skrzynki", () => {
     const client = seed();
     client.setQueryData(timeKeys.team(2026, 9), { year: 2026, month: 9, norm_hours: 168, items: [] });

@@ -85,7 +85,7 @@ w `REQUIRED_KINDS`; test pilnuje, że to rodzaj z katalogu.
   bez id premii albo z premią innej osoby nie wychodzi mailem.
 - „Kogo dotyczy” = moduł płac „Ludzi” działa dla konta.
 
-## Czego tu nie ma (osobny PR z planu 26.10)
+## Wygląd maila
 
-- Przyciski z gotową akcją w mailu (decyzja: same przyciski, bez odpowiedzi
-  mailem i bez kart Outlooka) — nowy wygląd maila z makiet.
+- Temat-zadanie, fakty sprawy i przyciski z gotową akcją (26.10.2026) —
+  `maile-z-przyciskami-akcji.md`.
