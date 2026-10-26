@@ -47,12 +47,16 @@ from app.services.hr.approvals import mail as approval_mail
 from app.services.hr.approvals import mail_reply as approval_mail_reply
 from app.services.hr.hr_mail import mail_text
 from app.services.m365.system_mail import DELIVERY_UNCERTAIN, app_mail_send_outcome
-from app.services.notification_access import user_can_receive_notification
+from app.services.notification_access import (
+    user_can_receive_notification,
+    user_can_receive_required_mail,
+)
 from app.services.notification_delivery import (
     BELL_MAIL_TYPES,
     HR_MAIL_KIND,
     HR_MAIL_TYPES,
     IMMEDIATE_KINDS,
+    REQUIRED_KINDS,
     email_queue_clause,
     email_wanted,
     guarded_send,
@@ -146,12 +150,19 @@ async def _set(db: AsyncSession, notif_id: int, **values) -> None:
 
 
 def _can_receive(user: User, notif: Notification, kind: str) -> bool:
+    # Mail obowiązkowy (26.10.2026): wyciszona kategoria w dzwonku go nie
+    # zatrzymuje. Grupa wyłączona dla roli przez admina i sekcje — tak.
+    reach = (
+        user_can_receive_required_mail
+        if kind in REQUIRED_KINDS
+        else user_can_receive_notification
+    )
     return bool(
         user.is_active
         and user.email
         # Własny wyłącznik maila („Maile do Ciebie”); dzwonek zostaje.
         and email_wanted(user, kind, notif.created_at)
-        and user_can_receive_notification(
+        and reach(
             user,
             notif.notification_type,
             related_entity_type=notif.related_entity_type,

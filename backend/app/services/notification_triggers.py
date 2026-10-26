@@ -123,6 +123,10 @@ async def emit(
 
     Zwraca utworzoną Notification lub None (duplikat albo brak adresata).
     """
+    # Mail obowiązkowy (26.10.2026): przy wyciszonej kategorii wiersz i tak
+    # powstaje, bo z niego wychodzi mail (`notification_email_outbox`). Dzwonek
+    # go nie pokazuje (`notification_visibility_predicate`), a dymka nie ma.
+    mail_only = False
     if not await notification_recipient_has_access(
         db,
         user_id,
@@ -130,12 +134,23 @@ async def emit(
         related_entity_type=related_entity_type,
         link=link,
     ):
-        logger.debug(
-            "notification skipped: user=%s type=%s — inactive or no access",
-            user_id,
-            ntype.value,
+        mail_only = _feeds_required_mail(ntype) and (
+            await notification_recipient_has_access(
+                db,
+                user_id,
+                ntype,
+                related_entity_type=related_entity_type,
+                link=link,
+                ignore_personal_mutes=True,
+            )
         )
-        return None
+        if not mail_only:
+            logger.debug(
+                "notification skipped: user=%s type=%s — inactive or no access",
+                user_id,
+                ntype.value,
+            )
+            return None
 
     notif = Notification(
         user_id=user_id,
@@ -158,6 +173,9 @@ async def emit(
             related_entity_id,
         )
         return None
+
+    if mail_only:
+        return notif
 
     # Best-effort WS push — brak odbiorcy online = brak problemu (poll to złapie).
     # Runda 9 (R9-N2-5): dopiero po commicie; pętla triggerów commituje raz,
@@ -182,6 +200,15 @@ async def emit(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _feeds_required_mail(ntype: NotificationType) -> bool:
+    from app.services.notification_delivery import (
+        REQUIRED_KINDS,
+        notification_kind,
+    )
+
+    return notification_kind(ntype) in REQUIRED_KINDS
 
 
 @dataclass(frozen=True, slots=True)

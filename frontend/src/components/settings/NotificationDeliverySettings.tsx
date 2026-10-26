@@ -8,6 +8,7 @@ import { AppModal } from "@/components/ds/AppModal";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   notificationDeliveryApi,
   type NotificationDeliveryOverview,
@@ -136,6 +137,11 @@ function NotificationTable({ items, enabled, busy, digestRecipients, onToggle }:
             <tr key={item.id} className="align-top">
               <th scope="row" className="min-w-40 px-4 py-4 font-medium">
                 {item.label}
+                {item.editable && item.required && (
+                  <Badge variant="soft" size="sm" className="ml-2 whitespace-nowrap align-middle">
+                    obowiązkowy
+                  </Badge>
+                )}
                 <span className="mt-1 block text-xs font-normal text-muted-foreground">{item.module}</span>
               </th>
               <td className="min-w-64 max-w-md px-4 py-4">
@@ -163,7 +169,9 @@ function NotificationTable({ items, enabled, busy, digestRecipients, onToggle }:
                         ? "Zezwolono na wysyłkę nowych zdarzeń."
                         : !enabled && item.email_enabled
                           ? "Wysyłka globalna jest wyłączona."
-                          : "Ten typ maila jest wyłączony."}
+                          : item.paused_reason
+                            ? `Wstrzymany: ${item.paused_reason}`
+                            : "Ten typ maila jest wyłączony."}
                     </p>
                     <SelfDisabledNote names={item.self_disabled ?? []} />
                   </>
@@ -190,6 +198,8 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
   // w trakcie animacji zamykania.
   const [pendingOff, setPendingOff] = useState<PendingOff | null>(null);
   const [offOpen, setOffOpen] = useState(false);
+  // Powód wstrzymania maila obowiązkowego (26.10.2026) — wymagany przez API.
+  const [pauseReason, setPauseReason] = useState("");
   const user = useAuthStore((state) => state.user);
   const hydrated = useAuthStore((state) => state.hydrated);
   const canRead = hasRole(user, "admin") && hasSectionAccess(user, "system_admin", "read");
@@ -217,7 +227,7 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
   const editable = data.types.filter((item) => item.editable);
   const required = data.types.filter((item) => !item.editable);
   const busy = !canWrite || save.isPending || query.isFetching;
-  const update = (enabled: boolean, changed?: NotificationDeliveryType) => {
+  const update = (enabled: boolean, changed?: NotificationDeliveryType, reason?: string) => {
     if (busy) return;
     const input: NotificationDeliveryUpdate = {
       enabled,
@@ -225,6 +235,7 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
         id: item.id,
         email_enabled: item.id === changed?.id ? !item.email_enabled : item.email_enabled,
       })),
+      ...(reason ? { reason } : {}),
     };
     save.mutate(input);
   };
@@ -232,6 +243,7 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
   // najpierw pyta — 09.10.2026 jedno kliknięcie wyłączyło skrót 28 osobom.
   const askOff = (target: PendingOff) => {
     setPendingOff(target);
+    setPauseReason("");
     setOffOpen(true);
   };
   const toggleGlobal = () => {
@@ -244,10 +256,12 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
     if (item.email_enabled) askOff({ kind: "type", item });
     else update(data.enabled, item);
   };
+  const pendingRequired = pendingOff?.kind === "type" && pendingOff.item.required === true;
   const confirmOff = () => {
     if (!pendingOff || !offOpen) return;
+    if (pendingRequired && !pauseReason.trim()) return;
     if (pendingOff.kind === "global") update(false);
-    else update(data.enabled, pendingOff.item);
+    else update(data.enabled, pendingOff.item, pendingRequired ? pauseReason.trim() : undefined);
     setOffOpen(false);
   };
   const digestRecipients = data.daily_digest_recipients ?? null;
@@ -259,7 +273,9 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
       ? "Wyłączasz automatyczne maile całej firmie"
       : pendingDigest
         ? `Wyłączasz ten mail ${peopleDative(digestRecipients ?? 0)}`
-        : "Wyłączasz ten mail całej firmie";
+        : pendingRequired
+          ? "Wstrzymujesz mail obowiązkowy całej firmie"
+          : "Wyłączasz ten mail całej firmie";
   const lastChange = data.updated_at ? formatTime(data.updated_at) : null;
 
   return (
@@ -349,7 +365,13 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
         footer={
           <>
             <Button variant="outline" onClick={() => setOffOpen(false)}>Anuluj</Button>
-            <Button variant="destructive" onClick={confirmOff}>Wyłącz wszystkim</Button>
+            <Button
+              variant="destructive"
+              onClick={confirmOff}
+              disabled={pendingRequired && !pauseReason.trim()}
+            >
+              {pendingRequired ? "Wstrzymaj wszystkim" : "Wyłącz wszystkim"}
+            </Button>
           </>
         }
       >
@@ -359,7 +381,25 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
               ? `${pendingOff.item.label} — ten mail przestanie wychodzić do wszystkich odbiorców w firmie.`
               : "Żaden automatyczny mail nie wyjdzie do nikogo w firmie, dopóki wysyłka nie zostanie włączona ponownie."}
           </p>
-          {onGoToMine ? (
+          {pendingRequired && (
+            <div className="space-y-1">
+              <label htmlFor="required-mail-pause-reason" className="font-medium">
+                Powód wstrzymania
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Ten mail niesie sprawy, na które ktoś czeka. Powód trafi do Historii zdarzeń
+                i do „Moje konto” każdej osoby, która go dostaje.
+              </p>
+              <Textarea
+                id="required-mail-pause-reason"
+                rows={3}
+                maxLength={500}
+                value={pauseReason}
+                onChange={(event) => setPauseReason(event.target.value)}
+              />
+            </div>
+          )}
+          {pendingRequired ? null : onGoToMine ? (
             <Button
               variant="tertiary"
               className="h-auto px-0"

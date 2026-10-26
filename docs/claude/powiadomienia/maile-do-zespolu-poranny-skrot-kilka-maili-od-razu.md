@@ -47,6 +47,7 @@ Decyzja Artura 07.10.2026: mail ma nieść tylko to, co wymaga ruchu odbiorcy.
 - **Alarm wydatków AI**: raz w tygodniu na funkcję i miarę, raz w miesiącu na
   funkcję (bez poziomów w kluczu) — tylko dzwonek.
 - Wszystko za polityką z Ustawień → Powiadomienia (domyślnie OFF, włączenie
-  nie wysyła zaległości). Bez maili do kandydatów (`application_confirmation`
+  nie wysyła zaległości); maile obowiązkowe włączają się same przy starcie
+  (`maile-obowiazkowe.md`, 26.10.2026). Bez maili do kandydatów (`application_confirmation`
   zostaje wyłączone — decyzja Artura). Wyłączniki pętli:
   `DAILY_DIGEST_EMAIL_ENABLED`, `NOTIFICATION_EMAIL_OUTBOX_ENABLED`.

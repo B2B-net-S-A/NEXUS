@@ -103,10 +103,10 @@ def test_entrypoint_mirrors_the_email_opt_outs_migration():
 def test_opt_out_rule_reads_the_column_for_the_digest_and_json_for_the_rest():
     user = _user(UserRole.recruiter)
     assert not any(delivery.email_opted_out(user, k) for k in prefs.OPTABLE_KINDS)
-    user.email_opt_outs = {"mentions": _AT, "cv_returned": ""}
+    user.email_opt_outs = {"mentions": _AT, "job_deadline": ""}
     assert delivery.email_opted_out(user, "mentions")
     # Pusty znacznik nie jest wyłączeniem.
-    assert not delivery.email_opted_out(user, "cv_returned")
+    assert not delivery.email_opted_out(user, "job_deadline")
     assert not delivery.email_opted_out(user, "daily_digest")
     user.daily_digest_email_enabled = False
     assert delivery.email_opted_out(user, "daily_digest")
@@ -351,18 +351,124 @@ def test_immediate_email_queue_skips_an_account_that_switched_it_off():
         message="…",
         created_at=created,
     )
-    assert _can_receive(admin, notif, "system_failure")
-    admin.email_opt_outs = {"system_failure": _AT}
-    assert not _can_receive(admin, notif, "system_failure")
+    assert _can_receive(admin, notif, "mentions")
+    admin.email_opt_outs = {"mentions": _AT}
+    assert not _can_receive(admin, notif, "mentions")
     # Inny rodzaj tego samego konta zostaje.
     assert _can_receive(admin, notif, "request_assigned")
     # Włączony z powrotem po zdarzeniu — zaległość nie wychodzi.
     admin.email_opt_outs = {
-        delivery.RESUMED_KEY: {
-            "system_failure": (created + timedelta(hours=1)).isoformat()
-        }
+        delivery.RESUMED_KEY: {"mentions": (created + timedelta(hours=1)).isoformat()}
     }
-    assert not _can_receive(admin, notif, "system_failure")
+    assert not _can_receive(admin, notif, "mentions")
+
+
+# ── Maile obowiązkowe (26.10.2026) ──────────────────────────────────────────
+
+
+def test_required_emails_are_real_catalog_kinds():
+    assert delivery.REQUIRED_KINDS <= set(prefs.OPTABLE_KINDS)
+    # Poranny skrót i zwykłe informacje zostają do wyłączenia przez konto.
+    assert not delivery.REQUIRED_KINDS & {
+        "daily_digest",
+        "mentions",
+        "chat_unread",
+        "job_deadline",
+        "pipeline_stage",
+    }
+
+
+def test_old_opt_out_of_a_required_email_no_longer_stops_it():
+    user = _user(UserRole.recruiter)
+    user.email_opt_outs = {
+        "client_interview": _AT,
+        delivery.RESUMED_KEY: {"cv_returned": _AT},
+    }
+    assert not delivery.email_opted_out(user, "client_interview")
+    assert delivery.email_wanted(user, "client_interview", None)
+    # Próg „włączone ponownie” nie ucina maila obowiązkowego.
+    before = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    assert delivery.email_wanted(user, "cv_returned", before)
+    clause = delivery.email_queue_clause(
+        "client_interview", Notification.created_at
+    ).compile(dialect=postgresql.dialect())
+    assert str(clause) == "true"
+
+
+@pytest.mark.asyncio
+async def test_account_cannot_switch_off_a_required_email():
+    user = _user(UserRole.recruiter)
+    with pytest.raises(prefs.EmailKindRequired):
+        await prefs.set_enabled(object(), user, "client_interview", False)
+    assert user.email_opt_outs == {}
+    # Włączenie (np. ze starego ekranu) niczego nie psuje.
+    await prefs.set_enabled(object(), user, "client_interview", True)
+    assert not delivery.email_opted_out(user, "client_interview")
+
+
+def test_required_email_row_has_no_switch_and_ignores_the_muted_bell():
+    user = _user(UserRole.recruiter)
+    user.muted_notification_categories = {"people": _AT}
+    row = prefs._item(user, _spec("hr_people"), company_enabled=True)
+    assert row["required"] is True
+    assert (row["state"], row["receiving"]) == ("on", True)
+    assert row["note"] == prefs.REQUIRED_NOTE
+    paused = prefs._item(
+        user,
+        _spec("hr_people"),
+        company_enabled=False,
+        paused_reason="awaria skrzynki",
+    )
+    assert paused["state"] == "company_off"
+    assert "awaria skrzynki" in paused["note"]
+    plain = prefs._item(user, _spec("mentions"), company_enabled=True)
+    assert plain["required"] is False and plain["note"] is None
+    # Grupa wyłączona dla roli przez admina zatrzymuje też mail obowiązkowy.
+    user.role_muted_notification_types = frozenset({NotificationType.hr_leave_decided})
+    by_role = prefs._item(user, _spec("hr_people"), company_enabled=True)
+    assert (by_role["state"], by_role["receiving"]) == ("role_muted", False)
+
+
+def test_bell_row_for_a_required_mail_is_kept_despite_a_muted_category():
+    from app.services.notification_access import (
+        user_can_receive_notification,
+        user_can_receive_required_mail,
+    )
+    from app.services.notification_triggers import _feeds_required_mail
+
+    assert _feeds_required_mail(NotificationType.hr_leave_decided)
+    assert _feeds_required_mail(NotificationType.hire_missing_contract)
+    assert not _feeds_required_mail(NotificationType.note_mention)
+    assert not _feeds_required_mail(NotificationType.stage_rule)
+
+    user = _user(UserRole.delivery_lead)
+    user.muted_notification_categories = {"contracts": _AT}
+    ntype = NotificationType.hire_missing_contract
+    assert not user_can_receive_notification(user, ntype)
+    assert user_can_receive_required_mail(user, ntype)
+    user.role_muted_notification_types = frozenset({ntype})
+    assert not user_can_receive_required_mail(user, ntype)
+    user.role_muted_notification_types = frozenset()
+    user.is_active = False
+    assert not user_can_receive_required_mail(user, ntype)
+
+
+def test_required_email_reaches_a_muted_bell_but_not_a_role_muted_group():
+    from app.tasks.notification_email_outbox import _can_receive
+
+    recruiter = _user(UserRole.recruiter)
+    notif = Notification(
+        notification_type=NotificationType.hr_leave_decided,
+        title="Decyzja o wniosku",
+        message="…",
+        created_at=datetime(2026, 10, 26, 9, tzinfo=timezone.utc),
+    )
+    recruiter.muted_notification_categories = {"people": _AT}
+    assert _can_receive(recruiter, notif, "hr_people")
+    recruiter.role_muted_notification_types = frozenset(
+        {NotificationType.hr_leave_decided}
+    )
+    assert not _can_receive(recruiter, notif, "hr_people")
 
 
 # ── Trasy (z bazą) ──────────────────────────────────────────────────────────
@@ -394,7 +500,7 @@ async def test_account_reads_and_switches_its_own_emails(
         assert view.status_code == 200
         body = view.json()
         mine = {item["id"]: item for item in body["items"]}
-        assert mine["system_failure"]["self_enabled"] is True
+        assert mine["mentions"]["self_enabled"] is True
         assert {ref["id"] for ref in body["always_on"]} == {
             spec["id"] for spec in delivery.SECURITY_CATALOG
         }
@@ -402,12 +508,12 @@ async def test_account_reads_and_switches_its_own_emails(
         assert listed == set(prefs.OPTABLE_KINDS)
 
         saved = await app_client.put(
-            "/api/users/me/email-notifications/system_failure",
+            "/api/users/me/email-notifications/mentions",
             headers=app_auth_headers,
             json={"enabled": False},
         )
         assert saved.status_code == 200
-        row = next(i for i in saved.json()["items"] if i["id"] == "system_failure")
+        row = next(i for i in saved.json()["items"] if i["id"] == "mentions")
         assert row["self_enabled"] is False and row["receiving"] is False
         assert row["state"] in {"self_off", "company_off"}
 
@@ -416,18 +522,18 @@ async def test_account_reads_and_switches_its_own_emails(
         def in_queue(event_at):
             return select(User.id).where(
                 User.id == admin.id,
-                delivery.email_queue_clause("system_failure", event_at),
+                delivery.email_queue_clause("mentions", event_at),
             )
 
         now = datetime.now(timezone.utc)
         async with AsyncSessionLocal() as db:
             stored = await db.get(User, admin.id)
-            assert set(stored.email_opt_outs) == {"system_failure"}
+            assert set(stored.email_opt_outs) == {"mentions"}
             summary = await prefs.opt_out_summary(db)
             # Kolejka maili odsiewa konto już w zapytaniu.
             assert (await db.scalar(in_queue(now))) is None
             assert Notif.created_at is not None
-        assert (admin.name or admin.email) in summary["system_failure"]
+        assert (admin.name or admin.email) in summary["mentions"]
 
         # Administrator widzi w „Maile”, kto wyłączył mail sobie.
         overview = await app_client.get(
@@ -435,18 +541,18 @@ async def test_account_reads_and_switches_its_own_emails(
         )
         assert overview.status_code == 200
         by_kind = {item["id"]: item for item in overview.json()["types"]}
-        assert (admin.name or admin.email) in by_kind["system_failure"]["self_disabled"]
+        assert (admin.name or admin.email) in by_kind["mentions"]["self_disabled"]
         assert by_kind["password_reset"]["self_disabled"] == []
 
         back = await app_client.put(
-            "/api/users/me/email-notifications/system_failure",
+            "/api/users/me/email-notifications/mentions",
             headers=app_auth_headers,
             json={"enabled": True},
         )
         assert back.status_code == 200
         async with AsyncSessionLocal() as db:
             stored = await db.get(User, admin.id)
-            assert not delivery.email_opted_out(stored, "system_failure")
+            assert not delivery.email_opted_out(stored, "mentions")
             # Po włączeniu: nowe zdarzenia wracają do kolejki, zaległe nie.
             later = datetime.now(timezone.utc) + timedelta(minutes=1)
             assert (await db.scalar(in_queue(later))) == admin.id

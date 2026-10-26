@@ -698,6 +698,21 @@ async def lifespan(app: FastAPI):
             "Job delivery lead fill failed: %s", type(exc).__name__, exc_info=True
         )
 
+    # Maile obowiązkowe (26.10.2026) włączają się same, bez zaległości;
+    # idempotentne i nigdy nie blokuje startu.
+    try:
+        from app.services.notification_delivery import ensure_required_kinds
+
+        async with AsyncSessionLocal() as _required_mail_db:
+            turned_on = await ensure_required_kinds(_required_mail_db)
+        logger.info("Required notification emails turned on: %s", turned_on)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Required notification emails check failed: %s",
+            type(exc).__name__,
+            exc_info=True,
+        )
+
     # Startup: ensure Qdrant collection exists
     import asyncio
     from app.services.embedding_service import init_qdrant_collection

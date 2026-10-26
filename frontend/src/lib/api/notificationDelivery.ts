@@ -8,6 +8,10 @@ export interface NotificationDeliveryType {
   recipient_rule: string;
   email_enabled: boolean;
   effective_enabled: boolean;
+  /** Mail obowiązkowy (26.10.2026): wstrzymanie wymaga powodu. */
+  required?: boolean;
+  /** Powód wstrzymania maila obowiązkowego; `null` = nie wstrzymany. */
+  paused_reason?: string | null;
   /** Kto wyłączył ten mail sobie („Moje” → „Maile do Ciebie”). */
   self_disabled?: string[];
   send_not_before: string | null;
@@ -51,6 +55,8 @@ export interface NotificationDeliveryOverview {
 export interface NotificationDeliveryUpdate {
   enabled: boolean;
   types: { id: string; email_enabled: boolean }[];
+  /** Wymagany, gdy zapis wstrzymuje mail obowiązkowy. */
+  reason?: string;
 }
 
 export const notificationDeliveryApi = {

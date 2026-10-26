@@ -64,9 +64,9 @@ wszystkich). Makiety: https://claude.ai/artifact/TRKAAZX3RcB8AA7LVohkT8, raport
   (`services/notification_email_prefs.py`): `APPLIES` mówi, czy mail w ogóle
   może trafić do konta (lustro reguł odbiorców u nadawców), stan wiersza
   i zdanie wyjaśnienia liczy serwer (`on`, `self_off`, `company_off`,
-  `bell_muted`, `role_muted`). Wyłączyć sobie da się KAŻDY mail, także
-  mail-zadanie — dzwonek i „Czeka na Ciebie” zostają; zawsze przychodzą tylko
-  maile bezpieczeństwa konta. Wyłączenia żyją w `users.email_opt_outs`
+  `bell_muted`, `role_muted`). Wyłączyć sobie da się każdy mail poza
+  obowiązkowymi (od 26.10.2026, `maile-obowiazkowe.md`) i mailami
+  bezpieczeństwa konta — dzwonek i „Czeka na Ciebie” zostają. Wyłączenia żyją w `users.email_opt_outs`
   (`{rodzaj: czas}`), skrót zostaje przy swojej kolumnie.
   **Każdy nadawca pyta `notification_delivery.email_opted_out(user, rodzaj)`
   tuż przed wysyłką** — nowy rodzaj maila = wpis w `CATALOG`, reguła

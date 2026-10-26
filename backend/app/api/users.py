@@ -290,6 +290,8 @@ class MyEmailNotification(BaseModel):
     id: str
     label: str
     description: str
+    # Mail obowiązkowy (26.10.2026): bez własnego wyłącznika.
+    required: bool = False
     company_enabled: bool
     self_enabled: bool
     # Wynik końcowy: firmowo włączony, niewyłączony przez konto i bez blokady.
@@ -347,6 +349,11 @@ async def set_my_email_notification(
         raise HTTPException(
             status_code=422,
             detail="Ten mail nie trafia do Twojego konta, więc nie ma czego wyłączać.",
+        ) from exc
+    except notification_email_prefs.EmailKindRequired as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="To mail obowiązkowy — przychodzi zawsze, bo ktoś czeka na Twój ruch.",
         ) from exc
     await db.commit()
     await db.refresh(current_user)

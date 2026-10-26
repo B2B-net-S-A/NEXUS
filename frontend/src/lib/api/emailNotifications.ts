@@ -19,6 +19,8 @@ export interface MyEmailNotification {
   label: string;
   /** Kiedy mail wychodzi. */
   description: string;
+  /** Mail obowiązkowy (26.10.2026): konto nie może go wyłączyć sobie. */
+  required: boolean;
   /** Administrator ma ten mail włączony dla firmy. */
   company_enabled: boolean;
   /** Własny wyłącznik konta — zapamiętany także przy firmowym wyłączeniu. */

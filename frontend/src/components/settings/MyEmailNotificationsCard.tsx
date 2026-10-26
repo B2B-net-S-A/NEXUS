@@ -1,5 +1,7 @@
 "use client";
 
+import { Lock } from "lucide-react";
+
 import { Switch } from "@/components/ui/switch";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -30,16 +32,23 @@ function EmailRow({
         {note && (
           <p
             id={`${switchId}-note`}
-            className="mt-1 text-xs font-medium text-warning-muted-foreground"
+            className={`mt-1 text-xs font-medium ${
+              item.state === "on" ? "text-muted-foreground" : "text-warning-muted-foreground"
+            }`}
           >
+            {item.required && item.state === "on" && (
+              <Lock className="mr-1 inline h-3 w-3 align-[-2px]" aria-hidden />
+            )}
             {note}
           </p>
         )}
       </div>
+      {/* Mail obowiązkowy (26.10.2026): przełącznik zablokowany jak
+          kategoria obowiązkowa w dzwonku. */}
       <Switch
         id={switchId}
         checked={item.self_enabled}
-        disabled={pending}
+        disabled={item.required || pending}
         onCheckedChange={onToggle}
         aria-describedby={note ? `${switchId}-note` : undefined}
       />
@@ -64,8 +73,9 @@ export function MyEmailNotificationsCard() {
         Maile do Ciebie
       </h2>
       <p className="text-sm text-muted-foreground">
-        Maile, które NEXUS wysyła na Twój adres. Każdy możesz wyłączyć tylko
-        sobie — powiadomienie w ikonach paska i zadanie w „Czeka na Ciebie” zostają.
+        Maile, które NEXUS wysyła na Twój adres. Obowiązkowe przychodzą zawsze,
+        bo ktoś czeka na Twój ruch. Pozostałe możesz wyłączyć tylko sobie —
+        powiadomienie w ikonach paska i zadanie w „Czeka na Ciebie” zostają.
       </p>
 
       {query.isError && (

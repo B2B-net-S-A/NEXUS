@@ -272,6 +272,29 @@ def user_can_receive_notification(
     )
 
 
+def user_can_receive_required_mail(
+    user: User,
+    notification_type: NotificationType,
+    *,
+    related_entity_type: str | None = None,
+    link: str | None = None,
+) -> bool:
+    """Jak `user_can_receive_notification`, ale bez wyciszeń samego odbiorcy.
+
+    Mail obowiązkowy (26.10.2026) przychodzi mimo wyciszonej kategorii
+    w dzwonku; grupa wyłączona dla roli przez admina i polityka sekcji nadal
+    go zatrzymują.
+    """
+    if not user.is_active or notification_type in role_muted_types_of(user):
+        return False
+    return user_may_receive_type(
+        user,
+        notification_type,
+        related_entity_type=related_entity_type,
+        link=link,
+    )
+
+
 def role_muted_types_of(user: User) -> frozenset[NotificationType]:
     """Typy wyłączone dla ról konta; konto bez policzonej polityki = nic."""
     return getattr(user, "role_muted_notification_types", None) or frozenset()
@@ -458,6 +481,7 @@ async def notification_recipient_has_access(
     *,
     related_entity_type: str | None = None,
     link: str | None = None,
+    ignore_personal_mutes: bool = False,
 ) -> bool:
     """Re-read a recipient and their effective policy before side effects."""
 
@@ -465,7 +489,12 @@ async def notification_recipient_has_access(
     if user is None:
         return False
     await resolve_effective_section_access(db, user)
-    return user_can_receive_notification(
+    check = (
+        user_can_receive_required_mail
+        if ignore_personal_mutes
+        else user_can_receive_notification
+    )
+    return check(
         user,
         notification_type,
         related_entity_type=related_entity_type,

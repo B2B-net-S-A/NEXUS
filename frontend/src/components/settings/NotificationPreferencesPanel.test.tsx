@@ -36,6 +36,7 @@ const MY_EMAILS = {
       id: "daily_digest",
       label: "Poranny skrót „Twój dzień w NEXUSIE”",
       description: "Dzień roboczy od 8:00.",
+      required: false,
       company_enabled: true,
       self_enabled: true,
       receiving: true,
@@ -43,9 +44,10 @@ const MY_EMAILS = {
       note: null,
     },
     {
-      id: "cv_returned",
-      label: "CV wróciło do poprawy",
-      description: "Delivery Lead cofnął kandydata z „QC CV”.",
+      id: "job_deadline",
+      label: "Terminy rekrutacji",
+      description: "Zbliżający się termin otwartej rekrutacji.",
+      required: false,
       company_enabled: true,
       self_enabled: true,
       receiving: true,
@@ -56,11 +58,23 @@ const MY_EMAILS = {
       id: "mentions",
       label: "Wzmianki w notatkach",
       description: "Oznaczenie przez @wzmiankę.",
+      required: false,
       company_enabled: false,
       self_enabled: true,
       receiving: false,
       state: "company_off",
       note: "Wyłączone dla całej firmy przez administratora — teraz nikt go nie dostaje.",
+    },
+    {
+      id: "client_interview",
+      label: "Rozmowy u klienta",
+      description: "Terminy od klienta do ustalenia z kandydatem.",
+      required: true,
+      company_enabled: true,
+      self_enabled: true,
+      receiving: true,
+      state: "on",
+      note: "Mail obowiązkowy — przychodzi zawsze, bo ktoś czeka na Twój ruch.",
     },
   ],
   not_applicable: [{ id: "system_failure", label: "Awaria automatu" }],
@@ -184,14 +198,24 @@ describe("Moje powiadomienia — „Maile do Ciebie”", () => {
     renderPanel();
     expect(await screen.findByRole("heading", { name: "Maile do Ciebie" })).toBeInTheDocument();
     expect(
-      await screen.findByRole("switch", { name: "CV wróciło do poprawy" }),
+      await screen.findByRole("switch", { name: "Terminy rekrutacji" }),
     ).toBeChecked();
-    expect(screen.getByText("Delivery Lead cofnął kandydata z „QC CV”.")).toBeInTheDocument();
+    expect(screen.getByText("Zbliżający się termin otwartej rekrutacji.")).toBeInTheDocument();
     expect(screen.getByText("Maile, które nie dotyczą Twojej roli (1)")).toBeInTheDocument();
     expect(screen.getByText("Awaria automatu")).toBeInTheDocument();
     expect(
       screen.getByText("Zawsze przychodzą maile o bezpieczeństwie konta: reset hasła."),
     ).toBeInTheDocument();
+  });
+
+  it("mail obowiązkowy ma zablokowany przełącznik i mówi, dlaczego przychodzi zawsze", async () => {
+    renderPanel();
+    const toggle = await screen.findByRole("switch", { name: "Rozmowy u klienta" });
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAccessibleDescription(
+      "Mail obowiązkowy — przychodzi zawsze, bo ktoś czeka na Twój ruch.",
+    );
   });
 
   it("mail wyłączony firmowo mówi to przy wierszu, a wybór konta zostaje do ustawienia", async () => {
@@ -209,7 +233,7 @@ describe("Moje powiadomienia — „Maile do Ciebie”", () => {
       data: {
         ...MY_EMAILS,
         items: MY_EMAILS.items.map((item) =>
-          item.id === "cv_returned"
+          item.id === "job_deadline"
             ? {
                 ...item,
                 self_enabled: false,
@@ -222,15 +246,15 @@ describe("Moje powiadomienia — „Maile do Ciebie”", () => {
       },
     } as never);
     const user = renderPanel();
-    await user.click(await screen.findByRole("switch", { name: "CV wróciło do poprawy" }));
+    await user.click(await screen.findByRole("switch", { name: "Terminy rekrutacji" }));
     await waitFor(() =>
       expect(api.put).toHaveBeenCalledWith(
-        "/api/users/me/email-notifications/cv_returned",
+        "/api/users/me/email-notifications/job_deadline",
         { enabled: false },
       ),
     );
     await waitFor(() =>
-      expect(screen.getByRole("switch", { name: "CV wróciło do poprawy" })).not.toBeChecked(),
+      expect(screen.getByRole("switch", { name: "Terminy rekrutacji" })).not.toBeChecked(),
     );
     // Pozycja przełącznika mówi wszystko — bez drugiego zdania „wyłączone przez Ciebie”.
     expect(screen.queryByText("Wyłączone przez Ciebie.")).toBeNull();
@@ -253,9 +277,9 @@ describe("Moje powiadomienia — „Maile do Ciebie”", () => {
   it("odrzucony zapis zostawia przełącznik włączony i pokazuje błąd", async () => {
     vi.mocked(api.put).mockRejectedValue(new Error("network unavailable"));
     const user = renderPanel();
-    await user.click(await screen.findByRole("switch", { name: "CV wróciło do poprawy" }));
+    await user.click(await screen.findByRole("switch", { name: "Terminy rekrutacji" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się zapisać zmiany.");
-    expect(screen.getByRole("switch", { name: "CV wróciło do poprawy" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Terminy rekrutacji" })).toBeChecked();
   });
 
   it("konto bez żadnego maila i bez kanału wysyłki dostaje zdania, nie pustkę", async () => {
