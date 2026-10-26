@@ -243,6 +243,7 @@ from app.api import care_announcements as care_announcements_api
 from app.api import public_consultant_mail as public_consultant_mail_api
 from app.api import admin_cases as admin_cases_api
 from app.api import equipment as equipment_api
+from app.api import sales_companies as sales_companies_api
 from app.api import client_onboarding as client_onboarding_api
 from app.api import equipment_intune as equipment_intune_api
 from app.api import equipment_public as equipment_public_api
@@ -2010,6 +2011,11 @@ app.include_router(
 )
 app.include_router(
     equipment_api.router, prefix="/api/equipment", tags=["hr"], dependencies=_HR_PROGRAM
+)
+# Sprzedaż (Atlas → NEXUS, 26.10.2026): bramki „Sprzedaż: podgląd / edycja”
+# na każdej trasie (`require_permission`), bez osobnej sekcji produktu.
+app.include_router(
+    sales_companies_api.router, prefix="/api/sales/companies", tags=["sales"]
 )
 app.include_router(
     client_onboarding_api.router,
