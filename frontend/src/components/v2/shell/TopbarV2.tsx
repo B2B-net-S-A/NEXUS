@@ -14,6 +14,7 @@ import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
 import { CvNotificationsDropdown } from "./CvNotificationsDropdown";
 import { JobsNotificationsDropdown } from "./JobsNotificationsDropdown";
+import { ContractsNotificationsDropdown } from "./ContractsNotificationsDropdown";
 import { AbsentTodayButton } from "@/components/hr/leave/AbsentTodayButton";
 import { ConsentsTopbarButton } from "@/components/hr/approvals/ConsentsTopbarButton";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
@@ -100,6 +101,7 @@ export function TopbarV2({
         {/* Stan, nie zdarzenia: moje CV; u DL pigułka kolejki „Do wysłania”. */}
         <CvNotificationsDropdown />
         <JobsNotificationsDropdown />
+        <ContractsNotificationsDropdown />
         <ChatNotificationsDropdown />
         <InterviewNotificationsDropdown />
         {/* Zgody na wydatki i premie do decyzji (0483); przy zerze jej nie ma. */}

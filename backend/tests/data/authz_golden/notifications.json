@@ -30,6 +30,7 @@
  "routes": {
   "GET /api/notifications": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
   "GET /api/notifications/chats": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/notifications/contracts": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
   "GET /api/notifications/count": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
   "GET /api/notifications/interviews": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
   "GET /api/notifications/jobs": "PPPPPPPDPPPPPPPPPPPPPPPPPP",

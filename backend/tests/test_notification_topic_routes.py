@@ -265,6 +265,78 @@ async def test_list_filters_by_topic_and_count_splits_by_topic(app_client, ctx):
     assert body["count"] == sum(body["by_topic"].values())
 
 
+# ── „Umowy” (26.10.2026) ────────────────────────────────────────────────────
+
+
+async def test_contracts_window_groups_per_contract_and_reads_by_ids(app_client):
+    import random
+
+    base = random.randint(10**8, 2 * 10**9)
+    async with AsyncSessionLocal() as db:
+        me, me_pwd = await _new_user(db)
+
+        def contract_row(ntype, link, entity_type, entity_id, *, is_read=False):
+            row = _row(me.id, ntype, link, is_read=is_read, entity_type=entity_type)
+            row.related_entity_id = entity_id
+            return row
+
+        rows = {
+            "waits": contract_row(
+                _T.signature_sent,
+                "/contracts/b2b-generator?tab=generated",
+                "b2b_signing_request",
+                base,
+            ),
+            "signed": contract_row(
+                _T.signature_signed,
+                "/contracts/b2b-generator?tab=generated",
+                "b2b_signing_request",
+                base,
+            ),
+            "expired_read": contract_row(
+                _T.signature_failed,
+                "/contracts/b2b-generator?tab=generated",
+                "b2b_signing_request",
+                base + 1,
+                is_read=True,
+            ),
+            "dl_asked": contract_row(
+                _T.b2b_signature_requested,
+                "/jobs/5?candidate=9",
+                "b2b_generated_contract",
+                base + 2,
+            ),
+            "autenti": _row(me.id, _T.signature_rejected, "/candidates?contract=3"),
+            "job_move": _row(me.id, _T.stage_rule, "/jobs/5?candidate=9"),
+        }
+        db.add_all(rows.values())
+        await db.commit()
+        headers = await _login(app_client, me.email, me_pwd)
+        ids = {key: row.id for key, row in rows.items()}
+
+    resp = await app_client.get("/api/notifications/contracts", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # Jedna pozycja na umowę: dwa zdarzenia jednego wniosku to jedna pozycja.
+    by_count = sorted(i["unread_count"] for i in body["items"])
+    assert by_count == [0, 1, 1, 2]
+    assert body["unread_contracts"] == 3
+    assert body["items"][-1]["unread_count"] == 0  # nowe najpierw
+    request_item = next(i for i in body["items"] if i["unread_count"] == 2)
+    assert sorted(request_item["unread_ids"]) == sorted([ids["waits"], ids["signed"]])
+    assert request_item["link"] == "/contracts/b2b-generator?tab=generated"
+
+    read = await app_client.put(
+        "/api/notifications/topics/read",
+        json={"topic": "contracts", "ids": request_item["unread_ids"]},
+        headers=headers,
+    )
+    assert read.status_code == 200, read.text
+    assert read.json()["updated"] == 2
+    unread = await _unread(ids)
+    assert unread == {"dl_asked", "autenti", "job_move"}
+
+
 # ── „Wiadomości”: wątki notatek ─────────────────────────────────────────────
 
 

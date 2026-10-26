@@ -12,6 +12,7 @@ export type NotificationTopic =
   | "cv"
   | "my_people"
   | "jobs"
+  | "contracts"
   | "other";
 
 /**

@@ -239,6 +239,7 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/help/screens/{key}"),
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/chats"),
+    ("GET", "/api/notifications/contracts"),
     ("GET", "/api/notifications/count"),
     ("GET", "/api/notifications/interviews"),
     ("GET", "/api/notifications/jobs"),
