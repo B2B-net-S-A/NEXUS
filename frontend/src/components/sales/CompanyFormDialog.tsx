@@ -162,6 +162,31 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
         </>
       }
     >
+      {duplicates.length > 0 && (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm"
+        >
+          <p className="font-medium text-foreground">
+            Ta firma jest już w kartotece sprzedaży (ten sam NIP albo nazwa).
+          </p>
+          <ul className="mt-2 space-y-1">
+            {duplicates.map((duplicate) => (
+              <li key={duplicate.id}>
+                <Link className="text-primary hover:underline" href={`/sales/companies/${duplicate.id}`}>
+                  {duplicate.name}
+                </Link>
+                {duplicate.nip && (
+                  <span className="text-muted-foreground"> · NIP {duplicate.nip}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-muted-foreground">
+            Otwórz istniejącą albo zapisz mimo to, jeśli to inna spółka o tej samej nazwie.
+          </p>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1 sm:col-span-2">
           <Label htmlFor="sales-company-name">Nazwa</Label>
@@ -250,31 +275,6 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
           />
         </div>
       </div>
-      {duplicates.length > 0 && (
-        <div
-          role="alert"
-          className="mt-4 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm"
-        >
-          <p className="font-medium text-foreground">
-            Ta firma jest już w kartotece sprzedaży (ten sam NIP albo nazwa).
-          </p>
-          <ul className="mt-2 space-y-1">
-            {duplicates.map((duplicate) => (
-              <li key={duplicate.id}>
-                <Link className="text-primary hover:underline" href={`/sales/companies/${duplicate.id}`}>
-                  {duplicate.name}
-                </Link>
-                {duplicate.nip && (
-                  <span className="text-muted-foreground"> · NIP {duplicate.nip}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-muted-foreground">
-            Otwórz istniejącą albo zapisz mimo to, jeśli to inna spółka o tej samej nazwie.
-          </p>
-        </div>
-      )}
     </AppModal>
   );
 }
