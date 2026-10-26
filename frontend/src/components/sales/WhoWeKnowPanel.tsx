@@ -24,11 +24,13 @@ const ORDER: PeopleRelationship[] = ["via_us", "current", "past", "unknown"];
 /** Ile osób z grupy pokazujemy, zanim ktoś kliknie „Pokaż wszystkich”. */
 const PREVIEW = 8;
 
-function period(person: MatchedPerson): string | null {
-  const start = person.period?.start;
-  const end = person.period?.end;
+/** Okres z CV: „2019–2022”, „2023–teraz”. Koniec bez roku („present”, „obecnie”) to „teraz”. */
+export function period(person: Pick<MatchedPerson, "period">): string | null {
+  const start = person.period?.start?.trim();
+  const end = person.period?.end?.trim();
   if (!start && !end) return null;
-  return `${start ?? "?"}–${end ?? "teraz"}`;
+  const until = end && /\d{4}/.test(end) ? end : "teraz";
+  return `${start || "?"}–${until}`;
 }
 
 /** „uzupełniamy daty 120 osób” / „daty uzupełnione: 7 z 7” — z udanego odczytu. */

@@ -6,9 +6,9 @@ import { useState } from "react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { TabbedNav } from "@/components/ds/TabbedNav";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useCompleteActivity, useSalesTasks, type TaskBucket } from "@/lib/api/sales";
 import { formatDateTimePl } from "@/lib/date-pl";
@@ -43,22 +43,22 @@ export function TasksView() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
-        <TabbedNav
-          dense
-          ariaLabel="Czyje zadania"
-          tabs={[
+        <SegmentedRadio
+          size="sm"
+          label="Czyje zadania"
+          options={[
             { value: "mine", label: "Moje" },
             { value: "team", label: "Zespół" },
           ]}
           value={scope}
-          onValueChange={(value) => setScope(value as "mine" | "team")}
+          onChange={(value) => setScope(value as "mine" | "team")}
         />
-        <TabbedNav
-          dense
-          ariaLabel="Termin"
-          tabs={BUCKETS}
+        <SegmentedRadio
+          size="sm"
+          label="Termin"
+          options={BUCKETS}
           value={bucket}
-          onValueChange={(value) => setBucket(value as TaskBucket)}
+          onChange={(value) => setBucket(value as TaskBucket)}
         />
       </div>
       {state === "loading" ? (

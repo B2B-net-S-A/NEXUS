@@ -11,8 +11,8 @@ import { InlineStats } from "@/components/ds/InlineStats";
 import { KanbanBoard, KanbanCard, KanbanColumn } from "@/components/ds/Kanban";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
-import { TabbedNav } from "@/components/ds/TabbedNav";
 import { Button } from "@/components/ui/button";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import {
   Table,
   TableBody,
@@ -157,25 +157,25 @@ export function OpportunitiesView() {
         }}
         filters={
           <div className="flex flex-wrap items-center gap-2">
-            <TabbedNav
-              dense
-              ariaLabel="Czyje szanse"
-              tabs={[
+            <SegmentedRadio
+              size="sm"
+              label="Czyje szanse"
+              options={[
                 { value: "all", label: "Wszystkie" },
                 { value: "mine", label: "Moje" },
               ]}
               value={mine ? "mine" : "all"}
-              onValueChange={(value) => writeParam("mine", value === "mine" ? "1" : null)}
+              onChange={(value) => writeParam("mine", value === "mine" ? "1" : null)}
             />
-            <TabbedNav
-              dense
-              ariaLabel="Widok"
-              tabs={[
+            <SegmentedRadio
+              size="sm"
+              label="Widok"
+              options={[
                 { value: "board", label: "Tablica" },
                 { value: "list", label: "Lista" },
               ]}
               value={view}
-              onValueChange={(value) => writeParam("view", value === "list" ? "list" : null)}
+              onChange={(value) => writeParam("view", value === "list" ? "list" : null)}
             />
           </div>
         }
