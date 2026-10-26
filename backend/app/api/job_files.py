@@ -2,7 +2,8 @@
 # module z PEP 563 zamienia `Annotated` guardy w parametry query (slowapi #579).
 """Pliki rekrutacji — menu „⋯” → „Pliki” na stronie rekrutacji (0428).
 
-``/api/jobs/{job_id}/files``: lista, pobranie, dodanie i usunięcie. Pliki
+``/api/jobs/{job_id}/files``: lista, pobranie, dodanie, oznaczenie wzoru
+formularza CV klienta (0521) i usunięcie. Pliki
 widzi każdy, kto czyta Profil Championa tej rekrutacji (każda rola
 wewnętrzna); dodaje i usuwa ten, kto ją redaguje (``ensure_job_editor``).
 Pliki dodane przy zakładaniu rekrutacji trafiają tu z niedokończonego
@@ -23,6 +24,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -102,6 +104,9 @@ async def list_job_files(
         "can_edit": await job_edit_level(db, current_user, job) is not None,
         "max_files": job_files.MAX_FILES,
         "max_file_bytes": job_files.MAX_FILE_BYTES,
+        # Co idzie do klienta (reguła CV klienta): przy „client_form” lista
+        # pokazuje wzór formularza, przy „company_cv” oznaczenie nic nie robi.
+        "client_document": await job_files.client_document_of_job(db, job_id),
     }
 
 
@@ -149,8 +154,51 @@ async def upload_job_file(
         )
     )
     await db.flush()
+    await job_files.auto_mark_client_form(db, job_id)
     await db.refresh(row)
     return job_files.serialize(row, current_user.name)
+
+
+class ClientFormMark(BaseModel):
+    client_form: bool
+
+
+@router.patch("/{job_id}/files/{file_id}")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def mark_job_file(
+    request: Request,
+    job_id: int,
+    file_id: int,
+    payload: ClientFormMark,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Oznacz plik jako wzór formularza CV klienta albo zdejmij oznaczenie.
+
+    Wzór musi być plikiem Word z pustymi polami do wypełnienia — inaczej 422
+    ze zdaniem, czego NEXUS w nim nie znalazł. Jeden wzór na rekrutację.
+    """
+    job = await _readable_job(db, current_user, job_id)
+    await ensure_job_editor(db, current_user, job)
+    row = await job_files.get_file(db, file_id, job_id=job_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=MSG_FILE_MISSING)
+    try:
+        await job_files.set_client_form(db, row, on=payload.client_form)
+    except job_files.JobFileRefused as exc:
+        raise refused(exc) from exc
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="job_file_client_form",
+            user_id=current_user.id,
+            details={"file_id": row.id, "client_form": payload.client_form},
+        )
+    )
+    await db.flush()
+    await db.refresh(row)
+    return job_files.serialize(row)
 
 
 @router.delete("/{job_id}/files/{file_id}", status_code=204)

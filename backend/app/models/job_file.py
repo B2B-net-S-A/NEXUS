@@ -7,9 +7,18 @@ Trasy: ``app/api/job_files.py`` (rekrutacja) i ``app/api/job_intake_forms.py``
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -27,6 +36,12 @@ class JobFile(Base, TimestampMixin):
             "ix_job_files_intake_form",
             "intake_form_id",
             postgresql_where=text("intake_form_id IS NOT NULL"),
+        ),
+        Index(
+            "ux_job_files_client_form",
+            "job_id",
+            unique=True,
+            postgresql_where=text("client_form AND job_id IS NOT NULL"),
         ),
     )
 
@@ -49,4 +64,12 @@ class JobFile(Base, TimestampMixin):
     )
     uploaded_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Wzór formularza CV klienta (0521, ``client_form_schema.py``): najwyżej
+    # jeden na rekrutację; struktura to pola odczytane z DOCX przy oznaczeniu.
+    client_form: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    client_form_structure: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
     )
