@@ -8,16 +8,14 @@ Zmianę opiekuna i rzeczy nieodwracalne robi opiekun albo admin
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import HTTPException, status
 
-from app.api.deps import require_permission
+from app.api.permission_access import SalesEditUser, SalesViewUser
 from app.models.user import User, UserRole
-from app.services.action_permissions import ProductAction
 
-SalesViewUser = Annotated[User, Depends(require_permission(ProductAction.sales_view))]
-SalesEditUser = Annotated[User, Depends(require_permission(ProductAction.sales_edit))]
+__all__ = ["SalesEditUser", "SalesViewUser", "ensure_owner_or_admin", "is_admin"]
 
 OWNER_ONLY_DETAIL = "Opiekuna zmienia obecny opiekun albo administrator."
 

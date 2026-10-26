@@ -87,6 +87,8 @@ export type Capability =
   | "nav.my_relationships"
   | "nav.contracts"
   | "nav.finance"
+  // Sprzedaż (Atlas → NEXUS, 26.10.2026) → uprawnienie `sales_view`.
+  | "nav.sales"
   // ── Praktykanci (0374) ─────────────────────────────────────────────────────
   | "nav.trainee"
   | "nav.trainees";
@@ -281,6 +283,8 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "nav.contracts": BY_PERMISSION_ONLY,
   // → uprawnienie `finance_module`.
   "nav.finance": BY_PERMISSION_ONLY,
+  // → uprawnienie `sales_view` (bez sekcji produktu, jak „Ludzie”).
+  "nav.sales": BY_PERMISSION_ONLY,
   // Praktykant (0374) ma WYŁĄCZNIE „Telefony na dziś” — trasy praktykanta
   // `/api/trainee/today|items/*` przyjmują tylko rolę `trainee` (własna
   // lista). Rola jest wyłączna, więc nie dziedziczy niczego z pozostałych
@@ -341,6 +345,8 @@ export const CAPABILITY_PERMISSIONS: Partial<Record<Capability, Permission>> = {
   // /api/finance/* → FinanceModuleUser = „Moduł Finanse”
   // (backend/app/api/deps.py).
   "nav.finance": "finance_module",
+  // /api/sales/* → SalesViewUser = „Sprzedaż: podgląd” (backend/app/api/sales_gates.py).
+  "nav.sales": "sales_view",
 };
 
 type SectionRequirement = {
