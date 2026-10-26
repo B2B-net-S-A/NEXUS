@@ -559,6 +559,14 @@
    "v3_home": "RejectionV2"
   },
   {
+   "id": "move.rejection-rate",
+   "area": "ruch",
+   "opis": "Powód „Za wysokie oczekiwania finansowe” (i rezygnacja „Rozbieżność oczekiwań finansowych”) w oknie odrzucenia: „Ile teraz chce?” i zapis nowego minimum w profilu z podglądem „Stawka od X → Y” (prośba Marka, 26.10.2026)",
+   "file": "components/v2/modals/RejectionRateField.tsx",
+   "marker": "Ile teraz chce?",
+   "v3_home": "RejectionV2"
+  },
+  {
    "id": "move.verified-rate",
    "area": "ruch",
    "opis": "Stawka przy „Zweryfikowany” — okno tylko, gdy para nie ma stawki etapu (D2, 14.10.2026)",
