@@ -11531,6 +11531,46 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Duplikat kontraktu ze zgłoszenia 26.10.2026 — to samo scalenie co wyżej
+# (ta sama logika, własny marker i lista par `TICKET_MERGES_2026_10`).
+startup_phase "repair-contract-duplicate-2026-10"
+echo "Contracts: merge the duplicate contract from the 2026-10 ticket (one-shot)..."
+python - <<'PY' || echo "contract duplicate merge 2026-10 skipped; continuing"
+import asyncio
+import sys
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_duplicate_merge_repair import (
+    DETAILS_KEY_2026_10,
+    REPAIR_MARKER_2026_10,
+    TICKET_MERGES_2026_10,
+    run_contract_duplicate_merge_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_contract_duplicate_merge_repair(
+                db,
+                merges=TICKET_MERGES_2026_10,
+                marker=REPAIR_MARKER_2026_10,
+                details_key=DETAILS_KEY_2026_10,
+            )
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"contract duplicate merge 2026-10 failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            sys.exit(1)
+    print(f"contract duplicate merge 2026-10: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Centrum e-Zdrowia (09.2026) — jednorazowo: dwie osoby miały obok linii
 # zamówienia grupowego CeZ/242/2025 stare, samodzielne zamówienie na tym samym
 # kontrakcie (karta bez zużycia MD nad właściwą kartą). Anulowanie jak
