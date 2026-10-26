@@ -54,6 +54,14 @@ def test_numbered_rows_get_column_labels_and_ellipsis_marks_an_extendable_table(
         "title": "Doświadczenie zawodowe",
         "rows": 3,
         "extendable": True,
+        # Kopie wiersza 3 dokłada wypełnianie, gdy stanowisk jest więcej.
+        "template_row": 3,
+        "columns": {
+            "c1": "Miejsce pracy",
+            "c2": "Okres pracy",
+            "c3": "Stanowisko",
+            "c4": "Opis projektów",
+        },
     }
 
 

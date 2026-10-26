@@ -66,3 +66,45 @@ def test_one_form_per_job_and_model_matches_the_ddl() -> None:
     column = Client.__table__.columns["cv_client_document"]
     assert column.type.length >= max(len(value) for value in schema.CLIENT_DOCUMENTS)
     assert f"DEFAULT '{schema.COMPANY_CV}'" in schema.CLIENT_COLUMN_DDL
+
+
+# ── 0522: wypełniony formularz pary + klucz AI ───────────────────────────────
+
+MIGRATION_0522 = BACKEND / "alembic" / "versions" / "0522_candidate_client_forms.py"
+
+
+def test_0522_chains_and_mirrors_table_key_and_probe() -> None:
+    spec = importlib.util.spec_from_file_location("m0522", MIGRATION_0522)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    assert module.revision == "0522_candidate_client_forms"
+    assert module.down_revision == "0521_client_form_documents"
+    assert "schema.FILL_DDL" in MIGRATION_0522.read_text(encoding="utf-8")
+
+    entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
+    job_files_columns = entrypoint.index(schema.JOB_FILE_DDL[0])
+    for statement in schema.FILL_DDL:
+        assert "IF NOT EXISTS" in statement, statement
+        assert statement in entrypoint, statement
+        assert entrypoint.index(statement) > job_files_columns, statement
+    assert (
+        "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_form_fill'"
+        in entrypoint
+    )
+    assert "SELECT 'client_form_fill', TRUE, 0, now(), now() " in entrypoint
+
+    main = (BACKEND / "app" / "main.py").read_text(encoding="utf-8")
+    assert '("candidate_client_forms", CandidateClientForm)' in main
+    assert "app.include_router(client_forms_api.router" in main
+
+
+def test_0522_model_matches_the_ddl() -> None:
+    from app.models.candidate_client_form import CandidateClientForm
+
+    for column in CandidateClientForm.__table__.columns.keys():
+        assert re.search(rf"\b{column}\b", schema.FILL_TABLE_DDL), column
+    assert "UNIQUE (candidate_id, job_id)" in schema.FILL_TABLE_DDL
+    assert "job_file_id INTEGER NULL REFERENCES job_files(id) ON DELETE SET NULL" in (
+        schema.FILL_TABLE_DDL
+    )

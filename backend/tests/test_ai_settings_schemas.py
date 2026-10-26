@@ -106,6 +106,8 @@ class TestFeatureKeyEnum:
             "debrief_from_text",
             # 0518: raport poniedziałkowy „Jakość podpowiedzi systemu”.
             "autofill_quality_report",
+            # 0522: formularz CV klienta wypełniany z CV i screeningu.
+            "client_form_fill",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

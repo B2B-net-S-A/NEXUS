@@ -48,3 +48,34 @@ Reguły, które łatwo cofnąć:
   encji), nie LibreOffice.
 - **Testy na fikcyjnym formularzu** (`tests/_client_form_docx.py`) — prawdziwe
   pliki klienta nie trafiają do publicznego repo.
+
+## Wypełnianie (0522, PR 2)
+
+- **Wypełniony formularz jest jeden na parę osoba × rekrutacja**
+  (`candidate_client_forms`, `UNIQUE (candidate_id, job_id)`), nie na wiersz
+  etapu — para ma kilka wierszy historii etapów. W bazie leżą wartości pól
+  (`fields`: wartość, źródło, cytat) i wiersze dopisane ponad wzór, a plik Word
+  powstaje przy pobraniu z wzoru (`client_form_render.render`) — edycja
+  rekrutera nie rozjedzie się z zapisanym plikiem. `template_sha256` i
+  `job_file_id` mówią, że DL podmienił wzór (`template_changed`).
+- **Model to F36 `client_form_fill` (Sonnet 5, jak generator CV F4).** Źródła:
+  `raw_cv_text` i `collect_screening_notes_text` (screening i notatki tej
+  rekrutacji, bez stawek i dostępności). Każda wartość ma cytat; KOD odrzuca
+  wartość bez cytatu z CV albo notatek, „TAK/NIE” spoza tych słów, ocenę w skali
+  1–10 bez tej liczby w cytacie i wartość z e-mailem albo telefonem (9+ cyfr —
+  okres „2019 - 2023” telefonem nie jest). Imię i nazwisko wpisuje kod z profilu.
+  Błąd modelu albo brak klucza = formularz z samym imieniem i nazwiskiem do
+  uzupełnienia ręcznie, nigdy 5xx.
+- **Wartości rekrutera (`source = recruiter`) przeżywają „Wypełnij ponownie”.**
+  Pusta wartość w `PUT` = pole do uzupełnienia; nieznane pole = 422.
+- **Dopisywanie wierszy tylko w tabelach z „…”**, kopią wiersza wzorcowego
+  (ostatni wiersz danych przed „…”, `FormTable.template_row` — w kompetencjach
+  CEZ to wolny wiersz, nie „SQL”). Wiersze od modelu najpierw zajmują puste
+  wiersze wzoru, dopiero reszta idzie ponad wzór (najwyżej 10 na tabelę).
+  Gdy dochodzą wiersze, wiersz z „…” znika (jego numer by się powtórzył); bez
+  nich zostaje pusty. Struktura wzoru ma wersję (`STRUCTURE_VERSION`); starsza
+  czyta się ponownie z pliku przy pierwszym użyciu.
+- **Trasy `…/candidates/stages/{stage_id}/client-form`** mają dostęp jak CV
+  etapu: rola czyta albo pisze dokumenty kandydata, a do pary wymagany jest
+  dostęp do rekrutacji (`ensure_job_read_access` / `ensure_job_membership`).
+  Plik do klienta nie ma żółtych „UZUPEŁNIJ” — puste pole zostaje puste.
