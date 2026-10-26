@@ -38,6 +38,11 @@ vi.mock("@/components/v2/pages/B2BContractGeneratorV2", () => ({
   ),
   ConfirmFullySignedDialog: () => <div role="dialog">okno podpisu</div>,
 }));
+vi.mock("@/components/v2/b2b-generator/esign/SendForSignatureDialog", () => ({
+  SendForSignatureDialog: (p: { row: { id: number } }) => (
+    <div role="dialog">okno wysyłki {p.row.id}</div>
+  ),
+}));
 
 import { AgreementPanelTab, liveAgreementRow } from "@/components/v2/b2b-generator/AgreementPanelTab";
 import { useAuthStore } from "@/store/auth";
@@ -106,6 +111,32 @@ describe("AgreementPanelTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Popraw umowę" }));
     expect(await screen.findByTestId("generator-form")).toHaveTextContent("edycja 501");
     expect(screen.getByText(/numer zostaje ten sam/)).toBeInTheDocument();
+  });
+
+  it("podpis w NEXUSIE włączony (serwer: can_send_esign): „Wyślij do podpisu” otwiera to samo okno co w Generatorze", async () => {
+    generated.mockResolvedValue([{ ...ROW, can_send_esign: true }]);
+    renderTab();
+    await screen.findByText("Umowa 1506/2026");
+    expect(screen.getByText(/albo pobierz DOCX i wyślij mailem/)).toBeInTheDocument();
+    // Droga zwykła zostaje obok.
+    expect(screen.getByRole("button", { name: "Pobierz DOCX" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Poproś o potwierdzenie podpisu" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Wyślij do podpisu" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("okno wysyłki 501");
+  });
+
+  it("przełącznik wyłączony (can_send_esign brak): bez „Wyślij do podpisu”", async () => {
+    generated.mockResolvedValue([ROW]);
+    renderTab();
+    await screen.findByText("Umowa 1506/2026");
+    expect(screen.queryByRole("button", { name: "Wyślij do podpisu" })).toBeNull();
+  });
+
+  it("tylko podgląd: bez „Wyślij do podpisu” nawet przy can_send_esign", async () => {
+    generated.mockResolvedValue([{ ...ROW, can_send_esign: true }]);
+    renderTab({ readOnly: true });
+    await screen.findByText("Umowa 1506/2026");
+    expect(screen.queryByRole("button", { name: "Wyślij do podpisu" })).toBeNull();
   });
 
   it("bez prawa poprawki (serwer: can_edit=false) nie ma „Popraw umowę”", async () => {
