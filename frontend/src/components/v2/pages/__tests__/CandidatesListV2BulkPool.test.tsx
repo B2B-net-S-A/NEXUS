@@ -28,24 +28,30 @@ vi.mock("next/navigation", () => ({
 // Lista kandydatów ciągnie podgląd CV (pdf.js) — tu niepotrzebny.
 vi.mock("@/lib/pdfjs-loader", () => ({ loadPdfJs: vi.fn() }));
 
+const post = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/api")>();
-  return { ...original, default: { ...original.default, get: vi.fn() } };
+  return {
+    ...original,
+    api: { ...original.api, post },
+    default: { ...original.default, get: vi.fn() },
+  };
 });
 
 import api from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
 import { BulkAddToPoolModal } from "@/components/v2/pages/CandidatesListV2";
 
 const get = vi.mocked(api.get);
 
-function renderModal() {
+function renderModal(onConfirm = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <BulkAddToPoolModal
         selectedCount={2}
         onCancel={vi.fn()}
-        onConfirm={vi.fn()}
+        onConfirm={onConfirm}
         pending={false}
       />
     </QueryClientProvider>,
@@ -54,6 +60,8 @@ function renderModal() {
 
 beforeEach(() => {
   get.mockReset();
+  post.mockReset();
+  useAuthStore.setState({ user: null });
 });
 
 describe("BulkAddToPoolModal", () => {
@@ -80,5 +88,39 @@ describe("BulkAddToPoolModal", () => {
     expect(
       await screen.findByText(/Nie ma jeszcze żadnej puli/),
     ).toBeInTheDocument();
+  });
+
+  it("puts my lists first and creates a new private list for the selection", async () => {
+    const user = userEvent.setup();
+    useAuthStore.setState({
+      user: { id: 7, name: "Anna Przykładowa", email: "anna@example.com", role: "recruiter" } as never,
+    });
+    get.mockResolvedValueOnce({
+      data: [
+        { id: 3, name: "Java seniorzy", candidate_count: 12 },
+        { id: 5, name: "Moja lista", candidate_count: 1, is_personal: true, owner_id: 7 },
+      ],
+    });
+    post.mockResolvedValueOnce({ data: { id: 21, name: "Na styczeń" } });
+    const onConfirm = vi.fn();
+    renderModal(onConfirm);
+
+    await screen.findByText("Moja lista");
+    const names = screen
+      .getAllByRole("button")
+      .map((b) => b.textContent ?? "")
+      .filter((t) => /Moja lista|Java seniorzy/.test(t));
+    expect(names[0]).toMatch(/Moja lista/);
+    expect(screen.getByText("Moje listy")).toBeInTheDocument();
+    expect(screen.getByText("Pule i listy zespołu")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Nazwa nowej listy" }), "Na styczeń");
+    await user.click(screen.getByRole("button", { name: "Utwórz i dodaj" }));
+    expect(post).toHaveBeenCalledWith("/api/talent-pools", {
+      name: "Na styczeń",
+      is_personal: true,
+      team_visible: false,
+    });
+    expect(onConfirm).toHaveBeenCalledWith(21);
   });
 });

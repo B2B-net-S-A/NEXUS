@@ -93,6 +93,7 @@ from app.models.recruitment_priority import PriorityChannel
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.talent_pool import TalentPoolMembership
+from app.services import talent_pool_visibility
 from app.models.user import User, UserRole
 from app.schemas.candidate import (
     CandidateCreate,
@@ -985,11 +986,14 @@ def _talent_pools_for(candidate: Candidate) -> list[TalentPoolBrief]:
 
     Safe to call only when `pool_memberships.pool` is eager-loaded via
     `_candidate_list_options()` (otherwise raises MissingGreenlet in async).
+
+    Bez list „Tylko ja” (0520) — także dla ich właściciela: ta odpowiedź nie
+    zna patrzącego, a właściciel widzi swoje listy w „Na listę” na profilu.
     """
     return [
         TalentPoolBrief(id=m.pool.id, name=m.pool.name)
         for m in (candidate.pool_memberships or [])
-        if m.pool is not None
+        if m.pool is not None and talent_pool_visibility.is_public(m.pool)
     ]
 
 
@@ -2909,7 +2913,11 @@ async def list_candidates(
         employment=employment,
         availability=availability,
         added_by_user_id=added_by_user_id,
-        talent_pool_id=talent_pool_id,
+        # Cudza lista „Tylko ja” nie filtruje (0520): sama odpowiedź
+        # zdradzałaby, kto na niej jest.
+        talent_pool_id=await talent_pool_visibility.visible_pool_ids(
+            db, current_user.id, talent_pool_id
+        ),
         current_company=current_company,
         past_company=past_company,
         current_title=current_title,
@@ -4005,6 +4013,14 @@ async def export_candidates_v2(
                 detail="scope='filtered' does not accept candidate_ids",
             )
         export_filters = payload.filters
+        if export_filters.talent_pool_id:
+            export_filters = export_filters.model_copy(
+                update={
+                    "talent_pool_id": await talent_pool_visibility.visible_pool_ids(
+                        db, current_user.id, export_filters.talent_pool_id
+                    )
+                }
+            )
         export_pool, _ = await _resolve_semantic_text(db, export_filters)
         if export_pool is not None and "sort" not in export_filters.model_fields_set:
             export_filters = export_filters.model_copy(update={"sort": "relevance"})

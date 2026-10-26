@@ -346,7 +346,7 @@
     "tasks": [
       {
         "q": "Jak dodać kandydata do rekrutacji?",
-        "a": "Kliknij „Przypisz do rekrutacji” w pasku osoby na górze i wybierz rekrutację. Osoba trafi do kolumny Nowi. Obok są „Dodaj notatkę” i „Nie odebrał” — próba kontaktu jednym kliknięciem. Mail, rozmowę i zaproszenie na prep znajdziesz w menu „⋯”.",
+        "a": "Kliknij „Przypisz do rekrutacji” w pasku osoby na górze i wybierz rekrutację. Osoba trafi do kolumny Nowi. Obok: „Dodaj notatkę”, „Nie odebrał” (próba kontaktu jednym kliknięciem) i „Na listę” — Twoje listy z panelu „Moi ludzie”, nowa widoczna tylko dla Ciebie. Mail, rozmowę i prep znajdziesz w menu „⋯”.",
         "anchor": "candidate.profile.assign"
       },
       {

@@ -95,7 +95,7 @@ export function CandidateBulkBar({
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={onAddToPool} disabled={addingToPool}>
             <Users className="h-4 w-4" />
-            Dodaj do puli
+            Na listę albo do puli
           </DropdownMenuItem>
           {onExportSelected && (
             <DropdownMenuItem onSelect={onExportSelected}>

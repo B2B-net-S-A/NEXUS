@@ -76,6 +76,7 @@ import type { CandidateRiskProfile } from "@/types/candidate-risk";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { getCandidateInitials } from "@/components/v2/pages/candidate-list-helpers";
 import { candidateHeadline, linkedinHref, pickHeaderWarning } from "./profile-helpers";
+import { AddToListButton } from "./AddToListButton";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload kandydata jest luźno typowany */
 
@@ -460,6 +461,8 @@ function PersonActions({
               Nie odebrał
             </Button>
           ) : null}
+          {/* Listy ręczne w „Moich ludziach” (prośba Olafa, 25.10.2026). */}
+          <AddToListButton candidateId={candidate.id} />
         </>
       ) : null}
       {actions.latestCv && actions.onOpenLatestCv ? (

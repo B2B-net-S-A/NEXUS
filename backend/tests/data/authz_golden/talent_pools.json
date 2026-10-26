@@ -33,6 +33,7 @@
   "GET /api/talent-pools": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/talent-pools/for-candidate/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/talent-pools/{pool_id}/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "PATCH /api/talent-pools/{pool_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/talent-pools": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/talent-pools/{pool_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/talent-pools/{pool_id}/bulk-add": "PPPPPPDDPPPPPPPPPPPDDPPPPD"

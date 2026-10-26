@@ -144,6 +144,9 @@ async def suggest_pools_for_candidate(
         # kandydata do puli, której i tak nie może modyfikować (→ 403).
         if pool.is_personal and not viewer_is_admin and pool.created_by != viewer_id:
             continue
+        # Cudza lista „Tylko ja” (0520) nie istnieje także dla admina.
+        if pool.is_personal and not pool.team_visible and pool.created_by != viewer_id:
+            continue
         # Targ kandydatów ma własne trasy z terminem — ogólne /add daje 409
         # (runda 10, R10-N7-4), więc go nie podpowiadamy.
         if getattr(pool, "is_marketplace", False):
