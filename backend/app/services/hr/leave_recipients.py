@@ -15,6 +15,7 @@ miesiącu — wołają je złożenie, decyzje i przeliczenie po dniu wolnym firm
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
@@ -186,9 +187,15 @@ async def notify_requested(
     span: str,
     days_text: str,
     today: date,
+    request_id: Optional[uuid.UUID] = None,
 ) -> None:
-    """Wniosek z umowy o pracę czeka na decyzję przełożonego."""
+    """Wniosek z umowy o pracę czeka na decyzję przełożonego.
 
+    Link niesie numer wniosku (`?leave=`): przyciski maila „Zatwierdź”
+    i „Odrzuć” otwierają ten wniosek z oknem potwierdzenia (26.10.2026).
+    """
+
+    link = f"{LINK_APPROVALS}?leave={request_id}" if request_id else LINK_APPROVALS
     supervisor = await supervisor_of(db, profile, today)
     recipients = list(supervisor.user_ids)
     stand_in = supervisor.stand_in
@@ -204,7 +211,7 @@ async def notify_requested(
         title="Wniosek o nieobecność do akceptacji",
         message=f"{subject.name}: {span} ({days_text}).",
         ntype=NotificationType.hr_leave_requested,
-        link=LINK_APPROVALS,
+        link=link,
     )
     if stand_in is not None:
         await notify(
@@ -221,7 +228,7 @@ async def notify_requested(
                 f"{stand_in.manager_name}." + ("" if decides else " Decydują Kadry.")
             ),
             ntype=NotificationType.hr_leave_requested,
-            link=LINK_APPROVALS,
+            link=link,
         )
 
 

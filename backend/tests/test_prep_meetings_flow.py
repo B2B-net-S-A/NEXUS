@@ -419,10 +419,12 @@ async def test_invitation_names_the_role_without_the_client_request_number(
         headers=rec_h,
     )
     assert opts.status_code == 200, opts.text
+    # Od 26.10.2026 stanowisko jest polem okna (do poprawki), a treść ma
+    # w tym miejscu ``{role}``.
+    assert opts.json()["role_title"] == "Threat Identification & Prioritization"
+    assert opts.json()["role_title_needs_fix"] is False
     for preview in opts.json()["invitation"].values():
-        assert (
-            "na stanowisko Threat Identification & Prioritization." in (preview["body"])
-        )
+        assert "na stanowisko {role}." in preview["body"]
         assert "42874" not in preview["body"] + preview["title"]
 
     resp = await _create(
@@ -440,6 +442,76 @@ async def test_invitation_names_the_role_without_the_client_request_number(
     assert "42874" not in payload["subject"]
     assert "42874" not in payload["body"]["content"]
     assert "Threat Identification &amp; Prioritization." in payload["body"]["content"]
+
+
+async def test_invitation_carries_the_role_description_from_the_champion(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """26.10.2026 (D1–D3): stanowisko z Championa zamiast kodu Nordei
+    („PL_IT_Developer_expert_TP#40379”) i opis roli pod podpisem, bez stawki.
+    Okno może je poprawić; opis z kwotą nie wychodzi do kandydata."""
+    from app.models.job import Job
+
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.title = "PL_IT_Developer_expert_TP#40379 (43020)"
+        job.client_reference = "43020"
+        job.champion_profile = {
+            "basics": {"role_name": "Senior ETL Engineer", "rate_value": 180.0},
+            "project": {
+                "about": "Projekt hurtowni danych.",
+                "responsibilities": "Procesy ETL; analiza wymagań",
+            },
+            "stack": {"must": [{"name": "Snowflake"}]},
+        }
+        await db.commit()
+
+    opts = (
+        await app_client.get(
+            f"/api/interview-cycle/preps/options?candidate_id={cand_id}&job_id={job_id}",
+            headers=rec_h,
+        )
+    ).json()
+    assert opts["role_title"] == "Senior ETL Engineer"
+    assert opts["role_title_source"] == "champion"
+    assert "• Procesy ETL" in opts["role_description"]
+    assert opts["role_description_findings"] == []
+    assert "{role_hint}" in opts["invitation"]["1"]["body"]
+
+    async def create(prep_no: int, hours: float, **extra):
+        return await _create(
+            app_client,
+            rec_h,
+            candidate_id=cand_id,
+            job_id=job_id,
+            prep_no=prep_no,
+            organizer_user_id=dl_id,
+            start=_at(hours),
+            end=_at(hours + 0.75),
+            **extra,
+        )
+
+    refused = await create(1, 24, role_description="Stawka 180 zł/h netto.")
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"]["code"] == "PREP_ROLE_DESCRIPTION_FINDINGS"
+    assert graph.created == []
+
+    resp = await create(1, 24)
+    assert resp.status_code == 201, resp.text
+    content = graph.created[-1][1]["body"]["content"]
+    assert "na stanowisko Senior ETL Engineer." in content
+    assert "<strong>O roli: Senior ETL Engineer</strong>" in content
+    assert "Projekt hurtowni danych." in content
+    assert "TP#40379" not in content and "180" not in content
+
+    resp = await create(2, 48, role_title="ETL Engineer", role_description="")
+    assert resp.status_code == 201, resp.text
+    content = graph.created[-1][1]["body"]["content"]
+    assert "na stanowisko ETL Engineer." in content
+    assert "O roli" not in content and "opis roli" not in content
 
 
 async def test_organizer_outside_the_team_is_rejected(

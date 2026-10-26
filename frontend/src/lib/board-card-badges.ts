@@ -228,6 +228,52 @@ export function dlWaitingStatus(item: KanbanItem | null | undefined, now: Date):
   };
 }
 
+// ── Formularz CV klienta zamiast CV firmowego (0521, 26.10.2026) ─────────────
+
+/**
+ * Klient bierze własny formularz CV (np. SWZ Centrum e-Zdrowia): karta mówi
+ * o formularzu, nie o CV firmowym, i tylko przypomina — braki nie blokują
+ * ruchu (decyzja Artura D3).
+ */
+export function clientFormBadge(
+  item: KanbanItem,
+  column: BoardColumnKey | null,
+): CardBadge | null {
+  const form = item.client_form;
+  if (!form || (column !== "verified" && column !== "cv_qc")) return null;
+  if (!form.template) {
+    return {
+      key: "cv_state",
+      label: "Formularz: brak wzoru",
+      tone: "wait",
+      title:
+        "Klient bierze swój formularz CV, a w Plikach rekrutacji nie ma wzoru — dodaje go Delivery Lead.",
+    };
+  }
+  if (form.missing == null) {
+    return {
+      key: "cv_state",
+      label: "Formularz do wypełnienia",
+      tone: "neutral",
+      title: "Klient bierze swój formularz CV zamiast CV firmowego — wypełnij go w sekcji CV osoby.",
+    };
+  }
+  if (form.missing > 0) {
+    return {
+      key: "cv_state",
+      label: `Formularz: ${form.missing} do uzupełnienia`,
+      tone: "wait",
+      title: "Formularz CV klienta ma puste pola — uzupełnij je w sekcji CV osoby. Braki nie blokują ruchu.",
+    };
+  }
+  return {
+    key: "cv_state",
+    label: "Formularz gotowy",
+    tone: "ok",
+    title: "Formularz CV klienta ma wypełnione wszystkie pola.",
+  };
+}
+
 // ── Stan CV firmowego na karcie (14.10.2026) ────────────────────────────────
 
 /**
@@ -243,6 +289,8 @@ export function dlWaitingStatus(item: KanbanItem | null | undefined, now: Date):
  * obiecuje gotowy dokument, więc brak pola (starszy serwer) jej nie daje.
  */
 export function cvStateBadge(item: KanbanItem, column: BoardColumnKey | null): CardBadge | null {
+  const form = clientFormBadge(item, column);
+  if (form) return form;
   if (item.auto_cv_state === "processing") {
     return {
       key: "cv_state",

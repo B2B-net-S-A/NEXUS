@@ -22,7 +22,14 @@ export interface JobFileItem {
   uploaded_by: number | null;
   uploaded_by_name: string | null;
   created_at: string;
+  /** 0521: wzór formularza CV klienta (najwyżej jeden na rekrutację). */
+  client_form?: boolean;
+  /** Co NEXUS rozpoznał we wzorze — zdanie z serwera, tylko przy wzorze. */
+  client_form_summary?: string | null;
 }
+
+/** Co idzie do klienta rekrutacji (reguła CV klienta, 0521). */
+export type ClientDocument = "company_cv" | "client_form";
 
 export interface JobFilesResponse {
   items: JobFileItem[];
@@ -30,6 +37,8 @@ export interface JobFilesResponse {
   can_edit?: boolean;
   max_files: number;
   max_file_bytes: number;
+  /** Tylko pliki rekrutacji: klient bierze CV firmowe albo swój formularz. */
+  client_document?: ClientDocument;
 }
 
 /** Czyje pliki: rekrutacji albo niedokończonego formularza „Nowa rekrutacja”. */
@@ -82,6 +91,18 @@ export async function uploadJobFile(
   const { data } = await api.post<JobFileItem>(basePath(owner), body, {
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 120_000,
+  });
+  return data;
+}
+
+/** Oznacz plik rekrutacji jako wzór formularza CV klienta albo zdejmij oznaczenie. */
+export async function markJobFileClientForm(
+  jobId: number,
+  fileId: number,
+  clientForm: boolean,
+): Promise<JobFileItem> {
+  const { data } = await api.patch<JobFileItem>(`/api/jobs/${jobId}/files/${fileId}`, {
+    client_form: clientForm,
   });
   return data;
 }

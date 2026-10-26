@@ -392,9 +392,9 @@ async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatc
             mine = [item for item in sent if item[0] in {boss.email, off.email}]
             assert sorted((to, subject) for to, subject, _t, _h in mine) == sorted(
                 [
-                    (boss.email, "[Nexus] Przypisano Ci sprawę administracja@"),
-                    (boss.email, "[Nexus] Zgłoszona nieobecność"),
-                    (off.email, "[Nexus] Wniosek zaakceptowany"),
+                    (boss.email, "[NEXUS] Przypisano Ci sprawę administracja@"),
+                    (boss.email, "[NEXUS] Zgłoszona nieobecność"),
+                    (off.email, "[NEXUS] Wniosek zaakceptowany"),
                 ]
             )
             text = "\n".join(body for *_s, body, _h in mine)
@@ -651,7 +651,7 @@ async def test_outbox_mails_the_bonus_without_amount(monkeypatch):
             await outbox.dispatch(db)
             await outbox.dispatch(db)
             got = [item for item in sent if item[0] == person.email]
-            assert [subject for _to, subject, *_ in got] == [f"[Nexus] {new_title}"]
+            assert [subject for _to, subject, *_ in got] == [f"[NEXUS] {new_title}"]
             _to, _subject, text, html = got[0]
             assert "Rodzaj: za placement." in text
             assert "Miesiąc rozliczenia: listopad 2026." in text

@@ -354,7 +354,7 @@ async def test_queue_sends_one_mail_for_openings_from_ten_minutes(monkeypatch):
                 by_to.setdefault(item[0], []).append(item)
             assert len(by_to[lead.email]) == 1
             _to, subject, text, _html = by_to[lead.email][0]
-            assert subject == "[Nexus] Nowe rekrutacje u Twoich klientów: 3"
+            assert subject == "[NEXUS] Nowe rekrutacje u Twoich klientów: 3"
             assert "Tester G" in text and "Prowadzi: Roman Przykładowy." in text
             assert "Tester H" in text and "Tester I" in text
             assert "Nikt jej jeszcze nie prowadzi." in text
@@ -363,7 +363,8 @@ async def test_queue_sends_one_mail_for_openings_from_ten_minutes(monkeypatch):
 
             assert len(by_to[single.email]) == 1
             _to, subject, text, _html = by_to[single.email][0]
-            assert subject == "[Nexus] Nowa rekrutacja u Twojego klienta"
+            # Temat-zadanie (26.10.2026): po „·” klient rekrutacji z bazy.
+            assert subject.startswith("[NEXUS] Nowa rekrutacja u Twojego klienta")
             assert f"/jobs/{free.id}" in text
             assert waiting.email not in by_to
 

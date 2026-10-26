@@ -292,6 +292,13 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
         return None
     if not generates:
         return None
+    # 0521 (26.10.2026, decyzja D2): klient bierze formularz CV z Plików
+    # rekrutacji — CV firmowe nie powstaje samo (rekruter może je zrobić ręcznie).
+    from app.services import client_form_status
+
+    if await client_form_status.client_takes_client_form(db, job.client_id):
+        await _record(db, action=ACTION_SKIPPED, reason="client_form", **base)
+        return None
     sources = await list_candidate_cv_sources(db, candidate.id)
     if not sources:
         await _record(db, action=ACTION_SKIPPED, reason="no_cv_document", **base)

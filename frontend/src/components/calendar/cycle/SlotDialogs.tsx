@@ -333,6 +333,8 @@ export function SlotDecisionDialog(props: {
   mode: "pick" | "confirm" | "reply";
   pair: PairInfo | null;
   request: SlotRequest | null;
+  /** Wybór terminu: termin zaznaczony z linku maila. */
+  initialIndex?: number | null;
 }) {
   const invalidate = useInvalidateCycle();
   if (props.mode === "reply") {
@@ -354,6 +356,7 @@ export function SlotDecisionDialog(props: {
         pair={props.pair}
         request={props.request}
         onInvalidate={invalidate}
+        initialIndex={props.initialIndex}
       />
     );
   }

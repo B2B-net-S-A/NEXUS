@@ -59,6 +59,16 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   „(ISO 27001)”, „ISO 27001 Auditor”, „UI-UX Designer”, technologia z cyfrą
   bez separatora („MS365 Administrator”, „DB2 Administrator”), jeden skrót
   z dwukropkiem („SQL: Administrator”), „iOS Developer”, „dbt Engineer”.
+  Od 26.10.2026 (decyzja D4, makiety
+  https://claude.ai/artifact/KzvuFKEgZTbzzwtFFax9hK) schodzą też kody Nordei:
+  kod stanowiska „_TP#40379” / „TP ID 40942”, „_PeP: 4985”, „PEP4989_”, kraj
+  „PL_” / „PL - ” (nie „PL/SQL”), „3 x ”, „…Services_Role: ”,
+  „Replacement”, „(replacement)” i „Replacement for <imię>” (imię
+  zastępowanej osoby szło do klienta i kandydata). „_” między członami
+  nazwy zamienia się na spację („IT_Developer_expert” → „IT Developer
+  expert”), a gdy człony mają spacje — na „ – ”. Na stagingu zmieniło to 34
+  z 207 otwartych rekrutacji, wszystkie Nordei; „Replacement Senior …” bez
+  separatora zostaje (to mogłaby być rola „Replacement Planner”).
   Gdy rekruter zostawi w polu „Stanowisko” tytuł rekrutacji, nagłówek bierze
   `cv_role_title`, nie surowy tytuł.
   Wołają ją `standalone_service.load_candidate_generation_source` (z nazwami

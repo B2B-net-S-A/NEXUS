@@ -5,10 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { useToast } from "@/components/Toast";
 import WeekCalendar from "@/components/calendar/WeekCalendar";
 import { useInterviewCycle } from "@/lib/api/interviewCycle";
 import {
+  chosenSlotIndex,
   interviewStartFor,
+  linkedStepAction,
   pairKey,
   parseCycleParam,
   parseScope,
@@ -43,7 +46,13 @@ const VIEWS: { value: CycleView; label: string }[] = [
 
 type Dialog =
   | { kind: "debrief"; pair: PairInfo; eventId: number | null }
-  | { kind: "pick" | "confirm" | "reply"; pair: PairInfo; request: SlotRequest }
+  | {
+      kind: "pick" | "confirm" | "reply";
+      pair: PairInfo;
+      request: SlotRequest;
+      /** Termin zaznaczony z linku maila (`&choose=N`). */
+      initialIndex?: number | null;
+    }
   | { kind: "prep"; pair: PairInfo; second: boolean }
   | { kind: "prep_review"; pair: PairInfo; eventId: number; tab?: PrepReviewTab }
   | { kind: "slots"; pair: PairInfo | null }
@@ -99,6 +108,11 @@ export function CalendarCycleScreen({
   const cycleParam = params.get("cycle");
   // Dzwonek „Zadzwoń do kandydata po rozmowie” niesie `?debrief=<id wydarzenia>`.
   const debriefParam = Number(params.get("debrief")) || null;
+  // Przycisk z maila: `?do=<krok>` (+ `&choose=N` przy wyborze terminu).
+  const stepParam = params.get("do");
+  const chooseParam = params.get("choose");
+  const requestParam = params.get("req");
+  const toast = useToast();
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -177,6 +191,36 @@ export function CalendarCycleScreen({
     // `setParams` czyta bieżące parametry — wystarczy reagować na wynik listy.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkTargetMissing, widerScope, linkToken]);
+
+  // Przycisk z maila (26.10.2026) otwiera okno kroku, na którym para stoi —
+  // potwierdza człowiek w oknie, link sam niczego nie zapisuje. Krok już
+  // zrobiony albo cudzy: zostaje panel pary i zdanie, dlaczego bez okna.
+  // Parametry znikają z adresu po obsłużeniu, więc F5 nie otwiera okna drugi raz.
+  const openedStep = useRef<string | null>(null);
+  useEffect(() => {
+    if (!stepParam || !wantedKey || !data) return;
+    const token = `${wantedKey}|${stepParam}|${chooseParam ?? ""}`;
+    if (openedStep.current === token) return;
+    const item = data.items.find((i) => pairKey(i) === wantedKey);
+    if (!item) return;
+    openedStep.current = token;
+    const action = linkedStepAction(item, stepParam, { canManageSlots });
+    if (action?.type === "pick") {
+      setDialog({
+        kind: "pick",
+        pair: action.pair,
+        request: action.request,
+        initialIndex: chosenSlotIndex(chooseParam, action.request, requestParam),
+      });
+    } else if (action) {
+      onAction(action);
+    } else {
+      toast.showInfo("Ten krok jest już zrobiony albo czeka na kogoś innego — poniżej stan rozmowy.");
+    }
+    setParams({ do: null, choose: null, req: null });
+    // `onAction` i `setParams` czytają bieżący stan — reagujemy na dane i link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepParam, chooseParam, wantedKey, data, canManageSlots]);
 
   const onAction = (action: CycleAction) => {
     switch (action.type) {
@@ -368,6 +412,7 @@ export function CalendarCycleScreen({
         request={
           dialog?.kind === "pick" || dialog?.kind === "confirm" || dialog?.kind === "reply" ? dialog.request : null
         }
+        initialIndex={dialog?.kind === "pick" ? dialog.initialIndex : null}
       />
       {dialog?.kind === "prep" ? (
         <PlanPrepDialog

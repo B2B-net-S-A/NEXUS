@@ -3576,6 +3576,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  );
  }
  return;
+ case "open_client_form":
+ // 0521: formularz CV klienta do uzupełnienia — sekcja CV panelu osoby.
+ if (workbenchContext) {
+ suspendMoveNext();
+ openWorkbench(item.candidate_id, "cv");
+ } else {
+ window.open(`/jobs/${jobId}?candidate=${item.candidate_id}`, "_blank", "noopener");
+ }
+ return;
  case "open_pre_contract":
  // 0506: umowa przedwstępna niepodpisana — sekcja w zakładce „Umowa”.
  // Ruch „Przesuń mimo braku” zostaje (ostrzeżenie, nie bramka).

@@ -105,6 +105,10 @@ async def _template(
 ) -> tuple[Optional[JobFile], dict[str, Any]]:
     row = await job_files.client_form_of_job(db, job_id)
     if row is None:
+        # Formularz dodany, zanim klient przeszedł na formularz CV (np. CEZ
+        # przed 0521), nie został oznaczony przy dodaniu — NEXUS rozpoznaje go teraz.
+        row = await job_files.auto_mark_client_form(db, job_id)
+    if row is None:
         return None, {}
     try:
         return row, await job_files.current_structure(db, row)

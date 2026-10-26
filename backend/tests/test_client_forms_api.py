@@ -223,3 +223,75 @@ async def test_roles_without_candidate_documents_are_refused(
             "/api/candidates/stages/999999999/client-form", headers=app_auth_headers
         )
     ).status_code == 404
+
+
+# ── PR 3: QC CV firmowego nie dotyczy klienta z formularzem (decyzja D3) ─────
+
+
+@pytest.mark.asyncio
+async def test_qc_gate_skips_company_cv_qc_for_form_clients(monkeypatch):
+    from app.api import pipeline
+    from app.core.config import settings
+    from app.services import cv_qc
+
+    monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+    calls: list[int] = []
+
+    async def _qc(db, *, candidate_id, job_id, user, stage):
+        calls.append(job_id)
+
+    monkeypatch.setattr(cv_qc, "assert_qc_passed", _qc)
+    for document in ("client_form", "company_cv"):
+        job_id, stage_id = await _pair(document)
+        async with AsyncSessionLocal() as db:
+            stage = await db.get(CandidateStage, stage_id)
+            job = await db.get(Job, job_id)
+            await pipeline._assert_cv_qc_gate(
+                db,
+                None,
+                candidate_id=stage.candidate_id,
+                job_id=job_id,
+                stage_def=None,
+                legacy_value="cv_sent",
+                client_id=job.client_id,
+            )
+        if document == "client_form":
+            assert calls == []
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_form_added_before_the_switch_is_recognized_on_first_view(
+    app_client, app_auth_headers, storage
+):
+    """CEZ przed 0521: formularz leżał w Plikach, zanim klient przeszedł na
+    formularz — nikt go nie oznaczył przy dodaniu."""
+    job_id, stage_id = await _pair("company_cv")
+    resp = await app_client.post(
+        f"/api/jobs/{job_id}/files",
+        files={
+            "file": (
+                "Zal 4a Formularz CV.docx",
+                form_docx(),
+                "application/octet-stream",
+            )
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201 and resp.json()["client_form"] is False
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        client = await db.get(Client, job.client_id)
+        client.cv_client_document = "client_form"
+        await db.commit()
+
+    form = await app_client.get(
+        f"/api/candidates/stages/{stage_id}/client-form", headers=app_auth_headers
+    )
+    assert form.status_code == 200, form.text
+    assert form.json()["status"] == "not_filled"
+    assert form.json()["template"]["filename"] == "Zal 4a Formularz CV.docx"
+    listed = (
+        await app_client.get(f"/api/jobs/{job_id}/files", headers=app_auth_headers)
+    ).json()
+    assert [item["client_form"] for item in listed["items"]] == [True]

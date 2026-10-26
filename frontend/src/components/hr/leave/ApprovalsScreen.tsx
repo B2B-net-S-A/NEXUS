@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 
@@ -59,7 +59,7 @@ import { useTeamQueue, type QueueStatus } from "@/lib/api/hr-time";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
-import { useUrlSyncedState, useUrlWriter } from "@/lib/url-selection";
+import { useUrlSyncedState, useUrlWriter, writeUrlParams } from "@/lib/url-selection";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { formatWeekdayDayPl, monthTitlePl, type YearMonth } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -73,6 +73,7 @@ import {
   chipFromParams,
   chipShows,
   consentKey,
+  leaveLinkFromParams,
   queueGroups,
   viewFromParams,
   visibleChips,
@@ -198,10 +199,20 @@ function InboxRow({
 }
 
 /** Szczegół sprawy: przyciski, kafle „Zastępca / Wypada / Też nieobecni” i mini-kalendarz. */
-function LeaveDetail({ item, viewerIsHr }: { item: InboxItem; viewerIsHr: boolean }) {
+function LeaveDetail({
+  item,
+  viewerIsHr,
+  linkedDecision = null,
+}: {
+  item: InboxItem;
+  viewerIsHr: boolean;
+  /** „Zatwierdź”/„Odrzuć” z maila — otwiera okno, decyzję potwierdza człowiek. */
+  linkedDecision?: DecisionMode | null;
+}) {
   const { row } = item;
   const decide = useDecideLeave();
   const { showToast } = useToast();
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [rejecting, setRejecting] = useState<LeaveRequestRow | null>(null);
   const [editing, setEditing] = useState<LeaveRequestRow | null>(null);
   const [conflicting, setConflicting] = useState<LeaveRequestRow | null>(null);
@@ -218,6 +229,31 @@ function LeaveDetail({ item, viewerIsHr }: { item: InboxItem; viewerIsHr: boolea
       (saved) => showToast(...leaveToast("Wniosek zaakceptowany", saved)),
       (err) => showToast(apiErrorMessage(err, "Nie udało się zaakceptować."), "error"),
     );
+
+  // Przycisk z maila (26.10.2026): link otwiera okno, nigdy nie decyduje sam —
+  // Safe Links w M365 otwiera linki z maila, zanim zrobi to człowiek.
+  const canDecide = item.kind === "decide" && row.can_decide !== false;
+  const linkedServed = useRef(false);
+  useEffect(() => {
+    if (!linkedDecision || linkedServed.current) return;
+    linkedServed.current = true;
+    if (!canDecide) {
+      showToast("Ten wniosek nie czeka na Twoją decyzję.", "info");
+      return;
+    }
+    if (linkedDecision === "reject") {
+      setRejecting(row);
+      return;
+    }
+    void askConfirm({
+      title: "Zaakceptować wniosek?",
+      description: `${name} · ${formatRange(row.start_date, row.end_date)}.`,
+      confirmLabel: "Akceptuj",
+      cancelLabel: "Jeszcze nie",
+    }).then((ok) => (ok ? approve() : undefined));
+    // Raz na wejście z linku; `approve` i `row` są stałe dla tej sprawy (`key`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedDecision, canDecide]);
 
   const actions =
     item.kind === "decide" ? (
@@ -420,6 +456,7 @@ function LeaveDetail({ item, viewerIsHr }: { item: InboxItem; viewerIsHr: boolea
           if (rejected) showToast("Wniosek odrzucony", "success");
         }}
       />
+      {confirmDialog}
       <ReportConflictDialog
         request={conflicting}
         onClose={(done) => {
@@ -713,6 +750,7 @@ function ApprovalsInbox({
   onDecideConsent,
   viewerIsHr,
   linkedId,
+  linkedLeave,
 }: {
   chip: ApprovalsChip;
   access: ApprovalsAccess;
@@ -724,6 +762,8 @@ function ApprovalsInbox({
   onDecideConsent: (row: ApprovalRequestRow, mode: DecisionMode) => void;
   viewerIsHr: boolean;
   linkedId: number | null;
+  /** Wniosek z linku maila (`?leave=<id>&decide=`). */
+  linkedLeave: { id: string; decision: DecisionMode | null } | null;
 }) {
   const shows = chipShows(chip);
   const leaveUsed = access.leave && (shows.leaveDecide || shows.info);
@@ -877,7 +917,12 @@ function ApprovalsInbox({
           ) : null}
         </div>
         {current.source === "leave" ? (
-          <LeaveDetail key={current.key} item={current.item} viewerIsHr={viewerIsHr} />
+          <LeaveDetail
+            key={current.key}
+            item={current.item}
+            viewerIsHr={viewerIsHr}
+            linkedDecision={current.item.row.id === linkedLeave?.id ? linkedLeave.decision : null}
+          />
         ) : (
           <ConsentDetail
             key={current.key}
@@ -930,10 +975,22 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
   const view = viewState ?? "waiting";
   const linked = Number(params.get("request"));
   const linkedId = Number.isInteger(linked) && linked > 0 ? linked : null;
+  // Mail o wniosku o nieobecność: `?leave=<id>[&decide=approve|reject]`.
+  const [linkedLeave] = useState(() => leaveLinkFromParams(params));
   const [selectedKey, setSelectedKey] = useUrlSyncedState<string>(
-    linkedId !== null ? consentKey(linkedId) : null,
+    linkedId !== null
+      ? consentKey(linkedId)
+      : linkedLeave
+        ? `decide-${linkedLeave.id}`
+        : null,
     null,
   );
+  // Decyzja z linku zdejmowana z adresu od razu — F5 nie otwiera okna drugi raz.
+  useEffect(() => {
+    if (linkedLeave?.decision) writeUrlParams({ decide: null });
+    // Tylko przy wejściu z linku.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pending = usePendingLeave(access.leave);
   const reported = useReportedLeave(access.leave);
@@ -1058,6 +1115,7 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
           onDecideConsent={decision.open}
           viewerIsHr={viewerIsHr}
           linkedId={linkedId}
+          linkedLeave={linkedLeave}
         />
       ) : null}
 

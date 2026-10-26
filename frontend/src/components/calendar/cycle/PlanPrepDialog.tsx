@@ -17,7 +17,11 @@ import {
   usePrepOptions,
 } from "@/lib/api/prepMeetings";
 import { candidateLabel, pairContext, type PairInfo } from "@/lib/interview-cycle";
-import { renderInvitationPreview } from "@/lib/prep-invitation";
+import {
+  looksLikeRoleCode,
+  renderInvitationPreview,
+  roleSectionHeading,
+} from "@/lib/prep-invitation";
 import {
   NO_INVITEES,
   invitablePeople,
@@ -65,6 +69,10 @@ export function defaultOrganizerId(
  * u siebie. Od 17.10.2026 (D1, D3) zaprasza się kogokolwiek z NEXUSA albo
  * dowolny adres, a planujący za kogoś jest na liście od razu — spotkanie
  * ma też u siebie.
+ *
+ * Od 26.10.2026 (D1–D3) zaproszenie niesie stanowisko i opis roli z Profilu
+ * Championa. Oba da się poprawić tylko dla tego zaproszenia; stanowisko,
+ * które wygląda jak kod klienta („…_TP#40379”), dostaje ostrzeżenie.
  */
 export function PlanPrepDialog({
   open,
@@ -89,6 +97,11 @@ export function PlanPrepDialog({
   const [duration, setDuration] = useState(45);
   const [note, setNote] = useState("");
   const [addFollowupLine, setAddFollowupLine] = useState(false);
+  // Stanowisko i opis z okna; `null` = wartość z serwera (Champion).
+  const [roleTitleEdit, setRoleTitleEdit] = useState<string | null>(null);
+  const [roleTextEdit, setRoleTextEdit] = useState<string | null>(null);
+  const [withRole, setWithRole] = useState(true);
+  const [editingRole, setEditingRole] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 409 PREP_SLOT_BUSY: prowadzący ma wtedy zajęte — „Zapisz mimo to” (22.10.2026).
   const [busyClash, setBusyClash] = useState(false);
@@ -112,6 +125,10 @@ export function PlanPrepDialog({
     setDuration(45);
     setNote("");
     setAddFollowupLine(false);
+    setRoleTitleEdit(null);
+    setRoleTextEdit(null);
+    setWithRole(true);
+    setEditingRole(false);
     setError(null);
     setInvitees(NO_INVITEES);
     // `interview?.start`, nie obiekt — wołający składa go przy każdym renderze.
@@ -155,6 +172,14 @@ export function PlanPrepDialog({
     .filter(Boolean)
     .join("\n\n");
 
+  // Starszy serwer nie zna stanowiska i opisu — okno ich wtedy nie pokazuje.
+  const roleKnown = options.data?.role_title !== undefined;
+  const roleTitle = roleTitleEdit ?? options.data?.role_title ?? "";
+  const roleText = roleTextEdit ?? options.data?.role_description ?? "";
+  const hasRoleText = roleText.trim() !== "";
+  const roleIncluded = roleKnown && withRole && hasRoleText;
+  const roleFindings = roleTextEdit == null ? (options.data?.role_description_findings ?? []) : [];
+
   const beforeInterview =
     !interview || interview.tentative || new Date(start) < new Date(interview.start);
 
@@ -174,6 +199,9 @@ export function PlanPrepDialog({
         note: invitationNote || null,
         client_request_id: requestId.current,
         accept_busy: acceptBusy,
+        ...(roleKnown
+          ? { role_title: roleTitle.trim() || null, role_description: roleIncluded ? roleText : "" }
+          : {}),
       });
     },
     onSuccess: (prep) => {
@@ -412,6 +440,98 @@ export function PlanPrepDialog({
               className={cn(INPUT, "resize-none")}
             />
           </div>
+          {roleKnown ? (
+            <div data-testid="prep-role">
+              <label htmlFor="prep-role-title" className="mb-1 block text-xs font-semibold text-muted-foreground">
+                Stanowisko w zaproszeniu
+              </label>
+              <input
+                id="prep-role-title"
+                value={roleTitle}
+                maxLength={200}
+                onChange={(e) => setRoleTitleEdit(e.target.value)}
+                className={cn(INPUT, looksLikeRoleCode(roleTitle) && "border-warning")}
+              />
+              {looksLikeRoleCode(roleTitle) ? (
+                <p
+                  role="status"
+                  data-testid="prep-role-title-warning"
+                  className="mt-1 rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+                >
+                  To nie wygląda na nazwę roli. Wpisz stanowisko, które kandydat zrozumie. Poprawka
+                  dotyczy tylko tego zaproszenia.
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {options.data?.role_title_source === "champion"
+                    ? "Z Profilu Championa."
+                    : "Z nazwy rekrutacji od klienta, bez numerów."}{" "}
+                  Poprawka dotyczy tylko tego zaproszenia.
+                </p>
+              )}
+              {options.data?.role_description ? (
+                <div className="mt-3 space-y-2">
+                  <label className="flex items-start gap-2 text-sm text-foreground">
+                    <input
+                      id="prep-role-include"
+                      type="checkbox"
+                      checked={withRole}
+                      onChange={(e) => setWithRole(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-semibold">Dołącz opis roli</span>{" "}
+                      <span className="text-xs text-muted-foreground">
+                        · z Profilu Championa, bez stawki
+                      </span>
+                    </span>
+                  </label>
+                  {withRole && !editingRole ? (
+                    <button
+                      type="button"
+                      onClick={() => setEditingRole(true)}
+                      className="text-xs font-semibold text-primary hover:underline"
+                    >
+                      Edytuj w tym zaproszeniu
+                    </button>
+                  ) : null}
+                  {withRole && editingRole ? (
+                    <textarea
+                      id="prep-role-text"
+                      aria-label="Opis roli w zaproszeniu"
+                      rows={8}
+                      maxLength={4000}
+                      value={roleText}
+                      onChange={(e) => setRoleTextEdit(e.target.value)}
+                      className={INPUT}
+                    />
+                  ) : null}
+                  {withRole && roleFindings.length > 0 ? (
+                    <p
+                      role="status"
+                      className="rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+                    >
+                      Opis z Championa zawiera treść, której nie wysyłamy kandydatowi:{" "}
+                      {roleFindings.map((f) => `„${f.excerpt}”`).join(", ")}. Popraw go w edycji albo
+                      wyłącz opis.
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p
+                  role="status"
+                  data-testid="prep-role-missing"
+                  className="mt-3 rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+                >
+                  Profil Championa nie ma opisu projektu ani obowiązków, więc zaproszenie pójdzie bez
+                  opisu roli.{" "}
+                  <a href={`/jobs/${pair.job_id}?tab=champion`} className="font-semibold underline">
+                    Uzupełnij Championa
+                  </a>
+                </p>
+              )}
+            </div>
+          ) : null}
           {invitation ? (
             <section
               aria-label="Podgląd zaproszenia"
@@ -425,8 +545,18 @@ export function PlanPrepDialog({
                   note: invitationNote,
                   organizer: organizerName || "(prowadzący)",
                   beforeInterview,
+                  role: roleKnown ? roleTitle : "",
+                  withRole: roleIncluded,
                 })}
               </p>
+              {roleIncluded ? (
+                <details data-testid="prep-invitation-role" className="mt-2 border-t border-border pt-2">
+                  <summary className="cursor-pointer font-semibold text-foreground">
+                    {roleSectionHeading(roleTitle)}
+                  </summary>
+                  <p className="mt-1 whitespace-pre-line text-foreground">{roleText.trim()}</p>
+                </details>
+              ) : null}
               <p className="mt-2 border-t border-border pt-2 italic text-muted-foreground">
                 {options.data?.notice}
               </p>

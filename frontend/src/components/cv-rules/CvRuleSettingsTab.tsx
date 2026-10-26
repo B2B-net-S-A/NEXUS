@@ -243,6 +243,33 @@ export function CvRuleSettingsTab({
         subtitle="Jak klient chce dostać dokument. To ustawia się najczęściej."
         always
       >
+        <fieldset className="space-y-1.5" data-testid="cvrule-client-document">
+          <legend className="mb-1 text-xs font-medium">Dokument do klienta</legend>
+          {(
+            [
+              ["company_cv", "CV firmowe", "Generator CV w szablonie B2B.net — jak dotąd."],
+              [
+                "client_form",
+                "Formularz klienta",
+                "NEXUS wypełnia wzór z Plików rekrutacji (np. formularz CV ze SWZ) z CV, screeningu i notatek. CV firmowe nie powstaje samo, a braki formularza tylko przypominają przed „QC CV”.",
+              ],
+            ] as const
+          ).map(([value, title, hint]) => (
+            <label key={value} className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="cvrule-client-document"
+                className="mt-1"
+                checked={form.cv_client_document === value}
+                onChange={() => set("cv_client_document", value)}
+              />
+              <span>
+                {title}
+                <span className="block text-xs text-muted-foreground">{hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
         <div>
           <label className="mb-1 block text-xs font-medium" htmlFor="cvrule-pattern">
             Wzór nazwy pliku CV
