@@ -1,5 +1,5 @@
 # Listy kandydatów w „Moich ludziach” — „Tylko ja” / „Widzi zespół”
-<!-- indeks: zakładka „Listy”, „Na listę” na profilu, masowo z listy kandydatów, `talent_pools.team_visible` (0519), cudza prywatna lista = 404 -->
+<!-- indeks: zakładka „Listy”, „Na listę” na profilu, masowo z listy kandydatów, `talent_pools.team_visible` (0520), cudza prywatna lista = 404 -->
 
 Prośba Head of Recruitment z 23.10.2026, decyzje Artura z 25.10.2026
 (makiety: https://claude.ai/artifact/NV5xibBaWfkHA398NquxGr). „Moi ludzie”
@@ -7,10 +7,10 @@ buduje się sam z weryfikacji (`moi-ludzie-lista-rekrutera-dzwonek-przy-nowej.md
 a ludzie chcieli też dokładać osoby ręcznie i trzymać własne listy.
 
 - **Lista to osobista pula talentów** (`talent_pools.is_personal`, 0137), nie
-  nowa tabela. Widoczność to `team_visible` (migracja 0519 + lustro
+  nowa tabela. Widoczność to `team_visible` (migracja 0520 + lustro
   w `entrypoint.sh`): `false` = „Tylko ja”, `true` = „Widzi zespół”. Domyślne
   `true` w bazie i w `POST /api/talent-pools` zostawia dawne pule osobiste
-  z `/talents` widoczne jak przed 0519; panel i okna list zakładają listy
+  z `/talents` widoczne jak przed 0520; panel i okna list zakładają listy
   z `team_visible=false` (decyzja: nowa lista jest „Tylko ja”). Pula firmowa
   jest zawsze widoczna, flaga liczy się tylko przy osobistej.
 - **Cudza lista „Tylko ja” nie istnieje dla nikogo poza właścicielem — także

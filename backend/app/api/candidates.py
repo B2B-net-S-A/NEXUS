@@ -987,7 +987,7 @@ def _talent_pools_for(candidate: Candidate) -> list[TalentPoolBrief]:
     Safe to call only when `pool_memberships.pool` is eager-loaded via
     `_candidate_list_options()` (otherwise raises MissingGreenlet in async).
 
-    Bez list „Tylko ja” (0519) — także dla ich właściciela: ta odpowiedź nie
+    Bez list „Tylko ja” (0520) — także dla ich właściciela: ta odpowiedź nie
     zna patrzącego, a właściciel widzi swoje listy w „Na listę” na profilu.
     """
     return [
@@ -2913,7 +2913,7 @@ async def list_candidates(
         employment=employment,
         availability=availability,
         added_by_user_id=added_by_user_id,
-        # Cudza lista „Tylko ja” nie filtruje (0519): sama odpowiedź
+        # Cudza lista „Tylko ja” nie filtruje (0520): sama odpowiedź
         # zdradzałaby, kto na niej jest.
         talent_pool_id=await talent_pool_visibility.visible_pool_ids(
             db, current_user.id, talent_pool_id

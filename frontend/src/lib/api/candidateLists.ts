@@ -1,7 +1,7 @@
 // Listy kandydatów w „Moich ludziach” (prośba Olafa, decyzja Artura 25.10.2026).
 //
 // Lista to osobista pula talentów (`talent_pools.is_personal`, 0137) z
-// widocznością „Tylko ja” / „Widzi zespół” (`team_visible`, 0519). Typy są
+// widocznością „Tylko ja” / „Widzi zespół” (`team_visible`, 0520). Typy są
 // lustrem `backend/app/api/talent_pools.py`. Kto widzi cudzą listę, rozstrzyga
 // serwer: prywatna lista innej osoby po prostu nie przychodzi.
 //

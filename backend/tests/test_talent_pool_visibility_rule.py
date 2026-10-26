@@ -1,4 +1,4 @@
-"""Reguła „kto widzi listę” (0519) — część czysta, bez bazy.
+"""Reguła „kto widzi listę” (0520) — część czysta, bez bazy.
 
 Trasy na żywej bazie: ``test_candidate_lists_api.py``.
 """

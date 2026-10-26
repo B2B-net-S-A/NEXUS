@@ -37,7 +37,7 @@ class TalentPoolCreate(BaseModel):
     # Pula osobista (migracja 0137). True = pula indywidualna usera (widoczna
     # dla zespołu, zarządzana tylko przez właściciela). False = pula firmowa.
     is_personal: bool = False
-    # Lista „Tylko ja” (False) albo „Widzi zespół” (True, migracja 0519).
+    # Lista „Tylko ja” (False) albo „Widzi zespół” (True, migracja 0520).
     # Domyślne True = dotychczasowe zachowanie pul osobistych z /talents;
     # panel „Moi ludzie” zakłada listy z False. Pula firmowa zawsze True.
     team_visible: bool = True

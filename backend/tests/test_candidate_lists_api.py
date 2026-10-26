@@ -1,4 +1,4 @@
-"""Listy kandydatów „Tylko ja” / „Widzi zespół” (0519) — trasy na żywej bazie.
+"""Listy kandydatów „Tylko ja” / „Widzi zespół” (0520) — trasy na żywej bazie.
 
 Baza testowa jest wspólna dla przebiegu i nie jest czyszczona, więc każdy test
 zakłada własnych kandydatów i użytkowników. Osoby są zmyślone.
@@ -224,7 +224,7 @@ async def test_company_pool_cannot_be_patched(
 async def test_legacy_personal_pool_stays_team_visible(
     app_client: AsyncClient,
 ) -> None:
-    # Pula osobista z /talents bez pola widoczności = jak przed 0519.
+    # Pula osobista z /talents bez pola widoczności = jak przed 0520.
     owner = await _headers_for(app_client, UserRole.recruiter)
     other = await _headers_for(app_client, UserRole.recruiter)
     resp = await app_client.post(

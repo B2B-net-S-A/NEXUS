@@ -75,7 +75,7 @@ class TalentPool(Base):
         index=True,
     )
 
-    # Lista kandydatów „Tylko ja” / „Widzi zespół” (migracja 0519). Liczy się
+    # Lista kandydatów „Tylko ja” / „Widzi zespół” (migracja 0520). Liczy się
     # tylko przy `is_personal`: False = pulę widzi wyłącznie właściciel (nawet
     # admin jej nie dostaje). Reguła w `services/talent_pool_visibility.py`.
     team_visible: Mapped[bool] = mapped_column(
