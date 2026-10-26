@@ -244,6 +244,8 @@ from app.api import public_consultant_mail as public_consultant_mail_api
 from app.api import admin_cases as admin_cases_api
 from app.api import equipment as equipment_api
 from app.api import sales_companies as sales_companies_api
+from app.api import sales_activities as sales_activities_api
+from app.api import sales_contacts as sales_contacts_api
 from app.api import sales_opportunities as sales_opportunities_api
 from app.api import client_onboarding as client_onboarding_api
 from app.api import equipment_intune as equipment_intune_api
@@ -2025,6 +2027,12 @@ app.include_router(
 )
 app.include_router(
     sales_opportunities_api.router, prefix="/api/sales/opportunities", tags=["sales"]
+)
+app.include_router(
+    sales_contacts_api.router, prefix="/api/sales/contacts", tags=["sales"]
+)
+app.include_router(
+    sales_activities_api.router, prefix="/api/sales/activities", tags=["sales"]
 )
 app.include_router(
     client_onboarding_api.router,
