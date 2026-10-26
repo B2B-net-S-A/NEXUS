@@ -268,7 +268,7 @@ describe("strona kontraktora — instrukcja per narzędzie (etap 1b)", () => {
       ok: true,
       blob: async () => new Blob(["%PDF"]),
       headers: new Headers({
-        "content-disposition": 'attachment; filename="Umowa B2B 1552-2026 Stasica Michal podpisana.pdf"',
+        "content-disposition": 'attachment; filename="Umowa B2B 1555-2026 Kowalski Jan podpisana.pdf"',
       }),
     });
     vi.stubGlobal("fetch", fetchMock);
