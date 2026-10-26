@@ -190,6 +190,8 @@ async def test_role_snapshot_carries_the_catalogue_and_derived_sections(
         "money",
         # „Ludzie w NEXUSIE” (16.10.2026): Kadry, Płace, Sprzęt, Sprawy.
         "people",
+        # Sprzedaż (Atlas → NEXUS, 26.10.2026): podgląd i edycja.
+        "sales",
     ]
     assert [item["key"] for item in policy["permissions"]] == list(catalog.KEYS)
     assert policy["permissions"][0]["label"] == catalog.label("delivery_view")
@@ -935,6 +937,9 @@ async def test_first_real_change_writes_the_whole_seed_of_an_unseeded_role(
             "payroll": "none",
             "equipment": "none",
             "cases": "manage",
+            # Sprzedaż (26.10.2026): bez domyślnych posiadaczy poza adminem.
+            "sales_view": "none",
+            "sales_edit": "none",
         }
         after = await _snapshot(app_client, app_auth_headers)
         shown = next(row for row in after["roles"] if row["role"] == role)

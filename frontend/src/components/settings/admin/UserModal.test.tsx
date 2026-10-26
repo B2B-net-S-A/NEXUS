@@ -278,6 +278,8 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
       "Kadry: kartoteka, urlopy za innych, wejście i odejście",
       "Płace: stawki pracowników, premie, rozliczenie miesiąca",
       "Sprzęt: ewidencja, wydania, zwroty i protokoły",
+      "Sprzedaż: podgląd firm, szans i kontaktów",
+      "Sprzedaż: prowadzenie szans i kartoteki firm",
     ]);
     expect(
       within(group).getByRole("checkbox", {
@@ -369,7 +371,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     const { onSave } = renderModal({ initial: tcm });
 
     const group = await extraPermissions();
-    expect(labelsIn(group)).toHaveLength(9);
+    expect(labelsIn(group)).toHaveLength(11);
 
     fireEvent.change(screen.getAllByRole("combobox")[0], {
       target: { value: "delivery_lead" },
@@ -381,6 +383,8 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
       "Kadry: kartoteka, urlopy za innych, wejście i odejście",
       "Płace: stawki pracowników, premie, rozliczenie miesiąca",
       "Sprzęt: ewidencja, wydania, zwroty i protokoły",
+      "Sprzedaż: podgląd firm, szans i kontaktów",
+      "Sprzedaż: prowadzenie szans i kartoteki firm",
     ]);
     expect(group).toHaveTextContent(
       "Lista pokazuje tylko to, czego role Delivery Lead, Talent Community Manager nie dają.",
@@ -456,7 +460,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     expect(onSave.mock.calls[0][0]).not.toHaveProperty("permissions");
   });
 
-  it("dla Finansów lista ma siedem pozycji, których ta rola nie daje", async () => {
+  it("dla Finansów lista ma dziewięć pozycji, których ta rola nie daje", async () => {
     personIs(userPermissionsResponse({ roles: ["finance"] }));
     renderModal({ initial: { id: 7, role: "finance", roles: ["finance"] } });
 
@@ -470,6 +474,8 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
       "Kadry: kartoteka, urlopy za innych, wejście i odejście",
       "Sprzęt: ewidencja, wydania, zwroty i protokoły",
       "Sprawy: skrzynka administracja@",
+      "Sprzedaż: podgląd firm, szans i kontaktów",
+      "Sprzedaż: prowadzenie szans i kartoteki firm",
     ]);
   });
 

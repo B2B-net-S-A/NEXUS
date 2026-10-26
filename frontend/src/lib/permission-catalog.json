@@ -36,6 +36,14 @@
         "equipment",
         "cases"
       ]
+    },
+    {
+      "key": "sales",
+      "label": "Sprzedaż",
+      "permissions": [
+        "sales_view",
+        "sales_edit"
+      ]
     }
   ],
   "permissions": [
@@ -171,6 +179,22 @@
       "default_roles": [
         "talent_community_manager"
       ]
+    },
+    {
+      "key": "sales_view",
+      "label": "Sprzedaż: podgląd firm, szans i kontaktów",
+      "group": "sales",
+      "requires": [],
+      "default_roles": []
+    },
+    {
+      "key": "sales_edit",
+      "label": "Sprzedaż: prowadzenie szans i kartoteki firm",
+      "group": "sales",
+      "requires": [
+        "sales_view"
+      ],
+      "default_roles": []
     }
   ]
 }

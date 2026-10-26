@@ -45,7 +45,7 @@ function permissionSwitch(name: string) {
   return screen.getByRole("switch", { name });
 }
 
-describe("PermissionsTab — jedna rola, trzynaście przełączników", () => {
+describe("PermissionsTab — jedna rola, piętnaście przełączników", () => {
   beforeEach(() => {
     hrProgram.on = true;
     vi.clearAllMocks();
@@ -100,8 +100,8 @@ describe("PermissionsTab — jedna rola, trzynaście przełączników", () => {
     expect(screen.queryByRole("group", { name: "Ludzie" })).toBeNull();
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
-    ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze"]);
-    expect(screen.getAllByRole("switch")).toHaveLength(9);
+    ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze", "Sprzedaż"]);
+    expect(screen.getAllByRole("switch")).toHaveLength(11);
     expect(
       within(screen.getByRole("group", { name: "Rola" })).queryByRole("button", {
         name: "Pracownik",
@@ -109,7 +109,7 @@ describe("PermissionsTab — jedna rola, trzynaście przełączników", () => {
     ).toBeNull();
   });
 
-  it("rysuje cztery grupy i trzynaście przełączników ze stanem roli", async () => {
+  it("rysuje pięć grup i piętnaście przełączników ze stanem roli", async () => {
     renderTab();
     await screen.findByRole("group", { name: "Rola" });
 
@@ -118,6 +118,7 @@ describe("PermissionsTab — jedna rola, trzynaście przełączników", () => {
       ["Rekrutacje", 1],
       ["Pieniądze", 3],
       ["Ludzie", 4],
+      ["Sprzedaż", 2],
     ] as const) {
       expect(
         within(screen.getByRole("group", { name })).getAllByRole("switch"),
@@ -125,8 +126,8 @@ describe("PermissionsTab — jedna rola, trzynaście przełączników", () => {
     }
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
-    ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze", "Ludzie"]);
-    expect(screen.getAllByRole("switch")).toHaveLength(13);
+    ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze", "Ludzie", "Sprzedaż"]);
+    expect(screen.getAllByRole("switch")).toHaveLength(15);
     expect(
       permissionSwitch("Finanse: Kontrakty i zamówienia: tworzenie i edycja"),
     ).toBeChecked();
@@ -479,7 +480,7 @@ describe("PermissionsTab — jedna rola, trzynaście przełączników", () => {
 
     await user.click(within(alert).getByRole("button", { name: /Spróbuj ponownie/ }));
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(13);
+    expect(await screen.findAllByRole("switch")).toHaveLength(15);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 

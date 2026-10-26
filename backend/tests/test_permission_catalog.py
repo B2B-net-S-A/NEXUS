@@ -1,4 +1,4 @@
-"""Katalog uprawnień (dziewięć + cztery „Ludzie”): nazwy, zależności, zasiew i lustra."""
+"""Katalog uprawnień (dziewięć + cztery „Ludzie” + dwa „Sprzedaż”): nazwy, zależności, zasiew i lustra."""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ PRODUCTION_SECTIONS: dict[str, dict[str, str]] = {
 }
 
 
-def test_screen_shows_thirteen_permissions_in_four_groups() -> None:
+def test_screen_shows_fifteen_permissions_in_five_groups() -> None:
     assert [permission.label for permission in catalog.PERMISSIONS] == [
         "Klienci, kontrakty i zamówienia: podgląd",
         "Klienci: dodawanie i edycja",
@@ -83,16 +83,19 @@ def test_screen_shows_thirteen_permissions_in_four_groups() -> None:
         "Płace: stawki pracowników, premie, rozliczenie miesiąca",
         "Sprzęt: ewidencja, wydania, zwroty i protokoły",
         "Sprawy: skrzynka administracja@",
+        "Sprzedaż: podgląd firm, szans i kontaktów",
+        "Sprzedaż: prowadzenie szans i kartoteki firm",
     ]
     assert [(group.label, len(group.permissions)) for group in catalog.GROUPS] == [
         ("Klienci i kontrakty", 5),
         ("Rekrutacje", 1),
         ("Pieniądze", 3),
         ("Ludzie", 4),
+        ("Sprzedaż", 2),
     ]
-    assert sum(len(group.permissions) for group in catalog.GROUPS) == 13
+    assert sum(len(group.permissions) for group in catalog.GROUPS) == 15
     # Siatka przy starcie sprawdza ostatni zasiewany klucz — nowe na końcu.
-    assert catalog.SEEDED_KEYS[-1] == catalog.CASES
+    assert catalog.SEEDED_KEYS[-1] == catalog.SALES_EDIT
 
 
 def test_catalog_roles_are_exactly_the_application_roles() -> None:
@@ -114,6 +117,19 @@ def test_named_permissions_are_binary_in_the_static_matrix() -> None:
     for policy in DEFAULT_ROLE_ACTION_ACCESS.values():
         for action in NAMED_PERMISSIONS:
             assert policy[action] in {ActionAccess.none, ActionAccess.manage}
+
+
+def test_sales_edit_pulls_in_sales_view_and_nothing_else() -> None:
+    """Sprzedaż (Atlas → NEXUS, 26.10.2026): nikt poza adminem nie ma jej domyślnie."""
+    assert catalog.close((catalog.SALES_EDIT,)) == {
+        catalog.SALES_VIEW,
+        catalog.SALES_EDIT,
+    }
+    assert catalog.close((catalog.SALES_VIEW,)) == {catalog.SALES_VIEW}
+    assert catalog.derive_sections({catalog.SALES_EDIT}) == {
+        "delivery": "none",
+        "finance": "none",
+    }
 
 
 def test_edit_permissions_pull_in_what_they_need() -> None:
