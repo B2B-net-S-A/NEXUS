@@ -269,6 +269,35 @@ def _resolve(kind: str, offset: int, anchor: date | None, date_from, date_to):
         ) from exc
 
 
+async def _milestone_counts(
+    db: AsyncSession, start: datetime, end: datetime
+) -> dict[str, int]:
+    """Pierwsze wejścia par na etap w oknie, cała firma, bez atrybucji."""
+
+    # Półotwarte [start, end) — ta sama semantyka co w periods.py. Brak górnej
+    # granicy (jak w legacy `_period_start`) sprawiał, że „poprzedni miesiąc"
+    # oznaczał w praktyce „od poprzedniego miesiąca do dziś".
+    rows = (
+        (
+            await db.execute(
+                text(
+                    """
+                SELECT fm.stage AS stage, count(*) AS cnt
+                FROM analytics_kpi_milestones fm
+                WHERE fm.first_reached_at >= :start
+                  AND fm.first_reached_at < :end
+                GROUP BY fm.stage
+                """
+                ),
+                {"start": start, "end": end},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return {r["stage"]: int(r["cnt"]) for r in rows}
+
+
 @router.get("/funnel")
 async def insights_recruitment_funnel(
     current_user: CurrentUser,
@@ -294,30 +323,7 @@ async def insights_recruitment_funnel(
         if cached is not None:
             return cached
 
-        params = {"start": resolved.start, "end": resolved.end}
-
-        # Półotwarte [start, end) — ta sama semantyka co w periods.py. Brak górnej
-        # granicy (jak w legacy `_period_start`) sprawiał, że „poprzedni miesiąc"
-        # oznaczał w praktyce „od poprzedniego miesiąca do dziś".
-        rows = (
-            (
-                await db.execute(
-                    text(
-                        """
-                    SELECT fm.stage AS stage, count(*) AS cnt
-                    FROM analytics_kpi_milestones fm
-                    WHERE fm.first_reached_at >= :start
-                      AND fm.first_reached_at < :end
-                    GROUP BY fm.stage
-                    """
-                    ),
-                    params,
-                )
-            )
-            .mappings()
-            .all()
-        )
-        counts = {r["stage"]: int(r["cnt"]) for r in rows}
+        counts = await _milestone_counts(db, resolved.start, resolved.end)
 
         # Ruchy Tablicy liczymy od 12.10.2026 (decyzja Artura 18.10.2026) —
         # wcześniej reszty lejka DynaReporter nie prowadził: brak danych.
@@ -526,9 +532,21 @@ async def insights_recruitment_team_goals(
     w liczniku górnego paska (`integration_insights.company_team_goals`).
 
     Dla każdego, kto widzi Insights: same sumy celów i pracy, bez osób.
+
+    `company_month_placements` to placementy całej firmy w tym miesiącu —
+    ta sama liczba co lejek (26.10.2026). Cel placementów sumuje tylko osoby
+    z tym celem, więc prognoza miesiąca i dopisek „w całej firmie” liczą
+    z tej liczby, a nie z celu.
     """
     result = await company_team_goals(db, now=local_now())
-    return result.as_dict()
+    month = _resolve("month", 0, None, None, None)
+    cache_key = f"insights:recruitment:company-placements:v1:{month.cache_suffix}"
+    placements = await cache_get(cache_key)
+    if placements is None:
+        counts = await _milestone_counts(db, month.start, month.end)
+        placements = counts.get("hired", 0)
+        await cache_set(cache_key, placements, ttl_seconds=CACHE_TTL_SECONDS)
+    return {**result.as_dict(), "company_month_placements": placements}
 
 
 TREND_STAGES = ("verified", "cv_sent", "client_interview", "acceptance", "hired")

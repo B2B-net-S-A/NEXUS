@@ -20,6 +20,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.api.insights_recruitment import stage_counted_from, trend_weeks
+from app.core.cache import cache_invalidate
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
@@ -440,3 +441,60 @@ async def test_team_goals_are_sums_for_any_insights_reader(
     body = resp.json()
     assert body["kind"] == "team"
     assert isinstance(body["goals"], list)
+
+
+@pytest.mark.asyncio
+async def test_team_goals_carry_company_placements_equal_to_month_funnel(
+    fx_client: AsyncClient,
+) -> None:
+    """Prognoza miesiąca liczy z placementów całej firmy (26.10.2026).
+
+    Cel placementów sumuje tylko osoby z tym celem (październik: 12), a lejek
+    całą firmę (19); prognoza dodawała akceptacje całej firmy do tych 12.
+    Placement bez osoby z zasługą (brak `moved_by`) wchodzi do sumy firmy.
+    """
+    await cache_invalidate("insights:recruitment:")
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"Firma-{tag}")
+        cand = Candidate(
+            name=f"Firma-{tag}",
+            lastname="Placement",
+            email=f"company-placement-{tag}@example.com",
+        )
+        db.add_all([cli, cand])
+        await db.flush()
+        job = Job(
+            title=f"Firma {tag}",
+            location="Warszawa",
+            status=JobStatus.published,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=cli.id,
+        )
+        db.add(job)
+        await db.flush()
+        db.add(
+            CandidateStage(
+                candidate_id=cand.id,
+                job_id=job.id,
+                stage=PipelineStage.hired,
+                moved_at=datetime.now(timezone.utc),
+                external_source="manual",
+            )
+        )
+        await db.commit()
+
+    headers = await _login(fx_client, UserRole.recruiter)
+    goals = (
+        await fx_client.get("/api/insights/recruitment/team-goals", headers=headers)
+    ).json()
+    funnel = (
+        await fx_client.get(
+            "/api/insights/recruitment/funnel",
+            headers=headers,
+            params={"period": "month"},
+        )
+    ).json()
+    hired = next(s["count"] for s in funnel["stages"] if s["stage"] == "hired")
+    assert hired >= 1
+    assert goals["company_month_placements"] == hired

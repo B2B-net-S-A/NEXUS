@@ -42,6 +42,18 @@ export function monthForecast(
   return low === high ? `ok. ${low}` : `ok. ${low}–${high}`;
 }
 
+/**
+ * Dopisek przy celu placementów zespołu (26.10.2026): cel sumuje tylko osoby
+ * z tym celem, a lejek liczy całą firmę — bez dopisku 12 i 19 obok siebie
+ * czytają się jak błąd.
+ */
+export function companyPlacementsNote(team: number, company: number): string {
+  const outside = company - team;
+  return outside > 0
+    ? `W całej firmie: ${company} (${outside} poza celami osób).`
+    : `W całej firmie: ${company}.`;
+}
+
 /** Zdanie o szacunku albo powód, dla którego go nie ma. */
 export function forecastSentence(forecast: InFlightResponse["forecast"]): string {
   if (forecast.open === 0) return "Nie ma akceptacji do domknięcia.";

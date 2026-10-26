@@ -123,6 +123,11 @@ export interface InFlightPerson extends Omit<InFlightAcceptance, "stage_key"> {
   candidate_name: string | null;
 }
 
+/** Cele zespołu w Insights + placementy całej firmy w tym miesiącu (jak lejek). */
+export interface TeamGoalsResponse extends MyKpiGoals {
+  company_month_placements: number;
+}
+
 export interface InFlightResponse {
   asof: string;
   stale_days: number;
@@ -462,7 +467,7 @@ export const insightsApi = {
   /** Cele zespołu — te same sumy co licznik HoR w pasku, bez osób. */
   teamGoals: () =>
     api
-      .get<MyKpiGoals>("/api/insights/recruitment/team-goals")
+      .get<TeamGoalsResponse>("/api/insights/recruitment/team-goals")
       .then((r) => r.data),
 
   weeklyTrend: (weeks: number) =>
