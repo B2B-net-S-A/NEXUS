@@ -41,6 +41,7 @@ CV_MAX = 30_000
 NOTES_MAX = 15_000
 VALUE_MAX = 1_500
 EXTRA_ROWS_MAX = 10
+QUOTE_PARTS_MAX = 8
 ROWS_PARSED_MAX = 60
 
 SOURCE_CV = "cv"
@@ -53,6 +54,7 @@ MSG_UNAVAILABLE = (
 )
 
 NAME_LABEL = re.compile(r"imi[eę]\s+i\s+nazwisko", re.IGNORECASE)
+CITY_LABEL = re.compile(r"miejsce\s+zamieszkania", re.IGNORECASE)
 YES_NO_LABEL = re.compile(r"tak\s*/\s*nie", re.IGNORECASE)
 SCALE_LABEL = re.compile(r"skali|\b1\s*[-–]\s*10\b", re.IGNORECASE)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
@@ -73,8 +75,7 @@ def _short(value: Any, limit: int = VALUE_MAX) -> Optional[str]:
     return text[:limit] or None
 
 
-def _grounded(quote: Any, sources: Sources) -> tuple[Optional[str], Optional[str]]:
-    """(źródło, cytat) — cytat musi stać w CV albo w notatkach."""
+def _grounded_one(quote: Any, sources: Sources) -> tuple[Optional[str], Optional[str]]:
     found = _quote_in_text(quote, sources.cv)
     if found is not None:
         return SOURCE_CV, found
@@ -82,6 +83,25 @@ def _grounded(quote: Any, sources: Sources) -> tuple[Optional[str], Optional[str
     if found is not None:
         return SOURCE_NOTES, found
     return None, None
+
+
+def _grounded(quote: Any, sources: Sources) -> tuple[Optional[str], Optional[str]]:
+    """(źródło, cytat) — cytat musi stać w CV albo w notatkach.
+
+    Cytat może być listą fragmentów: tekst CV z dwukolumnowego PDF-a przeplata
+    punkty z kolumną boczną, więc opis złożony z kilku punktów nie stoi w CV
+    jednym ciągiem (staging 26.10.2026: 3 z 4 odrzuconych wartości). Każdy
+    fragment musi stać w źródle osobno.
+    """
+    if isinstance(quote, list):
+        found = [_grounded_one(part, sources) for part in quote[:QUOTE_PARTS_MAX]]
+        if not found or any(part is None for _, part in found):
+            return None, None
+        source = (
+            SOURCE_CV if any(src == SOURCE_CV for src, _ in found) else SOURCE_NOTES
+        )
+        return source, " … ".join(part for _, part in found if part)
+    return _grounded_one(quote, sources)
 
 
 def _contact(value: str) -> bool:
@@ -110,10 +130,14 @@ def _checked_value(label: str, value: str, quote: str) -> Optional[str]:
 
 
 def name_fields(structure: dict[str, Any]) -> list[str]:
+    return _line_fields(structure, NAME_LABEL)
+
+
+def _line_fields(structure: dict[str, Any], pattern: re.Pattern[str]) -> list[str]:
     return [
         item["id"]
         for item in structure.get("fields") or []
-        if item.get("kind") == "line" and NAME_LABEL.search(item.get("label") or "")
+        if item.get("kind") == "line" and pattern.search(item.get("label") or "")
     ]
 
 
@@ -136,16 +160,29 @@ def check_parse(
     structure: dict[str, Any],
     sources: Sources,
     candidate_name: str,
+    candidate_city: str = "",
 ) -> dict[str, Any]:
-    """Odpowiedź modelu → wartości, które przeszły kontrolę kodu. Czysta funkcja."""
+    """Odpowiedź modelu → wartości, które przeszły kontrolę kodu. Czysta funkcja.
+
+    Imię i nazwisko oraz miejsce zamieszkania (gdy profil je zna) wpisuje kod
+    z profilu — model ich nie nadpisuje.
+    """
     labels = {
         item["id"]: item.get("label") or "" for item in structure.get("fields") or []
     }
-    names = set(name_fields(structure))
+    profile = {
+        **{field_id: candidate_name for field_id in name_fields(structure)},
+        **{
+            field_id: candidate_city for field_id in _line_fields(structure, CITY_LABEL)
+        },
+    }
+    profile = {
+        field_id: value.strip() for field_id, value in profile.items() if value.strip()
+    }
+    names = set(profile)
     fields: dict[str, dict[str, Any]] = {
-        field_id: {"value": candidate_name, "source": SOURCE_PROFILE, "quote": None}
-        for field_id in names
-        if candidate_name
+        field_id: {"value": value, "source": SOURCE_PROFILE, "quote": None}
+        for field_id, value in profile.items()
     }
     dropped = 0
     data = _json_object(raw) if raw else {}
@@ -297,11 +334,16 @@ async def fill(
     sources: Sources,
     candidate_name: str,
     user_id: int,
+    candidate_city: str = "",
 ) -> dict[str, Any]:
     """Wartości pól formularza. Nigdy nie rzuca — model to podpowiedź."""
     chain = tuple(model_chain_for(FEATURE))
     fallback = check_parse(
-        "", structure=structure, sources=sources, candidate_name=candidate_name
+        "",
+        structure=structure,
+        sources=sources,
+        candidate_name=candidate_name,
+        candidate_city=candidate_city,
     )
     if not api_key_configured(chain[0]):
         return {
@@ -319,7 +361,11 @@ async def fill(
                 _call_model, system, build_prompt(structure, sources), chain
             )
         result = check_parse(
-            raw, structure=structure, sources=sources, candidate_name=candidate_name
+            raw,
+            structure=structure,
+            sources=sources,
+            candidate_name=candidate_name,
+            candidate_city=candidate_city,
         )
     except Exception as exc:  # noqa: BLE001 — AI to podpowiedź, nigdy bramka
         logger.warning("client_form_fill: model niedostępny (%s)", type(exc).__name__)

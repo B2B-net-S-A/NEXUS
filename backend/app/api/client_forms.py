@@ -221,12 +221,14 @@ async def fill_client_form(
     # IDs zapamiętane przed modelem: `fill` commituje sesję (licznik AI).
     job_id, candidate_id, template_id = job.id, candidate.id, template.id
     name, user_id = _candidate_name(candidate), current_user.id
+    city = (candidate.city or "").strip()
     result = await client_form_fill.fill(
         db,
         structure=structure,
         sources=sources,
         candidate_name=name,
         user_id=user_id,
+        candidate_city=city,
     )
     form = await _form(db, job_id, candidate_id)
     if form is None:

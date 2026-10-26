@@ -276,3 +276,46 @@ def test_extra_rows_continue_numbering_and_replace_the_ellipsis_row() -> None:
     assert experience.rows[4].cells[2].text == "2019"
     assert experience.rows[5].cells[1].text == "Firma B"
     assert not any("…" in cell.text for row in experience.rows for cell in row.cells)
+
+
+def test_quote_may_be_fragments_each_in_the_source() -> None:
+    result = _parse(
+        [
+            {
+                "id": "t1.r1.c4",
+                "value": "Framework w Rest Assured; testy w Java.",
+                "quote": [
+                    "tworzenie frameworku do testów automatycznych w Rest Assured",
+                    "SQL, Selenium WebDriver, Java",
+                ],
+            },
+            {
+                "id": "t1.r2.c4",
+                "value": "Coś więcej",
+                "quote": ["tworzenie frameworku", "fragment, którego nie ma"],
+            },
+        ]
+    )
+    assert result["fields"]["t1.r1.c4"]["source"] == "cv"
+    assert " … " in result["fields"]["t1.r1.c4"]["quote"]
+    assert "t1.r2.c4" not in result["fields"]
+
+
+def test_city_comes_from_the_profile_when_known() -> None:
+    raw = json.dumps({"fields": [{"id": "p4", "value": "Kraków", "quote": "Warszawa"}]})
+    with_city = fill.check_parse(
+        raw,
+        structure=_structure(),
+        sources=SOURCES,
+        candidate_name="Jan Fikcyjny",
+        candidate_city="Warszawa",
+    )
+    assert with_city["fields"]["p4"] == {
+        "value": "Warszawa",
+        "source": "profile",
+        "quote": None,
+    }
+    without_city = fill.check_parse(
+        raw, structure=_structure(), sources=SOURCES, candidate_name="Jan Fikcyjny"
+    )
+    assert without_city["fields"]["p4"]["source"] == "cv"

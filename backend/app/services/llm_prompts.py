@@ -1775,7 +1775,7 @@ AUTOFILL_QUALITY_REPORT = PromptTemplate(
 
 CLIENT_FORM_FILL = PromptTemplate(
     name="client_form_fill",
-    version=1,
+    version=2,
     expected_format="json",
     system_prompt=(
         "Wypełniasz formularz CV klienta (dokument przetargowy) danymi "
@@ -1789,9 +1789,10 @@ CLIENT_FORM_FILL = PromptTemplate(
         '"c2"):\n{tables}\n\n'
         "{cv}\n\n{notes}\n\n"
         "Zasady:\n"
-        "- Wpisuj WYŁĄCZNIE fakty z CV i notatek. Każda wartość ma \"quote\": "
-        "fragment CV albo notatki skopiowany znak w znak, który ją potwierdza. "
-        "Bez takiego fragmentu pomiń pole.\n"
+        '- Wpisuj WYŁĄCZNIE fakty z CV i notatek. Każda wartość ma "quote": '
+        "fragment CV albo notatki skopiowany znak w znak, który ją potwierdza — "
+        "albo listę takich fragmentów, gdy wartość łączy kilka punktów CV (nie "
+        "sklejaj punktów w jeden cytat). Bez takiego fragmentu pomiń pole.\n"
         "- Nie zgaduj: ocen w skali (np. 1–10), numerów certyfikatów ani liczby "
         "lat, której nie da się wyliczyć z dat w źródłach — pomiń takie pole.\n"
         '- Pole „TAK/NIE”: "TAK", gdy źródło potwierdza kompetencję z nazwy '
@@ -1808,7 +1809,7 @@ CLIENT_FORM_FILL = PromptTemplate(
         "- Nigdy nie wpisuj stawki, wynagrodzenia, dostępności, telefonu, "
         "e-maila ani adresu (miasto zamieszkania wolno).\n\n"
         "Zwróć JSON:\n"
-        '{{"fields": [{{"id": str, "value": str, "quote": str}}], '
+        '{{"fields": [{{"id": str, "value": str, "quote": str | [str]}}], '
         '"extra_rows": [{{"table": int, "cells": {{"c2": {{"value": str, '
         '"quote": str}}}}}}]}}'
     ),
