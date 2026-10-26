@@ -364,8 +364,96 @@ async def test_contractor_then_company_sign_and_the_request_completes(
     )
     assert done.status_code == 200, done.text
     assert done.json()["status"] == "completed"
-    closed_link = await app_client.get(f"/api/public/b2b-sign/{token}")
-    assert closed_link.status_code == 404
+    # 26.10.2026: link zostaje 30 dni, żeby kontraktor pobrał swoją kopię.
+    after = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert after.status_code == 200 and after.json()["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_company_signer_gets_a_mail_and_the_contractor_gets_the_signed_copy(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Olaf 26.10.2026: „nic mi nie przyszło”; kontraktor nie dostawał umowy
+    podpisanej przez obie strony. Teraz: mail do podpisującego za firmę od
+    razu, a po podpisie firmy mail do kontraktora z PDF-em i link do
+    pobrania przez 30 dni."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+    from app.services.b2b_esign import mail as esign_mail
+    from app.tasks import b2b_esign_sweeper
+
+    mails: list[dict[str, Any]] = []
+
+    async def _send_from(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _send_from)
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    partner = await _partner(scenario["generated_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    assert sent.status_code == 200, sent.text
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+    assert [m["to"] for m in mails] == ["anna@example.com"]
+
+    async with AsyncSessionLocal() as db:
+        signer = await db.get(User, esign_env["signer_id"])
+        signer_email, signer_name = signer.email, signer.name
+
+    contractor_pdf = SOURCE + b"% podpis kontraktora\n"
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+    signed = await app_client.post(
+        f"/api/public/b2b-sign/{token}",
+        files={"file": ("u.pdf", contractor_pdf, "application/pdf")},
+    )
+    assert signed.status_code == 200, signed.text
+    to_signer = mails[-1]
+    assert to_signer["to"] == signer_email
+    assert "czeka na Twój podpis" in to_signer["subject"]
+    assert "/contracts/b2b-generator" in to_signer["body_html"]
+    assert not to_signer.get("attachments")
+
+    final_pdf = contractor_pdf + b"% podpis firmy\n"
+    _FakeValidator.report = _report(
+        (f"CN={partner}", "TOTAL_PASSED", "QESig"),
+        (f"CN={signer_name}", "TOTAL_PASSED", "QESig"),
+    )
+    done = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/company-sign",
+        files={"file": ("u.pdf", final_pdf, "application/pdf")},
+        headers=esign_env["signer_headers"],
+    )
+    assert done.status_code == 200, done.text
+    copy = mails[-1]
+    assert copy["to"] == "anna@example.com"
+    assert "podpisana przez obie strony" in copy["subject"]
+    [attachment] = copy["attachments"]
+    assert attachment.data == final_pdf
+    assert attachment.name.startswith("Umowa B2B ")
+    assert attachment.name.endswith(" podpisana.pdf")
+
+    view = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert view.status_code == 200, view.text
+    assert view.json()["status"] == "completed"
+    assert view.json()["signed_pdf_until"]
+    own_copy = await app_client.get(f"/api/public/b2b-sign/{token}/signed-pdf")
+    assert own_copy.status_code == 200, own_copy.text
+    assert own_copy.content == final_pdf
+    assert "podpisana" in own_copy.headers["content-disposition"]
+
+    await b2b_esign_sweeper.sweep(datetime.now(timezone.utc) + timedelta(days=31))
+    gone = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert gone.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -783,6 +871,35 @@ def test_contractor_reminder_comes_a_day_before_the_deadline():
     # Przy jednym dniu „dzień przed końcem” to chwila wysyłki — połowa terminu.
     one_day = sent + timedelta(days=1)
     assert contractor_reminder_at(sent, one_day) == sent + timedelta(hours=12)
+
+
+def test_company_signer_is_reminded_after_one_business_day_in_working_hours():
+    """Decyzja Artura 26.10.2026: mail od razu, przypomnienie po 1 dniu
+    roboczym, potem co 3 dni — zawsze w dzień roboczy, 8:00–18:00."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.tasks.b2b_esign_sweeper import company_reminder_due
+
+    warsaw = ZoneInfo("Europe/Warsaw")
+
+    def at(month: int, day: int, hour: int, minute: int = 0) -> datetime:
+        return datetime(2026, month, day, hour, minute, tzinfo=warsaw)
+
+    friday = at(10, 30, 15)
+    assert not company_reminder_due(friday, None, at(10, 31, 16))  # sobota
+    assert not company_reminder_due(friday, None, at(11, 2, 7, 30))  # przed 8:00
+    assert company_reminder_due(friday, None, at(11, 2, 9))  # poniedziałek
+
+    monday = at(10, 26, 10)
+    assert not company_reminder_due(monday, None, at(10, 26, 17))  # ten sam dzień
+    assert company_reminder_due(monday, None, at(10, 27, 10, 30))
+    # Przypomnienie z etapu kontraktora (przed jego podpisem) się nie liczy.
+    assert company_reminder_due(monday, at(10, 24, 10), at(10, 27, 10, 30))
+
+    reminded = at(10, 27, 10, 30)
+    assert not company_reminder_due(monday, reminded, at(10, 28, 10, 30))
+    assert company_reminder_due(monday, reminded, at(10, 30, 10, 31))
 
 
 # ── wygasanie i przypomnienia (PR 4b) ────────────────────────────────────────

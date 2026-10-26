@@ -29,6 +29,19 @@ function base(token: string): string {
   return `${apiBase()}/api/public/b2b-sign/${encodeURIComponent(token)}`;
 }
 
+/** Pobierz PDF z trasy publicznej; nazwę pliku układa serwer. Zwraca błąd albo null. */
+async function savePdf(url: string, fallbackName: string): Promise<string | null> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) return errorText(res);
+  const href = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = parseDispositionFilename(res.headers.get("content-disposition") ?? "", fallbackName);
+  a.click();
+  URL.revokeObjectURL(href);
+  return null;
+}
+
 async function errorText(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { detail?: unknown };
@@ -141,25 +154,55 @@ function ToolGuide() {
 export default function B2BSignForm({
   token,
   initialState,
+  signedPdfUntil = null,
 }: {
   token: string;
   initialState: PublicSignState;
+  /** Data (dd.mm.rrrr), do której link daje pobrać kopię; null = kopii w linku nie ma. */
+  signedPdfUntil?: string | null;
 }) {
   const [state, setState] = useState<PublicSignState>(initialState);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (state === "signed_by_you" || state === "completed") {
+  if (state === "completed") {
+    // 26.10.2026: kopia z linku przez 30 dni i mailem (wcześniej nie wychodziła).
+    return (
+      <div className="space-y-3">
+        <Alert
+          variant="success"
+          title="Umowa podpisana przez obie strony"
+          description={
+            signedPdfUntil
+              ? "Oba podpisy kwalifikowane sprawdzone. Pobierz swoją kopię, wysłaliśmy ją też mailem."
+              : "Kopię podpisaną przez obie strony dostaniesz od osoby z B2B Network."
+          }
+        />
+        {signedPdfUntil ? (
+          <>
+            <Button
+              type="button"
+              onClick={async () => {
+                setError(null);
+                setError(await savePdf(`${base(token)}/signed-pdf`, "Umowa B2B podpisana.pdf"));
+              }}
+            >
+              <Download className="h-4 w-4" aria-hidden /> Pobierz umowę podpisaną przez obie strony
+            </Button>
+            <p className="text-sm text-muted-foreground">Link działa do {signedPdfUntil}.</p>
+          </>
+        ) : null}
+        {error ? <Alert variant="error" title="Nie udało się pobrać pliku" description={error} /> : null}
+      </div>
+    );
+  }
+  if (state === "signed_by_you") {
     return (
       <Alert
         variant="success"
-        title={state === "completed" ? "Umowa podpisana przez obie strony" : "Dziękujemy, podpis przyjęty"}
-        description={
-          state === "completed"
-            ? "Kopię podpisaną przez obie strony dostaniesz od osoby z B2B Network."
-            : "Podpis kwalifikowany sprawdzony. Umowa trafia do podpisu B2B Network."
-        }
+        title="Dziękujemy, podpis przyjęty"
+        description="Podpis kwalifikowany sprawdzony. Umowa trafia do podpisu B2B Network."
       />
     );
   }
@@ -175,21 +218,8 @@ export default function B2BSignForm({
 
   const download = async () => {
     setError(null);
-    const res = await fetch(`${base(token)}/pdf`, { cache: "no-store" });
-    if (!res.ok) {
-      setError(await errorText(res));
-      return;
-    }
-    const url = URL.createObjectURL(await res.blob());
-    const a = document.createElement("a");
-    a.href = url;
     // Nazwę („Umowa B2B [nr] Nazwisko Imię”) układa serwer (26.10.2026).
-    a.download = parseDispositionFilename(
-      res.headers.get("content-disposition") ?? "",
-      "Umowa B2B.pdf",
-    );
-    a.click();
-    URL.revokeObjectURL(url);
+    setError(await savePdf(`${base(token)}/pdf`, "Umowa B2B.pdf"));
   };
 
   const submit = async () => {

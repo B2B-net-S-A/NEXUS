@@ -262,6 +262,39 @@ describe("strona kontraktora — instrukcja per narzędzie (etap 1b)", () => {
     expect(screen.getByText(/zostanie odrzucony/)).toBeInTheDocument();
   });
 
+  it("po podpisie obu stron kontraktor pobiera swoją kopię z linku (26.10.2026)", async () => {
+    const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: async () => new Blob(["%PDF"]),
+      headers: new Headers({
+        "content-disposition": 'attachment; filename="Umowa B2B 1555-2026 Kowalski Jan podpisana.pdf"',
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const createObjectURL = vi.fn(() => "blob:kopia");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL }));
+    render(<B2BSignForm token="t" initialState="completed" signedPdfUntil="25.11.2026" />);
+    expect(screen.getByText("Umowa podpisana przez obie strony")).toBeInTheDocument();
+    expect(screen.getByText(/Link działa do 25\.11\.2026/)).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Pobierz umowę podpisaną przez obie strony" }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/api\/public\/b2b-sign\/t\/signed-pdf$/);
+    vi.unstubAllGlobals();
+  });
+
+  it("po podpisie obu stron bez kopii w linku (wygasła) nie ma przycisku", async () => {
+    const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
+    render(<B2BSignForm token="t" initialState="completed" signedPdfUntil={null} />);
+    expect(screen.getByText("Umowa podpisana przez obie strony")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Pobierz umowę podpisaną przez obie strony" }),
+    ).toBeNull();
+  });
+
   it("bez myślników „—” w tekście dla konsultanta (Klaudia, 26.10.2026)", async () => {
     const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
     const { signedPdfProblem } = await import("@/lib/api/b2bEsign");

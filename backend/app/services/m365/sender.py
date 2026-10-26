@@ -41,13 +41,15 @@ pierwszej transakcji).
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import re
 import uuid
+from dataclasses import dataclass
 from html import escape as html_escape
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -329,6 +331,34 @@ async def _attach_inline_images(
             )
 
 
+@dataclass(frozen=True)
+class FileAttachment:
+    """Plik dołączany do maila (np. kopia umowy dla kontraktora, 26.10.2026).
+
+    Graph przyjmuje tą drogą pliki do 3 MB; podpisana umowa ma setki KB."""
+
+    name: str
+    content_type: str
+    data: bytes
+
+
+async def _attach_files(
+    gc: GraphClient, message_id: str, files: Sequence[FileAttachment]
+) -> None:
+    """Załącznik to treść maila: błąd przerywa wysyłkę (inaczej niż logo)."""
+    for item in files:
+        await gc.post(
+            f"/me/messages/{message_id}/attachments",
+            json={
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": item.name,
+                "contentType": item.content_type,
+                "contentBytes": base64.b64encode(item.data).decode("ascii"),
+                "isInline": False,
+            },
+        )
+
+
 DraftBuilder = Callable[[GraphClient], Awaitable[dict[str, Any]]]
 
 
@@ -439,6 +469,7 @@ async def send_new(
     candidate_id: Optional[int] = None,
     client_request_id: Optional[str] = None,
     commit_reservation: bool = False,
+    attachments: Sequence[FileAttachment] = (),
 ) -> Email:
     """Send a brand-new message from the connected mailbox.
 
@@ -479,6 +510,7 @@ async def send_new(
         now=now,
         idempotency_key=idempotency_key,
     )
+    row.has_attachments = bool(attachments)
     replay = await _reserve(db, row, commit=commit_reservation)
     if replay is not None:
         logger.info(
@@ -500,6 +532,7 @@ async def send_new(
         }
         draft = await gc.post("/me/messages", json=payload)
         await _attach_inline_images(gc, draft["id"], images)
+        await _attach_files(gc, draft["id"], attachments)
         return draft
 
     return await _deliver(

@@ -54,9 +54,24 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   (`tasks/b2b_esign_sweeper.py`, co 30 min): kontraktor milczy → JEDNO
   przypomnienie dzień przed końcem terminu (przy 1 dniu — po 12 h,
   `contractor_reminder_at`), mail BEZ linku (w bazie jest tylko skrót tokenu,
-  link zostaje w pierwszym mailu) i dzwonek do nadawcy; podpis firmy czeka
-  3 dni → dzwonek do reprezentanta; po terminie link wygasa (`expired`)
-  i nadawca dostaje dzwonek. Pętla działa także przy wyłączonym przełączniku.
+  link zostaje w pierwszym mailu) i dzwonek do nadawcy; po terminie link
+  wygasa (`expired`) i nadawca dostaje dzwonek. Pętla działa także przy
+  wyłączonym przełączniku.
+- **Reprezentant firmy dostaje maila** (Olaf 26.10.2026: „nic mi nie
+  przyszło” — był tylko dzwonek bez ikony na pasku): od razu po podpisie
+  kontraktora (`_after_contractor_signed`, klucz `…-company`), potem
+  przypomnienie po 1 dniu i dalej co 3 dni, zawsze w dzień roboczy
+  8:00–18:00 (`company_reminder_due`) — dzwonek i mail. Mail idzie ze
+  skrzynki nadawcy (`mail.company_signer_message`); bez niej zostaje dzwonek
+  i pas „Czeka na Twój podpis za B2B Network” na pulpicie.
+- **Kontraktor dostaje swój egzemplarz** (26.10.2026; wcześniej nie dostawał
+  nic, a link gasł po podpisie firmy): po podpisie obu stron mail ze
+  skrzynki nadawcy z PDF-em w załączniku (`_send_contractor_copy`,
+  `m365_sender.FileAttachment`, nazwa „Umowa B2B … podpisana.pdf”) —
+  niezależnie od tego, czy kontrakt powstał automatycznie. Link zostaje
+  `SIGNED_COPY_DAYS` = 30 dni tylko do pobrania kopii
+  (`GET /api/public/b2b-sign/{token}/signed-pdf`, widok ma
+  `signed_pdf_until`); potem pętla kasuje skrót tokenu.
 - **Terminy w oknie wysyłki: 1, 3, 5, 7 dni, domyślnie 3** (prośba Sandry,
   decyzja Artura 26.10.2026). API przyjmuje 1–30 dni, ale okno pokazuje tylko
   te cztery — przy dawnym „co 3 dni” termin 1 albo 3 dni nie dawał żadnego

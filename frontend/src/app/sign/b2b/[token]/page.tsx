@@ -48,14 +48,15 @@ export default async function B2BSignPage({ params }: PageProps) {
     return <PublicLinkUnavailable failure={publicLinkFailure(result.status)} />;
   }
   const view = result.view;
-  const expires = view.expires_at
-    ? new Date(view.expires_at).toLocaleDateString("pl-PL", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        timeZone: "Europe/Warsaw",
-      })
-    : null;
+  const dayPl = (value: string) =>
+    new Date(value).toLocaleDateString("pl-PL", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      timeZone: "Europe/Warsaw",
+    });
+  const expires = view.expires_at ? dayPl(view.expires_at) : null;
+  const signedPdfUntil = view.signed_pdf_until ? dayPl(view.signed_pdf_until) : null;
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 md:px-6 md:py-16">
@@ -71,7 +72,7 @@ export default async function B2BSignPage({ params }: PageProps) {
         ani profil zaufany nie wystarczą.
         {expires ? ` Link ważny do ${expires}.` : ""}
       </p>
-      <B2BSignForm token={token} initialState={view.status} />
+      <B2BSignForm token={token} initialState={view.status} signedPdfUntil={signedPdfUntil} />
     </div>
   );
 }
