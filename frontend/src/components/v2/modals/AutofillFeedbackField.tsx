@@ -25,6 +25,7 @@ export function AutofillFeedbackField({
   onRateChange,
   rateKnown,
   several,
+  askRate = true,
 }: {
   learnedFrom: AutofillLearnedFrom | null;
   onLearnedFromChange: (value: AutofillLearnedFrom) => void;
@@ -36,6 +37,8 @@ export function AutofillFeedbackField({
   rateKnown: boolean;
   /** Kilka osób od systemu naraz — ten sam powód, bez „Ile chce?”. */
   several: boolean;
+  /** `false` — kwotę niesie pole pod powodem „za drogo” w oknie (26.10.2026). */
+  askRate?: boolean;
 }) {
   const hint = autofillBucketHint(reason, rateKnown);
   return (
@@ -94,7 +97,7 @@ export function AutofillFeedbackField({
           ))}
         </RadioGroup>
       </FormField>
-      {reason === "too_expensive" && !several ? (
+      {reason === "too_expensive" && !several && askRate ? (
         <FormField
           label="Ile chce? (zł/h, opcjonalnie)"
           description="Zapisze się jako „Stawka od” w profilu."

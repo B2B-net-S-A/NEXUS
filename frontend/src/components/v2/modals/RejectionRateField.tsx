@@ -28,6 +28,16 @@ export interface RejectionRateChoice {
   isMinimum: boolean;
 }
 
+/** Pola ruchu `POST /api/pipeline/move` dla wyboru z okna. */
+export function rejectionRateMoveFields(choice: RejectionRateChoice | null | undefined): {
+  rejection_rate_hourly?: number;
+  rejection_rate_is_minimum?: boolean;
+} {
+  return choice
+    ? { rejection_rate_hourly: choice.rateHourly, rejection_rate_is_minimum: choice.isMinimum }
+    : {};
+}
+
 interface Props {
   /** `undefined` — profil niewczytany, bez linii „Teraz w profilu”. */
   profile?: RejectionRateProfile | null;

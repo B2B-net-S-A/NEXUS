@@ -5,6 +5,7 @@ import { useState, useEffect } from"react";
 import { AlertTriangle, Trophy } from"lucide-react";
 import {
  RejectionRateField,
+ type RejectionRateChoice,
  type RejectionRateProfile,
 } from "./RejectionRateField";
 import {
@@ -113,7 +114,10 @@ interface Props {
  workMode?: RejectionWorkModeChoice | null,
  /** Osoba od systemu (23.10.2026): powód dla systemu; `null`, gdy okno
   *  go nie pytało (żadna osoba od systemu z „Nowych”/„Screeningu”). */
- autofill?: AutofillFeedbackChoice | null
+ autofill?: AutofillFeedbackChoice | null,
+ /** „Za wysokie oczekiwania finansowe” (26.10.2026): ile osoba teraz chce;
+  *  `null` przy innym powodzie, kilku osobach albo pustym polu. */
+ rate?: RejectionRateChoice | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
@@ -285,19 +289,26 @@ export function RejectionV2({
  const descriptionRequired =
  (hasReasons && reasonNeedsDescription(chosenReason)) ||
  (autofillAsked && autofillReason === "other");
+ const several = (emailPreview?.people.length ?? 1) > 1;
+ const parsedNewRate = parseRateInput(newRate);
+ const rateChoice: RejectionRateChoice | null =
+ rateReason && !several && parsedNewRate !== null
+ ? { rateHourly: parsedNewRate, isMinimum: newRateIsMinimum }
+ : null;
  const autofillChoice: AutofillFeedbackChoice | null =
  autofillAsked && autofillReason && autofillLearnedFrom
  ? {
  reason: autofillReason,
  learnedFrom: autofillLearnedFrom,
  rateHourly:
- autofillReason === "too_expensive" && !autofill?.several
+ // Przy powodzie „za drogo” kwotę niesie pole pod powodem — bez
+ // drugiego „Ile chce?” niżej.
+ autofillReason === "too_expensive" && !autofill?.several && !rateReason
  ? parseRateInput(autofillRate)
  : null,
  }
  : null;
  const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
- const several = (emailPreview?.people.length ?? 1) > 1;
 
  const handleConfirm = () => {
  // Zawsze jawny boolean — serwer planuje mail WYŁĄCZNIE przy `true`.
@@ -320,7 +331,8 @@ export function RejectionV2({
  workModeReason
  ? { maxOnsiteDays: officeDays, saveToProfile: saveWorkMode }
  : null,
- autofillChoice
+ autofillChoice,
+ rateChoice
  );
  return;
  }
@@ -466,6 +478,7 @@ export function RejectionV2({
  onRateChange={setAutofillRate}
  rateKnown={autofill.rateKnown}
  several={autofill.several}
+ askRate={!rateReason}
  />
  ) : null}
  {offerResponseRequired && (

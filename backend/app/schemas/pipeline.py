@@ -69,6 +69,12 @@ class StageMove(BaseModel):
     # trybu pracy na profilu (ptaszek w oknie, domyślnie włączony).
     work_mode_max_onsite_days: Optional[int] = Field(None, ge=0, le=4)
     work_mode_save_to_profile: bool = True
+    # Powód „za drogo” (`rejection_reason_labels.RATE_TOO_HIGH`, 26.10.2026):
+    # ile osoba teraz chce, PLN/h. Opcjonalne (D1); przy innym powodzie → 422.
+    # `is_minimum` (domyślnie, D2) = jawne minimum w profilu — starsze, niższe
+    # stawki przestają się liczyć do „Stawki od”.
+    rejection_rate_hourly: Optional[Decimal] = Field(None, gt=0, le=10000)
+    rejection_rate_is_minimum: bool = True
     # Osoba od systemu (silnik „Nowi na 20”, 23.10.2026): odrzucenie z „Nowych”
     # albo „Screeningu” wymaga powodu ze stałej listy i „skąd wiesz”
     # (`services/autofill_feedback.py`); bez nich 422 `AUTOFILL_REASON_REQUIRED`,
