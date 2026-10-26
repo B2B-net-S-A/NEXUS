@@ -79,7 +79,7 @@ def test_0522_chains_and_mirrors_table_key_and_probe() -> None:
     assert spec.loader is not None
     spec.loader.exec_module(module)
     assert module.revision == "0522_candidate_client_forms"
-    assert module.down_revision == "0521_client_form_documents"
+    assert module.down_revision == "0523_client_job_opened_notification"
     assert "schema.FILL_DDL" in MIGRATION_0522.read_text(encoding="utf-8")
 
     entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
