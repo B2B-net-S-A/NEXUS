@@ -688,6 +688,67 @@ async def _record_rate_from_move(
     await recompute_safely(db, [candidate_id])
 
 
+def _rate_rejection_note(
+    amount: Decimal, *, is_minimum: bool, notes: Optional[str]
+) -> str:
+    """„Chce min. 150 zł/h — opis rekrutera” do historii procesu (26.10.2026).
+
+    Profil pokazuje odrzucenie jako „Powód — opis”, więc kwota stoi w opisie
+    także wtedy, gdy rekruter nic nie dopisał.
+    """
+    text = f"{amount:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+    line = f"Chce {'min. ' if is_minimum else ''}{text} zł/h"
+    rest = (notes or "").strip()
+    return f"{line} — {rest}" if rest else line
+
+
+async def _record_rejection_rate(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    amount: Decimal,
+    is_minimum: bool,
+    job_id: int,
+    stage_id: int,
+    actor_id: int,
+) -> None:
+    """Nowa stawka z odrzucenia „za drogo” w profilu i „Stawce od” (26.10.2026).
+
+    Ta sama ścieżka co stawka z okna „Zweryfikowany” (``_record_rate_from_move``),
+    ale kwota trafia do profilu zawsze: jako jawne minimum (domyślnie, starsze
+    niższe stawki przestają się liczyć) albo jako zwykła stawka w historii.
+    Rekrutacja i etap w audycie mówią, skąd przyszła.
+    """
+    from app.services.candidate_profile_rate import write_profile_rate
+    from app.services.candidate_rate_from import recompute_safely
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if candidate is None:
+        return
+    details = write_profile_rate(
+        candidate,
+        amount,
+        source="rejection_minimum" if is_minimum else "rejection",
+    )
+    if is_minimum:
+        details["rate_meaning"] = "minimum"
+    details["job_id"] = job_id
+    details["stage_id"] = stage_id
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.PROFILE_RATE_CHANGED,
+        user_id=actor_id,
+        entity_id=candidate_id,
+        details=details,
+    )
+    await mark_stale_for_candidate(db, candidate_id)
+    await db.flush()
+    await recompute_safely(db, [candidate_id])
+
+
 async def _record_work_mode_from_rejection(
     db: AsyncSession,
     *,
@@ -1993,6 +2054,18 @@ async def apply_move(
                 "„Nie akceptuje trybu pracy”."
             ),
         )
+    # Powód „za drogo” (26.10.2026): nowa stawka osoby ma sens tylko przy nim.
+    rate_rejection = reason is not None and rejection_reason_labels.is_rate_too_high(
+        reason.name
+    )
+    if data.rejection_rate_hourly is not None and not rate_rejection:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Nową stawkę podaje się tylko przy powodzie "
+                "„Za wysokie oczekiwania finansowe”."
+            ),
+        )
     # Osoba od systemu (23.10.2026): odrzucenie z „Nowych”/„Screeningu”
     # wymaga powodu ze stałej listy i „skąd wiesz” — z powodów poprawiamy
     # wyszukiwanie (`services/autofill_feedback.py`). Walidacja PRZED zapisem.
@@ -2105,6 +2178,12 @@ async def apply_move(
     ):
         # Powód ze słownika z opisem z API integracyjnego — opis dotąd znikał.
         effective_notes = data.rejection_reason.strip()
+    if rate_rejection and data.rejection_rate_hourly is not None:
+        effective_notes = _rate_rejection_note(
+            data.rejection_rate_hourly,
+            is_minimum=data.rejection_rate_is_minimum,
+            notes=effective_notes,
+        )
 
     stage = await transition_process(
         db,
@@ -2241,6 +2320,16 @@ async def apply_move(
                 is_minimum=False,
                 actor_id=policy.actor_id,
             )
+    if rate_rejection and data.rejection_rate_hourly is not None:
+        await _record_rejection_rate(
+            db,
+            candidate_id=data.candidate_id,
+            amount=Decimal(data.rejection_rate_hourly),
+            is_minimum=data.rejection_rate_is_minimum,
+            job_id=job.id,
+            stage_id=stage.id,
+            actor_id=policy.actor_id,
+        )
     if work_mode_rejection and data.work_mode_save_to_profile:
         await _record_work_mode_from_rejection(
             db,

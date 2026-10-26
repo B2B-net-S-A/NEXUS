@@ -39,6 +39,20 @@ export function reasonNeedsDescription(
   );
 }
 
+/** Powody „za drogo” (26.10.2026): odrzucenie ze słownika szablonu
+ *  domyślnego i rezygnacja `salary_mismatch` (0068). Okno pyta przy nich,
+ *  ile osoba teraz chce. */
+const RATE_TOO_HIGH_REASONS = new Set([
+  "Za wysokie oczekiwania finansowe",
+  "salary_mismatch",
+]);
+
+export function isRateTooHighReason(
+  reason: Pick<RejectionReasonOption, "name"> | null | undefined,
+): boolean {
+  return RATE_TOO_HIGH_REASONS.has(reason?.name?.trim() ?? "");
+}
+
 export interface RejectionReasonOption {
   id: string;
   label: string;

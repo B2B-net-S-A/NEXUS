@@ -56,6 +56,10 @@ import { canViewClientRate } from "@/lib/client-rate-access";
 import { RejectionV2, type EndedBy } from "@/components/v2/modals/RejectionV2";
 import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
 import {
+  rejectionRateMoveFields,
+  type RejectionRateChoice,
+} from "@/components/v2/modals/RejectionRateField";
+import {
   autofillMoveFields,
   needsAutofillReason,
   type AutofillFeedbackChoice,
@@ -63,6 +67,7 @@ import {
 import { placeStage } from "@/lib/board-stages";
 import {
   useRejectionProfileWorkMode,
+  useRejectionProfileRate,
   useRejectionWorkModeJob,
 } from "@/hooks/useRejectionWorkModeContext";
 import type { RejectFollowUp } from "@/lib/reject-follow-up";
@@ -275,6 +280,9 @@ interface MoveReason {
   // Osoba od systemu (23.10.2026): powód dla systemu — tylko przy osobie,
   // która go wymaga (`needsAutofillReason`).
   autofill?: AutofillFeedbackChoice | null;
+  // „Za wysokie oczekiwania finansowe” (26.10.2026): nowa stawka — tylko
+  // przy jednej osobie (okno nie pyta przy kilku).
+  rate?: RejectionRateChoice | null;
 }
 
 interface SendMoveOptions {
@@ -684,6 +692,7 @@ export function usePipelineMove({
             ? reason.workMode.saveToProfile
             : undefined,
           ...autofillMoveFields(reason?.autofill),
+          ...rejectionRateMoveFields(reason?.rate),
           candidate_offer_response: reason?.candidateOfferResponse ?? undefined,
           expected_state_version:
             opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
@@ -1594,7 +1603,8 @@ export function usePipelineMove({
     cancelAgreementId?: number | null,
     emailText?: RejectionEmailText | null,
     workMode?: RejectionWorkModeChoice | null,
-    autofill?: AutofillFeedbackChoice | null
+    autofill?: AutofillFeedbackChoice | null,
+    rate?: RejectionRateChoice | null
   ) => {
     if (!pendingRejection) return;
     const { entries, destCol, followUp } = pendingRejection;
@@ -1620,6 +1630,7 @@ export function usePipelineMove({
             emailText: entries.length === 1 ? emailText ?? null : null,
             workMode: workMode ?? null,
             autofill: autofill && rejectionNeedsAutofill(item, srcColId) ? autofill : null,
+            rate: entries.length === 1 ? rate ?? null : null,
           },
           {
             silent: entries.length > 1,
@@ -1661,6 +1672,12 @@ export function usePipelineMove({
   const rejectionOpen = pendingRejection !== null;
   const rejectionWorkModeJob = useRejectionWorkModeJob(jobId, rejectionOpen);
   const rejectionProfileWorkMode = useRejectionProfileWorkMode(
+    pendingRejection?.entries.length === 1
+      ? pendingRejection.entries[0].item.candidate_id
+      : null,
+    rejectionOpen
+  );
+  const rejectionProfileRate = useRejectionProfileRate(
     pendingRejection?.entries.length === 1
       ? pendingRejection.entries[0].item.candidate_id
       : null,
@@ -1748,6 +1765,7 @@ export function usePipelineMove({
         championNotice={rejectionChampionNotice}
         workModeJob={rejectionWorkModeJob}
         profileWorkMode={rejectionProfileWorkMode}
+        profileRate={rejectionProfileRate}
         autofill={rejectionAutofill}
         emailPreview={
           pendingRejection

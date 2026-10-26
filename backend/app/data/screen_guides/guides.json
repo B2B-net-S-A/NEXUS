@@ -162,7 +162,7 @@
       },
       {
         "q": "Jak przesunąć albo odrzucić osobę?",
-        "a": "„Następny etap” pokazuje braki do kolejnej kolumny; zatrzymany ruch ma przycisk wyłączony z powodem. Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem” (mail pokaże treść do poprawy), wycofanie — „Zrezygnował”. Potem panel pokazuje następną osobę z kolejki „‹ ›” (ta kolumna i filtr „Kto dodał”); pasek mówi, kogo zamknięto, „Pokaż” wraca.",
+        "a": "„Następny etap” pokazuje braki do kolejnej kolumny; zatrzymany ruch ma wyłączony przycisk. Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem”; przy „Za wysokie oczekiwania finansowe” wpisz, ile teraz chce — trafi do „Stawki od”. Wycofanie — „Zrezygnował”. Potem panel pokazuje następną osobę z kolejki „‹ ›”; „Pokaż” wraca do zamkniętej.",
         "anchor": "jobs.person.actions"
       },
       {

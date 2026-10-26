@@ -50,7 +50,12 @@ import type { RejectionEmailText } from "@/lib/rejection-email";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
 import {
+  rejectionRateMoveFields,
+  type RejectionRateChoice,
+} from "@/components/v2/modals/RejectionRateField";
+import {
   useRejectionProfileWorkMode,
+  useRejectionProfileRate,
   useRejectionWorkModeJob,
 } from "@/hooks/useRejectionWorkModeContext";
 import { PhraseAllBar } from "@/components/v2/screening/PhraseAllBar";
@@ -1330,6 +1335,7 @@ export function ScreeningFullForm({
   // Okno odrzucenia: pytanie o dni w biurze przy „Nie akceptuje trybu pracy”.
   const rejectWorkModeJob = useRejectionWorkModeJob(jobId, rejectOpen);
   const rejectProfileWorkMode = useRejectionProfileWorkMode(candidateId, rejectOpen);
+  const rejectProfileRate = useRejectionProfileRate(candidateId, rejectOpen);
 
   const handleSaveError = (err: unknown) => {
     const conflict = screeningFormConflictOf(err);
@@ -1556,6 +1562,7 @@ export function ScreeningFullForm({
       emailText?: RejectionEmailText | null;
       workMode?: RejectionWorkModeChoice | null;
       autofill?: AutofillFeedbackChoice | null;
+      rate?: RejectionRateChoice | null;
     }) => {
       if (!reject || !state) throw new Error("Brak etapu docelowego.");
       return moveCore.send(
@@ -1573,6 +1580,7 @@ export function ScreeningFullForm({
           work_mode_max_onsite_days: vars.workMode?.maxOnsiteDays,
           work_mode_save_to_profile: vars.workMode?.saveToProfile,
           ...autofillMoveFields(vars.autofill),
+          ...rejectionRateMoveFields(vars.rate),
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: state.process_state_version,
         },
@@ -1828,6 +1836,7 @@ export function ScreeningFullForm({
           pending={rejectMut.isPending}
           workModeJob={rejectWorkModeJob}
           profileWorkMode={rejectProfileWorkMode}
+          profileRate={rejectProfileRate}
           autofill={reject.autofill ?? null}
           onConfirm={(
             reasonId,
@@ -1840,6 +1849,7 @@ export function ScreeningFullForm({
             emailText,
             workMode,
             autofill,
+            rate,
           ) =>
             rejectMut.mutate({
               reasonId,
@@ -1851,6 +1861,7 @@ export function ScreeningFullForm({
               emailText,
               workMode,
               autofill,
+              rate,
             })
           }
         />
