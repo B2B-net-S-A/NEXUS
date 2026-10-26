@@ -1591,5 +1591,7 @@ async def apply_job_create(
     await job_files_service.attach_intake_files(
         db, job_id=job.id, form_id=data.intake_form_id, user_id=current_user.id
     )
+    # 0521: formularz CV klienta z Plików staje się wzorem od razu.
+    await job_files_service.auto_mark_client_form(db, job.id)
     await delete_intake_form(db, data.intake_form_id, current_user.id)
     return job
