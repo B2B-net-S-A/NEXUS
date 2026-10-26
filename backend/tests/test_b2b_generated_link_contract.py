@@ -164,8 +164,9 @@ async def test_link_attaches_the_rendered_agreement_to_contract_documents(
                 )
             ).all()
         )
+    # 26.10.2026 (Sandra): „Umowa B2B [nr umowy] Nazwisko Imię”.
     assert [d.filename for d in docs] == [
-        f"Umowa {ids['number'].replace('/', '-')}.docx"
+        f"Umowa B2B {ids['number'].replace('/', '-')} Link Agnieszka.docx"
     ]
 
 
