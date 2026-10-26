@@ -206,6 +206,36 @@ class JobThreadListResponse(BaseModel):
     unread_jobs: int
 
 
+# Okienko „Umowy” (26.10.2026): umowy w podpisie — czeka na mój podpis,
+# kontraktor podpisał, podpisana, link wygasł, prośba o potwierdzenie.
+# Jedna pozycja na umowę (encja zdarzenia); wiersz bez encji — po linku.
+_CONTRACT_TOPIC_TYPES = tuple(
+    sorted(types_in_topic(NotificationTopic.contracts), key=str)
+)
+_CONTRACT_THREADS_WINDOW_DAYS = 14
+_CONTRACT_THREADS_LIMIT = 30
+_CONTRACT_DEFAULT_LINK = "/contracts/b2b-generator?tab=generated"
+
+
+class ContractThreadResponse(BaseModel):
+    """Jedna umowa w okienku „Umowy”."""
+
+    key: str
+    title: str
+    message: str
+    unread_count: int
+    # Nieprzeczytane wiersze tej pozycji — klik gasi je przez `topics/read`.
+    unread_ids: List[int]
+    last_at: Optional[str] = None
+    link: str
+
+
+class ContractThreadListResponse(BaseModel):
+    items: List[ContractThreadResponse]
+    # Umowy z nowymi w całym oknie — liczba na ikonie.
+    unread_contracts: int
+
+
 _INT4_MAX = 2_147_483_647
 
 
@@ -702,6 +732,110 @@ async def list_job_threads(
             )
         )
     return JobThreadListResponse(items=items, unread_jobs=unread_jobs)
+
+
+# ── Okienko „Umowy”: umowy w podpisie z nowościami (26.10.2026) ──────────────
+
+
+@router.get("/notifications/contracts", response_model=ContractThreadListResponse)
+async def list_contract_threads(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Umowy z powiadomieniami tematu „Umowy” z 14 dni — nowe najpierw.
+
+    Jedna pozycja na umowę: para (typ encji, id encji) zdarzenia; wiersz bez
+    encji to pozycja po swoim linku. Własne wiersze i przypomnienia
+    w zastępstwie, widoczność jak w każdym okienku. Liczba na ikonie =
+    ``unread_contracts`` (każde nowe zdarzenie umowy ją podbija).
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=_CONTRACT_THREADS_WINDOW_DAYS)
+    rows_in_window = (
+        select(
+            Notification.id,
+            Notification.link,
+            Notification.is_read,
+            Notification.related_entity_type,
+            Notification.related_entity_id,
+        )
+        .where(
+            _notification_owner(current_user),
+            _notification_visibility(current_user),
+            Notification.notification_type.in_(_CONTRACT_TOPIC_TYPES),
+            Notification.created_at >= since,
+        )
+        .subquery()
+    )
+    entity_id = rows_in_window.c.related_entity_id
+    entity_type = case(
+        (entity_id.is_(None), None), else_=rows_in_window.c.related_entity_type
+    )
+    # Bez parametrów wiązanych w kluczu grupy: ten sam tekst w SELECT i GROUP BY.
+    link_key = case((entity_id.is_(None), rows_in_window.c.link), else_=None)
+    unread = rows_in_window.c.is_read.is_(False)
+    unread_rows = func.count().filter(unread)
+    latest_id = func.max(rows_in_window.c.id)
+    grouped = (
+        await db.execute(
+            select(
+                entity_type.label("entity_type"),
+                entity_id.label("entity_id"),
+                link_key.label("link_key"),
+                unread_rows.label("unread_count"),
+                func.array_agg(rows_in_window.c.id).filter(unread).label("unread_ids"),
+                latest_id.label("latest_id"),
+            )
+            .group_by(entity_type, entity_id, link_key)
+            .order_by((unread_rows > 0).desc(), latest_id.desc())
+            .limit(_CONTRACT_THREADS_LIMIT)
+        )
+    ).all()
+    unread_groups = (
+        select(entity_type, entity_id, link_key)
+        .where(unread)
+        .group_by(entity_type, entity_id, link_key)
+        .subquery()
+    )
+    unread_contracts = int(
+        await db.scalar(select(func.count()).select_from(unread_groups)) or 0
+    )
+    if not grouped:
+        return ContractThreadListResponse(items=[], unread_contracts=unread_contracts)
+
+    latest_rows = {
+        n.id: n
+        for n in (
+            await db.execute(
+                select(Notification).where(
+                    Notification.id.in_(sorted(row.latest_id for row in grouped))
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    items: List[ContractThreadResponse] = []
+    for row in grouped:
+        latest = latest_rows.get(row.latest_id)
+        if latest is None:
+            continue
+        key = (
+            f"{row.entity_type}:{row.entity_id}"
+            if row.entity_id is not None
+            else f"link:{row.link_key or ''}"
+        )
+        items.append(
+            ContractThreadResponse(
+                key=key,
+                title=latest.title,
+                message=latest.message,
+                unread_count=int(row.unread_count or 0),
+                unread_ids=sorted(row.unread_ids or [])[:_TOPIC_READ_MAX_IDS],
+                last_at=latest.created_at.isoformat() if latest.created_at else None,
+                link=latest.link or _CONTRACT_DEFAULT_LINK,
+            )
+        )
+    return ContractThreadListResponse(items=items, unread_contracts=unread_contracts)
 
 
 @router.put("/notifications/topics/read", response_model=MarkAllReadResponse)

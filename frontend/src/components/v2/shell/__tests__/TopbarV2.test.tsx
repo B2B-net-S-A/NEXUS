@@ -12,6 +12,9 @@ vi.mock("../AppearanceMenu", () => ({ AppearanceMenu: () => null }));
 vi.mock("../ChatNotificationsDropdown", () => ({ ChatNotificationsDropdown: () => null }));
 vi.mock("../CvNotificationsDropdown", () => ({ CvNotificationsDropdown: () => null }));
 vi.mock("../JobsNotificationsDropdown", () => ({ JobsNotificationsDropdown: () => null }));
+vi.mock("../ContractsNotificationsDropdown", () => ({
+  ContractsNotificationsDropdown: () => null,
+}));
 vi.mock("../InterviewNotificationsDropdown", () => ({
   InterviewNotificationsDropdown: () => null,
 }));

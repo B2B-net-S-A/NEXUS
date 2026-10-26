@@ -30,6 +30,7 @@ class NotificationTopic(StrEnum):
     cv = "cv"
     my_people = "my_people"
     jobs = "jobs"
+    contracts = "contracts"
     other = "other"
 
 
@@ -94,6 +95,17 @@ _JOBS = (
 
 _INTERVIEWS = tuple(types_in(NotificationCategory.interviews))
 
+# 26.10.2026: umowy w podpisie mają własną ikonę „Umowy” (dotąd „inne”, sam
+# dymek — reprezentant firmy nie zauważył umowy czekającej na jego podpis).
+_CONTRACTS = (
+    _T.signature_sent,
+    _T.signature_signed,
+    _T.signature_rejected,
+    _T.signature_failed,
+    # Prośba do DL o „Oznacz jako podpisaną” (droga mailowa).
+    _T.b2b_signature_requested,
+)
+
 
 def _build() -> dict[NotificationType, NotificationTopic]:
     mapping: dict[NotificationType, NotificationTopic] = {}
@@ -103,11 +115,12 @@ def _build() -> dict[NotificationType, NotificationTopic]:
         (_P.cv, _CV),
         (_P.my_people, (_T.my_people_match,)),
         (_P.jobs, _JOBS),
+        (_P.contracts, _CONTRACTS),
     ):
         for t in types:
             assert t not in mapping, f"{t} ma dwa tematy"
             mapping[t] = topic
-    # Reszta nie ma ikony: umowy, zamówienia, podpisy, system, KPI, zapisane
+    # Reszta nie ma ikony: zamówienia, system, KPI, zapisane
     # wyszukiwania, Targ, wynik przeglądu bazy… (decyzja D6: dymek i mail).
     for t in NotificationType:
         mapping.setdefault(t, _P.other)
@@ -153,6 +166,8 @@ TOAST_TYPES: frozenset[NotificationType] = frozenset(
         *_CV,
         *NOTE_NOTIFICATION_TYPES,
         *_JOBS_TOAST,
+        # Każde zdarzenie umowy w podpisie czeka na czyjś ruch.
+        *_CONTRACTS,
         *(t for t in types_in_topic(_P.other) if t not in _OTHER_WITHOUT_TOAST),
     )
 )

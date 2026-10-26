@@ -73,6 +73,7 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "PUT /api/notifications/chats/read": "oznaczenie własnych powiadomień czatów jako przeczytane",
     "GET /api/notifications/interviews": "własne nieprzeczytane powiadomienia kategorii Rozmowy, ten sam filtr sekcji per wiersz",
     "PUT /api/notifications/interviews/read": "oznaczenie własnych powiadomień kategorii Rozmowy jako przeczytane",
+    "GET /api/notifications/contracts": "własne powiadomienia tematu Umowy pogrupowane po umowie, ten sam filtr sekcji per wiersz",
     "GET /api/notifications/jobs": "własne powiadomienia tematu Rekrutacje pogrupowane po rekrutacji, ten sam filtr sekcji per wiersz",
     "PUT /api/notifications/topics/read": "oznaczenie własnych powiadomień jednego tematu ikony paska jako przeczytane",
     "GET /api/notifications/preferences": "własne ustawienia powiadomień, lista kategorii z filtrem sekcji",

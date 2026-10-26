@@ -86,12 +86,28 @@ def test_types_without_an_icon_are_other():
     for t in (
         _T.ai_spend_alert,
         _T.client_order_ending_7d,
-        _T.b2b_signature_requested,
         _T.candidate_search_completed,
         _T.marketplace_match,
         _T.board_tasks_digest,
     ):
         assert topic_for(t) is NotificationTopic.other, t
+
+
+def test_contract_signing_events_have_the_contracts_icon():
+    # 26.10.2026: podpis za firmę „nie przyszedł” — typ bez ikony dawał tylko
+    # dymek. Umowy w podpisie mają własną ikonę „Umowy” i zostają z dymkiem.
+    for t in (
+        _T.signature_sent,
+        _T.signature_signed,
+        _T.signature_rejected,
+        _T.signature_failed,
+        _T.b2b_signature_requested,
+    ):
+        assert topic_for(t) is NotificationTopic.contracts, t
+        assert t in TOAST_TYPES, t
+    # Przedwstępna i „brak umowy przy zatrudnieniu” zostają w „Rekrutacjach”.
+    assert topic_for(_T.pre_contract) is NotificationTopic.jobs
+    assert topic_for(_T.hire_missing_contract) is NotificationTopic.jobs
 
 
 def test_toast_policy():

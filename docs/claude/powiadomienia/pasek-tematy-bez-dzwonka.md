@@ -8,6 +8,19 @@ dzwonka nie ma; ludzie rozumieją ikony z JEDNYM tematem. Pasek: „Moi ludzie�
 „Wiadomości” (dawne „Czaty” + notatki) · „Kalendarz” (dawne „Rozmowy”).
 Makiety: https://claude.ai/artifact/Sg4nsek8fGLcqNxMH47pFc.
 
+> **26.10.2026: szósta ikona „Umowy”** (temat `contracts`, decyzja Artura).
+> Zdarzenia umów w podpisie (`signature_sent`, `signature_signed`,
+> `signature_rejected`, `signature_failed`) i prośba o potwierdzenie podpisu
+> (`b2b_signature_requested`) miały temat `other`: reprezentant firmy nie
+> zauważył umowy czekającej na jego podpis. Ikona u wszystkich, między
+> „Rekrutacjami” a „Wiadomościami”; okienko `GET /api/notifications/contracts`
+> (14 dni, jedna pozycja na encję zdarzenia, bez encji — po linku), liczba na
+> ikonie `unread_contracts` = umowy z nowymi (każde zdarzenie ją podbija);
+> klik gasi `topics/read {topic: "contracts", ids: unread_ids}`. Dymek
+> zostaje dla wszystkich typów tematu. Front: `ContractsNotificationsDropdown`,
+> `lib/api/contractTopic.ts`. Przy 1280 px pasek się mieści (wyszukiwarka
+> 220 px), okruszek skraca się o kilka liter.
+
 - **Temat liczy się z TYPU** (`services/notification_topics.py`,
   `TOPIC_BY_TYPE`): `messages`, `interviews` (= kategoria „Rozmowy”), `cv`,
   `my_people`, `jobs`, `other`. Mapa jest wyczerpująca —
