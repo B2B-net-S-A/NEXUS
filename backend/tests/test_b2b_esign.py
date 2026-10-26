@@ -213,13 +213,13 @@ async def esign_env(monkeypatch, app_client: AsyncClient):
         await db.commit()
 
 
-async def _send(app_client, headers, generated_id: int, signer_id: int):
+async def _send(app_client, headers, generated_id: int, signer_id: int, days: int = 14):
     return await app_client.post(
         f"/api/b2b-generator/generated/{generated_id}/esign/send",
         json={
             "contractor_email": "anna@example.com",
             "company_signer_id": signer_id,
-            "days": 14,
+            "days": days,
         },
         headers=headers,
     )
@@ -704,11 +704,58 @@ async def test_without_the_confirm_permission_the_sender_is_asked_to_finish(
     assert item["can_download_signed_esign"] is True
 
 
+# ── nazwa pliku i termin przypomnienia (prośby Sandry i Klaudii, 26.10.2026) ──
+
+
+def test_contract_file_name_is_number_then_surname_first_without_diacritics():
+    from app.services.b2b_contract_filename import contract_file_name
+
+    assert (
+        contract_file_name("1555/2026", "Jan Kowalski", ext="pdf")
+        == "Umowa B2B 1555-2026 Kowalski Jan.pdf"
+    )
+    assert (
+        contract_file_name(
+            "1555/2026", "Maria Anna Nowak-Kowalska", suffix="podpisana", ext="pdf"
+        )
+        == "Umowa B2B 1555-2026 Nowak-Kowalska Maria Anna podpisana.pdf"
+    )
+    # „ł” nie rozkłada się w NFKD — bez osobnej zamiany znikało z nazwy.
+    assert (
+        contract_file_name("1555/2026", "  Łucja   Żółć ", ext="docx")
+        == "Umowa B2B 1555-2026 Zolc Lucja.docx"
+    )
+    # Cudzysłów i ukośnik z danych nie psują nagłówka Content-Disposition.
+    assert (
+        contract_file_name("15/2026", 'Jan "Kot" Kos/ki', ext="pdf")
+        == "Umowa B2B 15-2026 Kos ki Jan Kot.pdf"
+    )
+    assert contract_file_name(None, None, ext="pdf") == "Umowa B2B.pdf"
+
+
+def test_contractor_reminder_comes_a_day_before_the_deadline():
+    from datetime import datetime, timedelta, timezone
+
+    from app.tasks.b2b_esign_sweeper import contractor_reminder_at
+
+    sent = datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
+    for days, before in (
+        (3, timedelta(days=1)),
+        (5, timedelta(days=1)),
+        (7, timedelta(days=1)),
+    ):
+        expires = sent + timedelta(days=days)
+        assert contractor_reminder_at(sent, expires) == expires - before
+    # Przy jednym dniu „dzień przed końcem” to chwila wysyłki — połowa terminu.
+    one_day = sent + timedelta(days=1)
+    assert contractor_reminder_at(sent, one_day) == sent + timedelta(hours=12)
+
+
 # ── wygasanie i przypomnienia (PR 4b) ────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_sweeper_reminds_after_three_days_then_expires_the_link(
+async def test_sweeper_reminds_a_day_before_the_deadline_once_then_expires_the_link(
     app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
 ):
     from datetime import datetime, timedelta, timezone
@@ -719,7 +766,11 @@ async def test_sweeper_reminds_after_three_days_then_expires_the_link(
 
     scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
     sent = await _send(
-        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
     )
     request_id = sent.json()["request"]["id"]
     token = _token(sent.json()["sign_url"])
@@ -727,8 +778,13 @@ async def test_sweeper_reminds_after_three_days_then_expires_the_link(
 
     assert await b2b_esign_sweeper._handle(request_id, now + timedelta(days=1)) is None
     assert (
-        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=3, minutes=1))
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=2, minutes=1))
         == "reminded"
+    )
+    # Jedno przypomnienie na termin — kolejny przegląd przed końcem nic nie wysyła.
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=2, hours=12))
+        is None
     )
     async with AsyncSessionLocal() as db:
         request = await db.get(B2BSigningRequest, request_id)
@@ -737,7 +793,7 @@ async def test_sweeper_reminds_after_three_days_then_expires_the_link(
     assert any("czeka na podpis kontraktora" in t for t in titles), titles
 
     assert (
-        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=15))
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=3, minutes=1))
         == "expired"
     )
     async with AsyncSessionLocal() as db:

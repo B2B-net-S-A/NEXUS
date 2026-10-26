@@ -12,6 +12,7 @@ import { useState } from "react";
 import { CheckCircle2, Download, Loader2, Upload } from "lucide-react";
 
 import { SignedPdfField } from "@/components/v2/b2b-generator/esign/SignedPdfField";
+import { parseDispositionFilename } from "@/lib/cv-generator";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -182,7 +183,11 @@ export default function B2BSignForm({
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement("a");
     a.href = url;
-    a.download = "umowa_do_podpisu.pdf";
+    // Nazwę („Umowa B2B [nr] Nazwisko Imię”) układa serwer (26.10.2026).
+    a.download = parseDispositionFilename(
+      res.headers.get("content-disposition") ?? "",
+      "Umowa B2B.pdf",
+    );
     a.click();
     URL.revokeObjectURL(url);
   };

@@ -51,11 +51,23 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   z poziomem „Generowanie”, widocznymi stawkami i dostępem do klienta.
 - **Mail z linkiem idzie ze skrzynki nadawcy** (M365, `services/b2b_esign/mail.py`);
   bez połączonej skrzynki okno pokazuje link do skopiowania. Przypomnienia
-  (`tasks/b2b_esign_sweeper.py`, co 30 min): kontraktor milczy 3 dni → mail BEZ
-  linku (w bazie jest tylko skrót tokenu, link zostaje w pierwszym mailu)
-  i dzwonek do nadawcy; podpis firmy czeka 3 dni → dzwonek do reprezentanta;
-  po terminie link wygasa (`expired`) i nadawca dostaje dzwonek. Pętla działa
-  także przy wyłączonym przełączniku.
+  (`tasks/b2b_esign_sweeper.py`, co 30 min): kontraktor milczy → JEDNO
+  przypomnienie dzień przed końcem terminu (przy 1 dniu — po 12 h,
+  `contractor_reminder_at`), mail BEZ linku (w bazie jest tylko skrót tokenu,
+  link zostaje w pierwszym mailu) i dzwonek do nadawcy; podpis firmy czeka
+  3 dni → dzwonek do reprezentanta; po terminie link wygasa (`expired`)
+  i nadawca dostaje dzwonek. Pętla działa także przy wyłączonym przełączniku.
+- **Terminy w oknie wysyłki: 1, 3, 5, 7 dni, domyślnie 3** (prośba Sandry,
+  decyzja Artura 26.10.2026). API przyjmuje 1–30 dni, ale okno pokazuje tylko
+  te cztery — przy dawnym „co 3 dni” termin 1 albo 3 dni nie dawał żadnego
+  przypomnienia.
+- **Nazwa pobieranego pliku: „Umowa B2B 1555-2026 Kowalski Jan”** (Sandra
+  i Klaudia, 26.10.2026), bez polskich znaków (decyzja Artura):
+  `services/b2b_contract_filename.contract_file_name`. Ta sama dla „Pobierz
+  DOCX”, PDF-a do podpisu (kontraktor i reprezentant, z dopiskiem „podpisana
+  przez kontraktora”) i podpisanej umowy („… podpisana”). Imię i nazwisko leżą
+  w jednym polu `partner_name` — nazwisko to ostatnie słowo. Front bierze
+  nazwę z `Content-Disposition`, nie układa jej sam.
 - **Pliki przed podpisem leżą w `b2b_signing/{id}/`**, nie w Dokumentach
   kontraktu — kontraktu jeszcze nie ma.
 - **Dzień podpisu umowy = dzień podpisu kontraktora** (0514, 23.10.2026):

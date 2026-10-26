@@ -18,7 +18,8 @@ const mocks = vi.hoisted(() => ({
   showError: vi.fn(),
 }));
 
-vi.mock("@/lib/cv-generator", () => ({
+vi.mock("@/lib/cv-generator", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/cv-generator")>()),
   downloadBlob: (...a: unknown[]) => mocks.downloadBlob(...a),
 }));
 
@@ -84,6 +85,11 @@ describe("SendForSignatureDialog", () => {
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("Piotr Przykładowy")).toBeInTheDocument();
     expect(within(dialog).getByText("Twoja skrzynka nie jest połączona")).toBeInTheDocument();
+    // 26.10.2026 (Sandra): krótkie terminy, domyślnie 3 dni.
+    const term = within(dialog).getByLabelText("Termin na podpis");
+    expect(
+      Array.from((term as HTMLSelectElement).options).map((o) => o.textContent),
+    ).toEqual(["1 dzień", "3 dni", "5 dni", "7 dni"]);
     const send = within(dialog).getByRole("button", { name: /Wyślij link do kontraktora/ });
     expect(send).toBeDisabled();
     await userEvent.click(within(dialog).getByLabelText(/Sprawdziłam\/em treść umowy/));
@@ -92,7 +98,7 @@ describe("SendForSignatureDialog", () => {
       expect(mocks.send).toHaveBeenCalledWith(5, {
         contractor_email: "piotr@example.com",
         company_signer_id: 9,
-        days: 14,
+        days: 3,
       }),
     );
     expect(await within(dialog).findByLabelText("Link do podpisu")).toHaveValue(
@@ -302,7 +308,12 @@ describe("EsignRowStatus (audyt 22.10)", () => {
 
   it("F45: podpisaną przez obie strony umowę da się pobrać", async () => {
     const blob = new Blob(["%PDF"]);
-    mocks.signedPdf.mockResolvedValue({ data: blob });
+    mocks.signedPdf.mockResolvedValue({
+      data: blob,
+      headers: {
+        "content-disposition": 'attachment; filename="Umowa B2B 1555-2026 Przykladowy Piotr podpisana.pdf"',
+      },
+    });
     wrap(
       <EsignRowStatus
         row={row(
@@ -313,7 +324,11 @@ describe("EsignRowStatus (audyt 22.10)", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: /Pobierz podpisaną umowę/ }));
     await waitFor(() => expect(mocks.signedPdf).toHaveBeenCalledWith(4));
-    expect(mocks.downloadBlob).toHaveBeenCalledWith(blob, "umowa_4_podpisana.pdf");
+    // Nazwa z serwera: „Umowa B2B [nr] Nazwisko Imię” (Sandra, 26.10.2026).
+    expect(mocks.downloadBlob).toHaveBeenCalledWith(
+      blob,
+      "Umowa B2B 1555-2026 Przykladowy Piotr podpisana.pdf",
+    );
   });
 
   it("F45: bez prawa do pliku nie ma przycisku pobrania", () => {

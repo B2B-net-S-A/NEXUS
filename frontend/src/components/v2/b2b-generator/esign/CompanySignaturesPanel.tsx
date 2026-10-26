@@ -14,7 +14,7 @@ import {
   signedPdfProblem,
   type EsignRequest,
 } from "@/lib/api/b2bEsign";
-import { downloadBlob } from "@/lib/cv-generator";
+import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 
 import { SignedPdfField } from "./SignedPdfField";
 
@@ -25,7 +25,13 @@ function SignRow({ request }: { request: EsignRequest }) {
   const download = useMutation({
     mutationFn: () => b2bEsignApi.companyPdf(request.id),
     onSuccess: (res) =>
-      downloadBlob(res.data, `umowa_${request.id}_podpisana_przez_kontraktora.pdf`),
+      downloadBlob(
+        res.data,
+        parseDispositionFilename(
+          String(res.headers?.["content-disposition"] ?? ""),
+          "Umowa B2B podpisana przez kontraktora.pdf",
+        ),
+      ),
     onError: (error) => toast.showError(apiErrorMessage(error, "Nie udało się pobrać pliku.")),
   });
   const sign = useMutation({

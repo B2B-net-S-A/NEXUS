@@ -2,9 +2,11 @@
 
 * Link po terminie: wniosek ``expired``, link przestaje działać, nadawca dostaje
   dzwonek (może wysłać ponownie albo przejść na drogę zwykłą).
-* Kontraktor milczy ``REMIND_EVERY`` od wysyłki albo ostatniego przypomnienia:
-  mail ze skrzynki nadawcy BEZ linku (w bazie jest tylko skrót tokenu — link
-  zostaje w pierwszym mailu) i dzwonek do nadawcy.
+* Kontraktor milczy: jedno przypomnienie dzień przed końcem terminu (przy
+  terminie 1 dnia — po połowie, 26.10.2026; terminy 1/3/5/7 dni, a przy
+  „co 3 dni” krótki termin nie dawał żadnego) — mail ze skrzynki nadawcy BEZ
+  linku (w bazie jest tylko skrót tokenu — link zostaje w pierwszym mailu)
+  i dzwonek do nadawcy.
 * Umowa czeka na podpis firmy dłużej niż ``REMIND_EVERY``: dzwonek do
   reprezentanta.
 
@@ -35,8 +37,14 @@ logger = logging.getLogger(__name__)
 
 INTERVAL_SECONDS = 1800
 REMIND_EVERY = timedelta(days=3)
+REMIND_BEFORE_DEADLINE = timedelta(days=1)
 _WARSAW = ZoneInfo("Europe/Warsaw")
 _LINK = "/contracts/b2b-generator?tab=generated"
+
+
+def contractor_reminder_at(sent_at: datetime, expires_at: datetime) -> datetime:
+    """Kiedy przypomnieć kontraktorowi: dzień przed końcem, najpóźniej w połowie."""
+    return expires_at - min(REMIND_BEFORE_DEADLINE, (expires_at - sent_at) / 2)
 
 
 async def _notify(db, *, user_id, title, message, ntype, request_id) -> None:
@@ -113,11 +121,10 @@ async def _handle(request_id: int, now: datetime) -> str | None:
             await db.commit()
             return "expired"
 
-        if now - last < REMIND_EVERY:
-            return None
-        request.last_reminder_at = now
-
         if request.status == "contractor_signed":
+            if now - last < REMIND_EVERY:
+                return None
+            request.last_reminder_at = now
             await _notify(
                 db,
                 user_id=request.company_signer_id,
@@ -129,14 +136,18 @@ async def _handle(request_id: int, now: datetime) -> str | None:
             await db.commit()
             return "reminded"
 
-        # Wysłana, kontraktor milczy.
+        # Wysłana, kontraktor milczy — jedno przypomnienie na termin.
+        if request.last_reminder_at is not None or now < contractor_reminder_at(
+            request.sent_at, request.expires_at
+        ):
+            return None
+        request.last_reminder_at = now
         sender_id = request.sent_by
         contractor_email = request.contractor_email
         contractor_name = request.contractor_name
         candidate_id = row.candidate_id if row else None
         sent_on = request.sent_at.astimezone(_WARSAW).strftime("%d.%m.%Y")
         deadline = request.expires_at.astimezone(_WARSAW).strftime("%d.%m.%Y")
-        reminder_no = int((now - request.sent_at) / REMIND_EVERY)
         await _notify(
             db,
             user_id=sender_id,
@@ -161,7 +172,7 @@ async def _handle(request_id: int, now: datetime) -> str | None:
             subject=f"Przypomnienie: umowa B2B nr {number} czeka na podpis",
             body_html=body,
             candidate_id=candidate_id,
-            request_key=f"b2b-esign-{request_id}-reminder-{reminder_no}",
+            request_key=f"b2b-esign-{request_id}-reminder-1",
         )
         return "reminded"
 
