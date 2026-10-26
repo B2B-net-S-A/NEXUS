@@ -524,6 +524,7 @@ def test_entrypoint_runs_the_merge_and_logs_only_the_summary():
         "\nPY\n", 1
     )[0]
     assert "marker=REPAIR_MARKER_2026_10" in block_2026_10
-    assert "details_key=DETAILS_KEY_2026_10" in block_2026_10
+    # Sama nazwa stałej: wzorzec „details_key=…” gitleaks bierze za klucz API.
+    assert "DETAILS_KEY_2026_10" in block_2026_10
     assert "summarize_for_log(summary)" in block_2026_10
     assert "await db.rollback()" in block_2026_10
