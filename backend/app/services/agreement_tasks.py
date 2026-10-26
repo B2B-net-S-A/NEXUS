@@ -140,6 +140,8 @@ async def load_for_user(
             or_(
                 B2BGeneratedContract.signature_requested_by == user.id,
                 B2BGeneratedContract.created_by == user.id,
+                # Prowadzący kandydata (0524): umowę mógł zrobić ktoś za niego.
+                B2BGeneratedContract.recruiter_user_id == user.id,
             )
         )
         conditions.append(B2BGeneratedContract.signature_requested_at.is_not(None))
@@ -167,6 +169,7 @@ async def load_for_user(
                 B2BGeneratedContract.signature_requested_at,
                 B2BGeneratedContract.signature_requested_by,
                 B2BGeneratedContract.created_by,
+                B2BGeneratedContract.recruiter_user_id,
                 B2BGeneratedContract.contract_id,
                 Contract.status.label("live_status"),
                 Job.title.label("job_title"),
@@ -246,6 +249,7 @@ async def load_for_user(
         elif reason == REASON_REQUESTED and user.id in (
             row.signature_requested_by,
             row.created_by,
+            row.recruiter_user_id,
         ):
             waiting.append(task)
 

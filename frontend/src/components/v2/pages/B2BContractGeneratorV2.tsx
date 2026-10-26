@@ -100,6 +100,7 @@ import api, {
   type B2BGeneratedContractUpdate,
   type B2BGeneratedListParams,
   type B2BRenderPayload,
+  type B2BReplaceableContract,
   type B2BRole,
   type B2BUopCheckResult,
   type AgreementTerminationMode,
@@ -147,6 +148,14 @@ import {
 } from "@/components/v2/b2b-generator/RegisterAnnexLabel";
 import { RegistryCheckDialog } from "@/components/v2/b2b-generator/RegistryCheckDialog";
 import { MandateAgreementForm } from "@/components/v2/b2b-generator/MandateAgreementForm";
+import { AgreementAdminDetailsCard } from "@/components/v2/b2b-generator/AgreementAdminDetailsCard";
+import {
+  adminFromSaved,
+  adminPayload,
+  EMPTY_ADMIN_VALUE,
+  isAdminComplete,
+  type AgreementAdminValue,
+} from "@/lib/agreement-admin-details";
 import {
   PREVIEW_STYLE,
   instrumentalPl,
@@ -3894,6 +3903,14 @@ export function GeneratorForm({
   // Debounce jak w rejestrze — bez niego każda litera to osobne zapytanie.
   const debouncedCandidateQuery = useDebouncedValue(candidateQuery, 300);
   const [stageId, setStageId] = useState<string>("");
+  // „Szczegóły administracyjne” (0524): replacement i FTE. `restoredAdminPair`
+  // = para wczytana z zapisanej umowy — kafelek nie nadpisuje jej podpowiedziami.
+  const [adminValue, setAdminValue] =
+    useState<AgreementAdminValue>(EMPTY_ADMIN_VALUE);
+  const [restoredAdminPair, setRestoredAdminPair] = useState<string | null>(
+    null,
+  );
+  const [showAdminErrors, setShowAdminErrors] = useState(false);
 
   // Rola + zakres
   const [roleId, setRoleId] = useState<string>("");
@@ -4466,7 +4483,7 @@ export function GeneratorForm({
     let cancelled = false;
     (async () => {
       try {
-        const { id, contract_number, form } =
+        const { id, contract_number, form, replaced } =
           await b2bGeneratorApi.generatedForm(editGeneratedId);
         let candidateOption: CandidateOption | null = null;
         if (form.candidate_id) {
@@ -4485,7 +4502,7 @@ export function GeneratorForm({
           };
         }
         if (cancelled) return;
-        applySavedForm(id, contract_number, form, candidateOption);
+        applySavedForm(id, contract_number, form, candidateOption, replaced);
       } catch (e: unknown) {
         if (!cancelled) toast.showError(extractErrorMsg(e));
       } finally {
@@ -4620,6 +4637,7 @@ export function GeneratorForm({
         : null,
     currency: currency.trim() || "PLN",
     ...(scopeItemsOverride ? { scope_items_override: scopeItemsOverride } : {}),
+    ...adminPayload(adminValue),
   });
 
   // Podgląd opisuje dane z chwili kliknięcia — po każdej zmianie formularza
@@ -4803,9 +4821,16 @@ export function GeneratorForm({
     number: string,
     form: B2BRenderPayload,
     candidateOption: CandidateOption | null,
+    replaced: B2BReplaceableContract | null = null,
   ) => {
     const candidateId = candidateOption?.id ?? null;
     const jobId = form.job_id ?? null;
+    const savedAdmin = adminFromSaved(form, replaced);
+    setRestoredAdminPair(
+      savedAdmin && candidateId && jobId ? `${candidateId}:${jobId}` : null,
+    );
+    setAdminValue(savedAdmin ?? EMPTY_ADMIN_VALUE);
+    setShowAdminErrors(false);
     prefilledCand.current = candidateId;
     prefilledJob.current = jobId;
     jobFieldsFromJob.current = true;
@@ -4966,6 +4991,17 @@ export function GeneratorForm({
 
   const onDocx = async () => {
     if (!validate()) return;
+    // Replacement i FTE są obowiązkowe przy umowie z rekrutacją (serwer: 422).
+    if (selectedRecruitment && !isAdminComplete(adminValue)) {
+      setShowAdminErrors(true);
+      toast.showError(
+        "Uzupełnij „Szczegóły administracyjne”: replacement i wymiar FTE.",
+      );
+      document
+        .querySelector('[data-testid="agreement-admin-details"]')
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     let verification: CompanyVerification;
     try {
       verification = await verifyMut.mutateAsync();
@@ -5271,6 +5307,15 @@ export function GeneratorForm({
           </div>
         </CardContent>
       </Card>
+
+      <AgreementAdminDetailsCard
+        candidateId={candidate?.id ?? null}
+        jobId={selectedRecruitment?.job_id ?? null}
+        value={adminValue}
+        onChange={setAdminValue}
+        showErrors={showAdminErrors}
+        restoredPair={restoredAdminPair}
+      />
 
       {/* Dane Partnera (firma) */}
       <Card>

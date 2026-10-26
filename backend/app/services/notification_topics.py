@@ -104,6 +104,8 @@ _CONTRACTS = (
     _T.signature_failed,
     # Prośba do DL o „Oznacz jako podpisaną” (droga mailowa).
     _T.b2b_signature_requested,
+    # Umowę Twojej osoby wygenerował ktoś inny — wyślij ją i pilnuj podpisu.
+    _T.b2b_agreement_ready,
 )
 
 

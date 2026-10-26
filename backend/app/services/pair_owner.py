@@ -24,9 +24,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate
 from app.models.candidate_job_owner import CandidateJobOwner, CandidateJobOwnerEvent
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -240,6 +241,18 @@ async def assign_owner(
         process.ownership_confirmed_at = now
         process.ownership_confirmed_by_user_id = actor.id
         process.state_version = (process.state_version or 0) + 1
+    # Niepodpisane umowy pary idą za nową osobą (0524): to ona pilnuje
+    # podpisu i dostaje przypomnienia. Podpisanych nie ruszamy — to historia.
+    await db.execute(
+        update(B2BGeneratedContract)
+        .where(
+            B2BGeneratedContract.candidate_id == candidate_id,
+            B2BGeneratedContract.job_id == job_id,
+            B2BGeneratedContract.source == "generator",
+            B2BGeneratedContract.signature_status == "unsigned",
+        )
+        .values(recruiter_user_id=owner_user_id)
+    )
     await db.flush()
     return row
 
