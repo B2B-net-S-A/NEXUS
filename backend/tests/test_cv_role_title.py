@@ -93,13 +93,65 @@ from app.services.job_working_title import cv_role_title
             "PL_IT_Developer_expert_TP#40379 (43020)",
             "PL_IT_Developer_expert_TP#40379",
             ["Bank Północny"],
-            "PL_IT_Developer_expert_TP#40379",
+            "IT Developer expert",
         ),
+        # 26.10.2026 (decyzja D4): kod stanowiska „TP#…”, „PeP: …”, kraj „PL_”
+        # i „Replacement for <imię>” szły do nagłówka CV i do zaproszenia na
+        # prep. Kształty z produkcji, imiona fikcyjne.
         (
             "PL_IT_Developer_expert_TP#40379 (43020)",
             "43020",
             ["Bank Północny"],
-            "PL_IT_Developer_expert_TP#40379",
+            "IT Developer expert",
+        ),
+        (
+            "Bank Północny: PL - MDM - IT Automation Tester Senior - TP#41745 (42553)",
+            "42553",
+            ["Bank Północny"],
+            "MDM - IT Automation Tester Senior",
+        ),
+        (
+            "PL_Transaction Monitoring_IT Developer Expert_TP#45785 (42928)(42927)",
+            "42928, 42927",
+            [],
+            "Transaction Monitoring – IT Developer Expert",
+        ),
+        (
+            "Retail Technology Services_Role: CICD Engineer_PeP: 4985 (42883)",
+            "42883",
+            [],
+            "CICD Engineer",
+        ),
+        (
+            "PEP4989_Domain API_Junior IT Analyst (replacement) (42970)",
+            "42970",
+            [],
+            "Domain API – Junior IT Analyst",
+        ),
+        (
+            "Replacement- PL- GETFIT Senior Test Automation Engineer TP ID 40942 (42283)",
+            "42283",
+            [],
+            "GETFIT Senior Test Automation Engineer",
+        ),
+        (
+            "PL_IngestOps - CoreCDP - Replacement for Jan K (42718)",
+            "42718",
+            [],
+            "IngestOps - CoreCDP",
+        ),
+        ("1 X Scrum Master Replacement for Anna", None, [], "Scrum Master"),
+        (
+            "Portfolio Oversight Management - SREP EBA LOM Replacement for Jan Nowak",
+            None,
+            [],
+            "Portfolio Oversight Management - SREP EBA LOM",
+        ),
+        (
+            "Bank Północny: PL_KYC_IT Automation Tester Senior_TP#43800 (42524)",
+            "42524",
+            ["Bank Północny"],
+            "KYC – IT Automation Tester Senior",
         ),
     ],
 )
@@ -129,6 +181,16 @@ def test_client_codes_and_process_notes_leave_the_header(
         "Security Engineer (ISO 27001)",
         "Data Analyst (PL-300)",
         "Azure Architect (AZ-305)",
+        # 26.10.2026: reguły Nordei nie tną ról z „PL” ani „x” w nazwie.
+        "PL/SQL Developer",
+        "Replacement Planner",
+        "Expert IT Analyst",
+        # Przegląd PR-a: „PL-SQL” to technologia, a „Role:” w środku nazwy
+        # to nie prefiks Nordei.
+        "PL-SQL Developer",
+        "PL_SQL Developer",
+        "Data Engineer (Key Role: Payments)",
+        "Senior C# Developer",
     ],
 )
 def test_real_role_names_are_not_cut(title):

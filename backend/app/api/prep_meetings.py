@@ -71,10 +71,10 @@ from app.services import (
     prep_meetings,
     prep_notifications,
     prep_review,
+    prep_role,
     teams_vtt,
 )
 from app.services.job_membership import list_job_member_ids
-from app.services.job_working_title import cv_role_title_for_job
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +122,15 @@ class InvitationPreviewOut(BaseModel):
     title: str
     body: str
     interview_line: Optional[str] = None
+    # Zdanie o opisie roli (26.10.2026): w ``body`` stoi pole ``{role_hint}``,
+    # a w zdaniu zapraszającym ``{role}`` — podgląd podstawia oba z okna.
+    role_hint: str = prep_invitation.ROLE_HINT
+
+
+class RoleFindingOut(BaseModel):
+    code: str
+    message: str
+    excerpt: str
 
 
 class PrepFollowupOut(BaseModel):
@@ -142,6 +151,14 @@ class PrepOptionsOut(BaseModel):
     # Notatka na Prep 2 z oceny Prepu 1 pary (ocena v2, 22.10.2026) — okno
     # „Zaplanuj Prep 2” pokazuje ją prowadzącemu; pusta = brak oceny Prepu 1.
     prep1_followup: list[PrepFollowupOut] = []
+    # Stanowisko i opis roli dla kandydata (26.10.2026, D1–D3): z Championa,
+    # do poprawienia w oknie. ``role_title_needs_fix`` = wygląda jak kod;
+    # pusty ``role_description`` = Champion nie ma opisu projektu.
+    role_title: str = ""
+    role_title_source: str = prep_role.SOURCE_CLIENT
+    role_title_needs_fix: bool = False
+    role_description: str = ""
+    role_description_findings: list[RoleFindingOut] = []
 
 
 async def _client_name(db: AsyncSession, job: Job) -> Optional[str]:
@@ -169,6 +186,12 @@ class PrepCreate(BaseModel):
     # kandydata podaje ten termin, nie starą rozmowę (decyzja Artura
     # 22.10.2026, audyt F37).
     interview_start: Optional[datetime] = None
+    # Stanowisko i opis roli poprawione w oknie (26.10.2026). ``None`` = z
+    # Championa; pusty opis = zaproszenie bez opisu roli.
+    role_title: Optional[str] = Field(default=None, max_length=prep_role.TITLE_MAX)
+    role_description: Optional[str] = Field(
+        default=None, max_length=prep_role.DESCRIPTION_MAX
+    )
 
     @model_validator(mode="after")
     def _window(self) -> "PrepCreate":
@@ -371,7 +394,8 @@ async def prep_options(
         db, candidate_id=candidate_id, job_id=job_id
     )
     who = prep_meetings.candidate_name(candidate) if candidate else "Kandydat"
-    role = await cv_role_title_for_job(db, job)
+    role, role_source = await prep_role.title(db, job)
+    role_text = prep_role.description(job)
     prep1 = await prep_review.latest_prep1_review(
         db, candidate_id=candidate_id, job_id=job_id
     )
@@ -393,16 +417,24 @@ async def prep_options(
         team=sorted(people.values(), key=lambda p: p.name.lower()),
         people=await _invitable_people(db, team_ids),
         notice=prep_invitation.NOTICE_TEXT,
+        role_title=role,
+        role_title_source=role_source,
+        role_title_needs_fix=prep_role.looks_like_code(role),
+        role_description=role_text,
+        role_description_findings=[
+            RoleFindingOut(**f.as_dict()) for f in prep_role.findings(role_text)
+        ],
         invitation={
             n: InvitationPreviewOut(
                 title=prep_invitation.title(n, who, client_name),
                 body=prep_invitation.text(
                     prep_no=n,
                     client_name=client_name,
-                    job_title=role,
+                    job_title=prep_invitation.ROLE_FIELD,
                     interview_start=interview_start,
                     note=prep_invitation.NOTE_FIELD,
                     organizer_name=prep_invitation.ORGANIZER_FIELD,
+                    role_hint=prep_invitation.ROLE_HINT_FIELD,
                 ),
                 interview_line=(
                     prep_invitation.interview_line(interview_start)
@@ -671,6 +703,8 @@ async def create_prep(
         client_name=await _client_name(db, job),
         extra_emails=[str(e) for e in body.attendee_emails],
         interview_start=body.interview_start,
+        role_title=body.role_title,
+        role_description=body.role_description,
     )
     # Prep w cudzym kalendarzu albo dla kandydata innej osoby z pary (D6).
     await prep_notifications.notify_prep_change(

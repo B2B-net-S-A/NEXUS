@@ -107,3 +107,39 @@ def test_preview_fields_survive_as_placeholders() -> None:
     assert "\n\n{note}\n\n" in body
     assert body.endswith("Pozdrawiam\n{organizer}")
     assert prep_invitation.interview_line(INTERVIEW) in body
+
+
+ROLE = prep_invitation.role_section(
+    "Senior ETL / Snowflake Engineer",
+    "Projekt hurtowni danych.\n\nZakres obowiązków:\n• ETL w Snowflake\n• analiza wymagań",
+)
+
+
+def test_role_hint_stands_before_the_note_and_the_role_below_the_signature() -> None:
+    """26.10.2026 (D1): opis roli pod podpisem, zdanie o nim w treści."""
+    body = _text(note="Proszę o kamerę.", role_hint=prep_invitation.ROLE_HINT)
+    paragraphs = body.split("\n\n")
+    assert paragraphs[3] == prep_invitation.ROLE_HINT
+    assert paragraphs[4] == "Proszę o kamerę."
+    plain = prep_invitation.as_plain(body, ROLE)
+    assert plain.index("Pozdrawiam") < plain.index("O roli: Senior ETL")
+    assert plain.index("• analiza wymagań") < plain.index(prep_invitation.NOTICE_TEXT)
+
+
+def test_html_puts_the_role_between_the_message_and_the_notice() -> None:
+    body = _text(role_hint=prep_invitation.ROLE_HINT)
+    html = sanitize_html(prep_invitation.as_html(body, ROLE))
+    message, role, notice = html.split("<hr>")
+    assert "Pozdrawiam" in message and "O roli" not in message
+    assert role.startswith(
+        "<p><strong>O roli: Senior ETL / Snowflake Engineer</strong></p>"
+    )
+    assert "<p>Zakres obowiązków:<br>• ETL w Snowflake<br>• analiza wymagań</p>" in role
+    assert "Administratorem danych" in notice
+
+
+def test_without_a_description_there_is_no_role_section() -> None:
+    assert prep_invitation.role_section("Java Developer", "  ") == ""
+    body = _text()
+    assert prep_invitation.ROLE_HINT not in body
+    assert prep_invitation.as_html(body, "").count("<hr>") == 1

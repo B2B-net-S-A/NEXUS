@@ -29,8 +29,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.prep_meeting import PrepMeeting
 from app.models.user import User, UserRole
-from app.services import interview_slots, prep_invitation
-from app.services.job_working_title import cv_role_title_for_job
+from app.services import interview_slots, prep_invitation, prep_role
 from app.services.m365 import teams_prep_auth, teams_prep_graph
 from app.services.m365.app_graph_client import AppOnlyTokenUnavailable
 from app.services.m365.calendar import (
@@ -275,6 +274,31 @@ def _fetch_after(end: datetime) -> datetime:
     return aware + timedelta(minutes=settings.TEAMS_PREP_FETCH_DELAY_MINUTES)
 
 
+def role_description_for_invitation(job: Job, edited: Optional[str]) -> str:
+    """Opis roli do zaproszenia: z okna (sprawdzony) albo z Championa."""
+    if edited is not None:
+        text = edited.replace("\r\n", "\n").strip()[: prep_role.DESCRIPTION_MAX]
+        found = prep_role.findings(text)
+        if found:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "PREP_ROLE_DESCRIPTION_FINDINGS",
+                    "message": (
+                        "Opis roli zawiera treści, których nie wysyłamy "
+                        "kandydatowi — popraw je albo wyłącz opis."
+                    ),
+                    "findings": [f.as_dict() for f in found],
+                },
+            )
+        return text
+    text = prep_role.description(job)
+    if text and prep_role.findings(text):
+        logger.info("prep invitation: default role description dropped (lint)")
+        return ""
+    return text
+
+
 async def create_prep(
     db: AsyncSession,
     *,
@@ -291,6 +315,8 @@ async def create_prep(
     client_name: Optional[str] = None,
     extra_emails: Sequence[str] = (),
     interview_start: Optional[datetime] = None,
+    role_title: Optional[str] = None,
+    role_description: Optional[str] = None,
 ) -> CreatedPrep:
     """Spotkanie w kalendarzu organizatora + wiersze NEXUSA. Flush, bez commitu.
 
@@ -301,6 +327,12 @@ async def create_prep(
     ``interview_start`` — termin rozmowy wybrany w oknie, który czeka jeszcze
     na DL-a (przełożenie). Wygrywa z najbliższą rozmową z kalendarza, bo ta
     jest wtedy STARĄ rozmową (decyzja Artura 22.10.2026, audyt F37).
+
+    ``role_title`` / ``role_description`` — stanowisko i opis roli poprawione
+    w oknie (26.10.2026); ``None`` = z Championa (``prep_role``), pusty opis =
+    zaproszenie bez opisu. Opis z okna ze znaleziskiem kontroli = 422, opis
+    domyślny ze znaleziskiem po cichu wypada — okno „Umów rozmowę i prepy” nie
+    ma go jak poprawić, a prep nie może przez to przepaść.
     """
     if not organizer.email:
         raise HTTPException(
@@ -325,17 +357,24 @@ async def create_prep(
         )
     if interview_start is not None and _utc(start) >= interview_start:
         interview_start = None
+    # Kandydat dostaje nazwę roli z Championa albo oczyszczoną nazwę od
+    # klienta — bez numeru zapytania („… Prioritization (42874)”, 22.10.2026;
+    # „PL_IT_Developer_expert_TP#40379”, 26.10.2026).
+    role = " ".join((role_title or "").split())[: prep_role.TITLE_MAX]
+    if not role:
+        role, _ = await prep_role.title(db, job)
+    role_text = role_description_for_invitation(job, role_description)
+    role_block = prep_invitation.role_section(role, role_text)
     invitation = prep_invitation.text(
         prep_no=prep_no,
         client_name=client_name,
-        # Kandydat dostaje nazwę roli jak w nagłówku CV — bez numeru zapytania
-        # klienta (zgłoszenie 22.10.2026: „… Prioritization (42874)”).
-        job_title=await cv_role_title_for_job(db, job),
+        job_title=role,
         interview_start=interview_start,
         note=note,
         organizer_name=organizer.name or "",
+        role_hint=prep_invitation.ROLE_HINT if role_block else None,
     )
-    description = prep_invitation.as_plain(invitation)
+    description = prep_invitation.as_plain(invitation, role_block)
     attendees = attendee_emails(
         candidate_email=candidate.email,
         organizer_email=organizer.email,
@@ -344,7 +383,7 @@ async def create_prep(
     )
     payload = _build_event_payload(
         title=title,
-        description=prep_invitation.as_html(invitation),
+        description=prep_invitation.as_html(invitation, role_block),
         start=start,
         end=end,
         attendee_emails=attendees,

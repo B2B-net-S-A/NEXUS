@@ -248,7 +248,13 @@ _CV_TITLE_TRAILING = (
     re.compile(r"\s*[\(\[]\s*(?:\d{3,}|(?!ISO\b)[A-Z]{3,6}[-_]\d{4,})\s*[\)\]]\s*$"),
     # „… RITM0864052”, „…, Pep: 1234”
     re.compile(r"[\s,;:\-–—|/]*\b(?:RITM|REQ)\d+\s*$", re.I),
-    re.compile(r"[\s,;]*\bPep\s*:?\s*\d+\s*$", re.I),
+    # „_PeP: 4985” (26.10.2026): „_” to też granica, a dla ``\b`` — litera.
+    re.compile(r"[\s,;_]*(?<![A-Za-z0-9])Pep\s*:?\s*\d+\s*$", re.I),
+    # Nordea (26.10.2026, D4): kod stanowiska „_TP#40379”, „- TP ID 40942”.
+    re.compile(r"[\s,;_\-–—]*(?<![A-Za-z0-9])TP\s*(?:#|ID\b)\s*\d+\s*$"),
+    # „… - Replacement for Jan K”: imię zastępowanej osoby nie idzie ani do
+    # klienta, ani do kandydata.
+    re.compile(r"[\s,;_\-–—]*(?<![A-Za-z0-9])replacement(?:\s+for\b.*)?\s*$", re.I),
     # „…Power BI_PKN500023226”, „…NIS2_EITERFP2026016”
     re.compile(r"[_\s]+[A-Z]{2,}[A-Z0-9]*\d{5,}\s*$"),
     # „… - 3.iteracja”, „… – 2 tura”
@@ -260,7 +266,8 @@ _CV_TITLE_TRAILING = (
     re.compile(r"\s*[-–—]\s*[^-–—]{1,40}?\b(?:project|projekt)\s*$", re.I),
     # „(dodatkowy profil)”, „(pilne)”: dopisek procesu, nie rola
     re.compile(
-        r"\s*\((?:dodatkowy profil|additional profile|pilne|urgent)\)\s*$", re.I
+        r"\s*\((?:dodatkowy profil|additional profile|pilne|urgent|replacement)\)\s*$",
+        re.I,
     ),
 )
 _PL_CITY = (
@@ -289,6 +296,14 @@ _CV_TITLE_LEADING = (
     # „PL-EBSD-IT Analyst” (co najmniej dwa kody), „RFX-wsparcie…” (kod przed
     # małą literą). „UI-UX Designer” i „SAP-ABAP Developer” zostają.
     re.compile(r"^(?:(?:[A-Z]{2,5}-){2,}(?=[A-Z])|[A-Z]{2,5}-(?=[a-ząćęłńóśźż]))"),
+    # Nordea (26.10.2026, D4): „Replacement- …”, kraj „PL_”/„PL - ” (nie
+    # „PL/SQL”, „PL-SQL”, „PL_SQL”), kod „PEP4989_”, liczba osób „3 x ”,
+    # „…Services_Role: ” (tylko po „_” — „(Key Role: …)” to część nazwy).
+    re.compile(r"^replacement\s*[-–—:_]\s*", re.I),
+    re.compile(r"^PL\s*[-_–—]\s*(?!SQL\b)"),
+    re.compile(r"^PEP\d+[_\s-]+", re.I),
+    re.compile(r"^\d+\s*[xX]\s+"),
+    re.compile(r"^[^:()]{1,60}?_Role:\s*"),
 )
 
 
@@ -335,6 +350,12 @@ def _role_without_codes(base: str, names: list[str]) -> str:
         text = _clean(_strip_client_prefix(text, names)) or text
         if text == before:
             break
+    # Nordea pisze człony nazwy przez „_”: „IT_Developer_expert” to słowa,
+    # „Transaction Monitoring_IT Developer Expert” — dwie części nazwy.
+    if "_" in text:
+        sep = " – " if " " in text else " "
+        # „PL_SQL” to technologia, nie kraj przed nazwą.
+        text = re.sub(r"\s*(?<!\bPL)_+\s*", sep, text).strip(" –")
     text = _clean(text)
     # „RFX-wsparcie…” → „Wsparcie…”; nazwa bez zmian („iOS Developer”, „dbt
     # Engineer”) zostaje z małej litery.

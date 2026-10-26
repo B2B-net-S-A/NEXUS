@@ -4,7 +4,12 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { renderInvitationPreview, type PrepInvitation } from "@/lib/prep-invitation";
+import {
+  looksLikeRoleCode,
+  renderInvitationPreview,
+  roleSectionHeading,
+  type PrepInvitation,
+} from "@/lib/prep-invitation";
 
 const LINE = "Termin rozmowy z Klientem: 05.10.2031, godz. 14:00";
 const INVITATION: PrepInvitation = {
@@ -61,5 +66,55 @@ describe("renderInvitationPreview", () => {
     });
     expect(text).toContain("Stawka $& i $1");
     expect(text).toContain("A $& B");
+  });
+});
+
+describe("stanowisko i opis roli (26.10.2026)", () => {
+  const ROLE_INVITATION: PrepInvitation = {
+    title: "Przygotowanie do spotkania z Klientem Bank Omega - Jan Przykładowy",
+    body: [
+      "Dzień dobry,",
+      "Zapraszam na spotkanie przygotowujące do rozmowy z Klientem Bank Omega na stanowisko {role}.",
+      "{role_hint}",
+      "{note}",
+      "Pozdrawiam\n{organizer}",
+    ].join("\n\n"),
+    role_hint: "Przed spotkaniem przejrzyj, proszę, opis roli poniżej.",
+  };
+  const base = { note: "", organizer: "Kasia Lead", beforeInterview: true };
+
+  it("podstawia stanowisko i zdanie o opisie tylko z opisem", () => {
+    const withRole = renderInvitationPreview(ROLE_INVITATION, {
+      ...base,
+      role: "  Data   Engineer ",
+      withRole: true,
+    });
+    expect(withRole).toContain("na stanowisko Data Engineer.\n\nPrzed spotkaniem przejrzyj");
+    const without = renderInvitationPreview(ROLE_INVITATION, { ...base, role: "Data Engineer" });
+    expect(without).not.toContain("opis roli");
+    expect(without).not.toContain("{role_hint}");
+    expect(without).not.toContain("\n\n\n");
+  });
+
+  it("puste stanowisko = zdanie bez „na stanowisko”, jak serwer", () => {
+    const text = renderInvitationPreview(ROLE_INVITATION, { ...base, role: " " });
+    expect(text).toContain("z Klientem Bank Omega.");
+    expect(text).not.toContain("stanowisko");
+  });
+
+  it("nagłówek sekcji i wykrywanie kodu — lustro serwera", () => {
+    expect(roleSectionHeading("Data Engineer")).toBe("O roli: Data Engineer");
+    expect(roleSectionHeading("")).toBe("O roli");
+    for (const code of ["PL_IT_Developer_expert_TP#40379", "Dev RITM0867849", "(43020)", "Replacement for Jan"]) {
+      expect(looksLikeRoleCode(code)).toBe(true);
+    }
+    for (const role of [
+      "Senior ETL / Snowflake Engineer",
+      "SQL Server 2019 Administrator",
+      "Senior C# Developer",
+      "F# Engineer",
+    ]) {
+      expect(looksLikeRoleCode(role)).toBe(false);
+    }
   });
 });

@@ -66,7 +66,7 @@ describe("RejectionV2 — osoba od systemu", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     const args = onConfirm.mock.calls[0];
-    expect(args[args.length - 1]).toEqual({
+    expect(args[9]).toEqual({
       reason: "too_expensive",
       learnedFrom: "call",
       rateHourly: 175.5,
@@ -91,7 +91,7 @@ describe("RejectionV2 — osoba od systemu", () => {
     fireEvent.click(screen.getByText("Nie pasuje"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     const args = onConfirm.mock.calls[0];
-    expect(args[args.length - 1]).toBeNull();
+    expect(args[9]).toBeNull();
   });
 });
 

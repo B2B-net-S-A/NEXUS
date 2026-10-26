@@ -8,6 +8,7 @@ Dane fikcyjne (repo jest publiczne).
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -29,10 +30,11 @@ from app.tasks import notification_email_outbox as outbox
 _BACKEND = Path(__file__).resolve().parents[1]
 _AT = "2026-10-17T08:00:00+00:00"
 
-# Bez maila: kwoty (premie, stawki), opieka (sekcja Delivery). Raport godzin
-# wysłany do akceptacji idzie mailem od 18.10.2026 (jak w Compassie).
+# Bez maila „Czas i ludzie”: kwoty (stawki), opieka (sekcja Delivery). Raport
+# godzin wysłany do akceptacji idzie mailem od 18.10.2026 (jak w Compassie).
+# Premia ma od 26.10.2026 własny mail „Masz nową premię” bez kwoty.
+_OWN_MAIL = {"hr_bonus_assigned": "hr_bonus"}
 _NO_MAIL = (
-    "hr_bonus_assigned",
     "hr_rate_changed",
     "care_contact_due",
     # Tygodniowe „uzupełnij strukturę klienta” (0475) — przypomnienie opieki.
@@ -62,8 +64,12 @@ def _user(role: UserRole = UserRole.employee) -> User:
 
 def test_every_hr_type_is_either_mailed_or_deliberately_left_out():
     mailed = set(delivery.HR_MAIL_TYPES)
-    assert mailed | set(_NO_MAIL) == set(hr_notification_schema.NOTIFICATION_TYPES)
+    assert mailed | set(_NO_MAIL) | set(_OWN_MAIL) == set(
+        hr_notification_schema.NOTIFICATION_TYPES
+    )
     assert not mailed & set(_NO_MAIL)
+    for value, kind in _OWN_MAIL.items():
+        assert delivery.notification_kind(value) == kind
     for value in mailed:
         assert delivery.notification_kind(value) == "hr_people"
         assert (
@@ -359,7 +365,8 @@ async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatc
                 "Zaświadczenie dla Jana Przykładowego",
                 "/people/cases/7",
             ),
-            # Kwoty nie idą mailem w ogóle.
+            # Premia ma własny mail (26.10.2026), składany z wiersza premii;
+            # wpis bez premii i z obcym tytułem nie wychodzi, kwota nigdy.
             _row(
                 boss,
                 "hr_bonus_assigned",
@@ -533,3 +540,162 @@ async def test_my_emails_list_the_hr_mail_only_while_a_module_runs(app_client):
         async with AsyncSessionLocal() as db:
             await db.delete(await db.get(User, user.id))
             await db.commit()
+
+
+# ── „Masz nową premię” (mail obowiązkowy, 26.10.2026) ───────────────────────
+
+# Kwota z cyfrą i walutą albo sama liczba z groszami — nic z tego nie może wyjść.
+_AMOUNT_RE = re.compile(r"\d[\d\s]*(?:[.,]\d{2})?\s*(?:zł|pln|eur|usd|€|\$)", re.I)
+
+
+def test_bonus_kind_is_required_and_mailed_on_its_own():
+    assert delivery.notification_kind("hr_bonus_assigned") == "hr_bonus"
+    assert "hr_bonus" in delivery.REQUIRED_KINDS
+    assert "hr_bonus" in delivery.IMMEDIATE_KINDS
+    spec = next(item for item in delivery.CATALOG if item["id"] == "hr_bonus")
+    assert spec["label"] == "Masz nową premię"
+    sql = str(
+        outbox.kind_clause("hr_bonus").compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "'hr_bonus_assigned'" in sql
+
+
+@pytest.mark.parametrize("form", ["uop", "b2b", "zlecenie", None])
+@pytest.mark.parametrize("event", hr_mail.BONUS_EVENTS)
+def test_bonus_text_says_what_for_and_which_month_without_amount(form, event):
+    title, body = hr_mail.bonus_text(
+        form,
+        event=event,
+        source="contract_placement",
+        period_year=2026,
+        period_month=11,
+    )
+    assert title == terms(form)[f"bonus_{event}_title"]
+    assert "Rodzaj: za placement." in body
+    assert "Miesiąc rozliczenia: listopad 2026." in body
+    assert "„Moim czasie”" in body
+    assert not _AMOUNT_RE.search(title) and not _AMOUNT_RE.search(body)
+
+
+def test_bonus_source_labels_cover_every_source():
+    from app.services.hr_payroll_schema import BONUS_SOURCES
+
+    assert set(hr_mail.BONUS_SOURCE_LABELS) == set(BONUS_SOURCES)
+    _t, body = hr_mail.bonus_text(
+        "uop", event="new", source="manual", period_year=2026, period_month=10
+    )
+    assert body.startswith("Rodzaj: ręczna. Miesiąc rozliczenia: październik 2026.")
+
+
+async def _bonus(db, user: User, *, amount: str = "1234.56") -> "HrBonus":
+    from decimal import Decimal
+
+    from app.models.hr_payroll import HrBonus
+
+    bonus = HrBonus(
+        recipient_user_id=user.id,
+        amount=Decimal(amount),
+        currency="PLN",
+        category="recruiter",
+        period_year=2026,
+        period_month=11,
+        status="assigned",
+        source="contract_placement",
+        source_key=f"test-{uuid.uuid4().hex}",
+        assigned_at=datetime.now(timezone.utc),
+    )
+    db.add(bonus)
+    await db.commit()
+    await db.refresh(bonus)
+    return bonus
+
+
+def _bonus_row(user: User, bonus_id: int | None, title: str) -> Notification:
+    return Notification(
+        user_id=user.id,
+        notification_type=NotificationType.hr_bonus_assigned,
+        title=title,
+        message="Premia za listopad 2026. Szczegóły w „Moim czasie” → Premie.",
+        link="/my-time?tab=bonuses",
+        related_entity_type="hr_bonus",
+        related_entity_id=bonus_id,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.mark.asyncio
+async def test_outbox_mails_the_bonus_without_amount(monkeypatch):
+    async with AsyncSessionLocal() as db:
+        person = await _account(db)
+        other = await _account(db)
+        # Stary wpis wyłączenia nic nie znaczy — mail jest obowiązkowy.
+        person.email_opt_outs = {"hr_bonus": _AT}
+        await db.commit()
+        sent = _wire(monkeypatch, _policy_on(datetime.now(timezone.utc)))
+        mine = await _bonus(db, person)
+        foreign = await _bonus(db, other)
+        new_title = terms(None)["bonus_new_title"]
+        rows = [
+            _bonus_row(person, mine.id, new_title),
+            # Premia innej osoby pod cudzym dzwonkiem — bez maila.
+            _bonus_row(person, foreign.id, new_title),
+            # Dzwonek bez id premii (`notify_each(fresh=True)`) — bez maila.
+            _bonus_row(person, None, new_title),
+        ]
+        db.add_all(rows)
+        await db.commit()
+        ids = [row.id for row in rows]
+        try:
+            await outbox.dispatch(db)
+            await outbox.dispatch(db)
+            got = [item for item in sent if item[0] == person.email]
+            assert [subject for _to, subject, *_ in got] == [f"[NEXUS] {new_title}"]
+            _to, _subject, text, html = got[0]
+            assert "Rodzaj: za placement." in text
+            assert "Miesiąc rozliczenia: listopad 2026." in text
+            assert "/my-time?tab=bonuses" in text
+            for body in (text, html):
+                assert not _AMOUNT_RE.search(body)
+                assert "1234" not in body and "1 234" not in body
+            stamped = dict(
+                (
+                    await db.execute(
+                        select(Notification.id, Notification.email_sent_at).where(
+                            Notification.id.in_(ids)
+                        )
+                    )
+                ).all()
+            )
+            assert stamped[ids[0]] is not None
+            assert stamped[ids[1]] is None and stamped[ids[2]] is None
+        finally:
+            for row in rows:
+                await db.delete(row)
+            await db.delete(mine)
+            await db.delete(foreign)
+            await db.commit()
+            await db.delete(person)
+            await db.delete(other)
+            await db.commit()
+
+
+def test_bonus_mail_applies_only_while_the_payroll_module_runs():
+    employee = _user()
+    assert not prefs.APPLIES["hr_bonus"](employee, prefs._Context())
+    assert not prefs.APPLIES["hr_bonus"](
+        employee, prefs._Context(hr_modules={"leave": True})
+    )
+    assert prefs.APPLIES["hr_bonus"](
+        employee, prefs._Context(hr_modules={"payroll": True})
+    )
+
+
+@pytest.mark.asyncio
+async def test_bonus_mail_cannot_be_switched_off_and_not_where_it_does_not_apply():
+    employee = _user()
+    # Bez modułu płac mail konta nie dotyczy — nie ma czego wyłączać.
+    with pytest.raises(prefs.EmailKindNotApplicable):
+        await prefs.set_enabled(object(), employee, "hr_bonus", False)
+    assert employee.email_opt_outs == {}

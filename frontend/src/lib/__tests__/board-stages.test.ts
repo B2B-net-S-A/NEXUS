@@ -92,7 +92,33 @@ describe("foldBoardColumns", () => {
     const nordea = foldBoardColumns(template, { cproEnabled: true });
     const sent = nordea.columns.find((c) => c.key === "cv_sent")!;
     expect(sent.label).toBe("Wysłane do Cpro");
-    expect(nordea.columns.map((c) => c.key)).toEqual(BOARD_COLUMN_ORDER);
+  });
+
+  it("u Nordei kolejka Cpro to własna kolumna „Do Cpro” zaraz po „QC CV” (26.10.2026)", () => {
+    const nordea = foldBoardColumns(template, { cproEnabled: true });
+    expect(nordea.columns.map((c) => c.label)).toEqual([
+      "Nowi",
+      "Screening",
+      "Zweryfikowany",
+      "QC CV",
+      "Do Cpro",
+      "Wysłane do Cpro",
+      "Rozmowa u klienta",
+      "Akceptacja i umowa",
+      "Zatrudniony",
+    ]);
+    const qc = nordea.columns.find((c) => c.key === "cv_qc" && !c.cproQueue)!;
+    expect(qc.items.map((i) => i.id)).toEqual([3]);
+    const cpro = nordea.columns.find((c) => c.cproQueue)!;
+    expect(cpro.key).toBe("cv_qc");
+    expect(cpro.host.label).toBe("Wysłać do Cpro");
+    expect(cpro.items.map((i) => i.id)).toEqual([4]);
+    expect(nordea.badgeByItemId.get(4)).toBe("cpro");
+  });
+
+  it("poza Nordeą etap Cpro z szablonu zostaje znacznikiem w „QC CV”", () => {
+    expect(folded.columns.some((c) => c.cproQueue)).toBe(false);
+    expect(folded.columns.map((c) => c.key)).toEqual(BOARD_COLUMN_ORDER);
   });
 
   it("kolumna-host to etap bez odznaki; karty z etapów-odznak są w tej samej kolumnie", () => {

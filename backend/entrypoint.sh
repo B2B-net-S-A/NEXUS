@@ -773,6 +773,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_decisions_due'",
     # 0518: raport „Jakość podpowiedzi systemu” gotowy (do odbiorców raportu).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
+    # 0523: nowa rekrutacja u klienta Delivery Leada (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_job_opened'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
@@ -6087,6 +6089,13 @@ END $$""",
     "CREATE TABLE IF NOT EXISTS job_files (id SERIAL PRIMARY KEY, job_id INTEGER NULL REFERENCES jobs(id) ON DELETE CASCADE, intake_form_id INTEGER NULL REFERENCES job_intake_forms(id) ON DELETE SET NULL, source VARCHAR(16) NOT NULL DEFAULT 'upload', filename VARCHAR(255) NOT NULL, file_path VARCHAR(512) NOT NULL, content_type VARCHAR(128) NULL, size_bytes INTEGER NOT NULL DEFAULT 0, uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT ck_job_files_source CHECK (source IN ('request', 'upload')))",
     "CREATE INDEX IF NOT EXISTS ix_job_files_job ON job_files (job_id) WHERE job_id IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS ix_job_files_intake_form ON job_files (intake_form_id) WHERE intake_form_id IS NOT NULL",
+    # 0521: formularz CV klienta zamiast CV firmowego — flaga klienta i wzór
+    # w Plikach rekrutacji. Lustro 1:1 z `app/services/client_form_schema.py`
+    # (pilnuje test_client_form_migration_mirror) — PO tabeli `job_files`.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS cv_client_document VARCHAR(16) NOT NULL DEFAULT 'company_cv'",
+    "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS client_form BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS client_form_structure JSONB NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_files_client_form ON job_files (job_id) WHERE client_form AND job_id IS NOT NULL",
     # 0430: ogłoszenie rekrutacji do wklejenia na portale (Pracuj.pl,
     # JustJoin.IT). Lustro 1:1 z `app/services/job_ad_schema.py` (pilnuje
     # test_job_ads_migration_mirror).
@@ -6989,6 +6998,10 @@ _DATA_STATEMENTS = [
     *_CONTRACT_RATE_FROM_BACKFILL,
     # 0424: linki karty Championa dla klienta odwołane (D2) — idempotentne.
     *_SCREENING_FORM_DATA,
+    # 0521: Centrum e-Zdrowia dostaje formularz klienta zamiast CV firmowego —
+    # RAZ (znacznik w app_settings), żeby restart nie cofał zmiany z edytora
+    # reguły CV. Lustro `client_form_schema.SEED_DDL`.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = '0521_ezdrowie_client_form') THEN UPDATE clients SET cv_client_document = 'client_form' WHERE id = 115; INSERT INTO app_settings (key, value) VALUES ('0521_ezdrowie_client_form', jsonb_build_object('completed_at', clock_timestamp())) ON CONFLICT (key) DO NOTHING; END IF; END $$",
     # 0412: „Reply” z Traffita to odpowiedź na notatkę, nie mail — jednorazowa
     # zmiana typu (znacznik w app_settings), bez ruszania `updated_at`.
     # Lustro `note_kind_schema.REPLY_RETYPE`.

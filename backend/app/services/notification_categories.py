@@ -166,6 +166,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.recruitment_allocation_alert: _C.reminders,
     _T.board_tasks_digest: _C.reminders,
     _T.request_review_needed: _C.reminders,
+    # 0523: rekrutację u klienta DL-a otworzył ktoś inny (mail obowiązkowy).
+    _T.client_job_opened: _C.reminders,
     # 0409: propozycje automatu przydziału czekają na akceptację.
     _T.request_allocation_proposals: _C.reminders,
     # Terminy rekrutacji
@@ -331,6 +333,7 @@ _SPLIT_GROUPS: dict[
         (
             _T.recruitment_allocation_alert,
             _T.request_review_needed,
+            _T.client_job_opened,
             _T.request_allocation_proposals,
         ),
     ),

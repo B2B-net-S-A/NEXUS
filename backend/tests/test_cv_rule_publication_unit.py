@@ -149,6 +149,7 @@ async def test_delete_audits_reset_client_flags(monkeypatch):
     client, rule, db, actor = context()
     client.cv_content_mode_cap = "basic"
     client.cv_interactive_enabled = False
+    client.cv_client_document = "client_form"
     monkeypatch.setattr(api, "_client_or_404", AsyncMock(return_value=client))
     monkeypatch.setattr(api, "_require_client_rule_access", AsyncMock())
     monkeypatch.setattr(api, "_lock_rule_edit", AsyncMock(return_value=rule))
@@ -158,6 +159,7 @@ async def test_delete_audits_reset_client_flags(monkeypatch):
     assert record.call_args.kwargs["changes"] == {
         "cv_content_mode_cap": {"from": "basic", "to": None},
         "cv_interactive_enabled": {"from": False, "to": True},
+        "cv_client_document": {"from": "client_form", "to": "company_cv"},
     }
 
 

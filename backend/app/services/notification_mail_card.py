@@ -102,6 +102,9 @@ class _Spec:
     cycle_step: Optional[str] = None
     # Drugi przycisk „Otwórz …” z samym linkiem dzwonka.
     secondary: Optional[str] = None
+    # Temat z tytułu dzwonka, gdy tytuł niesie liczbę albo formę zależną od
+    # umowy (paczka „Nowe rekrutacje u Twoich klientów: 3”, tytuł premii).
+    use_title: bool = False
 
 
 # Typy powiadomień z kolejki „od razu” → co zrobić i przycisk.
@@ -177,10 +180,10 @@ SPECS: dict[str, _Spec] = {
     "hr_timesheet_reminder": _Spec("Wyślij raport godzin", label="Otwórz mój miesiąc"),
     # Nowe maile z PR 3 planu (26.10.2026); typy dochodzą tamtym PR-em.
     "client_job_opened": _Spec(
-        "Nowa rekrutacja u Twojego klienta", label="Otwórz rekrutację"
+        "Nowa rekrutacja u Twojego klienta", label="Otwórz", use_title=True
     ),
     "hr_bonus_assigned": _Spec(
-        "Masz nową premię", chip="Premia", label="Zobacz premię"
+        "Masz nową premię", chip="Premia", label="Zobacz premię", use_title=True
     ),
 }
 
@@ -381,7 +384,7 @@ def build_card(
         # jako „co zrobić” i jeden przycisk do ekranu.
         spec = _Spec(title, chip=HR_DEFAULT_CHIP if hr else "NEXUS")
     return MailCard(
-        action=spec.action,
+        action=title if spec.use_title else spec.action,
         about=_about(notification_type, hr, facts),
         chip=spec.chip,
         waiting=spec.chip == WAITING,

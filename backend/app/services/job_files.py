@@ -19,17 +19,21 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
 from fastapi import UploadFile
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.upload_filename import fit_filename_column
+from app.models.client import Client
+from app.models.job import Job
 from app.models.job_file import JobFile
 from app.models.user import User
-from app.services import storage_service
+from app.services import client_form_structure, storage_service
+from app.services.client_form_schema import CLIENT_FORM, COMPANY_CV
 from app.services.job_file_schema import SOURCE_REQUEST, SOURCE_UPLOAD, SOURCES
 
 logger = logging.getLogger(__name__)
@@ -64,6 +68,11 @@ MSG_EMPTY = "Plik jest pusty."
 MSG_TOO_BIG = f"Plik jest za duży — najwyżej {MAX_FILE_BYTES // (1024 * 1024)} MB."
 MSG_TOO_MANY = f"Rekrutacja może mieć najwyżej {MAX_FILES} plików. Usuń któryś, żeby dodać kolejny."
 MSG_SOURCE = "Nieznane źródło pliku."
+MSG_FORM_GONE = "Pliku nie ma już w magazynie — dodaj formularz jeszcze raz."
+
+# Plik, który NEXUS sam oznacza jako wzór formularza CV klienta — po nazwie
+# z SWZ („Zał 4b do SWZ Formularz CV_Tester”). Inny plik DL oznacza ręcznie.
+FORM_NAME = re.compile(r"formularz", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -182,6 +191,7 @@ async def list_files(
 
 
 def serialize(row: JobFile, uploader_name: Optional[str] = None) -> dict[str, Any]:
+    structure = row.client_form_structure if row.client_form else None
     return {
         "id": row.id,
         "filename": row.filename,
@@ -191,6 +201,10 @@ def serialize(row: JobFile, uploader_name: Optional[str] = None) -> dict[str, An
         "uploaded_by": row.uploaded_by,
         "uploaded_by_name": (uploader_name or "").strip() or None,
         "created_at": row.created_at,
+        "client_form": bool(row.client_form),
+        "client_form_summary": (
+            client_form_structure.summary(structure) if structure else None
+        ),
     }
 
 
@@ -272,3 +286,99 @@ async def sweep_orphans(db: AsyncSession) -> int:
     if rows:
         logger.info("job_files: usunięto %d osieroconych plików", len(rows))
     return len(rows)
+
+
+# ── Wzór formularza CV klienta (0521) ────────────────────────────────────
+# Klient z ``cv_client_document = client_form`` (na start Centrum e-Zdrowia)
+# dostaje formularz z Plików rekrutacji wypełniony przez NEXUS zamiast CV
+# firmowego. Wzór jest jeden na rekrutację; jego pola odczytuje
+# ``client_form_structure`` raz, przy oznaczeniu.
+
+
+async def client_document_of_job(db: AsyncSession, job_id: int) -> str:
+    """Co idzie do klienta tej rekrutacji: ``company_cv`` albo ``client_form``."""
+    value = await db.scalar(
+        select(Client.cv_client_document)
+        .join(Job, Job.client_id == Client.id)
+        .where(Job.id == job_id)
+    )
+    return value or COMPANY_CV
+
+
+def read_form_structure(row: JobFile) -> dict[str, Any]:
+    """Pola wzoru z pliku na dysku; odmowa = ``JobFileRefused`` 422 ze zdaniem."""
+    if not row.filename.lower().endswith(".docx"):
+        raise JobFileRefused(422, client_form_structure.MSG_NOT_DOCX)
+    try:
+        path = storage_service.get_job_file_path(row.file_path)
+    except FileNotFoundError as exc:
+        raise JobFileRefused(404, MSG_FORM_GONE) from exc
+    if path.stat().st_size > MAX_FILE_BYTES:
+        raise JobFileRefused(413, MSG_TOO_BIG)
+    try:
+        return client_form_structure.read_structure(path.read_bytes()).to_json()
+    except client_form_structure.FormRejected as exc:
+        raise JobFileRefused(422, str(exc)) from exc
+
+
+async def set_client_form(db: AsyncSession, row: JobFile, *, on: bool) -> None:
+    """Oznacz plik rekrutacji jako wzór formularza albo zdejmij oznaczenie.
+
+    Nowy wzór zdejmuje oznaczenie z poprzedniego (jeden na rekrutację,
+    ``ux_job_files_client_form``) pod blokadą rekrutacji. Bez commita.
+    """
+    if row.job_id is None:
+        raise JobFileRefused(422, "Wzór formularza oznacza się w rekrutacji.")
+    if not on:
+        row.client_form = False
+        row.client_form_structure = None
+        await db.flush()
+        return
+    structure = read_form_structure(row)
+    await _lock_owner(db, job_id=row.job_id, form_id=None)
+    await db.execute(
+        update(JobFile)
+        .where(
+            JobFile.job_id == row.job_id,
+            JobFile.id != row.id,
+            JobFile.client_form.is_(True),
+        )
+        .values(client_form=False, client_form_structure=None)
+    )
+    row.client_form = True
+    row.client_form_structure = structure
+    await db.flush()
+
+
+async def auto_mark_client_form(db: AsyncSession, job_id: int) -> Optional[JobFile]:
+    """Sam oznacz wzór, gdy klient chce formularz, a rekrutacja jeszcze go nie ma.
+
+    Kandydat to DOCX z „formularz” w nazwie, który daje się odczytać — od
+    najnowszego. Plik, którego nie da się odczytać, po prostu zostaje
+    zwykłym plikiem (DL może go oznaczyć ręcznie i zobaczyć powód odmowy).
+    """
+    if await client_document_of_job(db, job_id) != CLIENT_FORM:
+        return None
+    rows = list(
+        (
+            await db.scalars(
+                select(JobFile)
+                .where(JobFile.job_id == job_id)
+                .order_by(JobFile.created_at.desc(), JobFile.id.desc())
+            )
+        ).all()
+    )
+    if any(row.client_form for row in rows):
+        return None
+    for row in rows:
+        if not row.filename.lower().endswith(".docx") or not FORM_NAME.search(
+            row.filename
+        ):
+            continue
+        try:
+            await set_client_form(db, row, on=True)
+        except JobFileRefused:
+            logger.info("job_files: plik %d nie jest wzorem formularza", row.id)
+            continue
+        return row
+    return None
