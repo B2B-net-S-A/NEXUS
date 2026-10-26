@@ -53,6 +53,9 @@ a ludzie chcieli też dokładać osoby ręcznie i trzymać własne listy.
   nieobejrzane dopasowania. `GET /api/my-people/team/{user_id}` to podgląd
   listy osoby z zespołu (404 dla spoza zespołu), na froncie bez uśpień
   i dodawania. Obie trasy: `CandidateSearchAccess` + `HeadOfRecruitmentPlus`.
+  Liczniki liczy zbiorczo `services/my_people.team_counts` — NIE wołaj
+  `load_my_people` po kolei dla zespołu: tak trasa trwała 20 s na produkcji
+  (26.10.2026). Zgodność z `MyPeople.active` / `.idle` pilnuje test na bazie.
   Klucz zapytań `["my-people-team"]` stoi CELOWO poza `["my-people"]`:
   zdarzenia gniazda unieważniają „Moich ludzi” wiele razy na minutę,
   a odświeżanie całego zespołu wpadałoby w limit trasy.
