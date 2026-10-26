@@ -12,6 +12,10 @@ szablonu (``NOTE_FIELD`` i ``ORGANIZER_FIELD`` podstawia przeglądarka).
 
 W treści nie ma terminu samego prepu — niesie go zaproszenie, a wpisany
 tekstem zostałby nieaktualny po przełożeniu spotkania.
+
+Od 26.10.2026 (decyzje D1–D3) pod podpisem stoi sekcja „O roli” z opisem
+z Profilu Championa (``services/prep_role.py``), w Prepie 1 i 2, a w treści
+zdanie, że opis jest niżej.
 """
 
 from __future__ import annotations
@@ -36,6 +40,13 @@ NOTICE_TEXT = (
 # Pola podglądu w oknie „Zaplanuj prep” (podstawia je przeglądarka).
 NOTE_FIELD = "{note}"
 ORGANIZER_FIELD = "{organizer}"
+ROLE_FIELD = "{role}"
+ROLE_HINT_FIELD = "{role_hint}"
+
+ROLE_HINT = (
+    "Przed spotkaniem przejrzyj, proszę, opis roli poniżej. Porozmawiamy o tym, "
+    "jak Twoje doświadczenie odpowiada tym wymaganiom."
+)
 
 MAX_TITLE = 255
 
@@ -74,8 +85,13 @@ def text(
     interview_start: Optional[datetime],
     note: Optional[str],
     organizer_name: str,
+    role_hint: Optional[str] = None,
 ) -> str:
-    """Wiadomość do kandydata: akapity rozdzielone pustą linią, bez adnotacji."""
+    """Wiadomość do kandydata: akapity rozdzielone pustą linią, bez adnotacji.
+
+    ``role_hint`` — zdanie o opisie roli pod podpisem (:data:`ROLE_HINT`), tylko
+    gdy opis idzie w zaproszeniu.
+    """
     meeting = (
         "drugie spotkanie przygotowujące"
         if prep_no == 2
@@ -88,6 +104,8 @@ def text(
     paragraphs = ["Dzień dobry,", f"{lead}."]
     if interview_start is not None:
         paragraphs.append(interview_line(interview_start))
+    if role_hint:
+        paragraphs.append(role_hint)
     extra = (note or "").replace("\r\n", "\n").strip()
     if extra:
         paragraphs.append(extra)
@@ -96,16 +114,37 @@ def text(
     return "\n\n".join(paragraphs)
 
 
-def as_html(body: str) -> str:
-    """Treść zaproszenia dla Outlooka: akapity + adnotacja o nagrywaniu pod kreską."""
-    paragraphs = [part for part in body.split("\n\n") if part.strip()]
-    rendered = "".join(
+def role_section(role_title: Optional[str], description: Optional[str]) -> str:
+    """„O roli: <stanowisko>” + opis; pusty opis = brak sekcji."""
+    body = (description or "").replace("\r\n", "\n").strip()
+    if not body:
+        return ""
+    role = " ".join((role_title or "").split())
+    return f"{'O roli: ' + role if role else 'O roli'}\n\n{body}"
+
+
+def _paragraphs_html(text_: str) -> str:
+    return "".join(
         "<p>" + "<br>".join(html.escape(line) for line in part.split("\n")) + "</p>"
-        for part in paragraphs
+        for part in text_.split("\n\n")
+        if part.strip()
     )
+
+
+def as_html(body: str, role: str = "") -> str:
+    """Treść zaproszenia dla Outlooka: akapity, sekcja „O roli” i adnotacja
+    o nagrywaniu, każde pod kreską."""
+    rendered = _paragraphs_html(body)
+    if role:
+        heading, _, rest = role.partition("\n\n")
+        rendered += (
+            f"<hr><p><strong>{html.escape(heading)}</strong></p>"
+            + _paragraphs_html(rest)
+        )
     return f"{rendered}<hr><p><em>{html.escape(NOTICE_TEXT)}</em></p>"
 
 
-def as_plain(body: str) -> str:
+def as_plain(body: str, role: str = "") -> str:
     """Ta sama treść jako zwykły tekst — opis wydarzenia w NEXUSIE."""
-    return f"{body}\n\n{NOTICE_TEXT}"
+    middle = f"\n\n{role}" if role else ""
+    return f"{body}{middle}\n\n{NOTICE_TEXT}"

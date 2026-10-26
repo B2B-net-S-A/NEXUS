@@ -878,7 +878,8 @@ async def test_letterless_header_does_not_confirm_itself(monkeypatch) -> None:
         )
     )
     titles = await qc.expected_titles(None, src, {"presentation_position": "(43020)"})
-    assert titles == ("PL_IT_Developer_expert_TP#40379",)
+    # 26.10.2026 (D4): kod stanowiska Nordei „_TP#…” i „PL_” też schodzą.
+    assert titles == ("IT Developer expert",)
 
 
 @pytest.mark.parametrize(
