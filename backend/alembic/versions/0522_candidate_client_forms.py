@@ -1,7 +1,7 @@
 """Formularz CV klienta wypełniony dla pary osoba × rekrutacja + klucz AI.
 
 Revision ID: 0522_candidate_client_forms
-Revises: 0521_client_form_documents
+Revises: 0523_client_job_opened_notification
 
 PR 2 z 3 (decyzje Artura 26.10.2026): NEXUS wypełnia formularz CV klienta
 z Plików rekrutacji danymi z CV, screeningu i notatek. Tabela ma jedno źródło
@@ -14,7 +14,8 @@ from alembic import op
 from app.services import client_form_schema as schema
 
 revision = "0522_candidate_client_forms"
-down_revision = "0521_client_form_documents"
+# Za 0523 (#2677 wszedł do kolejki pierwszy, też na 0521) — jedna głowa.
+down_revision = "0523_client_job_opened_notification"
 branch_labels = None
 depends_on = None
 
