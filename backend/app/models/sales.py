@@ -61,7 +61,9 @@ class SalesPipelineStage(Base, TimestampMixin):
     __tablename__ = "sales_pipeline_stages"
     __table_args__ = (
         UniqueConstraint("pipeline_id", "key", name="uq_sales_pipeline_stages_key"),
-        CheckConstraint(schema.CK_STAGE_OUTCOME, name="ck_sales_pipeline_stages_outcome"),
+        CheckConstraint(
+            schema.CK_STAGE_OUTCOME, name="ck_sales_pipeline_stages_outcome"
+        ),
         CheckConstraint(
             schema.CK_STAGE_PROBABILITY, name="ck_sales_pipeline_stages_probability"
         ),
@@ -221,7 +223,9 @@ class SalesOpportunity(Base, TimestampMixin):
 
     __tablename__ = "sales_opportunities"
     __table_args__ = (
-        CheckConstraint(schema.CK_OPPORTUNITY_TITLE, name="ck_sales_opportunities_title"),
+        CheckConstraint(
+            schema.CK_OPPORTUNITY_TITLE, name="ck_sales_opportunities_title"
+        ),
         CheckConstraint(
             schema.CK_OPPORTUNITY_STATUS, name="ck_sales_opportunities_status"
         ),
