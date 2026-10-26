@@ -180,23 +180,20 @@ async def my_people_team(
     Liczby z tych samych definicji co dymek osoby: aktywni, pracujący,
     czekający dłużej niż ``IDLE_DAYS`` bez procesu, nieobejrzane dopasowania.
     """
-    members: list[TeamMember] = []
-    for member in await svc.team_members(db):
-        people = await svc.load_my_people(db, member.id)
-        new_matches, jobs = await svc.unseen_totals(db, member.id)
-        members.append(
+    team = await svc.team_members(db)
+    # Zbiorczo, nie `load_my_people` po kolei — to trwało 20 s (26.10.2026).
+    counts = await svc.team_counts(db, [m.id for m in team])
+    return TeamResponse(
+        members=[
             TeamMember(
-                user_id=member.id,
-                name=member.name,
-                roles=sorted(r.value for r in member.get_all_roles()),
-                total=len(people.active),
-                working=sum(1 for r in people.rows if r.working and not r.snoozed),
-                idle=len(people.idle),
-                new_matches=new_matches,
-                jobs_with_matches=jobs,
+                user_id=m.id,
+                name=m.name,
+                roles=sorted(r.value for r in m.get_all_roles()),
+                **counts.get(m.id, svc.TeamCounts()).__dict__,
             )
-        )
-    return TeamResponse(members=members)
+            for m in team
+        ]
+    )
 
 
 @router.get("/team/{user_id}", response_model=MyPeopleResponse)

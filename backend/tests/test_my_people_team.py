@@ -157,3 +157,70 @@ async def test_recruiter_cannot_open_the_team_view(app_client) -> None:
     assert (
         await app_client.get(f"/api/my-people/team/{rec_id}", headers=headers)
     ).status_code == 403
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_team_counts_match_each_members_own_list() -> None:
+    """Zbiorcze liczniki = te same liczby co pełna lista osoby (26.10.2026)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+    from app.models.my_people import MyPeopleOverride
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services.my_people import load_my_people, team_counts
+
+    async with AsyncSessionLocal() as db:
+        recruiter, idle_cand = await _recruiter_with_idle_person(db)
+        other = await _user(db, "recruiter")
+        marker = uuid.uuid4().hex[:8]
+        client = Client(name=f"team-counts-{marker}")
+        db.add(client)
+        await db.flush()
+        open_job = Job(
+            title=f"Rust {marker}", client_id=client.id, status=JobStatus.published
+        )
+        in_process = Candidate(name="Ola", lastname=f"Proc{marker}")
+        snoozed = Candidate(name="Ola", lastname=f"Snooze{marker}")
+        pinned = Candidate(name="Ola", lastname=f"Pin{marker}")
+        db.add_all([open_job, in_process, snoozed, pinned])
+        await db.flush()
+        # W toku w opublikowanej rekrutacji — na liście, ale nie „czeka”.
+        for cand in (in_process, snoozed):
+            for stage, at in (("verified", T0), ("cv_sent", T0 + timedelta(days=2))):
+                db.add(
+                    CandidateStage(
+                        candidate_id=cand.id,
+                        job_id=open_job.id,
+                        stage=PipelineStage(stage),
+                        moved_by=recruiter.id,
+                        moved_at=at,
+                    )
+                )
+        db.add_all(
+            [
+                MyPeopleOverride(
+                    user_id=recruiter.id,
+                    candidate_id=snoozed.id,
+                    kind="snoozed",
+                    reason="other",
+                ),
+                MyPeopleOverride(
+                    user_id=recruiter.id, candidate_id=pinned.id, kind="pinned"
+                ),
+            ]
+        )
+        await db.commit()
+        rec_id, other_id = recruiter.id, other.id
+
+    async with AsyncSessionLocal() as db:
+        counts = await team_counts(db, [rec_id, other_id])
+        people = await load_my_people(db, rec_id)
+
+    mine = counts[rec_id]
+    assert mine.total == len(people.active) == 3  # czekająca, w procesie, przypięta
+    assert mine.idle == len(people.idle) == 1
+    assert mine.working == 0
+    assert mine.new_matches == 1 and mine.jobs_with_matches == 1
+    assert counts[other_id].total == 0

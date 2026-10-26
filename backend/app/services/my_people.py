@@ -208,6 +208,123 @@ async def team_members(db: AsyncSession) -> list[User]:
     )
 
 
+@dataclass(frozen=True)
+class TeamCounts:
+    """Liczniki jednej listy w widoku „Zespół” — te same definicje co ``MyPeople``."""
+
+    total: int = 0
+    working: int = 0
+    idle: int = 0
+    new_matches: int = 0
+    jobs_with_matches: int = 0
+
+
+async def team_counts(
+    db: AsyncSession, user_ids: Iterable[int]
+) -> dict[int, TeamCounts]:
+    """Liczniki „Moich ludzi” wielu osób naraz (widok „Zespół”, 26.10.2026).
+
+    ``load_my_people`` dla każdej osoby po kolei trwało na produkcji 20 s
+    (25 list, każda z markerami zatrudnienia, stawkami i kategoriami). Tu ta
+    sama reguła właściciela (``_owned_pairs_cte`` dla wszystkich), uśpienia
+    i przypięcia, czarna lista, „pracuje u nas”, procesy w toku i próg
+    ``IDLE_DAYS`` liczą się zbiorczo — po jednym zapytaniu na rodzaj danych.
+    Zgodność z ``MyPeople.active`` / ``.idle`` pilnuje test na bazie.
+    """
+    wanted = {int(u) for u in user_ids}
+    if not wanted:
+        return {}
+    sql = (
+        _owned_pairs_cte(single_user=False)
+        + """
+    SELECT o.owner_id, o.candidate_id, MAX(cs.moved_at) AS last_sent_at
+    FROM owned o
+    JOIN candidate_stages cs
+      ON cs.candidate_id = o.candidate_id AND cs.job_id = o.job_id
+     AND cs.stage = 'cv_sent'
+    WHERE o.owner_id = ANY(:uids)
+    GROUP BY o.owner_id, o.candidate_id
+    """
+    )
+    uids = sorted(wanted)
+    # (user_id, candidate_id) → ostatnia wysyłka; przypięci bez historii = None.
+    pairs: dict[tuple[int, int], Optional[datetime]] = {
+        (int(uid), int(cid)): sent
+        for uid, cid, sent in (await db.execute(text(sql), {"uids": uids})).all()
+    }
+    snoozed: set[tuple[int, int]] = set()
+    for ov in (
+        await db.scalars(
+            select(MyPeopleOverride).where(MyPeopleOverride.user_id.in_(uids))
+        )
+    ).all():
+        key = (ov.user_id, ov.candidate_id)
+        if ov.kind == "snoozed":
+            snoozed.add(key)
+        pairs.setdefault(key, None)
+
+    ids = {cid for _, cid in pairs}
+    allowed = (
+        {
+            int(r)
+            for r in (
+                await db.scalars(
+                    select(Candidate.id).where(
+                        Candidate.id.in_(ids),
+                        Candidate.status != CandidateStatus.blacklisted,
+                    )
+                )
+            ).all()
+        }
+        if ids
+        else set()
+    )
+    today = business_today()
+    employment = await load_employment_markers(db, allowed, today=today)
+    processes = await active_process_counts(db, allowed)
+    unseen = {
+        int(uid): (int(n), int(jobs))
+        for uid, n, jobs in (
+            await db.execute(
+                text(
+                    """
+                    SELECT m.user_id, COUNT(*), COUNT(DISTINCT m.job_id)
+                    FROM my_people_job_matches m
+                    JOIN jobs j ON j.id = m.job_id AND j.status = 'published'
+                    WHERE m.user_id = ANY(:uids) AND m.seen_at IS NULL
+                    GROUP BY m.user_id
+                    """
+                ),
+                {"uids": uids},
+            )
+        ).all()
+    }
+
+    totals: dict[int, list[int]] = {uid: [0, 0, 0] for uid in wanted}
+    for (uid, cid), sent in pairs.items():
+        if cid not in allowed or uid not in totals:
+            continue
+        if (uid, cid) in snoozed:
+            continue
+        if _works_now(employment.get(cid)):
+            totals[uid][1] += 1
+            continue
+        totals[uid][0] += 1
+        days = _days_since(sent, today)
+        if processes.get(cid, 0) == 0 and days is not None and days > IDLE_DAYS:
+            totals[uid][2] += 1
+    return {
+        uid: TeamCounts(
+            total=t[0],
+            working=t[1],
+            idle=t[2],
+            new_matches=unseen.get(uid, (0, 0))[0],
+            jobs_with_matches=unseen.get(uid, (0, 0))[1],
+        )
+        for uid, t in totals.items()
+    }
+
+
 async def owned_candidate_ids(db: AsyncSession, user_id: int) -> set[int]:
     """Wyliczone osoby użytkownika (bez przypięć i uśpień)."""
     sql = _owned_pairs_cte(single_user=True) + "SELECT DISTINCT candidate_id FROM owned"
