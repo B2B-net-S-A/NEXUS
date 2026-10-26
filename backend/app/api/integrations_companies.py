@@ -88,6 +88,7 @@ from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
+from app.models.client_directory import ClientAlias
 from app.models.contract import Contract
 from app.models.oauth_client import OAuthScope
 from app.services.contract_service import placed_contract_clause
@@ -413,20 +414,69 @@ async def _client_label_index(
                 )
             )
         ).one()
+    ) + tuple(
+        (
+            await db.execute(
+                select(
+                    func.count(ClientAlias.id),
+                    func.max(ClientAlias.updated_at),
+                    func.max(ClientAlias.id),
+                )
+            )
+        ).one()
     )
     if _LABEL_INDEX["fingerprint"] == fingerprint:
         return _LABEL_INDEX["rows"]
+    aliases = await _active_aliases(db)
     rows: list[tuple[int, str, frozenset[str]]] = []
     for row in (await db.execute(labels)).all():
         names = frozenset(
             normalize_company_name(label)
-            for label in (row.name, row.legal_name, row.display_name)
+            for label in (
+                row.name,
+                row.legal_name,
+                row.display_name,
+                *aliases.get(row.id, ()),
+            )
             if label
         )
         rows.append((row.id, row.display_name or row.name, names))
     _LABEL_INDEX["fingerprint"] = fingerprint
     _LABEL_INDEX["rows"] = rows
     return rows
+
+
+async def _active_aliases(
+    db: AsyncSession, client_id: Optional[int] = None
+) -> dict[int, list[str]]:
+    """Raw spellings from ``client_aliases`` (old names, short forms) per client.
+
+    The raw ``alias`` is read, not ``normalized_alias``: the import keys it with
+    its own normaliser, and this module compares ``normalize_company_name``.
+    Archived aliases are history, not a name the company answers to.
+    """
+    query = select(ClientAlias.client_id, ClientAlias.alias).where(
+        ClientAlias.archived_at.is_(None)
+    )
+    if client_id is not None:
+        query = query.where(ClientAlias.client_id == client_id)
+    by_client: dict[int, list[str]] = {}
+    for owner_id, alias in (await db.execute(query.order_by(ClientAlias.id))).all():
+        by_client.setdefault(owner_id, []).append(alias)
+    return by_client
+
+
+async def _client_known_names(db: AsyncSession, client_id: int) -> list[str]:
+    """Every raw name of one client — its labels plus active aliases."""
+    row = (
+        await db.execute(
+            select(Client.name, Client.legal_name, Client.display_name).where(
+                Client.id == client_id
+            )
+        )
+    ).one()
+    aliases = (await _active_aliases(db, client_id)).get(client_id, [])
+    return [label for label in (*row, *aliases) if label]
 
 
 # ── Route ────────────────────────────────────────────────────────────────────
@@ -555,6 +605,18 @@ async def _lookup_company_people(
     client = await _resolve_client(db, canonical_names, _normalize_nip(payload.nip))
     capped = False
 
+    # A resolved client widens the CV match to all its names: people who list
+    # the old name ("BRE Bank") worked at the same company as "mBank". Local
+    # copies — the response still echoes the canonical form of what was asked.
+    match_names = set(canonical_names)
+    raw_by_canonical = dict(canonical_by_raw)
+    if client is not None:
+        for raw in await _client_known_names(db, client.id):
+            canonical = normalize_company_name(raw)
+            if len(canonical) >= _MIN_NAME_LEN:
+                match_names.add(canonical)
+                raw_by_canonical.setdefault(raw, canonical)
+
     # ── via_us: authoritative, from contracts that ran — independent of CV ──
     via_us: list[Candidate] = []
     conflict_active: dict[int, bool] = {}
@@ -615,10 +677,8 @@ async def _lookup_company_people(
     # "Żabka" in a CV only matches the raw spelling — but ONLY when their
     # canonical twin passed the minimum length. Before, a raw alias bypassed
     # that rule and "IT" went out as `LIKE '%it%'`.
-    name_list = sorted(canonical_names) + [
-        raw
-        for raw, canonical in canonical_by_raw.items()
-        if canonical in canonical_names
+    name_list = sorted(match_names) + [
+        raw for raw, canonical in raw_by_canonical.items() if canonical in match_names
     ]
     cv_rows = list(
         (
@@ -645,7 +705,7 @@ async def _lookup_company_people(
     counts = {"via_us": 0, "current": 0, "past": 0, "unknown": 0}
 
     for candidate in via_us:
-        _, entry = _match_experience(candidate, canonical_names)
+        _, entry = _match_experience(candidate, match_names)
         if entry is None and client is not None:
             # Placed there on a contract but the CV never mentions it — common
             # for body-leasing. Without this the row would render with a blank
@@ -658,7 +718,7 @@ async def _lookup_company_people(
     for candidate in cv_rows:
         if candidate.id in reported:
             continue  # already reported under the stronger bucket
-        relationship, entry = _match_experience(candidate, canonical_names)
+        relationship, entry = _match_experience(candidate, match_names)
         if relationship is None:
             continue  # substring prefilter hit, canonical comparison rejected
         if relationship in ("past", "unknown") and conflict_active.get(candidate.id):
