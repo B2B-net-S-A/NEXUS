@@ -1236,11 +1236,29 @@ app.add_middleware(
     # cannot read the required client/date filename. `X-Export-Truncated`
     # tells the clients export that the file was cut at the row limit —
     # without exposing it the "partial export" warning never shows (FE-01).
+    # The middleware OVERWRITES a route's own `Access-Control-Expose-Headers`,
+    # so every header a route exposes to the frontend must be listed here too
+    # (guard: tests/test_cors_expose_headers.py). Ids of saved rows let the
+    # contract and document generators fix the same row on the next download
+    # instead of creating a new one.
     expose_headers=[
         "ETag",
         "Content-Disposition",
         "X-Request-Id",
         "X-Export-Truncated",
+        # Generator Umów B2B (b2b_contract_generator.py).
+        "X-Contract-Number",
+        "X-Generated-Contract-Id",
+        # Dokumenty B2B i umowa przedwstępna (b2b_documents.py).
+        "X-Document-Id",
+        # Paczka CV (candidates.py).
+        "X-Included-Count",
+        "X-Skipped-Count",
+        # Generator CV (cv_generator_b2b.py).
+        "X-Generated-Id",
+        "X-Generator-Candidate-Name",
+        "X-Generator-Warnings",
+        "X-Generator-Processing-Ms",
     ],
 )
 

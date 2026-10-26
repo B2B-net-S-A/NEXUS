@@ -310,8 +310,7 @@ export function MandateAgreementForm() {
         "Umowa zlecenia.docx",
       );
       downloadBlob(res.data as Blob, filename);
-      // Etykieta z daty zawarcia, nie z `X-Contract-Number`: globalny CORS
-      // wystawia przeglądarce tylko `Content-Disposition` (main.py).
+      // Etykieta z daty zawarcia: umowa zlecenia nie ma numeru.
       return { label: mandateLabel(form.signingDate) };
     },
     onSuccess: (result) => {
