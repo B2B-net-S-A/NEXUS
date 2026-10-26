@@ -12,6 +12,7 @@ import logging
 import re
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from collections.abc import Callable
 from typing import Any, get_args
 
@@ -89,7 +90,8 @@ from app.services.access_scope import (
     is_delivery_lead_governed,
     resolve_delivery_lead_assigned_client_ids,
 )
-from app.services.b2b_contract_filename import contract_file_name
+from app.services.b2b_contract_filename import contract_file_name, mandate_file_name
+from app.services.b2b_contract_generator.formatting import pl_date
 from app.services.b2b_documents import contract_annexes, signed_scan
 from app.services.b2b_documents import effects as document_effects
 from app.services.b2b_documents.contract_versions import version_for_variant
@@ -116,6 +118,7 @@ from app.schemas.b2b_contract_generator import (
     B2BSignatureRequestResponse,
     B2BStatusEventItem,
     B2BRenderHtmlResponse,
+    B2BMandateRenderRequest,
     B2BRenderRequest,
     B2BRoleCreate,
     B2BRoleResponse,
@@ -150,6 +153,7 @@ from app.services.job_team import (
 from app.services.b2b_contract_automation import (
     ORDER_SKIPPED_COST_CLIENT,
     ORDER_SKIPPED_OPEN_GROUP_LINE,
+    B2BEmploymentDraftResult,
     ensure_b2b_employment_draft,
     fill_candidate_contact,
     fill_contract_from_linked_agreement,
@@ -172,7 +176,8 @@ from app.services.b2b_contract_generator.entity_type import (
     partner_display_lines,
     resolve_partner_entity_type,
 )
-from app.services.b2b_contract_generator import signed_file
+from app.services.b2b_contract_generator import mandate, signed_file
+from app.services.hr import payroll_rates
 from app.services.b2b_esign import service as esign_service
 from app.services.b2b_esign import settings as esign_settings
 from app.services.b2b_esign.history import esign_history
@@ -351,13 +356,14 @@ def _docx_response(
     *,
     generated_id: int | None = None,
     person_name: str | None = None,
+    filename: str | None = None,
 ) -> Response:
     """Zwróć DOCX z nazwą widoczną dla frontendu także przez CORS.
 
     ``X-Generated-Contract-Id`` niesie id wiersza rejestru — formularz po
     pobraniu wie, KTÓRY wpis opisuje, i poprawka idzie do niego zamiast
     zakładać drugi wiersz z nowym numerem."""
-    filename = _contract_docx_filename(contract_number, person_name)
+    filename = filename or _contract_docx_filename(contract_number, person_name)
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Access-Control-Expose-Headers": (
@@ -1251,6 +1257,10 @@ async def _serialize_generated_contracts(
             # działu (ponowny import by je cofnął). Status handlowy — tak.
             can_manage = False
             can_correct = False
+        is_mandate_row = mandate.is_mandate(row)
+        if is_mandate_row:
+            # „Popraw” i podpis w NEXUSIE znają tylko formularz i PDF umowy B2B.
+            can_correct = False
         can_confirm = (
             generator_access >= ActionAccess.view
             and (
@@ -1339,6 +1349,7 @@ async def _serialize_generated_contracts(
         )
         can_send_esign = (
             esign_allowed
+            and not is_mandate_row
             and may_handle_esign
             and not is_signed
             and row.contract_status == "in_progress"
@@ -2431,8 +2442,94 @@ async def render_standalone(
     )
 
 
+@router.post("/mandate/render")
+async def render_mandate_contract(
+    payload: B2BMandateRenderRequest,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+    fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
+):
+    """Umowa zlecenia (decyzje Artura 26.10.2026) — ten sam rejestr co B2B.
+
+    `format=html` → podgląd (nic nie zapisuje). `format=docx` → wiersz
+    rejestru „W trakcie” z `contract_kind = "mandate"`, bez numeru z puli B2B,
+    i plik. PESEL, dowód i adres idą wyłącznie do pliku (`mandate`)."""
+    _require_contract_generation(current_user)
+    linked_job: Job | None = None
+    if payload.candidate_id is not None and payload.job_id is not None:
+        linked_job = await _load_legal_scoped_job(
+            db, current_user, payload.job_id, write=True
+        )
+        await _validate_candidate_job_link(
+            db, candidate_id=payload.candidate_id, job_id=linked_job.id
+        )
+    await _assert_generator_client_access(
+        db,
+        current_user,
+        linked_job.client_id if linked_job else None,
+        write=True,
+    )
+    try:
+        mandate.validate(payload, await payroll_rates.load_minimum_rates(db))
+    except mandate.MandateError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    label = mandate.mandate_label(payload.signing_date)
+
+    if fmt == "html":
+        html = await run_in_threadpool(mandate.render_html, payload)
+        return B2BRenderHtmlResponse(html=html, contract_number=label)
+
+    data = await run_in_threadpool(mandate.render_docx, payload)
+    client_name = (payload.client_name or "").strip() or None
+    if client_name is None and linked_job is not None and linked_job.client_id:
+        client = await db.get(Client, linked_job.client_id)
+        if client is not None:
+            client_name = client.display_name or client.name
+    created = B2BGeneratedContract(
+        year=payload.signing_date.year,
+        seq=None,
+        contract_number=label,
+        partner_name=payload.partner_name,
+        client_name=client_name,
+        language="pl",
+        signing_date=payload.signing_date,
+        start_date=payload.period_from,
+        created_by=current_user.id,
+        candidate_id=payload.candidate_id,
+        job_id=payload.job_id,
+        client_id=linked_job.client_id if linked_job else None,
+        # Jak przy B2B: „Aktywna” ustawia wyłącznie potwierdzenie podpisu.
+        contract_status="in_progress",
+        contract_kind=mandate.MANDATE_KIND,
+        render_payload=mandate.stored_payload(payload),
+    )
+    db.add(created)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.error("b2b_mandate_render_integrity_error: %s", exc.orig)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Nie udało się zapisać umowy — powiązany kandydat, rekrutacja "
+                "albo klient zmienił się w trakcie. Odśwież formularz i spróbuj "
+                "ponownie."
+            ),
+        ) from exc
+    await _stamp_candidate_contact_on_contract(db, payload)
+    return _docx_response(
+        data,
+        label,
+        generated_id=created.id,
+        filename=mandate_file_name(
+            pl_date(payload.signing_date), payload.partner_name, ext="docx"
+        ),
+    )
+
+
 async def _stamp_candidate_contact_on_contract(
-    db: AsyncSession, payload: "B2BRenderRequest"
+    db: AsyncSession, payload: "B2BRenderRequest | B2BMandateRenderRequest"
 ) -> None:
     """Przepisz kontakt z „Danych Partnera" na JEDNOZNACZNĄ umowę tej pary.
 
@@ -3102,14 +3199,30 @@ async def download_generated_contract(
     )
     _reject_excel_row(row)
     data = await _render_generated_row_docx(db, row)
-    return _docx_response(data, row.contract_number, person_name=row.partner_name)
+    return _docx_response(
+        data,
+        row.contract_number,
+        person_name=row.partner_name,
+        filename=(
+            mandate_file_name(pl_date(row.signing_date), row.partner_name, ext="docx")
+            if mandate.is_mandate(row)
+            else None
+        ),
+    )
 
 
 async def _render_generated_row_docx(
     db: AsyncSession, row: B2BGeneratedContract
 ) -> bytes:
     """DOCX odtworzony z zapisanego payloadu (numer z wiersza, klauzule z
-    przypiętego snapshotu). Wiersz bez payloadu → 422."""
+    przypiętego snapshotu). Wiersz bez payloadu → 422.
+
+    Umowa zlecenia: z zapisanego formularza, bez PESEL-u, dowodu i adresu —
+    NEXUS ich nie przechowuje, w pliku zostają kropki do wpisania ręcznie."""
+    if row.render_payload and mandate.is_mandate(row):
+        return await run_in_threadpool(
+            mandate.render_docx, mandate.payload_from_row(row.render_payload)
+        )
     if not row.render_payload:
         raise HTTPException(
             status_code=422,
@@ -3320,6 +3433,11 @@ async def link_generated_contract_to_contract(
             detail=f"Kontrakt #{contract.id} ma już powiązaną umowę {other}.",
         )
     await _assert_link_same_person(db, row, contract)
+    if mandate.is_mandate(row) and contract.contract_type != ContractType.uzlecenie:
+        raise HTTPException(
+            status_code=409,
+            detail="Umowę zlecenia powiąż z kontraktem typu zlecenie.",
+        )
 
     await apply_contract_link(db, row, contract, user_id=current_user.id)
 
@@ -3370,6 +3488,12 @@ async def link_generated_contract_to_contract(
     )
 
 
+_MANDATE_NO_CORRECTION = (
+    "Umowy zlecenia nie poprawia się w formularzu B2B. Wydaj ją od nowa "
+    "(Generator → „Zlecenie”), a ten wpis oznacz jako anulowany."
+)
+
+
 async def _load_row_for_correction(
     db: AsyncSession, current_user: User, generated_id: int
 ) -> B2BGeneratedContract:
@@ -3388,6 +3512,13 @@ async def _load_row_for_correction(
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
     await _assert_generator_client_access(db, current_user, row.client_id, write=True)
     _reject_excel_row(row)
+    if mandate.is_mandate(row):
+        # Formularz zlecenia nie trzyma PESEL-u ani dowodu, a „Popraw” B2B
+        # wczytałby go do formularza umowy B2B.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_MANDATE_NO_CORRECTION,
+        )
     team_job_ids = (
         await _jobs_led_by(db, current_user, {row.job_id})
         if row.job_id is not None
@@ -3915,27 +4046,32 @@ async def confirm_generated_contract_fully_signed(
                 ),
             )
 
-        render_payload = (
-            B2BRenderRequest(**row.render_payload) if row.render_payload else None
-        )
-        result = await ensure_b2b_employment_draft(
-            db,
-            candidate_id=candidate_id,
-            job=job,
-            actor_id=current_user.id,
-            payload=render_payload,
-            contract_number=row.contract_number,
-            signing_date=row.signing_date,
-            language=row.language,
-            ensure_order=True,
-            # Pipeline v4 (23.09.2026): podpis przesuwa kandydata na
-            # „Zatrudniony". Gdy polityka Priority Work odmówi otwarcia procesu,
-            # `_ensure_hired_stage` łapie PriorityWorkLocked i podpis przechodzi
-            # bez ruchu karty — komunikat mówi to wprost.
-            ensure_hired=True,
-            audit_source_generated_id=row.id,
-            keep_existing_terms=payload.keep_existing_contract_terms,
-        )
+        if mandate.is_mandate(row):
+            result = await _ensure_mandate_employment(
+                db, row, candidate_id=candidate_id, job=job, actor_id=current_user.id
+            )
+        else:
+            render_payload = (
+                B2BRenderRequest(**row.render_payload) if row.render_payload else None
+            )
+            result = await ensure_b2b_employment_draft(
+                db,
+                candidate_id=candidate_id,
+                job=job,
+                actor_id=current_user.id,
+                payload=render_payload,
+                contract_number=row.contract_number,
+                signing_date=row.signing_date,
+                language=row.language,
+                ensure_order=True,
+                # Pipeline v4 (23.09.2026): podpis przesuwa kandydata na
+                # „Zatrudniony". Gdy polityka Priority Work odmówi otwarcia
+                # procesu, `_ensure_hired_stage` łapie PriorityWorkLocked
+                # i podpis przechodzi bez ruchu karty — komunikat mówi to wprost.
+                ensure_hired=True,
+                audit_source_generated_id=row.id,
+                keep_existing_terms=payload.keep_existing_contract_terms,
+            )
         # Brak zamówienia jest stanem do obsłużenia WYŁĄCZNIE z powodem
         # podanym przez serwis: klient kosztowy (typ zamówienia wybiera
         # Delivery Lead) albo osoba już obsadzona na żywej linii zamówienia
@@ -4155,6 +4291,51 @@ async def confirm_generated_contract_fully_signed(
     except Exception:
         await db.rollback()
         raise
+
+
+async def _ensure_mandate_employment(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    *,
+    candidate_id: int,
+    job: Job,
+    actor_id: int,
+) -> B2BEmploymentDraftResult:
+    """Podpis umowy zlecenia: kontrakt typu zlecenie, szkic zamówienia, „Zatrudniony”.
+
+    Warunki z dokumentu (okres, stawka brutto za godzinę, kontakt) trafiają na
+    kontrakt fill-only — wpisane już przez Delivery wygrywają, jak przy B2B.
+    Istniejący kontrakt innego typu u tego klienta = 409 (nie zmieniamy typu
+    umowy po cichu)."""
+    terms = mandate.payload_from_row(row.render_payload or {})
+
+    def fill(contract: Contract) -> None:
+        if contract.start_date is None:
+            contract.start_date = terms.period_from
+        if contract.end_date is None:
+            contract.end_date = terms.period_to
+        if contract.rate_candidate is None and not contract.candidate_rate_schedule:
+            contract.rate_candidate = Decimal(str(terms.gross_hourly_rate))
+            contract.rate_unit = RateUnit.hourly
+            contract.rate_candidate_currency = "PLN"
+        fill_candidate_contact(contract, terms)
+
+    return await ensure_b2b_employment_draft(
+        db,
+        candidate_id=candidate_id,
+        job=job,
+        actor_id=actor_id,
+        signing_date=row.signing_date,
+        language=row.language,
+        ensure_order=True,
+        ensure_hired=True,
+        audit_source_generated_id=row.id,
+        require_b2b=False,
+        ensure_detail=False,
+        contract_type=ContractType.uzlecenie,
+        require_contract_type=True,
+        fill_terms=fill,
+    )
 
 
 async def _hired_effects_after_signature(
@@ -4739,7 +4920,11 @@ async def delete_generated_contract(
             raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
         # Bez nazwy Partnera (to osoba — wpis przeżywa jej usunięcie).
         audit.describe(
-            label=f"Umowa B2B {row.contract_number}",
+            label=(
+                row.contract_number
+                if mandate.is_mandate(row)
+                else f"Umowa B2B {row.contract_number}"
+            ),
             client_id=row.client_id,
             client_name=row.client_name,
             contract_number=row.contract_number,

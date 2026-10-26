@@ -42,3 +42,16 @@ def contract_file_name(
         _ascii_words(suffix),
     ]
     return f"{' '.join(p for p in parts if p)}.{ext}"
+
+
+def mandate_file_name(
+    signing_date: str | None, person_name: str | None, *, ext: str
+) -> str:
+    """„Umowa zlecenia 27-10-2026 Kowalski Jan.docx” — zlecenie nie ma numeru,
+    identyfikuje je data zawarcia."""
+    parts = [
+        "Umowa zlecenia",
+        _ascii_words((signing_date or "").replace(".", "-")),
+        _ascii_words(_surname_first(person_name or "")),
+    ]
+    return f"{' '.join(p for p in parts if p)}.{ext}"

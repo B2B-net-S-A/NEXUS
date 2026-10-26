@@ -514,6 +514,22 @@ async def _render_bytes(
         ) from exc
 
 
+def _assert_parent_kind(doc_type: DocumentType, parent: B2BGeneratedContract) -> None:
+    """Aneks B2B nie idzie pod umowę zlecenia i odwrotnie — lustro wyszukiwarki
+    umów (``document_subjects``) dla żądania z samym id wiersza."""
+    is_mandate_row = parent.contract_kind == "mandate"
+    if doc_type.parent == "mandate" and not is_mandate_row:
+        raise HTTPException(
+            status_code=422, detail="Ten dokument dotyczy umowy zlecenia — wybierz ją."
+        )
+    if doc_type.parent == "b2b" and is_mandate_row:
+        raise HTTPException(
+            status_code=422,
+            detail="Ten dokument dotyczy umowy B2B — dla zlecenia wybierz aneks albo "
+            "porozumienie do umowy zlecenie.",
+        )
+
+
 async def _resolve_subject(
     db: AsyncSession, user: User, doc_type: DocumentType, request: DocumentRequest
 ) -> tuple[B2BGeneratedContract | None, BaseContractInfo, dict[str, Any]]:
@@ -529,6 +545,7 @@ async def _resolve_subject(
     if request.parent_generated_contract_id is not None:
         parent = await _load_parent(db, request.parent_generated_contract_id)
         await _authorize_parent(db, user, parent)
+        _assert_parent_kind(doc_type, parent)
         links.update(
             contract_id=parent.contract_id,
             candidate_id=parent.candidate_id,
@@ -1374,6 +1391,11 @@ async def document_subjects(
         if doc_type.parent == "mandate":
             rows_query = rows_query.where(
                 B2BGeneratedContract.contract_kind == "mandate"
+            )
+        else:
+            # Umowa zlecenia z generatora (26.10.2026) nie dostaje aneksu B2B.
+            rows_query = rows_query.where(
+                B2BGeneratedContract.contract_kind.is_distinct_from("mandate")
             )
         newest_first = (
             B2BGeneratedContract.created_at.desc(),
