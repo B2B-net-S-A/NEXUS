@@ -137,3 +137,22 @@ def test_macros_and_oversized_packages_are_refused(monkeypatch) -> None:
     with pytest.raises(form.FormRejected) as big:
         form.read_structure(form_docx())
     assert str(big.value) == form.MSG_TOO_BIG
+
+
+def test_huge_grid_span_from_the_file_does_not_hang_the_reader() -> None:
+    import time
+
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    document = Document(io.BytesIO(form_docx()))
+    tc = document.tables[1].rows[0]._tr.tc_lst[1]
+    span = OxmlElement("w:gridSpan")
+    span.set(qn("w:val"), "5000000")
+    tc.get_or_add_tcPr().append(span)
+    buffer = io.BytesIO()
+    document.save(buffer)
+    started = time.monotonic()
+    form.read_structure(buffer.getvalue())
+    assert time.monotonic() - started < 5

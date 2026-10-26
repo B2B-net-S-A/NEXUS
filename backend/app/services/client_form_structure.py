@@ -35,6 +35,8 @@ from typing import Any, Optional
 import docx
 from docx.oxml.ns import qn
 
+from app.core import docx_cells
+
 STRUCTURE_VERSION = 1
 
 MAX_ZIP_ENTRIES = 1000
@@ -129,17 +131,19 @@ def open_document(content: bytes) -> Any:
         raise FormRejected(MSG_BROKEN) from exc
 
 
-def grid_cells(row: Any) -> list[tuple[int, int, Any]]:
+def grid_cells(row: list[Any]) -> list[tuple[int, int, Any]]:
     """(pierwsza kolumna siatki, szerokość, komórka) po scaleniu.
 
-    python-docx powtarza scaloną komórkę w ``row.cells``. Liczy się kolumna
+    ``row`` to wiersz z ``docx_cells.grid_rows`` — komórka na każdą pozycję
+    siatki, scalona powtórzona (z sufitem na ``gridSpan``, który podaje plik:
+    ``row.cells`` python-docx rozwijałby go bez granicy). Liczy się kolumna
     siatki, nie kolejność komórek: nagłówek i wiersze danych bywają scalone
     inaczej (w formularzu „Analityk” CEZ „Lp.” zajmuje dwie kolumny nagłówka,
     a pod nim pusta komórka wiersza obejmuje drugą z nich i „Nazwę uczelni”).
     """
     cells: list[tuple[int, int, Any]] = []
     previous = None
-    for grid, cell in enumerate(row.cells):
+    for grid, cell in enumerate(row):
         if previous is not None and cell._tc is previous:
             start, span, kept = cells[-1]
             cells[-1] = (start, span + 1, kept)
@@ -197,7 +201,7 @@ def _table_fields(
     table: Any, t_index: int, title: Optional[str]
 ) -> tuple[list[FormField], FormTable]:
     fields: list[FormField] = []
-    raw_rows = list(table.rows)
+    raw_rows = list(docx_cells.grid_rows(table))
     rows = [grid_cells(row) for row in raw_rows]
 
     # Ramka na tekst: tabela z jedną komórką pod etykietą („Cel zawodowy:”).
@@ -232,7 +236,7 @@ def _table_fields(
             if not headers or any(_LP.match(text) for text in filled):
                 headers = {
                     grid: _label(cell.text)
-                    for grid, cell in enumerate(raw_rows[r_index].cells)
+                    for grid, cell in enumerate(raw_rows[r_index])
                 }
                 headers_row = r_index
             continue
