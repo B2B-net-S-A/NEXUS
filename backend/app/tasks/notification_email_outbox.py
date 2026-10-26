@@ -387,9 +387,7 @@ async def _deliver(
                 link=link,
                 required=kind in REQUIRED_KINDS,
                 # Paczka kilku rekrutacji: fakty jednej sprawy by myliły.
-                facts=(
-                    await _facts(db, notif) if len(ids) == 1 else MailFacts()
-                ),
+                facts=(await _facts(db, notif) if len(ids) == 1 else MailFacts()),
                 entity_ref=(
                     str(notif.related_entity_id) if notif.related_entity_id else None
                 ),
