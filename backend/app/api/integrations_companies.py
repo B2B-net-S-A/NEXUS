@@ -479,29 +479,13 @@ async def _client_known_names(db: AsyncSession, client_id: int) -> list[str]:
     return [label for label in (*row, *aliases) if label]
 
 
-# ── Route ────────────────────────────────────────────────────────────────────
-
-
-@router.post(
-    "/companies/people",
-    response_model=CompanyPeopleResponse,
-    summary="People from the NEXUS base connected to a company",
-)
-# Every call scans candidates through the JSONB predicates, so the scope check
-# alone is not a throughput bound. 60/min is far above a CRM panel's real need
-# (ATLAS caches each answer for 5 minutes) and far below useful enumeration.
-@limiter.limit("60/minute")
-async def company_people(
-    payload: CompanyPeopleRequest,
-    request: Request,  # required by slowapi limiter
-    principal: ClientPrincipal = Depends(require_scope(OAuthScope.candidate_read)),
-    db: AsyncSession = Depends(get_db),
+async def lookup_company_people(
+    db: AsyncSession, payload: CompanyPeopleRequest
 ) -> CompanyPeopleResponse:
-    """Return candidates who work / worked at the given company.
+    """Osoby z bazy przy firmie — wspólne dla CRM (OAuth) i Sprzedaży w NEXUSIE.
 
-    Buckets are mutually exclusive and ranked
-    ``via_us > current > past > unknown`` — a candidate placed there through us
-    is reported as ``via_us`` even when the CV also lists the company.
+    Walidacja nazw (422), limit czasu zapytania (503) i kubełki jak w trasie
+    ``/companies/people``; wołający decyduje o dopisaniu dat w tle.
     """
     raw_names = [n.strip() for n in payload.names if n and n.strip()]
     if not raw_names:
@@ -543,7 +527,34 @@ async def company_people(
                 "hint": "Lookup exceeded the time budget — retry with a more specific company name.",
             },
         ) from exc
+    return result
 
+
+# ── Route ────────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/companies/people",
+    response_model=CompanyPeopleResponse,
+    summary="People from the NEXUS base connected to a company",
+)
+# Every call scans candidates through the JSONB predicates, so the scope check
+# alone is not a throughput bound. 60/min is far above a CRM panel's real need
+# (ATLAS caches each answer for 5 minutes) and far below useful enumeration.
+@limiter.limit("60/minute")
+async def company_people(
+    payload: CompanyPeopleRequest,
+    request: Request,  # required by slowapi limiter
+    principal: ClientPrincipal = Depends(require_scope(OAuthScope.candidate_read)),
+    db: AsyncSession = Depends(get_db),
+) -> CompanyPeopleResponse:
+    """Return candidates who work / worked at the given company.
+
+    Buckets are mutually exclusive and ranked
+    ``via_us > current > past > unknown`` — a candidate placed there through us
+    is reported as ``via_us`` even when the CV also lists the company.
+    """
+    result = await lookup_company_people(db, payload)
     _schedule_missing_dates(result)
     return result
 
