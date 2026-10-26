@@ -77,8 +77,14 @@ export const BOARD_COLUMN_LABEL: Record<BoardColumnKey, string> = {
  *  22.09.2026) — ta sama kolumna, inna nazwa. */
 export const CPRO_SENT_COLUMN_LABEL = "Wysłane do Cpro";
 
+/** U Nordei kolejka osoby od Cpro („Wysłać do Cpro”) to osobna kolumna
+ *  zaraz po „QC CV” — wcześniej siedziała w „QC CV” jako znacznik i DL-e
+ *  odkładali karty na „QC CV”, myśląc, że trafiają do osoby od Cpro. */
+export const CPRO_QUEUE_COLUMN_LABEL = "Do Cpro";
+
 export interface FoldBoardOptions {
-  /** Rekrutacja Nordei (`job.cpro_enabled`): „CV wysłane" → „Wysłane do Cpro". */
+  /** Rekrutacja Nordei (`job.cpro_enabled`): „CV wysłane" → „Wysłane do Cpro",
+   *  a kolejka Cpro to własna kolumna „Do Cpro". */
   cproEnabled?: boolean;
 }
 
@@ -250,6 +256,8 @@ export interface BoardColumnFold<C extends FoldableColumn> {
   /** Karty wszystkich etapów kolumny od najświeższego wejścia na etap (`compareNewestFirst`). */
   items: C["items"][number][];
   count: number;
+  /** Nordea: kolumna kolejki Cpro (klucz `cv_qc`, osobny nagłówek). */
+  cproQueue?: boolean;
 }
 
 const CANONICAL_ENUM: Partial<Record<BoardColumnKey, string>> = {
@@ -286,7 +294,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
   const folds: BoardColumnFold<C>[] = [];
   const hostByKey = new Map<BoardColumnKey, BoardColumnFold<C>>();
   const foldByBaseName = new Map<string, BoardColumnFold<C>>();
-  const pendingBadged: Array<{ col: C; key: BoardColumnKey }> = [];
+  const pendingBadged: Array<{ col: C; key: BoardColumnKey; badge: StageBadgeKey }> = [];
   let seenNew = false;
 
   for (const col of columns) {
@@ -297,7 +305,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
       continue;
     }
     if (badge) {
-      pendingBadged.push({ col, key: column });
+      pendingBadged.push({ col, key: column, badge });
       continue;
     }
     const duplicate = foldByBaseName.get(baseName(col));
@@ -335,21 +343,24 @@ export function foldBoardColumns<C extends FoldableColumn>(
 
   // Etap-odznaka dołącza do kolumny swojego znaczenia; gdy szablon jej nie
   // ma, zostaje własną kolumną (nie znika).
-  for (const { col, key } of pendingBadged) {
+  // Wyjątek: u Nordei kolejka Cpro to własna kolumna „Do Cpro” (26.10.2026).
+  for (const { col, key, badge } of pendingBadged) {
     const host = hostByKey.get(key);
-    if (host) {
+    const ownCproColumn = options.cproEnabled === true && badge === "cpro";
+    if (host && !ownCproColumn) {
       host.members.push(col);
       continue;
     }
     const fold: BoardColumnFold<C> = {
       key,
-      label: boardColumnLabel(key, options),
+      label: ownCproColumn ? CPRO_QUEUE_COLUMN_LABEL : boardColumnLabel(key, options),
       host: col,
       members: [col],
       items: [],
       count: 0,
+      ...(ownCproColumn ? { cproQueue: true } : {}),
     };
-    hostByKey.set(key, fold);
+    if (!ownCproColumn) hostByKey.set(key, fold);
     // Wstaw w kolejności szablonu (przed pierwszą kolumną, która stoi dalej).
     const order = columns.indexOf(col);
     const at = folds.findIndex((f) => columns.indexOf(f.host) > order);

@@ -189,6 +189,29 @@ def test_pausing_a_required_kind_needs_a_reason_and_survives_restart():
     delivery.updated_value(back, enabled=True, toggles={"mentions": False}, now=later)
 
 
+@pytest.mark.parametrize("kind", ["client_job_opened", "hr_bonus"])
+def test_new_required_mails_turn_on_without_backlog_and_pause_only_with_reason(kind):
+    """PR 3 z 26.10.2026: nowa rekrutacja u klienta DL-a i premia bez kwoty."""
+    assert kind in delivery.REQUIRED_KINDS and kind in delivery.IMMEDIATE_KINDS
+    assert kind not in delivery.REPORT_KINDS
+    policy = _required_on()
+    assert policy.allows(kind, NOW)
+    assert not policy.allows(kind, NOW - timedelta(seconds=1))
+    with pytest.raises(delivery.RequiredKindReasonMissing):
+        delivery.updated_value(policy, enabled=True, toggles={kind: False}, now=NOW)
+    paused = delivery.DeliveryPolicy.from_value(
+        delivery.updated_value(
+            policy,
+            enabled=True,
+            toggles={kind: False},
+            now=NOW,
+            reason="przegląd treści",
+        )
+    )
+    assert not paused.kind_enabled(kind)
+    assert paused.paused_reason(kind) == "przegląd treści"
+
+
 def test_settings_payload_carries_a_bounded_pause_reason():
     from app.api.settings import NotificationDeliveryUpdate
 

@@ -16,6 +16,11 @@ maila tylko wtedy, gdy nie ma w nich rodzaju nieobecności ani kwot — w innym
 razie mail niesie stałe zdanie typu, a szczegóły są w NEXUSIE pod linkiem.
 Wolnego tekstu (uwagi przy zwrocie timesheetu, tytuł sprawy) mail nie niesie
 nigdy.
+
+Premia (`hr_bonus_assigned`, mail obowiązkowy „Masz nową premię” od 26.10.2026)
+ma własny mail: `bonus_mail` składa go ze stałych słów formy i z wiersza
+premii — za co i za który miesiąc. Kwoty nie ma w mailu nigdy (decyzja Artura
+26.10.2026), także wtedy, gdy treść dzwonka by ją kiedyś niosła.
 """
 
 from __future__ import annotations
@@ -23,8 +28,19 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.services.hr.employment_terms import returned_titles
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.hr_payroll import HrBonus
+from app.models.hr_profile import EmployeeProfile
+from app.services.hr.employment_terms import (
+    BACKEND_TERMS,
+    capitalize,
+    returned_titles,
+    terms,
+)
 from app.services.hr.leave_policy import LEAVE_TYPE_LABELS
+from app.services.hr.payroll_periods import label as period_label
 
 # Tytuły zwrotu raportu godzin (`time_flow.return_for_fix`, słowa według formy
 # z `employment_terms`); treść niesie wtedy uwagi akceptującego — wolny tekst,
@@ -197,3 +213,76 @@ def mail_text(
     else:
         body = message if message and mail_safe(message) else fallback_body
     return out_title, body
+
+
+# ── „Masz nową premię” (26.10.2026) ─────────────────────────────────────────
+
+BONUS_EVENTS = ("new", "changed", "cancelled")
+# Tytuły dzwonka premii (`payroll_bonuses._notify`, zgody) → zdarzenie. Stałe
+# słowa formy — bez kwot; inny tytuł = mail nie wychodzi.
+_BONUS_EVENT_BY_TITLE: dict[str, str] = {
+    words[f"bonus_{event}_title"]: event
+    for words in BACKEND_TERMS.values()
+    for event in BONUS_EVENTS
+}
+# Za co: źródło premii (`hr_payroll_schema.BONUS_SOURCES`).
+BONUS_SOURCE_LABELS: dict[str, str] = {
+    "contract_placement": "za placement",
+    "league": "za wynik w lidze",
+    "manual": "ręczna",
+    "compass_import": "ręczna",
+}
+
+
+def bonus_text(
+    employment_type: str | None,
+    *,
+    event: str,
+    source: str,
+    period_year: int,
+    period_month: int,
+) -> tuple[str, str]:
+    """(tytuł, treść) maila o premii: za co i za który miesiąc, bez kwoty."""
+
+    words = terms(employment_type)
+    where = f"„Moim czasie” → {capitalize(words['bonuses'])}"
+    tail = (
+        f"Szczegóły zobaczysz w NEXUSIE, w {where}."
+        if event == "cancelled"
+        else f"Kwotę zobaczysz w NEXUSIE, w {where}."
+    )
+    kind = BONUS_SOURCE_LABELS.get(source, BONUS_SOURCE_LABELS["manual"])
+    return (
+        words[f"bonus_{event}_title"],
+        f"Rodzaj: {kind}. Miesiąc rozliczenia: "
+        f"{period_label(period_year, period_month)}. {tail}",
+    )
+
+
+async def bonus_mail(db: AsyncSession, notif: Any) -> tuple[str, str] | None:
+    """(tytuł, treść) maila z dzwonka premii albo ``None`` (bez maila).
+
+    Bez maila, gdy tytuł nie jest jednym ze stałych tytułów premii albo wiersz
+    premii nie należy do adresata (np. starszy dzwonek tego dnia, któremu
+    `notify_each(fresh=True)` zdjął id premii).
+    """
+
+    event = _BONUS_EVENT_BY_TITLE.get((notif.title or "").strip())
+    bonus_id = notif.related_entity_id
+    if event is None or bonus_id is None or notif.related_entity_type != "hr_bonus":
+        return None
+    bonus = await db.get(HrBonus, bonus_id)
+    if bonus is None or bonus.recipient_user_id != notif.user_id:
+        return None
+    form = await db.scalar(
+        select(EmployeeProfile.employment_type).where(
+            EmployeeProfile.user_id == notif.user_id
+        )
+    )
+    return bonus_text(
+        form,
+        event=event,
+        source=bonus.source,
+        period_year=bonus.period_year,
+        period_month=bonus.period_month,
+    )

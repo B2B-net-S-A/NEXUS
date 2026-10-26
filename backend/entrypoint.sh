@@ -775,6 +775,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_decisions_due'",
     # 0518: raport „Jakość podpowiedzi systemu” gotowy (do odbiorców raportu).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
+    # 0523: nowa rekrutacja u klienta Delivery Leada (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_job_opened'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",

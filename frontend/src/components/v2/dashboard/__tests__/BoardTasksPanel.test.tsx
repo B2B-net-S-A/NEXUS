@@ -1569,6 +1569,39 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     );
   });
 
+  // Decyzja Artura 26.10.2026: kolejka Cpro stała u osoby od Cpro pod
+  // Finansami i follow-upami — trzeba było do niej przewijać.
+  it("osoba od Cpro: „Do wrzucenia do Cpro” pierwsze, przed Finansami", async () => {
+    useAuthStore.setState({ user: { id: 1, role: "finance" }, realUser: null } as never);
+    get.mockImplementation((url: string) => {
+      if (url === "/api/board-tasks")
+        return Promise.resolve({
+          data: {
+            window_days: 14,
+            cpro_to_send: [row("cpro_to_send")],
+            cpro_sent: [],
+            cv_in_transit: null,
+            flow: null,
+            finance: {
+              gaps_open: 2,
+              pdfs_new: 5,
+              order_mail_failed: 0,
+              hired_without_order: [],
+              hired_without_order_total: 0,
+            },
+          },
+        });
+      if (url === "/api/finance/order-changes/summary")
+        return Promise.resolve({ data: { period: { year: 2026, month: 10, label: "" }, tabs: {}, todo: 4 } });
+      return Promise.resolve({ data: [] });
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const cpro = within(panel).getByRole("region", { name: "Do wrzucenia do Cpro" });
+    const finance = within(panel).getByRole("region", { name: "Finanse — do zrobienia" });
+    expect(cpro.compareDocumentPosition(finance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("admin / Head: „Rekrutacje do dokończenia” zwinięte do jednej linii z „Rozwiń”", async () => {
     useAuthStore.setState({ user: { id: 1, role: "head_of_recruitment" }, realUser: null } as never);
     mockQueue({

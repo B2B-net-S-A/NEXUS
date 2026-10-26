@@ -1,5 +1,5 @@
 # Maile obowiązkowe — przychodzą zawsze (26.10.2026)
-<!-- indeks: REQUIRED_KINDS w notification_delivery; włączają się same przy starcie bez zaległości; konto nie wyłącza; wstrzymuje tylko admin z powodem -->
+<!-- indeks: REQUIRED_KINDS w notification_delivery; włączają się same przy starcie bez zaległości; konto nie wyłącza; wstrzymuje tylko admin z powodem; nowa rekrutacja u klienta DL-a paczką 10 min; premia bez kwoty -->
 
 Decyzja Artura z 26.10.2026. Ludzie nie wyłączali sobie maili (na kopii
 produkcji z 22.10 żadne z 38 aktywnych kont), a maile o sprawach, na które ktoś
@@ -10,11 +10,11 @@ Makiety i macierz ról: https://claude.ai/artifact/PPYRVzq7cKrskFgPZdYqrJ.
 
 ## Które
 
-`notification_delivery.REQUIRED_KINDS`: nowa rekrutacja dla Ciebie, rozmowy
-u klienta, CV czeka na przegląd, CV wróciło do poprawy, klient zaakceptował,
+`notification_delivery.REQUIRED_KINDS`: nowa rekrutacja dla Ciebie, nowa
+rekrutacja u Twojego klienta, rozmowy u klienta, CV czeka na przegląd, CV wróciło do poprawy, klient zaakceptował,
 zatrudniony bez zamówienia albo umowy, prośba o potwierdzenie podpisu B2B,
-alerty klientów i umów, „Czas i ludzie”, masowe przeglądanie CV, awaria
-automatu. Poranny skrót, wzmianki, czat, terminy rekrutacji i zmiany etapów
+alerty klientów i umów, „Czas i ludzie”, „Masz nową premię”, masowe
+przeglądanie CV, awaria automatu. Poranny skrót, wzmianki, czat, terminy rekrutacji i zmiany etapów
 zostają do wyłączenia przez konto. Nowy rodzaj obowiązkowy = wpis
 w `REQUIRED_KINDS`; test pilnuje, że to rodzaj z katalogu.
 
@@ -50,9 +50,42 @@ w `REQUIRED_KINDS`; test pilnuje, że to rodzaj z katalogu.
   wdrożeniu stare alerty. Na kopii produkcji z 22.10 nikt nie miał żadnego
   wpisu w `email_opt_outs`.
 
-## Czego tu nie ma (osobne PR-y z planu 26.10)
+## „Nowa rekrutacja u Twojego klienta” (`client_job_opened`, PR 3)
+
+- **Zdarzenie** = wpis `Activity` `published` na rekrutacji: założenie
+  (od 04.10.2026 jest publikacją) i ponowne otwarcie zamkniętej
+  (`details.reopened`). Kopia produkcji z 22.10, 14 dni: 56 założeń
+  i 198 ponownych otwarć (185 naraz 12.10), wszystkie z tym wpisem; Traffit
+  nie zakłada rekrutacji od 12.10. Konto serwisowe API v1 daje wpis bez autora.
+- **Kto**: DL rekrutacji, bez aktywnego DL-a — Head of Recruitment
+  (`route_to_recipients`). **Także gdy DL otworzył rekrutację sam**
+  (decyzja Artura 26.10.2026; 52 z 56 założeń z tych 14 dni zrobił sam DL
+  rekrutacji).
+- **Kiedy**: skaner w pętli triggerów (`client_job_opened.emit_opened`, co
+  5 min w dni robocze, okno 72 h, żeby poniedziałek dogonił weekend) zakłada
+  dzwonek na parę osoba–rekrutacja. Kolejka maili czeka, aż najstarszy wpis
+  osoby ma 10 minut (`GROUP_WINDOW`), i wysyła jednym mailem wszystko, co
+  czeka — jeden wpis = „Nowa rekrutacja u Twojego klienta”, kilka =
+  „Nowe rekrutacje u Twoich klientów: N” (lista do 5, link do `/jobs`).
+  Otwarcie sprzed progu „wysyłaj od” tego rodzaju nie dostaje wpisu.
+- **Treść**: nazwa rekrutacji, klient, data otwarcia (z dzwonka) i kto ją
+  prowadzi (`job_team.recruiters_for_jobs` przy wysyłce, bo automat
+  przydziału rusza po otwarciu). Rekrutacja zamknięta przed wysyłką wypada.
+- Zbiorczy poranny dzwonek „Requesty do decyzji” (`request_review_needed`)
+  zostaje bez maila.
+
+## „Masz nową premię” (`hr_bonus`, PR 3)
+
+- Typ dzwonka `hr_bonus_assigned` (przyznanie, zmiana, anulowanie, także
+  premia poza umową po zgodzie). Mail składa `hr_mail.bonus_mail` ze stałego
+  tytułu formy i z wiersza premii: rodzaj (za placement, za wynik w lidze,
+  ręczna) i miesiąc rozliczenia, link do `/my-time?tab=bonuses`.
+- **Bez kwoty** (decyzja Artura 26.10.2026) — także gdyby treść dzwonka ją
+  kiedyś niosła; treści dzwonka mail nie przepisuje. Dzwonek z obcym tytułem,
+  bez id premii albo z premią innej osoby nie wychodzi mailem.
+- „Kogo dotyczy” = moduł płac „Ludzi” działa dla konta.
+
+## Czego tu nie ma (osobny PR z planu 26.10)
 
 - Przyciski z gotową akcją w mailu (decyzja: same przyciski, bez odpowiedzi
   mailem i bez kart Outlooka) — nowy wygląd maila z makiet.
-- Nowe maile: „Nowa rekrutacja u Twojego klienta” dla DL-a i „Masz nową
-  premię” — bez kwoty (decyzja Artura 26.10.2026).
