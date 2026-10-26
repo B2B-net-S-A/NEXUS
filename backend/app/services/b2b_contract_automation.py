@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -1089,7 +1089,7 @@ async def ensure_b2b_employment_draft(
     keep_existing_terms: bool = False,
     contract_type: ContractType = ContractType.b2b,
     require_contract_type: bool = False,
-    fill_terms: Callable[[Contract], None] | None = None,
+    fill_terms: Callable[[Contract], Awaitable[None]] | None = None,
 ) -> B2BEmploymentDraftResult:
     """Lock the candidate, then reuse/create exactly one compatible B2B draft.
 
@@ -1343,7 +1343,7 @@ async def ensure_b2b_employment_draft(
         )
         _seed_candidate_rate_schedule(contract, payload, actor_id=actor_id)
     if fill_terms is not None:
-        fill_terms(contract)
+        await fill_terms(contract)
     if ensure_detail:
         await _upsert_b2b_detail(
             db,

@@ -2922,6 +2922,9 @@ def _build_register_xlsx(
             role_id = payload.get("role_id")
             position = role_names.get(role_id) if isinstance(role_id, int) else None
             kind = "B2B"
+            if mandate.is_mandate(row):
+                # Zlecenie w Excelu działu: „zlecenie” w kolumnie numeru i rodzaju.
+                number = kind = _KIND_LABELS["mandate"]
             recruiter_id = job_recruiters.get(row.job_id) if row.job_id else None
             recruiter = user_names.get(recruiter_id) if recruiter_id else None
         if row.start_date and row.start_date_mode in _START_MODE_PREFIX:
@@ -2931,6 +2934,9 @@ def _build_register_xlsx(
         else:
             start = row.start_date or excel.get("start")
         end_date = excel.get("end_date")
+        if mandate.is_mandate(row):
+            # Koniec zlecenia jest częścią umowy (§ 2 ust. 2), nie „czas nieokreślony”.
+            end_date = payload.get("period_to")
         end: object = (
             date.fromisoformat(end_date)
             if end_date
@@ -4309,12 +4315,16 @@ async def _ensure_mandate_employment(
     umowy po cichu)."""
     terms = mandate.payload_from_row(row.render_payload or {})
 
-    def fill(contract: Contract) -> None:
+    async def fill(contract: Contract) -> None:
         if contract.start_date is None:
             contract.start_date = terms.period_from
         if contract.end_date is None:
             contract.end_date = terms.period_to
         if contract.rate_candidate is None and not contract.candidate_rate_schedule:
+            # Kontrakt zlecenia powstaje w zł/mc; istniejący może mieć już
+            # stawkę klienta w ryczałcie — przejście na zł/h z przeliczeniem
+            # kwot, nie samą etykietą (runda 6 audytu, jak ścieżka B2B).
+            await switch_loaded_contract_to_hourly(db, contract)
             contract.rate_candidate = Decimal(str(terms.gross_hourly_rate))
             contract.rate_unit = RateUnit.hourly
             contract.rate_candidate_currency = "PLN"

@@ -339,6 +339,26 @@ async def test_mandate_render_registers_a_row_without_sensitive_data(
     assert item["can_edit"] is False
     assert item["can_send_esign"] is False
 
+    # Eksport do Excela działu: „zlecenie” z datą końca, nie „B2B” bezterminowa.
+    from openpyxl import load_workbook
+
+    export = await app_client.get(
+        "/api/b2b-generator/generated/export.xlsx",
+        headers=app_auth_headers,
+    )
+    assert export.status_code == 200, export.text
+    rows = [
+        [c for c in r]
+        for r in load_workbook(io.BytesIO(export.content)).active.iter_rows(
+            values_only=True
+        )
+    ]
+    mine = [r for r in rows if "Mandate" in str(r)]
+    assert mine, rows[:3]
+    assert "zlecenie" in mine[0]
+    assert "B2B" not in mine[0] and "czas nieokreślony" not in mine[0]
+    assert any(str(v).startswith("2027-01-31") for v in mine[0]), mine[0]
+
 
 async def test_mandate_render_refuses_a_rate_below_the_minimum(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
@@ -419,3 +439,47 @@ async def test_b2b_annex_does_not_offer_a_mandate_row(
     )
     assert generated_id not in ids(b2b)
     assert generated_id in ids(mandate_annex)
+
+
+async def test_signing_converts_an_existing_monthly_client_rate_to_hourly(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Szkic zlecenia w zł/mc ze stawką klienta (np. z ręcznego „Zatrudniony”):
+    podpis nie może przestawić samej etykiety jednostki — 16 800 zł/mc nie
+    staje się 16 800 zł/h (runda 6 audytu)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
+
+    pair = await _seed_pair()
+    async with AsyncSessionLocal() as db:
+        existing = Contract(
+            candidate_id=pair["candidate_id"],
+            client_id=pair["client_id"],
+            job_id=pair["job_id"],
+            contract_type=ContractType.uzlecenie,
+            status=ContractStatus.draft,
+            rate_unit=RateUnit.monthly,
+            rate_client=Decimal("16800"),
+            currency="PLN",
+            candidate_rate_schedule=[],
+        )
+        db.add(existing)
+        await db.commit()
+        contract_id = existing.id
+
+    response = await app_client.post(RENDER, json=_body(pair), headers=app_auth_headers)
+    assert response.status_code == 200, response.text
+    generated_id = int(response.headers["x-generated-contract-id"])
+    confirm = await app_client.post(
+        f"/api/b2b-generator/generated/{generated_id}/confirm-fully-signed",
+        json={},
+        headers=app_auth_headers,
+    )
+    assert confirm.status_code == 200, confirm.text
+    assert confirm.json()["contract_id"] == contract_id
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.rate_unit == RateUnit.hourly
+        assert contract.rate_candidate == Decimal("45.5")
+        assert contract.rate_client == Decimal("100")

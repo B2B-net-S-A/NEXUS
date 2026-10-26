@@ -553,6 +553,11 @@ export function B2BContractGeneratorV2() {
   // Umowa zlecenia (26.10.2026) — ten sam rejestr, własny formularz. Wejście
   // z rekrutacji (`?candidate=`, `?edit=`) dotyczy umowy B2B.
   const [agreementKind, setAgreementKind] = useState<"b2b" | "mandate">("b2b");
+  // „Popraw” i link z rekrutacji to miękka nawigacja — bez tego formularz B2B
+  // wczytałby umowę pod ukrytym formularzem zlecenia.
+  useEffect(() => {
+    if (editParam || candidateParam) setAgreementKind("b2b");
+  }, [editParam, candidateParam]);
   // Efekt na WARTOŚCI parametru — sam inicjalizator useState nie zobaczy
   // miękkiej nawigacji (link na tej samej stronie nie odmontowuje komponentu).
   useEffect(() => {
