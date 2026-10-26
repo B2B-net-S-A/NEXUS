@@ -93,11 +93,18 @@ const suggestions: PrepSuggestions = {
   ],
 };
 
-function renderDialog(onInvalidate = vi.fn(), req: SlotRequest = request) {
+function renderDialog(onInvalidate = vi.fn(), req: SlotRequest = request, initialIndex: number | null = null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <PickInterviewDialog open onOpenChange={() => {}} pair={pair} request={req} onInvalidate={onInvalidate} />
+      <PickInterviewDialog
+        open
+        onOpenChange={() => {}}
+        pair={pair}
+        request={req}
+        onInvalidate={onInvalidate}
+        initialIndex={initialIndex}
+      />
     </QueryClientProvider>,
   );
   return screen.getByRole("dialog", { name: "Umów rozmowę i prepy" });
@@ -110,6 +117,15 @@ describe("PickInterviewDialog", () => {
     mocks.createPrep.mockReset().mockResolvedValue({});
     mocks.toast.showError.mockReset();
     mocks.toast.showSuccess.mockReset();
+  });
+
+  it("„Kandydat wybrał 1” z maila zaznacza termin, ale nic nie wysyła bez kliknięcia", async () => {
+    const dialog = renderDialog(vi.fn(), request, 0);
+    const radios = within(dialog).getAllByRole("radio", { name: /.+/ });
+    expect(radios[0]).toBeChecked();
+    expect(await within(dialog).findByText("kalendarz sprawdzony")).toBeInTheDocument();
+    expect(mocks.chooseSlot).not.toHaveBeenCalled();
+    expect(mocks.createPrep).not.toHaveBeenCalled();
   });
 
   it("termin + oba prepy jednym przyciskiem; planujący jest na liście zaproszonych Prepu 1", async () => {

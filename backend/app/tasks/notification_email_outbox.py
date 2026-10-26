@@ -42,7 +42,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services import loop_heartbeat
-from app.services.email import email_channel_enabled, render_notification_email
+from app.services.email import email_channel_enabled, render_card_email
 from app.services.hr.approvals import mail as approval_mail
 from app.services.hr.approvals import mail_reply as approval_mail_reply
 from app.services.hr.hr_mail import mail_text
@@ -51,6 +51,7 @@ from app.services.notification_access import (
     user_can_receive_notification,
     user_can_receive_required_mail,
 )
+from app.services.notification_mail_card import MailFacts, build_card, load_facts
 from app.services.notification_delivery import (
     BELL_MAIL_TYPES,
     HR_MAIL_KIND,
@@ -241,6 +242,22 @@ async def dispatch(db: AsyncSession) -> int:
     return sent
 
 
+async def _facts(db: AsyncSession, notif: Notification) -> MailFacts:
+    # Fakty są dodatkiem: bez nich mail wychodzi z tytułem i opisem dzwonka.
+    # Savepoint, bo pełny rollback wygasiłby `notif` i `user` przed wysyłką.
+    notif_id = notif.id
+    try:
+        async with db.begin_nested():
+            return await load_facts(db, notif)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "notification_email_outbox: fakty notif=%d: %s",
+            notif_id,
+            type(exc).__name__,
+        )
+        return MailFacts()
+
+
 async def _deliver(
     db: AsyncSession, notif: Notification, user: User, kinds: list[str]
 ) -> bool | None:
@@ -291,11 +308,19 @@ async def _deliver(
         if kind == HR_MAIL_KIND:
             # Mail wychodzi poza aplikację: bez rodzaju nieobecności i kwot (D6).
             title, message = mail_text(notif.notification_type, title, message)
-        subject, text_body, html_body = render_notification_email(
-            recipient_name=user.name or user.email,
-            title=title,
-            message=message,
-            deep_link_path=notif.link or "/dashboard",
+        subject, text_body, html_body = render_card_email(
+            build_card(
+                notification_type=notif.notification_type.value,
+                kind=kind,
+                title=title,
+                message=message,
+                link=notif.link,
+                required=kind in REQUIRED_KINDS,
+                facts=await _facts(db, notif),
+                entity_ref=(
+                    str(notif.related_entity_id) if notif.related_entity_id else None
+                ),
+            )
         )
     to_addr = user.email
     created_at = notif.created_at

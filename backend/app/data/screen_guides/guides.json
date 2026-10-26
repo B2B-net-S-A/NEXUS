@@ -423,7 +423,7 @@
     "tasks": [
       {
         "q": "Co mam dziś zrobić?",
-        "a": "Otwórz Tablicę. Czerwona kolumna „Telefon ≤ 30 min” to telefony do kandydatów po rozmowie. Na każdej karcie stoi najpilniejsza sprawa, np. „Prep słaby”, i przycisk z następnym krokiem.",
+        "a": "Otwórz Tablicę. Czerwona kolumna „Telefon ≤ 30 min” to telefony do kandydatów po rozmowie. Na każdej karcie stoi najpilniejsza sprawa, np. „Prep słaby”, i przycisk z następnym krokiem. Przycisk z maila otwiera okno kroku tej osoby — zapisujesz dopiero w oknie.",
         "anchor": "calendar.board"
       },
       {
@@ -810,7 +810,7 @@
     "tasks": [
       {
         "q": "Jak zaakceptować albo odrzucić wniosek?",
-        "a": "Wybierz wniosek na liście „Do decyzji”. Po prawej widać zastępcę, pracę, która wypada w tym czasie, kto z działu też jest nieobecny i mini-kalendarz zespołu na ten termin. „Akceptuj” albo „Odrzuć” — odrzucenie wymaga powodu, który osoba zobaczy. O własnym wniosku nie decydujesz. Ten sam wniosek przyjmiesz też z „Mojego zespołu”.",
+        "a": "Wybierz wniosek na liście „Do decyzji”. Po prawej widać zastępcę, pracę, która wypada w tym czasie, kto z działu też jest nieobecny i mini-kalendarz zespołu na ten termin. „Akceptuj” albo „Odrzuć” — odrzucenie wymaga powodu, który osoba zobaczy. O własnym wniosku nie decydujesz. Ten sam wniosek przyjmiesz z „Mojego zespołu” i z maila.",
         "anchor": "hr.approvals.pending"
       },
       {

@@ -70,12 +70,15 @@ export function PickInterviewDialog({
   pair,
   request,
   onInvalidate,
+  initialIndex = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pair: PairInfo | null;
   request: SlotRequest | null;
   onInvalidate: () => void;
+  /** „Kandydat wybrał N” z maila: termin zaznaczony, zapis dalej przyciskiem. */
+  initialIndex?: number | null;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
@@ -91,17 +94,22 @@ export function PickInterviewDialog({
 
   useEffect(() => {
     if (!open) return;
+    const linked =
+      initialIndex != null && request?.slots[initialIndex] && !slotPassed(request.slots[initialIndex], request.duration_minutes)
+        ? initialIndex
+        : null;
     const only =
-      request?.slots.length === 1 && !slotPassed(request.slots[0], request.duration_minutes) ? 0 : null;
+      linked ??
+      (request?.slots.length === 1 && !slotPassed(request.slots[0], request.duration_minutes) ? 0 : null);
     setIndex(only);
-    setWindowTime(only != null && request ? (windowEarliest(request.slots[0], request.duration_minutes) ?? "") : "");
+    setWindowTime(only != null && request ? (windowEarliest(request.slots[only], request.duration_minutes) ?? "") : "");
     setCandFrom("");
     setCandTo("");
     setPicks({});
     setManual({});
     setError(null);
     requestIds.current = { 1: newRequestId(), 2: newRequestId() };
-  }, [open, request]);
+  }, [open, request, initialIndex]);
 
   const duration = request?.duration_minutes ?? 60;
   const slot = request && index != null ? request.slots[index] : null;

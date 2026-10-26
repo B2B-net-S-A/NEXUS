@@ -833,6 +833,39 @@ function pairOf(p: PairInfo): PairInfo {
   };
 }
 
+/**
+ * Przycisk z maila (26.10.2026): `?cycle=<para>&do=<krok>` otwiera okno
+ * bieżącego kroku pary — tylko gdy para naprawdę na nim stoi. Okno jest
+ * potwierdzeniem; sam link niczego nie zapisuje (Safe Links w M365 otwiera
+ * linki z maila, zanim zrobi to człowiek). `null` = krok już zrobiony albo
+ * czeka na kogoś innego — ekran pokazuje wtedy samą parę.
+ */
+export function linkedStepAction(
+  item: CycleItem,
+  step: string | null,
+  { canManageSlots }: { canManageSlots: boolean },
+): CycleAction | null {
+  if (!step) return null;
+  const current = actionForItem(item, { canManageSlots });
+  return current?.action.type === step ? current.action : null;
+}
+
+/**
+ * `?choose=N` (od 1) → indeks terminu z wniosku albo `null`, gdy nie ma takiego.
+ * `?req=<id>` to wniosek, z którego mail wziął terminy: przy innym (klient
+ * przysłał nowe terminy po mailu) „termin N” znaczyłby inną godzinę — bez zaznaczenia.
+ */
+export function chosenSlotIndex(
+  raw: string | null,
+  request: SlotRequest | null,
+  requestParam: string | null = null,
+): number | null {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || !request || n > request.slots.length) return null;
+  if (requestParam != null && Number(requestParam) !== request.id) return null;
+  return n - 1;
+}
+
 /** Pozycja „Do zrobienia” → akcja przycisku. `null` = pozycja tylko informuje. */
 export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction | null {
   const pair = pairOf(todo);

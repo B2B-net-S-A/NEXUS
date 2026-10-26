@@ -23,7 +23,13 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   search: "",
   user: { id: 7, role: "recruiter", roles: ["recruiter"] } as Record<string, unknown>,
-  toast: { showError: vi.fn(), showSuccess: vi.fn(), showToast: vi.fn(), showActionToast: vi.fn() },
+  toast: {
+    showError: vi.fn(),
+    showSuccess: vi.fn(),
+    showInfo: vi.fn(),
+    showToast: vi.fn(),
+    showActionToast: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -450,6 +456,28 @@ describe("CalendarCycleScreen", () => {
     expect(
       await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" }),
     ).toHaveTextContent("Piotr Nowak");
+  });
+
+  it("przycisk z maila (?do=debrief) otwiera okno kroku i zdejmuje parametr z adresu", async () => {
+    mocks.search = "cycle=11-22&do=debrief";
+    renderScreen();
+    expect(
+      await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" }),
+    ).toHaveTextContent("Piotr Nowak");
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/calendar?cycle=11-22"));
+    // Okno to potwierdzenie — sam link niczego nie zapisał.
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.put).not.toHaveBeenCalled();
+  });
+
+  it("przycisk z maila do kroku już zrobionego: bez okna, ze zdaniem dlaczego", async () => {
+    mocks.search = "cycle=11-22&do=pick&choose=1";
+    renderScreen();
+    await waitFor(() =>
+      expect(mocks.toast.showInfo).toHaveBeenCalledWith(expect.stringContaining("już zrobiony")),
+    );
+    expect(screen.queryByRole("dialog", { name: "Umów rozmowę i prepy" })).not.toBeInTheDocument();
+    expect(mocks.replace).toHaveBeenCalledWith("/calendar?cycle=11-22");
   });
 
   it("?event= otwiera Tydzień i nie pyta o cykl", async () => {

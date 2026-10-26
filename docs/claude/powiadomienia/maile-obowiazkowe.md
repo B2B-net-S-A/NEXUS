@@ -52,7 +52,7 @@ w `REQUIRED_KINDS`; test pilnuje, że to rodzaj z katalogu.
 
 ## Czego tu nie ma (osobne PR-y z planu 26.10)
 
-- Przyciski z gotową akcją w mailu (decyzja: same przyciski, bez odpowiedzi
-  mailem i bez kart Outlooka) — nowy wygląd maila z makiet.
+- Przyciski z gotową akcją w mailu — zrobione 26.10.2026,
+  `maile-z-przyciskami-akcji.md`.
 - Nowe maile: „Nowa rekrutacja u Twojego klienta” dla DL-a i „Masz nową
   premię” — bez kwoty (decyzja Artura 26.10.2026).
