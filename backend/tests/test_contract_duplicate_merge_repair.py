@@ -19,22 +19,29 @@ import pytest
 from sqlalchemy import delete, select, text
 
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_now
 from app.models.activity import Activity
+from app.models.admin_case import AdminCase
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, ContractType
 from app.models.contract_candidate_rate import ContractCandidateRate
+from app.models.contract_care import CarePlanItem
 from app.models.contract_client_rate import ContractClientRate
 from app.models.contract_document import ContractDocument
 from app.models.critical_event import CriticalEvent
+from app.models.hr_payroll import HrBonus
 from app.models.order_mail import OrderMailDocument
+from app.models.user import User, UserRole
 from app.services.contract_duplicate_merge_repair import (
     DETAILS_KEY,
+    DETAILS_KEY_2026_10,
     REPAIR_MARKER,
+    REPAIR_MARKER_2026_10,
     TICKET_MERGES,
+    TICKET_MERGES_2026_10,
     DuplicateContractMerge,
     run_contract_duplicate_merge_repair,
     summarize_for_log,
@@ -53,10 +60,26 @@ def test_ticket_pins_exactly_one_same_client_pair_by_ids():
     assert not is_receipt_key(DETAILS_KEY)
 
 
+def test_2026_10_ticket_pins_one_pair_of_the_same_person_under_its_own_marker():
+    from scripts.show_migration_receipts import is_receipt_key
+
+    assert len(TICKET_MERGES_2026_10) == 1
+    spec = TICKET_MERGES_2026_10[0]
+    assert spec.keep_contract_id != spec.delete_contract_id
+    # Duplikat na tym samym rekordzie osoby (nie imiennik jak w 09.2026).
+    assert spec.keep_candidate_id == spec.delete_candidate_id
+    # Zachowany jest starszy kontrakt.
+    assert spec.keep_contract_id < spec.delete_contract_id
+    assert REPAIR_MARKER_2026_10 != REPAIR_MARKER
+    assert is_receipt_key(REPAIR_MARKER_2026_10)
+    assert not is_receipt_key(DETAILS_KEY_2026_10)
+
+
 async def _seed(
     *,
     duplicate_manual_cost_step: bool = False,
     keep_rate_client: str = "110.000",
+    same_person: bool = False,
 ) -> dict[str, int]:
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
@@ -82,7 +105,7 @@ async def _seed(
             margin=Decimal(keep_rate_client) - Decimal("90.000"),
         )
         duplicate = Contract(
-            candidate_id=duplicate_person.id,
+            candidate_id=keep_person.id if same_person else duplicate_person.id,
             client_id=client.id,
             contract_type=ContractType.b2b,
             status=ContractStatus.active,
@@ -158,7 +181,9 @@ async def _seed(
             "keep_id": keep.id,
             "keep_candidate_id": keep_person.id,
             "duplicate_id": duplicate.id,
-            "duplicate_candidate_id": duplicate_person.id,
+            "duplicate_candidate_id": (
+                keep_person.id if same_person else duplicate_person.id
+            ),
             "mail_order_id": mail_order.id,
             "old_order_id": old_order.id,
         }
@@ -301,6 +326,123 @@ async def test_repair_merges_the_duplicate_into_the_kept_contract():
         await _drop(marker, details_key)
 
 
+async def _seed_new_entry(duplicate_id: int) -> dict[str, int]:
+    """Ślad „nowego wejścia”, który automat zakłada przy starcie kontraktu."""
+
+    suffix = uuid.uuid4().hex[:8]
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        lead = User(
+            email=f"dl-{suffix}@example.test",
+            name=f"Lead {suffix}",
+            role=UserRole.delivery_lead,
+            roles=["delivery_lead"],
+            is_active=True,
+        )
+        db.add(lead)
+        await db.flush()
+        bonus = HrBonus(
+            recipient_user_id=lead.id,
+            amount=Decimal("100.00"),
+            currency="PLN",
+            category="delivery_lead",
+            period_year=today.year,
+            period_month=today.month,
+            status="proposed",
+            source="contract_placement",
+            source_key=f"contract:{duplicate_id}:dl",
+            contract_id=duplicate_id,
+        )
+        entry_case = AdminCase(
+            title="Wejście konsultanta",
+            area="onboarding",
+            source="contract",
+            source_key=f"contract:{duplicate_id}:start",
+            contract_id=duplicate_id,
+        )
+        manual_case = AdminCase(
+            title="Sprawa ręczna", area="onboarding", contract_id=duplicate_id
+        )
+        open_item = CarePlanItem(
+            contract_id=duplicate_id, kind="day_7", due_on=today + timedelta(days=3)
+        )
+        done_item = CarePlanItem(
+            contract_id=duplicate_id,
+            kind="cadence",
+            due_on=today - timedelta(days=3),
+            status="done",
+            resolved_at=local_now(),
+        )
+        db.add_all([bonus, entry_case, manual_case, open_item, done_item])
+        await db.commit()
+        return {
+            "bonus_id": bonus.id,
+            "entry_case_id": entry_case.id,
+            "manual_case_id": manual_case.id,
+            "open_item_id": open_item.id,
+            "done_item_id": done_item.id,
+        }
+
+
+async def test_repair_merges_a_second_contract_of_the_same_person():
+    ids = await _seed(same_person=True)
+    entry = await _seed_new_entry(ids["duplicate_id"])
+    marker, details_key = _keys()
+    try:
+        async with AsyncSessionLocal() as db:
+            summary = await run_contract_duplicate_merge_repair(
+                db, merges=(_spec(ids),), marker=marker, details_key=details_key
+            )
+            await db.commit()
+        assert summary["merges_applied"] == 1, summary
+
+        async with AsyncSessionLocal() as db:
+            assert await db.get(Contract, ids["duplicate_id"]) is None
+            keep = await db.get(Contract, ids["keep_id"])
+            await db.refresh(keep)
+            # Starszy kontrakt zachowuje swoją datę startu, a okres zamówienia
+            # bierze z przeniesionego zamówienia.
+            assert keep.start_date == business_today() - timedelta(days=40)
+            assert keep.client_order_end_date == business_today() + timedelta(days=80)
+            mail_order = await db.get(ClientOrder, ids["mail_order_id"])
+            assert mail_order.contract_id == ids["keep_id"]
+            merged = await db.scalar(
+                select(Activity).where(
+                    Activity.entity_type == "contract",
+                    Activity.entity_id == ids["keep_id"],
+                    Activity.action == "contracts_merged",
+                )
+            )
+            # Wpis w historii nosi marker swojego przebiegu, nie 0308.
+            assert merged.external_source == marker
+            assert merged.details["source"] == marker
+            assert merged.details["new_entry_dropped"] == {
+                "placement_bonuses_detached": 1,
+                "automatic_cases_detached": 1,
+                "open_care_items_deleted": 1,
+            }
+
+            # Nowe wejście duplikatu to nie placement na żywym kontrakcie:
+            # premia anulowana jak przy usunięciu kontraktu i bez kontraktu.
+            bonus = await db.get(HrBonus, entry["bonus_id"])
+            assert (bonus.status, bonus.cancel_reason, bonus.contract_id) == (
+                "cancelled",
+                "contract_deleted",
+                None,
+            )
+            entry_case = await db.get(AdminCase, entry["entry_case_id"])
+            assert entry_case.contract_id is None
+            assert entry_case.closed_at is not None
+            # Sprawa ręczna i historia opieki przechodzą na kontrakt zachowany.
+            manual_case = await db.get(AdminCase, entry["manual_case_id"])
+            assert manual_case.contract_id == ids["keep_id"]
+            assert await db.get(CarePlanItem, entry["open_item_id"]) is None
+            done_item = await db.get(CarePlanItem, entry["done_item_id"])
+            assert done_item.contract_id == ids["keep_id"]
+    finally:
+        await _drop(marker, details_key)
+
+
 @pytest.mark.parametrize(
     ("seed_kwargs", "spec_over", "reason"),
     [
@@ -377,3 +519,11 @@ def test_entrypoint_runs_the_merge_and_logs_only_the_summary():
     assert "summarize_for_log(summary)" in block
     assert "await db.commit()" in block
     assert "await db.rollback()" in block
+
+    block_2026_10 = source.split("merges=TICKET_MERGES_2026_10", 1)[1].split(
+        "\nPY\n", 1
+    )[0]
+    assert "marker=REPAIR_MARKER_2026_10" in block_2026_10
+    assert "details_key=DETAILS_KEY_2026_10" in block_2026_10
+    assert "summarize_for_log(summary)" in block_2026_10
+    assert "await db.rollback()" in block_2026_10
