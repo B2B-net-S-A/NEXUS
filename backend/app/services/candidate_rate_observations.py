@@ -49,7 +49,11 @@ from app.core.work_time import HOURS_PER_MD_DEC, HOURS_PER_MONTH_DEC
 from app.services.candidate_audit import PROFILE_RATE_CHANGED
 
 #: Źródła zapisu profilu, które znaczą „to jest minimum kandydata”.
-MINIMUM_SOURCES = frozenset({"trainee_call", "manual_minimum", "stage_minimum"})
+MINIMUM_SOURCES = frozenset(
+    {"trainee_call", "manual_minimum", "stage_minimum", "rejection_minimum"}
+)
+#: Zapisy profilu z odrzucenia „za drogo” — niosą rekrutację (26.10.2026).
+REJECTION_SOURCES = frozenset({"rejection", "rejection_minimum"})
 #: Stawka konsultanta z bieżącej umowy (15.10.2026).
 CONTRACT_SOURCE = "contract"
 
@@ -149,6 +153,9 @@ def _profile_observation(row: Mapping[str, Any]) -> Optional[RateObservation]:
         return None
     source = str(details.get("source") or "manual")
     explicit = details.get("rate_meaning") == "minimum" or source in MINIMUM_SOURCES
+    # Stawka z odrzucenia „za drogo” (26.10.2026) padła w rozmowie o konkretnej
+    # rekrutacji — historia pokazuje jej nazwę, „W tej rekrutacji” tę kwotę.
+    job_id = details.get("job_id") if source in REJECTION_SOURCES else None
     return RateObservation(
         key=f"profile:{row['id']}",
         candidate_id=row["candidate_id"],
@@ -158,6 +165,7 @@ def _profile_observation(row: Mapping[str, Any]) -> Optional[RateObservation]:
         source=f"profile_{source}",
         author_id=row["user_id"],
         explicit_minimum=explicit,
+        job_id=job_id if isinstance(job_id, int) else None,
     )
 
 

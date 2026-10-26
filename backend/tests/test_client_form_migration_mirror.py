@@ -1,0 +1,68 @@
+"""0521: formularz CV klienta — lustro w entrypoincie (alembic na prodzie bywa
+osierocony), kolumny po tabeli ``job_files``, włączenie dla CEZ raz."""
+
+from __future__ import annotations
+
+import importlib.util
+import re
+from pathlib import Path
+
+from app.models.client import Client
+from app.services import client_form_schema as schema
+from app.services.ezdrowie import EZDROWIE_CLIENT_ID
+
+BACKEND = Path(__file__).resolve().parents[1]
+MIGRATION = BACKEND / "alembic" / "versions" / "0521_client_form_documents.py"
+
+
+def _migration():
+    spec = importlib.util.spec_from_file_location("m0521", MIGRATION)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_migration_chains_and_uses_the_shared_ddl() -> None:
+    module = _migration()
+    assert module.revision == "0521_client_form_documents"
+    assert module.down_revision == "0520_talent_pool_team_visible"
+    source = MIGRATION.read_text(encoding="utf-8")
+    assert "schema.ALL_DDL" in source and "schema.DOWNGRADE_DDL" in source
+
+
+def test_entrypoint_mirrors_every_statement_in_order() -> None:
+    entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
+    job_files_table = entrypoint.index("CREATE TABLE IF NOT EXISTS job_files (")
+    for statement in schema.ALL_DDL:
+        assert statement in entrypoint, statement
+        assert entrypoint.index(statement) > job_files_table, statement
+    # Włączenie dla CEZ po dodaniu kolumny, w danych.
+    assert entrypoint.index(schema.SEED_DDL) > entrypoint.index(
+        schema.CLIENT_COLUMN_DDL
+    )
+    assert entrypoint.index(schema.SEED_DDL) > entrypoint.index("_DATA_STATEMENTS = [")
+
+
+def test_ddl_is_idempotent_and_the_seed_runs_once() -> None:
+    for statement in (schema.CLIENT_COLUMN_DDL, *schema.JOB_FILE_DDL):
+        assert "IF NOT EXISTS" in re.sub(r"\s+", " ", statement), statement
+    # Restart nie może cofnąć zmiany zrobionej później w edytorze reguły.
+    assert f"WHERE key = '{schema.SEED_MARKER}'" in schema.SEED_DDL
+    assert f"WHERE id = {EZDROWIE_CLIENT_ID};" in schema.SEED_DDL
+    assert "ON CONFLICT (key) DO NOTHING" in schema.SEED_DDL
+
+
+def test_one_form_per_job_and_model_matches_the_ddl() -> None:
+    from app.models.job_file import JobFile
+
+    index = next(
+        item
+        for item in JobFile.__table__.indexes
+        if item.name == "ux_job_files_client_form"
+    )
+    assert index.unique
+    assert "ux_job_files_client_form ON job_files (job_id)" in schema.JOB_FILE_DDL[2]
+    column = Client.__table__.columns["cv_client_document"]
+    assert column.type.length >= max(len(value) for value in schema.CLIENT_DOCUMENTS)
+    assert f"DEFAULT '{schema.COMPANY_CV}'" in schema.CLIENT_COLUMN_DDL

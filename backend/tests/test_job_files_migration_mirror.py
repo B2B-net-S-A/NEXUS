@@ -45,9 +45,13 @@ def test_ddl_is_idempotent() -> None:
 def test_model_columns_match_the_ddl() -> None:
     from app.models.job_file import JobFile
 
+    from app.services import client_form_schema
+
     table = job_file_schema.TABLE_DDL
+    # 0521 dokłada kolumny wzoru formularza osobnym ALTER TABLE.
+    ddl = " ".join((table, *client_form_schema.JOB_FILE_DDL))
     for column in JobFile.__table__.columns.keys():
-        assert re.search(rf"\b{column}\b", table), column
+        assert re.search(rf"\b{column}\b", ddl), column
     # Rekrutacja zabiera swoje pliki; formularz i autor tylko się odpinają.
     assert "job_id INTEGER NULL REFERENCES jobs(id) ON DELETE CASCADE" in table
     assert (

@@ -26,6 +26,14 @@ WORK_MODE_MISMATCH = "work_mode_mismatch"
 # do niego drugi raz. Powód sytuacyjny, nie ocena osoby.
 HM_ALREADY_INTERVIEWED = "hm_already_interviewed"
 
+# „Za drogo” (26.10.2026, prośba Marka): odrzucenie ze słownika szablonu
+# domyślnego (0006) i rezygnacja „Rozbieżność oczekiwań finansowych” (0068).
+# Przy nich ruch może nieść nową stawkę osoby (`rejection_rate_hourly`) —
+# trafia do profilu i „Stawki od” (`api/pipeline._record_rejection_rate`).
+RATE_TOO_HIGH_REJECTED = "Za wysokie oczekiwania finansowe"
+SALARY_MISMATCH = "salary_mismatch"
+RATE_TOO_HIGH = frozenset({RATE_TOO_HIGH_REJECTED, SALARY_MISMATCH})
+
 OTHER_LABEL = "Inne"
 
 REJECTION_REASON_LABELS: dict[str, str] = {
@@ -60,3 +68,8 @@ def needs_description(name: Optional[str]) -> bool:
         return False
     key = name.strip()
     return key == HM_ALREADY_INTERVIEWED or rejection_reason_label(key) == OTHER_LABEL
+
+
+def is_rate_too_high(name: Optional[str]) -> bool:
+    """Czy powód mówi „osoba chce więcej” — okno pyta wtedy o nową stawkę."""
+    return name is not None and name.strip() in RATE_TOO_HIGH

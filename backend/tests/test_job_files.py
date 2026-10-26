@@ -425,3 +425,165 @@ async def test_deleting_one_form_file_removes_it_from_disk(
     assert _stored(storage) == []
     listed = await app_client.get(files_url, headers=app_auth_headers)
     assert listed.json()["items"] == []
+
+
+# ── 0521: wzór formularza CV klienta ─────────────────────────────────────────
+
+
+async def _job_of_client(document: str) -> int:
+    async with AsyncSessionLocal() as db:
+        client = Client(
+            name=f"Formularz {uuid.uuid4().hex[:6]}", cv_client_document=document
+        )
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title=f"Formularz {uuid.uuid4().hex[:6]}",
+            status=JobStatus.published,
+            client_id=client.id,
+        )
+        db.add(job)
+        await db.commit()
+        return job.id
+
+
+@pytest.mark.asyncio
+async def test_form_from_tender_is_marked_on_upload_only_when_client_takes_forms(
+    app_client, app_auth_headers, storage
+):
+    from tests._client_form_docx import filled_table_docx, form_docx
+
+    form_job = await _job_of_client("client_form")
+    url = f"/api/jobs/{form_job}/files"
+    marked = await _upload(
+        app_client,
+        url,
+        app_auth_headers,
+        name="Zal 4b do SWZ Formularz CV.docx",
+        data=form_docx(),
+    )
+    assert marked.status_code == 201, marked.text
+    assert marked.json()["client_form"] is True
+    assert marked.json()["client_form_summary"].endswith("(jeśli posiada)”: 1 wiersz")
+    # Opis zamówienia bez pustych pól zostaje zwykłym plikiem.
+    plain = await _upload(
+        app_client,
+        url,
+        app_auth_headers,
+        name="Formularz opisu.docx",
+        data=filled_table_docx(),
+    )
+    assert plain.status_code == 201 and plain.json()["client_form"] is False
+    listed = (await app_client.get(url, headers=app_auth_headers)).json()
+    assert listed["client_document"] == "client_form"
+    assert [item["client_form"] for item in listed["items"]] == [True, False]
+
+    company_job = await _job_of_client("company_cv")
+    company_url = f"/api/jobs/{company_job}/files"
+    same = await _upload(
+        app_client,
+        company_url,
+        app_auth_headers,
+        name="Zal 4b do SWZ Formularz CV.docx",
+        data=form_docx(),
+    )
+    assert same.status_code == 201 and same.json()["client_form"] is False
+    company = (await app_client.get(company_url, headers=app_auth_headers)).json()
+    assert company["client_document"] == "company_cv"
+
+
+@pytest.mark.asyncio
+async def test_editor_marks_one_form_per_job_and_gets_reasons_in_polish(
+    app_client, app_auth_headers, storage
+):
+    from app.services import client_form_structure
+    from tests._client_form_docx import filled_table_docx, form_docx
+
+    job_id = await _job_of_client("client_form")
+    url = f"/api/jobs/{job_id}/files"
+    _, viewer = await make_user(UserRole.user)
+
+    first = (
+        await _upload(
+            app_client, url, app_auth_headers, name="wzor.docx", data=form_docx()
+        )
+    ).json()
+    assert first["client_form"] is False  # bez „formularz” w nazwie — ręcznie
+    pdf = (await _upload(app_client, url, app_auth_headers, name="opis.pdf")).json()
+    plain = (
+        await _upload(
+            app_client,
+            url,
+            app_auth_headers,
+            name="opis.docx",
+            data=filled_table_docx(),
+        )
+    ).json()
+
+    mark = await app_client.patch(
+        f"{url}/{first['id']}", json={"client_form": True}, headers=app_auth_headers
+    )
+    assert mark.status_code == 200, mark.text
+    assert mark.json()["client_form"] is True
+    assert mark.json()["client_form_summary"]
+
+    not_word = await app_client.patch(
+        f"{url}/{pdf['id']}", json={"client_form": True}, headers=app_auth_headers
+    )
+    assert not_word.status_code == 422
+    assert not_word.json()["detail"] == client_form_structure.MSG_NOT_DOCX
+    not_form = await app_client.patch(
+        f"{url}/{plain['id']}", json={"client_form": True}, headers=app_auth_headers
+    )
+    assert not_form.status_code == 422
+    assert not_form.json()["detail"] == client_form_structure.MSG_NO_FORM
+
+    # Drugi wzór zdejmuje oznaczenie z pierwszego — jeden na rekrutację.
+    second = (
+        await _upload(
+            app_client, url, app_auth_headers, name="wzor 2.docx", data=form_docx()
+        )
+    ).json()
+    assert (
+        await app_client.patch(
+            f"{url}/{second['id']}",
+            json={"client_form": True},
+            headers=app_auth_headers,
+        )
+    ).status_code == 200
+    listed = (await app_client.get(url, headers=app_auth_headers)).json()["items"]
+    assert {item["id"]: item["client_form"] for item in listed}[first["id"]] is False
+    assert [item["id"] for item in listed if item["client_form"]] == [second["id"]]
+
+    unmark = await app_client.patch(
+        f"{url}/{second['id']}", json={"client_form": False}, headers=app_auth_headers
+    )
+    assert unmark.status_code == 200 and unmark.json()["client_form"] is False
+    assert unmark.json()["client_form_summary"] is None
+    assert (
+        await app_client.patch(
+            f"{url}/{first['id']}", json={"client_form": True}, headers=viewer
+        )
+    ).status_code == 403
+    assert (
+        await app_client.patch(
+            f"{url}/999999999", json={"client_form": True}, headers=app_auth_headers
+        )
+    ).status_code == 404
+
+    async with AsyncSessionLocal() as db:
+        marks = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT details->>'client_form' FROM activities WHERE "
+                        "entity_type = 'job' AND entity_id = :job AND "
+                        "action = 'job_file_client_form' ORDER BY id"
+                    ),
+                    {"job": job_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert marks == ["true", "true", "false"]

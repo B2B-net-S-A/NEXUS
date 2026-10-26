@@ -68,6 +68,7 @@ from app.services.client_access import (
     resolve_client_access,
     resolve_client_visible_client_ids,
 )
+from app.services.client_form_schema import CLIENT_DOCUMENTS, COMPANY_CV
 from app.services.ai_quota import (
     AIQuotaExceeded,
     QuotaState,
@@ -124,7 +125,8 @@ CHAMPION_SEED_KEYS: tuple[tuple[str, str], ...] = (
 )
 
 # Pola reguły objęte wersjonowaniem i diffem w historii. Kolejność = kolejność
-# w `changes`; flagi klienta (`cv_content_mode_cap`, `cv_interactive_enabled`)
+# w `changes`; flagi klienta (`cv_content_mode_cap`, `cv_interactive_enabled`,
+# `cv_client_document`)
 # są zapisywane NA KLIENCIE, ale w diffie idą razem — jeden ekran, jedna historia.
 RULE_FIELDS: tuple[str, ...] = (
     "filename_pattern",
@@ -153,7 +155,11 @@ RULE_FIELDS: tuple[str, ...] = (
     "highlight_terms",
     "cv_text_align",
 )
-CLIENT_FLAG_FIELDS: tuple[str, ...] = ("cv_content_mode_cap", "cv_interactive_enabled")
+CLIENT_FLAG_FIELDS: tuple[str, ...] = (
+    "cv_content_mode_cap",
+    "cv_interactive_enabled",
+    "cv_client_document",
+)
 
 # Prefiksy ostrzeżeń, którymi model zgłasza pominiętą instrukcję klienta
 # (prompt PL/EN) — sygnał zwrotny dla DL liczy je per instrukcja.
@@ -248,6 +254,9 @@ class ClientCvRulePayload(BaseModel):
     # link i sufit działały bez zmian — a Delivery Lead miał jeden ekran.
     cv_content_mode_cap: Optional[str] = None
     cv_interactive_enabled: Optional[bool] = None
+    # Co idzie do klienta: CV firmowe albo formularz klienta z Plików
+    # rekrutacji (0521, ``client_form_schema.py``).
+    cv_client_document: Optional[str] = None
     # Zatwierdź tym samym zapisem. Osobne kliknięcie „Zatwierdź" chroniło
     # PROPOZYCJE z seeda (dopasowane po nazwie, więc możliwie błędne). Reguła,
     # którą Delivery Lead właśnie wpisał ręcznie, JEST jego decyzją.
@@ -270,6 +279,17 @@ class ClientCvRulePayload(BaseModel):
         if value not in CONTENT_MODES:
             raise ValueError(
                 "Tryb obróbki treści może być tylko: " + ", ".join(CONTENT_MODES) + "."
+            )
+        return value
+
+    @field_validator("cv_client_document")
+    @classmethod
+    def _known_client_document(cls, value: Optional[str]) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        if value not in CLIENT_DOCUMENTS:
+            raise ValueError(
+                "Dokument do klienta może być tylko: CV firmowe albo formularz klienta."
             )
         return value
 
@@ -383,6 +403,7 @@ class ClientCvRuleRead(BaseModel):
     # Flagi z karty klienta — prowadzone z tego samego ekranu.
     cv_content_mode_cap: Optional[str] = None
     cv_interactive_enabled: bool = True
+    cv_client_document: str = COMPANY_CV
     seed_key: Optional[str] = None
     confirmed_at: Optional[str] = None
     confirmed_by_name: Optional[str] = None
@@ -523,6 +544,7 @@ def _to_read(
     flags = {
         "cv_content_mode_cap": getattr(client, "cv_content_mode_cap", None),
         "cv_interactive_enabled": bool(getattr(client, "cv_interactive_enabled", True)),
+        "cv_client_document": getattr(client, "cv_client_document", None) or COMPANY_CV,
     }
     if rule is None:
         return ClientCvRuleRead(
@@ -671,6 +693,7 @@ def _rule_state(rule: Optional[ClientCvRule], client: Client) -> dict[str, Any]:
         state[field] = value
     for field in CLIENT_FLAG_FIELDS:
         state[field] = getattr(client, field, None)
+    state["cv_client_document"] = state["cv_client_document"] or COMPANY_CV
     return state
 
 
@@ -828,6 +851,10 @@ def _recipe_payload(payload: ClientCvRulePayload, client: Client) -> dict[str, A
         recipe["cv_content_mode_cap"] = client.cv_content_mode_cap
     if payload.cv_interactive_enabled is None:
         recipe["cv_interactive_enabled"] = bool(client.cv_interactive_enabled)
+    if payload.cv_client_document is None:
+        recipe["cv_client_document"] = (
+            getattr(client, "cv_client_document", None) or COMPANY_CV
+        )
     return recipe
 
 
@@ -1020,11 +1047,16 @@ async def delete_client_cv_rule(
                     "from": client.cv_interactive_enabled,
                     "to": True,
                 },
+                "cv_client_document": {
+                    "from": getattr(client, "cv_client_document", None) or COMPANY_CV,
+                    "to": COMPANY_CV,
+                },
             },
             actor=current_user,
         )
         client.cv_content_mode_cap = None
         client.cv_interactive_enabled = True
+        client.cv_client_document = COMPANY_CV
         client.cv_rule_edit_revision = (
             max(
                 int(rule.edit_revision or 0),
