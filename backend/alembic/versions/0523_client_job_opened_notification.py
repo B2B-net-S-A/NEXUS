@@ -1,20 +1,20 @@
 """notificationtype: ``client_job_opened`` — nowa rekrutacja u klienta DL-a.
 
 Revision ID: 0523_client_job_opened_notification
-Revises: 0520_talent_pool_team_visible
+Revises: 0521_client_form_documents
 
 Decyzja Artura 26.10.2026 (maile obowiązkowe, PR 3): Delivery Lead dostaje
 mail od razu, gdy ktoś (także on sam) otworzy rekrutację u jego klienta
 (założy albo otworzy ponownie). Kilka w 10 minut idzie jednym mailem
 (``services/client_job_opened.py``). Sama wartość enuma; lustro
-w ``entrypoint.sh``. Numery 0521–0522 trzyma otwarty stos formularzy klienta;
-rewizja, która wejdzie do kolejki druga, przepina ``down_revision``.
+w ``entrypoint.sh``. Numer 0522 trzyma otwarty PR formularzy klienta
+(#2672); rewizja, która wejdzie do kolejki druga, przepina ``down_revision``.
 """
 
 from alembic import op
 
 revision = "0523_client_job_opened_notification"
-down_revision = "0520_talent_pool_team_visible"
+down_revision = "0521_client_form_documents"
 branch_labels = None
 depends_on = None
 
