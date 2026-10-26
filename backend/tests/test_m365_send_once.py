@@ -15,6 +15,7 @@ Na żywej bazie, z atrapą Graph:
 from __future__ import annotations
 
 import asyncio
+import base64
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -40,6 +41,7 @@ class _Graph:
 
     def __init__(self) -> None:
         self.posts: list[str] = []
+        self.bodies: list[tuple[str, Any]] = []
         self.sends = 0
         self.draft_gate: asyncio.Event | None = None
         self.fail_send: BaseException | None = None
@@ -70,6 +72,9 @@ class _Graph:
 
             async def post(self, url: str, json: Any = None, **_kw: Any) -> Any:
                 graph.posts.append(url)
+                graph.bodies.append((url, json))
+                if url.endswith("/attachments"):
+                    return {}
                 if url.endswith("/send"):
                     if graph.fail_send is not None:
                         raise graph.fail_send
@@ -411,3 +416,40 @@ async def test_compose_for_missing_candidate_is_404_without_graph(mailbox, monke
     assert info.value.status_code == 404
     assert graph.posts == []
     assert await _rows(ids.user_id) == []
+
+
+@pytest.mark.asyncio
+async def test_file_attachment_goes_into_the_draft_before_send(mailbox):
+    """Kopia umowy dla kontraktora (26.10.2026): plik w szkicu, potem /send."""
+    ids, graph = mailbox
+    async with AsyncSessionLocal() as db:
+        conn = await db.get(M365Connection, ids.connection_id)
+        row = await sender_mod.send_new(
+            db,
+            conn,
+            to=["kandydat@example.com"],
+            subject="Umowa B2B 1-2026 podpisana przez obie strony",
+            body_html="<p>W załączniku umowa.</p>",
+            candidate_id=ids.candidate_id,
+            client_request_id=str(uuid.uuid4()),
+            commit_reservation=True,
+            attachments=[
+                sender_mod.FileAttachment(
+                    name="Umowa B2B 1-2026 Kowalski Jan podpisana.pdf",
+                    content_type="application/pdf",
+                    data=b"%PDF-1.7 podpisana",
+                )
+            ],
+        )
+        await db.commit()
+        assert row.has_attachments is True
+    urls = [url for url, _ in graph.bodies]
+    attached = [body for url, body in graph.bodies if url.endswith("/attachments")]
+    assert len(attached) == 1
+    assert attached[0]["name"] == "Umowa B2B 1-2026 Kowalski Jan podpisana.pdf"
+    assert attached[0]["isInline"] is False
+    assert base64.b64decode(attached[0]["contentBytes"]) == b"%PDF-1.7 podpisana"
+    send_at = next(i for i, url in enumerate(urls) if url.endswith("/send"))
+    attach_at = next(i for i, url in enumerate(urls) if url.endswith("/attachments"))
+    assert attach_at < send_at
+    assert graph.sends == 1

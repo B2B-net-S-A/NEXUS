@@ -7,8 +7,12 @@
   „co 3 dni” krótki termin nie dawał żadnego) — mail ze skrzynki nadawcy BEZ
   linku (w bazie jest tylko skrót tokenu — link zostaje w pierwszym mailu)
   i dzwonek do nadawcy.
-* Umowa czeka na podpis firmy dłużej niż ``REMIND_EVERY``: dzwonek do
-  reprezentanta.
+* Umowa czeka na podpis firmy: pierwsze przypomnienie po 1 dniu od podpisu
+  kontraktora, potem co ``REMIND_EVERY``, zawsze w dzień roboczy 8:00–18:00
+  (decyzja Artura 26.10.2026) — dzwonek i mail do reprezentanta ze skrzynki
+  nadawcy. Pierwszy mail idzie od razu po podpisie kontraktora (API).
+* Link kontraktora po podpisie obu stron służy do pobrania kopii przez
+  ``SIGNED_COPY_DAYS`` dni; potem pętla go kasuje.
 
 Działa także przy wyłączonym przełączniku — wnioski z pilotażu muszą wygasnąć.
 Każdy wniosek w osobnej transakcji z blokadą (``SKIP LOCKED``), więc
@@ -23,14 +27,17 @@ import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import is_business_day, is_within_local_hours
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import OPEN_STATUSES, B2BSigningRequest
 from app.models.notification import NotificationType
+from app.models.user import User
 from app.services import loop_heartbeat
 from app.services.b2b_esign import mail as esign_mail
+from app.services.b2b_esign.service import SIGNED_COPY_DAYS
 from app.services.notification_triggers import emit as emit_notification
 
 logger = logging.getLogger(__name__)
@@ -38,6 +45,7 @@ logger = logging.getLogger(__name__)
 INTERVAL_SECONDS = 1800
 REMIND_EVERY = timedelta(days=3)
 REMIND_BEFORE_DEADLINE = timedelta(days=1)
+COMPANY_FIRST_REMINDER = timedelta(days=1)
 _WARSAW = ZoneInfo("Europe/Warsaw")
 _LINK = "/contracts/b2b-generator?tab=generated"
 
@@ -45,6 +53,19 @@ _LINK = "/contracts/b2b-generator?tab=generated"
 def contractor_reminder_at(sent_at: datetime, expires_at: datetime) -> datetime:
     """Kiedy przypomnieć kontraktorowi: dzień przed końcem, najpóźniej w połowie."""
     return expires_at - min(REMIND_BEFORE_DEADLINE, (expires_at - sent_at) / 2)
+
+
+def company_reminder_due(
+    signed_at: datetime, last_reminder_at: datetime | None, now: datetime
+) -> bool:
+    """Przypomnieć reprezentantowi firmy? Po 1 dniu, potem co 3 dni, w pracy."""
+    if not is_business_day(now) or not is_within_local_hours(
+        now, start_hour=8, end_hour=18
+    ):
+        return False
+    if last_reminder_at is None or last_reminder_at < signed_at:
+        return now - signed_at >= COMPANY_FIRST_REMINDER
+    return now - last_reminder_at >= REMIND_EVERY
 
 
 async def _notify(db, *, user_id, title, message, ntype, request_id) -> None:
@@ -92,15 +113,12 @@ async def _handle(request_id: int, now: datetime) -> str | None:
         row = await db.get(B2BGeneratedContract, request.generated_contract_id)
         number = row.contract_number if row else ""
         # Zegar przypomnień liczy się od początku bieżącego etapu: przy podpisie
-        # firmy przypomnienie z etapu kontraktora nie przyspiesza kolejnego.
+        # firmy przypomnienie z etapu kontraktora nie przyspiesza kolejnego
+        # (``company_reminder_due`` pomija przypomnienie sprzed ``stage_start``).
         stage_start = (
             request.contractor_signed_at
             if request.status == "contractor_signed" and request.contractor_signed_at
             else request.sent_at
-        )
-        last = max(
-            [stage_start]
-            + ([request.last_reminder_at] if request.last_reminder_at else [])
         )
 
         if request.status == "sent" and request.expires_at <= now:
@@ -122,7 +140,7 @@ async def _handle(request_id: int, now: datetime) -> str | None:
             return "expired"
 
         if request.status == "contractor_signed":
-            if now - last < REMIND_EVERY:
+            if not company_reminder_due(stage_start, request.last_reminder_at, now):
                 return None
             request.last_reminder_at = now
             await _notify(
@@ -134,6 +152,30 @@ async def _handle(request_id: int, now: datetime) -> str | None:
                 request_id=request.id,
             )
             await db.commit()
+            signer = (
+                await db.get(User, request.company_signer_id)
+                if request.company_signer_id
+                else None
+            )
+            if signer is not None and signer.email:
+                subject, body = esign_mail.company_signer_message(
+                    number=number,
+                    contractor_name=request.contractor_name,
+                    since=stage_start,
+                    reminder=True,
+                )
+                await esign_mail.send_from(
+                    db,
+                    user_id=request.sent_by,
+                    to=signer.email,
+                    subject=subject,
+                    body_html=body,
+                    candidate_id=row.candidate_id if row else None,
+                    request_key=(
+                        f"b2b-esign-{request_id}-company-"
+                        f"{now.astimezone(_WARSAW):%Y%m%d}"
+                    ),
+                )
             return "reminded"
 
         # Wysłana, kontraktor milczy — jedno przypomnienie na termin.
@@ -177,9 +219,29 @@ async def _handle(request_id: int, now: datetime) -> str | None:
         return "reminded"
 
 
+async def _close_old_copy_links(now: datetime) -> None:
+    """Link do kopii podpisanej umowy żyje ``SIGNED_COPY_DAYS`` dni."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(B2BSigningRequest)
+            .where(
+                B2BSigningRequest.status == "completed",
+                B2BSigningRequest.contractor_token_hash.is_not(None),
+                B2BSigningRequest.completed_at
+                <= now - timedelta(days=SIGNED_COPY_DAYS),
+            )
+            .values(contractor_token_hash=None)
+        )
+        await db.commit()
+
+
 async def sweep(now: datetime | None = None) -> dict[str, int]:
     moment = now or datetime.now(timezone.utc)
     counts = {"expired": 0, "reminded": 0}
+    try:
+        await _close_old_copy_links(moment)
+    except Exception:  # noqa: BLE001 — przypomnienia idą mimo to
+        logger.exception("[b2b_esign] zamykanie linków do kopii nie wyszło")
     for request_id in await _due_ids(moment):
         try:
             outcome = await _handle(request_id, moment)

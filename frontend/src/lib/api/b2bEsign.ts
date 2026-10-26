@@ -69,6 +69,8 @@ export interface PublicSignView {
   contractor_name: string;
   status: PublicSignState;
   expires_at: string | null;
+  /** Do kiedy link daje pobrać umowę podpisaną przez obie strony (26.10.2026). */
+  signed_pdf_until?: string | null;
 }
 
 export const ESIGN_SETTINGS_KEY = ["b2b-esign-settings"] as const;

@@ -38,6 +38,8 @@ from app.services.signing.provider import ValidationReport
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MIN_DAYS, MAX_DAYS = 1, 30
+# Po podpisie obu stron link kontraktora daje pobrać jego kopię (26.10.2026).
+SIGNED_COPY_DAYS = 30
 
 MSG_LINK = "Link jest nieprawidłowy albo wygasł. Poproś o nowy osobę z B2B Network."
 MSG_ALREADY_SIGNED = (
@@ -92,6 +94,15 @@ def new_token() -> tuple[str, str]:
 
 def is_link_live(request: B2BSigningRequest, now: datetime) -> bool:
     return request.status == "sent" and request.expires_at > now
+
+
+def signed_copy_until(request: B2BSigningRequest) -> datetime | None:
+    """Do kiedy kontraktor pobierze z linku umowę podpisaną przez obie strony."""
+    if request.status != "completed" or not request.completed_at:
+        return None
+    if not request.final_pdf_path:
+        return None
+    return request.completed_at + timedelta(days=SIGNED_COPY_DAYS)
 
 
 def check_pdf_upload(data: bytes) -> None:
@@ -416,8 +427,8 @@ async def company_submit(
     locked.completed_at = now
     locked.validation = _with_report(locked, "company", report)
     locked.status = "completed"
-    # Link kontraktora nie jest już potrzebny.
-    locked.contractor_token_hash = None
+    # Link kontraktora zostaje na ``SIGNED_COPY_DAYS`` dni — tylko do pobrania
+    # kopii (pętla przypomnień kasuje go potem).
     await db.flush()
     return locked
 

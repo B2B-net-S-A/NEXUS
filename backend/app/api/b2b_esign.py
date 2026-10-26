@@ -64,6 +64,7 @@ from app.models.user import User, UserRole
 from app.schemas.b2b_contract_generator import B2BConfirmFullySignedRequest
 from app.services import storage_service
 from app.services.b2b_contract_filename import contract_file_name
+from app.services.m365 import sender as m365_sender
 from app.services.b2b_esign import service
 from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_esign import settings as esign_settings
@@ -189,6 +190,8 @@ class PublicSignView(BaseModel):
     contractor_name: str
     status: Literal["waiting", "signed_by_you", "completed", "closed"]
     expires_at: Optional[datetime]
+    # Do kiedy działa „Pobierz umowę podpisaną przez obie strony” (26.10.2026).
+    signed_pdf_until: Optional[datetime] = None
 
 
 # ── Pomocnicze ──────────────────────────────────────────────────────────────
@@ -668,6 +671,75 @@ async def _after_contractor_signed(db: AsyncSession, request_id: int) -> None:
         ntype=NotificationType.signature_sent,
         request_id=request_id,
     )
+    # Sam dzwonek nie wystarczał (Olaf 26.10.2026) — mail ze skrzynki nadawcy.
+    company_signer = (
+        await db.get(User, request.company_signer_id)
+        if request.company_signer_id
+        else None
+    )
+    if company_signer is not None and company_signer.email:
+        subject, body = esign_mail.company_signer_message(
+            number=number,
+            contractor_name=request.contractor_name,
+            since=request.contractor_signed_at or _now(),
+            reminder=False,
+        )
+        await esign_mail.send_from(
+            db,
+            user_id=request.sent_by,
+            to=company_signer.email,
+            subject=subject,
+            body_html=body,
+            candidate_id=row.candidate_id if row else None,
+            request_key=f"b2b-esign-{request_id}-company",
+        )
+
+
+async def _send_contractor_copy(db: AsyncSession, request_id: int) -> None:
+    """Mail do kontraktora z umową podpisaną przez obie strony (26.10.2026).
+
+    Wcześniej kopia nie wychodziła wcale, a link po podpisie firmy gasł.
+    Awaria wysyłki nie cofa podpisu: kopia zostaje do pobrania z linku."""
+    # ``populate_existing``: automatyka po podpisie bywa zakończona rollbackiem,
+    # który wygasza obiekty sesji (odczyt pola w async = MissingGreenlet).
+    request = await db.get(B2BSigningRequest, request_id, populate_existing=True)
+    if request is None or not request.final_pdf_path or not request.contractor_email:
+        return
+    row = await db.get(
+        B2BGeneratedContract, request.generated_contract_id, populate_existing=True
+    )
+    number = row.contract_number if row else ""
+    try:
+        data = storage_service.read_b2b_signing_pdf(request.final_pdf_path)
+    except Exception:  # noqa: BLE001
+        logger.exception("[b2b_esign] brak pliku kopii request=%d", request_id)
+        return
+    subject, body = esign_mail.contractor_copy_message(
+        number=number, contractor_name=request.contractor_name
+    )
+    await esign_mail.send_from(
+        db,
+        user_id=request.sent_by,
+        to=request.contractor_email,
+        subject=subject,
+        body_html=body,
+        candidate_id=row.candidate_id if row else None,
+        request_key=f"b2b-esign-{request_id}-copy",
+        attachments=[
+            m365_sender.FileAttachment(
+                name=contract_file_name(
+                    number,
+                    row.partner_name
+                    if row and row.partner_name
+                    else request.contractor_name,
+                    ext="pdf",
+                    suffix="podpisana",
+                ),
+                content_type="application/pdf",
+                data=data,
+            )
+        ],
+    )
 
 
 async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) -> None:
@@ -770,6 +842,8 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
             ntype=NotificationType.signature_signed,
             request_id=request_id,
         )
+    # Kopia dla kontraktora niezależnie od tego, czy kontrakt powstał sam.
+    await _send_contractor_copy(db, request_id)
 
 
 # ── Kontraktor (publicznie, link z maila) ───────────────────────────────────
@@ -787,11 +861,13 @@ async def _public_view(db: AsyncSession, request: B2BSigningRequest) -> PublicSi
     row = await db.get(B2BGeneratedContract, request.generated_contract_id)
     now = _now()
     status = _public_status(request, now)
+    copy_until = service.signed_copy_until(request)
     return PublicSignView(
         contract_number=row.contract_number if row else "",
         contractor_name=request.contractor_name,
         status=status,
         expires_at=request.expires_at if status == "waiting" else None,
+        signed_pdf_until=copy_until if copy_until and copy_until > now else None,
     )
 
 
@@ -824,6 +900,29 @@ async def public_sign_pdf(
         media_type="application/pdf",
         headers={
             "Content-Disposition": await _pdf_disposition(db, signing),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@public_router.get("/b2b-sign/{token}/signed-pdf")
+@limiter.limit("30/minute")
+async def public_signed_copy(
+    token: str,
+    request: Request,  # wymagane przez slowapi
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Kopia kontraktora: umowa podpisana przez obie strony, przez 30 dni."""
+    signing = await service.load_by_token(db, token)
+    until = service.signed_copy_until(signing)
+    if until is None or until <= _now():
+        raise HTTPException(status_code=410, detail=service.MSG_CLOSED)
+    data = storage_service.read_b2b_signing_pdf(signing.final_pdf_path or "")
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": await _pdf_disposition(db, signing, "podpisana"),
             "Cache-Control": "no-store",
         },
     )
