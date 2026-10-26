@@ -393,8 +393,9 @@ function seeded(): QueryClient {
     goals: [
       { goal_id: "team_daily_first_verifications", title_pl: "Weryfikacje zespołu dziś", short_title_pl: "Weryfikacje", period: "day", unit: "count", target: 36, current: 27, progress_pct: 75, state: "on_track", note: null, expected: 22 },
       { goal_id: "team_weekly_cvs_sent", title_pl: "Rekomendacje zespołu w tygodniu", short_title_pl: "Rekomendacje", period: "week", unit: "count", target: 45, current: 24, progress_pct: 53, state: "behind", note: null, expected: 36 },
-      { goal_id: "team_monthly_placements", title_pl: "Placementy zespołu w miesiącu", short_title_pl: "Placementy", period: "month", unit: "count", target: 25, current: 21, progress_pct: 84, state: "on_track", note: "Suma celów osób z tym celem: 9", expected: 18 },
+      { goal_id: "team_monthly_placements", title_pl: "Placementy zespołu w miesiącu", short_title_pl: "Placementy", period: "month", unit: "count", target: 25, current: 16, progress_pct: 64, state: "behind", note: "Suma celów osób z tym celem: 9", expected: 18 },
     ],
+    company_month_placements: 21,
   });
   qc.setQueryData(insightsQueryKeys.inFlight(), {
     asof: "2026-10-22", stale_days: 10, columns: flightCols(38, 64, 23, 10),

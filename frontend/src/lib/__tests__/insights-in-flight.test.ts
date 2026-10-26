@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { InFlightColumn, InFlightResponse } from "@/lib/insights-api";
 import {
+  companyPlacementsNote,
   daysLabel,
   forecastLabel,
   forecastSentence,
@@ -94,5 +95,16 @@ describe("monthForecast", () => {
 
   it("is null without a rate", () => {
     expect(monthForecast(21, forecast({ rate_pct: null, low: null, high: null }))).toBeNull();
+  });
+});
+
+describe("companyPlacementsNote", () => {
+  it("says how many placements fall outside people's goals", () => {
+    expect(companyPlacementsNote(12, 19)).toBe("W całej firmie: 19 (7 poza celami osób).");
+  });
+
+  it("gives just the company number when nothing is outside the goals", () => {
+    expect(companyPlacementsNote(12, 12)).toBe("W całej firmie: 12.");
+    expect(companyPlacementsNote(12, 10)).toBe("W całej firmie: 10.");
   });
 });
