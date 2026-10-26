@@ -258,3 +258,40 @@ async def test_qc_gate_skips_company_cv_qc_for_form_clients(monkeypatch):
         if document == "client_form":
             assert calls == []
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_form_added_before_the_switch_is_recognized_on_first_view(
+    app_client, app_auth_headers, storage
+):
+    """CEZ przed 0521: formularz leżał w Plikach, zanim klient przeszedł na
+    formularz — nikt go nie oznaczył przy dodaniu."""
+    job_id, stage_id = await _pair("company_cv")
+    resp = await app_client.post(
+        f"/api/jobs/{job_id}/files",
+        files={
+            "file": (
+                "Zal 4a Formularz CV.docx",
+                form_docx(),
+                "application/octet-stream",
+            )
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201 and resp.json()["client_form"] is False
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        client = await db.get(Client, job.client_id)
+        client.cv_client_document = "client_form"
+        await db.commit()
+
+    form = await app_client.get(
+        f"/api/candidates/stages/{stage_id}/client-form", headers=app_auth_headers
+    )
+    assert form.status_code == 200, form.text
+    assert form.json()["status"] == "not_filled"
+    assert form.json()["template"]["filename"] == "Zal 4a Formularz CV.docx"
+    listed = (
+        await app_client.get(f"/api/jobs/{job_id}/files", headers=app_auth_headers)
+    ).json()
+    assert [item["client_form"] for item in listed["items"]] == [True]
