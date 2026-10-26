@@ -3254,14 +3254,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const openDlReviewIfSending = useCallback(
  (item: KanbanItem, dst: KanbanColumn): boolean => {
  const from = columnByItemId.get(item.id);
- const toCpro = cproEnabled && isCproStageName(dst.name);
+ // Kolumna „Do Cpro” (etap kolejki), nie „Wysłane do Cpro” — obie mają
+ // „Cpro” w nazwie.
+ const toCpro = cproStageCol != null && colId(dst) === colId(cproStageCol);
  // Nordea: DL tej rekrutacji odkłada kartę na „QC CV” — przegląd czekałby
- // na niego samego, a osoba od Cpro nic by nie dostała. Akceptacja od razu.
+ // na niego samego (dzwonek do siebie resolver odsiewa), a osoba od Cpro nic
+ // by nie dostała (26.10.2026). Akceptacja od razu.
+ const qcHost = boardFold.columns.find((f) => f.key === "cv_qc" && !f.cproQueue)?.host;
  const ownQcDrop =
- cproEnabled &&
- viewerOwnsDlReview &&
- !isCproStageName(dst.name) &&
- hostByColId.get(colId(dst)) === boardFold.columns.find((f) => f.key === "cv_qc" && !f.cproQueue)?.host;
+ cproEnabled && viewerOwnsDlReview && qcHost != null && colId(dst) === colId(qcHost);
  const sendTarget = cproEnabled
  ? dst.stage === "cv_sent" || toCpro || ownQcDrop
  : dst.stage === "cv_sent";
@@ -3327,7 +3328,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  .catch(() => undefined);
  return true;
  },
- [cproEnabled, cproStageCol, canReviewAsDl, columnByItemId, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold, viewerOwnsDlReview, hostByColId]
+ [cproEnabled, cproStageCol, canReviewAsDl, columnByItemId, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold, viewerOwnsDlReview]
  );
  useEffect(() => {
  openDlReviewRef.current = openDlReviewIfSending;

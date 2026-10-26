@@ -83,7 +83,8 @@ export const CPRO_SENT_COLUMN_LABEL = "Wysłane do Cpro";
 export const CPRO_QUEUE_COLUMN_LABEL = "Do Cpro";
 
 export interface FoldBoardOptions {
-  /** Rekrutacja Nordei (`job.cpro_enabled`): „CV wysłane" → „Wysłane do Cpro". */
+  /** Rekrutacja Nordei (`job.cpro_enabled`): „CV wysłane" → „Wysłane do Cpro",
+   *  a kolejka Cpro to własna kolumna „Do Cpro". */
   cproEnabled?: boolean;
 }
 
@@ -293,7 +294,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
   const folds: BoardColumnFold<C>[] = [];
   const hostByKey = new Map<BoardColumnKey, BoardColumnFold<C>>();
   const foldByBaseName = new Map<string, BoardColumnFold<C>>();
-  const pendingBadged: Array<{ col: C; key: BoardColumnKey }> = [];
+  const pendingBadged: Array<{ col: C; key: BoardColumnKey; badge: StageBadgeKey }> = [];
   let seenNew = false;
 
   for (const col of columns) {
@@ -304,7 +305,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
       continue;
     }
     if (badge) {
-      pendingBadged.push({ col, key: column });
+      pendingBadged.push({ col, key: column, badge });
       continue;
     }
     const duplicate = foldByBaseName.get(baseName(col));
@@ -342,10 +343,10 @@ export function foldBoardColumns<C extends FoldableColumn>(
 
   // Etap-odznaka dołącza do kolumny swojego znaczenia; gdy szablon jej nie
   // ma, zostaje własną kolumną (nie znika).
-  for (const { col, key } of pendingBadged) {
+  // Wyjątek: u Nordei kolejka Cpro to własna kolumna „Do Cpro” (26.10.2026).
+  for (const { col, key, badge } of pendingBadged) {
     const host = hostByKey.get(key);
-    const ownCproColumn =
-      options.cproEnabled && key === "cv_qc" && isCproStageName(col.name);
+    const ownCproColumn = options.cproEnabled === true && badge === "cpro";
     if (host && !ownCproColumn) {
       host.members.push(col);
       continue;

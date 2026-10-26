@@ -2314,11 +2314,69 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     const headers = Array.from(container.querySelectorAll("[data-colid] h3")).map((h) => h.textContent);
     expect(headers).toContain("Wysłane do Cpro");
     expect(headers).not.toContain("CV wysłane");
+    // 26.10.2026: kolejka Cpro to własna kolumna „Do Cpro” zaraz po „QC CV”.
+    expect(headers.indexOf("Do Cpro")).toBe(headers.indexOf("QC CV") + 1);
     const qcCol = container.querySelector('[data-colid="def:303"]') as HTMLElement;
-    const card = within(qcCol).getByText("Ewa Cpro").closest("[data-kanban-card]") as HTMLElement;
+    expect(within(qcCol).queryByText("Ewa Cpro")).toBeNull();
+    const cproCol = container.querySelector('[data-colid="def:304"]') as HTMLElement;
+    expect(within(cproCol).getByText("Wrzuca osoba od Cpro")).toBeTruthy();
+    const card = within(cproCol).getByText("Ewa Cpro").closest("[data-kanban-card]") as HTMLElement;
     expect(within(card).getByText("W kolejce Cpro")).toBeTruthy();
     expect(within(card).queryByText("DZ ✓")).toBeNull();
     expect(within(card).getByTestId("card-next-who")).toHaveTextContent("Osoba od Cpro");
+  });
+
+  // Zgłoszenie z 26.10.2026: DL Nordei odłożył kartę na „QC CV” we własnej
+  // rekrutacji. Przegląd czekał na niego samego, dzwonek do siebie resolver
+  // odsiał, a osoba od Cpro nie dostała nic.
+  describe("Nordea: DL kieruje kartę do Cpro (26.10.2026)", () => {
+    function verifiedColumns() {
+      const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+      columns[2] = {
+        ...columns[2],
+        count: 1,
+        items: [{ id: 7501, candidate_id: 8501, stage: "verified", name: "Ola", lastname: "Gotowa", days_in_stage: 1, verification_status: "active" }],
+      };
+      return columns as never;
+    }
+
+    const moveCalls = () => post.mock.calls.filter((c) => c[0] === "/api/pipeline/move");
+
+    async function moveFromDock(columns: never, target: string, ownsReview: boolean) {
+      renderBoard(columns, undefined, false, true, ownsReview);
+      const name = await screen.findByText("Ola Gotowa");
+      fireEvent.click(name.closest("[data-kanban-card]") as HTMLElement);
+      await screen.findByRole("complementary", { name: "Panel osoby" });
+      await userEvent.click(screen.getByRole("button", { name: "Inny etap…" }));
+      const menu = await screen.findByRole("menu");
+      await userEvent.click(within(menu).getByRole("menuitem", { name: target }));
+    }
+
+    beforeEach(() => {
+      useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    });
+
+    it("„QC CV” we własnej rekrutacji otwiera akceptację do Cpro zamiast ruchu", async () => {
+      await moveFromDock(verifiedColumns(), "QC CV", true);
+      const panel = await screen.findByTestId("dl-review-panel");
+      expect(panel).toHaveAttribute("data-stage-id", "7501");
+      expect(panel).toHaveAttribute("data-target-stage-def-id", "304");
+      expect(panel).toHaveAttribute("data-cpro", "true");
+      expect(moveCalls()).toHaveLength(0);
+    });
+
+    it("„QC CV” w cudzej rekrutacji to zwykłe przekazanie do przeglądu DL-a", async () => {
+      await moveFromDock(verifiedColumns(), "QC CV", false);
+      await waitFor(() => expect(moveCalls()).toHaveLength(1));
+      expect(screen.queryByTestId("dl-review-panel")).toBeNull();
+    });
+
+    it("„Do Cpro” sprzed „QC CV” otwiera akceptację ze stawką", async () => {
+      await moveFromDock(verifiedColumns(), "Do Cpro", false);
+      const panel = await screen.findByTestId("dl-review-panel");
+      expect(panel).toHaveAttribute("data-target-stage-def-id", "304");
+      expect(moveCalls()).toHaveLength(0);
+    });
   });
 
   it("strzałka „→” otwiera „Przesuń dalej”: braki blokują przycisk, akcja otwiera arkusz", async () => {
