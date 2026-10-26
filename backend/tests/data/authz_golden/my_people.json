@@ -33,6 +33,8 @@
   "GET /api/my-people": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/my-people/for-job/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/my-people/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/my-people/team": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "GET /api/my-people/team/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "POST /api/my-people/matches/seen": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPPDDPPPPD"

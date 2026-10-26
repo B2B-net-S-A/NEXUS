@@ -102,6 +102,25 @@ export interface ForJobResponse {
   degraded: boolean;
 }
 
+/** „Zespół” (25.10.2026): czyja lista leży — tylko Head of Recruitment i admin. */
+export interface TeamMember {
+  user_id: number;
+  name: string;
+  roles: string[];
+  /** Aktywni na liście (bez uśpionych i pracujących). */
+  total: number;
+  working: number;
+  /** Aktywni bez procesu, których CV nie szło dłużej niż `idle_days`. */
+  idle: number;
+  new_matches: number;
+  jobs_with_matches: number;
+}
+
+export interface TeamResponse {
+  members: TeamMember[];
+  idle_days: number;
+}
+
 export const myPeopleApi = {
   list: async () => (await api.get<MyPeopleResponse>("/api/my-people")).data,
   summary: async () => (await api.get<MyPeopleSummary>("/api/my-people/summary")).data,
@@ -119,6 +138,9 @@ export const myPeopleApi = {
   unpin: async (candidateId: number) => {
     await api.delete(`/api/my-people/${candidateId}/pin`);
   },
+  team: async () => (await api.get<TeamResponse>("/api/my-people/team")).data,
+  ofMember: async (userId: number) =>
+    (await api.get<MyPeopleResponse>(`/api/my-people/team/${userId}`)).data,
   markSeen: async (jobId?: number) => {
     await api.post("/api/my-people/matches/seen", { job_id: jobId ?? null });
   },
@@ -158,6 +180,32 @@ export function useMyPeopleForJob(jobId: number | null, enabled = true) {
     queryKey: myPeopleForJobQueryKey(jobId ?? 0),
     queryFn: () => myPeopleApi.forJob(jobId as number),
     enabled: enabled && jobId != null,
+    staleTime: 60_000,
+  });
+}
+
+// Osobny prefiks, nie `MY_PEOPLE_QUERY_PREFIX`: zdarzenia gniazda (ruch karty,
+// dopasowanie) unieważniają „Moich ludzi” wiele razy na minutę, a widok
+// zespołu liczy listy wszystkich i trasa ma limit 10/min.
+export const myPeopleTeamQueryKey = ["my-people-team"] as const;
+export const myPeopleOfMemberQueryKey = (userId: number) =>
+  ["my-people-team", userId] as const;
+
+export function useMyPeopleTeam(enabled: boolean) {
+  return useQuery({
+    queryKey: myPeopleTeamQueryKey,
+    queryFn: myPeopleApi.team,
+    enabled,
+    // Liczy listy całego zespołu — nie odświeżamy przy każdym otwarciu panelu.
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useMyPeopleOfMember(userId: number | null) {
+  return useQuery({
+    queryKey: myPeopleOfMemberQueryKey(userId ?? 0),
+    queryFn: () => myPeopleApi.ofMember(userId as number),
+    enabled: userId != null,
     staleTime: 60_000,
   });
 }

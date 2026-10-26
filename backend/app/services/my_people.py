@@ -39,6 +39,7 @@ from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.competence_category import CandidateCompetenceCategory
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
+from app.models.user import User, UserRole
 from app.models.recruitment_pipeline import STAGE_ORDER
 from app.schemas.candidate import EmploymentMarker
 from app.services.employment_marker import load_employment_markers
@@ -168,6 +169,43 @@ class MyPeople:
     @property
     def active(self) -> list[PersonRow]:
         return [r for r in self.rows if not r.snoozed and not r.working]
+
+    @property
+    def idle(self) -> list[PersonRow]:
+        """Aktywni bez procesu w toku, których CV nie szło dłużej niż ``IDLE_DAYS``.
+
+        Najkrócej czekający najpierw: tych da się jeszcze „odzyskać” jednym
+        telefonem. Ta sama definicja w dymku osoby i w widoku „Zespół”.
+        """
+        return sorted(
+            (
+                r
+                for r in self.active
+                if r.active_processes == 0
+                and r.days_since_last_send is not None
+                and r.days_since_last_send > IDLE_DAYS
+            ),
+            key=lambda r: r.days_since_last_send or 0,
+        )
+
+
+# Kto ma swoją listę „Moi ludzie” w widoku „Zespół” Head of Recruitment
+# (25.10.2026). Ról `sourcer` i `tac` nie ma — liczą się jak rekruter.
+TEAM_ROLES = (
+    UserRole.recruiter,
+    UserRole.delivery_lead,
+    UserRole.head_of_recruitment,
+    UserRole.talent_community_manager,
+)
+
+
+async def team_members(db: AsyncSession) -> list[User]:
+    """Aktywne konta z rolą, która buduje listę — po nazwie."""
+    users = (await db.scalars(select(User).where(User.is_active.is_(True)))).all()
+    return sorted(
+        (u for u in users if u.has_any_role(*TEAM_ROLES)),
+        key=lambda u: (u.name or "").lower(),
+    )
 
 
 async def owned_candidate_ids(db: AsyncSession, user_id: int) -> set[int]:
