@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import DateTime, and_, cast, create_engine, or_, select, text
+from sqlalchemy import DateTime, and_, cast, create_engine, or_, select, text, true
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -316,6 +316,11 @@ class DeliveryPolicy:
             and self.cutoff_for(kind) is not None
         )
 
+    def paused_reason(self, kind: str) -> str | None:
+        """Powód, z jakim admin wstrzymał mail obowiązkowy (`None` = nie wstrzymał)."""
+        reason = self.types.get(kind, {}).get("paused_reason")
+        return reason if isinstance(reason, str) and reason else None
+
     @property
     def effective_enabled(self) -> bool:
         return any(self.kind_enabled(kind) for kind in ROUTINE_KINDS)
@@ -329,6 +334,37 @@ class DeliveryPolicy:
 
 
 HR_MAIL_KIND = "hr_people"
+
+# Maile obowiązkowe (decyzja Artura 26.10.2026): sprawy, na które ktoś czeka.
+# Pomiar na kopii produkcji z 22.10: nikt z 38 kont nie wyłączył sobie maila,
+# a 105 wpisów o rozmowach, akceptacjach klienta i braku zamówienia w 14 dni
+# nie poszło mailem, bo tych rodzajów nikt nie włączył w Ustawieniach firmy.
+# Obowiązkowy mail włącza się sam przy starcie (`ensure_required_kinds`, bez
+# zaległości), konto nie może go wyłączyć sobie, a wyciszenie kategorii
+# w dzwonku go nie zatrzymuje. Wstrzymać go może tylko admin dla całej firmy,
+# z powodem zapisanym w polityce i w Historii zdarzeń.
+REQUIRED_KINDS = frozenset(
+    {
+        "request_assigned",
+        "client_interview",
+        "dl_review",
+        "cv_returned",
+        "client_accepted",
+        "hire_documents",
+        "signature_request",
+        "delivery_alert",
+        HR_MAIL_KIND,
+        "data_access_alert",
+        "system_failure",
+    }
+)
+PAUSE_REASON_MAX = 500
+
+
+class RequiredKindReasonMissing(ValueError):
+    """Wstrzymanie maila obowiązkowego bez powodu."""
+
+
 # Typy kadrowe, które idą mailem „Czas i ludzie”: sprawy, na które ktoś czeka.
 # Raport godzin wysłany do akceptacji (`hr_timesheet_submitted`) idzie mailem
 # od 18.10.2026 — jak w Compassie akceptujący dowiaduje się o nim od razu,
@@ -428,6 +464,9 @@ def email_opted_out(user: Any, kind: str) -> bool:
     (0425), reszta żyje w `users.email_opt_outs` jako `{rodzaj: czas}`.
     Wyłączony mail nie zmienia dzwonka ani zadania w „Czeka na Ciebie”.
     """
+    if kind in REQUIRED_KINDS:
+        # Stary wpis wyłączenia (sprzed 26.10.2026) nic już nie znaczy.
+        return False
     if kind == DIGEST_KIND:
         return getattr(user, "daily_digest_email_enabled", True) is False
     raw = getattr(user, "email_opt_outs", None)
@@ -450,6 +489,8 @@ def email_wanted(user: Any, kind: str, event_at: datetime | None) -> bool:
     mail był wyłączony, nie wychodzi po ponownym włączeniu — tak samo jak
     firmowy przełącznik nie wysyła zaległości (`send_not_before`).
     """
+    if kind in REQUIRED_KINDS:
+        return True
     if email_opted_out(user, kind):
         return False
     resumed = email_resumed_at(user, kind)
@@ -468,6 +509,8 @@ def email_queue_clause(kind: str, event_column: Any) -> Any:
     """
     from app.models.user import User
 
+    if kind in REQUIRED_KINDS:
+        return true()
     resumed = cast(
         User.email_opt_outs[(RESUMED_KEY, kind)].astext, DateTime(timezone=True)
     )
@@ -562,11 +605,22 @@ def last_send_policy_blocked() -> bool:
 
 
 def updated_value(
-    previous: DeliveryPolicy, *, enabled: bool, toggles: dict[str, bool], now: datetime
+    previous: DeliveryPolicy,
+    *,
+    enabled: bool,
+    toggles: dict[str, bool],
+    now: datetime,
+    reason: str | None = None,
 ) -> dict:
-    """Pure transition used after locking the stored row. Never accept client cutoffs."""
+    """Pure transition used after locking the stored row. Never accept client cutoffs.
+
+    Wyłączenie maila obowiązkowego wymaga powodu (`RequiredKindReasonMissing`);
+    powód i chwila zostają w rodzaju, dopóki admin nie włączy go z powrotem —
+    po tym znaku `ensure_required_kinds` nie włącza go sam przy starcie.
+    """
     if not set(toggles) <= ROUTINE_KINDS:
         raise ValueError("unknown notification email type")
+    reason = (reason or "").strip()[:PAUSE_REASON_MAX]
     global_cutoff = previous.send_not_before
     if enabled and (not previous.enabled or global_cutoff is None):
         global_cutoff = now
@@ -582,6 +636,17 @@ def updated_value(
             "email_enabled": is_enabled,
             "send_not_before": cutoff.isoformat() if cutoff else None,
         }
+        if kind not in REQUIRED_KINDS or is_enabled:
+            continue
+        if was_enabled:
+            if not reason:
+                raise RequiredKindReasonMissing(kind)
+            types[kind].update(paused_reason=reason, paused_at=now.isoformat())
+        elif previous.paused_reason(kind):
+            types[kind].update(
+                paused_reason=previous.paused_reason(kind),
+                paused_at=old.get("paused_at"),
+            )
     return {
         "enabled": enabled,
         "send_not_before": global_cutoff.isoformat() if global_cutoff else None,
@@ -623,6 +688,52 @@ def _changes_summary(changes: dict[str, Any]) -> str:
     return "Maile automatyczne dla całej firmy — " + "; ".join(parts)
 
 
+def with_required_kinds(value: Any, now: datetime) -> dict | None:
+    """Polityka z włączonymi mailami obowiązkowymi albo `None`, gdy nic nie trzeba.
+
+    Rodzaj obowiązkowy, który nie jest włączony i którego admin nie wstrzymał
+    z powodem, dostaje `email_enabled` i próg `now` — wychodzą tylko zdarzenia
+    od tej chwili, jak przy ręcznym włączeniu. Wyłącznik globalny zostaje
+    decyzją admina: wiersz bez polityki albo z wyłączoną wysyłką — bez zmian.
+    """
+    policy = DeliveryPolicy.from_value(value)
+    if not policy.enabled:
+        return None
+    missing = [
+        kind
+        for kind in sorted(REQUIRED_KINDS)
+        if not policy.kind_enabled(kind) and not policy.paused_reason(kind)
+    ]
+    if not missing:
+        return None
+    return updated_value(
+        policy, enabled=True, toggles=dict.fromkeys(missing, True), now=now
+    )
+
+
+async def ensure_required_kinds(db: AsyncSession) -> list[str]:
+    """Włącza maile obowiązkowe przy starcie aplikacji; zwraca włączone rodzaje."""
+    row = await db.scalar(
+        select(AppSetting)
+        .where(AppSetting.key == SETTING_KEY)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    value = with_required_kinds(row.value if row else None, datetime.now(timezone.utc))
+    if row is None or value is None:
+        await db.rollback()
+        return []
+    before = DeliveryPolicy.from_value(row.value)
+    row.value = value
+    await db.commit()
+    return sorted(
+        kind
+        for kind in REQUIRED_KINDS
+        if DeliveryPolicy.from_value(value).kind_enabled(kind)
+        and not before.kind_enabled(kind)
+    )
+
+
 async def save_policy(
     db: AsyncSession,
     *,
@@ -630,6 +741,7 @@ async def save_policy(
     toggles: dict[str, bool],
     admin_id: int,
     actor: Any = None,
+    reason: str | None = None,
 ) -> None:
     await db.execute(
         insert(AppSetting)
@@ -649,6 +761,7 @@ async def save_policy(
         enabled=enabled,
         toggles=toggles,
         now=datetime.now(timezone.utc),
+        reason=reason,
     )
     row.updated_by = admin_id
     # Przełącznik działa na całą firmę, a do 09.10.2026 nie zostawiał śladu
@@ -657,6 +770,15 @@ async def save_policy(
     if actor is not None and changes:
         from app.services.critical_events import record_executed
 
+        summary = _changes_summary(changes)
+        paused = [
+            kind
+            for kind, change in changes.get("types", {}).items()
+            if kind in REQUIRED_KINDS and not change["to"]
+        ]
+        if paused:
+            changes["paused_reason"] = (reason or "").strip()[:PAUSE_REASON_MAX]
+            summary += f". Powód wstrzymania: {changes['paused_reason']}"
         await record_executed(
             db,
             actor=actor,
@@ -664,7 +786,7 @@ async def save_policy(
             entity_type="settings",
             entity_id=None,
             entity_label="Maile automatyczne",
-            reason=_changes_summary(changes),
+            reason=summary,
             details=changes,
         )
     await db.commit()
@@ -771,6 +893,8 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
                 **spec,
                 email_enabled=policy.types.get(kind, {}).get("email_enabled") is True,
                 effective_enabled=policy.kind_enabled(kind),
+                required=kind in REQUIRED_KINDS,
+                paused_reason=policy.paused_reason(kind),
                 # Kto wyłączył ten mail sobie („Maile do Ciebie”) — żeby admin
                 # widział, że firmowe „włączone” nie znaczy „dostają wszyscy”.
                 self_disabled=self_disabled.get(kind, []),
@@ -797,6 +921,8 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
                 recipient_rule="Właściciel konta, którego dotyczy żądanie.",
                 email_enabled=True,
                 effective_enabled=True,
+                required=True,
+                paused_reason=None,
                 self_disabled=[],
                 send_not_before=None,
                 channels=["email"],

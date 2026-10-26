@@ -206,7 +206,13 @@ const USER_PREFERENCES: UserPreferences = {
 };
 
 function myEmails(persona: Persona): MyEmailNotifications {
-  const on = { company_enabled: true, self_enabled: true, receiving: true, state: "on", note: null } as const;
+  const on = { required: false, company_enabled: true, self_enabled: true, receiving: true, state: "on", note: null } as const;
+  // Mail obowiązkowy (26.10.2026): bez wyłącznika, ze zdaniem dlaczego.
+  const required = {
+    ...on,
+    required: true,
+    note: "Mail obowiązkowy — przychodzi zawsze, bo ktoś czeka na Twój ruch.",
+  } as const;
   const recruiter: MyEmailNotifications["items"] = [
     {
       id: "daily_digest",
@@ -218,12 +224,19 @@ function myEmails(persona: Persona): MyEmailNotifications {
       id: "cv_returned",
       label: "CV wróciło do poprawy",
       description: "Delivery Lead cofnął kandydata z „QC CV” albo z kolejki Cpro; QC CV nie przeszło po przekazaniu.",
-      ...on,
+      ...required,
     },
     {
       id: "request_assigned",
       label: "Nowa rekrutacja dla Ciebie",
       description: "Ktoś (albo automat przydziału) przypisał Cię do prowadzenia rekrutacji.",
+      ...required,
+    },
+    {
+      id: "chat_unread",
+      label: "Nieprzeczytane wiadomości czatu",
+      description: "Nieprzeczytana wiadomość lub wzmianka; adresat jest offline od co najmniej 15 minut.",
+      required: false,
       company_enabled: true,
       self_enabled: false,
       receiving: false,
@@ -234,6 +247,7 @@ function myEmails(persona: Persona): MyEmailNotifications {
       id: "mentions",
       label: "Wzmianki w notatkach",
       description: "Oznaczenie osoby przez @wzmiankę w nowej lub edytowanej notatce.",
+      required: false,
       company_enabled: false,
       self_enabled: true,
       receiving: false,
@@ -244,6 +258,7 @@ function myEmails(persona: Persona): MyEmailNotifications {
       id: "job_deadline",
       label: "Terminy rekrutacji",
       description: "Zbliżający się termin otwartej rekrutacji: 7, 3 i 1 dzień przed.",
+      required: false,
       company_enabled: true,
       self_enabled: true,
       receiving: false,
@@ -256,13 +271,13 @@ function myEmails(persona: Persona): MyEmailNotifications {
       id: "system_failure",
       label: "Awaria automatu",
       description: "Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu.",
-      ...on,
+      ...required,
     },
     {
       id: "request_assigned",
       label: "Nowa rekrutacja dla Ciebie",
       description: "Ktoś (albo automat przydziału) przypisał Cię do prowadzenia rekrutacji.",
-      ...on,
+      ...required,
     },
   ];
   return {
@@ -344,6 +359,18 @@ const DELIVERY: NotificationDeliveryOverview = {
       trigger: "Kończy się zamówienie albo umowa klienta.",
       recipient_rule: "Delivery Leadzi przypisani do klienta.",
       channels: ["client_panel", "email"],
+      required: true,
+    }),
+    deliveryType({
+      id: "client_interview",
+      label: "Rozmowy u klienta",
+      module: "Rekrutacje",
+      trigger: "Terminy od klienta, wybrany i potwierdzony termin, przełożona albo odwołana rozmowa.",
+      recipient_rule: "Rekruter kandydata i Delivery Lead rekrutacji.",
+      required: true,
+      email_enabled: false,
+      effective_enabled: false,
+      paused_reason: "Przerwa na czas migracji skrzynki nadawcy.",
     }),
     deliveryType({
       id: "mentions",

@@ -30,7 +30,7 @@ from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.app_setting import AppSetting
 from app.models.user import UserRole
-from app.services.notification_delivery import ROUTINE_KINDS
+from app.services.notification_delivery import PAUSE_REASON_MAX, ROUTINE_KINDS
 
 
 router = APIRouter()
@@ -59,6 +59,8 @@ class NotificationDeliveryUpdate(BaseModel):
     types: list[NotificationEmailToggle] = Field(
         default_factory=list, max_length=len(ROUTINE_KINDS)
     )
+    # Wymagany przy wstrzymaniu maila obowiązkowego (26.10.2026).
+    reason: Optional[str] = Field(default=None, max_length=PAUSE_REASON_MAX)
 
     @field_validator("types")
     @classmethod
@@ -83,15 +85,27 @@ async def put_notification_delivery(
     admin: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    from app.services.notification_delivery import admin_view, save_policy
-
-    await save_policy(
-        db,
-        enabled=payload.enabled,
-        toggles={item.id: item.email_enabled for item in payload.types},
-        admin_id=admin.id,
-        actor=admin,
+    from app.services.notification_delivery import (
+        RequiredKindReasonMissing,
+        admin_view,
+        save_policy,
     )
+
+    try:
+        await save_policy(
+            db,
+            enabled=payload.enabled,
+            toggles={item.id: item.email_enabled for item in payload.types},
+            admin_id=admin.id,
+            actor=admin,
+            reason=payload.reason,
+        )
+    except RequiredKindReasonMissing as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail="To mail obowiązkowy — podaj powód wstrzymania.",
+        ) from exc
     return await admin_view(db)
 
 

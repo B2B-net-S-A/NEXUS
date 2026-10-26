@@ -291,4 +291,44 @@ describe("NotificationDeliverySettings", () => {
       "/settings?item=my-notifications",
     );
   });
+
+  it("wstrzymanie maila obowiązkowego wymaga powodu i wysyła go z zapisem", async () => {
+    const data = enabledOverview();
+    data.types = data.types.map((type) =>
+      type.id === "delivery_alert"
+        ? { ...type, required: true, email_enabled: true, effective_enabled: true }
+        : type,
+    );
+    mocks.get.mockResolvedValue(data);
+    mocks.update.mockImplementation(async () => data);
+    renderSettings({ onGoToMine: vi.fn() });
+    expect(await screen.findByText("obowiązkowy")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", { name: "E-mail: Alert Delivery" }));
+    const dialog = await screen.findByRole("dialog", { name: "Wstrzymujesz mail obowiązkowy całej firmie" });
+    // Mail obowiązkowy nie ma „tylko sobie”.
+    expect(within(dialog).queryByRole("button", { name: "Chcę wyłączyć tylko sobie" })).toBeNull();
+    const confirm = within(dialog).getByRole("button", { name: "Wstrzymaj wszystkim" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("Powód wstrzymania"), {
+      target: { value: "  awaria skrzynki  " },
+    });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    const payload = mocks.update.mock.calls[0][0] as NotificationDeliveryUpdate;
+    expect(payload.reason).toBe("awaria skrzynki");
+    expect(payload.types.find((type) => type.id === "delivery_alert")).toEqual({ id: "delivery_alert", email_enabled: false });
+  });
+
+  it("pokazuje powód wstrzymanego maila obowiązkowego", async () => {
+    const data = enabledOverview();
+    data.types = data.types.map((type) =>
+      type.id === "delivery_alert"
+        ? { ...type, required: true, email_enabled: false, effective_enabled: false, paused_reason: "awaria skrzynki" }
+        : type,
+    );
+    mocks.get.mockResolvedValue(data);
+    renderSettings();
+    expect(await screen.findByText("Wstrzymany: awaria skrzynki")).toBeInTheDocument();
+  });
 });

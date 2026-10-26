@@ -112,6 +112,96 @@ def test_request_cannot_enable_security_or_supply_a_backdated_cutoff():
             NotificationDeliveryUpdate.model_validate(payload)
 
 
+def _required_on(now=NOW):
+    return delivery.DeliveryPolicy.from_value(
+        delivery.with_required_kinds({"enabled": True, "types": {}}, now)
+    )
+
+
+def test_required_kinds_turn_on_without_backlog():
+    policy = _required_on()
+    for kind in delivery.REQUIRED_KINDS:
+        assert policy.allows(kind, NOW)
+        assert not policy.allows(kind, NOW - timedelta(seconds=1))
+    assert not policy.kind_enabled("mentions")
+    # Drugi start niczego nie zmienia.
+    assert (
+        delivery.with_required_kinds(
+            delivery.updated_value(policy, enabled=True, toggles={}, now=NOW), NOW
+        )
+        is None
+    )
+
+
+def test_required_kinds_respect_the_global_switch():
+    assert delivery.with_required_kinds(None, NOW) is None
+    assert delivery.with_required_kinds({"enabled": False}, NOW) is None
+
+
+def test_pausing_a_required_kind_needs_a_reason_and_survives_restart():
+    policy = _required_on()
+    with pytest.raises(delivery.RequiredKindReasonMissing):
+        delivery.updated_value(
+            policy, enabled=True, toggles={"client_interview": False}, now=NOW
+        )
+    with pytest.raises(delivery.RequiredKindReasonMissing):
+        delivery.updated_value(
+            policy,
+            enabled=True,
+            toggles={"client_interview": False},
+            now=NOW,
+            reason="   ",
+        )
+    later = NOW + timedelta(hours=1)
+    paused = delivery.DeliveryPolicy.from_value(
+        delivery.updated_value(
+            policy,
+            enabled=True,
+            toggles={"client_interview": False},
+            now=later,
+            reason="klient prosi o przerwę",
+        )
+    )
+    assert not paused.kind_enabled("client_interview")
+    assert paused.paused_reason("client_interview") == "klient prosi o przerwę"
+    # Kolejny zapis innego przełącznika zostawia powód, a start go nie cofa.
+    kept = delivery.DeliveryPolicy.from_value(
+        delivery.updated_value(
+            paused, enabled=True, toggles={"mentions": True}, now=later
+        )
+    )
+    assert kept.paused_reason("client_interview") == "klient prosi o przerwę"
+    assert (
+        delivery.with_required_kinds(
+            delivery.updated_value(kept, enabled=True, toggles={}, now=later), later
+        )
+        is None
+    )
+    # Włączenie z powrotem zdejmuje powód.
+    back = delivery.DeliveryPolicy.from_value(
+        delivery.updated_value(
+            kept, enabled=True, toggles={"client_interview": True}, now=later
+        )
+    )
+    assert back.kind_enabled("client_interview")
+    assert back.paused_reason("client_interview") is None
+    # Zwykły mail wyłącza się bez powodu, jak dotąd.
+    delivery.updated_value(back, enabled=True, toggles={"mentions": False}, now=later)
+
+
+def test_settings_payload_carries_a_bounded_pause_reason():
+    from app.api.settings import NotificationDeliveryUpdate
+
+    payload = NotificationDeliveryUpdate.model_validate(
+        {"enabled": True, "types": [], "reason": "przerwa"}
+    )
+    assert payload.reason == "przerwa"
+    with pytest.raises(ValidationError):
+        NotificationDeliveryUpdate.model_validate(
+            {"enabled": True, "reason": "x" * (delivery.PAUSE_REASON_MAX + 1)}
+        )
+
+
 def test_sync_gate_fails_closed_without_calling_sender(monkeypatch):
     def fail():
         raise RuntimeError("DB unavailable")

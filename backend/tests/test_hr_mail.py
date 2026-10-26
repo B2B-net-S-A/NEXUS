@@ -253,14 +253,19 @@ def test_hr_mail_applies_when_a_people_module_runs():
     assert prefs.APPLIES["hr_people"](_user(UserRole.admin), off)
 
 
-def test_muted_people_category_says_the_mail_stops_too():
+def test_muted_people_category_does_not_stop_the_required_mail():
+    # Od 26.10.2026 „Czas i ludzie” to mail obowiązkowy: wyciszony dzwonek
+    # go nie zatrzymuje, grupa wyłączona dla roli przez admina — tak.
     user = _user()
     spec = next(item for item in delivery.CATALOG if item["id"] == "hr_people")
     assert prefs._item(user, spec, company_enabled=True)["state"] == "on"
     user.muted_notification_categories = {"people": _AT}
     row = prefs._item(user, spec, company_enabled=True)
-    assert row["state"] == "bell_muted" and row["receiving"] is False
-    assert "„Czas i ludzie”" in row["note"]
+    assert row["state"] == "on" and row["receiving"] is True
+    user.role_muted_notification_types = frozenset({NotificationType.hr_leave_decided})
+    by_role = prefs._item(user, spec, company_enabled=True)
+    assert by_role["state"] == "role_muted" and by_role["receiving"] is False
+    assert "„Czas i ludzie”" in by_role["note"]
 
 
 # ── Kolejka maili (z bazą) ──────────────────────────────────────────────────
@@ -330,6 +335,8 @@ def _row(user: User, ntype: str, title: str, message: str, link: str):
 async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatch):
     async with AsyncSessionLocal() as db:
         boss = await _account(db)
+        # Stary wpis wyłączenia „Czas i ludzie” nic nie znaczy — mail jest
+        # obowiązkowy od 26.10.2026.
         off = await _account(db, email_opt_outs={"hr_people": _AT})
         # Kolejka bierze najstarsze wiersze paczkami po 50: powiadomienia HR,
         # które inne testy zostawiły przed chwilą (Kadry dostają je od każdego
@@ -360,7 +367,7 @@ async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatc
                 "Premia 1 500 zł.",
                 "/my-time",
             ),
-            # Konto z wyłączonym mailem „Czas i ludzie”.
+            # Konto ze starym wyłączeniem „Czas i ludzie” — mail i tak idzie.
             _row(
                 off,
                 "hr_leave_decided",
@@ -376,11 +383,13 @@ async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatc
             await outbox.dispatch(db)
             await outbox.dispatch(db)  # drugi przebieg nic nie dokłada
             mine = [item for item in sent if item[0] in {boss.email, off.email}]
-            assert sorted(subject for _to, subject, _t, _h in mine) == [
-                "[Nexus] Przypisano Ci sprawę administracja@",
-                "[Nexus] Zgłoszona nieobecność",
-            ]
-            assert all(to == boss.email for to, *_ in mine)
+            assert sorted((to, subject) for to, subject, _t, _h in mine) == sorted(
+                [
+                    (boss.email, "[Nexus] Przypisano Ci sprawę administracja@"),
+                    (boss.email, "[Nexus] Zgłoszona nieobecność"),
+                    (off.email, "[Nexus] Wniosek zaakceptowany"),
+                ]
+            )
             text = "\n".join(body for *_s, body, _h in mine)
             html = "\n".join(h for *_b, h in mine)
             for leaked in ("L4", "lekarsk", "Zaświadczenie", "zł"):
@@ -397,7 +406,7 @@ async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatc
                 ).all()
             )
             assert stamped[ids[0]] is not None and stamped[ids[1]] is not None
-            assert stamped[ids[2]] is None and stamped[ids[3]] is None
+            assert stamped[ids[2]] is None and stamped[ids[3]] is not None
         finally:
             for row in rows:
                 await db.delete(row)
@@ -409,11 +418,13 @@ async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatc
 @pytest.mark.asyncio
 async def test_rows_nobody_receives_do_not_block_the_mail_queue(monkeypatch):
     async with AsyncSessionLocal() as db:
-        muted = await _account(db, muted_notification_categories={"people": _AT})
+        # Pracownik bez sekcji rekrutacji nie dostaje „Klient zaakceptował”
+        # (wyciszony dzwonek już nie wystarcza — mail jest obowiązkowy).
+        muted = await _account(db)
         boss = await _account(db)
         sent = _wire(monkeypatch, _policy_on(datetime.now(timezone.utc)))
         rows = [
-            _row(muted, "hr_leave_decided", "Wniosek zaakceptowany", "Termin.", "/")
+            _row(muted, "client_accepted", "Klient zaakceptował", "Osoba.", "/")
             for _ in range(outbox.BATCH)
         ]
         rows.append(
@@ -497,12 +508,13 @@ async def test_my_emails_list_the_hr_mail_only_while_a_module_runs(app_client):
         on = await app_client.get("/api/users/me/email-notifications", headers=headers)
         assert on.status_code == 200
         assert "hr_people" in {item["id"] for item in on.json()["items"]}
+        # Mail obowiązkowy (26.10.2026) — konto nie może go wyłączyć.
         saved = await app_client.put(
             "/api/users/me/email-notifications/hr_people",
             headers=headers,
             json={"enabled": False},
         )
-        assert saved.status_code == 200
+        assert saved.status_code == 409
 
         await _set_modules({})
         off = (

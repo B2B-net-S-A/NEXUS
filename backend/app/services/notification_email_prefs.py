@@ -57,6 +57,7 @@ from app.services.notification_delivery import (
     CATALOG,
     DIGEST_KIND,
     HR_MAIL_KIND,
+    REQUIRED_KINDS,
     RESUMED_KEY,
     SECURITY_CATALOG,
     email_opted_out,
@@ -93,6 +94,13 @@ class UnknownEmailKind(ValueError):
 
 class EmailKindNotApplicable(ValueError):
     """Ten mail nie trafia do konta z taką rolą — nie ma czego wyłączać."""
+
+
+class EmailKindRequired(ValueError):
+    """Mail obowiązkowy (26.10.2026) — konto nie może go wyłączyć sobie."""
+
+
+REQUIRED_NOTE = "Mail obowiązkowy — przychodzi zawsze, bo ktoś czeka na Twój ruch."
 
 
 @dataclass(frozen=True)
@@ -324,11 +332,27 @@ def _bell_block(user: User, kind: str) -> tuple[str, str] | None:
     )
 
 
-def _item(user: User, spec: Mapping[str, Any], *, company_enabled: bool) -> dict:
+def _item(
+    user: User,
+    spec: Mapping[str, Any],
+    *,
+    company_enabled: bool,
+    paused_reason: str | None = None,
+) -> dict:
     kind = spec["id"]
+    required = kind in REQUIRED_KINDS
     self_enabled = not email_opted_out(user, kind)
     blocked = _bell_block(user, kind)
-    if not company_enabled:
+    if required and blocked is not None and blocked[0] == "bell_muted":
+        # Mail obowiązkowy nie stoi za własnym wyciszeniem dzwonka
+        # (`notification_triggers.emit`); grupa wyłączona dla roli — tak.
+        blocked = None
+    if not company_enabled and paused_reason:
+        state, note = (
+            "company_off",
+            f"Wstrzymany dla całej firmy przez administratora: {paused_reason}",
+        )
+    elif not company_enabled:
         state, note = (
             "company_off",
             "Wyłączone dla całej firmy przez administratora — teraz nikt go nie dostaje.",
@@ -337,12 +361,15 @@ def _item(user: User, spec: Mapping[str, Any], *, company_enabled: bool) -> dict
         state, note = "self_off", "Wyłączone przez Ciebie."
     elif blocked is not None:
         state, note = blocked
+    elif required:
+        state, note = "on", REQUIRED_NOTE
     else:
         state, note = "on", None
     return dict(
         id=kind,
         label=spec["label"],
         description=spec["trigger"],
+        required=required,
         company_enabled=company_enabled,
         self_enabled=self_enabled,
         receiving=state == "on",
@@ -364,7 +391,14 @@ async def my_view(db: AsyncSession, user: User) -> dict[str, Any]:
         if kind not in _OPTABLE:
             continue
         if APPLIES[kind](user, ctx):
-            items.append(_item(user, spec, company_enabled=policy.kind_enabled(kind)))
+            items.append(
+                _item(
+                    user,
+                    spec,
+                    company_enabled=policy.kind_enabled(kind),
+                    paused_reason=policy.paused_reason(kind),
+                )
+            )
         else:
             not_applicable.append(dict(id=kind, label=spec["label"]))
     return dict(
@@ -386,6 +420,8 @@ async def set_enabled(db: AsyncSession, user: User, kind: str, enabled: bool) ->
     # który do konta w ogóle trafia — inaczej zapis nic by nie znaczył.
     if not enabled and not APPLIES[kind](user, await _context_safely(db, user)):
         raise EmailKindNotApplicable(kind)
+    if not enabled and kind in REQUIRED_KINDS:
+        raise EmailKindRequired(kind)
     if kind == DIGEST_KIND:
         user.daily_digest_email_enabled = enabled
         return
@@ -428,7 +464,7 @@ async def opt_out_summary(db: AsyncSession) -> dict[str, list[str]]:
             for kind, since in (
                 opt_outs.items() if isinstance(opt_outs, Mapping) else ()
             )
-            if since and kind in _OPTABLE
+            if since and kind in _OPTABLE and kind not in REQUIRED_KINDS
         }
         if digest_enabled is False:
             kinds.add(DIGEST_KIND)
