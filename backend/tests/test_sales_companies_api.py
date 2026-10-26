@@ -66,14 +66,16 @@ async def test_view_reads_but_cannot_write(app_client) -> None:
 async def test_create_warns_about_duplicate_name_or_nip(app_client) -> None:
     rep = await _user("sales_edit")
     tag = uuid.uuid4().hex[:8]
+    digits = f"{uuid.uuid4().int % 10**10:010d}"
+    spaced = f"PL {digits[:3]}-{digits[3:6]}-{digits[6:8]}-{digits[8:]}"
     first = await app_client.post(
         URL,
-        json={"name": f"Kormoran {tag} S.A.", "nip": "PL 521-000-00-00"},
+        json={"name": f"Kormoran {tag} S.A.", "nip": spaced},
         headers=_headers(rep),
     )
     assert first.status_code == 201, first.text
     body = first.json()
-    assert body["nip"] == "5210000000"
+    assert body["nip"] == digits
     assert body["owner"]["id"] == rep.id
     assert body["open_opportunities"] == 0
 

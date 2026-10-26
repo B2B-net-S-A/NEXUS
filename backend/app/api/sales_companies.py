@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Annotated, Any, Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
@@ -19,20 +19,17 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.api.deps import require_permission
+from app.api.sales_gates import SalesEditUser, SalesViewUser, ensure_owner_or_admin
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.sales import SalesCompany
 from app.models.user import User
 from app.services import sales_schema as schema
-from app.services.action_permissions import ProductAction
 from app.services.company_names import normalize_company_name
 from app.services.sales import companies as service
 
 router = APIRouter()
 
-SalesViewUser = Annotated[User, Depends(require_permission(ProductAction.sales_view))]
-SalesEditUser = Annotated[User, Depends(require_permission(ProductAction.sales_edit))]
 
 NOT_FOUND_DETAIL = "Nie ma takiej firmy w kartotece sprzedaży."
 DUPLICATE_DETAIL = (
@@ -345,6 +342,8 @@ async def update_company(
     if company is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
     fields = payload.model_dump(exclude_unset=True)
+    if "owner_user_id" in fields and fields["owner_user_id"] != company.owner_user_id:
+        ensure_owner_or_admin(current_user, company.owner_user_id)
     if "name" in fields and not (fields["name"] or "").strip():
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Podaj nazwę firmy."
