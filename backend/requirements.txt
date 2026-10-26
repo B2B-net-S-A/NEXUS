@@ -91,6 +91,8 @@ sentry-sdk[fastapi]==2.69.1
 msal==1.38.0
 cryptography==50.0.1
 bleach==6.4.0
+# CSSSanitizer bleacha — style w stopce maila z Outlooka (m365/html_sanitize.py).
+tinycss2==1.5.1
 # Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
 rapidfuzz==3.14.5
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts

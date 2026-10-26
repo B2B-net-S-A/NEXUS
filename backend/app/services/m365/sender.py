@@ -66,15 +66,14 @@ from app.services.m365.actionable_messages import (
 from app.services.m365.access import require_eligible_connection_owner
 from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
-from app.services.m365.signature_cache import get_outlook_signature
+from app.services.m365.signature_cache import InlineImage, get_outlook_signature
 
 logger = logging.getLogger(__name__)
 
-# Phase 7.7 — visible divider between body and pulled signature so it's
-# obvious in the rendered mail where the user's signature begins. The
-# class hook lets the frontend (and our future inline editor) collapse
-# the block if needed.
-_SIGNATURE_DIVIDER = '<br><br><div class="nexus-signature">--</div>'
+# Phase 7.7 — stopka idzie pod treścią po jednym pustym wierszu, jak
+# w Outlooku. Do 26.10.2026 NEXUS wstawiał nad nią „--”, którego Outlook nie
+# ma. Klasa zostaje jako uchwyt bloku stopki.
+_SIGNATURE_OPEN = '<br><div class="nexus-signature">'
 
 # Outlook treats this header as the "this message has Actionable Messages"
 # signal — without it the JSON-LD `OpenAction` block is ignored and the user
@@ -118,8 +117,8 @@ class EmailSendConflict(RuntimeError):
 
 
 def _append_signature(body_html: str, signature_html: str) -> str:
-    """Concat signature onto a body separated by a visible divider."""
-    return body_html + _SIGNATURE_DIVIDER + signature_html
+    """Treść, pusty wiersz i stopka (bez „--”)."""
+    return body_html + _SIGNATURE_OPEN + signature_html + "</div>"
 
 
 def _sha(value: str) -> str:
@@ -286,20 +285,48 @@ def _definitely_not_sent(exc: BaseException) -> bool:
 
 async def _signature_body(
     gc: GraphClient, connection: M365Connection, body: str
-) -> str:
+) -> tuple[str, tuple[InlineImage, ...]]:
     # Phase 7.7 — append the user's Outlook signature so NEXUS-sent mail
     # matches what they'd get from Outlook itself. Memoized for 24h per
     # mailbox; failures are silent (no signature is better than no send).
+    # HTML stopki jest już oczyszczony w signature_cache (z jej stylami).
     if not settings.M365_SIGNATURE_INJECTION_ENABLED:
-        return body
-    signature_html = await get_outlook_signature(
+        return body, ()
+    signature = await get_outlook_signature(
         gc,
         user_id=connection.user_id,
         mailbox_upn=connection.mailbox_upn,
     )
-    if signature_html:
-        return _append_signature(body, sanitize_html(signature_html))
-    return body
+    if signature is not None and signature.html:
+        return _append_signature(body, signature.html), signature.inline_images
+    return body, ()
+
+
+async def _attach_inline_images(
+    gc: GraphClient, message_id: str, images: tuple[InlineImage, ...]
+) -> None:
+    """Dołącz logo stopki do szkicu, żeby ``cid:`` w treści miał obrazek.
+
+    Błąd = mail bez logo (pusta ramka), ale wysłany — jak przy samej stopce.
+    """
+    for image in images:
+        try:
+            await gc.post(
+                f"/me/messages/{message_id}/attachments",
+                json={
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": image.name,
+                    "contentType": image.content_type,
+                    "contentBytes": image.content_bytes,
+                    "contentId": image.content_id,
+                    "isInline": True,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — logo nie blokuje wysyłki
+            logger.warning(
+                "m365 sender: signature image not attached to draft (%s)",
+                type(exc).__name__,
+            )
 
 
 DraftBuilder = Callable[[GraphClient], Awaitable[dict[str, Any]]]
@@ -462,7 +489,7 @@ async def send_new(
         return replay
 
     async def _create(gc: GraphClient) -> dict[str, Any]:
-        full_body = await _signature_body(gc, connection, body_html)
+        full_body, images = await _signature_body(gc, connection, body_html)
         if full_body != body_html:
             _set_body(row, full_body)
         payload = {
@@ -471,7 +498,9 @@ async def send_new(
             "toRecipients": [{"emailAddress": {"address": a}} for a in to],
             "ccRecipients": [{"emailAddress": {"address": a}} for a in cc],
         }
-        return await gc.post("/me/messages", json=payload)
+        draft = await gc.post("/me/messages", json=payload)
+        await _attach_inline_images(gc, draft["id"], images)
+        return draft
 
     return await _deliver(
         db, connection, row, create_draft=_create, commit=commit_reservation
@@ -661,7 +690,7 @@ async def reply(
     async def _create(gc: GraphClient) -> dict[str, Any]:
         # Phase 7.7 — createReply auto-quotes the thread but does NOT include
         # the user's signature, so we still need to append it.
-        full_body = await _signature_body(gc, connection, body_html)
+        full_body, images = await _signature_body(gc, connection, body_html)
         if full_body != body_html:
             _set_body(row, full_body)
         # 1) Create reply draft (Graph fills in recipients, subject, history).
@@ -679,6 +708,7 @@ async def reply(
                 }
             },
         )
+        await _attach_inline_images(gc, draft["id"], images)
         return draft
 
     return await _deliver(

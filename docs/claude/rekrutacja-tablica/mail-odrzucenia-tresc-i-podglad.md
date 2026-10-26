@@ -6,7 +6,7 @@ Decyzje Artura D1–D6 z 13.10.2026 (makiety:
 https://claude.ai/artifact/2YZDg3zkKYxayvWayRiZxs). Pierwszy mail odrzucenia
 z produkcji poszedł z treścią z kodu („zaangażowanie w proces… zakończenie
 współpracy”) i z dwoma pożegnaniami: własnym „Pozdrawiam, imię z konta NEXUSA”
-i podpisem Outlooka, który `m365/sender.py` dokleja po „--” do każdego maila.
+i podpisem Outlooka, który `m365/sender.py` dokleja pod treścią każdego maila.
 
 ## Treść domyślna
 

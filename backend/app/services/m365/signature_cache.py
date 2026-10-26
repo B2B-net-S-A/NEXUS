@@ -61,12 +61,31 @@ from typing import Optional
 
 from app.core.config import settings
 from app.services.m365.graph_client import GraphClient, GraphRequestError
+from app.services.m365.html_sanitize import sanitize_signature_html
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class InlineImage:
+    """Obrazek stopki (logo) — załącznik ``isInline`` wskazany przez ``cid:``."""
+
+    content_id: str
+    name: str
+    content_type: str
+    content_bytes: str  # base64, tak jak zwraca i przyjmuje Graph
+
+
+@dataclass(frozen=True)
+class OutlookSignature:
+    """Oczyszczony HTML stopki i obrazki, do których odsyła przez ``cid:``."""
+
+    html: str
+    inline_images: tuple[InlineImage, ...] = ()
+
+
 _CacheKey = tuple[int, str]
-_CacheEntry = tuple[Optional[str], datetime]
+_CacheEntry = tuple[Optional[OutlookSignature], datetime]
 
 # Module-level cache. Negative results are stored as `(None, expires_at)`.
 _cache: dict[_CacheKey, _CacheEntry] = {}
@@ -346,8 +365,8 @@ async def get_outlook_signature(
     *,
     user_id: int,
     mailbox_upn: str,
-) -> Optional[str]:
-    """Return the user's signature HTML, or None when unavailable.
+) -> Optional[OutlookSignature]:
+    """Return the user's signature (HTML + inline logo), or None when unavailable.
 
     On cache hit (within TTL) the cached value (possibly None) is returned
     without touching Graph. On miss we fetch the last sent message, parse
@@ -385,7 +404,7 @@ _SENT_ITEMS_PROBE_DEPTH = 10
 
 async def _fetch_signature_from_sent_items(
     gc: GraphClient, *, owner_email: Optional[str] = None
-) -> Optional[str]:
+) -> Optional[OutlookSignature]:
     """Find the user's signature by scanning recent sent messages.
 
     Strategy: fetch the last ``_SENT_ITEMS_PROBE_DEPTH`` sent messages in
@@ -399,7 +418,7 @@ async def _fetch_signature_from_sent_items(
             params={
                 "$top": _SENT_ITEMS_PROBE_DEPTH,
                 "$orderby": "sentDateTime desc",
-                "$select": "body",
+                "$select": "id,body",
             },
         )
     except GraphRequestError as exc:
@@ -426,8 +445,86 @@ async def _fetch_signature_from_sent_items(
             continue
         signature = extract_signature(content, owner_email)
         if signature is not None:
-            return signature
+            return await _with_inline_images(gc, msg.get("id"), signature)
     return None
+
+
+# Logo w stopce Outlooka to załącznik ``isInline`` tej samej wiadomości, a HTML
+# odsyła do niego przez ``src="cid:…"``. Do 26.10.2026 NEXUS kopiował sam HTML
+# i odbiorca widział pustą ramkę zamiast logo.
+_IMG_CID_RE = re.compile(
+    r"""<img\b[^>]*\bsrc\s*=\s*["']cid:([^"']+)["'][^>]*>""", re.IGNORECASE
+)
+# Logo stopki ma kilka–kilkadziesiąt KB; większy załącznik „w treści” to
+# zdjęcie z maila, nie stopka.
+_MAX_INLINE_IMAGE_BYTES = 200_000
+_MAX_INLINE_IMAGES = 5
+
+
+async def _with_inline_images(
+    gc: GraphClient, message_id: Optional[str], signature_html: str
+) -> OutlookSignature:
+    """Oczyść stopkę i dobierz jej obrazki; obrazek bez danych wypada z HTML."""
+    clean = sanitize_signature_html(signature_html)
+    wanted = set(_IMG_CID_RE.findall(clean))
+    images: tuple[InlineImage, ...] = ()
+    if wanted and message_id:
+        images = await _fetch_inline_images(gc, message_id, wanted)
+    found = {image.content_id for image in images}
+    clean = _IMG_CID_RE.sub(lambda m: m.group(0) if m.group(1) in found else "", clean)
+    return OutlookSignature(html=clean, inline_images=images)
+
+
+async def _fetch_inline_images(
+    gc: GraphClient, message_id: str, wanted: set[str]
+) -> tuple[InlineImage, ...]:
+    base = f"/me/messages/{message_id}/attachments"
+    images: list[InlineImage] = []
+    try:
+        listing = await gc.get(base, params={"$select": "id,isInline,size"})
+        attachments = listing.get("value") if isinstance(listing, dict) else None
+        for att in attachments or []:
+            if len(images) >= _MAX_INLINE_IMAGES:
+                break
+            if (
+                not att.get("isInline")
+                or not att.get("id")
+                or (att.get("size") or 0) > _MAX_INLINE_IMAGE_BYTES
+            ):
+                continue
+            image = _inline_image(await gc.get(f"{base}/{att['id']}"), wanted)
+            if image is not None:
+                images.append(image)
+    except GraphRequestError as exc:
+        # Bez logo, ale ze stopką — wysyłka nie może od tego zależeć.
+        logger.warning(
+            "signature_cache: Graph %s while fetching signature images", exc.status
+        )
+        return ()
+    except Exception:  # noqa: BLE001 — jak przy pobieraniu wysłanych
+        logger.exception("signature_cache: unexpected error fetching signature images")
+        return ()
+    return tuple(images)
+
+
+def _inline_image(attachment: object, wanted: set[str]) -> Optional[InlineImage]:
+    if not isinstance(attachment, dict):
+        return None
+    content_id = (attachment.get("contentId") or "").strip().strip("<>")
+    content_type = attachment.get("contentType") or ""
+    data = attachment.get("contentBytes")
+    if (
+        content_id not in wanted
+        or not data
+        or not content_type.lower().startswith("image/")
+    ):
+        return None
+    return InlineImage(
+        content_id=content_id,
+        name=attachment.get("name") or content_id,
+        content_type=content_type,
+        content_bytes=data,
+    )
 
 
 def _clear_cache_for_tests() -> None:
