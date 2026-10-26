@@ -65,7 +65,11 @@ const DialogContent = React.forwardRef<
  // Na telefonie margines 0,5 rem z każdej strony (ramka i zaokrąglenie
  // widoczne); `dvh` — `vh` na iOS liczy wysokość bez paska Safari.
  "w-[calc(100%-1rem)] sm:w-full",
- dialogSizes[size], "bg-card text-foreground","border border-border rounded-xl shadow-md","max-h-[90dvh] overflow-hidden","data-[state=open]:animate-fadeIn",
+ // `overflow-clip`, nie `overflow-hidden`: okno z `hidden` da się przewinąć
+ // skryptem, a fokus na polu leżącym poza oknem (ukryte radio `sr-only`
+ // w przewijanej treści) przesuwał całe okno — biała plansza bez
+ // nagłówka i stopki, bez powrotu kółkiem (debrief, 26.10.2026).
+ dialogSizes[size], "bg-card text-foreground","border border-border rounded-xl shadow-md","max-h-[90dvh] overflow-clip","data-[state=open]:animate-fadeIn",
  className
  )}
  {...props}
