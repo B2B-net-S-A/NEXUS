@@ -347,7 +347,14 @@ async def test_dry_run_writes_nothing_and_apply_fills_only_empty_pairs(
     receipt = await _setting("client_rate_notes_backfill_2026_10")
     details = await _setting("repair_details_client_rate_notes_backfill_2026_10")
     assert sent_row in receipt["runs"][-1]["stage_ids"]
-    assert "161" not in str(receipt)
+    # Kwota, nie ciąg cyfr: id etapów i osób w paragonie bywają np. 2161
+    # (sekwencje we wspólnej bazie CI), a to nie jest wyciek stawki.
+    assert "161.00" not in str(receipt)
+    assert not any(
+        isinstance(value, (float, Decimal)) or str(value) == "161"
+        for run in receipt["runs"]
+        for value in run.values()
+    )
     assert {"stage_id": sent_row, "value": "161.00"}.items() <= next(
         row for row in details["rows"] if row["stage_id"] == sent_row
     ).items()
