@@ -544,9 +544,16 @@ def test_contract_docx_filename_uses_contract_number_and_is_exposed_to_browser()
     )
 
     assert _contract_docx_filename("1472/2026") == "Umowa B2B 1472-2026.docx"
-    response = _docx_response(b"PK\x03\x04 fake docx", "1472/2026")
+    # 26.10.2026 (Sandra): „Umowa B2B [nr umowy] Kowalski Jan”, bez ogonków.
+    assert (
+        _contract_docx_filename("1472/2026", "Jan Kowalski")
+        == "Umowa B2B 1472-2026 Kowalski Jan.docx"
+    )
+    response = _docx_response(
+        b"PK\x03\x04 fake docx", "1472/2026", person_name="Łukasz Żółciński"
+    )
     assert response.headers["Content-Disposition"] == (
-        'attachment; filename="Umowa B2B 1472-2026.docx"'
+        'attachment; filename="Umowa B2B 1472-2026 Zolcinski Lukasz.docx"'
     )
     assert response.headers["X-Contract-Number"] == "1472/2026"
     assert "Content-Disposition" in response.headers["Access-Control-Expose-Headers"]

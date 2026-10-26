@@ -12,6 +12,7 @@ import { useState } from "react";
 import { CheckCircle2, Download, Loader2, Upload } from "lucide-react";
 
 import { SignedPdfField } from "@/components/v2/b2b-generator/esign/SignedPdfField";
+import { parseDispositionFilename } from "@/lib/cv-generator";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,7 +45,7 @@ const TOOLS: { id: Tool; label: string; title: string; steps: string[] }[] = [
   {
     id: "mobywatel",
     label: "mObywatel",
-    title: "mObywatel — za darmo, e-dowód i telefon z NFC",
+    title: "mObywatel: za darmo, e-dowód i telefon z NFC",
     steps: [
       "Prześlij sobie pobrany PDF na telefon.",
       "W aplikacji mObywatel wybierz podpis kwalifikowany i wskaż ten plik.",
@@ -55,11 +56,11 @@ const TOOLS: { id: Tool; label: string; title: string; steps: string[] }[] = [
   {
     id: "simplysign",
     label: "SimplySign",
-    title: "SimplySign (Certum) — podpis w chmurze",
+    title: "SimplySign (Certum): podpis w chmurze",
     steps: [
       "Otwórz program do podpisu Certum (np. proSigner) i połącz się z SimplySign na telefonie.",
       "Wybierz pobrany PDF.",
-      "Jako format wybierz PAdES — podpis w pliku PDF.",
+      "Jako format wybierz PAdES (podpis w pliku PDF).",
       "Zapisz podpisany PDF i wgraj go w kroku 3.",
     ],
   },
@@ -70,7 +71,7 @@ const TOOLS: { id: Tool; label: string; title: string; steps: string[] }[] = [
     steps: [
       "Włóż kartę do czytnika i otwórz program do podpisu.",
       "Wybierz „Podpisz plik” i wskaż pobrany PDF.",
-      "Jako format wybierz PAdES — podpis w pliku PDF.",
+      "Jako format wybierz PAdES (podpis w pliku PDF).",
       "Zapisz podpisany PDF i wgraj go w kroku 3.",
     ],
   },
@@ -79,9 +80,9 @@ const TOOLS: { id: Tool; label: string; title: string; steps: string[] }[] = [
     label: "Inny",
     title: "Inne narzędzie z podpisem kwalifikowanym",
     steps: [
-      "Sigillum, EuroCert, mSzafir i inne — każdy podpis kwalifikowany z UE się liczy.",
+      "Sigillum, EuroCert, mSzafir i inne: każdy podpis kwalifikowany z UE się liczy.",
       "Podpisz pobrany PDF bez zmian w treści.",
-      "Jako format wybierz PAdES — podpis w pliku PDF.",
+      "Jako format wybierz PAdES (podpis w pliku PDF).",
     ],
   },
 ];
@@ -126,12 +127,12 @@ function ToolGuide() {
       </div>
       <p className="rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
         <strong>Ważne:</strong> wybierz podpis <strong>w pliku PDF</strong> (PAdES). Osobny plik
-        z podpisem (.xades, .sig) zostanie odrzucony — ten sam PDF ma zostać umową.
+        z podpisem (.xades, .sig) zostanie odrzucony, bo umową ma zostać ten sam PDF.
       </p>
       <p className="text-sm text-muted-foreground">
         Nie masz podpisu kwalifikowanego? Najszybciej mObywatel z e-dowodem (za darmo) albo
         jednorazowy podpis mSzafir przez bank (ok. 15 zł). Wolisz podpisać ręcznie? Napisz do
-        osoby, która wysłała link — wyśle umowę mailem jak dotąd.
+        osoby, która wysłała link. Wyśle umowę mailem jak dotąd.
       </p>
     </div>
   );
@@ -153,7 +154,7 @@ export default function B2BSignForm({
     return (
       <Alert
         variant="success"
-        title={state === "completed" ? "Umowa podpisana przez obie strony" : "Dziękujemy — podpis przyjęty"}
+        title={state === "completed" ? "Umowa podpisana przez obie strony" : "Dziękujemy, podpis przyjęty"}
         description={
           state === "completed"
             ? "Kopię podpisaną przez obie strony dostaniesz od osoby z B2B Network."
@@ -182,7 +183,11 @@ export default function B2BSignForm({
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement("a");
     a.href = url;
-    a.download = "umowa_do_podpisu.pdf";
+    // Nazwę („Umowa B2B [nr] Nazwisko Imię”) układa serwer (26.10.2026).
+    a.download = parseDispositionFilename(
+      res.headers.get("content-disposition") ?? "",
+      "Umowa B2B.pdf",
+    );
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -214,14 +219,14 @@ export default function B2BSignForm({
       <li className="space-y-2">
         <p className="font-semibold">1. Pobierz umowę</p>
         <p className="text-sm text-muted-foreground">
-          Przeczytaj PDF. Nie zmieniaj w nim niczego — NEXUS porówna plik z wysłanym.
+          Przeczytaj PDF. Nie zmieniaj w nim niczego, NEXUS porówna plik z wysłanym.
         </p>
         <Button type="button" variant="outline" onClick={() => void download()}>
           <Download className="h-4 w-4" aria-hidden /> Pobierz PDF
         </Button>
       </li>
       <li className="space-y-2">
-        <p className="font-semibold">2. Podpisz podpisem kwalifikowanym — wybierz, czym podpisujesz</p>
+        <p className="font-semibold">2. Podpisz podpisem kwalifikowanym: wybierz, czym podpisujesz</p>
         <ToolGuide />
       </li>
       <li className="space-y-3">

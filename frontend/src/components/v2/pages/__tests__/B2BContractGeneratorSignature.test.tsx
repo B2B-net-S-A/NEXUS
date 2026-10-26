@@ -1055,7 +1055,12 @@ describe("GeneratedContractsTab — podpisany plik umowy (0496)", () => {
 
   it("audyt 22.10, F45: wiersz oznaczony ręcznie po podpisie w NEXUSIE daje pobrać plik do „Dołącz”", async () => {
     const blob = new Blob(["%PDF"]);
-    mocks.signedPdf.mockResolvedValue({ data: blob });
+    mocks.signedPdf.mockResolvedValue({
+      data: blob,
+      headers: {
+        "content-disposition": 'attachment; filename="Umowa B2B 1555-2026 Kowalski Jan podpisana.pdf"',
+      },
+    });
     const esign = {
       request_id: 4,
       status: "completed" as const,
@@ -1090,6 +1095,10 @@ describe("GeneratedContractsTab — podpisany plik umowy (0496)", () => {
     expect(buttons).toHaveLength(1);
     await userEvent.click(buttons[0]);
     await waitFor(() => expect(mocks.signedPdf).toHaveBeenCalledWith(4));
-    expect(mocks.downloadBlob).toHaveBeenCalledWith(blob, "umowa_4_podpisana.pdf");
+    // Nazwę układa serwer (26.10.2026): „Umowa B2B [nr] Nazwisko Imię”.
+    expect(mocks.downloadBlob).toHaveBeenCalledWith(
+      blob,
+      "Umowa B2B 1555-2026 Kowalski Jan podpisana.pdf",
+    );
   });
 });

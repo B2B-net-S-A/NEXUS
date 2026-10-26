@@ -8,7 +8,7 @@ import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { B2BGeneratedContractRow } from "@/lib/api";
 import { b2bEsignApi } from "@/lib/api/b2bEsign";
-import { downloadBlob } from "@/lib/cv-generator";
+import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 import { cn } from "@/lib/utils";
 
 function formatDay(value: string | null | undefined): string {
@@ -58,7 +58,15 @@ export function EsignSignedPdfButton({ row }: { row: B2BGeneratedContractRow }) 
   const toast = useToast();
   const download = useMutation({
     mutationFn: (requestId: number) => b2bEsignApi.signedPdf(requestId),
-    onSuccess: (res, requestId) => downloadBlob(res.data, `umowa_${requestId}_podpisana.pdf`),
+    // Nazwę („Umowa B2B [nr] Nazwisko Imię”) układa serwer.
+    onSuccess: (res) =>
+      downloadBlob(
+        res.data,
+        parseDispositionFilename(
+          String(res.headers?.["content-disposition"] ?? ""),
+          "Umowa B2B podpisana.pdf",
+        ),
+      ),
     onError: (error) => toast.showError(apiErrorMessage(error, "Nie udało się pobrać pliku.")),
   });
   const e = row.esign;

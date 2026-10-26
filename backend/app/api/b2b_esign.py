@@ -63,6 +63,7 @@ from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.schemas.b2b_contract_generator import B2BConfirmFullySignedRequest
 from app.services import storage_service
+from app.services.b2b_contract_filename import contract_file_name
 from app.services.b2b_esign import service
 from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_esign import settings as esign_settings
@@ -87,6 +88,20 @@ MSG_PDF = (
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+async def _pdf_disposition(
+    db: AsyncSession, request: B2BSigningRequest, suffix: str = ""
+) -> str:
+    """„Umowa B2B 1555-2026 Kowalski Jan.pdf” (Sandra i Klaudia, 26.10.2026)."""
+    row = await db.get(B2BGeneratedContract, request.generated_contract_id)
+    name = contract_file_name(
+        row.contract_number if row else None,
+        row.partner_name if row and row.partner_name else request.contractor_name,
+        ext="pdf",
+        suffix=suffix,
+    )
+    return f'attachment; filename="{name}"'
 
 
 def _sign_url(token: str) -> str:
@@ -535,7 +550,9 @@ async def company_signer_pdf(
         content=data,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="umowa_{request.id}_do_podpisu.pdf"',
+            "Content-Disposition": await _pdf_disposition(
+                db, request, "podpisana przez kontraktora"
+            ),
             "Cache-Control": "no-store",
         },
     )
@@ -594,7 +611,7 @@ async def signed_pdf(
         content=data,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="umowa_{request.id}_podpisana.pdf"',
+            "Content-Disposition": await _pdf_disposition(db, request, "podpisana"),
             "Cache-Control": "no-store",
         },
     )
@@ -712,7 +729,12 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
             replaced = await signed_file.attach(
                 db,
                 row=locked,
-                filename=f"umowa_{number.replace('/', '_')}_podpisana.pdf",
+                filename=contract_file_name(
+                    number,
+                    locked.partner_name if locked else None,
+                    ext="pdf",
+                    suffix="podpisana",
+                ),
                 content_type="application/pdf",
                 data=storage_service.read_b2b_signing_pdf(final_path),
                 actor_id=signer_id,
@@ -801,7 +823,7 @@ async def public_sign_pdf(
         content=data,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": 'attachment; filename="umowa_do_podpisu.pdf"',
+            "Content-Disposition": await _pdf_disposition(db, signing),
             "Cache-Control": "no-store",
         },
     )

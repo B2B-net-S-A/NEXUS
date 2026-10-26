@@ -45,7 +45,8 @@ export function SendForSignatureDialog({
   const [route, setRoute] = useState<Route>("nexus");
   const [email, setEmail] = useState("");
   const [signerId, setSignerId] = useState<number | null>(null);
-  const [days, setDays] = useState(14);
+  // 26.10.2026 (Sandra): krótkie terminy; przypomnienie dzień przed końcem.
+  const [days, setDays] = useState(3);
   const [checked, setChecked] = useState(false);
   const [result, setResult] = useState<EsignSendResult | null>(null);
   const [copied, setCopied] = useState(false);
@@ -214,9 +215,10 @@ export function SendForSignatureDialog({
                           value={days}
                           onChange={(e) => setDays(Number(e.target.value))}
                         >
+                          <option value={1}>1 dzień</option>
+                          <option value={3}>3 dni</option>
+                          <option value={5}>5 dni</option>
                           <option value={7}>7 dni</option>
-                          <option value={14}>14 dni</option>
-                          <option value={30}>30 dni</option>
                         </select>
                       </div>
                     </div>

@@ -40,10 +40,10 @@ MIN_DAYS, MAX_DAYS = 1, 30
 
 MSG_LINK = "Link jest nieprawidłowy albo wygasł. Poproś o nowy osobę z B2B Network."
 MSG_ALREADY_SIGNED = (
-    "Ta umowa jest już przez Ciebie podpisana — czekamy na podpis B2B Network."
+    "Ta umowa jest już przez Ciebie podpisana. Czekamy na podpis B2B Network."
 )
 MSG_CLOSED = "Ta umowa nie czeka już na podpis. Skontaktuj się z osobą z B2B Network."
-MSG_RACE = "Stan umowy zmienił się w trakcie sprawdzania podpisu — odśwież stronę."
+MSG_RACE = "Stan umowy zmienił się w trakcie sprawdzania podpisu. Odśwież stronę."
 MSG_OPEN_EXISTS = (
     "Ta umowa jest już wysłana do podpisu w NEXUSIE. Wycofaj tamtą wysyłkę, "
     "zanim wyślesz ponownie."
@@ -53,7 +53,7 @@ MSG_NOT_COMPANY_SIGNER = "Za B2B Network podpisuje osoba wskazana przy wysyłce.
 MSG_WAITS_FOR_CONTRACTOR = (
     "Najpierw podpisuje kontraktor — umowa jeszcze na niego czeka."
 )
-MSG_TOO_BIG = "Plik jest za duży — może mieć najwyżej 20 MB."
+MSG_TOO_BIG = "Plik jest za duży, może mieć najwyżej 20 MB."
 MSG_TOO_MANY_ATTEMPTS = (
     "Za dużo nieudanych prób z tego linku. Poproś osobę z B2B Network o nowy link."
 )

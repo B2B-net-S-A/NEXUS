@@ -89,6 +89,7 @@ from app.services.access_scope import (
     is_delivery_lead_governed,
     resolve_delivery_lead_assigned_client_ids,
 )
+from app.services.b2b_contract_filename import contract_file_name
 from app.services.b2b_documents import contract_annexes, signed_scan
 from app.services.b2b_documents import effects as document_effects
 from app.services.b2b_documents.contract_versions import version_for_variant
@@ -337,11 +338,11 @@ def _ascii_filename(name: str) -> str:
     return safe.strip("._") or "umowa"
 
 
-def _contract_docx_filename(contract_number: str | None) -> str:
-    """Publiczna nazwa pobieranego DOCX: ``Umowa B2B 1472-2026.docx``."""
-    number = re.sub(r"\s*/\s*", "-", (contract_number or "").strip())
-    label = _ascii_filename(number) if number else ""
-    return f"Umowa B2B {label}.docx" if label else "Umowa B2B.docx"
+def _contract_docx_filename(
+    contract_number: str | None, person_name: str | None = None
+) -> str:
+    """Publiczna nazwa pobieranego DOCX: ``Umowa B2B 1472-2026 Kowalski Jan.docx``."""
+    return contract_file_name(contract_number, person_name, ext="docx")
 
 
 def _docx_response(
@@ -349,13 +350,14 @@ def _docx_response(
     contract_number: str | None,
     *,
     generated_id: int | None = None,
+    person_name: str | None = None,
 ) -> Response:
     """Zwróć DOCX z nazwą widoczną dla frontendu także przez CORS.
 
     ``X-Generated-Contract-Id`` niesie id wiersza rejestru — formularz po
     pobraniu wie, KTÓRY wpis opisuje, i poprawka idzie do niego zamiast
     zakładać drugi wiersz z nowym numerem."""
-    filename = _contract_docx_filename(contract_number)
+    filename = _contract_docx_filename(contract_number, person_name)
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Access-Control-Expose-Headers": (
@@ -1977,7 +1979,11 @@ async def download_docx(
     data = await run_in_threadpool(render_contract_docx, contract, language=lang)
 
     number = contract.b2b_detail.contract_number if contract.b2b_detail else None
-    return _docx_response(data, number)
+    person = contract.candidate
+    person_name = (
+        " ".join(p for p in (person.name, person.lastname) if p) if person else None
+    )
+    return _docx_response(data, number, person_name=person_name)
 
 
 # ── Numeracja umów (auto, uwzględnia wcześniej wygenerowane) ──────────────────
@@ -2420,7 +2426,9 @@ async def render_standalone(
             f"— wybierz inny. Następny wolny: {fresh}/{row_year}."
         )
     await _stamp_candidate_contact_on_contract(db, payload)
-    return _docx_response(data, number, generated_id=created.id)
+    return _docx_response(
+        data, number, generated_id=created.id, person_name=created.partner_name
+    )
 
 
 async def _stamp_candidate_contact_on_contract(
@@ -3094,7 +3102,7 @@ async def download_generated_contract(
     )
     _reject_excel_row(row)
     data = await _render_generated_row_docx(db, row)
-    return _docx_response(data, row.contract_number)
+    return _docx_response(data, row.contract_number, person_name=row.partner_name)
 
 
 async def _render_generated_row_docx(
@@ -3331,7 +3339,7 @@ async def link_generated_contract_to_contract(
         from app.models.contract_document import ContractDocument, ContractDocumentType
         from app.services.storage_service import save_contract_document
 
-        filename = f"Umowa {row.contract_number.replace('/', '-')}.docx"
+        filename = contract_file_name(row.contract_number, row.partner_name, ext="docx")
         path, size = save_contract_document(
             contract.id,
             filename,
@@ -3507,7 +3515,9 @@ async def rerender_generated_contract(
     )
     await db.commit()
     await _stamp_candidate_contact_on_contract(db, payload)
-    return _docx_response(data, row.contract_number, generated_id=row.id)
+    return _docx_response(
+        data, row.contract_number, generated_id=row.id, person_name=row.partner_name
+    )
 
 
 _SIGNATURE_REQUEST_COOLDOWN = timedelta(hours=24)
