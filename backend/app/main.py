@@ -3371,6 +3371,12 @@ async def api_health_deep_check():
         EmployeeProfile,
         LeaveEntitlement,
     )
+    from app.models.sales import (
+        SalesActivity,
+        SalesCompany,
+        SalesOpportunity,
+        SalesPipelineStage,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3642,6 +3648,11 @@ async def api_health_deep_check():
         ("integration_webhooks", IntegrationWebhook),
         # 0455: „Ludzie w NEXUSIE” — kartoteka i rezerwacje zadań HR. Brak
         # tabeli = 500 na „Mój czas” / „Ludzie” i dublowane przebiegi zadań.
+        # 0601: Sprzedaż — bez tych tabel cała sekcja daje 500.
+        ("sales_companies", SalesCompany),
+        ("sales_pipeline_stages", SalesPipelineStage),
+        ("sales_opportunities", SalesOpportunity),
+        ("sales_activities", SalesActivity),
         ("employee_profiles", EmployeeProfile),
         ("leave_entitlements", LeaveEntitlement),
         ("company_days_off", CompanyDayOff),

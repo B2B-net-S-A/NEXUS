@@ -1169,6 +1169,18 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
+# Sprzedaż (Atlas → NEXUS, 0601): lejki, firmy, kontakty, szanse, aktywności
+# i pliki — JEDNO źródło z migracją (`app/services/sales_schema.py`).
+try:
+    from app.services import sales_schema as _sales_schema
+
+    _SALES_TABLE_DDL = [*_sales_schema.TABLE_DDL, *_sales_schema.INDEX_DDL]
+    _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
+except Exception as _sales_schema_err:  # noqa: BLE001
+    print(f"sales schema unavailable: {_sales_schema_err!r}")
+    _SALES_TABLE_DDL = []
+    _SALES_DATA_DDL = []
+
 # „Ludzie w NEXUSIE” (migracje 0455+): moduł kadrowy, czas pracy, płace,
 # sprzęt, opieka nad konsultantami, sprawy — JEDNO źródło z migracjami przez
 # agregator `app/services/hr_schema_bundle.py`. Wpięte na KOŃCACH faz.
@@ -6709,6 +6721,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # „Ludzie w NEXUSIE” — tabele, indeksy i CHECK-i ról (przed zasiewem
     # macierzy w `_DATA_STATEMENTS`).
     *_HR_COLUMN_DDL,
+    # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
+    *_SALES_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -8891,6 +8905,8 @@ SELECT 'job', id, 'archived',
     "AND EXISTS (SELECT 1 FROM marker)",
     # „Ludzie w NEXUSIE” — przełączniki modułów i zasiew roli „Pracownik”.
     *_HR_DATA_DDL,
+    # Sprzedaż — domyślny lejek „Sprzedaż” z etapami Atlasa.
+    *_SALES_DATA_DDL,
 ]
 
 
