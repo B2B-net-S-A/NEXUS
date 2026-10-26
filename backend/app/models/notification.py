@@ -244,8 +244,8 @@ class NotificationType(str, enum.Enum):
     # milczy” od 14 dni albo „Szukamy” bez pracy od 30 dni;
     # related_entity=(user, id), jeden zbiorczy wpis na odbiorcę i dzień.
     request_review_needed = "request_review_needed"
-    # 0523 (26.10.2026): ktoś inny niż Delivery Lead otworzył rekrutację
-    # (założył albo otworzył ponownie) u jego klienta — do DL-a rekrutacji,
+    # 0523 (26.10.2026): ktoś (także sam DL) otworzył rekrutację (założył
+    # albo otworzył ponownie) u klienta Delivery Leada — do DL-a rekrutacji,
     # bez niego do Head of Recruitment; related_entity=(job, id). Mail
     # obowiązkowy „Nowa rekrutacja u Twojego klienta”, kilka w 10 minut
     # jednym mailem (`services/client_job_opened.py`).

@@ -4,8 +4,8 @@ Revision ID: 0523_client_job_opened_notification
 Revises: 0520_talent_pool_team_visible
 
 Decyzja Artura 26.10.2026 (maile obowiązkowe, PR 3): Delivery Lead dostaje
-mail od razu, gdy ktoś inny otworzy rekrutację u jego klienta (założy albo
-otworzy ponownie). Kilka w 10 minut idzie jednym mailem
+mail od razu, gdy ktoś (także on sam) otworzy rekrutację u jego klienta
+(założy albo otworzy ponownie). Kilka w 10 minut idzie jednym mailem
 (``services/client_job_opened.py``). Sama wartość enuma; lustro
 w ``entrypoint.sh``. Numery 0521–0522 trzyma otwarty stos formularzy klienta;
 rewizja, która wejdzie do kolejki druga, przepina ``down_revision``.

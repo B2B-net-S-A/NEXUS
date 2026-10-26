@@ -12,9 +12,9 @@ wpisem; Traffit nie zakłada rekrutacji od 12.10. Działa tak samo dla ekranu
 i konta serwisowego API v1 (wpis bez autora).
 
 **Kto.** Delivery Lead rekrutacji, a bez aktywnego DL-a Head of Recruitment —
-ta sama reguła co ``request_allocation_notices.route_to_recipients``. Bez
-osoby, która rekrutację otworzyła: 52 z 56 rekrutacji z tych 14 dni założył
-ich własny DL, a mail o własnym kliknięciu to szum.
+ta sama reguła co ``request_allocation_notices.route_to_recipients``. Także
+wtedy, gdy DL otworzył rekrutację sam (decyzja Artura 26.10.2026; 52 z 56
+rekrutacji z tych 14 dni założył ich własny DL).
 
 **Kiedy.** Pętla triggerów (co 5 min, dni robocze) zakłada wpis dzwonka
 ``client_job_opened`` na parę (osoba, rekrutacja) i otwarcie. Kolejka maili
@@ -125,7 +125,7 @@ async def emit_opened(db: AsyncSession, now: datetime) -> int:
         )
     ).all()
     # Ostatnie otwarcie rekrutacji w oknie — ono się liczy.
-    latest = {job_id: (actor, at, details) for job_id, actor, at, details in events}
+    latest = {job_id: (at, details) for job_id, _actor, at, details in events}
     if not latest:
         return 0
 
@@ -175,7 +175,7 @@ async def emit_opened(db: AsyncSession, now: datetime) -> int:
 
     hor: Optional[list[int]] = None
     created = 0
-    for job_id, (actor, at, details) in latest.items():
+    for job_id, (at, details) in latest.items():
         if job_id not in jobs:
             continue
         job, client_name = jobs[job_id]
@@ -190,8 +190,6 @@ async def emit_opened(db: AsyncSession, now: datetime) -> int:
             reopened=reopened,
         )
         for user_id in recipients:
-            if user_id == actor:
-                continue
             seen = announced.get((user_id, job_id))
             if seen is not None and seen >= at:
                 continue

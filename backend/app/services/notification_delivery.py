@@ -108,11 +108,10 @@ CATALOG = (
         id="client_job_opened",
         label="Nowa rekrutacja u Twojego klienta",
         module="Rekrutacje",
-        trigger="Ktoś inny niż Ty założył albo ponownie otworzył rekrutację "
-        "u Twojego klienta. Kilka w ciągu 10 minut przychodzi jednym mailem.",
-        recipient_rule="Delivery Lead rekrutacji (bez niego: Head of Recruitment), "
-        "bez osoby, która rekrutację otworzyła. W mailu: rekrutacja, klient, "
-        "data otwarcia i kto ją prowadzi.",
+        trigger="Założenie albo ponowne otwarcie rekrutacji u Twojego klienta, "
+        "także przez Ciebie. Kilka w ciągu 10 minut przychodzi jednym mailem.",
+        recipient_rule="Delivery Lead rekrutacji (bez niego: Head of Recruitment). "
+        "W mailu: rekrutacja, klient, data otwarcia i kto ją prowadzi.",
     ),
     # Maile natychmiast (22.10.2026, „brak maila o terminach rozmów”) — typy
     # dzwonka z `BELL_MAIL_TYPES`, treść = tytuł i opis wpisu w dzwonku.

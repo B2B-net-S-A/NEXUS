@@ -58,9 +58,9 @@ w `REQUIRED_KINDS`; test pilnuje, że to rodzaj z katalogu.
   i 198 ponownych otwarć (185 naraz 12.10), wszystkie z tym wpisem; Traffit
   nie zakłada rekrutacji od 12.10. Konto serwisowe API v1 daje wpis bez autora.
 - **Kto**: DL rekrutacji, bez aktywnego DL-a — Head of Recruitment
-  (`route_to_recipients`). **Bez osoby, która otworzyła**: 52 z 56 założeń
-  z tych 14 dni zrobił sam DL rekrutacji, więc mail wychodzi głównie, gdy
-  rekrutację otworzy ktoś inny (admin, inny DL, rekruter, API).
+  (`route_to_recipients`). **Także gdy DL otworzył rekrutację sam**
+  (decyzja Artura 26.10.2026; 52 z 56 założeń z tych 14 dni zrobił sam DL
+  rekrutacji).
 - **Kiedy**: skaner w pętli triggerów (`client_job_opened.emit_opened`, co
   5 min w dni robocze, okno 72 h, żeby poniedziałek dogonił weekend) zakłada
   dzwonek na parę osoba–rekrutacja. Kolejka maili czeka, aż najstarszy wpis

@@ -1,8 +1,8 @@
 """„Nowa rekrutacja u Twojego klienta” — mail obowiązkowy dla DL-a (26.10.2026).
 
 Dzwonek powstaje z wpisu ``Activity`` ``published`` (założenie i ponowne
-otwarcie), do DL-a rekrutacji, a bez niego do Head of Recruitment, bez osoby,
-która otworzyła. Kolejka maili zbiera wpisy osoby z 10 minut w jeden mail.
+otwarcie), do DL-a rekrutacji, a bez niego do Head of Recruitment — także
+gdy DL otworzył ją sam (decyzja Artura 26.10.2026). Kolejka maili zbiera wpisy osoby z 10 minut w jeden mail.
 Dane fikcyjne (repo jest publiczne).
 """
 
@@ -159,7 +159,7 @@ async def _cleanup(db, objects: list) -> None:
 
 
 @pytest.mark.asyncio
-async def test_opening_rings_the_lead_but_not_the_one_who_opened_it():
+async def test_opening_rings_the_lead_also_when_the_lead_opened_it():
     async with AsyncSessionLocal() as db:
         lead = await _account(db, UserRole.delivery_lead, "Dorota Przykładowa")
         other_lead = await _account(db, UserRole.delivery_lead, "Daniel Przykładowy")
@@ -176,7 +176,8 @@ async def test_opening_rings_the_lead_but_not_the_one_who_opened_it():
         closed.status = JobStatus.closed
         events = [
             _published(by_other, tcm, FUTURE - timedelta(hours=2)),
-            # 52 z 56 rekrutacji z 14 dni założył sam DL — bez maila o sobie.
+            # 52 z 56 rekrutacji z 14 dni założył sam DL — mail i tak idzie
+            # (decyzja Artura 26.10.2026).
             _published(by_lead, lead, FUTURE - timedelta(hours=2)),
             # Konto serwisowe API (wpis bez autora), rekrutacja bez DL-a.
             _published(no_lead, None, FUTURE - timedelta(hours=1)),
@@ -195,10 +196,11 @@ async def test_opening_rings_the_lead_but_not_the_one_who_opened_it():
             got = {(b.user_id, b.related_entity_id) for b in bells}
             assert got == {
                 (lead.id, by_other.id),
+                (lead.id, by_lead.id),
                 (head.id, no_lead.id),
                 (other_lead.id, reopened.id),
             }
-            assert created >= 3  # inni Head of Recruitment ze wspólnej bazy też
+            assert created >= 4  # inni Head of Recruitment ze wspólnej bazy też
             by_job = {b.related_entity_id: b for b in bells}
             assert by_job[by_other.id].title == opened.TITLE
             assert by_job[by_other.id].link == f"/jobs/{by_other.id}"
@@ -207,7 +209,7 @@ async def test_opening_rings_the_lead_but_not_the_one_who_opened_it():
             # Drugi przebieg niczego nie dokłada.
             await opened.emit_opened(db, FUTURE)
             await db.commit()
-            assert len(await _bells(db, people)) == 3
+            assert len(await _bells(db, people)) == 4
         finally:
             leftovers = (
                 await db.scalars(
