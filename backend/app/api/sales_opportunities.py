@@ -32,6 +32,7 @@ from app.models.sales import (
 from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.polish_ilike import polish_folded_ilike
+from app.services.sales import company_dates
 from app.services.sales.lifecycle import apply_stage, deal_value
 
 pipelines_router = APIRouter()
@@ -476,7 +477,8 @@ async def create_opportunity(
         created_by_user_id=current_user.id,
     )
     _apply(opp, fields)
-    apply_stage(opp, stage, stages, now=datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
+    apply_stage(opp, stage, stages, now=now)
     db.add(opp)
     await db.flush()
     if opp.primary_contact_id is not None:
@@ -486,6 +488,10 @@ async def create_opportunity(
             )
         )
     await db.commit()
+    # D3: szansa w firmie to moment, w którym „kto tam pracuje” zaczyna się
+    # liczyć — uzupełniamy daty osób z tej firmy w tle (raz na 30 dni).
+    if company_dates.needs_run(company.dates_backfill, now=now):
+        company_dates.schedule_company_dates(company.id)
     return await _detail(db, opp.id)
 
 

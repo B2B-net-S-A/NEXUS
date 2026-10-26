@@ -33,6 +33,7 @@ from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.company_names import normalize_company_name
 from app.services.sales import companies as service
+from app.services.sales import company_dates
 
 router = APIRouter()
 
@@ -410,6 +411,8 @@ class CompanyPeopleOut(BaseModel):
     truncated: bool
     people: list[MatchedPerson]
     group: list[GroupCompanyPeople]
+    #: Stan uzupełniania dat osób z tej firmy (D3): ``status``, ``total``, ``updated``.
+    dates_backfill: Optional[dict[str, Any]]
 
 
 def _lookup_names(company: SalesCompany, client_name: Optional[str]) -> list[str]:
@@ -483,4 +486,28 @@ async def company_people(
         truncated=result.truncated,
         people=result.people,
         group=group,
+        dates_backfill=company.dates_backfill,
     )
+
+
+@router.post("/{company_id}/people/dates", response_model=dict[str, Any])
+async def fill_people_dates(
+    company_id: int,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Uzupełnij daty” w panelu — bieg w tle dla osób „bez dat” z tej firmy."""
+
+    company = await db.get(SalesCompany, company_id)
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
+    state = company.dates_backfill or {}
+    if state.get("status") == "running":
+        return {"scheduled": False, "state": state}
+    scheduled = company_dates.schedule_company_dates(company_id)
+    if not scheduled:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Uzupełnianie dat jest teraz wyłączone albo już trwa.",
+        )
+    return {"scheduled": True, "state": state}

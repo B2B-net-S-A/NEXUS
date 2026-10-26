@@ -480,12 +480,14 @@ async def _client_known_names(db: AsyncSession, client_id: int) -> list[str]:
 
 
 async def lookup_company_people(
-    db: AsyncSession, payload: CompanyPeopleRequest
+    db: AsyncSession, payload: CompanyPeopleRequest, *, limit: Optional[int] = None
 ) -> CompanyPeopleResponse:
     """Osoby z bazy przy firmie — wspólne dla CRM (OAuth) i Sprzedaży w NEXUSIE.
 
     Walidacja nazw (422), limit czasu zapytania (503) i kubełki jak w trasie
     ``/companies/people``; wołający decyduje o dopisaniu dat w tle.
+    ``limit`` ponad ``payload.limit`` jest dla wewnętrznych wołających (lista
+    wszystkich osób „bez dat” do uzupełnienia), nie dla API.
     """
     raw_names = [n.strip() for n in payload.names if n and n.strip()]
     if not raw_names:
@@ -513,6 +515,7 @@ async def lookup_company_people(
             raw_names=raw_names,
             canonical_by_raw=canonical_by_raw,
             canonical_names=canonical_names,
+            limit=limit or payload.limit,
         )
     except DBAPIError as exc:
         if not _is_statement_timeout(exc):
@@ -606,6 +609,7 @@ async def _lookup_company_people(
     raw_names: list[str],
     canonical_by_raw: dict[str, str],
     canonical_names: set[str],
+    limit: int,
 ) -> CompanyPeopleResponse:
     """The bounded lookup itself — every query below runs under the timeout."""
     # Transaction-local: resets on commit/rollback, never leaks to the pool.
@@ -766,12 +770,12 @@ async def _lookup_company_people(
     order = {"via_us": 0, "current": 1, "past": 2, "unknown": 3}
     people.sort(key=lambda p: (order[p.relationship], p.lastname or "", p.name or ""))
 
-    truncated = capped or len(people) > payload.limit
+    truncated = capped or len(people) > limit
     return CompanyPeopleResponse(
         query=raw_names[0],
         canonical=sorted(canonical_names)[0],
         matched_client=client,
         counts=counts,
         truncated=truncated,
-        people=people[: payload.limit],
+        people=people[:limit],
     )
