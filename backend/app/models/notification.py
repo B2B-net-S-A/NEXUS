@@ -91,7 +91,7 @@ class NotificationType(str, enum.Enum):
     signature_signed = "signature_signed"
     signature_rejected = "signature_rejected"
     signature_failed = "signature_failed"
-    # 0531: kontraktor z wygasłego linku prosi o nowy (podpis w NEXUSIE,
+    # 0603: kontraktor z wygasłego linku prosi o nowy (podpis w NEXUSIE,
     # 27.10.2026). Własny typ, bo dzienny dedup (user+typ+wniosek) zjadałby go
     # razem z dzwonkiem o wygaśnięciu z tego samego dnia.
     signature_renewal_requested = "signature_renewal_requested"

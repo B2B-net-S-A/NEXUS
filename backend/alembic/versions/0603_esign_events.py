@@ -1,7 +1,7 @@
 """Podpis umowy w NEXUSIE: dziennik zdarzeń wniosku i odcisk danych umowy.
 
-Revision ID: 0531_esign_events
-Revises: 0529_consent_screenshot_check
+Revision ID: 0603_esign_events
+Revises: 0602_sales_leads
 
 Pytanie zespołu z 27.10.2026: co, jeśli link do podpisu wygaśnie? Dotąd nowa
 wysyłka robiła nowy PDF z Worda, a LibreOffice daje za każdym razem inne bajty
@@ -23,8 +23,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0531_esign_events"
-down_revision = "0529_consent_screenshot_check"
+revision = "0603_esign_events"
+down_revision = "0602_sales_leads"
 branch_labels = None
 depends_on = None
 

@@ -83,7 +83,7 @@ def esign_history(requests: Iterable[B2BSigningRequest]) -> list[EsignHistoryEnt
         events = list(getattr(r, "events", None) or [])
         logged_expiry = any(e.get("kind") == "expired" for e in events)
         if r.status == "expired" and r.closed_at is not None and not logged_expiry:
-            # Wnioski sprzed dziennika zdarzeń (0531).
+            # Wnioski sprzed dziennika zdarzeń (0603).
             out.append(
                 EsignHistoryEntry(
                     f"esign-{r.id}-expired", r.closed_at, "Link do podpisu wygasł"
@@ -107,7 +107,7 @@ def _day(value: object) -> str:
 def _event_entry(
     request_id: int, index: int, event: dict
 ) -> Optional[EsignHistoryEntry]:
-    """Wpis z dziennika zdarzeń wniosku (0531, 27.10.2026)."""
+    """Wpis z dziennika zdarzeń wniosku (0603, 27.10.2026)."""
     try:
         at = datetime.fromisoformat(str(event.get("at")))
     except ValueError:

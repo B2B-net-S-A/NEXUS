@@ -81,7 +81,7 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
     terminie nie przyjmie (410);
   - każdy termin ma jedno przypomnienie (klucz maila z datą terminu);
     przedłużenia, nowe linki, prośby i wcześniejsze przypomnienia leżą
-    w `b2b_signing_requests.events` (0531) i trafiają do historii umowy.
+    w `b2b_signing_requests.events` (0603) i trafiają do historii umowy.
 - **Reprezentant firmy dostaje maila** (Olaf 26.10.2026: „nic mi nie
   przyszło” — był tylko dzwonek bez ikony na pasku): od razu po podpisie
   kontraktora (`_after_contractor_signed`, klucz `…-company`), potem

@@ -215,7 +215,7 @@ def test_entrypoint_mirrors_the_signing_table():
     entrypoint = (root / "entrypoint.sh").read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS b2b_signing_requests" in entrypoint
     assert "uq_b2b_signing_requests_open_per_row" in entrypoint
-    # 0531: dziennik zdarzeń i odcisk danych umowy (wygasły link, 27.10.2026).
+    # 0603: dziennik zdarzeń i odcisk danych umowy (wygasły link, 27.10.2026).
     assert "ADD COLUMN IF NOT EXISTS events" in entrypoint
     assert "source_payload_sha256 VARCHAR(64)" in entrypoint
     assert "'signature_renewal_requested'" in entrypoint
