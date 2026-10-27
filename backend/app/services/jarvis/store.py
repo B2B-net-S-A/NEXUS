@@ -20,6 +20,7 @@ from app.models.jarvis import (
     JarvisAction,
     JarvisConversation,
     JarvisConversationEntity,
+    JarvisGap,
     JarvisMessage,
 )
 
@@ -356,6 +357,34 @@ async def create_action(
         )
         await db.commit()
     return action_id
+
+
+async def create_gap(
+    *,
+    conversation_id: uuid.UUID,
+    user_id: int,
+    tool_use_id: str,
+    kind: str,
+    need: str,
+    why: str,
+    workaround: str,
+) -> uuid.UUID:
+    gap_id = uuid.uuid4()
+    async with AsyncSessionLocal() as db:
+        db.add(
+            JarvisGap(
+                id=gap_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                tool_use_id=tool_use_id,
+                kind=kind,
+                need=need,
+                why=why,
+                workaround=workaround,
+            )
+        )
+        await db.commit()
+    return gap_id
 
 
 # Akcja, której wykonanie się urwało (restart, wyjątek po wywołaniu trasy).

@@ -63,6 +63,8 @@ export function applyStreamEvent(state: JarvisTurnState, event: JarvisStreamEven
           { kind: "highlight", anchor: event.anchor, label: event.label, reason: event.reason },
         ],
       };
+    case "gap":
+      return { ...state, items: [...state.items, { kind: "gap", gap: event.gap }] };
     case "action_proposed":
       return {
         ...state,
