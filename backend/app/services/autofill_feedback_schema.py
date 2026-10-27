@@ -6,7 +6,7 @@ i siatki w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 rekruter to wie, kosz raportu liczony przy zapisie z migawki tego, co system
 wiedział, i ta migawka (``snapshot`` = ``entry_meta`` procesu, same nazwy
 wymagań i liczby). Z tych wierszy powstaje ekran „Jakość podpowiedzi” i raport
-poniedziałkowy. ``whole_client`` (0530): powód dotyczy osoby u całego klienta
+poniedziałkowy. ``whole_client`` (0603): powód dotyczy osoby u całego klienta
 — silnik nie podsuwa jej żadnej rekrutacji tego klienta.
 """
 
@@ -27,7 +27,7 @@ REASONS: tuple[str, ...] = (
     "not_looking",
     "no_answer",
     "in_other_process",
-    # Klient, nie osoba (0530, 27.10.2026): 13 z 20 „Inne” to „pracuje
+    # Klient, nie osoba (0603, 27.10.2026): 13 z 20 „Inne” to „pracuje
     # w Nordei przez inną firmę” albo „nie chce do Nordei”.
     "client_employed",
     "client_refused",
@@ -41,7 +41,7 @@ def _in(values: tuple[str, ...]) -> str:
     return ", ".join(f"'{v}'" for v in values)
 
 
-# 0530 (27.10.2026): powody „klient” i odrzucenie na cały klient. Więz powodów
+# 0603 (27.10.2026): powody „klient” i odrzucenie na cały klient. Więz powodów
 # ma JEDNĄ definicję — tu; entrypoint wykonuje cały ``TABLE_DDL`` przy każdym
 # starcie, więc DROP + ADD zawsze kończy się pełną listą.
 WHOLE_CLIENT_DDL: list[str] = [
