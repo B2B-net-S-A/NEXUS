@@ -42,6 +42,8 @@ class ProductAction(StrEnum):
     payroll = "payroll"
     equipment = "equipment"
     cases = "cases"
+    sales_view = "sales_view"
+    sales_edit = "sales_edit"
 
 
 class ActionAccess(IntEnum):

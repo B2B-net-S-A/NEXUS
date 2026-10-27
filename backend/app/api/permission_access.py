@@ -50,6 +50,8 @@ __all__ = [
     "DeliveryViewUser",
     "FinanceModuleUser",
     "RecruitmentManageUser",
+    "SalesEditUser",
+    "SalesViewUser",
     "ensure_any_permission",
     "ensure_permission",
     "has_permission",
@@ -81,6 +83,9 @@ AmountsViewUser = Annotated[
 AmountsEditUser = Annotated[
     User, Depends(require_permission(ProductAction.amounts_edit))
 ]
+# Sprzedaż (Atlas → NEXUS, 26.10.2026): odczyt i zapis sekcji Sprzedaż.
+SalesViewUser = Annotated[User, Depends(require_permission(ProductAction.sales_view))]
+SalesEditUser = Annotated[User, Depends(require_permission(ProductAction.sales_edit))]
 # Trasa mieszana (PATCH kontraktu, zamówienia, linii): edycja rekordu ALBO sama
 # zmiana kwot. Handler woła ``financial_access.assert_amounts_only``.
 ContractsOrdersOrAmountsEditUser = Annotated[

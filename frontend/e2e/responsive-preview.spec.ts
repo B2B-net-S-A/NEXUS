@@ -33,6 +33,8 @@ const PAGES = [
   "/preview/candidate-profile?tab=documents",
   "/preview/candidate-profile?tab=documents&role=recruiter",
   "/preview/career-share",
+  "/preview/sales",
+  "/preview/sales?view=list",
   "/preview/champion-profile",
   "/preview/chat-notifications",
   "/preview/topbar-topics",

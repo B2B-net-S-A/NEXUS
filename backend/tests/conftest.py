@@ -308,6 +308,19 @@ def _no_background_cv_generation_after_moves(monkeypatch):
     monkeypatch.setattr(settings, "CV_AUTO_GENERATE_ON_VERIFIED", False)
 
 
+@pytest.fixture(autouse=True)
+def _no_background_sales_company_dates(monkeypatch):
+    """Szansa w Sprzedaży odpala w tle uzupełnianie dat osób z firmy (D3).
+
+    Zadanie ma własną sesję bazy i przeżyłoby test, który je odpalił. Testy
+    biegu (`test_sales_company_dates.py`) wołają `run_company_dates` wprost.
+    """
+
+    from app.services.sales import company_dates
+
+    monkeypatch.setattr(company_dates, "schedule_company_dates", lambda _id: False)
+
+
 # ── QC CV — bramka przed „CV wysłane”/Cpro (Rekrutacja v5, 0361) ────────────
 
 
