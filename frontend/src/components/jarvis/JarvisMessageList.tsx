@@ -5,7 +5,9 @@
 import { useEffect, useRef } from "react";
 import { AlertCircle, MousePointerClick } from "lucide-react";
 import type { JarvisAction, JarvisItem, ScreenGuideTask } from "@/lib/jarvis/types";
+import { JarvisGapCard } from "./JarvisGapCard";
 import { JarvisGuideCard } from "./JarvisGuideCard";
+import { JarvisMailDraftCard } from "./JarvisMailDraftCard";
 import { JarvisActionCard } from "./JarvisActionCard";
 import { JarvisDeepLinkCard } from "./JarvisDeepLinkCard";
 import { JarvisMarkdown } from "./JarvisMarkdown";
@@ -20,6 +22,7 @@ interface Props {
   actionsDisabled?: boolean;
   onConfirm?: (action: JarvisAction) => void;
   onReject?: (action: JarvisAction) => void;
+  onUndo?: (action: JarvisAction) => void;
   onNavigate?: () => void;
   onGuideTask?: (task: ScreenGuideTask) => void;
   onShowAnchor?: (anchorId: string) => void;
@@ -34,6 +37,7 @@ export function JarvisMessageList({
   actionsDisabled,
   onConfirm,
   onReject,
+  onUndo,
   onNavigate,
   onGuideTask,
   onShowAnchor,
@@ -100,6 +104,10 @@ export function JarvisMessageList({
                 )}
               </div>
             );
+          case "mail_draft":
+            return <JarvisMailDraftCard key={`mail-${index}`} draft={item.draft} />;
+          case "gap":
+            return <JarvisGapCard key={item.gap.id} gap={item.gap} />;
           case "steps":
             return (
               <div key={index} className="pl-1">
@@ -115,6 +123,7 @@ export function JarvisMessageList({
                 disabled={actionsDisabled}
                 onConfirm={onConfirm}
                 onReject={onReject}
+                onUndo={onUndo}
               />
             );
           case "sources":

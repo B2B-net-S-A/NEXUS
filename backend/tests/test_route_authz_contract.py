@@ -231,8 +231,10 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/jarvis/chat"),
     ("POST", "/api/jarvis/actions/{action_id}/confirm"),
     ("POST", "/api/jarvis/actions/{action_id}/reject"),
+    ("POST", "/api/jarvis/actions/{action_id}/undo"),
     ("POST", "/api/jarvis/conversations/{conversation_id}/cancel"),
     ("POST", "/api/jarvis/ui-events"),
+    ("POST", "/api/jarvis/gaps/{gap_id}/report"),
     # Przewodniki ekranów Jarvisa — treść pomocy bez danych domenowych,
     # bliźniaczo do /api/procedures.
     ("GET", "/api/help/screens"),

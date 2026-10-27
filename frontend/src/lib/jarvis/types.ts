@@ -46,6 +46,7 @@ export interface JarvisStatus {
   web_enabled?: boolean;
   web_used_today?: number;
   web_limit?: number;
+  capabilities?: JarvisCapabilities;
 }
 
 export interface JarvisSource {
@@ -68,12 +69,51 @@ export interface JarvisAction {
   };
   /** `uncertain` = wykonanie przerwane w trakcie — nie wiadomo, czy się zapisało. */
   result?: { ok?: boolean; error?: string; uncertain?: boolean } | null;
+  /** Zapis wykonany od razu (notatka, dodanie do rekrutacji, „Moi ludzie”):
+   *  stan przycisku „Cofnij”; `null` = tej akcji się nie cofa. */
+  undo?: { state: "available" | "running" | "done" | "failed" | "expired"; until: string | null } | null;
 }
 
 export interface JarvisLink {
   href: string;
   label: string;
   reason: string;
+}
+
+/** Szkic maila do kandydata (`draft_email`) — wysyła człowiek z okna maila.
+ *  W historii brak nazwiska i adresu: karta doczytuje je przy otwarciu. */
+export interface JarvisMailDraft {
+  candidate_id: number;
+  candidate_name?: string;
+  email?: string;
+  subject: string;
+  body: string;
+}
+
+/** Czego Jarvisowi brakuje — lustro `GAP_KINDS` w `services/jarvis/gap_schema.py`. */
+export type GapKind = "no_access" | "not_supported" | "no_data";
+
+/** Karta „Tego nie zrobię” (`report_gap`, tabela `jarvis_gaps`). */
+export interface JarvisGap {
+  id: string;
+  kind: GapKind;
+  need: string;
+  why: string;
+  workaround: string;
+  reported: boolean;
+}
+
+/** Wiersz listy „Czego Jarvis nie umie” (`GET /api/jarvis/gaps`, admin). */
+export interface JarvisGapReportRow extends JarvisGap {
+  role: string;
+  created_at: string;
+}
+
+/** Pusty panel: co Jarvis zrobi za tę rolę (`services/jarvis/capabilities.py`). */
+export interface JarvisCapabilities {
+  read: string[];
+  write: string[];
+  never: string[];
 }
 
 /** Pozycja widoku rozmowy — i z historii (`GET …/conversations/{id}`), i ze strumienia. */
@@ -87,7 +127,10 @@ export type JarvisItem =
   /** Karta przewodnika ekranu — lokalnie, bez modelu. */
   | { kind: "guide"; guide: ScreenGuide }
   /** Element podświetlony na ekranie (show_on_screen albo „Pokaż na ekranie”). */
-  | { kind: "highlight"; anchor: string; label: string; reason: string };
+  | { kind: "highlight"; anchor: string; label: string; reason: string }
+  | { kind: "mail_draft"; draft: JarvisMailDraft }
+  /** Karta „Tego nie zrobię” (report_gap) z przyciskiem zgłoszenia potrzeby. */
+  | { kind: "gap"; gap: JarvisGap };
 
 /** Przewodnik ekranu (`GET /api/help/screens`, `backend/app/data/screen_guides`). */
 export interface ScreenGuideTask {
@@ -149,7 +192,10 @@ export type JarvisStreamEvent =
   /** Ponowienie wywołania modelu — to, co pokazano, jest do wyrzucenia. */
   | { type: "delta_reset" }
   | { type: "highlight"; anchor: string; label: string; reason: string }
-  | { type: "action_proposed"; action: JarvisAction }
+  | { type: "mail_draft"; draft: JarvisMailDraft }
+  | { type: "gap"; gap: JarvisGap }
+  /** Przy zapisie wykonanym od razu niesie też komunikat i klucze do odświeżenia. */
+  | { type: "action_proposed"; action: JarvisAction; message?: string; invalidates?: string[][] }
   | ({ type: "deep_link" } & JarvisLink)
   | { type: "sources"; items: JarvisSource[] }
   | { type: "error"; message: string; code?: string }

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type {
+  JarvisCapabilities as JarvisCapabilitiesData,
   JarvisAccent,
   JarvisAction,
   JarvisCharacterId,
@@ -32,6 +33,7 @@ import type {
   ScreenGuideTask,
 } from "@/lib/jarvis/types";
 import { JarvisCharacter } from "./characters/JarvisCharacter";
+import { JarvisCapabilities } from "./JarvisCapabilities";
 import { JarvisMessageList } from "./JarvisMessageList";
 
 export const JARVIS_MAX_MESSAGE = 4000;
@@ -47,6 +49,8 @@ export interface JarvisPanelProps {
   streaming: boolean;
   draft: string;
   suggestions: string[];
+  /** Z `GET /api/jarvis/status`; brak = starszy backend, pusty panel bez listy. */
+  capabilities?: JarvisCapabilitiesData;
   conversations?: JarvisConversationSummary[];
   conversationsLoading?: boolean;
   activeConversationId?: string | null;
@@ -64,6 +68,8 @@ export interface JarvisPanelProps {
   onClose: () => void;
   onConfirm: (action: JarvisAction) => void;
   onReject: (action: JarvisAction) => void;
+  /** „Cofnij” zapisu wykonanego od razu. */
+  onUndo?: (action: JarvisAction) => void;
   onNavigate?: () => void;
   /** Harness `/preview/jarvis`: panel w przepływie strony zamiast `fixed`. */
   inline?: boolean;
@@ -216,15 +222,19 @@ export function JarvisPanel(props: JarvisPanelProps) {
         <>
           <div className="flex-1 overflow-y-auto px-3 py-3">
             {items.length === 0 && !thinking ? (
-              <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-                <JarvisCharacter id={character} accent={accent} mood="listening" size={88} />
-                <div>
-                  <p className="text-sm font-semibold">Cześć, tu {name}!</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Zapytaj o kandydatów, rekrutacje, klientów czy kontrakty — albo zleć zadanie. Każdą zmianę
-                    najpierw Ci pokażę do zatwierdzenia.
-                  </p>
+              <div className="flex h-full flex-col gap-3">
+                <div className="flex items-center gap-3">
+                  <JarvisCharacter id={character} accent={accent} mood="listening" size={56} />
+                  <div>
+                    <p className="text-sm font-semibold">Cześć, tu {name}!</p>
+                    <p className="text-xs text-muted-foreground">
+                      {props.capabilities
+                        ? "Tyle mogę zrobić za Ciebie w Twojej roli:"
+                        : "Zapytaj o kandydatów, rekrutacje czy klientów — albo zleć zadanie."}
+                    </p>
+                  </div>
                 </div>
+                {props.capabilities && <JarvisCapabilities capabilities={props.capabilities} />}
               </div>
             ) : (
               <JarvisMessageList
@@ -235,6 +245,7 @@ export function JarvisPanel(props: JarvisPanelProps) {
                 actionsDisabled={streaming}
                 onConfirm={props.onConfirm}
                 onReject={props.onReject}
+                onUndo={props.onUndo}
                 onNavigate={props.onNavigate}
                 onGuideTask={props.onGuideTask}
                 onShowAnchor={props.onShowAnchor}

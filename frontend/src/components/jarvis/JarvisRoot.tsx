@@ -24,6 +24,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   cancelJarvisTurn,
   confirmAction,
+  undoAction,
   deleteConversation,
   fetchConversation,
   fetchConversations,
@@ -286,6 +287,9 @@ export function JarvisRoot() {
             onEvent: (event) => {
               if (event.type === "conversation") loadedConversation.current = event.conversation_id;
               if (event.type === "highlight") showHelpAnchor(event.anchor);
+              // Zapis wykonany od razu — ekran pod panelem ma pokazać zmianę.
+              if (event.type === "action_proposed")
+                for (const key of event.invalidates ?? []) queryClient.invalidateQueries({ queryKey: key });
               setTurn((t) => applyStreamEvent(t, event));
             },
           },
@@ -311,10 +315,15 @@ export function JarvisRoot() {
   );
 
   const decide = useCallback(
-    async (action: JarvisAction, decision: "confirm" | "reject") => {
+    async (action: JarvisAction, decision: "confirm" | "reject" | "undo") => {
       setBusyActionId(action.id);
       try {
-        const outcome = decision === "confirm" ? await confirmAction(action.id) : await rejectAction(action.id);
+        const outcome =
+          decision === "confirm"
+            ? await confirmAction(action.id)
+            : decision === "undo"
+              ? await undoAction(action.id)
+              : await rejectAction(action.id);
         setTurn((t) => ({
           ...t,
           items: replaceAction(t.items, outcome.action, outcome.follow_up, outcome.message),
@@ -657,6 +666,7 @@ export function JarvisRoot() {
           streaming={streaming}
           draft={draft}
           suggestions={suggestions}
+          capabilities={status?.capabilities}
           conversations={conversationsQuery.data}
           conversationsLoading={conversationsQuery.isLoading}
           activeConversationId={turn.conversationId}
@@ -682,6 +692,7 @@ export function JarvisRoot() {
           onOpenAppearance={() => setAppearanceOpen(true)}
           onClose={() => setOpen(false)}
           onConfirm={(a) => void decide(a, "confirm")}
+          onUndo={(a) => void decide(a, "undo")}
           onReject={(a) => void decide(a, "reject")}
           onNavigate={() => {
             if (typeof window !== "undefined" && window.innerWidth < 768) setOpen(false);

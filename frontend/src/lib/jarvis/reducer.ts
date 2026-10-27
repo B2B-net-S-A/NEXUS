@@ -63,12 +63,20 @@ export function applyStreamEvent(state: JarvisTurnState, event: JarvisStreamEven
           { kind: "highlight", anchor: event.anchor, label: event.label, reason: event.reason },
         ],
       };
+    case "gap":
+      return { ...state, items: [...state.items, { kind: "gap", gap: event.gap }] };
     case "action_proposed":
-      return { ...state, items: [...state.items, { kind: "action", action: event.action }], mood: "listening" };
+      return {
+        ...state,
+        items: [...state.items, { kind: "action", action: event.action }],
+        mood: event.action.status === "proposed" ? "listening" : state.mood,
+      };
     case "sources":
       return state.items.length === 0 && event.items.length === 0
         ? state
         : { ...state, items: [...state.items, { kind: "sources", items: event.items }] };
+    case "mail_draft":
+      return { ...state, items: [...state.items, { kind: "mail_draft", draft: event.draft }] };
     case "deep_link":
       return {
         ...state,

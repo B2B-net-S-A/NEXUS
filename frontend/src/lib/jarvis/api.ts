@@ -5,6 +5,7 @@ import type {
   JarvisActionOutcome,
   JarvisConversationDetail,
   JarvisConversationSummary,
+  JarvisGapReportRow,
   JarvisPrefs,
   JarvisPrefsResponse,
   JarvisStatus,
@@ -49,11 +50,26 @@ export async function confirmAction(id: string): Promise<JarvisActionOutcome> {
   return (await api.post<JarvisActionOutcome>(`/api/jarvis/actions/${id}/confirm`)).data;
 }
 
+export async function undoAction(id: string): Promise<JarvisActionOutcome> {
+  return (await api.post<JarvisActionOutcome>(`/api/jarvis/actions/${id}/undo`)).data;
+}
+
 export async function rejectAction(id: string): Promise<JarvisActionOutcome> {
   return (await api.post<JarvisActionOutcome>(`/api/jarvis/actions/${id}/reject`)).data;
 }
 
 /** „Zatrzymaj” — tura kończy się po bieżącym kroku modelu. */
+/** „Zgłoś, że tego potrzebuję” na karcie braku. */
+export async function reportJarvisGap(id: string): Promise<void> {
+  await api.post(`/api/jarvis/gaps/${id}/report`);
+}
+
+/** Lista „Czego Jarvis nie umie” (admin), najnowsze najpierw. */
+export async function fetchJarvisGaps(days = 30): Promise<JarvisGapReportRow[]> {
+  const { data } = await api.get<{ items: JarvisGapReportRow[] }>("/api/jarvis/gaps", { params: { days } });
+  return data.items;
+}
+
 export async function cancelJarvisTurn(conversationId: string): Promise<void> {
   await api.post(`/api/jarvis/conversations/${encodeURIComponent(conversationId)}/cancel`);
 }

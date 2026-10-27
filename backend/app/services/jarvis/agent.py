@@ -33,10 +33,13 @@ from app.core.database import AsyncSessionLocal
 from app.models.ai_feature import AIFeatureKey
 from app.services import claude_client
 from app.services.ai_models import fallbacks_for, model_for
+from app.services.jarvis import actions as jarvis_actions
 from app.services.jarvis import store
 from app.services.jarvis import web as jarvis_web
 from app.services.jarvis.prompt import SYSTEM_PROMPT, context_block
+from app.services.jarvis.gap_schema import GAP_KINDS, NEED_MAX, WHY_MAX
 from app.services.jarvis.tools import (
+    UNDO_WINDOW_MINUTES,
     TOOLS_BY_NAME,
     JarvisTool,
     RequestSpec,
@@ -853,6 +856,48 @@ async def _handle_tool(
         )
         return _tool_result(use_id, f"Podświetliłem użytkownikowi: {anchor['label']}.")
 
+    if tool.name == "draft_email":
+        return await _draft_email(state, transport, tool, args, use_id, events)
+
+    if tool.name == "report_gap":
+        kind = str(args.get("kind") or "")
+        need = str(args.get("need") or "").strip()[:NEED_MAX]
+        why = str(args.get("why") or "").strip()[:WHY_MAX]
+        if kind not in GAP_KINDS or not need or not why:
+            return _tool_result(
+                use_id,
+                f"Podaj kind ({', '.join(GAP_KINDS)}), need i why.",
+                is_error=True,
+            )
+        workaround = str(args.get("workaround") or "").strip()[:WHY_MAX]
+        gap_id = await store.create_gap(
+            conversation_id=state.conversation_id,
+            user_id=turn.user_id,
+            tool_use_id=use_id,
+            kind=kind,
+            need=need,
+            why=why,
+            workaround=workaround,
+        )
+        events.append(
+            {
+                "type": "gap",
+                "gap": {
+                    "id": str(gap_id),
+                    "kind": kind,
+                    "need": need,
+                    "why": why,
+                    "workaround": workaround,
+                    "reported": False,
+                },
+            }
+        )
+        return _tool_result(
+            use_id,
+            "Pokazałem kartę braku z przyciskiem zgłoszenia. Nie powtarzaj jej treści — "
+            "dopisz najwyżej jedno zdanie, jeśli możesz pomóc inaczej.",
+        )
+
     if tool.tier == "link":
         try:
             link = build_screen_link(args)
@@ -930,6 +975,8 @@ async def _handle_tool(
     found = collect_entities(tool, final_args, preview)
     state.entities |= found
     await _link_now(state, found)
+    if tool.undo is not None:
+        return await _execute_now(turn, tool, action_id, use_id, preview, events)
     events.append(
         {
             "type": "step",
@@ -953,4 +1000,100 @@ async def _handle_tool(
         use_id,
         f"Akcja przygotowana (id {action_id}) i CZEKA na zatwierdzenie przez użytkownika na karcie. "
         "Nic jeszcze nie zostało zapisane — nie pisz, że zostało wykonane.",
+    )
+
+
+async def _execute_now(
+    turn: TurnInput,
+    tool: JarvisTool,
+    action_id: uuid.UUID,
+    use_id: str,
+    preview: dict[str, Any],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Zapis łatwy do cofnięcia (notatka, dodanie do rekrutacji, „Moi ludzie”):
+    od razu, z „Cofnij” na karcie (decyzja Artura 27.10.2026). Karta i tak
+    powstaje — człowiek widzi dokładnie, co zrobiono, i może to odwrócić."""
+    outcome = await jarvis_actions.execute_now(
+        action_id, user_id=turn.user_id, identity=turn.identity
+    )
+    ok = outcome.action.get("status") == "executed"
+    events.append(
+        {
+            "type": "step",
+            "tool": tool.name,
+            "label": _sse_tool_label(tool),
+            "status": "done" if ok else "error",
+        }
+    )
+    events.append(
+        {
+            "type": "action_proposed",
+            "action": outcome.action,
+            "message": outcome.message,
+            "invalidates": [list(key) for key in outcome.invalidates],
+        }
+    )
+    text = str(preview.get("text") or tool.label)
+    if ok:
+        return _tool_result(
+            use_id,
+            f"WYKONANO od razu: {text}. Użytkownik może to cofnąć przyciskiem na karcie "
+            f"przez {UNDO_WINDOW_MINUTES} minut. Napisz krótko, że zrobione.",
+        )
+    return _tool_result(use_id, f"Nie udało się: {outcome.message}", is_error=True)
+
+
+async def _draft_email(
+    state: "_TurnState",
+    transport: JarvisTransport,
+    tool: JarvisTool,
+    args: dict[str, Any],
+    use_id: str,
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Szkic maila (27.10.2026): adres i nazwisko z odczytu uprawnieniami
+    pytającego, nie ze słów modelu. Wysyła człowiek z okna maila NEXUSA."""
+    try:
+        candidate_id = int(args.get("candidate_id"))
+    except (TypeError, ValueError):
+        return _tool_result(use_id, "Podaj candidate_id.", is_error=True)
+    resp = await transport.call(
+        RequestSpec("GET", f"/api/candidates/{candidate_id}/quick-view")
+    )
+    person = (
+        resp.data.get("candidate") if resp.ok and isinstance(resp.data, dict) else None
+    )
+    if not isinstance(person, dict):
+        return _tool_result(use_id, describe_error(resp), is_error=True)
+    email = str(person.get("email") or "").strip()
+    if not email:
+        return _tool_result(
+            use_id,
+            "Kandydat nie ma adresu e-mail w profilu — szkicu nie da się wysłać. "
+            "Powiedz to użytkownikowi.",
+            is_error=True,
+        )
+    name = " ".join(
+        str(person.get(k) or "").strip() for k in ("name", "lastname")
+    ).strip()
+    found = collect_entities(tool, {"candidate_id": candidate_id}, None)
+    state.entities |= found
+    await _link_now(state, found)
+    events.append(
+        {
+            "type": "mail_draft",
+            "draft": {
+                "candidate_id": candidate_id,
+                "candidate_name": name,
+                "email": email,
+                "subject": str(args.get("subject") or "")[:150],
+                "body": str(args.get("body") or "")[:3000],
+            },
+        }
+    )
+    return _tool_result(
+        use_id,
+        "Pokazałem szkic z przyciskiem „Otwórz w oknie maila”. NIC nie zostało "
+        "wysłane — wyśle użytkownik. Nie powtarzaj treści szkicu.",
     )
