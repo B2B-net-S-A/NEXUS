@@ -164,7 +164,21 @@ async def test_generate_saves_the_model_content_without_client_or_rate(
 
     # KSZTAŁT odpowiedzi: ani prompt, ani żadne pole nie niesie klienta i stawki.
     # Znaczniki czasu odpadają — mikrosekundy mogłyby przypadkiem dać „175”.
-    shape = {**body, "ad": {**body["ad"], "generated_at": None, "updated_at": None}}
+    # Imiona w kanałach przypomnień (0526) też: konta testowe mają losowy
+    # przyrostek szesnastkowy („Opiekun 8175231e” w CI 27.10.2026).
+    reminders = body["reminders"]
+    shape = {
+        **body,
+        "ad": {**body["ad"], "generated_at": None, "updated_at": None},
+        "reminders": {
+            **reminders,
+            "recruiter_names": ["osoba"] * len(reminders["recruiter_names"]),
+            "channels": [
+                {**c, "owner_names": ["osoba"] * len(c["owner_names"])}
+                for c in reminders["channels"]
+            ],
+        },
+    }
     client_name = await _client_name(job_id)
     for text in (
         json.dumps(shape, ensure_ascii=False),
