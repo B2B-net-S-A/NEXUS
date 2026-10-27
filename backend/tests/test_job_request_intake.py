@@ -693,7 +693,7 @@ def test_prompt_asks_for_keywords_and_a_deal_breaker() -> None:
     rendered = JOB_REQUEST_INTAKE.render(
         client_name="Klient", client_context="brak", request_text="mail"
     )
-    assert JOB_REQUEST_INTAKE.version == 13
+    assert JOB_REQUEST_INTAKE.version == 14
     assert '"requirements"' in rendered and '"deal_breaker"' in rendered
     assert '"keywords"' not in rendered
     assert '"must": [str]' not in rendered
@@ -762,3 +762,167 @@ def test_screening_questions_ask_what_the_candidate_did() -> None:
         assert "co kandydat ZROBIŁ" in prompt, template.name
         assert "„Jak analizujesz…?”" in prompt and "„Czy znasz…?”" in prompt
     assert CHAMPION_PROFILE_FROM_JD.version == 4
+
+
+# ── 27.10.2026: fraza klienta bez ludzi w bazie → słowo z CV (v14) ──────────
+
+BCCM_REQUEST = (
+    "Requirements: Business Continuity, Crisis plans, Manual recovery procedures, "
+    "Facilitation of desktop exercises."
+)
+
+
+def _bccm_reading():
+    raw = {
+        "requirements": [
+            {"words": ["Business Continuity"], "level": "must", "cv_words": []},
+            {
+                "words": ["Crisis plans"],
+                "level": "must",
+                "cv_words": [
+                    "Crisis Management",
+                    "crisis plans",
+                    "Business Continuity",
+                ],
+            },
+            {
+                "words": ["Manual recovery procedures"],
+                "level": "must",
+                "cv_words": ["Disaster Recovery"],
+            },
+        ]
+    }
+    return normalize_model_output(raw, BCCM_REQUEST)
+
+
+def _counter(people: dict[str, int | None]):
+    calls: list[list[str]] = []
+
+    async def count(words: list[str]):
+        calls.append(list(words))
+        return people.get("|".join(words))
+
+    return count, calls
+
+
+def test_cv_words_are_kept_per_row_without_the_row_words() -> None:
+    result = _bccm_reading()
+    # Słowo już stojące w wierszu odpada; najwyżej dwa na wiersz.
+    assert result.cv_words == {
+        "Crisis plans": ["Crisis Management", "Business Continuity"],
+        "Manual recovery procedures": ["Disaster Recovery"],
+    }
+    assert "cv_words" not in result.requirements[1]
+
+
+async def test_rare_client_phrase_searches_by_the_cv_word_and_goes_to_talk() -> None:
+    count, _ = _counter(
+        {
+            "Crisis plans": 0,
+            "Crisis Management": 283,
+            "Business Continuity": 773,
+            "Manual recovery procedures": 0,
+            "Disaster Recovery": 3,
+        }
+    )
+    result = await intake.swap_rare_rows(_bccm_reading(), count)
+
+    # „Business Continuity” jest już osobnym wierszem — nie wchodzi jako wariant.
+    assert [row["words"] for row in result.requirements] == [
+        ["Business Continuity"],
+        ["Crisis Management"],
+        ["Manual recovery procedures"],
+    ]
+    assert result.must == [
+        "Business Continuity",
+        "Crisis Management",
+        "Manual recovery procedures",
+    ]
+    assert result.search_requirements[1] == ["Crisis Management"]
+    assert result.experience["skills"] == [{"name": "Crisis plans", "level": "must"}]
+    assert result.provenance["must"] == "ai"
+    note = next(n for n in result.advisories if "Crisis plans" in n)
+    assert "0 osób" in note and "„Crisis Management”" in note and "w rozmowie" in note
+    # Słowo z CV, które też jest rzadkie, niczego nie podmienia.
+    assert not any("Manual recovery procedures" in n for n in result.advisories)
+
+
+async def test_cv_word_already_a_row_merges_instead_of_duplicating() -> None:
+    raw = {
+        "requirements": [
+            {"words": ["Business Continuity"], "level": "must"},
+            {
+                "words": ["Crisis plans"],
+                "level": "must",
+                "cv_words": ["Business Continuity"],
+            },
+        ]
+    }
+    count, _ = _counter({"Crisis plans": 1, "Business Continuity": 773})
+    result = await intake.swap_rare_rows(
+        normalize_model_output(raw, BCCM_REQUEST), count
+    )
+    assert [row["words"] for row in result.requirements] == [["Business Continuity"]]
+    assert result.experience["skills"] == [{"name": "Crisis plans", "level": "must"}]
+    note = next(n for n in result.advisories if "Crisis plans" in n)
+    assert "1 osoba" in note and "Szuka już wiersz „Business Continuity”" in note
+
+
+@pytest.mark.parametrize("phrase_people", [20, 500, None])
+async def test_phrase_with_enough_people_or_unknown_count_stays(phrase_people) -> None:
+    before = _bccm_reading()
+    count, calls = _counter(
+        {
+            "Crisis plans": phrase_people,
+            "Crisis Management": 283,
+            "Manual recovery procedures": phrase_people,
+        }
+    )
+    result = await intake.swap_rare_rows(before, count)
+    assert result == before
+    # Wiersz bez propozycji modelu nie jest liczony.
+    assert ["Business Continuity"] not in calls
+
+
+async def test_no_counting_after_the_deadline() -> None:
+    count, calls = _counter({"Crisis plans": 0, "Crisis Management": 283})
+    before = _bccm_reading()
+    result = await intake.swap_rare_rows(before, count, deadline=0.0)
+    assert result == before and calls == []
+
+
+async def test_database_failure_keeps_the_reading() -> None:
+    class _Nested:
+        async def __aenter__(self):
+            raise RuntimeError("baza leży")
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class _Db:
+        def begin_nested(self):
+            return _Nested()
+
+    before = _bccm_reading()
+    assert await intake.apply_people_reach(_Db(), before) is before
+
+
+async def test_people_reach_skips_unsearchable_words_without_a_query() -> None:
+    from app.services.requirement_reach import people_reach
+
+    class _NoDb:
+        async def scalar(self, *_args, **_kwargs):
+            raise AssertionError("nie powinno pytać bazy")
+
+    assert await people_reach(_NoDb(), []) is None
+    assert await people_reach(_NoDb(), ["Crisis plans", "R"]) is None
+
+
+def test_prompt_asks_for_cv_words_next_to_client_phrases() -> None:
+    from app.services.llm_prompts import JOB_REQUEST_INTAKE
+
+    rendered = JOB_REQUEST_INTAKE.render(
+        client_name="Klient", client_context="brak", request_text="mail"
+    )
+    assert '"cv_words": [str]' in rendered
+    assert "Crisis Management" in rendered

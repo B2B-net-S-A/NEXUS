@@ -247,3 +247,286 @@ def test_talk_items_over_the_section_limit_stay_in_the_notes():
     assert len(proposal.after["experience"]["skills"]) == 20
     assert _kept(proposal, sentences) == []
     assert "Do sprawdzenia w rozmowie:" in apply_payload(proposal)["stack"]["notes"]
+
+
+# ── Rzadkie słowo „musi mieć” (27.10.2026) ──────────────────────────────────
+# Pomiar na 129 profilach z wierszami (kopia z 22.10): 49 z 886 wierszy
+# „musi mieć” miało mniej niż 10 osób w bazie, 12 — zero („Crisis plans”),
+# a „SoapUI/ReadyAPI” 5 obok SoapUI 2 289.
+
+
+def _counts(people: dict[str, int]):
+    """Licznik osób jak lista kandydatów: wiersz = LUB jego słów."""
+    calls: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+
+    def count(words, exclude):
+        calls.append((tuple(words), tuple(exclude)))
+        return max((people.get(w, 500) for w in words), default=None)
+
+    count.calls = calls
+    return count
+
+
+def _rows_profile(*rows, critical=None, exclude=None):
+    profile = {
+        "stack": {
+            "rows": [{"words": list(words), "level": level} for words, level in rows],
+            "critical": critical,
+        }
+    }
+    if exclude:
+        profile["search"] = {"exclude": exclude}
+    return profile
+
+
+def _build_counted(job, people):
+    with hydrated_taxonomy(SKILLS):
+        return build_proposal(job, row_count=_counts(people))
+
+
+def test_rare_must_row_moves_to_talk():
+    job = _job(
+        _rows_profile((["Java"], "must"), (["Crisis plans"], "must"), critical=[])
+    )
+    proposal = _build_counted(job, {"Crisis plans": 0})
+    assert proposal is not None
+    assert proposal.reasons == ("rare_word",)
+    assert [r["words"] for r in proposal.after["rows"]] == [["Java"]]
+    assert [t["name"] for t in proposal.after["talk"]] == ["Crisis plans"]
+    assert proposal.after["rare"] == [
+        {"words": ["Crisis plans"], "people": 0, "action": "talk", "parts": None}
+    ]
+    assert proposal.can_apply
+    skills = apply_payload(proposal)["experience"]["skills"]
+    assert [s["name"] for s in skills] == ["Crisis plans"]
+
+
+def test_rows_with_enough_people_need_no_proposal():
+    job = _job(_rows_profile((["Java"], "must"), (["SQL"], "must"), critical=[]))
+    assert _build_counted(job, {"SQL": 20}) is None
+    # Bez liczby (nie policzono jeszcze) nie ma powodu — nic nie zgadujemy.
+    assert _build(job) is None
+
+
+def test_glued_variants_are_split_when_parts_find_people():
+    job = _job(
+        _rows_profile(
+            (["Java"], "must"),
+            (["SoapUI/ReadyAPI"], "must"),
+            (["GitOps (ArgoCD/FluxCD)"], "must"),
+            critical=[],
+        )
+    )
+    proposal = _build_counted(
+        job,
+        {
+            "SoapUI/ReadyAPI": 5,
+            "SoapUI": 2289,
+            "ReadyAPI": 40,
+            "GitOps (ArgoCD/FluxCD)": 0,
+            "GitOps": 3,
+            "ArgoCD": 2,
+            "FluxCD": 1,
+        },
+    )
+    assert proposal is not None
+    assert proposal.reasons == ("rare_word",)
+    assert [r["words"] for r in proposal.after["rows"]] == [
+        ["Java"],
+        ["SoapUI", "ReadyAPI"],
+    ]
+    # Części GitOps razem dalej < 20 osób — całość idzie do rozmowy.
+    assert [t["name"] for t in proposal.after["talk"]] == ["GitOps (ArgoCD/FluxCD)"]
+    assert [r["action"] for r in proposal.after["rare"]] == ["split", "talk"]
+
+
+def test_rare_rule_skips_critical_and_nice_rows():
+    """AI filtruje tylko po krytycznych — tego nie zmieniamy; mile widziane
+    niczego nie zawężają."""
+    job = _job(
+        _rows_profile(
+            (["Java"], "must"),
+            (["Kotlin"], "critical"),
+            (["Crisis plans"], "nice"),
+            critical=["Kotlin"],
+        )
+    )
+    assert _build_counted(job, {"Kotlin": 3, "Crisis plans": 0}) is None
+
+
+def test_last_required_row_is_never_moved_to_talk():
+    """Rekrutacja nie traci ostatniego słowa do szukania — zostaje wiersz
+    z największą liczbą osób, reszta rzadkich idzie do rozmowy."""
+    job = _job(
+        _rows_profile(
+            (["Crisis plans"], "must"), (["SteerCo Reporting"], "must"), critical=[]
+        )
+    )
+    proposal = _build_counted(job, {"Crisis plans": 0, "SteerCo Reporting": 9})
+    assert proposal is not None
+    assert [r["words"] for r in proposal.after["rows"]] == [["SteerCo Reporting"]]
+    assert [t["name"] for t in proposal.after["talk"]] == ["Crisis plans"]
+    assert proposal.can_apply
+
+    single = _job(_rows_profile((["Crisis plans"], "must"), critical=[]))
+    assert _build_counted(single, {"Crisis plans": 0}) is None
+
+
+def test_rare_count_uses_the_profile_exclude_words():
+    job = _job(
+        _rows_profile(
+            (["Java"], "must"), (["Crisis plans"], "must"), critical=[], exclude=["PHP"]
+        )
+    )
+    count = _counts({"Crisis plans": 0})
+    with hydrated_taxonomy(SKILLS):
+        build_proposal(job, row_count=count)
+    assert (("Crisis plans",), ("PHP",)) in count.calls
+
+
+def test_glued_variants_mirror_the_editor():
+    from app.services.requirement_cleanup import glued_variants
+
+    assert glued_variants("SoapUI/ReadyAPI") == ["SoapUI", "ReadyAPI"]
+    assert glued_variants("GitOps (ArgoCD/FluxCD)") == ["GitOps", "ArgoCD", "FluxCD"]
+    assert glued_variants("Java") is None
+    assert glued_variants("C/C++") is None  # „C” ma mniej niż 2 znaki
+
+
+def test_applied_decision_does_not_hide_a_new_rare_word():
+    """23 z 24 decyzji na otwartych rekrutacjach (kopia z 22.10) to „Zatwierdź”
+    starej propozycji — rzadkie słowo jest nową informacją. „Odrzuć” chowa."""
+    from app.services.requirement_cleanup import _hidden
+
+    job = _job(
+        _rows_profile((["Java"], "must"), (["Crisis plans"], "must"), critical=[])
+    )
+    proposal = _build_counted(job, {"Crisis plans": 0})
+    digest = proposal.profile_hash
+    assert _hidden(None, proposal) is False
+    assert _hidden((digest, "applied"), proposal) is False
+    assert _hidden((digest, "dismissed"), proposal) is True
+    assert _hidden(("b" * 64, "dismissed"), proposal) is False
+    other = _build(_job({"stack": {"must": [{"name": "Praca w zespole"}]}}))
+    assert _hidden((other.profile_hash, "applied"), other) is True
+
+
+async def test_row_counts_cache_counts_only_missing_rows_within_the_deadline(
+    monkeypatch,
+):
+    import time
+
+    from app.services import requirement_row_counts as counts
+
+    counts.clear()
+    asked: list[list[str]] = []
+
+    async def fake_count(db, words, exclude):
+        asked.append(list(words))
+        return 3
+
+    class _Db:
+        def begin_nested(self):
+            class _Tx:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *exc):
+                    return False
+
+            return _Tx()
+
+    monkeypatch.setattr(counts, "count_row", fake_count)
+    rows = [(["Crisis plans"], []), (["crisis  PLANS"], []), (["Java"], ["PHP"])]
+    done = await counts.ensure(_Db(), rows, deadline=time.monotonic() + 60)
+    assert done == 2 and asked == [["Crisis plans"], ["Java"]]
+    assert counts.cached(["Crisis plans"], []) == 3
+    assert counts.cached(["Java"], []) is None  # inne „Wyklucz” = inna liczba
+    assert await counts.ensure(_Db(), rows, deadline=time.monotonic() + 60) == 0
+    # Wpis bliski wygaśnięcia pętla liczy ponownie.
+    assert (
+        await counts.ensure(
+            _Db(),
+            rows,
+            deadline=time.monotonic() + 60,
+            fresh_for=counts.CACHE_TTL_SECONDS,
+        )
+        == 2
+    )
+    counts.clear()
+    assert await counts.ensure(_Db(), rows, deadline=time.monotonic() - 1) == 0
+    counts.clear()
+
+
+def test_rare_row_with_full_talk_list_lands_in_the_notes():
+    """Przegląd 27.10: przy pełnej liście rozmowy (20) rzadki wiersz znikał —
+    schodził z wierszy, a do opisu wymagań nie trafiał."""
+    profile = _rows_profile((["Java"], "must"), (["Crisis plans"], "must"), critical=[])
+    profile["experience"] = {
+        "skills": [{"name": f"Temat {i}", "level": "must"} for i in range(20)]
+    }
+    proposal = _build_counted(_job(profile), {"Crisis plans": 0})
+    assert proposal is not None
+    assert "Crisis plans" in apply_payload(proposal)["stack"]["notes"]
+
+
+def test_long_rare_row_is_capped_on_the_talk_list_and_kept_whole_in_notes():
+    words = [f"LongToolNameAlphaXYZ{i}Suite" for i in range(7)]
+    job = _job(_rows_profile((["Java"], "must"), (words, "must"), critical=[]))
+    proposal = _build_counted(job, {w: 0 for w in words})
+    names = [s["name"] for s in apply_payload(proposal)["experience"]["skills"]]
+    assert names and all(len(n) <= 160 for n in names)
+    assert " / ".join(words) in apply_payload(proposal)["stack"]["notes"]
+
+
+def test_split_row_never_reuses_the_head_of_another_row():
+    """Zapis zostawia jeden wiersz na pierwsze słowo (`split_rows`) — wiersz
+    po rozdzieleniu nie może zaczynać się od słowa innego wiersza."""
+    from app.services.champion_requirement_rows import clean_rows
+
+    job = _job(
+        _rows_profile(
+            (["Java"], "must"),
+            (["SoapUI"], "must"),
+            (["SoapUI/ReadyAPI"], "must"),
+            critical=[],
+        )
+    )
+    proposal = _build_counted(
+        job, {"SoapUI/ReadyAPI": 3, "SoapUI": 500, "ReadyAPI": 40}
+    )
+    saved = clean_rows(apply_payload(proposal)["stack"]["rows"])
+    assert [r["words"] for r in saved] == [["Java"], ["SoapUI"], ["ReadyAPI", "SoapUI"]]
+
+    clash = _job(
+        _rows_profile(
+            (["SoapUI"], "must"),
+            (["ReadyAPI"], "nice"),
+            (["SoapUI/ReadyAPI"], "must"),
+            critical=[],
+        )
+    )
+    proposal = _build_counted(
+        clash, {"SoapUI/ReadyAPI": 3, "SoapUI": 500, "ReadyAPI": 40}
+    )
+    assert [r["action"] for r in proposal.after["rare"]] == ["talk"]
+    assert [t["name"] for t in proposal.after["talk"]] == ["SoapUI/ReadyAPI"]
+
+
+def test_digest_changes_when_the_counts_change_the_proposal():
+    """„Zatwierdź” niesie odcisk tego, co DL widział — liczby osób nie wchodzą
+    do odcisku profilu, więc sam `profile_hash` nie wystarcza (przegląd 27.10)."""
+    job = _job(
+        _rows_profile(
+            (["Java"], "must"),
+            (["SQL (bardzo dobra znajomość)"], "must"),
+            (["Crisis plans"], "must"),
+            critical=[],
+        )
+    )
+    rare = _build_counted(job, {"Crisis plans": 0})
+    plain = _build_counted(job, {"Crisis plans": 25})
+    assert rare.profile_hash == plain.profile_hash
+    assert rare.digest != plain.digest
+    assert rare.as_dict()["digest"] == rare.digest
+    assert _build_counted(job, {"Crisis plans": 0}).digest == rare.digest

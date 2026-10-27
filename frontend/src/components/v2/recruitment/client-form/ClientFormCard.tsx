@@ -29,6 +29,7 @@ import {
   useClientForm,
   type ClientFormView,
 } from "@/lib/api/clientForms";
+import type { ClientFormKind } from "@/lib/api/jobFiles";
 import { cn } from "@/lib/utils";
 
 export interface ClientFormCardProps {
@@ -41,6 +42,8 @@ export interface ClientFormCardProps {
   /** Link „Wygeneruj też CV firmowe” — rekruter może je zrobić ręcznie (D2). */
   onGenerateCompanyCv?: () => void;
   className?: string;
+  /** 0525: „score” — tabela punktowa klienta (Excel), pokazywana tylko, gdy jest wzór. */
+  kind?: ClientFormKind;
 }
 
 const MISSING_PREVIEW = 4;
@@ -53,10 +56,12 @@ export function ClientFormCard({
   onOpenDialogChange,
   onGenerateCompanyCv,
   className,
+  kind = "form",
 }: ClientFormCardProps) {
+  const score = kind === "score";
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
-  const query = useClientForm(stageId);
+  const query = useClientForm(stageId, true, kind);
   const [filling, setFilling] = useState(false);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -65,7 +70,7 @@ export function ClientFormCard({
   const setDialogOpen = onOpenDialogChange ?? setLocalOpen;
 
   const store = (view: ClientFormView) => {
-    queryClient.setQueryData(clientFormKey(stageId), view);
+    queryClient.setQueryData(clientFormKey(stageId, kind), view);
     // Tablica i lista wymagań liczą braki formularza z serwera.
     void queryClient.invalidateQueries({ queryKey: ["move-requirements"] });
     void queryClient.invalidateQueries({ queryKey: ["kanban"] });
@@ -74,14 +79,16 @@ export function ClientFormCard({
   const fill = async () => {
     setFilling(true);
     try {
-      const view = await fillClientForm(stageId);
+      const view = await fillClientForm(stageId, kind);
       store(view);
       if (view.message) showError(view.message);
       else
         showSuccess(
           view.missing.length
-            ? `Formularz wypełniony — ${view.missing.length} do uzupełnienia.`
-            : "Formularz wypełniony.",
+            ? `${score ? "Tabela wypełniona" : "Formularz wypełniony"} — ${view.missing.length} do uzupełnienia.`
+            : score
+              ? "Tabela wypełniona."
+              : "Formularz wypełniony.",
         );
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się wypełnić formularza."));
@@ -93,8 +100,8 @@ export function ClientFormCard({
   const save = async (fields: Record<string, string>) => {
     setSaving(true);
     try {
-      store(await saveClientForm(stageId, fields));
-      showSuccess("Zapisano formularz.");
+      store(await saveClientForm(stageId, fields, kind));
+      showSuccess(score ? "Zapisano tabelę." : "Zapisano formularz.");
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się zapisać formularza."));
     } finally {
@@ -105,7 +112,11 @@ export function ClientFormCard({
   const download = async (view: ClientFormView) => {
     setDownloading(true);
     try {
-      await downloadClientForm(stageId, view.template?.filename ?? "formularz.docx");
+      await downloadClientForm(
+        stageId,
+        view.template?.filename ?? (score ? "tabela.xlsx" : "formularz.docx"),
+        kind,
+      );
     } catch {
       showError("Nie udało się pobrać formularza.");
     } finally {
@@ -133,20 +144,29 @@ export function ClientFormCard({
 
   const view = query.data;
   if (view.client_document !== "client_form") return null;
+  // Tabela punktowa jest dodatkiem do formularza — bez wzoru w Plikach jej nie ma.
+  if (score && view.status === "no_template") return null;
   const total = view.fields.length;
   const missing = view.fields.filter((field) => view.missing.includes(field.id));
   const filledCount = total - missing.length;
 
   return (
     <section
-      aria-label="Formularz CV klienta"
-      data-testid="client-form-card"
+      aria-label={score ? "Tabela punktowa klienta" : "Formularz CV klienta"}
+      data-testid={score ? "client-score-card" : "client-form-card"}
       className={cn("space-y-2.5 rounded-lg border border-border bg-card p-3 text-xs", className)}
     >
-      <p className="text-muted-foreground">
-        Klient przyjmuje swój <span className="font-medium text-foreground">formularz CV</span>,
-        nie CV firmowe.
-      </p>
+      {score ? (
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">Tabela punktowa</span> — punkty według
+          zasad oceny z Plików rekrutacji.
+        </p>
+      ) : (
+        <p className="text-muted-foreground">
+          Klient przyjmuje swój <span className="font-medium text-foreground">formularz CV</span>,
+          nie CV firmowe.
+        </p>
+      )}
       {view.status === "no_template" ? (
         <p className="flex items-start gap-1.5 text-foreground" data-testid="client-form-no-template">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
@@ -173,14 +193,16 @@ export function ClientFormCard({
           {view.template_changed ? (
             <p className="flex items-start gap-1.5 text-warning-muted-foreground">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-              Wzór w Plikach się zmienił — wypełnij formularz ponownie.
+              Wzór w Plikach się zmienił — wypełnij {score ? "tabelę" : "formularz"} ponownie.
             </p>
           ) : null}
           {view.status === "filled" ? (
             <div className="space-y-1.5">
               <div className="flex justify-between gap-2">
                 <span>
-                  {filledCount} z {total} pól wypełnionych
+                  {score && view.points
+                    ? `Punkty: ${view.points.total} z ${view.points.max}`
+                    : `${filledCount} z ${total} pól wypełnionych`}
                 </span>
                 {missing.length ? (
                   <span className="font-medium text-warning-muted-foreground">
@@ -217,7 +239,11 @@ export function ClientFormCard({
           <div className="flex flex-wrap gap-2">
             {view.status === "filled" ? (
               <Button type="button" size="sm" onClick={() => setDialogOpen(true)}>
-                {missing.length && !readOnly ? "Uzupełnij braki" : "Pokaż formularz"}
+                {missing.length && !readOnly
+                  ? "Uzupełnij braki"
+                  : score
+                    ? "Pokaż tabelę"
+                    : "Pokaż formularz"}
               </Button>
             ) : null}
             {readOnly ? null : (
@@ -243,13 +269,13 @@ export function ClientFormCard({
                 onClick={() => void download(view)}
               >
                 <Download className="h-3.5 w-3.5" aria-hidden />
-                Pobierz Word
+                {score ? "Pobierz Excel" : "Pobierz Word"}
               </Button>
             ) : null}
           </div>
         </>
       )}
-      {onGenerateCompanyCv && !readOnly ? (
+      {onGenerateCompanyCv && !readOnly && !score ? (
         <button
           type="button"
           className="text-muted-foreground underline hover:text-foreground"
@@ -263,6 +289,7 @@ export function ClientFormCard({
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           view={view}
+          kind={kind}
           candidateName={candidateName}
           readOnly={readOnly}
           saving={saving}

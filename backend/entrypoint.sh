@@ -6123,11 +6123,20 @@ END $$""",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS cv_client_document VARCHAR(16) NOT NULL DEFAULT 'company_cv'",
     "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS client_form BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS client_form_structure JSONB NULL",
-    "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_files_client_form ON job_files (job_id) WHERE client_form AND job_id IS NOT NULL",
     # 0522: wypełniony formularz CV klienta pary osoba × rekrutacja. Lustro 1:1
     # z `client_form_schema.FILL_DDL` — PO `job_files`, na którą wskazuje klucz obcy.
     "CREATE TABLE IF NOT EXISTS candidate_client_forms (id SERIAL PRIMARY KEY, candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, job_file_id INTEGER NULL REFERENCES job_files(id) ON DELETE SET NULL, template_sha256 VARCHAR(64) NULL, fields JSONB NOT NULL DEFAULT '{}'::jsonb, extra_rows JSONB NOT NULL DEFAULT '[]'::jsonb, missing_count INTEGER NOT NULL DEFAULT 0, model VARCHAR(80) NULL, filled_at TIMESTAMPTZ NULL, filled_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT uq_candidate_client_forms_pair UNIQUE (candidate_id, job_id))",
     "CREATE INDEX IF NOT EXISTS ix_candidate_client_forms_job ON candidate_client_forms (job_id)",
+    # 0525: tabela punktowa klienta (Excel) obok formularza (Word) — rodzaj wzoru
+    # i rodzaj wypełnionego dokumentu. Lustro 1:1 z `client_form_schema.SCORE_DDL`;
+    # indeks „jeden wzór na rekrutację” z 0521 celowo tu nie stoi (SUPERSEDED_DDL).
+    "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS client_form_kind VARCHAR(8) NULL",
+    "UPDATE job_files SET client_form_kind = 'form' WHERE client_form AND client_form_kind IS NULL",
+    "DROP INDEX IF EXISTS ux_job_files_client_form",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_files_client_form_kind ON job_files (job_id, client_form_kind) WHERE client_form AND job_id IS NOT NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS kind VARCHAR(8) NOT NULL DEFAULT 'form'",
+    "ALTER TABLE candidate_client_forms DROP CONSTRAINT IF EXISTS uq_candidate_client_forms_pair",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_client_forms_pair_kind ON candidate_client_forms (candidate_id, job_id, kind)",
     # 0430: ogłoszenie rekrutacji do wklejenia na portale (Pracuj.pl,
     # JustJoin.IT). Lustro 1:1 z `app/services/job_ad_schema.py` (pilnuje
     # test_job_ads_migration_mirror).

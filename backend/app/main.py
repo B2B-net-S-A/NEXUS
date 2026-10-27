@@ -784,6 +784,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.saved_search_alerts import saved_search_alerts_loop
     from app.tasks.keyword_corpus_backfill import keyword_corpus_backfill_loop
     from app.tasks.note_kind_backfill import note_kind_backfill_loop
+    from app.tasks.requirement_row_counts import requirement_row_counts_loop
     from app.tasks.cv_qc_recompute import cv_qc_recompute_loop
     from app.tasks.qc_quality_daily import qc_quality_daily_loop
     from app.tasks.job_ad_prepare import job_ad_prepare_loop
@@ -931,6 +932,9 @@ async def lifespan(app: FastAPI):
         # sama, gdy nie zostaje nic do policzenia.
         "keyword_corpus_backfill": asyncio.create_task(keyword_corpus_backfill_loop()),
         "note_kind_backfill": asyncio.create_task(note_kind_backfill_loop()),
+        # „Wymagania do poprawy” (rare_word, 27.10.2026): liczby osób wierszy
+        # otwartych rekrutacji co godzinę do pamięci — pulpit ich nie liczy.
+        "requirement_row_counts": asyncio.create_task(requirement_row_counts_loop()),
         # QC CV: nieudane przebiegi sprzed zmiany reguł (plakietki na Tablicy);
         # kończy się samo po jednym przejściu.
         "cv_qc_recompute": asyncio.create_task(cv_qc_recompute_loop()),

@@ -5,6 +5,7 @@ import { Copy, Mail, Phone } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { telHref } from "@/components/v2/candidates/CandidatePhoneCell";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { formatPhone } from "@/lib/phone-format";
 
 /**
  * Telefon i e-mail kandydata pod nazwiskiem w nagłówku panelu rozmowy —
@@ -42,7 +43,7 @@ export function CandidateContactLine({
           className="inline-flex items-center gap-1.5 font-semibold tabular-nums text-foreground hover:text-primary hover:underline"
         >
           <Phone className="h-3.5 w-3.5 text-primary" aria-hidden />
-          {tel}
+          {formatPhone(tel)}
         </a>
       ) : null}
       {mail ? (

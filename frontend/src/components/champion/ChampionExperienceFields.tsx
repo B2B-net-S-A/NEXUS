@@ -6,6 +6,8 @@
  * miejsca zapisywały ten sam kształt (`ChampionExperience`).
  */
 
+import { Fragment, type ReactNode } from "react";
+
 import type { ChampionExperience, ExperienceKind } from "@/lib/api";
 import {
   EXPERIENCE_KIND_HINT,
@@ -22,6 +24,8 @@ export interface ChampionExperienceFieldsProps {
   /** Pole „Niuanse” — edytor tak, `/jobs/new` bez (tam liczy się tempo). */
   showNotes?: boolean;
   notesClassName?: string;
+  /** Pod listą „Doświadczenie i umiejętności” — podpowiedzi słów do szukania. */
+  skillsFooter?: ReactNode;
 }
 
 export function ChampionExperienceFields({
@@ -30,6 +34,7 @@ export function ChampionExperienceFields({
   disabled = false,
   showNotes = true,
   notesClassName,
+  skillsFooter,
 }: ChampionExperienceFieldsProps) {
   const patch = (kind: ExperienceKind, items: ChampionExperience[ExperienceKind]) =>
     onChange({ ...value, [kind]: items });
@@ -37,17 +42,19 @@ export function ChampionExperienceFields({
   return (
     <div className="flex flex-col gap-3">
       {EXPERIENCE_KINDS.map((kind) => (
-        <RequirementChipInput
-          key={kind}
-          label={EXPERIENCE_KIND_LABEL[kind]}
-          hint={EXPERIENCE_KIND_HINT[kind]}
-          items={value[kind] ?? []}
-          onChange={(items) => patch(kind, items)}
-          withYears={kind === "domains"}
-          suggestions={EXPERIENCE_SUGGESTIONS[kind]}
-          disabled={disabled}
-          testId={`champion-experience-${kind}`}
-        />
+        <Fragment key={kind}>
+          <RequirementChipInput
+            label={EXPERIENCE_KIND_LABEL[kind]}
+            hint={EXPERIENCE_KIND_HINT[kind]}
+            items={value[kind] ?? []}
+            onChange={(items) => patch(kind, items)}
+            withYears={kind === "domains"}
+            suggestions={EXPERIENCE_SUGGESTIONS[kind]}
+            disabled={disabled}
+            testId={`champion-experience-${kind}`}
+          />
+          {kind === "skills" ? skillsFooter : null}
+        </Fragment>
       ))}
       {showNotes ? (
         <label className="block" data-champion-field="experience.notes">
