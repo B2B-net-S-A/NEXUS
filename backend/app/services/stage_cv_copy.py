@@ -423,11 +423,11 @@ async def carry_on_reassign(
     source_job_id: int,
     user_id: Optional[int],
 ) -> bool:
-    """Przepięcie: CV z rekrutacji źródłowej jako szkic nowej. Nigdy nie rzuca.
+    """„Match” DL-a: CV z rekrutacji źródłowej jako szkic nowej. Nigdy nie rzuca.
 
-    Osoba przepięta ma zwykle gotowe CV w rekrutacji, z której przychodzi —
-    bez kopii automat po „Zweryfikowany” wygenerowałby nowe, a rekruter
-    poprawiał je drugi raz. W savepoincie: awaria kopii nie może cofnąć
+    Match od razu wysyła osobę do klienta, więc CV jedzie z nią. Zwykłe
+    przepięcie tego nie woła od 27.10.2026 (CV po trzech potwierdzeniach,
+    `add_candidates_to_job`). W savepoincie: awaria kopii nie może cofnąć
     dodania osoby do rekrutacji. Wołający zrobił `flush` przed wywołaniem,
     żeby ten `except` nie połknął cudzego błędu zapisu.
 

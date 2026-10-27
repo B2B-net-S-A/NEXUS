@@ -640,32 +640,21 @@ async def _reassign_sent(client: AsyncClient, headers: dict, world: dict):
     )
 
 
-async def test_reassign_carries_the_source_cv_as_a_draft_and_reports_it(
+async def test_reassign_does_not_carry_the_source_cv(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """Bez kopii automat po „Zweryfikowany” generował nowe CV, a rekruter
-    poprawiał je drugi raz. Szkic na parze wyłącza automat (`pair_cv_exists`)."""
+    """27.10.2026: CV powstaje po trzech potwierdzeniach (21.10), a kopia przy
+    przepięciu dawała gotowe CV sprzed nowego screeningu, bez „Generuj”.
+    Stare CV zostaje do wzięcia przez „Użyj gotowego CV” w karcie."""
     world = await _world()
-    source_id = await _stage_cv_in_source(world)
+    await _stage_cv_in_source(world)
 
     response = await _reassign_sent(app_client, app_auth_headers, world)
 
     assert response.status_code == 200, response.text
-    assert response.json()["cv_carried"] == [world["sent"]]
-    carried = await _stage_cv_in_target(world)
-    assert carried.branded_status == "draft"
-    assert carried.generated_document_id is None
-    assert CARRIED_FIX in carried.branded_draft_html
-    # Nagłówek mówi o rekrutacji docelowej, nazwisko zostaje z nagłówka źródła.
-    assert (
-        f"<h1>Kotlin Developer {world['tag']} – Przepięcie Testowe</h1>"
-        in carried.branded_draft_html
-    )
-    metadata = carried.branded_render_metadata
-    assert metadata["origin"]["kind"] == "reassign"
-    assert metadata["origin"]["job_id"] == world["a"]
-    assert metadata["source_stage_cv_id"] == source_id
-    assert "generated_editor_html_sha256" not in metadata
+    assert response.json()["added"] == [world["sent"]]
+    assert response.json()["cv_carried"] == []
+    assert (await _stage_cv_in_target(world)).branded_status == "none"
 
 
 async def test_reassign_without_a_source_cv_carries_nothing(
@@ -679,48 +668,6 @@ async def test_reassign_without_a_source_cv_carries_nothing(
     assert response.json()["added"] == [world["sent"]]
     assert response.json()["cv_carried"] == []
     assert (await _stage_cv_in_target(world)).branded_status == "none"
-
-
-async def test_reassign_survives_a_failing_cv_copy(
-    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
-):
-    """Kopia CV jest dodatkiem: jej awaria nie może cofnąć przepięcia."""
-    from app.services import stage_cv_copy
-
-    async def _broken(*args, **kwargs):
-        raise RuntimeError("magazyn szablonów nie odpowiada")
-
-    monkeypatch.setattr(stage_cv_copy, "copy_stage_cv", _broken)
-    world = await _world()
-    await _stage_cv_in_source(world)
-
-    response = await _reassign_sent(app_client, app_auth_headers, world)
-
-    assert response.status_code == 200, response.text
-    assert response.json()["added"] == [world["sent"]]
-    assert response.json()["cv_carried"] == []
-    process = await _process(world["sent"], world["b"])
-    assert process is not None and process.reassign_from_job_id == world["a"]
-    assert (await _stage_cv_in_target(world)).branded_status == "none"
-
-
-async def test_undo_removes_the_carried_cv(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    world = await _world()
-    await _stage_cv_in_source(world)
-    assert (
-        await _reassign_sent(app_client, app_auth_headers, world)
-    ).status_code == 200
-    assert (await _stage_cv_in_target(world)).branded_status == "draft"
-
-    undo = await app_client.delete(
-        f"/api/candidates/{world['sent']}/recruitments/{world['b']}",
-        headers=app_auth_headers,
-    )
-
-    assert undo.status_code in (200, 204), undo.text
-    assert await _stage_cv_in_target(world) is None
 
 
 async def test_cv_is_carried_only_by_someone_who_may_read_the_source_recruitment():

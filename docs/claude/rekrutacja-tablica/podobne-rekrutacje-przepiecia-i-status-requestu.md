@@ -58,9 +58,9 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   suma `sent_count` liczyła zatrudnionych i obecnych, więc krok wisiał bez
   nikogo do przepięcia). Jedno przepięcie: najwyżej 100 osób.
   Karta niesie `reassign_from_reference` („↻ z ZOB-1725”).
-  Od 12.10.2026 przepięcie kopiuje też CV etapu z rekrutacji źródłowej jako
-  szkic nowej (`cv_carried` w odpowiedzi, plakietka „przeniesione z …”) —
-  reguły w `screening-notatki/screening-wybor-gotowego-cv-z-profilu-i-edycja.md`.
+  12–27.10.2026 przepięcie kopiowało też CV etapu z rekrutacji źródłowej.
+  Od 27.10.2026 już nie (CV po trzech potwierdzeniach; `cv_carried` jest
+  puste) — reguły w `screening-notatki/screening-wybor-gotowego-cv-z-profilu-i-edycja.md`.
 - **Sugestie liczy WEKTOR rekrutacji (decyzja Artura 30.09.2026)**:
   kosinus wektorów z kolekcji `nexus_jobs` (zapytanie po id punktu, bez
   przesyłania wektora), pula = rekrutacje z kimkolwiek od „CV wysłane” wzwyż
