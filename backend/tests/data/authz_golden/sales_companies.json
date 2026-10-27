@@ -1,0 +1,41 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "recruiter",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit",
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases",
+  "board"
+ ],
+ "routes": {
+  "GET /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/duplicates": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/{company_id}/people": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/people/dates": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+ }
+}
