@@ -184,6 +184,11 @@ class EsignDefaultsOut(BaseModel):
     mailbox_connected: bool
 
 
+class EsignRenewIn(BaseModel):
+    # Okno pokazuje 1, 3, 5 albo 7 dni, jak przy wysyłce.
+    days: int = Field(default=3, ge=1, le=30)
+
+
 class EsignWithdrawIn(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=500)
 
@@ -191,8 +196,11 @@ class EsignWithdrawIn(BaseModel):
 class PublicSignView(BaseModel):
     contract_number: str
     contractor_name: str
-    status: Literal["waiting", "signed_by_you", "completed", "closed"]
+    status: Literal["waiting", "signed_by_you", "completed", "expired", "closed"]
+    # Przy ``waiting`` — do kiedy działa link; przy ``expired`` — kiedy minął.
     expires_at: Optional[datetime]
+    # Kontraktor już poprosił o nowy link (27.10.2026), czeka na odpowiedź.
+    renewal_requested_at: Optional[datetime] = None
     # Do kiedy działa „Pobierz umowę podpisaną przez obie strony” (26.10.2026).
     signed_pdf_until: Optional[datetime] = None
 
@@ -389,12 +397,17 @@ async def _mail_link(
     request: EsignRequestOut,
     row: B2BGeneratedContract,
     url: str,
+    request_key: Optional[str] = None,
+    renewed: bool = False,
 ) -> tuple[bool, Optional[str]]:
     """Mail z linkiem ze skrzynki nadawcy — kontraktor zna ten adres.
 
     Awaria nie cofa wysyłki: okno pokazuje link do skopiowania."""
     subject, body = esign_mail.contractor_sign_message(
-        number=row.contract_number, url=url, expires_at=request.expires_at
+        number=row.contract_number,
+        url=url,
+        expires_at=request.expires_at,
+        renewed=renewed,
     )
     return await esign_mail.send_from(
         db,
@@ -403,7 +416,7 @@ async def _mail_link(
         subject=subject,
         body_html=body,
         candidate_id=row.candidate_id,
-        request_key=f"b2b-esign-{request.id}",
+        request_key=request_key or f"b2b-esign-{request.id}",
     )
 
 
@@ -485,6 +498,94 @@ async def withdraw_esign(
     )
     await db.commit()
     return await _out(db, updated)
+
+
+async def _row_of(db: AsyncSession, request_id: int) -> B2BGeneratedContract:
+    request = await db.get(B2BSigningRequest, request_id)
+    if request is None:
+        raise HTTPException(status_code=404, detail="Wniosek o podpis nie istnieje.")
+    row = await db.get(B2BGeneratedContract, request.generated_contract_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    return row
+
+
+@router.post("/esign/{request_id}/extend", response_model=EsignRequestOut)
+async def extend_esign(
+    request_id: int,
+    body: EsignRenewIn,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> EsignRequestOut:
+    """„Przedłuż termin” — link z pierwszego maila działa dłużej, PDF ten sam.
+
+    Jak wycofanie: działa także po wyłączeniu przełącznika."""
+    row = await _row_of(db, request_id)
+    await _assert_row_sender(db, current_user, row)
+    updated = await service.extend(
+        db,
+        request_id=request_id,
+        actor_id=current_user.id,
+        days=body.days,
+        now=_now(),
+    )
+    await db.commit()
+    out = await _out(db, updated)
+    subject, mail_body = esign_mail.contractor_extended_message(
+        number=row.contract_number, expires_at=updated.expires_at
+    )
+    await esign_mail.send_from(
+        db,
+        user_id=current_user.id,
+        to=updated.contractor_email or "",
+        subject=subject,
+        body_html=mail_body,
+        candidate_id=row.candidate_id,
+        request_key=f"b2b-esign-{request_id}-extended-{len(updated.events or [])}",
+    )
+    return out
+
+
+@router.post("/esign/{request_id}/relink", response_model=EsignSendOut)
+async def relink_esign(
+    request_id: int,
+    body: EsignRenewIn,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> EsignSendOut:
+    """„Wyślij nowy link” po terminie — ten sam zamrożony PDF (27.10.2026).
+
+    Nowa wysyłka robi PDF o innych bajtach, więc plik podpisany przed terminem
+    byłby odrzucony. Tu kontraktor wgrywa go bez ponownego podpisu."""
+    current = await esign_settings.load(db)
+    if not current.can_send(current_user):
+        raise HTTPException(status_code=403, detail=MSG_OFF)
+    row = await _row_of(db, request_id)
+    await _assert_row_sender(db, current_user, row)
+    updated, token = await service.relink(
+        db,
+        row_id=row.id,
+        request_id=request_id,
+        actor_id=current_user.id,
+        days=body.days,
+        signer_ids=current.company_signer_ids,
+        now=_now(),
+    )
+    await db.commit()
+    url = _sign_url(token)
+    out = await _out(db, updated)
+    mail_sent, problem = await _mail_link(
+        db,
+        sender_id=current_user.id,
+        request=out,
+        row=row,
+        url=url,
+        request_key=f"b2b-esign-{request_id}-relink-{len(updated.events or [])}",
+        renewed=True,
+    )
+    return EsignSendOut(
+        request=out, sign_url=url, mail_sent=mail_sent, mail_problem=problem
+    )
 
 
 # ── Podpis za B2B Network ───────────────────────────────────────────────────
@@ -852,6 +953,8 @@ def _public_status(request: B2BSigningRequest, now: datetime) -> str:
         return "signed_by_you"
     if request.status == "completed":
         return "completed"
+    if service.is_expired(request, now):
+        return "expired"
     return "waiting" if service.is_link_live(request, now) else "closed"
 
 
@@ -859,12 +962,19 @@ async def _public_view(db: AsyncSession, request: B2BSigningRequest) -> PublicSi
     row = await db.get(B2BGeneratedContract, request.generated_contract_id)
     now = _now()
     status = _public_status(request, now)
+    if status == "expired" and not await service.renewable(db, request, now):
+        # Umowę anulowano, poprawiono albo wysłano od nowa — stary link nie
+        # obiecuje, że podpisany plik przejdzie.
+        status = "closed"
     copy_until = service.signed_copy_until(request)
     return PublicSignView(
         contract_number=row.contract_number if row else "",
         contractor_name=request.contractor_name,
         status=status,
-        expires_at=request.expires_at if status == "waiting" else None,
+        expires_at=(request.expires_at if status in ("waiting", "expired") else None),
+        renewal_requested_at=(
+            service.renewal_requested_at(request) if status == "expired" else None
+        ),
         signed_pdf_until=copy_until if copy_until and copy_until > now else None,
     )
 
@@ -945,4 +1055,33 @@ async def public_sign_submit(
     await db.commit()
     signing_id = signing.id
     await _after_contractor_signed(db, signing_id)
+    return await _public_view(db, await _fresh(db, signing_id))
+
+
+@public_router.post("/b2b-sign/{token}/renewal", response_model=PublicSignView)
+@limiter.limit("5/minute;20/hour")
+async def public_request_renewal(
+    token: str,
+    request: Request,  # wymagane przez slowapi
+    db: AsyncSession = Depends(get_db),
+) -> PublicSignView:
+    """„Poproś o nowy link” z wygasłego linku (27.10.2026) — dzwonek do osoby,
+    która wysłała umowę; kolejne kliknięcia w ciągu doby nic nie dodają."""
+    signing, fresh = await service.request_renewal(db, token=token, now=_now())
+    await db.commit()
+    signing_id = signing.id
+    if fresh:
+        row = await db.get(B2BGeneratedContract, signing.generated_contract_id)
+        number = row.contract_number if row else ""
+        await _notify(
+            db,
+            user_id=signing.sent_by,
+            title=f"Kontraktor prosi o nowy link do umowy {number}",
+            message=(
+                f"{signing.contractor_name}: link wygasł. „Wyślij nowy link” "
+                "w rejestrze wyśle ten sam PDF."
+            ),
+            ntype=NotificationType.signature_renewal_requested,
+            request_id=signing_id,
+        )
     return await _public_view(db, await _fresh(db, signing_id))

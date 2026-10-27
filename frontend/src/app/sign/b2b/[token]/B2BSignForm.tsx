@@ -6,10 +6,13 @@
  *
  * 21.10.2026 (etap 1b, makieta 17): krok 2 ma zakładki per narzędzie i wyraźne
  * „podpis w pliku PDF” — osobny plik z podpisem (XAdES, .sig) serwer odrzuca.
+ *
+ * 27.10.2026: po terminie strona mówi, kiedy minął, i daje „Poproś o nowy
+ * link”. Nowy link prowadzi do tego samego PDF-a, więc podpisany plik przejdzie.
  */
 
 import { useState } from "react";
-import { CheckCircle2, Download, Loader2, Upload } from "lucide-react";
+import { CheckCircle2, Download, Loader2, Send, Upload } from "lucide-react";
 
 import { SignedPdfField } from "@/components/v2/b2b-generator/esign/SignedPdfField";
 import { parseDispositionFilename } from "@/lib/cv-generator";
@@ -155,13 +158,20 @@ export default function B2BSignForm({
   token,
   initialState,
   signedPdfUntil = null,
+  expiredOn = null,
+  renewalRequestedOn = null,
 }: {
   token: string;
   initialState: PublicSignState;
   /** Data (dd.mm.rrrr), do której link daje pobrać kopię; null = kopii w linku nie ma. */
   signedPdfUntil?: string | null;
+  /** Data (dd.mm.rrrr) końca terminu, gdy link wygasł. */
+  expiredOn?: string | null;
+  /** Kontraktor już poprosił o nowy link: dzień (dd.mm.rrrr). */
+  renewalRequestedOn?: string | null;
 }) {
   const [state, setState] = useState<PublicSignState>(initialState);
+  const [requestedOn, setRequestedOn] = useState<string | null>(renewalRequestedOn);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -206,6 +216,57 @@ export default function B2BSignForm({
       />
     );
   }
+  if (state === "expired") {
+    const askForLink = async () => {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(`${base(token)}/renewal`, { method: "POST" });
+        if (!res.ok) {
+          setError(await errorText(res));
+          return;
+        }
+        const view = (await res.json()) as PublicSignView;
+        setRequestedOn(
+          view.renewal_requested_at
+            ? new Date(view.renewal_requested_at).toLocaleDateString("pl-PL", {
+                timeZone: "Europe/Warsaw",
+              })
+            : new Date().toLocaleDateString("pl-PL"),
+        );
+      } catch {
+        setError("Brak połączenia z serwerem. Spróbuj ponownie.");
+      } finally {
+        setBusy(false);
+      }
+    };
+    return (
+      <div className="space-y-4">
+        <Alert
+          variant="warning"
+          title={expiredOn ? `Termin na podpis minął ${expiredOn}` : "Termin na podpis minął"}
+          description="Umowa jest ta sama i nadal czeka na Twój podpis. Poproś o nowy link."
+        />
+        {requestedOn ? (
+          <Alert
+            variant="success"
+            title="Prośba wysłana"
+            description={`Osoba z B2B Network, która wysłała umowę, dostała Twoją prośbę ${requestedOn}. Nowy link przyjdzie mailem.`}
+          />
+        ) : (
+          <Button type="button" variant="primary" disabled={busy} onClick={() => void askForLink()}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
+            Poproś o nowy link
+          </Button>
+        )}
+        <p className="text-sm text-muted-foreground">
+          Masz już plik podpisany podpisem kwalifikowanym? Zachowaj go. Nowy link go przyjmie, bo umowa
+          się nie zmieniła.
+        </p>
+        {error ? <Alert variant="error" title="Nie udało się wysłać prośby" description={error} /> : null}
+      </div>
+    );
+  }
   if (state === "closed") {
     return (
       <Alert
@@ -230,6 +291,11 @@ export default function B2BSignForm({
       const form = new FormData();
       form.append("file", file);
       const res = await fetch(base(token), { method: "POST", body: form });
+      if (res.status === 410) {
+        // Termin minął w trakcie: strona przechodzi na „Poproś o nowy link”.
+        setState("expired");
+        return;
+      }
       if (!res.ok) {
         setError(await errorText(res));
         return;

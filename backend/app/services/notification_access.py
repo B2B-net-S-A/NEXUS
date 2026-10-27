@@ -102,6 +102,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.signature_signed: ProductSection.sourcing,
     NotificationType.signature_rejected: ProductSection.sourcing,
     NotificationType.signature_failed: ProductSection.sourcing,
+    NotificationType.signature_renewal_requested: ProductSection.sourcing,
     NotificationType.framework_contract_expiring_30d: ProductSection.delivery,
     NotificationType.framework_contract_expiring_14d: ProductSection.delivery,
     NotificationType.framework_contract_expiring_7d: ProductSection.delivery,

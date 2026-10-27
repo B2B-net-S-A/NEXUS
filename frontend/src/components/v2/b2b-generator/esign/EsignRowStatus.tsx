@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Clock, Download, Undo2 } from "lucide-react";
+import { CalendarPlus, Check, Clock, Download, RefreshCw, Undo2 } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
@@ -10,6 +11,8 @@ import type { B2BGeneratedContractRow } from "@/lib/api";
 import { b2bEsignApi } from "@/lib/api/b2bEsign";
 import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 import { cn } from "@/lib/utils";
+
+import { EsignRenewDialog, type EsignRenewMode } from "./EsignRenewDialog";
 
 function formatDay(value: string | null | undefined): string {
   if (!value) return "";
@@ -21,6 +24,14 @@ function formatDay(value: string | null | undefined): string {
 }
 
 type Step = { label: string; state: "done" | "now" | "wait" };
+
+/** Termin minął — także zanim pętla (co 30 min) zmieni stan na „expired”. */
+export function esignLinkExpired(
+  e: NonNullable<B2BGeneratedContractRow["esign"]>,
+  now: Date = new Date(),
+): boolean {
+  return e.status === "expired" || (e.status === "sent" && new Date(e.expires_at) <= now);
+}
 
 /** Kroki podpisu w NEXUSIE w kolumnie „Podpis” (makieta 3). */
 export function esignSteps(row: B2BGeneratedContractRow): Step[] {
@@ -100,10 +111,12 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
     },
     onError: (error) => toast.showError(apiErrorMessage(error, "Nie udało się wycofać.")),
   });
+  const [renew, setRenew] = useState<EsignRenewMode | null>(null);
   const e = row.esign;
   if (!e) return null;
 
-  const closed = e.status === "withdrawn" || e.status === "expired";
+  const expired = esignLinkExpired(e);
+  const closed = e.status === "withdrawn" || expired;
   const steps = esignSteps(row);
   const onWithdraw = async () => {
     const ok = await askConfirm({
@@ -118,10 +131,37 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
   return (
     <div className="space-y-1">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">W NEXUSIE</p>
-      {closed ? (
+      {expired ? (
+        <div className="space-y-1">
+          <p className="inline-flex rounded-md border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-xs font-semibold text-destructive">
+            Link wygasł {formatDay(e.expires_at)}
+          </p>
+          {e.renewal_requested_at ? (
+            <p className="text-xs font-medium text-warning-muted-foreground">
+              Kontraktor prosi o nowy link ({formatDay(e.renewal_requested_at)})
+            </p>
+          ) : null}
+          {row.can_relink_esign ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setRenew("relink")}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+              >
+                <RefreshCw className="h-3 w-3" aria-hidden />
+                Wyślij nowy link
+              </button>
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                Ten sam PDF: podpisany już plik przejdzie.
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">Można wysłać ponownie albo jak dotąd.</p>
+          )}
+        </div>
+      ) : closed ? (
         <p className="text-xs text-muted-foreground">
-          {e.status === "expired" ? "Link wygasł" : "Wysyłka wycofana"} — można wysłać ponownie
-          albo jak dotąd.
+          Wysyłka wycofana — można wysłać ponownie albo jak dotąd.
         </p>
       ) : (
         <ul className="flex flex-wrap gap-1" aria-label="Kroki podpisu">
@@ -145,8 +185,18 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
           ))}
         </ul>
       )}
-      {e.status === "sent" ? (
+      {e.status === "sent" && !expired ? (
         <p className="text-xs text-muted-foreground">Link ważny do {formatDay(e.expires_at)}</p>
+      ) : null}
+      {row.can_extend_esign && !expired ? (
+        <button
+          type="button"
+          onClick={() => setRenew("extend")}
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <CalendarPlus className="h-3 w-3" aria-hidden />
+          Przedłuż termin
+        </button>
       ) : null}
       <EsignSignedPdfButton row={row} />
       {row.can_withdraw_esign ? (
@@ -161,6 +211,7 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
         </button>
       ) : null}
       {confirmDialog}
+      {renew ? <EsignRenewDialog row={row} mode={renew} onClose={() => setRenew(null)} /> : null}
     </div>
   );
 }

@@ -75,9 +75,12 @@ def _deadline(moment: datetime) -> str:
 
 
 def contractor_sign_message(
-    *, number: str, url: str, expires_at: datetime
+    *, number: str, url: str, expires_at: datetime, renewed: bool = False
 ) -> tuple[str, str]:
-    """(temat, treść) pierwszego maila do kontraktora z linkiem do podpisu."""
+    """(temat, treść) maila do kontraktora z linkiem do podpisu.
+
+    ``renewed``: nowy link po terminie na tym samym PDF-ie (27.10.2026) — plik
+    podpisany wcześniej nadal przejdzie, więc mail to mówi."""
     num = html.escape(number)
     steps = "".join(
         f'<li style="margin: 0 0 3px; {_FONT}">{step}</li>'
@@ -87,9 +90,16 @@ def contractor_sign_message(
             "Wgraj podpisany plik na tej samej stronie.",
         )
     )
+    lead = (
+        f"poprzedni link do umowy o współpracy B2B nr {num} wygasł, przesyłam "
+        "nowy. Umowa się nie zmieniła: jeśli plik jest już podpisany, wgraj go "
+        "bez ponownego podpisu."
+        if renewed
+        else f"przesyłam do podpisu umowę o współpracy B2B nr {num}."
+    )
     body = (
         _p("Dzień dobry,")
-        + _p(f"przesyłam do podpisu umowę o współpracy B2B nr {num}.", margin="0")
+        + _p(lead, margin="0")
         + _button(url, "Otwórz umowę do podpisu")
         + _p(f"Link działa do {_deadline(expires_at)}.", small=True)
         + _p("<b>Jak podpisać</b>", margin="0 0 4px")
@@ -101,7 +111,35 @@ def contractor_sign_message(
             small=True,
         )
     )
-    return f"Umowa B2B nr {number} do podpisu", body
+    subject = (
+        f"Nowy link: umowa B2B nr {number} do podpisu"
+        if renewed
+        else f"Umowa B2B nr {number} do podpisu"
+    )
+    return subject, body
+
+
+def contractor_extended_message(
+    *, number: str, expires_at: datetime
+) -> tuple[str, str]:
+    """(temat, treść) maila o przedłużonym terminie (27.10.2026).
+
+    Link się nie zmienia i żyje tylko w pierwszym mailu (w bazie jest jego
+    skrót), więc mail mówi, że działa dłużej."""
+    body = (
+        _p("Dzień dobry,")
+        + _p(
+            f"termin podpisu umowy B2B nr {html.escape(number)} jest dłuższy. "
+            "Link z poprzedniego maila działa teraz do "
+            f"{_deadline(expires_at)}."
+        )
+        + _p(
+            "Jeśli nie masz podpisu kwalifikowanego albo link nie działa, "
+            "odpisz na tego maila.",
+            small=True,
+        )
+    )
+    return f"Umowa B2B nr {number}: dłuższy termin podpisu", body
 
 
 def contractor_reminder_message(

@@ -247,6 +247,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.signature_signed: _C.contracts,
     _T.signature_rejected: _C.contracts,
     _T.signature_failed: _C.contracts,
+    _T.signature_renewal_requested: _C.contracts,
     # KPI
     _T.powercalling_kpi: _C.kpi,
     _T.kpi_coach: _C.kpi,
@@ -422,6 +423,7 @@ _SPLIT_GROUPS: dict[
             _T.signature_signed,
             _T.signature_rejected,
             _T.signature_failed,
+            _T.signature_renewal_requested,
             _T.equipment_return_due_14d,
         ),
     ),
