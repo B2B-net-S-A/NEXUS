@@ -1,7 +1,9 @@
 """Podpis umowy B2B w NEXUSIE — wygasanie linków i przypomnienia (co 30 min).
 
-* Link po terminie: wniosek ``expired``, link przestaje działać, nadawca dostaje
-  dzwonek (może wysłać ponownie albo przejść na drogę zwykłą).
+* Link po terminie: wniosek ``expired``, link przestaje przyjmować pliki, nadawca
+  dostaje dzwonek. Skrót linku zostaje ``EXPIRED_LINK_DAYS`` dni: kontraktor
+  widzi termin i „Poproś o nowy link”, a nadawca „Wyślij nowy link” na tym
+  samym PDF-ie (27.10.2026) — potem pętla go kasuje.
 * Kontraktor milczy: jedno przypomnienie dzień przed końcem terminu (przy
   terminie 1 dnia — po połowie, 26.10.2026; terminy 1/3/5/7 dni, a przy
   „co 3 dni” krótki termin nie dawał żadnego) — mail ze skrzynki nadawcy BEZ
@@ -36,7 +38,7 @@ from app.models.notification import NotificationType
 from app.models.user import User
 from app.services import loop_heartbeat
 from app.services.b2b_esign import mail as esign_mail
-from app.services.b2b_esign.service import SIGNED_COPY_DAYS
+from app.services.b2b_esign.service import EXPIRED_LINK_DAYS, SIGNED_COPY_DAYS
 from app.services.notification_triggers import emit as emit_notification
 
 logger = logging.getLogger(__name__)
@@ -122,15 +124,20 @@ async def _handle(request_id: int, now: datetime) -> str | None:
 
         if request.status == "sent" and request.expires_at <= now:
             request.status = "expired"
-            request.contractor_token_hash = None
             request.closed_at = now
+            # Nowa lista: zmiana w miejscu nie zapisałaby się w JSONB.
+            request.events = [
+                *(request.events or []),
+                {"kind": "expired", "at": request.expires_at.isoformat()},
+            ]
             await _notify(
                 db,
                 user_id=request.sent_by,
                 title=f"Link do umowy {number} wygasł",
                 message=(
                     f"{request.contractor_name} nie podpisał(a) umowy w terminie. "
-                    "Wyślij ją ponownie w NEXUSIE albo jak dotąd mailem."
+                    "„Wyślij nowy link” w rejestrze wyśle ten sam PDF, więc plik "
+                    "podpisany przed terminem nadal przejdzie."
                 ),
                 ntype=NotificationType.signature_failed,
                 request_id=request.id,
@@ -208,14 +215,25 @@ async def _handle(request_id: int, now: datetime) -> str | None:
             subject=subject,
             body_html=body,
             candidate_id=candidate_id,
-            request_key=f"b2b-esign-{request_id}-reminder-1",
+            # Jeden mail na termin; przedłużenie albo nowy link to nowy termin.
+            request_key=f"b2b-esign-{request_id}-reminder-{expires_at:%Y%m%d%H%M}",
         )
         return "reminded"
 
 
 async def _close_old_copy_links(now: datetime) -> None:
-    """Link do kopii podpisanej umowy żyje ``SIGNED_COPY_DAYS`` dni."""
+    """Link do kopii podpisanej umowy żyje ``SIGNED_COPY_DAYS`` dni, wygasły
+    link ``EXPIRED_LINK_DAYS`` dni od zamknięcia."""
     async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(B2BSigningRequest)
+            .where(
+                B2BSigningRequest.status == "expired",
+                B2BSigningRequest.contractor_token_hash.is_not(None),
+                B2BSigningRequest.closed_at <= now - timedelta(days=EXPIRED_LINK_DAYS),
+            )
+            .values(contractor_token_hash=None)
+        )
         await db.execute(
             update(B2BSigningRequest)
             .where(

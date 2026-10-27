@@ -62,13 +62,21 @@ export interface EsignSendResult {
   mail_problem: string | null;
 }
 
-export type PublicSignState = "waiting" | "signed_by_you" | "completed" | "closed";
+export type PublicSignState =
+  | "waiting"
+  | "signed_by_you"
+  | "completed"
+  | "expired"
+  | "closed";
 
 export interface PublicSignView {
   contract_number: string;
   contractor_name: string;
   status: PublicSignState;
+  /** Przy `waiting` do kiedy działa link, przy `expired` kiedy minął termin. */
   expires_at: string | null;
+  /** Kontraktor poprosił już o nowy link (27.10.2026). */
+  renewal_requested_at?: string | null;
   /** Do kiedy link daje pobrać umowę podpisaną przez obie strony (26.10.2026). */
   signed_pdf_until?: string | null;
 }
@@ -108,6 +116,16 @@ export const b2bEsignApi = {
         `/api/b2b-generator/generated/${generatedId}/esign/send`,
         body,
       )
+      .then((r) => r.data),
+  /** „Przedłuż termin”: link z pierwszego maila działa dłużej, PDF ten sam. */
+  extend: (requestId: number, days: number) =>
+    api
+      .post<EsignRequest>(`/api/b2b-generator/esign/${requestId}/extend`, { days })
+      .then((r) => r.data),
+  /** „Wyślij nowy link” po terminie: ten sam zamrożony PDF (27.10.2026). */
+  relink: (requestId: number, days: number) =>
+    api
+      .post<EsignSendResult>(`/api/b2b-generator/esign/${requestId}/relink`, { days })
       .then((r) => r.data),
   withdraw: (requestId: number, reason: string) =>
     api

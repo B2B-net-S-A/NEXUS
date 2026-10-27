@@ -91,6 +91,10 @@ class NotificationType(str, enum.Enum):
     signature_signed = "signature_signed"
     signature_rejected = "signature_rejected"
     signature_failed = "signature_failed"
+    # 0531: kontraktor z wygasłego linku prosi o nowy (podpis w NEXUSIE,
+    # 27.10.2026). Własny typ, bo dzienny dedup (user+typ+wniosek) zjadałby go
+    # razem z dzwonkiem o wygaśnięciu z tego samego dnia.
+    signature_renewal_requested = "signature_renewal_requested"
     # Client framework contract (MSA) lifecycle (migracja 0092).
     # Daily scheduler emituje 30/14/7 dni przed `expiry_date` do każdego DL
     # przypisanego do klienta + admin/HoR. Dedup przez (type, related_entity_id, lokalny dzień).

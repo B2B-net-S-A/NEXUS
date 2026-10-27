@@ -16,6 +16,7 @@ a automatykę „Oznacz jako podpisaną” woła warstwa wyżej.
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
 from datetime import datetime, timedelta
 from typing import Protocol
@@ -39,6 +40,11 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MIN_DAYS, MAX_DAYS = 1, 30
 # Po podpisie obu stron link kontraktora daje pobrać jego kopię (26.10.2026).
 SIGNED_COPY_DAYS = 30
+# Wygasły link jeszcze tyle dni pokazuje kontraktorowi termin i „Poproś o nowy
+# link” (27.10.2026), potem pętla kasuje skrót — jak link do kopii.
+EXPIRED_LINK_DAYS = 30
+# Prośba kontraktora o nowy link: jeden dzwonek na dobę, nie seria kliknięć.
+RENEWAL_REQUEST_EVERY = timedelta(hours=24)
 
 MSG_LINK = "Link jest nieprawidłowy albo wygasł. Poproś o nowy osobę z B2B Network."
 MSG_ALREADY_SIGNED = (
@@ -62,6 +68,17 @@ MSG_TOO_MANY_ATTEMPTS = (
 MSG_NAME_MISSING = (
     "W umowie brakuje imienia i nazwiska osoby podpisującej — popraw umowę "
     "w generatorze i wyślij ponownie."
+)
+MSG_EXPIRED = (
+    "Termin na podpis minął. Poproś o nowy link na tej stronie, "
+    "podpisany już plik nadal przejdzie."
+)
+MSG_STILL_LIVE = "Ten link nadal działa. Pobierz umowę i podpisz ją."
+MSG_EXTEND_EXPIRED = "Termin już minął. Wyślij kontraktorowi nowy link."
+MSG_RELINK_LIVE = "Link jeszcze działa. Przedłuż termin zamiast wysyłać nowy link."
+MSG_PAYLOAD_CHANGED = (
+    "Umowę poprawiono po wysyłce, więc nowy link prowadziłby do starej treści. "
+    "Wyślij ją do podpisu od nowa."
 )
 MSG_OPEN_BLOCKS_EDIT = (
     "Umowa jest wysłana do podpisu w NEXUSIE — PDF jest zamrożony. Najpierw "
@@ -93,6 +110,65 @@ def new_token() -> tuple[str, str]:
 
 def is_link_live(request: B2BSigningRequest, now: datetime) -> bool:
     return request.status == "sent" and request.expires_at > now
+
+
+def is_expired(request: B2BSigningRequest, now: datetime) -> bool:
+    """Termin minął — także zanim pętla zmieni stan na ``expired``."""
+    return request.status == "expired" or (
+        request.status == "sent" and request.expires_at <= now
+    )
+
+
+def payload_fingerprint(row: B2BGeneratedContract) -> str:
+    """Odcisk tego, z czego powstaje Word umowy: numer i zapisane dane.
+
+    PDF z tego samego Worda ma za każdym razem inne bajty (LibreOffice wpisuje
+    datę utworzenia i /ID), więc o tym, czy stary PDF nadal jest tą umową,
+    rozstrzyga odcisk danych, nie odcisk pliku."""
+    data = json.dumps(
+        {"number": row.contract_number, "payload": row.render_payload},
+        sort_keys=True,
+        default=str,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(data.encode()).hexdigest()
+
+
+def _event(kind: str, at: datetime, **extra: object) -> dict:
+    return {"kind": kind, "at": at.isoformat(), **extra}
+
+
+def _push(request: B2BSigningRequest, *entries: dict) -> None:
+    # Nowa lista: zmiana w miejscu nie zostałaby zapisana w kolumnie JSONB.
+    request.events = [*(request.events or []), *entries]
+
+
+def _event_time(entry: dict) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(entry.get("at")))
+    except ValueError:
+        return None
+
+
+def renewal_requested_at(request: B2BSigningRequest) -> datetime | None:
+    """Prośba kontraktora o nowy link, na którą nikt jeszcze nie odpowiedział."""
+    last: datetime | None = None
+    for entry in request.events or []:
+        at = _event_time(entry)
+        if at is None:
+            continue
+        if entry.get("kind") == "renewal_requested":
+            last = at
+        elif entry.get("kind") in ("relinked", "extended"):
+            last = None
+    return last
+
+
+def _restart_reminder(request: B2BSigningRequest) -> None:
+    """Nowy termin dostaje swoje jedno przypomnienie; poprzednie zostaje w historii."""
+    if request.last_reminder_at is not None:
+        _push(request, _event("contractor_reminder", request.last_reminder_at))
+        request.last_reminder_at = None
 
 
 def signed_copy_until(request: B2BSigningRequest) -> datetime | None:
@@ -251,6 +327,8 @@ async def send(
         sent_by=actor_id,
         sent_at=now,
         expires_at=now + timedelta(days=days),
+        source_payload_sha256=payload_fingerprint(row),
+        events=[],
     )
     db.add(request)
     await db.flush()
@@ -300,6 +378,8 @@ async def contractor_precheck(
     request = await load_by_token(db, token)
     if request.status in ("contractor_signed", "completed"):
         raise HTTPException(status_code=409, detail=MSG_ALREADY_SIGNED)
+    if is_expired(request, now):
+        raise HTTPException(status_code=410, detail=MSG_EXPIRED)
     if not is_link_live(request, now):
         raise HTTPException(status_code=410, detail=MSG_CLOSED)
     if request.contractor_failed_attempts >= MAX_FAILED_ATTEMPTS:
@@ -456,3 +536,94 @@ async def withdraw(
     locked.close_reason = (reason or "").strip()[:500] or None
     await db.flush()
     return locked
+
+
+async def extend(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    actor_id: int,
+    days: int,
+    now: datetime,
+) -> B2BSigningRequest:
+    """Przedłuż termin linku, który jeszcze działa: ten sam link, ten sam PDF."""
+    locked = await _lock(db, request_id)
+    if is_expired(locked, now):
+        raise HTTPException(status_code=409, detail=MSG_EXTEND_EXPIRED)
+    if locked.status != "sent":
+        raise HTTPException(status_code=409, detail=MSG_CLOSED)
+    days = max(MIN_DAYS, min(MAX_DAYS, days))
+    locked.expires_at = locked.expires_at + timedelta(days=days)
+    _restart_reminder(locked)
+    _push(
+        locked,
+        _event("extended", now, user_id=actor_id, until=locked.expires_at.isoformat()),
+    )
+    await db.flush()
+    return locked
+
+
+async def relink(
+    db: AsyncSession,
+    *,
+    row_id: int,
+    request_id: int,
+    actor_id: int,
+    days: int,
+    now: datetime,
+) -> tuple[B2BSigningRequest, str]:
+    """Nowy link po terminie, na TYM SAMYM zamrożonym PDF-ie (27.10.2026).
+
+    Nowa wysyłka robiła nowy PDF o innych bajtach, więc plik, który kontraktor
+    podpisał przed terminem, był odrzucany i podpisywał drugi raz. Tu wniosek
+    wraca do ``sent`` z nowym tokenem; plik podpisany wcześniej przechodzi.
+    Zwraca (wniosek, token linku)."""
+    row, locked = await _lock_row_then_request(db, row_id, request_id)
+    if not is_expired(locked, now):
+        raise HTTPException(
+            status_code=409,
+            detail=MSG_RELINK_LIVE if locked.status == "sent" else MSG_CLOSED,
+        )
+    if row is None or not row_still_signable(row):
+        raise HTTPException(status_code=409, detail=MSG_NOT_SENDABLE)
+    if locked.source_payload_sha256 != payload_fingerprint(row):
+        raise HTTPException(status_code=409, detail=MSG_PAYLOAD_CHANGED)
+    other = await open_request_for(db, row.id)
+    if other is not None and other.id != locked.id:
+        raise HTTPException(status_code=409, detail=MSG_OPEN_EXISTS)
+    if locked.status == "sent":
+        # Pętla jeszcze nie zamknęła wniosku — wygaśnięcie i tak trafia do historii.
+        _push(locked, _event("expired", locked.expires_at))
+    token, digest = new_token()
+    days = max(MIN_DAYS, min(MAX_DAYS, days))
+    locked.status = "sent"
+    locked.contractor_token_hash = digest
+    locked.contractor_failed_attempts = 0
+    locked.expires_at = now + timedelta(days=days)
+    locked.closed_at = None
+    locked.closed_by = None
+    locked.close_reason = None
+    _restart_reminder(locked)
+    _push(
+        locked,
+        _event("relinked", now, user_id=actor_id, until=locked.expires_at.isoformat()),
+    )
+    await db.flush()
+    return locked, token
+
+
+async def request_renewal(
+    db: AsyncSession, *, token: str, now: datetime
+) -> tuple[B2BSigningRequest, bool]:
+    """Kontraktor z wygasłego linku prosi o nowy. (wniosek, czy to nowa prośba)
+    — kolejne kliknięcia w ciągu doby nie dają kolejnych dzwonków."""
+    found = await load_by_token(db, token)
+    if not is_expired(found, now):
+        raise HTTPException(status_code=409, detail=MSG_STILL_LIVE)
+    locked = await _lock(db, found.id)
+    last = renewal_requested_at(locked)
+    if last is not None and now - last < RENEWAL_REQUEST_EVERY:
+        return locked, False
+    _push(locked, _event("renewal_requested", now))
+    await db.flush()
+    return locked, True

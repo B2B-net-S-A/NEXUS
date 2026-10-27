@@ -4118,9 +4118,15 @@ export interface B2BGeneratedContractRow {
     completed_at: string | null;
     expires_at: string;
     company_signer_name: string | null;
+    /** Kontraktor z wygasłego linku poprosił o nowy (27.10.2026). */
+    renewal_requested_at?: string | null;
   } | null;
   can_send_esign?: boolean;
   can_withdraw_esign?: boolean;
+  /** „Przedłuż termin” — link działa (27.10.2026). */
+  can_extend_esign?: boolean;
+  /** „Wyślij nowy link” — po terminie, ten sam PDF, umowa bez poprawek. */
+  can_relink_esign?: boolean;
   /** Czy to konto pobierze plik podpisany przez obie strony w NEXUSIE. */
   can_download_signed_esign?: boolean;
   can_delete: boolean;

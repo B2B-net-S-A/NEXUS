@@ -817,6 +817,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_data_access_alert'",
     # 0510: osoby, których kalendarza nie widzi aplikacja prepów (do adminów).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'teams_prep_scope_missing'",
+    # 0531: kontraktor z wygasłego linku prosi o nowy (podpis w NEXUSIE).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_renewal_requested'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5341,6 +5343,11 @@ END $$""",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_b2b_signing_requests_open_per_row "
     "ON b2b_signing_requests (generated_contract_id) "
     "WHERE status IN ('sent', 'contractor_signed')",
+    # 0531: dziennik zdarzeń wniosku i odcisk danych umowy (wygasły link, 27.10.2026).
+    "ALTER TABLE b2b_signing_requests ADD COLUMN IF NOT EXISTS events "
+    "JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "ALTER TABLE b2b_signing_requests ADD COLUMN IF NOT EXISTS "
+    "source_payload_sha256 VARCHAR(64)",
     # 0506: prośby o umowę przedwstępną przy osobie w rekrutacji. Lustro 1:1
     # z `app/services/pre_contract_schema.py` (pilnuje test_pre_contract_schema_mirror)
     # — PO tabeli `b2b_contract_documents`, na którą wskazuje klucz obcy.

@@ -11,8 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, Optional
+from zoneinfo import ZoneInfo
 
 from app.models.b2b_signing_request import B2BSigningRequest
+
+_WARSAW = ZoneInfo("Europe/Warsaw")
 
 
 @dataclass(frozen=True)
@@ -77,10 +80,54 @@ def esign_history(requests: Iterable[B2BSigningRequest]) -> list[EsignHistoryEnt
                     r.closed_by,
                 )
             )
-        if r.status == "expired" and r.closed_at is not None:
+        events = list(getattr(r, "events", None) or [])
+        logged_expiry = any(e.get("kind") == "expired" for e in events)
+        if r.status == "expired" and r.closed_at is not None and not logged_expiry:
+            # Wnioski sprzed dziennika zdarzeń (0531).
             out.append(
                 EsignHistoryEntry(
                     f"esign-{r.id}-expired", r.closed_at, "Link do podpisu wygasł"
                 )
             )
+        for index, event in enumerate(events):
+            entry = _event_entry(r.id, index, event)
+            if entry is not None:
+                out.append(entry)
     return sorted(out, key=lambda e: e.at)
+
+
+def _day(value: object) -> str:
+    try:
+        moment = datetime.fromisoformat(str(value))
+    except ValueError:
+        return ""
+    return moment.astimezone(_WARSAW).strftime("%d.%m.%Y")
+
+
+def _event_entry(
+    request_id: int, index: int, event: dict
+) -> Optional[EsignHistoryEntry]:
+    """Wpis z dziennika zdarzeń wniosku (0531, 27.10.2026)."""
+    try:
+        at = datetime.fromisoformat(str(event.get("at")))
+    except ValueError:
+        return None
+    kind = event.get("kind")
+    user_id = event.get("user_id")
+    until = _day(event.get("until"))
+    labels = {
+        "expired": "Link do podpisu wygasł",
+        "contractor_reminder": "Przypomnienie do kontraktora",
+        "renewal_requested": "Kontraktor poprosił o nowy link",
+        "extended": f"Termin przedłużony do {until}",
+        "relinked": f"Nowy link do kontraktora, ten sam PDF, ważny do {until}",
+    }
+    label = labels.get(str(kind))
+    if label is None:
+        return None
+    return EsignHistoryEntry(
+        f"esign-{request_id}-{kind}-{index}",
+        at,
+        label,
+        user_id if isinstance(user_id, int) else None,
+    )

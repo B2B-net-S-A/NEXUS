@@ -668,6 +668,8 @@ class B2BGeneratedEsign(BaseModel):
     completed_at: Optional[datetime] = None
     expires_at: datetime
     company_signer_name: Optional[str] = None
+    # Kontraktor z wygasłego linku poprosił o nowy (27.10.2026), bez odpowiedzi.
+    renewal_requested_at: Optional[datetime] = None
 
 
 class B2BGeneratedContractItem(BaseModel):
@@ -772,6 +774,10 @@ class B2BGeneratedContractItem(BaseModel):
     esign: Optional[B2BGeneratedEsign] = None
     can_send_esign: bool = False
     can_withdraw_esign: bool = False
+    # „Przedłuż termin” (link działa) i „Wyślij nowy link” (po terminie, ten
+    # sam PDF, umowa bez poprawek) — 27.10.2026.
+    can_extend_esign: bool = False
+    can_relink_esign: bool = False
     # Plik podpisany przez obie strony (``GET /esign/{id}/signed-pdf``) — dla
     # nadawcy i reprezentanta, gdy automatyka nie założyła kontraktu.
     can_download_signed_esign: bool = False
