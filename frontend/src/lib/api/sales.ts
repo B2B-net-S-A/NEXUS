@@ -797,3 +797,22 @@ export function useConvertLead() {
     onSuccess: invalidate,
   });
 }
+
+export interface RegistryCompany {
+  name: string | null;
+  nip: string | null;
+  regon: string | null;
+  krs: string | null;
+  address: string | null;
+  hq_city: string | null;
+  source: string | null;
+}
+
+/** „Pobierz z rejestru” — jednorazowe zapytanie na klik, nie zapytanie w tle. */
+export function useRegistryLookup() {
+  return useMutation({
+    mutationFn: async (nip: string) =>
+      (await api.get<RegistryCompany>("/api/sales/companies/registry", { params: { nip } }))
+        .data,
+  });
+}

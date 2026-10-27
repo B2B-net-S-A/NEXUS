@@ -9,6 +9,7 @@ w Atlasie; właściciel firmy to opiekun, nie blokada.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal, Optional
@@ -19,21 +20,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.api.integrations_companies import (
-    CompanyPeopleRequest,
-    CompanyPeopleResponse,
-    MatchedPerson,
-    lookup_company_people,
-)
 from app.api.sales_gates import SalesEditUser, SalesViewUser, ensure_owner_or_admin
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.sales import SalesCompany
 from app.models.user import User
 from app.services import sales_schema as schema
+from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.company_names import normalize_company_name
 from app.services.sales import companies as service
-from app.services.sales import company_dates
 
 router = APIRouter()
 
@@ -79,6 +74,11 @@ class CompanyFields(BaseModel):
     source: Optional[str] = Field(default=None, max_length=60)
     parent_company_id: Optional[int] = None
     owner_user_id: Optional[int] = None
+
+    @field_validator("website_url", "linkedin_url")
+    @classmethod
+    def _http_only(cls, value: Optional[str]) -> Optional[str]:
+        return service.http_url(value)
 
 
 class CompanyCreate(CompanyFields):
@@ -281,6 +281,57 @@ async def list_companies(
     return CompanyList(items=[_out(row) for row in rows], total=int(total or 0))
 
 
+class RegistryOut(BaseModel):
+    name: Optional[str]
+    nip: Optional[str]
+    regon: Optional[str]
+    krs: Optional[str]
+    address: Optional[str]
+    hq_city: Optional[str]
+    source: Optional[str]
+
+
+_POSTAL_CITY = re.compile(r"\b\d{2}-\d{3}\s+(.+)$")
+
+
+def city_from_address(address: Optional[str]) -> Optional[str]:
+    """„ul. Prosta 18, 00-850 Warszawa” → „Warszawa” (miasto po kodzie pocztowym)."""
+
+    match = _POSTAL_CITY.search((address or "").strip())
+    return match.group(1).strip().title() if match else None
+
+
+@router.get("/registry", response_model=RegistryOut)
+async def registry_lookup(
+    current_user: SalesEditUser,
+    nip: str = Query(min_length=10, max_length=20),
+) -> RegistryOut:
+    """„Pobierz z rejestru” w formularzu firmy — ten sam łańcuch co Generator umów
+    (biznes.gov.pl / CEIDG, Biała Lista MF, KRS), zamiast kopii z Atlasa."""
+
+    digits = service.nip_digits(nip) or ""
+    if len(digits) != 10:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="NIP ma 10 cyfr."
+        )
+    found = await lookup_company(nip=digits)
+    if not found or not found.get("name"):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail="Nie znaleźliśmy tego NIP-u w rejestrach — wpisz dane ręcznie.",
+        )
+    address = found.get("address")
+    return RegistryOut(
+        name=found.get("name"),
+        nip=digits,
+        regon=found.get("regon"),
+        krs=found.get("krs"),
+        address=address,
+        hq_city=city_from_address(address),
+        source=found.get("source"),
+    )
+
+
 @router.get("/duplicates", response_model=list[DuplicateOut])
 async def company_duplicates(
     current_user: SalesViewUser,
@@ -392,124 +443,3 @@ async def restore_company(
         company.archived_at = None
         await db.commit()
     return await _load(db, company_id)
-
-
-# ── „Kogo znamy w firmie” ────────────────────────────────────────────────
-
-
-class GroupCompanyPeople(BaseModel):
-    company: CompanyRef
-    relation: Literal["parent", "child"]
-    counts: dict[str, int]
-
-
-class CompanyPeopleOut(BaseModel):
-    """Osoby z bazy NEXUSA przy firmie — z pełnym profilem (decyzja D4, 26.10.2026)."""
-
-    matched_client: Optional[CompanyRef]
-    counts: dict[str, int]
-    truncated: bool
-    people: list[MatchedPerson]
-    group: list[GroupCompanyPeople]
-    #: Stan uzupełniania dat osób z tej firmy (D3): ``status``, ``total``, ``updated``.
-    dates_backfill: Optional[dict[str, Any]]
-
-
-def _lookup_names(company: SalesCompany, client_name: Optional[str]) -> list[str]:
-    names: list[str] = []
-    for name in (company.name, company.legal_name, client_name):
-        if name and name.strip() and name.strip() not in names:
-            names.append(name.strip())
-    return names[:10]
-
-
-async def _people_for(
-    db: AsyncSession, company: SalesCompany, *, limit: int
-) -> CompanyPeopleResponse:
-    client_name = None
-    if company.client_id is not None:
-        client = await db.get(Client, company.client_id)
-        client_name = (client.display_name or client.name) if client else None
-    request = CompanyPeopleRequest(
-        names=_lookup_names(company, client_name), nip=company.nip, limit=limit
-    )
-    return await lookup_company_people(db, request)
-
-
-@router.get("/{company_id}/people", response_model=CompanyPeopleOut)
-async def company_people(
-    company_id: int,
-    current_user: SalesViewUser,
-    db: AsyncSession = Depends(get_db),
-    limit: int = Query(default=200, ge=1, le=200),
-) -> CompanyPeopleOut:
-    company = await db.get(SalesCompany, company_id)
-    if company is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
-    result = await _people_for(db, company, limit=limit)
-
-    related: list[tuple[SalesCompany, Literal["parent", "child"]]] = []
-    if company.parent_company_id is not None:
-        parent = await db.get(SalesCompany, company.parent_company_id)
-        if parent is not None:
-            related.append((parent, "parent"))
-    children = (
-        await db.execute(
-            select(SalesCompany)
-            .where(
-                SalesCompany.parent_company_id == company.id,
-                SalesCompany.archived_at.is_(None),
-            )
-            .order_by(SalesCompany.name)
-            .limit(20)
-        )
-    ).scalars()
-    related.extend((child, "child") for child in children)
-    group = []
-    for other, relation in related:
-        # Liczby wystarczą — szczegóły to karta tamtej firmy.
-        counted = await _people_for(db, other, limit=1)
-        group.append(
-            GroupCompanyPeople(
-                company=CompanyRef(id=other.id, name=other.name),
-                relation=relation,
-                counts=counted.counts,
-            )
-        )
-    return CompanyPeopleOut(
-        matched_client=(
-            CompanyRef(id=result.matched_client.id, name=result.matched_client.name)
-            if result.matched_client
-            else None
-        ),
-        counts=result.counts,
-        truncated=result.truncated,
-        people=result.people,
-        group=group,
-        dates_backfill=company_dates.visible_state(
-            company.dates_backfill, now=datetime.now(timezone.utc)
-        ),
-    )
-
-
-@router.post("/{company_id}/people/dates", response_model=dict[str, Any])
-async def fill_people_dates(
-    company_id: int,
-    current_user: SalesEditUser,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    """„Uzupełnij daty” w panelu — bieg w tle dla osób „bez dat” z tej firmy."""
-
-    company = await db.get(SalesCompany, company_id)
-    if company is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
-    state = company.dates_backfill or {}
-    if company_dates.is_running(state, now=datetime.now(timezone.utc)):
-        return {"scheduled": False, "state": state}
-    scheduled = company_dates.schedule_company_dates(company_id)
-    if not scheduled:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail="Uzupełnianie dat jest teraz wyłączone albo już trwa.",
-        )
-    return {"scheduled": True, "state": state}

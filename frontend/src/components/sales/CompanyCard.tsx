@@ -29,7 +29,7 @@ import { useAuthStore } from "@/store/auth";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { CompanyFormDialog } from "./CompanyFormDialog";
 import { ContactsSection } from "./ContactsSection";
-import { formatDealAmount } from "./format";
+import { formatDealAmount, safeHref } from "./format";
 import { LinkClientDialog } from "./LinkClientDialog";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesShell } from "./SalesShell";
@@ -81,8 +81,8 @@ function CompanyFacts({ company, onLink }: { company: SalesCompany; onLink?: () 
           )}
         </Fact>
         <Fact label="Strona">
-          {company.website_url && (
-            <a href={company.website_url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+          {safeHref(company.website_url) && (
+            <a href={safeHref(company.website_url)} target="_blank" rel="noreferrer" className="text-primary hover:underline">
               {company.domain ?? company.website_url}
             </a>
           )}

@@ -244,6 +244,7 @@ from app.api import public_consultant_mail as public_consultant_mail_api
 from app.api import admin_cases as admin_cases_api
 from app.api import equipment as equipment_api
 from app.api import sales_companies as sales_companies_api
+from app.api import sales_company_people as sales_company_people_api
 from app.api import sales_activities as sales_activities_api
 from app.api import sales_clients as sales_clients_api
 from app.api import sales_contacts as sales_contacts_api
@@ -2021,6 +2022,9 @@ app.include_router(
 # na każdej trasie (`require_permission`), bez osobnej sekcji produktu.
 app.include_router(
     sales_companies_api.router, prefix="/api/sales/companies", tags=["sales"]
+)
+app.include_router(
+    sales_company_people_api.router, prefix="/api/sales/companies", tags=["sales"]
 )
 app.include_router(
     sales_opportunities_api.pipelines_router,

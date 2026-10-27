@@ -20,6 +20,8 @@ import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
+import { safeHref } from "./format";
+
 const ORDER: PeopleRelationship[] = ["via_us", "current", "past", "unknown"];
 /** Ile osób z grupy pokazujemy, zanim ktoś kliknie „Pokaż wszystkich”. */
 const PREVIEW = 8;
@@ -66,8 +68,8 @@ function PersonRow({ person }: { person: MatchedPerson }) {
             {person.phone}
           </a>
         )}
-        {person.linkedin && (
-          <a className="text-primary hover:underline" href={person.linkedin} target="_blank" rel="noreferrer">
+        {safeHref(person.linkedin) && (
+          <a className="text-primary hover:underline" href={safeHref(person.linkedin)} target="_blank" rel="noreferrer">
             LinkedIn
           </a>
         )}

@@ -195,3 +195,75 @@ async def test_open_pipeline_counts_only_open_unarchived_opportunities(
     got = (await app_client.get(f"{URL}/{company['id']}", headers=_headers(rep))).json()
     assert got["open_opportunities"] == 2
     assert Decimal(got["open_value"]) == Decimal("150000.50")
+
+
+@pytest.mark.asyncio
+async def test_registry_lookup_fills_the_form_without_network(
+    app_client, monkeypatch
+) -> None:
+    from app.api import sales_companies
+
+    seen: list[str] = []
+
+    async def fake_lookup(nip=None, krs=None):
+        seen.append(nip)
+        if nip == "5260000000":
+            return None
+        return {
+            "name": "BANK PRZYKŁADOWY SPÓŁKA AKCYJNA",
+            "regon": "001234567",
+            "krs": "0000012345",
+            "address": "ul. Prosta 18, 00-850 WARSZAWA",
+            "source": "biala_lista",
+        }
+
+    monkeypatch.setattr(sales_companies, "lookup_company", fake_lookup)
+    rep = await _user("sales_edit")
+    viewer = await _user("sales_view")
+    ok = await app_client.get(
+        f"{URL}/registry", params={"nip": "PL 111-222-33-44"}, headers=_headers(rep)
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["hq_city"] == "Warszawa"
+    assert (ok.json()["nip"], ok.json()["krs"]) == ("1112223344", "0000012345")
+    assert seen == ["1112223344"]
+    missing = await app_client.get(
+        f"{URL}/registry", params={"nip": "5260000000"}, headers=_headers(rep)
+    )
+    assert missing.status_code == 404
+    bad = await app_client.get(
+        f"{URL}/registry", params={"nip": "12345678901"}, headers=_headers(rep)
+    )
+    assert bad.status_code == 422
+    denied = await app_client.get(
+        f"{URL}/registry", params={"nip": "1112223344"}, headers=_headers(viewer)
+    )
+    assert denied.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_links_accept_only_http_and_fill_in_https(app_client) -> None:
+    rep = await _user("sales_edit")
+    tag = uuid.uuid4().hex[:8]
+    bad = await app_client.post(
+        URL,
+        json={"name": f"Link {tag}", "website_url": "javascript:alert(1)"},
+        headers=_headers(rep),
+    )
+    assert bad.status_code == 422
+    ok = await app_client.post(
+        URL,
+        json={"name": f"Link {tag}", "website_url": "firma.example.com"},
+        headers=_headers(rep),
+    )
+    assert ok.json()["website_url"] == "https://firma.example.com"
+    lead = await app_client.post(
+        "/api/sales/leads",
+        json={
+            "title": "Sygnał",
+            "company_name": f"Link {tag}",
+            "url": "data:text/html,x",
+        },
+        headers=_headers(rep),
+    )
+    assert lead.status_code == 422

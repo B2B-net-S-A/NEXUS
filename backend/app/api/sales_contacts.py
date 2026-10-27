@@ -18,6 +18,7 @@ from app.api.sales_gates import SalesEditUser, SalesViewUser
 from app.core.database import get_db
 from app.models.sales import SalesCompany, SalesContact
 from app.services.polish_ilike import polish_folded_ilike
+from app.services.sales.companies import http_url
 
 router = APIRouter()
 
@@ -37,6 +38,11 @@ class ContactFields(BaseModel):
     department: Optional[str] = Field(default=None, max_length=120)
     is_executive: Optional[bool] = None
     notes: Optional[str] = Field(default=None, max_length=10_000)
+
+    @field_validator("linkedin_url")
+    @classmethod
+    def _http_only(cls, value: Optional[str]) -> Optional[str]:
+        return http_url(value)
 
     @field_validator("email")
     @classmethod

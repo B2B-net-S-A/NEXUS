@@ -25,6 +25,7 @@ from app.services import sales_schema as schema
 from app.services.company_names import normalize_company_name
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.sales import leads as service
+from app.services.sales.companies import http_url
 
 router = APIRouter()
 
@@ -39,6 +40,11 @@ class LeadCreate(BaseModel):
     company_name: str = Field(min_length=1, max_length=500)
     summary: Optional[str] = Field(default=None, max_length=10_000)
     url: Optional[str] = Field(default=None, max_length=1000)
+
+    @field_validator("url")
+    @classmethod
+    def _http_only(cls, value: Optional[str]) -> Optional[str]:
+        return http_url(value)
 
     @field_validator("title", "company_name")
     @classmethod

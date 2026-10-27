@@ -4,7 +4,7 @@ import type { Opportunity, Stage } from "@/lib/api/sales";
 
 import { localInputToIso } from "../ActivityTimeline";
 import { duplicatesFromError } from "../CompanyFormDialog";
-import { daysLabel, daysSince, formatDealAmount, formatDealNumber } from "../format";
+import { daysLabel, daysSince, formatDealAmount, formatDealNumber, safeHref } from "../format";
 import { boardStages, summarize } from "../OpportunitiesView";
 import { parseAmount, parseRoles, rolesToText } from "../OpportunityFormDialog";
 import { datesNote, period } from "../WhoWeKnowPanel";
@@ -28,6 +28,13 @@ describe("Sprzedaż — kwoty i dni", () => {
     expect(formatDealAmount("45000.40")).toMatch(/^45\s000 zł$/);
     expect(formatDealNumber(null)).toBe("—");
     expect(formatDealAmount("")).toBe("—");
+  });
+
+  it("link zewnętrzny tylko dla http(s)", () => {
+    expect(safeHref("https://bank.example.com")).toBe("https://bank.example.com");
+    expect(safeHref("javascript:alert(1)")).toBeUndefined();
+    expect(safeHref("data:text/html,x")).toBeUndefined();
+    expect(safeHref(null)).toBeUndefined();
   });
 
   it("dni od ostatniej aktywności", () => {

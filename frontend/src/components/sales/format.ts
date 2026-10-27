@@ -32,3 +32,9 @@ export function daysLabel(days: number): string {
   if (days === 0) return "dziś";
   return days === 1 ? "1 dzień" : `${days} dni`;
 }
+
+/** Link zewnętrzny tylko dla http(s) — dane z importu Atlasa nie przeszły walidacji API. */
+export function safeHref(url: string | null | undefined): string | undefined {
+  const value = (url ?? "").trim();
+  return /^https?:\/\//i.test(value) ? value : undefined;
+}

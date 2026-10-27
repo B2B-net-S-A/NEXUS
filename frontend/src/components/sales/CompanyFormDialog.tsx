@@ -14,6 +14,7 @@ import {
   LIFECYCLE_LABELS,
   TIER_LABELS,
   useCreateSalesCompany,
+  useRegistryLookup,
   useUpdateSalesCompany,
   type CompanyInput,
   type CompanyLifecycle,
@@ -85,7 +86,23 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
   const create = useCreateSalesCompany();
   const update = useUpdateSalesCompany(company?.id ?? 0);
   const { showError, showSuccess } = useToast();
+  const registry = useRegistryLookup();
   const pending = create.isPending || update.isPending;
+
+  const fillFromRegistry = () =>
+    registry.mutate(form.nip, {
+      onSuccess: (found) => {
+        setForm((current) => ({
+          ...current,
+          name: current.name.trim() ? current.name : (found.name ?? ""),
+          legal_name: found.name ?? current.legal_name,
+          nip: found.nip ?? current.nip,
+          hq_city: current.hq_city.trim() ? current.hq_city : (found.hq_city ?? ""),
+        }));
+        showSuccess("Uzupełniono dane z rejestru.");
+      },
+      onError: (error) => showError(apiErrorMessage(error, "Nie udało się pobrać danych z rejestru.")),
+    });
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -199,12 +216,25 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
         </div>
         <div className="space-y-1">
           <Label htmlFor="sales-company-nip">NIP</Label>
-          <Input
-            id="sales-company-nip"
-            value={form.nip}
-            inputMode="numeric"
-            onChange={(event) => set("nip", event.target.value)}
-          />
+          <div className="flex gap-2">
+            <Input
+              id="sales-company-nip"
+              className="w-0 flex-1"
+              value={form.nip}
+              inputMode="numeric"
+              onChange={(event) => set("nip", event.target.value)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              loading={registry.isPending}
+              disabled={form.nip.replace(/\D/g, "").length !== 10}
+              onClick={fillFromRegistry}
+            >
+              Pobierz z rejestru
+            </Button>
+          </div>
         </div>
         <div className="space-y-1">
           <Label htmlFor="sales-company-legal">Pełna nazwa prawna</Label>

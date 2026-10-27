@@ -30,6 +30,8 @@ import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
+import { safeHref } from "./format";
+
 const STATUSES: LeadStatus[] = ["new", "contacted", "converted", "dismissed"];
 
 function NewLeadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -117,10 +119,10 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
           {lead.signal_at ? ` · ${formatIsoDatePl(lead.signal_at)}` : ""}
           {lead.score ? ` · ocena ${lead.score}` : ""}
           {lead.dismissed_reason ? ` · ${lead.dismissed_reason}` : ""}
-          {lead.url && (
+          {safeHref(lead.url) && (
             <>
               {" · "}
-              <a href={lead.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+              <a href={safeHref(lead.url)} target="_blank" rel="noreferrer" className="text-primary hover:underline">
                 źródło
               </a>
             </>

@@ -112,3 +112,28 @@ async def open_pipeline(db: AsyncSession, company_id: int) -> OpenPipeline:
         )
     ).one()
     return OpenPipeline(count=int(row[0]), value=Decimal(row[1]))
+
+
+def http_url(value: Optional[str]) -> Optional[str]:
+    """Adres strony albo profilu: tylko ``http(s)://`` (bez ``javascript:``, ``data:``).
+
+    Gołą domenę („firma.pl”) uzupełniamy o ``https://`` — tak wpisują handlowcy.
+    """
+
+    text = (value or "").strip()
+    if not text:
+        return None
+    scheme = _SCHEME.match(text)
+    if scheme is None:
+        text = f"https://{text}"
+    elif scheme.group(1).lower() not in ("http", "https") or not text.lower().startswith(
+        ("http://", "https://")
+    ):
+        # „javascript:…”, „data:…”, „ftp://…” — także bez „//”.
+        raise ValueError("Adres musi zaczynać się od http:// albo https://.")
+    if any(char.isspace() for char in text):
+        raise ValueError("Adres nie może zawierać spacji.")
+    return text
+
+
+_SCHEME = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*):")
