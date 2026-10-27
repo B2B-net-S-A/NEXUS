@@ -2145,6 +2145,25 @@ async def freeze_competition(
     *,
     reason: str = "manual",
 ) -> FrozenPodium:
+    """Zamrożenie okresu (`_freeze_competition`) na świeżo policzonej zasłudze.
+
+    Ekrany czytają `credited` z minutowej migawki (`credited_snapshot`); podium
+    z nagrodą liczy ją od nowa, już pod blokadą okresu — poprawka etapu tuż
+    przed zamrożeniem musi się w nim znaleźć.
+    """
+    from app.services.credited_snapshot import fresh_credited_snapshot
+
+    async with fresh_credited_snapshot():
+        return await _freeze_competition(db, type_, period, reason=reason)
+
+
+async def _freeze_competition(
+    db: AsyncSession,
+    type_: CompetitionType,
+    period: str,
+    *,
+    reason: str,
+) -> FrozenPodium:
     """Write a podium once; a frozen historical period is immutable.
 
     Zwraca `FrozenPodium` — write-once ZOSTAJE (zamrożonej historii nie
@@ -2166,12 +2185,8 @@ async def freeze_competition(
         CLOSURE_TIE_PENDING,
         CompetitionPeriodClosure,
     )
-    from app.services.credited_snapshot import invalidate_credited_snapshot
 
     await _lock_period(db, type_, period)
-    # Podium z nagrodą liczy się ze świeżych wierszy, nie z migawki sprzed
-    # minuty (poprawka etapu tuż przed zamrożeniem musi się w nim znaleźć).
-    await invalidate_credited_snapshot()
     existing = (
         (
             await db.execute(

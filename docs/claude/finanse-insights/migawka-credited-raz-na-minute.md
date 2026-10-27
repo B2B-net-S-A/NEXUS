@@ -23,8 +23,10 @@ ok. 14 tys. wierszy (kopia produkcji z 22.10.2026).
   wynik: mail „Nowy placement” (`board_placement_alerts._credit_user`
   i `competition_rules.placement_margin_per_hour_by_user` — pytają o placement
   sprzed chwili), zawężona kopia Priority Work, rekonsyliacja i adopcja
-  procesu (czytają `credited_nexus`). `freeze_competition` przed policzeniem
-  podium woła `invalidate_credited_snapshot()`.
+  procesu (czytają `credited_nexus`). `freeze_competition` liczy podium
+  w bloku `fresh_credited_snapshot()`: raz od nowa z bazy, z pominięciem
+  cache'u i przeliczenia, które już trwa (samo skasowanie wpisu oddałoby
+  wiersze sprzed poprawki).
 - **`process_windows` wybiera tylko czytane kolumny** procesu (także
   `eligibility_assignment_id` dla Priority Work). Nowa kolumna czytana
   z `classified_process` = dopisz ją tam, inaczej zapytanie padnie.

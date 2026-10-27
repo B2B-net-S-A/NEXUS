@@ -18,20 +18,22 @@ nietknięta.
 
 Świeżość: migawka ma do 60 s, a konsumenci z własnym cache'em 60 s dokładają
 swoje — ruch na Tablicy widać w liczniku najpóźniej po ok. 2 min (wcześniej
-po 60 s). Nagród to nie rusza: wypłaca je zamrożenie okresu, które liczy
-migawkę od nowa (`invalidate_credited_snapshot`).
+po 60 s). Nagród to nie rusza: zamrożenie okresu liczy `credited` od nowa
+(`fresh_credited_snapshot`).
 """
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from functools import lru_cache
-from typing import Iterable, Optional
+from typing import AsyncIterator, Iterable, Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.cache import cache_get, cache_invalidate, cache_set, cache_single_flight
+from app.core.cache import cache_get, cache_set, cache_single_flight
 
 # (stage, reached_at, candidate_id, job_id, credit_user) — kolumny `credited`.
 # `candidate_id`/`job_id` = None: dzień z DynaReportera (bez pary).
@@ -39,6 +41,11 @@ CreditedRow = tuple[str, datetime, Optional[int], Optional[int], Optional[int]]
 
 _SNAPSHOT_TTL_SECONDS = 60
 _SNAPSHOT_KEY = "kpi:credited:v1"
+# W bloku `fresh_credited_snapshot` — wiersze policzone w nim od nowa (lista
+# pusta, dopóki nikt nie czytał). Poza blokiem None.
+_fresh_rows: ContextVar[Optional[list[tuple[CreditedRow, ...]]]] = ContextVar(
+    "credited_fresh_rows", default=None
+)
 
 # CTE `credited` z migawki — podmiana 1:1 za `VERIFIER_ANCHORED_CTE`.
 # Konsument dokleja własny `SELECT … FROM credited` albo `, inne AS (…)`.
@@ -74,8 +81,27 @@ def _snapshot_sql():
     )
 
 
+async def _compute(db: AsyncSession) -> tuple[CreditedRow, ...]:
+    result = await db.execute(_snapshot_sql())
+    return tuple(
+        (
+            str(r[0]),
+            r[1],
+            None if r[2] is None else int(r[2]),
+            None if r[3] is None else int(r[3]),
+            None if r[4] is None else int(r[4]),
+        )
+        for r in result.all()
+    )
+
+
 async def credited_rows(db: AsyncSession) -> tuple[CreditedRow, ...]:
     """Wszystkie wiersze `credited` całej firmy, najwyżej sprzed minuty."""
+    fresh = _fresh_rows.get()
+    if fresh is not None:
+        if not fresh:
+            fresh.append(await _compute(db))
+        return fresh[0]
     cached = await cache_get(_SNAPSHOT_KEY)
     if cached is not None:
         return cached
@@ -83,17 +109,7 @@ async def credited_rows(db: AsyncSession) -> tuple[CreditedRow, ...]:
         cached = await cache_get(_SNAPSHOT_KEY)
         if cached is not None:
             return cached
-        result = await db.execute(_snapshot_sql())
-        rows: tuple[CreditedRow, ...] = tuple(
-            (
-                str(r[0]),
-                r[1],
-                None if r[2] is None else int(r[2]),
-                None if r[3] is None else int(r[3]),
-                None if r[4] is None else int(r[4]),
-            )
-            for r in result.all()
-        )
+        rows = await _compute(db)
         if _SNAPSHOT_TTL_SECONDS > 0:
             await cache_set(
                 _SNAPSHOT_KEY,
@@ -104,10 +120,21 @@ async def credited_rows(db: AsyncSession) -> tuple[CreditedRow, ...]:
         return rows
 
 
-async def invalidate_credited_snapshot() -> None:
-    """Następny odczyt liczy `credited` od nowa (zamrożenie okresu z nagrodami
-    nie może stać na migawce sprzed poprawki zrobionej chwilę wcześniej)."""
-    await cache_invalidate(_SNAPSHOT_KEY)
+@asynccontextmanager
+async def fresh_credited_snapshot() -> AsyncIterator[None]:
+    """W bloku `credited` liczy się od nowa z bazy, raz na cały blok.
+
+    Zamrożenie okresu z nagrodami nie może stać na migawce sprzed poprawki
+    zrobionej chwilę wcześniej. Samo skasowanie wpisu cache'u tego nie
+    gwarantuje: przeliczenie, które ruszyło przed poprawką, kończy się po
+    skasowaniu i zapisuje stare wiersze, a czekający w single-flight je
+    dostaje (przegląd 27.10.2026). Blok omija więc cache i single-flight.
+    """
+    token = _fresh_rows.set([])
+    try:
+        yield
+    finally:
+        _fresh_rows.reset(token)
 
 
 def credited_params(rows: Iterable[CreditedRow]) -> dict[str, list]:
@@ -166,5 +193,5 @@ __all__ = [
     "credited_bind",
     "credited_params",
     "credited_rows",
-    "invalidate_credited_snapshot",
+    "fresh_credited_snapshot",
 ]

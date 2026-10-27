@@ -12,7 +12,8 @@ Reguły pod ochroną:
    `VERIFIER_ANCHORED_CTE` w tym miejscu i porównujemy wiersze — także przy
    zawężeniu migawki do osoby, etapu i okna (`credited_bind`).
 2. **Jedno przeliczenie na minutę**, z jednym wykonawcą przy równoległych
-   żądaniach; zamrożenie konkursu liczy migawkę od nowa.
+   żądaniach; zamrożenie konkursu liczy `credited` od nowa, z pominięciem
+   przeliczenia, które już trwa.
 3. **`process_windows` nie niesie `rp.*`** — sortowanie okna z całymi
    wierszami procesów zrzuciło na produkcji ok. 100 GB na dysk.
 """
@@ -81,10 +82,6 @@ async def test_parallel_readers_share_one_computation(monkeypatch):
     await credited_snapshot.credited_rows(db)
     assert db.runs == 1
 
-    await credited_snapshot.invalidate_credited_snapshot()
-    await credited_snapshot.credited_rows(db)
-    assert db.runs == 2
-
 
 async def test_bind_narrows_like_the_consumer_sql():
     rows = (
@@ -113,15 +110,62 @@ async def test_bind_narrows_like_the_consumer_sql():
     assert len(naive["credited_stage"]) == 3
 
 
-async def test_freeze_recomputes_the_snapshot():
+class _BlockedDb:
+    """Przeliczenie, które ruszyło przed poprawką etapu i jeszcze trwa."""
+
+    def __init__(self, rows, release: asyncio.Event | None = None):
+        self.rows = rows
+        self.release = release
+        self.runs = 0
+
+    async def execute(self, stmt, params=None):
+        self.runs += 1
+        if self.release is not None:
+            await self.release.wait()
+        return _Result(self.rows)
+
+
+async def test_fresh_block_does_not_take_a_computation_started_before_it(
+    monkeypatch,
+):
+    """Przegląd 27.10.2026: skasowanie cache'u nie wystarcza — przeliczenie
+    w toku zapisuje stare wiersze, a czekający w single-flight je dostaje."""
+    monkeypatch.setattr(credited_snapshot, "_SNAPSHOT_TTL_SECONDS", 60)
+    reached = datetime(2027, 7, 2, 10, 0, tzinfo=timezone.utc)
+    release = asyncio.Event()
+    stale = _BlockedDb([("hired", reached, 1, 1, 7)], release)
+    fixed = _BlockedDb([("hired", reached, 1, 1, 8)])
+
+    in_flight = asyncio.create_task(credited_snapshot.credited_rows(stale))
+    await asyncio.sleep(0)
+
+    async def _freeze_reads():
+        async with credited_snapshot.fresh_credited_snapshot():
+            first = await credited_snapshot.credited_rows(fixed)
+            second = await credited_snapshot.credited_rows(fixed)
+            return first, second
+
+    freeze = asyncio.create_task(_freeze_reads())
+    await asyncio.sleep(0)
+    release.set()
+    first, second = await freeze
+    await in_flight
+
+    assert first[0][4] == 8 and second is first
+    # Raz na cały blok zamrożenia, nie raz na odczyt.
+    assert fixed.runs == 1
+    # Poza blokiem ekrany czytają dalej zwykłą migawkę.
+    assert (await credited_snapshot.credited_rows(fixed))[0][4] == 7
+
+
+async def test_freeze_runs_inside_the_fresh_block():
     import inspect
 
     from app.services import competitions
 
     source = inspect.getsource(competitions.freeze_competition)
-    assert source.index("invalidate_credited_snapshot()") < source.index(
-        "compute_live("
-    )
+    assert "async with fresh_credited_snapshot():" in source
+    assert "_freeze_competition(" in source
 
 
 # ── 3. Wąskie `process_windows` ──────────────────────────────────────────────
