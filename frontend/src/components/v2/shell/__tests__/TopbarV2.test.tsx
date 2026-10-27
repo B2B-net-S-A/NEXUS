@@ -27,6 +27,7 @@ vi.mock("@/components/hr/leave/AbsentTodayButton", () => ({ AbsentTodayButton: (
 vi.mock("@/components/hr/approvals/ConsentsTopbarButton", () => ({
   ConsentsTopbarButton: () => null,
 }));
+vi.mock("@/components/v2/jobs/p0/P0TopbarButton", () => ({ P0TopbarButton: () => null }));
 
 import { TopbarV2 } from "../TopbarV2";
 

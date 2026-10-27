@@ -122,6 +122,8 @@ import type {
   PriorityChannel,
   PriorityRank,
 } from "@/lib/priority-work-api";
+import { P0Chip } from "@/components/v2/jobs/p0/P0Chip";
+import { isP0Active } from "@/lib/job-p0";
 
 // Bez `title` na przyciskach: w Chrome `title` potrafi przejąć nazwę dostępną
 // przycisku, a nazwa ma zostać „Otwarte 318". Opis idzie w `aria-describedby`.
@@ -394,7 +396,12 @@ function JobsTable({
                   ? "Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
                   : undefined
               }
-              className={locked ? "opacity-60" : undefined}
+              className={cn(
+                locked && "opacity-60",
+                // P0 — ultrapilne (27.10.2026): przypięte na górze przez serwer.
+                isP0Active(job) && "bg-destructive-muted hover:bg-destructive-muted/80",
+              )}
+              data-p0={isP0Active(job) ? "true" : undefined}
             >
               {/* `md:w-full md:max-w-0`: kolumna bierze resztę szerokości, a długa
                   nazwa przycina się wielokropkiem zamiast rozpychać tabelę.
@@ -404,12 +411,16 @@ function JobsTable({
                 {/* Priorytet stoi przy tytule (P2 nie ma plakietki), bez
                     osobnej kolumny. */}
                 <div className="flex min-w-0 items-center gap-1.5">
-                <RequestPriorityChip
-                  level={priorityLevelOf(job)}
-                  // P1 wstrzymany, bo mamy championa (D6, 15.10.2026).
-                  paused={job.priority_paused === true}
-                  className="shrink-0"
-                />
+                {isP0Active(job) ? (
+                  <P0Chip until={job.p0_until} reason={job.p0_reason} />
+                ) : (
+                  <RequestPriorityChip
+                    level={priorityLevelOf(job)}
+                    // P1 wstrzymany, bo mamy championa (D6, 15.10.2026).
+                    paused={job.priority_paused === true}
+                    className="shrink-0"
+                  />
+                )}
                 {/* Numer u klienta przed nazwą (prośba DL Nordei, 15.10.2026):
                     tytuły dla rekrutera są uogólnione i bez numeru nie widać,
                     który request to który. Poza linkiem — nazwa linku zostaje

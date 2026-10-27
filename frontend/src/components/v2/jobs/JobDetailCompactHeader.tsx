@@ -110,6 +110,8 @@ interface JobDetailCompactHeaderProps {
   facts: readonly JobHeaderFact[];
   /** Plakietka priorytetu przed tytułem (`JobPriorityMenu`, 14.10.2026). */
   priority?: ReactNode;
+  /** Pasek P0 nad tytułem (`JobP0Strip`, 27.10.2026) — tylko gdy P0 trwa. */
+  p0Strip?: ReactNode;
   /** Czwarty fakt „Rekruter” (`JobRecruiterFact`). */
   recruiter?: ReactNode;
   /** Ten sam fakt w zwiniętym nagłówku — same awatary, w linii tytułu. */
@@ -307,6 +309,7 @@ export function JobDetailCompactHeader({
   badges,
   facts,
   priority,
+  p0Strip,
   recruiter,
   recruiterCompact,
   sources,
@@ -361,6 +364,7 @@ export function JobDetailCompactHeader({
       data-testid="job-header"
       data-collapsed={collapsed ? "true" : undefined}
     >
+      {p0Strip}
       {/* `flex-wrap`: w wąskim oknie zakładki i przyciski schodzą pod tytuł,
           zamiast go ucinać. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
