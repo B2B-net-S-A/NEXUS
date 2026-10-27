@@ -51,6 +51,7 @@ function entry(id: number, name: string, origins: string[], extra: Record<string
       firstSeenAt: null,
       postingRecent,
       postingSeenAt: null,
+      requirements: [],
     },
   };
 }
@@ -410,6 +411,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
           firstSeenAt: null,
           postingRecent: false,
           postingSeenAt: null,
+          requirements: [],
           eligibility: {
             reason_code: "hm_veto",
             reason: "Brak bankowości",
@@ -605,6 +607,56 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       "Zaznacz Anna Pierwsza",
       "Zaznacz Dorota Czwarta",
     ]);
+  });
+
+  it("inna rola niż rekrutacja: plakietka, przekreślony % i miejsce pod osobami z tej roli; „musi mieć X/Y” przy procencie (27.10.2026)", async () => {
+    const withMust = (e: ReturnType<typeof entry>, met: number, total: number) =>
+      ({
+        ...e,
+        detail: {
+          ...e.detail,
+          requirements: Array.from({ length: total }, (_, i) => ({
+            label: `Skill ${i}`,
+            level: "must",
+            status: i < met ? "met" : "unknown",
+            verified: false,
+          })),
+        },
+      }) as never;
+    proposalsState.entries = [
+      withMust(entry(1, "Mateusz Tester", ["inbox"], { fitScore: 77 }), 5, 10),
+      withMust(entry(2, "Paweł Programista", ["inbox"], { fitScore: 72 }), 9, 10),
+    ];
+    factsApi.mockResolvedValue({
+      job_id: 5,
+      items: [
+        {
+          candidate_id: 1, title: "Senior QA Automation Engineer", company: null, years_experience: 7, city: null,
+          max_onsite_days_per_week: null, remote_modes: [], availability_status: null, availability_date: null,
+          expected_rate_hourly: null, expected_rate_currency: null, expected_rate_redacted: false, client_history: null,
+          role_mismatch: { family: "qa", label: "tester", detail: "obecnie Senior QA Automation Engineer" },
+        },
+        {
+          candidate_id: 2, title: "Java Developer", company: null, years_experience: 7, city: null,
+          max_onsite_days_per_week: null, remote_modes: [], availability_status: null, availability_date: null,
+          expected_rate_hourly: null, expected_rate_currency: null, expected_rate_redacted: false, client_history: null,
+          role_mismatch: null,
+        },
+      ],
+    });
+    renderPanel();
+    const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    await within(list).findByText("Inna rola: tester");
+    const names = within(list).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"));
+    expect(names).toEqual(["Zaznacz Paweł Programista", "Zaznacz Mateusz Tester"]);
+    const tester = within(list).getByText("Mateusz Tester").closest("li") as HTMLElement;
+    expect(within(tester).getByText("obecnie Senior QA Automation Engineer")).toBeTruthy();
+    expect(within(tester).getByTestId("pick-row-score-off-role")).toHaveTextContent("77% (inna rola)");
+    expect(within(tester).getByTestId("pick-row-must-coverage")).toHaveTextContent("musi mieć 5/10");
+    const developer = within(list).getByText("Paweł Programista").closest("li") as HTMLElement;
+    expect(within(developer).queryByTestId("pick-row-role-mismatch")).toBeNull();
+    expect(within(developer).getByText("72%")).toBeTruthy();
+    expect(within(developer).getByTestId("pick-row-must-coverage")).toHaveTextContent("musi mieć 9/10");
   });
 
   it("po dodaniu osoby policzone wyniki pozostałych zostają (nie wracają do „liczę…”)", async () => {
