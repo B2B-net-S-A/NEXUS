@@ -1,4 +1,4 @@
-"""Przypomnienia o brakujących ogłoszeniach (0525) — trasy i przebieg z bazą.
+"""Przypomnienia o brakujących ogłoszeniach (0526) — trasy i przebieg z bazą.
 
 - poranny przebieg zakłada wpis o nowej rekrutacji dla DL-a i rekrutera,
   a o starej — jeden zbiorczy; drugi przebieg tego dnia nic nie dokłada;

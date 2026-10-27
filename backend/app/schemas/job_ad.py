@@ -185,7 +185,7 @@ AdChannel = Literal["kariera", "pracuj", "jjit"]
 
 
 class AdChannelView(BaseModel):
-    """Stan jednego kanału rekrutacji (przypomnienia o ogłoszeniach, 0525)."""
+    """Stan jednego kanału rekrutacji (przypomnienia o ogłoszeniach, 0526)."""
 
     channel: AdChannel
     state: Literal["live", "missing", "skipped"]
@@ -227,7 +227,7 @@ class JobAdResponse(BaseModel):
     can_copy: bool = False
     # Gdzie ogłoszenie wisi (0432) — także wiersze „zdjęte z portalu”.
     publications: list[AdPublicationRead] = Field(default_factory=list)
-    # Trzy kanały i kto je robi (0525); brak = rekrutacja zamknięta.
+    # Trzy kanały i kto je robi (0526); brak = rekrutacja zamknięta.
     reminders: Optional[AdReminders] = None
 
 

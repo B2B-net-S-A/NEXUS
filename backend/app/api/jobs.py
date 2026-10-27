@@ -162,6 +162,7 @@ from app.services.job_previous_recruiters import (
     previous_recruiters_for_jobs,
     restore_team,
 )
+from app.services.job_p0 import p0_rank_expr
 from app.services.job_priority import (
     PRIORITY_LEVELS,
     attention_priority_rank_expr,
@@ -1543,6 +1544,7 @@ async def list_jobs(
             default_template_id=default_template_id_for_counts,
         )
         query = query.outerjoin(attention, attention.c.job_id == Job.id).order_by(
+            p0_rank_expr().asc(),
             # P1 („Pilne”) zawsze na górze (02.10.2026) — tak samo ustawia
             # kolejkę automat przydziału (`job_priority.priority_rank`). P1
             # z championem schodzi do reszty (D6, 15.10.2026).
@@ -1554,11 +1556,17 @@ async def list_jobs(
             Job.id.desc(),
         )
     elif sort == JobSort.oldest:
-        query = query.order_by(job_opened_effective_expr().asc(), Job.id.asc())
+        query = query.order_by(
+            p0_rank_expr().asc(), job_opened_effective_expr().asc(), Job.id.asc()
+        )
     elif sort == JobSort.deadline:
-        query = query.order_by(nulls_last(Job.deadline.asc()), Job.id.desc())
+        query = query.order_by(
+            p0_rank_expr().asc(), nulls_last(Job.deadline.asc()), Job.id.desc()
+        )
     else:  # JobSort.newest (default)
-        query = query.order_by(job_opened_effective_expr().desc(), Job.id.desc())
+        query = query.order_by(
+            p0_rank_expr().asc(), job_opened_effective_expr().desc(), Job.id.desc()
+        )
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     jobs = list(result.scalars().all())
 
@@ -2399,6 +2407,11 @@ async def get_job(
     payload["can_set_priority"] = pipeline_writer and await user_can_set_job_priority(
         db, current_user, job
     )
+    # 0525: P0 — kto ustawił (pasek w nagłówku) i czy ten użytkownik ustawia.
+    from app.services import job_p0  # noqa: PLC0415
+
+    payload["p0_set_by_name"] = await job_p0.set_by_name(db, job)
+    payload["can_set_p0"] = pipeline_writer and job_p0.can_set_p0(current_user)
     # 0341: status requestu — ta sama reguła co wiersz listy.
     from app.services.job_similarity import request_statuses  # noqa: PLC0415
 

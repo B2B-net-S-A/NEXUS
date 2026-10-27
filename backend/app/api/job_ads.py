@@ -11,7 +11,7 @@
 * ``GET/PUT /api/job-ads/fixed-blocks`` — stałe części firmy (admin i Head of
   Recruitment);
 * ``PUT/DELETE /api/jobs/{job_id}/portal-ad/skips/{channel}`` — „nie
-  publikujemy tej rekrutacji na …” z powodem (0525, przypomnienia);
+  publikujemy tej rekrutacji na …” z powodem (0526, przypomnienia);
 * ``POST /api/jobs/{job_id}/portal-ad/remind`` — DL prosi rekrutera o stronę
   kariery (mail od razu);
 * ``GET /api/job-ads/missing`` — rekrutacje z brakiem, który robi osoba
@@ -616,7 +616,7 @@ async def put_fixed_blocks(
     return FixedBlocksModel(**blocks.as_dict())
 
 
-# ── Przypomnienia o brakujących ogłoszeniach (0525, 27.10.2026) ──────────────
+# ── Przypomnienia o brakujących ogłoszeniach (0526, 27.10.2026) ──────────────
 
 
 async def _job_ad_reply(db: AsyncSession, job: Job, user: User) -> JobAdResponse:

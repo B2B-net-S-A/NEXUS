@@ -1,4 +1,4 @@
-"""„Nie publikujemy tej rekrutacji na …” — 0525.
+"""„Nie publikujemy tej rekrutacji na …” — 0526.
 
 Kolumny i powód istnienia: ``app/services/job_ad_reminder_schema.py``.
 Logika: ``app/services/job_ad/reminders.py``, trasy: ``app/api/job_ads.py``.

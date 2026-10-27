@@ -10,7 +10,7 @@ Kierunek „nie w NEXUSIE, tylko mail z przyciskami”: kolejka „Ogłoszenia b
 rekrutacji” z pierwszej wersji makiet jest odłożona.
 
 Kod: `services/job_ad/reminders.py`, schemat `services/job_ad_reminder_schema.py`
-(0525), trasy w `api/job_ads.py`, wpięcie w `notification_triggers.run_all_triggers`
+(0526), trasy w `api/job_ads.py`, wpięcie w `notification_triggers.run_all_triggers`
 i `tasks/notification_email_outbox`.
 
 - **Trzy kanały** otwartej rekrutacji: strona kariery (zatwierdzony opis,

@@ -1,7 +1,7 @@
 """Przypomnienia o brakujących ogłoszeniach: „nie publikujemy” i typy dzwonka.
 
-Revision ID: 0525_job_ad_reminders
-Revises: 0524_agreement_admin_details
+Revision ID: 0526_job_ad_reminders
+Revises: 0525_job_p0
 
 Decyzja Artura 27.10.2026: codziennie rano mail o każdej otwartej rekrutacji
 bez strony kariery, Pracuj.pl albo JustJoin.IT — do osoby, która ma to
@@ -17,8 +17,8 @@ from alembic import op
 
 from app.services import job_ad_reminder_schema as schema
 
-revision = "0525_job_ad_reminders"
-down_revision = "0524_agreement_admin_details"
+revision = "0526_job_ad_reminders"
+down_revision = "0525_job_p0"
 branch_labels = None
 depends_on = None
 
@@ -30,7 +30,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text IN ('job_ad_missing', 'job_ad_backlog', 'job_ad_nudge')
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0525 odmawia: notifications ma wpisy przypomnień o ogłoszeniach, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0526 odmawia: notifications ma wpisy przypomnień o ogłoszeniach, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
@@ -53,7 +53,7 @@ def downgrade() -> None:
     ):
         raise RuntimeError(
             "job_ad_channel_skips zawiera decyzje „nie publikujemy” — downgrade "
-            "by je skasował. Usuń wiersze świadomie albo zostań przy 0525."
+            "by je skasował. Usuń wiersze świadomie albo zostań przy 0526."
         )
     for stmt in schema.DOWNGRADE_DDL:
         op.execute(stmt)

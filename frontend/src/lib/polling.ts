@@ -30,3 +30,6 @@ export const ALLOCATION_BOARD_POLL_MS = 2 * 60_000;
 /** Akademia: zgłoszenia z ogłoszeń dochodzą co 10 min (pętla w tle) — ekran
  * dociąga je co 2 min, żeby dzwoniący widział świeżą kolejkę bez odświeżania. */
 export const ACADEMY_POLL_MS = 2 * 60_000;
+
+/** P0 — ultrapilne rekrutacje (górny pasek i pulpit u każdego, 27.10.2026). */
+export const P0_JOBS_POLL_MS = 5 * 60_000;

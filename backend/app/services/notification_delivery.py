@@ -126,6 +126,16 @@ CATALOG = (
         "Pracuj.pl i JustJoin.IT: Delivery Lead (bez niego Head of Recruitment). "
         "DL widzi w mailu wszystkie trzy kanały swojej rekrutacji.",
     ),
+    # Mail obowiązkowy (27.10.2026) — `services/job_p0.py`.
+    dict(
+        id="job_p0",
+        label="P0 na rekrutacji",
+        module="Rekrutacje",
+        trigger="Head of Recruitment albo administrator ustawił rekrutacji P0 — "
+        "ultrapilne przez 24 h (48 h albo do piątku), z powodem.",
+        recipient_rule="Rekruterzy pracujący nad rekrutacją i jej Delivery Lead, "
+        "bez osoby, która ustawiła P0. W mailu: rekrutacja, klient, powód i termin.",
+    ),
     # Maile natychmiast (22.10.2026, „brak maila o terminach rozmów”) — typy
     # dzwonka z `BELL_MAIL_TYPES`, treść = tytuł i opis wpisu w dzwonku.
     dict(
@@ -370,6 +380,7 @@ HR_MAIL_KIND = "hr_people"
 HR_BONUS_KIND = "hr_bonus"
 CLIENT_JOB_KIND = "client_job_opened"
 JOB_AD_KIND = "job_ad_reminders"
+JOB_P0_KIND = "job_p0"
 
 # Maile obowiązkowe (decyzja Artura 26.10.2026): sprawy, na które ktoś czeka.
 # Pomiar na kopii produkcji z 22.10: nikt z 38 kont nie wyłączył sobie maila,
@@ -384,6 +395,7 @@ REQUIRED_KINDS = frozenset(
         "request_assigned",
         CLIENT_JOB_KIND,
         JOB_AD_KIND,
+        JOB_P0_KIND,
         "client_interview",
         "dl_review",
         "cv_returned",
@@ -467,6 +479,7 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     "pre_contract": ("pre_contract",),
     "team_task": ("cpro_send_assigned", "note_reply", "candidate_claim_taken"),
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
+    JOB_P0_KIND: ("job_p0_set",),
 }
 
 

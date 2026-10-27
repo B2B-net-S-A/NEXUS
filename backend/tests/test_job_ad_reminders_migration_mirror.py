@@ -1,4 +1,4 @@
-"""0525: „nie publikujemy” i typy dzwonka przypomnień o ogłoszeniach mają lustro
+"""0526: „nie publikujemy” i typy dzwonka przypomnień o ogłoszeniach mają lustro
 w entrypoincie (prod alembic bywa osierocony), sondę w ``/api/health/deep``,
 a model zgadza się z DDL."""
 
@@ -12,11 +12,11 @@ from app.models.notification import NotificationType
 from app.services import job_ad_reminder_schema as schema
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0525_job_ad_reminders.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0526_job_ad_reminders.py"
 
 
 def _migration_module():
-    spec = importlib.util.spec_from_file_location("m0525", MIGRATION)
+    spec = importlib.util.spec_from_file_location("m0526", MIGRATION)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -25,8 +25,8 @@ def _migration_module():
 
 def test_migration_runs_the_shared_ddl() -> None:
     module = _migration_module()
-    assert module.revision == "0525_job_ad_reminders"
-    assert module.down_revision == "0524_agreement_admin_details"
+    assert module.revision == "0526_job_ad_reminders"
+    assert module.down_revision == "0525_job_p0"
     text = MIGRATION.read_text(encoding="utf-8")
     assert "schema.ALL_DDL" in text
     assert "schema.ENUM_DDL" in text

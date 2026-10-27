@@ -28,6 +28,7 @@ import {
   CityCallout,
   CommentCallout,
   DecisionCallout,
+  RareWordCallout,
 } from "@/components/champion/RequirementRowCallouts";
 import { statSentence } from "@/lib/critical-skills";
 import {
@@ -50,6 +51,8 @@ import {
   criticalRows,
   criticalSummary,
   enterRequirements,
+  gluedVariants,
+  isRareRowCount,
   levelBlockedReason,
   parseRequirementEntry,
   requiredOverflowNotice,
@@ -272,6 +275,14 @@ export function RequirementRowsEditor({
   const showSuggestion = suggested.length > 0 && !hasCritical && !noCritical;
   const canRemove = shown.length > 1 || shown[0].words.length > 0;
   const overflowNotice = requiredOverflowNotice(shown);
+  // Które „musi mieć” zawężają listę do zera (pomiar 27.10.2026: w 50 ze 129
+  // rekrutacji wszystkie razem nie zostawiały nikogo, a DL widział samo „~0”).
+  const narrowest = isRareRowCount(counts.required)
+    ? required
+        .filter((row) => row.level === "must" && isRareRowCount(counts.perRow[row.key]))
+        .sort((a, b) => (counts.perRow[a.key] ?? 0) - (counts.perRow[b.key] ?? 0))
+        .slice(0, 3)
+    : [];
 
   if (disabled) {
     const filled = shown.filter((row) => row.words.length > 0);
@@ -346,10 +357,13 @@ export function RequirementRowsEditor({
                 : (levelBlockedReason(shown, row.key, "critical") ?? undefined);
           const stat = info?.suggested ? statSentence(info.stat) : null;
           // N8 (06.10.2026): liczba osób jest tylko przy wierszach obowiązkowych.
-          const countHint =
-            !decision && !city && countEnabled && row.level !== "nice" && row.words.length > 0
-              ? rowCountHint(counts.perRow[row.key])
-              : null;
+          const counted =
+            !decision && !city && countEnabled && row.level !== "nice" && row.words.length > 0;
+          const countHint = counted ? rowCountHint(counts.perRow[row.key]) : null;
+          const rowCount = counts.perRow[row.key];
+          const rareKey = `rare:${head}`;
+          const rareCount =
+            counted && isRareRowCount(rowCount) && !dismissed.has(rareKey) ? rowCount : null;
           const rowHints = hints.filter((hint) => hint.row === index);
           // Pusty wiersz przyjmuje wymagania. Wypełniony pokazuje same chipy:
           // bez pola kolejne słowo nie stanie się po cichu wariantem — pole
@@ -510,6 +524,20 @@ export function RequirementRowsEditor({
                   onKeep={() => setDismissed((prev) => new Set(prev).add(cityKey))}
                 />
               ) : null}
+              {rareCount != null ? (
+                <RareWordCallout
+                  word={row.words.join(" lub ")}
+                  count={rareCount}
+                  split={row.words.length === 1 ? gluedVariants(row.words[0]) : null}
+                  countEnabled={countEnabled}
+                  onSplit={(parts) => setWords(row.key, parts)}
+                  onTalk={() => {
+                    remove(row.key);
+                    toTalk(row.words.join(" / "), "skills");
+                  }}
+                  onKeep={() => setDismissed((prev) => new Set(prev).add(rareKey))}
+                />
+              ) : null}
               {countHint ? (
                 <p
                   className="px-1 text-xs text-warning-muted-foreground"
@@ -664,6 +692,19 @@ export function RequirementRowsEditor({
               </>
             ) : null}
             . „Szukaj ręcznie” wymaga tylko krytycznych — reszta podnosi w kolejności.
+          </span>
+        ) : null}
+        {narrowest.length > 0 ? (
+          <span
+            className="text-xs font-medium text-warning-muted-foreground"
+            data-testid="requirement-rows-narrowest"
+          >
+            Najbardziej zawężają:{" "}
+            {narrowest
+              .map((row) => `„${rowHead(row.words)}” (${counts.perRow[row.key]})`)
+              .join(", ")}
+            . Tych słów prawie nikt nie ma w CV, więc nie podnoszą nikogo w kolejności — zamień je
+            na słowa z CV albo przenieś do rozmowy.
           </span>
         ) : null}
         {criticalReachWarning(criticalCount) ? (

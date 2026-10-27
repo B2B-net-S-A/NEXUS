@@ -80,8 +80,9 @@ _JOBS = (
     _T.recruitment_allocation_alert,
     _T.request_review_needed,
     _T.client_job_opened,
+    _T.job_p0_set,
     _T.request_allocation_proposals,
-    # 0525: brakujące ogłoszenia (codzienne, bez dymka).
+    # 0526: brakujące ogłoszenia (codzienne, bez dymka).
     _T.job_ad_missing,
     _T.job_ad_backlog,
     _T.job_ad_nudge,
@@ -162,6 +163,7 @@ _JOBS_TOAST = (
     _T.candidate_claim_taken,
     _T.request_review_needed,
     _T.client_job_opened,
+    _T.job_p0_set,
     _T.request_allocation_proposals,
     _T.care_front_office_handoff,
 )

@@ -324,6 +324,16 @@ describe("grouping", () => {
     expect(orderRequests(board.requests.filter((r) => r.category_id === 2)).map((r) => r.job_id)).toEqual([4, 2, 3])
   })
 
+  it("P0 stoi na górze kategorii przed terminem i championem; wygasłe P0 nie", () => {
+    const now = new Date("2026-10-27T09:09:00Z")
+    const rows = [
+      req({ job_id: 1, category_id: 9, deadline: "2026-10-28", champion: false }),
+      req({ job_id: 2, category_id: 9, deadline: "2026-12-01", champion: false, is_p0: true, p0_until: "2026-10-28T09:09:00Z" }),
+      req({ job_id: 3, category_id: 9, deadline: "2026-10-27", champion: false, is_p0: true, p0_until: "2026-10-27T09:00:00Z" }),
+    ]
+    expect(orderRequests(rows, now).map((r) => r.job_id)).toEqual([2, 3, 1])
+  })
+
   it("filtered group says N z M and empty groups disappear", () => {
     const { groups, shown, total } = groupRequests(board, { ...EMPTY_FILTERS, q: "java" }, TODAY)
     expect(total).toBe(4)
