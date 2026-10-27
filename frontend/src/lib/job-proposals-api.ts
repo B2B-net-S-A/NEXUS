@@ -60,8 +60,16 @@ export interface ProposalInboxItem {
   candidate: ProposalInboxCandidate;
   /** `string` w unii: nowe źródło backendu nie może wywrócić widoku. */
   sources: Array<ProposalSource | (string & {})>;
-  /** Decimal po stronie serwera — bywa serializowany jako tekst. */
+  /**
+   * Kanoniczne dopasowanie NEXUSA. Decimal po stronie serwera — bywa
+   * serializowany jako tekst. Bez punktacji scrapera portalu (27.10.2026).
+   */
   score: number | string | null;
+  /**
+   * Punktacja scrapera portalu (źródło `job_board`, Pracuj.pl / JJIT) — inny
+   * algorytm i inna skala; nigdy jako „Dop.”, najwyżej jako dopisek.
+   */
+  board_score?: number | string | null;
   evidence: ProposalInboxEvidence | null;
   first_seen_at: string | null;
   last_seen_at: string | null;

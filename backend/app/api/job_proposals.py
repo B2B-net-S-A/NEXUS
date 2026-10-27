@@ -346,6 +346,7 @@ async def list_job_proposals(
                 "candidate": _candidate_brief(candidate),
                 "sources": row.sources,
                 "score": row.score,
+                "board_score": row.board_score,
                 "evidence": row.evidence,
                 "first_seen_at": row.first_seen_at,
                 "last_seen_at": row.last_seen_at,

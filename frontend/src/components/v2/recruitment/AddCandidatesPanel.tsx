@@ -225,6 +225,7 @@ function proposalRow(
     candidateId: row.candidateId,
     fullName: row.fullName,
     fitScore: row.fitScore,
+    boardScore: row.boardScore ?? null,
     // Kwota stoi w plakietce stawki — w linii faktów byłaby drugi raz.
     rateLabel: rateBadge ? null : row.rateLabel,
     availabilityLabel: row.availabilityLabel,
@@ -548,23 +549,25 @@ function AddCandidatesPanelOpen({
     }
   }, [sortMode, listTab, unscoredNow, reportScoreRow]);
   const listRows = useMemo(() => {
+    // Wiersz niesie procent, który widać: zapisany albo policzony na ekranie
+    // (osoba tylko z portalu ogłoszeń nie ma zapisanego — 27.10.2026). Tak
+    // samo dla kolejności i przekreślonego procentu przy innej roli.
+    const shown = unsortedRows.map((row): PickRow => {
+      if (row.fitScore != null) return row;
+      const score = matchScores.scores[String(row.candidateId)];
+      return typeof score === "number" ? { ...row, fitScore: score } : row;
+    });
     const sorted =
       sortMode === "client_first"
-        ? sortByClientHistory(unsortedRows, factsById)
-        : sortByShownScore(unsortedRows, (row) => {
-            if (row.fitScore != null) return row.fitScore;
-            const score = matchScores.scores[String(row.candidateId)];
-            return typeof score === "number" ? score : null;
-          });
+        ? sortByClientHistory(shown, factsById)
+        : sortByShownScore(shown, (row) => row.fitScore);
     // Inna rola (tester przy programiście, 27.10.2026) zawsze pod osobami
     // z roli rekrutacji, niezależnie od procentu.
     return [...sorted.filter((r) => !r.roleMismatch), ...sorted.filter((r) => r.roleMismatch)];
   }, [sortMode, unsortedRows, factsById, matchScores.scores]);
   const renderProposalScore = (row: PickRow): ReactNode => {
-    if (row.fitScore != null) return <ScoreBadge score={row.fitScore} />;
+    if (row.fitScore != null) return <ScoreBadge score={row.fitScore} boardScore={row.boardScore} />;
     const key = String(row.candidateId);
-    const score = matchScores.scores[key];
-    if (typeof score === "number") return <ScoreBadge score={score} />;
     const failure = matchScores.failures[key];
     if (failure === "forbidden") {
       return <span className="shrink-0 text-xs text-muted-foreground">brak dostępu</span>;

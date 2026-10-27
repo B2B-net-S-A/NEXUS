@@ -34,7 +34,13 @@ import { shortChipLabel, type ReasonChipList, type ReasonChipTone } from "./reas
 export interface PickRow {
   candidateId: number;
   fullName: string;
+  /** Kanoniczne dopasowanie NEXUSA (fioletowy procent); `null` = nie policzono. */
   fitScore: number | null;
+  /**
+   * Punktacja scrapera portalu ogłoszeń (`job_board`, 27.10.2026) — inny
+   * algorytm, więc tylko w dymku procentu, nigdy zamiast niego.
+   */
+  boardScore?: number | null;
   rateLabel: string | null;
   availabilityLabel: string | null;
   note: string | null;
@@ -99,14 +105,30 @@ export function CvBadge({ badge }: { badge: CvYearBadge }) {
   );
 }
 
-export function ScoreBadge({ score }: { score: number | null }) {
+/** Dopisek w dymku procentu: ocena portalu ogłoszeń (inny algorytm). */
+export function boardScoreHint(boardScore: number | null | undefined): string {
+  return boardScore != null
+    ? ` · portal ogłoszeń ocenił na ${Math.round(boardScore)}% (inny algorytm, nie porównuj)`
+    : "";
+}
+
+export function ScoreBadge({
+  score,
+  boardScore,
+}: {
+  score: number | null;
+  boardScore?: number | null;
+}) {
   return (
     <span
       className={cn(
         "shrink-0 text-xs font-bold tabular-nums",
         score != null ? "text-primary" : "font-normal text-muted-foreground",
       )}
-      title={score != null ? "Dopasowanie do rekrutacji" : "Dopasowania nie policzono"}
+      title={
+        (score != null ? "Dopasowanie do rekrutacji" : "Dopasowania nie policzono") +
+        boardScoreHint(boardScore)
+      }
     >
       {score != null ? `${Math.round(score)}%` : "nie policzono"}
     </span>
@@ -313,7 +335,7 @@ function PickListItem({
               {row.roleMismatch ? (
                 <span
                   className="text-xs font-bold tabular-nums text-muted-foreground line-through"
-                  title="Inna rola niż rekrutacja — procent mierzy podobieństwo CV, nie zawód"
+                  title={`Inna rola niż rekrutacja — procent mierzy podobieństwo CV, nie zawód${boardScoreHint(row.boardScore)}`}
                   data-testid="pick-row-score-off-role"
                 >
                   {row.fitScore != null ? `${Math.round(row.fitScore)}%` : "—"}
@@ -322,7 +344,7 @@ function PickListItem({
               ) : renderScore ? (
                 renderScore(row)
               ) : (
-                <ScoreBadge score={row.fitScore} />
+                <ScoreBadge score={row.fitScore} boardScore={row.boardScore} />
               )}
               {row.mustCoverage ? (
                 <span
