@@ -1158,3 +1158,97 @@ def test_integration_request_is_detected_by_oauth_client_state() -> None:
     assert candidate_claim.is_integration_request(human) is False
     assert candidate_claim.is_integration_request(integration) is True
     assert candidate_claim.is_integration_request(object()) is False
+
+
+async def _card(
+    client: AsyncClient, headers: dict[str, str], job_id: int, cand_id: int
+) -> dict:
+    board = await client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert board.status_code == 200, board.text
+    return next(
+        item
+        for col in board.json()["columns"]
+        for item in col["items"]
+        if item["candidate_id"] == cand_id
+    )
+
+
+async def _expire_claim(cand_id: int, job_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(RecruitmentProcess)
+            .where(
+                RecruitmentProcess.candidate_id == cand_id,
+                RecruitmentProcess.job_id == job_id,
+            )
+            .values(claimed_until=datetime.now(timezone.utc) - timedelta(minutes=1))
+        )
+        await db.commit()
+
+
+async def test_taker_stays_on_card_after_claim_expires_until_verified(api_client):
+    """27.10.2026: „Biorę” zmienia osobę karty. Ostatnia biorąca osoba zostaje
+    w `taken_by_*` także po 12 h (blokada już nie wiąże), a po weryfikacji
+    kartę przejmuje osoba, która zweryfikowała."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        card = await _card(api_client, other_h, job_id, cand_id)
+        assert card["added_to_job_by_id"] == owner_id
+        assert card["taken_by_user_id"] == owner_id
+
+        await _expire_claim(cand_id, job_id)
+        take = await api_client.post(
+            "/api/pipeline/claim",
+            headers=other_h,
+            json={"candidate_id": cand_id, "job_id": job_id},
+        )
+        assert take.status_code == 200, take.text
+        card = await _card(api_client, owner_h, job_id, cand_id)
+        assert card["taken_by_user_id"] == other_id
+        assert card["taken_by_name"].startswith("V4 recruiter")
+        assert card["added_to_job_by_id"] == owner_id
+
+        # Po 12 h blokada nie wiąże, ale osoba karty zostaje.
+        await _expire_claim(cand_id, job_id)
+        card = await _card(api_client, owner_h, job_id, cand_id)
+        assert card.get("claim_user_id") is None
+        assert card["can_take"] is True
+        assert card["taken_by_user_id"] == other_id
+
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=owner_h,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "verified"},
+        )
+        assert moved.status_code == 200, moved.text
+        card = await _card(api_client, owner_h, job_id, cand_id)
+        assert card.get("taken_by_user_id") is None
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_deactivated_taker_is_not_the_card_person(api_client):
+    """Nieaktywne konto nie prowadzi nikogo — także jako osoba karty."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(User).where(User.id == owner_id).values(is_active=False)
+            )
+            await db.commit()
+        card = await _card(api_client, other_h, job_id, cand_id)
+        assert card.get("taken_by_user_id") is None
+    finally:
+        await _cleanup([cand_id], job_id)

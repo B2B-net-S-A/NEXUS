@@ -61,7 +61,7 @@ export function AddedByMenuContent({
     <DropdownMenuContent align={align} className="w-72" data-testid="added-by-menu">
       <DropdownMenuLabel>Kto dodał osobę do tej rekrutacji</DropdownMenuLabel>
       <p className="px-2 pb-1.5 text-xs text-muted-foreground">
-        Jak na karcie. Liczby: osoby w toku na Tablicy.
+        Jak na karcie: kto wziął „Biorę”, a bez tego kto dodał. Liczby: osoby w toku na Tablicy.
       </p>
       <DropdownMenuRadioGroup
         value={selectedKey}
