@@ -36,7 +36,9 @@ Fundament: `dl-przesuwa-bez-blokad.md` (#2581) i „Sam przekazał” (#2582).
   nazwie, numerze u klienta, kliencie (bez polskich znaków) i id, od 2 znaków,
   do 8 wyników, **bez oceny dopasowania** (decyzja: DL wie, czemu dodaje).
   Wiersz wchodzi zaznaczony, z „dodana przez Ciebie” i „× usuń”; reszta jak
-  przy podsuniętych. Lista podpowiedzi zostaje w portfelu.
+  przy podsuniętych. Lista podpowiedzi zostaje w portfelu. Proces w cudzej
+  rekrutacji zalicza się **wysyłającemu** DL-owi, nie DL-owi tamtej
+  rekrutacji (decyzja Artura 27.10.2026) — ten dostaje dzwonek.
 - **Wysyłka** (`POST /api/dl-match/send`, `api/dl_match.py`): osoba musi być
   w A po „Zweryfikowany” (inaczej 422). Rekrutacja B musi być otwarta i bez
   tej osoby — od 27.10.2026 **bez warunku portfela** (rekrutacje są dla DL-a
