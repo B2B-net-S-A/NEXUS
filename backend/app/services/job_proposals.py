@@ -58,7 +58,9 @@ from app.services.job_proposal_feedback_schema import DISMISS_NOTE_MAX, DISMISS_
 _UPSERT_CHUNK = 500
 _MAX_NAME_LEN = 120
 _MAX_REQUIREMENTS = 60
-_REQUIREMENT_KEYS = ("id", "key", "level", "status")
+# `last_used_year`: rok ostatniego użycia technologii starszej niż 3 lata
+# („?” zamiast „✓”, `skill_freshness`) — sama liczba, bez kontekstu z CV.
+_REQUIREMENT_KEYS = ("id", "key", "level", "status", "last_used_year")
 _NAME_LIST_KEYS = ("matched_must", "matched_nice", "missing_must", "missing_nice")
 # Ustawiana WYŁĄCZNIE przez serwis, gdy nowa wersja CV wskrzesza pominiętą osobę.
 PREVIOUSLY_DISMISSED_KEY = "previously_dismissed"
