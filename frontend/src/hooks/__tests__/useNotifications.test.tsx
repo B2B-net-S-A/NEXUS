@@ -90,6 +90,8 @@ describe("useNotifications — powrót połączenia i fallback", () => {
 
     expect(keys()).toContain(JSON.stringify(["notifications"]));
     expect(keys()).toContain(JSON.stringify(["kpis", "me", "today"]));
+    // Ruchy kolegów z czasu przerwy — Tablica nie odświeża się przy focusie.
+    expect(keys()).toContain(JSON.stringify(["kanban"]));
     hook.unmount();
   });
 

@@ -38,7 +38,8 @@ export function QueryProvider({ children }: { children: ReactNode }) {
           // to było 20–25 GET-ów z paska i menu naraz, a ikony paska odświeża
           // gniazdo na zdarzeniach (i jednorazowo po jego powrocie). Ekran,
           // który naprawdę potrzebuje świeżości po powrocie, ustawia
-          // `refetchOnWindowFocus: true` sam (Tablica, Finanse, pulpit).
+          // `refetchOnWindowFocus: true` sam (Tablica i rekrutacja na
+          // `/jobs/[id]`, Finanse, kalendarz pulpitu).
           refetchOnWindowFocus: false,
         },
       },

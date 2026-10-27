@@ -13,8 +13,10 @@ których nikt nie oglądał.
   jego powrocie, a bez gniazda — odpytywanie i jedno odświeżenie list przy
   powrocie do karty (`useNotifications`, `visibilitychange`). Ekran, który
   naprawdę potrzebuje świeżości po powrocie, ustawia `refetchOnWindowFocus:
-  true` przy swoim zapytaniu (licznik czatu rekrutacji, Finanse, kalendarz
-  pulpitu). Nie przywracaj tego globalnie.
+  true` przy swoim zapytaniu (Tablica i rekrutacja na `/jobs/[id]` — własny
+  ruch z drugiej karty nie przychodzi gniazdem, bo serwer pomija autora —
+  licznik czatu, Finanse, kalendarz pulpitu). Powrót gniazda odświeża też
+  `["kanban"]`. Nie przywracaj tego globalnie.
 - **Ramka `notification` odświeża listę SWOJEGO tematu**
   (`invalidateNotificationLists` w `lib/notification-topics.ts`): listy
   okienek mają klucz `["notifications", scope, "chats" | "interviews" |

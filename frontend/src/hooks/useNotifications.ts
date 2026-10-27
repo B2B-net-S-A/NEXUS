@@ -294,6 +294,9 @@ export function useNotifications({
         lostConnectionRef.current = false;
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
         queryClient.invalidateQueries({ queryKey: ["kpis", "me", "today"] });
+        // Ruchy kolegów z czasu przerwy (uśpiony laptop) — bez odświeżania
+        // przy powrocie do karty nic innego nie odświeżyłoby Tablicy.
+        queryClient.invalidateQueries({ queryKey: ["kanban"] });
       }
 
       // Expose a sender to `usePresence` without it needing the ws ref.

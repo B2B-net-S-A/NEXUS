@@ -538,6 +538,9 @@ export default function JobDetailPage() {
   } = useQuery({
     queryKey: ["job", id],
     queryFn: () => api.get(`/api/jobs/${id}`).then((r) => r.data),
+    // Globalnie wyłączone od 27.10.2026 (`QueryProvider`); tu zostaje — zmiana
+    // z drugiej karty (własna, więc bez `pipeline_changed`) wraca po powrocie.
+    refetchOnWindowFocus: true,
   });
 
   const {
@@ -555,6 +558,9 @@ export default function JobDetailPage() {
   } = useQuery({
     queryKey: ["kanban", id],
     queryFn: () => api.get(`/api/pipeline/kanban/${id}`).then((r) => r.data),
+    // Jak wyżej: własny ruch z drugiej karty nie przychodzi gniazdem
+    // (serwer pomija autora), więc Tablica odświeża się przy powrocie.
+    refetchOnWindowFocus: true,
   });
 
   const kanbanViewState = resolveViewState({
