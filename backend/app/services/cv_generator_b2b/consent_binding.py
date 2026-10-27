@@ -49,20 +49,24 @@ def subject(
     }
 
 
-def issue(storage_key: str, user_id: int, context: dict) -> str:
+def issue(
+    storage_key: str, user_id: int, context: dict, check: dict | None = None
+) -> str:
+    """``check`` — wynik `cv_consent_check` (27.10.2026). Jedzie podpisany
+    w pokwitowaniu i ląduje w ``binding`` przy CV, więc QC CV czyta go bez
+    nowej kolumny, a rekruter nie podmieni werdyktu po stronie przeglądarki."""
     now = datetime.now(timezone.utc)
-    return jwt.encode(
-        {
-            "aud": AUDIENCE,
-            "iat": now,
-            "exp": now + timedelta(hours=8),
-            "owner": user_id,
-            "context": context,
-            "storage_key": storage_key,
-        },
-        _key(),
-        algorithm="HS256",
-    )
+    claims = {
+        "aud": AUDIENCE,
+        "iat": now,
+        "exp": now + timedelta(hours=8),
+        "owner": user_id,
+        "context": context,
+        "storage_key": storage_key,
+    }
+    if check is not None:
+        claims["check"] = check
+    return jwt.encode(claims, _key(), algorithm="HS256")
 
 
 def verify(token: str, user_id: int, context: dict) -> dict:
@@ -79,15 +83,15 @@ def verify(token: str, user_id: int, context: dict) -> dict:
             raise ValueError
         if not isinstance(key, str) or not key.startswith("cv/") or len(key) > 500:
             raise ValueError
-        return {
-            "storage_key": key,
-            "binding": {
-                "version": 1,
-                "uploaded_by": user_id,
-                "subject": context,
-                "uploaded_at": receipt["iat"],
-            },
+        binding = {
+            "version": 1,
+            "uploaded_by": user_id,
+            "subject": context,
+            "uploaded_at": receipt["iat"],
         }
+        if isinstance(receipt.get("check"), dict):
+            binding["check"] = receipt["check"]
+        return {"storage_key": key, "binding": binding}
     except (JWTError, KeyError, TypeError, ValueError):
         raise ValueError(
             "Consent attachment does not match the current source and context"
