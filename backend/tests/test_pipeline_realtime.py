@@ -37,6 +37,8 @@ class _Db:
         self.delivery_lead_id = delivery_lead_id
 
     async def get(self, model, pk):
+        if model is User:
+            return User(id=pk, is_active=True)
         return model(id=pk, delivery_lead_id=self.delivery_lead_id)
 
     def begin_nested(self):
@@ -97,6 +99,7 @@ async def test_whoever_has_the_board_open_gets_it_too_but_not_the_author(monkeyp
         pipeline_realtime, "list_job_member_ids", AsyncMock(return_value=[4, 9])
     )
     monkeypatch.setattr(pipeline_realtime, "notify_user", notify)
+    monkeypatch.setattr(pipeline_realtime, "ensure_job_read_access", AsyncMock())
     seen: list[tuple] = []
 
     def viewers(resource_type, resource_id):
@@ -119,6 +122,33 @@ async def test_whoever_has_the_board_open_gets_it_too_but_not_the_author(monkeyp
         (9, event),
         (21, event),
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_watcher_without_access_to_the_board_gets_nothing(monkeypatch):
+    """Presence is a role check only; the board itself is members-only."""
+    from fastapi import HTTPException
+
+    notify = AsyncMock()
+    monkeypatch.setattr(
+        pipeline_realtime, "list_job_member_ids", AsyncMock(return_value=[4])
+    )
+    monkeypatch.setattr(pipeline_realtime, "notify_user", notify)
+    monkeypatch.setattr(pipeline_realtime.manager, "viewer_ids", lambda *_: {4, 21, 30})
+    checked: list[int] = []
+
+    async def guard(db, user, job_id):
+        checked.append(user.id)
+        if user.id == 21:
+            raise HTTPException(status_code=403, detail="no access")
+
+    monkeypatch.setattr(pipeline_realtime, "ensure_job_read_access", guard)
+
+    await pipeline_realtime.broadcast_pipeline_changed(_Db(), 12, None)
+
+    # Team members are not re-checked; the outsider without access is dropped.
+    assert sorted(checked) == [21, 30]
+    assert [c.args[0] for c in notify.await_args_list] == [4, 30]
 
 
 @pytest.mark.asyncio
