@@ -1315,7 +1315,8 @@
    "opis": "Przepięcie przenosi CV z rekrutacji źródłowej jako szkic; komunikat po przepięciu mówi, u ilu osób",
    "file": "components/v2/jobs/SimilarJobsPanel.tsx",
    "marker": "CV z tamtej rekrutacji przeniesiono",
-   "v3_home": "okno „Kandydaci do dodania” → Podobne rekrutacje"
+   "v3_home": "okno „Kandydaci do dodania” → Podobne rekrutacje",
+   "removed_reason": "Decyzja Artura 27.10.2026 („Bez kopii CV”): zwykłe przepięcie nie przenosi CV, bo CV do klienta powstaje po trzech potwierdzeniach, a kopia dawała gotowe CV sprzed nowego screeningu. Stare CV rekruter bierze przez „Użyj gotowego CV” w karcie; kopię zostawia tylko „Match” DL-a."
   },
   {
    "id": "header.recruitment-path",
