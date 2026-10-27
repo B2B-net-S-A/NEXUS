@@ -2225,6 +2225,52 @@ async def _consent_check_record(
     return found if isinstance(found, dict) else None
 
 
+async def consent_image(db: AsyncSession, stage: CandidateStage) -> Optional[bytes]:
+    """Obraz zgody przy CV, które ocenia QC — miniatura przy `consent_matches`.
+
+    Ten sam wybór co `_consent_state`: kopia etapu renderuje DOCX z WŁASNEGO
+    obrazu, CV z generatora — z `consent_content` albo z klucza w magazynie.
+    Wołający sprawdził dostęp. Awaria magazynu = brak obrazu, nie 500.
+    """
+
+    gen = await dz._generated_cv(db, stage.candidate_id, stage.job_id)
+    if gen is None:
+        return None
+    if gen.get("stage_id"):
+        return await db.scalar(
+            select(CandidateStageCV.branded_consent_content).where(
+                CandidateStageCV.candidate_stage_id == gen["stage_id"]
+            )
+        )
+    row = (
+        await db.execute(
+            select(
+                CvGeneratedDocument.consent_content,
+                CvGeneratedDocument.render_payload,
+            ).where(CvGeneratedDocument.id == gen["generated_document_id"])
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    if row.consent_content:
+        return row.consent_content
+    shot = (row.render_payload or {}).get("consent_screenshot")
+    key = str(shot.get("storage_key") or "").strip() if isinstance(shot, dict) else ""
+    if not key:
+        return None
+    from app.services import object_storage
+
+    try:
+        return await run_in_threadpool(object_storage.download_cv, key)
+    except Exception:  # noqa: BLE001 — patrz docstring
+        logger.warning(
+            "[cv_qc] consent image unavailable doc=%s",
+            gen["generated_document_id"],
+            exc_info=True,
+        )
+        return None
+
+
 async def _generated_payload(db: AsyncSession, src: dz.ReviewSources) -> Optional[dict]:
     """Migawka wyniku generatora, z którego powstało CV (albo None)."""
     gen = src.generated

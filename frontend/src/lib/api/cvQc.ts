@@ -268,6 +268,21 @@ export function useCvQc(stageId: number | null, enabled = true) {
 }
 
 /**
+ * Zrzut zgody RODO przy CV z QC (miniatura przy `consent_matches`, 27.10.2026).
+ * Klucz pod `cvQcQueryKey`: „Wymień zrzut” odświeża QC, a z nim obraz.
+ */
+export function useQcConsentScreenshot(stageId: number) {
+  return useQuery<Blob>({
+    queryKey: [...cvQcQueryKey(stageId), "consent-screenshot"],
+    queryFn: () =>
+      api
+        .get<Blob>(`/api/pipeline/stages/${stageId}/qc/consent-screenshot`, { responseType: "blob" })
+        .then((r) => r.data),
+    retry: false,
+  });
+}
+
+/**
  * Propozycje poprawek AI — POST, bo pierwszy odczyt danej treści płaci za
  * model; serwer pamięta wynik per treść i od 14.10.2026 liczy go sam zaraz po
  * automacie CV (D5). `enabled` = są uwagi z poprawką AI — propozycje ładują się

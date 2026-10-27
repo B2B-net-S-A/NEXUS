@@ -47,6 +47,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
+import { ConsentScreenshotThumb } from "@/components/v2/cv/ConsentScreenshotThumb";
 import type {
   QcCheck,
   QcConfirmBody,
@@ -282,7 +283,12 @@ export function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) 
         </span>
       );
     case "replace_consent":
-      return <ConsentReplaceAction ctx={ctx} />;
+      return (
+        <span className="flex flex-wrap items-center gap-2">
+          <ConsentScreenshotThumb stageId={ctx.data.stage_id} />
+          <ConsentReplaceAction ctx={ctx} />
+        </span>
+      );
     case "upload_consent":
       return (
         <span className="text-xs text-muted-foreground">

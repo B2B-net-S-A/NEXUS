@@ -29,6 +29,7 @@
  ],
  "routes": {
   "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/pipeline/stages/{stage_id}/qc/consent-screenshot": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/pipeline/stages/{stage_id}/qc/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
