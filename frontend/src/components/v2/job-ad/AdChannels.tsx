@@ -406,8 +406,9 @@ export function AdChannels({
           Portale
         </h3>
         <p className="text-xs text-muted-foreground">
-          Pracuj.pl wstawia opiekun konta — wyślij mu ogłoszenie mailem. JustJoin.IT wklejasz
-          z zakładki i oznaczasz tutaj.
+          {canManage
+            ? "Pracuj.pl wstawia opiekun konta — wyślij mu ogłoszenie mailem. JustJoin.IT wklejasz z zakładki i oznaczasz tutaj."
+            : "Pracuj.pl wstawia opiekun konta po mailu od Delivery Leada. JustJoin.IT wklejasz z zakładki i oznaczasz tutaj."}
         </p>
         {/* Po wklejeniu treści na portalu rekruter oznacza to tutaj. */}
         <AdPublications
