@@ -22,7 +22,7 @@ import { BellRing, Copy, ExternalLink } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
-import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { ConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   jobAdApi,
@@ -250,8 +250,11 @@ export function AdChannels({
 }: AdChannelsProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
-  const { askConfirm, confirmDialog } = useConfirmV2();
   const [skipFor, setSkipFor] = useState<AdChannel[] | null>(null);
+  // Okno sterowane stanem, nie `askConfirm` z obietnicą: pytanie otwierane
+  // z efektu (link z maila) przeżywa podwójne montowanie StrictMode, a
+  // obietnica `useConfirmV2` rozstrzygała się wtedy na „nie” (staging 27.10).
+  const [askingRemind, setAskingRemind] = useState(false);
   const reminders = state.reminders;
   const view = (channel: AdChannel): AdChannelView | undefined =>
     reminders?.channels.find((c) => c.channel === channel);
@@ -305,16 +308,6 @@ export function AdChannels({
       showError(apiErrorMessage(err, "Nie udało się wysłać przypomnienia. Spróbuj ponownie.")),
   });
 
-  const confirmRemind = async () => {
-    const names = recruiters.map(shortName).join(", ");
-    const confirmed = await askConfirm({
-      title: `Przypomnieć: ${names}?`,
-      description:
-        "Dostanie teraz mail z przyciskiem „Opublikuj na stronie kariery”. Codzienne przypomnienie i tak przychodzi rano.",
-      confirmLabel: "Przypomnij",
-    });
-    if (confirmed) remind.mutate();
-  };
 
   // Parametry maila obsługujemy raz, gdy stan kanałów jest już wczytany.
   const handled = useRef(false);
@@ -324,7 +317,7 @@ export function AdChannels({
     if (openSkip && canManage && missing.length > 0) {
       setSkipFor(missing);
     } else if (askRemind && canRemind) {
-      void confirmRemind();
+      setAskingRemind(true);
     }
     onIntentHandled?.();
     // Jednorazowo — ref pilnuje, żeby okno nie wracało przy każdym odświeżeniu.
@@ -384,7 +377,7 @@ export function AdChannels({
             variant="outline"
             className="self-start"
             loading={remind.isPending}
-            onClick={() => void confirmRemind()}
+            onClick={() => setAskingRemind(true)}
             data-testid="ad-remind-recruiters"
           >
             <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
@@ -421,7 +414,17 @@ export function AdChannels({
         onSubmit={(channels, reason) => skip.mutate({ channels, reason })}
         onClose={() => setSkipFor(null)}
       />
-      {confirmDialog}
+      <ConfirmV2
+        open={askingRemind}
+        onOpenChange={setAskingRemind}
+        title={`Przypomnieć: ${recruiters.map(shortName).join(", ")}?`}
+        description="Dostanie teraz mail z przyciskiem „Opublikuj na stronie kariery”. Codzienne przypomnienie i tak przychodzi rano."
+        confirmLabel="Przypomnij"
+        onConfirm={() => {
+          setAskingRemind(false);
+          remind.mutate();
+        }}
+      />
     </aside>
   );
 }

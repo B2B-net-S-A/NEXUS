@@ -5,14 +5,26 @@
  * o przypomnienie). Dane fikcyjne.
  */
 
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
 vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
 
-const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() }));
+const apiMock = vi.hoisted(() => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  put: vi.fn(),
+  delete: vi.fn(),
+}));
 vi.mock("@/lib/api", () => ({ api: apiMock, default: apiMock }));
 
 import type { AdChannelView, AdReminders, JobAdState } from "@/lib/api/jobAd";
@@ -20,7 +32,9 @@ import type { AdChannelView, AdReminders, JobAdState } from "@/lib/api/jobAd";
 import { AdChannels, type AdReminderApi } from "../AdChannels";
 import { adState } from "./job-ad-fixtures";
 
-function channel(patch: Partial<AdChannelView> & Pick<AdChannelView, "channel">): AdChannelView {
+function channel(
+  patch: Partial<AdChannelView> & Pick<AdChannelView, "channel">,
+): AdChannelView {
   return {
     state: "missing",
     since: null,
@@ -37,7 +51,11 @@ const LEAD: AdReminders = {
   recruiter_names: ["Julia Przykładowa"],
   channels: [
     channel({ channel: "kariera", owner_names: ["Julia Przykładowa"] }),
-    channel({ channel: "pracuj", mine: true, owner_names: ["Marta Prowadząca"] }),
+    channel({
+      channel: "pracuj",
+      mine: true,
+      owner_names: ["Marta Prowadząca"],
+    }),
     channel({ channel: "jjit", mine: true, owner_names: ["Marta Prowadząca"] }),
   ],
 };
@@ -46,7 +64,11 @@ const RECRUITER: AdReminders = {
   ...LEAD,
   can_manage: false,
   channels: [
-    channel({ channel: "kariera", mine: true, owner_names: ["Julia Przykładowa"] }),
+    channel({
+      channel: "kariera",
+      mine: true,
+      owner_names: ["Julia Przykładowa"],
+    }),
     channel({ channel: "pracuj", owner_names: ["Marta Prowadząca"] }),
     channel({
       channel: "jjit",
@@ -61,38 +83,50 @@ const RECRUITER: AdReminders = {
 function setup(
   reminders: AdReminders,
   props: { openSkip?: boolean; askRemind?: boolean } = {},
+  strict = false,
 ) {
   const reminderApi = {
-    skipChannel: vi.fn<AdReminderApi["skipChannel"]>(async () => adState({ reminders })),
-    unskipChannel: vi.fn<AdReminderApi["unskipChannel"]>(async () => adState({ reminders })),
+    skipChannel: vi.fn<AdReminderApi["skipChannel"]>(async () =>
+      adState({ reminders }),
+    ),
+    unskipChannel: vi.fn<AdReminderApi["unskipChannel"]>(async () =>
+      adState({ reminders }),
+    ),
     remindRecruiters: vi.fn<AdReminderApi["remindRecruiters"]>(async () => ({
       sent_to: ["Julia Przykładowa"],
       already: [],
     })),
   };
   const onIntentHandled = vi.fn();
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   const state: JobAdState = adState({ reminders });
+  const Wrapper = strict
+    ? StrictMode
+    : ({ children }: { children: React.ReactNode }) => <>{children}</>;
   render(
-    <QueryClientProvider client={client}>
-      <AdChannels
-        jobId={7}
-        state={state}
-        jobClosed={false}
-        locked={false}
-        publishBlockedReason={null}
-        publishingCareer={false}
-        careerCopied={false}
-        onPublishCareer={vi.fn()}
-        onCopyCareerLink={vi.fn()}
-        onShowFinding={vi.fn()}
-        onRemoveFinding={vi.fn()}
-        api={{ markPublished: vi.fn(), markRemoved: vi.fn() }}
-        reminderApi={reminderApi}
-        onIntentHandled={onIntentHandled}
-        {...props}
-      />
-    </QueryClientProvider>,
+    <Wrapper>
+      <QueryClientProvider client={client}>
+        <AdChannels
+          jobId={7}
+          state={state}
+          jobClosed={false}
+          locked={false}
+          publishBlockedReason={null}
+          publishingCareer={false}
+          careerCopied={false}
+          onPublishCareer={vi.fn()}
+          onCopyCareerLink={vi.fn()}
+          onShowFinding={vi.fn()}
+          onRemoveFinding={vi.fn()}
+          api={{ markPublished: vi.fn(), markRemoved: vi.fn() }}
+          reminderApi={reminderApi}
+          onIntentHandled={onIntentHandled}
+          {...props}
+        />
+      </QueryClientProvider>
+    </Wrapper>,
   );
   return { reminderApi, onIntentHandled };
 }
@@ -110,20 +144,30 @@ describe("AdChannels — przypomnienia o ogłoszeniach", () => {
     );
     fireEvent.click(screen.getByTestId("ad-remind-recruiters"));
     expect(reminderApi.remindRecruiters).not.toHaveBeenCalled();
-    const dialog = await screen.findByRole("dialog", { name: "Przypomnieć: Julia P.?" });
+    const dialog = await screen.findByRole("dialog", {
+      name: "Przypomnieć: Julia P.?",
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: "Przypomnij" }));
-    await waitFor(() => expect(reminderApi.remindRecruiters).toHaveBeenCalledWith(7));
     await waitFor(() =>
-      expect(toast.showSuccess).toHaveBeenCalledWith("Wysłano przypomnienie: Julia P."),
+      expect(reminderApi.remindRecruiters).toHaveBeenCalledWith(7),
+    );
+    await waitFor(() =>
+      expect(toast.showSuccess).toHaveBeenCalledWith(
+        "Wysłano przypomnienie: Julia P.",
+      ),
     );
   });
 
   it("„Nie publikujemy” wymaga powodu i zapisuje zaznaczone kanały", async () => {
     const { reminderApi } = setup(LEAD);
     const line = screen.getByTestId("ad-channel-missing-jjit");
-    fireEvent.click(within(line).getByRole("button", { name: "Nie publikujemy tu" }));
+    fireEvent.click(
+      within(line).getByRole("button", { name: "Nie publikujemy tu" }),
+    );
     const dialog = await screen.findByTestId("ad-skip-dialog");
-    const save = within(dialog).getByRole("button", { name: "Zapisz „nie publikujemy”" });
+    const save = within(dialog).getByRole("button", {
+      name: "Zapisz „nie publikujemy”",
+    });
     expect(save).toBeDisabled();
     fireEvent.change(within(dialog).getByRole("textbox"), {
       target: { value: "  Klient nie chce JustJoin.IT  " },
@@ -131,14 +175,20 @@ describe("AdChannels — przypomnienia o ogłoszeniach", () => {
     expect(save).toBeEnabled();
     fireEvent.click(save);
     await waitFor(() =>
-      expect(reminderApi.skipChannel).toHaveBeenCalledWith(7, "jjit", "Klient nie chce JustJoin.IT"),
+      expect(reminderApi.skipChannel).toHaveBeenCalledWith(
+        7,
+        "jjit",
+        "Klient nie chce JustJoin.IT",
+      ),
     );
     expect(reminderApi.skipChannel).toHaveBeenCalledTimes(1);
   });
 
   it("rekruter nie ma „Nie publikujemy”, „Cofnij” ani „Przypomnij”", () => {
     setup(RECRUITER);
-    expect(screen.queryByRole("button", { name: "Nie publikujemy tu" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Nie publikujemy tu" }),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: "Cofnij" })).toBeNull();
     expect(screen.queryByTestId("ad-remind-recruiters")).toBeNull();
     expect(screen.getByTestId("ad-channel-skipped-jjit")).toHaveTextContent(
@@ -157,10 +207,23 @@ describe("AdChannels — przypomnienia o ogłoszeniach", () => {
 
   it("z maila „Przypomnij” od razu pyta, ale nic nie wysyła bez potwierdzenia", async () => {
     const { reminderApi } = setup(LEAD, { askRemind: true });
-    const dialog = await screen.findByRole("dialog", { name: "Przypomnieć: Julia P.?" });
+    const dialog = await screen.findByRole("dialog", {
+      name: "Przypomnieć: Julia P.?",
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(reminderApi.remindRecruiters).not.toHaveBeenCalled();
+  });
+
+  it("z maila „Przypomnij” wysyła po potwierdzeniu także w StrictMode (staging 27.10)", async () => {
+    const { reminderApi } = setup(LEAD, { askRemind: true }, true);
+    const dialog = await screen.findByRole("dialog", {
+      name: "Przypomnieć: Julia P.?",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przypomnij" }));
+    await waitFor(() =>
+      expect(reminderApi.remindRecruiters).toHaveBeenCalledTimes(1),
+    );
   });
 
   it("rekruter z linku „pomin” nie dostaje okna — decyduje DL", () => {
