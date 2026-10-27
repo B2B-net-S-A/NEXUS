@@ -27,6 +27,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   companies: "Firmy",
   opportunities: "Szanse",
   tasks: "Zadania",
+  leads: "Leady",
   // „Ludzie w NEXUSIE” (16.10.2026).
   "my-time": "Mój czas",
   people: "Ludzie",

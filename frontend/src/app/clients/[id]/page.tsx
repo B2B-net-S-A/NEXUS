@@ -21,6 +21,7 @@ import {
   ClientPeopleTechTab,
   PeopleTechHeaderActions,
 } from "@/components/care/client/ClientPeopleTechTab";
+import { ClientSalesTab } from "@/components/sales/ClientSalesTab";
 import {
   ContactOrgFields,
   EMPTY_CONTACT_ORG,
@@ -1125,6 +1126,8 @@ export default function ClientDetailPage() {
   const hrConfigQuery = useHrConfig();
   const hrConfig = hrConfigQuery.data;
   const careOpen = hrConfig?.open_modules.care === true;
+  // Sprzedaż (27.10.2026): zakładka z powiązaną firmą sprzedaży i jej szansami.
+  const canViewSales = hasAnyPermission(user, "sales_view");
   const equipmentOpen = hrConfig?.open_modules.equipment === true;
   // „Wejście u klienta” — moduł wejścia i odejścia; czyta podgląd Delivery
   // (Delivery Lead u swoich klientów) i recepcja („Sprzęt”).
@@ -1205,6 +1208,7 @@ export default function ClientDetailPage() {
     canViewDeliveryLegal,
     authHydrated,
   );
+  useForbiddenTabFallback(activeTab, setActiveTab, "sprzedaz", canViewSales, authHydrated);
   // Moduł opieki zamknięty — „Ludzie i technologie” nie istnieje; czekamy na
   // odpowiedź `/api/hr/config` (wcześniej „brak” to brak wiedzy, nie odmowa).
   useForbiddenTabFallback(
@@ -1321,13 +1325,15 @@ export default function ClientDetailPage() {
     { key: "importy-md", label: "Importy MD" },
     { key: "faktury", label: "Faktury" },
     { key: "analityka", label: "Analityka" },
+    { key: "sprzedaz", label: "Sprzedaż" },
   ];
   const TABS = allTabs.filter(
     (tab) =>
       (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
       (careOpen || tab.key !== "ludzie") &&
       (packOpen || tab.key !== "wejscie") &&
-      (invoicingOpen || tab.key !== "faktury"),
+      (invoicingOpen || tab.key !== "faktury") &&
+      (canViewSales || tab.key !== "sprzedaz"),
   );
   const moreTabs = TABS.filter((tab) => CLIENT_MORE_TABS.includes(tab.key));
   // Zakładka wybrana z „Więcej” stoi w pasku, dopóki jest aktywna.
@@ -1627,6 +1633,7 @@ export default function ClientDetailPage() {
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
+          {canViewSales && activeTab === "sprzedaz" && <ClientSalesTab clientId={Number(id)} />}
           {careOpen && activeTab === "ludzie" && (
             <ClientPeopleTechTab
               clientId={Number(id)}

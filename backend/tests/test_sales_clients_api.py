@@ -91,3 +91,23 @@ async def test_link_company_with_client_and_show_it_on_the_client_card(
         await app_client.get(f"{URL}/{client_id}/summary", headers=_headers(viewer))
     ).json()
     assert empty == {"company": None, "opportunities": []}
+
+
+@pytest.mark.asyncio
+async def test_client_search_ignores_the_legal_form_of_the_sales_name(
+    app_client,
+) -> None:
+    """Firma w Sprzedaży „Kania S.A.”, klient w NEXUSIE „Kania” — ma się znaleźć."""
+    rep = await _user("sales_edit")
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Kania{tag}")
+        db.add(client)
+        await db.commit()
+        client_id = client.id
+    found = (
+        await app_client.get(
+            f"{URL}/options", params={"q": f"Kania{tag} S.A."}, headers=_headers(rep)
+        )
+    ).json()
+    assert [option["id"] for option in found] == [client_id]

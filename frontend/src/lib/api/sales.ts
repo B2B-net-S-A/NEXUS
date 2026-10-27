@@ -661,3 +661,139 @@ export function useDeleteActivity() {
     onSuccess: invalidate,
   });
 }
+
+// ── Powiązanie z klientem NEXUSA (decyzja 27.10.2026) ─────────────────────
+
+export interface ClientSalesSummary {
+  company: Ref | null;
+  opportunities: {
+    id: number;
+    title: string;
+    stage: string;
+    status: OpportunityStatus;
+    value: string | null;
+    currency: string;
+    won_at: string | null;
+    updated_at: string;
+  }[];
+}
+
+export function useClientOptions(q: string) {
+  const term = q.trim();
+  return useQuery({
+    queryKey: ["sales", "client-options", term] as const,
+    queryFn: async () =>
+      (await api.get<Ref[]>("/api/sales/clients/options", { params: { q: term } })).data,
+    enabled: term.length >= 2,
+    staleTime: 60_000,
+  });
+}
+
+export function useLinkClient(companyId: number) {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (clientId: number | null) =>
+      (await api.put<Ref | null>(`/api/sales/clients/link/${companyId}`, { client_id: clientId }))
+        .data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useClientSalesSummary(clientId: number, enabled = true) {
+  return useQuery({
+    queryKey: ["sales", "client-summary", clientId] as const,
+    queryFn: async () =>
+      (await api.get<ClientSalesSummary>(`/api/sales/clients/${clientId}/summary`)).data,
+    enabled: enabled && Number.isFinite(clientId) && clientId > 0,
+  });
+}
+
+// ── Leady ─────────────────────────────────────────────────────────────────
+
+export type LeadSource = "job_board" | "linkedin" | "press" | "manual" | "atlas";
+export type LeadStatus = "new" | "contacted" | "converted" | "dismissed";
+
+export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
+  job_board: "Ogłoszenia",
+  linkedin: "LinkedIn",
+  press: "Prasa",
+  manual: "Ręcznie",
+  atlas: "Z Atlasa",
+};
+export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
+  new: "Nowe",
+  contacted: "W kontakcie",
+  converted: "Szanse",
+  dismissed: "Odrzucone",
+};
+
+export interface Lead {
+  id: number;
+  source: LeadSource;
+  status: LeadStatus;
+  title: string;
+  summary: string | null;
+  company_name: string | null;
+  company_id: number | null;
+  url: string | null;
+  score: number;
+  signal_at: string | null;
+  opportunity_id: number | null;
+  dismissed_reason: string | null;
+  created_at: string;
+}
+
+export interface LeadList {
+  items: Lead[];
+  total: number;
+  counts: Record<LeadStatus, number>;
+}
+
+export function useLeads(filters: { status: LeadStatus; source?: LeadSource | ""; q?: string }) {
+  return useQuery({
+    queryKey: ["sales", "leads", filters] as const,
+    queryFn: async () =>
+      (await api.get<LeadList>("/api/sales/leads", { params: clean({ ...filters }) })).data,
+  });
+}
+
+export function useCreateLead() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (payload: {
+      title: string;
+      company_name: string;
+      summary?: string | null;
+      url?: string | null;
+    }) => (await api.post<Lead>("/api/sales/leads", payload)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateLead() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: { id: number; status: "new" | "contacted" | "dismissed"; dismissed_reason?: string }) =>
+      (
+        await api.patch<Lead>(`/api/sales/leads/${input.id}`, {
+          status: input.status,
+          dismissed_reason: input.dismissed_reason,
+        })
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useConvertLead() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      (
+        await api.post<{ opportunity_id: number; company_id: number }>(
+          `/api/sales/leads/${id}/convert`,
+          {},
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}

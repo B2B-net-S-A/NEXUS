@@ -19,6 +19,7 @@ import {
   useMoveOpportunity,
   useOpportunity,
   usePipelines,
+  useSalesCompany,
   type OpportunityDetail,
   type Stage,
 } from "@/lib/api/sales";
@@ -29,6 +30,7 @@ import { useAuthStore } from "@/store/auth";
 
 import { ActivityTimeline } from "./ActivityTimeline";
 import { formatDealAmount } from "./format";
+import { LinkClientDialog } from "./LinkClientDialog";
 import { SalesSelect } from "./SalesSelect";
 import { OpportunityContacts } from "./OpportunityContacts";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
@@ -49,7 +51,9 @@ function Details({ opportunity }: { opportunity: OpportunityDetail }) {
     <dl className="divide-y divide-border">
       <Row label="Wartość">{formatDealAmount(opportunity.value, opportunity.currency)}</Row>
       <Row label="Prognoza ważona">
-        {formatDealAmount(opportunity.weighted_value, opportunity.currency)} ({opportunity.probability}%)
+        {opportunity.weighted_value
+          ? `${formatDealAmount(opportunity.weighted_value, opportunity.currency)} (${opportunity.probability}%)`
+          : null}
       </Row>
       {opportunity.mrr_value && (
         <Row label="Miesięcznie">{formatDealAmount(opportunity.mrr_value, opportunity.currency)}</Row>
@@ -89,8 +93,11 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
   const { showError, showSuccess } = useToast();
   const [losing, setLosing] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [reason, setReason] = useState("");
   const data = opportunity.data;
+  const company = useSalesCompany(data?.company.id ?? 0);
+  const needsClientLink = data?.status === "won" && company.isSuccess && !company.data.client;
   const stages: Stage[] =
     pipelines.data?.find((pipeline) => pipeline.id === data?.pipeline_id)?.stages ?? [];
   const wonStage = stages.find((stage) => stage.outcome === "won");
@@ -167,6 +174,20 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
           onRetry={() => void opportunity.refetch()}
         />
       ) : data ? (
+        <div className="space-y-4">
+        {needsClientLink && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-success/40 bg-success/10 px-4 py-3 text-sm">
+            <span>
+              Wygrana. Powiąż {data.company.name} z klientem NEXUSA — wtedy szansa pokaże się
+              w karcie klienta, a Delivery założy rekrutacje jak zwykle.
+            </span>
+            {canEdit && (
+              <Button size="sm" variant="outline" onClick={() => setLinking(true)}>
+                Powiąż z klientem
+              </Button>
+            )}
+          </div>
+        )}
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="min-w-0 space-y-4">
             <WhoWeKnowPanel companyId={data.company.id} companyName={data.company.name} />
@@ -220,7 +241,16 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
             )}
           </div>
         </div>
+        </div>
       ) : null}
+      {linking && data && company.data && (
+        <LinkClientDialog
+          open={linking}
+          onOpenChange={setLinking}
+          company={data.company}
+          current={company.data.client}
+        />
+      )}
       {editing && data && (
         <OpportunityFormDialog open={editing} onOpenChange={setEditing} opportunity={data} />
       )}

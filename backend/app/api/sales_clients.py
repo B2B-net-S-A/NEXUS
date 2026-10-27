@@ -19,7 +19,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser
@@ -30,6 +30,7 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
+from app.services.company_names import normalize_company_name
 from app.services.polish_ilike import polish_folded_ilike
 
 router = APIRouter()
@@ -67,12 +68,17 @@ async def client_options(
     q: str = Query(min_length=2, max_length=200),
 ) -> list[ClientOption]:
     display = client_display_name_expression()
+    # Nazwa w Sprzedaży często ma formę prawną („mBank S.A.”), a klient w NEXUSIE
+    # nie („mBank”) — szukamy też po nazwie kanonicznej, bez formy prawnej.
+    term = q.strip()
+    canonical = normalize_company_name(term)
+    matches = [polish_folded_ilike(display, term)]
+    if canonical and canonical != term.lower():
+        matches.append(polish_folded_ilike(display, canonical))
     rows = (
         await db.execute(
             select(Client.id, display.label("display"))
-            .where(
-                *visible_client_predicates(), polish_folded_ilike(display, q.strip())
-            )
+            .where(*visible_client_predicates(), or_(*matches))
             .order_by(display)
             .limit(20)
         )

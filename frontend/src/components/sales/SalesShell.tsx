@@ -9,17 +9,19 @@ import { TabbedNav } from "@/components/ds/TabbedNav";
 import { RequirePermission } from "@/components/RequirePermission";
 import { permissionLabel } from "@/lib/permissions";
 
-export type SalesSection = "opportunities" | "companies" | "tasks";
+export type SalesSection = "opportunities" | "companies" | "leads" | "tasks";
 
 const SECTIONS: { value: SalesSection; label: string; href: string }[] = [
   { value: "opportunities", label: "Szanse", href: "/sales" },
   { value: "companies", label: "Firmy", href: "/sales/companies" },
+  { value: "leads", label: "Leady", href: "/sales/leads" },
   { value: "tasks", label: "Zadania", href: "/sales/tasks" },
 ];
 
 export function activeSection(pathname: string): SalesSection {
   if (pathname.startsWith("/sales/companies")) return "companies";
   if (pathname.startsWith("/sales/tasks")) return "tasks";
+  if (pathname.startsWith("/sales/leads")) return "leads";
   return "opportunities";
 }
 

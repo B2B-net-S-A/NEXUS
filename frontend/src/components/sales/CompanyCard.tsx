@@ -30,6 +30,7 @@ import { ActivityTimeline } from "./ActivityTimeline";
 import { CompanyFormDialog } from "./CompanyFormDialog";
 import { ContactsSection } from "./ContactsSection";
 import { formatDealAmount } from "./format";
+import { LinkClientDialog } from "./LinkClientDialog";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesShell } from "./SalesShell";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
@@ -51,7 +52,7 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-function CompanyFacts({ company }: { company: SalesCompany }) {
+function CompanyFacts({ company, onLink }: { company: SalesCompany; onLink?: () => void }) {
   return (
     <Card className="p-4">
       <dl className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -68,10 +69,15 @@ function CompanyFacts({ company }: { company: SalesCompany }) {
           )}
         </Fact>
         <Fact label="Klient w NEXUSIE">
-          {company.client && (
+          {company.client ? (
             <Link href={`/clients/${company.client.id}`} className="text-primary hover:underline">
               {company.client.name}
             </Link>
+          ) : null}
+          {onLink && (
+            <button type="button" className="ml-1 text-xs text-primary hover:underline" onClick={onLink}>
+              {company.client ? "Zmień" : "Powiąż"}
+            </button>
           )}
         </Fact>
         <Fact label="Strona">
@@ -143,6 +149,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
   const { showError, showSuccess } = useToast();
   const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [linking, setLinking] = useState(false);
   const raw = searchParams?.get("tab");
   const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : "overview";
 
@@ -232,7 +239,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
           {tab === "overview" && (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-4">
-                <CompanyFacts company={data} />
+                <CompanyFacts company={data} onLink={canEdit ? () => setLinking(true) : undefined} />
                 <CompanyOpportunities companyId={companyId} />
               </div>
               <WhoWeKnowPanel companyId={companyId} companyName={data.name} />
@@ -252,6 +259,14 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
           onOpenChange={setCreating}
           company={{ id: data.id, name: data.name }}
           onCreated={(opportunity) => router.push(`/sales/opportunities/${opportunity.id}`)}
+        />
+      )}
+      {linking && data && (
+        <LinkClientDialog
+          open={linking}
+          onOpenChange={setLinking}
+          company={{ id: data.id, name: data.name }}
+          current={data.client}
         />
       )}
       {confirmDialog}
