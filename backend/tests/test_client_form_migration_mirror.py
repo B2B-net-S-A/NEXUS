@@ -132,7 +132,7 @@ def test_0525_chains_and_mirrors_every_statement_after_the_fill_table() -> None:
     assert spec.loader is not None
     spec.loader.exec_module(module)
     assert module.revision == "0525_client_form_score_sheet"
-    assert module.down_revision == "0524_agreement_admin_details"
+    assert module.down_revision == "0525_job_p0"
     source = MIGRATION_0525.read_text(encoding="utf-8")
     assert "schema.SCORE_DDL" in source and "schema.SCORE_DOWNGRADE_DDL" in source
 
