@@ -12,20 +12,29 @@ import {
   SENT_OPTIONS,
   activeFilterCount,
   clientOptions,
+  groupCatValue,
   hasActiveFilters,
+  isSentActive,
   leadOptions,
   peopleOptions,
+  sentBound,
+  sentRangeLabel,
   type BoardFilters,
 } from "@/lib/request-board"
 import { PRIORITY_LEVEL_OPTIONS } from "@/lib/request-priority"
 import { cn } from "@/lib/utils"
+
+import { BoardMultiSelect, type BoardMultiSelectOption } from "./BoardMultiSelect"
+
+/** Filtry-listy z kilkoma wartościami naraz. */
+type ListKey = "client" | "lead" | "who" | "cat" | "prio" | "due"
 
 // Wąski kontener (kafelek na telefonie): pola w dwóch kolumnach na całą
 // szerokość — dziewięć pól jedno pod drugim zajmowało ponad pół ekranu.
 // Od 520 px pulpitu (`rboard`) pola stoją w rzędzie i zawijają się.
 const fieldBase =
   "h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-/** Lista wyboru: w rzędzie tak szeroka jak najdłuższa pozycja, najwyżej 220 px. */
+/** Lista wyboru: w rzędzie tak szeroka jak napis na przycisku, najwyżej 220 px. */
 const fieldClass = `${fieldBase} @min-[520px]/rboard:w-auto @min-[520px]/rboard:max-w-[220px]`
 /** Pole tekstowe: w rzędzie stała szerokość. */
 const inputClass = `${fieldBase} @min-[520px]/rboard:w-44`
@@ -62,19 +71,32 @@ export function RequestBoardFilters({
   const leads = leadOptions(board)
   const onlyUnstaffed = filters.nobody === "1"
   const activeCount = activeFilterCount(filters)
-  const field = (key: keyof BoardFilters, base: string) => ({
-    active: Boolean(filters[key]),
-    className: cn(base, filters[key] && activeClass),
-    onClear: () => set(key, ""),
-  })
-  const q = field("q", inputClass)
-  const client = field("client", fieldClass)
-  const lead = field("lead", fieldClass)
-  const who = field("who", fieldClass)
-  const cat = field("cat", fieldClass)
-  const prio = field("prio", fieldClass)
-  const due = field("due", fieldClass)
-  const sent = field("sent", fieldClass)
+  const q = { active: Boolean(filters.q), onClear: () => set("q", "") }
+  const pickerClass = (active: boolean) => cn(fieldClass, active && activeClass)
+  const list = <K extends ListKey>(
+    key: K,
+    label: string,
+    placeholder: string,
+    options: readonly BoardMultiSelectOption<BoardFilters[K][number]>[],
+  ) => {
+    const active = filters[key].length > 0
+    return (
+      <FilterField label={label} active={active} onClear={() => set(key, [])}>
+        {(id) => (
+          <BoardMultiSelect
+            id={id}
+            className={pickerClass(active)}
+            placeholder={placeholder}
+            options={options}
+            value={filters[key]}
+            onChange={(next) => set(key, next as BoardFilters[K])}
+          />
+        )}
+      </FilterField>
+    )
+  }
+  const sentActive = isSentActive(filters)
+  const range = sentRangeLabel(filters)
 
   return (
     <div className="grid grid-cols-2 items-end gap-3 rounded-lg border border-border bg-card p-3 @min-[520px]/rboard:flex @min-[520px]/rboard:flex-wrap">
@@ -83,136 +105,60 @@ export function RequestBoardFilters({
           <input
             id={id}
             data-active={q.active}
-            className={q.className}
+            className={cn(inputClass, q.active && activeClass)}
             placeholder="np. Java albo numer"
             value={filters.q}
             onChange={(e) => set("q", e.target.value)}
           />
         )}
       </FilterField>
-      <FilterField label="Klient" active={client.active} onClear={client.onClear}>
+      {list(
+        "client",
+        "Klient",
+        "Wszyscy klienci",
+        clientOptions(board).map((c) => ({ value: c, label: c })),
+      )}
+      {list("lead", "Delivery Lead", "Wszyscy", [
+        ...leads.options.map((l) => ({ value: l.id, label: l.name })),
+        ...(leads.hasNone ? [{ value: "none", label: "Bez Delivery Leada" }] : []),
+      ])}
+      {list(
+        "who",
+        "Rekruter",
+        "Wszyscy",
+        peopleOptions(board).map((p) => ({ value: p.id, label: p.name })),
+      )}
+      {list(
+        "cat",
+        "Kategoria",
+        "Wszystkie kategorie",
+        board.groups.map((g) => ({ value: groupCatValue(g), label: g.name })),
+      )}
+      {list("prio", "Priorytet", "Każdy priorytet", PRIORITY_LEVEL_OPTIONS)}
+      {list("due", "Termin", "Każdy termin", DUE_OPTIONS)}
+      <FilterField
+        label="Wysłani"
+        active={sentActive}
+        onClear={() => onChange({ ...filters, sent: [], sentFrom: "", sentTo: "" })}
+      >
         {(id) => (
-          <select
+          <BoardMultiSelect
             id={id}
-            data-active={client.active}
-            className={client.className}
-            value={filters.client}
-            onChange={(e) => set("client", e.target.value)}
-          >
-            <option value="">Wszyscy klienci</option>
-            {clientOptions(board).map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        )}
-      </FilterField>
-      <FilterField label="Delivery Lead" active={lead.active} onClear={lead.onClear}>
-        {(id) => (
-          <select
-            id={id}
-            data-active={lead.active}
-            className={lead.className}
-            value={filters.lead}
-            onChange={(e) => set("lead", e.target.value)}
-          >
-            <option value="">Wszyscy</option>
-            {leads.options.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-            {leads.hasNone && <option value="none">Bez Delivery Leada</option>}
-          </select>
-        )}
-      </FilterField>
-      <FilterField label="Rekruter" active={who.active} onClear={who.onClear}>
-        {(id) => (
-          <select
-            id={id}
-            data-active={who.active}
-            className={who.className}
-            value={filters.who}
-            onChange={(e) => set("who", e.target.value)}
-          >
-            <option value="">Wszyscy</option>
-            {peopleOptions(board).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        )}
-      </FilterField>
-      <FilterField label="Kategoria" active={cat.active} onClear={cat.onClear}>
-        {(id) => (
-          <select
-            id={id}
-            data-active={cat.active}
-            className={cat.className}
-            value={filters.cat}
-            onChange={(e) => set("cat", e.target.value)}
-          >
-            <option value="">Wszystkie kategorie</option>
-            {board.groups.map((g) => (
-              <option key={g.category_id ?? "none"} value={g.category_id ?? "none"}>
-                {g.name}
-              </option>
-            ))}
-          </select>
-        )}
-      </FilterField>
-      <FilterField label="Priorytet" active={prio.active} onClear={prio.onClear}>
-        {(id) => (
-          <select
-            id={id}
-            data-active={prio.active}
-            className={prio.className}
-            value={filters.prio}
-            onChange={(e) => set("prio", e.target.value as BoardFilters["prio"])}
-          >
-            <option value="">Każdy priorytet</option>
-            {PRIORITY_LEVEL_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        )}
-      </FilterField>
-      <FilterField label="Termin" active={due.active} onClear={due.onClear}>
-        {(id) => (
-          <select
-            id={id}
-            data-active={due.active}
-            className={due.className}
-            value={filters.due}
-            onChange={(e) => set("due", e.target.value as BoardFilters["due"])}
-          >
-            {DUE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        )}
-      </FilterField>
-      <FilterField label="Wysłani" active={sent.active} onClear={sent.onClear}>
-        {(id) => (
-          <select
-            id={id}
-            data-active={sent.active}
-            className={sent.className}
+            className={pickerClass(sentActive)}
+            active={sentActive}
+            placeholder="Dowolnie"
+            options={SENT_OPTIONS}
             value={filters.sent}
-            onChange={(e) => set("sent", e.target.value as BoardFilters["sent"])}
-          >
-            {SENT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+            onChange={(next) => set("sent", next)}
+            extraLabels={range ? [range] : []}
+            footer={
+              <SentRangeFields
+                from={filters.sentFrom}
+                to={filters.sentTo}
+                onChange={(sentFrom, sentTo) => onChange({ ...filters, sentFrom, sentTo })}
+              />
+            }
+          />
         )}
       </FilterField>
       {/* Przełącznik, nie pole wyboru: to sygnał „komu trzeba kogoś dać”, jak
@@ -294,5 +240,54 @@ function FilterField({ label, active, onClear, children }: FilterFieldProps) {
       </div>
       {children(id)}
     </div>
+  )
+}
+
+interface SentRangeFieldsProps {
+  from: string
+  to: string
+  onChange: (from: string, to: string) => void
+}
+
+/**
+ * Własny przedział „Wysłani” (prośba Head of Recruitment 27.10.2026): od / do,
+ * jedna granica wystarczy. Pole przyjmuje tylko liczby całkowite — reszta
+ * czyści granicę. Liczy się razem z zaznaczonymi pozycjami listy.
+ */
+function SentRangeFields({ from, to, onChange }: SentRangeFieldsProps) {
+  const rangeInput =
+    "h-8 w-16 rounded-md border border-input bg-background px-2 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+  return (
+    <fieldset className="mt-1 border-t border-border px-2 pt-2 pb-1">
+      <legend className="sr-only">Własny przedział wysłanych</legend>
+      <p className="mb-1.5 text-xs font-medium text-muted-foreground">Własny przedział</p>
+      <div className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-1.5">
+          od
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            className={rangeInput}
+            aria-label="Wysłanych od"
+            value={from}
+            onChange={(e) => onChange(sentBound(e.target.value), to)}
+          />
+        </label>
+        <label className="flex items-center gap-1.5">
+          do
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            className={rangeInput}
+            aria-label="Wysłanych do"
+            value={to}
+            onChange={(e) => onChange(from, sentBound(e.target.value))}
+          />
+        </label>
+      </div>
+      <p className="mt-1.5 text-xs text-muted-foreground">Bez requestów z championem.</p>
+    </fieldset>
   )
 }

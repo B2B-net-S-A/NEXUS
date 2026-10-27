@@ -279,16 +279,21 @@ function CategorySegments({
     { value: "", label: "Wszystkie", count: board.requests.length },
     ...board.groups.map((g) => ({ value: groupCatValue(g), label: g.name, count: g.total })),
   ]
+  // Przyciski znają jedną kategorię naraz; kilka zaznaczonych w filtrze
+  // „Kategoria” = żaden przycisk nie świeci, „Następna” zaczyna od pierwszej.
+  const current = filters.cat.length === 1 ? filters.cat[0] : ""
+  const onlyOne = (cat: string) => (cat ? [cat] : [])
   return (
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Kategorie">
       {segments.map((segment) => {
-        const active = filters.cat === segment.value
+        const active =
+          filters.cat.length <= 1 && current === segment.value
         return (
           <button
             key={segment.value || "all"}
             type="button"
             aria-pressed={active}
-            onClick={() => onFilters({ ...filters, cat: segment.value })}
+            onClick={() => onFilters({ ...filters, cat: onlyOne(segment.value) })}
             className={cn(SEGMENT_BASE, active ? SEGMENT_ON : SEGMENT_OFF)}
           >
             {segment.label}
@@ -302,7 +307,7 @@ function CategorySegments({
           size="sm"
           className="ml-auto"
           onClick={() =>
-            onFilters({ ...filters, cat: nextCategory(board.groups, filters.cat) })
+            onFilters({ ...filters, cat: onlyOne(nextCategory(board.groups, current)) })
           }
         >
           Następna kategoria →

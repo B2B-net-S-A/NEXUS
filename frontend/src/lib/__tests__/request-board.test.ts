@@ -4,6 +4,7 @@ import cases from "@/lib/__fixtures__/request-work-state-cases.json"
 import type { BoardRequest, LoadPerson, RequestBoard } from "@/lib/api/requestAllocation"
 import {
   EMPTY_FILTERS,
+  activeFilterCount,
   boardPeople,
   deadlineLabel,
   filtersFromParams,
@@ -23,6 +24,8 @@ import {
   pendingProposalCount,
   recruiterPickOptions,
   requestWord,
+  sentBound,
+  sentRangeLabel,
   unstaffedCount,
 } from "@/lib/request-board"
 import { visibleState } from "@/lib/request-work-state"
@@ -69,7 +72,7 @@ describe("visibleState", () => {
 describe("filters", () => {
   it("round-trip through the URL keeps unrelated params", () => {
     const base = new URLSearchParams("tab=x")
-    const filters = { ...EMPTY_FILTERS, client: "Nordea", due: "late" as const, who: "7" }
+    const filters = { ...EMPTY_FILTERS, client: ["Nordea"], due: ["late" as const], who: ["7"] }
     const params = filtersToParams(filters, base)
     expect(params.get("tab")).toBe("x")
     expect(filtersFromParams(params)).toEqual(filters)
@@ -77,12 +80,12 @@ describe("filters", () => {
 
   it("ignores unknown due/sent values from a hand-edited URL", () => {
     const parsed = filtersFromParams(new URLSearchParams("rb_due=soon&rb_sent=9"))
-    expect(parsed.due).toBe("")
-    expect(parsed.sent).toBe("")
+    expect(parsed.due).toEqual([])
+    expect(parsed.sent).toEqual([])
   })
 
   it("Delivery Lead, priorytet i „Bez rekrutera” żyją w adresie pod kluczami rb_", () => {
-    const filters = { ...EMPTY_FILTERS, lead: "31", prio: "p1" as const, nobody: "1" as const }
+    const filters = { ...EMPTY_FILTERS, lead: ["31"], prio: ["p1" as const], nobody: "1" as const }
     const params = filtersToParams(filters, new URLSearchParams())
     expect(params.toString()).toBe("rb_lead=31&rb_prio=p1&rb_nobody=1")
     expect(filtersFromParams(params)).toEqual(filters)
@@ -92,7 +95,7 @@ describe("filters", () => {
 
   it("nieznany priorytet i przełącznik spoza „1” z ręcznie wpisanego adresu nic nie filtrują", () => {
     const parsed = filtersFromParams(new URLSearchParams("rb_prio=p9&rb_nobody=tak"))
-    expect(parsed.prio).toBe("")
+    expect(parsed.prio).toEqual([])
     expect(parsed.nobody).toBe("")
   })
 
@@ -112,14 +115,14 @@ describe("filters", () => {
     const late = req({ job_id: 1, deadline: "2026-09-20" })
     const week = req({ job_id: 2, deadline: "2026-09-30" })
     const none = req({ job_id: 3 })
-    const f = (due: "late" | "week" | "two" | "none") => ({ ...EMPTY_FILTERS, due })
+    const f = (due: "late" | "week" | "two" | "none") => ({ ...EMPTY_FILTERS, due: [due] })
     expect([late, week, none].filter((r) => matchesFilters(r, f("late"), TODAY)).map((r) => r.job_id)).toEqual([1])
     expect([late, week, none].filter((r) => matchesFilters(r, f("week"), TODAY)).map((r) => r.job_id)).toEqual([2])
     expect([late, week, none].filter((r) => matchesFilters(r, f("none"), TODAY)).map((r) => r.job_id)).toEqual([3])
   })
 
   it("sent buckets keep champions apart", () => {
-    const f = (sent: "0" | "12" | "3" | "champ") => ({ ...EMPTY_FILTERS, sent })
+    const f = (sent: "0" | "12" | "3" | "champ") => ({ ...EMPTY_FILTERS, sent: [sent] })
     const ids = (sent: "0" | "12" | "3" | "champ") =>
       board.requests.filter((r) => matchesFilters(r, f(sent), TODAY)).map((r) => r.job_id)
     expect(ids("0")).toEqual([1, 2])
@@ -134,15 +137,15 @@ describe("filters", () => {
       .map((r) => r.job_id)
 
   it("„Rekruter” liczy osobę, która pracuje — propozycja automatu to za mało", () => {
-    expect(idsFor({ who: "7" })).toEqual([2])
+    expect(idsFor({ who: ["7"] })).toEqual([2])
     // Bartek ma przy requeście 4 tylko propozycję.
-    expect(idsFor({ who: "8" })).toEqual([])
+    expect(idsFor({ who: ["8"] })).toEqual([])
   })
 
   it("Delivery Lead: po id, a `none` = requesty bez Delivery Leada", () => {
-    expect(idsFor({ lead: "31" })).toEqual([1, 4])
-    expect(idsFor({ lead: "32" })).toEqual([2])
-    expect(idsFor({ lead: "none" })).toEqual([3])
+    expect(idsFor({ lead: ["31"] })).toEqual([1, 4])
+    expect(idsFor({ lead: ["32"] })).toEqual([2])
+    expect(idsFor({ lead: ["none"] })).toEqual([3])
     expect(leadOptions(board)).toEqual({
       options: [
         { id: "32", name: "Adam Lider" },
@@ -154,9 +157,72 @@ describe("filters", () => {
   })
 
   it("priorytet: brak pola z serwera to P2 (stan domyślny)", () => {
-    expect(idsFor({ prio: "p1" })).toEqual([1])
-    expect(idsFor({ prio: "accepting" })).toEqual([3])
-    expect(idsFor({ prio: "p2" })).toEqual([2, 4])
+    expect(idsFor({ prio: ["p1"] })).toEqual([1])
+    expect(idsFor({ prio: ["accepting"] })).toEqual([3])
+    expect(idsFor({ prio: ["p2"] })).toEqual([2, 4])
+  })
+
+  it("kilka wartości w jednym filtrze = dowolna z nich; między filtrami wszystkie", () => {
+    expect(idsFor({ lead: ["32", "none"] })).toEqual([2, 3])
+    expect(idsFor({ prio: ["p1", "accepting"] })).toEqual([1, 3])
+    expect(idsFor({ cat: ["1", "2"] })).toEqual([1, 2, 3, 4])
+    // Termin: po terminie (4) albo do 7 dni (1, 2, 3).
+    expect(idsFor({ due: ["late", "week"] })).toEqual([1, 2, 3, 4])
+    expect(idsFor({ lead: ["31", "32"], prio: ["p2"] })).toEqual([2, 4])
+    expect(idsFor({ sent: ["0", "champ"] })).toEqual([1, 2, 3])
+  })
+
+  it("kilka wartości w adresie: powtórzony klucz, stary link z jedną wartością działa", () => {
+    const filters = {
+      ...EMPTY_FILTERS,
+      client: ["Nordea", "Bank, S.A."],
+      cat: ["1", "none"],
+      sent: ["0" as const, "champ" as const],
+      sentFrom: "2",
+      sentTo: "5",
+    }
+    const params = filtersToParams(filters, new URLSearchParams())
+    expect(params.getAll("rb_client")).toEqual(["Nordea", "Bank, S.A."])
+    expect(params.get("rb_sent_from")).toBe("2")
+    expect(filtersFromParams(params)).toEqual(filters)
+    expect(filtersFromParams(new URLSearchParams("rb_cat=4&rb_sent=12")).cat).toEqual(["4"])
+    // Zdjęcie filtra czyści wszystkie powtórzenia klucza.
+    expect(filtersToParams(EMPTY_FILTERS, params).toString()).toBe("")
+  })
+
+  it("„Wysłani”: własny przedział od–do, razem z zaznaczonymi pozycjami, bez championów", () => {
+    const rows = [
+      req({ job_id: 1, sent: 0 }),
+      req({ job_id: 2, sent: 2 }),
+      req({ job_id: 3, sent: 4 }),
+      req({ job_id: 4, sent: 7 }),
+      req({ job_id: 5, sent: 5, champion: true }),
+    ]
+    const ids = (f: Partial<typeof EMPTY_FILTERS>) =>
+      rows.filter((r) => matchesFilters(r, { ...EMPTY_FILTERS, ...f }, TODAY)).map((r) => r.job_id)
+    expect(ids({ sentFrom: "2", sentTo: "5" })).toEqual([2, 3])
+    expect(ids({ sentFrom: "4" })).toEqual([3, 4])
+    expect(ids({ sentTo: "2" })).toEqual([1, 2])
+    // Odwrócone granice czytamy jako ten sam przedział.
+    expect(ids({ sentFrom: "5", sentTo: "2" })).toEqual([2, 3])
+    // Przedział i pozycja z listy: wystarczy jedno z nich.
+    expect(ids({ sentFrom: "6", sent: ["0", "champ"] })).toEqual([1, 4, 5])
+  })
+
+  it("„Wysłani”: granice tylko z liczb całkowitych, w liczniku jeden filtr", () => {
+    const parsed = filtersFromParams(new URLSearchParams("rb_sent_from=-1&rb_sent_to=3.5"))
+    expect(parsed.sentFrom).toBe("")
+    expect(parsed.sentTo).toBe("")
+    expect(sentBound(" 07 ")).toBe("7")
+    expect(sentRangeLabel({ sentFrom: "2", sentTo: "5" })).toBe("2–5")
+    expect(sentRangeLabel({ sentFrom: "3", sentTo: "" })).toBe("od 3")
+    expect(sentRangeLabel({ sentFrom: "", sentTo: "4" })).toBe("do 4")
+    expect(sentRangeLabel({ sentFrom: "3", sentTo: "3" })).toBe("3")
+    const range = { ...EMPTY_FILTERS, sent: ["0" as const], sentFrom: "1" }
+    expect(activeFilterCount(range)).toBe(1)
+    expect(hasActiveFilters({ ...EMPTY_FILTERS, sentTo: "2" })).toBe(true)
+    expect(activeFilterCount({ ...EMPTY_FILTERS, client: ["A", "B"], cat: ["1"] })).toBe(2)
+    expect(activeFilterCount(EMPTY_FILTERS)).toBe(0)
   })
 
   it("„Bez rekrutera”: nikt nie pracuje — także przy samej propozycji; champion się nie liczy", () => {
@@ -164,8 +230,8 @@ describe("filters", () => {
     expect(idsFor({ nobody: "1" })).toEqual([1, 4])
     // Liczba na przełączniku = tyle wierszy zostanie przy pozostałych filtrach.
     expect(unstaffedCount(board, EMPTY_FILTERS, TODAY)).toBe(2)
-    expect(unstaffedCount(board, { ...EMPTY_FILTERS, lead: "32" }, TODAY)).toBe(0)
-    expect(unstaffedCount(board, { ...EMPTY_FILTERS, cat: "1", nobody: "1" }, TODAY)).toBe(1)
+    expect(unstaffedCount(board, { ...EMPTY_FILTERS, lead: ["32"] }, TODAY)).toBe(0)
+    expect(unstaffedCount(board, { ...EMPTY_FILTERS, cat: ["1"], nobody: "1" }, TODAY)).toBe(1)
   })
 })
 
@@ -287,8 +353,8 @@ describe("zakres kafelka i daily", () => {
   it("scopeFilters: kategoria widza, DL-em widz, „wszystkie” bez filtra", async () => {
     const { scopeFilters } = await import("@/lib/request-board")
     const viewer = { user_id: 31, primary_category_id: 2 }
-    expect(scopeFilters("my_category", viewer)).toEqual({ cat: "2" })
-    expect(scopeFilters("my_lead", viewer)).toEqual({ lead: "31" })
+    expect(scopeFilters("my_category", viewer)).toEqual({ cat: ["2"] })
+    expect(scopeFilters("my_lead", viewer)).toEqual({ lead: ["31"] })
     expect(scopeFilters("all", viewer)).toEqual({})
     // Bez kategorii albo bez danych o widzu — wszystkie requesty, nie pusta tabela.
     expect(scopeFilters("my_category", { user_id: 31, primary_category_id: null })).toEqual({})
