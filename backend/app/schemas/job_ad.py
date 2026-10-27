@@ -239,7 +239,8 @@ class PracujMailPreviewRequest(BaseModel):
 
 class PracujMailRequest(PracujMailPreviewRequest):
     # Wersja ogłoszenia z ekranu — mail niesie treść, którą osoba przeczytała.
-    expected_updated_at: Optional[datetime] = None
+    # Obowiązkowa: bez niej wyszłaby treść, której nikt nie widział.
+    expected_updated_at: Optional[datetime]
     # Ten sam UUID przy ponowieniu = ten sam mail (bez drugiej wysyłki).
     client_request_id: Optional[str] = Field(default=None, max_length=64)
 

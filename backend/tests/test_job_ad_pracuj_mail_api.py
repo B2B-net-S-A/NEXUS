@@ -107,6 +107,11 @@ def _fake_sender(monkeypatch) -> list[dict]:
     return calls
 
 
+async def _version(api: AsyncClient, headers, job_id: int) -> str:
+    ad = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)).json()
+    return ad["ad"]["updated_at"]
+
+
 async def _requests_logged(job_id: int) -> int:
     async with AsyncSessionLocal() as db:
         return await db.scalar(
@@ -123,7 +128,8 @@ async def test_only_the_lead_hor_and_admin_may_send(api: AsyncClient, monkeypatc
     preview = f"/api/jobs/{job_id}/portal-ad/pracuj-mail/preview"
     send = f"/api/jobs/{job_id}/portal-ad/pracuj-mail"
     assert (await api.post(preview, json=RATES, headers=recruiter)).status_code == 403
-    assert (await api.post(send, json=RATES, headers=recruiter)).status_code == 403
+    full = {**RATES, "expected_updated_at": None}
+    assert (await api.post(send, json=full, headers=recruiter)).status_code == 403
     assert (await api.post(preview, json=RATES, headers=lead)).status_code == 200
     hor = await _login(api, *await _seed_role_user(UserRole.head_of_recruitment))
     assert (await api.post(preview, json=RATES, headers=hor)).status_code == 200
@@ -160,8 +166,11 @@ async def test_preview_composes_the_mail_without_client_and_marks_a_missing_rate
 async def test_without_a_mailbox_nothing_is_sent(api: AsyncClient, monkeypatch):
     _recruiter, lead, _lead_id, job_id = await _job_with_lead(api, monkeypatch)
     calls = _fake_sender(monkeypatch)
+    version = await _version(api, lead, job_id)
     resp = await api.post(
-        f"/api/jobs/{job_id}/portal-ad/pracuj-mail", json=RATES, headers=lead
+        f"/api/jobs/{job_id}/portal-ad/pracuj-mail",
+        json={**RATES, "expected_updated_at": version},
+        headers=lead,
     )
     assert resp.status_code == 412
     assert resp.json()["detail"]["code"] == "mailbox_missing"
@@ -182,10 +191,9 @@ async def test_send_goes_to_the_caretaker_once_and_pracuj_waits(
     assert saved.status_code == 200, saved.text
 
     calls = _fake_sender(monkeypatch)
-    ad = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=lead)).json()
     body = {
         **RATES,
-        "expected_updated_at": ad["ad"]["updated_at"],
+        "expected_updated_at": await _version(api, lead, job_id),
         "client_request_id": "req-1",
     }
     url = f"/api/jobs/{job_id}/portal-ad/pracuj-mail"
@@ -216,9 +224,16 @@ async def test_send_refuses_bad_rate_stale_ad_and_live_ad(
     await _connect_mailbox(lead_id)
     calls = _fake_sender(monkeypatch)
     url = f"/api/jobs/{job_id}/portal-ad/pracuj-mail"
+    version = await _version(api, lead, job_id)
 
-    bad = await api.post(url, json={"rate_from": 190, "rate_to": 170}, headers=lead)
+    bad = await api.post(
+        url,
+        json={"rate_from": 190, "rate_to": 170, "expected_updated_at": version},
+        headers=lead,
+    )
     assert bad.status_code == 422
+    unversioned = await api.post(url, json=RATES, headers=lead)
+    assert unversioned.status_code == 422
     stale = await api.post(
         url,
         json={**RATES, "expected_updated_at": "2020-01-01T00:00:00+00:00"},
@@ -233,10 +248,33 @@ async def test_send_refuses_bad_rate_stale_ad_and_live_ad(
         headers=recruiter,
     )
     assert marked.status_code == 200, marked.text
-    live = await api.post(url, json=RATES, headers=lead)
+    live = await api.post(
+        url, json={**RATES, "expected_updated_at": version}, headers=lead
+    )
     assert live.status_code == 409
     assert live.json()["detail"]["code"] == "pracuj_live"
     assert calls == [] and await _requests_logged(job_id) == 0
+
+
+async def test_unknown_send_outcome_still_leaves_a_trace(api: AsyncClient, monkeypatch):
+    """Graph nie odpowiedział na /send — mail mógł wyjść; Pracuj.pl czeka."""
+    _recruiter, lead, lead_id, job_id = await _job_with_lead(api, monkeypatch)
+    await _connect_mailbox(lead_id)
+
+    async def send_new(db, connection, **kwargs):
+        raise m365_sender.EmailSendConflict(
+            m365_sender.SEND_STATE_UNCERTAIN, 900_777, first_attempt=True
+        )
+
+    monkeypatch.setattr(m365_sender, "send_new", send_new)
+    body = {**RATES, "expected_updated_at": await _version(api, lead, job_id)}
+    url = f"/api/jobs/{job_id}/portal-ad/pracuj-mail"
+    for _ in range(2):
+        resp = await api.post(url, json=body, headers=lead)
+        assert resp.status_code == 409
+    assert await _requests_logged(job_id) == 1
+    state = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=lead)).json()
+    assert state["pracuj_request"]["waiting"] is True
 
 
 async def test_caretaker_is_saved_and_kept_by_an_older_window(api: AsyncClient):

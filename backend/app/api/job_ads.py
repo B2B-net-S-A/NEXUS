@@ -933,11 +933,7 @@ async def send_pracuj_mail(
     job = await _load_job(db, current_user, job_id)
     await _managed_status(db, current_user, job)
     ad, mat, reply = await _pracuj_ad(db, job, current_user)
-    if (
-        data.expected_updated_at is not None
-        and ad.updated_at is not None
-        and data.expected_updated_at != ad.updated_at
-    ):
+    if data.expected_updated_at != ad.updated_at:
         raise _changed(
             "Ktoś w międzyczasie zmienił to ogłoszenie. Wczytałem aktualną "
             "wersję — przeczytaj ją, zanim wyślesz."
@@ -997,30 +993,57 @@ async def send_pracuj_mail(
             403, "Z tego konta nie wyślesz maila z NEXUSA — poproś admina o dostęp."
         ) from exc
     except m365_sender.EmailSendConflict as exc:
+        # Wynik nieznany (np. Graph nie odpowiedział na /send) — mail mógł
+        # wyjść. Ślad zostaje, żeby jutrzejszy mail nie kazał wysłać drugi raz.
+        if exc.state == m365_sender.SEND_STATE_UNCERTAIN and exc.email_id:
+            await _log_pracuj_request(
+                db,
+                job_id,
+                current_user.id,
+                caretaker.email,
+                exc.email_id,
+                uncertain=True,
+            )
+            await db.commit()
         raise _send_conflict_http(exc) from exc
     except GraphRequestError as exc:
         if 400 <= exc.status < 500:
             raise _graph_refusal_http(exc) from exc
         raise
-    # Ponowienie z tym samym kluczem oddaje wcześniejszy mail — bez drugiego
-    # wpisu w Historii zdarzeń.
+    await _log_pracuj_request(db, job_id, current_user.id, caretaker.email, row.id)
+    await db.commit()
+    return await _response(db, job, ad, mat, user_id=current_user.id)
+
+
+async def _log_pracuj_request(
+    db: AsyncSession,
+    job_id: int,
+    user_id: int,
+    to: str,
+    email_id: int,
+    *,
+    uncertain: bool = False,
+) -> None:
+    """Wpis w Historii zdarzeń — raz na mail (ponowienie oddaje ten sam wiersz)."""
     seen = await db.scalar(
         select(Activity.id).where(
             Activity.entity_type == "job",
             Activity.entity_id == job_id,
             Activity.action == pracuj_mail.ACTION,
-            Activity.details["email_id"].astext == str(row.id),
+            Activity.details["email_id"].astext == str(email_id),
         )
     )
-    if seen is None:
-        db.add(
-            Activity(
-                entity_type="job",
-                entity_id=job_id,
-                action=pracuj_mail.ACTION,
-                user_id=current_user.id,
-                details={"to": caretaker.email, "email_id": row.id},
-            )
+    if seen is not None:
+        return
+    details: dict = {"to": to, "email_id": email_id}
+    if uncertain:
+        details["uncertain"] = True
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action=pracuj_mail.ACTION,
+            user_id=user_id,
+            details=details,
         )
-    await db.commit()
-    return await _response(db, job, ad, mat, user_id=current_user.id)
+    )

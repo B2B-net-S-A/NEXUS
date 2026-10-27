@@ -69,7 +69,7 @@ class PracujRequest:
 
 
 def rate_text(rate_from: Optional[int], rate_to: Optional[int]) -> str:
-    """„110–125 zł/h netto (B2B)”; jedna wartość = stawka „do”/„od” bez myślnika."""
+    """„110–125 zł/h netto (B2B)”; jedna granica mówi, którą jest („od 110”, „do 125”)."""
     if rate_from is None and rate_to is None:
         raise RateInvalid("Wpisz stawkę dla kandydata.")
     for value in (rate_from, rate_to):
@@ -86,7 +86,10 @@ def rate_text(rate_from: Optional[int], rate_to: Optional[int]) -> str:
             )
         if rate_to > rate_from:
             return f"{rate_from}–{rate_to} zł/h netto (B2B)"
-    return f"{rate_from if rate_from is not None else rate_to} zł/h netto (B2B)"
+        return f"{rate_from} zł/h netto (B2B)"
+    if rate_from is not None:
+        return f"od {rate_from} zł/h netto (B2B)"
+    return f"do {rate_to} zł/h netto (B2B)"
 
 
 def _greeting(caretaker: PracujCaretaker) -> str:

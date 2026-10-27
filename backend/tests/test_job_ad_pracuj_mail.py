@@ -50,8 +50,8 @@ FACTS = [
     ("rate_from", "rate_to", "text"),
     [
         (110, 125, "110–125 zł/h netto (B2B)"),
-        (110, None, "110 zł/h netto (B2B)"),
-        (None, 190, "190 zł/h netto (B2B)"),
+        (110, None, "od 110 zł/h netto (B2B)"),
+        (None, 190, "do 190 zł/h netto (B2B)"),
         (150, 150, "150 zł/h netto (B2B)"),
     ],
 )
