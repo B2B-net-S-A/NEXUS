@@ -22,7 +22,6 @@ równoległy podpis albo wycofanie wygrywa.
 from __future__ import annotations
 
 import asyncio
-import html
 import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -188,8 +187,8 @@ async def _handle(request_id: int, now: datetime) -> str | None:
         contractor_email = request.contractor_email
         contractor_name = request.contractor_name
         candidate_id = row.candidate_id if row else None
-        sent_on = request.sent_at.astimezone(_WARSAW).strftime("%d.%m.%Y")
-        deadline = request.expires_at.astimezone(_WARSAW).strftime("%d.%m.%Y")
+        sent_at, expires_at = request.sent_at, request.expires_at
+        deadline = expires_at.astimezone(_WARSAW).strftime("%d.%m.%Y")
         await _notify(
             db,
             user_id=sender_id,
@@ -199,19 +198,14 @@ async def _handle(request_id: int, now: datetime) -> str | None:
             request_id=request.id,
         )
         await db.commit()
-        body = (
-            f"<p>Dzień dobry {html.escape(contractor_name)},</p>"
-            f"<p>przypominamy o umowie B2B nr {html.escape(number)}, którą "
-            f"wysłaliśmy do podpisu {sent_on}. Link do podpisu jest w tamtym "
-            f"mailu i działa do {deadline}.</p>"
-            "<p>Jeśli nie masz podpisu kwalifikowanego albo link nie działa, "
-            "odpisz na tę wiadomość.</p><p>Pozdrawiamy<br>B2B Network</p>"
+        subject, body = esign_mail.contractor_reminder_message(
+            number=number, sent_at=sent_at, expires_at=expires_at
         )
         await esign_mail.send_from(
             db,
             user_id=sender_id,
             to=contractor_email,
-            subject=f"Przypomnienie: umowa B2B nr {number} czeka na podpis",
+            subject=subject,
             body_html=body,
             candidate_id=candidate_id,
             request_key=f"b2b-esign-{request_id}-reminder-1",

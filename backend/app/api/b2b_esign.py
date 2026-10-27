@@ -19,7 +19,6 @@ Bez ``from __future__ import annotations``: router publiczny ma
 ``@limiter.limit`` (ciało żądania lądowałoby jako parametr query → 422).
 """
 
-import html
 import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -394,24 +393,14 @@ async def _mail_link(
     """Mail z linkiem ze skrzynki nadawcy — kontraktor zna ten adres.
 
     Awaria nie cofa wysyłki: okno pokazuje link do skopiowania."""
-    number = html.escape(row.contract_number)
-    name = html.escape(request.contractor_name)
-    deadline = request.expires_at.astimezone(_WARSAW).strftime("%d.%m.%Y")
-    body = (
-        f"<p>Dzień dobry {name},</p>"
-        f"<p>przesyłamy do podpisu umowę o współpracy B2B nr {number}.</p>"
-        f'<p><a href="{html.escape(url)}">Otwórz umowę do podpisu</a></p>'
-        "<p>Umowa przenosi autorskie prawa majątkowe, dlatego wymaga "
-        "<b>kwalifikowanego podpisu elektronicznego</b>. Na stronie pobierzesz "
-        "PDF, podpiszesz go swoim podpisem kwalifikowanym i wgrasz z powrotem. "
-        f"Link jest ważny do {deadline}.</p>"
-        "<p>Pozdrawiamy<br>B2B Network</p>"
+    subject, body = esign_mail.contractor_sign_message(
+        number=row.contract_number, url=url, expires_at=request.expires_at
     )
     return await esign_mail.send_from(
         db,
         user_id=sender_id,
         to=request.contractor_email or "",
-        subject=f"Umowa B2B nr {row.contract_number} do podpisu",
+        subject=subject,
         body_html=body,
         candidate_id=row.candidate_id,
         request_key=f"b2b-esign-{request.id}",
@@ -725,9 +714,7 @@ async def _send_contractor_copy(db: AsyncSession, request_id: int) -> None:
     except Exception:  # noqa: BLE001
         logger.exception("[b2b_esign] brak pliku kopii request=%d", request_id)
         return
-    subject, body = esign_mail.contractor_copy_message(
-        number=number, contractor_name=request.contractor_name
-    )
+    subject, body = esign_mail.contractor_copy_message(number=number)
     await esign_mail.send_from(
         db,
         user_id=request.sent_by,
