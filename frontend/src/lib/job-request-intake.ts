@@ -469,6 +469,9 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     language: intake.language ?? "",
     contractLength: intake.contract_length ?? "",
     experience: {
+      // Frazy klienta, których prawie nikt nie ma w CV (od v14 odczytu) —
+      // wiersz szuka wtedy po słowie z CV, a frazę sprawdza rekruter w rozmowie.
+      skills: experienceItems(intake.experience?.skills),
       domains: experienceItems(intake.experience?.domains),
       certifications: experienceItems(intake.experience?.certifications),
       regulations: experienceItems(intake.experience?.regulations),

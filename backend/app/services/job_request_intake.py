@@ -39,9 +39,10 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date as date_type
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,6 +71,10 @@ MAX_DISQUALIFIERS = 8
 MAX_SEARCH_ROWS = 10
 MAX_DESCRIPTIVE = 12
 MAX_SEARCH_WORDS = 6
+# 27.10.2026: słowa z CV obok frazy klienta (`cv_words`) — najwyżej dwa na wiersz,
+# a całe sprawdzanie w bazie ma sufit czasu, bo odczyt czeka na nie z formularzem.
+MAX_CV_WORDS = 2
+REACH_TIMEOUT_S = 8.0
 MAX_OFFICE_CITIES = 5
 # Lata w dziedzinie ponad staż całkowity (albo ponad ten sufit bez stażu) to
 # pomyłka modelu — „10 lat w bankowości” przy „5+ lat doświadczenia”.
@@ -186,6 +191,10 @@ class RequestIntake:
     # ── 06.10.2026 (N3): wiersze, które nie zmieściły się w limitach ──
     # (10 „musi mieć”, 20 „mile widziane”) — etykiety; formularz je pokazuje.
     dropped: list[str] = field(default_factory=list)
+    # ── od v14 (27.10.2026): słowa z CV obok frazy klienta ──
+    # Pierwsze słowo wiersza → propozycja modelu. `apply_people_reach` podmienia
+    # wiersz tylko po sprawdzeniu w bazie; formularz tego pola nie czyta.
+    cv_words: dict[str, list[str]] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -644,6 +653,29 @@ class _RowsReading:
     # nie zmieściły się w limitach (N3) — formularz pokazuje je jako uwagi.
     unfounded: list[str]
     dropped: list[str]
+    # Pierwsze słowo wiersza → słowa, którymi ludzie piszą to w CV (propozycja
+    # modelu; o podmianie decyduje liczba osób w bazie, `apply_people_reach`).
+    cv_words: dict[str, list[str]] = field(default_factory=dict)
+
+
+def _cv_words(value: Any, row: list[str]) -> list[str]:
+    """Słowa z CV z odpowiedzi modelu: krótkie słowa kluczowe spoza wiersza."""
+    from app.services.champion_requirement_rows import KEYWORD_MAX_CHARS
+
+    taken = {word.casefold() for word in row}
+    out: list[str] = []
+    for raw in value if isinstance(value, list) else []:
+        word = _text(raw, KEYWORD_MAX_CHARS)
+        if not word:
+            continue
+        word = " ".join(word.replace("|", " ").split())
+        if len(word) < 2 or word.casefold() in taken:
+            continue
+        taken.add(word.casefold())
+        out.append(word)
+        if len(out) >= MAX_CV_WORDS:
+            break
+    return out
 
 
 def _requirement_rows(value: Any, folded_text: str) -> _RowsReading:
@@ -658,6 +690,7 @@ def _requirement_rows(value: Any, folded_text: str) -> _RowsReading:
     rows: list[dict[str, Any]] = []
     translated = {"must": False, "nice": False}
     unfounded: list[str] = []
+    cv_words: dict[str, list[str]] = {}
     nice_count = 0
     for item in value if isinstance(value, list) else []:
         if not isinstance(item, dict):
@@ -678,6 +711,9 @@ def _requirement_rows(value: Any, folded_text: str) -> _RowsReading:
         nice_count += level == "nice"
         translated[level] = translated[level] or has_extra
         rows.append({"words": row, "level": level})
+        alternatives = _cv_words(item.get("cv_words"), row)
+        if alternatives:
+            cv_words.setdefault(row[0], alternatives)
     cleaned, dropped = split_rows(rows)
     return _RowsReading(
         rows=cleaned,
@@ -685,6 +721,7 @@ def _requirement_rows(value: Any, folded_text: str) -> _RowsReading:
         nice_translated=translated["nice"],
         unfounded=unfounded,
         dropped=dropped,
+        cv_words=cv_words,
     )
 
 
@@ -1071,6 +1108,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     ]
     advisories: list[str] = []
     dropped: list[str] = []
+    cv_words: dict[str, list[str]] = {}
     if isinstance(data.get("requirements"), list):
         from app.services.champion_requirement_rows import derive, overflow_note
         from app.services.must_gate_terms import ignored_reason
@@ -1080,6 +1118,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         must_translated = reading.must_translated
         nice_translated = reading.nice_translated
         dropped = reading.dropped
+        cv_words = reading.cv_words
         for label in reading.unfounded:
             advisories.append(
                 f"„{label}” nie stoi w treści requestu — wiersz pominięty. "
@@ -1256,6 +1295,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         deadline_time=deadline_time,
         headcount=headcount,
         dropped=dropped,
+        cv_words=cv_words,
     )
 
 
@@ -1293,9 +1333,146 @@ async def read_request(
         system_prompt=JOB_REQUEST_INTAKE.system_prompt or "",
         max_tokens=6000,
     )
-    return await match_hiring_manager(
-        db, client_id=client_id, intake=normalize_model_output(raw, text)
+    read = await apply_people_reach(db, normalize_model_output(raw, text))
+    return await match_hiring_manager(db, client_id=client_id, intake=read)
+
+
+def _people(count: int) -> str:
+    """„1 osoba”, „3 osoby”, „12 osób” — jak `peopleCountLabel` na ekranie."""
+    if count == 1:
+        return "1 osoba"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return f"{count} osoby"
+    return f"{count} osób"
+
+
+async def swap_rare_rows(
+    intake: RequestIntake,
+    count: Callable[[list[str]], Awaitable[Optional[int]]],
+    *,
+    deadline: Optional[float] = None,
+) -> RequestIntake:
+    """Wiersz z frazą klienta, której w bazie ma mniej niż 20 osób, szuka po
+    słowie z CV; fraza idzie do „Rekruter sprawdza w rozmowie”.
+
+    Pomiar 27.10.2026 (129 Profili Championa): pojęcia przepisane z requestu
+    („Crisis plans”, „Manual recovery procedures”) miały 0 osób, a słowa, którymi
+    ludzie piszą to w CV („Crisis Management”) — setki. Podmiana tylko wtedy,
+    gdy słowo z CV samo ma co najmniej 20 osób (to samo zapytanie co „W bazie”);
+    inaczej wiersz zostaje, jak go odczytano, a edytor ostrzega jak dotąd.
+    ``count`` zwraca liczbę osób dla słów wiersza albo ``None`` (nie wiadomo).
+    """
+    from app.services.champion_requirement_rows import derive, row_label
+    from app.services.job_working_title import compose_working_title
+    from app.services.requirement_reach import PEOPLE_MIN
+
+    stop = deadline if deadline is not None else time.monotonic() + REACH_TIMEOUT_S
+    rows = [{**row, "words": list(row["words"])} for row in intake.requirements]
+    talk = list(intake.experience.get("skills") or [])
+    notes: list[str] = []
+    swapped_levels: set[str] = set()
+    for index, row in enumerate(rows):
+        suggestions = intake.cv_words.get(row["words"][0]) if row["words"] else None
+        if not suggestions:
+            continue
+        if time.monotonic() > stop:
+            break
+        reach = await count(row["words"])
+        if reach is None or reach >= PEOPLE_MIN:
+            continue
+        found: list[str] = []
+        for word in suggestions:
+            if time.monotonic() > stop:
+                break
+            people = await count([word])
+            if people is not None and people >= PEOPLE_MIN:
+                found.append(word)
+        if not found:
+            continue
+        # Słowo, które jest już innym wierszem, nie wchodzi jako wariant — wiersz
+        # spełniałby każdy z tamtym słowem. Gdy zostają tylko takie, wiersz znika.
+        elsewhere = {
+            word.casefold()
+            for other, kept in enumerate(rows)
+            if other != index
+            for word in kept["words"]
+        }
+        label = row_label(row["words"])
+        level = "nice" if row["level"] == "nice" else "must"
+        rows[index] = {
+            **row,
+            "words": [w for w in found if w.casefold() not in elsewhere],
+        }
+        swapped_levels.add(level)
+        if label.casefold() not in {
+            str(item.get("name", "")).casefold() for item in talk
+        }:
+            talk.append({"name": label, "level": level})
+        kept = rows[index]["words"]
+        cv_label = " / ".join(f"„{word}”" for word in kept or found)
+        search = (
+            f"Wiersz szuka po {cv_label}" if kept else f"Szuka już wiersz {cv_label}"
+        )
+        notes.append(
+            f"„{label}” — w bazie {_people(reach)}. {search} "
+            f"(tak piszą to w CV), a „{label}” sprawdzi rekruter w rozmowie."
+        )
+    if not swapped_levels:
+        return intake
+    unique = [row for row in rows if row["words"]]
+    derived = derive(unique)
+    must = [item["name"] for item in derived["must"]]
+    nice = [item["name"] for item in derived["nice"]]
+    provenance = dict(intake.provenance)
+    # Słowa z CV nie stoją w mailu — to propozycja AI, nie cytat klienta.
+    if "must" in swapped_levels:
+        provenance["must"] = "ai"
+        provenance["search_requirements"] = "ai"
+    if "nice" in swapped_levels:
+        provenance["nice"] = "ai"
+    return replace(
+        intake,
+        requirements=unique,
+        must=must,
+        nice=nice,
+        search_requirements=derived["requirements"],
+        experience={**intake.experience, "skills": talk},
+        advisories=[*intake.advisories, *notes],
+        provenance=provenance,
+        working_title_suggestion=compose_working_title(
+            intake.role_name,
+            must,
+            intake.seniority_min_years,
+            next(
+                (
+                    d["name"]
+                    for d in intake.experience.get("domains", [])
+                    if d.get("level") == "must"
+                ),
+                None,
+            ),
+        ),
     )
+
+
+async def apply_people_reach(db: AsyncSession, intake: RequestIntake) -> RequestIntake:
+    """`swap_rare_rows` z licznikiem „W bazie”. Awaria bazy nie psuje odczytu —
+    zostają wiersze, jak je odczytano."""
+    if not intake.cv_words:
+        return intake
+    from app.services.requirement_reach import people_reach
+
+    async def count(words: list[str]) -> Optional[int]:
+        return await people_reach(db, words)
+
+    try:
+        # Savepoint: padnięte zapytanie nie może zostawić sesji w przerwanej
+        # transakcji, w której `ai_feature` zapisuje zużycie.
+        async with db.begin_nested():
+            return await swap_rare_rows(intake, count)
+    except Exception:  # noqa: BLE001 — sprawdzenie w bazie to dodatek, nie warunek odczytu
+        logger.warning("job_request_intake: people reach unavailable", exc_info=True)
+        return intake
 
 
 async def match_hiring_manager(
