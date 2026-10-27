@@ -250,9 +250,8 @@ export function PracujMailDialog({
               </p>
             </fieldset>
             <p className="text-xs text-muted-foreground">
-              Treść poprawiasz w zakładce Pracuj.pl — mail bierze ją z zapisanego ogłoszenia, po
-              kontroli. Opiekuna i adres zmienia Head of Recruitment w Ustawieniach → Rekrutacja →
-              Stałe części ogłoszenia.
+              Treść poprawiasz w zakładce Pracuj.pl. Adresata zmienia Head of Recruitment
+              w Stałych częściach ogłoszenia.
             </p>
           </div>
           {preview.isError ? (
