@@ -333,6 +333,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
     # 0522: formularz CV klienta z CV i screeningu (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_form_fill'",
+    # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'consent_screenshot_check'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -7526,6 +7528,11 @@ _DATA_STATEMENTS = [
     "SELECT 'client_form_fill', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'client_form_fill')",
+    # 0529: seed klucza AI sprawdzenia zrzutu zgody RODO.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'consent_screenshot_check', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'consent_screenshot_check')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

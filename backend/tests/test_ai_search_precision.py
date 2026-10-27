@@ -102,6 +102,22 @@ def test_card_without_negative_answers_is_unchanged():
     assert evidence_note_text("card", content) == content
 
 
+def test_same_card_is_parsed_once_not_on_every_board_refresh(monkeypatch):
+    """Tablica (`/pipeline-scores`) przy każdym odświeżeniu parsowała od nowa
+    karty wszystkich osób rekrutacji: 467 kart = 0,5 s CPU bez oddania pętli
+    zdarzeń (pomiar na stagingu 27.10.2026). Karta się nie zmienia."""
+    from app.services import recommendation_card_parser as rcp
+
+    calls = []
+    real = rcp.parse_card
+    monkeypatch.setattr(rcp, "parse_card", lambda c: calls.append(c) or real(c))
+    content = _CARD + "<p>Notatka: jedna karta dla testu pamięci podręcznej</p>"
+    first = evidence_note_text("card", content)
+    assert evidence_note_text("card", content) == first
+    assert not mentions(gate_requirement("Kubernetes"), first)
+    assert len(calls) == 1
+
+
 def test_other_note_kinds_pass_through():
     content = "<p>P1: Kubernetes?</p><p>Odpowiedź: nie</p>"
     assert evidence_note_text("human", content) == content

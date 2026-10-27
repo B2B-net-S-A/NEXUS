@@ -70,6 +70,29 @@ class JobFit:
     breakdown: object
 
 
+async def warm_job_queries(
+    db: AsyncSession, *, jobs: Iterable[Job], profile_user_id: Optional[int]
+) -> None:
+    """Wektory zapytań kilku rekrutacji jednym wywołaniem Voyage, zanim
+    :func:`fits_for_job` oceni każdą z nich (27.10.2026).
+
+    Ten sam profil wag i tekst zapytania co w :func:`fits_for_job`, więc wektor
+    trafia do pamięci podręcznej ``request_vector``. Nieudane ogrzanie nic nie
+    psuje: :func:`fits_for_job` pyta wtedy o wektor sam, jak wcześniej.
+    """
+    from app.services.full_search_measurement import warm_request_vectors
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import resolve_active_profile
+
+    texts = []
+    for job in jobs:
+        profile = await resolve_active_profile(
+            db, user_id=profile_user_id, client_id=job.client_id
+        )
+        texts.append(build_request_context(job, profile).query_text)
+    await warm_request_vectors(texts)
+
+
 async def fits_for_job(
     db: AsyncSession,
     *,

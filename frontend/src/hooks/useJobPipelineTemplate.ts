@@ -10,9 +10,12 @@
  * tabela" nie hodowały dwóch kopii reguły „skąd wziąć powody odrzucenia".
  *
  * `job` — strona rekrutacji ma już odpowiedź `GET /api/jobs/{id}`; podana tu
- * oszczędza drugie zapytanie. Tablica jej nie podaje i pyta sama, jak dotąd.
+ * oszczędza drugie zapytanie. Tablica jej nie podaje i czyta rekrutację pod
+ * kluczem strony (`["job", "<id>"]`, 27.10.2026): świeża odpowiedź strony
+ * albo jej trwające żądanie zamiast drugiego `GET` przy każdym wejściu.
  */
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import api, { pipelineTemplatesApi, type RejectionReasonDef } from "@/lib/api";
@@ -65,6 +68,7 @@ export function useJobPipelineTemplate(
   const [templateName, setTemplateName] = useState<string | null>(null);
   const [budgetHourly, setBudgetHourly] = useState<number | null>(null);
   const [canWriteClientRate, setCanWriteClientRate] = useState(false);
+  const queryClient = useQueryClient();
 
   // Podana rekrutacja: efekt zależy od WARTOŚCI, nie od tożsamości obiektu —
   // react-query oddaje nową referencję przy każdym odświeżeniu w tle.
@@ -85,11 +89,16 @@ export function useJobPipelineTemplate(
           setBudgetHourly(providedBudget);
           setCanWriteClientRate(providedCanWriteRate);
         } else {
-          const jobRes = await api.get(`/api/jobs/${jobId}`);
+          // Klucz, `queryFn` i `staleTime` (domyślne 30 s) jak na stronie.
+          const fetched = await queryClient.fetchQuery<JobFacts>({
+            queryKey: ["job", String(jobId)],
+            queryFn: () => api.get(`/api/jobs/${jobId}`).then((r) => r.data),
+            staleTime: 30_000,
+          });
           if (cancelled) return;
-          setBudgetHourly(resolveJobBudgetHourly(jobRes.data));
-          setCanWriteClientRate(jobRes.data?.can_write_client_rate === true);
-          tid = jobRes.data?.pipeline_template_id;
+          setBudgetHourly(resolveJobBudgetHourly(fetched));
+          setCanWriteClientRate(fetched?.can_write_client_rate === true);
+          tid = fetched?.pipeline_template_id;
         }
 
         let reasons: PipelineRejectionReasonOption[] = [];
@@ -139,6 +148,7 @@ export function useJobPipelineTemplate(
     };
   }, [
     jobId,
+    queryClient,
     enabled,
     jobReady,
     jobProvided,

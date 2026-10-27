@@ -29,6 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User, UserRole
+from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.kpi_catalog import KpiPeriod
 from app.services.kpi_engine import WARSAW, period_bounds
 from app.services.kpi_targets import KPI_BEARING_ROLES, resolve_kpi_targets_bulk
@@ -67,6 +68,9 @@ _PANEL_KPI_IDS = (
 # Dla każdej próby procesu (kandydat, job, attempt):
 #   1) `process_windows` — nieprzecinające się okna prób; także voided attempt
 #      wyznacza granicę, żeby jego eventy nie przeciekły do kolejnej próby.
+#      Tylko kolumny czytane niżej (i przez `priority_work_policy`): przy
+#      `rp.*` sortowanie okna niosło całe wiersze procesów (z `entry_meta`)
+#      i na produkcji zrzuciło na dysk ok. 100 GB (27.10.2026).
 #   2) `classified_mf` — pierwszy zaakceptowany milestone w każdym natywnym
 #      attempt. Pending/rejected `verified` nie jest kamieniem milowym KPI,
 #      a akceptacja pending liczy się od `approved_at`, nie od pierwotnego ruchu.
@@ -120,7 +124,9 @@ _PANEL_KPI_IDS = (
 # Konsument dokleja własny SELECT … FROM credited.
 VERIFIER_ANCHORED_CTE = """
     WITH process_windows AS (
-        SELECT rp.*,
+        SELECT rp.id, rp.candidate_id, rp.job_id, rp.attempt_no, rp.opened_at,
+               rp.status, rp.origin_kind, rp.credit_user_id, rp.kpi_eligible,
+               rp.eligibility_assignment_id,
                LEAD(rp.opened_at) OVER (
                    PARTITION BY rp.candidate_id, rp.job_id
                    ORDER BY rp.attempt_no, rp.id
@@ -422,9 +428,11 @@ PRECISION_R30_SQL = """
 """
 
 # Per-user: zliczamy kamienie milowe przypisane do :uid w 3 oknach czasu
-# + kohortę precyzji z 30 dni.
+# + kohortę precyzji z 30 dni. `credited` z migawki całej firmy
+# (`credited_snapshot`), zawężonej do :uid — oba odczyty niżej i tak biorą
+# wyłącznie wiersze tej osoby.
 _FUNNEL_SQL = text(
-    VERIFIER_ANCHORED_CTE
+    CREDITED_FROM_SNAPSHOT_CTE
     + PRECISION_COHORT_CTE
     + """
     SELECT f.stage, f.d, f.w, f.mo,
@@ -552,6 +560,7 @@ async def month_own_handoffs(
                 "week_start": week_start,
                 "month_start": month_start,
                 "rolling30": now - timedelta(days=_PRECISION_WINDOW_DAYS),
+                **await credited_bind(db, credit_user=user.id),
             },
         )
     ).mappings()
@@ -601,6 +610,7 @@ async def compute_my_panel(
         "week_start": week_start,
         "month_start": month_start,
         "rolling30": rolling30,
+        **await credited_bind(db, credit_user=user.id),
     }
     rows = (await db.execute(_FUNNEL_SQL, funnel_params)).mappings().all()
     by_stage: dict[str, dict] = {r["stage"]: dict(r) for r in rows}

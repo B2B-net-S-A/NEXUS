@@ -126,6 +126,21 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
     expect(await screen.findByText("41228 · Analityk IT · SQL")).toBeInTheDocument();
   });
 
+  it("rekrutacja: okruszek czyta zapytanie strony, bez drugiego żądania (27.10.2026)", async () => {
+    mocks.get.mockClear();
+    mocks.pathname = "/jobs/44";
+    const client = new QueryClient();
+    // Klucz strony `/jobs/[id]` (id z adresu jako napis).
+    client.setQueryData(["job", "44"], { working_title: "Analityk danych", client_reference: "77" });
+    render(
+      <QueryClientProvider client={client}>
+        <BreadcrumbV2 />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("77 · Analityk danych")).toBeInTheDocument();
+    expect(mocks.get).not.toHaveBeenCalled();
+  });
+
   it("rekrutacja bez numeru u klienta: sam tytuł", async () => {
     mocks.get.mockResolvedValueOnce({ data: { working_title: null, title: "Tester" } });
     renderAt("/jobs/43");

@@ -4,6 +4,7 @@ import api from "@/lib/api"
 import {
   getRecruitmentActivityDetails,
   getRecruitmentActivitySummary,
+  getRecruitmentActivityTeamTotals,
 } from "@/lib/recruitment-activity-api"
 
 vi.mock("@/lib/api", () => ({
@@ -60,6 +61,26 @@ describe("recruitment activity API client", () => {
           page: 2,
           page_size: 25,
         },
+      },
+    )
+  })
+
+  it("asks for several team totals in one request", async () => {
+    await getRecruitmentActivityTeamTotals({
+      dateFrom: "2026-10-01",
+      dateTo: "2026-10-27",
+      metrics: ["verification", "placement"],
+    })
+
+    expect(apiGet).toHaveBeenCalledWith(
+      "/api/dashboard/v2/recruitment-activity/team-totals",
+      {
+        params: {
+          date_from: "2026-10-01",
+          date_to: "2026-10-27",
+          metric: ["verification", "placement"],
+        },
+        paramsSerializer: { indexes: null },
       },
     )
   })

@@ -111,6 +111,7 @@ class _Rows:
         return self
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_monthly_race_tie_break_is_id_not_name(monkeypatch):
     """Remis o 1500 PLN nie może zależeć od pisowni nazwy.
 
@@ -147,6 +148,7 @@ async def test_monthly_race_tie_break_is_id_not_name(monkeypatch):
     assert [r.user_id for r in ranked] == [1, 2]
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_stage_ranking_and_hall_of_fame_tie_break_is_id_not_name():
     rows = [
         SimpleNamespace(id=2, name="Zbigniew", role="recruiter", cnt=3),

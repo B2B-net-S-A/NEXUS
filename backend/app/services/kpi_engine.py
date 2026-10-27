@@ -304,11 +304,14 @@ async def count_canonical_metric(
     stage = _MILESTONE_STAGE[metric]
     # Import lokalny — kpi_panel importuje z tego modułu (WARSAW,
     # period_bounds), więc top-level import byłby cyklem.
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     result = await db.scalar(
         text(
-            VERIFIER_ANCHORED_CTE
+            CREDITED_FROM_SNAPSHOT_CTE
             + """
             SELECT count(*) FROM credited
             WHERE credit_user = :uid
@@ -317,7 +320,15 @@ async def count_canonical_metric(
               AND reached_at < :until
             """
         ),
-        {"uid": user_id, "stage": stage, "since": since, "until": until},
+        {
+            "uid": user_id,
+            "stage": stage,
+            "since": since,
+            "until": until,
+            **await credited_bind(
+                db, credit_user=user_id, stage=stage, since=since, until=until
+            ),
+        },
     )
     return int(result or 0)
 
@@ -340,7 +351,10 @@ async def _milestone_snapshot(
     ``count_canonical_metric``.
     """
 
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     ordered = sorted(windows.items(), key=lambda item: item[0].value)
     # Runda 9 (R9-N6-1): koniec okna to „teraz” z mikrosekundami, więc klucz
@@ -384,7 +398,7 @@ async def _milestone_snapshot(
                 f"AND reached_at < :e{index}) AS p{index}"
             )
         statement = text(
-            VERIFIER_ANCHORED_CTE
+            CREDITED_FROM_SNAPSHOT_CTE
             + f"""
             SELECT credit_user, stage, {", ".join(filters)}
             FROM credited
@@ -395,6 +409,9 @@ async def _milestone_snapshot(
             GROUP BY credit_user, stage
             """
         ).bindparams(bindparam("stages", expanding=True))
+        params.update(
+            await credited_bind(db, since=params["min_start"], until=params["max_end"])
+        )
         rows = (await db.execute(statement, params)).mappings().all()
         snapshot: dict[tuple[int, str, str], int] = {}
         for row in rows:

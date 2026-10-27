@@ -39,8 +39,13 @@ class _Result:
         return 0
 
 
+# Zapytanie migawki kreatora: od 27.10.2026 czyta `credited` z minutowej
+# migawki całej firmy (`credited_snapshot`), a nie z własnego pełnego CTE.
+_METRIC_SNAPSHOT_MARK = "LEFT JOIN jobs j ON j.id = c.job_id"
+
+
 class _FakeDb:
-    """Liczy wykonania pełnego CTE kredytu i oddaje przygotowane wiersze."""
+    """Liczy przeliczenia migawki kreatora i oddaje przygotowane wiersze."""
 
     def __init__(self, rows):
         self.rows = rows
@@ -48,11 +53,11 @@ class _FakeDb:
 
     async def execute(self, stmt, params=None):
         self.statements.append(str(stmt))
-        return _Result(self.rows if "classified_stage_ranked" in str(stmt) else [])
+        return _Result(self.rows if _METRIC_SNAPSHOT_MARK in str(stmt) else [])
 
     @property
     def cte_runs(self) -> int:
-        return sum("classified_stage_ranked" in s for s in self.statements)
+        return sum(_METRIC_SNAPSHOT_MARK in s for s in self.statements)
 
 
 def _definition(**over):
@@ -186,13 +191,19 @@ async def test_snapshot_filters_and_groups_like_the_sql_did():
 
 
 def test_verifier_anchored_cte_is_untouched_by_the_snapshot():
-    """Migawka dokleja SELECT do CTE, nie zmienia jego treści (płaci nagrody)."""
+    """Migawka dokleja SELECT do CTE, nie zmienia jego treści (płaci nagrody).
+
+    Od 27.10.2026 kreator czyta `credited` ze wspólnej migawki firmy, a ta
+    dokleja swój SELECT do nietkniętego `VERIFIER_ANCHORED_CTE`."""
     import inspect
 
+    from app.services import credited_snapshot
     from app.services.custom_metrics import engine
 
     source = inspect.getsource(engine._credited_snapshot)
-    assert "VERIFIER_ANCHORED_CTE\n            + f" in source
+    assert "CREDITED_FROM_SNAPSHOT_CTE\n            + f" in source
+    snapshot_source = inspect.getsource(credited_snapshot._snapshot_sql)
+    assert "VERIFIER_ANCHORED_CTE\n        + " in snapshot_source
 
 
 # ── N1-7 ─────────────────────────────────────────────────────────────────────

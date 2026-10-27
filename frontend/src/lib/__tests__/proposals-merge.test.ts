@@ -160,6 +160,24 @@ describe("mergeProposals", () => {
     expect(entries.map((e) => e.row.candidateId).sort()).toEqual([2, 3, 4, 5]);
   });
 
+  it("wynik scrapera portalu (`board_score`) nigdy nie jest „Dop.” — tylko dopisek; osoba bez kanonicznego wyniku czeka na `/scores` (27.10.2026)", () => {
+    const entries = mergeProposals({
+      inbox: [
+        inboxItem(1, { sources: ["job_board"], score: null, board_score: "77.00" }),
+        inboxItem(2, { sources: ["full_base", "job_board"], score: 72, board_score: 78 }),
+        inboxItem(3, { sources: ["new_cv"], score: 68 }),
+      ],
+    });
+    const byId = new Map(entries.map((e) => [e.row.candidateId, e.row]));
+    expect(byId.get(1)).toMatchObject({ fitScore: null, boardScore: 77 });
+    expect(byId.get(2)).toMatchObject({ fitScore: 72, boardScore: 78 });
+    expect(byId.get(3)?.fitScore).toBe(68);
+    expect(byId.get(3)).not.toHaveProperty("boardScore");
+    // Kolejność po kanonicznym wyniku: osoba tylko z portalu na końcu
+    // (okno przelicza ją od razu i układa po policzonym procencie).
+    expect(entries.map((e) => e.row.candidateId)).toEqual([2, 3, 1]);
+  });
+
   it("sortuje stabilnie: wynik malejąco (null na końcu), potem nowe, potem nazwisko", () => {
     const entries = mergeProposals({
       inbox: [

@@ -505,7 +505,10 @@ async def _rank_recruiters_by_stage(
     (`competition_history`) — dlatego próg i kolejność liczymy po scaleniu,
     w Pythonie, a nie w `HAVING`/`LIMIT`.
     """
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     per_user: dict[int, dict] = {}
     live = competition_history.live_window(start, end)
@@ -513,7 +516,7 @@ async def _rank_recruiters_by_stage(
         rows = (
             await db.execute(
                 text(
-                    VERIFIER_ANCHORED_CTE
+                    CREDITED_FROM_SNAPSHOT_CTE
                     + """
                     SELECT u.id, u.name, u.role::text AS role, count(*) AS cnt
                     FROM credited c
@@ -529,7 +532,14 @@ async def _rank_recruiters_by_stage(
                     GROUP BY u.id, u.name, u.role
                     """
                 ),
-                {"stage": stage.value, "start": live[0], "end": live[1]},
+                {
+                    "stage": stage.value,
+                    "start": live[0],
+                    "end": live[1],
+                    **await credited_bind(
+                        db, stage=stage.value, since=live[0], until=live[1]
+                    ),
+                },
             )
         ).all()
         for r in rows:
@@ -609,7 +619,10 @@ async def _rank_recruiters_by_points(
     Zwraca RankedUser z metric_value=points i extras={placements, interviews,
     recommendations, verifications, role, qualified, required_placements,
     disqualification_reasons}."""
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     rows = []
     live = competition_history.live_window(start, end)
@@ -617,7 +630,7 @@ async def _rank_recruiters_by_points(
         rows = (
             await db.execute(
                 text(
-                    VERIFIER_ANCHORED_CTE
+                    CREDITED_FROM_SNAPSHOT_CTE
                     + """
                     SELECT u.id, u.name, u.role::text AS role, c.stage,
                            count(*) AS cnt
@@ -633,7 +646,11 @@ async def _rank_recruiters_by_points(
                     GROUP BY u.id, u.name, u.role, c.stage
                     """
                 ),
-                {"start": live[0], "end": live[1]},
+                {
+                    "start": live[0],
+                    "end": live[1],
+                    **await credited_bind(db, since=live[0], until=live[1]),
+                },
             )
         ).all()
 
@@ -1037,7 +1054,10 @@ async def monthly_most_recommendations(
     required_verifications = (
         thresholds.verifications_per_day * business_days_elapsed_in_month(year, month)
     )
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     # Surowe liczniki per osoba; warunki nagrody, wybór listy i kolejność
     # liczymy niżej, PO dołożeniu dni sprzed 12.10.2026 z DynaReportera
@@ -1051,7 +1071,7 @@ async def monthly_most_recommendations(
         live_rows = (
             await db.execute(
                 text(
-                    VERIFIER_ANCHORED_CTE
+                    CREDITED_FROM_SNAPSHOT_CTE
                     + """
                     SELECT u.id, u.name, u.role::text AS role,
                            count(*) FILTER (
@@ -1073,7 +1093,11 @@ async def monthly_most_recommendations(
                     GROUP BY u.id, u.name, u.role
                     """
                 ),
-                {"start": live[0], "end": live[1]},
+                {
+                    "start": live[0],
+                    "end": live[1],
+                    **await credited_bind(db, since=live[0], until=live[1]),
+                },
             )
         ).all()
         for r in live_rows:
@@ -2120,6 +2144,25 @@ async def freeze_competition(
     period: str,
     *,
     reason: str = "manual",
+) -> FrozenPodium:
+    """Zamrożenie okresu (`_freeze_competition`) na świeżo policzonej zasłudze.
+
+    Ekrany czytają `credited` z minutowej migawki (`credited_snapshot`); podium
+    z nagrodą liczy ją od nowa, już pod blokadą okresu — poprawka etapu tuż
+    przed zamrożeniem musi się w nim znaleźć.
+    """
+    from app.services.credited_snapshot import fresh_credited_snapshot
+
+    async with fresh_credited_snapshot():
+        return await _freeze_competition(db, type_, period, reason=reason)
+
+
+async def _freeze_competition(
+    db: AsyncSession,
+    type_: CompetitionType,
+    period: str,
+    *,
+    reason: str,
 ) -> FrozenPodium:
     """Write a podium once; a frozen historical period is immutable.
 

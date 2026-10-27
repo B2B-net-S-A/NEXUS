@@ -14,6 +14,10 @@
  * zapisuje tu „Nie publikujemy” i przypomina rekruterowi o stronie kariery.
  * Wejście z maila przypomnienia (`?ogloszenie=`) otwiera ją z krokami
  * dla kanału — `ogloszenia-przypomnienia-mailem.md`.
+ *
+ * Pracuj.pl wstawia opiekun konta: DL wysyła mu ogłoszenie mailem z okna
+ * `PracujMailDialog` (`&wyslij=opiekun` z maila otwiera je od razu) —
+ * `ogloszenie-pracuj-mailem-do-opiekuna.md`.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -39,6 +43,7 @@ import { cn, formatDate } from "@/lib/utils";
 import { AdChecksPanel } from "./AdChecksPanel";
 import { AdPublications, type AdPublicationsApi } from "./AdPublications";
 import { ChannelReminderLine, SkipChannelDialog, shortName } from "./AdReminderControls";
+import { PracujMailDialog, type PracujMailApi } from "./PracujMailDialog";
 
 export type AdReminderApi = Pick<
   typeof jobAdApi,
@@ -66,9 +71,12 @@ export interface AdChannelsProps {
   openSkip?: boolean;
   /** Z maila: od razu pytanie „Przypomnieć rekruterowi?” (`&przypomnij=rekruter`). */
   askRemind?: boolean;
+  /** Z maila: od razu mail do opiekuna Pracuj.pl (`&wyslij=opiekun`). */
+  openSend?: boolean;
   /** Parametry maila obsłużone — okno nie otworzy się drugi raz po F5. */
   onIntentHandled?: () => void;
   reminderApi?: AdReminderApi;
+  pracujMailApi?: PracujMailApi;
 }
 
 export type AdFocusChannel = AdChannel;
@@ -82,11 +90,11 @@ const FOCUS_STEPS: Record<AdFocusChannel, { title: string; steps: string[] }> = 
     ],
   },
   pracuj: {
-    title: "Z maila: wstaw ogłoszenie na Pracuj.pl",
+    title: "Z maila: wyślij ogłoszenie do Pracuj.pl",
     steps: [
-      "Skopiuj pola z zakładki Pracuj.pl (obok) do formularza Pracuj.pl.",
-      "Opublikuj tam ogłoszenie.",
-      "Wklej poniżej link do ogłoszenia i kliknij „Oznacz”.",
+      "Przeczytaj treść w zakładce Pracuj.pl (obok) — to ona pójdzie w mailu.",
+      "Kliknij „Wyślij do Pracuj.pl” poniżej i wpisz stawkę dla kandydata.",
+      "Gdy opiekun przyśle link, kliknij „Wisi — dodaj link”.",
     ],
   },
   jjit: {
@@ -245,8 +253,10 @@ export function AdChannels({
   focusChannel = null,
   openSkip = false,
   askRemind = false,
+  openSend = false,
   onIntentHandled,
   reminderApi = jobAdApi,
+  pracujMailApi = jobAdApi,
 }: AdChannelsProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -255,6 +265,7 @@ export function AdChannels({
   // z efektu (link z maila) przeżywa podwójne montowanie StrictMode, a
   // obietnica `useConfirmV2` rozstrzygała się wtedy na „nie” (staging 27.10).
   const [askingRemind, setAskingRemind] = useState(false);
+  const [sendingMail, setSendingMail] = useState(false);
   const reminders = state.reminders;
   const view = (channel: AdChannel): AdChannelView | undefined =>
     reminders?.channels.find((c) => c.channel === channel);
@@ -266,6 +277,8 @@ export function AdChannels({
   const recruiters = reminders?.recruiter_names ?? [];
   const canRemind =
     canManage && career?.state === "missing" && !career.mine && recruiters.length > 0;
+  const pracujLive = state.publications.some((p) => p.portal === "pracuj" && !p.removed_at);
+  const canSendPracuj = canManage && !jobClosed && !pracujLive;
 
   const apply = (next: JobAdState) => {
     queryClient.setQueryData(jobAdQueryKey(jobId), next);
@@ -312,17 +325,19 @@ export function AdChannels({
   // Parametry maila obsługujemy raz, gdy stan kanałów jest już wczytany.
   const handled = useRef(false);
   useEffect(() => {
-    if (handled.current || !reminders || (!openSkip && !askRemind)) return;
+    if (handled.current || !reminders || (!openSkip && !askRemind && !openSend)) return;
     handled.current = true;
     if (openSkip && canManage && missing.length > 0) {
       setSkipFor(missing);
     } else if (askRemind && canRemind) {
       setAskingRemind(true);
+    } else if (openSend && canSendPracuj) {
+      setSendingMail(true);
     }
     onIntentHandled?.();
     // Jednorazowo — ref pilnuje, żeby okno nie wracało przy każdym odświeżeniu.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reminders, openSkip, askRemind]);
+  }, [reminders, openSkip, askRemind, openSend]);
 
   const busy = locked || skip.isPending || unskip.isPending;
   const reminderLine = (channel: AdChannel) => {
@@ -391,8 +406,9 @@ export function AdChannels({
           Portale
         </h3>
         <p className="text-xs text-muted-foreground">
-          Treść do wklejenia jest w zakładkach Pracuj.pl i JustJoin.IT. Po wklejeniu oznacz
-          publikację tutaj.
+          {canManage
+            ? "Pracuj.pl wstawia opiekun konta — wyślij mu ogłoszenie mailem. JustJoin.IT wklejasz z zakładki i oznaczasz tutaj."
+            : "Pracuj.pl wstawia opiekun konta po mailu od Delivery Leada. JustJoin.IT wklejasz z zakładki i oznaczasz tutaj."}
         </p>
         {/* Po wklejeniu treści na portalu rekruter oznacza to tutaj. */}
         <AdPublications
@@ -404,8 +420,20 @@ export function AdChannels({
           api={api}
           initialLinkFor={focusChannel === "pracuj" || focusChannel === "jjit" ? focusChannel : null}
           renderExtra={(portal) => reminderLine(portal)}
+          onSendPracuj={canSendPracuj ? () => setSendingMail(true) : undefined}
         />
       </div>
+      <PracujMailDialog
+        open={sendingMail}
+        jobId={jobId}
+        state={state}
+        api={pracujMailApi}
+        onClose={() => setSendingMail(false)}
+        onSent={(next) => {
+          apply(next);
+          setSendingMail(false);
+        }}
+      />
       <SkipChannelDialog
         open={skipFor !== null}
         channels={missing}

@@ -142,7 +142,7 @@ async def also_fits_for_candidate(
     from app.services.auto_match_service import AutoMatchUnavailable, scoped_similarity
     from app.services.embedding_service import _build_candidate_text
     from app.services.job_working_title import display_title
-    from app.services.my_people_matching import fits_for_job
+    from app.services.my_people_matching import fits_for_job, warm_job_queries
 
     pool = await open_pool_job_ids(
         db,
@@ -177,6 +177,13 @@ async def also_fits_for_candidate(
         )
     ).all()
     jobs = {job.id: (job, client_name) for job, client_name in rows}
+    # Każda rekrutacja ma własny wektor zapytania: jedno wywołanie Voyage na
+    # wszystkie zamiast ośmiu po kolei (85–95% czasu trasy, pomiar 27.10.2026).
+    await warm_job_queries(
+        db,
+        jobs=[jobs[job_id][0] for job_id in nearest if job_id in jobs],
+        profile_user_id=profile_user_id,
+    )
 
     scored: list[Scored] = []
     details: dict[int, object] = {}

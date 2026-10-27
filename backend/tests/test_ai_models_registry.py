@@ -160,6 +160,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.autofill_quality_report: ("F35", "claude-sonnet-5"),
     # F36 — 26.10.2026: formularz CV klienta z CV i screeningu, jak F4.
     AIFeatureKey.client_form_fill: ("F36", "claude-sonnet-5"),
+    # F37 — 27.10.2026: zrzut zgody RODO pod CV, odczyt obrazu jak F33.
+    AIFeatureKey.consent_screenshot_check: ("F37", "claude-sonnet-5"),
 }
 
 

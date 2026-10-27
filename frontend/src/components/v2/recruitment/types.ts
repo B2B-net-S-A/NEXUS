@@ -148,6 +148,11 @@ export interface ProposalPersonRow extends PersonRowBase {
    * przy sortowaniu; `fitScore` zostaje bez nich.
    */
   historyPoints?: number;
+  /**
+   * Punktacja scrapera portalu ogłoszeń (`job_board`, 27.10.2026) — inny
+   * algorytm niż `fitScore`, pokazywana najwyżej jako dopisek.
+   */
+  boardScore?: number;
 }
 
 export type PersonRow = ProcessPersonRow | ProposalPersonRow;
