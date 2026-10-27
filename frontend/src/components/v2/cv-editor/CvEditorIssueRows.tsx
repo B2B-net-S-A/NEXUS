@@ -505,7 +505,8 @@ function TaskRow({ task, fixes, ctx }: { task: QcTask; fixes: QcFix[]; ctx: RowC
   const roleItems = items.filter((item) => item.role);
   const target = first ? itemTarget(first) : null;
   const busy = qc.busy || !qc.editable;
-  const consent = first?.fix === "upload_consent" ? consentTarget(qc.data) : null;
+  const consent =
+    first?.fix === "upload_consent" || first?.fix === "replace_consent" ? consentTarget(qc.data) : null;
 
   let actions: ReactNode = null;
   let body: ReactNode = null;
@@ -579,7 +580,14 @@ function TaskRow({ task, fixes, ctx }: { task: QcTask; fixes: QcFix[]; ctx: RowC
     );
   } else if (consent) {
     // Zrzut wgrywa się tu, bez generatora i bez ponownej generacji (PR 4, 17.10.2026).
-    actions = <ConsentAttachButton compact hasConsent={false} {...consent} onAttached={ctx.refreshQc} />;
+    actions = (
+      <ConsentAttachButton
+        compact
+        hasConsent={first?.fix === "replace_consent"}
+        {...consent}
+        onAttached={ctx.refreshQc}
+      />
+    );
   } else if (first?.fix === "upload_consent" || first?.fix === "generate_cv") {
     actions = <ItemAction item={first} ctx={qc} />;
   } else if (first && itemQuickFix(check, first)?.action === "strip_client_rules") {
