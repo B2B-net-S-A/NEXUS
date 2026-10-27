@@ -1,5 +1,5 @@
 {
-  "entry": "e5626e2133d11b8fed02797b09729559a8f7bbd04e76c88b43d1ad34ca2dabb5",
+  "entry": "861a2ad01897cac8433e342bdeda0562d45ba0df15870adef1872bccdf19e160",
   "guide": "contracts.order_mail",
   "sources": {
     "backend/app/services/order_mail_gate.py": "bb0cd0690da330b66d74b46557696529b200139820e56c0f08210a248f5a3666",

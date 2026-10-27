@@ -608,8 +608,7 @@
       "„Zastosuj” ignoruje wyłącznik automatu — zapisujesz świadomie jako człowiek.",
       "Stawka w walucie innej niż PLN zawsze wymaga ręcznej weryfikacji.",
       "Wiersz z datą od późniejszą niż data do czeka jako „Do weryfikacji – błędny okres” — „Zastosuj” go nie zapisze; okres wpisz w oknie zamówienia klienta.",
-      "Pierwsze zamówienie osoby ze stawką inną niż stawka do klienta, za którą Delivery Lead wysłał ją w rekrutacji, czeka w „Do weryfikacji”. Przedłużenie porównujemy z poprzednim zamówieniem tej osoby, nie z rekrutacją. To sprawdzenie, nie blokada — kliknij „Zastosuj”, gdy klient przyjął nową stawkę.",
-      "Przedłużenie, które zaczyna się przed końcem obecnego zamówienia, czeka na wybór pod planem: skrócić obecne zamówienie albo zacząć nowe po nim. „Zastosuj” wykonuje ten wybór; zamówienia z fakturą za skracany miesiąc nie skróci."
+      "Inna stawka czeka w „Do weryfikacji”: pierwsze zamówienie porównujemy ze stawką z rekrutacji, przedłużenie z poprzednim zamówieniem. Przedłużenie nachodzące na obecne zamówienie czeka na wybór pod planem (skrócić obecne albo zacząć nowe po nim) — „Zastosuj” go wykonuje."
     ],
     "anchors": [
       {
