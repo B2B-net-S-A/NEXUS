@@ -126,9 +126,10 @@ def http_url(value: Optional[str]) -> Optional[str]:
     scheme = _SCHEME.match(text)
     if scheme is None:
         text = f"https://{text}"
-    elif scheme.group(1).lower() not in ("http", "https") or not text.lower().startswith(
-        ("http://", "https://")
-    ):
+    elif scheme.group(1).lower() not in (
+        "http",
+        "https",
+    ) or not text.lower().startswith(("http://", "https://")):
         # „javascript:…”, „data:…”, „ftp://…” — także bez „//”.
         raise ValueError("Adres musi zaczynać się od http:// albo https://.")
     if any(char.isspace() for char in text):
