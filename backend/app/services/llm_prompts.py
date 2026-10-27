@@ -1775,7 +1775,7 @@ AUTOFILL_QUALITY_REPORT = PromptTemplate(
 
 CLIENT_FORM_FILL = PromptTemplate(
     name="client_form_fill",
-    version=2,
+    version=3,
     expected_format="json",
     system_prompt=(
         "Wypełniasz formularz CV klienta (dokument przetargowy) danymi "
@@ -1787,7 +1787,7 @@ CLIENT_FORM_FILL = PromptTemplate(
         "wzoru, sekcja, tabela):\n{fields}\n\n"
         "Tabele, do których można dopisać kolejne wiersze (klucze kolumn jak "
         '"c2"):\n{tables}\n\n'
-        "{cv}\n\n{notes}\n\n"
+        "{cv}\n\n{notes}\n\n{rules}\n\n"
         "Zasady:\n"
         '- Wpisuj WYŁĄCZNIE fakty z CV i notatek. Każda wartość ma "quote": '
         "fragment CV albo notatki skopiowany znak w znak, który ją potwierdza — "
@@ -1806,6 +1806,10 @@ CLIENT_FORM_FILL = PromptTemplate(
         "- Doświadczenie zawodowe od najnowszego. Najpierw wiersze wzoru, "
         'kolejne stanowiska w "extra_rows" — tylko dla tabel z listy wyżej, '
         "najwyżej 10 wierszy na tabelę.\n"
+        '- Pole z "max_points": liczba punktów według <scoring_rules> — '
+        "liczba całkowita od 0 do max_points, policzona z faktów w CV i notatkach "
+        '(np. lata doświadczenia); "quote" to fragment, z którego wynika. '
+        "Bez zasad oceny albo bez faktu pomiń pole.\n"
         "- Nigdy nie wpisuj stawki, wynagrodzenia, dostępności, telefonu, "
         "e-maila ani adresu (miasto zamieszkania wolno).\n\n"
         "Zwróć JSON:\n"

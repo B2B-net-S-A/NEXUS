@@ -16,7 +16,6 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
-    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -29,8 +28,12 @@ from app.models.base import TimestampMixin
 class CandidateClientForm(Base, TimestampMixin):
     __tablename__ = "candidate_client_forms"
     __table_args__ = (
-        UniqueConstraint(
-            "candidate_id", "job_id", name="uq_candidate_client_forms_pair"
+        Index(
+            "ux_candidate_client_forms_pair_kind",
+            "candidate_id",
+            "job_id",
+            "kind",
+            unique=True,
         ),
         Index("ix_candidate_client_forms_job", "job_id"),
     )
@@ -41,6 +44,10 @@ class CandidateClientForm(Base, TimestampMixin):
     )
     job_id: Mapped[int] = mapped_column(
         ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    # 0525: „form” (formularz Word) albo „score” (tabela punktowa Excel).
+    kind: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="form", server_default=text("'form'")
     )
     job_file_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("job_files.id", ondelete="SET NULL"), nullable=True

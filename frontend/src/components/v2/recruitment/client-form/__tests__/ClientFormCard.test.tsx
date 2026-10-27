@@ -184,3 +184,57 @@ describe("ClientFormDialog — kontekst wiersza", () => {
     expect(within(dialog).getByText("Wiersz 1 · Bank Przykładowy S.A.")).toBeInTheDocument();
   });
 });
+
+describe("ClientFormCard — tabela punktowa (0525)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const scoreView = (over: Partial<ClientFormView> = {}): ClientFormView =>
+    view({
+      kind: "score",
+      template: { file_id: 12, filename: "Zal 5b Tabela punktowa.xlsx", summary: "7 pól" },
+      points: { total: 6, max: 13 },
+      fields: [
+        field({}),
+        field({
+          id: "s0.r12.c4",
+          kind: "cell",
+          label: "Wynik (0–5 pkt)",
+          row_label: "Długość doświadczenia w automatyzacji testów",
+          table: "Kryteria punktowane",
+          value: null,
+          source: null,
+          max_points: 5,
+        }),
+      ],
+      missing: ["s0.r12.c4"],
+      ...over,
+    });
+
+  it("bez wzoru Excela karty nie ma", async () => {
+    api.get.mockResolvedValue({
+      data: scoreView({ status: "no_template", template: null, fields: [], missing: [] }),
+    });
+    const { container } = renderCard({ kind: "score" });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/candidates/stages/41/client-form?kind=score"));
+    await waitFor(() => expect(container.querySelector("[data-testid=client-score-card]")).toBeNull());
+  });
+
+  it("pokazuje punkty i pobiera Excel, wypełnia z parametrem rodzaju", async () => {
+    api.get.mockResolvedValue({ data: scoreView({ status: "not_filled", points: { total: 0, max: 13 } }) });
+    api.post.mockResolvedValue({ data: scoreView() });
+    renderCard({ kind: "score" });
+    fireEvent.click(await screen.findByText("Wypełnij z CV i screeningu"));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/api/candidates/stages/41/client-form/fill?kind=score",
+        null,
+        expect.objectContaining({ timeout: 180_000 }),
+      ),
+    );
+    expect(await screen.findByText("Punkty: 6 z 13")).toBeInTheDocument();
+    expect(screen.getByText("Pobierz Excel")).toBeInTheDocument();
+    expect(screen.queryByText("Wygeneruj też CV firmowe")).toBeNull();
+  });
+});

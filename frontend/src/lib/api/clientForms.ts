@@ -10,7 +10,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
-import type { ClientDocument } from "@/lib/api/jobFiles";
+import type { ClientDocument, ClientFormKind } from "@/lib/api/jobFiles";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 
 export type ClientFormFieldKind = "line" | "box" | "cell";
@@ -22,6 +22,8 @@ export interface ClientFormField {
   kind: ClientFormFieldKind;
   /** Etykieta pola albo nagłówek kolumny ze wzoru. */
   label: string;
+  /** Tabela punktowa: maksimum punktów w tym wierszu. */
+  max_points?: number;
   section: string | null;
   /** Nazwa wiersza ze wzoru (np. kompetencja) albo „Wiersz 2”. */
   row_label: string | null;
@@ -32,7 +34,11 @@ export interface ClientFormField {
 }
 
 export interface ClientFormView {
+  /** 0525: „form” — formularz CV (Word), „score” — tabela punktowa (Excel). */
+  kind?: ClientFormKind;
   client_document: ClientDocument;
+  /** Tylko tabela punktowa: suma wpisanych punktów i maksimum wierszy z punktami. */
+  points?: { total: number; max: number } | null;
   status: ClientFormStatus;
   /** Zdanie dla rekrutera, np. gdy model był niedostępny. */
   message: string | null;
@@ -48,18 +54,28 @@ export interface ClientFormView {
 }
 
 const basePath = (stageId: number) => `/api/candidates/stages/${stageId}/client-form`;
+/** Formularz to domyślny rodzaj — jego adresy zostają bez parametru. */
+const kindQuery = (kind: ClientFormKind) => (kind === "score" ? "?kind=score" : "");
 
-export const clientFormKey = (stageId: number) => ["client-form", stageId] as const;
+export const clientFormKey = (stageId: number, kind: ClientFormKind = "form") =>
+  ["client-form", stageId, kind] as const;
 
-export async function fetchClientForm(stageId: number): Promise<ClientFormView> {
-  const { data } = await api.get<ClientFormView>(basePath(stageId));
+export async function fetchClientForm(
+  stageId: number,
+  kind: ClientFormKind = "form",
+): Promise<ClientFormView> {
+  const { data } = await api.get<ClientFormView>(`${basePath(stageId)}${kindQuery(kind)}`);
   return data;
 }
 
-export function useClientForm(stageId: number | null, enabled = true) {
+export function useClientForm(
+  stageId: number | null,
+  enabled = true,
+  kind: ClientFormKind = "form",
+) {
   return useQuery({
-    queryKey: clientFormKey(stageId ?? 0),
-    queryFn: () => fetchClientForm(stageId as number),
+    queryKey: clientFormKey(stageId ?? 0, kind),
+    queryFn: () => fetchClientForm(stageId as number, kind),
     enabled: enabled && stageId != null,
     staleTime: 30_000,
     retry: false,
@@ -67,8 +83,11 @@ export function useClientForm(stageId: number | null, enabled = true) {
 }
 
 /** Wypełnienie modelem — wartości wpisane przez rekrutera zostają. Do minuty. */
-export async function fillClientForm(stageId: number): Promise<ClientFormView> {
-  const { data } = await api.post<ClientFormView>(`${basePath(stageId)}/fill`, null, {
+export async function fillClientForm(
+  stageId: number,
+  kind: ClientFormKind = "form",
+): Promise<ClientFormView> {
+  const { data } = await api.post<ClientFormView>(`${basePath(stageId)}/fill${kindQuery(kind)}`, null, {
     timeout: 180_000,
   });
   return data;
@@ -78,8 +97,11 @@ export async function fillClientForm(stageId: number): Promise<ClientFormView> {
 export async function saveClientForm(
   stageId: number,
   fields: Record<string, string>,
+  kind: ClientFormKind = "form",
 ): Promise<ClientFormView> {
-  const { data } = await api.put<ClientFormView>(basePath(stageId), { fields });
+  const { data } = await api.put<ClientFormView>(`${basePath(stageId)}${kindQuery(kind)}`, {
+    fields,
+  });
   return data;
 }
 
@@ -87,9 +109,13 @@ export async function saveClientForm(
  * Plik Word formularza. Natywny `fetch`, nie axios — `responseType: blob`
  * między domenami zwracał status 0 (jak przy plikach rekrutacji).
  */
-export async function downloadClientForm(stageId: number, fallbackName: string): Promise<void> {
+export async function downloadClientForm(
+  stageId: number,
+  fallbackName: string,
+  kind: ClientFormKind = "form",
+): Promise<void> {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
-  const res = await fetch(`${apiBase}${basePath(stageId)}/docx`, {
+  const res = await fetch(`${apiBase}${basePath(stageId)}/docx${kindQuery(kind)}`, {
     method: "GET",
     headers: getAuthenticatedRequestHeaders(),
   });

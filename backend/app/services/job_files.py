@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from fastapi import UploadFile
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,8 +33,17 @@ from app.models.client import Client
 from app.models.job import Job
 from app.models.job_file import JobFile
 from app.models.user import User
-from app.services import client_form_structure, storage_service
-from app.services.client_form_schema import CLIENT_FORM, COMPANY_CV
+from app.services import (
+    client_form_structure,
+    client_score_structure,
+    storage_service,
+)
+from app.services.client_form_schema import (
+    CLIENT_FORM,
+    COMPANY_CV,
+    KIND_FORM,
+    KIND_SCORE,
+)
 from app.services.job_file_schema import SOURCE_REQUEST, SOURCE_UPLOAD, SOURCES
 
 logger = logging.getLogger(__name__)
@@ -73,6 +83,12 @@ MSG_FORM_GONE = "Pliku nie ma już w magazynie — dodaj formularz jeszcze raz."
 # Plik, który NEXUS sam oznacza jako wzór formularza CV klienta — po nazwie
 # z SWZ („Zał 4b do SWZ Formularz CV_Tester”). Inny plik DL oznacza ręcznie.
 FORM_NAME = re.compile(r"formularz", re.IGNORECASE)
+# Excel tabeli punktowej (zał. 5 CEZ) i plik z zasadami oceny (0525).
+SCORE_NAME = re.compile(r"tabel|punkt|ocen|kryter|za[lł]", re.IGNORECASE)
+RULES_NAME = re.compile(r"ocen|kryter|punkt", re.IGNORECASE)
+MSG_TEMPLATE_TYPE = (
+    "Wzorem może być plik Word (formularz CV) albo Excel (tabela punktowa)."
+)
 
 
 @dataclass(frozen=True)
@@ -192,6 +208,11 @@ async def list_files(
 
 def serialize(row: JobFile, uploader_name: Optional[str] = None) -> dict[str, Any]:
     structure = row.client_form_structure if row.client_form else None
+    summarize = (
+        client_score_structure.summary
+        if row.client_form_kind == KIND_SCORE
+        else client_form_structure.summary
+    )
     return {
         "id": row.id,
         "filename": row.filename,
@@ -202,9 +223,8 @@ def serialize(row: JobFile, uploader_name: Optional[str] = None) -> dict[str, An
         "uploaded_by_name": (uploader_name or "").strip() or None,
         "created_at": row.created_at,
         "client_form": bool(row.client_form),
-        "client_form_summary": (
-            client_form_structure.summary(structure) if structure else None
-        ),
+        "client_form_kind": row.client_form_kind if row.client_form else None,
+        "client_form_summary": summarize(structure) if structure else None,
     }
 
 
@@ -305,10 +325,20 @@ async def client_document_of_job(db: AsyncSession, job_id: int) -> str:
     return value or COMPANY_CV
 
 
+def template_kind(filename: str) -> Optional[str]:
+    """Rodzaj wzoru z pliku: Word = formularz, Excel = tabela punktowa (0525)."""
+    name = filename.lower()
+    if name.endswith(".docx"):
+        return KIND_FORM
+    if name.endswith(".xlsx"):
+        return KIND_SCORE
+    return None
+
+
 def read_template(row: JobFile) -> bytes:
-    """Treść wzoru Word z dysku; odmowa = ``JobFileRefused`` ze zdaniem."""
-    if not row.filename.lower().endswith(".docx"):
-        raise JobFileRefused(422, client_form_structure.MSG_NOT_DOCX)
+    """Treść wzoru (Word albo Excel) z dysku; odmowa = ``JobFileRefused``."""
+    if template_kind(row.filename) is None:
+        raise JobFileRefused(422, MSG_TEMPLATE_TYPE)
     try:
         path = storage_service.get_job_file_path(row.file_path)
     except FileNotFoundError as exc:
@@ -322,40 +352,57 @@ def read_form_structure(row: JobFile) -> dict[str, Any]:
     """Pola wzoru z pliku na dysku; odmowa = ``JobFileRefused`` 422 ze zdaniem."""
     content = read_template(row)
     try:
+        if template_kind(row.filename) == KIND_SCORE:
+            return client_score_structure.read_structure(content)
         return client_form_structure.read_structure(content).to_json()
     except client_form_structure.FormRejected as exc:
         raise JobFileRefused(422, str(exc)) from exc
 
 
+def _structure_version(kind: Optional[str]) -> int:
+    if kind == KIND_SCORE:
+        return client_score_structure.STRUCTURE_VERSION
+    return client_form_structure.STRUCTURE_VERSION
+
+
 async def current_structure(db: AsyncSession, row: JobFile) -> dict[str, Any]:
     """Struktura wzoru w bieżącej wersji — starszą czyta ponownie z pliku."""
     structure = row.client_form_structure or {}
-    if structure.get("version") != client_form_structure.STRUCTURE_VERSION:
+    if structure.get("version") != _structure_version(template_kind(row.filename)):
         structure = read_form_structure(row)
         row.client_form_structure = structure
         await db.flush()
     return structure
 
 
-async def client_form_of_job(db: AsyncSession, job_id: int) -> Optional[JobFile]:
+async def client_form_of_job(
+    db: AsyncSession, job_id: int, kind: str = KIND_FORM
+) -> Optional[JobFile]:
     return await db.scalar(
-        select(JobFile).where(JobFile.job_id == job_id, JobFile.client_form.is_(True))
+        select(JobFile).where(
+            JobFile.job_id == job_id,
+            JobFile.client_form.is_(True),
+            JobFile.client_form_kind == kind,
+        )
     )
 
 
 async def set_client_form(db: AsyncSession, row: JobFile, *, on: bool) -> None:
-    """Oznacz plik rekrutacji jako wzór formularza albo zdejmij oznaczenie.
+    """Oznacz plik rekrutacji jako wzór dokumentu klienta albo zdejmij oznaczenie.
 
-    Nowy wzór zdejmuje oznaczenie z poprzedniego (jeden na rekrutację,
-    ``ux_job_files_client_form``) pod blokadą rekrutacji. Bez commita.
+    Word jest wzorem formularza, Excel — tabeli punktowej (0525). Nowy wzór
+    zdejmuje oznaczenie z poprzedniego TEGO SAMEGO rodzaju (jeden na rodzaj,
+    ``ux_job_files_client_form_kind``) pod blokadą rekrutacji. Bez commita.
     """
     if row.job_id is None:
         raise JobFileRefused(422, "Wzór formularza oznacza się w rekrutacji.")
     if not on:
         row.client_form = False
         row.client_form_structure = None
+        row.client_form_kind = None
         await db.flush()
         return
+    kind = template_kind(row.filename)
     structure = read_form_structure(row)
     await _lock_owner(db, job_id=row.job_id, form_id=None)
     await db.execute(
@@ -364,23 +411,27 @@ async def set_client_form(db: AsyncSession, row: JobFile, *, on: bool) -> None:
             JobFile.job_id == row.job_id,
             JobFile.id != row.id,
             JobFile.client_form.is_(True),
+            JobFile.client_form_kind == kind,
         )
-        .values(client_form=False, client_form_structure=None)
+        .values(client_form=False, client_form_structure=None, client_form_kind=None)
     )
     row.client_form = True
     row.client_form_structure = structure
+    row.client_form_kind = kind
     await db.flush()
 
 
-async def auto_mark_client_form(db: AsyncSession, job_id: int) -> Optional[JobFile]:
-    """Sam oznacz wzór, gdy klient chce formularz, a rekrutacja jeszcze go nie ma.
+async def auto_mark_client_form(db: AsyncSession, job_id: int) -> dict[str, JobFile]:
+    """Sam oznacz wzory, gdy klient chce formularz, a rekrutacja ich nie ma.
 
-    Kandydat to DOCX z „formularz” w nazwie, który daje się odczytać — od
-    najnowszego. Plik, którego nie da się odczytać, po prostu zostaje
-    zwykłym plikiem (DL może go oznaczyć ręcznie i zobaczyć powód odmowy).
+    Formularz: Word z „formularz” w nazwie; tabela punktowa: Excel z nazwą
+    w rodzaju „tabela punktowa” / „ocena” / „zał. 5” — od najnowszego, który
+    daje się odczytać. Plik, którego nie da się odczytać, zostaje zwykłym
+    plikiem (DL może go oznaczyć ręcznie i zobaczyć powód odmowy). Zwraca
+    oznaczone wzory według rodzaju.
     """
     if await client_document_of_job(db, job_id) != CLIENT_FORM:
-        return None
+        return {}
     rows = list(
         (
             await db.scalars(
@@ -390,17 +441,52 @@ async def auto_mark_client_form(db: AsyncSession, job_id: int) -> Optional[JobFi
             )
         ).all()
     )
-    if any(row.client_form for row in rows):
-        return None
+    marked = {row.client_form_kind: row for row in rows if row.client_form}
+    for kind, pattern in ((KIND_FORM, FORM_NAME), (KIND_SCORE, SCORE_NAME)):
+        if kind in marked:
+            continue
+        for row in rows:
+            if template_kind(row.filename) != kind or not pattern.search(row.filename):
+                continue
+            try:
+                await set_client_form(db, row, on=True)
+            except JobFileRefused:
+                logger.info("job_files: plik %d nie jest wzorem (%s)", row.id, kind)
+                continue
+            marked[kind] = row
+            break
+    return {kind: row for kind, row in marked.items() if kind}
+
+
+async def scoring_rules_text(db: AsyncSession, job_id: int) -> str:
+    """Tekst zasad oceny z Plików rekrutacji (np. zał. 5 „Szczegółowy opis oceny”).
+
+    Źródło punktów tabeli punktowej. PDF albo Word z „ocen”/„kryter”/„punkt”
+    w nazwie, który nie jest oznaczonym wzorem; brak = pusty tekst (punkty
+    zostają do wpisania ręcznie). Odczyt przez ``cv_text_extractor`` — PDF
+    czyta osobny proces z limitem.
+    """
+    from app.services import cv_text_extractor  # noqa: PLC0415
+
+    rows = (
+        await db.scalars(
+            select(JobFile)
+            .where(JobFile.job_id == job_id, JobFile.client_form.is_(False))
+            .order_by(JobFile.created_at.desc(), JobFile.id.desc())
+        )
+    ).all()
     for row in rows:
-        if not row.filename.lower().endswith(".docx") or not FORM_NAME.search(
-            row.filename
-        ):
+        name = row.filename.lower()
+        if not RULES_NAME.search(name) or not name.endswith((".pdf", ".docx")):
             continue
         try:
-            await set_client_form(db, row, on=True)
-        except JobFileRefused:
-            logger.info("job_files: plik %d nie jest wzorem formularza", row.id)
+            path = storage_service.get_job_file_path(row.file_path)
+            text = await run_in_threadpool(
+                cv_text_extractor.extract_text, str(path), row.filename
+            )
+        except Exception:  # noqa: BLE001 — brak zasad = punkty ręcznie
+            logger.info("job_files: nie udało się odczytać zasad oceny %d", row.id)
             continue
-        return row
-    return None
+        if text.strip():
+            return text
+    return ""

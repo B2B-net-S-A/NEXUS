@@ -295,3 +295,111 @@ async def test_form_added_before_the_switch_is_recognized_on_first_view(
         await app_client.get(f"/api/jobs/{job_id}/files", headers=app_auth_headers)
     ).json()
     assert [item["client_form"] for item in listed["items"]] == [True]
+
+
+# ── 0525: tabela punktowa (Excel) obok formularza (Word) ─────────────────────
+
+
+def _rules_docx() -> bytes:
+    import docx as python_docx
+
+    document = python_docx.Document()
+    document.add_paragraph(
+        "Szczegółowy opis oceny. Punkty za lata w automatyzacji: 0 pkt do 2 lat, "
+        "1 pkt więcej niż 2 lata, 2 pkt więcej niż 3 lata. ISTQB FL: 3 pkt."
+    )
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_score_sheet_is_a_second_template_filled_with_points(
+    app_client, app_auth_headers, storage, model
+):
+    from openpyxl import load_workbook
+
+    from tests._client_score_xlsx import score_xlsx
+
+    job_id, stage_id = await _pair()
+    files_url = f"/api/jobs/{job_id}/files"
+
+    async def upload(name: str, data: bytes) -> dict:
+        resp = await app_client.post(
+            files_url,
+            files={"file": (name, data, "application/octet-stream")},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 201, resp.text
+        return resp.json()
+
+    form = await upload("Zal 4b Formularz CV.docx", form_docx())
+    sheet = await upload("Zal 5b Tabela punktowa.xlsx", score_xlsx())
+    await upload("Zal 5b Szczegolowy opis oceny.docx", _rules_docx())
+    assert (form["client_form"], form["client_form_kind"]) == (True, "form")
+    assert (sheet["client_form"], sheet["client_form_kind"]) == (True, "score")
+    assert sheet["client_form_summary"].startswith("7 pól do wypełnienia")
+
+    url = f"/api/candidates/stages/{stage_id}/client-form"
+    model.append(
+        {
+            "fields": [
+                {"id": "s0.r7.c4", "value": "TAK", "quote": "Automation Test Engineer"},
+                {"id": "s0.r12.c4", "value": "2", "quote": "07.2023 – obecnie"},
+                {"id": "s0.r13.c4", "value": "9", "quote": "Selenium WebDriver"},
+            ]
+        }
+    )
+    filled = await app_client.post(f"{url}/fill?kind=score", headers=app_auth_headers)
+    assert filled.status_code == 200, filled.text
+    body = filled.json()
+    values = {item["id"]: item["value"] for item in body["fields"]}
+    assert body["kind"] == "score"
+    assert values["s0.r3.c2"] == "B2B.net S.A."
+    assert values["s0.r12.c4"] == "2" and values["s0.r13.c4"] is None  # 9 > 5
+    assert body["points"] == {"total": 2, "max": 13}
+    # Formularz Word jest osobnym dokumentem tej pary.
+    form_view = (await app_client.get(url, headers=app_auth_headers)).json()
+    assert form_view["kind"] == "form" and form_view["status"] == "not_filled"
+
+    download = await app_client.get(f"{url}/docx?kind=score", headers=app_auth_headers)
+    assert download.status_code == 200, download.text
+    assert download.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml"
+    )
+    assert ".xlsx" in download.headers["content-disposition"]
+    workbook = load_workbook(io.BytesIO(download.content)).active
+    assert workbook["D12"].value == 2 and workbook["D7"].value == "TAK"
+
+    # Nowy Excel jako wzór zdejmuje tylko poprzednią tabelę, nie formularz.
+    second = await upload("tabela v2.xlsx", score_xlsx())
+    mark = await app_client.patch(
+        f"{files_url}/{second['id']}",
+        json={"client_form": True},
+        headers=app_auth_headers,
+    )
+    assert mark.status_code == 200, mark.text
+    listed = (await app_client.get(files_url, headers=app_auth_headers)).json()["items"]
+    marked = {
+        item["id"]: item["client_form_kind"] for item in listed if item["client_form"]
+    }
+    assert marked == {form["id"]: "form", second["id"]: "score"}
+
+
+@pytest.mark.asyncio
+async def test_pdf_or_other_files_cannot_be_templates(
+    app_client, app_auth_headers, storage
+):
+    job_id, _ = await _pair()
+    resp = await app_client.post(
+        f"/api/jobs/{job_id}/files",
+        files={"file": ("opis.pdf", b"%PDF-1.4 opis", "application/octet-stream")},
+        headers=app_auth_headers,
+    )
+    marked = await app_client.patch(
+        f"/api/jobs/{job_id}/files/{resp.json()['id']}",
+        json={"client_form": True},
+        headers=app_auth_headers,
+    )
+    assert marked.status_code == 422
+    assert marked.json()["detail"].startswith("Wzorem może być plik Word")

@@ -18,11 +18,10 @@ dostęp do pary wymaga dostępu do tej rekrutacji.
 """
 
 import hashlib
-import re
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -46,7 +45,8 @@ from app.services import (
     client_form_structure,
     job_files,
 )
-from app.services.client_form_schema import CLIENT_FORM
+from app.services import client_score_structure
+from app.services.client_form_schema import CLIENT_FORM, KIND_FORM, KIND_SCORE
 from app.services.cv_generator_b2b.standalone_service import (
     collect_screening_notes_text,
 )
@@ -54,6 +54,12 @@ from app.services.cv_generator_b2b.standalone_service import (
 router = APIRouter()
 
 DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# 0525: „form” = formularz CV (Word), „score” = tabela punktowa (Excel).
+DocumentKind = Literal["form", "score"]
+KIND_QUERY = Query(
+    "form", description="form — formularz CV (Word), score — tabela punktowa (Excel)"
+)
 MSG_NO_TEMPLATE = (
     "Ta rekrutacja nie ma wzoru formularza — Delivery Lead dodaje go w Plikach "
     "rekrutacji."
@@ -90,24 +96,25 @@ async def _pair(
 
 
 async def _form(
-    db: AsyncSession, job_id: int, candidate_id: int
+    db: AsyncSession, job_id: int, candidate_id: int, kind: str = KIND_FORM
 ) -> Optional[CandidateClientForm]:
     return await db.scalar(
         select(CandidateClientForm).where(
             CandidateClientForm.job_id == job_id,
             CandidateClientForm.candidate_id == candidate_id,
+            CandidateClientForm.kind == kind,
         )
     )
 
 
 async def _template(
-    db: AsyncSession, job_id: int
+    db: AsyncSession, job_id: int, kind: str = KIND_FORM
 ) -> tuple[Optional[JobFile], dict[str, Any]]:
-    row = await job_files.client_form_of_job(db, job_id)
+    row = await job_files.client_form_of_job(db, job_id, kind)
     if row is None:
-        # Formularz dodany, zanim klient przeszedł na formularz CV (np. CEZ
-        # przed 0521), nie został oznaczony przy dodaniu — NEXUS rozpoznaje go teraz.
-        row = await job_files.auto_mark_client_form(db, job_id)
+        # Wzór dodany, zanim klient przeszedł na formularz CV (np. CEZ przed
+        # 0521), nie został oznaczony przy dodaniu — NEXUS rozpoznaje go teraz.
+        row = (await job_files.auto_mark_client_form(db, job_id)).get(kind)
     if row is None:
         return None, {}
     try:
@@ -126,8 +133,19 @@ def _candidate_name(candidate: Candidate) -> str:
     ).strip()
 
 
+def _points(structure: dict[str, Any], values: dict[str, Any]) -> dict[str, int]:
+    """Suma wpisanych punktów tabeli punktowej i maksimum wierszy z punktami."""
+    total = 0
+    for item in structure.get("fields") or []:
+        value = str((values.get(item["id"]) or {}).get("value") or "")
+        if item.get("max_points") is not None and value.isdigit():
+            total += int(value)
+    return {"total": total, "max": client_score_structure.max_points_total(structure)}
+
+
 def _view(
     *,
+    kind: str = KIND_FORM,
     client_document: str,
     template: Optional[JobFile],
     structure: dict[str, Any],
@@ -151,15 +169,22 @@ def _view(
         status = "not_filled"
     else:
         status = "filled"
+    summarize = (
+        client_score_structure.summary
+        if kind == KIND_SCORE
+        else client_form_structure.summary
+    )
     return {
+        "kind": kind,
         "client_document": client_document,
         "status": status,
+        "points": _points(structure, values) if kind == KIND_SCORE else None,
         "message": message,
         "template": (
             {
                 "file_id": template.id,
                 "filename": template.filename,
-                "summary": client_form_structure.summary(structure),
+                "summary": summarize(structure),
             }
             if template is not None
             else None
@@ -188,14 +213,16 @@ async def get_client_form(
     stage_id: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    kind: DocumentKind = KIND_QUERY,
 ) -> dict:
     job, candidate, _ = await _pair(db, stage_id, current_user, write=False)
-    template, structure = await _template(db, job.id)
+    template, structure = await _template(db, job.id, kind)
     return _view(
+        kind=kind,
         client_document=await job_files.client_document_of_job(db, job.id),
         template=template,
         structure=structure,
-        form=await _form(db, job.id, candidate.id),
+        form=await _form(db, job.id, candidate.id, kind),
     )
 
 
@@ -206,10 +233,11 @@ async def fill_client_form(
     stage_id: int,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
+    kind: DocumentKind = KIND_QUERY,
 ) -> dict:
     """Wypełnij formularz modelem. Wartości wpisane przez rekrutera zostają."""
     job, candidate, stage = await _pair(db, stage_id, current_user, write=True)
-    template, structure = await _template(db, job.id)
+    template, structure = await _template(db, job.id, kind)
     if template is None:
         raise HTTPException(status_code=409, detail=MSG_NO_TEMPLATE)
     try:
@@ -219,8 +247,10 @@ async def fill_client_form(
     notes = await collect_screening_notes_text(
         db, candidate_id=candidate.id, stage=stage, job=job
     )
+    # Tabela punktowa liczy punkty według zasad oceny z Plików (zał. 5 CEZ).
+    rules = await job_files.scoring_rules_text(db, job.id) if kind == KIND_SCORE else ""
     sources = client_form_fill.Sources(
-        cv=candidate.raw_cv_text or "", notes=notes or ""
+        cv=candidate.raw_cv_text or "", notes=notes or "", rules=rules
     )
     # IDs zapamiętane przed modelem: `fill` commituje sesję (licznik AI).
     job_id, candidate_id, template_id = job.id, candidate.id, template.id
@@ -234,9 +264,9 @@ async def fill_client_form(
         user_id=user_id,
         candidate_city=city,
     )
-    form = await _form(db, job_id, candidate_id)
+    form = await _form(db, job_id, candidate_id, kind)
     if form is None:
-        form = CandidateClientForm(candidate_id=candidate_id, job_id=job_id)
+        form = CandidateClientForm(candidate_id=candidate_id, job_id=job_id, kind=kind)
         db.add(form)
     kept = {
         field_id: value
@@ -260,6 +290,7 @@ async def fill_client_form(
             user_id=user_id,
             details={
                 "job_id": job_id,
+                "kind": kind,
                 "file_id": template_id,
                 "status": result["status"],
                 "missing": form.missing_count,
@@ -270,6 +301,7 @@ async def fill_client_form(
     await db.refresh(form)
     template = await db.get(JobFile, template_id)
     return _view(
+        kind=kind,
         client_document=CLIENT_FORM,
         template=template,
         structure=structure,
@@ -287,19 +319,23 @@ async def save_client_form(
     payload: ClientFormEdit,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
+    kind: DocumentKind = KIND_QUERY,
 ) -> dict:
     """Poprawki rekrutera: wartość bez źródła, pusta = pole do uzupełnienia."""
     job, candidate, _ = await _pair(db, stage_id, current_user, write=True)
-    template, structure = await _template(db, job.id)
+    template, structure = await _template(db, job.id, kind)
     if template is None:
         raise HTTPException(status_code=409, detail=MSG_NO_TEMPLATE)
     known = {item["id"] for item in structure.get("fields") or []}
     if any(field_id not in known for field_id in payload.fields):
         raise HTTPException(status_code=422, detail=MSG_UNKNOWN_FIELD)
-    form = await _form(db, job.id, candidate.id)
+    form = await _form(db, job.id, candidate.id, kind)
     if form is None:
         form = CandidateClientForm(
-            candidate_id=candidate.id, job_id=job.id, job_file_id=template.id
+            candidate_id=candidate.id,
+            job_id=job.id,
+            job_file_id=template.id,
+            kind=kind,
         )
         db.add(form)
     fields = dict(form.fields or {})
@@ -338,6 +374,7 @@ async def save_client_form(
     await db.flush()
     await db.refresh(form)
     return _view(
+        kind=kind,
         client_document=await job_files.client_document_of_job(db, job.id),
         template=template,
         structure=structure,
@@ -346,9 +383,10 @@ async def save_client_form(
 
 
 def _download_name(template: JobFile, candidate: Candidate) -> str:
-    stem = re.sub(r"\.docx$", "", template.filename, flags=re.IGNORECASE)
+    stem, dot, ext = template.filename.rpartition(".")
+    stem, ext = (stem, ext.lower()) if dot else (template.filename, "docx")
     name = _candidate_name(candidate).replace(" ", "_")
-    return f"{stem}_{name}.docx" if name else f"{stem}.docx"
+    return f"{stem}_{name}.{ext}" if name else f"{stem}.{ext}"
 
 
 @router.get("/candidates/stages/{stage_id}/client-form/docx")
@@ -358,19 +396,24 @@ async def download_client_form(
     stage_id: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    kind: DocumentKind = KIND_QUERY,
 ) -> Response:
-    """Plik Word: wzór klienta z wpisanymi wartościami (puste pola zostają puste)."""
+    """Plik klienta (Word albo Excel) z wpisanymi wartościami; puste pola zostają puste."""
     job, candidate, _ = await _pair(db, stage_id, current_user, write=False)
-    template, structure = await _template(db, job.id)
+    template, structure = await _template(db, job.id, kind)
     if template is None:
         raise HTTPException(status_code=409, detail=MSG_NO_TEMPLATE)
-    form = await _form(db, job.id, candidate.id)
+    form = await _form(db, job.id, candidate.id, kind)
     if form is None or not form.fields:
         raise HTTPException(status_code=409, detail=MSG_NOT_FILLED)
     try:
         content = job_files.read_template(template)
-        document = client_form_render.render(
-            content, structure, form.fields, form.extra_rows
+        document = (
+            client_form_render.render_score(content, structure, form.fields)
+            if kind == KIND_SCORE
+            else client_form_render.render(
+                content, structure, form.fields, form.extra_rows
+            )
         )
     except job_files.JobFileRefused as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from exc
@@ -378,12 +421,12 @@ async def download_client_form(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return Response(
         content=document,
-        media_type=DOCX_TYPE,
+        media_type=XLSX_TYPE if kind == KIND_SCORE else DOCX_TYPE,
         headers={
             "Content-Disposition": content_disposition(
                 _download_name(template, candidate),
                 "attachment",
-                fallback="formularz.docx",
+                fallback="tabela.xlsx" if kind == KIND_SCORE else "formularz.docx",
             ),
             "X-Content-Type-Options": "nosniff",
         },
