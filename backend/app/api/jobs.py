@@ -162,6 +162,7 @@ from app.services.job_previous_recruiters import (
     previous_recruiters_for_jobs,
     restore_team,
 )
+from app.services.job_p0 import p0_rank_expr
 from app.services.job_priority import (
     PRIORITY_LEVELS,
     attention_priority_rank_expr,
@@ -1543,6 +1544,7 @@ async def list_jobs(
             default_template_id=default_template_id_for_counts,
         )
         query = query.outerjoin(attention, attention.c.job_id == Job.id).order_by(
+            p0_rank_expr().asc(),
             # P1 („Pilne”) zawsze na górze (02.10.2026) — tak samo ustawia
             # kolejkę automat przydziału (`job_priority.priority_rank`). P1
             # z championem schodzi do reszty (D6, 15.10.2026).
@@ -1554,11 +1556,17 @@ async def list_jobs(
             Job.id.desc(),
         )
     elif sort == JobSort.oldest:
-        query = query.order_by(job_opened_effective_expr().asc(), Job.id.asc())
+        query = query.order_by(
+            p0_rank_expr().asc(), job_opened_effective_expr().asc(), Job.id.asc()
+        )
     elif sort == JobSort.deadline:
-        query = query.order_by(nulls_last(Job.deadline.asc()), Job.id.desc())
+        query = query.order_by(
+            p0_rank_expr().asc(), nulls_last(Job.deadline.asc()), Job.id.desc()
+        )
     else:  # JobSort.newest (default)
-        query = query.order_by(job_opened_effective_expr().desc(), Job.id.desc())
+        query = query.order_by(
+            p0_rank_expr().asc(), job_opened_effective_expr().desc(), Job.id.desc()
+        )
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     jobs = list(result.scalars().all())
 
@@ -2399,6 +2407,11 @@ async def get_job(
     payload["can_set_priority"] = pipeline_writer and await user_can_set_job_priority(
         db, current_user, job
     )
+    # 0525: P0 — kto ustawił (pasek w nagłówku) i czy ten użytkownik ustawia.
+    from app.services import job_p0  # noqa: PLC0415
+
+    payload["p0_set_by_name"] = await job_p0.set_by_name(db, job)
+    payload["can_set_p0"] = pipeline_writer and job_p0.can_set_p0(current_user)
     # 0341: status requestu — ta sama reguła co wiersz listy.
     from app.services.job_similarity import request_statuses  # noqa: PLC0415
 
@@ -3732,6 +3745,8 @@ async def apply_champion_import(
 
 class RequirementProposalDecision(BaseModel):
     profile_hash: str = Field(min_length=64, max_length=64)
+    # Odcisk propozycji z okna (``CleanupProposal.digest``); brak = stary front.
+    proposal_digest: Optional[str] = Field(None, min_length=64, max_length=64)
 
 
 @router.get("/{job_id}/requirement-proposal")
@@ -3755,7 +3770,11 @@ async def get_requirement_proposal(
 
 
 async def _locked_proposal(
-    db: AsyncSession, job_id: int, current_user: User, profile_hash: str
+    db: AsyncSession,
+    job_id: int,
+    current_user: User,
+    profile_hash: str,
+    proposal_digest: Optional[str] = None,
 ):
     from app.services import requirement_cleanup
 
@@ -3768,10 +3787,13 @@ async def _locked_proposal(
             "Propozycję zatwierdza Delivery Lead tej rekrutacji albo Head of "
             "Recruitment.",
         )
+    await requirement_cleanup.prepare_counts(db, [job])
     proposal = requirement_cleanup.build_proposal(job)
     if proposal is None:
         raise HTTPException(409, "Wymagania tej rekrutacji nie wymagają już poprawek.")
-    if proposal.profile_hash != profile_hash:
+    if proposal.profile_hash != profile_hash or (
+        proposal_digest is not None and proposal.digest != proposal_digest
+    ):
         raise HTTPException(
             409,
             {
@@ -3794,7 +3816,9 @@ async def apply_requirement_proposal(
     from app.services import requirement_cleanup
     from app.services.champion_intake import profile_hash, response_context
 
-    job, proposal = await _locked_proposal(db, job_id, current_user, body.profile_hash)
+    job, proposal = await _locked_proposal(
+        db, job_id, current_user, body.profile_hash, body.proposal_digest
+    )
     if not proposal.can_apply:
         raise HTTPException(
             422,
@@ -3839,7 +3863,9 @@ async def dismiss_requirement_proposal(
     """„Odrzuć” — propozycja nie wraca, dopóki profil się nie zmieni."""
     from app.services import requirement_cleanup
 
-    job, proposal = await _locked_proposal(db, job_id, current_user, body.profile_hash)
+    job, proposal = await _locked_proposal(
+        db, job_id, current_user, body.profile_hash, body.proposal_digest
+    )
     await requirement_cleanup.record_decision(
         db,
         job_id=job.id,

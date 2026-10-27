@@ -95,6 +95,16 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   rekrutera/sourcera/TAC/DL/HoR), `GET /api/request-board`; filtry po stronie
   przeglądarki (`lib/request-board.ts`, adres `rb_*`). Bez podpowiedzi systemu
   — Artur ich tu nie chce. Harness `/preview/request-allocation?screen=`.
+- **Filtry pulpitu przyjmują kilka wartości naraz** (27.10.2026, prośba Head
+  of Recruitment): Klient, Delivery Lead, Rekruter, Kategoria, Priorytet,
+  Termin i Wysłani to listy z checkboxami (`BoardMultiSelect`). W obrębie
+  filtra wystarczy dowolna zaznaczona pozycja, między filtrami muszą zgadzać
+  się wszystkie. W adresie powtórzony klucz (`rb_cat=1&rb_cat=2`), nie
+  przecinek — nazwa klienta może go mieć; stary link z jedną wartością działa.
+  „Wysłani” ma też własny przedział od–do (`rb_sent_from`, `rb_sent_to`):
+  liczy się razem z zaznaczonymi pozycjami i jak „0 / 1–2 / 3+” pomija
+  requesty z championem. Przyciski kategorii na daily znają jedną kategorię —
+  przy kilku zaznaczonych żaden nie świeci.
 - **Powiadomienia** o `review_time`: `request_assignment_changed` (poranny
   skrót tylko w trybie `auto`, jeden wpis na osobę; od 02.10.2026 także od
   razu po akceptacji propozycji) i `request_review_needed` do DL (nowe do

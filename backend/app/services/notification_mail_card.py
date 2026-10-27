@@ -157,6 +157,9 @@ SPECS: dict[str, _Spec] = {
     "candidate_claim_taken": _Spec(
         "Ktoś przejął Twoją osobę", chip="Zespół", label="Otwórz kandydata"
     ),
+    "job_p0_set": _Spec(
+        "Rekrutacja na P0 — ultrapilne", chip="P0", label="Otwórz rekrutację"
+    ),
     "request_assignment_changed": _Spec(
         "Nowa rekrutacja dla Ciebie", chip="Nowa rekrutacja", label="Otwórz rekrutację"
     ),
@@ -181,6 +184,17 @@ SPECS: dict[str, _Spec] = {
     # Nowe maile z PR 3 planu (26.10.2026); typy dochodzą tamtym PR-em.
     "client_job_opened": _Spec(
         "Nowa rekrutacja u Twojego klienta", label="Otwórz", use_title=True
+    ),
+    # Brakujące ogłoszenia (27.10.2026) — kartę składa `job_ad.reminders`;
+    # wpis tu to zapasowy opis, gdy tamta karta by nie powstała.
+    "job_ad_missing": _Spec("Wstaw ogłoszenia", label="Otwórz ogłoszenie"),
+    "job_ad_backlog": _Spec(
+        "Nadrób ogłoszenia", chip="Zaległe", label="Nadrabiaj po kolei"
+    ),
+    "job_ad_nudge": _Spec(
+        "Opublikuj na stronie kariery",
+        chip="Prośba od DL-a",
+        label="Opublikuj na stronie kariery",
     ),
     "hr_bonus_assigned": _Spec(
         "Masz nową premię", chip="Premia", label="Zobacz premię", use_title=True

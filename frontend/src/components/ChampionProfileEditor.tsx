@@ -104,6 +104,7 @@ import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionRevi
 import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
 import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
 import { RequirementRowsEditor } from "@/components/champion/RequirementRowsEditor";
+import { TalkSearchWordHints } from "@/components/champion/TalkSearchWordHints";
 import {
   CRITICAL_PEOPLE_MIN,
   criticalReachWarning,
@@ -113,9 +114,11 @@ import {
   rowsFromStored,
   rowsNeedingDecision,
   searchRows,
+  addTalkSearchRow,
   talkFromDescriptive,
   type RequirementRowForm,
   type TalkItem,
+  type TalkSearchWord,
 } from "@/lib/requirement-rows";
 import { addTalkItem, joinLanguage } from "@/lib/champion-experience";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
@@ -654,6 +657,23 @@ export function ChampionProfileEditor({
       },
       search: { ...d.search, requirements: searchRows(rows) },
     }));
+  // „To słowo do szukania?” (27.10.2026): technologia z listy do rozmowy
+  // dochodzi jako wiersz; pozycja z poziomem albo komentarzem zostaje na liście.
+  const addTalkSearchWord = (hint: TalkSearchWord) => {
+    if (!requirementRows) return;
+    setRequirementRows(addTalkSearchRow(requirementRows, hint));
+    if (hint.keepItem) return;
+    setDraft((d) => {
+      const experience = d.experience ?? EMPTY_CHAMPION_EXPERIENCE;
+      return {
+        ...d,
+        experience: {
+          ...experience,
+          skills: (experience.skills ?? []).filter((item) => item.name !== hint.item.name),
+        },
+      };
+    });
+  };
   /**
    * „Uprość do słów kluczowych”: stare pola (must, mile widziane, wiersze
    * wyszukiwania) zamienia serwer — technologie zostają wierszami, zdania
@@ -1520,6 +1540,17 @@ export function ChampionProfileEditor({
           onChange={(experience) => setDraft((d) => ({ ...d, experience }))}
           disabled={disabled}
           notesClassName={inputClass}
+          skillsFooter={
+            requirementRows != null ? (
+              <TalkSearchWordHints
+                items={draft.experience?.skills ?? []}
+                rows={requirementRows}
+                onAdd={addTalkSearchWord}
+                disabled={disabled}
+                enabled={Boolean(data)}
+              />
+            ) : null
+          }
         />
       </Section>
       ) : null}

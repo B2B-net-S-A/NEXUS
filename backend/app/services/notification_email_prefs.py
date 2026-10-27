@@ -57,8 +57,10 @@ from app.services.notification_delivery import (
     CATALOG,
     CLIENT_JOB_KIND,
     DIGEST_KIND,
+    JOB_AD_KIND,
     HR_BONUS_KIND,
     HR_MAIL_KIND,
+    JOB_P0_KIND,
     REQUIRED_KINDS,
     RESUMED_KEY,
     SECURITY_CATALOG,
@@ -89,6 +91,7 @@ BELL_TYPE_BY_KIND: dict[str, NotificationType] = {
     "hire_documents": NotificationType.hire_missing_contract,
     HR_BONUS_KIND: NotificationType.hr_bonus_assigned,
     CLIENT_JOB_KIND: NotificationType.client_job_opened,
+    JOB_AD_KIND: NotificationType.job_ad_missing,
 }
 
 
@@ -155,6 +158,14 @@ def _client_job_opened(user: User, _: _Context) -> bool:
     return user.has_any_role(
         UserRole.delivery_lead, UserRole.head_of_recruitment
     ) and user_may_receive_type(user, NotificationType.client_job_opened)
+
+
+def _job_ad_reminders(user: User, _: _Context) -> bool:
+    # Rekruter (strona kariery), Delivery Lead (portale i całość) i Head of
+    # Recruitment za rekrutację bez DL-a (`job_ad.reminders`).
+    return user.has_any_role(
+        UserRole.recruiter, UserRole.delivery_lead, UserRole.head_of_recruitment
+    ) and user_may_receive_type(user, NotificationType.job_ad_missing)
 
 
 def _signature_request(user: User, _: _Context) -> bool:
@@ -284,12 +295,14 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "cv_returned": _cv_returned,
     "request_assigned": _request_assigned,
     CLIENT_JOB_KIND: _client_job_opened,
+    JOB_AD_KIND: _job_ad_reminders,
     "signature_request": _signature_request,
     "system_failure": _system_failure,
     "data_access_alert": _data_access_alert,
     "client_interview": _candidate_bell(NotificationType.interview_slot_confirmed),
     "prep_change": _candidate_bell(NotificationType.prep_changed_yours),
     "client_accepted": _candidate_bell(NotificationType.client_accepted),
+    JOB_P0_KIND: _candidate_bell(NotificationType.job_p0_set),
     "pre_contract": _candidate_bell(NotificationType.pre_contract),
     "team_task": _candidate_bell(NotificationType.note_reply),
     "hire_documents": _hire_documents,

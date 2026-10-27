@@ -97,6 +97,7 @@ from app.services.b2b_documents import effects as document_effects
 from app.services.b2b_documents.contract_versions import version_for_variant
 from app.services.critical_events import audited_deletion
 from app.schemas.b2b_contract_generator import (
+    B2BReplaceableContract,
     B2BGeneratedEsign,
     B2B_CLOSING_STATUSES,
     B2BClosureReason,
@@ -176,7 +177,7 @@ from app.services.b2b_contract_generator.entity_type import (
     partner_display_lines,
     resolve_partner_entity_type,
 )
-from app.services.b2b_contract_generator import mandate, signed_file
+from app.services.b2b_contract_generator import admin_details, mandate, signed_file
 from app.services.hr import payroll_rates
 from app.services.b2b_esign import service as esign_service
 from app.services.b2b_esign import settings as esign_settings
@@ -2163,12 +2164,116 @@ async def agreement_prefill(
         db, candidate_id=candidate_id, job_id=job.id
     )
     await _assert_generator_client_access(db, current_user, job.client_id, write=True)
-    return await build_prefill(
+    prefill = await build_prefill(
         db,
         candidate=candidate,
         job=job,
         show_client_rate=user_can_view_client_rate(current_user),
     )
+    # Kafelek „Szczegóły administracyjne” (0524): odbiorcy premii i zastępstwo
+    # z tytułu. Tylko Generator — panel osoby czyta `build_prefill` bez tego.
+    prefill["admin"] = await admin_details.admin_defaults(
+        db, candidate_id=candidate.id, job=job
+    )
+    return prefill
+
+
+@router.get("/replacement-options", response_model=list[B2BReplaceableContract])
+async def replacement_options(
+    current_user: B2BGeneratorAccess,
+    client_id: int | None = Query(None, ge=1, le=2_147_483_647),
+    q: str | None = Query(None, max_length=80, pattern=r"^[^\x00]*$"),
+    contract_id: int | None = Query(None, ge=1, le=2_147_483_647),
+    exclude_candidate_id: int | None = Query(None, ge=1, le=2_147_483_647),
+    db: AsyncSession = Depends(get_db),
+):
+    """Kontraktorzy do „Replacement za kogo” w kafelku Generatora.
+
+    ``client_id`` — kontraktorzy klienta z rekrutacji (najpierw ci, którzy
+    odeszli); bez niego wyszukiwanie w całym NEXUSIE wymaga frazy (min. 2
+    znaki); ``contract_id`` — jeden wpis do odtworzenia wyboru przy „Popraw”.
+    Bez kwot — kafelek widzą role bez dostępu do stawek. Bramka jak przy
+    generowaniu (poziom generowania; klient — odczyt jak w rejestrze).
+    """
+    _require_contract_generation(current_user)
+    phrase = (q or "").strip()
+    if client_id is None and contract_id is None and len(phrase) < 2:
+        raise HTTPException(
+            status_code=422,
+            detail="Wpisz co najmniej 2 litery nazwiska albo wybierz klienta.",
+        )
+    if client_id is not None:
+        await _assert_generator_client_access(db, current_user, client_id)
+    items = await admin_details.replaceable_contracts(
+        db,
+        client_id=client_id,
+        query=phrase or None,
+        contract_ids=[contract_id] if contract_id is not None else None,
+        exclude_candidate_id=exclude_candidate_id,
+        limit=100 if client_id is not None else 20,
+    )
+    return [admin_details.replaceable_payload(item) for item in items]
+
+
+async def _stamp_admin_details(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    payload: "B2BRenderRequest | B2BMandateRenderRequest",
+    *,
+    linked_job: Job | None,
+) -> admin_details.PlacementPerson | None:
+    """Replacement i FTE do wiersza + osoba prowadząca jako adresat przypomnień.
+
+    Obowiązkowe przy umowie z rekrutacją (422 przed zapisem wiersza).
+    Zwraca prowadzącego, żeby po zapisie dać mu dzwonek."""
+    await admin_details.apply_admin_details(
+        db,
+        row,
+        is_replacement=payload.is_replacement,
+        replaced_contract_id=payload.replaced_contract_id,
+        fte=payload.fte,
+        candidate_id=payload.candidate_id,
+        linked=linked_job is not None,
+    )
+    if linked_job is None or payload.candidate_id is None:
+        return None
+    people = await admin_details.placement_people(
+        db, candidate_id=payload.candidate_id, job=linked_job
+    )
+    if people.recruiter is not None:
+        row.recruiter_user_id = people.recruiter.user_id
+    return people.recruiter
+
+
+async def _notify_owner_after_render(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    owner: admin_details.PlacementPerson | None,
+    *,
+    actor: User,
+    linked_job: Job | None,
+) -> None:
+    """Dzwonek do prowadzącego po zapisie umowy — awaria nie zabiera pliku.
+
+    Wiersz jest już zapisany; wycofanie nieudanego dzwonka wygasza obiekty
+    sesji, więc id bierzemy wcześniej, a wiersz odświeżamy dla odpowiedzi."""
+    if linked_job is None or owner is None or owner.user_id == actor.id:
+        return
+    row_id = row.id
+    try:
+        if await admin_details.notify_pair_owner(
+            db,
+            row,
+            owner=owner,
+            actor=actor,
+            job=linked_job,
+            person_name=row.partner_name or "kandydat",
+        ):
+            await db.commit()
+    except Exception:  # noqa: BLE001 — dzwonek jest poboczny wobec dokumentu
+        await db.rollback()
+        logger.warning("b2b render: owner notification skipped row=%s", row_id)
+        await db.refresh(row)
 
 
 # ── Auto-uzupełnianie danych firmy z rejestru (NIP / KRS) ────────────────────
@@ -2412,6 +2517,7 @@ async def render_standalone(
             _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(override_key, override_ops),
         },
     )
+    owner = await _stamp_admin_details(db, created, payload, linked_job=linked_job)
     db.add(created)
     try:
         await db.commit()
@@ -2436,6 +2542,9 @@ async def render_standalone(
             f"Numer umowy „{number}” został właśnie użyty przez kogoś innego "
             f"— wybierz inny. Następny wolny: {fresh}/{row_year}."
         )
+    await _notify_owner_after_render(
+        db, created, owner, actor=current_user, linked_job=linked_job
+    )
     await _stamp_candidate_contact_on_contract(db, payload)
     return _docx_response(
         data, number, generated_id=created.id, person_name=created.partner_name
@@ -2503,6 +2612,7 @@ async def render_mandate_contract(
         contract_kind=mandate.MANDATE_KIND,
         render_payload=mandate.stored_payload(payload),
     )
+    owner = await _stamp_admin_details(db, created, payload, linked_job=linked_job)
     db.add(created)
     try:
         await db.commit()
@@ -2517,6 +2627,9 @@ async def render_mandate_contract(
                 "ponownie."
             ),
         ) from exc
+    await _notify_owner_after_render(
+        db, created, owner, actor=current_user, linked_job=linked_job
+    )
     await _stamp_candidate_contact_on_contract(db, payload)
     return _docx_response(
         data,
@@ -3580,7 +3693,18 @@ async def generated_contract_form(
         if key != _CLAUSE_SNAPSHOT_FIELD
     }
     form["contract_number"] = row.contract_number
-    return {"id": row.id, "contract_number": row.contract_number, "form": form}
+    replaced = None
+    if row.replaced_contract_id is not None:
+        found = await admin_details.replaceable_contracts(
+            db, contract_ids=[row.replaced_contract_id], limit=1
+        )
+        replaced = admin_details.replaceable_payload(found[0]) if found else None
+    return {
+        "id": row.id,
+        "contract_number": row.contract_number,
+        "form": form,
+        "replaced": replaced,
+    }
 
 
 @router.post("/generated/{generated_id}/rerender")
@@ -3631,6 +3755,15 @@ async def rerender_generated_contract(
     row.partner_entity_type = resolve_partner_entity_type(
         stored=_stored_entity_type(payload),
         legal_name=payload.partner_legal_name,
+    )
+    await admin_details.apply_admin_details(
+        db,
+        row,
+        is_replacement=payload.is_replacement,
+        replaced_contract_id=payload.replaced_contract_id,
+        fte=payload.fte,
+        candidate_id=row.candidate_id,
+        linked=row.job_id is not None,
     )
     row.render_payload = {
         **payload.model_dump(mode="json"),
@@ -4126,6 +4259,10 @@ async def confirm_generated_contract_fully_signed(
         row.job_id = job.id
         row.client_id = job.client_id
         row.contract_id = result.contract.id
+        # Replacement i FTE przechodzą do kontraktu fill-only (0524).
+        admin_details_filled = admin_details.copy_admin_details_to_contract(
+            result.contract, row
+        )
         row.signed_at = datetime.now(timezone.utc)
         row.signed_on = signed_on
         row.signed_by_user_id = current_user.id
@@ -4168,6 +4305,7 @@ async def confirm_generated_contract_fully_signed(
                     "acknowledged_conflicts": list(result.acknowledged_conflicts),
                     "order_skipped_reason": result.order_skipped_reason,
                     "contract_activated": contract_activated,
+                    "admin_details_filled": admin_details_filled,
                 },
             )
         )

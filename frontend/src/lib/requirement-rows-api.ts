@@ -11,11 +11,13 @@ import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-que
 import {
   requiredRows,
   rowCriticalInfo,
+  type PhraseReading,
   type RequirementRowForm,
   type RowCriticalResponse,
   type RowCriticalState,
   type StoredRequirementRow,
 } from "@/lib/requirement-rows";
+import { keywordLongEnough } from "@/lib/keyword-requirements";
 import { DEFAULT_FILTERS, filtersToApiParams } from "@/lib/url-filters";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 
@@ -60,6 +62,43 @@ export function useRowCriticalInfo(
     isError: current && query.isError,
     retry: () => void query.refetch(),
   };
+}
+
+/** Najwięcej wierszy w jednym żądaniu `critical-suggestion` (limit serwera). */
+const READ_ROWS_MAX = 30;
+
+/**
+ * Jak serwer czyta pozycje listy „Rekruter sprawdza w rozmowie” — ten sam
+ * odczyt co słowa wierszy (`readings`), każdy tekst jako jednowyrazowy wiersz.
+ * `null` = jeszcze nie wiadomo (albo zapytanie padło) — wtedy bez podpowiedzi.
+ */
+export function useTalkItemReadings(
+  texts: readonly string[],
+  { enabled = true, debounceMs = 400 }: { enabled?: boolean; debounceMs?: number } = {},
+): Record<string, PhraseReading> | null {
+  const key = JSON.stringify(texts.slice(0, READ_ROWS_MAX));
+  const settled = useDebouncedValue(key, debounceMs);
+  const settledTexts = JSON.parse(settled) as string[];
+  const query = useQuery({
+    queryKey: ["talk-item-readings", settledTexts],
+    enabled: enabled && settledTexts.length > 0,
+    staleTime: 5 * 60_000,
+    queryFn: ({ signal }) =>
+      api
+        .post<RowCriticalResponse>(
+          "/api/job-intake/critical-suggestion",
+          { rows: settledTexts.map((text) => [text]) },
+          { signal },
+        )
+        .then((r) => r.data),
+  });
+  if (settled !== key || !query.data) return null;
+  const out: Record<string, PhraseReading> = {};
+  settledTexts.forEach((text, index) => {
+    const reading = query.data.readings?.[index]?.[0];
+    if (reading) out[text] = reading;
+  });
+  return out;
 }
 
 /** Ile osób (aktywni i pasywni) ma słowo z KAŻDEGO z wierszy — jak „Szukaj ręcznie”. */
@@ -123,11 +162,17 @@ export function useRowCounts(
 ): RowCounts {
   const snapshot = useDebouncedValue(
     JSON.stringify({
-      rows: requiredRows(rows).map((row) => ({
-        key: row.key,
-        words: row.words,
-        critical: row.level === "critical",
-      })),
+      // Słowo krótsze niż 2 znaki („C”) lista kandydatów odrzuca (422), więc
+      // taki wiersz nie ma liczby i nie wchodzi do „naraz” — jak „Szukaj
+      // w bazie” (`jobListFilters`). Do 27.10.2026 jeden wiersz „C” dawał
+      // „nie policzono” dla całej listy.
+      rows: requiredRows(rows)
+        .filter((row) => row.words.every(keywordLongEnough))
+        .map((row) => ({
+          key: row.key,
+          words: row.words,
+          critical: row.level === "critical",
+        })),
       exclude,
     }),
     600,
@@ -160,6 +205,9 @@ export function useRowCounts(
     queryFn: ({ signal }) => countPeople(criticalWords, settled.exclude, signal),
   });
   const perRow: Record<string, number | null> = {};
+  for (const row of requiredRows(rows)) {
+    if (!row.words.every(keywordLongEnough)) perRow[row.key] = null;
+  }
   settled.rows.forEach((row, index) => {
     const query = perRowQueries[index];
     if (query?.isSuccess) perRow[row.key] = query.data;

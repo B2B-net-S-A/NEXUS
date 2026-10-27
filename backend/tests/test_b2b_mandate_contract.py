@@ -280,6 +280,9 @@ def _body(pair: dict[str, int], **overrides) -> dict:
         "home_address": "ul. Fikcyjna 1, 00-001 Warszawa",
         "id_document": "ABC123456",
         "with_dpa": True,
+        # Szczegóły administracyjne (0524) — obowiązkowe przy umowie z rekrutacją.
+        "is_replacement": False,
+        "fte": "1",
     }
     body.update(overrides)
     return body

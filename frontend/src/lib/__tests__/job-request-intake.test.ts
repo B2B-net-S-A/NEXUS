@@ -1084,6 +1084,19 @@ describe("v2 — cały profil Championa z propozycji Luny", () => {
     });
   });
 
+  it("fraza klienta bez ludzi w bazie trafia do „Rekruter sprawdza w rozmowie” i do zapisu", () => {
+    const form = formFromIntake({
+      ...V2,
+      experience: { ...V2.experience, skills: [{ name: "Crisis plans", level: "must" }] },
+    });
+    expect(form.experience.skills).toEqual([
+      { name: "Crisis plans", level: "must", min_years: null, note: "" },
+    ]);
+    const champion = buildChampionPayload(form) as Record<string, any>;
+    expect(champion.experience.skills[0].name).toBe("Crisis plans");
+    expect(formFromIntake(V2).experience.skills).toEqual([]);
+  });
+
   it("starszy odczyt podawał źródło osobno dla must i wierszy wyszukiwania — zostaje pierwsze", () => {
     const form = formFromIntake({
       ...LEGACY_INTAKE,

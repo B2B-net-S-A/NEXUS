@@ -125,6 +125,7 @@ import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
 import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoicingTab";
 import { useInvoicingModule } from "@/lib/api/client-invoicing";
 
+import { formatPhone } from "@/lib/phone-format";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ClientKnowledge {
@@ -939,7 +940,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                           href={`tel:${contact.phone}`}
                           className="hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
                         >
-                          {contact.phone}
+                          {formatPhone(contact.phone)}
                         </a>
                       ) : (
                         <span className={CALM_EMPTY}>—</span>

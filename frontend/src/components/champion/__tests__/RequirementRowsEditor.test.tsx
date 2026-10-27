@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -685,11 +685,69 @@ describe("RequirementRowsEditor — audyt 06.10.2026", () => {
     expect(
       screen.getByText("Słowo bardzo ogólne — zawęź (np. dodaj technologię)."),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("Nikt w bazie nie ma tego słowa — sprawdź pisownię."),
-    ).toBeInTheDocument();
+    // Zero osób to nie literówka, tylko słowo, którym ludzie tego nie opisują (27.10.2026).
+    expect(screen.getByTestId("requirement-row-rare")).toHaveTextContent(
+      "„Kafka lub RabbitMQ” — nikt w bazie.",
+    );
     // Jedna podpowiedź na wiersz z problemem — „płatności” (120) jej nie ma.
-    expect(screen.getAllByText(/Słowo bardzo ogólne|Nikt w bazie nie ma/)).toHaveLength(2);
+    expect(screen.getAllByText(/Słowo bardzo ogólne|nikt w bazie/)).toHaveLength(2);
+  });
+
+  it("rzadkie „musi mieć”: do rozmowy, zostaw, a przy zerze razem — które zawężają", () => {
+    mocks.counts = {
+      perRow: { java: 9_000, kafka: 7, pay: 0 },
+      required: 0,
+      critical: undefined,
+      failed: false,
+    };
+    const onMoveToTalk = vi.fn();
+    const { onRowsChange } = renderEditor({ countEnabled: true, onMoveToTalk });
+    expect(screen.getByTestId("requirement-rows-narrowest")).toHaveTextContent(
+      "Najbardziej zawężają: „płatności” (0), „Kafka” (7).",
+    );
+    const [kafkaNote] = screen
+      .getAllByTestId("requirement-row-rare")
+      .filter((note) => note.textContent?.includes("Kafka"));
+    expect(kafkaNote).toHaveTextContent("tylko 7 osób w bazie");
+    fireEvent.click(within(kafkaNote).getByRole("button", { name: "Do rozmowy" }));
+    expect(onMoveToTalk).toHaveBeenCalledWith({
+      name: "Kafka / RabbitMQ",
+      kind: "skills",
+      level: "must",
+    });
+    expect(
+      (onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[]).map((row) => row.key),
+    ).not.toContain("kafka");
+    const payNote = screen
+      .getAllByTestId("requirement-row-rare")
+      .find((note) => note.textContent?.includes("płatności"))!;
+    fireEvent.click(within(payNote).getByRole("button", { name: "Zostaw" }));
+    expect(
+      screen.getAllByTestId("requirement-row-rare").some((n) => n.textContent?.includes("płatności")),
+    ).toBe(false);
+  });
+
+  it("licznik nie wysyła słowa krótszego niż 2 znaki (lista kandydatów odpowiada 422)", async () => {
+    // 789124 (27.10.2026): wiersz „C” dawał „—”, a „wszystkie naraz” — „nie policzono”.
+    mocks.get.mockResolvedValue({ data: { total: 42 } });
+    renderEditor({
+      countEnabled: true,
+      rows: [
+        { key: "c", words: ["C"], level: "must" },
+        { key: "cpp", words: ["C++"], level: "must" },
+      ],
+    });
+    await waitFor(
+      () => expect(screen.getByText(/Wszystkie „musi mieć” naraz/)).toHaveTextContent("~42"),
+      { timeout: 3000 },
+    );
+    const sent = mocks.get.mock.calls
+      .filter(([url]) => url === "/api/candidates")
+      .flatMap(([, config]) => (config as { params: { q_any_group?: string[] } }).params.q_any_group ?? []);
+    expect(sent).toContain("C++");
+    expect(sent).not.toContain("C");
+    // Wiersz „C” nie czeka w nieskończoność na „liczę…”.
+    expect(screen.getByLabelText("Osób w bazie ze słowem C")).toHaveTextContent("—");
   });
 
   it("jednoliterowe słowo z litery („C”) wchodzi do wiersza; cyfra nie", () => {

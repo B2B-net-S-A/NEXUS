@@ -55,6 +55,9 @@ vi.mock("@/components/v2/pages/candidate-list-query", () => ({
 // i o liczbę osób — w teście odpowiada atrapa (ma osobne testy).
 const legacyRowsMock = vi.fn();
 vi.mock("@/lib/requirement-rows-api", () => ({
+  // Podpowiedź „To słowo do szukania?” ma własny test (TalkSearchWordHints).
+  useTalkItemReadings: () => null,
+  useWordCounts: () => ({}),
   useRowCriticalInfo: (rows: { key: string; words: string[]; level: string }[]) => ({
     info: Object.fromEntries(
       rows

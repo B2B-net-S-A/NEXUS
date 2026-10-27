@@ -253,7 +253,35 @@ class B2BContractDetailResponse(BaseModel):
     scope_items_override: Optional[list[str]] = None
 
 
-class B2BRenderRequest(BaseModel):
+_FTE_VALUES = (Decimal("1"), Decimal("0.75"), Decimal("0.5"), Decimal("0.25"))
+
+
+class AgreementAdminDetails(BaseModel):
+    """„Szczegóły administracyjne” umowy (0524, decyzje Artura 26.10.2026).
+
+    Wpisuje się replacement i wymiar FTE; rekrutera i DL-a NIE — to odbiorcy
+    premii z reguły automatu (``admin_details.placement_people``). Opcjonalne
+    w schemacie, bo ``render_payload`` sprzed 0524 odtwarza się przy każdym
+    ponownym pobraniu DOCX; obowiązkowość przy umowie z rekrutacją sprawdza
+    handler (``admin_details.apply_admin_details``).
+    """
+
+    is_replacement: Optional[bool] = None
+    replaced_contract_id: Optional[int] = Field(None, ge=1, le=2_147_483_647)
+    fte: Optional[Decimal] = None
+
+    @field_validator("fte")
+    @classmethod
+    def _known_fte(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is None:
+            return None
+        for known in _FTE_VALUES:
+            if v == known:
+                return known
+        raise ValueError("Wymiar FTE: 1, 0,75, 0,5 albo 0,25.")
+
+
+class B2BRenderRequest(AgreementAdminDetails):
     """Standalone render — wszystkie pola wprost z formularza (bez `Contract`)."""
 
     # Source entity links are optional for truly standalone documents, but when
@@ -376,7 +404,7 @@ class B2BRenderRequest(BaseModel):
         return self
 
 
-class B2BMandateRenderRequest(BaseModel):
+class B2BMandateRenderRequest(AgreementAdminDetails):
     """Umowa zlecenia z generatora (26.10.2026) — formularz bez firmy Partnera.
 
     ``home_address``, ``id_document`` i ``pesel`` trafiają WYŁĄCZNIE do pliku:
@@ -481,6 +509,43 @@ class B2BPrefillExisting(BaseModel):
     signature_status: str
 
 
+class B2BPlacementPerson(BaseModel):
+    """Odbiorca premii z placementu — pokazany w kafelku, nie wybierany."""
+
+    user_id: int
+    name: str
+    # pair_owner | verifier (rekruter); job | job_lead | client_head |
+    # client_assignment (DL) — jak ``placement_bonuses``.
+    source: str
+    source_label: str
+
+
+class B2BReplaceableContract(BaseModel):
+    """Kontraktor do „Replacement za kogo” — bez kwot."""
+
+    contract_id: int
+    candidate_id: Optional[int] = None
+    client_id: Optional[int] = None
+    name: str
+    client_name: Optional[str] = None
+    job_title: Optional[str] = None
+    status: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+
+class B2BAgreementAdminDefaults(BaseModel):
+    # Klient rekrutacji — lista „Replacement za kogo” zaczyna od jego ludzi.
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    recruiter: Optional[B2BPlacementPerson] = None
+    delivery_lead: Optional[B2BPlacementPerson] = None
+    # Tytuł rekrutacji mówi o zastępstwie; ``replaced`` tylko przy jednym
+    # pasującym kontraktorze u klienta.
+    replacement_from_title: bool = False
+    replaced: Optional[B2BReplaceableContract] = None
+
+
 class B2BAgreementPrefillResponse(BaseModel):
     """Podpowiedzi formularza umowy z rekrutacji (panel osoby i Generator)."""
 
@@ -493,6 +558,7 @@ class B2BAgreementPrefillResponse(BaseModel):
     client_rate_redacted: bool = False
     recruitment_rate: Optional[B2BPrefillRecruitmentRate] = None
     existing: Optional[B2BPrefillExisting] = None
+    admin: Optional[B2BAgreementAdminDefaults] = None
 
 
 class B2BCompanyRepresentative(BaseModel):

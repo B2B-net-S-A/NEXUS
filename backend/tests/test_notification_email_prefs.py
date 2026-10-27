@@ -287,6 +287,7 @@ def test_bell_types_behind_emails_sit_in_mutable_categories():
         "hire_documents": NotificationCategory.contracts,
         "hr_bonus": NotificationCategory.people,
         "client_job_opened": NotificationCategory.reminders,
+        "job_ad_reminders": NotificationCategory.reminders,
     }
     for kind, bell_type in prefs.BELL_TYPE_BY_KIND.items():
         assert bell_type in types_in(expected[kind])

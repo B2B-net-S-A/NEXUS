@@ -75,6 +75,18 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   `SIGNED_COPY_DAYS` = 30 dni tylko do pobrania kopii
   (`GET /api/public/b2b-sign/{token}/signed-pdf`, widok ma
   `signed_pdf_until`); potem pętla kasuje skrót tokenu.
+- **Jeden wzór wszystkich maili obiegu** (uwaga Klaudii 27.10.2026, Artur
+  wybrał wariant „przycisk i kroki”): treści buduje tylko `mail.py`
+  (`contractor_sign_message`, `contractor_reminder_message`,
+  `company_signer_message`, `contractor_copy_message`). Bez „Pozdrawiamy,
+  B2B Network”, bo pod treścią NEXUS dokleja stopkę Outlooka nadawcy z jej
+  własnym „Pozdrawiam”, i wtedy wychodziły dwa pożegnania. Powitanie
+  „Dzień dobry,” bez imienia, bo imienia nie odmieniamy, a do reprezentanta
+  „Cześć,”. Bez „podpisał(a)”: zdanie zaczyna się od umowy. Akcja to
+  przycisk z tabeli, a termin stoi pod nim. `send_from` wysyła ze
+  `styled_body=True`, więc treść idzie przez `sanitize_signature_html`
+  (style z listy), a nie przez `sanitize_html`, który wycina style. Bez
+  tego treść szła domyślną czcionką, a stopka swoją.
 - **Terminy w oknie wysyłki: 1, 3, 5, 7 dni, domyślnie 3** (prośba Sandry,
   decyzja Artura 26.10.2026). API przyjmuje 1–30 dni, ale okno pokazuje tylko
   te cztery — przy dawnym „co 3 dni” termin 1 albo 3 dni nie dawał żadnego

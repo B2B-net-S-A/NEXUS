@@ -43,6 +43,7 @@ import {
 import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
+import { formatPhone } from "@/lib/phone-format";
 const INPUT =
   "h-9 rounded-md border border-border bg-card px-2 text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -361,7 +362,7 @@ export function PickInterviewDialog({
             </div>
             {pair.candidate_phone ? (
               <a href={`tel:${pair.candidate_phone}`} className="text-xs font-semibold text-primary hover:underline">
-                {pair.candidate_phone}
+                {formatPhone(pair.candidate_phone)}
               </a>
             ) : null}
           </div>

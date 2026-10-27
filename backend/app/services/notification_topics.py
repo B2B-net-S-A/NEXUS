@@ -80,7 +80,12 @@ _JOBS = (
     _T.recruitment_allocation_alert,
     _T.request_review_needed,
     _T.client_job_opened,
+    _T.job_p0_set,
     _T.request_allocation_proposals,
+    # 0526: brakujące ogłoszenia (codzienne, bez dymka).
+    _T.job_ad_missing,
+    _T.job_ad_backlog,
+    _T.job_ad_nudge,
     # Osoby od automatu do tej rekrutacji
     _T.auto_match,
     _T.auto_match_proposals,
@@ -104,6 +109,8 @@ _CONTRACTS = (
     _T.signature_failed,
     # Prośba do DL o „Oznacz jako podpisaną” (droga mailowa).
     _T.b2b_signature_requested,
+    # Umowę Twojej osoby wygenerował ktoś inny — wyślij ją i pilnuj podpisu.
+    _T.b2b_agreement_ready,
 )
 
 
@@ -156,6 +163,7 @@ _JOBS_TOAST = (
     _T.candidate_claim_taken,
     _T.request_review_needed,
     _T.client_job_opened,
+    _T.job_p0_set,
     _T.request_allocation_proposals,
     _T.care_front_office_handoff,
 )

@@ -4,7 +4,7 @@
     "title": "Lista rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu widzisz rekrutacje — swoje, z Twojej kategorii albo całej firmy: stan requestu, priorytet (P1 = pilne), etapy kandydatów, Rekrutera (kto nad nią pracuje) i gdzie wisi ogłoszenie. Pod nazwą stoi kategoria, klient i tryb pracy.",
+    "what": "Tu widzisz rekrutacje — swoje, z Twojej kategorii albo całej firmy: stan, priorytet (P0 — ultrapilne, na górze; P1 — pilne), etapy kandydatów, Rekrutera i ogłoszenia. Pod nazwą stoi kategoria, klient i tryb pracy.",
     "tasks": [
       {
         "q": "Jak przełączyć między moimi, otwartymi i wszystkimi rekrutacjami?",
@@ -636,7 +636,7 @@
     "tasks": [
       {
         "q": "Jak wygenerować umowę?",
-        "a": "W „Generatorze” wybierz „B2B” albo „Zlecenie”. B2B: „Umowa JDG” albo „Umowa spółka”, kandydat i rekrutacja (stawka i start podpowiedzą się same), „Podgląd”, „Pobierz DOCX”; dane firmy przyjdą z CEIDG/KRS, ostrzeżenia nie blokują umowy. Zlecenie: osoba, okres, stawka brutto za godzinę, czynności i DPA — wpis bez numeru, PESEL i dowód tylko w pliku.",
+        "a": "W „Generatorze” wybierz „B2B” albo „Zlecenie”, kandydata i rekrutację (stawka i start podpowiedzą się). W „Szczegółach administracyjnych” zaznacz replacement i FTE — rekruter i DL z premią wynikają z rekrutacji. B2B: „Umowa JDG” albo „Umowa spółka”, „Podgląd”, „Pobierz DOCX”; dane firmy przyjdą z CEIDG/KRS. Zlecenie: PESEL i dowód tylko w pliku.",
         "anchor": "contracts.b2b_generator.docx"
       },
       {

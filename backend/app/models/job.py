@@ -148,6 +148,21 @@ class Job(Base, TimestampMixin):
         Enum(JobPriority), default=JobPriority.medium, nullable=False
     )
 
+    # 0525: P0 — ultrapilne przez 24 h (decyzje Artura 27.10.2026). Nakładka
+    # z terminem nad `priority`: obowiązuje, dopóki `p0_until` jest w
+    # przyszłości, potem przestaje bez zmiany priorytetu. Ustawia Head of
+    # Recruitment albo admin (`services/job_p0.py`).
+    p0_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    p0_reason: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    p0_set_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    p0_set_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     # 0341: Delivery Lead oznacza „Mamy championa" — kandydat jest, dalej nie
     # szukamy. Do tej chwili status requestu na liście to „Szukamy".
     champion_found_at: Mapped[Optional[datetime]] = mapped_column(

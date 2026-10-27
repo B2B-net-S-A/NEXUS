@@ -257,6 +257,14 @@ class Contract(Base, TimestampMixin):
     returned_from_contract_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Szczegóły administracyjne (0524): umowa z Generatora jako replacement
+    # za kontrakt osoby zastąpionej i wymiar FTE (1/0,75/0,5/0,25). Podpis
+    # kopiuje je z wiersza umowy fill-only — zmiana w kontrakcie wygrywa.
+    is_replacement: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    replaced_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    fte: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2), nullable=True)
     # Rozwiązanie UMOWY B2B (0367) — osobne od końca projektu. Projekt kończy
     # się `terminated_at`/`end_date` i to on rządzi statusem kontraktu; umowa
     # może obowiązywać dłużej (okres wypowiedzenia). Komplet albo nic

@@ -41,6 +41,9 @@ export const REAL_PEOPLE_DIGESTS: ReadonlySet<string> = new Set([
   "e94377b8986faa54", "e9473e62ee12993e", "f24761c59db45b25", "fbfb45eea394478a",
   // Delivery Lead z testu listy rekrutacji (14.10.2026).
   "0b52a7c4fc7a6ede", "8adf95bd406bbcac",
+  // Makiety „Szczegółów administracyjnych” na stagingu (26.10.2026) — pełne
+  // imiona i nazwiska, bo same nazwiska są pospolite.
+  "0c553569a5f63b0e", "9b0e7f611a6e171b",
 ]);
 
 /**

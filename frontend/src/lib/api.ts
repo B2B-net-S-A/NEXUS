@@ -3467,7 +3467,56 @@ export interface B2BCompanyRepresentative {
  * `home_address`, `id_document` i `pesel` idą tylko do pliku; serwer ich nie
  * zapisuje (puste = kropki do wpisania ręcznie).
  */
-export interface B2BMandatePayload {
+/** Wymiar etatu w „Szczegółach administracyjnych” (0524). */
+export type AgreementFte = "1" | "0.75" | "0.5" | "0.25";
+
+/**
+ * „Szczegóły administracyjne” umowy (0524, 26.10.2026): wpisuje się
+ * replacement i FTE. Rekruter i DL to odbiorcy premii z reguły automatu
+ * (`B2BAgreementAdminDefaults`) — nie idą w żądaniu. Przy umowie z rekrutacją
+ * serwer wymaga obu pól (422).
+ */
+export interface AgreementAdminFields {
+  is_replacement?: boolean | null;
+  replaced_contract_id?: number | null;
+  fte?: AgreementFte | null;
+}
+
+/** Kontraktor do „Replacement za kogo” — bez kwot. */
+export interface B2BReplaceableContract {
+  contract_id: number;
+  candidate_id: number | null;
+  client_id: number | null;
+  name: string;
+  client_name: string | null;
+  job_title: string | null;
+  status: "active" | "ending" | "ended" | string;
+  start_date: string | null;
+  end_date: string | null;
+}
+
+/** Odbiorca premii z placementu — pokazany w kafelku, nie wybierany. */
+export interface B2BPlacementPerson {
+  user_id: number;
+  name: string;
+  /** pair_owner | verifier (rekruter); job | job_lead | client_head | client_assignment (DL). */
+  source: string;
+  source_label: string;
+}
+
+export interface B2BAgreementAdminDefaults {
+  /** Klient rekrutacji — „Replacement za kogo” zaczyna od jego kontraktorów. */
+  client_id: number | null;
+  client_name: string | null;
+  recruiter: B2BPlacementPerson | null;
+  delivery_lead: B2BPlacementPerson | null;
+  /** Tytuł rekrutacji mówi o zastępstwie. */
+  replacement_from_title: boolean;
+  /** Jedyny pasujący kontraktor u klienta — inaczej null. */
+  replaced: B2BReplaceableContract | null;
+}
+
+export interface B2BMandatePayload extends AgreementAdminFields {
   candidate_id: number | null;
   job_id: number | null;
   client_name: string | null;
@@ -3488,7 +3537,7 @@ export interface B2BMandatePayload {
   dpa_purpose: string | null;
 }
 
-export interface B2BRenderPayload {
+export interface B2BRenderPayload extends AgreementAdminFields {
   candidate_id?: number | null;
   job_id?: number | null;
   role_id?: number | null;
@@ -3619,9 +3668,13 @@ export const b2bGeneratorApi = {
    */
   generatedForm: (id: number) =>
     api
-      .get<{ id: number; contract_number: string; form: B2BRenderPayload }>(
-        `/api/b2b-generator/generated/${id}/form`,
-      )
+      .get<{
+        id: number;
+        contract_number: string;
+        form: B2BRenderPayload;
+        /** Osoba z „Replacement za kogo” — do odtworzenia wyboru (0524). */
+        replaced?: B2BReplaceableContract | null;
+      }>(`/api/b2b-generator/generated/${id}/form`)
       .then((r) => r.data),
   rerenderGenerated: (id: number, body: B2BRenderPayload) =>
     api.post(`/api/b2b-generator/generated/${id}/rerender`, body, {
@@ -3766,6 +3819,24 @@ export const b2bGeneratorApi = {
       )
       .then((r) => r.data);
   },
+  /**
+   * „Replacement za kogo” (0524): kontraktorzy klienta (najpierw ci, którzy
+   * odeszli) albo — bez klienta — cały NEXUS po frazie (min. 2 znaki).
+   */
+  replacementOptions: (params: {
+    clientId?: number | null;
+    q?: string;
+    excludeCandidateId?: number | null;
+  }) =>
+    api
+      .get<B2BReplaceableContract[]>("/api/b2b-generator/replacement-options", {
+        params: {
+          client_id: params.clientId ?? undefined,
+          q: params.q || undefined,
+          exclude_candidate_id: params.excludeCandidateId ?? undefined,
+        },
+      })
+      .then((r) => r.data),
   /** Podpowiedzi formularza umowy z rekrutacji (panel osoby i Generator). */
   prefill: (candidateId: number, jobId: number) =>
     api
@@ -3916,6 +3987,8 @@ export interface B2BAgreementPrefill {
     contract_status: B2BContractStatus;
     signature_status: B2BSignatureStatus;
   } | null;
+  /** Kafelek „Szczegóły administracyjne” (0524) — tylko odpowiedź Generatora. */
+  admin?: B2BAgreementAdminDefaults | null;
 }
 
 export interface B2BSignatureRequestResult {

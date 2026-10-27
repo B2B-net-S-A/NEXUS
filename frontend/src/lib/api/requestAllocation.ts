@@ -45,6 +45,10 @@ export interface BoardRequest {
   people: BoardPerson[]
   delivery_lead?: { id: number; name: string } | null
   priority_level?: PriorityLevel
+  /** P0 — ultrapilne przez 24 h (27.10.2026); termin i powód widzą wszyscy. */
+  is_p0?: boolean
+  p0_until?: string | null
+  p0_reason?: string | null
   /** Data otwarcia requestu (ISO): `opened_at`, a bez niej data dodania. */
   opened_effective_at?: string | null
 }

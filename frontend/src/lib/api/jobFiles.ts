@@ -22,14 +22,18 @@ export interface JobFileItem {
   uploaded_by: number | null;
   uploaded_by_name: string | null;
   created_at: string;
-  /** 0521: wzór formularza CV klienta (najwyżej jeden na rekrutację). */
+  /** 0521: wzór dokumentu klienta (najwyżej jeden każdego rodzaju na rekrutację). */
   client_form?: boolean;
+  /** 0525: „form” — formularz CV (Word), „score” — tabela punktowa (Excel). */
+  client_form_kind?: ClientFormKind | null;
   /** Co NEXUS rozpoznał we wzorze — zdanie z serwera, tylko przy wzorze. */
   client_form_summary?: string | null;
 }
 
 /** Co idzie do klienta rekrutacji (reguła CV klienta, 0521). */
 export type ClientDocument = "company_cv" | "client_form";
+/** Rodzaj wzoru: formularz CV (Word) albo tabela punktowa (Excel), 0525. */
+export type ClientFormKind = "form" | "score";
 
 export interface JobFilesResponse {
   items: JobFileItem[];

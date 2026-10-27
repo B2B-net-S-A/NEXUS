@@ -7,11 +7,12 @@ Przebieg całej trasy z bazą sprawdza ``test_b2b_signature_automation.py``.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
 
+from app.api import b2b_contract_generator
 from app.api.b2b_contract_generator import signing_day_or_reject
 from app.core.scheduling import business_date, business_today
 from app.models.b2b_generated_contract import B2BGeneratedContract
@@ -56,23 +57,35 @@ def test_a_day_before_the_contract_was_generated_is_refused():
     assert "wcześniejsza niż wygenerowanie umowy" in exc.value.detail
 
 
-def test_generation_just_after_midnight_in_warsaw_counts_as_that_day():
-    """22:45 UTC to już następny dzień w Warszawie (UTC+1 zimą, UTC+2 latem)
-    — dzień UTC byłby o jeden za wcześnie i przepuścił podpis z dnia przed
-    wygenerowaniem."""
-    today = business_today()
-    two_days_ago = today - timedelta(days=2)
-    generated = datetime(
-        two_days_ago.year,
-        two_days_ago.month,
-        two_days_ago.day,
-        22,
-        45,
-        tzinfo=timezone.utc,
+@pytest.mark.parametrize(
+    ("generated", "generated_on"),
+    [
+        # Lato (UTC+2): 22:45 UTC = 00:45 następnego dnia w Warszawie.
+        (datetime(2026, 7, 15, 22, 45, tzinfo=timezone.utc), date(2026, 7, 16)),
+        # Zima (UTC+1): 22:45 UTC = 23:45, nadal ten sam dzień.
+        (datetime(2026, 11, 10, 22, 45, tzinfo=timezone.utc), date(2026, 11, 10)),
+        (datetime(2026, 11, 10, 23, 30, tzinfo=timezone.utc), date(2026, 11, 11)),
+        # Dzień zmiany czasu 25.10.2026: wieczorem już UTC+1.
+        (datetime(2026, 10, 25, 22, 45, tzinfo=timezone.utc), date(2026, 10, 25)),
+        (datetime(2026, 10, 25, 23, 30, tzinfo=timezone.utc), date(2026, 10, 26)),
+        # Wiosenna zmiana 29.03.2026: wieczorem już UTC+2.
+        (datetime(2026, 3, 29, 22, 15, tzinfo=timezone.utc), date(2026, 3, 30)),
+    ],
+)
+def test_generation_day_is_the_warsaw_calendar_day(
+    monkeypatch, generated, generated_on
+):
+    """Dzień wygenerowania liczy się w kalendarzu warszawskim, nie UTC —
+    dzień UTC byłby latem o jeden za wcześnie i przepuścił podpis z dnia przed
+    wygenerowaniem. Stałe daty, bo wersja liczona od ``business_today()``
+    padała po zmianie czasu 25.10.2026."""
+    monkeypatch.setattr(
+        b2b_contract_generator,
+        "business_today",
+        lambda: generated_on + timedelta(days=2),
     )
     row = _row(generated)
-    generated_on = business_date(generated)
-    assert generated_on == today - timedelta(days=1)
+    assert business_date(generated) == generated_on
     with pytest.raises(HTTPException):
-        signing_day_or_reject(row, two_days_ago)
+        signing_day_or_reject(row, generated_on - timedelta(days=1))
     assert signing_day_or_reject(row, generated_on) == generated_on

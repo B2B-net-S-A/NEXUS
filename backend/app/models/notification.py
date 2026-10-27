@@ -185,6 +185,10 @@ class NotificationType(str, enum.Enum):
     # 0417: rekruter prosi o potwierdzenie podpisu umowy B2B z Generatora —
     # do DL-a rekrutacji (albo portfela / TCM); related_entity=(b2b_generated_contract, id).
     b2b_signature_requested = "b2b_signature_requested"
+    # 0524: umowę z Generatora wygenerował ktoś inny niż osoba prowadząca
+    # kandydata w rekrutacji — dzwonek do prowadzącego (placement, premia
+    # i pilnowanie podpisu są jego); related_entity=(b2b_generated_contract, id).
+    b2b_agreement_ready = "b2b_agreement_ready"
     # 0418: zmiana stawki kandydata w procesie (od „Zweryfikowany”) — informacja
     # dla DL, Head of Recruitment i rekrutera kandydata; related_entity=
     # (candidate_rate_change, id).
@@ -250,6 +254,21 @@ class NotificationType(str, enum.Enum):
     # obowiązkowy „Nowa rekrutacja u Twojego klienta”, kilka w 10 minut
     # jednym mailem (`services/client_job_opened.py`).
     client_job_opened = "client_job_opened"
+    # 0526 (27.10.2026): przypomnienia o brakujących ogłoszeniach (strona
+    # kariery, Pracuj.pl, JustJoin.IT) — mail obowiązkowy, codziennie rano
+    # (`services/job_ad/reminders.py`). `job_ad_missing` — rekrutacja otwarta
+    # po starcie przypomnień, related_entity=(job, id); `job_ad_backlog` —
+    # zbiorczy o rekrutacjach sprzed startu, related_entity=(user, id);
+    # `job_ad_nudge` — DL prosi rekrutera o stronę kariery,
+    # related_entity=(job, id).
+    job_ad_missing = "job_ad_missing"
+    job_ad_backlog = "job_ad_backlog"
+    job_ad_nudge = "job_ad_nudge"
+    # 0525 (27.10.2026): Head of Recruitment albo admin ustawił rekrutacji P0
+    # (ultrapilne przez 24 h) — do rekruterów i Delivery Leada rekrutacji,
+    # bez osoby, która ustawiła; related_entity=(job, id). Mail obowiązkowy
+    # „P0 na rekrutacji” (`services/job_p0.py`).
+    job_p0_set = "job_p0_set"
     # 0374: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"

@@ -126,6 +126,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.board_task_waiting: _C.mentions,
     # Rekruter czeka, aż potwierdzisz podpis jego umowy — imienne zadanie (0417).
     _T.b2b_signature_requested: _C.mentions,
+    # Ktoś wygenerował umowę Twojej osoby — wyślij ją i pilnuj podpisu (0524).
+    _T.b2b_agreement_ready: _C.mentions,
     # 0506: umowa przedwstępna — imienne zadanie (wystaw, podpisz) albo
     # krok umowy, o którą ktoś sam poprosił; obserwowanie wyłącza się w panelu.
     _T.pre_contract: _C.mentions,
@@ -168,6 +170,12 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.request_review_needed: _C.reminders,
     # 0523: rekrutację u klienta DL-a otworzył ktoś inny (mail obowiązkowy).
     _T.client_job_opened: _C.reminders,
+    # 0526: brakujące ogłoszenia rekrutacji (mail obowiązkowy).
+    _T.job_ad_missing: _C.reminders,
+    _T.job_ad_backlog: _C.reminders,
+    _T.job_ad_nudge: _C.reminders,
+    # 0525: P0 na rekrutacji Twojego zespołu (mail obowiązkowy).
+    _T.job_p0_set: _C.reminders,
     # 0409: propozycje automatu przydziału czekają na akceptację.
     _T.request_allocation_proposals: _C.reminders,
     # Terminy rekrutacji
@@ -334,8 +342,14 @@ _SPLIT_GROUPS: dict[
             _T.recruitment_allocation_alert,
             _T.request_review_needed,
             _T.client_job_opened,
+            _T.job_p0_set,
             _T.request_allocation_proposals,
         ),
+    ),
+    "reminders_job_ads": (
+        "Brakujące ogłoszenia rekrutacji",
+        _C.reminders,
+        (_T.job_ad_missing, _T.job_ad_backlog, _T.job_ad_nudge),
     ),
     "contracts_order_ending": (
         "Koniec zamówienia za 30 / 14 / 7 dni",

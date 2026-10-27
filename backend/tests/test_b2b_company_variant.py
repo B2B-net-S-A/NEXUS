@@ -519,6 +519,9 @@ async def test_render_takes_assigned_person_from_the_recruitment(
         "start_date": "2026-10-01",
         # Formularz podał kogoś innego — dokument i tak wskazuje kandydata.
         "assigned_person_name": "Ktoś Inny",
+        # Szczegóły administracyjne (0524) — obowiązkowe przy umowie z rekrutacją.
+        "is_replacement": False,
+        "fte": "1",
     }
     resp = await app_client.post(
         "/api/b2b-generator/render?format=docx", headers=app_auth_headers, json=payload

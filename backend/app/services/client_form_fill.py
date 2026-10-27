@@ -55,6 +55,11 @@ MSG_UNAVAILABLE = (
 
 NAME_LABEL = re.compile(r"imi[eę]\s+i\s+nazwisko", re.IGNORECASE)
 CITY_LABEL = re.compile(r"miejsce\s+zamieszkania", re.IGNORECASE)
+# „Firma:” w tabeli punktowej to wykonawca, czyli my — nie pracodawca osoby.
+VENDOR_LABEL = re.compile(r"^\s*(firma|wykonawca)\s*$", re.IGNORECASE)
+VENDOR_NAME = "B2B.net S.A."
+RULES_MAX = 15_000
+_POINTS = re.compile(r"^\s*(\d{1,3})(?:\s*(?:pkt|punkt\w*))?\.?\s*$", re.IGNORECASE)
 YES_NO_LABEL = re.compile(r"tak\s*/\s*nie", re.IGNORECASE)
 SCALE_LABEL = re.compile(r"skali|\b1\s*[-–]\s*10\b", re.IGNORECASE)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
@@ -65,9 +70,15 @@ _PHONE = re.compile(r"\+?\d[\d \-]{7,}\d")
 class Sources:
     cv: str
     notes: str
+    # 0525: tekst „Szczegółowego opisu oceny” z Plików rekrutacji (zał. 5 CEZ)
+    # — zasady punktacji tabeli punktowej. Pusty = pola punktów zostają puste.
+    rules: str = ""
 
 
 def _short(value: Any, limit: int = VALUE_MAX) -> Optional[str]:
+    # Model oddaje punkty i lata liczbą (2, a nie "2") — to też wartość.
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        value = str(int(value)) if float(value).is_integer() else str(value)
     if not isinstance(value, str):
         return None
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in value.splitlines()]
@@ -114,10 +125,18 @@ def _contact(value: str) -> bool:
     )
 
 
-def _checked_value(label: str, value: str, quote: str) -> Optional[str]:
+def _checked_value(
+    label: str, value: str, quote: str, max_points: Optional[int] = None
+) -> Optional[str]:
     """Wartość po kontrolach kodu albo ``None`` (pole zostaje do uzupełnienia)."""
     if _contact(value):
         return None
+    if max_points is not None:
+        # Wynik w tabeli punktowej: liczba całkowita od 0 do maksimum wiersza.
+        match = _POINTS.match(value)
+        if match is None or int(match.group(1)) > max_points:
+            return None
+        return match.group(1)
     if YES_NO_LABEL.search(label):
         word = value.strip().upper()
         return word if word in ("TAK", "NIE") else None
@@ -170,8 +189,14 @@ def check_parse(
     labels = {
         item["id"]: item.get("label") or "" for item in structure.get("fields") or []
     }
+    limits = {
+        item["id"]: int(item["max_points"])
+        for item in structure.get("fields") or []
+        if item.get("max_points") is not None
+    }
     profile = {
         **{field_id: candidate_name for field_id in name_fields(structure)},
+        **{field_id: VENDOR_NAME for field_id in _line_fields(structure, VENDOR_LABEL)},
         **{
             field_id: candidate_city for field_id in _line_fields(structure, CITY_LABEL)
         },
@@ -193,10 +218,13 @@ def check_parse(
         field_id = item["id"]
         if field_id in names:
             continue
+        if field_id in limits and not sources.rules.strip():
+            dropped += 1  # punkty tylko według zasad oceny z Plików rekrutacji
+            continue
         value = _short(item.get("value"))
         source, quote = _grounded(item.get("quote"), sources)
         checked = (
-            _checked_value(labels[field_id], value, quote)
+            _checked_value(labels[field_id], value, quote, limits.get(field_id))
             if value and quote is not None
             else None
         )
@@ -297,19 +325,25 @@ def build_prompt(structure: dict[str, Any], sources: Sources) -> str:
     fields = [
         {
             key: item.get(key)
-            for key in ("id", "label", "row_label", "section", "table")
+            for key in ("id", "label", "row_label", "section", "table", "max_points")
             if item.get(key)
         }
         for item in structure.get("fields") or []
         if not (
-            item.get("kind") == "line" and NAME_LABEL.search(item.get("label") or "")
+            item.get("kind") == "line"
+            and (
+                NAME_LABEL.search(item.get("label") or "")
+                or VENDOR_LABEL.search(item.get("label") or "")
+            )
         )
+        and (item.get("max_points") is None or sources.rules.strip())
     ]
     return CLIENT_FORM_FILL.render(
         fields=json_for_prompt(fields),
         tables=json_for_prompt(extendable_tables(structure)),
         cv=fence("cv", sources.cv[:CV_MAX]),
         notes=fence("screening_notes", sources.notes[:NOTES_MAX]),
+        rules=fence("scoring_rules", sources.rules[:RULES_MAX]),
     )
 
 

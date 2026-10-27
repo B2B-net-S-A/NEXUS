@@ -822,6 +822,7 @@ from app.models.candidate_client_form import CandidateClientForm  # noqa: F401
 # 0430: ogłoszenie rekrutacji do wklejenia na portale.
 from app.models.job_ad import JobAd  # noqa: F401
 from app.models.job_ad_publication import JobAdPublication  # noqa: F401
+from app.models.job_ad_channel_skip import JobAdChannelSkip  # noqa: F401
 
 # 0418: zmiana stawki kandydata w trakcie procesu.
 from app.models.candidate_rate_change import CandidateRateChange  # noqa: F401

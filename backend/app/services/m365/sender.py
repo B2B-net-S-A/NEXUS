@@ -67,7 +67,11 @@ from app.services.m365.actionable_messages import (
 )
 from app.services.m365.access import require_eligible_connection_owner
 from app.services.m365.graph_client import GraphClient, GraphRequestError
-from app.services.m365.html_sanitize import html_to_text, sanitize_html
+from app.services.m365.html_sanitize import (
+    html_to_text,
+    sanitize_html,
+    sanitize_signature_html,
+)
 from app.services.m365.signature_cache import InlineImage, get_outlook_signature
 
 logger = logging.getLogger(__name__)
@@ -470,16 +474,23 @@ async def send_new(
     client_request_id: Optional[str] = None,
     commit_reservation: bool = False,
     attachments: Sequence[FileAttachment] = (),
+    styled_body: bool = False,
 ) -> Email:
     """Send a brand-new message from the connected mailbox.
 
     Returns the persisted local Email row (direction=sent). Ponowienie z tym
     samym kluczem zwraca wcześniejszy wiersz bez drugiego wywołania Graph albo
     rzuca ``EmailSendConflict`` (wysyłka w toku / wynik nieznany).
+
+    ``styled_body``: treść z szablonu NEXUSA (np. maile podpisu umów) — style
+    z listy dozwolonych zostają jak w stopce; tekst wpisany przez człowieka
+    idzie dalej przez ``sanitize_html`` bez stylów.
     """
     await require_eligible_connection_owner(db, connection)
     cc = cc or []
-    body_html = sanitize_html(body_html)
+    body_html = (
+        sanitize_signature_html(body_html) if styled_body else sanitize_html(body_html)
+    )
 
     now = datetime.now(timezone.utc)
     if client_request_id:

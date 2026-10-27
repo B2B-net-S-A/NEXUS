@@ -625,7 +625,12 @@ def _waiting_client(placed: list[_Placed], now: datetime) -> list[PairRow]:
 async def _unsigned_contracts(
     db: AsyncSession, user: User, portfolio: frozenset[int], now: datetime
 ) -> list[ContractRow]:
-    scope = B2BGeneratedContract.created_by == user.id
+    # Autor albo prowadzący kandydata (0524) — przypomina się temu, kto
+    # pilnuje podpisu, także gdy umowę wygenerował ktoś za niego.
+    scope = or_(
+        B2BGeneratedContract.created_by == user.id,
+        B2BGeneratedContract.recruiter_user_id == user.id,
+    )
     if portfolio:
         scope = or_(scope, B2BGeneratedContract.client_id.in_(sorted(portfolio)))
     rows = (

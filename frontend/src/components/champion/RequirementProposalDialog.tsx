@@ -35,6 +35,7 @@ import {
   useRequirementProposal,
   type RequirementProposal,
 } from "@/lib/requirement-proposal-api";
+import { countPl } from "@/lib/plural-pl";
 import { LEVEL_LABEL, type RequirementLevel } from "@/lib/requirement-rows";
 import { cn } from "@/lib/utils";
 
@@ -168,6 +169,23 @@ function AfterColumn({ proposal, languageChanged }: { proposal: RequirementPropo
           Krytyczne: brak — dotychczasowe są zdaniami, a zdanie nie może być krytyczne.
         </p>
       ) : null}
+      {after.rare && after.rare.length > 0 ? (
+        <Group label="Mało osób w bazie">
+          <ul className="space-y-0.5 text-xs text-foreground" data-testid="proposal-rare">
+            {after.rare.map((item, index) => (
+              <li key={`${item.words.join("|")}-${index}`}>
+                „{item.words.join(" lub ")}” —{" "}
+                {item.people === 0
+                  ? "nikt w bazie"
+                  : `tylko ${countPl(item.people, "osoba", "osoby", "osób")}`}
+                {item.action === "split" && item.parts
+                  ? `, rozdzielone: ${item.parts.join(" lub ")}`
+                  : ", rekruter sprawdzi w rozmowie"}
+              </li>
+            ))}
+          </ul>
+        </Group>
+      ) : null}
       {after.overflow && after.overflow.length > 0 ? (
         <p className="text-xs text-muted-foreground" data-testid="proposal-overflow">
           Nie mieści się w wierszach, trafi do opisu wymagań: {after.overflow.join(", ")}
@@ -213,7 +231,7 @@ export function RequirementProposalDialog({
   const approve = () => {
     if (!proposal) return;
     setNotice(null);
-    apply.mutate(proposal.profile_hash, {
+    apply.mutate(proposal, {
       onSuccess: (data) => {
         toast?.showSuccess("Wymagania uporządkowane.");
         for (const text of data.notices ?? []) toast?.showInfo(text);
@@ -225,7 +243,7 @@ export function RequirementProposalDialog({
 
   const reject = async () => {
     if (!proposal) return;
-    const profileHash = proposal.profile_hash;
+    const decided = proposal;
     const confirmed = await askConfirm({
       title: "Odrzucić propozycję?",
       description: "Wróci dopiero po zmianie Profilu Championa.",
@@ -233,7 +251,7 @@ export function RequirementProposalDialog({
     });
     if (!confirmed) return;
     setNotice(null);
-    dismiss.mutate(profileHash, {
+    dismiss.mutate(decided, {
       onSuccess: () => {
         toast?.showSuccess("Propozycja odrzucona.");
         changeOpen(false);

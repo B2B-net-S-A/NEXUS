@@ -272,6 +272,7 @@ from app.api import screening_form as screening_form_api
 from app.api import dl_review as dl_review_api
 from app.api import job_similar as job_similar_api
 from app.api import job_champions as job_champions_api
+from app.api import job_p0 as job_p0_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
 from app.api import role_profiles as role_profiles_api
@@ -791,6 +792,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.saved_search_alerts import saved_search_alerts_loop
     from app.tasks.keyword_corpus_backfill import keyword_corpus_backfill_loop
     from app.tasks.note_kind_backfill import note_kind_backfill_loop
+    from app.tasks.requirement_row_counts import requirement_row_counts_loop
     from app.tasks.cv_qc_recompute import cv_qc_recompute_loop
     from app.tasks.qc_quality_daily import qc_quality_daily_loop
     from app.tasks.job_ad_prepare import job_ad_prepare_loop
@@ -938,6 +940,9 @@ async def lifespan(app: FastAPI):
         # sama, gdy nie zostaje nic do policzenia.
         "keyword_corpus_backfill": asyncio.create_task(keyword_corpus_backfill_loop()),
         "note_kind_backfill": asyncio.create_task(note_kind_backfill_loop()),
+        # „Wymagania do poprawy” (rare_word, 27.10.2026): liczby osób wierszy
+        # otwartych rekrutacji co godzinę do pamięci — pulpit ich nie liczy.
+        "requirement_row_counts": asyncio.create_task(requirement_row_counts_loop()),
         # QC CV: nieudane przebiegi sprzed zmiany reguł (plakietki na Tablicy);
         # kończy się samo po jednym przejściu.
         "cv_qc_recompute": asyncio.create_task(cv_qc_recompute_loop()),
@@ -1244,11 +1249,29 @@ app.add_middleware(
     # cannot read the required client/date filename. `X-Export-Truncated`
     # tells the clients export that the file was cut at the row limit —
     # without exposing it the "partial export" warning never shows (FE-01).
+    # The middleware OVERWRITES a route's own `Access-Control-Expose-Headers`,
+    # so every header a route exposes to the frontend must be listed here too
+    # (guard: tests/test_cors_expose_headers.py). Ids of saved rows let the
+    # contract and document generators fix the same row on the next download
+    # instead of creating a new one.
     expose_headers=[
         "ETag",
         "Content-Disposition",
         "X-Request-Id",
         "X-Export-Truncated",
+        # Generator Umów B2B (b2b_contract_generator.py).
+        "X-Contract-Number",
+        "X-Generated-Contract-Id",
+        # Dokumenty B2B i umowa przedwstępna (b2b_documents.py).
+        "X-Document-Id",
+        # Paczka CV (candidates.py).
+        "X-Included-Count",
+        "X-Skipped-Count",
+        # Generator CV (cv_generator_b2b.py).
+        "X-Generated-Id",
+        "X-Generator-Candidate-Name",
+        "X-Generator-Warnings",
+        "X-Generator-Processing-Ms",
     ],
 )
 
@@ -2115,6 +2138,7 @@ app.include_router(screening_form_api.router, prefix="/api", tags=["screening-fo
 app.include_router(dl_review_api.router, prefix="/api", tags=["dl-review"])
 app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
 app.include_router(job_champions_api.router, prefix="/api", tags=["job-champions"])
+app.include_router(job_p0_api.router, prefix="/api", tags=["job-p0"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(role_profiles_api.router, prefix="/api", tags=["role-profiles"])
@@ -3371,6 +3395,7 @@ async def api_health_deep_check():
     from app.models.job_file import JobFile
     from app.models.candidate_client_form import CandidateClientForm
     from app.models.job_ad import JobAd
+    from app.models.job_ad_channel_skip import JobAdChannelSkip
     from app.models.job_ad_publication import JobAdPublication
     from app.models.integration_event import (
         IntegrationEvent,
@@ -3673,6 +3698,8 @@ async def api_health_deep_check():
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),
         ("job_ad_publications", JobAdPublication),
+        # 0526: „Nie publikujemy” i codzienne przypomnienia o ogłoszeniach.
+        ("job_ad_channel_skips", JobAdChannelSkip),
         # 0438: „Wymagania do poprawy” — zatwierdzenie i odrzucenie propozycji
         # zapisują decyzję; brak tabeli = 500 przy obu.
         ("requirement_cleanup_decisions", RequirementCleanupDecision),
