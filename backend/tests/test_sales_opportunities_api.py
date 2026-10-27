@@ -201,3 +201,38 @@ async def test_contacts_link_with_role_and_view_cannot_write(app_client) -> None
         )
     ).json()
     assert unlinked["contacts"] == [] and unlinked["primary_contact_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_editing_without_breakdown_keeps_the_value(app_client) -> None:
+    """Szanse z Atlasa sprzed dealfin01 mają samo ``value`` — formularz edycji
+    wysyła puste MRR i jednorazową, a wartość ma zostać."""
+    rep = await _user("sales_edit")
+    company_id = await _company(app_client, rep)
+    opp = (
+        await app_client.post(
+            URL,
+            json={"company_id": company_id, "title": "Stara", "value": "40000"},
+            headers=_headers(rep),
+        )
+    ).json()
+    assert Decimal(opp["value"]) == Decimal("40000")
+    edited = (
+        await app_client.patch(
+            f"{URL}/{opp['id']}",
+            json={
+                "title": "Stara po edycji",
+                "mrr_value": None,
+                "one_off_value": None,
+                "roles": [],
+            },
+            headers=_headers(rep),
+        )
+    ).json()
+    assert Decimal(edited["value"]) == Decimal("40000")
+    recomputed = (
+        await app_client.patch(
+            f"{URL}/{opp['id']}", json={"mrr_value": "30000"}, headers=_headers(rep)
+        )
+    ).json()
+    assert Decimal(recomputed["value"]) == Decimal("30000")

@@ -378,10 +378,14 @@ def _apply(opp: SalesOpportunity, fields: dict[str, Any]) -> None:
         elif isinstance(value, str):
             value = value.strip() or None
         setattr(opp, key, value)
-    if {"value", "mrr_value", "one_off_value"} & fields.keys():
-        opp.value = deal_value(
-            opp.mrr_value, opp.one_off_value, fields.get("value", None)
-        )
+    # Wartość przeliczamy z rozbicia tylko, gdy rozbicie jest — szansa z samym
+    # ``value`` (Atlas sprzed MRR/jednorazowej) nie traci go przy edycji.
+    if fields.get("value") is not None:
+        opp.value = fields["value"]
+    elif {"mrr_value", "one_off_value"} & fields.keys() and (
+        opp.mrr_value is not None or opp.one_off_value is not None
+    ):
+        opp.value = deal_value(opp.mrr_value, opp.one_off_value, None)
 
 
 @router.get("", response_model=OpportunityList)

@@ -20,10 +20,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser
 from app.core.database import get_db
-from app.models.sales import SalesLead, SalesOpportunity
+from app.models.sales import SalesCompany, SalesLead, SalesOpportunity
 from app.services import sales_schema as schema
 from app.services.company_names import normalize_company_name
 from app.services.polish_ilike import polish_folded_ilike
+from app.services.sales import company_dates
 from app.services.sales import leads as service
 from app.services.sales.companies import http_url
 
@@ -226,6 +227,13 @@ async def convert_lead(
         db, lead, owner_user_id=current_user.id, title=payload.title
     )
     await db.commit()
+    # D3: pierwsza szansa w firmie odpala daty osób z tej firmy (jak przy
+    # zakładaniu szansy z formularza).
+    company = await db.get(SalesCompany, opportunity.company_id)
+    if company is not None and company_dates.needs_run(
+        company.dates_backfill, now=datetime.now(timezone.utc)
+    ):
+        company_dates.schedule_company_dates(company.id)
     return {"opportunity_id": opportunity.id, "company_id": opportunity.company_id}
 
 

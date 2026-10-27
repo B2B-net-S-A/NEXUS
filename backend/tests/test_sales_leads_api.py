@@ -123,3 +123,35 @@ async def test_dismiss_keeps_reason_and_view_cannot_write(app_client) -> None:
     inbox = (await app_client.get(URL, headers=_headers(viewer))).json()
     assert lead["id"] not in [item["id"] for item in inbox["items"]]
     assert inbox["counts"]["dismissed"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_converted_lead_starts_dates_for_its_company(
+    app_client, monkeypatch
+) -> None:
+    """D3: pierwsza szansa w firmie odpala daty — także ta z leada."""
+    from app.services.sales import company_dates
+
+    scheduled: list[int] = []
+    monkeypatch.setattr(
+        company_dates,
+        "schedule_company_dates",
+        lambda cid: scheduled.append(cid) or True,
+    )
+    rep = await _user("sales_edit")
+    lead = (
+        await app_client.post(
+            URL,
+            json={
+                "title": "Zespół data",
+                "company_name": f"Sowa Dane {uuid.uuid4().hex[:6]}",
+            },
+            headers=_headers(rep),
+        )
+    ).json()
+    ids = (
+        await app_client.post(
+            f"{URL}/{lead['id']}/convert", json={}, headers=_headers(rep)
+        )
+    ).json()
+    assert scheduled == [ids["company_id"]]

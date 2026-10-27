@@ -26,6 +26,7 @@ Pliki (Supabase Storage) przenosi osobny krok — tu tylko je liczymy.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from collections import Counter
@@ -526,7 +527,9 @@ async def _company_for_orphan(
     if existing is not None:
         ctx.report.add("opportunities_company_adopted")
         return existing
-    ref = _ref("deal-company", canonical)[:80]
+    # Skrót, nie obcięcie: dwie długie nazwy o wspólnym początku dawały ten sam
+    # klucz i druga szansa dostawała firmę pierwszej.
+    ref = _ref("deal-company", hashlib.sha256(canonical.encode()).hexdigest()[:40])
     if ref in companies:
         return companies[ref]
     created = await _upsert(
@@ -569,12 +572,12 @@ async def _import_deals(
             )
         status = _choice(deal.get("status"), schema.OPPORTUNITY_STATUSES) or "open"
         custom = _dict(deal.get("custom_fields"))
-        for key in ("products", "subscription_items"):
+        # `contact_name` / `contact_role` to osoba u klienta i jej stanowisko
+        # („CTO”) — nie rola do obsadzenia, więc nie trafia do `roles`.
+        for key in ("products", "subscription_items", "contact_name", "contact_role"):
             if deal.get(key):
                 custom[key] = deal[key]
-        roles = []
-        if deal.get("contact_role"):
-            roles.append({"title": str(deal["contact_role"])[:200], "count": 1})
+        roles: list[dict[str, Any]] = []
         rows.append(
             {
                 "external_ref": _ref("deals", deal["id"]),

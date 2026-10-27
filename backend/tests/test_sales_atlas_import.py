@@ -141,7 +141,7 @@ class FakeAtlas:
                     "service_line": "bodyleasing",
                     "owner_user_id": f"u-{t}",
                     "primary_contact_id": f"p1-{t}",
-                    "contact_role": "QA Lead",
+                    "contact_role": "CTO",
                 },
                 {
                     "id": f"d2-{t}",
@@ -341,11 +341,14 @@ async def test_import_maps_everything_and_second_run_updates_instead_of_duplicat
         ).scalar_one()
         stage = await db.get(SalesPipelineStage, d1.stage_id)
         assert stage.key == "offer-sent"
+        # `contact_role` w Atlasie to stanowisko osoby u klienta („CTO”), nie rola
+        # do obsadzenia — nie trafia do `roles`, z których powstaje rekrutacja.
         assert (d1.value, d1.owner_user_id, d1.roles) == (
             Decimal("45000.00"),
             owner_id,
-            [{"title": "QA Lead", "count": 1}],
+            [],
         )
+        assert d1.custom_fields["atlas"]["contact_role"] == "CTO"
         contact = (
             await db.execute(
                 select(SalesContact).where(
