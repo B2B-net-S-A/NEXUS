@@ -80,6 +80,7 @@ _JOBS = (
     _T.recruitment_allocation_alert,
     _T.request_review_needed,
     _T.client_job_opened,
+    _T.job_p0_set,
     _T.request_allocation_proposals,
     # Osoby od automatu do tej rekrutacji
     _T.auto_match,
@@ -158,6 +159,7 @@ _JOBS_TOAST = (
     _T.candidate_claim_taken,
     _T.request_review_needed,
     _T.client_job_opened,
+    _T.job_p0_set,
     _T.request_allocation_proposals,
     _T.care_front_office_handoff,
 )

@@ -254,6 +254,11 @@ class NotificationType(str, enum.Enum):
     # obowiązkowy „Nowa rekrutacja u Twojego klienta”, kilka w 10 minut
     # jednym mailem (`services/client_job_opened.py`).
     client_job_opened = "client_job_opened"
+    # 0525 (27.10.2026): Head of Recruitment albo admin ustawił rekrutacji P0
+    # (ultrapilne przez 24 h) — do rekruterów i Delivery Leada rekrutacji,
+    # bez osoby, która ustawiła; related_entity=(job, id). Mail obowiązkowy
+    # „P0 na rekrutacji” (`services/job_p0.py`).
+    job_p0_set = "job_p0_set"
     # 0374: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"
