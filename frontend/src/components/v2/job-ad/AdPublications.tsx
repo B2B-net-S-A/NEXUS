@@ -28,7 +28,7 @@ import {
   type AdPublication,
   type JobAdState,
 } from "@/lib/api/jobAd";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 export type AdPublicationsApi = Pick<typeof jobAdApi, "markPublished" | "markRemoved">;
 
@@ -36,6 +36,10 @@ export type AdPublicationsApi = Pick<typeof jobAdApi, "markPublished" | "markRem
 export const JOBS_LIST_QUERY_ROOT = "jobs-v2";
 
 export interface AdPublicationsProps {
+  /** Wejście z maila przypomnienia: pole linku tego portalu od razu otwarte. */
+  initialLinkFor?: AdPortal | null;
+  /** Linia pod portalem: kto robi brak albo „nie publikujemy” (27.10.2026). */
+  renderExtra?: (portal: AdPortal) => React.ReactNode;
   jobId: number;
   /** Portale do pokazania: jeden w zakładce okna, oba w sekcji rekrutacji. */
   portals: readonly AdPortal[];
@@ -61,12 +65,14 @@ export function AdPublications({
   jobClosed = false,
   locked = false,
   api = jobAdApi,
+  initialLinkFor = null,
+  renderExtra,
 }: AdPublicationsProps) {
   const queryClient = useQueryClient();
   const { showError } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   // Portal z otwartym polem linku i jego niezapisana wartość.
-  const [linkFor, setLinkFor] = useState<AdPortal | null>(null);
+  const [linkFor, setLinkFor] = useState<AdPortal | null>(initialLinkFor);
   const [link, setLink] = useState("");
 
   const apply = (next: JobAdState) => {
@@ -123,7 +129,10 @@ export function AdPublications({
             <li
               key={key}
               aria-label={`Publikacja: ${label}`}
-              className="flex flex-col gap-2 rounded-md border border-border bg-card px-3 py-2 text-[13px]"
+              className={cn(
+                "flex flex-col gap-2 rounded-md border bg-card px-3 py-2 text-[13px]",
+                initialLinkFor === key ? "border-primary ring-2 ring-primary/30" : "border-border",
+              )}
             >
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="font-medium text-foreground">{label}</span>
@@ -271,6 +280,7 @@ export function AdPublications({
                   </Button>
                 </form>
               ) : null}
+              {!active ? renderExtra?.(key) : null}
             </li>
           );
         })}

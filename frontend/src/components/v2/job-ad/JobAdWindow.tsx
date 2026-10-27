@@ -40,7 +40,7 @@ import {
 import { copyHtmlToClipboard, copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
-import { AdChannels } from "./AdChannels";
+import { AdChannels, type AdFocusChannel } from "./AdChannels";
 import { AdFactsRail, TERM_KEYS, type AdTerms } from "./AdFactsRail";
 import { JOBS_LIST_QUERY_ROOT } from "./AdPublications";
 import { JustJoinTab } from "./JustJoinTab";
@@ -70,6 +70,12 @@ export interface JobAdWindowProps {
   onClose: () => void;
   api?: JobAdWindowApi;
   initialTab?: JobAdTab;
+  /** Wejście z maila przypomnienia: kanał z krokami, zakładka portalu. */
+  focusChannel?: AdFocusChannel | null;
+  /** Z maila: okno „Nie publikujemy” od razu. */
+  openSkip?: boolean;
+  /** Z maila: pytanie „Przypomnieć rekruterowi?” od razu. */
+  askRemind?: boolean;
 }
 
 const LANG_OPTIONS: ReadonlyArray<{ value: AdLang; label: string }> = [
@@ -98,11 +104,14 @@ export function JobAdWindow({
   onClose,
   api = jobAdApi,
   initialTab = "pracuj",
+  focusChannel = null,
+  openSkip = false,
+  askRemind = false,
 }: JobAdWindowProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
-  const [tab, setTab] = useState<JobAdTab>(initialTab);
+  const [tab, setTab] = useState<JobAdTab>(focusChannel === "jjit" ? "jjit" : initialTab);
   const [firstLang, setFirstLang] = useState<AdLang>("pl");
   const [copied, setCopied] = useState<ReadonlySet<string>>(new Set());
   const [careerCopied, setCareerCopied] = useState(false);
@@ -497,6 +506,9 @@ export function JobAdWindow({
                       onShowFinding={show}
                       onRemoveFinding={removeExcerpt}
                       api={api}
+                      focusChannel={focusChannel}
+                      openSkip={openSkip}
+                      askRemind={askRemind}
                     />
                   ) : null}
                 </>

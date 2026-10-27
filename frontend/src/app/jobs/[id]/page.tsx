@@ -1,6 +1,11 @@
 "use client";
 
 import { useUrlSyncedState, useUrlWriter, writeUrlParams } from "@/lib/url-selection";
+import {
+  readAdMailIntent,
+  withoutAdMailParams,
+  type AdMailIntent,
+} from "@/lib/job-ad-mail-intent";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -206,7 +211,11 @@ export default function JobDetailPage() {
   const canOpenCandidateProfile = useCapability("nav.candidates");
   const canOpenMyPeople = useCapability("nav.my_people");
   const openMyPeople = useMyPeoplePanel((s) => s.openPanel);
+  // Wejście z maila przypomnienia o ogłoszeniu (27.10.2026): okno „Ogłoszenie”
+  // na kanale, „Nie publikujemy” albo „Przypomnij”. Efekt, nie inicjalizator
+  // `useState` — link z maila może przyjść przy już otwartej rekrutacji.
   const [showJobAd, setShowJobAd] = useState(false);
+  const [adIntent, setAdIntent] = useState<AdMailIntent | null>(null);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
@@ -576,6 +585,17 @@ export default function JobDetailPage() {
   // „Otwórz w panelu” z okna „Dodaj z CV”: ten sam jednorazowy `?candidate=`
   // co powiadomienia — dok otwiera się na świeżej Tablicy, gdy karta już jest.
   const urlWriter = useUrlWriter();
+
+  useEffect(() => {
+    const intent = readAdMailIntent(searchParams);
+    if (!intent) return;
+    setAdIntent(intent);
+    setShowJobAd(true);
+    // F5 nie otwiera okna drugi raz (`maile-z-przyciskami-akcji.md`).
+    urlWriter.replaceUrl(
+      withoutAdMailParams(window.location.search) || window.location.pathname,
+    );
+  }, [searchParams, urlWriter]);
   const openPersonPanel = useCallback(
     (candidateId: number) => {
       if (!showBoard) selectView("board");
@@ -998,9 +1018,13 @@ export default function JobDetailPage() {
           jobId={jobId}
           jobTitle={jobDisplayTitle(job)}
           jobClosed={job.status === "closed"}
+          focusChannel={adIntent?.focus ?? (adIntent?.remind ? "kariera" : null)}
+          openSkip={adIntent?.skip ?? false}
+          askRemind={adIntent?.remind ?? false}
           open
           onClose={() => {
             setShowJobAd(false);
+            setAdIntent(null);
             // Kropki w nagłówku: publikacja w oknie zmienia stronę kariery i portale.
             void refetchJob();
           }}
