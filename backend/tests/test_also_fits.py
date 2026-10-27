@@ -107,14 +107,25 @@ def _fit(job_id, score, *, hidden=False, allowed=True, measurement="measured"):
 
 @pytest.fixture
 def wiring(monkeypatch):
+    from collections import OrderedDict
+
     from app.services import (
         auto_match_service,
         embedding_service,
+        full_search_measurement,
         job_working_title,
         my_people_matching,
+        request_matching_context,
+        scoring_service,
     )
 
-    state = {"pool": [11, 12, 13, 14], "similarity": None, "fits": {}, "scored": []}
+    state = {
+        "pool": [11, 12, 13, 14],
+        "similarity": None,
+        "fits": {},
+        "scored": [],
+        "voyage_calls": [],
+    }
 
     async def pool(db, **kwargs):
         state["pool_kwargs"] = kwargs
@@ -128,20 +139,38 @@ def wiring(monkeypatch):
 
     async def fits_for_job(db, *, job, candidates, profile_user_id):
         state["scored"].append(job.id)
+        # Prawdziwa ocena pyta o wektor zapytania rekrutacji (`score_candidates`).
+        await full_search_measurement.request_vector(f"zapytanie {job.id}")
         fit = state["fits"].get(job.id)
         return [fit] if fit is not None else []
+
+    async def voyage(texts, *, input_type):
+        state["voyage_calls"].append(len(texts))
+        return [[1.0, 0.0] for _ in texts]
+
+    async def profile(db, *, user_id, client_id):
+        return SimpleNamespace(id=1)
+
+    def context(job, profile):
+        return SimpleNamespace(query_text=f"zapytanie {job.id}")
 
     monkeypatch.setattr(also_fits, "open_pool_job_ids", pool)
     monkeypatch.setattr(auto_match_service, "scoped_similarity", similarity)
     monkeypatch.setattr(embedding_service, "_build_candidate_text", lambda c: "cv")
     monkeypatch.setattr(my_people_matching, "fits_for_job", fits_for_job)
     monkeypatch.setattr(job_working_title, "display_title", lambda job: job.title)
+    monkeypatch.setattr(embedding_service, "_voyage_embed_batch", voyage)
+    monkeypatch.setattr(full_search_measurement, "_query_cache", OrderedDict())
+    monkeypatch.setattr(scoring_service, "resolve_active_profile", profile)
+    monkeypatch.setattr(request_matching_context, "build_request_context", context)
     return state
 
 
 def _jobs(*ids):
     return [
-        SimpleNamespace(id=i, title=f"Rekrutacja {i}", client_reference=f"ZOB-{i}")
+        SimpleNamespace(
+            id=i, title=f"Rekrutacja {i}", client_reference=f"ZOB-{i}", client_id=None
+        )
         for i in ids
     ]
 
@@ -209,6 +238,24 @@ async def test_only_the_nearest_jobs_get_the_full_score(wiring) -> None:
     assert (
         wiring["scored"] == sorted(pool, reverse=True)[: also_fits.ALSO_FITS_PREFILTER]
     )
+
+
+@pytest.mark.asyncio
+async def test_query_vectors_of_scored_jobs_come_in_one_voyage_call(wiring) -> None:
+    """Pomiar na stagingu 27.10.2026: osobny wektor zapytania każdej z 8
+    ocenianych rekrutacji to było 8 wywołań Voyage po kolei, 85–95% czasu
+    trasy (4–7 s na zimno). Teraz jedno wywołanie na wszystkie."""
+    pool = list(range(100, 120))
+    wiring["pool"] = pool
+    wiring["fits"] = {jid: _fit(jid, 75) for jid in pool}
+    await also_fits.also_fits_for_candidate(
+        _Db(_jobs(*pool)),
+        candidate=SimpleNamespace(id=1),
+        from_job_id=10,
+        profile_user_id=5,
+    )
+    assert len(wiring["scored"]) == also_fits.ALSO_FITS_PREFILTER
+    assert wiring["voyage_calls"] == [also_fits.ALSO_FITS_PREFILTER]
 
 
 @pytest.mark.asyncio

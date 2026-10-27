@@ -117,31 +117,46 @@ async def request_vector(text: str) -> list[float] | None:
 
 async def warm_request_vectors(texts) -> None:
     """Wektory wielu zapytań paczkami — jedno wywołanie Voyage na
-    ``_WARM_BATCH`` tekstów zamiast jednego na tekst (21.10.2026).
+    ``_WARM_BATCH`` kawałków zamiast jednego na tekst (21.10.2026).
 
-    Wynik jest ten sam co z ``request_vector`` (jeden kawałek, ta sama
-    normalizacja) i trafia do tej samej pamięci podręcznej. Tekst dłuższy niż
-    kawałek i nieudana paczka zostają dla ``request_vector``. Wołający ogrzewa
-    najwyżej ``_QUERY_CACHE_LIMIT`` tekstów naraz, inaczej wypchnie własne.
+    Wynik jest ten sam co z ``request_vector`` (te same kawałki, ta sama
+    średnia i normalizacja) i trafia do tej samej pamięci podręcznej. Tekst
+    dłuższy niż kawałek idzie w tej samej paczce co krótkie (27.10.2026:
+    co trzecia rekrutacja w „Pasuje też do” ma ponad 8000 znaków i bez tego
+    pytała Voyage osobno). Tekst z nieudanym kawałkiem zostaje dla
+    ``request_vector``. Wołający ogrzewa najwyżej ``_QUERY_CACHE_LIMIT``
+    tekstów naraz, inaczej wypchnie własne.
     """
     pending: dict[tuple[str, str, str], str] = {}
     for text in texts:
-        if not text or len(text) > _CHUNK:
+        if not text:
             continue
         key = _cache_key(text)
         if key not in pending and _cached(key) is None:
             pending[key] = text
-    items = list(pending.items())
-    for start in range(0, len(items), _WARM_BATCH):
-        part = items[start : start + _WARM_BATCH]
+    chunks = [
+        (key, text[i : i + _CHUNK])
+        for key, text in pending.items()
+        for i in range(0, len(text), _CHUNK)
+    ]
+    measured_by_key: dict[tuple[str, str, str], list[list[float]]] = {}
+    failed: set[tuple[str, str, str]] = set()
+    for start in range(0, len(chunks), _WARM_BATCH):
+        part = chunks[start : start + _WARM_BATCH]
         measured = await embeddings._voyage_embed_batch(
-            [text for _, text in part], input_type="query"
+            [chunk for _, chunk in part], input_type="query"
         )
         if not measured or len(measured) != len(part):
+            failed.update(key for key, _ in part)
             continue
         for (key, _), vector in zip(part, measured):
             if vector:
-                _remember(key, [vector])
+                measured_by_key.setdefault(key, []).append(vector)
+            else:
+                failed.add(key)
+    for key, vectors in measured_by_key.items():
+        if key not in failed:
+            _remember(key, vectors)
 
 
 def _remember(key, vectors) -> list[float] | None:

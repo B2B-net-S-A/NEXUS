@@ -298,14 +298,22 @@ def evidence_note_text(kind: Optional[str], content: Optional[str]) -> str:
     z przeczącą odpowiedzią znika razem z odpowiedzią — inaczej technologia
     z treści pytania liczyłaby się jako znajomość.
     """
-    from app.services.recommendation_card_parser import parse_card, to_text
-
     if kind not in (note_kinds.CARD, note_kinds.SCREENING_FACTS):
         return content or ""
+    return _card_evidence_text(content or "")
+
+
+# Karta się nie zmienia, a Tablica (`/pipeline-scores`) parsowała przy każdym
+# odświeżeniu karty wszystkich osób: 467 kart = 0,5 s CPU bez oddania pętli
+# zdarzeń (pomiar 27.10.2026). Karta ma średnio 2,4 KB: 4096 kart to ok. 10 MB.
+@lru_cache(maxsize=4096)
+def _card_evidence_text(content: str) -> str:
+    from app.services.recommendation_card_parser import parse_card, to_text
+
     parsed = parse_card(content)
     negative = [a for a in parsed.answers if is_negative_answer(a.get("answer"))]
     if not negative:
-        return content or ""
+        return content
     text = to_text(content)
     for item in negative:
         text = _drop_fragment(text, str(item.get("question") or "").strip())
