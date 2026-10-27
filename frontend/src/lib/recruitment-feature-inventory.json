@@ -1697,6 +1697,14 @@
    "v3_home": "Profil Championa → Brief → „Edytuj” przy „Czego szukamy” (szuflada)"
   },
   {
+   "id": "champ.requirement-rare-word",
+   "area": "zlecenie",
+   "opis": "Rzadkie słowo „musi mieć” (mniej niż 20 osób w bazie): okienko pod wierszem z „Do rozmowy”, „Zostaw” i „Rozdziel” dla wariantów sklejonych ukośnikiem albo nawiasem, a w podsumowaniu „Najbardziej zawężają” — także na nowej rekrutacji",
+   "file": "components/champion/RequirementRowsEditor.tsx",
+   "marker": "RareWordCallout",
+   "v3_home": "Profil Championa → „Edytuj” przy „Czego szukamy” · nowa rekrutacja → 2 · Wymagania"
+  },
+  {
    "id": "team.category-change",
    "area": "naglowek",
    "opis": "„Zmień” kategorię rekrutacji — uczestnicy idą za kategorią",

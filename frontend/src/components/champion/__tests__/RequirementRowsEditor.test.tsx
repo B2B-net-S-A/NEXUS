@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -725,6 +725,29 @@ describe("RequirementRowsEditor — audyt 06.10.2026", () => {
     expect(
       screen.getAllByTestId("requirement-row-rare").some((n) => n.textContent?.includes("płatności")),
     ).toBe(false);
+  });
+
+  it("licznik nie wysyła słowa krótszego niż 2 znaki (lista kandydatów odpowiada 422)", async () => {
+    // 789124 (27.10.2026): wiersz „C” dawał „—”, a „wszystkie naraz” — „nie policzono”.
+    mocks.get.mockResolvedValue({ data: { total: 42 } });
+    renderEditor({
+      countEnabled: true,
+      rows: [
+        { key: "c", words: ["C"], level: "must" },
+        { key: "cpp", words: ["C++"], level: "must" },
+      ],
+    });
+    await waitFor(
+      () => expect(screen.getByText(/Wszystkie „musi mieć” naraz/)).toHaveTextContent("~42"),
+      { timeout: 3000 },
+    );
+    const sent = mocks.get.mock.calls
+      .filter(([url]) => url === "/api/candidates")
+      .flatMap(([, config]) => (config as { params: { q_any_group?: string[] } }).params.q_any_group ?? []);
+    expect(sent).toContain("C++");
+    expect(sent).not.toContain("C");
+    // Wiersz „C” nie czeka w nieskończoność na „liczę…”.
+    expect(screen.getByLabelText("Osób w bazie ze słowem C")).toHaveTextContent("—");
   });
 
   it("jednoliterowe słowo z litery („C”) wchodzi do wiersza; cyfra nie", () => {
