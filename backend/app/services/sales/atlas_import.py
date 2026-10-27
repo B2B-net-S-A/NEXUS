@@ -47,12 +47,14 @@ from app.models.sales import (
     SalesOpportunity,
     SalesOpportunityContact,
     SalesPipeline,
+    SalesLead,
     SalesPipelineStage,
 )
 from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.company_names import normalize_company_name
 from app.services.sales.companies import nip_digits
+from app.services.sales.leads import is_existing_client
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +149,8 @@ class AtlasSource(Protocol):
     async def company_activities(self) -> list[dict[str, Any]]: ...
     async def deal_notes(self) -> list[dict[str, Any]]: ...
     async def company_notes(self) -> list[dict[str, Any]]: ...
+    async def linkedin_leads(self) -> list[dict[str, Any]]: ...
+    async def press_signals(self) -> list[dict[str, Any]]: ...
     async def attachments_count(self) -> int: ...
 
 
@@ -766,6 +770,114 @@ async def _import_activities(
     ctx.report.add("activities_imported", len(ids))
 
 
+# ── Leady ────────────────────────────────────────────────────────────────
+
+#: Otwarte statusy leadów Atlasa → status skrzynki NEXUSA. Zamienione,
+#: odrzucone i zarchiwizowane nie przechodzą — ich ślad to szanse.
+_OPEN_LEAD_STATUSES = {
+    "new": "new",
+    "reviewing": "new",
+    "qualified": "new",
+    "contacted": "contacted",
+}
+
+
+def _lead_score(value: Any) -> int:
+    try:
+        return max(0, min(100, int(value or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _import_leads(
+    db: AsyncSession, source: AtlasSource, ctx: _Context, companies: Mapping[str, int]
+) -> None:
+    """LinkedIn i prasa (z ogłoszeniami) z Atlasa → skrzynka leadów.
+
+    ``compass_signals`` („Od konsultantów”) celowo nie przechodzą: popyt
+    u istniejących klientów idzie do DL (decyzja Artura 22.10.2026). Tak samo
+    lead z firmy, która jest już klientem NEXUSA.
+    """
+
+    rows: list[dict[str, Any]] = []
+    for row in await source.linkedin_leads():
+        status = _OPEN_LEAD_STATUSES.get(str(row.get("status") or "new"))
+        if status is None or row.get("archived_at"):
+            ctx.report.add("leads_skipped_closed")
+            continue
+        text_value = row.get("summary") or row.get("post_content") or ""
+        rows.append(
+            {
+                "fingerprint": _ref("linkedin_leads", row["id"]),
+                "source": "linkedin",
+                "status": status,
+                "title": _clip(text_value, 500) or "Post na LinkedIn",
+                "summary": row.get("post_content") or None,
+                "company_name": _clip(row.get("company_name"), 500),
+                "company_id": companies.get(_ref("companies", row.get("company_id"))),
+                "url": _clip(row.get("linkedin_profile_url"), 1000),
+                "score": _lead_score(row.get("score")),
+                "signal_at": row.get("last_seen_at") or row.get("first_seen_at"),
+                "payload": {
+                    key: row[key]
+                    for key in ("persona_tag", "grade", "recommended_offer")
+                    if row.get(key)
+                },
+            }
+        )
+    for row in await source.press_signals():
+        status = _OPEN_LEAD_STATUSES.get(str(row.get("status") or "new"))
+        if status is None or row.get("archived_at"):
+            ctx.report.add("leads_skipped_closed")
+            continue
+        rows.append(
+            {
+                "fingerprint": _ref("press_signals", row["id"]),
+                "source": "job_board"
+                if row.get("source_category") == "job_board"
+                else "press",
+                "status": status,
+                "title": _clip(row.get("article_title"), 500) or "Sygnał z prasy",
+                "summary": row.get("ai_summary") or None,
+                "company_name": _clip(row.get("company_name"), 500),
+                "company_id": companies.get(_ref("companies", row.get("company_id"))),
+                "url": _clip(row.get("article_url"), 1000),
+                "score": _lead_score(row.get("score")),
+                "signal_at": row.get("published_at") or row.get("first_seen_at"),
+                "payload": {
+                    key: row[key] for key in ("trigger_type", "source") if row.get(key)
+                },
+            }
+        )
+    kept = []
+    for row in rows:
+        if row["company_name"] and await is_existing_client(db, row["company_name"]):
+            ctx.report.add("leads_skipped_existing_client")
+            continue
+        kept.append(row)
+    for start in range(0, len(kept), BATCH):
+        stmt = insert(SalesLead).values(kept[start : start + BATCH])
+        await db.execute(
+            stmt.on_conflict_do_update(
+                constraint="uq_sales_leads_fingerprint",
+                # Status i odrzucenie należą do handlowca — drugi bieg ich nie cofa.
+                set_={
+                    name: stmt.excluded[name]
+                    for name in (
+                        "title",
+                        "summary",
+                        "company_name",
+                        "url",
+                        "score",
+                        "signal_at",
+                        "payload",
+                    )
+                },
+            )
+        )
+    ctx.report.add("leads_imported", len(kept))
+
+
 # ── Całość ───────────────────────────────────────────────────────────────
 
 
@@ -825,6 +937,7 @@ async def run_import(
         ).all()
     )
     await _import_activities(db, source, ctx, companies, contacts, deals, deal_company)
+    await _import_leads(db, source, ctx, companies)
     report.add("files_pending_storage_copy", await source.attachments_count())
     logger.info("[atlas-import] %s", report.as_dict())
     return report

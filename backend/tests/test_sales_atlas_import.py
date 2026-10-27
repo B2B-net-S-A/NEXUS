@@ -19,6 +19,7 @@ from app.models.sales import (
     SalesActivity,
     SalesCompany,
     SalesContact,
+    SalesLead,
     SalesOpportunity,
     SalesOpportunityContact,
     SalesPipeline,
@@ -213,6 +214,34 @@ class FakeAtlas:
             "company_notes": [
                 {"id": f"n2-{t}", "company_id": f"c1-{t}", "content": "  "}
             ],
+            "linkedin_leads": [
+                {
+                    "id": f"l1-{t}",
+                    "status": "reviewing",
+                    "summary": "Szukają lidera QA",
+                    "company_name": f"Mewa Soft {t}",
+                    "score": 70,
+                    "person": {"email": "nie-kopiuj@example.com"},
+                },
+                {"id": f"l2-{t}", "status": "converted", "summary": "Już szansa"},
+            ],
+            "press_signals": [
+                {
+                    "id": f"s1-{t}",
+                    "status": "new",
+                    "article_title": "Rusza centrum IT",
+                    "company_name": f"Klient Żuraw {t}",
+                    "source_category": "press",
+                },
+                {
+                    "id": f"s2-{t}",
+                    "status": "new",
+                    "article_title": "8 ogłoszeń QA",
+                    "company_name": f"Sowa Dane {t}",
+                    "source_category": "job_board",
+                    "score": 300,
+                },
+            ],
         }
 
     def __getattr__(self, name):
@@ -267,6 +296,9 @@ async def test_import_maps_everything_and_second_run_updates_instead_of_duplicat
     assert report["contacts_skipped_nameless"] == 1
     assert report["notes_skipped_empty"] == 1
     assert report["files_pending_storage_copy"] == 3
+    assert report["leads_imported"] == 2  # l1 i s2
+    assert report["leads_skipped_closed"] == 1  # l2 zamieniony w Atlasie
+    assert report["leads_skipped_existing_client"] == 1  # s1 to klient NEXUSA
 
     async with AsyncSessionLocal() as db:
         c1 = (
@@ -368,6 +400,28 @@ async def test_import_maps_everything_and_second_run_updates_instead_of_duplicat
         assert (note.kind, note.is_pinned, note.body) == ("note", True, "Budżet na Q1")
         assert acts[f"atlas:company_activities:ca1-{tag}"].company_id == c2.id
 
+        leads = {
+            lead.fingerprint: lead
+            for lead in (
+                await db.execute(
+                    select(SalesLead).where(
+                        SalesLead.fingerprint.like(f"atlas:%-{tag}")
+                    )
+                )
+            ).scalars()
+        }
+        linkedin = leads[f"atlas:linkedin_leads:l1-{tag}"]
+        assert (linkedin.source, linkedin.status, linkedin.score) == (
+            "linkedin",
+            "new",
+            70,
+        )
+        assert "nie-kopiuj" not in str(linkedin.payload)
+        board = leads[f"atlas:press_signals:s2-{tag}"]
+        assert (board.source, board.score) == ("job_board", 100)
+        board.status = "dismissed"
+        await db.commit()
+
         before = {
             model.__tablename__: await _count(
                 db, model, model.external_ref.like(f"atlas:%{tag}%")
@@ -394,3 +448,9 @@ async def test_import_maps_everything_and_second_run_updates_instead_of_duplicat
             )
         )
         assert title == "Zespół QA i automatyzacji"
+        kept = await db.scalar(
+            select(SalesLead.status).where(
+                SalesLead.fingerprint == f"atlas:press_signals:s2-{tag}"
+            )
+        )
+        assert kept == "dismissed"  # decyzja handlowca przetrwała drugi bieg

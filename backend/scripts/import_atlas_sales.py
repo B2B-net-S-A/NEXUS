@@ -40,6 +40,8 @@ TABLES = {
     "company_activities": "company_activities",
     "deal_notes": "deal_notes",
     "company_notes": "company_notes",
+    "linkedin_leads": "linkedin_leads",
+    "press_signals": "press_signals",
 }
 
 
@@ -98,6 +100,12 @@ class AsyncpgSource:
 
     async def company_notes(self):
         return await self._rows("company_notes")
+
+    async def linkedin_leads(self):
+        return await self._rows("linkedin_leads")
+
+    async def press_signals(self):
+        return await self._rows("press_signals")
 
     async def attachments_count(self) -> int:
         total = 0
