@@ -244,6 +244,19 @@ def _credited_snapshot_uncached(monkeypatch):
     monkeypatch.setattr(credited_snapshot, "_SNAPSHOT_TTL_SECONDS", -1)
 
 
+@pytest.fixture
+def empty_credited_snapshot(monkeypatch):
+    """Pusta migawka `credited` dla testów z atrapą `db` z kolejką odpowiedzi
+    — odczyt migawki (`credited_snapshot`, 27.10.2026) nie może zjadać z niej
+    wyników przygotowanych dla zapytania konsumenta."""
+    from app.services import credited_snapshot
+
+    async def _rows(_db):
+        return ()
+
+    monkeypatch.setattr(credited_snapshot, "credited_rows", _rows)
+
+
 @pytest.fixture(autouse=True)
 def _open_the_order_mail_recheck_window(monkeypatch):
     """Automatyczny recheck ma w testach chodzić niezależnie od pory dnia.

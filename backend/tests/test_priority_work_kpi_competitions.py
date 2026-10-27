@@ -7,6 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
@@ -53,6 +55,7 @@ def _row(
     )
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_champions_points_score_client_interview_not_qc_stage() -> None:
     """Skladnik „rozmowa" punktuje `client_interview`, NIE etap QC CV (`interview`).
 
@@ -98,10 +101,15 @@ async def test_champions_points_score_client_interview_not_qc_stage() -> None:
 
     # Atrybucja ta sama co KPI: CTE niesie `client_interview`, wiec licznik
     # ma skad sie wziac (bez tego test na atrapie przechodzilby na pustej bazie).
+    # Od 27.10.2026 Liga czyta `credited` z minutowej migawki tego CTE.
+    from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE
+
     statement, _params = db.execute.await_args.args
-    assert "'client_interview'" in str(statement)
+    assert CREDITED_FROM_SNAPSHOT_CTE in str(statement)
+    assert "'client_interview'" in VERIFIER_ANCHORED_CTE
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_qc_stage_alone_gives_no_league_points() -> None:
     """Sam etap QC CV (`interview`) nie daje ani punktow, ani licznika rozmow."""
     rows = [
@@ -119,6 +127,7 @@ async def test_qc_stage_alone_gives_no_league_points() -> None:
     assert ranked[0].extras["interviews"] == 0
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_champions_weights_change_the_ranking() -> None:
     """Sens D3: zmiana wag NAPRAWDE przestawia podium, a nie tylko napis.
 
@@ -279,6 +288,7 @@ def _pin_race_thresholds(monkeypatch) -> None:
     )
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_monthly_recommendation_qualification_is_four_per_day_and_75_percent(
     monkeypatch,
 ) -> None:
@@ -334,6 +344,7 @@ async def test_monthly_recommendation_qualification_is_four_per_day_and_75_perce
     assert "sourcer" not in sql and "'tac'" not in sql
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_monthly_recommendation_ranking_keeps_unqualified_entrants(
     monkeypatch,
 ) -> None:
@@ -369,6 +380,7 @@ async def test_monthly_recommendation_ranking_keeps_unqualified_entrants(
     assert competitions.qualified_for_award(ranked) == []
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_monthly_recommendation_qualification_is_not_applied_in_having(
     monkeypatch,
 ) -> None:

@@ -29,23 +29,15 @@ def _user(user_id: int) -> User:
     )
 
 
+# Atrapa `db` z kolejką odpowiedzi — migawka `credited` jej nie czyta.
+pytestmark = pytest.mark.usefixtures("empty_credited_snapshot")
+
+
 @pytest.fixture(autouse=True)
 def _clean_cache():
     cache_module._cache.clear()
     yield
     cache_module._cache.clear()
-
-
-@pytest.fixture(autouse=True)
-def _empty_credited_snapshot(monkeypatch):
-    """`db` jest tu atrapą z kolejką odpowiedzi — migawka `credited`
-    (`credited_snapshot`, 27.10.2026) nie może zjadać z niej wyników."""
-    from app.services import credited_snapshot
-
-    async def _rows(_db):
-        return ()
-
-    monkeypatch.setattr(credited_snapshot, "credited_rows", _rows)
 
 
 @pytest.mark.asyncio
