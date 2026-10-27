@@ -162,6 +162,13 @@ async def test_preview_composes_the_mail_without_client_and_marks_a_missing_rate
     ).json()
     assert "niższa" in reversed_rate["rate_error"]
 
+    # Stawka spoza zakresu to komunikat przy polu, nie awaria podglądu.
+    too_high = await api.post(
+        url, json={"rate_from": 6000, "rate_to": 7000}, headers=lead
+    )
+    assert too_high.status_code == 200
+    assert "mieścić się" in too_high.json()["rate_error"]
+
 
 async def test_without_a_mailbox_nothing_is_sent(api: AsyncClient, monkeypatch):
     _recruiter, lead, _lead_id, job_id = await _job_with_lead(api, monkeypatch)
