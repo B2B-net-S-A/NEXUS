@@ -157,6 +157,6 @@ def test_prompt_asks_for_deadline_and_headcount_quotes() -> None:
     rendered = JOB_REQUEST_INTAKE.render(
         client_name="Klient", client_context="brak", request_text="mail"
     )
-    assert JOB_REQUEST_INTAKE.version == 13
+    assert JOB_REQUEST_INTAKE.version == 14
     for key in ('"deadline_quote"', '"deadline"', '"deadline_time"', '"headcount"'):
         assert key in rendered
