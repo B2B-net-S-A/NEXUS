@@ -12,6 +12,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   SERVICE_LINE_LABELS,
   useCreateOpportunity,
+  useUpdateOpportunity,
   type OpportunityDetail,
   type OpportunityRole,
   type Ref,
@@ -26,7 +27,18 @@ interface OpportunityFormDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Firma z karty firmy — wtedy nie wybieramy jej drugi raz. */
   company?: Ref;
+  /** Edycja istniejącej szansy (firmy i etapu tu nie zmieniamy). */
+  opportunity?: OpportunityDetail;
   onCreated?: (opportunity: OpportunityDetail) => void;
+}
+
+function amountInput(value: string | null | undefined): string {
+  return value ? String(Number(value)) : "";
+}
+
+/** Role z powrotem do jednej linii: [{3, QA}] → „3 × QA”. */
+export function rolesToText(roles: readonly OpportunityRole[]): string {
+  return roles.map((role) => `${role.count} × ${role.title}`).join(", ");
 }
 
 const SERVICE_OPTIONS = Object.entries(SERVICE_LINE_LABELS).map(([value, label]) => ({
@@ -59,18 +71,24 @@ export function OpportunityFormDialog({
   open,
   onOpenChange,
   company,
+  opportunity,
   onCreated,
 }: OpportunityFormDialogProps) {
-  const [picked, setPicked] = useState<Ref | null>(company ?? null);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [serviceLine, setServiceLine] = useState<ServiceLine | "">("bodyleasing");
-  const [mrr, setMrr] = useState("");
-  const [oneOff, setOneOff] = useState("");
-  const [months, setMonths] = useState("");
-  const [closeDate, setCloseDate] = useState("");
-  const [roles, setRoles] = useState("");
+  const fixedCompany = opportunity?.company ?? company;
+  const [picked, setPicked] = useState<Ref | null>(fixedCompany ?? null);
+  const [title, setTitle] = useState(opportunity?.title ?? "");
+  const [description, setDescription] = useState(opportunity?.description ?? "");
+  const [serviceLine, setServiceLine] = useState<ServiceLine | "">(
+    opportunity ? (opportunity.service_line ?? "") : "bodyleasing",
+  );
+  const [mrr, setMrr] = useState(amountInput(opportunity?.mrr_value));
+  const [oneOff, setOneOff] = useState(amountInput(opportunity?.one_off_value));
+  const [months, setMonths] = useState(opportunity?.contract_months ? String(opportunity.contract_months) : "");
+  const [closeDate, setCloseDate] = useState(opportunity?.expected_close_date ?? "");
+  const [roles, setRoles] = useState(opportunity ? rolesToText(opportunity.roles) : "");
   const create = useCreateOpportunity();
+  const update = useUpdateOpportunity(opportunity?.id ?? 0);
+  const pending = create.isPending || update.isPending;
   const { showError, showSuccess } = useToast();
 
   const submit = () => {
@@ -88,18 +106,28 @@ export function OpportunityFormDialog({
       showError("Kwotę wpisz liczbą, np. 40000 albo 40 000,50.");
       return;
     }
+    const fields = {
+      title: title.trim(),
+      description: description.trim() || null,
+      service_line: serviceLine || null,
+      mrr_value: mrrValue,
+      one_off_value: oneOffValue,
+      contract_months: months ? Number(months) : null,
+      expected_close_date: closeDate || null,
+      roles: parseRoles(roles),
+    };
+    if (opportunity) {
+      update.mutate(fields, {
+        onSuccess: () => {
+          showSuccess("Zapisano zmiany szansy.");
+          onOpenChange(false);
+        },
+        onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać szansy.")),
+      });
+      return;
+    }
     create.mutate(
-      {
-        company_id: picked.id,
-        title: title.trim(),
-        description: description.trim() || null,
-        service_line: serviceLine || null,
-        mrr_value: mrrValue,
-        one_off_value: oneOffValue,
-        contract_months: months ? Number(months) : null,
-        expected_close_date: closeDate || null,
-        roles: parseRoles(roles),
-      },
+      { company_id: picked.id, ...fields },
       {
         onSuccess: (opportunity) => {
           showSuccess("Dodano szansę. Uzupełniamy daty osób z tej firmy w tle.");
@@ -115,15 +143,15 @@ export function OpportunityFormDialog({
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      title="Nowa szansa"
+      title={opportunity ? "Edytuj szansę" : "Nowa szansa"}
       size="lg"
       footer={
         <>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={create.isPending}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
             Anuluj
           </Button>
-          <Button onClick={submit} loading={create.isPending}>
-            Dodaj szansę
+          <Button onClick={submit} loading={pending}>
+            {opportunity ? "Zapisz" : "Dodaj szansę"}
           </Button>
         </>
       }
@@ -131,8 +159,8 @@ export function OpportunityFormDialog({
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1 sm:col-span-2">
           <Label htmlFor="sales-opp-company">Firma</Label>
-          {company ? (
-            <p id="sales-opp-company" className="text-sm">{company.name}</p>
+          {fixedCompany ? (
+            <p id="sales-opp-company" className="text-sm">{fixedCompany.name}</p>
           ) : (
             <CompanyPicker id="sales-opp-company" value={picked} onChange={setPicked} />
           )}

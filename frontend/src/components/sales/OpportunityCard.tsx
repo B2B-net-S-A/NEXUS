@@ -14,7 +14,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
-  CONTACT_ROLE_LABELS,
   SERVICE_LINE_LABELS,
   useArchiveOpportunity,
   useMoveOpportunity,
@@ -31,6 +30,8 @@ import { useAuthStore } from "@/store/auth";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { formatDealAmount } from "./format";
 import { SalesSelect } from "./SalesSelect";
+import { OpportunityContacts } from "./OpportunityContacts";
+import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesShell } from "./SalesShell";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 
@@ -87,6 +88,7 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
   const { askConfirm, confirmDialog } = useConfirmV2();
   const { showError, showSuccess } = useToast();
   const [losing, setLosing] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState("");
   const data = opportunity.data;
   const stages: Stage[] =
@@ -138,6 +140,9 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="quiet" onClick={() => void onArchive()}>
               {data.archived_at ? "Przywróć" : "Archiwizuj"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+              Edytuj
             </Button>
             {data.status === "open" && lostStage && (
               <Button size="sm" variant="outline" onClick={() => setLosing(true)}>
@@ -206,38 +211,7 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
                 </Link>
               </p>
             </Card>
-            <Card className="space-y-2 p-4">
-              <h2 className="text-base font-semibold text-foreground">Kontakty szansy</h2>
-              {data.contacts.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Nie ma jeszcze kontaktów — dodaj je na karcie firmy.
-                </p>
-              ) : (
-                <ul className="divide-y divide-border">
-                  {data.contacts.map((contact) => (
-                    <li key={contact.id} className="py-2 text-sm">
-                      <p className="font-medium text-foreground">{contact.full_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {[contact.title, contact.role ? CONTACT_ROLE_LABELS[contact.role] : null]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                      {(contact.email || contact.phone) && (
-                        <p className="text-xs">
-                          {contact.email && (
-                            <a className="text-primary hover:underline" href={`mailto:${contact.email}`}>
-                              {contact.email}
-                            </a>
-                          )}
-                          {contact.email && contact.phone ? " · " : ""}
-                          {contact.phone}
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
+            <OpportunityContacts opportunity={data} canEdit={canEdit} />
             {data.description && (
               <Card className="p-4">
                 <h2 className="text-base font-semibold text-foreground">Opis</h2>
@@ -247,6 +221,9 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
           </div>
         </div>
       ) : null}
+      {editing && data && (
+        <OpportunityFormDialog open={editing} onOpenChange={setEditing} opportunity={data} />
+      )}
       {losing && lostStage && (
         <AppModal
           open={losing}

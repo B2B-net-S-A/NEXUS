@@ -6,7 +6,7 @@ import { localInputToIso } from "../ActivityTimeline";
 import { duplicatesFromError } from "../CompanyFormDialog";
 import { daysLabel, daysSince, formatDealAmount, formatDealNumber } from "../format";
 import { boardStages, summarize } from "../OpportunitiesView";
-import { parseAmount, parseRoles } from "../OpportunityFormDialog";
+import { parseAmount, parseRoles, rolesToText } from "../OpportunityFormDialog";
 import { datesNote, period } from "../WhoWeKnowPanel";
 
 const stage = (id: number, outcome: Stage["outcome"]): Stage => ({
@@ -65,6 +65,15 @@ describe("Sprzedaż — formularze", () => {
       { count: 2, title: "QA" },
       { count: 1, title: "lider" },
     ]);
+  });
+
+  it("role w edycji wracają do tej samej linii", () => {
+    const roles = [
+      { count: 3, title: "Test Automation" },
+      { count: 1, title: "lider" },
+    ];
+    expect(rolesToText(roles)).toBe("3 × Test Automation, 1 × lider");
+    expect(parseRoles(rolesToText(roles))).toEqual(roles);
   });
 
   it("duplikaty czytane z odpowiedzi 409", () => {
