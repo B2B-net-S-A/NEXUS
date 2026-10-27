@@ -1,10 +1,12 @@
 "use client";
 
-import { ChevronDown, Pause } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, Flame, Pause } from "lucide-react";
 
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -19,7 +21,10 @@ import {
   PRIORITY_PAUSED_HINT,
   type PriorityLevel,
 } from "@/lib/request-priority";
+import { isP0Active, P0_HINT, P0_LABEL, P0_SET_BY_HINT, type P0Source } from "@/lib/job-p0";
 import { cn } from "@/lib/utils";
+import { P0Chip } from "./p0/P0Chip";
+import { SetP0Dialog } from "./p0/SetP0Dialog";
 import { useJobPriorityChange, type JobPriorityTeam } from "./useJobPriorityChange";
 
 /** Wygląd plakietki per poziom: P1 w tonie alarmu, „Przyjmujemy” przygaszone. */
@@ -66,6 +71,15 @@ export interface JobPriorityMenuProps {
    * poziom zostaje P1, plakietka szara z pauzą, w menu zdanie dlaczego.
    */
   paused?: boolean;
+  /**
+   * P0 — ultrapilne przez 24 h (27.10.2026): pola P0 rekrutacji. Aktywne P0
+   * zastępuje plakietkę poziomu; poziom pod spodem zostaje.
+   */
+  p0?: P0Source | null;
+  /** `can_set_p0` — Head of Recruitment i administrator ustawiają P0 z menu. */
+  canSetP0?: boolean;
+  /** Tytuł do okna „Ustaw P0”. */
+  jobTitle?: string | null;
 }
 
 /**
@@ -84,12 +98,25 @@ export function JobPriorityMenu({
   canSet,
   team,
   paused = false,
+  p0 = null,
+  canSetP0 = false,
+  jobTitle = null,
 }: JobPriorityMenuProps) {
   const { value, change, confirmDialog } = useJobPriorityChange(jobId, level, team);
+  const [p0DialogOpen, setP0DialogOpen] = useState(false);
+  const p0Active = isP0Active(p0);
   // Wstrzymanie dotyczy P1 — po zmianie poziomu w menu plakietka od razu
   // pokazuje nowy poziom.
   const levelPaused = paused && level === "p1";
   const valuePaused = paused && value === "p1";
+
+  if (!canSet && p0Active) {
+    return (
+      <span data-testid="job-header-priority" data-priority="p0" title={P0_SET_BY_HINT}>
+        <P0Chip until={p0?.p0_until} reason={p0?.p0_reason} size="md" />
+      </span>
+    );
+  }
 
   if (!canSet) {
     return (
@@ -112,6 +139,18 @@ export function JobPriorityMenu({
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
+        {p0Active ? (
+          <button
+            type="button"
+            className="hit-area inline-flex shrink-0 items-center gap-0.5 rounded-md hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title="P0 — ultrapilne. Zmień priorytet"
+            data-testid="job-header-priority"
+            data-priority="p0"
+          >
+            <P0Chip until={p0?.p0_until} reason={p0?.p0_reason} size="md" />
+            <ChevronDown className="h-3 w-3" aria-hidden="true" />
+          </button>
+        ) : (
         <button
           type="button"
           className={cn(
@@ -131,9 +170,35 @@ export function JobPriorityMenu({
           <PriorityChipLabel level={value} paused={valuePaused} />
           <ChevronDown className="h-3 w-3" aria-hidden="true" />
         </button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-80" data-testid="job-priority-menu">
         <DropdownMenuLabel>Priorytet rekrutacji</DropdownMenuLabel>
+        {canSetP0 ? (
+          <DropdownMenuItem
+            className="items-start"
+            data-testid="job-priority-option-p0"
+            onSelect={() => setP0DialogOpen(true)}
+          >
+            <span className="min-w-0">
+              <span className={cn(CHIP_CLASS, "gap-1 border-destructive bg-destructive text-destructive-foreground")}>
+                <Flame className="h-3 w-3" aria-hidden="true" />
+                {p0Active ? "P0 — zmień powód albo czas" : `${P0_LABEL}…`}
+              </span>
+              <span className="mt-1 block text-xs leading-snug text-muted-foreground">
+                {P0_HINT}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        ) : null}
+        {p0Active ? (
+          <p
+            className="mx-2 mb-1 rounded-md bg-destructive-muted px-2 py-1.5 text-xs leading-snug text-destructive-muted-foreground"
+            data-testid="job-priority-p0-note"
+          >
+            Teraz trwa P0. Poziom niżej obowiązuje dalej i zostaje po terminie P0.
+          </p>
+        ) : null}
         {valuePaused ? (
           <p
             className="mx-2 mb-1 flex items-start gap-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-xs leading-snug text-muted-foreground"
@@ -169,10 +234,19 @@ export function JobPriorityMenu({
         </DropdownMenuRadioGroup>
         <p className="mt-1 border-t border-border px-2 pb-1 pt-2 text-xs leading-snug text-muted-foreground">
           Zapis od razu po kliknięciu. Zmienia Delivery Lead, Head of Recruitment
-          i administrator.
+          i administrator. {P0_SET_BY_HINT}
         </p>
       </DropdownMenuContent>
       {confirmDialog}
+      {canSetP0 ? (
+        <SetP0Dialog
+          jobId={jobId}
+          jobTitle={jobTitle}
+          open={p0DialogOpen}
+          onOpenChange={setP0DialogOpen}
+          initialReason={p0Active ? p0?.p0_reason : null}
+        />
+      ) : null}
     </DropdownMenu>
   );
 }

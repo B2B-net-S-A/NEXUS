@@ -73,6 +73,7 @@ import { EsignCompanyBand } from "../EsignCompanyBand"
 import { BoardPanelsMenu } from "./BoardPanelsMenu"
 import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
+import { P0NowPanel } from "@/components/v2/jobs/p0/P0NowPanel"
 
 const CONTACT_OVERSIGHT_HASH = "#nadzor-kontaktu"
 const BOARD_TASKS_TILE_TYPE = "board_tasks"
@@ -550,6 +551,9 @@ export function CustomDashboard() {
           nad układem, a nie jako kafelki: zadanie ma dotrzeć do osoby, która
           pulpitu nie układała. Pas pierwszy i na całą szerokość — w kolumnie
           panelu gotowi do wysyłki ginęli między innymi listami. */}
+      {/* P0 — ultrapilne teraz (27.10.2026): u każdego nad wszystkim, bez
+          względu na własny układ (decyzja Artura); znika, gdy nie ma P0. */}
+      {editing ? null : <P0NowPanel />}
       {editing ? null : <EsignCompanyBand />}
       {editing ? null : <DlSendQueueBand hiddenPanels={hiddenPanels} />}
       {/* Panel czeka na układ pulpitu: inaczej listy „Do uzupełnienia” mignęłyby
