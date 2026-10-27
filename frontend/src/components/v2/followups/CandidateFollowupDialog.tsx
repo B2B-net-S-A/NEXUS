@@ -51,6 +51,7 @@ import {
 } from "@/lib/candidate-followup";
 import { cn } from "@/lib/utils";
 
+import { formatPhone } from "@/lib/phone-format";
 const TONE_CLASS = {
   danger: "bg-destructive/10 text-destructive",
   warning: "bg-warning-muted text-warning-muted-foreground",
@@ -284,7 +285,7 @@ export function CandidateFollowupDialog({
               {row ? (
                 <>
                   {row.phone ? (
-                    <span className="select-all font-mono text-foreground">{row.phone}</span>
+                    <span className="select-all font-mono text-foreground">{formatPhone(row.phone)}</span>
                   ) : (
                     "Brak telefonu w profilu"
                   )}{" "}

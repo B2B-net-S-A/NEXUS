@@ -24,6 +24,7 @@ import { countPl } from "@/lib/plural-pl";
 
 import { CandidateFollowupDialog, FollowupDuePill } from "./CandidateFollowupDialog";
 
+import { formatPhone } from "@/lib/phone-format";
 const ROWS = 6;
 
 function initials(name: string): string {
@@ -112,7 +113,7 @@ export function FollowupSection({ rows, others }: FollowupSectionProps) {
                 {row.phone ? (
                   <>
                     {" · "}
-                    <span className="select-all font-mono text-foreground">{row.phone}</span>
+                    <span className="select-all font-mono text-foreground">{formatPhone(row.phone)}</span>
                   </>
                 ) : null}
               </p>

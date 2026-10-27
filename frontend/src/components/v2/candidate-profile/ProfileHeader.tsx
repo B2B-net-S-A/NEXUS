@@ -78,6 +78,7 @@ import { getCandidateInitials } from "@/components/v2/pages/candidate-list-helpe
 import { candidateHeadline, linkedinHref, pickHeaderWarning } from "./profile-helpers";
 import { AddToListButton } from "./AddToListButton";
 
+import { formatPhone } from "@/lib/phone-format";
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload kandydata jest luźno typowany */
 
 // ── Pasek nad profilem: powrót + poprzedni/następny ───────────────────────
@@ -350,7 +351,7 @@ function ContactRow({
       {candidate.phone ? (
         <span className={CONTACT_CLASS}>
           <Phone className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="select-all tabular-nums">{candidate.phone}</span>
+          <span className="select-all tabular-nums">{formatPhone(candidate.phone)}</span>
           <button
             type="button"
             onClick={() => copy(candidate.phone, "numer telefonu")}

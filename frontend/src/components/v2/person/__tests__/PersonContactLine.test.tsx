@@ -25,6 +25,16 @@ describe("PersonContactLine", () => {
     expect(screen.getByText("jan@example.com")).toBeInTheDocument();
   });
 
+  it("numer zapisany jednym ciągiem widać w trójkach, tel: i schowek dostają go bez zmian", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+    render(<PersonContactLine phone="600100200" email={null} personName="Jan Przykładowy" />);
+    expect(screen.getByRole("link", { name: "600 100 200" })).toHaveAttribute("href", "tel:600100200");
+    await user.click(screen.getByRole("button", { name: "Kopiuj numer: Jan Przykładowy" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("600100200"));
+  });
+
   it("pokazuje tylko to, co profil ma; bez obu pól nie renderuje nic", () => {
     const { rerender, container } = render(
       <PersonContactLine phone="  " email="jan@example.com" personName="Jan Przykładowy" />,
