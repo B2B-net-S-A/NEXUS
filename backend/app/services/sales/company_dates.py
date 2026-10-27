@@ -15,13 +15,13 @@ daty 120 osób” i żeby kolejna szansa w tej samej firmie nie płaciła drugi 
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.core.config import settings
+from app.core.tasks import spawn
 from app.models.sales import SalesCompany
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,6 @@ MAX_PEOPLE_PER_RUN = 1000
 RERUN_AFTER = timedelta(days=30)
 
 _IN_FLIGHT: set[int] = set()
-_TASKS: set[asyncio.Task] = set()
 
 Backfill = Callable[..., Awaitable[dict[str, Any]]]
 
@@ -189,10 +188,8 @@ def schedule_company_dates(company_id: int) -> bool:
             _IN_FLIGHT.discard(company_id)
 
     try:
-        task = asyncio.create_task(_run())
+        spawn(_run(), f"sales company dates {company_id}")
     except RuntimeError:
         _IN_FLIGHT.discard(company_id)
         return False
-    _TASKS.add(task)
-    task.add_done_callback(_TASKS.discard)
     return True

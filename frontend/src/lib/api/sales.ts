@@ -868,7 +868,11 @@ export function useUploadSalesFile(owner: FileOwner) {
       const form = new FormData();
       form.append("file", file);
       for (const [key, value] of Object.entries(owner)) form.append(key, String(value));
-      return (await api.post<SalesFile>("/api/sales/files", form)).data;
+      return (
+        await api.post<SalesFile>("/api/sales/files", form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
     },
     onSuccess: invalidate,
   });

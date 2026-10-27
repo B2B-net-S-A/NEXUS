@@ -17,7 +17,11 @@ Ten test przechodzi po WSZYSTKICH trasach i wymaga jednej z bramek:
 * bramka modułów „Ludzi w NEXUSIE” (``require_hr_*``, ``app/api/hr_gates.py``
   i moduły HR): dostęp liczy kartoteka pracownika, uprawnienia z grupy
   „Ludzie” (Kadry, Płace, Sprzęt, Sprawy) i przełącznik modułu — to osobna oś
-  od sekcji produktu (rola „Pracownik” nie ma żadnej sekcji, a składa wnioski).
+  od sekcji produktu (rola „Pracownik” nie ma żadnej sekcji, a składa wnioski),
+* uprawnienie Sprzedaży (``SalesViewUser`` / ``SalesEditUser`` z
+  ``app/api/permission_access.py``): Sprzedaż nie ma sekcji produktu, dostęp
+  liczy wyłącznie „Sprzedaż: podgląd” / „Sprzedaż: edycja” (decyzja Artura
+  26.10.2026), więc administrator odbiera ją na ekranie Osoby i role.
 
 Trasa bez żadnej z nich trafia do ``_SECTIONLESS_ALLOWLIST`` z POWODEM:
 dane wspólne dla każdej sekcji (powiadomienia, słowniki) albo kontrola sekcji
@@ -32,9 +36,12 @@ from typing import Any
 import pytest
 
 from app.models.user import UserRole
+from app.services.action_permissions import ProductAction
 from app.services.request_semantics import READ_ONLY_POST_ROUTE_TEMPLATES
 from app.services.section_permissions import ProductSection
 from tests._route_introspection import iter_api_routes, iter_dependency_calls
+
+_SALES_PERMISSIONS = {ProductAction.sales_view, ProductAction.sales_edit}
 
 _AUTH_CALLS = {"get_current_user", "get_authenticated_user", "require_onboarded_user"}
 
@@ -159,6 +166,8 @@ def _classify(route: Any) -> str:
         if "require_service_scope" in name:
             return "section"
         if "require_hr_" in name:
+            return "section"
+        if _SALES_PERMISSIONS & set(getattr(call, "required_permissions", ())):
             return "section"
     for call, name in zip(calls, names):
         if "require_roles" in name:

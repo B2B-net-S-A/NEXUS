@@ -50,7 +50,7 @@ ContactRole = Literal[schema.CONTACT_ROLES]  # type: ignore[valid-type]
 # ── Lejki ────────────────────────────────────────────────────────────────
 
 
-class StageOut(BaseModel):
+class SalesStageOut(BaseModel):
     id: int
     key: str
     name: str
@@ -66,7 +66,7 @@ class PipelineOut(BaseModel):
     key: str
     name: str
     is_default: bool
-    stages: list[StageOut]
+    stages: list[SalesStageOut]
 
 
 async def _stages(db: AsyncSession, pipeline_id: int) -> list[SalesPipelineStage]:
@@ -103,7 +103,8 @@ async def list_pipelines(
                 name=pipeline.name,
                 is_default=pipeline.is_default,
                 stages=[
-                    StageOut.model_validate(s, from_attributes=True) for s in stages
+                    SalesStageOut.model_validate(s, from_attributes=True)
+                    for s in stages
                 ],
             )
         )
@@ -195,7 +196,7 @@ class OpportunityOut(BaseModel):
     description: Optional[str]
     company: Ref
     pipeline_id: int
-    stage: StageOut
+    stage: SalesStageOut
     status: str
     service_line: Optional[str]
     value: Optional[Decimal]
@@ -248,7 +249,7 @@ def _out(row: Any) -> OpportunityOut:
         description=opp.description,
         company=Ref(id=opp.company_id, name=row.company_name),
         pipeline_id=opp.pipeline_id,
-        stage=StageOut.model_validate(stage, from_attributes=True),
+        stage=SalesStageOut.model_validate(stage, from_attributes=True),
         status=opp.status,
         service_line=opp.service_line,
         value=opp.value,
