@@ -65,6 +65,14 @@ EXEMPT: dict[tuple[str, str], str] = {
         "_renewal_of_completed_order",
     ): "FOR SHARE w pętli _write_document, po blokadzie całego dokumentu",
     (
+        "services/order_mail_apply.py",
+        "_settle_overlap",
+    ): (
+        "FOR UPDATE nachodzącego zamówienia w pętli _write_document — jego id "
+        "(target_order_id planu) jest już zablokowane przez "
+        "lock_contract_then_orders razem z kontraktami dokumentu"
+    ),
+    (
         "services/client_order_lines.py",
         "_rebalance_swap_successor",
     ): (
