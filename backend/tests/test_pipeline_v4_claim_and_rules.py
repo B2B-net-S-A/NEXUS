@@ -1160,7 +1160,7 @@ def test_integration_request_is_detected_by_oauth_client_state() -> None:
     assert candidate_claim.is_integration_request(object()) is False
 
 
-async def _card(
+async def _fetch_card(
     client: AsyncClient, headers: dict[str, str], job_id: int, cand_id: int
 ) -> dict:
     board = await client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
@@ -1198,7 +1198,7 @@ async def test_taker_stays_on_card_after_claim_expires_until_verified(api_client
     other_h = await _login(api_client, other_email, other_pw)
     try:
         await _add(api_client, owner_h, job_id, cand_id, "manual_search")
-        card = await _card(api_client, other_h, job_id, cand_id)
+        card = await _fetch_card(api_client, other_h, job_id, cand_id)
         assert card["added_to_job_by_id"] == owner_id
         assert card["taken_by_user_id"] == owner_id
 
@@ -1209,14 +1209,14 @@ async def test_taker_stays_on_card_after_claim_expires_until_verified(api_client
             json={"candidate_id": cand_id, "job_id": job_id},
         )
         assert take.status_code == 200, take.text
-        card = await _card(api_client, owner_h, job_id, cand_id)
+        card = await _fetch_card(api_client, owner_h, job_id, cand_id)
         assert card["taken_by_user_id"] == other_id
         assert card["taken_by_name"].startswith("V4 recruiter")
         assert card["added_to_job_by_id"] == owner_id
 
         # Po 12 h blokada nie wiąże, ale osoba karty zostaje.
         await _expire_claim(cand_id, job_id)
-        card = await _card(api_client, owner_h, job_id, cand_id)
+        card = await _fetch_card(api_client, owner_h, job_id, cand_id)
         assert card.get("claim_user_id") is None
         assert card["can_take"] is True
         assert card["taken_by_user_id"] == other_id
@@ -1227,7 +1227,7 @@ async def test_taker_stays_on_card_after_claim_expires_until_verified(api_client
             json={"candidate_id": cand_id, "job_id": job_id, "stage": "verified"},
         )
         assert moved.status_code == 200, moved.text
-        card = await _card(api_client, owner_h, job_id, cand_id)
+        card = await _fetch_card(api_client, owner_h, job_id, cand_id)
         assert card.get("taken_by_user_id") is None
     finally:
         await _cleanup([cand_id], job_id)
@@ -1248,7 +1248,7 @@ async def test_deactivated_taker_is_not_the_card_person(api_client):
                 update(User).where(User.id == owner_id).values(is_active=False)
             )
             await db.commit()
-        card = await _card(api_client, other_h, job_id, cand_id)
+        card = await _fetch_card(api_client, other_h, job_id, cand_id)
         assert card.get("taken_by_user_id") is None
     finally:
         await _cleanup([cand_id], job_id)
