@@ -1174,7 +1174,12 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
 try:
     from app.services import sales_schema as _sales_schema
 
-    _SALES_TABLE_DDL = [*_sales_schema.TABLE_DDL, *_sales_schema.INDEX_DDL]
+    _SALES_TABLE_DDL = [
+        *_sales_schema.TABLE_DDL,
+        *_sales_schema.INDEX_DDL,
+        # 0602: skrzynka leadów (po szansach, na które wskazuje).
+        *_sales_schema.LEADS_DDL,
+    ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001
     print(f"sales schema unavailable: {_sales_schema_err!r}")

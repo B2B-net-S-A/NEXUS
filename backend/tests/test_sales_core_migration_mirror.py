@@ -16,6 +16,7 @@ from app.models.sales import (
     SalesCompany,
     SalesContact,
     SalesFile,
+    SalesLead,
     SalesOpportunity,
     SalesOpportunityContact,
     SalesPipeline,
@@ -34,11 +35,12 @@ MODELS = {
     "sales_opportunity_contacts": SalesOpportunityContact,
     "sales_activities": SalesActivity,
     "sales_files": SalesFile,
+    "sales_leads": SalesLead,
 }
 
 
 def _ddl_for(table: str) -> str:
-    for ddl in schema.TABLE_DDL:
+    for ddl in (*schema.TABLE_DDL, *schema.LEAD_TABLE_DDL):
         if f"CREATE TABLE IF NOT EXISTS {table} (" in ddl:
             return ddl
     raise AssertionError(table)
@@ -48,6 +50,10 @@ def test_migration_reads_the_shared_module() -> None:
     source = (ROOT / "alembic/versions/0601_sales_core.py").read_text(encoding="utf-8")
     assert "from app.services import sales_schema as schema" in source
     assert "for stmt in schema.ALL_DDL:" in source
+    leads = (ROOT / "alembic/versions/0602_sales_leads.py").read_text(encoding="utf-8")
+    assert "for stmt in schema.LEADS_DDL:" in leads
+    entry = (ROOT / "entrypoint.sh").read_text(encoding="utf-8")
+    assert "*_sales_schema.LEADS_DDL," in entry
 
 
 def test_entrypoint_splices_tables_before_data() -> None:
@@ -61,7 +67,7 @@ def test_entrypoint_splices_tables_before_data() -> None:
 
 
 def test_models_match_migration_columns_and_constraints() -> None:
-    assert set(MODELS) == set(schema.TABLES)
+    assert set(MODELS) == {*schema.TABLES, "sales_leads"}
     for table, model in MODELS.items():
         ddl = _ddl_for(table)
         declared = {
@@ -76,7 +82,7 @@ def test_models_match_migration_columns_and_constraints() -> None:
         }
         in_ddl = set(re.findall(r"CONSTRAINT (\w+)", ddl))
         assert in_ddl <= named, (table, in_ddl - named)
-    for statement in schema.INDEX_DDL:
+    for statement in (*schema.INDEX_DDL, *schema.LEAD_INDEX_DDL):
         name = re.search(r"IF NOT EXISTS (\w+)", statement).group(1)
         assert any(
             index.name == name

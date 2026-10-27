@@ -246,6 +246,7 @@ from app.api import equipment as equipment_api
 from app.api import sales_companies as sales_companies_api
 from app.api import sales_activities as sales_activities_api
 from app.api import sales_contacts as sales_contacts_api
+from app.api import sales_leads as sales_leads_api
 from app.api import sales_opportunities as sales_opportunities_api
 from app.api import client_onboarding as client_onboarding_api
 from app.api import equipment_intune as equipment_intune_api
@@ -2034,6 +2035,7 @@ app.include_router(
 app.include_router(
     sales_activities_api.router, prefix="/api/sales/activities", tags=["sales"]
 )
+app.include_router(sales_leads_api.router, prefix="/api/sales/leads", tags=["sales"])
 app.include_router(
     client_onboarding_api.router,
     prefix="/api/client-onboarding",

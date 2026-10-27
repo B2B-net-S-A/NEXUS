@@ -386,6 +386,56 @@ DATA_DDL: tuple[str, ...] = (
 
 ALL_DDL: tuple[str, ...] = TABLE_DDL + INDEX_DDL + DATA_DDL
 
+
+# ── 0602: skrzynka leadów (etap 4) ─────────────────────────────────────────
+# Sygnał, że firma może kupić: skan ogłoszeń (NoFluffJobs), import z Atlasa
+# (LinkedIn, prasa), wpis ręczny. ``fingerprint`` zszywa ten sam sygnał
+# z kolejnych skanów. Lead z firmy, która jest już klientem NEXUSA, nie
+# powstaje — popyt u klientów idzie do DL (decyzja Artura 22.10.2026).
+
+LEAD_SOURCES: tuple[str, ...] = ("job_board", "linkedin", "press", "manual", "atlas")
+LEAD_STATUSES: tuple[str, ...] = ("new", "contacted", "converted", "dismissed")
+CK_LEAD_SOURCE = f"source IN ({quoted(LEAD_SOURCES)})"
+CK_LEAD_STATUS = f"status IN ({quoted(LEAD_STATUSES)})"
+CK_LEAD_SCORE = "score BETWEEN 0 AND 100"
+CK_LEAD_TITLE = "char_length(btrim(title)) > 0"
+
+LEAD_TABLE_DDL: tuple[str, ...] = (
+    f"""CREATE TABLE IF NOT EXISTS sales_leads (
+    id SERIAL PRIMARY KEY,
+    source VARCHAR(16) NOT NULL,
+    status VARCHAR(12) NOT NULL DEFAULT 'new',
+    title VARCHAR(500) NOT NULL,
+    summary TEXT NULL,
+    company_name VARCHAR(500) NULL,
+    company_id INTEGER NULL REFERENCES sales_companies(id) ON DELETE SET NULL,
+    url VARCHAR(1000) NULL,
+    score INTEGER NOT NULL DEFAULT 0,
+    signal_at TIMESTAMPTZ NULL,
+    fingerprint VARCHAR(200) NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+    assignee_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    opportunity_id INTEGER NULL REFERENCES sales_opportunities(id) ON DELETE SET NULL,
+    dismissed_reason VARCHAR(255) NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_sales_leads_fingerprint UNIQUE (fingerprint),
+    CONSTRAINT ck_sales_leads_source CHECK ({CK_LEAD_SOURCE}),
+    CONSTRAINT ck_sales_leads_status CHECK ({CK_LEAD_STATUS}),
+    CONSTRAINT ck_sales_leads_score CHECK ({CK_LEAD_SCORE}),
+    CONSTRAINT ck_sales_leads_title CHECK ({CK_LEAD_TITLE})
+)""",
+)
+
+LEAD_INDEX_DDL: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS ix_sales_leads_inbox "
+    "ON sales_leads (status, score, signal_at)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_leads_company ON sales_leads (company_id)",
+)
+
+LEADS_DDL: tuple[str, ...] = LEAD_TABLE_DDL + LEAD_INDEX_DDL
+LEADS_DOWNGRADE_DDL: tuple[str, ...] = ("DROP TABLE IF EXISTS sales_leads",)
+
 DOWNGRADE_DDL: tuple[str, ...] = tuple(
     f"DROP TABLE IF EXISTS {table}" for table in reversed(TABLES)
 )

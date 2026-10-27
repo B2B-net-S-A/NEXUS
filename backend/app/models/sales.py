@@ -427,3 +427,46 @@ class SalesFile(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class SalesLead(Base, TimestampMixin):
+    """Sygnał zakupowy firmy w skrzynce leadów (0602)."""
+
+    __tablename__ = "sales_leads"
+    __table_args__ = (
+        UniqueConstraint("fingerprint", name="uq_sales_leads_fingerprint"),
+        CheckConstraint(schema.CK_LEAD_SOURCE, name="ck_sales_leads_source"),
+        CheckConstraint(schema.CK_LEAD_STATUS, name="ck_sales_leads_status"),
+        CheckConstraint(schema.CK_LEAD_SCORE, name="ck_sales_leads_score"),
+        CheckConstraint(schema.CK_LEAD_TITLE, name="ck_sales_leads_title"),
+        Index("ix_sales_leads_inbox", "status", "score", "signal_at"),
+        Index("ix_sales_leads_company", "company_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="new", server_default="new"
+    )
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    company_name: Mapped[Optional[str]] = mapped_column(String(500))
+    company_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("sales_companies.id", ondelete="SET NULL")
+    )
+    url: Mapped[Optional[str]] = mapped_column(String(1000))
+    score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    signal_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    fingerprint: Mapped[str] = mapped_column(String(200), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    assignee_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    opportunity_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("sales_opportunities.id", ondelete="SET NULL")
+    )
+    dismissed_reason: Mapped[Optional[str]] = mapped_column(String(255))
