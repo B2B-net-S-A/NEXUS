@@ -1,7 +1,7 @@
 """Odrzucenie osoby od systemu na cały klient.
 
-Revision ID: 0528_autofill_whole_client
-Revises: 0527_jarvis_gaps
+Revision ID: 0530_autofill_whole_client
+Revises: 0529_consent_screenshot_check
 
 Decyzja Artura 27.10.2026 po analizie 133 odrzuceń: 13 z 20 „Inne” to klient,
 nie osoba („pracuje w Nordei przez inną firmę”, „nie chce do Nordei”). Dwa
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import autofill_feedback_schema as schema
 
-revision = "0528_autofill_whole_client"
-down_revision = "0527_jarvis_gaps"
+revision = "0530_autofill_whole_client"
+down_revision = "0529_consent_screenshot_check"
 branch_labels = None
 depends_on = None
 

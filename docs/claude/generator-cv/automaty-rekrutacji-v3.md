@@ -93,7 +93,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   bez wpisu w `autofill_feedback`; „Praca w tle” `autofill_withdrawn`.
   `void_process(actor_user=None)` = system zdejmuje własną kartę, bez
   sprawdzania priorytetu.
-- **E. Odrzucenie na cały klient (0528, decyzja Artura 27.10.2026).** 13 z 20
+- **E. Odrzucenie na cały klient (0530, decyzja Artura 27.10.2026).** 13 z 20
   „Inne” to klient, nie osoba („pracuje w Nordei przez inną kontraktownię”,
   „nie chce do Nordei”), a ci sami ludzie czekali jeszcze na 45 kartach
   w innych rekrutacjach tego klienta. Dwa powody w „Sprawie osoby”:
