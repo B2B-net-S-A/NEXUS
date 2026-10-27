@@ -185,6 +185,17 @@ SPECS: dict[str, _Spec] = {
     "client_job_opened": _Spec(
         "Nowa rekrutacja u Twojego klienta", label="Otwórz", use_title=True
     ),
+    # Brakujące ogłoszenia (27.10.2026) — kartę składa `job_ad.reminders`;
+    # wpis tu to zapasowy opis, gdy tamta karta by nie powstała.
+    "job_ad_missing": _Spec("Wstaw ogłoszenia", label="Otwórz ogłoszenie"),
+    "job_ad_backlog": _Spec(
+        "Nadrób ogłoszenia", chip="Zaległe", label="Nadrabiaj po kolei"
+    ),
+    "job_ad_nudge": _Spec(
+        "Opublikuj na stronie kariery",
+        chip="Prośba od DL-a",
+        label="Opublikuj na stronie kariery",
+    ),
     "hr_bonus_assigned": _Spec(
         "Masz nową premię", chip="Premia", label="Zobacz premię", use_title=True
     ),

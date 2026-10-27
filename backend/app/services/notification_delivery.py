@@ -113,6 +113,19 @@ CATALOG = (
         recipient_rule="Delivery Lead rekrutacji (bez niego: Head of Recruitment). "
         "W mailu: rekrutacja, klient, data otwarcia i kto ją prowadzi.",
     ),
+    # Mail obowiązkowy (27.10.2026) — `services/job_ad/reminders.py`.
+    dict(
+        id="job_ad_reminders",
+        label="Brakujące ogłoszenia rekrutacji",
+        module="Rekrutacje",
+        trigger="Codziennie rano w dni robocze, dopóki otwarta rekrutacja nie wisi "
+        "na stronie kariery, Pracuj.pl albo JustJoin.IT (i nikt nie zapisał „nie "
+        "publikujemy”). Rekrutacje sprzed startu przypomnień — jednym mailem "
+        "zbiorczym. Także prośba Delivery Leada o stronę kariery.",
+        recipient_rule="Strona kariery: Rekruter rekrutacji (bez niego DL). "
+        "Pracuj.pl i JustJoin.IT: Delivery Lead (bez niego Head of Recruitment). "
+        "DL widzi w mailu wszystkie trzy kanały swojej rekrutacji.",
+    ),
     # Mail obowiązkowy (27.10.2026) — `services/job_p0.py`.
     dict(
         id="job_p0",
@@ -366,6 +379,7 @@ class DeliveryPolicy:
 HR_MAIL_KIND = "hr_people"
 HR_BONUS_KIND = "hr_bonus"
 CLIENT_JOB_KIND = "client_job_opened"
+JOB_AD_KIND = "job_ad_reminders"
 JOB_P0_KIND = "job_p0"
 
 # Maile obowiązkowe (decyzja Artura 26.10.2026): sprawy, na które ktoś czeka.
@@ -380,6 +394,7 @@ REQUIRED_KINDS = frozenset(
     {
         "request_assigned",
         CLIENT_JOB_KIND,
+        JOB_AD_KIND,
         JOB_P0_KIND,
         "client_interview",
         "dl_review",
@@ -489,6 +504,9 @@ def notification_kind(notification_type: Any) -> str | None:
         "teams_prep_scope_missing": "system_failure",
         "candidate_data_access_alert": "data_access_alert",
         "client_job_opened": CLIENT_JOB_KIND,
+        "job_ad_missing": JOB_AD_KIND,
+        "job_ad_backlog": JOB_AD_KIND,
+        "job_ad_nudge": JOB_AD_KIND,
         "hr_bonus_assigned": HR_BONUS_KIND,
     }.get(getattr(notification_type, "value", notification_type))
 
@@ -573,6 +591,7 @@ IMMEDIATE_KINDS = (
     HR_MAIL_KIND,
     HR_BONUS_KIND,
     CLIENT_JOB_KIND,
+    JOB_AD_KIND,
     *BELL_MAIL_TYPES,
 )
 

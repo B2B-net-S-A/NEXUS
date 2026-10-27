@@ -170,6 +170,10 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.request_review_needed: _C.reminders,
     # 0523: rekrutację u klienta DL-a otworzył ktoś inny (mail obowiązkowy).
     _T.client_job_opened: _C.reminders,
+    # 0526: brakujące ogłoszenia rekrutacji (mail obowiązkowy).
+    _T.job_ad_missing: _C.reminders,
+    _T.job_ad_backlog: _C.reminders,
+    _T.job_ad_nudge: _C.reminders,
     # 0525: P0 na rekrutacji Twojego zespołu (mail obowiązkowy).
     _T.job_p0_set: _C.reminders,
     # 0409: propozycje automatu przydziału czekają na akceptację.
@@ -341,6 +345,11 @@ _SPLIT_GROUPS: dict[
             _T.job_p0_set,
             _T.request_allocation_proposals,
         ),
+    ),
+    "reminders_job_ads": (
+        "Brakujące ogłoszenia rekrutacji",
+        _C.reminders,
+        (_T.job_ad_missing, _T.job_ad_backlog, _T.job_ad_nudge),
     ),
     "contracts_order_ending": (
         "Koniec zamówienia za 30 / 14 / 7 dni",

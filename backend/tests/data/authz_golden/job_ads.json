@@ -29,13 +29,17 @@
  ],
  "routes": {
   "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "DELETE /api/jobs/{job_id}/portal-ad/skips/{channel}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/job-ads/career-queue": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "GET /api/job-ads/missing": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "POST /api/jobs/{job_id}/portal-ad/career": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/jobs/{job_id}/portal-ad/remind": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "PUT /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "PUT /api/jobs/{job_id}/portal-ad/skips/{channel}": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }
