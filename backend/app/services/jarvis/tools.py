@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 from app.core.scheduling import DEFAULT_TZ
 from app.data.screen_guides import SCREEN_KEYS
 from app.services.equipment_schema import CATEGORIES as EQUIPMENT_CATEGORIES
+from app.services.jarvis.gap_schema import GAP_KINDS, NEED_MAX, WHY_MAX
 from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.section_permissions import ProductSection
 
@@ -1781,8 +1782,8 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         label="Sprawdzam dopasowanie",
         description=(
             "Dlaczego kandydat pasuje (albo nie) do rekrutacji: wynik, podsumowanie, "
-            "mocne strony i luki. Przy pierwszym pytaniu o parę to PŁATNE wywołanie AI — "
-            "wołaj tylko na wyraźną prośbę użytkownika."
+            "mocne strony i luki. Wołaj od razu, gdy użytkownik pyta o dopasowanie "
+            "konkretnej osoby — nie pytaj o zgodę na koszt."
         ),
         input_schema=_schema(
             {"candidate_id": INT, "job_id": INT}, ("candidate_id", "job_id")
@@ -3375,12 +3376,74 @@ SHOW_ON_SCREEN = JarvisTool(
 )
 
 
+REPORT_GAP = JarvisTool(
+    name="report_gap",
+    label="Zapisuję, czego mi brakuje",
+    description=(
+        "Wołaj ZAWSZE, gdy nie możesz zrobić tego, o co prosi użytkownik — zamiast "
+        "zwykłego „nie mogę”. `kind`: `no_access` (narzędzie odpowiedziało „Brak "
+        "uprawnień” albo wynik ma `skipped` — rola nie widzi tej części NEXUSA), "
+        "`not_supported` (nie masz narzędzia do takiej akcji albo takiego pytania), "
+        "`no_data` (NEXUS tego nie przechowuje). `need` — czego chciał użytkownik, "
+        "jego słowami, bez nazwisk i danych osobowych. `why` — jednym zdaniem, "
+        "dlaczego się nie da. `workaround` — co może zrobić teraz sam (ekran, "
+        "przycisk, do kogo się zwrócić). Użytkownik zobaczy kartę z przyciskiem "
+        "„Zgłoś, że tego potrzebuję”."
+    ),
+    input_schema=_schema(
+        {
+            "kind": {"type": "string", "enum": list(GAP_KINDS)},
+            "need": {**STR, "maxLength": NEED_MAX},
+            "why": {**STR, "maxLength": WHY_MAX},
+            "workaround": {**STR, "maxLength": WHY_MAX},
+        },
+        ("kind", "need", "why"),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=None,
+    build=lambda a: RequestSpec("GET", ""),  # nieużywane — patrz agent._handle_tool
+    shape=as_is,
+)
+
+
+DRAFT_EMAIL = JarvisTool(
+    name="draft_email",
+    label="Piszę szkic maila",
+    description=(
+        "Szkic maila do kandydata — NIC nie wysyła. Użytkownik dostaje kartę z treścią "
+        "i przyciskiem, który otwiera okno maila NEXUSA (wysyła ze swojej skrzynki, "
+        "mail zapisuje się w historii kandydata). `subject` i `body` pisz po polsku, "
+        "zwykłym tekstem, na „Pan/Pani” albo tak, jak użytkownik prosi; bez danych, "
+        "których nie podał użytkownik ani narzędzia."
+    ),
+    input_schema=_schema(
+        {
+            "candidate_id": INT,
+            "subject": {**STR, "minLength": 1, "maxLength": 150},
+            "body": {**STR, "minLength": 1, "maxLength": 3000},
+        },
+        ("candidate_id", "subject", "body"),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=ProductSection.sourcing,
+    entity_type="candidate",
+    build=lambda a: RequestSpec("GET", ""),  # nieużywane — patrz agent._handle_tool
+    shape=as_is,
+)
+
+
 ALL_TOOLS: tuple[JarvisTool, ...] = (
     *READ_TOOLS,
     *HR_TOOLS,
     *WRITE_TOOLS,
     OPEN_SCREEN,
     SHOW_ON_SCREEN,
+    REPORT_GAP,
+    DRAFT_EMAIL,
 )
 TOOLS_BY_NAME: dict[str, JarvisTool] = {tool.name: tool for tool in ALL_TOOLS}
 

@@ -657,6 +657,7 @@ export function JarvisRoot() {
           streaming={streaming}
           draft={draft}
           suggestions={suggestions}
+          capabilities={status?.capabilities}
           conversations={conversationsQuery.data}
           conversationsLoading={conversationsQuery.isLoading}
           activeConversationId={turn.conversationId}
