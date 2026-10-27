@@ -104,12 +104,12 @@ function setup({
   const Wrapper = strict
     ? StrictMode
     : ({ children }: { children: React.ReactNode }) => <>{children}</>;
-  const view = render(
+  const tree = (current: JobAdState) => (
     <Wrapper>
       <QueryClientProvider client={client}>
         <AdChannels
           jobId={7}
-          state={state}
+          state={current}
           jobClosed={false}
           locked={false}
           publishBlockedReason={null}
@@ -125,9 +125,14 @@ function setup({
           onIntentHandled={vi.fn()}
         />
       </QueryClientProvider>
-    </Wrapper>,
+    </Wrapper>
   );
-  return { pracujMailApi, client, view };
+  const view = render(tree(state));
+  const rerenderWith = (next: JobAdState) => {
+    client.setQueryData(["job-ad", 7], next);
+    view.rerender(tree(next));
+  };
+  return { pracujMailApi, rerenderWith };
 }
 
 async function typeRates(dialog: HTMLElement, from: string, to: string) {
@@ -179,6 +184,28 @@ describe("Pracuj.pl mailem do opiekuna", () => {
     );
   });
 
+  it("nowa wersja ogłoszenia w tle odświeża podgląd, wysyłka niesie tę wersję", async () => {
+    const { pracujMailApi, rerenderWith } = setup();
+    fireEvent.click(screen.getByTestId("pracuj-send"));
+    const dialog = await screen.findByRole("dialog", { name: "Wyślij ogłoszenie do Pracuj.pl" });
+    await typeRates(dialog, "110", "125");
+    await within(dialog).findByText(/Stawka: 110–125/, {}, { timeout: 2000 });
+    const calls = pracujMailApi.previewPracujMail.mock.calls.length;
+
+    const newer = adState({ reminders: LEAD });
+    rerenderWith({ ...newer, ad: { ...newer.ad!, updated_at: "2026-10-27T16:00:00Z" } });
+    await waitFor(() =>
+      expect(pracujMailApi.previewPracujMail.mock.calls.length).toBeGreaterThan(calls),
+    );
+    const sendButton = await screen.findByRole("button", { name: "Wyślij z mojej skrzynki" });
+    await waitFor(() => expect(sendButton).toBeEnabled());
+    fireEvent.click(sendButton);
+    await waitFor(() => expect(pracujMailApi.sendPracujMail).toHaveBeenCalledTimes(1));
+    expect(pracujMailApi.sendPracujMail.mock.calls[0][1].expected_updated_at).toBe(
+      "2026-10-27T16:00:00Z",
+    );
+  });
+
   it("bez podłączonej skrzynki okno prosi o podłączenie i zostawia tylko kopiowanie", async () => {
     setup({ previewPatch: { mailbox: "missing", from_address: null } });
     fireEvent.click(screen.getByTestId("pracuj-send"));
@@ -193,7 +220,8 @@ describe("Pracuj.pl mailem do opiekuna", () => {
     expect(
       within(dialog).queryByRole("button", { name: "Wyślij z mojej skrzynki" }),
     ).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Kopiuj treść maila" })).toBeEnabled();
+    // Kopiowanie czeka na stawkę jak wysyłka.
+    expect(within(dialog).getByRole("button", { name: "Kopiuj treść maila" })).toBeDisabled();
   });
 
   it("awaria podglądu nie wygląda jak pusty mail", async () => {
@@ -251,13 +279,21 @@ describe("Pracuj.pl mailem do opiekuna", () => {
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
 
-  it("kopiowanie bierze temat i treść z podglądu", async () => {
+  it("kopiowanie czeka na stawkę i bierze temat i treść z podglądu", async () => {
     const writeText = vi.fn(async () => undefined);
     Object.assign(navigator, { clipboard: { writeText } });
-    setup();
+    setup({ previewPatch: { mailbox: "missing", from_address: null } });
     fireEvent.click(screen.getByTestId("pracuj-send"));
     const dialog = await screen.findByRole("dialog", { name: "Wyślij ogłoszenie do Pracuj.pl" });
     await within(dialog).findByText(/Stawka: …/);
+    const copyButton = within(dialog).getByRole("button", { name: "Kopiuj treść maila" });
+    // Bez stawki w schowku wylądowałoby „Stawka: …”.
+    expect(copyButton).toBeDisabled();
+    await typeRates(dialog, "110", "125");
+    // Zaraz po wpisaniu podgląd jest jeszcze ze starą stawką.
+    expect(copyButton).toBeDisabled();
+    await within(dialog).findByText(/Stawka: 110–125/, {}, { timeout: 2000 });
+    await waitFor(() => expect(copyButton).toBeEnabled());
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Kopiuj treść maila" }));
     });
