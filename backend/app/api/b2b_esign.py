@@ -295,6 +295,20 @@ async def _cc_candidates(
     return out
 
 
+async def _cc_for_mail(
+    db: AsyncSession, row: B2BGeneratedContract, user_ids: list[int]
+) -> list[str]:
+    """Adresy DW sprawdzane PRZED każdym mailem, nie tylko przy wysyłce
+    (przegląd kodu 27.10.2026): kto wypadł z zespołu rekrutacji, nie dostaje
+    już linku do PDF-a ze stawkami ani kopii podpisanej umowy."""
+    allowed: list[int] = []
+    for uid in user_ids:
+        user = await db.get(User, uid)
+        if user is not None and user.is_active and await _may_send(db, user, row):
+            allowed.append(uid)
+    return await esign_mail.cc_emails(db, allowed)
+
+
 async def _assert_row_sender(
     db: AsyncSession, user: User, row: B2BGeneratedContract
 ) -> None:
@@ -475,7 +489,7 @@ async def _mail_link(
         body_html=body,
         candidate_id=row.candidate_id,
         request_key=request_key or f"b2b-esign-{request.id}",
-        cc=await esign_mail.cc_emails(db, [p.id for p in request.cc]),
+        cc=await _cc_for_mail(db, row, [p.id for p in request.cc]),
     )
 
 
@@ -602,7 +616,7 @@ async def extend_esign(
         body_html=mail_body,
         candidate_id=row.candidate_id,
         request_key=f"b2b-esign-{request_id}-extended-{len(updated.events or [])}",
-        cc=await esign_mail.cc_emails(db, list(updated.cc_user_ids or [])),
+        cc=await _cc_for_mail(db, row, list(updated.cc_user_ids or [])),
     )
     return out
 
@@ -906,7 +920,9 @@ async def _send_contractor_copy(db: AsyncSession, request_id: int) -> None:
         body_html=body,
         candidate_id=row.candidate_id if row else None,
         request_key=f"b2b-esign-{request_id}-copy",
-        cc=await esign_mail.cc_emails(db, list(request.cc_user_ids or [])),
+        cc=(
+            await _cc_for_mail(db, row, list(request.cc_user_ids or [])) if row else []
+        ),
         attachments=[
             m365_sender.FileAttachment(
                 name=contract_file_name(

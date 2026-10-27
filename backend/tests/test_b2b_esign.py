@@ -2026,3 +2026,65 @@ def test_watchers_are_the_sender_and_cc_without_repeats():
 
     assert watchers(SimpleNamespace(sent_by=7, cc_user_ids=[9, 7, 9, 11])) == [7, 9, 11]
     assert watchers(SimpleNamespace(sent_by=None, cc_user_ids=[])) == []
+
+
+@pytest.mark.asyncio
+async def test_cc_who_left_the_team_gets_no_new_link_or_copy(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Przegląd kodu 27.10.2026: DW sprawdzane tylko przy wysyłce — rekruter
+    przepięty z rekrutacji dostawał nowy link do PDF-a ze stawkami."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.user import UserRole
+    from app.services.b2b_esign import mail as esign_mail
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    recruiter_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    successor_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = recruiter_id
+        await db.commit()
+    mails: list[dict] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _capture)
+    sent = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": esign_env["signer_id"],
+            "days": 3,
+            "cc_user_ids": [recruiter_id],
+        },
+        headers=app_auth_headers,
+    )
+    assert sent.status_code == 200, sent.text
+    assert mails[-1]["cc"], "przy wysyłce rekruter jest w DW"
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = successor_id
+        await db.commit()
+    request_id = sent.json()["request"]["id"]
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert mails[-1]["cc"] == [], "kto wypadł z zespołu, nie dostaje nowego linku"
