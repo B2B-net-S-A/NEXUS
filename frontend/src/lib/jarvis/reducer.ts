@@ -71,6 +71,8 @@ export function applyStreamEvent(state: JarvisTurnState, event: JarvisStreamEven
       return state.items.length === 0 && event.items.length === 0
         ? state
         : { ...state, items: [...state.items, { kind: "sources", items: event.items }] };
+    case "mail_draft":
+      return { ...state, items: [...state.items, { kind: "mail_draft", draft: event.draft }] };
     case "deep_link":
       return {
         ...state,

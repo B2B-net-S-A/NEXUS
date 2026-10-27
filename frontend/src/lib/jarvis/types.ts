@@ -77,6 +77,16 @@ export interface JarvisLink {
   reason: string;
 }
 
+/** Szkic maila do kandydata (`draft_email`) — wysyła człowiek z okna maila.
+ *  W historii brak nazwiska i adresu: karta doczytuje je przy otwarciu. */
+export interface JarvisMailDraft {
+  candidate_id: number;
+  candidate_name?: string;
+  email?: string;
+  subject: string;
+  body: string;
+}
+
 /** Czego Jarvisowi brakuje — lustro `GAP_KINDS` w `services/jarvis/gap_schema.py`. */
 export type GapKind = "no_access" | "not_supported" | "no_data";
 
@@ -115,6 +125,7 @@ export type JarvisItem =
   | { kind: "guide"; guide: ScreenGuide }
   /** Element podświetlony na ekranie (show_on_screen albo „Pokaż na ekranie”). */
   | { kind: "highlight"; anchor: string; label: string; reason: string }
+  | { kind: "mail_draft"; draft: JarvisMailDraft }
   /** Karta „Tego nie zrobię” (report_gap) z przyciskiem zgłoszenia potrzeby. */
   | { kind: "gap"; gap: JarvisGap };
 
@@ -178,6 +189,7 @@ export type JarvisStreamEvent =
   /** Ponowienie wywołania modelu — to, co pokazano, jest do wyrzucenia. */
   | { type: "delta_reset" }
   | { type: "highlight"; anchor: string; label: string; reason: string }
+  | { type: "mail_draft"; draft: JarvisMailDraft }
   | { type: "gap"; gap: JarvisGap }
   | { type: "action_proposed"; action: JarvisAction }
   | ({ type: "deep_link" } & JarvisLink)

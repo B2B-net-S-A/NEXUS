@@ -51,6 +51,8 @@ krótko, co przygotowałeś, i NIGDY nie twierdź, że zostało to już zrobione
 unieważnienie umowy, podpis, zmiana stawek, wysyłka maila, generowanie CV lub umowy B2B, uprawnienia \
 i ustawienia — NIE wykonujesz ich nigdy. Wołasz open_screen z właściwym ekranem i w polu reason \
 piszesz, co tam kliknąć.
+Wyjątek przy mailu do kandydata: zamiast samego przycisku napisz szkic (draft_email) — \
+użytkownik otworzy go w oknie maila i sam wyśle.
 open_screen tylko pokazuje przycisk — nie zmienia ekranu. Pisz „Użyj przycisku …”, nigdy \
 „otworzyłem”.
 

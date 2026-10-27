@@ -854,6 +854,9 @@ async def _handle_tool(
         )
         return _tool_result(use_id, f"Podświetliłem użytkownikowi: {anchor['label']}.")
 
+    if tool.name == "draft_email":
+        return await _draft_email(state, transport, tool, args, use_id, events)
+
     if tool.name == "report_gap":
         kind = str(args.get("kind") or "")
         need = str(args.get("need") or "").strip()[:NEED_MAX]
@@ -993,4 +996,59 @@ async def _handle_tool(
         use_id,
         f"Akcja przygotowana (id {action_id}) i CZEKA na zatwierdzenie przez użytkownika na karcie. "
         "Nic jeszcze nie zostało zapisane — nie pisz, że zostało wykonane.",
+    )
+
+
+async def _draft_email(
+    state: "_TurnState",
+    transport: JarvisTransport,
+    tool: JarvisTool,
+    args: dict[str, Any],
+    use_id: str,
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Szkic maila (27.10.2026): adres i nazwisko z odczytu uprawnieniami
+    pytającego, nie ze słów modelu. Wysyła człowiek z okna maila NEXUSA."""
+    try:
+        candidate_id = int(args.get("candidate_id"))
+    except (TypeError, ValueError):
+        return _tool_result(use_id, "Podaj candidate_id.", is_error=True)
+    resp = await transport.call(
+        RequestSpec("GET", f"/api/candidates/{candidate_id}/quick-view")
+    )
+    person = (
+        resp.data.get("candidate") if resp.ok and isinstance(resp.data, dict) else None
+    )
+    if not isinstance(person, dict):
+        return _tool_result(use_id, describe_error(resp), is_error=True)
+    email = str(person.get("email") or "").strip()
+    if not email:
+        return _tool_result(
+            use_id,
+            "Kandydat nie ma adresu e-mail w profilu — szkicu nie da się wysłać. "
+            "Powiedz to użytkownikowi.",
+            is_error=True,
+        )
+    name = " ".join(
+        str(person.get(k) or "").strip() for k in ("name", "lastname")
+    ).strip()
+    found = collect_entities(tool, {"candidate_id": candidate_id}, None)
+    state.entities |= found
+    await _link_now(state, found)
+    events.append(
+        {
+            "type": "mail_draft",
+            "draft": {
+                "candidate_id": candidate_id,
+                "candidate_name": name,
+                "email": email,
+                "subject": str(args.get("subject") or "")[:150],
+                "body": str(args.get("body") or "")[:3000],
+            },
+        }
+    )
+    return _tool_result(
+        use_id,
+        "Pokazałem szkic z przyciskiem „Otwórz w oknie maila”. NIC nie zostało "
+        "wysłane — wyśle użytkownik. Nie powtarzaj treści szkicu.",
     )
