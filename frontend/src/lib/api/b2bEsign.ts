@@ -51,6 +51,9 @@ export interface EsignRequest {
   close_reason: string | null;
   /** Osoby z NEXUSA w DW wysyłki (27.10.2026). */
   cc?: EsignPerson[];
+  /** Kto obsługuje wysyłkę (po „Przejmij obsługę” zastępca). */
+  handled_by_id?: number | null;
+  handled_by_name?: string | null;
   /** Tylko w liście „Czeka na mój podpis” (`/esign/mine`). */
   contract_number?: string | null;
   client_name?: string | null;
@@ -140,6 +143,11 @@ export const b2bEsignApi = {
   relink: (requestId: number, days: number) =>
     api
       .post<EsignSendResult>(`/api/b2b-generator/esign/${requestId}/relink`, { days })
+      .then((r) => r.data),
+  /** „Przejmij obsługę”: przypomnienia i kopia z Twojej skrzynki (27.10.2026). */
+  takeOver: (requestId: number) =>
+    api
+      .post<EsignRequest>(`/api/b2b-generator/esign/${requestId}/take-over`)
       .then((r) => r.data),
   withdraw: (requestId: number, reason: string) =>
     api

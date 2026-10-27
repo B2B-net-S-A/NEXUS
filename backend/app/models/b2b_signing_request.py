@@ -107,6 +107,11 @@ class B2BSigningRequest(Base, TimestampMixin):
     sent_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Kto obsługuje wysyłkę po „Przejmij obsługę” (0605, 27.10.2026); pusta =
+    # nadawca. Z jego skrzynki idą przypomnienia, mail do reprezentanta i kopia.
+    handled_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False

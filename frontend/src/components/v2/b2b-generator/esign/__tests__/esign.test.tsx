@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   withdraw: vi.fn(),
   extend: vi.fn(),
   relink: vi.fn(),
+  takeOver: vi.fn(),
   signedPdf: vi.fn(),
   downloadBlob: vi.fn(),
   showSuccess: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock("@/lib/api/b2bEsign", async (importOriginal) => {
       withdraw: (...a: unknown[]) => mocks.withdraw(...a),
       extend: (...a: unknown[]) => mocks.extend(...a),
       relink: (...a: unknown[]) => mocks.relink(...a),
+      takeOver: (...a: unknown[]) => mocks.takeOver(...a),
       signedPdf: (...a: unknown[]) => mocks.signedPdf(...a),
     },
   };
@@ -520,6 +522,34 @@ describe("EsignRowStatus (audyt 22.10)", () => {
     wrap(<EsignRowStatus row={row({ expires_at: dayFromNow(2), cc_names: ["Rita Rekruterka"] })} />);
     expect(screen.getByText("Rita Rekruterka")).toBeInTheDocument();
     expect(screen.getByText(/DW:/)).toBeInTheDocument();
+  });
+
+  it("zastępstwo: urlop obsługującego i „Przejmij obsługę” z potwierdzeniem", async () => {
+    mocks.takeOver.mockResolvedValue({ id: 4, handled_by_id: 21 });
+    wrap(
+      <EsignRowStatus
+        row={row(
+          {
+            expires_at: dayFromNow(2),
+            handled_by_name: "Sara Sprzedawczyni",
+            handler_absent_until: "2026-11-04",
+            handler_substitute_name: "Rita Rekruterka",
+          },
+          { can_take_over_esign: true },
+        )}
+      />,
+    );
+    expect(screen.getByText(/Obsługuje:/)).toHaveTextContent("Obsługuje: Sara Sprzedawczyni");
+    expect(screen.getByText(/urlop do 04\.11, zastępuje Rita Rekruterka/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Przejmij obsługę/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Przejmij obsługę" }));
+    await waitFor(() => expect(mocks.takeOver).toHaveBeenCalledWith(4));
+    expect(mocks.showSuccess).toHaveBeenCalled();
+  });
+
+  it("bez prawa przejęcia nie ma przycisku", () => {
+    wrap(<EsignRowStatus row={row({ expires_at: dayFromNow(2), handled_by_name: "Sara" })} />);
+    expect(screen.queryByRole("button", { name: /Przejmij obsługę/ })).toBeNull();
   });
 
   it("F45: bez prawa do pliku nie ma przycisku pobrania", () => {

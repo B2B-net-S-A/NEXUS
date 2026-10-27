@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CalendarPlus, Check, Clock, Download, RefreshCw, Undo2 } from "lucide-react";
+import { CalendarPlus, Check, Clock, Download, RefreshCw, Undo2, UserCheck } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
@@ -111,6 +111,16 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
     },
     onError: (error) => toast.showError(apiErrorMessage(error, "Nie udało się wycofać.")),
   });
+  const takeOver = useMutation({
+    mutationFn: (requestId: number) => b2bEsignApi.takeOver(requestId),
+    onSuccess: () => {
+      toast.showSuccess("Obsługujesz tę wysyłkę: przypomnienia i dzwonki są teraz Twoje.");
+      queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["kanban"] });
+      queryClient.invalidateQueries({ queryKey: ["board-tasks"] });
+    },
+    onError: (error) => toast.showError(apiErrorMessage(error, "Nie udało się przejąć obsługi.")),
+  });
   const [renew, setRenew] = useState<EsignRenewMode | null>(null);
   const e = row.esign;
   if (!e) return null;
@@ -118,6 +128,14 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
   const expired = esignLinkExpired(e);
   const closed = e.status === "withdrawn" || expired;
   const steps = esignSteps(row);
+  const onTakeOver = async () => {
+    const ok = await askConfirm({
+      title: "Przejąć obsługę wysyłki?",
+      description: `Przypomnienia, mail do podpisu za B2B Network i kopia umowy ${row.contract_number} pójdą z Twojej skrzynki, a dzwonki do Ciebie. ${e.handled_by_name ?? "Dotychczasowa osoba"} dostanie o tym dzwonek.`,
+      confirmLabel: "Przejmij obsługę",
+    });
+    if (ok) takeOver.mutate(e.request_id);
+  };
   const onWithdraw = async () => {
     const ok = await askConfirm({
       title: "Przejść na drogę zwykłą?",
@@ -198,10 +216,37 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
           Przedłuż termin
         </button>
       ) : null}
-      {e.cc_names && e.cc_names.length > 0 ? (
+      {e.handled_by_name || (e.cc_names && e.cc_names.length > 0) ? (
         <p className="text-[11px] leading-snug text-muted-foreground">
-          DW: <span className="text-foreground">{e.cc_names.join(", ")}</span>
+          {e.handled_by_name ? (
+            <>
+              Obsługuje: <span className="text-foreground">{e.handled_by_name}</span>
+            </>
+          ) : null}
+          {e.handled_by_name && e.cc_names && e.cc_names.length > 0 ? " · " : null}
+          {e.cc_names && e.cc_names.length > 0 ? (
+            <>
+              DW: <span className="text-foreground">{e.cc_names.join(", ")}</span>
+            </>
+          ) : null}
         </p>
+      ) : null}
+      {e.handler_absent_until ? (
+        <p className="rounded-md border border-info/30 bg-info-muted px-2 py-1 text-[11px] leading-snug text-info-muted-foreground">
+          {e.handled_by_name ?? "Obsługujący"}: urlop do {formatDay(e.handler_absent_until)}
+          {e.handler_substitute_name ? `, zastępuje ${e.handler_substitute_name}` : ""}.
+        </p>
+      ) : null}
+      {row.can_take_over_esign ? (
+        <button
+          type="button"
+          onClick={() => void onTakeOver()}
+          disabled={takeOver.isPending}
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-60"
+        >
+          <UserCheck className="h-3 w-3" aria-hidden />
+          Przejmij obsługę
+        </button>
       ) : null}
       <EsignSignedPdfButton row={row} />
       {row.can_withdraw_esign ? (

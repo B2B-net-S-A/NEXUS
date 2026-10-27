@@ -1217,9 +1217,16 @@ async def _serialize_generated_contracts(
             .distinct(B2BSigningRequest.generated_contract_id)
         )
         latest_esign = {r.generated_contract_id: r for r in esign_rows.all()}
+    # Obsługujący wysyłki i ich urlopy dziś (zastępstwo, 27.10.2026).
+    esign_handlers = {r.id: esign_service.handler_id(r) for r in latest_esign.values()}
+    esign_absences = await esign_service.absences(
+        db, [h for h in esign_handlers.values() if h], business_today()
+    )
     esign_signer_ids = (
         {r.company_signer_id for r in latest_esign.values() if r.company_signer_id}
         | {uid for r in latest_esign.values() for uid in (r.cc_user_ids or [])}
+        | {h for h in esign_handlers.values() if h}
+        | {a.substitute_id for a in esign_absences.values() if a.substitute_id}
     )
     esign_signer_names: dict[int, str] = {}
     if esign_signer_ids:
@@ -1367,6 +1374,14 @@ async def _serialize_generated_contracts(
             and esign is not None
             and esign_service.is_link_live(esign, list_now)
         )
+        handler = esign_handlers.get(esign.id) if esign is not None else None
+        absence = esign_absences.get(handler) if handler else None
+        can_take_over_esign = (
+            may_handle_esign
+            and esign is not None
+            and (esign_open or esign.status == "expired")
+            and handler != current_user.id
+        )
         can_relink_esign = (
             esign_allowed
             and may_handle_esign
@@ -1477,6 +1492,13 @@ async def _serialize_generated_contracts(
                             for uid in (esign.cc_user_ids or [])
                             if uid in esign_signer_names
                         ],
+                        handled_by_name=esign_signer_names.get(handler or -1),
+                        handler_absent_until=absence.until if absence else None,
+                        handler_substitute_name=(
+                            esign_signer_names.get(absence.substitute_id or -1)
+                            if absence
+                            else None
+                        ),
                     )
                     if esign is not None
                     else None
@@ -1485,6 +1507,7 @@ async def _serialize_generated_contracts(
                 can_withdraw_esign=may_handle_esign and esign_open,
                 can_extend_esign=can_extend_esign,
                 can_relink_esign=can_relink_esign,
+                can_take_over_esign=can_take_over_esign,
                 # Ta sama bramka co trasa `signed-pdf` (nadawca albo reprezentant).
                 can_download_signed_esign=(
                     esign is not None
