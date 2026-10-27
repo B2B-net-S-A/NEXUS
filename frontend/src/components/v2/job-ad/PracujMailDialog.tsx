@@ -99,8 +99,11 @@ export function PracujMailDialog({
   };
   const settled = debouncedFrom === rateFrom && debouncedTo === rateTo;
 
+  // Wersja ogłoszenia w kluczu: treść zmieniona w tle (powrót do karty)
+  // odświeża podgląd, a do tego czasu wysyłka i kopiowanie czekają.
+  const version = state.ad?.updated_at ?? null;
   const preview = useQuery({
-    queryKey: pracujMailPreviewQueryKey(jobId, rates),
+    queryKey: [...pracujMailPreviewQueryKey(jobId, rates), version],
     queryFn: () => api.previewPracujMail(jobId, rates),
     enabled: open,
     placeholderData: keepPreviousData,
@@ -111,7 +114,7 @@ export function PracujMailDialog({
     mutationFn: () =>
       api.sendPracujMail(jobId, {
         ...typed,
-        expected_updated_at: state.ad?.updated_at ?? null,
+        expected_updated_at: version,
         client_request_id: requestId.current,
       }),
     onSuccess: (next) => {
@@ -130,6 +133,8 @@ export function PracujMailDialog({
 
   const data = preview.data;
   const mailboxReady = data?.mailbox === "ready";
+  // Ta sama bramka dla wysyłki i kopiowania: do schowka nie idzie treść
+  // z blokadą kontroli, bez stawki ani z poprzednią stawką.
   const sendBlockedReason = !state.can_copy
     ? "Najpierw usuń z treści fragmenty wskazane w kontroli."
     : !data
@@ -141,7 +146,7 @@ export function PracujMailDialog({
           : null;
 
   const copy = async () => {
-    if (!data) return;
+    if (!data || sendBlockedReason) return;
     const text = `${data.subject}\n\n${data.body_text}`;
     try {
       await navigator.clipboard.writeText(text);
@@ -274,7 +279,13 @@ export function PracujMailDialog({
           )}
         </DialogBody>
         <DialogFooter className="flex-wrap gap-2">
-          <Button type="button" variant="ghost" disabled={!data} onClick={() => void copy()}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={!!sendBlockedReason}
+            title={sendBlockedReason ?? undefined}
+            onClick={() => void copy()}
+          >
             <Copy className="size-4" aria-hidden="true" />
             {copied ? "Skopiowano" : "Kopiuj treść maila"}
           </Button>

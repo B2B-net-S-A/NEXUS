@@ -407,6 +407,11 @@ export function JobAdWindow({
                           Dostaniesz ją w dwóch formatach: pola formularza Pracuj.pl i opis
                           JustJoin.IT.
                         </p>
+                        {openSend ? (
+                          <p role="status" className="text-sm text-foreground">
+                            Mail do opiekuna Pracuj.pl otworzy się, gdy treść będzie gotowa.
+                          </p>
+                        ) : null}
                         <div className="flex flex-wrap items-center gap-3">
                           <SegmentedRadio
                             label="Język ogłoszenia"
