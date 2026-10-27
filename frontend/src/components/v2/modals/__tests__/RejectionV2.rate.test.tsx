@@ -127,12 +127,17 @@ describe("RejectionV2 — „Za wysokie oczekiwania finansowe” (26.10.2026)", 
     expect(onConfirm.mock.calls[0][10]).toBeNull();
   });
 
-  it("osoba od systemu: przy tym powodzie bez drugiego „Ile chce?”", () => {
-    renderRate({ autofill: { rateKnown: false, several: false } });
-    fireEvent.click(screen.getByText(RATE));
+  it("osoba od systemu: „Za droga” to ten powód, bez drugiego „Ile chce?”", () => {
+    const onConfirm = renderRate({ autofill: { rateKnown: false, several: false } });
     fireEvent.click(screen.getByText("Za droga"));
     expect(screen.queryByLabelText("Ile chce w złotych na godzinę")).toBeNull();
-    expect(screen.getByLabelText("Ile teraz chce w złotych na godzinę")).toBeInTheDocument();
+    typeRate("150");
+    fireEvent.click(screen.getByText("Z rozmowy z osobą"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    const args = onConfirm.mock.calls[0];
+    expect(args[0]).toBe("3");
+    expect(args[10]).toEqual({ rateHourly: 150, isMinimum: true });
+    expect(args[9]).toEqual({ reason: "too_expensive", learnedFrom: "call", rateHourly: null });
   });
 });
 

@@ -112,6 +112,16 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   w `lib/autofill-feedback.ts`; pytają `usePipelineMove` (Tablica, panel
   osoby) i `ScreeningFullForm` (warsztat screeningu). Przy kilku osobach ten
   sam powód idzie do każdej osoby od systemu, bez stawki.
+  **Jedno pytanie o powód (decyzja Artura 27.10.2026, zgłoszenie z zespołu).**
+  Przy osobie od systemu okno nie pokazuje listy „Powód” z szablonu: jedyną
+  listą jest 12 powodów dla systemu, a powód z szablonu (raport lejka,
+  `disqualifies_person`, pytania o stawkę i tryb pracy) liczy
+  `templateReasonFor` z mapy `AUTOFILL_TEMPLATE_REASON`; bez odpowiednika —
+  „Inne” z nazwą powodu na początku notatki. Bo przez pierwsze 5 dni w 70 na
+  132 odrzuceń druga odpowiedź powtarzała pierwszą („Za wysokie oczekiwania”
+  + „Za droga” 44 razy), a szablon nie ma „Języka” ani „Lokalizacji”
+  (41 razy „Inne”, 7 razy „Nie pasuje kulturowo” przy języku). Nie wracaj
+  do dwóch list; nowy powód dla systemu = wpis w mapie.
 - **E. Kolejka decyzji i poranny dzwonek (PR 5, 0517).** „Czeka na Ciebie”
   (`board_flow._autofill_decisions`, pole `flow.autofill_decisions` +
   `autofill_decisions_total`, sekcja `BoardAutofillDecisions`) pokazuje
