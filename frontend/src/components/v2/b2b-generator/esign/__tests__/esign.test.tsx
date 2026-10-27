@@ -103,10 +103,42 @@ describe("SendForSignatureDialog", () => {
         contractor_email: "piotr@example.com",
         company_signer_id: 9,
         days: 3,
+        cc_user_ids: [],
       }),
     );
     expect(await within(dialog).findByLabelText("Link do podpisu")).toHaveValue(
       "https://nexus.example/sign/b2b/abc",
+    );
+  });
+
+  it("DW: prowadzący rekrutację zaznaczony, inne osoby z zespołu do wyboru (27.10.2026)", async () => {
+    mocks.defaults.mockResolvedValue({
+      contractor_name: "Piotr Przykładowy",
+      contractor_email: "piotr@example.com",
+      company_signers: [{ id: 9, name: "Olaf Reprezentant" }],
+      mailbox_connected: true,
+      cc_candidates: [
+        { id: 21, name: "Rita Rekruterka", suggested: true },
+        { id: 22, name: "Dawid Delivery", suggested: false },
+      ],
+    });
+    mocks.send.mockResolvedValue({
+      request: { contractor_email: "piotr@example.com" },
+      sign_url: "https://nexus.example/sign/b2b/abc",
+      mail_sent: true,
+      mail_problem: null,
+    });
+    wrap(<SendForSignatureDialog row={ROW} onClose={() => undefined} />);
+    const dialog = await screen.findByRole("dialog");
+    const cc = await within(dialog).findByRole("group", { name: /Do wiadomości \(DW\)/ });
+    expect(within(cc).getByRole("checkbox", { name: /Rita Rekruterka/ })).toBeChecked();
+    expect(within(cc).getByRole("checkbox", { name: /Dawid Delivery/ })).not.toBeChecked();
+    expect(within(cc).getByText(/Mail wychodzi z Twojej skrzynki/)).toBeInTheDocument();
+    await userEvent.click(within(cc).getByRole("checkbox", { name: /Dawid Delivery/ }));
+    await userEvent.click(within(dialog).getByLabelText(/Sprawdziłam\/em treść umowy/));
+    await userEvent.click(within(dialog).getByRole("button", { name: /Wyślij link do kontraktora/ }));
+    await waitFor(() =>
+      expect(mocks.send).toHaveBeenCalledWith(5, expect.objectContaining({ cc_user_ids: [21, 22] })),
     );
   });
 
@@ -482,6 +514,12 @@ describe("EsignRowStatus (audyt 22.10)", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: /Przedłuż termin/ }));
     await waitFor(() => expect(mocks.extend).toHaveBeenCalledWith(4, 7));
     expect(await within(dialog).findByText(/Termin przedłużony do/)).toBeInTheDocument();
+  });
+
+  it("pokazuje, kto jest w DW wysyłki", () => {
+    wrap(<EsignRowStatus row={row({ expires_at: dayFromNow(2), cc_names: ["Rita Rekruterka"] })} />);
+    expect(screen.getByText("Rita Rekruterka")).toBeInTheDocument();
+    expect(screen.getByText(/DW:/)).toBeInTheDocument();
   });
 
   it("F45: bez prawa do pliku nie ma przycisku pobrania", () => {

@@ -4120,6 +4120,8 @@ export interface B2BGeneratedContractRow {
     company_signer_name: string | null;
     /** Kontraktor z wygasłego linku poprosił o nowy (27.10.2026). */
     renewal_requested_at?: string | null;
+    /** Osoby z NEXUSA w DW wysyłki (27.10.2026). */
+    cc_names?: string[];
   } | null;
   can_send_esign?: boolean;
   can_withdraw_esign?: boolean;

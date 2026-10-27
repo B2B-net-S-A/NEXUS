@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings as app_config
 from app.models.m365 import M365Connection
+from app.models.user import User
 from app.services.b2b_esign.service import SIGNED_COPY_DAYS
 from app.services.m365 import sender as m365_sender
 
@@ -218,6 +219,19 @@ def contractor_copy_message(*, number: str) -> tuple[str, str]:
     return subject, body
 
 
+async def cc_emails(db: AsyncSession, user_ids: Sequence[int]) -> list[str]:
+    """Adresy osób w DW (aktywne konta z e-mailem) — w kolejności z wysyłki."""
+    if not user_ids:
+        return []
+    rows = await db.execute(
+        select(User.id, User.email).where(
+            User.id.in_(list(user_ids)), User.is_active.is_(True)
+        )
+    )
+    emails = {uid: email for uid, email in rows.all() if email}
+    return [emails[uid] for uid in user_ids if uid in emails]
+
+
 async def mailbox_connected(db: AsyncSession, user_id: int) -> bool:
     connection = await db.scalar(
         select(M365Connection).where(M365Connection.user_id == user_id)
@@ -235,6 +249,7 @@ async def send_from(
     candidate_id: int | None,
     request_key: str,
     attachments: Sequence[m365_sender.FileAttachment] = (),
+    cc: Sequence[str] = (),
 ) -> tuple[bool, Optional[str]]:
     """(wysłano, powód) — ``request_key`` chroni przed drugą wysyłką przy ponowieniu."""
     if not user_id or not to:
@@ -249,6 +264,7 @@ async def send_from(
             db,
             connection,
             to=[to],
+            cc=[address for address in cc if address and address != to],
             subject=subject,
             body_html=body_html,
             candidate_id=candidate_id,
