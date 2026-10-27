@@ -508,6 +508,45 @@ def _shape_contract_text(data: Any, _args: dict[str, Any]) -> Any:
     }
 
 
+def _shape_activity_people(data: Any, _args: dict[str, Any]) -> Any:
+    """Liczba okresu + wiersze „kto, gdzie, kiedy, czyja zasługa” bez linków API."""
+    if not isinstance(data, dict):
+        return data
+    rows = []
+    for item in data.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        cand = item.get("candidate") or {}
+        job = item.get("job") or {}
+        credited = item.get("credited_user") or {}
+        rows.append(
+            _clean(
+                {
+                    "candidate_id": cand.get("id"),
+                    "candidate": cand.get("name"),
+                    "job_id": job.get("id"),
+                    "job": job.get("working_title") or job.get("title"),
+                    "client": job.get("client_name"),
+                    "credited": credited.get("name"),
+                    "reached_at": item.get("reached_at"),
+                    "state": item.get("state"),
+                }
+            )
+        )
+    return trim(
+        _clean(
+            {
+                "total": data.get("total"),
+                "people": data.get("people"),
+                "period_start": data.get("period_start"),
+                "period_end": data.get("period_end"),
+                "scope": data.get("scope"),
+                "items": rows,
+            }
+        )
+    )
+
+
 def _get(path: str, params: Optional[dict[str, Any]] = None) -> RequestSpec:
     return RequestSpec("GET", path, params=_clean(params or {}))
 
@@ -1775,6 +1814,62 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             ),
         ),
         shape=as_is,
+    ),
+    JarvisTool(
+        name="activity_people",
+        label="Sprawdzam, kto się liczy",
+        description=(
+            "Imienna lista za liczbą (jak klik w liczbę lejka w Insights): kogo i w "
+            "jakiej rekrutacji zweryfikowano (verification), polecono klientowi "
+            "(recommendation), zaproszono na rozmowę u klienta (interview), "
+            "zaakceptowano (acceptance) albo zatrudniono (placement) — z datą i osobą, "
+            "która ma zasługę. Okres: jeden dzień (window=day, day), tydzień tego dnia "
+            "(window=week), miesiąc (window=month) albo dni od–do (window=range, "
+            "date_from, date_to). scope=team = cały zespół/firma, mine = tylko moje. "
+            "Pytanie ogólne („ile osób…”, „kto…”) bez „ja/moje” → team; „Brak "
+            "uprawnień” przy team znaczy, że rola nie widzi zespołu — podaj wtedy swoje "
+            "liczby i powiedz to. Używaj do „ile dziś / w piątek…” i „kto…”."
+        ),
+        input_schema=_schema(
+            {
+                "metric": {
+                    "type": "string",
+                    "enum": [
+                        "verification",
+                        "recommendation",
+                        "interview",
+                        "acceptance",
+                        "placement",
+                    ],
+                },
+                "window": {"type": "string", "enum": ["day", "week", "month", "range"]},
+                "day": {**STR, "format": "date"},
+                "date_from": {**STR, "format": "date"},
+                "date_to": {**STR, "format": "date"},
+                "scope": {"type": "string", "enum": ["mine", "team"]},
+            },
+            ("metric", "window"),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/dashboard/v2/recruitment-activity/details",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        build=lambda a: _get(
+            "/api/dashboard/v2/recruitment-activity/details",
+            _clean(
+                {
+                    "metric": a.get("metric"),
+                    "window": a.get("window"),
+                    "day": a.get("day"),
+                    "date_from": a.get("date_from"),
+                    "date_to": a.get("date_to"),
+                    "scope": "team" if a.get("scope") == "team" else "auto",
+                    "page_size": 100,
+                }
+            ),
+        ),
+        shape=_shape_activity_people,
     ),
     JarvisTool(
         name="explain_match",
