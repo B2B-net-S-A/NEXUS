@@ -13,6 +13,7 @@ import { Copy, Mail, Phone } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { telHref } from "@/components/v2/candidates/CandidatePhoneCell";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { formatPhone } from "@/lib/phone-format";
 
 const COPY_BUTTON =
   "hit-area shrink-0 rounded p-0.5 text-muted-foreground hover:bg-primary/10 hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
@@ -48,7 +49,7 @@ export function PersonContactLine({ phone, email, personName }: PersonContactLin
             title={`Zadzwoń: ${phoneValue}`}
             className="truncate tabular-nums text-foreground hover:text-primary hover:underline"
           >
-            {phoneValue}
+            {formatPhone(phoneValue)}
           </a>
           <button
             type="button"

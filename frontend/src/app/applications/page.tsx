@@ -39,6 +39,7 @@ import { useToast } from "@/components/Toast";
 import { safeExternalHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 
+import { formatPhone } from "@/lib/phone-format";
 /** Zgłoszenie starsze niż to jest sygnałem, że kolejka nie ma właściciela. */
 const STALE_AFTER_HOURS = 24;
 
@@ -231,7 +232,7 @@ export default function ApplicationsQueuePage() {
                   </p>
                   <p className="truncate text-sm text-muted-foreground">
                     {s.submitted_email}
-                    {s.submitted_phone ? ` · ${s.submitted_phone}` : ""}
+                    {s.submitted_phone ? ` · ${formatPhone(s.submitted_phone)}` : ""}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs">

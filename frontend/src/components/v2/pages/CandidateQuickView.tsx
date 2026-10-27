@@ -62,6 +62,7 @@ import {
   contractAvailabilityText,
 } from "@/lib/contract-availability";
 
+import { formatPhone } from "@/lib/phone-format";
 type QuickViewDestination =
   | "summary"
   | "recruitments"
@@ -616,7 +617,7 @@ export function CandidateQuickView({
                       className="whitespace-nowrap"
                     />
                   ) : (
-                    <span className="text-foreground">{candidate.phone}</span>
+                    <span className="text-foreground">{formatPhone(candidate.phone)}</span>
                   )
                 ) : (
                   <span className="text-muted-foreground">brak telefonu</span>

@@ -27,6 +27,7 @@ import {
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
+import { formatPhone } from "@/lib/phone-format";
 type RelationshipStrength = "cold" | "warm" | "strong" | "champion";
 
 interface MyRelationshipRow {
@@ -197,7 +198,7 @@ export function KeyRelationshipsPanel() {
                             href={`tel:${r.phone}`}
                             className="whitespace-nowrap tabular-nums hover:text-foreground hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
                           >
-                            {r.phone}
+                            {formatPhone(r.phone)}
                           </a>
                         </>
                       ) : null}
