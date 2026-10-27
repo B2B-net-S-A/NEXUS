@@ -4,8 +4,10 @@
  *
  * „Dodał” = osoba z PIERWSZEGO wpisu etapu pary kandydat–rekrutacja
  * (`added_to_job_by_id`), ta sama, którą karta pokazuje inicjałami i imieniem.
- * Nie rezerwacja „Biorę” i nie osoba z bieżącego etapu. Porównanie po numerze —
- * po imieniu myliłoby imienników.
+ * Nie osoba z bieżącego etapu. Porównanie po numerze — po imieniu myliłoby
+ * imienników. Osoba, która kliknęła „Biorę”, wygrywa z dodającą (prośba
+ * rekruterki, decyzja Artura 27.10.2026: wzięła ludzi kolegi do telefonu
+ * i nie mogła ich znaleźć na pełnej Tablicy).
  *
  * Osoby dodane przez silnik „Nowi na 20” (`entry_source = "system"`, 23.10.2026)
  * nie mają osoby dodającej — w menu to osobna pozycja „System”, nie „Brak danych”.
@@ -34,11 +36,21 @@ export interface AddedByItem {
   /** „Prowadzi” (25.10.2026) — przypisana osoba liczy się jak dodająca. */
   owner_user_id?: number | null;
   owner_name?: string | null;
+  /** Ostatnia osoba, która kliknęła „Biorę” (do weryfikacji, 27.10.2026). */
+  taken_by_user_id?: number | null;
+  taken_by_name?: string | null;
 }
 
-/** Osoba karty w filtrze: przypisana „Prowadzi”, inaczej ta, która dodała. */
+/** Osoba karty w filtrze: przypisana „Prowadzi”, potem ta, która wzięła
+ *  „Biorę”, a bez tego ta, która dodała. */
 function adderId(item: AddedByItem): number | null {
-  return item.owner_user_id ?? item.added_to_job_by_id ?? null;
+  return item.owner_user_id ?? item.taken_by_user_id ?? item.added_to_job_by_id ?? null;
+}
+
+function adderName(item: AddedByItem): string | null {
+  if (item.owner_user_id != null) return item.owner_name?.trim() || null;
+  if (item.taken_by_user_id != null) return item.taken_by_name?.trim() || null;
+  return item.added_to_job_by_name?.trim() || null;
 }
 
 interface AddedByColumn extends StageLike {
@@ -66,9 +78,11 @@ export function addedByKey(filter: AddedByFilter): string {
 }
 
 export function isSystemAdded(
-  item: Pick<AddedByItem, "entry_source" | "owner_user_id">,
+  item: Pick<AddedByItem, "entry_source" | "owner_user_id" | "taken_by_user_id">,
 ): boolean {
-  return item.entry_source === "system" && item.owner_user_id == null;
+  return (
+    item.entry_source === "system" && item.owner_user_id == null && item.taken_by_user_id == null
+  );
 }
 
 export function matchesAddedBy(item: AddedByItem, filter: AddedByFilter): boolean {
@@ -137,10 +151,7 @@ export function addedByOptions(
     }
     const entry = byUser.get(id) ?? { count: 0, name: null };
     entry.count += 1;
-    entry.name ??=
-      (person.owner_user_id != null
-        ? person.owner_name?.trim()
-        : person.added_to_job_by_name?.trim()) || null;
+    entry.name ??= adderName(person);
     byUser.set(id, entry);
   }
 

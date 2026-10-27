@@ -434,6 +434,10 @@ class CandidateStageResponse(BaseModel):
     claim_user_id: Optional[int] = None
     claim_user_name: Optional[str] = None
     claim_until: Optional[datetime] = None
+    # Ostatnia osoba, która kliknęła „Biorę”, także po wygaśnięciu blokady —
+    # do pierwszej weryfikacji (27.10.2026). Karta i filtr „Kto dodał”.
+    taken_by_user_id: Optional[int] = None
+    taken_by_name: Optional[str] = None
     can_take: bool = False
     # Odznaka terminarza rozmowy u klienta (`interview_badges_for_job`):
     # {kind, label, tone, at}.
