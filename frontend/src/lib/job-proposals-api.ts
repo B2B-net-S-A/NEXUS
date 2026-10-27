@@ -40,6 +40,8 @@ export interface ProposalInboxRequirement {
   any_of?: string[];
   level?: string;
   status?: string;
+  /** Rok ostatniego użycia technologii starszej niż 3 lata („?” zamiast „✓”). */
+  last_used_year?: number;
 }
 
 /**
