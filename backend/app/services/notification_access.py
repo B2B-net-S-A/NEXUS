@@ -162,6 +162,11 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.request_review_needed: ProductSection.pipeline,
     # 0523: link prowadzi do rekrutacji.
     NotificationType.client_job_opened: ProductSection.pipeline,
+    # 0525: przypomnienia o ogłoszeniach — link prowadzi do rekrutacji
+    # albo do „Ogłoszeń do nadrobienia”.
+    NotificationType.job_ad_missing: ProductSection.pipeline,
+    NotificationType.job_ad_backlog: ProductSection.pipeline,
+    NotificationType.job_ad_nudge: ProductSection.pipeline,
     NotificationType.request_allocation_proposals: ProductSection.pipeline,
     NotificationType.candidate_claim_taken: ProductSection.pipeline,
     NotificationType.hired_order_missing: ProductSection.finance,

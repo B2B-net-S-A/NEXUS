@@ -777,6 +777,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
     # 0523: nowa rekrutacja u klienta Delivery Leada (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_job_opened'",
+    # 0525: przypomnienia o brakujących ogłoszeniach (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_ad_missing'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_ad_backlog'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_ad_nudge'",
     # 0524: umowę za prowadzącego wygenerował ktoś inny (dzwonek do prowadzącego).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_agreement_ready'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
@@ -6124,6 +6128,10 @@ END $$""",
     # Lustro 1:1 z `app/services/job_ad_publication_schema.py` (pilnuje
     # test_job_ad_publications_migration_mirror).
     "CREATE TABLE IF NOT EXISTS job_ad_publications (job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, portal VARCHAR(16) NOT NULL, url VARCHAR(500) NULL, content_hash VARCHAR(64) NOT NULL, published_at TIMESTAMPTZ NOT NULL, published_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, removed_at TIMESTAMPTZ NULL, removed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT pk_job_ad_publications PRIMARY KEY (job_id, portal), CONSTRAINT ck_job_ad_publications_portal CHECK (portal IN ('pracuj', 'jjit')))",
+    # 0525: „nie publikujemy tej rekrutacji na …” (przypomnienia o ogłoszeniach).
+    # Lustro 1:1 z `app/services/job_ad_reminder_schema.py` (pilnuje
+    # test_job_ad_reminders_migration_mirror).
+    "CREATE TABLE IF NOT EXISTS job_ad_channel_skips (job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, channel VARCHAR(16) NOT NULL, reason VARCHAR(300) NOT NULL, created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT pk_job_ad_channel_skips PRIMARY KEY (job_id, channel), CONSTRAINT ck_job_ad_channel_skips_channel CHECK (channel IN ('kariera', 'pracuj', 'jjit')))",
     # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
     "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
     "no_client_questions BOOLEAN NOT NULL DEFAULT false",

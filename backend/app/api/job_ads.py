@@ -9,7 +9,13 @@
 * ``PUT/DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}`` — „wisi
   na portalu” (z linkiem) i „zdjęte z portalu” (0432);
 * ``GET/PUT /api/job-ads/fixed-blocks`` — stałe części firmy (admin i Head of
-  Recruitment).
+  Recruitment);
+* ``PUT/DELETE /api/jobs/{job_id}/portal-ad/skips/{channel}`` — „nie
+  publikujemy tej rekrutacji na …” z powodem (0525, przypomnienia);
+* ``POST /api/jobs/{job_id}/portal-ad/remind`` — DL prosi rekrutera o stronę
+  kariery (mail od razu);
+* ``GET /api/job-ads/missing`` — rekrutacje z brakiem, który robi osoba
+  („Ogłoszenia do nadrobienia”).
 
 Bramka jak przy opisie publicznym (``career_links``): rola ``RecruiterPlus``
 + sekcja Pipeline (router) + członkostwo w rekrutacji. Front kopiuje wyłącznie
@@ -34,16 +40,24 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.job import Job, JobStatus
 from app.models.job_ad import JobAd
+from app.models.activity import Activity
+from app.models.job_ad_channel_skip import JobAdChannelSkip
 from app.models.job_public_profile import JobPublicProfile
+from app.models.notification import NotificationType
 from app.models.user import User
 from app.schemas.job_ad import (
     AdCareerRequest,
+    AdChannel,
     AdGenerateRequest,
+    AdRemindResponse,
+    AdSkipRequest,
     AdUpdateRequest,
     CareerQueueItem,
     CareerQueueResponse,
     FixedBlocksModel,
     JobAdResponse,
+    MissingAdsItem,
+    MissingAdsResponse,
 )
 from app.schemas.job_ad_publication import AdPortal, AdPublishRequest
 from app.services import job_public_profile as jpp
@@ -54,6 +68,7 @@ from app.services.job_ad import (
     lint,
     material,
     publications,
+    reminders,
     render,
 )
 
@@ -96,6 +111,7 @@ async def _response(
         "facts": material.facts(mat),
         "readiness": material.readiness(mat),
         "career": (await career.career_state(db, job, ad, user_id=user_id)).as_dict(),
+        "reminders": await _reminders_panel(db, job.id, user_id),
     }
     if ad is None:
         return JobAdResponse(**base)
@@ -138,6 +154,43 @@ async def _response(
             vars(item) for item in await publications.for_job(db, job.id, ad)
         ],
     )
+
+
+async def _reminders_panel(
+    db: AsyncSession, job_id: int, user_id: int
+) -> Optional[dict]:
+    """Trzy kanały i kto je robi; zamknięta rekrutacja = ``None``."""
+    found = await reminders.load_statuses(db, [job_id])
+    user = await db.get(User, user_id)
+    if not found or user is None:
+        return None
+    await reminders.with_skip_authors(db, found)
+    return reminders.panel(found[0], user)
+
+
+async def _managed_status(
+    db: AsyncSession, user: User, job: Job
+) -> reminders.JobAdStatus:
+    """Stan otwartej rekrutacji, gdy osoba decyduje o jej ogłoszeniach."""
+    found = await reminders.load_statuses(db, [job.id])
+    if not found:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_not_open",
+                "message": "Rekrutacja jest zamknięta — przypomnienia o niej nie przychodzą.",
+            },
+        )
+    status = found[0]
+    if not reminders.can_manage(user, status):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "O ogłoszeniach tej rekrutacji decyduje jej Delivery Lead, "
+                "Head of Recruitment albo admin."
+            ),
+        )
+    return status
 
 
 @router.get("/jobs/{job_id}/portal-ad", response_model=JobAdResponse)
@@ -561,3 +614,200 @@ async def put_fixed_blocks(
     await fixed_blocks.save_blocks(db, blocks, user_id=current_user.id)
     await db.commit()
     return FixedBlocksModel(**blocks.as_dict())
+
+
+# ── Przypomnienia o brakujących ogłoszeniach (0525, 27.10.2026) ──────────────
+
+
+async def _job_ad_reply(db: AsyncSession, job: Job, user: User) -> JobAdResponse:
+    return await _response(
+        db, job, await db.get(JobAd, job.id), await _material(db, job), user_id=user.id
+    )
+
+
+@router.put("/jobs/{job_id}/portal-ad/skips/{channel}", response_model=JobAdResponse)
+async def skip_ad_channel(
+    job_id: int,
+    channel: AdChannel,
+    data: AdSkipRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> JobAdResponse:
+    """„Nie publikujemy tej rekrutacji na …” — kanał przestaje być brakiem.
+
+    Decyduje DL rekrutacji, Head of Recruitment albo admin; powód jest
+    obowiązkowy i trafia do Historii zdarzeń rekrutacji.
+    """
+    job = await _load_job(db, current_user, job_id)
+    await _managed_status(db, current_user, job)
+    reason = " ".join(data.reason.split())
+    if len(reason) < 3:
+        raise HTTPException(422, "Napisz krótko, dlaczego tu nie publikujemy.")
+    stmt = pg_insert(JobAdChannelSkip).values(
+        job_id=job_id, channel=channel, reason=reason, created_by=current_user.id
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[JobAdChannelSkip.job_id, JobAdChannelSkip.channel],
+            set_={
+                "reason": reason,
+                "created_by": current_user.id,
+                "updated_at": _now(),
+            },
+        )
+    )
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="job_ad_channel_skipped",
+            user_id=current_user.id,
+            details={"channel": channel, "reason": reason},
+        )
+    )
+    await db.commit()
+    return await _job_ad_reply(db, job, current_user)
+
+
+@router.delete("/jobs/{job_id}/portal-ad/skips/{channel}", response_model=JobAdResponse)
+async def unskip_ad_channel(
+    job_id: int,
+    channel: AdChannel,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> JobAdResponse:
+    """Cofnięcie „nie publikujemy” — przypomnienia o kanale wracają."""
+    job = await _load_job(db, current_user, job_id)
+    await _managed_status(db, current_user, job)
+    row = await db.get(JobAdChannelSkip, (job_id, channel))
+    if row is None:
+        raise HTTPException(404, "Ten kanał nie jest oznaczony jako „nie publikujemy”.")
+    await db.delete(row)
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="job_ad_channel_unskipped",
+            user_id=current_user.id,
+            details={"channel": channel},
+        )
+    )
+    await db.commit()
+    return await _job_ad_reply(db, job, current_user)
+
+
+@router.post("/jobs/{job_id}/portal-ad/remind", response_model=AdRemindResponse)
+async def remind_recruiters(
+    job_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> AdRemindResponse:
+    """DL prosi rekruterów rekrutacji o stronę kariery — mail od razu.
+
+    Raz dziennie na osobę i rekrutację (dzienny dedup dzwonka); drugi klik
+    tego dnia mówi, komu już przypomniano.
+    """
+    from app.models.notification import Notification
+    from app.services.notification_triggers import emit
+
+    job = await _load_job(db, current_user, job_id)
+    status = await _managed_status(db, current_user, job)
+    career_state = status.channel(reminders.CHANNEL_CAREER)
+    if career_state.state != "missing":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "career_not_missing",
+                "message": "Strona kariery już wisi albo jej nie publikujemy.",
+            },
+        )
+    targets = [
+        uid
+        for uid in status.recruiter_ids
+        if uid != current_user.id and uid in career_state.owners
+    ]
+    if not targets:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "no_recruiter",
+                "message": (
+                    "Rekrutacja nie ma rekrutera — stronę kariery możesz "
+                    "opublikować sam(a) albo najpierw przydzielić rekrutera."
+                ),
+            },
+        )
+    day_start = reminders.local_day_start(_now())
+    already_ids = set(
+        (
+            await db.scalars(
+                select(Notification.user_id).where(
+                    Notification.notification_type == NotificationType.job_ad_nudge,
+                    Notification.related_entity_type == "job",
+                    Notification.related_entity_id == job_id,
+                    Notification.user_id.in_(targets),
+                    Notification.created_at >= day_start,
+                )
+            )
+        ).all()
+    )
+    sent: list[str] = []
+    already: list[str] = []
+    for uid in targets:
+        name = status.names.get(uid) or ""
+        if uid in already_ids:
+            already.append(name)
+            continue
+        row = await emit(
+            db,
+            user_id=uid,
+            title=f"{reminders.TITLE_NUDGE}: {status.title}"[:255],
+            message=reminders.nudge_message(current_user.name),
+            ntype=NotificationType.job_ad_nudge,
+            related_entity_type="job",
+            related_entity_id=job_id,
+            link=reminders.job_link(job_id, ogloszenie=reminders.CHANNEL_CAREER),
+        )
+        if row is not None:
+            sent.append(name)
+    await db.commit()
+    return AdRemindResponse(sent_to=sent, already=already)
+
+
+@router.get("/job-ads/missing", response_model=MissingAdsResponse)
+async def get_missing_ads(
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> MissingAdsResponse:
+    """Otwarte rekrutacje z brakiem, który robi osoba (albo prowadzi jako DL).
+
+    Ten sam stan co poranne maile (``job_ad.reminders``), od najnowszej;
+    ekran „Ogłoszenia do nadrobienia” otwiera je jedną po drugiej.
+    """
+    statuses = [
+        s for s in await reminders.load_statuses(db) if s.concerns(current_user.id)
+    ]
+    await reminders.with_skip_authors(db, statuses)
+    cutoff = await reminders.launch_cutoff(db)
+    statuses.sort(
+        key=lambda s: (
+            s.opened_at or datetime.min.replace(tzinfo=timezone.utc),
+            s.job_id,
+        ),
+        reverse=True,
+    )
+    return MissingAdsResponse(
+        items=[
+            MissingAdsItem(
+                job_id=s.job_id,
+                title=s.title,
+                client=s.client,
+                opened_at=s.opened_at,
+                backlog=not reminders.is_new(s.opened_at, cutoff),
+                channels=[
+                    reminders.channel_view(s, c, current_user.id) for c in s.channels
+                ],
+            )
+            for s in statuses
+        ]
+    )

@@ -254,6 +254,16 @@ class NotificationType(str, enum.Enum):
     # obowiązkowy „Nowa rekrutacja u Twojego klienta”, kilka w 10 minut
     # jednym mailem (`services/client_job_opened.py`).
     client_job_opened = "client_job_opened"
+    # 0525 (27.10.2026): przypomnienia o brakujących ogłoszeniach (strona
+    # kariery, Pracuj.pl, JustJoin.IT) — mail obowiązkowy, codziennie rano
+    # (`services/job_ad/reminders.py`). `job_ad_missing` — rekrutacja otwarta
+    # po starcie przypomnień, related_entity=(job, id); `job_ad_backlog` —
+    # zbiorczy o rekrutacjach sprzed startu, related_entity=(user, id);
+    # `job_ad_nudge` — DL prosi rekrutera o stronę kariery,
+    # related_entity=(job, id).
+    job_ad_missing = "job_ad_missing"
+    job_ad_backlog = "job_ad_backlog"
+    job_ad_nudge = "job_ad_nudge"
     # 0374: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"

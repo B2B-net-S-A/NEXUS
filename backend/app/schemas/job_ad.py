@@ -181,6 +181,41 @@ class AdCareerState(BaseModel):
     published_by_name: Optional[str] = None
 
 
+AdChannel = Literal["kariera", "pracuj", "jjit"]
+
+
+class AdChannelView(BaseModel):
+    """Stan jednego kanału rekrutacji (przypomnienia o ogłoszeniach, 0525)."""
+
+    channel: AdChannel
+    state: Literal["live", "missing", "skipped"]
+    since: Optional[datetime] = None
+    # Brak robi ta osoba (rekruter: strona kariery; DL: portale).
+    mine: bool = False
+    owner_names: list[str] = Field(default_factory=list)
+    skip_reason: Optional[str] = None
+    skipped_by_name: Optional[str] = None
+
+
+class AdReminders(BaseModel):
+    channels: list[AdChannelView]
+    # „Nie publikujemy” i „Przypomnij”: DL rekrutacji, Head of Recruitment, admin.
+    can_manage: bool = False
+    recruiter_names: list[str] = Field(default_factory=list)
+
+
+class AdSkipRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=3, max_length=300)
+
+
+class AdRemindResponse(BaseModel):
+    sent_to: list[str]
+    # Już dziś przypomniano — drugi mail tego dnia nie wychodzi.
+    already: list[str] = Field(default_factory=list)
+
+
 class JobAdResponse(BaseModel):
     ad: Optional[AdRead] = None
     career: AdCareerState = Field(default_factory=AdCareerState)
@@ -192,6 +227,8 @@ class JobAdResponse(BaseModel):
     can_copy: bool = False
     # Gdzie ogłoszenie wisi (0432) — także wiersze „zdjęte z portalu”.
     publications: list[AdPublicationRead] = Field(default_factory=list)
+    # Trzy kanały i kto je robi (0525); brak = rekrutacja zamknięta.
+    reminders: Optional[AdReminders] = None
 
 
 class CareerQueueItem(BaseModel):
@@ -213,6 +250,22 @@ class CareerQueueResponse(BaseModel):
     mine_count: int
     all_count: int
     items: list[CareerQueueItem]
+
+
+class MissingAdsItem(BaseModel):
+    """Rekrutacja z brakiem, który robi osoba („Ogłoszenia do nadrobienia”)."""
+
+    job_id: int
+    title: str
+    client: Optional[str] = None
+    opened_at: Optional[datetime] = None
+    # Otwarta przed startem przypomnień — idzie mailem zbiorczym.
+    backlog: bool = False
+    channels: list[AdChannelView]
+
+
+class MissingAdsResponse(BaseModel):
+    items: list[MissingAdsItem]
 
 
 class LangBlocksModel(BaseModel):

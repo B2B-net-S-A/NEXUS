@@ -3354,6 +3354,7 @@ async def api_health_deep_check():
     from app.models.job_file import JobFile
     from app.models.candidate_client_form import CandidateClientForm
     from app.models.job_ad import JobAd
+    from app.models.job_ad_channel_skip import JobAdChannelSkip
     from app.models.job_ad_publication import JobAdPublication
     from app.models.integration_event import (
         IntegrationEvent,
@@ -3650,6 +3651,8 @@ async def api_health_deep_check():
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),
         ("job_ad_publications", JobAdPublication),
+        # 0525: „Nie publikujemy” i codzienne przypomnienia o ogłoszeniach.
+        ("job_ad_channel_skips", JobAdChannelSkip),
         # 0438: „Wymagania do poprawy” — zatwierdzenie i odrzucenie propozycji
         # zapisują decyzję; brak tabeli = 500 przy obu.
         ("requirement_cleanup_decisions", RequirementCleanupDecision),

@@ -1146,6 +1146,7 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
         "prep_attention": await check_prep_attention(db, now),
         "rate_change_reminders": await _rate_change_reminders(db, now),
         "client_job_opened": await _client_job_opened(db, now),
+        "job_ad_reminders": await _job_ad_reminders(db, now),
     }
 
 
@@ -1181,6 +1182,13 @@ async def _client_job_opened(db: AsyncSession, now: datetime) -> int:
     from app.services.client_job_opened import emit_opened  # noqa: PLC0415
 
     return await emit_opened(db, now)
+
+
+async def _job_ad_reminders(db: AsyncSession, now: datetime) -> int:
+    """Codzienne przypomnienia o brakujących ogłoszeniach (27.10.2026)."""
+    from app.services.job_ad.reminders import send_daily  # noqa: PLC0415
+
+    return await send_daily(db, now)
 
 
 __all__ = [

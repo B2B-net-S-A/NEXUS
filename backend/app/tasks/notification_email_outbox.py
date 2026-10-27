@@ -61,6 +61,7 @@ from app.services.notification_delivery import (
     BELL_MAIL_TYPES,
     CLIENT_JOB_KIND,
     HR_BONUS_KIND,
+    JOB_AD_KIND,
     HR_MAIL_KIND,
     HR_MAIL_TYPES,
     IMMEDIATE_KINDS,
@@ -128,6 +129,14 @@ def kind_clause(kind: str):
         return ntype == NotificationType.hr_bonus_assigned
     if kind == CLIENT_JOB_KIND:
         return ntype == NotificationType.client_job_opened
+    if kind == JOB_AD_KIND:
+        return ntype.in_(
+            [
+                NotificationType.job_ad_missing,
+                NotificationType.job_ad_backlog,
+                NotificationType.job_ad_nudge,
+            ]
+        )
     if kind in BELL_MAIL_TYPES:
         return ntype.in_([NotificationType(value) for value in BELL_MAIL_TYPES[kind]])
     raise ValueError(kind)
@@ -355,6 +364,16 @@ async def _deliver(
         reply_to = approval_mail_reply.reply_mailbox()
         if reply_to and notif.related_entity_type == "approval_request":
             extra["reply_to"] = reply_to
+    elif kind == JOB_AD_KIND:
+        # Brakujące ogłoszenia: karta ze świeżego stanu kanałów (27.10.2026).
+        # Kanał zrobiony od rana wypada; gdy nic nie brakuje — bez maila.
+        from app.services.job_ad import reminders
+
+        card = await reminders.mail_card(db, notif, user)
+        if card is None:
+            await _set(db, ids, email_send_started_at=None)
+            return None
+        subject, text_body, html_body = render_card_email(card)
     else:
         title, message, link = notif.title, notif.message, notif.link
         if kind == HR_MAIL_KIND:

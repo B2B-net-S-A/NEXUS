@@ -14,7 +14,8 @@ Makiety i macierz ról: https://claude.ai/artifact/PPYRVzq7cKrskFgPZdYqrJ.
 rekrutacja u Twojego klienta, rozmowy u klienta, CV czeka na przegląd, CV wróciło do poprawy, klient zaakceptował,
 zatrudniony bez zamówienia albo umowy, prośba o potwierdzenie podpisu B2B,
 alerty klientów i umów, „Czas i ludzie”, „Masz nową premię”, masowe
-przeglądanie CV, awaria automatu. Poranny skrót, wzmianki, czat, terminy rekrutacji i zmiany etapów
+przeglądanie CV, awaria automatu, brakujące ogłoszenia rekrutacji (27.10.2026,
+`rekrutacja-tworzenie/ogloszenia-przypomnienia-mailem.md`). Poranny skrót, wzmianki, czat, terminy rekrutacji i zmiany etapów
 zostają do wyłączenia przez konto. Nowy rodzaj obowiązkowy = wpis
 w `REQUIRED_KINDS`; test pilnuje, że to rodzaj z katalogu.
 

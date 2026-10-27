@@ -81,6 +81,10 @@ _JOBS = (
     _T.request_review_needed,
     _T.client_job_opened,
     _T.request_allocation_proposals,
+    # 0525: brakujące ogłoszenia (codzienne, bez dymka).
+    _T.job_ad_missing,
+    _T.job_ad_backlog,
+    _T.job_ad_nudge,
     # Osoby od automatu do tej rekrutacji
     _T.auto_match,
     _T.auto_match_proposals,
