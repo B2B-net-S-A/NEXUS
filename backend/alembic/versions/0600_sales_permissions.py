@@ -1,7 +1,7 @@
 """Sprzedaż (Atlas → NEXUS): uprawnienia „Sprzedaż: podgląd” i „Sprzedaż: edycja”.
 
 Revision ID: 0600_sales_permissions
-Revises: 0522_candidate_client_forms
+Revises: 0526_job_ad_reminders
 
 Dwa uprawnienia z grupy „Sprzedaż” na końcu katalogu — CHECK akcji i zasiew
 liczy ``permission_schema`` z katalogu. Domyślnie ma je tylko admin; handlowcom
@@ -31,7 +31,7 @@ ROLES_AT_0600: tuple[str, ...] = (
 )
 
 revision = "0600_sales_permissions"
-down_revision = "0522_candidate_client_forms"
+down_revision = "0526_job_ad_reminders"
 branch_labels = None
 depends_on = None
 
