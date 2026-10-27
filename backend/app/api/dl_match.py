@@ -68,6 +68,9 @@ class MatchJobOut(BaseModel):
     sendable: bool
     budget_min_hourly: Optional[Decimal] = None
     budget_max_hourly: Optional[Decimal] = None
+    #: Tylko wyszukiwanie: ``False`` — cudza rekrutacja, ``delivery_lead_name`` to jej DL.
+    in_portfolio: bool = True
+    delivery_lead_name: Optional[str] = None
 
 
 class AlreadyInOut(BaseModel):
@@ -118,6 +121,25 @@ class MatchSendResponse(BaseModel):
     results: list[MatchSendResult]
 
 
+def _job_out(j: svc.MatchJob) -> MatchJobOut:
+    return MatchJobOut(
+        job_id=j.job_id,
+        title=j.title,
+        client_name=j.client_name,
+        client_reference=j.client_reference,
+        score=j.score,
+        matching_must=list(j.matching_must),
+        gap_must=list(j.gap_must),
+        linked=j.linked,
+        destination=j.destination,
+        sendable=j.sendable,
+        budget_min_hourly=j.budget_min_hourly,
+        budget_max_hourly=j.budget_max_hourly,
+        in_portfolio=j.in_portfolio,
+        delivery_lead_name=j.delivery_lead_name,
+    )
+
+
 @router.get(
     "/dl-match/candidates/{candidate_id}",
     response_model=MatchSuggestionsResponse,
@@ -143,23 +165,7 @@ async def match_suggestions(
         candidate_id=candidate_id,
         from_job_id=from_job_id,
         status=result.status,
-        jobs=[
-            MatchJobOut(
-                job_id=j.job_id,
-                title=j.title,
-                client_name=j.client_name,
-                client_reference=j.client_reference,
-                score=j.score,
-                matching_must=list(j.matching_must),
-                gap_must=list(j.gap_must),
-                linked=j.linked,
-                destination=j.destination,
-                sendable=j.sendable,
-                budget_min_hourly=j.budget_min_hourly,
-                budget_max_hourly=j.budget_max_hourly,
-            )
-            for j in result.jobs
-        ],
+        jobs=[_job_out(j) for j in result.jobs],
         already_in=[
             AlreadyInOut(
                 job_id=a.job_id,
@@ -169,6 +175,41 @@ async def match_suggestions(
             )
             for a in result.already_in
         ],
+    )
+
+
+class MatchSearchResponse(BaseModel):
+    candidate_id: int
+    from_job_id: int
+    jobs: list[MatchJobOut]
+
+
+@router.get(
+    "/dl-match/candidates/{candidate_id}/search",
+    response_model=MatchSearchResponse,
+)
+@limiter.limit("120/minute", key_func=user_or_ip_key)
+async def match_search(
+    request: Request,
+    candidate_id: int,
+    current_user: RecruitmentManageUser,
+    from_job_id: int = Query(..., gt=0),
+    q: str = Query("", max_length=120),
+    db: AsyncSession = Depends(get_db),
+) -> MatchSearchResponse:
+    """„+ Dodaj inną rekrutację” — rekrutacje z portfela, których ocena nie podsunęła."""
+    await ensure_job_read_access(db, current_user, from_job_id)
+    jobs = await svc.search_targets(
+        db,
+        user=current_user,
+        candidate_id=candidate_id,
+        from_job_id=from_job_id,
+        phrase=q,
+    )
+    return MatchSearchResponse(
+        candidate_id=candidate_id,
+        from_job_id=from_job_id,
+        jobs=[_job_out(j) for j in jobs],
     )
 
 
@@ -266,17 +307,16 @@ async def _send_one(
         candidate_id=candidate_id,
         from_job_id=source.id,
         job_ids=[job_id],
-        scope=await svc.scope_for(db, user),
+        # Cała firma, nie tylko portfel: DL może dodać rekrutację ręcznie
+        # (decyzja Artura 27.10.2026); lista podpowiedzi zostaje w portfelu.
+        scope=None,
     )
     if job_id not in allowed:
         return MatchSendResult(
             job_id=job_id,
             title=title,
             status="failed",
-            reason=(
-                "Tej rekrutacji nie ma w Twoim portfelu, nie jest otwarta "
-                "albo osoba już w niej jest."
-            ),
+            reason="Ta rekrutacja nie jest otwarta albo osoba już w niej jest.",
         )
     destination = svc.destination_for(job.client_id)
     stages = await svc.template_stages(db, job)
@@ -391,7 +431,7 @@ async def _send_one(
             cv_carried=cv_carried,
         )
     await _effects(db, sent, user)
-    await _notify_target_recruiter(
+    await _notify_target_owners(
         db,
         job=job,
         source=source,
@@ -427,7 +467,7 @@ async def _emit(db: AsyncSession, **kwargs) -> None:
         logger.exception("[dl_match] dzwonek nie wyszedł")
 
 
-async def _notify_target_recruiter(
+async def _notify_target_owners(
     db: AsyncSession,
     *,
     job: Job,
@@ -436,20 +476,27 @@ async def _notify_target_recruiter(
     user: User,
     stage: CandidateStage,
 ) -> None:
-    """Prowadzący B wie, że DL wysłał mu osobę do klienta (i skąd)."""
-    if job.recruiter_id is None or job.recruiter_id == user.id:
+    """Prowadzący B i DL rekrutacji B (gdy to nie wysyłający — od 27.10.2026
+    DL może wysłać też do cudzej rekrutacji) wiedzą, kto wysłał osobę i skąd."""
+    recipients = [
+        uid
+        for uid in dict.fromkeys((job.recruiter_id, job.delivery_lead_id))
+        if uid is not None and uid != user.id
+    ]
+    if not recipients:
         return
     person = await _person(db, candidate_id)
-    await _emit(
-        db,
-        user_id=job.recruiter_id,
-        title=f"{user.name} wysłał(a) {person} do klienta — Match z {_job_label(source)}",
-        message=f"{_job_label(job)} · osoba z przeglądu Delivery Leada w innej rekrutacji",
-        ntype=NotificationType.stage_changed,
-        related_entity_type="candidate_stage",
-        related_entity_id=stage.id,
-        link=f"/jobs/{job.id}?candidate={candidate_id}",
-    )
+    for uid in recipients:
+        await _emit(
+            db,
+            user_id=uid,
+            title=f"{user.name} wysłał(a) {person} do klienta — Match z {_job_label(source)}",
+            message=f"{_job_label(job)} · osoba z przeglądu Delivery Leada w innej rekrutacji",
+            ntype=NotificationType.stage_changed,
+            related_entity_type="candidate_stage",
+            related_entity_id=stage.id,
+            link=f"/jobs/{job.id}?candidate={candidate_id}",
+        )
 
 
 async def _source_recruiter_id(

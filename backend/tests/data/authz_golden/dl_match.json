@@ -29,6 +29,7 @@
  ],
  "routes": {
   "GET /api/dl-match/candidates/{candidate_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
+  "GET /api/dl-match/candidates/{candidate_id}/search": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
   "POST /api/dl-match/send": "PDDPDDDDPPPDDDDDPDDDDDDDDD"
  }
 }
