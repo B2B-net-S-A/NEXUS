@@ -58,6 +58,7 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "runtime_metrics",
         "keyword_corpus_backfill",
         "note_kind_backfill",
+        "requirement_row_counts",
         "candidate_rate_from",
         "order_gaps",
         "insights_seniority_journal",

@@ -30,6 +30,18 @@ export interface RequirementProposalTalkItem {
   level: "must" | "nice";
 }
 
+/**
+ * Wiersz „musi mieć” z mniej niż 20 osobami w bazie (27.10.2026, `rare_word`):
+ * rozdzielony na sklejone warianty albo przeniesiony do rozmowy.
+ */
+export interface RequirementProposalRareRow {
+  words: string[];
+  /** Liczba osób jak licznik „W bazie” w edytorze (najwyżej 20). */
+  people: number;
+  action: "split" | "talk";
+  parts: string[] | null;
+}
+
 export interface RequirementProposal {
   job_id: number;
   reasons: RequirementProposalReason[];
@@ -42,13 +54,19 @@ export interface RequirementProposal {
     language: string | null;
     /** Słowa ponad limit wierszy — trafią do opisu wymagań (jak przy zapisie). */
     overflow?: string[];
+    rare?: RequirementProposalRareRow[];
   };
   profile_hash: string;
   /** Wymagania sprawdził wcześniej człowiek — zatwierdzenie je zastąpi. */
   contract_reviewed: boolean;
   /** `false` = brak słów do szukania; zatwierdzić się nie da. */
   can_apply: boolean;
+  /** Odcisk propozycji — decyzja go odsyła; liczby osób nie wchodzą do `profile_hash`. */
+  digest?: string;
 }
+
+/** Co decyzja odsyła serwerowi: odcisk profilu i odcisk widzianej propozycji. */
+export type RequirementProposalDecisionKey = Pick<RequirementProposal, "profile_hash" | "digest">;
 
 export interface RequirementProposalResponse {
   proposal: RequirementProposal | null;
@@ -76,18 +94,18 @@ export const requirementProposalApi = {
     api
       .get<RequirementProposalResponse>(`/api/jobs/${jobId}/requirement-proposal`)
       .then((r) => r.data),
-  apply: (jobId: number, profileHash: string) =>
+  apply: (jobId: number, key: RequirementProposalDecisionKey) =>
     api
       .post<ApplyRequirementProposalResponse>(
         `/api/jobs/${jobId}/requirement-proposal/apply`,
-        { profile_hash: profileHash },
+        { profile_hash: key.profile_hash, proposal_digest: key.digest },
       )
       .then((r) => r.data),
-  dismiss: (jobId: number, profileHash: string) =>
+  dismiss: (jobId: number, key: RequirementProposalDecisionKey) =>
     api
       .post<DismissRequirementProposalResponse>(
         `/api/jobs/${jobId}/requirement-proposal/dismiss`,
-        { profile_hash: profileHash },
+        { profile_hash: key.profile_hash, proposal_digest: key.digest },
       )
       .then((r) => r.data),
 };
@@ -142,7 +160,8 @@ function onDecisionError(qc: QueryClient, jobId: number, error: unknown) {
 export function useApplyRequirementProposal(jobId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (profileHash: string) => requirementProposalApi.apply(jobId, profileHash),
+    mutationFn: (key: RequirementProposalDecisionKey) =>
+      requirementProposalApi.apply(jobId, key),
     onSuccess: () => {
       invalidateAfterDecision(qc, jobId);
       invalidateChampionDependents(qc, jobId);
@@ -154,7 +173,8 @@ export function useApplyRequirementProposal(jobId: number) {
 export function useDismissRequirementProposal(jobId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (profileHash: string) => requirementProposalApi.dismiss(jobId, profileHash),
+    mutationFn: (key: RequirementProposalDecisionKey) =>
+      requirementProposalApi.dismiss(jobId, key),
     onSuccess: () => invalidateAfterDecision(qc, jobId),
     onError: (error) => onDecisionError(qc, jobId, error),
   });
