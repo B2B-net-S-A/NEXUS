@@ -7,11 +7,16 @@ JustJoin.IT, etapów procesu żadne, a tytuły sześć różnych dopisków.
 
 Magazyn: ``app_settings['job_ad_fixed_blocks']``. Wzór:
 ``request_allocation_rules`` (odczyt łagodny, zapis ścisły).
+
+Od 27.10.2026 tu stoi też opiekun konta Pracuj.pl (imię do powitania i adres):
+Pracuj.pl nie ma u nas API, ogłoszenie wstawia opiekun po mailu od Delivery
+Leada (``job_ad.pracuj_mail``).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -31,6 +36,11 @@ OFFER_MAX_ITEMS = 8
 PROCESS_MAX_ITEMS = 6
 ITEM_MAX_CHARS = 200
 ABOUT_MAX_CHARS = 600
+CARETAKER_NAME_MAX = 60
+CARETAKER_EMAIL_MAX = 254
+# Adres skrzynki ogłoszeń Pracuj.pl — działa, zanim HoR wpisze opiekuna.
+CARETAKER_DEFAULT_EMAIL = "ogloszenia@pracuj.pl"
+_EMAIL = re.compile(r"^[^@\s<>\"',;]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 
 
 @dataclass(frozen=True)
@@ -48,10 +58,22 @@ class LangBlocks:
 
 
 @dataclass(frozen=True)
+class PracujCaretaker:
+    """Opiekun konta Pracuj.pl: imię do powitania (może być puste) i adres."""
+
+    name: str = ""
+    email: str = CARETAKER_DEFAULT_EMAIL
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "email": self.email}
+
+
+@dataclass(frozen=True)
 class FixedBlocks:
     title_suffix: str
     pl: LangBlocks
     en: LangBlocks
+    pracuj_caretaker: PracujCaretaker = field(default_factory=PracujCaretaker)
 
     def for_lang(self, lang: str) -> LangBlocks:
         return self.en if lang == LANG_EN else self.pl
@@ -61,6 +83,7 @@ class FixedBlocks:
             "title_suffix": self.title_suffix,
             LANG_PL: self.pl.as_dict(),
             LANG_EN: self.en.as_dict(),
+            "pracuj_caretaker": self.pracuj_caretaker.as_dict(),
         }
 
 
@@ -133,6 +156,14 @@ def _parse_lang(value: Any, default: LangBlocks) -> LangBlocks:
     )
 
 
+def _parse_caretaker(value: Any) -> PracujCaretaker:
+    data = value if isinstance(value, dict) else {}
+    try:
+        return validate_caretaker(data)
+    except ValueError:
+        return PracujCaretaker()
+
+
 def parse_blocks(value: Optional[dict[str, Any]]) -> FixedBlocks:
     """Odczyt łagodny — zepsuta wartość w bazie daje domyślną, nie 500."""
     data = value if isinstance(value, dict) else {}
@@ -141,7 +172,25 @@ def parse_blocks(value: Optional[dict[str, Any]]) -> FixedBlocks:
         title_suffix=suffix if suffix in TITLE_SUFFIXES else DEFAULTS.title_suffix,
         pl=_parse_lang(data.get(LANG_PL), DEFAULTS.pl),
         en=_parse_lang(data.get(LANG_EN), DEFAULTS.en),
+        pracuj_caretaker=_parse_caretaker(data.get("pracuj_caretaker")),
     )
+
+
+def validate_caretaker(value: dict[str, Any]) -> PracujCaretaker:
+    """Imię bez znaków nowej linii (trafia do pierwszej linii maila), adres jeden."""
+    name = value.get("name") or ""
+    email = value.get("email") or ""
+    if not isinstance(name, str) or not isinstance(email, str):
+        raise ValueError("Opiekun Pracuj.pl: imię i adres muszą być tekstem.")
+    name = " ".join(name.split())
+    email = email.strip()
+    if len(name) > CARETAKER_NAME_MAX:
+        raise ValueError(
+            f"Imię opiekuna Pracuj.pl: najwyżej {CARETAKER_NAME_MAX} znaków."
+        )
+    if len(email) > CARETAKER_EMAIL_MAX or not _EMAIL.match(email):
+        raise ValueError("Wpisz jeden poprawny adres e-mail opiekuna Pracuj.pl.")
+    return PracujCaretaker(name=name, email=email)
 
 
 def _validate_lang(value: Any, label: str) -> LangBlocks:
@@ -173,15 +222,28 @@ def _validate_lang(value: Any, label: str) -> LangBlocks:
     return LangBlocks(offer=offer, process=process, about=about)
 
 
-def validate_blocks(value: dict[str, Any]) -> FixedBlocks:
-    """Zapis ścisły — błąd po polsku zamiast cichej wartości domyślnej."""
+def validate_blocks(
+    value: dict[str, Any], *, keep_caretaker: Optional[PracujCaretaker] = None
+) -> FixedBlocks:
+    """Zapis ścisły — błąd po polsku zamiast cichej wartości domyślnej.
+
+    Bez ``pracuj_caretaker`` w danych zostaje ``keep_caretaker`` (zapisany
+    wcześniej): okno sprzed 27.10.2026 nie zna tego pola i zapisem „co
+    oferujemy” zerowałoby opiekuna.
+    """
     suffix = value.get("title_suffix")
     if suffix not in TITLE_SUFFIXES:
         raise ValueError("Nieznany dopisek do tytułu.")
+    caretaker = value.get("pracuj_caretaker")
     return FixedBlocks(
         title_suffix=suffix,
         pl=_validate_lang(value.get(LANG_PL), "polski"),
         en=_validate_lang(value.get(LANG_EN), "angielski"),
+        pracuj_caretaker=(
+            validate_caretaker(caretaker)
+            if isinstance(caretaker, dict)
+            else keep_caretaker or PracujCaretaker()
+        ),
     )
 
 
