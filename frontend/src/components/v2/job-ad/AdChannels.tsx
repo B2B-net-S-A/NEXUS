@@ -9,16 +9,41 @@
  * „Udostępnij”, a kontrola stała w osobnej kolumnie. Makiety:
  * https://claude.ai/artifact/1wcS1zr1hc73nFMKSPwm7P. Reguły:
  * `docs/claude/rekrutacja-tworzenie/ogloszenie-jedna-tresc-strona-kariery.md`.
+ *
+ * Od 27.10.2026 kolumna mówi też, kto robi brakujący kanał, a DL rekrutacji
+ * zapisuje tu „Nie publikujemy” i przypomina rekruterowi o stronie kariery.
+ * Wejście z maila przypomnienia (`?ogloszenie=`) otwiera ją z krokami
+ * dla kanału — `ogloszenia-przypomnienia-mailem.md`.
  */
 
-import { Copy, ExternalLink } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { BellRing, Copy, ExternalLink } from "lucide-react";
 
+import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
-import type { AdCareerState, AdFinding, JobAdState } from "@/lib/api/jobAd";
-import { formatDate } from "@/lib/utils";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { apiErrorMessage } from "@/lib/api-error";
+import {
+  jobAdApi,
+  jobAdQueryKey,
+  missingAdsQueryKey,
+  type AdCareerState,
+  type AdChannel,
+  type AdChannelView,
+  type AdFinding,
+  type JobAdState,
+} from "@/lib/api/jobAd";
+import { cn, formatDate } from "@/lib/utils";
 
 import { AdChecksPanel } from "./AdChecksPanel";
 import { AdPublications, type AdPublicationsApi } from "./AdPublications";
+import { ChannelReminderLine, SkipChannelDialog, shortName } from "./AdReminderControls";
+
+export type AdReminderApi = Pick<
+  typeof jobAdApi,
+  "skipChannel" | "unskipChannel" | "remindRecruiters"
+>;
 
 export interface AdChannelsProps {
   jobId: number;
@@ -35,6 +60,64 @@ export interface AdChannelsProps {
   onShowFinding: (field: string) => void;
   onRemoveFinding: (finding: AdFinding) => void;
   api: AdPublicationsApi;
+  /** Kanał z maila przypomnienia (`?ogloszenie=`): kroki i podświetlona karta. */
+  focusChannel?: AdFocusChannel | null;
+  /** Z maila: od razu okno „Nie publikujemy” (`?ogloszenie=pomin`). */
+  openSkip?: boolean;
+  /** Z maila: od razu pytanie „Przypomnieć rekruterowi?” (`&przypomnij=rekruter`). */
+  askRemind?: boolean;
+  /** Parametry maila obsłużone — okno nie otworzy się drugi raz po F5. */
+  onIntentHandled?: () => void;
+  reminderApi?: AdReminderApi;
+}
+
+export type AdFocusChannel = AdChannel;
+
+const FOCUS_STEPS: Record<AdFocusChannel, { title: string; steps: string[] }> = {
+  kariera: {
+    title: "Z maila: opublikuj na stronie kariery",
+    steps: [
+      "Przeczytaj treść obok — jest gotowa z Profilu Championa.",
+      "Kliknij „Opublikuj na stronie” poniżej.",
+    ],
+  },
+  pracuj: {
+    title: "Z maila: wstaw ogłoszenie na Pracuj.pl",
+    steps: [
+      "Skopiuj pola z zakładki Pracuj.pl (obok) do formularza Pracuj.pl.",
+      "Opublikuj tam ogłoszenie.",
+      "Wklej poniżej link do ogłoszenia i kliknij „Oznacz”.",
+    ],
+  },
+  jjit: {
+    title: "Z maila: wstaw ogłoszenie na JustJoin.IT",
+    steps: [
+      "Skopiuj opis z zakładki JustJoin.IT (obok) do panelu JustJoin.IT.",
+      "Opublikuj tam ogłoszenie.",
+      "Wklej poniżej link do ogłoszenia i kliknij „Oznacz”.",
+    ],
+  },
+};
+
+function FocusSteps({ channel }: { channel: AdFocusChannel }) {
+  const { title, steps } = FOCUS_STEPS[channel];
+  return (
+    <section
+      aria-label={title}
+      data-testid="job-ad-focus"
+      className="flex flex-col gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-3 py-2.5 text-[13px]"
+    >
+      <h2 className="text-[13px] font-semibold leading-snug text-foreground">{title}</h2>
+      <ol className="list-decimal pl-5 text-xs leading-relaxed text-foreground">
+        {steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      <p className="text-xs text-muted-foreground">
+        Gdy to zrobisz, przypomnienia o tym kanale przestaną przychodzić.
+      </p>
+    </section>
+  );
 }
 
 function careerNote(career: AdCareerState): string | null {
@@ -44,6 +127,7 @@ function careerNote(career: AdCareerState): string | null {
 }
 
 function CareerCard({
+  highlight,
   career,
   jobClosed,
   blockedReason,
@@ -52,6 +136,7 @@ function CareerCard({
   onPublish,
   onCopy,
 }: {
+  highlight: boolean;
   career: AdCareerState;
   jobClosed: boolean;
   blockedReason: string | null;
@@ -69,7 +154,10 @@ function CareerCard({
     <section
       aria-label="Strona kariery"
       data-testid="job-ad-career"
-      className="flex flex-col gap-2 rounded-md border border-border bg-card px-3 py-2.5 text-[13px]"
+      className={cn(
+        "flex flex-col gap-2 rounded-md border bg-card px-3 py-2.5 text-[13px]",
+        highlight ? "border-primary ring-2 ring-primary/30" : "border-border",
+      )}
     >
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-[13px] font-medium text-foreground">Strona kariery</h3>
@@ -154,12 +242,117 @@ export function AdChannels({
   onShowFinding,
   onRemoveFinding,
   api,
+  focusChannel = null,
+  openSkip = false,
+  askRemind = false,
+  onIntentHandled,
+  reminderApi = jobAdApi,
 }: AdChannelsProps) {
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const [skipFor, setSkipFor] = useState<AdChannel[] | null>(null);
+  const reminders = state.reminders;
+  const view = (channel: AdChannel): AdChannelView | undefined =>
+    reminders?.channels.find((c) => c.channel === channel);
+  const canManage = reminders?.can_manage === true;
+  const missing = (reminders?.channels ?? [])
+    .filter((c) => c.state === "missing")
+    .map((c) => c.channel);
+  const career = view("kariera");
+  const recruiters = reminders?.recruiter_names ?? [];
+  const canRemind =
+    canManage && career?.state === "missing" && !career.mine && recruiters.length > 0;
+
+  const apply = (next: JobAdState) => {
+    queryClient.setQueryData(jobAdQueryKey(jobId), next);
+    void queryClient.invalidateQueries({ queryKey: missingAdsQueryKey });
+  };
+
+  const skip = useMutation({
+    mutationFn: async (input: { channels: AdChannel[]; reason: string }) => {
+      let next: JobAdState | null = null;
+      for (const channel of input.channels) {
+        next = await reminderApi.skipChannel(jobId, channel, input.reason);
+      }
+      return next;
+    },
+    onSuccess: (next) => {
+      if (next) apply(next);
+      setSkipFor(null);
+      showSuccess("Zapisane. Przypomnienia o tych kanałach nie przyjdą.");
+    },
+    onError: (err) =>
+      showError(apiErrorMessage(err, "Nie udało się zapisać „nie publikujemy”. Spróbuj ponownie.")),
+  });
+
+  const unskip = useMutation({
+    mutationFn: (channel: AdChannel) => reminderApi.unskipChannel(jobId, channel),
+    onSuccess: apply,
+    onError: (err) => showError(apiErrorMessage(err, "Nie udało się cofnąć. Spróbuj ponownie.")),
+  });
+
+  const remind = useMutation({
+    mutationFn: () => reminderApi.remindRecruiters(jobId),
+    onSuccess: (result) => {
+      if (result.sent_to.length > 0) {
+        showSuccess(`Wysłano przypomnienie: ${result.sent_to.map(shortName).join(", ")}`);
+      } else {
+        showSuccess(`Już dziś przypomniano: ${result.already.map(shortName).join(", ")}`);
+      }
+    },
+    onError: (err) =>
+      showError(apiErrorMessage(err, "Nie udało się wysłać przypomnienia. Spróbuj ponownie.")),
+  });
+
+  const confirmRemind = async () => {
+    const names = recruiters.map(shortName).join(", ");
+    const confirmed = await askConfirm({
+      title: `Przypomnieć: ${names}?`,
+      description:
+        "Dostanie teraz mail z przyciskiem „Opublikuj na stronie kariery”. Codzienne przypomnienie i tak przychodzi rano.",
+      confirmLabel: "Przypomnij",
+    });
+    if (confirmed) remind.mutate();
+  };
+
+  // Parametry maila obsługujemy raz, gdy stan kanałów jest już wczytany.
+  const handled = useRef(false);
+  useEffect(() => {
+    if (handled.current || !reminders || (!openSkip && !askRemind)) return;
+    handled.current = true;
+    if (openSkip && canManage && missing.length > 0) {
+      setSkipFor(missing);
+    } else if (askRemind && canRemind) {
+      void confirmRemind();
+    }
+    onIntentHandled?.();
+    // Jednorazowo — ref pilnuje, żeby okno nie wracało przy każdym odświeżeniu.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reminders, openSkip, askRemind]);
+
+  const busy = locked || skip.isPending || unskip.isPending;
+  const reminderLine = (channel: AdChannel) => {
+    const v = view(channel);
+    if (!v) return null;
+    return (
+      <ChannelReminderLine
+        view={v}
+        canManage={canManage}
+        busy={busy}
+        onSkip={() => setSkipFor([channel])}
+        onUnskip={() => unskip.mutate(channel)}
+      />
+    );
+  };
+
   return (
     <aside
       aria-label="Gdzie publikujesz"
       className="flex w-[320px] flex-none flex-col gap-4 overflow-y-auto border-l border-border bg-card px-4 py-3"
     >
+      {focusChannel ? <FocusSteps channel={focusChannel} /> : null}
+
       {state.findings.length > 0 ? (
         <AdChecksPanel
           findings={state.findings}
@@ -174,6 +367,7 @@ export function AdChannels({
           Gdzie publikujesz
         </h2>
         <CareerCard
+          highlight={focusChannel === "kariera"}
           career={state.career}
           jobClosed={jobClosed}
           blockedReason={publishBlockedReason}
@@ -182,6 +376,21 @@ export function AdChannels({
           onPublish={onPublishCareer}
           onCopy={onCopyCareerLink}
         />
+        {reminderLine("kariera")}
+        {canRemind ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="self-start"
+            loading={remind.isPending}
+            onClick={() => void confirmRemind()}
+            data-testid="ad-remind-recruiters"
+          >
+            <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
+            Przypomnij: {recruiters.map(shortName).join(", ")}
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -200,8 +409,19 @@ export function AdChannels({
           jobClosed={jobClosed}
           locked={locked}
           api={api}
+          initialLinkFor={focusChannel === "pracuj" || focusChannel === "jjit" ? focusChannel : null}
+          renderExtra={(portal) => reminderLine(portal)}
         />
       </div>
+      <SkipChannelDialog
+        open={skipFor !== null}
+        channels={missing}
+        initial={skipFor ?? []}
+        saving={skip.isPending}
+        onSubmit={(channels, reason) => skip.mutate({ channels, reason })}
+        onClose={() => setSkipFor(null)}
+      />
+      {confirmDialog}
     </aside>
   );
 }

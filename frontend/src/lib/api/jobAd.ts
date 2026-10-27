@@ -162,6 +162,52 @@ export const NO_CAREER_PAGE: AdCareerState = {
   published_by_name: null,
 };
 
+/** Kanał ogłoszenia rekrutacji (przypomnienia mailem, 27.10.2026). */
+export type AdChannel = "kariera" | "pracuj" | "jjit";
+
+export const AD_CHANNEL_LABEL: Record<AdChannel, string> = {
+  kariera: "Strona kariery",
+  pracuj: "Pracuj.pl",
+  jjit: "JustJoin.IT",
+};
+
+export interface AdChannelView {
+  channel: AdChannel;
+  state: "live" | "missing" | "skipped";
+  since: string | null;
+  /** Brak robi osoba na ekranie (rekruter: strona kariery; DL: portale). */
+  mine: boolean;
+  owner_names: string[];
+  skip_reason: string | null;
+  skipped_by_name: string | null;
+}
+
+export interface AdReminders {
+  channels: AdChannelView[];
+  /** „Nie publikujemy” i „Przypomnij”: DL rekrutacji, Head of Recruitment, admin. */
+  can_manage: boolean;
+  recruiter_names: string[];
+}
+
+export interface AdRemindResult {
+  sent_to: string[];
+  /** Już dziś przypomniano — drugi mail tego dnia nie wychodzi. */
+  already: string[];
+}
+
+/** Rekrutacja z brakiem, który robi osoba („Ogłoszenia do nadrobienia”). */
+export interface MissingAdsItem {
+  job_id: number;
+  title: string;
+  client: string | null;
+  opened_at: string | null;
+  /** Otwarta przed startem przypomnień — idzie mailem zbiorczym. */
+  backlog: boolean;
+  channels: AdChannelView[];
+}
+
+export const missingAdsQueryKey = ["job-ad", "missing"] as const;
+
 export interface JobAdState {
   ad: AdRead | null;
   /** Strona kariery z tej samej treści. */
@@ -174,6 +220,8 @@ export interface JobAdState {
   can_copy: boolean;
   /** Gdzie ogłoszenie wisi — także wiersze „zdjęte z portalu”. */
   publications: AdPublication[];
+  /** Trzy kanały i kto je robi; `null` = rekrutacja zamknięta. */
+  reminders: AdReminders | null;
 }
 
 /** Otwarta rekrutacja bez strony kariery — kolejka „Opublikuj i następna” (21.10.2026). */
@@ -231,6 +279,16 @@ function normalize(data: unknown): JobAdState {
     rendered: d.rendered ?? null,
     can_copy: d.can_copy === true,
     publications: Array.isArray(d.publications) ? d.publications : [],
+    reminders:
+      d.reminders && Array.isArray(d.reminders.channels)
+        ? {
+            channels: d.reminders.channels,
+            can_manage: d.reminders.can_manage === true,
+            recruiter_names: Array.isArray(d.reminders.recruiter_names)
+              ? d.reminders.recruiter_names
+              : [],
+          }
+        : null,
   };
 }
 
@@ -312,6 +370,33 @@ export const jobAdApi = {
       all_count: res.data?.all_count ?? 0,
       items: Array.isArray(res.data?.items) ? res.data.items : [],
     };
+  },
+  /** „Nie publikujemy tej rekrutacji na …” z powodem (DL, HoR, admin). */
+  skipChannel: async (
+    jobId: number,
+    channel: AdChannel,
+    reason: string,
+  ): Promise<JobAdState> => {
+    const res = await api.put(`/api/jobs/${jobId}/portal-ad/skips/${channel}`, { reason });
+    return normalize(res.data);
+  },
+  /** Cofnięcie „nie publikujemy” — przypomnienia o kanale wracają. */
+  unskipChannel: async (jobId: number, channel: AdChannel): Promise<JobAdState> => {
+    const res = await api.delete(`/api/jobs/${jobId}/portal-ad/skips/${channel}`);
+    return normalize(res.data);
+  },
+  /** DL prosi rekruterów o stronę kariery — mail od razu, raz dziennie. */
+  remindRecruiters: async (jobId: number): Promise<AdRemindResult> => {
+    const res = await api.post<AdRemindResult>(`/api/jobs/${jobId}/portal-ad/remind`);
+    return {
+      sent_to: Array.isArray(res.data?.sent_to) ? res.data.sent_to : [],
+      already: Array.isArray(res.data?.already) ? res.data.already : [],
+    };
+  },
+  /** Rekrutacje z brakiem, który robi osoba — od najnowszej. */
+  missing: async (): Promise<MissingAdsItem[]> => {
+    const res = await api.get<{ items?: MissingAdsItem[] }>("/api/job-ads/missing");
+    return Array.isArray(res.data?.items) ? res.data.items : [];
   },
   getFixedBlocks: async (): Promise<FixedBlocks> => {
     const res = await api.get<FixedBlocks>("/api/job-ads/fixed-blocks");

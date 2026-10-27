@@ -2649,6 +2649,38 @@
    "v3_home": "Lista rekrutacji → „Strona kariery · N” → /jobs/strona-kariery"
   },
   {
+   "id": "ad.channel-reminders",
+   "area": "zlecenie",
+   "opis": "Przypomnienia o ogłoszeniach (27.10.2026): przy każdym kanale okna „Ogłoszenie” kto robi brak, „Nie publikujemy tu” z powodem i „Cofnij” (DL, HoR, admin)",
+   "file": "components/v2/job-ad/AdReminderControls.tsx",
+   "marker": "Nie publikujemy tu",
+   "v3_home": "nagłówek → Ogłoszenie → kolumna „Gdzie publikujesz” → linia pod kanałem"
+  },
+  {
+   "id": "ad.remind-recruiters",
+   "area": "zlecenie",
+   "opis": "„Przypomnij: <rekruter>” — DL prosi rekrutera o stronę kariery, mail od razu (27.10.2026)",
+   "file": "components/v2/job-ad/AdChannels.tsx",
+   "marker": "ad-remind-recruiters",
+   "v3_home": "nagłówek → Ogłoszenie → Strona kariery → Przypomnij"
+  },
+  {
+   "id": "ad.mail-entry",
+   "area": "zlecenie",
+   "opis": "Wejście z maila przypomnienia: ?ogloszenie=kariera|pracuj|jjit|pomin i &przypomnij=rekruter otwierają okno ogłoszenia z krokami dla kanału (27.10.2026)",
+   "file": "lib/job-ad-mail-intent.ts",
+   "marker": "readAdMailIntent",
+   "v3_home": "mail „Wstaw ogłoszenia” → przycisk → rekrutacja z otwartym oknem"
+  },
+  {
+   "id": "ad.missing-queue",
+   "area": "lista",
+   "opis": "Ogłoszenia do nadrobienia (27.10.2026): rekrutacje bez strony kariery, Pracuj.pl albo JustJoin.IT, „Do zrobienia przeze mnie / Także pilnowane”, okno ogłoszenia na pierwszym brakującym kanale",
+   "file": "components/v2/job-ad/MissingAdsQueue.tsx",
+   "marker": "Do zrobienia przeze mnie",
+   "v3_home": "mail zbiorczy „Nadrabiaj po kolei” → /jobs/ogloszenia"
+  },
+  {
    "id": "list.career-queue-link",
    "area": "lista",
    "opis": "Przycisk „Strona kariery · N” na liście rekrutacji: ile otwartych rekrutacji osoby nie wisi na stronie kariery",

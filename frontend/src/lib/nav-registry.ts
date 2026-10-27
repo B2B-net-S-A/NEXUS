@@ -406,6 +406,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inSidebar: false,
   },
   {
+    // Ogłoszenia do nadrobienia (27.10.2026): rekrutacje bez strony kariery,
+    // Pracuj.pl albo JustJoin.IT — tu prowadzi zbiorczy mail przypomnień.
+    // W menu nie stoi, paleta ma skrót.
+    id: "missing-ads",
+    href: "/jobs/ogloszenia",
+    label: "Ogłoszenia do nadrobienia",
+    icon: Briefcase,
+    section: "pipeline",
+    placement: "primary",
+    paletteKeywords: ["ogłoszenia", "pracuj", "justjoin", "kariera", "nadrobić", "przypomnienia"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
     // Umowy przedwstępne (0506, 21.10.2026): prośby DL / HoR / rekrutera przy
     // osobach — stan, ważność, termin B2B, decyzje o karze. W menu nie stoi
     // (wejście z listy rekrutacji i kafelka), paleta ma skrót.

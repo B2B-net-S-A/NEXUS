@@ -102,6 +102,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "kpi-targets": "Cele KPI",
   "review-states": "Porządek w requestach",
   "strona-kariery": "Strona kariery do uzupełnienia",
+  ogloszenia: "Ogłoszenia do nadrobienia",
   "umowy-przedwstepne": "Umowy przedwstępne",
   daily: "Daily",
   seeking: "Dostępni kontraktorzy",
