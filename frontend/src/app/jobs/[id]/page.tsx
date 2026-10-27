@@ -1021,6 +1021,7 @@ export default function JobDetailPage() {
           focusChannel={adIntent?.focus ?? (adIntent?.remind ? "kariera" : null)}
           openSkip={adIntent?.skip ?? false}
           askRemind={adIntent?.remind ?? false}
+          openSend={adIntent?.send ?? false}
           open
           onClose={() => {
             setShowJobAd(false);

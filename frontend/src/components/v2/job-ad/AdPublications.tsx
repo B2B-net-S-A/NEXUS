@@ -27,6 +27,7 @@ import {
   type AdPortal,
   type AdPublication,
   type JobAdState,
+  type PracujRequest,
 } from "@/lib/api/jobAd";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -40,6 +41,11 @@ export interface AdPublicationsProps {
   initialLinkFor?: AdPortal | null;
   /** Linia pod portalem: kto robi brak albo „nie publikujemy” (27.10.2026). */
   renderExtra?: (portal: AdPortal) => React.ReactNode;
+  /**
+   * „Wyślij do Pracuj.pl” — mail do opiekuna konta (27.10.2026). Brak = osoba
+   * nie wysyła (rekruter) i widzi tylko stan.
+   */
+  onSendPracuj?: () => void;
   jobId: number;
   /** Portale do pokazania: jeden w zakładce okna, oba w sekcji rekrutacji. */
   portals: readonly AdPortal[];
@@ -67,6 +73,7 @@ export function AdPublications({
   api = jobAdApi,
   initialLinkFor = null,
   renderExtra,
+  onSendPracuj,
 }: AdPublicationsProps) {
   const queryClient = useQueryClient();
   const { showError } = useToast();
@@ -125,6 +132,9 @@ export function AdPublications({
           const active = last && !last.removed_at ? last : null;
           const href = active ? portalAdHref(key, active.url) : null;
           const editingLink = linkFor === key;
+          // Mail do opiekuna wyszedł, a ogłoszenia jeszcze nie oznaczono.
+          const request: PracujRequest | null =
+            key === "pracuj" && !active ? state.pracuj_request : null;
           return (
             <li
               key={key}
@@ -140,6 +150,12 @@ export function AdPublications({
                   <span className="text-foreground">
                     Opublikowane {formatDate(active.published_at)}
                     {active.published_by_name ? ` · ${active.published_by_name}` : ""}
+                  </span>
+                ) : request ? (
+                  <span className="text-foreground" data-testid="pracuj-request-status">
+                    Wysłane do opiekuna {formatDate(request.sent_at)}
+                    {request.sent_by_name ? ` · ${request.sent_by_name}` : ""}
+                    {request.waiting ? " · czeka na publikację" : ""}
                   </span>
                 ) : (
                   <span className="text-muted-foreground">
@@ -210,20 +226,36 @@ export function AdPublications({
                       </Button>
                     </>
                   ) : (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2.5"
-                      title={blockedReason ?? undefined}
-                      disabled={busy || !!blockedReason || editingLink}
-                      onClick={() => {
-                        setLink("");
-                        setLinkFor(key);
-                      }}
-                    >
-                      Oznacz jako opublikowane
-                    </Button>
+                    <>
+                      {key === "pracuj" && onSendPracuj && !jobClosed ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={request ? "ghost" : "primary"}
+                          className="h-7 px-2.5"
+                          title={blockedReason ?? undefined}
+                          disabled={busy || !!blockedReason}
+                          onClick={onSendPracuj}
+                          data-testid="pracuj-send"
+                        >
+                          {request ? "Wyślij ponownie" : "Wyślij do Pracuj.pl"}
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2.5"
+                        title={blockedReason ?? undefined}
+                        disabled={busy || !!blockedReason || editingLink}
+                        onClick={() => {
+                          setLink("");
+                          setLinkFor(key);
+                        }}
+                      >
+                        {request ? "Wisi — dodaj link" : "Oznacz jako opublikowane"}
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -232,6 +264,13 @@ export function AdPublications({
                 <p className="text-xs text-warning-muted-foreground">
                   Treść zmieniła się po publikacji. Popraw ogłoszenie na portalu i kliknij
                   „Zaktualizowane na portalu”.
+                </p>
+              ) : null}
+              {request ? (
+                <p className="text-xs text-muted-foreground">
+                  {request.waiting
+                    ? "Opiekun zwykle wstawia ogłoszenie w 1–2 dni robocze. Gdy przyśle link, wklej go tutaj — do tego czasu codzienny mail nie przypomina o Pracuj.pl."
+                    : "Ogłoszenie wciąż nie jest oznaczone. Sprawdź odpowiedź opiekuna i wklej link albo wyślij ponownie."}
                 </p>
               ) : null}
               {active && jobClosed ? (

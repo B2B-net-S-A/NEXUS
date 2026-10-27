@@ -76,6 +76,8 @@ export interface JobAdWindowProps {
   openSkip?: boolean;
   /** Z maila: pytanie „Przypomnieć rekruterowi?” od razu. */
   askRemind?: boolean;
+  /** Z maila: mail do opiekuna Pracuj.pl od razu (`&wyslij=opiekun`). */
+  openSend?: boolean;
 }
 
 const LANG_OPTIONS: ReadonlyArray<{ value: AdLang; label: string }> = [
@@ -107,6 +109,7 @@ export function JobAdWindow({
   focusChannel = null,
   openSkip = false,
   askRemind = false,
+  openSend = false,
 }: JobAdWindowProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -509,6 +512,7 @@ export function JobAdWindow({
                       focusChannel={focusChannel}
                       openSkip={openSkip}
                       askRemind={askRemind}
+                      openSend={openSend}
                     />
                   ) : null}
                 </>
