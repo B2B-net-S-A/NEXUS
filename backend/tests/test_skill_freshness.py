@@ -150,3 +150,119 @@ def test_recruiter_review_wins_over_old_date(monkeypatch):
     assert rows["angular"]["status"] == "met"
     assert rows["angular"]["evidence_basis"] == "reviewed"
     assert "last_used_year" not in rows["angular"]
+
+
+# ── Przegląd Delivery Leada (`dl_review.evaluate_requirements`) ──────────────
+#
+# Tabela wymagań przeglądu DL szuka wzmianek w profilu, CV, notatkach
+# i rozmowie. Trafienie wyłącznie w profilu i CV przy dacie sprzed ponad 3 lat
+# to „?” z rokiem; notatka i rozmowa (styczność z kandydatem) zostają dowodem.
+
+
+def dl_candidate(skills, timeline=None, raw_cv_text="", **extra):
+    base = dict(
+        skills=skills,
+        verified_tech=None,
+        tags=None,
+        experience=None,
+        cv_extracted_data={"skill_timeline": timeline} if timeline else {},
+        raw_cv_text=raw_cv_text,
+        current_position=None,
+        headline=None,
+        title=None,
+    )
+    base.update(extra)
+    return SimpleNamespace(**base)
+
+
+def dl_rows(cand, labels=("Java", "Angular"), notes=(), conversation=()):
+    from app.services import dl_review
+
+    items = [
+        dl_review.RequirementInput(f"must:{i}", label, "must")
+        for i, label in enumerate(labels)
+    ]
+    rows = dl_review.evaluate_requirements(
+        cand, items, note_texts=notes, conversation_texts=conversation
+    )
+    return {row["label"]: row for row in rows}, dl_review.requirements_score(rows)
+
+
+def candidate_14525():
+    # Staging 22.10.2026: Angular w liście 2020-06, na osi z doświadczenia 2021-07.
+    return dl_candidate(
+        angular(last_used="2020-06"),
+        timeline=[{"skill": "Angular", "last_used": "2021-07"}],
+        raw_cv_text="2019–2021: testy automatyczne aplikacji w Angularze (Protractor).",
+    )
+
+
+def test_dl_review_old_skill_from_profile_and_cv_is_unknown_with_year():
+    rows, score = dl_rows(candidate_14525())
+    assert rows["Angular"]["status"] == "unknown"
+    assert rows["Angular"]["last_used_year"] == 2021
+    assert rows["Angular"]["sources"] == ["profil", "CV"]
+    assert rows["Java"]["status"] == "met"
+    assert "last_used_year" not in rows["Java"]
+    # „?” nie liczy się w X/Y.
+    assert score == (1, 1)
+
+
+@pytest.mark.parametrize(
+    ("notes", "conversation", "source"),
+    [
+        (["Rozmowa 10.2026: dziś pisze w Angularze 17"], [], "notatka"),
+        ([], ["Angular — obecny projekt, 2 lata"], "rozmowa"),
+    ],
+)
+def test_dl_review_note_or_conversation_keeps_old_skill_met(
+    notes, conversation, source
+):
+    rows, score = dl_rows(candidate_14525(), notes=notes, conversation=conversation)
+    assert rows["Angular"]["status"] == "met"
+    assert source in rows["Angular"]["sources"]
+    assert "last_used_year" not in rows["Angular"]
+    assert score == (2, 2)
+
+
+@pytest.mark.parametrize(
+    ("last_used", "status"),
+    [
+        (None, "met"),
+        ("present", "met"),
+        ("kiedyś", "met"),
+        ("2023", "met"),
+        ("2022", "unknown"),
+        ("2023-10", "met"),
+        ("2023-09", "unknown"),
+    ],
+)
+def test_dl_review_date_edges(last_used, status):
+    dates = {"last_used": last_used} if last_used else {}
+    rows, _ = dl_rows(dl_candidate(angular(**dates)))
+    assert rows["Angular"]["status"] == status
+
+
+def test_dl_review_curated_skills_ignore_dates_from_cv_reading():
+    cand = dl_candidate(
+        [{"name": "Angular"}],
+        timeline=[{"skill": "Angular", "last_used": "2019"}],
+        skills_manually_curated=True,
+    )
+    rows, _ = dl_rows(cand, labels=["Angular"])
+    assert rows["Angular"]["status"] == "met"
+
+
+def test_dl_review_fresh_alternative_in_group_is_met():
+    skills = [
+        {"name": "Angular", "last_used": "2020-06"},
+        {"name": "React", "last_used": "present"},
+    ]
+    rows, _ = dl_rows(dl_candidate(skills), labels=["Angular lub React"])
+    assert rows["Angular lub React"]["status"] == "met"
+
+
+def test_dl_review_missing_stays_missing():
+    rows, score = dl_rows(dl_candidate(angular(last_used="2020-06")), labels=["Kafka"])
+    assert rows["Kafka"]["status"] == "missing"
+    assert score == (0, 1)

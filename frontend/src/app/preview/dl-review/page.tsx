@@ -271,6 +271,7 @@ const CONTEXT: DlReviewContext = {
     { key: "must:1", label: "Spring Boot", level: "must", status: "met", sources: ["CV"], candidate_value: "…Spring Boot 3, integracje REST…" },
     { key: "must:2", label: "Kafka", level: "must", status: "met", sources: ["notatka"], candidate_value: "Kafka do zdarzeń kredytowych" },
     { key: "must:3", label: "Oracle", level: "must", status: "missing", sources: [], candidate_value: null },
+    { key: "must:4", label: "Angular", level: "must", status: "unknown", sources: ["profil", "CV"], candidate_value: "…2019–2021: testy aplikacji w Angularze (Protractor)…", last_used_year: 2021 },
     { key: "nice:0", label: "Kubernetes", level: "nice", status: "met", sources: ["profil"], candidate_value: null },
     { key: "experience:domains:0", label: "Bankowość (min. 3 lat)", level: "experience", status: "unknown", sources: [], candidate_value: null },
   ],

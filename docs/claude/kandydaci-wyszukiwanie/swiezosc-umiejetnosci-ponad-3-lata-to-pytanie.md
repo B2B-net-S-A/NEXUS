@@ -35,6 +35,19 @@ ruszamy (zmienia je Head of Recruitment w panelu po pomiarze).
   w panelu osoby „? angular · 2020”, w chipach powodu „angular · 2020” jako
   „zapytaj”, w wynikach pełnego przeglądu „ostatnio używane w 2020 — do
   potwierdzenia”.
+- **Przegląd Delivery Leada (27.10.2026)** — `dl_review.evaluate_requirements`
+  (tabela „Wymagania klienta a kandydat”, X/Y z `requirements_score`). Ta sama
+  granica i te same daty (`skill_freshness.stale_year`), ale przegląd szuka
+  wzmianek, więc reguła działa tylko, gdy trafienie stoi WYŁĄCZNIE w profilu
+  i CV: wiersz dostaje `status = "unknown"` i `last_used_year`, źródła
+  zostają („profil, CV”), w X/Y się nie liczy. Notatka albo rozmowa ze
+  screeningu to styczność z kandydatem — zostają dowodem i wiersz jest „jest”
+  (daty notatki nie sprawdzamy). Front: `RequirementsColumn` — w statusie
+  „? 2021”, w kolumnie „Kandydat” „angular · 2021 — zapytaj, czy używa dziś”,
+  lupa „Szukaj w CV” zostaje. Skala w dniu zmiany (staging z 22.10.2026,
+  pary w opublikowanych rekrutacjach): 184 z 25 585 wierszy „jest” (0,7%)
+  przechodzi na „?”, w 135 z 5 863 par, w 64 rekrutacjach; X/Y zmienia się
+  w 105 parach; w kolumnie „QC CV” 4 wiersze u 1 z 21 osób.
 - **Propozycje zapisane wcześniej** zmieniają się dopiero po kolejnym
   przeglądzie bazy (dowód jest zamrożony przy propozycji).
 - **Skala w dniu zmiany** (staging z 22.10.2026, otwarte propozycje
