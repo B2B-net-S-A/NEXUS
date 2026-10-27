@@ -1459,6 +1459,11 @@ async def close_job_core(
     job.is_open = False
     job.close_reason = reason
     job.close_notes = notes
+    # 0525: P0 kończy się z zamknięciem — ponowne otwarcie nie przywraca go.
+    job.p0_until = None
+    job.p0_reason = None
+    job.p0_set_at = None
+    job.p0_set_by = None
     await set_work_state(db, job, "finished", actor_id=actor_id, reason="job_closed")
     await close_live_postings(db, job.id)
     # Audyt 06.10.2026 (R6): otwarte propozycje zamkniętej rekrutacji wygasają.

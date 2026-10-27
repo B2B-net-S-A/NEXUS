@@ -264,6 +264,7 @@ from app.api import screening_form as screening_form_api
 from app.api import dl_review as dl_review_api
 from app.api import job_similar as job_similar_api
 from app.api import job_champions as job_champions_api
+from app.api import job_p0 as job_p0_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
 from app.api import role_profiles as role_profiles_api
@@ -2098,6 +2099,7 @@ app.include_router(screening_form_api.router, prefix="/api", tags=["screening-fo
 app.include_router(dl_review_api.router, prefix="/api", tags=["dl-review"])
 app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
 app.include_router(job_champions_api.router, prefix="/api", tags=["job-champions"])
+app.include_router(job_p0_api.router, prefix="/api", tags=["job-p0"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(role_profiles_api.router, prefix="/api", tags=["role-profiles"])
