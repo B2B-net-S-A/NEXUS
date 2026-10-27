@@ -126,6 +126,17 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   - Licznik osób nie wysyła wiersza ze słowem krótszym niż 2 znaki („C”): lista kandydatów
     odpowiada wtedy 422 i całe „naraz” kończyło się „nie policzono” (789124). Ta sama reguła
     co `jobListFilters` w „Szukaj w bazie”.
+- **27.10.2026 — „To słowo do szukania?” pod listą do rozmowy.** Pomiar na 129 profilach:
+  technologia wpisana tylko w `experience.skills` to rzadkość, ale wtedy wyszukiwanie gubi
+  prawdziwe wymaganie (663525: „Alteryx (good/advanced)”, w wierszach „Data handling”,
+  „Reporting”). Edytor Championa czyta pozycje listy tym samym odczytem co wiersze
+  (`critical-suggestion` → `readings`, każda pozycja i jej nazwa bez komentarza — „ — poziom”,
+  „(poziom)” — jako osobny wiersz) i przy `technology` / `keyword`, którego żadne słowo nie
+  stoi w wierszach (ani każdy człon: „Python + SQL” przy wierszach Python i SQL), pokazuje
+  liczbę osób w bazie i przycisk. Pozycja z poziomem, komentarzem, notatką albo latami zostaje
+  na liście („Dodaj do słów do szukania”), sama nazwa się przenosi („Przenieś…”). Nowy wiersz
+  ma poziom pozycji („Mile” → mile widziane). Nic nie zapisuje się bez „Zapisz”.
+  `components/champion/TalkSearchWordHints.tsx`, inwentarz `champ.talk-search-word`.
 - Harness `/preview/new-job?state=readings`, karta propozycji `/preview/recruitment-v3`,
   „Szukaj w bazie” `/preview/job-detail?sources=search`, lista `/preview/custom-dashboard`.
 - **27.10.2026 — fraza klienta bez ludzi w bazie → słowo z CV (odczyt requestu v14).**
