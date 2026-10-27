@@ -108,6 +108,23 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   - `requirement_cleanup.load_fixes_safely` przy awarii oddaje `None`, nie
     pustą listę — awaria nie może wyglądać jak „nic do poprawy”.
   - `critical_not_searchable` — patrz decyzja B w `umiejetnosci-krytyczne-i-bramka-v9.md`.
+- **27.10.2026 — rzadkie słowo „musi mieć” (pomiar 129 profili z wierszami, kopia z 22.10).**
+  Zdań w wierszach już nie ma, ale 49 z 886 wierszy „musi mieć” miało mniej niż 10 osób
+  w bazie (12 zero): pojęcia przepisane z requestu klienta („Crisis plans” 0 obok
+  „Business Continuity” 773), polska odmiana („monitoringu produkcji” 2) i warianty
+  sklejone ukośnikiem bez spacji („SoapUI/ReadyAPI” 5, SoapUI osobno 2 289). W 50
+  rekrutacjach wszystkie „musi mieć” razem dawały 0 osób, a edytor pokazywał samo „~0”.
+  - Wiersz obowiązkowy z mniej niż `RARE_WORD_PEOPLE` (20) osobami dostaje
+    `RareWordCallout`: „Do rozmowy”, „Zostaw” i — gdy `gluedVariants` rozbija słowo, a części
+    mają więcej osób niż całość — „Rozdziel”. Nic nie blokuje; niszowa technologia bywa rzadka.
+    Przy zerze nie piszemy już „sprawdź pisownię” — pisownia zwykle jest dobra, to inne słowo.
+  - Gdy „wszystkie naraz” < 20, podsumowanie wymienia do trzech najrzadszych wierszy
+    („Najbardziej zawężają: …”). AI i „Szukaj w bazie” dalej filtrują tylko po krytycznych.
+  - Ukośnik bez spacji nie dzieli słowa przy wpisie („CI/CD”, „PL/SQL”) — „Rozdziel” pojawia
+    się dopiero przy rzadkim wierszu, więc popularne słowa z ukośnikiem zostają nietknięte.
+  - Licznik osób nie wysyła wiersza ze słowem krótszym niż 2 znaki („C”): lista kandydatów
+    odpowiada wtedy 422 i całe „naraz” kończyło się „nie policzono” (789124). Ta sama reguła
+    co `jobListFilters` w „Szukaj w bazie”.
 - **27.10.2026 — „To słowo do szukania?” pod listą do rozmowy.** Pomiar na 129 profilach:
   technologia wpisana tylko w `experience.skills` to rzadkość, ale wtedy wyszukiwanie gubi
   prawdziwe wymaganie (663525: „Alteryx (good/advanced)”, w wierszach „Data handling”,

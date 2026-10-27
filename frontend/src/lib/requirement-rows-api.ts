@@ -17,6 +17,7 @@ import {
   type RowCriticalState,
   type StoredRequirementRow,
 } from "@/lib/requirement-rows";
+import { keywordLongEnough } from "@/lib/keyword-requirements";
 import { DEFAULT_FILTERS, filtersToApiParams } from "@/lib/url-filters";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 
@@ -161,11 +162,17 @@ export function useRowCounts(
 ): RowCounts {
   const snapshot = useDebouncedValue(
     JSON.stringify({
-      rows: requiredRows(rows).map((row) => ({
-        key: row.key,
-        words: row.words,
-        critical: row.level === "critical",
-      })),
+      // Słowo krótsze niż 2 znaki („C”) lista kandydatów odrzuca (422), więc
+      // taki wiersz nie ma liczby i nie wchodzi do „naraz” — jak „Szukaj
+      // w bazie” (`jobListFilters`). Do 27.10.2026 jeden wiersz „C” dawał
+      // „nie policzono” dla całej listy.
+      rows: requiredRows(rows)
+        .filter((row) => row.words.every(keywordLongEnough))
+        .map((row) => ({
+          key: row.key,
+          words: row.words,
+          critical: row.level === "critical",
+        })),
       exclude,
     }),
     600,
@@ -198,6 +205,9 @@ export function useRowCounts(
     queryFn: ({ signal }) => countPeople(criticalWords, settled.exclude, signal),
   });
   const perRow: Record<string, number | null> = {};
+  for (const row of requiredRows(rows)) {
+    if (!row.words.every(keywordLongEnough)) perRow[row.key] = null;
+  }
   settled.rows.forEach((row, index) => {
     const query = perRowQueries[index];
     if (query?.isSuccess) perRow[row.key] = query.data;

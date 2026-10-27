@@ -78,6 +78,15 @@ i dodatkowych notatek; domyślny plik = kopia „Oryginał CV” rekrutacji.
   sprawdzenia”), a przy powrocie karty na „Zweryfikowany” automat nie podpina
   go jako szkicu nowego etapu (`cv_auto_generate._enqueue`) — robi CV od nowa.
 
+## Przepięcie nie przynosi gotowego CV (27.10.2026)
+
+Zgłoszenie zespołu 27.10: „CV nadal same się generują po uzupełnieniu
+screeningu”. Na produkcji od 22.10 nie było ani jednej generacji `origin=auto`;
+gotowe CV przyszło z przepięcia z podobnej rekrutacji (`branded_cv_carried_on_reassign`),
+zrobione przed nowym screeningiem. Zwykłe przepięcie CV już nie kopiuje, karta
+pokazuje potwierdzenia i podpowiedź „Użyj gotowego CV”. Kopię zostawia tylko
+„Match” DL-a. → `screening-notatki/screening-wybor-gotowego-cv-z-profilu-i-edycja.md`
+
 ## Czego nie zmienia
 
 - Inne wejścia do generatora (okno z profilu, dok, okno QC) — mają własny wybór

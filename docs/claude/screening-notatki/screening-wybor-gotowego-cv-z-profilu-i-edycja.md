@@ -112,11 +112,18 @@ podpowiada gotowe CV, przepięcie przenosi je samo. Raport:
   stanu. „Użyj nowej wersji” dotyczy tylko generacji młodszych niż
   `origin.selected_at` — inaczej karta od razu radziłaby nadpisać CV, które
   rekruter przed chwilą świadomie wskazał.
-- **Przepięcie kopiuje CV z rekrutacji źródłowej** (`carry_on_reassign` w
-  `add_candidates_to_job`, zaraz po migawce oryginału): savepoint, nigdy nie
-  rzuca, `flush` przed kopią. Obejmuje panel podobnych rekrutacji, „Do
-  przejrzenia”, przypisanie z listy i automat; ruch świeżej pary przez
-  `/pipeline/move`, shortlistę i wtyczkę LinkedIn — nie. Ta sama reguła
+- **Zwykłe przepięcie nie kopiuje CV od 27.10.2026** (panel podobnych
+  rekrutacji, „Do przejrzenia”, przypisanie z listy, automat). Zgłoszenie
+  zespołu: po screeningu i ruchu na „Zweryfikowany” karta miała już gotowe CV
+  z poprzedniej rekrutacji, zrobione przed tym screeningiem — wyglądało, jakby
+  CV wygenerowało się samo. Od 21.10 CV powstaje po trzech potwierdzeniach
+  (`generator-cv/cv-po-potwierdzeniu.md`), a powód kopii z 12.10 (automat by
+  zrobił nowe) zniknął. Stare CV karta podpowiada przez „Użyj gotowego CV”.
+  Decyzja Artura 27.10.2026.
+- **„Match” DL-a nadal kopiuje CV** (`carry_on_reassign` w
+  `add_candidates_to_job`, tylko przy jawnym `reassign_from_job_id`, zaraz po
+  migawce oryginału), bo od razu wysyła osobę do klienta: savepoint, nigdy nie
+  rzuca, `flush` przed kopią. Ta sama reguła
   dostępu co przy ręcznym wyborze: kopię przenosi tylko osoba, która może
   czytać rekrutację źródłową (`ensure_job_read_access`); odmowa i brak osoby
   działającej (automat bez właściciela rekrutacji) to „nie przenoś”, nie błąd.

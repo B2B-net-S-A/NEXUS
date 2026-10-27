@@ -61,6 +61,7 @@ from app.models.job_work_assignment import JobWorkAssignment
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services.job_previous_recruiters import parked_exists
+from app.services.job_p0 import active_clause
 from app.services.job_priority import is_passive, priority_rank
 from app.services.job_team import add_manual_member, recruiters_for_jobs, working
 from app.services.request_allocation_plan import (
@@ -104,11 +105,16 @@ async def _requests(db: AsyncSession) -> list[RequestInfo]:
     jobs = (
         await db.execute(
             select(
-                Job.id, Job.competence_category_id, Job.deadline, Job.priority
+                Job.id,
+                Job.competence_category_id,
+                Job.deadline,
+                Job.priority,
+                # 0525: aktywne P0 automat traktuje jak P1 (decyzja 27.10.2026).
+                active_clause().label("is_p0"),
             ).where(_pool_clause())
         )
     ).all()
-    ids = [job_id for job_id, _cc, _deadline, _priority in jobs]
+    ids = [job_id for job_id, _cc, _deadline, _priority, _p0 in jobs]
     if not ids:
         return []
     secondary: dict[int, set[int]] = {}
@@ -150,10 +156,10 @@ async def _requests(db: AsyncSession) -> list[RequestInfo]:
             deadline=deadline,
             # Bez nocnego przeglądu bazy nie wiadomo, ilu pasuje — rekruter.
             base_matches=int(proposals.get(job_id, 0)) if job_id in reviewed else None,
-            priority_rank=priority_rank(priority),
-            passive=is_passive(priority),
+            priority_rank=0 if is_p0 else priority_rank(priority),
+            passive=False if is_p0 else is_passive(priority),
         )
-        for job_id, cc, deadline, priority in jobs
+        for job_id, cc, deadline, priority, is_p0 in jobs
     ]
 
 

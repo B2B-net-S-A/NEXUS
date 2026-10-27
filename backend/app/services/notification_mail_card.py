@@ -157,6 +157,9 @@ SPECS: dict[str, _Spec] = {
     "candidate_claim_taken": _Spec(
         "Ktoś przejął Twoją osobę", chip="Zespół", label="Otwórz kandydata"
     ),
+    "job_p0_set": _Spec(
+        "Rekrutacja na P0 — ultrapilne", chip="P0", label="Otwórz rekrutację"
+    ),
     "request_assignment_changed": _Spec(
         "Nowa rekrutacja dla Ciebie", chip="Nowa rekrutacja", label="Otwórz rekrutację"
     ),

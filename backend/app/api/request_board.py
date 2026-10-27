@@ -43,6 +43,8 @@ from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.models.user import User, UserRole
 from app.schemas.job_team import JobRecruiterOut
+from app.services import job_p0
+from app.services.job_p0 import p0_rank_expr
 from app.services.job_priority import level_of
 from app.services.job_similarity import at_client_counts, board_column_counts
 from app.services.job_team import (
@@ -110,6 +112,10 @@ class BoardRequest(BaseModel):
     people: list[BoardPerson]
     delivery_lead: Optional[BoardLead] = None
     priority_level: Literal["p1", "p2", "accepting"] = "p2"
+    # 0525: P0 — ultrapilne przez 24 h (`services/job_p0`); na górze Daily.
+    is_p0: bool = False
+    p0_until: Optional[datetime] = None
+    p0_reason: Optional[str] = None
     # Data otwarcia requestu; dla rekrutacji bez niej — data założenia wiersza.
     opened_effective_at: Optional[datetime] = None
 
@@ -237,6 +243,12 @@ def _board_person(person: TeamPerson, row_source: Optional[str]) -> BoardPerson:
     )
 
 
+def _p0_fields(job: Job, now: datetime) -> dict:
+    if not job_p0.is_active(job, now):
+        return {}
+    return {"is_p0": True, "p0_until": job.p0_until, "p0_reason": job.p0_reason}
+
+
 @router.get("", response_model=BoardResponse)
 async def get_request_board(
     user: OperationalUser, db: AsyncSession = Depends(get_db)
@@ -247,7 +259,7 @@ async def get_request_board(
             await db.scalars(
                 select(Job)
                 .where(Job.status == JobStatus.published, Job.work_state == "searching")
-                .order_by(Job.deadline.asc().nulls_last(), Job.id)
+                .order_by(p0_rank_expr().asc(), Job.deadline.asc().nulls_last(), Job.id)
             )
         ).all()
     )
@@ -321,6 +333,7 @@ async def get_request_board(
                 else None
             ),
             priority_level=level_of(job.priority),
+            **_p0_fields(job, now),
             opened_effective_at=job.opened_at or job.created_at,
         )
         for job in jobs

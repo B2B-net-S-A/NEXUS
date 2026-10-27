@@ -200,9 +200,36 @@ export const BROAD_WORD_PEOPLE = 15_000;
  */
 export function rowCountHint(count: number | null | undefined): string | null {
   if (count == null) return null;
-  if (count === 0) return "Nikt w bazie nie ma tego słowa — sprawdź pisownię.";
   if (count > BROAD_WORD_PEOPLE) return "Słowo bardzo ogólne — zawęź (np. dodaj technologię).";
   return null;
+}
+
+/**
+ * Poniżej tylu osób w bazie słowo „musi mieć” opisuje wymaganie inaczej, niż
+ * ludzie piszą o nim w CV. Pomiar 27.10.2026 na 129 profilach z wierszami:
+ * 49 wierszy „musi mieć” miało mniej niż 10 osób („Crisis plans” 0,
+ * „SteerCo Reporting” 9), a w 50 rekrutacjach wszystkie „musi mieć” razem
+ * nie zostawiały nikogo.
+ */
+export const RARE_WORD_PEOPLE = 20;
+
+export function isRareRowCount(count: number | null | undefined): count is number {
+  return typeof count === "number" && count < RARE_WORD_PEOPLE;
+}
+
+/**
+ * Warianty sklejone w jednym słowie ukośnikiem bez spacji albo nawiasem:
+ * „SoapUI/ReadyAPI” to fraza „SoapUI ReadyAPI” (5 osób), a osobno SoapUI ma
+ * 2 289. Pytamy tylko przy rzadkim słowie — „CI/CD” i „PL/SQL” to jedno słowo
+ * i mają tysiące osób, więc tu nie trafiają.
+ */
+export function gluedVariants(word: string): string[] | null {
+  if (!/[/()]/.test(word)) return null;
+  const parts = word
+    .split(/[/(),]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 2);
+  return parts.length >= 2 ? parts : null;
 }
 
 export function setRowLevel(
