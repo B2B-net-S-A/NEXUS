@@ -104,6 +104,11 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "onsite_days_per_week",
         "onsite_days_per_month",
         "priority",
+        # 0525: P0 na 24 h — decyzja Head of Recruitment w NEXUSIE.
+        "p0_until",
+        "p0_reason",
+        "p0_set_at",
+        "p0_set_by",
         "recruitment_type",
         "portals",
         "must_skills",

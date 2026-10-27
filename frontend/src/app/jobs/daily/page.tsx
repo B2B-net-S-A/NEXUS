@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Suspense } from "react"
 
 import { PageHeader } from "@/components/ds/PageHeader"
+import { P0NowPanel } from "@/components/v2/jobs/p0/P0NowPanel"
 import { RequestBoard } from "@/components/v2/request-board/RequestBoard"
 
 /**
@@ -22,6 +23,8 @@ export default function JobsDailyPage() {
         title="Daily — requesty i obłożenie"
         description="Co zmieniło się od wczoraj, kto nad czym pracuje i komu brakuje rekrutera — kategoria po kategorii."
       />
+      {/* P0 — ultrapilne teraz (27.10.2026): najpierw o nich na spotkaniu. */}
+      <P0NowPanel />
       {/* `RequestBoard` czyta adres (`useSearchParams`). */}
       <Suspense
         fallback={

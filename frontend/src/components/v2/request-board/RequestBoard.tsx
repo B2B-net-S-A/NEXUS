@@ -28,7 +28,7 @@ import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Plus } from "lucide-react"
+import { Flame, Plus } from "lucide-react"
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice"
 import { useToast } from "@/components/Toast"
@@ -89,6 +89,10 @@ import { warsawDateOf } from "@/lib/warsaw-date"
 
 import { ChangesPanel, LoadPanel } from "./LoadPanel"
 import { RequestBoardFilters } from "./RequestBoardFilters"
+import { P0Chip } from "@/components/v2/jobs/p0/P0Chip"
+import { SetP0Dialog } from "@/components/v2/jobs/p0/SetP0Dialog"
+import { isP0Active } from "@/lib/job-p0"
+import { hasRole, useAuthStore } from "@/store/auth"
 
 // Układ zależy od szerokości KONTENERA, nie okna: ten sam pulpit stoi
 // w kafelku (ok. 330 px na telefonie, 990 px na laptopie) i na pełnej
@@ -245,6 +249,8 @@ export interface RequestBoardViewProps {
   canStaff: boolean
   /** Akceptuje i odrzuca propozycje automatu — capability `request.proposal.decide`. */
   canDecide: boolean
+  /** Ustawia P0 z wiersza („P0 na 24 h”) — Head of Recruitment, administrator. */
+  canSetP0?: boolean
   onAddPerson: (jobId: number, userId: number) => void
   /** „×” przy osobie: zdjęcie pracującej osoby albo odrzucenie propozycji. */
   onRemovePerson: (request: BoardRequest, person: BoardPerson) => void
@@ -323,6 +329,7 @@ interface RowProps
     | "board"
     | "canStaff"
     | "canDecide"
+    | "canSetP0"
     | "onAddPerson"
     | "onRemovePerson"
     | "onAcceptProposal"
@@ -341,12 +348,15 @@ function RequestRow({
   now,
   canStaff,
   canDecide,
+  canSetP0 = false,
   onAddPerson,
   onRemovePerson,
   onAcceptProposal,
   busyKeys,
 }: RowProps) {
   const toast = useToastIfProvided()
+  const [p0DialogOpen, setP0DialogOpen] = useState(false)
+  const p0 = isP0Active(request, now)
   const people = boardPeople(request)
   const busy = (person: BoardPerson) =>
     busyKeys?.has(boardPersonKey(request.job_id, person.user_id)) === true
@@ -382,10 +392,13 @@ function RequestRow({
   return (
     <div
       className={cn(
-        "grid gap-x-3 border-b border-border text-sm last:border-0",
+        "group/request grid gap-x-3 border-b border-border text-sm last:border-0",
         GRID_COLS,
         request.champion && "bg-success-muted/30 text-muted-foreground",
+        // P0 — ultrapilne (27.10.2026): czerwone tło i brzeg, na górze kategorii.
+        p0 && "bg-destructive-muted shadow-[inset_3px_0_0_hsl(var(--destructive))]",
       )}
+      data-p0={p0 ? "true" : undefined}
     >
       <div
         className={cn(
@@ -412,8 +425,33 @@ function RequestRow({
           >
             {request.title}
           </Link>
-          <RequestPriorityChip level={priorityLevelOf(request)} className="mt-0.5 shrink-0" />
+          {p0 ? (
+            <P0Chip until={request.p0_until} reason={request.p0_reason} className="mt-0.5" />
+          ) : (
+            <RequestPriorityChip level={priorityLevelOf(request)} className="mt-0.5 shrink-0" />
+          )}
         </div>
+        {/* „P0 na 24 h” w Daily (prośba Olafa „Omawiane na Daily”): widać po
+            najechaniu i przy fokusie, żeby nie zaśmiecać każdego wiersza. */}
+        {canSetP0 && !p0 ? (
+          <button
+            type="button"
+            className="mt-1 inline-flex w-fit items-center gap-1 rounded-md border border-dashed border-destructive/50 bg-card px-1.5 py-0.5 text-[11px] font-semibold text-destructive-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/request:opacity-100 pointer-coarse:opacity-100"
+            onClick={() => setP0DialogOpen(true)}
+            data-testid="request-row-set-p0"
+          >
+            <Flame className="h-3 w-3" aria-hidden="true" />
+            P0 na 24 h
+          </button>
+        ) : null}
+        {canSetP0 ? (
+          <SetP0Dialog
+            jobId={request.job_id}
+            jobTitle={request.title}
+            open={p0DialogOpen}
+            onOpenChange={setP0DialogOpen}
+          />
+        ) : null}
         {meta.length > 0 && (
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] text-muted-foreground">
             {meta.map((item, index) => (
@@ -525,6 +563,7 @@ export function RequestBoardView({
   onFilters,
   canStaff,
   canDecide,
+  canSetP0 = false,
   onAddPerson,
   onRemovePerson,
   onAcceptProposal,
@@ -672,6 +711,7 @@ export function RequestBoardView({
                         now={now}
                         canStaff={canStaff}
                         canDecide={canDecide}
+                        canSetP0={canSetP0}
                         onAddPerson={onAddPerson}
                         onRemovePerson={onRemovePerson}
                         onAcceptProposal={onAcceptProposal}
@@ -723,6 +763,7 @@ export function RequestBoard({
   const { askConfirm, confirmDialog } = useConfirmV2()
   const canStaff = useCapability("job.recruiter.assign")
   const canDecide = useCapability("request.proposal.decide")
+  const canSetP0 = useAuthStore((s) => hasRole(s.user, "admin", "head_of_recruitment"))
   const [busyKeys, setBusyKeys] = useState<ReadonlySet<string>>(() => new Set())
   // Człowiek zmienił filtry (albo zdjął zakres) — od tej chwili decyduje adres.
   const [scopeDismissed, setScopeDismissed] = useState(false)
@@ -813,6 +854,7 @@ export function RequestBoard({
         onFilters={setFilters}
         canStaff={canStaff}
         canDecide={canDecide}
+        canSetP0={canSetP0}
         busyKeys={busyKeys}
         onAddPerson={async (jobId, userId) => {
           const added = await run(

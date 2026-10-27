@@ -4,7 +4,7 @@
     "title": "Lista rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu widzisz rekrutacje — swoje, z Twojej kategorii albo całej firmy: stan requestu, priorytet (P1 = pilne), etapy kandydatów, Rekrutera (kto nad nią pracuje) i gdzie wisi ogłoszenie. Pod nazwą stoi kategoria, klient i tryb pracy.",
+    "what": "Tu widzisz rekrutacje — swoje, z Twojej kategorii albo całej firmy: stan, priorytet (P0 — ultrapilne, na górze; P1 — pilne), etapy kandydatów, Rekrutera i ogłoszenia. Pod nazwą stoi kategoria, klient i tryb pracy.",
     "tasks": [
       {
         "q": "Jak przełączyć między moimi, otwartymi i wszystkimi rekrutacjami?",

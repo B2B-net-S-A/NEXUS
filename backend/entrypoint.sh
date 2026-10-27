@@ -779,6 +779,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_job_opened'",
     # 0524: umowę za prowadzącego wygenerował ktoś inny (dzwonek do prowadzącego).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_agreement_ready'",
+    # 0525: P0 na rekrutacji — dzwonek i mail obowiązkowy do zespołu.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
@@ -5080,6 +5082,12 @@ END $$""",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS onsite_days_per_month INTEGER NULL",
     # 0420: dolna granica budżetu „od–do” (services/job_budget_range.py).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rate_budget_hourly_min NUMERIC(8,2) NULL",
+    # 0525: P0 — ultrapilne przez 24 h (services/job_p0.py).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_until TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_reason VARCHAR(300) NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_set_at TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_set_by INTEGER NULL "
+    "REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP NOT NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP DEFAULT",
     # 0282: sprawdzone wymagania wyszukiwania (wspólne dla Radaru i pipeline'u).
@@ -9784,6 +9792,9 @@ _CONSTRAINT_STATEMENTS = [
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
     *_KEYWORD_CORPUS_INDEXES,
+    # 0525: aktywne P0 (górny pasek i pulpit u każdego).
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_p0_until "
+    "ON jobs (p0_until) WHERE p0_until IS NOT NULL",
     # 0366: najwyżej jedna żywa publikacja rekrutacji na portal.
     "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_job_postings_live_per_portal "
     "ON job_postings (job_id, portal) WHERE status IN ('publishing', 'published')",

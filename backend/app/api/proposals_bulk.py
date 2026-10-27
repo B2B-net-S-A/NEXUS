@@ -242,8 +242,8 @@ class BulkProposalsResponse(BaseModel):
     # ``added`` jest wtedy puste — integracja liczy sukces po ``proposed``.
     proposed: list[int] = Field(default_factory=list)
     total_proposed: int = 0
-    # 12.10.2026: osoby z przepięcia, którym CV z rekrutacji źródłowej
-    # przeniesiono jako szkic tej (`stage_cv_copy.carry_on_reassign`).
+    # Osoby, którym CV z rekrutacji źródłowej przeniesiono jako szkic tej
+    # (`stage_cv_copy.carry_on_reassign`) — od 27.10.2026 tylko „Match” DL-a.
     cv_carried: list[int] = Field(default_factory=list)
 
 
@@ -910,12 +910,15 @@ async def add_candidates_to_job(
             # skipping it, so a client dispute could lack the sent CV. Idempotent +
             # fail-soft on a missing CV, so it never breaks the batch.
             stage_cv = await create_original_cv_snapshot(db, stage)
-            # 12.10.2026: osoba z przepięcia ma zwykle gotowe CV w rekrutacji,
-            # z której przychodzi. Kopia jako szkic sprawia, że automat po
-            # „Zweryfikowany” nie generuje nowego (`pair_cv_exists`), a rekruter
-            # nie poprawia go drugi raz. `flush` PRZED kopią: jej `except` nie
-            # może połknąć błędu zapisu samego dodania.
-            reassign_from = reassign_sources.get(candidate_id)
+            # CV z rekrutacji źródłowej jako szkic tej — tylko przy „Match”
+            # Delivery Leada (`reassign_from_job_id`), który od razu wysyła
+            # osobę do klienta. Zwykłe przepięcie (panel podobnych rekrutacji,
+            # „Do przejrzenia”) CV nie przenosi od 27.10.2026: CV powstaje po
+            # trzech potwierdzeniach (`generator-cv/cv-po-potwierdzeniu.md`),
+            # a kopia dawała gotowe CV sprzed nowego screeningu. Stare CV
+            # rekruter bierze sam przez „Użyj gotowego CV”. `flush` PRZED
+            # kopią: jej `except` nie może połknąć błędu zapisu samego dodania.
+            reassign_from = reassign_from_job_id
             if reassign_from is not None:
                 from app.services.stage_cv_copy import (  # noqa: PLC0415
                     carry_on_reassign,

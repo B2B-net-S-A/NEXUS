@@ -22,6 +22,7 @@ from app.schemas.candidate import _normalize_skill_list
 from app.schemas.job_ad_publication import JobAdPublicationOut
 from app.schemas.job_team import JobPreviousRecruiterOut, JobRecruiterOut
 from app.schemas.matching_requirements import MatchingRequirements
+from app.services.job_p0 import is_active as job_p0_active
 from app.services.job_priority import default_priority_for_new_job, level_of
 
 
@@ -419,6 +420,14 @@ class JobResponse(BaseModel):
     # Ustawiane tylko przez `GET /api/jobs/{id}`.
     can_staff: Optional[bool] = None
     can_set_priority: Optional[bool] = None
+    # 0525: P0 — ultrapilne przez 24 h (`services/job_p0`). Termin i powód
+    # z wiersza; `is_p0` mówi, czy P0 nadal obowiązuje. Kto ustawił i czy
+    # bieżący użytkownik może ustawiać — tylko `GET /api/jobs/{id}`.
+    p0_until: Optional[datetime] = None
+    p0_reason: Optional[str] = None
+    p0_set_at: Optional[datetime] = None
+    p0_set_by_name: Optional[str] = None
+    can_set_p0: Optional[bool] = None
     # Migawka dopasowań z przekazania do searchu — tylko odpowiedź
     # ``POST /api/jobs`` (rekrutacja bez szkiców, 04.10.2026).
     snapshot_id: Optional[int] = None
@@ -426,6 +435,12 @@ class JobResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def is_p0(self) -> bool:
+        """P0 obowiązuje: rekrutacja otwarta, termin jeszcze nie minął."""
+        return job_p0_active(self)
 
     @computed_field
     @property

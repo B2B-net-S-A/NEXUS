@@ -155,3 +155,39 @@ describe("JobPriorityMenu", () => {
     );
   });
 });
+
+describe("JobPriorityMenu — P0 (27.10.2026)", () => {
+  const p0 = { is_p0: true, p0_until: new Date(Date.now() + 23 * 3_600_000 + 60_000).toISOString(), p0_reason: "Klient chce 2 CV", status: "published" };
+
+  function renderP0(canSet: boolean, canSetP0: boolean, source: typeof p0 | null = p0) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <JobPriorityMenu jobId={42} level="p1" canSet={canSet} p0={source} canSetP0={canSetP0} jobTitle="Konsultant GCP" />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("aktywne P0 zastępuje plakietkę poziomu także bez prawa zmiany", () => {
+    renderP0(false, false);
+    expect(chip()).toHaveAttribute("data-priority", "p0");
+    expect(screen.getByTestId("p0-chip")).toHaveTextContent("P0 · 23 h");
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("Delivery Lead (bez can_set_p0) nie widzi opcji P0 w menu", async () => {
+    renderP0(true, false, null);
+    await userEvent.click(chip());
+    expect(await screen.findByTestId("job-priority-menu")).toBeInTheDocument();
+    expect(screen.queryByTestId("job-priority-option-p0")).toBeNull();
+  });
+
+  it("Head of Recruitment: opcja P0 otwiera okno z powodem", async () => {
+    renderP0(true, true, null);
+    await userEvent.click(chip());
+    await userEvent.click(await screen.findByTestId("job-priority-option-p0"));
+    const dialog = await screen.findByTestId("set-p0-dialog");
+    expect(within(dialog).getByLabelText(/Po co P0/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: "24 h" })).toHaveAttribute("aria-checked", "true");
+  });
+});

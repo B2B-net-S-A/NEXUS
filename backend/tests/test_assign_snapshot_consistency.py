@@ -132,9 +132,9 @@ def test_both_assign_paths_wire_the_snapshot() -> None:
 
 
 def test_add_path_wires_the_cv_carry_on_reassign() -> None:
-    # 12.10.2026: osoba z przepięcia dostaje CV z rekrutacji źródłowej jako
-    # szkic. Kopia siedzi w rdzeniu dodawania, żeby objąć panel podobnych
-    # rekrutacji, „Do przejrzenia” i przypisanie z listy jednym miejscem.
+    # „Match” DL-a (22.10.2026) przenosi CV z rekrutacji źródłowej jako szkic;
+    # kopia siedzi w rdzeniu dodawania. Zwykłe przepięcie CV nie przenosi
+    # od 27.10.2026 (`test_reassign_does_not_carry_the_source_cv`).
     assert "carry_on_reassign" in _fn_calls(
         "app/api/proposals_bulk.py", "add_candidates_to_job"
     )
