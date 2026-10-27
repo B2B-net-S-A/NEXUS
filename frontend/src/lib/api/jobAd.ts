@@ -173,7 +173,8 @@ export const AD_CHANNEL_LABEL: Record<AdChannel, string> = {
 
 export interface AdChannelView {
   channel: AdChannel;
-  state: "live" | "missing" | "skipped";
+  /** `requested` = mail do opiekuna Pracuj.pl wyszedł, opiekun ma jeszcze czas. */
+  state: "live" | "missing" | "skipped" | "requested";
   since: string | null;
   /** Brak robi osoba na ekranie (rekruter: strona kariery; DL: portale). */
   mine: boolean;
@@ -222,6 +223,35 @@ export interface JobAdState {
   publications: AdPublication[];
   /** Trzy kanały i kto je robi; `null` = rekrutacja zamknięta. */
   reminders: AdReminders | null;
+  /** Ostatni mail do opiekuna Pracuj.pl (27.10.2026). */
+  pracuj_request: PracujRequest | null;
+}
+
+/** Mail z ogłoszeniem do opiekuna Pracuj.pl wysłany z NEXUSA. */
+export interface PracujRequest {
+  sent_at: string;
+  sent_by_name: string | null;
+  to: string | null;
+  /** Opiekun ma jeszcze czas — przypomnienia o Pracuj.pl milczą. */
+  waiting: boolean;
+}
+
+export interface PracujMailRates {
+  rate_from: number | null;
+  rate_to: number | null;
+}
+
+/** Podgląd maila do opiekuna — skład z serwera, ten sam co przy wysyłce. */
+export interface PracujMailPreview {
+  to_name: string;
+  to_email: string;
+  /** `ready` = wyśle · `missing` = skrzynka niepodłączona · `reconnect` = połącz ponownie. */
+  mailbox: "ready" | "missing" | "reconnect";
+  from_address: string | null;
+  subject: string;
+  body_text: string;
+  /** Stawka, której nie wyślemy (pusta, odwrócona) — komunikat do pola. */
+  rate_error: string | null;
 }
 
 /** Otwarta rekrutacja bez strony kariery — kolejka „Opublikuj i następna” (21.10.2026). */
@@ -253,15 +283,25 @@ export interface FixedLangBlocks {
   about: string;
 }
 
+export interface PracujCaretaker {
+  /** Imię do powitania („Dzień dobry Nicola,”); puste = „Dzień dobry,”. */
+  name: string;
+  email: string;
+}
+
 export interface FixedBlocks {
   title_suffix: TitleSuffix;
   pl: FixedLangBlocks;
   en: FixedLangBlocks;
+  /** Opiekun konta Pracuj.pl — adresat „Wyślij do Pracuj.pl” (27.10.2026). */
+  pracuj_caretaker: PracujCaretaker;
 }
 
 // ── Klucze zapytań ───────────────────────────────────────────────────────
 
 export const jobAdQueryKey = (jobId: number) => ["job-ad", jobId] as const;
+export const pracujMailPreviewQueryKey = (jobId: number, rates: PracujMailRates) =>
+  ["job-ad", jobId, "pracuj-mail", rates.rate_from, rates.rate_to] as const;
 export const jobAdFixedBlocksQueryKey = () => ["job-ad", "fixed-blocks"] as const;
 export const careerQueueQueryKey = (scope: CareerQueueScope, limit?: number) =>
   ["job-ad", "career-queue", scope, limit ?? "all"] as const;
@@ -289,6 +329,7 @@ function normalize(data: unknown): JobAdState {
               : [],
           }
         : null,
+    pracuj_request: d.pracuj_request ?? null,
   };
 }
 
@@ -397,6 +438,31 @@ export const jobAdApi = {
   missing: async (): Promise<MissingAdsItem[]> => {
     const res = await api.get<{ items?: MissingAdsItem[] }>("/api/job-ads/missing");
     return Array.isArray(res.data?.items) ? res.data.items : [];
+  },
+  /** Podgląd maila do opiekuna Pracuj.pl (DL, HoR, admin) — nic nie zapisuje. */
+  previewPracujMail: async (
+    jobId: number,
+    rates: PracujMailRates,
+  ): Promise<PracujMailPreview> => {
+    const res = await api.post<PracujMailPreview>(
+      `/api/jobs/${jobId}/portal-ad/pracuj-mail/preview`,
+      rates,
+    );
+    return res.data;
+  },
+  /**
+   * Mail z ogłoszeniem do opiekuna Pracuj.pl ze skrzynki osoby. Ten sam
+   * `clientRequestId` przy ponowieniu = ten sam mail, bez drugiej wysyłki.
+   */
+  sendPracujMail: async (
+    jobId: number,
+    input: PracujMailRates & {
+      expected_updated_at: string | null;
+      client_request_id: string;
+    },
+  ): Promise<JobAdState> => {
+    const res = await api.post(`/api/jobs/${jobId}/portal-ad/pracuj-mail`, input);
+    return normalize(res.data);
   },
   getFixedBlocks: async (): Promise<FixedBlocks> => {
     const res = await api.get<FixedBlocks>("/api/job-ads/fixed-blocks");
