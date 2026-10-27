@@ -45,6 +45,9 @@ Tier = Literal["read", "write", "link"]
 # Wynik narzędzia podawany modelowi nie przekracza tylu znaków — dłuższy jest
 # przycinany z jawnym dopiskiem, żeby model wiedział, że widzi fragment.
 MAX_RESULT_CHARS = 6000
+# „Cofnij” przy zapisie wykonanym od razu — tyle samo, co ``quick_undo``
+# dodania do rekrutacji (`DELETE /api/candidates/{id}/recruitments/{job}`).
+UNDO_WINDOW_MINUTES = 15
 MAX_LIST_ITEMS = 20
 MAX_STRING_CHARS = 1500
 
@@ -89,6 +92,12 @@ class JarvisTool:
     hr_module: Optional[str] = None
     # Uprawnienia z ekranu (``ProductAction``) — wystarczy jedno z nich.
     any_permission: tuple[str, ...] = ()
+    # Zapis łatwy do cofnięcia (decyzja Artura 27.10.2026): wykonuje się OD
+    # RAZU w turze, a karta ma „Cofnij” przez ``UNDO_WINDOW_MINUTES``. Funkcja
+    # dostaje args i surową odpowiedź trasy, zwraca wywołania odwrotne.
+    undo: Optional[Callable[[dict[str, Any], Any], list[RequestSpec]]] = field(
+        default=None, repr=False
+    )
 
     def to_anthropic(self) -> dict[str, Any]:
         return {
@@ -2539,10 +2548,10 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
     JarvisTool(
         name="create_note",
         done="Notatka dodana.",
-        label="Przygotowuję notatkę",
+        label="Dodaję notatkę",
         description=(
-            "PROPONUJE dodanie notatki do profilu kandydata (opcjonalnie w kontekście "
-            "rekrutacji). Nic nie zapisuje — użytkownik zatwierdza kartę."
+            "WYKONUJE OD RAZU dodanie notatki do profilu kandydata (opcjonalnie w "
+            "kontekście rekrutacji). Użytkownik może ją cofnąć na karcie przez 15 min."
         ),
         input_schema=_schema(
             {
@@ -2571,7 +2580,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         ),
         shape=pick_list(("id", "candidate_id", "job_id", "created_at")),
         preview=lambda a: (
-            f"Dodam notatkę do {_who(a)}"
+            f"Notatka w profilu: {_who(a)}"
             + (
                 f" (rekrutacja {_who(a, 'job_id', 'Rekrutacja')})"
                 if a.get("job_id")
@@ -2580,6 +2589,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             + f": „{_short(a.get('content'))}”"
         ),
         detail=lambda a: str(a.get("content") or "")[:4000],
+        undo=lambda _a, data: [RequestSpec("DELETE", f"/api/notes/{int(data['id'])}")],
     ),
     JarvisTool(
         name="move_candidate_stage",
@@ -2669,10 +2679,10 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
     JarvisTool(
         name="add_candidates_to_job",
         done="Dodano do rekrutacji.",
-        label="Przygotowuję dodanie do rekrutacji",
+        label="Dodaję do rekrutacji",
         description=(
-            "PROPONUJE dodanie jednego lub kilku kandydatów do rekrutacji (na pierwszy "
-            "etap szablonu). Nic nie zapisuje bez zgody użytkownika."
+            "WYKONUJE OD RAZU dodanie jednego lub kilku kandydatów do rekrutacji (na "
+            "pierwszy etap szablonu). Użytkownik może je cofnąć na karcie przez 15 min."
         ),
         input_schema=_schema(
             {
@@ -2708,15 +2718,23 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         ),
         shape=as_is,
         preview=lambda a: (
-            f"Dodam {len(a.get('candidate_ids') or [])} "
-            f"{'kandydata' if len(a.get('candidate_ids') or []) == 1 else 'kandydatów'} do "
-            f"{_who(a, 'job_id', 'Rekrutacja')}: "
+            f"Dodanie do rekrutacji {_who(a, 'job_id', 'Rekrutacja')}: "
             f"{_names(a, 'candidate_ids', 'Kandydat')}"
         ),
         detail=lambda a: (
             _labelled("Notatka (trafi do profilu każdej z tych osób)", a.get("note"))
             or ""
         ),
+        # `quick_undo`: ta sama ścieżka co „Cofnij” po „+ Dodaj” w oknie
+        # „Kandydaci do dodania” — osoba wraca na listę propozycji.
+        undo=lambda a, data: [
+            RequestSpec(
+                "DELETE",
+                f"/api/candidates/{int(cid)}/recruitments/{_int(a, 'job_id')}",
+                params={"quick_undo": "true"},
+            )
+            for cid in (data.get("added") or [])
+        ],
     ),
     JarvisTool(
         name="create_calendar_event",
@@ -3113,11 +3131,11 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
     JarvisTool(
         name="snooze_my_person",
         done="Osoba uśpiona w „Moich ludziach”.",
-        label="Przygotowuję uśpienie",
+        label="Usypiam",
         description=(
-            "PROPONUJE uśpienie osoby na liście „Moi ludzie” z powodem: found_job "
+            "WYKONUJE OD RAZU uśpienie osoby na liście „Moi ludzie” z powodem: found_job "
             "(znalazła pracę), not_interested (nie jest zainteresowana), no_contact "
-            "(brak kontaktu), other (z notatką). Wybudzić można na liście."
+            "(brak kontaktu), other (z notatką). Użytkownik może cofnąć na karcie."
         ),
         input_schema=_schema(
             {
@@ -3143,18 +3161,21 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         ),
         shape=lambda _data, _a: {"ok": True},
         preview=lambda a: (
-            f"Uśpię {_who(a)} w „Moich ludziach” — "
+            f"Uśpienie w „Moich ludziach”: {_who(a)} — "
             f"{_SNOOZE_PL.get(str(a.get('reason')), a.get('reason'))}"
         ),
         detail=lambda a: str(a.get("note") or ""),
+        undo=lambda a, _data: [
+            RequestSpec("DELETE", f"/api/my-people/{_int(a, 'candidate_id')}/snooze")
+        ],
     ),
     JarvisTool(
         name="pin_my_person",
         done="Osoba przypięta do „Moich ludzi”.",
-        label="Przygotowuję przypięcie",
+        label="Przypinam",
         description=(
-            "PROPONUJE przypięcie osoby do listy „Moi ludzie” (także kogoś, kogo "
-            "lista nie wyliczyła sama). Odpiąć można na liście."
+            "WYKONUJE OD RAZU przypięcie osoby do listy „Moi ludzie” (także kogoś, "
+            "kogo lista nie wyliczyła sama). Użytkownik może cofnąć na karcie."
         ),
         input_schema=_schema({"candidate_id": INT}, ("candidate_id",)),
         tier="write",
@@ -3167,7 +3188,10 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             "POST", f"/api/my-people/{_int(a, 'candidate_id')}/pin", json={}
         ),
         shape=lambda _data, _a: {"ok": True},
-        preview=lambda a: f"Przypnę {_who(a)} do „Moich ludzi”",
+        preview=lambda a: f"Przypięcie do „Moich ludzi”: {_who(a)}",
+        undo=lambda a, _data: [
+            RequestSpec("DELETE", f"/api/my-people/{_int(a, 'candidate_id')}/pin")
+        ],
     ),
     JarvisTool(
         name="remember_preference",

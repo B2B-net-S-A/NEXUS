@@ -49,6 +49,10 @@ export async function confirmAction(id: string): Promise<JarvisActionOutcome> {
   return (await api.post<JarvisActionOutcome>(`/api/jarvis/actions/${id}/confirm`)).data;
 }
 
+export async function undoAction(id: string): Promise<JarvisActionOutcome> {
+  return (await api.post<JarvisActionOutcome>(`/api/jarvis/actions/${id}/undo`)).data;
+}
+
 export async function rejectAction(id: string): Promise<JarvisActionOutcome> {
   return (await api.post<JarvisActionOutcome>(`/api/jarvis/actions/${id}/reject`)).data;
 }

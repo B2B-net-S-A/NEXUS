@@ -68,6 +68,9 @@ export interface JarvisAction {
   };
   /** `uncertain` = wykonanie przerwane w trakcie — nie wiadomo, czy się zapisało. */
   result?: { ok?: boolean; error?: string; uncertain?: boolean } | null;
+  /** Zapis wykonany od razu (notatka, dodanie do rekrutacji, „Moi ludzie”):
+   *  stan przycisku „Cofnij”; `null` = tej akcji się nie cofa. */
+  undo?: { state: "available" | "running" | "done" | "failed" | "expired"; until: string | null } | null;
 }
 
 export interface JarvisLink {
@@ -149,7 +152,8 @@ export type JarvisStreamEvent =
   /** Ponowienie wywołania modelu — to, co pokazano, jest do wyrzucenia. */
   | { type: "delta_reset" }
   | { type: "highlight"; anchor: string; label: string; reason: string }
-  | { type: "action_proposed"; action: JarvisAction }
+  /** Przy zapisie wykonanym od razu niesie też komunikat i klucze do odświeżenia. */
+  | { type: "action_proposed"; action: JarvisAction; message?: string; invalidates?: string[][] }
   | ({ type: "deep_link" } & JarvisLink)
   | { type: "sources"; items: JarvisSource[] }
   | { type: "error"; message: string; code?: string }

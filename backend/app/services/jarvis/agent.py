@@ -33,10 +33,12 @@ from app.core.database import AsyncSessionLocal
 from app.models.ai_feature import AIFeatureKey
 from app.services import claude_client
 from app.services.ai_models import fallbacks_for, model_for
+from app.services.jarvis import actions as jarvis_actions
 from app.services.jarvis import store
 from app.services.jarvis import web as jarvis_web
 from app.services.jarvis.prompt import SYSTEM_PROMPT, context_block
 from app.services.jarvis.tools import (
+    UNDO_WINDOW_MINUTES,
     TOOLS_BY_NAME,
     JarvisTool,
     RequestSpec,
@@ -930,6 +932,8 @@ async def _handle_tool(
     found = collect_entities(tool, final_args, preview)
     state.entities |= found
     await _link_now(state, found)
+    if tool.undo is not None:
+        return await _execute_now(turn, tool, action_id, use_id, preview, events)
     events.append(
         {
             "type": "step",
@@ -954,3 +958,44 @@ async def _handle_tool(
         f"Akcja przygotowana (id {action_id}) i CZEKA na zatwierdzenie przez użytkownika na karcie. "
         "Nic jeszcze nie zostało zapisane — nie pisz, że zostało wykonane.",
     )
+
+
+async def _execute_now(
+    turn: TurnInput,
+    tool: JarvisTool,
+    action_id: uuid.UUID,
+    use_id: str,
+    preview: dict[str, Any],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Zapis łatwy do cofnięcia (notatka, dodanie do rekrutacji, „Moi ludzie”):
+    od razu, z „Cofnij” na karcie (decyzja Artura 27.10.2026). Karta i tak
+    powstaje — człowiek widzi dokładnie, co zrobiono, i może to odwrócić."""
+    outcome = await jarvis_actions.execute_now(
+        action_id, user_id=turn.user_id, identity=turn.identity
+    )
+    ok = outcome.action.get("status") == "executed"
+    events.append(
+        {
+            "type": "step",
+            "tool": tool.name,
+            "label": _sse_tool_label(tool),
+            "status": "done" if ok else "error",
+        }
+    )
+    events.append(
+        {
+            "type": "action_proposed",
+            "action": outcome.action,
+            "message": outcome.message,
+            "invalidates": [list(key) for key in outcome.invalidates],
+        }
+    )
+    text = str(preview.get("text") or tool.label)
+    if ok:
+        return _tool_result(
+            use_id,
+            f"WYKONANO od razu: {text}. Użytkownik może to cofnąć przyciskiem na karcie "
+            f"przez {UNDO_WINDOW_MINUTES} minut. Napisz krótko, że zrobione.",
+        )
+    return _tool_result(use_id, f"Nie udało się: {outcome.message}", is_error=True)

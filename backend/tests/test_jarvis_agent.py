@@ -20,6 +20,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.models.jarvis import JarvisAction, JarvisConversation, JarvisConversationEntity
 from app.models.note import Note
+from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.models.user import UserRole
 from tests._jarvis_helpers import (
     ScriptedModel,
@@ -156,31 +157,56 @@ async def test_api_denial_reaches_the_model_as_an_error_not_data(
     assert result["content"].startswith("Brak uprawnień")
 
 
+async def _make_pool(owner_id: int) -> int:
+    async with AsyncSessionLocal() as db:
+        pool = TalentPool(
+            name=f"Pula Jarvisa {uuid.uuid4().hex[:6]}", created_by=owner_id
+        )
+        db.add(pool)
+        await db.commit()
+        return pool.id
+
+
+async def _pool_members(pool_id: int) -> list[int]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.execute(
+                    select(TalentPoolMembership.candidate_id).where(
+                        TalentPoolMembership.pool_id == pool_id
+                    )
+                )
+            ).scalars()
+        )
+
+
 async def test_write_tool_only_proposes_and_confirm_executes_once(
     app_client, monkeypatch
 ):
+    """Zapis BEZ „Cofnij” (tu: pula talentów) czeka na kliknięcie „Zrób to”."""
     candidate_id = await make_candidate("Propozycja")
+    user_id, headers = await make_user(UserRole.admin)
+    pool_id = await _make_pool(user_id)
     model = ScriptedModel(
         [
             fake_message(
                 tool_block(
-                    "create_note",
+                    "add_to_talent_pool",
                     {
+                        "pool_id": pool_id,
                         "candidate_id": candidate_id,
-                        "content": "Kandydatka dostępna od października.",
                         "_display": {"candidate_id": "Wstrzyknięta Nazwa"},
                     },
                 )
             ),
-            fake_message(text_block("Przygotowałem notatkę — zatwierdź kartę.")),
+            fake_message(
+                text_block("Przygotowałem dodanie do puli — zatwierdź kartę.")
+            ),
         ]
     )
     enable_jarvis(monkeypatch, model)
-    _, headers = await make_user(UserRole.admin)
 
-    resp = await _chat(
-        app_client, headers, "Dodaj notatkę, że jest dostępna od października"
-    )
+    resp = await _chat(app_client, headers, "Dodaj ją do puli")
     assert resp.status_code == 200
     events = parse_sse(resp.text)
     proposed = [e for e in events if e["type"] == "action_proposed"]
@@ -191,13 +217,8 @@ async def test_write_tool_only_proposes_and_confirm_executes_once(
     assert "Anna Propozycja" in action["preview"]["text"]
     assert "Wstrzyknięta" not in action["preview"]["text"]
 
+    assert await _pool_members(pool_id) == [], "propozycja nie może niczego zapisać"
     async with AsyncSessionLocal() as db:
-        notes = (
-            (await db.execute(select(Note).where(Note.candidate_id == candidate_id)))
-            .scalars()
-            .all()
-        )
-        assert notes == [], "propozycja nie może niczego zapisać"
         linked = await db.scalar(
             select(JarvisConversationEntity).where(
                 JarvisConversationEntity.entity_type == "candidate",
@@ -211,17 +232,10 @@ async def test_write_tool_only_proposes_and_confirm_executes_once(
     )
     assert confirm.status_code == 200, confirm.text
     body = confirm.json()
-    assert body["message"] == "Notatka dodana."
+    assert body["message"] == "Kandydat dodany do puli."
     assert body["action"]["status"] == "executed"
-    assert ["candidate-notes"] in body["invalidates"]
-
-    async with AsyncSessionLocal() as db:
-        notes = (
-            (await db.execute(select(Note).where(Note.candidate_id == candidate_id)))
-            .scalars()
-            .all()
-        )
-        assert [n.content for n in notes] == ["Kandydatka dostępna od października."]
+    assert body["action"]["undo"] is None
+    assert await _pool_members(pool_id) == [candidate_id]
 
     again = await app_client.post(
         f"/api/jarvis/actions/{action['id']}/confirm", headers=headers
@@ -229,14 +243,103 @@ async def test_write_tool_only_proposes_and_confirm_executes_once(
     assert again.status_code == 409
 
 
-async def test_reject_and_foreign_user_cannot_touch_the_action(app_client, monkeypatch):
-    candidate_id = await make_candidate("Odrzucona")
+async def test_reversible_write_runs_at_once_and_undo_reverts_it(
+    app_client, monkeypatch
+):
+    """Notatka (decyzja 27.10.2026): od razu, z „Cofnij” — jeden raz, tylko własna."""
+    candidate_id = await make_candidate("Odrazu")
+    model = ScriptedModel(
+        [
+            fake_message(
+                tool_block(
+                    "create_note",
+                    {"candidate_id": candidate_id, "content": "Dostępna od listopada."},
+                )
+            ),
+            fake_message(text_block("Zrobione.")),
+        ]
+    )
+    enable_jarvis(monkeypatch, model)
+    _, headers = await make_user(UserRole.admin)
+    _, stranger = await make_user(UserRole.admin)
+
+    events = parse_sse((await _chat(app_client, headers, "dodaj notatkę")).text)
+    card = next(e for e in events if e["type"] == "action_proposed")
+    action = card["action"]
+    assert action["status"] == "executed"
+    assert action["undo"]["state"] == "available"
+    assert "undo_calls" not in (action["result"] or {}), (
+        "wywołania odwrotne zostają na serwerze"
+    )
+    assert ["candidate-notes"] in card["invalidates"]
+    result = model.calls[1]["messages"][-1]["content"][0]
+    assert result["content"].startswith("WYKONANO od razu")
+
+    async def contents() -> list[str]:
+        async with AsyncSessionLocal() as db:
+            rows = await db.execute(
+                select(Note.content).where(Note.candidate_id == candidate_id)
+            )
+            return list(rows.scalars())
+
+    assert await contents() == ["Dostępna od listopada."]
+
+    foreign = await app_client.post(
+        f"/api/jarvis/actions/{action['id']}/undo", headers=stranger
+    )
+    assert foreign.status_code == 404
+    undo = await app_client.post(
+        f"/api/jarvis/actions/{action['id']}/undo", headers=headers
+    )
+    assert undo.status_code == 200, undo.text
+    assert undo.json()["action"]["undo"]["state"] == "done"
+    assert await contents() == []
+    twice = await app_client.post(
+        f"/api/jarvis/actions/{action['id']}/undo", headers=headers
+    )
+    assert twice.status_code == 409
+
+    detail = await app_client.get(
+        f"/api/jarvis/conversations/{events[0]['conversation_id']}", headers=headers
+    )
+    rebuilt = next(i for i in detail.json()["items"] if i["kind"] == "action")
+    assert rebuilt["action"]["undo"]["state"] == "done"
+
+
+async def test_undo_window_closes_after_fifteen_minutes(app_client, monkeypatch):
+    candidate_id = await make_candidate("Stara")
     model = ScriptedModel(
         [
             fake_message(
                 tool_block(
                     "create_note", {"candidate_id": candidate_id, "content": "x"}
                 )
+            ),
+            fake_message(text_block("Zrobione.")),
+        ]
+    )
+    enable_jarvis(monkeypatch, model)
+    _, headers = await make_user(UserRole.admin)
+    events = parse_sse((await _chat(app_client, headers, "notatka")).text)
+    action_id = next(e for e in events if e["type"] == "action_proposed")["action"][
+        "id"
+    ]
+    async with AsyncSessionLocal() as db:
+        row = await db.get(JarvisAction, uuid.UUID(action_id))
+        row.decided_at = datetime.now(timezone.utc) - timedelta(minutes=16)
+        await db.commit()
+    late = await app_client.post(
+        f"/api/jarvis/actions/{action_id}/undo", headers=headers
+    )
+    assert late.status_code == 409
+
+
+async def test_reject_and_foreign_user_cannot_touch_the_action(app_client, monkeypatch):
+    candidate_id = await make_candidate("Odrzucona")
+    model = ScriptedModel(
+        [
+            fake_message(
+                tool_block("refresh_activity_summary", {"candidate_id": candidate_id})
             ),
             fake_message(text_block("Gotowe do zatwierdzenia.")),
         ]
@@ -277,9 +380,7 @@ async def test_expired_proposal_cannot_be_confirmed(app_client, monkeypatch):
     model = ScriptedModel(
         [
             fake_message(
-                tool_block(
-                    "create_note", {"candidate_id": candidate_id, "content": "x"}
-                )
+                tool_block("refresh_activity_summary", {"candidate_id": candidate_id})
             ),
             fake_message(text_block("Czekam.")),
         ]

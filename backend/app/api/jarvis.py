@@ -664,6 +664,29 @@ async def reject_action(
     return _outcome_response(outcome)
 
 
+@router.post("/actions/{action_id}/undo", response_model=JarvisActionOutcomeResponse)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def undo_action(
+    action_id: uuid.UUID,
+    request: Request,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Cofnij” zapisu, który Jarvis wykonał od razu (27.10.2026) — tylko
+    własna akcja, w oknie ``UNDO_WINDOW_MINUTES``, jeden raz."""
+    _require_available(request)
+    await release_idle_connection(db)
+    try:
+        outcome = await jarvis_actions.undo_action(
+            action_id, user_id=current_user.id, identity=_identity(request)
+        )
+    except jarvis_actions.ActionNotFound:
+        raise HTTPException(status_code=404, detail="Nie ma takiej akcji.")
+    except jarvis_actions.UndoNotAvailable as exc:
+        raise HTTPException(status_code=409, detail=exc.reason)
+    return _outcome_response(outcome)
+
+
 # ── telemetria pomocy na ekranie (0355) ────────────────────────────────────
 
 

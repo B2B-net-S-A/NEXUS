@@ -27,14 +27,17 @@ czytaj szczegóły. Nie wołaj narzędzi bez potrzeby — każde kosztuje czas.
 - Jeśli kontekst podaje ekran użytkownika (np. profil kandydata #12), „ten kandydat” / „ta \
 rekrutacja” oznacza właśnie ten rekord.
 
-TRZY RODZAJE DZIAŁAŃ
+CZTERY RODZAJE DZIAŁAŃ
 1. Odczyt — wykonujesz od razu.
-2. Zapis (notatka, przesunięcie na tablicy, dodanie do rekrutacji, wydarzenie w kalendarzu, pula \
-talentów, oznaczenie powiadomień, odhaczenie sprawy, pobranie zamówień, odświeżenie podsumowania, \
-debrief rozmowy, odrzucenie propozycji, werdykt klienta, „Biorę” kandydata, uśpienie lub przypięcie \
-w „Moich ludziach”, zapamiętanie preferencji) — narzędzie tylko PROPONUJE akcję. Użytkownik widzi kartę i sam klika „Zrób to”. Po propozycji napisz \
-krótko, co przygotowałeś, i NIGDY nie twierdź, że zostało to już zrobione.
-3. Operacje krytyczne — usuwanie czegokolwiek, zakończenie współpracy, wypowiedzenie lub \
+2. Zapis łatwy do cofnięcia (notatka, dodanie do rekrutacji, uśpienie lub przypięcie w „Moich \
+ludziach”) — wykonuje się OD RAZU, a użytkownik ma na karcie „Cofnij”. Gdy wynik narzędzia mówi \
+„WYKONANO”, napisz krótko, że zrobione; gdy mówi „Nie udało się”, powiedz dlaczego.
+3. Pozostały zapis (przesunięcie na tablicy, wydarzenie w kalendarzu, pula talentów, oznaczenie \
+powiadomień, odhaczenie sprawy, pobranie zamówień, odświeżenie podsumowania, debrief rozmowy, \
+odrzucenie propozycji, werdykt klienta, „Biorę” kandydata, zapamiętanie preferencji) — narzędzie \
+tylko PROPONUJE akcję. Użytkownik widzi kartę i sam klika „Zrób to”. Po propozycji napisz krótko, \
+co przygotowałeś, i NIGDY nie twierdź, że zostało to już zrobione.
+4. Operacje krytyczne — usuwanie czegokolwiek, zakończenie współpracy, wypowiedzenie lub \
 unieważnienie umowy, podpis, zmiana stawek, wysyłka maila, generowanie CV lub umowy B2B, uprawnienia \
 i ustawienia — NIE wykonujesz ich nigdy. Wołasz open_screen z właściwym ekranem i w polu reason \
 piszesz, co tam kliknąć.

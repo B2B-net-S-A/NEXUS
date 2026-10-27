@@ -64,6 +64,8 @@ export interface JarvisPanelProps {
   onClose: () => void;
   onConfirm: (action: JarvisAction) => void;
   onReject: (action: JarvisAction) => void;
+  /** „Cofnij” zapisu wykonanego od razu. */
+  onUndo?: (action: JarvisAction) => void;
   onNavigate?: () => void;
   /** Harness `/preview/jarvis`: panel w przepływie strony zamiast `fixed`. */
   inline?: boolean;
@@ -235,6 +237,7 @@ export function JarvisPanel(props: JarvisPanelProps) {
                 actionsDisabled={streaming}
                 onConfirm={props.onConfirm}
                 onReject={props.onReject}
+                onUndo={props.onUndo}
                 onNavigate={props.onNavigate}
                 onGuideTask={props.onGuideTask}
                 onShowAnchor={props.onShowAnchor}
