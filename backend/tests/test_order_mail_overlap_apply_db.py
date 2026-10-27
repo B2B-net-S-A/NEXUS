@@ -25,6 +25,18 @@ from app.services.order_mail_apply import apply_document
 from app.services.order_mail_planner import OVERLAP_START_AFTER, OVERLAP_TRIM_PREVIOUS
 
 
+def _seen(current, choice, *, end="2033-12-31", start="2033-12-01"):
+    """Wybór z panelu razem z tym, co człowiek widział."""
+    return {
+        0: {
+            "choice": choice,
+            "target_order_id": current.id,
+            "previous_end_date": end,
+            "start_date": start,
+        }
+    }
+
+
 async def _renewal_overlapping_current(db):
     client = Client(name=f"Overlap mail {uuid.uuid4().hex}")
     candidate = Candidate(name="Jan", lastname="Przedluzony" + uuid.uuid4().hex[:8])
@@ -107,7 +119,10 @@ async def test_trim_previous_ends_the_current_order_the_day_before_the_new_one()
     async with AsyncSessionLocal() as db:
         contract, current, doc = await _renewal_overlapping_current(db)
         result = await apply_document(
-            db, doc, actor_user_id=None, overlap_choices={0: OVERLAP_TRIM_PREVIOUS}
+            db,
+            doc,
+            actor_user_id=None,
+            overlap_choices=_seen(current, OVERLAP_TRIM_PREVIOUS),
         )
         order = await _new_order(db, result)
         assert result.rows[0].action == "overlap"
@@ -139,7 +154,10 @@ async def test_start_after_keeps_the_current_order_and_moves_the_new_start():
     async with AsyncSessionLocal() as db:
         _, current, doc = await _renewal_overlapping_current(db)
         result = await apply_document(
-            db, doc, actor_user_id=None, overlap_choices={0: OVERLAP_START_AFTER}
+            db,
+            doc,
+            actor_user_id=None,
+            overlap_choices=_seen(current, OVERLAP_START_AFTER),
         )
         order = await _new_order(db, result)
         assert (order.start_date, order.end_date) == (
@@ -183,7 +201,10 @@ async def test_an_invoiced_month_is_never_trimmed_by_the_queue():
         )
         await db.flush()
         result = await apply_document(
-            db, doc, actor_user_id=None, overlap_choices={0: OVERLAP_TRIM_PREVIOUS}
+            db,
+            doc,
+            actor_user_id=None,
+            overlap_choices=_seen(current, OVERLAP_TRIM_PREVIOUS),
         )
         assert not result.ok
         assert "fakturę za 12.2033" in result.error
@@ -197,9 +218,53 @@ async def test_a_choice_the_plan_does_not_offer_is_ignored():
     async with AsyncSessionLocal() as db:
         _, current, doc = await _renewal_overlapping_current(db)
         result = await apply_document(
-            db, doc, actor_user_id=None, overlap_choices={0: "delete_previous"}
+            db,
+            doc,
+            actor_user_id=None,
+            overlap_choices=_seen(current, "delete_previous"),
         )
         assert not result.ok
+        await db.refresh(current)
+        assert current.end_date == date(2033, 12, 31)
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_a_choice_made_on_an_older_plan_is_refused():
+    """Między wyświetleniem a kliknięciem ktoś przedłużył obecne zamówienie."""
+    async with AsyncSessionLocal() as db:
+        _, current, doc = await _renewal_overlapping_current(db)
+        current.end_date = date(2034, 1, 31)
+        await db.flush()
+        result = await apply_document(
+            db,
+            doc,
+            actor_user_id=None,
+            overlap_choices=_seen(current, OVERLAP_START_AFTER),
+        )
+        assert not result.ok
+        assert "plan zmienił się od wyświetlenia" in result.error
+        await db.refresh(current)
+        assert current.end_date == date(2034, 1, 31)
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_trim_is_undone_when_the_new_order_would_stay_a_draft():
+    """Wypowiedziana umowa kończy się 31.12 — nowe zamówienie zostałoby szkicem."""
+    async with AsyncSessionLocal() as db:
+        contract, current, doc = await _renewal_overlapping_current(db)
+        contract.terminated_at = date(2033, 10, 1)
+        contract.end_date = date(2033, 12, 31)
+        await db.flush()
+        result = await apply_document(
+            db,
+            doc,
+            actor_user_id=None,
+            overlap_choices=_seen(current, OVERLAP_TRIM_PREVIOUS),
+        )
+        assert not result.ok
+        assert "nie zostało skrócone" in result.error
         await db.refresh(current)
         assert current.end_date == date(2033, 12, 31)
         await db.rollback()

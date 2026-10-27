@@ -363,25 +363,61 @@ async def _renewal_of_completed_order(
     return details, inherited
 
 
-def _overlap_fields(rp: dict) -> dict:
+#: ``row_index`` → ``{"choice", "target_order_id", "previous_end_date",
+#: "start_date"}`` — wybór z panelu razem z tym, co człowiek widział.
+OverlapChoices = Optional[Mapping[int, Mapping[str, Any]]]
+
+
+def _overlap_fields(rp: dict) -> SimpleNamespace:
+    return SimpleNamespace(
+        row_index=rp.get("row_index", 0),
+        row_name=rp.get("row_name") or "wiersz",
+        action=rp.get("action"),
+        overlap_options=rp.get("overlap_options") or [],
+        target_order_id=rp.get("target_order_id"),
+        previous_end_date=rp.get("previous_end_date"),
+        start_date=rp.get("start_date"),
+    )
+
+
+#: Pola wiersza ``overlap``, które człowiek widział w panelu, gdy wybierał.
+_SEEN_FIELDS = ("target_order_id", "previous_end_date", "start_date")
+
+
+def _overlap_choice(row, overlap_choices: OverlapChoices) -> Optional[str]:
+    """Wybór człowieka, o ile dotyczy TEGO planu, który widział w panelu.
+
+    Plan jest liczony od nowa przy „Zastosuj” (godzinowa ponowna weryfikacja
+    albo zmiana zamówienia w oknie mogą go zmienić między wyświetleniem
+    a kliknięciem). Wybór niesie więc cel i daty z ekranu; inny cel albo inne
+    daty = wybór nieważny, bo dotyczyłby zamówienia, którego człowiek nie
+    oglądał (przegląd PR 27.10.2026).
+    """
+    picked = (overlap_choices or {}).get(row.row_index)
+    if row.action != ACTION_OVERLAP or not picked:
+        return None
+    if any(picked.get(f) != getattr(row, f) for f in _SEEN_FIELDS):
+        return None
+    choice = picked.get("choice")
+    return choice if choice in (row.overlap_options or []) else None
+
+
+def _settled_overlap_rows(rows, overlap_choices: OverlapChoices) -> set[int]:
+    """Wiersze ``overlap`` z ważnym wyborem człowieka."""
     return {
-        "row_index": rp.get("row_index", 0),
-        "action": rp.get("action"),
-        "overlap_options": rp.get("overlap_options") or [],
+        r.row_index for r in rows if _overlap_choice(r, overlap_choices) is not None
     }
 
 
-def _settled_overlap_rows(
-    rows, overlap_choices: Optional[Mapping[int, str]]
-) -> set[int]:
-    """Wiersze ``overlap``, dla których człowiek wybrał jedną z możliwości planu."""
+def _stale_overlap_rows(rows, overlap_choices: OverlapChoices) -> list[str]:
+    """Wiersze, dla których wybór przyszedł, ale plan od tamtej chwili się zmienił."""
     choices = overlap_choices or {}
-    return {
-        r.row_index
+    return [
+        f"„{r.row_name}”: plan zmienił się od wyświetlenia (zamówienie "
+        f"#{r.target_order_id}) — odśwież kolejkę i wybierz ponownie"
         for r in rows
-        if r.action == ACTION_OVERLAP
-        and choices.get(r.row_index) in (r.overlap_options or [])
-    }
+        if r.row_index in choices and _overlap_choice(r, choices) is None
+    ]
 
 
 def _pl_day(value: date) -> str:
@@ -491,11 +527,11 @@ async def apply_document(
     actor_user_id: Optional[int],
     only_actions: frozenset[str] = AUTO_ACTIONS,
     confirmed_by_human: Optional[bool] = None,
-    overlap_choices: Optional[Mapping[int, str]] = None,
+    overlap_choices: OverlapChoices = None,
 ) -> ApplyResult:
     """Wykonaj plan z ``doc.proposal``. Nie rzuca; wynik w ``ApplyResult``.
 
-    ``overlap_choices`` (``row_index`` → ``OVERLAP_*``) to wybór człowieka
+    ``overlap_choices`` (``row_index`` → ``OVERLAP_*`` z celem i datami) to wybór człowieka
     z panelu dla wiersza ``overlap`` (27.10.2026): skrócić nachodzące
     zamówienie albo zacząć nowe po nim. Tylko „Zastosuj” go podaje — automat
     i „Przelicz plan” nigdy, więc taki dokument zawsze przechodzi przez kolejkę.
@@ -559,6 +595,9 @@ async def apply_document(
             # kwota zlecenia nie trafia na żadną osobę, więc zostałyby szkice,
             # których nie da się aktywować (audyt 24.09, S3).
             return ApplyResult(error=COST_SHARED_BUDGET_REFUSAL)
+        stale = _stale_overlap_rows(proposal.rows, overlap_choices)
+        if stale:
+            return ApplyResult(error="; ".join(stale))
         settled = _settled_overlap_rows(proposal.rows, overlap_choices)
         if proposal.blocking or not (
             proposal.rows
@@ -667,7 +706,7 @@ async def _write_document(
     confirmed_by_human=None,
     pdf_bytes: Optional[bytes] = None,
     invoice_payload: Optional[dict] = None,
-    overlap_choices: Optional[Mapping[int, str]] = None,
+    overlap_choices: OverlapChoices = None,
 ):
     from app.api.client_orders import (
         _activate_complete_draft,
@@ -727,13 +766,8 @@ async def _write_document(
         if applied.row_index in previously_applied:
             applied.order_id = previously_applied[applied.row_index]
             continue
-        settled_overlap = applied.action == ACTION_OVERLAP and (
-            applied.row_index
-            in _settled_overlap_rows(
-                [SimpleNamespace(**_overlap_fields(rp))], overlap_choices
-            )
-        )
-        if applied.action not in only_actions and not settled_overlap:
+        overlap_choice = _overlap_choice(_overlap_fields(rp), overlap_choices)
+        if applied.action not in only_actions and overlap_choice is None:
             applied.error = f"Akcja {applied.action!r} poza zakresem writera"
             continue
         contract_id = rp.get("contract_id")
@@ -770,13 +804,13 @@ async def _write_document(
                 continue
             start = _date(rp.get("start_date"))
             end = _date(rp.get("end_date"))
-            if settled_overlap:
+            if overlap_choice is not None:
                 start = await _settle_overlap(
                     db,
                     doc,
                     rp,
                     contract,
-                    choice=(overlap_choices or {})[applied.row_index],
+                    choice=overlap_choice,
                     start=start,
                     end=end,
                     actor_user_id=actor_user_id,
@@ -976,6 +1010,20 @@ async def _write_document(
                 )
                 and _activate_complete_draft(order)
             )
+            if (
+                overlap_choice == OVERLAP_TRIM_PREVIOUS
+                and order.status != ClientOrderStatus.active
+            ):
+                # Skrócone obowiązujące zamówienie, a nowe zostaje szkicem
+                # (wypowiedziana umowa, brak danych do aktywacji): okres,
+                # za który klient płaci, zostałby tylko w szkicu. Savepoint
+                # writera cofa skrócenie razem z nowym zamówieniem.
+                raise ValueError(
+                    f"„{rp.get('row_name') or 'wiersz'}”: nowe zamówienie nie "
+                    "aktywuje się (umowa albo brakujące dane) — zamówienie "
+                    f"#{rp.get('target_order_id')} nie zostało skrócone; zapisz "
+                    "przedłużenie w oknie zamówienia"
+                )
             if is_new_person and order.status == ClientOrderStatus.draft:
                 await _notify_new_draft(db, doc, order, rp["row_name"])
             if order.status == ClientOrderStatus.active:

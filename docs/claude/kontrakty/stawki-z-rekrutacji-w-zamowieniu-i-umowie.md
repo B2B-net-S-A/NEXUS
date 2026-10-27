@@ -67,3 +67,8 @@ i w umowie B2B. Różnica to „do sprawdzenia”, **nigdy blokada**. Plan:
   bramka dalej trzyma taki dokument w kolejce. Writer (`_settle_overlap`)
   odmawia, gdy zamówienie zmieniło się od odczytu albo ma fakturę za skracany
   miesiąc, i zostawia Activity `order_mail_trim_previous` z `before.end_date`.
+  Wybór niesie cel i daty z ekranu (`target_order_id`, `previous_end_date`,
+  `start_date`): plan liczy się przy „Zastosuj” od nowa, więc inny cel albo
+  inne daty = odmowa „plan zmienił się od wyświetlenia”. Skrócenie, po którym
+  nowe zamówienie zostałoby szkicem (wypowiedziana umowa, brak danych do
+  aktywacji), jest cofane razem z nim (przegląd PR 27.10.2026).

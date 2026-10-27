@@ -770,11 +770,23 @@ async def _close_review_cards(db: AsyncSession, doc_id: int) -> None:
     )
 
 
+class OverlapChoiceRequest(BaseModel):
+    """Wybór dla wiersza ``overlap`` i to, co człowiek widział, gdy wybierał.
+
+    Writer odrzuca wybór, gdy przeliczony plan ma inny cel albo inne daty.
+    """
+
+    choice: str
+    target_order_id: Optional[int] = None
+    previous_end_date: Optional[str] = None
+    start_date: Optional[str] = None
+
+
 class ApplyQueueItemRequest(BaseModel):
     """Wybór człowieka dla wierszy ``overlap``: ``row_index`` → ``trim_previous``
     albo ``start_after`` (27.10.2026). Bez ciała — „Zastosuj” jak dotąd."""
 
-    overlap_choices: Dict[int, str] = Field(default_factory=dict)
+    overlap_choices: Dict[int, OverlapChoiceRequest] = Field(default_factory=dict)
 
 
 @router.post("/queue/{doc_id}/apply")
@@ -799,7 +811,11 @@ async def apply_queue_item(
         db,
         doc,
         actor_user_id=user.id,
-        overlap_choices=payload.overlap_choices if payload else None,
+        overlap_choices=(
+            {i: c.model_dump() for i, c in payload.overlap_choices.items()}
+            if payload
+            else None
+        ),
     )
     doc.reviewed_by_user_id = user.id
     doc.reviewed_at = datetime.now(timezone.utc)

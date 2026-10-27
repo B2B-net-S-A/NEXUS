@@ -44,8 +44,10 @@ import {
   applyButtonLabel,
   effectiveOverlapChoices,
   overlapOptionLabel,
+  overlapApplyPayload,
   overlapRows,
   previousRateNote,
+  type OverlapApplyChoices,
   type OverlapChoices,
 } from "@/lib/order-mail-overlap";
 
@@ -424,7 +426,7 @@ export interface OrderMailQueueViewProps {
   selectedId: number | null;
   onSelect: (id: number) => void;
   /** `overlapChoices` — tylko gdy dokument ma wiersz `overlap` z wyborem. */
-  onApply: (id: number, overlapChoices?: OverlapChoices) => void;
+  onApply: (id: number, overlapChoices?: OverlapApplyChoices) => void;
   onDismiss: (id: number) => void;
   onRefreshPlan?: (id: number) => void;
   onRetry: () => void;
@@ -671,7 +673,7 @@ export function OrderMailQueue({ modeTabs }: { modeTabs?: ReactNode } = {}) {
     queryFn: async () => (await orderMailApi.recheckRuns()).data,
   });
   const apply = useMutation({
-    mutationFn: ({ id, choices }: { id: number; choices?: OverlapChoices }) => orderMailApi.apply(id, choices),
+    mutationFn: ({ id, choices }: { id: number; choices?: OverlapApplyChoices }) => orderMailApi.apply(id, choices),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["order-mail"] }),
   });
   const dismiss = useMutation({
@@ -813,7 +815,7 @@ function Detail({
   preview,
 }: {
   doc: OrderMailDocument;
-  onApply: (overlapChoices?: OverlapChoices) => void;
+  onApply: (overlapChoices?: OverlapApplyChoices) => void;
   onDismiss: () => void;
   onRefreshPlan?: () => void;
   busy: boolean;
@@ -1054,7 +1056,7 @@ function Detail({
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 bg-muted/30 px-4 py-2.5">
           <Button
             size="sm"
-            onClick={() => onApply(pendingOverlap.length > 0 ? overlapChoices : undefined)}
+            onClick={() => onApply(pendingOverlap.length > 0 ? overlapApplyPayload(planRows, overlapChoices) : undefined)}
             disabled={!doc.can_apply || busy || !(doc.proposal?.rows?.length) || personDecision}
             title={
               !doc.can_apply

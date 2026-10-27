@@ -568,10 +568,11 @@ describe("Audyt 25.09 — wpisy „Nieudane”", () => {
     const trim = screen.getByRole("radio", { name: "Skróć #70 do 30.11.2031, 10/2031 od 01.12.2031" });
     expect(trim).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: /Zastosuj: skróć #70 i zapisz 10\/2031/ }));
-    expect(onApply).toHaveBeenLastCalledWith(1, { 0: "trim_previous" });
+    const seen = { target_order_id: 70, previous_end_date: "2031-12-31", start_date: "2031-12-01" };
+    expect(onApply).toHaveBeenLastCalledWith(1, { 0: { choice: "trim_previous", ...seen } });
 
     fireEvent.click(screen.getByRole("radio", { name: "#70 bez zmian do 31.12.2031, 10/2031 od 01.01.2032" }));
     fireEvent.click(screen.getByRole("button", { name: /Zastosuj: zapisz 10\/2031 od 01.01.2032/ }));
-    expect(onApply).toHaveBeenLastCalledWith(1, { 0: "start_after" });
+    expect(onApply).toHaveBeenLastCalledWith(1, { 0: { choice: "start_after", ...seen } });
   });
 });

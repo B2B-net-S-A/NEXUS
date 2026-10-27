@@ -15,6 +15,15 @@ export type OverlapChoice = "trim_previous" | "start_after";
 
 export type OverlapChoices = Record<number, OverlapChoice>;
 
+/**
+ * Wybór wysyłany z „Zastosuj” razem z tym, co człowiek widział (cel i daty).
+ * Serwer liczy plan od nowa i odrzuca wybór, gdy cel albo daty się zmieniły.
+ */
+export type OverlapApplyChoices = Record<
+  number,
+  { choice: OverlapChoice; target_order_id: number | null; previous_end_date: string | null; start_date: string | null }
+>;
+
 function isOverlapChoice(value: string): value is OverlapChoice {
   return value === "trim_previous" || value === "start_after";
 }
@@ -88,4 +97,20 @@ export function previousRateNote(row: OrderMailProposalRow, currency?: string | 
     text: `było ${formatRecruitmentRate(row.previous_rate_client, row.previous_rate_unit)} (#${row.previous_order_id})`,
     change,
   };
+}
+
+/** Wybory z panelu w kształcie, który przyjmuje `POST /queue/{id}/apply`. */
+export function overlapApplyPayload(rows: OrderMailProposalRow[], choices: OverlapChoices): OverlapApplyChoices {
+  const out: OverlapApplyChoices = {};
+  for (const row of overlapRows(rows)) {
+    const choice = choices[row.row_index];
+    if (!choice) continue;
+    out[row.row_index] = {
+      choice,
+      target_order_id: row.target_order_id,
+      previous_end_date: row.previous_end_date ?? null,
+      start_date: row.start_date,
+    };
+  }
+  return out;
 }

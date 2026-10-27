@@ -259,8 +259,14 @@ export const orderMailApi = {
   listQueue: (params: { outcome?: OrderMailOutcome; client_id?: number; limit?: number; offset?: number } = {}) =>
     api.get<OrderMailQueueResponse>("/api/order-mail/queue", { params }),
   getItem: (id: number) => api.get<OrderMailDocument>(`/api/order-mail/queue/${id}`),
-  /** `overlapChoices`: wybór dla wierszy `overlap` (`row_index` → wybór). */
-  apply: (id: number, overlapChoices?: Record<number, "trim_previous" | "start_after">) =>
+  /** `overlapChoices`: wybór dla wierszy `overlap` z celem i datami z ekranu. */
+  apply: (
+    id: number,
+    overlapChoices?: Record<
+      number,
+      { choice: "trim_previous" | "start_after"; target_order_id: number | null; previous_end_date: string | null; start_date: string | null }
+    >,
+  ) =>
     api.post<{ ok: boolean; document: OrderMailDocument }>(
       `/api/order-mail/queue/${id}/apply`,
       overlapChoices ? { overlap_choices: overlapChoices } : undefined,

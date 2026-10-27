@@ -1070,7 +1070,10 @@ początku nowego zamówienia — wybór domyślny) albo **„#70 bez zmian do 31
 [numer] od 01.01”**. „Zastosuj” wykonuje wybór: skraca obecne zamówienie
 (zostaje ślad w jego historii z datą sprzed zmiany) albo przesuwa początek
 nowego. Zamówienia, które ma już fakturę za skracany miesiąc, „Zastosuj” nie
-skróci — zrób to w oknie zamówienia. Gdy nowy okres mieści się w obecnym,
+skróci — zrób to w oknie zamówienia. Nie skróci go też, gdy nowe zamówienie
+nie może się aktywować (np. wypowiedziana umowa) — wtedy przedłużenie
+zapisujesz w oknie zamówienia. Gdy plan zmienił się, zanim kliknąłeś (ktoś
+zmienił obecne zamówienie), „Zastosuj” odmówi i poprosi o ponowny wybór. Gdy nowy okres mieści się w obecnym,
 obecne jest bezterminowe albo nachodzą dwa zamówienia, wyboru nie ma
 i rozstrzygasz w oknie zamówienia. Role bez
 podglądu kwot widzą ten powód z kwotami zastąpionymi „…”. „Zastosuj” odmawia też
