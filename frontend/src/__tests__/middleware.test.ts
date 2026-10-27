@@ -261,6 +261,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/hr-agreements",
     "/preview/hr-people",
     "/preview/client-invoicing",
+    "/preview/sales",
     "/preview/job-portals",
     "/preview/request-allocation",
     "/preview/job-team-panel",
