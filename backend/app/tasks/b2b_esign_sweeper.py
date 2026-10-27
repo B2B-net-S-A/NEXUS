@@ -42,6 +42,7 @@ from app.services.b2b_esign.service import (
     EXPIRED_LINK_DAYS,
     SIGNED_COPY_DAYS,
     link_sent_at,
+    watchers,
 )
 from app.services.notification_triggers import emit as emit_notification
 
@@ -134,18 +135,20 @@ async def _handle(request_id: int, now: datetime) -> str | None:
                 *(request.events or []),
                 {"kind": "expired", "at": request.expires_at.isoformat()},
             ]
-            await _notify(
-                db,
-                user_id=request.sent_by,
-                title=f"Link do umowy {number} wygasł",
-                message=(
-                    f"{request.contractor_name} nie podpisał(a) umowy w terminie. "
-                    "„Wyślij nowy link” w rejestrze wyśle ten sam PDF, więc plik "
-                    "podpisany przed terminem nadal przejdzie."
-                ),
-                ntype=NotificationType.signature_failed,
-                request_id=request.id,
-            )
+            # Nadawca i osoby w DW (27.10.2026) — ktoś musi wysłać nowy link.
+            for watcher_id in watchers(request):
+                await _notify(
+                    db,
+                    user_id=watcher_id,
+                    title=f"Link do umowy {number} wygasł",
+                    message=(
+                        f"{request.contractor_name} nie podpisał(a) umowy w terminie. "
+                        "„Wyślij nowy link” w rejestrze wyśle ten sam PDF, więc plik "
+                        "podpisany przed terminem nadal przejdzie."
+                    ),
+                    ntype=NotificationType.signature_failed,
+                    request_id=request.id,
+                )
             await db.commit()
             return "expired"
 

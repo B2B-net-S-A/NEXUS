@@ -5348,6 +5348,9 @@ END $$""",
     "JSONB NOT NULL DEFAULT '[]'::jsonb",
     "ALTER TABLE b2b_signing_requests ADD COLUMN IF NOT EXISTS "
     "source_payload_sha256 VARCHAR(64)",
+    # 0604: osoby z NEXUSA w DW przy wysyłce do podpisu (27.10.2026).
+    "ALTER TABLE b2b_signing_requests ADD COLUMN IF NOT EXISTS cc_user_ids "
+    "JSONB NOT NULL DEFAULT '[]'::jsonb",
     # 0506: prośby o umowę przedwstępną przy osobie w rekrutacji. Lustro 1:1
     # z `app/services/pre_contract_schema.py` (pilnuje test_pre_contract_schema_mirror)
     # — PO tabeli `b2b_contract_documents`, na którą wskazuje klucz obcy.

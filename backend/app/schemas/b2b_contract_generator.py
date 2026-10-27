@@ -670,6 +670,8 @@ class B2BGeneratedEsign(BaseModel):
     company_signer_name: Optional[str] = None
     # Kontraktor z wygasłego linku poprosił o nowy (27.10.2026), bez odpowiedzi.
     renewal_requested_at: Optional[datetime] = None
+    # Osoby z NEXUSA w DW wysyłki (27.10.2026).
+    cc_names: list[str] = Field(default_factory=list)
 
 
 class B2BGeneratedContractItem(BaseModel):

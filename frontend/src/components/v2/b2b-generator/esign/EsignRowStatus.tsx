@@ -198,6 +198,11 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
           Przedłuż termin
         </button>
       ) : null}
+      {e.cc_names && e.cc_names.length > 0 ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          DW: <span className="text-foreground">{e.cc_names.join(", ")}</span>
+        </p>
+      ) : null}
       <EsignSignedPdfButton row={row} />
       {row.can_withdraw_esign ? (
         <button

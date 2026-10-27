@@ -219,6 +219,8 @@ def test_entrypoint_mirrors_the_signing_table():
     assert "ADD COLUMN IF NOT EXISTS events" in entrypoint
     assert "source_payload_sha256 VARCHAR(64)" in entrypoint
     assert "'signature_renewal_requested'" in entrypoint
+    # 0604: osoby w DW przy wysyłce (27.10.2026).
+    assert "ADD COLUMN IF NOT EXISTS cc_user_ids" in entrypoint
     migration = (root / "alembic/versions/0499_b2b_signing_requests.py").read_text()
     assert re.search(r'down_revision = "0496_b2b_generated_signed_file"', migration)
 
@@ -1919,3 +1921,170 @@ async def test_expired_link_of_a_cancelled_or_resent_contract_does_not_promise_a
     )
     assert fresh.status_code == 200, fresh.text
     assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
+
+
+# ── DW przy wysyłce (decyzja Artura 27.10.2026) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cc_is_the_recruitment_team_and_gets_the_link_mail_and_the_bells(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """DW tylko z zespołu rekrutacji i autora, którzy sami widzą umowę ze
+    stawkami; mail z własnej skrzynki nadawcy, rekruter w DW."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.user import User, UserRole
+    from app.services.b2b_esign import mail as esign_mail
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    recruiter_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    outsider_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = recruiter_id
+        await db.commit()
+        recruiter_email = (await db.get(User, recruiter_id)).email
+
+    defaults = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/defaults",
+        headers=app_auth_headers,
+    )
+    assert defaults.status_code == 200, defaults.text
+    candidates = {p["id"]: p for p in defaults.json()["cc_candidates"]}
+    assert candidates[recruiter_id]["suggested"] is True
+    assert outsider_id not in candidates
+    assert esign_env["admin_id"] not in candidates, "nadawca nie jest w DW"
+
+    outsider = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": esign_env["signer_id"],
+            "days": 3,
+            "cc_user_ids": [outsider_id],
+        },
+        headers=app_auth_headers,
+    )
+    assert outsider.status_code == 422, outsider.text
+
+    mails: list[dict] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _capture)
+    sent = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": esign_env["signer_id"],
+            "days": 3,
+            "cc_user_ids": [recruiter_id],
+        },
+        headers=app_auth_headers,
+    )
+    assert sent.status_code == 200, sent.text
+    assert [p["id"] for p in sent.json()["request"]["cc"]] == [recruiter_id]
+    assert mails[0]["to"] == "anna@example.com"
+    assert mails[0]["cc"] == [recruiter_email]
+    assert mails[0]["user_id"] == esign_env["admin_id"], "mail z własnej skrzynki"
+
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["esign"]["cc_names"] == ["Signature recruiter"]
+
+    request_id = sent.json()["request"]["id"]
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    assert any("wygasł" in t for t in await _notices(recruiter_id, request_id))
+    assert any("wygasł" in t for t in await _notices(esign_env["admin_id"], request_id))
+    assert not await _notices(outsider_id, request_id)
+
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert mails[-1]["cc"] == [recruiter_email], "nowy link też idzie do DW"
+
+
+def test_watchers_are_the_sender_and_cc_without_repeats():
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.service import watchers
+
+    assert watchers(SimpleNamespace(sent_by=7, cc_user_ids=[9, 7, 9, 11])) == [7, 9, 11]
+    assert watchers(SimpleNamespace(sent_by=None, cc_user_ids=[])) == []
+
+
+@pytest.mark.asyncio
+async def test_cc_who_left_the_team_gets_no_new_link_or_copy(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Przegląd kodu 27.10.2026: DW sprawdzane tylko przy wysyłce — rekruter
+    przepięty z rekrutacji dostawał nowy link do PDF-a ze stawkami."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.user import UserRole
+    from app.services.b2b_esign import mail as esign_mail
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    recruiter_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    successor_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = recruiter_id
+        await db.commit()
+    mails: list[dict] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _capture)
+    sent = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": esign_env["signer_id"],
+            "days": 3,
+            "cc_user_ids": [recruiter_id],
+        },
+        headers=app_auth_headers,
+    )
+    assert sent.status_code == 200, sent.text
+    assert mails[-1]["cc"], "przy wysyłce rekruter jest w DW"
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = successor_id
+        await db.commit()
+    request_id = sent.json()["request"]["id"]
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert mails[-1]["cc"] == [], "kto wypadł z zespołu, nie dostaje nowego linku"

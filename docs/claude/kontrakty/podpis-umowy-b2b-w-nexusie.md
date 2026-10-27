@@ -60,6 +60,20 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   link zostaje w pierwszym mailu) i dzwonek do nadawcy; po terminie link
   wygasa (`expired`) i nadawca dostaje dzwonek. Pętla działa także przy
   wyłączonym przełączniku.
+- **DW przy wysyłce: tylko osoby z NEXUSA, mail zawsze z własnej skrzynki**
+  (prośba zespołu i decyzja Artura 27.10.2026). Zespół chciał też wysyłki ze
+  skrzynki innego rekrutera i osobnego uprawnienia „w zastępstwie” — odrzucone:
+  odpowiedź kontraktora idzie do skrzynki nadawcy (przy urlopie nikt jej nie
+  przeczyta), użycie cudzego połączenia M365 to mail za kogoś bez jego udziału,
+  a za pierwszym mailem idą przypomnienia i kopia. Zamiast tego
+  `b2b_signing_requests.cc_user_ids` (0604): kandydaci do DW
+  (`EsignDefaultsOut.cc_candidates`) to zespół rekrutacji z nadania
+  (prowadzący — podpowiedziany, TAC, DL, aktywne przypisanie) i autor umowy,
+  każdy tylko gdy sam mógłby ją wysłać (`_may_send` — w linku jest PDF ze
+  stawkami); inne id = 422. DW dostaje pierwszy mail, nowy link, mail
+  o przedłużeniu i kopię podpisanej umowy (bez przypomnień), a dzwonki
+  o wygaśnięciu, prośbie kontraktora i podpisie obu stron idą do
+  `service.watchers` (nadawca + DW).
 - **Wygasły link: ten sam PDF, nie nowa wysyłka** (pytanie zespołu
   27.10.2026, ocena i makiety: https://claude.ai/artifact/EmKfARRXm5DYHnjwXocec2).
   LibreOffice z tego samego Worda daje za każdym razem inne bajty (data

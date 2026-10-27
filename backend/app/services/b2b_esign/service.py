@@ -138,6 +138,12 @@ def payload_fingerprint(row: B2BGeneratedContract) -> str:
     return hashlib.sha256(data.encode()).hexdigest()
 
 
+def watchers(request: B2BSigningRequest) -> list[int]:
+    """Kto dostaje dzwonki wysyłki: nadawca i osoby w DW, bez powtórzeń."""
+    ids = [request.sent_by, *(request.cc_user_ids or [])]
+    return [uid for uid in dict.fromkeys(ids) if isinstance(uid, int)]
+
+
 def _event(kind: str, at: datetime, **extra: object) -> dict:
     return {"kind": kind, "at": at.isoformat(), **extra}
 
@@ -336,6 +342,7 @@ async def send(
     company_signer_id: int,
     days: int,
     now: datetime,
+    cc_user_ids: list[int] | None = None,
 ) -> tuple[B2BSigningRequest, str]:
     """Zamroź PDF i otwórz wniosek. Wołający trzyma blokadę wiersza rejestru
     i sprawdził uprawnienia oraz przełącznik. Zwraca (wniosek, token linku)."""
@@ -378,6 +385,7 @@ async def send(
         expires_at=now + timedelta(days=days),
         source_payload_sha256=payload_fingerprint(row),
         events=[],
+        cc_user_ids=list(dict.fromkeys(cc_user_ids or [])),
     )
     db.add(request)
     await db.flush()

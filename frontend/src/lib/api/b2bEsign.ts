@@ -21,6 +21,12 @@ export interface EsignPerson {
   name: string;
 }
 
+/** Kandydat do DW: zespół rekrutacji i autor, którzy sami widzą umowę ze stawkami. */
+export interface EsignCcPerson extends EsignPerson {
+  /** Prowadzący rekrutację — zaznaczony od razu (decyzja Artura 27.10.2026). */
+  suggested: boolean;
+}
+
 export interface EsignSettings {
   mode: EsignMode;
   can_send: boolean;
@@ -43,6 +49,8 @@ export interface EsignRequest {
   completed_at: string | null;
   closed_at: string | null;
   close_reason: string | null;
+  /** Osoby z NEXUSA w DW wysyłki (27.10.2026). */
+  cc?: EsignPerson[];
   /** Tylko w liście „Czeka na mój podpis” (`/esign/mine`). */
   contract_number?: string | null;
   client_name?: string | null;
@@ -53,6 +61,7 @@ export interface EsignDefaults {
   contractor_email: string | null;
   company_signers: EsignPerson[];
   mailbox_connected: boolean;
+  cc_candidates?: EsignCcPerson[];
 }
 
 export interface EsignSendResult {
@@ -109,7 +118,12 @@ export const b2bEsignApi = {
       .then((r) => r.data),
   send: (
     generatedId: number,
-    body: { contractor_email: string; company_signer_id: number; days: number },
+    body: {
+      contractor_email: string;
+      company_signer_id: number;
+      days: number;
+      cc_user_ids?: number[];
+    },
   ) =>
     api
       .post<EsignSendResult>(
