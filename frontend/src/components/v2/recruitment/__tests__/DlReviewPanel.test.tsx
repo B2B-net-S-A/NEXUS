@@ -175,6 +175,7 @@ const CONTEXT = {
   requirements: [
     { key: "must:0", label: "Java", level: "critical", status: "met", sources: ["CV"], candidate_value: "…Java 17 w banku…" },
     { key: "must:1", label: "Oracle", level: "must", status: "missing", sources: [], candidate_value: null },
+    { key: "must:2", label: "Angular", level: "must", status: "unknown", sources: ["profil", "CV"], candidate_value: null, last_used_year: 2021 },
     { key: "nice:0", label: "komunikatywność", level: "nice", status: "unknown", sources: [], candidate_value: null },
   ],
   requirements_met: 1,
@@ -749,6 +750,10 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(within(requirements).getByText("…Java 17 w banku…")).toBeTruthy();
     expect(within(requirements).getByText("1/2 krytycznych i musi mieć")).toBeTruthy();
     expect(within(requirements).getByText("do oceny")).toBeTruthy();
+    // Technologia sprzed ponad 3 lat (27.10.2026): „?” z rokiem, nie „do oceny”, lupa zostaje.
+    expect(within(requirements).getByText("angular · 2021 — zapytaj, czy używa dziś")).toBeTruthy();
+    expect(within(requirements).getByTitle("Ostatnio używane w 2021 — zapytaj, czy używa dziś.")).toBeTruthy();
+    expect(within(requirements).getByRole("button", { name: "Szukaj w CV: Angular" })).toBeTruthy();
     expect(within(requirements).getByText(/Już u tego klienta/)).toBeTruthy();
     expect(within(requirements).getByText("Pasuje")).toBeTruthy();
   });
