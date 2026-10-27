@@ -5,6 +5,7 @@
 import { useEffect, useRef } from "react";
 import { AlertCircle, MousePointerClick } from "lucide-react";
 import type { JarvisAction, JarvisItem, ScreenGuideTask } from "@/lib/jarvis/types";
+import { JarvisGapCard } from "./JarvisGapCard";
 import { JarvisGuideCard } from "./JarvisGuideCard";
 import { JarvisActionCard } from "./JarvisActionCard";
 import { JarvisDeepLinkCard } from "./JarvisDeepLinkCard";
@@ -100,6 +101,8 @@ export function JarvisMessageList({
                 )}
               </div>
             );
+          case "gap":
+            return <JarvisGapCard key={item.gap.id} gap={item.gap} />;
           case "steps":
             return (
               <div key={index} className="pl-1">

@@ -36,6 +36,7 @@ from app.services.ai_models import fallbacks_for, model_for
 from app.services.jarvis import store
 from app.services.jarvis import web as jarvis_web
 from app.services.jarvis.prompt import SYSTEM_PROMPT, context_block
+from app.services.jarvis.gap_schema import GAP_KINDS, NEED_MAX, WHY_MAX
 from app.services.jarvis.tools import (
     TOOLS_BY_NAME,
     JarvisTool,
@@ -852,6 +853,45 @@ async def _handle_tool(
             }
         )
         return _tool_result(use_id, f"Podświetliłem użytkownikowi: {anchor['label']}.")
+
+    if tool.name == "report_gap":
+        kind = str(args.get("kind") or "")
+        need = str(args.get("need") or "").strip()[:NEED_MAX]
+        why = str(args.get("why") or "").strip()[:WHY_MAX]
+        if kind not in GAP_KINDS or not need or not why:
+            return _tool_result(
+                use_id,
+                f"Podaj kind ({', '.join(GAP_KINDS)}), need i why.",
+                is_error=True,
+            )
+        workaround = str(args.get("workaround") or "").strip()[:WHY_MAX]
+        gap_id = await store.create_gap(
+            conversation_id=state.conversation_id,
+            user_id=turn.user_id,
+            tool_use_id=use_id,
+            kind=kind,
+            need=need,
+            why=why,
+            workaround=workaround,
+        )
+        events.append(
+            {
+                "type": "gap",
+                "gap": {
+                    "id": str(gap_id),
+                    "kind": kind,
+                    "need": need,
+                    "why": why,
+                    "workaround": workaround,
+                    "reported": False,
+                },
+            }
+        )
+        return _tool_result(
+            use_id,
+            "Pokazałem kartę braku z przyciskiem zgłoszenia. Nie powtarzaj jej treści — "
+            "dopisz najwyżej jedno zdanie, jeśli możesz pomóc inaczej.",
+        )
 
     if tool.tier == "link":
         try:

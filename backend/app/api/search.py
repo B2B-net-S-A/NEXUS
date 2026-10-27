@@ -112,6 +112,18 @@ def _contains_pattern(q: str) -> str:
     return contains_pattern(q)
 
 
+def _candidate_full_name_match(q: str) -> list[Any]:
+    """„Imię Nazwisko” i „Nazwisko Imię” — pojedyncze kolumny nigdy nie
+    zawierają całej frazy ze spacją, więc samo ``name``/``lastname`` nie
+    znajdowało nikogo wpisanego razem z imieniem (Jarvis, 10.2026: 7 osób
+    „nie było w bazie”, choć były)."""
+    pattern = _contains_pattern(q)
+    return [
+        func.concat(Candidate.name, " ", Candidate.lastname).ilike(pattern),
+        func.concat(Candidate.lastname, " ", Candidate.name).ilike(pattern),
+    ]
+
+
 def _hybrid_soft_ranks(body: CandidateSearchRequest) -> list[Any]:
     """Soft-ranki w TEJ SAMEJ kolejności co gałąź boolowska (chip skilla >
     lata > miasto)."""
@@ -1141,6 +1153,7 @@ async def unified_search(
                     Candidate.lastname.ilike(_contains_pattern(q)),
                     Candidate.email.ilike(_contains_pattern(q)),
                     Candidate.location.ilike(_contains_pattern(q)),
+                    *_candidate_full_name_match(q),
                 )
             )
             .limit(10)
@@ -1215,6 +1228,8 @@ async def global_search(
     GET /api/search/global?q=text
     """
     LIMIT = 5
+    # Kategorie, których rola nie widzi — żeby pusty wynik nie udawał „nie ma”.
+    skipped: list[dict[str, str]] = []
 
     # Candidates
     # M2 audit PR 1: viewer/client role must not enumerate candidates from
@@ -1230,6 +1245,7 @@ async def global_search(
                     Candidate.name.ilike(_contains_pattern(q)),
                     Candidate.lastname.ilike(_contains_pattern(q)),
                     Candidate.email.ilike(_contains_pattern(q)),
+                    *_candidate_full_name_match(q),
                 )
             )
             .limit(LIMIT)
@@ -1243,6 +1259,8 @@ async def global_search(
             }
             for c in cand_result.scalars().all()
         ]
+    else:
+        skipped.append({"category": "candidates", "section": "Kandydaci"})
 
     # Jobs
     jobs_list: list[dict[str, Any]] = []
@@ -1273,6 +1291,9 @@ async def global_search(
                     "url": f"/jobs/{j.id}",
                 }
             )
+
+    else:
+        skipped.append({"category": "jobs", "section": "Rekrutacje"})
 
     # Clients
     clients_list: list[dict[str, Any]] = []
@@ -1308,6 +1329,9 @@ async def global_search(
             }
             for client, effective_name in clients_result.all()
         ]
+
+    else:
+        skipped.append({"category": "clients", "section": "Klienci"})
 
     # Contacts — same containment as candidates above. Contact rows carry
     # client-side hiring-manager names, e-mails and phone numbers (PII), and
@@ -1346,6 +1370,7 @@ async def global_search(
         "jobs": jobs_list,
         "clients": clients_list,
         "contacts": contacts_list,
+        "skipped": skipped,
     }
 
 

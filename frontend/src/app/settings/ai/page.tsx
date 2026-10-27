@@ -17,6 +17,7 @@ import {
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { AutoMatchOverview } from "@/components/settings/AutoMatchOverview";
+import { JarvisGapsOverview } from "@/components/settings/JarvisGapsOverview";
 import { resolveViewState } from "@/lib/view-state";
 
 // NEXUS nie ma limitów AI (decyzja z 17.09.2026): nie ma głównego wyłącznika,
@@ -176,11 +177,12 @@ function FeatureRow({
   );
 }
 
-type AiTab = "costs" | "auto-match";
+type AiTab = "costs" | "auto-match" | "jarvis-gaps";
 
 const AI_TABS = [
   { value: "costs", label: "Koszty" },
   { value: "auto-match", label: "Automatyczne dopasowania" },
+  { value: "jarvis-gaps", label: "Czego Jarvis nie umie" },
 ];
 
 export default function AISettingsPage() {
@@ -267,6 +269,7 @@ export default function AISettingsPage() {
       </div>
 
       {tab === "auto-match" ? <AutoMatchOverview /> : null}
+      {tab === "jarvis-gaps" ? <JarvisGapsOverview /> : null}
 
       {tab === "costs" ? (
         <div className="space-y-4">
