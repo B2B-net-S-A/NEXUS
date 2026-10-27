@@ -3375,12 +3375,41 @@ SHOW_ON_SCREEN = JarvisTool(
 )
 
 
+DRAFT_EMAIL = JarvisTool(
+    name="draft_email",
+    label="Piszę szkic maila",
+    description=(
+        "Szkic maila do kandydata — NIC nie wysyła. Użytkownik dostaje kartę z treścią "
+        "i przyciskiem, który otwiera okno maila NEXUSA (wysyła ze swojej skrzynki, "
+        "mail zapisuje się w historii kandydata). `subject` i `body` pisz po polsku, "
+        "zwykłym tekstem, na „Pan/Pani” albo tak, jak użytkownik prosi; bez danych, "
+        "których nie podał użytkownik ani narzędzia."
+    ),
+    input_schema=_schema(
+        {
+            "candidate_id": INT,
+            "subject": {**STR, "minLength": 1, "maxLength": 150},
+            "body": {**STR, "minLength": 1, "maxLength": 3000},
+        },
+        ("candidate_id", "subject", "body"),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=ProductSection.sourcing,
+    entity_type="candidate",
+    build=lambda a: RequestSpec("GET", ""),  # nieużywane — patrz agent._handle_tool
+    shape=as_is,
+)
+
+
 ALL_TOOLS: tuple[JarvisTool, ...] = (
     *READ_TOOLS,
     *HR_TOOLS,
     *WRITE_TOOLS,
     OPEN_SCREEN,
     SHOW_ON_SCREEN,
+    DRAFT_EMAIL,
 )
 TOOLS_BY_NAME: dict[str, JarvisTool] = {tool.name: tool for tool in ALL_TOOLS}
 

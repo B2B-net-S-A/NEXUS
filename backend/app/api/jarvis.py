@@ -494,6 +494,18 @@ def _conversation_items(
                                 )[:200],
                             }
                         )
+                if name == "draft_email" and str(block.get("id") or "") not in failed:
+                    tool_input = block.get("input") or {}
+                    items.append(
+                        {
+                            "kind": "mail_draft",
+                            "draft": {
+                                "candidate_id": tool_input.get("candidate_id"),
+                                "subject": str(tool_input.get("subject") or "")[:150],
+                                "body": str(tool_input.get("body") or "")[:3000],
+                            },
+                        }
+                    )
                 if name == "open_screen":
                     try:
                         items.append(
