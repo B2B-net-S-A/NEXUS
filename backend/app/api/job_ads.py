@@ -15,7 +15,10 @@
 * ``POST /api/jobs/{job_id}/portal-ad/remind`` — DL prosi rekrutera o stronę
   kariery (mail od razu);
 * ``GET /api/job-ads/missing`` — rekrutacje z brakiem, który robi osoba
-  („Ogłoszenia do nadrobienia”).
+  („Ogłoszenia do nadrobienia”);
+* ``POST /api/jobs/{job_id}/portal-ad/pracuj-mail/preview`` i
+  ``POST …/pracuj-mail`` — mail z ogłoszeniem do opiekuna Pracuj.pl ze
+  skrzynki osoby (27.10.2026, ``job_ad.pracuj_mail``).
 
 Bramka jak przy opisie publicznym (``career_links``): rola ``RecruiterPlus``
 + sekcja Pipeline (router) + członkostwo w rekrutacji. Front kopiuje wyłącznie
@@ -42,6 +45,8 @@ from app.models.job import Job, JobStatus
 from app.models.job_ad import JobAd
 from app.models.activity import Activity
 from app.models.job_ad_channel_skip import JobAdChannelSkip
+from app.models.job_ad_publication import JobAdPublication
+from app.models.m365 import M365Connection
 from app.models.job_public_profile import JobPublicProfile
 from app.models.notification import NotificationType
 from app.models.user import User
@@ -58,6 +63,10 @@ from app.schemas.job_ad import (
     JobAdResponse,
     MissingAdsItem,
     MissingAdsResponse,
+    PracujMailPreview,
+    PracujMailPreviewRequest,
+    PracujMailRequest,
+    PracujRequestRead,
 )
 from app.schemas.job_ad_publication import AdPortal, AdPublishRequest
 from app.services import job_public_profile as jpp
@@ -67,10 +76,12 @@ from app.services.job_ad import (
     generate,
     lint,
     material,
+    pracuj_mail,
     publications,
     reminders,
     render,
 )
+from app.services.job_ad_reminder_schema import CHANNEL_PRACUJ
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -112,6 +123,7 @@ async def _response(
         "readiness": material.readiness(mat),
         "career": (await career.career_state(db, job, ad, user_id=user_id)).as_dict(),
         "reminders": await _reminders_panel(db, job.id, user_id),
+        "pracuj_request": await _pracuj_request(db, job.id),
     }
     if ad is None:
         return JobAdResponse(**base)
@@ -153,6 +165,18 @@ async def _response(
         publications=[
             vars(item) for item in await publications.for_job(db, job.id, ad)
         ],
+    )
+
+
+async def _pracuj_request(db: AsyncSession, job_id: int) -> Optional[PracujRequestRead]:
+    found = (await pracuj_mail.last_requests(db, [job_id])).get(job_id)
+    if found is None:
+        return None
+    return PracujRequestRead(
+        sent_at=found.sent_at,
+        sent_by_name=found.sent_by_name,
+        to=found.to,
+        waiting=pracuj_mail.is_waiting(found.sent_at, reminders.today_local()),
     )
 
 
@@ -598,8 +622,11 @@ async def put_fixed_blocks(
     current_user: HeadOfRecruitmentPlus,
     db: AsyncSession = Depends(get_db),
 ) -> FixedBlocksModel:
+    current = await fixed_blocks.load_blocks(db)
     try:
-        blocks = fixed_blocks.validate_blocks(payload.model_dump())
+        blocks = fixed_blocks.validate_blocks(
+            payload.model_dump(), keep_caretaker=current.pracuj_caretaker
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     # Blok trafia do każdego ogłoszenia i rekruter go nie poprawi — kwota
@@ -810,4 +837,213 @@ async def get_missing_ads(
             )
             for s in statuses
         ]
+    )
+
+
+# ── Pracuj.pl mailem do opiekuna (27.10.2026) ────────────────────────────────
+
+
+_MAILBOX_MISSING = (
+    "Twoja skrzynka Microsoft 365 nie jest podłączona. Podłącz ją w Ustawieniach "
+    "→ Moje konto → „Outlook i kalendarz” albo skopiuj treść maila do Outlooka."
+)
+
+
+async def _pracuj_ad(
+    db: AsyncSession, job: Job, user: User
+) -> tuple[JobAd, material.AdMaterial, JobAdResponse]:
+    ad = await db.get(JobAd, job.id)
+    if ad is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Najpierw przygotuj ogłoszenie — mail do opiekuna to jego treść.",
+        )
+    mat = await _material(db, job)
+    return ad, mat, await _response(db, job, ad, mat, user_id=user.id)
+
+
+def _compose(
+    reply: JobAdResponse,
+    caretaker: fixed_blocks.PracujCaretaker,
+    rate: str,
+) -> pracuj_mail.PracujMail:
+    assert reply.rendered is not None  # ogłoszenie istnieje
+    return pracuj_mail.compose(
+        reply.rendered.model_dump(),
+        [fact.model_dump() for fact in reply.facts],
+        caretaker=caretaker,
+        rate=rate,
+    )
+
+
+@router.post(
+    "/jobs/{job_id}/portal-ad/pracuj-mail/preview", response_model=PracujMailPreview
+)
+async def preview_pracuj_mail(
+    job_id: int,
+    data: PracujMailPreviewRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> PracujMailPreview:
+    """Podgląd maila do opiekuna — ten sam skład co wysyłka, nic nie zapisuje."""
+    job = await _load_job(db, current_user, job_id)
+    await _managed_status(db, current_user, job)
+    _ad, _mat, reply = await _pracuj_ad(db, job, current_user)
+    rate_error: Optional[str] = None
+    try:
+        rate = pracuj_mail.rate_text(data.rate_from, data.rate_to)
+    except pracuj_mail.RateInvalid as exc:
+        rate_error, rate = str(exc), "…"
+    caretaker = (await fixed_blocks.load_blocks(db)).pracuj_caretaker
+    mail = _compose(reply, caretaker, rate)
+    conn = await db.scalar(
+        select(M365Connection).where(M365Connection.user_id == current_user.id)
+    )
+    return PracujMailPreview(
+        to_name=caretaker.name,
+        to_email=caretaker.email,
+        mailbox=(
+            "missing" if conn is None else "ready" if conn.is_active else "reconnect"
+        ),
+        from_address=conn.mailbox_upn if conn is not None else None,
+        subject=mail.subject,
+        body_text=mail.body_text,
+        rate_error=rate_error,
+    )
+
+
+@router.post("/jobs/{job_id}/portal-ad/pracuj-mail", response_model=JobAdResponse)
+async def send_pracuj_mail(
+    job_id: int,
+    data: PracujMailRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> JobAdResponse:
+    """Mail z ogłoszeniem do opiekuna Pracuj.pl ze skrzynki osoby.
+
+    Wysyła DL rekrutacji, Head of Recruitment albo admin; tylko otwarta
+    rekrutacja, wersja ogłoszenia z ekranu, treść bez znalezisk blokujących
+    i ze stawką. Ślad w Historii zdarzeń — z niego stan „wysłane”.
+    """
+    from app.api.email_threads import _graph_refusal_http, _send_conflict_http
+    from app.services.m365 import sender as m365_sender
+    from app.services.m365.access import M365OwnerIneligible
+    from app.services.m365.graph_client import GraphRequestError
+
+    job = await _load_job(db, current_user, job_id)
+    await _managed_status(db, current_user, job)
+    ad, mat, reply = await _pracuj_ad(db, job, current_user)
+    if data.expected_updated_at != ad.updated_at:
+        raise _changed(
+            "Ktoś w międzyczasie zmienił to ogłoszenie. Wczytałem aktualną "
+            "wersję — przeczytaj ją, zanim wyślesz."
+        )
+    live = await db.scalar(
+        select(JobAdPublication.job_id).where(
+            JobAdPublication.job_id == job_id,
+            JobAdPublication.portal == CHANNEL_PRACUJ,
+            JobAdPublication.removed_at.is_(None),
+        )
+    )
+    if live is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "pracuj_live",
+                "message": "Ogłoszenie już wisi na Pracuj.pl — nie wysyłam go drugi raz.",
+            },
+        )
+    if not reply.can_copy:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_ad_blocked",
+                "message": (
+                    "W treści są fragmenty, których nie publikujemy. Usuń je, "
+                    "zanim wyślesz ogłoszenie opiekunowi."
+                ),
+            },
+        )
+    try:
+        rate = pracuj_mail.rate_text(data.rate_from, data.rate_to)
+    except pracuj_mail.RateInvalid as exc:
+        raise HTTPException(422, str(exc)) from exc
+    conn = await db.scalar(
+        select(M365Connection).where(M365Connection.user_id == current_user.id)
+    )
+    if conn is None or not conn.is_active:
+        raise HTTPException(
+            status_code=412,
+            detail={"code": "mailbox_missing", "message": _MAILBOX_MISSING},
+        )
+    caretaker = (await fixed_blocks.load_blocks(db)).pracuj_caretaker
+    mail = _compose(reply, caretaker, rate)
+    try:
+        row = await m365_sender.send_new(
+            db,
+            conn,
+            to=[caretaker.email],
+            subject=mail.subject,
+            body_html=mail.body_html,
+            client_request_id=data.client_request_id,
+            commit_reservation=True,
+        )
+    except M365OwnerIneligible as exc:
+        raise HTTPException(
+            403, "Z tego konta nie wyślesz maila z NEXUSA — poproś admina o dostęp."
+        ) from exc
+    except m365_sender.EmailSendConflict as exc:
+        # Wynik nieznany (np. Graph nie odpowiedział na /send) — mail mógł
+        # wyjść. Ślad zostaje, żeby jutrzejszy mail nie kazał wysłać drugi raz.
+        if exc.state == m365_sender.SEND_STATE_UNCERTAIN and exc.email_id:
+            await _log_pracuj_request(
+                db,
+                job_id,
+                current_user.id,
+                caretaker.email,
+                exc.email_id,
+                uncertain=True,
+            )
+            await db.commit()
+        raise _send_conflict_http(exc) from exc
+    except GraphRequestError as exc:
+        if 400 <= exc.status < 500:
+            raise _graph_refusal_http(exc) from exc
+        raise
+    await _log_pracuj_request(db, job_id, current_user.id, caretaker.email, row.id)
+    await db.commit()
+    return await _response(db, job, ad, mat, user_id=current_user.id)
+
+
+async def _log_pracuj_request(
+    db: AsyncSession,
+    job_id: int,
+    user_id: int,
+    to: str,
+    email_id: int,
+    *,
+    uncertain: bool = False,
+) -> None:
+    """Wpis w Historii zdarzeń — raz na mail (ponowienie oddaje ten sam wiersz)."""
+    seen = await db.scalar(
+        select(Activity.id).where(
+            Activity.entity_type == "job",
+            Activity.entity_id == job_id,
+            Activity.action == pracuj_mail.ACTION,
+            Activity.details["email_id"].astext == str(email_id),
+        )
+    )
+    if seen is not None:
+        return
+    details: dict = {"to": to, "email_id": email_id}
+    if uncertain:
+        details["uncertain"] = True
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action=pracuj_mail.ACTION,
+            user_id=user_id,
+            details=details,
+        )
     )

@@ -22,6 +22,10 @@ po otwarciu; starsze idą jednym wpisem ``job_ad_backlog`` na osobę (decyzja
 Artura 27.10: inaczej DL 14 dostałby pierwszego dnia 56 maili). Wczorajsze
 nieprzeczytane wpisy tych typów gasną, żeby dzwonek nie rósł codziennie.
 
+**Pracuj.pl przez opiekuna** (27.10.2026, ``job_ad.pracuj_mail``): po mailu
+do opiekuna kanał ma stan ``requested`` — nie jest brakiem przez dzień wysyłki
+i ``QUIET_BUSINESS_DAYS`` dni roboczych po nim; potem wraca jako brak.
+
 **Mail** składa się przy wysyłce (``mail_card``), ze świeżego stanu: kanał
 zrobiony od rana wypada, a gdy nic nie zostało — mail nie wychodzi. Przyciski
 tylko otwierają okno „Ogłoszenie” na kanale (``?ogloszenie=``), nic nie
@@ -56,6 +60,7 @@ from app.services.job_ad_reminder_schema import (
     CHANNEL_PRACUJ,
     CHANNELS,
 )
+from app.services.job_ad import pracuj_mail
 from app.services.notification_mail_card import MailButton, MailCard
 
 logger = logging.getLogger(__name__)
@@ -83,7 +88,7 @@ BACKLOG_TITLE_MAX = 70
 _BUTTON_ORDER = (CHANNEL_JJIT, CHANNEL_PRACUJ, CHANNEL_CAREER)
 _BUTTON_LABEL = {
     CHANNEL_JJIT: "Wstaw na JustJoin.IT",
-    CHANNEL_PRACUJ: "Wstaw na Pracuj.pl",
+    CHANNEL_PRACUJ: "Wyślij do Pracuj.pl",
     CHANNEL_CAREER: "Opublikuj na stronie kariery",
 }
 
@@ -91,14 +96,15 @@ TITLE_MISSING = "Brakujące ogłoszenia"
 TITLE_BACKLOG = "Ogłoszenia do nadrobienia"
 TITLE_NUDGE = "Prośba o stronę kariery"
 
-ChannelStateName = Literal["live", "missing", "skipped"]
+ChannelStateName = Literal["live", "missing", "skipped", "requested"]
 
 
 @dataclass(frozen=True)
 class ChannelState:
     channel: str
     state: ChannelStateName
-    # live: od kiedy wisi; skipped: kiedy zapisano „nie publikujemy”.
+    # live: od kiedy wisi; skipped: kiedy zapisano „nie publikujemy”;
+    # requested: kiedy poszedł mail do opiekuna portalu.
     since: Optional[datetime] = None
     # Kto ma to zrobić (gdy brak) — id kont.
     owners: tuple[int, ...] = ()
@@ -164,7 +170,11 @@ def channel_states(
     skips: dict[str, tuple[str, Optional[int], Optional[datetime]]],
     recruiter_ids: Iterable[int],
     leads: Iterable[int],
+    requested: Optional[dict[str, datetime]] = None,
 ) -> tuple[ChannelState, ...]:
+    """``requested`` = kanały, na których opiekun ma jeszcze czas (już po
+    filtrze ``pracuj_mail.is_waiting``)."""
+    waiting = requested or {}
     recruiters = tuple(recruiter_ids)
     lead_ids = tuple(leads)
     out: list[ChannelState] = []
@@ -181,6 +191,8 @@ def channel_states(
                     channel, "skipped", since=at, skip_reason=reason, skipped_by=by
                 )
             )
+        elif channel in waiting:
+            out.append(ChannelState(channel, "requested", since=waiting[channel]))
         else:
             out.append(
                 ChannelState(
@@ -223,6 +235,11 @@ def _local(moment: datetime) -> datetime:
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
     return moment.astimezone(ZoneInfo(settings.BUSINESS_TZ))
+
+
+def today_local() -> date:
+    """Dzisiejsza data w kalendarzu firmy."""
+    return _local(datetime.now(timezone.utc)).date()
 
 
 def _day(moment: Optional[datetime]) -> str:
@@ -278,6 +295,8 @@ def channel_fact(
         return f"✓ wisi od {_day(state.since)}"
     if state.state == "skipped":
         return f"— nie publikujemy: {_shorten(state.skip_reason or '', REASON_SHOWN)}"
+    if state.state == "requested":
+        return f"✉ wysłane do opiekuna {_day(state.since)} · czeka na publikację"
     if viewer in state.owners:
         return "✗ brak · robisz Ty"
     days = _days_phrase(days_open(status.opened_at, today))
@@ -288,6 +307,13 @@ def channel_fact(
 def job_link(job_id: int, **params: str) -> str:
     query = "&".join(f"{k}={v}" for k, v in params.items())
     return f"/jobs/{job_id}" + (f"?{query}" if query else "")
+
+
+def channel_link(job_id: int, channel: str) -> str:
+    """Przycisk kanału w mailu: Pracuj.pl otwiera od razu mail do opiekuna."""
+    if channel == CHANNEL_PRACUJ:
+        return job_link(job_id, ogloszenie=channel, wyslij="opiekun")
+    return job_link(job_id, ogloszenie=channel)
 
 
 def bell_text(status: JobAdStatus, viewer: int) -> tuple[str, str, str]:
@@ -346,7 +372,7 @@ def lead_card(status: JobAdStatus, viewer: int, today: date) -> Optional[MailCar
     buttons: list[MailButton] = [
         MailButton(
             _BUTTON_LABEL[c.channel],
-            job_link(status.job_id, ogloszenie=c.channel),
+            channel_link(status.job_id, c.channel),
             "primary" if index == 0 else "secondary",
         )
         for index, c in enumerate(mine)
@@ -582,6 +608,12 @@ async def load_statuses(
     with_ad = set(
         (await db.scalars(select(JobAd.job_id).where(JobAd.job_id.in_(ids)))).all()
     )
+    today = today_local()
+    pracuj_waiting = {
+        job_id: req.sent_at
+        for job_id, req in (await pracuj_mail.last_requests(db, ids)).items()
+        if pracuj_mail.is_waiting(req.sent_at, today)
+    }
     team = await recruiters_for_jobs(db, ids)
 
     lead_ids = {job.delivery_lead_id for job, _ in jobs if job.delivery_lead_id}
@@ -624,6 +656,11 @@ async def load_statuses(
                     skips=skips.get(job.id, {}),
                     recruiter_ids=recruiter_ids,
                     leads=leads,
+                    requested=(
+                        {CHANNEL_PRACUJ: pracuj_waiting[job.id]}
+                        if job.id in pracuj_waiting
+                        else None
+                    ),
                 ),
                 names=names,
             )
@@ -891,6 +928,7 @@ __all__ = [
     "JobAdStatus",
     "backlog_card",
     "can_manage",
+    "channel_link",
     "channel_states",
     "due_now",
     "due_today",
