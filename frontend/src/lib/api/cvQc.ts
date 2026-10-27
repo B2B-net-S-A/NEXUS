@@ -16,6 +16,8 @@ export type QcFixKind =
   | "bold_all"
   | "generate_cv"
   | "upload_consent"
+  /** Zrzut zgody nie pasuje do rekrutacji (F37, 27.10.2026) — „Wymień zrzut”. */
+  | "replace_consent"
   | "ask_candidate"
   | "remove_term"
   | "ai"
