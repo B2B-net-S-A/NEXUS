@@ -277,6 +277,21 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.queryByTestId("saved-cv-view")).toBeNull();
   });
 
+  it("rekruter bez uprawnienia wysyłki w „Nowych” nie dostaje zapowiedzi „Oznacz CV Wysłane” (27.10.2026)", () => {
+    const early: KanbanColumn = {
+      stage: "new",
+      name: "Nowi",
+      category: "internal",
+      stage_def_id: 2,
+      count: 1,
+      items: [item({ id: 11, candidate_id: 111, stage: "new" })],
+    };
+    renderWorkbench({ columns: [early, ...columns([])], focusCandidateId: 111, canWriteClientRate: false });
+
+    expect(screen.getByTestId("cv-to-client-card-stub")).toBeTruthy();
+    expect(screen.queryByTestId("cv-send-later-note")).toBeNull();
+  });
+
   it("po „CV wysłane” ta sama karta CV, ale bez podmiany CV — zamiast widoku tylko do odczytu (D3, 14.10.2026)", () => {
     renderWorkbench({
       columns: columns([]),
@@ -374,35 +389,29 @@ describe("CvHandoffWorkbench", () => {
     );
   });
 
-  it("u Nordei bez `can_write_client_rate` pole stawki znika, a wysyłka z kolejki Cpro i tak idzie", async () => {
+  it("u Nordei bez `can_write_client_rate` nie ma doku wysyłki ani „Oznacz „CV wysłane”” (27.10.2026)", () => {
     // Nawet admin z roli — decyduje pole z serwera, nie zgadywanie po roli.
-    // Od 13.10.2026 stawkę do Cpro wpisuje Delivery Lead przy akceptacji;
-    // wysyłkę z pominięciem kolejki odrzuca serwer.
+    // Od 13.10.2026 do kolejki Cpro wkłada Delivery Lead przy akceptacji, a ruch
+    // rekrutera na „Wysłane do Cpro” serwer odrzuca 403 — przycisk był martwy.
     renderWorkbench({ canWriteClientRate: false, cproEnabled: true });
-    await readySendButton();
 
+    expect(screen.queryByRole("region", { name: "Wysyłka do klienta" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Oznacz „CV wysłane”/ })).toBeNull();
     expect(screen.queryByLabelText("Kwota")).toBeNull();
-    expect(
-      screen.getByText(/Do Cpro wysyła się z kolejki Cpro, po akceptacji osoby z uprawnieniem „Rekrutacje: zakładanie/),
-    ).toBeTruthy();
-
-    await userEvent.click(await sendButton());
-    await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
-    expect(setRecruitmentClientRate).not.toHaveBeenCalled();
-    expect(calls).toEqual(["move", "share_link"]);
+    expect(screen.getByTestId("cv-send-not-yours")).toHaveTextContent(
+      "Do Cpro wysyła Delivery Lead po akceptacji. Twój krok: przekaż osobę do „QC CV”.",
+    );
+    expect(move).not.toHaveBeenCalled();
   });
 
-  it("bez kolejki Cpro rekruter nie wyśle do klienta — komunikat nazywa uprawnienie (Pipeline v4)", async () => {
+  it("bez kolejki Cpro i bez uprawnienia wysyłki zostaje jedno zdanie o następnym kroku", () => {
     renderWorkbench({ canWriteClientRate: false });
-    expect(screen.queryByLabelText("Kwota")).toBeNull();
-    expect(screen.getByText(/Ona też ustala stawkę do klienta/)).toBeTruthy();
-    expect(
-      (
-        await screen.findAllByText(
-          /Do klienta wysyła osoba z uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”/,
-        )
-      ).length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByRole("region", { name: "Wysyłka do klienta" })).toBeNull();
+    expect(screen.getByTestId("cv-send-not-yours")).toHaveTextContent(
+      "Do klienta wysyła Delivery Lead po przeglądzie. Twój krok: przekaż osobę do „QC CV”.",
+    );
+    // Karta CV i reguły klienta zostają — to praca rekrutera.
+    expect(screen.getByText(/Reguły CV klienta/)).toBeTruthy();
     expect(move).not.toHaveBeenCalled();
   });
 
@@ -737,15 +746,15 @@ describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
     expect(screen.getByRole("link", { name: /Reguły CV \(DL\)/ })).toBeTruthy();
   });
 
-  it("bez `can_write_client_rate` pole stawki znika także w panelu", async () => {
+  it("bez `can_write_client_rate` dok wysyłki znika także w panelu", () => {
     renderWorkbench({
       layout: "panel",
       focusCandidateId: 121,
       canWriteClientRate: false,
       cproEnabled: true,
     });
-    await readySendButton();
     expect(screen.queryByLabelText("Kwota")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Oznacz „CV wysłane”/ })).toBeNull();
   });
 
   it("kolejność ruch → link → stawka zostaje, a link jednorazowy przeżywa wyjście osoby z kolejki", async () => {
