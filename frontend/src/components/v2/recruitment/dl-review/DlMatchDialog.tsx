@@ -96,11 +96,6 @@ export function DlMatchDialog({
         </DialogHeader>
         <DialogBody>
           <DlMatchSection model={match} fallbackRate={defaultRate} disabled={busy} />
-          {match.query.isSuccess && match.jobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nie widzę innych Twoich rekrutacji, do których ta osoba pasuje.
-            </p>
-          ) : null}
         </DialogBody>
         <DialogFooter>
           {missingRate > 0 ? (
