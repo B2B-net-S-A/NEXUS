@@ -1220,7 +1220,6 @@ async def _serialize_generated_contracts(
     esign_signer_ids = (
         {r.company_signer_id for r in latest_esign.values() if r.company_signer_id}
         | {uid for r in latest_esign.values() for uid in (r.cc_user_ids or [])}
-        | {uid for r in latest_esign.values() for uid in (r.cc_user_ids or [])}
     )
     esign_signer_names: dict[int, str] = {}
     if esign_signer_ids:
