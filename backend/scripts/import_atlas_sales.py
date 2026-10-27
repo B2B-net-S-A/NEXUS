@@ -12,7 +12,9 @@ Uruchomienie na stagingu (backend gałęzi, baza ``nexus_sales``)::
         nexus-staging-backend-sales python -m scripts.import_atlas_sales [--apply]
 
 Raport to same liczby (bez nazw i adresów) — można go wkleić do paragonu
-migracji. Pliki z Supabase Storage przenosi osobny krok.
+migracji. Pliki z Supabase Storage: drugi bieg z ``--files`` (wymaga
+``ATLAS_SUPABASE_URL`` i ``ATLAS_SUPABASE_SERVICE_KEY``; na stagingu host
+Supabase musi być w ``STAGING_EXTRA_ALLOWED_HOSTS``).
 """
 
 from __future__ import annotations
@@ -119,7 +121,57 @@ class AsyncpgSource:
         return total
 
 
-async def _main(apply: bool) -> int:
+async def _copy_files(
+    connection: asyncpg.Connection, db, apply: bool
+) -> dict[str, int]:
+    """``--files``: pliki z Supabase Storage Atlasa → magazyn NEXUSA (po imporcie)."""
+
+    import httpx
+    from sqlalchemy import func, select
+
+    from app.models.user import User
+    from app.services.sales.atlas_files import copy_attachments
+
+    base = os.environ.get("ATLAS_SUPABASE_URL", "").strip().rstrip("/")
+    key = os.environ.get("ATLAS_SUPABASE_SERVICE_KEY", "").strip()
+    if not base or not key:
+        raise SystemExit(
+            "Brak ATLAS_SUPABASE_URL / ATLAS_SUPABASE_SERVICE_KEY — wpisz je do ~/ATLAS/.env."
+        )
+
+    async def rows(table: str) -> list[dict[str, Any]]:
+        try:
+            return [dict(r) for r in await connection.fetch(f"SELECT * FROM {table}")]  # noqa: S608
+        except asyncpg.UndefinedTableError:
+            return []
+
+    users = dict(
+        (
+            await db.execute(
+                select(func.lower(User.email), User.id).where(User.email.is_not(None))
+            )
+        ).all()
+    )
+    async with httpx.AsyncClient(
+        timeout=60, headers={"Authorization": f"Bearer {key}", "apikey": key}
+    ) as client:
+
+        async def fetch(bucket: str, path: str):
+            resp = await client.get(f"{base}/storage/v1/object/{bucket}/{path}")
+            return resp.content if resp.status_code == 200 else None
+
+        report = await copy_attachments(
+            db,
+            deal_attachments=await rows("deal_attachments"),
+            company_attachments=await rows("company_attachments"),
+            fetch=fetch,
+            users_by_email=users,
+            dry_run=not apply,
+        )
+    return report.as_dict()
+
+
+async def _main(apply: bool, files: bool) -> int:
     url = os.environ.get("ATLAS_DATABASE_URL", "").strip()
     if not url:
         print("Brak ATLAS_DATABASE_URL — wpisz go do ~/ATLAS/.env i przekaż przez -e.")
@@ -135,18 +187,19 @@ async def _main(apply: bool) -> int:
             await connection.set_type_codec(
                 codec, encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
             )
-        source = AsyncpgSource(connection)
         async with AsyncSessionLocal() as db:
-            report = await run_import(db, source)
+            if files:
+                # Na sucho pliki nie są pobierane ani zapisywane — same liczby.
+                result = await _copy_files(connection, db, apply)
+            else:
+                result = (await run_import(db, AsyncpgSource(connection))).as_dict()
             if apply:
                 await db.commit()
             else:
                 await db.rollback()
     finally:
         await connection.close()
-    print(
-        json.dumps({"applied": apply, **report.as_dict()}, ensure_ascii=False, indent=2)
-    )
+    print(json.dumps({"applied": apply, **result}, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -155,8 +208,13 @@ def main() -> int:
     parser.add_argument(
         "--apply", action="store_true", help="zatwierdź (domyślnie na sucho)"
     )
+    parser.add_argument(
+        "--files",
+        action="store_true",
+        help="przenieś pliki z Supabase Storage (po imporcie danych)",
+    )
     args = parser.parse_args()
-    return asyncio.run(_main(args.apply))
+    return asyncio.run(_main(args.apply, args.files))
 
 
 if __name__ == "__main__":
