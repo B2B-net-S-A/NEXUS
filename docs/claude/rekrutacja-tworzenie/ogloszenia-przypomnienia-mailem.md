@@ -17,6 +17,8 @@ i `tasks/notification_email_outbox`.
   `career_pages_for_jobs`), Pracuj.pl i JustJoin.IT (aktywne oznaczenie
   `job_ad_publications`). Kanał z wierszem `job_ad_channel_skips` („nie
   publikujemy tu”, z powodem) nie jest brakiem.
+  Pracuj.pl po mailu do opiekuna ma stan `requested` i przez 3 dni robocze
+  też nie jest brakiem (`ogloszenie-pracuj-mailem-do-opiekuna.md`).
 - **Kto robi który kanał.** Strona kariery: Rekruterzy rekrutacji
   (`job_team.working`, bez propozycji automatu), bez nich Delivery Lead.
   Pracuj.pl i JustJoin.IT: Delivery Lead, bez aktywnego DL-a Head of

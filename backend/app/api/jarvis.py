@@ -25,7 +25,7 @@ from typing import Any, AsyncIterator, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser
@@ -39,9 +39,11 @@ from app.models.jarvis import (
     JARVIS_UI_EVENTS,
     JarvisAction,
     JarvisConversation,
+    JarvisGap,
     JarvisMessage,
     JarvisUiEvent,
 )
+from app.models.user import User
 from app.services.action_permissions import named_permissions_of
 from app.services.hr import modules as hr_modules
 from app.services.hr_foundation_schema import HR_MODULE_KEYS
@@ -50,6 +52,7 @@ from app.services.jarvis import actions as jarvis_actions
 from app.services.jarvis import agent, store
 from app.services.jarvis import web as jarvis_web
 from app.services.jarvis.prefs import effective_prefs
+from app.services.jarvis.capabilities import capabilities_for
 from app.services.jarvis.tools import build_screen_link, tools_for_user
 from app.services.jarvis.transport import CallerIdentity
 from app.services.llm_providers import api_key_configured
@@ -95,6 +98,8 @@ class JarvisStatusResponse(BaseModel):
     web_enabled: bool = False
     web_used_today: int = 0
     web_limit: int = 0
+    # Pusty panel: co Jarvis zrobi za tę rolę (``capabilities.capabilities_for``).
+    capabilities: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class JarvisConversationSummary(BaseModel):
@@ -154,6 +159,23 @@ def _identity(request: Request) -> CallerIdentity:
         authorization=authorization,
         forwarded_for=client_ip_key(request),
         operation_id=str(uuid.uuid4()),
+    )
+
+
+async def _allowed_tools(user: Any, db: AsyncSession) -> list[Any]:
+    """Narzędzia tej osoby — te same dla modelu i dla listy w pustym panelu."""
+    # Narzędzia „Ludzi w NEXUSIE” idą do modelu tylko przy module otwartym dla
+    # tej osoby i z jej uprawnieniami (jedno zapytanie o ``app_settings`` na turę).
+    loaded_modules = await hr_modules.load_modules(db)
+    open_hr_modules = {
+        key
+        for key in HR_MODULE_KEYS
+        if hr_modules.module_open_for(user, loaded_modules, key)
+    }
+    return tools_for_user(
+        _section_map(user),
+        permissions=named_permissions_of(user),
+        hr_modules=open_hr_modules,
     )
 
 
@@ -298,6 +320,9 @@ async def jarvis_status(
         web_enabled=settings.JARVIS_WEB_ENABLED,
         web_used_today=await _used_today(db, current_user.id, web=True),
         web_limit=settings.JARVIS_WEB_DAILY_LIMIT,
+        capabilities=capabilities_for(
+            [tool.name for tool in await _allowed_tools(current_user, db)]
+        ),
     )
 
 
@@ -327,15 +352,7 @@ async def jarvis_chat(
                 ),
             )
     prefs = effective_prefs(current_user.jarvis_prefs)
-    # Narzędzia „Ludzi w NEXUSIE” idą do modelu tylko przy module otwartym dla
-    # tej osoby i z jej uprawnieniami (jedno zapytanie o ``app_settings`` na turę).
     permissions = named_permissions_of(current_user)
-    loaded_modules = await hr_modules.load_modules(db)
-    open_hr_modules = {
-        key
-        for key in HR_MODULE_KEYS
-        if hr_modules.module_open_for(current_user, loaded_modules, key)
-    }
     turn = agent.TurnInput(
         user_id=current_user.id,
         user_name=current_user.name,
@@ -347,11 +364,7 @@ async def jarvis_chat(
         if payload.web
         else (payload.screen.model_dump() if payload.screen else None),
         assistant_name=prefs.name,
-        allowed_tools=tools_for_user(
-            _section_map(current_user),
-            permissions=permissions,
-            hr_modules=open_hr_modules,
-        ),
+        allowed_tools=await _allowed_tools(current_user, db),
         identity=_identity(request),
         today=business_today(),
         now=local_now(),
@@ -433,8 +446,11 @@ def _failed_tool_uses(messages: list[tuple[str, list[dict[str, Any]]]]) -> set[s
 
 
 def _conversation_items(
-    messages: list[tuple[str, list[dict[str, Any]]]], actions: list[JarvisAction]
+    messages: list[tuple[str, list[dict[str, Any]]]],
+    actions: list[JarvisAction],
+    gaps: Optional[list[JarvisGap]] = None,
 ) -> list[dict[str, Any]]:
+    gap_by_tool_use = {gap.tool_use_id: gap for gap in gaps or []}
     by_tool_use: dict[str, list[JarvisAction]] = {}
     for action in actions:
         by_tool_use.setdefault(action.tool_use_id, []).append(action)
@@ -494,6 +510,21 @@ def _conversation_items(
                                 )[:200],
                             }
                         )
+                if name == "draft_email" and str(block.get("id") or "") not in failed:
+                    tool_input = block.get("input") or {}
+                    items.append(
+                        {
+                            "kind": "mail_draft",
+                            "draft": {
+                                "candidate_id": tool_input.get("candidate_id"),
+                                "subject": str(tool_input.get("subject") or "")[:150],
+                                "body": str(tool_input.get("body") or "")[:3000],
+                            },
+                        }
+                    )
+                gap = gap_by_tool_use.get(str(block.get("id") or ""))
+                if name == "report_gap" and gap is not None:
+                    items.append({"kind": "gap", "gap": _serialize_gap(gap)})
                 if name == "open_screen":
                     try:
                         items.append(
@@ -548,11 +579,20 @@ async def get_conversation(
             )
         ).scalars()
     )
+    gaps = list(
+        (
+            await db.execute(
+                select(JarvisGap).where(JarvisGap.conversation_id == conversation_id)
+            )
+        ).scalars()
+    )
     return {
         "id": str(conversation.id),
         "title": conversation.title,
         "updated_at": conversation.updated_at,
-        "items": _conversation_items([(r.role, r.content) for r in messages], actions),
+        "items": _conversation_items(
+            [(r.role, r.content) for r in messages], actions, gaps
+        ),
     }
 
 
@@ -724,5 +764,72 @@ async def ui_events_summary(
                 "people": int(r.people),
             }
             for r in rows
+        ],
+    }
+
+
+# ── „Czego Jarvis nie umie” (0527) ─────────────────────────────────────────
+
+
+def _serialize_gap(gap: JarvisGap) -> dict[str, Any]:
+    return {
+        "id": str(gap.id),
+        "kind": gap.kind,
+        "need": gap.need,
+        "why": gap.why,
+        "workaround": gap.workaround,
+        "reported": gap.reported_at is not None,
+    }
+
+
+@router.post("/gaps/{gap_id}/report", status_code=status.HTTP_204_NO_CONTENT)
+async def report_gap(
+    gap_id: uuid.UUID,
+    request: Request,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """„Zgłoś, że tego potrzebuję” — tylko na własnej karcie, idempotentnie."""
+    _require_available(request)
+    result = await db.execute(
+        update(JarvisGap)
+        .where(JarvisGap.id == gap_id, JarvisGap.user_id == current_user.id)
+        .values(reported_at=func.coalesce(JarvisGap.reported_at, func.now()))
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Nie ma takiej karty.")
+    await db.commit()
+
+
+@router.get("/gaps")
+async def list_gaps(
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+    days: int = 30,
+) -> dict[str, Any]:
+    """Czego ludzie chcieli od Jarvisa, a on nie umiał — najnowsze najpierw (admin).
+
+    Bez nazwisk pytających: rola wystarcza do decyzji, co budować dalej.
+    """
+    window = max(1, min(int(days), 90))
+    since = datetime.now(timezone.utc) - timedelta(days=window)
+    rows = (
+        await db.execute(
+            select(JarvisGap, User.role)
+            .join(User, User.id == JarvisGap.user_id)
+            .where(JarvisGap.created_at >= since)
+            .order_by(JarvisGap.created_at.desc())
+            .limit(200)
+        )
+    ).all()
+    return {
+        "days": window,
+        "items": [
+            {
+                **_serialize_gap(gap),
+                "role": getattr(role, "value", role),
+                "created_at": gap.created_at,
+            }
+            for gap, role in rows
         ],
     }

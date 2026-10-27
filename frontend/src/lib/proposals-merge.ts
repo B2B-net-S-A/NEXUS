@@ -6,7 +6,8 @@
  *  - wynik dopasowania NIGDY nie jest zmyślany: nieznany = `null`. Kolumna
  *    „Dop." niesie WYŁĄCZNIE kanoniczne dopasowanie (żywy przegląd bazy
  *    i skrzynka propozycji); punktacja „z podobnych projektów"
- *    (`historical_score`) ani `total_score` rekomendacji do niej nie trafiają;
+ *    (`historical_score`), `total_score` rekomendacji ani wynik scrapera
+ *    portalu (`board_score`) do niej nie trafiają;
  *  - osoba już w pipeline'ie znika z listy niezależnie od źródła;
  *  - kolejność jest stabilna (dopasowanie ↓, nowe, nazwisko, id), żeby
  *    odświeżenie w tle nie przetasowywało tabeli pod kursorem.
@@ -52,6 +53,8 @@ export interface ProposalRequirement {
   status: RequirementStatus;
   /** Potwierdzone w weryfikacji rekrutera (tylko z żywego przeglądu). */
   verified: boolean;
+  /** Technologia ostatnio używana ponad 3 lata temu — „?” z rokiem (27.10.2026). */
+  lastUsedYear?: number;
 }
 
 export interface ProposalSimilarProject {
@@ -206,6 +209,7 @@ interface Draft {
   sources: Set<ProposalSource>;
   origins: Set<ProposalOrigin>;
   scores: number[];
+  boardScore: number | null;
   /** Powody w kolejności bogactwa: przegląd → podobny projekt → rekomendacja → inbox. */
   reasons: Partial<Record<ProposalOrigin, string>>;
   isNew: boolean;
@@ -307,7 +311,13 @@ function inboxRequirements(item: ProposalInboxItem): ProposalRequirement[] {
   for (const r of evidence.requirements ?? []) {
     const label = r.name ?? r.any_of?.join(" lub ") ?? r.key;
     if (!label || (r.level !== "must" && r.level !== "nice")) continue;
-    out.push({ label, level: r.level, status: reqStatus(r.status), verified: false });
+    out.push({
+      label,
+      level: r.level,
+      status: reqStatus(r.status),
+      verified: false,
+      ...(typeof r.last_used_year === "number" ? { lastUsedYear: r.last_used_year } : {}),
+    });
   }
   if (out.length > 0) return out;
   // Starszy kształt dowodu: same listy nazw, bez statusów per wymaganie.
@@ -337,6 +347,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         sources: new Set(),
         origins: new Set(),
         scores: [],
+        boardScore: null,
         reasons: {},
         isNew: false,
         previouslyDismissed: false,
@@ -363,6 +374,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     d.origins.add("inbox");
     for (const s of item.sources) if (KNOWN_SOURCES.has(s)) d.sources.add(s as ProposalSource);
     addScore(d, item.score);
+    d.boardScore ??= normalizeFitScore(item.board_score);
     d.isNew ||= item.is_new;
     d.previouslyDismissed ||= item.evidence?.previously_dismissed === true;
     d.detail.title ??= c.title;
@@ -430,6 +442,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
           level: r.level as "must" | "nice",
           status: r.status,
           verified: r.evidence_basis === "reviewed" || Boolean(r.verified_at),
+          ...(typeof r.last_used_year === "number" ? { lastUsedYear: r.last_used_year } : {}),
         }));
       if (reqs.length > 0) d.detail.requirements = reqs;
       const reason = reasonFromRequirements(reqs);
@@ -534,6 +547,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         ...(detail.employment ? { employment: detail.employment } : {}),
         ...(handoverNote ? { handoverNote } : {}),
         ...(d.historyPoints > 0 ? { historyPoints: d.historyPoints } : {}),
+        ...(d.boardScore !== null ? { boardScore: d.boardScore } : {}),
       },
       detail,
     });

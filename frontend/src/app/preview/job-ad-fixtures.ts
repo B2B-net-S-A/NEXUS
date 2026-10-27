@@ -335,6 +335,8 @@ export function stateOf(
     can_copy: !findings.some((f) => f.severity === "block"),
     publications: patch.publications ?? [],
     career: patch.career ?? NO_CAREER_PAGE,
+    reminders: null,
+    pracuj_request: null,
   };
 }
 
@@ -349,6 +351,8 @@ function initial(state: HarnessState): JobAdState {
       can_copy: false,
       publications: [],
       career: NO_CAREER_PAGE,
+      reminders: null,
+      pracuj_request: null,
     };
   }
   if (state === "published") {

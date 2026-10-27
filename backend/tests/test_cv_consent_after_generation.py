@@ -38,7 +38,7 @@ from app.models.cv_document_version import CvDocumentVersion
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generated_draft import CvGeneratedDraft
 from app.models.cv_generation_job import CvGenerationJob
-from app.services import object_storage, storage_service
+from app.services import cv_consent_check, object_storage, storage_service
 from app.services.cv_document_assets import default_template
 from app.services.cv_generator_b2b.standalone_service import (
     rerender_docx_from_payload,
@@ -55,6 +55,15 @@ PAYLOAD = {
     "languages": [],
 }
 HTML = "<h1>Synthetic Person</h1><p>Tester</p>"
+
+
+@pytest.fixture(autouse=True)
+def _consent_reuse_not_checked(monkeypatch):
+    """Te testy wgrywają ten sam obrazek dla wielu kandydatów w jednej bazie;
+    kontrolę „ten sam plik u innego kandydata” sprawdza `test_cv_consent_check`."""
+    monkeypatch.setattr(
+        cv_consent_check, "used_for_other_candidate", AsyncMock(return_value=False)
+    )
 
 
 def _png(color: str) -> bytes:

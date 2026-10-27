@@ -6695,8 +6695,8 @@ async def download_candidate_document(
             # CV/document streams from Hetzner Object Storage. Matches the
             # pattern in cv_source.py and asyncio.to_thread usage below.
             content = await asyncio.to_thread(download_cv, doc.storage_key)
-            return StreamingResponse(
-                io.BytesIO(content),
+            return Response(
+                content,
                 media_type=media_type,
                 headers={
                     "Content-Disposition": content_disposition(filename, disposition),
@@ -6712,8 +6712,8 @@ async def download_candidate_document(
     if not doc.file_content:
         raise HTTPException(status_code=404, detail="Document content not available")
 
-    return StreamingResponse(
-        io.BytesIO(doc.file_content),
+    return Response(
+        doc.file_content,
         media_type=media_type,
         headers={
             "Content-Disposition": content_disposition(filename, disposition),

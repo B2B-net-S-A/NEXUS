@@ -30,6 +30,7 @@ from app.services.order_mail_resolver import MATCH_EXACT, ResolvedConsultant
 from app.services.recruitment_rate_check import (
     DIFFERS,
     RateRef,
+    comparable_amount,
     compare_ref,
     format_rate,
 )
@@ -102,6 +103,11 @@ CODE_RATE_DEVIATION = "rate_deviation"
 #: klient mógł przyjąć inną stawkę po negocjacji. Świadomie POZA
 #: ``AWAITING_CONTRACT_CODES`` — po trzech próbach DL dostaje kartę.
 CODE_RATE_RECRUITMENT_MISMATCH = "rate_recruitment_mismatch"
+#: Przedłużenie (kontrakt ma już zamówienie ze stawką) przychodzi z inną
+#: stawką niż poprzednie zamówienie. Odniesieniem jest ostatnia uzgodniona
+#: stawka, nie rekrutacja sprzed lat (decyzja Artura 27.10.2026). Też POZA
+#: ``AWAITING_CONTRACT_CODES``.
+CODE_RATE_RENEWAL_CHANGED = "rate_renewal_changed"
 CODE_MD_MISSING = "md_missing"
 CODE_MD_SHARED_POOL = "md_shared_pool"
 #: Zamówienie kosztowe z kilkoma osobami: kwota zlecenia jest wspólna dla całej
@@ -135,6 +141,28 @@ _DECISION_CODES = {
     "new_ambiguous": CODE_PERSON_DECISION_AMBIGUOUS,
     "ended": CODE_PERSON_DECISION_ENDED,
 }
+
+
+def _renewal_rate_reason(row_prop, previous: RateRef) -> str:
+    """„120 zł/h → 138 zł/h (+15%) względem zamówienia #70” — zdanie kolejki."""
+    before = comparable_amount(previous.value, previous.unit, previous.currency)
+    after = comparable_amount(
+        row_prop.rate_client, row_prop.rate_unit, row_prop.currency or "PLN"
+    )
+    change = ""
+    if before and after and before[0] == after[0] and before[1]:
+        pct = (after[1] - before[1]) / before[1] * 100
+        size = (
+            f"{abs(pct):.0f}" if abs(pct) >= 1 else f"{abs(pct):.1f}".replace(".", ",")
+        )
+        change = f" ({'+' if pct > 0 else '−'}{size}%)"
+    return (
+        f"„{row_prop.row_name}”: przy przedłużeniu zmienia się stawka do klienta: "
+        f"{format_rate(previous.value, previous.unit)} → "
+        f"{format_rate(row_prop.rate_client, row_prop.rate_unit)}{change} względem "
+        f"zamówienia #{row_prop.previous_order_id} — potwierdź, że klient przyjął "
+        "nową stawkę"
+    )
 
 
 @dataclass(frozen=True)
@@ -494,10 +522,13 @@ def evaluate(inp: GateInput) -> GateVerdict:
                     )
                 )
 
-    # 7-bis) stawka do klienta z rekrutacji (D7): różnica = „do sprawdzenia”.
-    #     Pomija osoby bez dopasowania (``MATCH_NONE`` — nie wiadomo, czyja to
-    #     rekrutacja), zamówienia kosztowe (kwota zlecenia, nie stawka osoby),
-    #     brak stawki i stawki nieporównywalne (inna waluta, miesiąc z godziną).
+    # 7-bis) stawka odniesienia = ostatnia uzgodniona: przy pierwszym
+    #     zamówieniu kontraktu stawka do klienta z rekrutacji (D7), przy
+    #     przedłużeniu stawka poprzedniego zamówienia (27.10.2026). Różnica =
+    #     „do sprawdzenia”. Pomija osoby bez dopasowania (``MATCH_NONE`` — nie
+    #     wiadomo, czyja to rekrutacja), zamówienia kosztowe (kwota zlecenia,
+    #     nie stawka osoby), brak stawki i stawki nieporównywalne (inna waluta,
+    #     miesiąc z godziną).
     unmatched_rows = {res.row_index for res in inp.resolved if res.match_kind == "none"}
     for row_prop in prop.rows:
         if (
@@ -507,6 +538,28 @@ def evaluate(inp: GateInput) -> GateVerdict:
             or row_prop.rate_client is None
             or row_prop.rate_unit is None
         ):
+            continue
+        if row_prop.previous_rate_client is not None:
+            previous = RateRef(
+                value=Decimal(row_prop.previous_rate_client),
+                unit=row_prop.previous_rate_unit,
+                currency=row_prop.previous_rate_currency or "PLN",
+            )
+            if (
+                compare_ref(
+                    previous,
+                    row_prop.rate_client,
+                    row_prop.rate_unit,
+                    row_prop.currency,
+                )
+                == DIFFERS
+            ):
+                reasons.append(
+                    (
+                        CODE_RATE_RENEWAL_CHANGED,
+                        _renewal_rate_reason(row_prop, previous),
+                    )
+                )
             continue
         ref = inp.recruitment_rates.get(row_prop.contract_id)
         if ref is None:

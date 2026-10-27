@@ -1500,3 +1500,73 @@ async def test_review_without_version_stamp_is_not_treated_as_stale():
     async with AsyncSessionLocal() as db:
         due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
     assert due.index(older["job_id"]) < due.index(unstamped["job_id"])
+
+
+# ── Inna rola niż rekrutacja (27.10.2026) ──────────────────────────────────
+
+
+def _role_result(run_id, cid, score, *, met: int, total: int):
+    return CandidateSearchResult(
+        run_id=run_id,
+        candidate_id=cid,
+        candidate_version="v",
+        state="evaluated",
+        eligible=True,
+        fit_score=score,
+        measurement="measured",
+        evidence={
+            "requirements": [
+                {
+                    "id": f"req-{i}",
+                    "level": "must",
+                    "status": "met" if i < met else "unknown",
+                    "any_of": [f"Skill {i}"],
+                }
+                for i in range(total)
+            ],
+        },
+        exclusion_reasons=[],
+    )
+
+
+async def test_tester_is_not_proposed_for_a_developer_job(monkeypatch):
+    """Zgłoszenie DL-a: Senior QA Automation z 77% przy „Full Stack Developer”.
+    Tester bez większości „musi mieć” nie trafia ani do propozycji, ani do puli
+    dopełniania „Nowych”; tester z 8/10 zostaje, programista zostaje."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_MATCH_REQUIRE_MUST", True)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=3)
+    developer, weak_tester, strong_tester = world["candidate_ids"]
+    positions = {
+        developer: "Full Stack Developer",
+        weak_tester: "Senior QA Automation Engineer",
+        strong_tester: "QA Engineer",
+    }
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.title = f"Full Stack Developer (Java, Angular) {uuid.uuid4().hex[:6]}"
+        for cid, position in positions.items():
+            (await db.get(Candidate, cid)).cv_extracted_data = {
+                "current_position": position
+            }
+        await db.commit()
+    run_id = await _auto_run_with_rows(
+        world,
+        owner_id,
+        [
+            lambda r: _role_result(r, developer, 81, met=6, total=10),
+            lambda r: _role_result(r, weak_tester, 77, met=5, total=10),
+            lambda r: _role_result(r, strong_tester, 75, met=8, total=10),
+        ],
+    )
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        await afr.publish_run_proposals(db, run)
+        await afr.refresh_autofill_pool(db, run)
+        await db.commit()
+
+    proposed = {p.candidate_id for p in await _proposals(world["job_id"])}
+    assert proposed == {developer, strong_tester}
+    pooled = {p.candidate_id for p in await _pool(world["job_id"])}
+    assert pooled == {developer, strong_tester}

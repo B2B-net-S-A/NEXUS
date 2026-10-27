@@ -3336,6 +3336,7 @@ async def api_health_deep_check():
         JarvisAction,
         JarvisConversation,
         JarvisConversationEntity,
+        JarvisGap,
         JarvisMessage,
         JarvisUiEvent,
     )
@@ -3617,6 +3618,7 @@ async def api_health_deep_check():
         ("jarvis_actions", JarvisAction),
         ("jarvis_conversation_entities", JarvisConversationEntity),
         # 0355: telemetria pomocy na ekranie — brak tabeli = 500 na każdym dymku.
+        ("jarvis_gaps", JarvisGap),
         ("jarvis_ui_events", JarvisUiEvent),
         # 0333: skrzynka „Propozycje". Lista rekrutacji liczy z niej
         # `open_proposals_count`, a dodanie kandydata do rekrutacji ją stempluje.

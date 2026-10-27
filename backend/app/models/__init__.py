@@ -731,6 +731,7 @@ from app.models.jarvis import (  # noqa: F401
     JarvisAction,
     JarvisConversation,
     JarvisConversationEntity,
+    JarvisGap,
     JarvisMessage,
     JarvisUiEvent,
 )

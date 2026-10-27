@@ -85,6 +85,8 @@ const JOB_AD: JobAdState = {
     },
   ],
   career: NO_CAREER_PAGE,
+  reminders: null,
+  pracuj_request: null,
 };
 const isoDay = (offsetDays: number) =>
   new Date(Date.now() + offsetDays * DAY_MS).toISOString().slice(0, 10);

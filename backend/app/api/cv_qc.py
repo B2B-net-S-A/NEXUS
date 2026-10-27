@@ -14,10 +14,11 @@ guardy `Annotated` w parametry QUERY).
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.cv_generator_b2b import _sniff_image_type
 from app.api.deps import OperationalUser, RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
@@ -381,6 +382,38 @@ async def get_stage_qc(
         request,
         current_user,
         await cv_qc.run_qc(db, stage, user_id=current_user.id, persist=not transient),
+    )
+
+
+@router.get("/stages/{stage_id}/qc/consent-screenshot")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def get_stage_qc_consent_screenshot(
+    request: Request,
+    stage_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Zrzut zgody RODO przy CV z QC — miniatura przy uwadze `consent_matches`.
+
+    Ta sama bramka co odczyt QC, bez integracji: obraz niesie adres e-mail
+    kandydata, a token OAuth dostaje tylko „zgoda jest”. Nie trafia też do
+    publicznego linku CV (`zrzut-zgody-rodo-na-koncu-cv-wymog-pko-bp.md`).
+    """
+
+    _ensure_person(request)
+    stage = await _stage(db, stage_id)
+    await ensure_job_read_access(db, current_user, stage.job_id)
+    image = await cv_qc.consent_image(db, stage)
+    media_type = _sniff_image_type(image) if image else None
+    if media_type is None:
+        raise HTTPException(status_code=404, detail="To CV nie ma zrzutu zgody.")
+    return Response(
+        content=image,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

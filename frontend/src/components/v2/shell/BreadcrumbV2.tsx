@@ -108,6 +108,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "kpi-targets": "Cele KPI",
   "review-states": "Porządek w requestach",
   "strona-kariery": "Strona kariery do uzupełnienia",
+  ogloszenia: "Ogłoszenia do nadrobienia",
   "umowy-przedwstepne": "Umowy przedwstępne",
   daily: "Daily",
   seeking: "Dostępni kontraktorzy",
@@ -125,13 +126,9 @@ const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
     const r = await api.get(`/api/candidates/${id}`);
     return `${r.data.name ?? ""} ${r.data.lastname ?? ""}`.trim() || id;
   },
-  jobs: async (id) => {
-    const r = await api.get(`/api/jobs/${id}`);
-    const name = r.data.working_title || r.data.title || id;
-    // Numer u klienta przed nazwą, jak na liście i w nagłówku (15.10.2026).
-    const [reference] = clientReferenceParts(r.data.client_reference);
-    return reference ? `${reference} · ${name}` : name;
-  },
+  // Okruszek czyta rekrutację z zapytania strony (`DynamicLabel`); wpis
+  // zostaje, bo mapa mówi też, które segmenty mają nazwę zamiast numeru.
+  jobs: async (id) => jobLabel((await api.get(`/api/jobs/${id}`)).data, id),
   clients: async (id) => {
     const r = await api.get(`/api/clients/${id}`);
     return r.data.name ?? id;
@@ -147,6 +144,19 @@ const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
   },
 };
 
+interface JobNameFields {
+  working_title?: string | null;
+  title?: string | null;
+  client_reference?: string | null;
+}
+
+function jobLabel(job: JobNameFields | undefined, id: string): string {
+  const name = job?.working_title || job?.title || id;
+  // Numer u klienta przed nazwą, jak na liście i w nagłówku (15.10.2026).
+  const [reference] = clientReferenceParts(job?.client_reference);
+  return reference ? `${reference} · ${name}` : name;
+}
+
 function isNumeric(s: string) {
   return /^\d+$/.test(s);
 }
@@ -157,15 +167,22 @@ function DynamicLabel({ entityType, id }: { entityType: string; id: string }) {
   // breadcrumb name is served from the page's fetch (React Query dedupes by
   // key) instead of issuing a second, heavy request for the same candidate.
   // Other entity types keep their lightweight name-only fetchers.
+  // Rekrutacja tak samo: strona `/jobs/[id]` czyta ją pod `["job", <id
+  // z adresu>]` (27.10.2026 — wcześniej okruszek pobierał ją drugi raz).
   const isCandidate = entityType === "candidates";
+  const isJob = entityType === "jobs";
   const fetcher = ENTITY_NAME_FETCHERS[entityType];
   const { data, isLoading } = useQuery<any>({
     queryKey: isCandidate
       ? ["candidate", Number(id)]
-      : ["breadcrumb-v2", entityType, id],
+      : isJob
+        ? ["job", id]
+        : ["breadcrumb-v2", entityType, id],
     queryFn: isCandidate
       ? () => api.get(`/api/candidates/${id}`).then((r) => r.data)
-      : () => fetcher(id),
+      : isJob
+        ? () => api.get(`/api/jobs/${id}`).then((r) => r.data)
+        : () => fetcher(id),
     enabled: isCandidate || !!fetcher,
     staleTime: 60_000,
   });
@@ -173,7 +190,9 @@ function DynamicLabel({ entityType, id }: { entityType: string; id: string }) {
   if (isLoading) return <span className="opacity-50">…</span>;
   const label = isCandidate
     ? `${data?.name ?? ""} ${data?.lastname ?? ""}`.trim() || id
-    : (data ?? id);
+    : isJob
+      ? jobLabel(data, id)
+      : (data ?? id);
   return <span>{label}</span>;
 }
 

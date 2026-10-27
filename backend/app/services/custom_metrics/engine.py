@@ -159,7 +159,10 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
     """Kamienie milowe z kredytem całej firmy od ``since`` — jedno CTE na minutę."""
     # Import lokalny: kpi_panel ciągnie kpi_engine, a silnik metryk nie
     # powinien ładować go przy imporcie modułu.
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     key = f"{_CREDITED_KEY_PREFIX}{since.isoformat()}"
     cached = await cache_get(key)
@@ -170,7 +173,7 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
         if cached is not None:
             return cached
         statement = text(
-            VERIFIER_ANCHORED_CTE
+            CREDITED_FROM_SNAPSHOT_CTE
             + f"""
             SELECT c.credit_user, c.stage, c.job_id,
                    j.client_id, j.competence_category_id,
@@ -183,11 +186,13 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
             GROUP BY 1, 2, 3, 4, 5, 6
             """
         ).bindparams(bindparam("stages", expanding=True))
+        since_at = datetime.combine(since, time(0), tzinfo=ZoneInfo(TZ))
         result = await db.execute(
             statement,
             {
                 "stages": list(MILESTONE_STAGES),
-                "since": datetime.combine(since, time(0), tzinfo=ZoneInfo(TZ)),
+                "since": since_at,
+                **await credited_bind(db, since=since_at),
             },
         )
         rows: list[CreditedRow] = [

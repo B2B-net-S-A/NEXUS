@@ -36,7 +36,7 @@ from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.hit_ratio_scope import counts_in_hit_ratio
 from app.services.job_delivery_lead_fill import _HEADS as _DL_HEADS_SQL
-from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.metric_definitions import (
     DL_HIT_RATIO_TARGET_PCT,
     VERIFIER_ANCHORED_MILESTONES,
@@ -262,7 +262,7 @@ async def report_recruitment(
 
     start = _period_start(period)
 
-    base_params: dict = {"period_start": start}
+    base_params: dict = {"period_start": start, **await credited_bind(db)}
 
     # Global funnel counts (across all recruiters). Definicje KPI Artura
     # (spójne z panelem „Moje KPI" / app/services/kpi_panel.py):
@@ -283,7 +283,7 @@ async def report_recruitment(
     # do 3 833 pod nagłówkiem mówiącym 3 339, czyli rozjazd 15%. Tabela, która
     # nie sumuje się do własnego nagłówka, podważa obie liczby naraz.
     totals_sql = text(
-        VERIFIER_ANCHORED_CTE
+        CREDITED_FROM_SNAPSHOT_CTE
         + """
         SELECT c.stage,
                count(*) AS cnt,
@@ -323,7 +323,7 @@ async def report_recruitment(
     # VERIFIER_ANCHORED_CTE z kpi_panel (jedna implementacja atrybucji,
     # kanoniczny view, bez lookbacku) zamiast zdublowanej kopii SQL-a.
     per_recruiter_sql = text(
-        VERIFIER_ANCHORED_CTE
+        CREDITED_FROM_SNAPSHOT_CTE
         + """
         SELECT c.credit_user, c.stage, count(*) AS cnt
         FROM credited c

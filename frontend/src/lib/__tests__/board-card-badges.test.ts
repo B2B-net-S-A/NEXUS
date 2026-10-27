@@ -377,6 +377,17 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
         viewerId: 9,
       })?.who,
     ).toBe("Ola");
+    // „Biorę” po 12 h (27.10.2026): osoba, która wzięła, ma ruch w „Screeningu”
+    // zamiast osoby, która dodała; od „Zweryfikowanego” już nie.
+    const taken = item({ recruiter_id: 9, recruiter_name: "Piotr Dodający", taken_by_user_id: 3, taken_by_name: "Ola Nowak" });
+    const sheet = { label: "Uzupełnij arkusz screeningu", owner: "recruiter", kind: "screening" };
+    expect(cardNextStep(sheet, taken, { column: "screening", cproEnabled: false, viewerId: 9 })?.who).toBe("Ola");
+    expect(cardNextStep(sheet, taken, { column: "screening", cproEnabled: false, viewerId: 3 })?.who).toBe(
+      "Twój ruch",
+    );
+    expect(cardNextStep(sheet, taken, { column: "verified", cproEnabled: false, viewerId: 3 })?.who).toBe(
+      "Piotr",
+    );
     // Kandydat i Delivery to role, nie imiona.
     expect(
       cardNextStep({ label: "Reakcja kandydata na ofertę", owner: "candidate", kind: "offer" }, mine, {
@@ -824,6 +835,18 @@ describe("cardOwner — czyja karta (20.10.2026)", () => {
       .toEqual({ name: "Piotr Szkicowy", role: "added" });
     expect(cardOwner(item(added), null)).toEqual({ name: "Piotr Szkicowy", role: "added" });
     expect(cardOwner(item({ added_to_job_by_name: null }), "cv_qc")).toEqual({ name: null, role: "added" });
+  });
+
+  it("w „Nowych” i „Screeningu” osoba, która wzięła „Biorę”, wygrywa z dodającą (27.10.2026)", () => {
+    const taken = { ...added, taken_by_name: "Ola Biorąca" };
+    expect(cardOwner(item(taken), "new")).toEqual({ name: "Ola Biorąca", role: "taken" });
+    expect(cardOwner(item(taken), "screening")).toEqual({ name: "Ola Biorąca", role: "taken" });
+    // Od „Zweryfikowanego” kartę ma osoba, która zweryfikowała.
+    expect(cardOwner(item(taken), "verified")).toEqual({ name: "Olga Weryfikująca", role: "verified" });
+    expect(cardOwner(item({ ...taken, owner_name: "Maria Przypisana" }), "new")).toEqual({
+      name: "Maria Przypisana",
+      role: "assigned",
+    });
   });
 
   it("osoba przypisana „Prowadzi” wygrywa w każdej kolumnie (25.10.2026)", () => {

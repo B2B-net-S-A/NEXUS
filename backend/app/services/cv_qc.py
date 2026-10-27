@@ -124,6 +124,7 @@ WARNING_KEYS = (
     "title_matches_role",
     "bold_unsupported",
     "role_order",
+    "consent_matches",
 )
 
 LABELS = {
@@ -141,6 +142,7 @@ LABELS = {
     "title_matches_role": "Tytuł CV zgodny ze stanowiskiem",
     "bold_unsupported": "Pogrubienia mają pokrycie w oryginale",
     "role_order": "Stanowiska od najnowszego",
+    "consent_matches": "Zrzut zgody RODO pasuje do kandydata i rekrutacji",
 }
 
 # Powody obejścia QC do wyboru (02.10.2026). Minimum 10 znaków wolnego tekstu
@@ -889,6 +891,9 @@ class QcInput:
     candidate_phone: Optional[str] = None
     # None = reguła klienta nie wymaga zgody; "ok" | "missing" | "manual".
     consent: Optional[str] = None
+    # Wynik sprawdzenia zrzutu przy wgraniu (`cv_consent_check`, 27.10.2026);
+    # None = zrzut sprzed sprawdzania albo brak zrzutu.
+    consent_check: Optional[dict] = None
     today: Optional[date] = None
     # Podzbiór `must`: umiejętności krytyczne rekrutacji (`critical_requirements`).
     critical: list[Requirement] = field(default_factory=list)
@@ -1893,6 +1898,10 @@ def compute_checks(data: QcInput) -> list[dict]:
         )
     )
 
+    # 8b. Zrzut zgody sprawdzony przy wgraniu (27.10.2026, wariant A):
+    # niepasujący zrzut zapisany z powodem rekrutera widzi tu Delivery Lead.
+    checks.append(_consent_matches_check(data))
+
     # Uwagi.
     checks.append(
         _bold_check(
@@ -1974,6 +1983,39 @@ def compute_checks(data: QcInput) -> list[dict]:
     order = {key: n for n, key in enumerate((*BLOCKING_KEYS, *WARNING_KEYS))}
     checks.sort(key=lambda check: order[check["key"]])
     return checks
+
+
+def _consent_matches_check(data: QcInput) -> dict:
+    """Uwaga, nie blokada: DL przyjmuje zrzut przez „To OK” albo odsyła CV."""
+    record = data.consent_check
+    if data.consent != "ok" or not isinstance(record, dict):
+        return _check("consent_matches", "skip", "Zrzut bez sprawdzenia AI")
+    status = record.get("status")
+    if status == "ok" and record.get("person_checked") is False:
+        return _check(
+            "consent_matches", "manual", "AI nie znało kandydata — obejrzyj zrzut"
+        )
+    if status == "ok":
+        return _check("consent_matches", "pass", "OK")
+    if status != "mismatch":
+        return _check(
+            "consent_matches", "manual", "AI nie sprawdziło zrzutu — obejrzyj go"
+        )
+    problems = " ".join(
+        str(p.get("detail") or "").strip()
+        for p in record.get("problems") or []
+        if isinstance(p, dict) and p.get("detail")
+    )
+    reason = ((record.get("override") or {}).get("reason") or "").strip()
+    detail = f"AI: {problems}" if problems else "AI: zrzut nie pasuje do rekrutacji."
+    if reason:
+        detail += f" Rekruter zapisał go mimo to — powód: „{reason}”."
+    return _check(
+        "consent_matches",
+        "fail",
+        "Zrzut nie pasuje — obejrzyj go",
+        [_item(detail=detail, fix="replace_consent")],
+    )
 
 
 def _tasks(check: dict) -> int:
@@ -2151,6 +2193,84 @@ async def _consent_state(db: AsyncSession, src: dz.ReviewSources) -> Optional[st
     return "missing"
 
 
+async def _consent_check_record(
+    db: AsyncSession, src: dz.ReviewSources
+) -> Optional[dict]:
+    """Wynik `cv_consent_check` zapisany w pokwitowaniu zgody przy CV.
+
+    Kopia etapu bez dokumentu generatora trzyma pokwitowanie we własnych
+    metadanych (`attach_to_stage_copy`), CV z generatora — w `render_payload`.
+    """
+    gen = src.generated
+    if gen is None or gen.get("source") == "document":
+        return None
+    found = None
+    if gen.get("stage_id"):
+        meta = await db.scalar(
+            select(CandidateStageCV.branded_render_metadata).where(
+                CandidateStageCV.candidate_stage_id == gen["stage_id"]
+            )
+        )
+        if isinstance(meta, dict):
+            found = (meta.get("consent_binding") or {}).get("check")
+    if found is None and gen.get("generated_document_id"):
+        payload = await db.scalar(
+            select(CvGeneratedDocument.render_payload).where(
+                CvGeneratedDocument.id == gen["generated_document_id"]
+            )
+        )
+        if isinstance(payload, dict):
+            shot = payload.get("consent_screenshot") or {}
+            found = (shot.get("binding") or {}).get("check")
+    return found if isinstance(found, dict) else None
+
+
+async def consent_image(db: AsyncSession, stage: CandidateStage) -> Optional[bytes]:
+    """Obraz zgody przy CV, które ocenia QC — miniatura przy `consent_matches`.
+
+    Ten sam wybór co `_consent_state`: kopia etapu renderuje DOCX z WŁASNEGO
+    obrazu, CV z generatora — z `consent_content` albo z klucza w magazynie.
+    Wołający sprawdził dostęp. Awaria magazynu = brak obrazu, nie 500.
+    """
+
+    gen = await dz._generated_cv(db, stage.candidate_id, stage.job_id)
+    if gen is None:
+        return None
+    if gen.get("stage_id"):
+        return await db.scalar(
+            select(CandidateStageCV.branded_consent_content).where(
+                CandidateStageCV.candidate_stage_id == gen["stage_id"]
+            )
+        )
+    row = (
+        await db.execute(
+            select(
+                CvGeneratedDocument.consent_content,
+                CvGeneratedDocument.render_payload,
+            ).where(CvGeneratedDocument.id == gen["generated_document_id"])
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    if row.consent_content:
+        return row.consent_content
+    shot = (row.render_payload or {}).get("consent_screenshot")
+    key = str(shot.get("storage_key") or "").strip() if isinstance(shot, dict) else ""
+    if not key:
+        return None
+    from app.services import object_storage
+
+    try:
+        return await run_in_threadpool(object_storage.download_cv, key)
+    except Exception:  # noqa: BLE001 — patrz docstring
+        logger.warning(
+            "[cv_qc] consent image unavailable doc=%s",
+            gen["generated_document_id"],
+            exc_info=True,
+        )
+        return None
+
+
 async def _generated_payload(db: AsyncSession, src: dz.ReviewSources) -> Optional[dict]:
     """Migawka wyniku generatora, z którego powstało CV (albo None)."""
     gen = src.generated
@@ -2219,6 +2339,7 @@ def _qc_input(
     notes: str,
     consent: Optional[str],
     *,
+    consent_check: Optional[dict] = None,
     answers: str = "",
     titles: tuple[str, ...] = (),
     bold: Optional[bool] = None,
@@ -2240,6 +2361,7 @@ def _qc_input(
         candidate_email=src.candidate.email,
         candidate_phone=src.candidate.phone,
         consent=consent,
+        consent_check=consent_check,
         answers_text=answers,
         expected_titles=titles,
         bold_expected=bold,
@@ -2556,11 +2678,13 @@ async def evaluate(
     rows = await _note_rows(db, src.candidate.id)
     notes = notes_text(rows)
     consent = await _consent_state(db, src)
+    consent_check = await _consent_check_record(db, src) if consent == "ok" else None
     payload = await _generated_payload(db, src)
     data = _qc_input(
         src,
         notes,
         consent,
+        consent_check=consent_check,
         answers=answers_text(stage, src.job),
         titles=await expected_titles(db, src, payload),
         bold=bold_expected(src, payload),

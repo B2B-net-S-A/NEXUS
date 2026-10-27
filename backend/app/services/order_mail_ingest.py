@@ -1481,6 +1481,8 @@ async def current_proposal(db, extraction, client_id):
                     if hasattr(o.rate_unit, "value")
                     else o.rate_unit,
                     from_order_mail=o.id in mail_order_ids,
+                    order_type=o.order_type,
+                    rate_client_currency=o.rate_client_currency,
                 )
             )
         contracts = (

@@ -991,6 +991,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ? `Prowadzi: ${owner.name}${
  item.owner_assigned_by_name ? ` · przypisał(a) ${item.owner_assigned_by_name}` : ""
  }\n${addedLine}`
+ : owner.role === "taken"
+ ? `Wziął(-ęła) „Biorę”: ${owner.name}\n${addedLine}`
  : owner.role === "verified"
  ? `Zweryfikował(a): ${owner.name}${
  item.verified_at ? ` · ${formatDate(item.verified_at)}` : ""

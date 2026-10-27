@@ -4082,6 +4082,12 @@ async def build_kanban_view(
                 payload["claim_user_id"] = claim.user_id
                 payload["claim_user_name"] = user_name_by_id.get(claim.user_id)
                 payload["claim_until"] = claim.until
+            # „Biorę” zmienia osobę karty (prośba rekruterki, decyzja Artura
+            # 27.10.2026): ostatnia osoba, która wzięła, zostaje na karcie
+            # i w filtrze „Kto dodał” także po 12 h — do pierwszej weryfikacji.
+            if claim.user_id is not None and first_verified.get(e.candidate_id) is None:
+                payload["taken_by_user_id"] = claim.user_id
+                payload["taken_by_name"] = user_name_by_id.get(claim.user_id)
             if viewer is not None:
                 payload["can_take"] = candidate_claim.can_take(
                     v4, viewer, board_now, inactive_claimers

@@ -58,7 +58,9 @@ from app.services.job_proposal_feedback_schema import DISMISS_NOTE_MAX, DISMISS_
 _UPSERT_CHUNK = 500
 _MAX_NAME_LEN = 120
 _MAX_REQUIREMENTS = 60
-_REQUIREMENT_KEYS = ("id", "key", "level", "status")
+# `last_used_year`: rok ostatniego użycia technologii starszej niż 3 lata
+# („?” zamiast „✓”, `skill_freshness`) — sama liczba, bez kontekstu z CV.
+_REQUIREMENT_KEYS = ("id", "key", "level", "status", "last_used_year")
 _NAME_LIST_KEYS = ("matched_must", "matched_nice", "missing_must", "missing_nice")
 # Ustawiana WYŁĄCZNIE przez serwis, gdy nowa wersja CV wskrzesza pominiętą osobę.
 PREVIOUSLY_DISMISSED_KEY = "previously_dismissed"
@@ -69,6 +71,11 @@ NEW_PROPOSAL_WINDOW = timedelta(hours=24)
 # otwarte propozycje na świeże z ogłoszeń (ostatnie POSTING_RECENT_DAYS dni)
 # i resztę („z bazy") — ta sama osoba liczy się RAZ, po stronie ogłoszeń.
 POSTING_SOURCES = ("new_cv", "job_board")
+# Wynik spoza kanonicznej oceny NEXUSA (27.10.2026): `job_board` niesie
+# punktację scrapera portalu (inny algorytm, na stagingu 52–78). Pole `score`
+# listy jej nie bierze — okno liczy wtedy dopasowanie przez `/scores`, a liczba
+# scrapera wraca osobno jako `board_score`.
+NON_CANONICAL_SCORE_SOURCES = ("job_board",)
 POSTING_RECENT_DAYS = 7
 EXPIRED = "expired"
 # Wygasłe propozycje tracą dowody po tylu dniach od ostatniego przeglądu, który
@@ -888,6 +895,8 @@ async def dismissed_candidate_ids(
 class ProposalRow:
     candidate_id: int
     sources: list[str]
+    # Kanoniczne dopasowanie (bez `NON_CANONICAL_SCORE_SOURCES`); `None` =
+    # żadne źródło pary go nie zapisało.
     score: Optional[float]
     evidence: Optional[dict]
     first_seen_at: datetime
@@ -900,6 +909,8 @@ class ProposalRow:
     # Kiedy osoba ostatnio przyszła ze źródła „z ogłoszeń” (`POSTING_SOURCES`);
     # `None` = żaden wiersz pary nie pochodzi z ogłoszeń.
     posting_seen_at: Optional[datetime] = None
+    # Punktacja scrapera portalu (`job_board`) — inna skala, tylko jako dodatek.
+    board_score: Optional[float] = None
 
 
 def _posting_seen_at():
@@ -984,7 +995,15 @@ async def list_for_job(
         job_id,
         status,
         func.array_agg(func.distinct(JobProposal.source)).label("sources"),
-        func.max(JobProposal.score).label("score"),
+        # Kolejność stron jak dotąd (najwyższy wynik dowolnego źródła) — który
+        # człowiek trafia na stronę, się nie zmienia; zmienia się pokazana liczba.
+        func.max(JobProposal.score).label("rank_score"),
+        func.max(JobProposal.score)
+        .filter(JobProposal.source.notin_(NON_CANONICAL_SCORE_SOURCES))
+        .label("score"),
+        func.max(JobProposal.score)
+        .filter(JobProposal.source.in_(NON_CANONICAL_SCORE_SOURCES))
+        .label("board_score"),
         func.min(JobProposal.first_seen_at).label("first_seen_at"),
         func.max(JobProposal.first_seen_at).label("newest_seen_at"),
         func.max(JobProposal.last_seen_at).label("last_seen_at"),
@@ -1005,7 +1024,7 @@ async def list_for_job(
             select(sub)
             .order_by(
                 sub.c.is_reassign.desc(),
-                (sub.c.score + func.coalesce(sub.c.history_points, 0))
+                (sub.c.rank_score + func.coalesce(sub.c.history_points, 0))
                 .desc()
                 .nullslast(),
                 sub.c.newest_seen_at.desc(),
@@ -1058,6 +1077,9 @@ async def list_for_job(
             status=status,
             run_id=run_by_candidate.get(row.candidate_id),
             posting_seen_at=row.posting_seen_at,
+            board_score=(
+                float(row.board_score) if row.board_score is not None else None
+            ),
         )
         for row in page
     ]

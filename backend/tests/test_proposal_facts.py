@@ -224,3 +224,50 @@ async def test_proposal_facts_endpoint(app_client: AsyncClient, app_auth_headers
     refused = await app_client.get(url, params=too_many, headers=app_auth_headers)
     assert refused.status_code == 422
     assert (await app_client.get(url, params=params)).status_code == 401
+
+
+async def test_proposal_facts_mark_another_role(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """27.10.2026: tester przy rekrutacji programisty ma `role_mismatch`,
+    programista i osoba bez znanej roli — nie."""
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Role client {tag}")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title=f"Full Stack Developer (Java, Angular) {tag}",
+            client_id=client.id,
+            status=JobStatus.published,
+        )
+        tester = Candidate(
+            name="Rola",
+            lastname=f"T-{tag}",
+            cv_extracted_data={"current_position": "Senior QA Automation Engineer"},
+        )
+        developer = Candidate(
+            name="Rola",
+            lastname=f"D-{tag}",
+            cv_extracted_data={"current_position": "Java Developer"},
+        )
+        unknown = Candidate(name="Rola", lastname=f"U-{tag}")
+        db.add_all([job, tester, developer, unknown])
+        await db.commit()
+        ids = [tester.id, developer.id, unknown.id]
+        job_id = job.id
+
+    response = await app_client.get(
+        f"/api/jobs/{job_id}/proposal-facts",
+        params=[("candidate_ids", i) for i in ids],
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    items = {i["candidate_id"]: i for i in response.json()["items"]}
+    assert items[ids[0]]["role_mismatch"] == {
+        "family": "qa",
+        "label": "tester",
+        "detail": "obecnie Senior QA Automation Engineer",
+    }
+    assert items[ids[1]]["role_mismatch"] is None
+    assert items[ids[2]]["role_mismatch"] is None

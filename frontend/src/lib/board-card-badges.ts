@@ -1060,7 +1060,7 @@ const BEFORE_VERIFIED_COLUMNS: ReadonlySet<BoardColumnKey> = new Set(["new", "sc
 export interface CardOwner {
   /** Pełne imię i nazwisko; `null` = brak zapisanej osoby. */
   name: string | null;
-  role: "verified" | "added" | "assigned";
+  role: "verified" | "added" | "assigned" | "taken";
 }
 
 /**
@@ -1070,14 +1070,22 @@ export interface CardOwner {
  * weryfikowała osobę dodaną przez kogoś innego, a karta dalej pokazywała
  * dodającego. Filtr „Kto dodał” i kolejka panelu liczą po dodającym (D5).
  * Osoba przypisana „Prowadzi” przez admina albo HoR (25.10.2026) wygrywa
- * w każdej kolumnie.
+ * w każdej kolumnie. W „Nowych” i „Screeningu” osoba, która kliknęła
+ * „Biorę”, wygrywa z dodającą (27.10.2026), także po 12 h blokady.
  */
 export function cardOwner(
-  item: Pick<KanbanItem, "added_to_job_by_name" | "verified_by_name" | "entry_source" | "owner_name">,
+  item: Pick<
+    KanbanItem,
+    "added_to_job_by_name" | "verified_by_name" | "entry_source" | "owner_name" | "taken_by_name"
+  >,
   column: BoardColumnKey | null
 ): CardOwner {
   const assigned = item.owner_name?.trim();
   if (assigned) return { name: assigned, role: "assigned" };
+  const taker = item.taken_by_name?.trim();
+  if (taker && (column == null || BEFORE_VERIFIED_COLUMNS.has(column))) {
+    return { name: taker, role: "taken" };
+  }
   const verifier = item.verified_by_name?.trim();
   if (verifier && column != null && !BEFORE_VERIFIED_COLUMNS.has(column)) {
     return { name: verifier, role: "verified" };
@@ -1133,17 +1141,34 @@ export function shortStepLabel(label: string): string {
 
 /**
  * Ruch po naszej stronie (rekruter / przegląd): czyj? Blokada „Biorę" w Nowych
- * wygrywa z rekruterem karty; bez obu albo gdy to patrzący — „Twój ruch".
- * Bez `viewerId` (harness, starszy kontekst) zostaje „Twój ruch", jak dawne „Ty".
+ * wygrywa z rekruterem karty, a w „Nowych” i „Screeningu” także osoba, która
+ * wzięła „Biorę” przed upływem 12 h (27.10.2026); bez nich albo gdy to
+ * patrzący — „Twój ruch". Bez `viewerId` (harness, starszy kontekst) zostaje
+ * „Twój ruch", jak dawne „Ty".
  */
 function recruiterSideWho(
   item: KanbanItem,
   owner: string,
   viewerId: number | null | undefined,
+  column: BoardColumnKey | null,
 ): { who: string; mine: boolean } {
   const claimActive = owner === "review" && item.claim_user_id != null;
-  const personId = claimActive ? item.claim_user_id : (item.recruiter_id ?? null);
-  const personName = claimActive ? item.claim_user_name : item.recruiter_name;
+  const taken =
+    !claimActive &&
+    item.owner_user_id == null &&
+    item.taken_by_user_id != null &&
+    column != null &&
+    BEFORE_VERIFIED_COLUMNS.has(column);
+  const personId = claimActive
+    ? item.claim_user_id
+    : taken
+      ? item.taken_by_user_id
+      : (item.recruiter_id ?? null);
+  const personName = claimActive
+    ? item.claim_user_name
+    : taken
+      ? item.taken_by_name
+      : item.recruiter_name;
   if (personId == null || viewerId == null || personId === viewerId) {
     return { who: MY_MOVE_LABEL, mine: true };
   }
@@ -1170,7 +1195,7 @@ export function cardNextStep(
     viewerOwnsDlReview?: boolean;
   },
 ): CardNextStep | null {
-  const recruiter = () => recruiterSideWho(item, "recruiter", ctx.viewerId);
+  const recruiter = () => recruiterSideWho(item, "recruiter", ctx.viewerId, ctx.column);
   if (ctx.column === "cv_qc") {
     if (item.qc?.status === "failed") {
       return { ...recruiter(), label: "Popraw CV wg QC" };
@@ -1195,5 +1220,8 @@ export function cardNextStep(
   if (action.kind === "none" || action.owner === "none" || !action.label) return null;
   const role = ROLE_WHO[action.owner];
   if (role) return { who: role, mine: false, label: action.label };
-  return { ...recruiterSideWho(item, action.owner, ctx.viewerId), label: action.label };
+  return {
+    ...recruiterSideWho(item, action.owner, ctx.viewerId, ctx.column),
+    label: action.label,
+  };
 }

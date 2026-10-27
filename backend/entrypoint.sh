@@ -333,6 +333,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
     # 0522: formularz CV klienta z CV i screeningu (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_form_fill'",
+    # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'consent_screenshot_check'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -6166,6 +6168,11 @@ END $$""",
     # Lustro 1:1 z `app/services/job_ad_reminder_schema.py` (pilnuje
     # test_job_ad_reminders_migration_mirror).
     "CREATE TABLE IF NOT EXISTS job_ad_channel_skips (job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, channel VARCHAR(16) NOT NULL, reason VARCHAR(300) NOT NULL, created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT pk_job_ad_channel_skips PRIMARY KEY (job_id, channel), CONSTRAINT ck_job_ad_channel_skips_channel CHECK (channel IN ('kariera', 'pracuj', 'jjit')))",
+    # 0527: „Czego Jarvis nie umie” — karty braku i zgłoszenia.
+    # Lustro 1:1 z `app/services/jarvis/gap_schema.py` (pilnuje
+    # test_jarvis_gaps_migration_mirror).
+    "CREATE TABLE IF NOT EXISTS jarvis_gaps (id UUID PRIMARY KEY, conversation_id UUID NOT NULL REFERENCES jarvis_conversations(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, tool_use_id VARCHAR(100) NOT NULL, kind VARCHAR(20) NOT NULL, need VARCHAR(160) NOT NULL, why VARCHAR(240) NOT NULL, workaround VARCHAR(240) NOT NULL DEFAULT '', reported_at TIMESTAMPTZ NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT ck_jarvis_gaps_kind CHECK (kind IN ('no_access', 'not_supported', 'no_data')))",
+    "CREATE INDEX IF NOT EXISTS ix_jarvis_gaps_created_at ON jarvis_gaps (created_at)",
     # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
     "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
     "no_client_questions BOOLEAN NOT NULL DEFAULT false",
@@ -7540,6 +7547,11 @@ _DATA_STATEMENTS = [
     "SELECT 'client_form_fill', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'client_form_fill')",
+    # 0529: seed klucza AI sprawdzenia zrzutu zgody RODO.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'consent_screenshot_check', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'consent_screenshot_check')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

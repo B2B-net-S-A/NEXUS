@@ -184,7 +184,8 @@ function OwnerDialog({
   const [reason, setReason] = useState("");
   const pickedPerson = candidates.find((p) => p.id === picked) ?? null;
   const job = useQuery<{ delivery_lead_user?: { id: number; name: string | null } | null }>({
-    queryKey: ["pair-owner-job", jobId],
+    // Klucz strony rekrutacji (id z adresu jako napis) — bez drugiego żądania.
+    queryKey: ["job", String(jobId)],
     queryFn: async () => (await api.get(`/api/jobs/${jobId}`)).data,
     staleTime: 60_000,
   });

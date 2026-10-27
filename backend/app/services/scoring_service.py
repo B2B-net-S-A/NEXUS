@@ -25,6 +25,7 @@ lists, active penalties and warnings so the UI can render a "why" tooltip.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -1145,6 +1146,10 @@ _SIGNIFICANT_SKILL_SIGNS: tuple[tuple["re.Pattern[str]", str], ...] = (
 )
 
 
+# Czysta funkcja nazwy: `skill_present` pyta ją dla każdego skilla osoby przy
+# każdym wymaganiu — Tablica 130 osób to ~500 tys. wywołań i do 0,5 s CPU
+# bez oddania pętli zdarzeń (pomiar 27.10.2026). Nazw jest kilka tysięcy.
+@functools.lru_cache(maxsize=16384)
 def _canon_skill(s: str) -> str:
     """Canonicalize a skill for tolerant comparison (drop punctuation/spaces
     and a few well-known suffix variants so e.g. ``postgresql``/``postgres``

@@ -13,6 +13,10 @@
  * Nazwa wymagania to przycisk „Szukaj w CV” (23.10.2026): DL sprawdza, gdzie
  * CV o nim mówi. Wymaganie „do oceny” (zdanie, branża) przycisku nie ma —
  * lupa szukałaby całego zdania i zawsze mówiła „Brak wyników”.
+ *
+ * Technologia tylko z profilu i CV, ostatnio używana ponad 3 lata temu
+ * (27.10.2026), to „?” z rokiem („angular · 2021”) — DL pyta, czy kandydat
+ * używa jej dziś; lupa zostaje, bo CV o niej mówi.
  */
 
 import type { ReactNode } from "react";
@@ -32,7 +36,17 @@ const LEVEL_LABEL: Record<DlReviewRequirement["level"], string> = {
   experience: "doświadczenie",
 };
 
-function StatusCell({ status }: { status: DlReviewRequirement["status"] }) {
+function StatusCell({ status, lastUsedYear }: { status: DlReviewRequirement["status"]; lastUsedYear?: number | null }) {
+  if (status === "unknown" && lastUsedYear) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-warning-muted-foreground"
+        title={`Ostatnio używane w ${lastUsedYear} — zapytaj, czy używa dziś.`}
+      >
+        <CircleHelp className="size-3.5" aria-hidden /> {lastUsedYear}
+      </span>
+    );
+  }
   if (status === "met") {
     return (
       <span className="inline-flex items-center gap-1 text-success">
@@ -113,7 +127,7 @@ export function RequirementsTable({
           {rows.map((row) => (
             <tr key={row.key} data-requirement-status={row.status}>
               <td className="px-2 py-1.5 align-top">
-                {onSearch && row.status !== "unknown" ? (
+                {onSearch && (row.status !== "unknown" || row.last_used_year) ? (
                   <RequirementSearchButton label={row.label} onSearch={onSearch} className="font-medium text-foreground" />
                 ) : (
                   <span className="font-medium text-foreground">{row.label}</span>
@@ -121,11 +135,16 @@ export function RequirementsTable({
                 <span className="block text-[10px] text-muted-foreground">{LEVEL_LABEL[row.level]}</span>
               </td>
               <td className="whitespace-nowrap px-2 py-1.5 align-top">
-                <StatusCell status={row.status} />
+                <StatusCell status={row.status} lastUsedYear={row.last_used_year} />
               </td>
               <td className="px-2 py-1.5 align-top">{row.sources.length > 0 ? row.sources.join(", ") : "—"}</td>
               <td className="max-w-[16rem] px-2 py-1.5 align-top text-muted-foreground [overflow-wrap:anywhere]">
-                {row.candidate_value ?? (row.status === "met" ? "w profilu" : "—")}
+                {row.last_used_year ? (
+                  <span className="block font-medium text-warning-muted-foreground">
+                    {row.label.toLocaleLowerCase("pl")} · {row.last_used_year} — zapytaj, czy używa dziś
+                  </span>
+                ) : null}
+                {row.candidate_value ?? (row.status === "met" ? "w profilu" : row.last_used_year ? null : "—")}
               </td>
             </tr>
           ))}

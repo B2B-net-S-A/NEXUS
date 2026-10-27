@@ -24,6 +24,11 @@ export interface DlMatchJob {
   sendable: boolean;
   budget_min_hourly?: string | number | null;
   budget_max_hourly?: string | number | null;
+  /** Dodana ręcznie przez DL-a („+ Dodaj inną rekrutację”), nie z oceny. */
+  manual?: boolean;
+  /** Tylko wyszukiwanie: `false` — rekrutacja innego DL-a (cała firma od 27.10.2026). */
+  in_portfolio?: boolean;
+  delivery_lead_name?: string | null;
 }
 
 export interface DlMatchAlreadyIn {
@@ -68,6 +73,8 @@ export interface DlMatchSendResponse {
 
 export const dlMatchKeys = {
   one: (fromJobId: number, candidateId: number) => ["dl-match", fromJobId, candidateId] as const,
+  search: (fromJobId: number, candidateId: number, phrase: string) =>
+    ["dl-match", fromJobId, candidateId, "search", phrase] as const,
 };
 
 export const dlMatchApi = {
@@ -77,6 +84,13 @@ export const dlMatchApi = {
         params: { from_job_id: fromJobId },
       })
       .then((r) => r.data),
+  /** „+ Dodaj inną rekrutację”: otwarte rekrutacje całej firmy (portfel na górze), bez oceny. */
+  search: (candidateId: number, fromJobId: number, phrase: string): Promise<DlMatchJob[]> =>
+    api
+      .get<{ jobs: DlMatchJob[] }>(`/api/dl-match/candidates/${candidateId}/search`, {
+        params: { from_job_id: fromJobId, q: phrase },
+      })
+      .then((r) => r.data.jobs),
   send: (payload: {
     candidate_id: number;
     from_job_id: number;

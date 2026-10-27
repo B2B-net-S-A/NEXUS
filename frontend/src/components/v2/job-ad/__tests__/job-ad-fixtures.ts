@@ -3,11 +3,13 @@
 import {
   NO_CAREER_PAGE,
   type AdCareerState,
+  type AdReminders,
   type AdContent,
   type AdFinding,
   type AdPublication,
   type AdTechItem,
   type JobAdState,
+  type PracujRequest,
 } from "@/lib/api/jobAd";
 
 export const CONTENT: AdContent = {
@@ -50,6 +52,8 @@ export function adState(
     lang?: "pl" | "en";
     publications?: AdPublication[];
     career?: AdCareerState;
+    reminders?: AdReminders | null;
+    pracuj_request?: PracujRequest | null;
   } = {},
 ): JobAdState {
   const content = patch.content ?? CONTENT;
@@ -73,6 +77,8 @@ export function adState(
     can_copy: !findings.some((f) => f.severity === "block"),
     publications: patch.publications ?? [],
     career: patch.career ?? NO_CAREER_PAGE,
+    reminders: patch.reminders ?? null,
+    pracuj_request: patch.pracuj_request ?? null,
     rendered: {
       title: `${content.title} (k/m/x)`,
       pracuj: {
@@ -154,6 +160,8 @@ export const EMPTY_STATE: JobAdState = {
   can_copy: false,
   publications: [],
   career: NO_CAREER_PAGE,
+  reminders: null,
+  pracuj_request: null,
 };
 
 export const PRACUJ_URL = "https://www.pracuj.pl/praca/przyklad,oferta,1000000001";

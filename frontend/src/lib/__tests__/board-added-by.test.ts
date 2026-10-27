@@ -154,3 +154,39 @@ describe("„Prowadzi” w filtrze „Kto dodał” (25.10.2026)", () => {
     expect(labels).toContain("Tomasz Rybak");
   });
 });
+
+describe("„Biorę” w filtrze „Kto dodał” (27.10.2026)", () => {
+  // Rekruterka wzięła osobę dodaną przez kolegę i szukała jej pod „Ty”.
+  const taken = {
+    ...person(1, 7, "Tomasz Rybak"),
+    taken_by_user_id: 5,
+    taken_by_name: "Ola Biorąca",
+  };
+
+  it("osoba, która wzięła, liczy się zamiast dodającej", () => {
+    expect(matchesAddedBy(taken, { kind: "user", userId: 5 })).toBe(true);
+    expect(matchesAddedBy(taken, { kind: "user", userId: 7 })).toBe(false);
+  });
+
+  it("„Prowadzi” wygrywa z osobą, która wzięła", () => {
+    const assigned = { ...taken, owner_user_id: 9, owner_name: "Maria Przypisana" };
+    expect(matchesAddedBy(assigned, { kind: "user", userId: 9 })).toBe(true);
+    expect(matchesAddedBy(assigned, { kind: "user", userId: 5 })).toBe(false);
+  });
+
+  it("osoba od systemu po „Dzwonię” nie jest już „System”", () => {
+    const fromSystem = { ...taken, added_to_job_by_id: null, entry_source: "system" };
+    expect(matchesAddedBy(fromSystem, { kind: "system" })).toBe(false);
+    expect(matchesAddedBy(fromSystem, { kind: "user", userId: 5 })).toBe(true);
+  });
+
+  it("„Ty” liczy wziętych, dodający traci ich z licznika", () => {
+    const options = addedByOptions([taken, person(2, 7, "Tomasz Rybak")], {
+      id: 5,
+      name: "Ola Biorąca",
+    });
+    const count = (key: string) => options.find((o) => o.key === key)?.count;
+    expect(count("user:5")).toBe(1);
+    expect(count("user:7")).toBe(1);
+  });
+});

@@ -51,7 +51,12 @@ from app.models.recommendation_card import RecommendationCard
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User
-from app.services import champion_view, earlier_client_interviews, must_text_evidence
+from app.services import (
+    champion_view,
+    earlier_client_interviews,
+    must_text_evidence,
+    skill_freshness,
+)
 from app.services import recommendation_cards as cards
 from app.services import recommendation_card_rules as card_rules
 from app.services.client_consultant_rates import (
@@ -97,6 +102,10 @@ SNIPPET_ORDER = (
     must_text_evidence.SOURCE_CV,
     must_text_evidence.SOURCE_CONVERSATION,
     must_text_evidence.SOURCE_NOTE,
+)
+# Źródła, w których technologia ma datę ostatniego użycia (`skill_freshness`).
+_DATED_SOURCES = frozenset(
+    {must_text_evidence.SOURCE_PROFILE, must_text_evidence.SOURCE_CV}
 )
 ASSESSMENT_FIELDS = (
     "recommendation",
@@ -250,9 +259,18 @@ def evaluate_requirements(
         must_text_evidence.SOURCE_NOTE: notes,
         must_text_evidence.SOURCE_CONVERSATION: conversation,
     }
+    last_used = skill_freshness.last_used_index(candidate)
     rows: list[dict[str, Any]] = []
     for item, search in zip(items, labels):
         found = sources.get(search)
+        # 27.10.2026: technologia tylko z profilu i CV, ostatnio używana ponad
+        # 3 lata temu, to „?” z rokiem — DL pyta. Notatka i rozmowa to
+        # styczność z kandydatem, więc zostają dowodem.
+        stale = (
+            skill_freshness.stale_year(search, last_used)
+            if found and set(found) <= _DATED_SOURCES
+            else None
+        )
         snippet: Optional[str] = None
         # Fragment z CV, rozmowy albo notatki; profil to lista JSON — tam
         # wystarczy źródło „profil” (fragment byłby surowym zapisem pola).
@@ -266,16 +284,17 @@ def evaluate_requirements(
             if snippet:
                 break
         status = "unknown" if found is None else ("met" if found else "missing")
-        rows.append(
-            {
-                "key": item.key,
-                "label": item.label,
-                "level": item.level,
-                "status": status,
-                "sources": [SOURCE_LABELS[s] for s in (found or ())],
-                "candidate_value": snippet,
-            }
-        )
+        row = {
+            "key": item.key,
+            "label": item.label,
+            "level": item.level,
+            "status": "unknown" if stale else status,
+            "sources": [SOURCE_LABELS[s] for s in (found or ())],
+            "candidate_value": snippet,
+        }
+        if stale:
+            row["last_used_year"] = stale
+        rows.append(row)
     return rows
 
 

@@ -34,7 +34,13 @@ import { shortChipLabel, type ReasonChipList, type ReasonChipTone } from "./reas
 export interface PickRow {
   candidateId: number;
   fullName: string;
+  /** Kanoniczne dopasowanie NEXUSA (fioletowy procent); `null` = nie policzono. */
   fitScore: number | null;
+  /**
+   * Punktacja scrapera portalu ogłoszeń (`job_board`, 27.10.2026) — inny
+   * algorytm, więc tylko w dymku procentu, nigdy zamiast niego.
+   */
+  boardScore?: number | null;
   rateLabel: string | null;
   availabilityLabel: string | null;
   note: string | null;
@@ -55,6 +61,16 @@ export interface PickRow {
    * w rzędzie chipów, nie liczy się do trzech chipów wymagań (D3, 19.10.2026).
    */
   rateBadge?: RateBudgetBadge | null;
+  /**
+   * Osoba z innej roli niż rekrutacja (tester przy programiście, 27.10.2026):
+   * plakietka „Inna rola”, przekreślony procent, miejsce na końcu listy.
+   */
+  roleMismatch?: { label: string; detail: string } | null;
+  /**
+   * „musi mieć 4/10” pod procentem — procent to głównie podobieństwo tekstu
+   * CV, a ta liczba odróżnia 9/10 od 4/10 (27.10.2026).
+   */
+  mustCoverage?: { met: number; total: number } | null;
   /**
    * „+ Dodaj” w toku, osoba dodana w tym oknie (wiersz zostaje z „Cofnij”)
    * albo cofanie w toku.
@@ -89,14 +105,30 @@ export function CvBadge({ badge }: { badge: CvYearBadge }) {
   );
 }
 
-export function ScoreBadge({ score }: { score: number | null }) {
+/** Dopisek w dymku procentu: ocena portalu ogłoszeń (inny algorytm). */
+export function boardScoreHint(boardScore: number | null | undefined): string {
+  return boardScore != null
+    ? ` · portal ogłoszeń ocenił na ${Math.round(boardScore)}% (inny algorytm, nie porównuj)`
+    : "";
+}
+
+export function ScoreBadge({
+  score,
+  boardScore,
+}: {
+  score: number | null;
+  boardScore?: number | null;
+}) {
   return (
     <span
       className={cn(
         "shrink-0 text-xs font-bold tabular-nums",
         score != null ? "text-primary" : "font-normal text-muted-foreground",
       )}
-      title={score != null ? "Dopasowanie do rekrutacji" : "Dopasowania nie policzono"}
+      title={
+        (score != null ? "Dopasowanie do rekrutacji" : "Dopasowania nie policzono") +
+        boardScoreHint(boardScore)
+      }
     >
       {score != null ? `${Math.round(score)}%` : "nie policzono"}
     </span>
@@ -299,8 +331,45 @@ function PickListItem({
                 {row.fullName}
               </label>
             )}
-            {renderScore ? renderScore(row) : <ScoreBadge score={row.fitScore} />}
+            <span className="flex shrink-0 flex-col items-end leading-tight">
+              {row.roleMismatch ? (
+                <span
+                  className="text-xs font-bold tabular-nums text-muted-foreground line-through"
+                  title={`Inna rola niż rekrutacja — procent mierzy podobieństwo CV, nie zawód${boardScoreHint(row.boardScore)}`}
+                  data-testid="pick-row-score-off-role"
+                >
+                  {row.fitScore != null ? `${Math.round(row.fitScore)}%` : "—"}
+                  <span className="sr-only"> (inna rola)</span>
+                </span>
+              ) : renderScore ? (
+                renderScore(row)
+              ) : (
+                <ScoreBadge score={row.fitScore} boardScore={row.boardScore} />
+              )}
+              {row.mustCoverage ? (
+                <span
+                  className={cn(
+                    "text-[10.5px] font-semibold tabular-nums",
+                    row.mustCoverage.met * 2 <= row.mustCoverage.total
+                      ? "text-warning-muted-foreground"
+                      : "text-muted-foreground",
+                  )}
+                  title="Ile wymagań „musi mieć” widać w CV"
+                  data-testid="pick-row-must-coverage"
+                >
+                  musi mieć {row.mustCoverage.met}/{row.mustCoverage.total}
+                </span>
+              ) : null}
+            </span>
           </div>
+          {row.roleMismatch ? (
+            <p className="mt-0.5 text-xs" data-testid="pick-row-role-mismatch">
+              <span className="rounded bg-warning-muted px-1.5 py-px text-[10.5px] font-semibold text-warning-muted-foreground">
+                Inna rola: {row.roleMismatch.label}
+              </span>{" "}
+              <span className="text-muted-foreground">{row.roleMismatch.detail}</span>
+            </p>
+          ) : null}
           {/* Fakty zamiast pustych pól — nieznane po prostu nie wchodzą. */}
           {row.facts ? (
             <p className="text-xs text-muted-foreground">{row.facts}</p>

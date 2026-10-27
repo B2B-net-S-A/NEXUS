@@ -63,6 +63,48 @@ export const AUTOFILL_REASON_GROUPS: {
   },
 ];
 
+/**
+ * Powód z szablonu procesu dla powodu dla systemu (27.10.2026): przy osobie od
+ * systemu okno pyta o powód raz, a powód do raportu lejka liczy się z tej mapy.
+ * Klucz `rejection_reasons.name` szablonu domyślnego; `null` — „Inne” z nazwą
+ * powodu jako opisem, bo w szablonie nie ma odpowiednika.
+ */
+export const AUTOFILL_TEMPLATE_REASON: Record<AutofillReason, string | null> = {
+  missing_skill: "Nie spełnia wymagań technicznych",
+  too_junior: "Brak doświadczenia",
+  other_level_or_role: "Nie spełnia wymagań technicznych",
+  location_mode: "work_mode_mismatch",
+  language: null,
+  too_expensive: "Za wysokie oczekiwania finansowe",
+  outdated_cv: null,
+  profile_mismatch: null,
+  not_looking: null,
+  no_answer: null,
+  in_other_process: null,
+  other: null,
+};
+
+export function autofillReasonLabel(reason: AutofillReason): string {
+  for (const group of AUTOFILL_REASON_GROUPS) {
+    const found = group.reasons.find((r) => r.value === reason);
+    if (found) return found.label;
+  }
+  return reason;
+}
+
+/** Powód z listy rekrutacji dla powodu dla systemu; bez odpowiednika — „Inne”. */
+export function templateReasonFor<T extends { name?: string; label: string }>(
+  reason: AutofillReason | null,
+  reasons: T[],
+): T | undefined {
+  if (!reason) return undefined;
+  const name = AUTOFILL_TEMPLATE_REASON[reason];
+  return (
+    (name ? reasons.find((r) => r.name?.trim() === name) : undefined) ??
+    reasons.find((r) => r.label.trim() === "Inne")
+  );
+}
+
 const DECISION_COLUMNS: ReadonlySet<BoardColumnKey> = new Set(["new", "screening"]);
 
 /** Czy ruch na „Odrzucony” tej osoby wymaga powodu dla systemu. */

@@ -19,6 +19,7 @@ import { Ban, Copy, Loader2, LocateFixed, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { ConsentScreenshotThumb } from "@/components/v2/cv/ConsentScreenshotThumb";
 import {
   DismissForm,
   ItemAction,
@@ -505,7 +506,8 @@ function TaskRow({ task, fixes, ctx }: { task: QcTask; fixes: QcFix[]; ctx: RowC
   const roleItems = items.filter((item) => item.role);
   const target = first ? itemTarget(first) : null;
   const busy = qc.busy || !qc.editable;
-  const consent = first?.fix === "upload_consent" ? consentTarget(qc.data) : null;
+  const consent =
+    first?.fix === "upload_consent" || first?.fix === "replace_consent" ? consentTarget(qc.data) : null;
 
   let actions: ReactNode = null;
   let body: ReactNode = null;
@@ -579,7 +581,14 @@ function TaskRow({ task, fixes, ctx }: { task: QcTask; fixes: QcFix[]; ctx: RowC
     );
   } else if (consent) {
     // Zrzut wgrywa się tu, bez generatora i bez ponownej generacji (PR 4, 17.10.2026).
-    actions = <ConsentAttachButton compact hasConsent={false} {...consent} onAttached={ctx.refreshQc} />;
+    actions = (
+      <ConsentAttachButton
+        compact
+        hasConsent={first?.fix === "replace_consent"}
+        {...consent}
+        onAttached={ctx.refreshQc}
+      />
+    );
   } else if (first?.fix === "upload_consent" || first?.fix === "generate_cv") {
     actions = <ItemAction item={first} ctx={qc} />;
   } else if (first && itemQuickFix(check, first)?.action === "strip_client_rules") {
@@ -793,6 +802,20 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
     action = proposal.action;
   } else if (item.fix === "ask_candidate") {
     action = <CopyQuestion item={item} qc={qc} />;
+  } else if (item.fix === "replace_consent") {
+    // Zrzut, którego AI nie potwierdziło (F37): obraz i wymiana w wierszu uwagi (27.10.2026).
+    const consent = consentTarget(qc.data);
+    title = "Zrzut zgody nie pasuje";
+    // api-detail-ok: `QcItem.detail` to zdanie uwagi QC (tekst z kontraktu), nie `detail` błędu API.
+    sub = item.detail ?? check.label;
+    action = (
+      <>
+        <ConsentScreenshotThumb stageId={qc.data.stage_id} />
+        {consent && qc.editable ? (
+          <ConsentAttachButton compact hasConsent {...consent} onAttached={ctx.refreshQc} />
+        ) : null}
+      </>
+    );
   } else if (quick?.action === "years") {
     // Liczba z dat historii — ta sama reguła co uwaga QC (PR 2, 17.10.2026).
     const preview = yearsPreview(item);
@@ -847,6 +870,8 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
       title={title}
       sub={sub}
       actions={action}
+      // Miniatura zrzutu obok tytułu ściska treść uwagi do wąskiej kolumny.
+      actionsBelow={item.fix === "replace_consent"}
       details={
         <>
           {item.fix === "ai" && item.detail ? <p className="text-muted-foreground">{item.detail}</p> : null}

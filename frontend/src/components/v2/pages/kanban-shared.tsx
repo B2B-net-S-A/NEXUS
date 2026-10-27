@@ -76,6 +76,10 @@ export interface KanbanItem {
  owner_assigned_by_name?: string | null;
  owner_assigned_at?: string | null;
  owner_previous_name?: string | null;
+ /** „Biorę” zmienia osobę karty (27.10.2026): ostatnia osoba, która wzięła,
+  *  także po 12 h — do pierwszej weryfikacji. Wygrywa z dodającym. */
+ taken_by_user_id?: number | null;
+ taken_by_name?: string | null;
  /** Komentarz z okna ruchu (przy odrzuceniu — wpisany w oknie powodu). */
  notes?: string | null;
  // Karty w „Odrzuconych” i „Rezygnacjach” (19.10.2026): etykieta powodu

@@ -402,6 +402,35 @@ async def test_open_count_is_team_wide_and_matches_the_visible_list():
     assert {r.candidate_id: r.is_new for r in rows} == {first: True, second: False}
 
 
+async def test_board_score_never_becomes_the_shown_match_score():
+    """27.10.2026: punktacja scrapera (`job_board`) to inny algorytm — `score`
+    listy niesie tylko kanoniczne dopasowanie, scraper osobno."""
+    world = await _world(people=3)
+    job_id = world["job_id"]
+    both, board_only, base_only = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": both, "score": 78}, {"candidate_id": board_only, "score": 77}],
+            "job_board",
+        )
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": both, "score": 71}, {"candidate_id": base_only, "score": 74}],
+            "full_base",
+        )
+        await db.commit()
+        rows, _ = await proposals.list_for_job(db, job_id=job_id)
+    by_id = {r.candidate_id: r for r in rows}
+    assert (by_id[both].score, by_id[both].board_score) == (71.0, 78.0)
+    assert (by_id[board_only].score, by_id[board_only].board_score) == (None, 77.0)
+    assert (by_id[base_only].score, by_id[base_only].board_score) == (74.0, None)
+    # Kto trafia na stronę — bez zmian (najwyższy wynik dowolnego źródła).
+    assert [r.candidate_id for r in rows] == [both, board_only, base_only]
+
+
 def test_evidence_keeps_requirement_names_and_drops_free_text():
     clean = proposals.sanitize_evidence(
         {

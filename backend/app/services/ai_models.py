@@ -57,6 +57,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F34 | debrief_from_text                | gpt-6-luna (z Sonnet 5)  |
 | F35 | autofill_quality_report          | claude-sonnet-5 (z Haiku)|
 | F36 | client_form_fill                 | claude-sonnet-5 (z Opus) |
+| F37 | consent_screenshot_check         | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -441,6 +442,17 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "z CV, screeningu i notatek — ta sama robota co generator CV (F4), więc jego model "
         "i fallback. Każda wartość z cytatem ze źródła; wartość bez cytatu odrzuca kod, "
         "ocen 1–10 i numerów certyfikatów model nie zgaduje. Całość sprawdza rekruter.",
+    ),
+    AIFeatureKey.consent_screenshot_check: ModelChoice(
+        default=SONNET_5,
+        env_vars=("CONSENT_SCREENSHOT_CHECK_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F37 (decyzja Artura 27.10.2026, POZA badaniem 16.09). Zrzut zgody RODO "
+        "pod CV dla PKO BP: model przepisuje z obrazu nadawcę, adresatów, datę, numer ZOB "
+        "i nazwisko z treści zgody — jak odczyt paragonu (F33). Werdykt wydaje kod, "
+        "porównując odczyt z rekrutacją. Pomiar 27.10 na 121 zrzutach z produkcji: "
+        "11 złych (plakat zamiast zgody, prośba rekrutera, inna osoba, inny ZOB). "
+        "Awaria modelu nie blokuje zgody — sprawdza ją wtedy Delivery Lead w QC CV.",
     ),
 }
 
