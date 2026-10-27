@@ -75,6 +75,23 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   bez wpisu w `autofill_feedback`; „Praca w tle” `autofill_withdrawn`.
   `void_process(actor_user=None)` = system zdejmuje własną kartę, bez
   sprawdzania priorytetu.
+- **E. Odrzucenie na cały klient (0528, decyzja Artura 27.10.2026).** 13 z 20
+  „Inne” to klient, nie osoba („pracuje w Nordei przez inną kontraktownię”,
+  „nie chce do Nordei”), a ci sami ludzie czekali jeszcze na 45 kartach
+  w innych rekrutacjach tego klienta. Dwa powody w „Sprawie osoby”:
+  `client_employed` („Pracuje u tego klienta (też przez inną firmę)”, kosz
+  `data` — pracy przez pośrednika nie ma w CV ani na LinkedInie) i
+  `client_refused` („Nie chce do tego klienta”, kosz `person`). Przy nich
+  okno pokazuje zaznaczone pole „Dotyczy wszystkich rekrutacji tego klienta”
+  (jedna osoba; przy kilku — bez pola). `autofill_whole_client=true` →
+  wiersz `autofill_feedback.whole_client` (więz powodów ma jedną definicję
+  w `autofill_feedback_schema.WHOLE_CLIENT_DDL`, entrypoint wykonuje ją przy
+  każdym starcie), w tej samej transakcji
+  `autofill_withdraw.withdraw_at_client` zdejmuje NIETKNIĘTE karty tej osoby
+  od systemu z pozostałych rekrutacji klienta (archiwum bez autora,
+  `autofill_withdrawn_client`, „Praca w tle” z `why: "client"`), a
+  `ranked_picks` nie podsuwa jej żadnej rekrutacji tego klienta. Bez
+  zaznaczenia — tylko ta rekrutacja.
 - **E. Na Tablicy i w panelu osoby (PR 3, 23.10.2026).** Karta Tablicy niesie
   `entry_autofill` (`process_entry_meta.autofill_badge`: wynik, wymagania,
   `rate_known`, `availability_known`, `decided`, `waiting_days`,

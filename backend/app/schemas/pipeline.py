@@ -92,11 +92,17 @@ class StageMove(BaseModel):
             "not_looking",
             "no_answer",
             "in_other_process",
+            "client_employed",
+            "client_refused",
             "other",
         ]
     ] = None
     autofill_learned_from: Optional[Literal["profile", "call"]] = None
     autofill_rate_hourly: Optional[Decimal] = Field(None, gt=0, le=10000)
+    # 27.10.2026: „Pracuje u tego klienta” / „Nie chce do tego klienta” na cały
+    # klient — zdejmuje nietknięte karty tej osoby od systemu z innych
+    # rekrutacji klienta, a silnik więcej jej temu klientowi nie podsuwa.
+    autofill_whole_client: bool = False
 
     # ── Stawka kandydata przy ruchu na `verified` (0056, zmiana 17.09.2026) ─
     # OPCJONALNA. Do 17.09.2026 brak stawki dawał 422, a stawka ponad

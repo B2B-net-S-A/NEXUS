@@ -44,6 +44,9 @@ from app.services import candidate_claim
 logger = logging.getLogger(__name__)
 
 REMOVAL_REASON = "autofill_withdrawn_over_budget"
+# Odrzucenie na cały klient (27.10.2026): „Pracuje u tego klienta” / „Nie chce
+# do tego klienta” zdejmuje nietknięte karty tej osoby z innych rekrutacji.
+CLIENT_REMOVAL_REASON = "autofill_withdrawn_client"
 ACTIVITY_ENTITY = "job_automation"
 ACTION = "autofill_withdrawn"
 
@@ -146,7 +149,14 @@ async def plan(db, *, job_ids: Optional[list[int]] = None) -> list[tuple[int, in
     return await _over_budget(db, [(int(c), int(j)) for c, j in rows])
 
 
-async def _withdraw_pair(db, candidate_id: int, job_id: int) -> bool:
+async def _withdraw_pair(
+    db,
+    candidate_id: int,
+    job_id: int,
+    *,
+    reason: str = REMOVAL_REASON,
+    check_budget: bool = True,
+) -> bool:
     from app.services.candidate_contact_hooks import (
         has_active_contact_trigger,
         maybe_close_contact_opportunity,
@@ -170,7 +180,7 @@ async def _withdraw_pair(db, candidate_id: int, job_id: int) -> bool:
     still = (await db.execute(_untouched_pairs([job_id]))).all()
     if (candidate_id, job_id) not in {(int(c), int(j)) for c, j in still}:
         return False
-    if not await _over_budget(db, [(candidate_id, job_id)]):
+    if check_budget and not await _over_budget(db, [(candidate_id, job_id)]):
         return False
     stage_rows = (
         await db.scalars(
@@ -188,7 +198,7 @@ async def _withdraw_pair(db, candidate_id: int, job_id: int) -> bool:
             candidate_id=candidate_id,
             job_id=job_id,
             removed_by=None,
-            reason=REMOVAL_REASON,
+            reason=reason,
             last_stage=ordered[-1].stage.value,
             stage_count=len(stage_rows),
             stages_snapshot=stage_removal_snapshot(ordered),
@@ -209,13 +219,25 @@ async def _withdraw_pair(db, candidate_id: int, job_id: int) -> bool:
     return True
 
 
-async def apply(db, pairs: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
+async def apply(
+    db,
+    pairs: Iterable[tuple[int, int]],
+    *,
+    reason: str = REMOVAL_REASON,
+    check_budget: bool = True,
+) -> list[tuple[int, int]]:
     """Wycofaj pary z podglądu; każda w savepoincie. Bez commitu."""
     withdrawn: list[tuple[int, int]] = []
     for candidate_id, job_id in pairs:
         try:
             async with db.begin_nested():
-                done = await _withdraw_pair(db, candidate_id, job_id)
+                done = await _withdraw_pair(
+                    db,
+                    candidate_id,
+                    job_id,
+                    reason=reason,
+                    check_budget=check_budget,
+                )
         except Exception as exc:  # noqa: BLE001 — jedna karta nie wywraca reszty
             logger.warning(
                 "[autofill_withdraw] job=%s candidate=%s: %s",
@@ -237,8 +259,36 @@ async def apply(db, pairs: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
                 action=ACTION,
                 user_id=None,
                 # `count` czyta „Praca w tle” (`_DETAIL_KEYS`).
-                details={"count": len(candidate_ids), "candidate_ids": candidate_ids},
+                details={
+                    "count": len(candidate_ids),
+                    "candidate_ids": candidate_ids,
+                    "why": "client" if reason == CLIENT_REMOVAL_REASON else "budget",
+                },
             )
         )
     await db.flush()
     return withdrawn
+
+
+async def withdraw_at_client(
+    db, *, candidate_id: int, client_id: int, except_job_id: int
+) -> list[tuple[int, int]]:
+    """Nietknięte karty tej osoby od systemu w innych rekrutacjach klienta
+    (odrzucenie „na cały klient”, 27.10.2026). Bez commitu — w transakcji ruchu."""
+    job_ids = list(
+        (
+            await db.scalars(
+                select(Job.id).where(
+                    Job.client_id == client_id, Job.id != except_job_id
+                )
+            )
+        ).all()
+    )
+    if not job_ids:
+        return []
+    pairs = [
+        (int(c), int(j))
+        for c, j in (await db.execute(_untouched_pairs(job_ids))).all()
+        if int(c) == candidate_id
+    ]
+    return await apply(db, pairs, reason=CLIENT_REMOVAL_REASON, check_budget=False)
