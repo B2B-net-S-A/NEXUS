@@ -806,6 +806,7 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
     // Zrzut, którego AI nie potwierdziło (F37): obraz i wymiana w wierszu uwagi (27.10.2026).
     const consent = consentTarget(qc.data);
     title = "Zrzut zgody nie pasuje";
+    // api-detail-ok: `QcItem.detail` to zdanie uwagi QC (tekst z kontraktu), nie `detail` błędu API.
     sub = item.detail ?? check.label;
     action = (
       <>
