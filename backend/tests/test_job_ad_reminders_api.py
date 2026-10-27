@@ -242,7 +242,12 @@ async def test_mail_is_built_from_fresh_state_and_skipped_when_done(
                     )
                 )
             await db.commit()
-            await outbox.dispatch(db)
+            # Przebieg ma limit prób, a baza testów niesie wpisy innych testów —
+            # wołamy kolejkę, aż oba maile wyjdą (jak kolejne minuty pętli).
+            for _ in range(20):
+                await outbox.dispatch(db)
+                if {lead.email, rec.email} <= {to for to, _s, _t in sent}:
+                    break
         by_to = {to: (subject, text) for to, subject, text in sent}
         subject, text = by_to[lead.email]
         assert subject == f"[NEXUS] Wstaw ogłoszenia · {job.title}"

@@ -73,6 +73,12 @@ CHANNEL_LABEL = {
     CHANNEL_PRACUJ: "Pracuj.pl",
     CHANNEL_JJIT: "JustJoin.IT",
 }
+CHANNEL_SHORT = {
+    CHANNEL_CAREER: "kariera",
+    CHANNEL_PRACUJ: "Pracuj",
+    CHANNEL_JJIT: "JJIT",
+}
+BACKLOG_TITLE_MAX = 70
 # Kolejność przycisków i treści: najpierw portale DL-a, potem strona kariery.
 _BUTTON_ORDER = (CHANNEL_JJIT, CHANNEL_PRACUJ, CHANNEL_CAREER)
 _BUTTON_LABEL = {
@@ -475,10 +481,12 @@ def backlog_card(statuses: list[JobAdStatus], viewer: int) -> Optional[MailCard]
         for ch, n in count.items()
         if n
     )
+    # Krótka lista braków w lewej kolumnie (szablon jej nie łamie), nazwa
+    # rekrutacji w prawej — długie nazwy wypychały braki poza mail (staging 27.10).
     facts: tuple[tuple[str, str], ...] = tuple(
         (
-            s.title,
-            "brak: " + ", ".join(CHANNEL_LABEL[c.channel] for c in _visible(s)),
+            "✗ " + ", ".join(CHANNEL_SHORT[c.channel] for c in _visible(s)),
+            _shorten(s.title, BACKLOG_TITLE_MAX),
         )
         for s in rows[:BACKLOG_LISTED]
     )

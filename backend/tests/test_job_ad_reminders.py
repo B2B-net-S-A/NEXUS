@@ -253,6 +253,9 @@ def test_backlog_card_lists_newest_first_and_counts_channels() -> None:
     assert len(card.facts) == r.BACKLOG_LISTED + 1
     assert card.facts[-1] == ("…", "i 2 starszych")
     assert "strona kariery w 10, Pracuj.pl w 5, JustJoin.IT w 10" in card.text
+    # Najnowsza (wrzesień, dzień 10) ma Pracuj.pl, poprzednia — nic.
+    assert card.facts[0][0] == "✗ kariera, JJIT"
+    assert card.facts[1][0] == "✗ kariera, Pracuj, JJIT"
 
 
 def test_backlog_card_for_recruiter_shows_only_the_career_page() -> None:
@@ -261,7 +264,7 @@ def test_backlog_card_for_recruiter_shows_only_the_career_page() -> None:
     card = r.backlog_card(rows, REC)
     assert card is not None
     assert card.about == "1 rekrutacja sprzed startu przypomnień"
-    assert card.facts == (("Programista Integracji ZOB-3070", "brak: Strona kariery"),)
+    assert card.facts == (("✗ kariera", "Programista Integracji ZOB-3070"),)
     assert r.backlog_card([_status(career_live=at)], REC) is None
 
 
