@@ -30,6 +30,7 @@ import {
   Settings,
   Star,
   Store,
+  TrendingUp,
   UserRound,
   Users,
   Wallet,
@@ -602,6 +603,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
+  // Sprzedaż (Atlas → NEXUS, 26.10.2026): firmy, szanse, kontakty, zadania.
+  // Bez sekcji produktu (jak „Ludzie”) — decyduje uprawnienie „Sprzedaż: podgląd”.
+  {
+    id: "sales",
+    href: "/sales",
+    label: "Sprzedaż",
+    icon: TrendingUp,
+    section: "system",
+    permission: CAPABILITY_PERMISSIONS["nav.sales"],
+    capability: "nav.sales",
+    placement: "primary",
+    paletteKeywords: ["sprzedaż", "szanse", "lejek", "firmy", "atlas", "crm"],
+    inPalette: true,
+  },
   // „Ludzie w NEXUSIE” (16.10.2026). Sekcja „system” = bez sekcji produktu;
   // widoczność rozstrzyga flaga z `/api/hr/config`, a każdą trasę serwer.
   {
@@ -696,7 +711,11 @@ export const NAV_PRIMARY_GROUPS: readonly {
     title: "Praca",
     ids: ["dashboard", "jobs", "candidates", "calendar", "my-time"],
   },
-  { key: "clients", title: "Klienci i umowy", ids: ["clients", "contracts", "care", "finance"] },
+  {
+    key: "clients",
+    title: "Klienci i umowy",
+    ids: ["sales", "clients", "contracts", "care", "finance"],
+  },
   { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
 ];
 

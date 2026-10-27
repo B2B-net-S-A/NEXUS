@@ -142,7 +142,14 @@ describe("„Ludzie i technologie” (22.10.2026)", () => {
   });
 
   it("rzadkie zakładki stoją pod „Więcej”", () => {
-    expect([...CLIENT_MORE_TABS]).toEqual(["zespol", "importy-md", "faktury", "analityka"]);
+    // „Sprzedaż” (27.10.2026) — tylko z uprawnieniem „Sprzedaż: podgląd”.
+    expect([...CLIENT_MORE_TABS]).toEqual([
+      "zespol",
+      "importy-md",
+      "faktury",
+      "analityka",
+      "sprzedaz",
+    ]);
   });
 
   it("zamknięty moduł opieki (po odpowiedzi konfiguracji) wraca na Profil", () => {

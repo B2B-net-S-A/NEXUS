@@ -28,13 +28,17 @@ export type Permission =
   | "people_admin"
   | "payroll"
   | "equipment"
-  | "cases";
+  | "cases"
+  // Sprzedaż (Atlas → NEXUS, 26.10.2026).
+  | "sales_view"
+  | "sales_edit";
 
 export type PermissionGroupKey =
   | "clients_contracts"
   | "recruitment"
   | "money"
-  | "people";
+  | "people"
+  | "sales";
 
 export interface PermissionDefinition {
   key: Permission;

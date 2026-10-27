@@ -1,0 +1,42 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "recruiter",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit",
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases",
+  "board"
+ ],
+ "routes": {
+  "DELETE /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/pipelines": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/move": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+ }
+}

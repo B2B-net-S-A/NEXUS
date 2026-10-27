@@ -332,6 +332,14 @@ const EXPECTED: Record<
     recruiter: false,
     user: false,
   },
+  // /api/sales/* → uprawnienie `sales_view` — domyślnie tylko admin (26.10.2026).
+  "nav.sales": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: false,
+    recruiter: false,
+    user: false,
+  },
   // /api/pre-contracts → `PRE_CONTRACT_ROLES` (backend/app/api/pre_contracts.py):
   // osoby z rekrutacji oraz Finanse, Rada nadzorcza i Automatyzacje (decyzja
   // Artura 22.10.2026, audyt F54). Viewer nie — jego wejścia kończyły się 403.
@@ -518,6 +526,7 @@ describe("rejestr capability — kompletność", () => {
       "nav.my_relationships": "delivery_view",
       "nav.contracts": "delivery_view",
       "nav.finance": "finance_module",
+      "nav.sales": "sales_view",
     });
   });
 });
@@ -1383,6 +1392,11 @@ const CAPABILITY_BACKEND_MIRROR: Record<
     permission: "finance_module",
     evidence: [{ alias: "FinanceModuleUser" }],
   },
+  // /api/sales/* → SalesViewUser (permission_access.py) = „Sprzedaż: podgląd”.
+  "nav.sales": {
+    permission: "sales_view",
+    evidence: [{ alias: "SalesViewUser" }],
+  },
   "nav.trainee": {
     productDecision:
       "Trasy praktykanta (/api/trainee/today|items/*) przyjmują tylko rolę trainee — bramka w api/trainee.py, bez aliasu w deps.py.",
@@ -1524,6 +1538,7 @@ const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   // ekranów Klienci / Kontrakty (wejście z ⌘K), więc nie mają pozycji menu.
   "/contracts": "nav.contracts",
   "/finance": "nav.finance",
+  "/sales": "nav.sales",
   // Panel „Praktykanci” (0374) zdjęty z menu i palety 17.10.2026.
   // `/manager` przekierowuje na `/dashboard` — bez pozycji w menu i palecie
   // (capability `nav.manager` zdjęta 22.09.2026).

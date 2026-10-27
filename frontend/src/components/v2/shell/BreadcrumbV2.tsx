@@ -22,6 +22,12 @@ export const SEGMENT_LABELS: Record<string, string> = {
   analytics: "Analityka",
   reports: "Raporty",
   calendar: "Kalendarz",
+  // Sprzedaż (Atlas → NEXUS, 26.10.2026).
+  sales: "Sprzedaż",
+  companies: "Firmy",
+  opportunities: "Szanse",
+  tasks: "Zadania",
+  leads: "Leady",
   // „Ludzie w NEXUSIE” (16.10.2026).
   "my-time": "Mój czas",
   people: "Ludzie",
@@ -126,6 +132,15 @@ const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
   clients: async (id) => {
     const r = await api.get(`/api/clients/${id}`);
     return r.data.name ?? id;
+  },
+  // Sprzedaż: /sales/companies/[id] i /sales/opportunities/[id].
+  companies: async (id) => {
+    const r = await api.get(`/api/sales/companies/${id}`);
+    return r.data.name ?? id;
+  },
+  opportunities: async (id) => {
+    const r = await api.get(`/api/sales/opportunities/${id}`);
+    return r.data.title ?? id;
   },
 };
 

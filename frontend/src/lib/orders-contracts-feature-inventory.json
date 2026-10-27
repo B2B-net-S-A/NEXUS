@@ -744,6 +744,13 @@
    "b_home": "Pasek zakładek klienta"
   },
   {
+   "id": "c.tab-sales",
+   "opis": "Zakładka „Sprzedaż” klienta (pod „Więcej”, uprawnienie „Sprzedaż: podgląd”): powiązana firma sprzedaży i jej szanse (27.10.2026)",
+   "file": "components/sales/ClientSalesTab.tsx",
+   "marker": "Firma w Sprzedaży:",
+   "b_home": "Pasek zakładek klienta"
+  },
+  {
    "id": "c.people-tech.header-actions",
    "opis": "„Zapisz opinię menedżera” i „Nowa rekrutacja z działu” w nagłówku profilu klienta przy otwartej zakładce „Ludzie i technologie” (makieta P5, 22.10.2026)",
    "file": "app/clients/[id]/page.tsx",

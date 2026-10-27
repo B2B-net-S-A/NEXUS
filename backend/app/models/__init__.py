@@ -885,3 +885,6 @@ from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402
 from app.models import equipment_intune as _equipment_intune_models  # noqa: F401,E402
 from app.models import academy_logistics as _academy_logistics_models  # noqa: F401,E402
+
+# 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.
+from app.models import sales as _sales_models  # noqa: F401,E402

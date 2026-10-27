@@ -1179,6 +1179,23 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
+# Sprzedaż (Atlas → NEXUS, 0601): lejki, firmy, kontakty, szanse, aktywności
+# i pliki — JEDNO źródło z migracją (`app/services/sales_schema.py`).
+try:
+    from app.services import sales_schema as _sales_schema
+
+    _SALES_TABLE_DDL = [
+        *_sales_schema.TABLE_DDL,
+        *_sales_schema.INDEX_DDL,
+        # 0602: skrzynka leadów (po szansach, na które wskazuje).
+        *_sales_schema.LEADS_DDL,
+    ]
+    _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
+except Exception as _sales_schema_err:  # noqa: BLE001
+    print(f"sales schema unavailable: {_sales_schema_err!r}")
+    _SALES_TABLE_DDL = []
+    _SALES_DATA_DDL = []
+
 # „Ludzie w NEXUSIE” (migracje 0455+): moduł kadrowy, czas pracy, płace,
 # sprzęt, opieka nad konsultantami, sprawy — JEDNO źródło z migracjami przez
 # agregator `app/services/hr_schema_bundle.py`. Wpięte na KOŃCACH faz.
@@ -1274,7 +1291,7 @@ _COLUMN_STATEMENTS = [
                role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee','automation')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_access CHECK (
                access IN ('none','view','generate','manage')
@@ -1288,7 +1305,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (user_id, action),
            CONSTRAINT ck_rbac_user_action_overrides_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit')
            ),
            CONSTRAINT ck_rbac_user_action_overrides_access CHECK (
                access IN ('none','view','generate','manage')
@@ -6755,6 +6772,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # „Ludzie w NEXUSIE” — tabele, indeksy i CHECK-i ról (przed zasiewem
     # macierzy w `_DATA_STATEMENTS`).
     *_HR_COLUMN_DDL,
+    # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
+    *_SALES_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -8942,6 +8961,8 @@ SELECT 'job', id, 'archived',
     "AND EXISTS (SELECT 1 FROM marker)",
     # „Ludzie w NEXUSIE” — przełączniki modułów i zasiew roli „Pracownik”.
     *_HR_DATA_DDL,
+    # Sprzedaż — domyślny lejek „Sprzedaż” z etapami Atlasa.
+    *_SALES_DATA_DDL,
 ]
 
 

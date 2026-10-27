@@ -72,12 +72,13 @@ describe("przełączniki roli", () => {
       new Set(),
     );
     expect(groups.map((group) => group.label)).toEqual([
+      "Sprzedaż",
       "Ludzie",
       "Pieniądze",
       "Rekrutacje",
       "Klienci i kontrakty",
     ]);
-    expect(groups[1].rows.map((row) => row.label)).toEqual([
+    expect(groups[2].rows.map((row) => row.label)).toEqual([
       "Stawki i kwoty: podgląd",
       "Stawki i kwoty: zmiana",
       "Moduł Finanse",
@@ -280,6 +281,8 @@ describe("dodatkowe uprawnienia osoby", () => {
       "people_admin",
       "payroll",
       "equipment",
+      "sales_view",
+      "sales_edit",
     ]);
     expect(rows.every((row) => !row.checked)).toBe(true);
     // Wyłączony program „Ludzie w NEXUSIE” (18.10.2026): bez grupy „people”.
@@ -296,6 +299,8 @@ describe("dodatkowe uprawnienia osoby", () => {
       "amounts_view",
       "amounts_edit",
       "finance_module",
+      "sales_view",
+      "sales_edit",
     ]);
     // Delivery Lead dostaje z roli prawie wszystko z Delivery i pieniędzy —
     // zostają dwie pozycje plus cztery z grupy „Ludzie”.
@@ -312,6 +317,8 @@ describe("dodatkowe uprawnienia osoby", () => {
       "payroll",
       "equipment",
       "cases",
+      "sales_view",
+      "sales_edit",
     ]);
   });
 
@@ -446,7 +453,7 @@ describe("dodatkowe uprawnienia osoby", () => {
     });
   });
 
-  it("zna wszystkie trzynaście uprawnień (dziewięć + cztery „Ludzie”)", () => {
-    expect(PERMISSION_KEYS).toHaveLength(13);
+  it("zna wszystkie piętnaście uprawnień (dziewięć + cztery „Ludzie” + dwa „Sprzedaż”)", () => {
+    expect(PERMISSION_KEYS).toHaveLength(15);
   });
 });

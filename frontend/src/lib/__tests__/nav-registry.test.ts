@@ -104,7 +104,8 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       // widoczne tylko przy włączonym module (flaga z `/api/hr/config`).
       ["Praca", ["dashboard", "jobs", "candidates", "calendar", "my-time"]],
       // Opieka nad konsultantami (moduł `care`) obok Kontraktów.
-      ["Klienci i umowy", ["clients", "contracts", "care", "finance"]],
+      // Sprzedaż (Atlas → NEXUS, 26.10.2026) na czele grupy — od szansy do klienta.
+      ["Klienci i umowy", ["sales", "clients", "contracts", "care", "finance"]],
       ["Firma", ["insights", "people", "equipment"]],
     ]);
   });
@@ -147,7 +148,12 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       ["Firma", ["/insights"]],
     ];
     expect(groupsOf("finance")).toEqual(full);
-    expect(groupsOf("admin")).toEqual(full);
+    // Sprzedaż domyślnie ma tylko admin (uprawnienie „Sprzedaż: podgląd”).
+    expect(groupsOf("admin")).toEqual([
+      full[0],
+      ["Klienci i umowy", ["/sales", "/clients", "/contracts", "/finance"]],
+      full[2],
+    ]);
     for (const role of MENU_ROLES) {
       for (const group of visiblePrimaryGroups(userOf(role), opts)) {
         expect(group.items.length).toBeGreaterThan(0);
@@ -188,6 +194,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       "/jobs",
       "/candidates",
       "/calendar",
+      "/sales",
       "/clients",
       "/contracts",
       "/finance",
@@ -404,6 +411,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       ...DELIVERY,
       ...INSIGHTS,
       "/finance",
+      // Sprzedaż (26.10.2026): sekcja „System” (bez sekcji produktu), uprawnienie admina.
+      "/sales",
       ...SYSTEM,
     ],
     finance: [

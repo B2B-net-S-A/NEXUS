@@ -243,6 +243,14 @@ from app.api import care_announcements as care_announcements_api
 from app.api import public_consultant_mail as public_consultant_mail_api
 from app.api import admin_cases as admin_cases_api
 from app.api import equipment as equipment_api
+from app.api import sales_companies as sales_companies_api
+from app.api import sales_company_people as sales_company_people_api
+from app.api import sales_activities as sales_activities_api
+from app.api import sales_clients as sales_clients_api
+from app.api import sales_contacts as sales_contacts_api
+from app.api import sales_files as sales_files_api
+from app.api import sales_leads as sales_leads_api
+from app.api import sales_opportunities as sales_opportunities_api
 from app.api import client_onboarding as client_onboarding_api
 from app.api import equipment_intune as equipment_intune_api
 from app.api import equipment_public as equipment_public_api
@@ -2034,6 +2042,33 @@ app.include_router(
 app.include_router(
     equipment_api.router, prefix="/api/equipment", tags=["hr"], dependencies=_HR_PROGRAM
 )
+# Sprzedaż (Atlas → NEXUS, 26.10.2026): bramki „Sprzedaż: podgląd / edycja”
+# na każdej trasie (`require_permission`), bez osobnej sekcji produktu.
+app.include_router(
+    sales_companies_api.router, prefix="/api/sales/companies", tags=["sales"]
+)
+app.include_router(
+    sales_company_people_api.router, prefix="/api/sales/companies", tags=["sales"]
+)
+app.include_router(
+    sales_opportunities_api.pipelines_router,
+    prefix="/api/sales/pipelines",
+    tags=["sales"],
+)
+app.include_router(
+    sales_opportunities_api.router, prefix="/api/sales/opportunities", tags=["sales"]
+)
+app.include_router(
+    sales_contacts_api.router, prefix="/api/sales/contacts", tags=["sales"]
+)
+app.include_router(
+    sales_activities_api.router, prefix="/api/sales/activities", tags=["sales"]
+)
+app.include_router(sales_leads_api.router, prefix="/api/sales/leads", tags=["sales"])
+app.include_router(sales_files_api.router, prefix="/api/sales/files", tags=["sales"])
+app.include_router(
+    sales_clients_api.router, prefix="/api/sales/clients", tags=["sales"]
+)
 app.include_router(
     client_onboarding_api.router,
     prefix="/api/client-onboarding",
@@ -3397,6 +3432,12 @@ async def api_health_deep_check():
         EmployeeProfile,
         LeaveEntitlement,
     )
+    from app.models.sales import (
+        SalesActivity,
+        SalesCompany,
+        SalesOpportunity,
+        SalesPipelineStage,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3671,6 +3712,11 @@ async def api_health_deep_check():
         ("integration_webhooks", IntegrationWebhook),
         # 0455: „Ludzie w NEXUSIE” — kartoteka i rezerwacje zadań HR. Brak
         # tabeli = 500 na „Mój czas” / „Ludzie” i dublowane przebiegi zadań.
+        # 0601: Sprzedaż — bez tych tabel cała sekcja daje 500.
+        ("sales_companies", SalesCompany),
+        ("sales_pipeline_stages", SalesPipelineStage),
+        ("sales_opportunities", SalesOpportunity),
+        ("sales_activities", SalesActivity),
         ("employee_profiles", EmployeeProfile),
         ("leave_entitlements", LeaveEntitlement),
         ("company_days_off", CompanyDayOff),

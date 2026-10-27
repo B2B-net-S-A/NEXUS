@@ -1,4 +1,4 @@
-"""Katalog uprawnień z ekranu Ustawienia → Osoby i role (dziewięć + cztery „Ludzie”).
+"""Katalog uprawnień z ekranu Ustawienia → Osoby i role (dziewięć + cztery „Ludzie” + dwa „Sprzedaż”).
 
 Jedyne miejsce, w którym stoi: jak uprawnienie się nazywa, do której grupy
 należy, co za sobą pociąga i która rola ma je domyślnie. Moduł jest czysty —
@@ -37,6 +37,10 @@ PEOPLE_ADMIN = "people_admin"
 PAYROLL = "payroll"
 EQUIPMENT = "equipment"
 CASES = "cases"
+# Sprzedaż (Atlas → NEXUS, 26.10.2026): kartoteka firm sprzedaży, szanse,
+# kontakty i leady. Bez domyślnych posiadaczy — admin nadaje je handlowcom.
+SALES_VIEW = "sales_view"
+SALES_EDIT = "sales_edit"
 
 #: Poziomowa akcja sprzed katalogu — nie jest jednym z dziewięciu uprawnień.
 GENERATOR = "b2b_contract_generator"
@@ -211,6 +215,17 @@ PERMISSIONS: tuple[Permission, ...] = (
         "people",
         holders=(Holder("talent_community_manager"),),
     ),
+    Permission(
+        SALES_VIEW,
+        "Sprzedaż: podgląd firm, szans i kontaktów",
+        "sales",
+    ),
+    Permission(
+        SALES_EDIT,
+        "Sprzedaż: prowadzenie szans i kartoteki firm",
+        "sales",
+        requires=(SALES_VIEW,),
+    ),
 )
 
 GROUPS: tuple[Group, ...] = tuple(
@@ -224,6 +239,7 @@ GROUPS: tuple[Group, ...] = tuple(
         ("recruitment", "Rekrutacje"),
         ("money", "Pieniądze"),
         ("people", "Ludzie"),
+        ("sales", "Sprzedaż"),
     )
 )
 
