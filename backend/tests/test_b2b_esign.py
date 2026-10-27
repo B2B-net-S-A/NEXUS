@@ -2105,6 +2105,29 @@ async def test_cc_who_left_the_team_gets_no_new_link_or_copy(
 # ── obsługujący i zastępstwo (decyzja Artura 27.10.2026) ─────────────────────
 
 
+async def _connect_mailbox(user_id: int) -> None:
+    """Połączona skrzynka M365 (bez prawdziwych tokenów — Graph nie jest wołany)."""
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.m365 import M365Connection
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            M365Connection(
+                user_id=user_id,
+                tenant_id="t",
+                mailbox_upn=f"esign-{uuid.uuid4().hex[:6]}@example.com",
+                access_token_ct="a",
+                refresh_token_ct="r",
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                is_active=True,
+            )
+        )
+        await db.commit()
+
+
 async def _team_recruiter(app_client, job_id: int) -> tuple[int, dict[str, str]]:
     """Rekruter prowadzący rekrutację umowy — może ją wysłać i przejąć."""
     from app.core.database import AsyncSessionLocal
@@ -2163,6 +2186,13 @@ async def test_take_over_moves_the_reminders_to_the_new_handlers_mailbox(
         app_client, recruiter_headers, scenario["generated_id"]
     )
     assert listed["can_take_over_esign"] is True
+    # Bez połączonej skrzynki dalsze maile przepadłyby po cichu (przegląd kodu).
+    no_mailbox = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/take-over", headers=recruiter_headers
+    )
+    assert no_mailbox.status_code == 409, no_mailbox.text
+    assert "skrzynkę Microsoft 365" in no_mailbox.json()["detail"]
+    await _connect_mailbox(recruiter_id)
     taken = await app_client.post(
         f"/api/b2b-generator/esign/{request_id}/take-over", headers=recruiter_headers
     )

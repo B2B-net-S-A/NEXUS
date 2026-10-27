@@ -88,6 +88,11 @@ MSG_MANDATE = (
     "NEXUSEM i oznacz ją jako podpisaną w rejestrze."
 )
 MSG_SIGNER = "Wybierz osobę, która podpisze za B2B Network, z listy w ustawieniach."
+MSG_TAKE_OVER_MAILBOX = (
+    "Połącz swoją skrzynkę Microsoft 365 z NEXUSEM, zanim przejmiesz obsługę: "
+    "przypomnienia, mail do podpisu za B2B Network i kopia umowy idą ze skrzynki "
+    "osoby, która obsługuje wysyłkę."
+)
 MSG_CC = (
     "Do wiadomości dodasz tylko osoby z zespołu tej rekrutacji albo autora "
     "umowy, które same widzą tę umowę ze stawkami."
@@ -684,6 +689,10 @@ async def take_over_esign(
     przejmuje ten, kto mógłby wysłać tę umowę (``_assert_row_sender``)."""
     row = await _row_of(db, request_id)
     await _assert_row_sender(db, current_user, row)
+    # Bez skrzynki dalsze maile obiegu przepadłyby bez śladu (przegląd kodu
+    # 27.10.2026): przypomnienia, mail do reprezentanta i kopia kontraktora.
+    if not await esign_mail.mailbox_connected(db, current_user.id):
+        raise HTTPException(status_code=409, detail=MSG_TAKE_OVER_MAILBOX)
     updated, previous = await service.take_over(
         db, request_id=request_id, actor_id=current_user.id, now=_now()
     )
