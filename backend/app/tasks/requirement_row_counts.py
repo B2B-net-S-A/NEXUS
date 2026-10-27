@@ -14,6 +14,7 @@ import asyncio
 import logging
 
 from app.core.database import AsyncSessionLocal
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,13 @@ async def requirement_row_counts_loop() -> None:
     from app.services import requirement_cleanup
 
     await asyncio.sleep(_START_DELAY_SECONDS)
+    # Tick na początku obrotu; obrót trwa najwyżej godzinę, potem godzina przerwy.
+    beat = loop_heartbeat.register(
+        "requirement_row_counts",
+        max_silence_seconds=int(_EVERY_SECONDS + _PASS_BUDGET_SECONDS) + 3600,
+    )
     while True:
+        beat.tick()
         try:
             async with AsyncSessionLocal() as db:
                 counted = await requirement_cleanup.warm_counts(
