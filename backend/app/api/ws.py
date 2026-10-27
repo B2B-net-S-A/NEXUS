@@ -254,6 +254,10 @@ class ConnectionManager:
         if fields != before:
             await self._broadcast_update(key)
 
+    def viewer_ids(self, resource_type: str, resource_id: int) -> Set[int]:
+        """Who has the resource open right now (any tab) — ids only."""
+        return set(self._viewers.get(_make_key(resource_type, resource_id), {}))
+
     def get_viewers(self, resource_type: str, resource_id: int) -> List[dict]:
         """Return a snapshot of viewers for a resource (for HTTP fallback)."""
         key = _make_key(resource_type, resource_id)
