@@ -15,10 +15,13 @@ się zmieni.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
+import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +36,11 @@ REASON_TEXT = {
     "prose_rows": "zdania w wymaganiach — wyszukiwanie ich nie znajdzie",
     "critical_not_searchable": "krytyczne zapisane zdaniem — bramka szuka go w CV dosłownie i ukrywa prawie wszystkich",
     "no_search_words": "brak słów do szukania — propozycje AI się nie pojawią",
+    "rare_word": "słowo „musi mieć” ma w bazie mniej niż 20 osób — w CV opisują to inaczej",
 }
+
+# Licznik osób wiersza: (słowa wiersza, słowa „Wyklucz”) → liczba albo ``None``.
+RowCount = Callable[[Sequence[str], Sequence[str]], Optional[int]]
 
 
 @dataclass(frozen=True)
@@ -48,6 +55,20 @@ class CleanupProposal:
     @property
     def can_apply(self) -> bool:
         return "no_search_words" not in self.reasons
+
+    @property
+    def digest(self) -> str:
+        """Odcisk tego, co DL widzi w oknie. Liczby osób (``rare_word``) nie
+        wchodzą do ``profile_hash``, więc „Zatwierdź” porównuje też ten odcisk
+        — inaczej zapisałby propozycję policzoną później, której nikt nie
+        widział (przegląd 27.10.2026)."""
+        body = json.dumps(
+            {"reasons": self.reasons, "after": self.after},
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        )
+        return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
     def as_dict(self) -> dict:
         return {
@@ -64,6 +85,7 @@ class CleanupProposal:
             "profile_hash": self.profile_hash,
             "contract_reviewed": self.contract_reviewed,
             "can_apply": self.can_apply,
+            "digest": self.digest,
         }
 
 
@@ -90,11 +112,30 @@ def _sentence(reading: Any) -> bool:
     return bool(reading.needs_decision) and reading.kind in _SENTENCE_KINDS
 
 
-def build_proposal(job: Any) -> Optional[CleanupProposal]:
-    """Propozycja dla rekrutacji albo ``None``, gdy nie ma czego porządkować."""
-    from app.services import champion_view
+def glued_variants(word: str) -> Optional[list[str]]:
+    """Warianty sklejone w jednym słowie ukośnikiem albo nawiasem — lustro
+    ``gluedVariants`` z ``frontend/src/lib/requirement-rows.ts`` (PR #2698):
+    „SoapUI/ReadyAPI” → SoapUI, ReadyAPI; „GitOps (ArgoCD/FluxCD)” → GitOps,
+    ArgoCD, FluxCD. Pytamy tylko przy rzadkim wierszu, więc „CI/CD” zostaje."""
+    if not re.search(r"[/()]", word):
+        return None
+    parts = [p.strip() for p in re.split(r"[/(),]+", word)]
+    parts = [p for p in parts if len(p) >= 2]
+    return parts if len(parts) >= 2 else None
+
+
+def build_proposal(
+    job: Any, row_count: Optional[RowCount] = None
+) -> Optional[CleanupProposal]:
+    """Propozycja dla rekrutacji albo ``None``, gdy nie ma czego porządkować.
+
+    ``row_count`` podaje liczbę osób wiersza (powód ``rare_word``); domyślnie
+    czyta pamięć ``requirement_row_counts`` — bez liczby nie ma powodu.
+    """
+    from app.services import champion_view, requirement_row_counts
     from app.services.champion_intake import profile_hash
     from app.services.champion_requirement_rows import (
+        _head,
         _merge_talk,
         _row_words,
         clean_rows,
@@ -240,17 +281,6 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
         kind = reading.talk if reading.talk in ("skills", "domains") else "skills"
         _to_talk(kind, reading.talk_text or _cap(sentence), level, sentence)
 
-    # Co nie zmieściło się w wierszach ani na liście do rozmowy, zostaje
-    # w opisie wymagań — czyta go rekruter i generator CV; nic nie znika.
-    notes: Optional[str] = None
-    if overflow or talk_overflow:
-        parts = [str(stack.get("notes") or "").strip()]
-        if overflow:
-            parts.append(overflow_note(overflow))
-        if talk_overflow:
-            parts.append("Do sprawdzenia w rozmowie: " + "; ".join(talk_overflow) + ".")
-        notes = "\n".join(part for part in parts if part)
-
     # Decyzja Artura 14.10.2026 (B): krytyczną, którą bramka sprawdza słowami
     # wiersza (kategoria, rola, branża słowem, nazwa spoza słownika — reguła
     # z 09.10), zostawiamy; o tym decyduje DL, a edytor ostrzega, gdy zostaje
@@ -268,6 +298,78 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
             if "critical_not_searchable" not in reasons:
                 reasons.append("critical_not_searchable")
 
+    # Rzadkie słowo „musi mieć” (27.10.2026): mniej niż 20 osób w bazie to
+    # zwykle nazwa z requestu, którą w CV opisują inaczej („Crisis plans” 0).
+    # Sklejone warianty rozdzielamy, gdy części znajdują ludzi; resztę bierze
+    # rekruter do rozmowy. Krytycznych nie ruszamy (AI filtruje tylko po nich),
+    # mile widziane niczego nie zawężają.
+    count = row_count or requirement_row_counts.cached
+    exclude = _names(champion_view.search(profile).get("exclude"))
+    rare: list[dict] = []
+    rare_rows: list[tuple[dict, int]] = []
+    for row in rows:
+        if row.get("level") != "must":
+            continue
+        people = count(row["words"], exclude)
+        if people is None or people >= requirement_row_counts.RARE_WORD_PEOPLE:
+            continue
+        parts = glued_variants(row["words"][0]) if len(row["words"]) == 1 else None
+        if parts:
+            # Zapis zostawia jeden wiersz na pierwsze słowo (`split_rows`), więc
+            # wiersz po rozdzieleniu zaczyna się od słowa, którego nie ma inny
+            # wiersz; gdy takiego nie ma, wymaganie idzie do rozmowy.
+            taken = {_head(r["words"]).casefold() for r in rows if r is not row}
+            free = [p for p in parts if p.casefold() not in taken]
+            parts = [free[0], *(p for p in parts if p != free[0])] if free else None
+        split_people = count(parts, exclude) if parts else None
+        if (
+            split_people is not None
+            and split_people >= requirement_row_counts.RARE_WORD_PEOPLE
+        ):
+            rare.append(
+                {
+                    "words": list(row["words"]),
+                    "people": people,
+                    "action": "split",
+                    "parts": parts,
+                }
+            )
+            row["words"] = parts
+        else:
+            rare_rows.append((row, people))
+    # Rekrutacja nie traci ostatniego słowa do szukania: zostaje rzadki wiersz
+    # z największą liczbą osób.
+    if rare_rows and all(
+        r.get("level") == "nice" or any(r is row for row, _ in rare_rows) for r in rows
+    ):
+        keep = max(rare_rows, key=lambda pair: pair[1])
+        rare_rows = [pair for pair in rare_rows if pair is not keep]
+    rare_talk: set[str] = set()
+    for row, people in rare_rows:
+        text = " / ".join(row["words"])
+        rows = [r for r in rows if r is not row]
+        _to_talk("skills", _cap(text), "must", text)
+        rare_talk.add(_fold(_cap(text)))
+        rare.append(
+            {
+                "words": list(row["words"]),
+                "people": people,
+                "action": "talk",
+                "parts": None,
+            }
+        )
+
+    # Co nie zmieściło się w wierszach ani na liście do rozmowy, zostaje
+    # w opisie wymagań — czyta go rekruter i generator CV; nic nie znika.
+    notes: Optional[str] = None
+    if overflow or talk_overflow:
+        parts = [str(stack.get("notes") or "").strip()]
+        if overflow:
+            parts.append(overflow_note(overflow))
+        if talk_overflow:
+            parts.append("Do sprawdzenia w rozmowie: " + "; ".join(talk_overflow) + ".")
+        notes = "\n".join(part for part in parts if part)
+
     added_talk = [
         {"name": item["name"], "kind": kind, "level": item.get("level", "must")}
         for kind in ("skills", "domains")
@@ -275,10 +377,12 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
         if _fold(item["name"])
         not in {_fold(i.get("name", "")) for i in experience.get(kind) or []}
     ]
-    if [t for t in added_talk if _fold(t["name"]) not in version_only] or (
+    if [t for t in added_talk if _fold(t["name"]) not in version_only | rare_talk] or (
         new_language or None
     ) != (language or None):
         reasons.append("prose_rows")
+    if rare:
+        reasons.append("rare_word")
     required = [r for r in rows if r.get("level") != "nice"]
     if not required:
         reasons.append("no_search_words")
@@ -317,6 +421,7 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
             "talk": added_talk,
             "language": new_language or None,
             "overflow": list(overflow),
+            "rare": rare,
             "notes": notes,
             "experience": new_experience,
         },
@@ -351,53 +456,121 @@ def can_decide(user: Any, job: Any) -> bool:
     )
 
 
-async def _decided(db: AsyncSession, job_ids: list[int]) -> dict[int, str]:
+async def _decided(db: AsyncSession, job_ids: list[int]) -> dict[int, tuple[str, str]]:
+    """Ostatnia decyzja rekrutacji: ``(odcisk profilu, status)``."""
     from app.models.requirement_cleanup import RequirementCleanupDecision
 
     if not job_ids:
         return {}
     rows = await db.execute(
         select(
-            RequirementCleanupDecision.job_id, RequirementCleanupDecision.profile_hash
+            RequirementCleanupDecision.job_id,
+            RequirementCleanupDecision.profile_hash,
+            RequirementCleanupDecision.status,
         ).where(RequirementCleanupDecision.job_id.in_(job_ids))
     )
-    return {job_id: digest for job_id, digest in rows.all()}
+    return {job_id: (digest, status) for job_id, digest, status in rows.all()}
+
+
+async def prepare_counts(
+    db: AsyncSession,
+    jobs: Sequence[Any],
+    *,
+    budget: Optional[float] = None,
+    fresh_for: float = 0.0,
+) -> int:
+    """Liczby osób wierszy, o które zapyta ``build_proposal`` (``rare_word``).
+
+    Dwa obroty: najpierw całe wiersze, potem części sklejonych wariantów tych,
+    które okazały się rzadkie. Liczymy tylko brakujące, w limicie czasu.
+    Oddaje liczbę policzonych wierszy.
+    """
+    from app.services import requirement_row_counts as counts
+
+    deadline = time.monotonic() + (counts.BUDGET_SECONDS if budget is None else budget)
+    done = 0
+    for _ in range(2):
+        missing: list[tuple[list[str], list[str]]] = []
+
+        def record(words: Sequence[str], exclude: Sequence[str]) -> Optional[int]:
+            k = counts.key(words, exclude)
+            if not counts.lookup(k, fresh_for=fresh_for)[0]:
+                missing.append((list(words), list(exclude)))
+            return counts.lookup(k)[1]
+
+        for job in jobs:
+            build_proposal(job, row_count=record)
+        if not missing:
+            break
+        done += await counts.ensure(db, missing, deadline=deadline, fresh_for=fresh_for)
+    return done
+
+
+async def _open_jobs(db: AsyncSession, user: Any = None) -> list[Any]:
+    """Otwarte opublikowane rekrutacje — wszystkie albo tej osoby (DL, twórca)."""
+    from app.models.job import Job, JobStatus
+
+    stmt = (
+        select(Job)
+        .where(Job.status == JobStatus.published, Job.is_open.is_(True))
+        .order_by(Job.created_at.desc(), Job.id.desc())
+    )
+    if user is not None:
+        stmt = stmt.where(
+            (Job.delivery_lead_id == user.id) | (Job.created_by == user.id)
+        )
+    return list((await db.scalars(stmt)).all())
+
+
+async def warm_counts(db: AsyncSession, *, budget: float) -> int:
+    """Pętla w tle: liczby wszystkich otwartych rekrutacji, także te bliskie
+    wygaśnięcia — pulpit czyta je potem z pamięci."""
+    from app.services import requirement_row_counts as counts
+
+    return await prepare_counts(
+        db,
+        await _open_jobs(db),
+        budget=budget,
+        fresh_for=counts.REFRESH_BEFORE_SECONDS,
+    )
+
+
+def _hidden(decision: Optional[tuple[str, str]], proposal: CleanupProposal) -> bool:
+    """Decyzja o tym samym profilu chowa propozycję. Wyjątek: „Zatwierdź”
+    sprzed rzadkiego słowa (27.10.2026) nie chowa ``rare_word`` — DL przyjął
+    wtedy inną propozycję; po zatwierdzeniu rzadkiego wiersza ten powód nie
+    wraca, bo wiersz schodzi do rozmowy albo dostaje warianty."""
+    if decision is None or decision[0] != proposal.profile_hash:
+        return False
+    return decision[1] != "applied" or "rare_word" not in proposal.reasons
 
 
 async def pending_proposal(db: AsyncSession, job: Any) -> Optional[CleanupProposal]:
     """Propozycja tej rekrutacji, o ile nikt nie zdecydował o tym profilu."""
+    await prepare_counts(db, [job])
     proposal = build_proposal(job)
     if proposal is None:
         return None
     decided = await _decided(db, [job.id])
-    return None if decided.get(job.id) == proposal.profile_hash else proposal
+    return None if _hidden(decided.get(job.id), proposal) else proposal
 
 
 async def load_fixes(db: AsyncSession, user: Any) -> list[dict]:
     """Lista „Wymagania do poprawy” dla pulpitu tej osoby."""
-    from app.models.job import Job, JobStatus
     from app.models.user import UserRole
     from app.services.job_working_title import display_title
 
     sees_all = user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
     if not sees_all and not user.has_role(UserRole.delivery_lead):
         return []
-    stmt = (
-        select(Job)
-        .where(Job.status == JobStatus.published, Job.is_open.is_(True))
-        .order_by(Job.created_at.desc(), Job.id.desc())
-    )
-    if not sees_all:
-        stmt = stmt.where(
-            (Job.delivery_lead_id == user.id) | (Job.created_by == user.id)
-        )
-    jobs = (await db.scalars(stmt)).all()
+    jobs = await _open_jobs(db, None if sees_all else user)
+    await prepare_counts(db, jobs)
     proposals = [(job, build_proposal(job)) for job in jobs]
     proposals = [(job, p) for job, p in proposals if p is not None]
     decided = await _decided(db, [job.id for job, _ in proposals])
     out: list[dict] = []
     for job, proposal in proposals:
-        if decided.get(job.id) == proposal.profile_hash:
+        if _hidden(decided.get(job.id), proposal):
             continue
         out.append(
             {

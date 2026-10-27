@@ -27,6 +27,7 @@ import type {
 } from "@/lib/requirement-proposal-api";
 
 const HASH = "a".repeat(64);
+const DIGEST = "d".repeat(64);
 
 function proposal(over: Partial<RequirementProposal> = {}): RequirementProposal {
   return {
@@ -50,6 +51,7 @@ function proposal(over: Partial<RequirementProposal> = {}): RequirementProposal 
       language: "angielski B2",
     },
     profile_hash: HASH,
+    digest: DIGEST,
     contract_reviewed: false,
     can_apply: true,
     ...over,
@@ -125,6 +127,38 @@ describe("RequirementProposalDialog", () => {
     expect(within(after).getByTestId("proposal-no-critical")).toHaveTextContent("Krytyczne: brak");
   });
 
+  it("rzadkie słowa mówią, ile osób mają i co się z nimi stanie", async () => {
+    respond({
+      proposal: proposal({
+        reasons: [
+          {
+            code: "rare_word",
+            text: "słowo „musi mieć” ma w bazie mniej niż 20 osób — w CV opisują to inaczej",
+          },
+        ],
+        after: {
+          rows: [
+            { words: ["Java"], level: "must" },
+            { words: ["SoapUI", "ReadyAPI"], level: "must" },
+          ],
+          critical: null,
+          talk: [{ name: "Crisis plans", kind: "skills", level: "must" }],
+          language: null,
+          rare: [
+            { words: ["SoapUI/ReadyAPI"], people: 5, action: "split", parts: ["SoapUI", "ReadyAPI"] },
+            { words: ["Crisis plans"], people: 0, action: "talk", parts: null },
+          ],
+        },
+      }),
+      can_decide: true,
+    });
+    renderDialog();
+    const after = await screen.findByRole("region", { name: "Po zmianie" });
+    const rare = within(after).getByTestId("proposal-rare");
+    expect(rare).toHaveTextContent("„SoapUI/ReadyAPI” — tylko 5 osób, rozdzielone: SoapUI lub ReadyAPI");
+    expect(rare).toHaveTextContent("„Crisis plans” — nikt w bazie, rekruter sprawdzi w rozmowie");
+  });
+
   it("bez słów do szukania „Zatwierdź” jest wyłączone i prowadzi do Profilu Championa", async () => {
     respond({
       proposal: proposal({
@@ -155,7 +189,10 @@ describe("RequirementProposalDialog", () => {
     const { onOpenChange } = renderDialog();
     await user.click(await screen.findByRole("button", { name: "Zatwierdź" }));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(post).toHaveBeenCalledWith("/api/jobs/7/requirement-proposal/apply", { profile_hash: HASH });
+    expect(post).toHaveBeenCalledWith("/api/jobs/7/requirement-proposal/apply", {
+      profile_hash: HASH,
+      proposal_digest: DIGEST,
+    });
     expect(showSuccess).toHaveBeenCalledWith("Wymagania uporządkowane.");
     expect(showInfo).toHaveBeenCalledWith("Krytyczna „Kafka” przestała być technologią.");
   });
@@ -180,6 +217,7 @@ describe("RequirementProposalDialog", () => {
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/jobs/7/requirement-proposal/dismiss", {
         profile_hash: HASH,
+        proposal_digest: DIGEST,
       }),
     );
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
@@ -203,6 +241,7 @@ describe("RequirementProposalDialog", () => {
     respond({ proposal: proposal(), can_decide: true });
     const fresh = proposal({
       profile_hash: "b".repeat(64),
+      digest: "e".repeat(64),
       after: {
         rows: [{ words: ["Python"], level: "must" }],
         critical: null,
@@ -237,6 +276,7 @@ describe("RequirementProposalDialog", () => {
     await waitFor(() =>
       expect(post).toHaveBeenLastCalledWith("/api/jobs/7/requirement-proposal/apply", {
         profile_hash: "b".repeat(64),
+        proposal_digest: "e".repeat(64),
       }),
     );
   });

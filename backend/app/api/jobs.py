@@ -3745,6 +3745,8 @@ async def apply_champion_import(
 
 class RequirementProposalDecision(BaseModel):
     profile_hash: str = Field(min_length=64, max_length=64)
+    # Odcisk propozycji z okna (``CleanupProposal.digest``); brak = stary front.
+    proposal_digest: Optional[str] = Field(None, min_length=64, max_length=64)
 
 
 @router.get("/{job_id}/requirement-proposal")
@@ -3768,7 +3770,11 @@ async def get_requirement_proposal(
 
 
 async def _locked_proposal(
-    db: AsyncSession, job_id: int, current_user: User, profile_hash: str
+    db: AsyncSession,
+    job_id: int,
+    current_user: User,
+    profile_hash: str,
+    proposal_digest: Optional[str] = None,
 ):
     from app.services import requirement_cleanup
 
@@ -3781,10 +3787,13 @@ async def _locked_proposal(
             "Propozycję zatwierdza Delivery Lead tej rekrutacji albo Head of "
             "Recruitment.",
         )
+    await requirement_cleanup.prepare_counts(db, [job])
     proposal = requirement_cleanup.build_proposal(job)
     if proposal is None:
         raise HTTPException(409, "Wymagania tej rekrutacji nie wymagają już poprawek.")
-    if proposal.profile_hash != profile_hash:
+    if proposal.profile_hash != profile_hash or (
+        proposal_digest is not None and proposal.digest != proposal_digest
+    ):
         raise HTTPException(
             409,
             {
@@ -3807,7 +3816,9 @@ async def apply_requirement_proposal(
     from app.services import requirement_cleanup
     from app.services.champion_intake import profile_hash, response_context
 
-    job, proposal = await _locked_proposal(db, job_id, current_user, body.profile_hash)
+    job, proposal = await _locked_proposal(
+        db, job_id, current_user, body.profile_hash, body.proposal_digest
+    )
     if not proposal.can_apply:
         raise HTTPException(
             422,
@@ -3852,7 +3863,9 @@ async def dismiss_requirement_proposal(
     """„Odrzuć” — propozycja nie wraca, dopóki profil się nie zmieni."""
     from app.services import requirement_cleanup
 
-    job, proposal = await _locked_proposal(db, job_id, current_user, body.profile_hash)
+    job, proposal = await _locked_proposal(
+        db, job_id, current_user, body.profile_hash, body.proposal_digest
+    )
     await requirement_cleanup.record_decision(
         db,
         job_id=job.id,

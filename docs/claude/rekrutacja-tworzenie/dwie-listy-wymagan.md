@@ -65,7 +65,8 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   searchu (5 z 6 takich rekrutacji nie miało ani jednej propozycji AI).
 - **„Wymagania do poprawy” (D4).** `services/requirement_cleanup.build_proposal(job)` liczy na
   żywo propozycję dla otwartej rekrutacji (powody: `prose_column`, `paren`, `prose_rows`,
-  `critical_not_searchable`, `no_search_words`). Propozycji nie zapisujemy; tabela
+  `critical_not_searchable`, `no_search_words`, `rare_word` — ten ostatni:
+  `rzadkie-slowo-w-wymaganiach-do-poprawy.md`). Propozycji nie zapisujemy; tabela
   `requirement_cleanup_decisions` (0438, lustro DDL w entrypoincie, sonda w `/api/health/deep`)
   trzyma ostatnią decyzję i odcisk profilu — odrzucona wraca dopiero po zmianie profilu.
   Nic nie znika po „Zatwierdź”: limity wierszy (10 + 20) liczone są PO przeniesieniu zdań
