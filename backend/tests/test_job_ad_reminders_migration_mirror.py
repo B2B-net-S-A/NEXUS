@@ -26,7 +26,7 @@ def _migration_module():
 def test_migration_runs_the_shared_ddl() -> None:
     module = _migration_module()
     assert module.revision == "0526_job_ad_reminders"
-    assert module.down_revision == "0525_job_p0"
+    assert module.down_revision == "0525_client_form_score_sheet"
     text = MIGRATION.read_text(encoding="utf-8")
     assert "schema.ALL_DDL" in text
     assert "schema.ENUM_DDL" in text

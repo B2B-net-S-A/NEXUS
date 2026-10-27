@@ -1,7 +1,7 @@
 """Przypomnienia o brakujących ogłoszeniach: „nie publikujemy” i typy dzwonka.
 
 Revision ID: 0526_job_ad_reminders
-Revises: 0525_job_p0
+Revises: 0525_client_form_score_sheet
 
 Decyzja Artura 27.10.2026: codziennie rano mail o każdej otwartej rekrutacji
 bez strony kariery, Pracuj.pl albo JustJoin.IT — do osoby, która ma to
@@ -18,7 +18,7 @@ from alembic import op
 from app.services import job_ad_reminder_schema as schema
 
 revision = "0526_job_ad_reminders"
-down_revision = "0525_job_p0"
+down_revision = "0525_client_form_score_sheet"
 branch_labels = None
 depends_on = None
 
