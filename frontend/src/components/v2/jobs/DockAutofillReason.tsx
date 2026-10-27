@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils";
 /**
  * „Dlaczego system dodał” na górze panelu osoby (silnik „Nowi na 20”,
  * makieta A2 z 23.10.2026): wynik, spełnione i brakujące wymagania oraz to,
- * czego system NIE wiedział w chwili dodania (stawka, dostępność). Ta
+ * czego system NIE wiedział w chwili dodania (stawka, dostępność), a od
+ * 27.10.2026 także co wiedział i co przemawia przeciw („Na co uważać”). Ta
  * migawka rozstrzyga potem, czy odrzucenie to błąd wyszukiwania, czy brak
  * danych. Dla osób dodanych przez ludzi nic nie rysuje.
  */
@@ -55,6 +56,18 @@ export function DockAutofillReason({
             </li>
           ))}
         </ul>
+      ) : null}
+      {meta.cautions?.length ? (
+        <div className="space-y-0.5" data-testid="dock-autofill-cautions">
+          <p className="text-[11px] font-semibold text-warning-muted-foreground">
+            Na co uważać — system to wiedział, więc dał tę osobę niżej:
+          </p>
+          <ul className="list-disc space-y-0.5 pl-4 text-[11px]">
+            {meta.cautions.map((c) => (
+              <li key={c.key}>{c.title}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       <p className={cn("text-[11px]", unknown.length ? "text-foreground" : "text-muted-foreground")}>
         {unknown.length
