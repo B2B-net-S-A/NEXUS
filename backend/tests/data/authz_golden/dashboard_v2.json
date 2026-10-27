@@ -35,6 +35,7 @@
   "GET /api/dashboard/v2/my-work": "PDDDDPDDDDPPPDPPPPPDDPPPPD",
   "GET /api/dashboard/v2/recruitment-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/dashboard/v2/recruitment-activity/team-totals": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/dashboard/v2/recruitment-operations": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/dashboard/v2/recruitment-stats": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
