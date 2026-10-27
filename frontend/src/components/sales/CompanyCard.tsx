@@ -28,6 +28,7 @@ import { useAuthStore } from "@/store/auth";
 
 import { ActivityTimeline } from "./ActivityTimeline";
 import { CompanyFormDialog } from "./CompanyFormDialog";
+import { FilesSection } from "./FilesSection";
 import { ContactsSection } from "./ContactsSection";
 import { formatDealAmount, safeHref } from "./format";
 import { LinkClientDialog } from "./LinkClientDialog";
@@ -35,12 +36,13 @@ import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesShell } from "./SalesShell";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 
-type Tab = "overview" | "people" | "contacts" | "activities";
+type Tab = "overview" | "people" | "contacts" | "activities" | "files";
 const TABS: { value: Tab; label: string }[] = [
   { value: "overview", label: "Przegląd" },
   { value: "people", label: "Kogo znamy" },
   { value: "contacts", label: "Kontakty" },
   { value: "activities", label: "Aktywności" },
+  { value: "files", label: "Pliki" },
 ];
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
@@ -248,6 +250,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
           {tab === "people" && <WhoWeKnowPanel companyId={companyId} companyName={data.name} />}
           {tab === "contacts" && <ContactsSection companyId={companyId} />}
           {tab === "activities" && <ActivityTimeline companyId={companyId} />}
+          {tab === "files" && <FilesSection owner={{ company_id: companyId }} />}
         </div>
       ) : null}
       {editing && data && (

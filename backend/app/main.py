@@ -248,6 +248,7 @@ from app.api import sales_company_people as sales_company_people_api
 from app.api import sales_activities as sales_activities_api
 from app.api import sales_clients as sales_clients_api
 from app.api import sales_contacts as sales_contacts_api
+from app.api import sales_files as sales_files_api
 from app.api import sales_leads as sales_leads_api
 from app.api import sales_opportunities as sales_opportunities_api
 from app.api import client_onboarding as client_onboarding_api
@@ -2041,6 +2042,7 @@ app.include_router(
     sales_activities_api.router, prefix="/api/sales/activities", tags=["sales"]
 )
 app.include_router(sales_leads_api.router, prefix="/api/sales/leads", tags=["sales"])
+app.include_router(sales_files_api.router, prefix="/api/sales/files", tags=["sales"])
 app.include_router(
     sales_clients_api.router, prefix="/api/sales/clients", tags=["sales"]
 )

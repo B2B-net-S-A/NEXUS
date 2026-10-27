@@ -29,6 +29,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
 import { ActivityTimeline } from "./ActivityTimeline";
+import { FilesSection } from "./FilesSection";
 import { formatDealAmount } from "./format";
 import { LinkClientDialog } from "./LinkClientDialog";
 import { SalesSelect } from "./SalesSelect";
@@ -233,6 +234,7 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
               </p>
             </Card>
             <OpportunityContacts opportunity={data} canEdit={canEdit} />
+            <FilesSection owner={{ opportunity_id: data.id }} />
             {data.description && (
               <Card className="p-4">
                 <h2 className="text-base font-semibold text-foreground">Opis</h2>

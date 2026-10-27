@@ -835,3 +835,51 @@ export function useRegistryLookup() {
         .data,
   });
 }
+
+// ── Pliki ─────────────────────────────────────────────────────────────────
+
+export interface SalesFile {
+  id: number;
+  filename: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  folder: string | null;
+  company_id: number | null;
+  opportunity_id: number | null;
+  uploaded_by: string | null;
+  uploaded_by_user_id: number | null;
+  created_at: string;
+}
+
+export type FileOwner = { company_id: number } | { opportunity_id: number };
+
+export function useSalesFiles(owner: FileOwner) {
+  return useQuery({
+    queryKey: ["sales", "files", owner] as const,
+    queryFn: async () =>
+      (await api.get<SalesFile[]>("/api/sales/files", { params: owner })).data,
+  });
+}
+
+export function useUploadSalesFile(owner: FileOwner) {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      for (const [key, value] of Object.entries(owner)) form.append(key, String(value));
+      return (await api.post<SalesFile>("/api/sales/files", form)).data;
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteSalesFile() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/api/sales/files/${id}`);
+    },
+    onSuccess: invalidate,
+  });
+}
