@@ -13,7 +13,9 @@
  *   URL(…), {type:"module"})` to wzorzec, który webpack rozpoznaje i bundluje
  *   jako osobny chunk (ten sam co w `pdfjs-dist/webpack.mjs`).
  * - Wszystko jest ładowane dopiero przy otwarciu PDF-a — ~1 MB, którego żaden
- *   inny ekran nie potrzebuje.
+ *   inny ekran nie potrzebuje. Okno podglądu woła `preloadPdfJs()` od razu
+ *   przy otwarciu, równolegle z pobieraniem pliku (27.10.2026: na stagingu
+ *   biblioteka startowała dopiero po pobraniu CV, szeregowo).
  */
 
 type PdfJsLib = typeof import("pdfjs-dist");
@@ -47,4 +49,10 @@ export function loadPdfJs(): Promise<PdfJsModules> {
     });
   }
   return modulesPromise;
+}
+
+/** Zacznij ładować pdf.js w tle; błąd zobaczy dopiero właściwe `loadPdfJs()`
+ *  (nieudana próba nie blokuje kolejnej). */
+export function preloadPdfJs(): void {
+  loadPdfJs().catch(() => undefined);
 }
