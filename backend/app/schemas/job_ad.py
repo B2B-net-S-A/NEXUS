@@ -188,7 +188,8 @@ class AdChannelView(BaseModel):
     """Stan jednego kanału rekrutacji (przypomnienia o ogłoszeniach, 0526)."""
 
     channel: AdChannel
-    state: Literal["live", "missing", "skipped"]
+    # requested = mail do opiekuna Pracuj.pl wyszedł, opiekun ma jeszcze czas.
+    state: Literal["live", "missing", "skipped", "requested"]
     since: Optional[datetime] = None
     # Brak robi ta osoba (rekruter: strona kariery; DL: portale).
     mine: bool = False
@@ -216,6 +217,46 @@ class AdRemindResponse(BaseModel):
     already: list[str] = Field(default_factory=list)
 
 
+class PracujRequestRead(BaseModel):
+    """Ostatni mail do opiekuna Pracuj.pl wysłany z NEXUSA (27.10.2026)."""
+
+    sent_at: datetime
+    sent_by_name: Optional[str] = None
+    to: Optional[str] = None
+    # Opiekun ma jeszcze czas — przypomnienia o Pracuj.pl milczą.
+    waiting: bool = False
+
+
+RateValue = Annotated[int, Field(ge=1, le=5000)]
+
+
+class PracujMailPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rate_from: Optional[RateValue] = None
+    rate_to: Optional[RateValue] = None
+
+
+class PracujMailRequest(PracujMailPreviewRequest):
+    # Wersja ogłoszenia z ekranu — mail niesie treść, którą osoba przeczytała.
+    expected_updated_at: Optional[datetime] = None
+    # Ten sam UUID przy ponowieniu = ten sam mail (bez drugiej wysyłki).
+    client_request_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class PracujMailPreview(BaseModel):
+    to_name: str
+    to_email: str
+    # Skrzynka osoby: ready = wyśle · missing = niepodłączona · reconnect =
+    # trzeba połączyć ponownie. Bez „ready” okno daje tylko „Kopiuj treść”.
+    mailbox: Literal["ready", "missing", "reconnect"]
+    from_address: Optional[str] = None
+    subject: str
+    body_text: str
+    # Stawka, której nie wyślemy (pusta, odwrócona) — komunikat do pola.
+    rate_error: Optional[str] = None
+
+
 class JobAdResponse(BaseModel):
     ad: Optional[AdRead] = None
     career: AdCareerState = Field(default_factory=AdCareerState)
@@ -229,6 +270,8 @@ class JobAdResponse(BaseModel):
     publications: list[AdPublicationRead] = Field(default_factory=list)
     # Trzy kanały i kto je robi (0526); brak = rekrutacja zamknięta.
     reminders: Optional[AdReminders] = None
+    # Ostatni mail do opiekuna Pracuj.pl (27.10.2026).
+    pracuj_request: Optional[PracujRequestRead] = None
 
 
 class CareerQueueItem(BaseModel):
@@ -280,9 +323,18 @@ class LangBlocksModel(BaseModel):
     about: str = Field(default="", max_length=fixed_blocks.ABOUT_MAX_CHARS)
 
 
+class PracujCaretakerModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(default="", max_length=fixed_blocks.CARETAKER_NAME_MAX)
+    email: str = Field(max_length=fixed_blocks.CARETAKER_EMAIL_MAX)
+
+
 class FixedBlocksModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title_suffix: Literal["kmx", "km", "none"]
     pl: LangBlocksModel
     en: LangBlocksModel
+    # Brak w zapisie = zostaje zapisany opiekun (okno sprzed 27.10.2026).
+    pracuj_caretaker: Optional[PracujCaretakerModel] = None
