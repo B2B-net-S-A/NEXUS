@@ -1315,7 +1315,8 @@
    "opis": "Przepięcie przenosi CV z rekrutacji źródłowej jako szkic; komunikat po przepięciu mówi, u ilu osób",
    "file": "components/v2/jobs/SimilarJobsPanel.tsx",
    "marker": "CV z tamtej rekrutacji przeniesiono",
-   "v3_home": "okno „Kandydaci do dodania” → Podobne rekrutacje"
+   "v3_home": "okno „Kandydaci do dodania” → Podobne rekrutacje",
+   "removed_reason": "Decyzja Artura 27.10.2026 („Bez kopii CV”): zwykłe przepięcie nie przenosi CV, bo CV do klienta powstaje po trzech potwierdzeniach, a kopia dawała gotowe CV sprzed nowego screeningu. Stare CV rekruter bierze przez „Użyj gotowego CV” w karcie; kopię zostawia tylko „Match” DL-a."
   },
   {
    "id": "header.recruitment-path",
@@ -1695,6 +1696,22 @@
    "file": "components/ChampionProfileEditor.tsx",
    "marker": "simplifyToRows",
    "v3_home": "Profil Championa → Brief → „Edytuj” przy „Czego szukamy” (szuflada)"
+  },
+  {
+   "id": "champ.requirement-rare-word",
+   "area": "zlecenie",
+   "opis": "Rzadkie słowo „musi mieć” (mniej niż 20 osób w bazie): okienko pod wierszem z „Do rozmowy”, „Zostaw” i „Rozdziel” dla wariantów sklejonych ukośnikiem albo nawiasem, a w podsumowaniu „Najbardziej zawężają” — także na nowej rekrutacji",
+   "file": "components/champion/RequirementRowsEditor.tsx",
+   "marker": "RareWordCallout",
+   "v3_home": "Profil Championa → „Edytuj” przy „Czego szukamy” · nowa rekrutacja → 2 · Wymagania"
+  },
+  {
+   "id": "champ.talk-search-word",
+   "area": "zlecenie",
+   "opis": "„To słowo do szukania?” pod listą „Rekruter sprawdza w rozmowie”: pozycja, którą serwer czyta jako technologię albo słowo do szukania, a której nie ma w wierszach wymagań, dostaje liczbę osób w bazie i „Dodaj do słów do szukania” (pozycja z poziomem albo komentarzem zostaje na liście) albo „Przenieś do słów do szukania” (27.10.2026)",
+   "file": "components/champion/TalkSearchWordHints.tsx",
+   "marker": "To słowo do szukania?",
+   "v3_home": "Profil Championa → Brief → „Edytuj” przy „Czego szukamy” (szuflada) → 4 · Rekruter sprawdza w rozmowie"
   },
   {
    "id": "team.category-change",
@@ -3247,6 +3264,54 @@
    "file": "components/v2/recruitment/PreContractsList.tsx",
    "marker": "pre-contract-row",
    "v3_home": "/jobs/umowy-przedwstepne"
+  },
+  {
+   "id": "header.p0",
+   "area": "naglowek",
+   "opis": "P0 — ultrapilne przez 24 h (27.10.2026): czerwona plakietka „P0 · 23 h” zamiast poziomu, pasek nad tytułem z terminem, autorem i powodem; Head of Recruitment i administrator: „Ustaw P0” w menu priorytetu (powód, 24 h / 48 h / do piątku), „Przedłuż o 24 h”, „Zdejmij P0”",
+   "file": "components/v2/jobs/p0/JobP0Strip.tsx",
+   "marker": "job-p0-strip",
+   "v3_home": "nagłówek rekrutacji → pasek nad tytułem i menu plakietki priorytetu"
+  },
+  {
+   "id": "header.p0-option",
+   "area": "naglowek",
+   "opis": "Opcja „P0 Teraz — ultrapilne…” w menu priorytetu otwiera okno z powodem i czasem (tylko Head of Recruitment i administrator, 27.10.2026)",
+   "file": "components/v2/jobs/JobPriorityMenu.tsx",
+   "marker": "job-priority-option-p0",
+   "v3_home": "nagłówek rekrutacji → menu plakietki priorytetu, pierwsza opcja"
+  },
+  {
+   "id": "list.p0",
+   "area": "lista",
+   "opis": "Rekrutacje z P0 przypięte na górze listy przy każdym sortowaniu, czerwone tło wiersza i plakietka „P0 · 23 h” zamiast P1 (27.10.2026)",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "data-p0",
+   "v3_home": "lista /jobs → pierwsze wiersze"
+  },
+  {
+   "id": "dashboard.p0-panel",
+   "area": "pulpit",
+   "opis": "Stały panel „P0 — ultrapilne teraz” nad kafelkami pulpitu u każdego i na Daily; znika, gdy nie ma P0 (decyzja Artura 27.10.2026)",
+   "file": "components/v2/jobs/p0/P0NowPanel.tsx",
+   "marker": "p0-now-panel",
+   "v3_home": "pulpit → nad kafelkami; Daily → nad tablicą"
+  },
+  {
+   "id": "shell.p0-topbar",
+   "area": "powłoka",
+   "opis": "Czerwony przycisk „P0 teraz · N rekrutacji” w górnym pasku na każdym ekranie, klik pokazuje listę z powodami (27.10.2026)",
+   "file": "components/v2/jobs/p0/P0TopbarButton.tsx",
+   "marker": "p0-topbar-button",
+   "v3_home": "górny pasek → pierwszy przycisk"
+  },
+  {
+   "id": "daily.p0-button",
+   "area": "tablica",
+   "opis": "„P0 na 24 h” przy wierszu requestu w Daily i kafelku „Requesty i obłożenie” (po najechaniu, Head of Recruitment i administrator) — prośba Olafa „Omawiane na Daily”; P0 na górze kategorii (27.10.2026)",
+   "file": "components/v2/request-board/RequestBoard.tsx",
+   "marker": "request-row-set-p0",
+   "v3_home": "Daily → wiersz requestu"
   }
  ]
 }

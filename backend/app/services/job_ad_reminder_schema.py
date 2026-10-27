@@ -1,6 +1,6 @@
-"""Przypomnienia o brakujących ogłoszeniach — SQL migracji 0525 i lustra.
+"""Przypomnienia o brakujących ogłoszeniach — SQL migracji 0526 i lustra.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0525_job_ad_reminders.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0526_job_ad_reminders.py``
 i ``entrypoint.sh`` (alembic na prodzie bywa osierocony); test
 ``test_job_ad_reminders_migration_mirror.py`` sprawdza, że każda stoi
 w entrypoincie dosłownie.

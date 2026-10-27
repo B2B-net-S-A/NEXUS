@@ -453,3 +453,31 @@ async def test_file_attachment_goes_into_the_draft_before_send(mailbox):
     attach_at = next(i for i, url in enumerate(urls) if url.endswith("/attachments"))
     assert attach_at < send_at
     assert graph.sends == 1
+
+
+@pytest.mark.asyncio
+async def test_template_body_keeps_styles_typed_body_does_not(mailbox):
+    """Maile podpisu umów (27.10.2026): szablon NEXUSA wychodzi ze stylami,
+    tekst wpisany przez człowieka dalej bez nich."""
+    ids, graph = mailbox
+    styled = '<p style="color: #c8102e">Treść szablonu</p>'
+    async with AsyncSessionLocal() as db:
+        conn = await db.get(M365Connection, ids.connection_id)
+        await sender_mod.send_new(
+            db,
+            conn,
+            to=["kandydat@example.com"],
+            subject="Szablon",
+            body_html=styled,
+            commit_reservation=True,
+            styled_body=True,
+        )
+        await db.commit()
+    await _send(ids, body=styled)
+    drafts = [
+        body["body"]["content"]
+        for url, body in graph.bodies
+        if not url.endswith(("/send", "/attachments"))
+    ]
+    assert "color: #c8102e" in drafts[0]
+    assert "style=" not in drafts[1]

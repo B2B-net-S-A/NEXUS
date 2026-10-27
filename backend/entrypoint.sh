@@ -777,12 +777,14 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
     # 0523: nowa rekrutacja u klienta Delivery Leada (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_job_opened'",
-    # 0525: przypomnienia o brakujących ogłoszeniach (mail obowiązkowy).
+    # 0526: przypomnienia o brakujących ogłoszeniach (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_ad_missing'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_ad_backlog'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_ad_nudge'",
     # 0524: umowę za prowadzącego wygenerował ktoś inny (dzwonek do prowadzącego).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_agreement_ready'",
+    # 0525: P0 na rekrutacji — dzwonek i mail obowiązkowy do zespołu.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
@@ -5084,6 +5086,12 @@ END $$""",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS onsite_days_per_month INTEGER NULL",
     # 0420: dolna granica budżetu „od–do” (services/job_budget_range.py).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rate_budget_hourly_min NUMERIC(8,2) NULL",
+    # 0525: P0 — ultrapilne przez 24 h (services/job_p0.py).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_until TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_reason VARCHAR(300) NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_set_at TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_set_by INTEGER NULL "
+    "REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP NOT NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP DEFAULT",
     # 0282: sprawdzone wymagania wyszukiwania (wspólne dla Radaru i pipeline'u).
@@ -6115,11 +6123,20 @@ END $$""",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS cv_client_document VARCHAR(16) NOT NULL DEFAULT 'company_cv'",
     "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS client_form BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS client_form_structure JSONB NULL",
-    "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_files_client_form ON job_files (job_id) WHERE client_form AND job_id IS NOT NULL",
     # 0522: wypełniony formularz CV klienta pary osoba × rekrutacja. Lustro 1:1
     # z `client_form_schema.FILL_DDL` — PO `job_files`, na którą wskazuje klucz obcy.
     "CREATE TABLE IF NOT EXISTS candidate_client_forms (id SERIAL PRIMARY KEY, candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, job_file_id INTEGER NULL REFERENCES job_files(id) ON DELETE SET NULL, template_sha256 VARCHAR(64) NULL, fields JSONB NOT NULL DEFAULT '{}'::jsonb, extra_rows JSONB NOT NULL DEFAULT '[]'::jsonb, missing_count INTEGER NOT NULL DEFAULT 0, model VARCHAR(80) NULL, filled_at TIMESTAMPTZ NULL, filled_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT uq_candidate_client_forms_pair UNIQUE (candidate_id, job_id))",
     "CREATE INDEX IF NOT EXISTS ix_candidate_client_forms_job ON candidate_client_forms (job_id)",
+    # 0525: tabela punktowa klienta (Excel) obok formularza (Word) — rodzaj wzoru
+    # i rodzaj wypełnionego dokumentu. Lustro 1:1 z `client_form_schema.SCORE_DDL`;
+    # indeks „jeden wzór na rekrutację” z 0521 celowo tu nie stoi (SUPERSEDED_DDL).
+    "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS client_form_kind VARCHAR(8) NULL",
+    "UPDATE job_files SET client_form_kind = 'form' WHERE client_form AND client_form_kind IS NULL",
+    "DROP INDEX IF EXISTS ux_job_files_client_form",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_files_client_form_kind ON job_files (job_id, client_form_kind) WHERE client_form AND job_id IS NOT NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS kind VARCHAR(8) NOT NULL DEFAULT 'form'",
+    "ALTER TABLE candidate_client_forms DROP CONSTRAINT IF EXISTS uq_candidate_client_forms_pair",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_client_forms_pair_kind ON candidate_client_forms (candidate_id, job_id, kind)",
     # 0430: ogłoszenie rekrutacji do wklejenia na portale (Pracuj.pl,
     # JustJoin.IT). Lustro 1:1 z `app/services/job_ad_schema.py` (pilnuje
     # test_job_ads_migration_mirror).
@@ -6128,7 +6145,7 @@ END $$""",
     # Lustro 1:1 z `app/services/job_ad_publication_schema.py` (pilnuje
     # test_job_ad_publications_migration_mirror).
     "CREATE TABLE IF NOT EXISTS job_ad_publications (job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, portal VARCHAR(16) NOT NULL, url VARCHAR(500) NULL, content_hash VARCHAR(64) NOT NULL, published_at TIMESTAMPTZ NOT NULL, published_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, removed_at TIMESTAMPTZ NULL, removed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT pk_job_ad_publications PRIMARY KEY (job_id, portal), CONSTRAINT ck_job_ad_publications_portal CHECK (portal IN ('pracuj', 'jjit')))",
-    # 0525: „nie publikujemy tej rekrutacji na …” (przypomnienia o ogłoszeniach).
+    # 0526: „nie publikujemy tej rekrutacji na …” (przypomnienia o ogłoszeniach).
     # Lustro 1:1 z `app/services/job_ad_reminder_schema.py` (pilnuje
     # test_job_ad_reminders_migration_mirror).
     "CREATE TABLE IF NOT EXISTS job_ad_channel_skips (job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, channel VARCHAR(16) NOT NULL, reason VARCHAR(300) NOT NULL, created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT pk_job_ad_channel_skips PRIMARY KEY (job_id, channel), CONSTRAINT ck_job_ad_channel_skips_channel CHECK (channel IN ('kariera', 'pracuj', 'jjit')))",
@@ -9783,6 +9800,9 @@ _CONSTRAINT_STATEMENTS = [
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
     *_KEYWORD_CORPUS_INDEXES,
+    # 0525: aktywne P0 (górny pasek i pulpit u każdego).
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_p0_until "
+    "ON jobs (p0_until) WHERE p0_until IS NOT NULL",
     # 0366: najwyżej jedna żywa publikacja rekrutacji na portal.
     "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_job_postings_live_per_portal "
     "ON job_postings (job_id, portal) WHERE status IN ('publishing', 'published')",

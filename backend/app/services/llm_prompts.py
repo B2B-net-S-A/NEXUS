@@ -948,7 +948,7 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=13,
+    version=14,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -991,7 +991,7 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '  "hiring_manager_position": str|null, // jej stanowisko DOKŁADNIE z tekstu (np. z podpisu), np. "Kierownik Zespołu Rozwoju"\n'
         '  "hiring_manager_email": str|null,    // jej adres e-mail DOKŁADNIE z tekstu\n'
         '  "requirements": [                  // wymagania jako SŁOWA KLUCZOWE, nie zdania (zasady niżej)\n'
-        '    {{"words": [str], "level": "must"|"nice"}}\n'
+        '    {{"words": [str], "level": "must"|"nice", "cv_words": [str]}}\n'
         "  ],\n"
         '  "descriptive_requirements": [str], // DOSŁOWNE zdania klienta, których nie da się zapisać słowem kluczowym, oraz wymagania z wersją ("Java 17+")\n'
         '  "seniority_min_years": int|null,   // minimalne lata doświadczenia, tylko gdy podane\n'
@@ -1065,6 +1065,19 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "też JavaScript) i bez numeru wersji („Java”, nie „Java 17+”).\n"
         "- Nie wpisuj miasta, stażu (junior/senior), języka ani nazwy roli — "
         "do tego są osobne pola.\n"
+        "- cv_words: klient często nazywa wymaganie po swojemu („Crisis plans”, "
+        "„Manual recovery procedures”, „Konsolidacja statusów”, „SteerCo "
+        "Reporting”), a kandydaci piszą w CV ogólniejszym słowem branżowym. "
+        "Wtedy podaj 1–2 takie słowa, którymi ludzie z tym doświadczeniem "
+        "opisują je w CV: OGÓLNIEJSZE niż fraza klienta, zwykle po angielsku, "
+        "najwyżej 2 słowa — nazwa dziedziny albo umiejętności, nie jej "
+        "doprecyzowanie („Crisis plans” → „Crisis Management”, nie „Crisis "
+        "Management Plan”; „SteerCo Reporting” → „Steering Committee”, "
+        "„PMO”). Może to być słowo, które jest już innym wierszem. "
+        "Tych słów nie musi być w mailu: kod sprawdza je w naszej bazie i "
+        "wstawia do wiersza tylko wtedy, gdy fraza klienta ma w bazie prawie "
+        "nikogo. Dla technologii, nazw własnych i skrótów pisanych w CV tak "
+        "samo jak w mailu („Java”, „DORA”, „NIS2”) cv_words = [].\n"
         "Zdania opisowe (descriptive_requirements): wymagania, których nie da "
         "się uczciwie zapisać słowem kluczowym („doświadczenie we wdrażaniu "
         "funkcjonalności w systemach bankowych”, „wykształcenie wyższe "
@@ -1775,7 +1788,7 @@ AUTOFILL_QUALITY_REPORT = PromptTemplate(
 
 CLIENT_FORM_FILL = PromptTemplate(
     name="client_form_fill",
-    version=2,
+    version=3,
     expected_format="json",
     system_prompt=(
         "Wypełniasz formularz CV klienta (dokument przetargowy) danymi "
@@ -1787,7 +1800,7 @@ CLIENT_FORM_FILL = PromptTemplate(
         "wzoru, sekcja, tabela):\n{fields}\n\n"
         "Tabele, do których można dopisać kolejne wiersze (klucze kolumn jak "
         '"c2"):\n{tables}\n\n'
-        "{cv}\n\n{notes}\n\n"
+        "{cv}\n\n{notes}\n\n{rules}\n\n"
         "Zasady:\n"
         '- Wpisuj WYŁĄCZNIE fakty z CV i notatek. Każda wartość ma "quote": '
         "fragment CV albo notatki skopiowany znak w znak, który ją potwierdza — "
@@ -1806,6 +1819,10 @@ CLIENT_FORM_FILL = PromptTemplate(
         "- Doświadczenie zawodowe od najnowszego. Najpierw wiersze wzoru, "
         'kolejne stanowiska w "extra_rows" — tylko dla tabel z listy wyżej, '
         "najwyżej 10 wierszy na tabelę.\n"
+        '- Pole z "max_points": liczba punktów według <scoring_rules> — '
+        "liczba całkowita od 0 do max_points, policzona z faktów w CV i notatkach "
+        '(np. lata doświadczenia); "quote" to fragment, z którego wynika. '
+        "Bez zasad oceny albo bez faktu pomiń pole.\n"
         "- Nigdy nie wpisuj stawki, wynagrodzenia, dostępności, telefonu, "
         "e-maila ani adresu (miasto zamieszkania wolno).\n\n"
         "Zwróć JSON:\n"

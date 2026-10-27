@@ -69,6 +69,7 @@ import {
   type TimelineTone,
 } from "./person-view";
 
+import { formatPhone } from "@/lib/phone-format";
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-1.5 text-sm last:border-b-0">
@@ -491,7 +492,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
               <a className="text-primary hover:underline" href={`mailto:${data.email}`}>
                 {data.email}
               </a>
-              {data.phone ? <span className="text-foreground">{data.phone}</span> : null}
+              {data.phone ? <span className="text-foreground">{formatPhone(data.phone)}</span> : null}
               <span className="text-muted-foreground">
                 domyślnie: {LOCATION_LABELS[data.default_location].toLowerCase()}
               </span>

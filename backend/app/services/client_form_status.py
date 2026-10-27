@@ -18,7 +18,7 @@ from app.models.candidate_client_form import CandidateClientForm
 from app.models.client import Client
 from app.models.job import Job
 from app.models.job_file import JobFile
-from app.services.client_form_schema import CLIENT_FORM
+from app.services.client_form_schema import CLIENT_FORM, KIND_FORM
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,9 @@ async def job_states(
     ids = list(candidate_ids)
     template = await db.scalar(
         select(JobFile.filename).where(
-            JobFile.job_id == job_id, JobFile.client_form.is_(True)
+            JobFile.job_id == job_id,
+            JobFile.client_form.is_(True),
+            JobFile.client_form_kind == KIND_FORM,
         )
     )
     missing: dict[int, int] = {}
@@ -64,6 +66,7 @@ async def job_states(
                 CandidateClientForm.candidate_id, CandidateClientForm.missing_count
             ).where(
                 CandidateClientForm.job_id == job_id,
+                CandidateClientForm.kind == KIND_FORM,
                 CandidateClientForm.candidate_id.in_(ids),
             )
         )

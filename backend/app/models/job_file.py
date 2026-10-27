@@ -38,8 +38,9 @@ class JobFile(Base, TimestampMixin):
             postgresql_where=text("intake_form_id IS NOT NULL"),
         ),
         Index(
-            "ux_job_files_client_form",
+            "ux_job_files_client_form_kind",
             "job_id",
+            "client_form_kind",
             unique=True,
             postgresql_where=text("client_form AND job_id IS NOT NULL"),
         ),
@@ -65,11 +66,14 @@ class JobFile(Base, TimestampMixin):
     uploaded_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    # Wzór formularza CV klienta (0521, ``client_form_schema.py``): najwyżej
-    # jeden na rekrutację; struktura to pola odczytane z DOCX przy oznaczeniu.
+    # Wzór dokumentu klienta (0521/0525, ``client_form_schema.py``); struktura
+    # to pola odczytane z pliku przy oznaczeniu.
     client_form: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
     client_form_structure: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB, nullable=True
     )
+    # 0525: „form” (Word, formularz CV) albo „score” (Excel, tabela punktowa);
+    # najwyżej jeden wzór każdego rodzaju na rekrutację.
+    client_form_kind: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)

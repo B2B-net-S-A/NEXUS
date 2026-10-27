@@ -200,9 +200,36 @@ export const BROAD_WORD_PEOPLE = 15_000;
  */
 export function rowCountHint(count: number | null | undefined): string | null {
   if (count == null) return null;
-  if (count === 0) return "Nikt w bazie nie ma tego słowa — sprawdź pisownię.";
   if (count > BROAD_WORD_PEOPLE) return "Słowo bardzo ogólne — zawęź (np. dodaj technologię).";
   return null;
+}
+
+/**
+ * Poniżej tylu osób w bazie słowo „musi mieć” opisuje wymaganie inaczej, niż
+ * ludzie piszą o nim w CV. Pomiar 27.10.2026 na 129 profilach z wierszami:
+ * 49 wierszy „musi mieć” miało mniej niż 10 osób („Crisis plans” 0,
+ * „SteerCo Reporting” 9), a w 50 rekrutacjach wszystkie „musi mieć” razem
+ * nie zostawiały nikogo.
+ */
+export const RARE_WORD_PEOPLE = 20;
+
+export function isRareRowCount(count: number | null | undefined): count is number {
+  return typeof count === "number" && count < RARE_WORD_PEOPLE;
+}
+
+/**
+ * Warianty sklejone w jednym słowie ukośnikiem bez spacji albo nawiasem:
+ * „SoapUI/ReadyAPI” to fraza „SoapUI ReadyAPI” (5 osób), a osobno SoapUI ma
+ * 2 289. Pytamy tylko przy rzadkim słowie — „CI/CD” i „PL/SQL” to jedno słowo
+ * i mają tysiące osób, więc tu nie trafiają.
+ */
+export function gluedVariants(word: string): string[] | null {
+  if (!/[/()]/.test(word)) return null;
+  const parts = word
+    .split(/[/(),]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 2);
+  return parts.length >= 2 ? parts : null;
 }
 
 export function setRowLevel(
@@ -708,6 +735,100 @@ export function talkTextFor(reading: PhraseReading, words: readonly string[]): s
   if (typed == null) return fallback;
   const full = sanitizeKeyword(typed).normalize("NFC").replace(/[ .]+$/, "");
   return full.length > reading.text.length ? full : fallback;
+}
+
+// ── Słowo do szukania schowane na liście do rozmowy (27.10.2026) ──
+//
+// Lista „Rekruter sprawdza w rozmowie” nie bierze udziału w wyszukiwaniu.
+// Pomiar 27.10.2026 (129 profili): technologia wpisana tylko tam to rzadkość,
+// ale wtedy wyszukiwanie gubi prawdziwe wymaganie — 663525 ma „Alteryx
+// (good/advanced)” na liście, a w wierszach „Data handling” i „Reporting”.
+
+/**
+ * Nazwa pozycji bez komentarza na końcu: „Excel — advanced” (tak zapis sam
+ * pisze poziom z rozdzielonego wiersza, `talk_text`) i „Alteryx
+ * (good/advanced)”. Czy to, co zostaje, jest słowem do szukania, mówi serwer.
+ */
+export function talkItemHead(name: string): string {
+  const text = name.trim();
+  const dash = text.search(/\s[—–-]\s/);
+  const head = dash > 0 ? text.slice(0, dash) : text.replace(/\s*\([^()]*\)\s*$/, "");
+  return head.trim() || text;
+}
+
+/** Teksty pozycji do odczytu: pełna nazwa i nazwa bez komentarza (gdy inna). */
+export function talkItemTexts(items: readonly ExperienceItem[]): string[] {
+  const out: string[] = [];
+  for (const item of items) {
+    for (const text of [item.name.trim(), talkItemHead(item.name)]) {
+      if (text && !out.some((t) => fold(t) === fold(text))) out.push(text);
+    }
+  }
+  return out;
+}
+
+export interface TalkSearchWord {
+  item: ExperienceItem;
+  /** Słowa nowego wiersza („SQL lub PostgreSQL” → dwa warianty). */
+  words: string[];
+  /** Pozycja zostaje na liście, bo niesie poziom albo komentarz. */
+  keepItem: boolean;
+}
+
+const SEARCH_WORD_KINDS = new Set<PhraseReading["kind"]>(["technology", "keyword"]);
+const bare = (word: string) => fold(word.replace(/\*+$/, ""));
+
+/**
+ * Słowo już jest w wierszach: samo albo każdym członem — „Python + SQL”
+ * z 789160 serwer czyta jako jedno słowo, a Python i SQL to osobne wiersze.
+ */
+function coveredByRows(word: string, inRows: ReadonlySet<string>): boolean {
+  if (inRows.has(bare(word))) return true;
+  const parts = word.split(/\s*[+,&/]\s*|\s+/).filter((part) => part.length > 1);
+  return parts.length > 1 && parts.every((part) => inRows.has(bare(part)));
+}
+
+/**
+ * Pozycje listy do rozmowy, które serwer czyta jako technologię albo słowo
+ * do szukania (`readings` po tekście z `talkItemTexts`), a żadnego ich słowa
+ * nie ma w wierszach wymagań. Pozycja, której słowo już jest w wierszach
+ * („GCP”, „BigQuery” w 789160), nie dostaje podpowiedzi.
+ */
+export function talkSearchWords(
+  items: readonly ExperienceItem[],
+  readings: Readonly<Record<string, PhraseReading | undefined>>,
+  rows: readonly RequirementRowForm[],
+): TalkSearchWord[] {
+  const inRows = new Set(filledRows(rows).flatMap((row) => row.words.map(bare)));
+  const out: TalkSearchWord[] = [];
+  for (const item of items) {
+    const name = item.name.trim();
+    const head = talkItemHead(name);
+    const reading = [readings[name], readings[head]].find(
+      (r) => r != null && r.keyword && SEARCH_WORD_KINDS.has(r.kind),
+    );
+    if (!reading?.keyword) continue;
+    const words = cleanWords(reading.keyword.split(" lub "));
+    if (words.length === 0 || words.some((word) => coveredByRows(word, inRows))) continue;
+    if (out.some((hint) => hint.words.some((word) => words.some((w) => fold(w) === fold(word)))))
+      continue;
+    const keepItem =
+      fold(head) !== fold(name) ||
+      reading.comment != null ||
+      Boolean(item.note?.trim()) ||
+      item.min_years != null;
+    out.push({ item, words, keepItem });
+  }
+  return out;
+}
+
+/** Wiersz ze słowem z listy do rozmowy — poziom jak pozycja („Mile” → mile widziane). */
+export function addTalkSearchRow(
+  rows: readonly RequirementRowForm[],
+  hint: TalkSearchWord,
+): RequirementRowForm[] {
+  const level: RequirementLevel = hint.item.level === "nice" ? "nice" : nextRowLevel(rows);
+  return [...filledRows(rows), { key: newRowKey(), words: hint.words, level }];
 }
 
 /** Limity listy „Rekruter sprawdza w rozmowie” (`EXPERIENCE_ITEMS_MAX`, `…_MAX_CHARS`). */

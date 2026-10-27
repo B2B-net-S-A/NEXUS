@@ -282,3 +282,45 @@ describe("0521: wzór formularza CV klienta", () => {
     expect(screen.queryByText("Ustaw jako wzór formularza CV klienta")).toBeNull();
   });
 });
+
+describe("0525: tabela punktowa klienta (Excel)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("Excel to drugi wzór — własna plakietka i akcja", async () => {
+    mocks.fetchJobFiles.mockResolvedValue(
+      response({
+        client_document: "client_form",
+        items: [
+          file({
+            id: 5,
+            filename: "Zal 4b Formularz CV.docx",
+            source: "upload",
+            client_form: true,
+            client_form_kind: "form",
+          }),
+          file({
+            id: 8,
+            filename: "Zal 5b Tabela punktowa.xlsx",
+            source: "upload",
+            client_form: true,
+            client_form_kind: "score",
+            client_form_summary: "7 pól do wypełnienia",
+          }),
+          file({ id: 9, filename: "tabela v2.xlsx", source: "upload" }),
+        ],
+      }),
+    );
+    mocks.markJobFileClientForm.mockResolvedValue(file({ id: 9 }));
+    renderPanel();
+    const badges = await screen.findAllByTestId("job-file-client-form-badge");
+    expect(badges.map((badge) => badge.textContent)).toEqual([
+      "Wzór formularza",
+      "Tabela punktowa",
+    ]);
+    expect(screen.getByText("NEXUS wypełni tę tabelę punktową za każdą osobę")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Ustaw jako tabelę punktową klienta"));
+    await waitFor(() => expect(mocks.markJobFileClientForm).toHaveBeenCalledWith(7, 9, true));
+  });
+});

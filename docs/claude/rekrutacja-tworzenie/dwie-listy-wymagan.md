@@ -65,7 +65,8 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   searchu (5 z 6 takich rekrutacji nie miało ani jednej propozycji AI).
 - **„Wymagania do poprawy” (D4).** `services/requirement_cleanup.build_proposal(job)` liczy na
   żywo propozycję dla otwartej rekrutacji (powody: `prose_column`, `paren`, `prose_rows`,
-  `critical_not_searchable`, `no_search_words`). Propozycji nie zapisujemy; tabela
+  `critical_not_searchable`, `no_search_words`, `rare_word` — ten ostatni:
+  `rzadkie-slowo-w-wymaganiach-do-poprawy.md`). Propozycji nie zapisujemy; tabela
   `requirement_cleanup_decisions` (0438, lustro DDL w entrypoincie, sonda w `/api/health/deep`)
   trzyma ostatnią decyzję i odcisk profilu — odrzucona wraca dopiero po zmianie profilu.
   Nic nie znika po „Zatwierdź”: limity wierszy (10 + 20) liczone są PO przeniesieniu zdań
@@ -108,5 +109,51 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   - `requirement_cleanup.load_fixes_safely` przy awarii oddaje `None`, nie
     pustą listę — awaria nie może wyglądać jak „nic do poprawy”.
   - `critical_not_searchable` — patrz decyzja B w `umiejetnosci-krytyczne-i-bramka-v9.md`.
+- **27.10.2026 — rzadkie słowo „musi mieć” (pomiar 129 profili z wierszami, kopia z 22.10).**
+  Zdań w wierszach już nie ma, ale 49 z 886 wierszy „musi mieć” miało mniej niż 10 osób
+  w bazie (12 zero): pojęcia przepisane z requestu klienta („Crisis plans” 0 obok
+  „Business Continuity” 773), polska odmiana („monitoringu produkcji” 2) i warianty
+  sklejone ukośnikiem bez spacji („SoapUI/ReadyAPI” 5, SoapUI osobno 2 289). W 50
+  rekrutacjach wszystkie „musi mieć” razem dawały 0 osób, a edytor pokazywał samo „~0”.
+  - Wiersz obowiązkowy z mniej niż `RARE_WORD_PEOPLE` (20) osobami dostaje
+    `RareWordCallout`: „Do rozmowy”, „Zostaw” i — gdy `gluedVariants` rozbija słowo, a części
+    mają więcej osób niż całość — „Rozdziel”. Nic nie blokuje; niszowa technologia bywa rzadka.
+    Przy zerze nie piszemy już „sprawdź pisownię” — pisownia zwykle jest dobra, to inne słowo.
+  - Gdy „wszystkie naraz” < 20, podsumowanie wymienia do trzech najrzadszych wierszy
+    („Najbardziej zawężają: …”). AI i „Szukaj w bazie” dalej filtrują tylko po krytycznych.
+  - Ukośnik bez spacji nie dzieli słowa przy wpisie („CI/CD”, „PL/SQL”) — „Rozdziel” pojawia
+    się dopiero przy rzadkim wierszu, więc popularne słowa z ukośnikiem zostają nietknięte.
+  - Licznik osób nie wysyła wiersza ze słowem krótszym niż 2 znaki („C”): lista kandydatów
+    odpowiada wtedy 422 i całe „naraz” kończyło się „nie policzono” (789124). Ta sama reguła
+    co `jobListFilters` w „Szukaj w bazie”.
+- **27.10.2026 — „To słowo do szukania?” pod listą do rozmowy.** Pomiar na 129 profilach:
+  technologia wpisana tylko w `experience.skills` to rzadkość, ale wtedy wyszukiwanie gubi
+  prawdziwe wymaganie (663525: „Alteryx (good/advanced)”, w wierszach „Data handling”,
+  „Reporting”). Edytor Championa czyta pozycje listy tym samym odczytem co wiersze
+  (`critical-suggestion` → `readings`, każda pozycja i jej nazwa bez komentarza — „ — poziom”,
+  „(poziom)” — jako osobny wiersz) i przy `technology` / `keyword`, którego żadne słowo nie
+  stoi w wierszach (ani każdy człon: „Python + SQL” przy wierszach Python i SQL), pokazuje
+  liczbę osób w bazie i przycisk. Pozycja z poziomem, komentarzem, notatką albo latami zostaje
+  na liście („Dodaj do słów do szukania”), sama nazwa się przenosi („Przenieś…”). Nowy wiersz
+  ma poziom pozycji („Mile” → mile widziane). Nic nie zapisuje się bez „Zapisz”.
+  `components/champion/TalkSearchWordHints.tsx`, inwentarz `champ.talk-search-word`.
 - Harness `/preview/new-job?state=readings`, karta propozycji `/preview/recruitment-v3`,
   „Szukaj w bazie” `/preview/job-detail?sources=search`, lista `/preview/custom-dashboard`.
+- **27.10.2026 — fraza klienta bez ludzi w bazie → słowo z CV (odczyt requestu v14).**
+  Pomiar na 129 Profilach Championa (kopia z 22.10): 97 z 886 wierszy „musi mieć” miało
+  mniej niż 50 osób. 61 z nich przyszło z jednorazowego importu dokumentów Championa
+  z Traffita (22.09, `scripts/champion_backfill.py`; frazy stały 1:1 w „MUST-HAVE” pliku
+  DL-a, np. 646394 „Crisis plans”), 31 — z odczytu requestu w `/jobs/new` (65 z 68
+  profili założonych w NEXUSIE miało `champion_draft` autora do 2 h przed założeniem),
+  bo prompt każe brać słowa wyłącznie z maila. Import z Traffita nie działa od 14.10.
+  - `JOB_REQUEST_INTAKE` v14 prosi przy wierszu o `cv_words` (1–2 słowa, którymi ludzie
+    piszą to w CV; nie muszą stać w mailu). `job_request_intake.apply_people_reach`
+    liczy osoby (`services/requirement_reach.people_reach` — ten sam filtr co licznik
+    „W bazie”: aktywni i pasywni, semantyka 2, `q_any_group`, liczone do progu 20 przez
+    `LIMIT`, bo pełna liczba „Java” to ~20 s). Wiersz z mniej niż 20 osobami dostaje słowo
+    z CV, które samo ma co najmniej 20 osób; fraza klienta idzie do `experience.skills`
+    („Rekruter sprawdza w rozmowie”), a uwaga odczytu pokazuje oba słowa. Słowo, które
+    jest już innym wierszem, nie wchodzi jako wariant (wiersz się scala). Bez słowa z CV
+    ≥ 20 wiersz zostaje, jak go odczytano — edytor ostrzega (#2698).
+  - Wynik to dodatek: awaria bazy albo sufit 8 s (`REACH_TIMEOUT_S`) zostawia odczyt bez
+    zmian. Słowa z CV oznaczają źródło wierszy jako „ai”, nie „z maila”.

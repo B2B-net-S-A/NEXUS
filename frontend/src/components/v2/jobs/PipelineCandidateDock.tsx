@@ -2274,6 +2274,15 @@ export function PipelineCandidateDock({
                 onGenerateCompanyCv={() => setOpenGenerator(true)}
               />
             ) : null}
+            {/* 0525: tabela punktowa klienta (Excel) — tylko gdy jest jej wzór. */}
+            {item.client_form ? (
+              <ClientFormCard
+                kind="score"
+                stageId={item.id}
+                candidateName={fullName}
+                readOnly={readOnly}
+              />
+            ) : null}
             {/* Dwa dokumenty, dwa zdania, a pod każdym jego akcje (D1, 14.10.2026):
                 CV firmowe pary i oryginał — ze zgłoszenia albo z profilu. Brak
                 kopii w zgłoszeniu to nie „brak CV”, jeśli profil je ma. */}

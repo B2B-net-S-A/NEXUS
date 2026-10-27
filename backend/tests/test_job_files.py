@@ -531,7 +531,7 @@ async def test_editor_marks_one_form_per_job_and_gets_reasons_in_polish(
         f"{url}/{pdf['id']}", json={"client_form": True}, headers=app_auth_headers
     )
     assert not_word.status_code == 422
-    assert not_word.json()["detail"] == client_form_structure.MSG_NOT_DOCX
+    assert not_word.json()["detail"] == job_files.MSG_TEMPLATE_TYPE
     not_form = await app_client.patch(
         f"{url}/{plain['id']}", json={"client_form": True}, headers=app_auth_headers
     )

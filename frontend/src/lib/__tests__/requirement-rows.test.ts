@@ -23,6 +23,8 @@ import {
   requiredOverflowNotice,
   requiredRows,
   rowCountHint,
+  gluedVariants,
+  isRareRowCount,
   rowCriticalInfo,
   rowHead,
   rowsFromStored,
@@ -212,11 +214,28 @@ describe("limity poziomów (lustro serwera)", () => {
   it("podpowiedź przy liczbie osób: słowo bardzo ogólne albo nieznane w bazie", () => {
     expect(rowCountHint(15_001)).toBe("Słowo bardzo ogólne — zawęź (np. dodaj technologię).");
     expect(rowCountHint(15_000)).toBeNull();
-    expect(rowCountHint(0)).toBe("Nikt w bazie nie ma tego słowa — sprawdź pisownię.");
+    // Zero i rzadkie słowo mówi okno pod wierszem (`RareWordCallout`).
+    expect(rowCountHint(0)).toBeNull();
     expect(rowCountHint(42)).toBeNull();
     // „liczę…” i „nie policzono” to nie zero.
     expect(rowCountHint(undefined)).toBeNull();
     expect(rowCountHint(null)).toBeNull();
+  });
+
+  it("rzadkie słowo: poniżej 20 osób; „liczę…” i „nie policzono” nie są rzadkie", () => {
+    expect(isRareRowCount(0)).toBe(true);
+    expect(isRareRowCount(19)).toBe(true);
+    expect(isRareRowCount(20)).toBe(false);
+    expect(isRareRowCount(undefined)).toBe(false);
+    expect(isRareRowCount(null)).toBe(false);
+  });
+
+  it("warianty sklejone ukośnikiem albo nawiasem (pomiar 27.10.2026)", () => {
+    expect(gluedVariants("SoapUI/ReadyAPI")).toEqual(["SoapUI", "ReadyAPI"]);
+    expect(gluedVariants("GitOps (ArgoCD/FluxCD)")).toEqual(["GitOps", "ArgoCD", "FluxCD"]);
+    expect(gluedVariants("Kafka")).toBeNull();
+    // Część krótsza niż 2 znaki odpada — „z/OS” nie ma czego rozdzielać.
+    expect(gluedVariants("z/OS")).toBeNull();
   });
 
   it("klucze nowych wierszy się nie powtarzają", () => {

@@ -26,6 +26,7 @@ import {
   TOPBAR_HEADER_CLASS,
   TOPBAR_SEARCH_CLASS,
 } from "./topbar-layout";
+import { P0TopbarButton } from "@/components/v2/jobs/p0/P0TopbarButton";
 
 interface Props {
   onOpenMobileSidebar: () => void;
@@ -88,6 +89,8 @@ export function TopbarV2({
       </button>
 
       <div className={TOPBAR_ACTIONS_CLASS}>
+        {/* P0 — ultrapilne rekrutacje (27.10.2026): u każdego, przed resztą. */}
+        <P0TopbarButton />
         {/* Liga Mistrzów: miejsce i punkty kwartału — nie ściska się, cele oddają segmenty. */}
         <MyLeagueWidget className="hidden md:block" />
         <MyKpiWidget variant="compact" className="hidden md:block" />

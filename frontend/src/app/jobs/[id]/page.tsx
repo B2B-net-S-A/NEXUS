@@ -66,6 +66,7 @@ import {
 import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStrip";
 import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
 import { JobPriorityMenu } from "@/components/v2/jobs/JobPriorityMenu";
+import { JobP0Strip } from "@/components/v2/jobs/p0/JobP0Strip";
 import { JobRecruiterFact } from "@/components/v2/jobs/JobRecruiterFact";
 import { useJobTeamPermissions } from "@/components/v2/jobs/useJobTeamPermissions";
 import { useRailCollapsed } from "@/components/v2/shell/OpenTabsRail";
@@ -905,11 +906,18 @@ export default function JobDetailPage() {
         // Klient · Budżet · Tryb pracy (02.10.2026) i od 14.10.2026 „Rekruter”
         // z okienkiem zespołu. DL, hiring manager i termin — „Profil Championa”.
         facts={jobHeaderFacts(job)}
+        // P0 — ultrapilne przez 24 h (27.10.2026): do kiedy, kto i po co.
+        p0Strip={
+          <JobP0Strip jobId={jobId} job={job} canSet={job.can_set_p0 === true} />
+        }
         priority={
           <JobPriorityMenu
             jobId={jobId}
             level={priorityLevelOf(job)}
             canSet={canSetPriority}
+            p0={job}
+            canSetP0={job.can_set_p0 === true}
+            jobTitle={job.working_title || job.title}
             // P1 wstrzymany, bo mamy championa (D6, 15.10.2026).
             paused={job.priority_paused === true}
             // Zejście z P1 przenosi zespół do „Poprzedni rekruter” — menu pyta.

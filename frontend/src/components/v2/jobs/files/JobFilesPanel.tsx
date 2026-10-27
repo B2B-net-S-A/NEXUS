@@ -256,7 +256,7 @@ export function JobFilesPanel({
                       className="mr-1.5 rounded-full bg-success-muted px-1.5 py-0.5 font-medium text-success-muted-foreground"
                       data-testid="job-file-client-form-badge"
                     >
-                      Wzór formularza
+                      {file.client_form_kind === "score" ? "Tabela punktowa" : "Wzór formularza"}
                     </span>
                   ) : null}
                   {formatFileSize(file.size_bytes)} · dodano {formatIsoDatePl(file.created_at)}
@@ -302,7 +302,11 @@ export function JobFilesPanel({
               </div>
               {takesForm && file.client_form ? (
                 <div className="ml-7 mt-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-                  <p className="font-medium text-foreground">NEXUS wypełni ten formularz za każdą osobę</p>
+                  <p className="font-medium text-foreground">
+                    {file.client_form_kind === "score"
+                      ? "NEXUS wypełni tę tabelę punktową za każdą osobę"
+                      : "NEXUS wypełni ten formularz za każdą osobę"}
+                  </p>
                   {file.client_form_summary ? <p>{file.client_form_summary}</p> : null}
                   {canEdit ? (
                     <button
@@ -315,14 +319,16 @@ export function JobFilesPanel({
                     </button>
                   ) : null}
                 </div>
-              ) : takesForm && canEdit && /\.docx$/i.test(file.filename) ? (
+              ) : takesForm && canEdit && /\.(docx|xlsx)$/i.test(file.filename) ? (
                 <button
                   type="button"
                   className="ml-7 mt-1 self-start text-xs font-medium text-primary underline"
                   disabled={busyId === file.id}
                   onClick={() => void markForm(file, true)}
                 >
-                  Ustaw jako wzór formularza CV klienta
+                  {/\.xlsx$/i.test(file.filename)
+                    ? "Ustaw jako tabelę punktową klienta"
+                    : "Ustaw jako wzór formularza CV klienta"}
                 </button>
               ) : null}
             </li>

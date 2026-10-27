@@ -291,12 +291,6 @@ export function useSimilarJobsTab(
             ? `Dodano ${restAdded} ${pluralPeople(restAdded)} do Nowych.`
             : "Połączono rekrutacje.",
       );
-      // 12.10.2026: CV z rekrutacji źródłowej przechodzi jako szkic — automat
-      // po „Zweryfikowany” nie generuje wtedy nowego.
-      const carried = result.cv_carried?.length ?? 0;
-      if (carried > 0) {
-        parts.push(`CV z tamtej rekrutacji przeniesiono u ${carried} z ${result.total_added}.`);
-      }
       if (result.total_added > 0 && restAdded > 0) {
         parts.push(`Dodano też ${restAdded} ${pluralPeople(restAdded)} spoza wysłanych do klienta.`);
       }
