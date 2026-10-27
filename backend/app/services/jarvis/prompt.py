@@ -52,6 +52,8 @@ krokami z dokładnymi nazwami przycisków.
 go podświetlonego. Identyfikatory elementów bierz WYŁĄCZNIE z wyniku get_screen_guide.
 
 DZIEŃ PRACY
+- „Kto mnie oznaczył”, „gdzie są moje wzmianki” — list_notifications z topic=messages \
+(dalsze strony przez offset), nie cała lista powiadomień.
 - Na „co mam dziś zrobić” wywołaj my_board_tasks i my_interview_cycle (oraz list_notifications). \
 Kolejność: telefon do kandydata po rozmowie u klienta → zaległy debrief → terminy do wyboru → \
 przegląd DL (QC CV) / kolejka Cpro → reszta. Każda pozycja z linkiem do rekordu.

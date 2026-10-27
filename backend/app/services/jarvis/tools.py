@@ -977,13 +977,49 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
     JarvisTool(
         name="list_notifications",
         label="Czytam powiadomienia",
-        description="Powiadomienia użytkownika (nieprzeczytane najpierw).",
-        input_schema=_schema({"limit": LIMIT}),
+        description=(
+            "Powiadomienia użytkownika (nieprzeczytane najpierw). `topic` zawęża do "
+            "tematów ikon paska: messages (czaty i wzmianki w notatkach — „kto mnie "
+            "oznaczył”), interviews (rozmowy u klienta), cv, my_people, jobs "
+            "(rekrutacje i ruchy kandydatów), contracts, other. `offset` = starsze "
+            "pozycje (kolejna strona)."
+        ),
+        input_schema=_schema(
+            {
+                "limit": LIMIT,
+                "topic": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "messages",
+                            "interviews",
+                            "cv",
+                            "my_people",
+                            "jobs",
+                            "contracts",
+                            "other",
+                        ],
+                    },
+                    "maxItems": 7,
+                },
+                "offset": {"type": "integer", "minimum": 0, "maximum": 500},
+            }
+        ),
         tier="read",
         method="GET",
         path="/api/notifications",
         section=None,
-        build=lambda a: _get("/api/notifications", {"limit": _limit(a)}),
+        build=lambda a: _get(
+            "/api/notifications",
+            _clean(
+                {
+                    "limit": _limit(a),
+                    "topic": [str(t) for t in (a.get("topic") or [])][:7],
+                    "offset": a.get("offset"),
+                }
+            ),
+        ),
         shape=pick_list(
             (
                 "id",
