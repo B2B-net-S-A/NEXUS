@@ -486,7 +486,9 @@ async def company_people(
         truncated=result.truncated,
         people=result.people,
         group=group,
-        dates_backfill=company.dates_backfill,
+        dates_backfill=company_dates.visible_state(
+            company.dates_backfill, now=datetime.now(timezone.utc)
+        ),
     )
 
 
@@ -502,7 +504,7 @@ async def fill_people_dates(
     if company is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
     state = company.dates_backfill or {}
-    if state.get("status") == "running":
+    if company_dates.is_running(state, now=datetime.now(timezone.utc)):
         return {"scheduled": False, "state": state}
     scheduled = company_dates.schedule_company_dates(company_id)
     if not scheduled:

@@ -19,12 +19,35 @@ NOW = datetime(2026, 10, 26, 12, tzinfo=timezone.utc)
 
 def test_needs_run_once_and_again_after_thirty_days() -> None:
     assert company_dates.needs_run(None, now=NOW)
-    assert not company_dates.needs_run({"status": "running"}, now=NOW)
+    assert not company_dates.needs_run(
+        {"status": "running", "started_at": (NOW - timedelta(minutes=5)).isoformat()},
+        now=NOW,
+    )
     fresh = {"status": "done", "finished_at": (NOW - timedelta(days=3)).isoformat()}
     stale = {"status": "done", "finished_at": (NOW - timedelta(days=31)).isoformat()}
     assert not company_dates.needs_run(fresh, now=NOW)
     assert company_dates.needs_run(stale, now=NOW)
     assert company_dates.needs_run({"status": "failed"}, now=NOW)
+
+
+def test_run_orphaned_by_a_restart_is_not_running_forever() -> None:
+    """Wdrożenie restartuje kontener w trakcie biegu — stan „running” zostaje,
+    a zadania już nie ma. Bez tej reguły firma nigdy nie dostałaby dat."""
+    live = {
+        "status": "running",
+        "started_at": (NOW - timedelta(minutes=20)).isoformat(),
+    }
+    orphaned = {
+        "status": "running",
+        "started_at": (NOW - timedelta(hours=3)).isoformat(),
+    }
+    assert not company_dates.needs_run(live, now=NOW)
+    assert company_dates.needs_run(orphaned, now=NOW)
+    assert company_dates.is_running(live, now=NOW)
+    assert not company_dates.is_running(orphaned, now=NOW)
+    assert not company_dates.is_running({"status": "running"}, now=NOW)
+    assert company_dates.visible_state(orphaned, now=NOW)["status"] == "failed"
+    assert company_dates.visible_state(live, now=NOW) == live
 
 
 @pytest.mark.asyncio

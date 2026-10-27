@@ -41,13 +41,45 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+#: Bieg „running” starszy niż tyle jest porzucony — wieczorne wdrożenie
+#: restartuje kontener, zadanie w tle ginie, a stan przy firmie zostaje.
+#: 1000 osób to kilkanaście minut, więc 2 h to bezpieczny zapas.
+ORPHANED_AFTER = timedelta(hours=2)
+
+
+def _parse(value: Any) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def is_running(state: Optional[dict[str, Any]], *, now: datetime) -> bool:
+    """Bieg naprawdę trwa: status „running” i start nie dawniej niż ``ORPHANED_AFTER``."""
+
+    if not state or state.get("status") != "running":
+        return False
+    started = _parse(state.get("started_at"))
+    return started is not None and now - started < ORPHANED_AFTER
+
+
+def visible_state(
+    state: Optional[dict[str, Any]], *, now: datetime
+) -> Optional[dict[str, Any]]:
+    """Stan dla panelu: porzucony bieg pokazujemy jako nieudany (z przyciskiem)."""
+
+    if state and state.get("status") == "running" and not is_running(state, now=now):
+        return {**state, "status": "failed"}
+    return state
+
+
 def needs_run(state: Optional[dict[str, Any]], *, now: datetime) -> bool:
-    """Czy firma potrzebuje biegu: nigdy nie było, padł, albo jest stary."""
+    """Czy firma potrzebuje biegu: nigdy nie było, padł, porzucony albo stary."""
 
     if not state:
         return True
     if state.get("status") == "running":
-        return False
+        return not is_running(state, now=now)
     finished = state.get("finished_at")
     if state.get("status") == "done" and finished:
         try:
