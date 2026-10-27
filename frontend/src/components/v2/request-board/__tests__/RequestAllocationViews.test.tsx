@@ -17,6 +17,13 @@ import { EMPTY_FILTERS, type BoardFilters } from "@/lib/request-board"
 
 const TODAY = "2026-09-24"
 
+/** Zaznacza pozycje w liście filtra (kilka wartości naraz) i zamyka okno. */
+async function pick(user: ReturnType<typeof userEvent.setup>, field: string, ...options: string[]) {
+  await user.click(screen.getByLabelText(field))
+  for (const option of options) await user.click(screen.getByRole("checkbox", { name: option }))
+  await user.keyboard("{Escape}")
+}
+
 const anna = { user_id: 7, name: "Anna Przykładowa" }
 const bartek = { user_id: 8, name: "Bartek Testowy" }
 const celina = { user_id: 9, name: "Celina Wzorcowa" }
@@ -315,12 +322,12 @@ describe("RequestBoardView", () => {
   it("filtruje po Rekruterze — liczy się osoba, która pracuje, nie propozycja", async () => {
     const user = userEvent.setup()
     render(<Board />)
-    await user.selectOptions(screen.getByLabelText("Rekruter"), "9")
+    await pick(user, "Rekruter", "Celina Wzorcowa")
     expect(screen.getByText("Pokazuję 1 z 4")).toBeInTheDocument()
     expect(screen.getByText("1 z 3 requestów")).toBeInTheDocument()
     expect(screen.queryByRole("region", { name: "QA" })).not.toBeInTheDocument()
     // Anna ma tylko propozycję — to jeszcze nie jej request.
-    await user.selectOptions(screen.getByLabelText("Rekruter"), "7")
+    await pick(user, "Rekruter", "Celina Wzorcowa", "Anna Przykładowa")
     expect(screen.getByText("Pokazuję 0 z 4")).toBeInTheDocument()
     expect(screen.getByText("Żaden request nie pasuje do ustawionych filtrów.")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Wyczyść filtry" }))
@@ -350,8 +357,8 @@ describe("RequestBoardView", () => {
     expect(screen.queryByText(/aktywn/)).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Wyczyść filtr: Priorytet" })).not.toBeInTheDocument()
 
-    await user.selectOptions(prio, "p1")
-    await user.selectOptions(lead, "31")
+    await pick(user, "Priorytet", "P1 Pilne")
+    await pick(user, "Delivery Lead", "Gosia Delivery")
     expect(prio).toHaveAttribute("data-active", "true")
     expect(lead).toHaveAttribute("data-active", "true")
     expect(screen.getByLabelText("Klient")).toHaveAttribute("data-active", "false")
@@ -359,9 +366,9 @@ describe("RequestBoardView", () => {
 
     // Krzyżyk czyści tylko swój filtr — Delivery Lead zostaje.
     await user.click(screen.getByRole("button", { name: "Wyczyść filtr: Priorytet" }))
-    expect(screen.getByLabelText("Priorytet")).toHaveValue("")
+    expect(screen.getByLabelText("Priorytet")).toHaveTextContent("Każdy priorytet")
     expect(screen.getByLabelText("Priorytet")).toHaveAttribute("data-active", "false")
-    expect(screen.getByLabelText("Delivery Lead")).toHaveValue("31")
+    expect(screen.getByLabelText("Delivery Lead")).toHaveTextContent("Gosia Delivery")
     expect(screen.getByText("1 filtr aktywny")).toBeInTheDocument()
     expect(screen.getByText("Pokazuję 2 z 4")).toBeInTheDocument()
   })
@@ -370,18 +377,51 @@ describe("RequestBoardView", () => {
     const user = userEvent.setup()
     render(<Board />)
     const lead = screen.getByLabelText("Delivery Lead")
-    expect(within(lead).getAllByRole("option").map((o) => o.textContent)).toEqual([
-      "Wszyscy",
-      "Gosia Delivery",
-      "Henryk Kierujący",
-      "Bez Delivery Leada",
-    ])
-    await user.selectOptions(lead, "31")
+    expect(lead).toHaveTextContent("Wszyscy")
+    await user.click(lead)
+    expect(
+      screen.getAllByRole("checkbox").map((c) => document.querySelector(`label[for="${c.id}"]`)?.textContent),
+    ).toEqual(["Gosia Delivery", "Henryk Kierujący", "Bez Delivery Leada"])
+    await user.keyboard("{Escape}")
+    await pick(user, "Delivery Lead", "Gosia Delivery")
     expect(screen.getByText("Pokazuję 2 z 4")).toBeInTheDocument()
-    await user.selectOptions(screen.getByLabelText("Priorytet"), "p1")
+    await pick(user, "Priorytet", "P1 Pilne")
     expect(screen.getByText("Pokazuję 1 z 4")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Senior Java Developer" })).toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Kotlin Developer" })).not.toBeInTheDocument()
+  })
+
+  it("kilka pozycji w jednym filtrze: przycisk mówi „pierwsza +N”, wiersze z dowolnej", async () => {
+    const user = userEvent.setup()
+    render(<Board />)
+    await pick(user, "Klient", "Klient Gamma", "Klient Beta")
+    const client = screen.getByLabelText("Klient")
+    expect(client).toHaveTextContent("Klient Beta +1")
+    expect(client).toHaveAttribute("title", "Klient Beta, Klient Gamma")
+    expect(screen.getByText("Pokazuję 2 z 4")).toBeInTheDocument()
+    expect(screen.getByText("1 filtr aktywny")).toBeInTheDocument()
+    // Odznaczenie jednej pozycji zostawia drugą.
+    await pick(user, "Klient", "Klient Beta")
+    expect(client).toHaveTextContent("Klient Gamma")
+    expect(screen.getByText("Pokazuję 1 z 4")).toBeInTheDocument()
+  })
+
+  it("„Wysłani”: własny przedział od–do obok gotowych pozycji", async () => {
+    const user = userEvent.setup()
+    render(<Board />)
+    await user.click(screen.getByLabelText("Wysłani"))
+    await user.type(screen.getByLabelText("Wysłanych od"), "1")
+    await user.type(screen.getByLabelText("Wysłanych do"), "5")
+    // React 3 (champion) wypada, Kotlin (1) zostaje; Java i Tester mają 0.
+    expect(screen.getByText("Pokazuję 1 z 4")).toBeInTheDocument()
+    await user.click(screen.getByRole("checkbox", { name: "Nikt nie wysłany" }))
+    expect(screen.getByText("Pokazuję 3 z 4")).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    expect(screen.getByLabelText("Wysłani")).toHaveTextContent("Nikt nie wysłany +1")
+    expect(screen.getByLabelText("Wysłani")).toHaveAttribute("title", "Nikt nie wysłany, 1–5")
+    await user.click(screen.getByRole("button", { name: "Wyczyść filtr: Wysłani" }))
+    expect(screen.getByLabelText("Wysłani")).toHaveTextContent("Dowolnie")
+    expect(screen.getByText("Pokazuję 4 z 4")).toBeInTheDocument()
   })
 
   it("przełącznik „Bez rekrutera” obejmuje też request z samą propozycją i mówi, ile wierszy zostanie", async () => {
@@ -397,7 +437,7 @@ describe("RequestBoardView", () => {
     expect(screen.queryByRole("link", { name: "Kotlin Developer" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "React Developer" })).not.toBeInTheDocument()
     // Liczba na przełączniku idzie za pozostałymi filtrami.
-    await user.selectOptions(screen.getByLabelText("Kategoria"), "4")
+    await pick(user, "Kategoria", "QA")
     expect(toggle).toHaveTextContent("Bez rekrutera1")
     expect(screen.getByText("Pokazuję 1 z 4")).toBeInTheDocument()
   })

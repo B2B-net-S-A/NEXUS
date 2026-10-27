@@ -26,39 +26,52 @@ import {
   type PriorityLevel,
 } from "@/lib/request-priority"
 
-export type DueFilter = "" | "late" | "week" | "two" | "none"
-export type SentFilter = "" | "0" | "12" | "3" | "champ"
-export type PriorityFilter = "" | PriorityLevel
+export type DueFilter = "late" | "week" | "two" | "none"
+export type SentFilter = "0" | "12" | "3" | "champ"
 
+/**
+ * Filtry pulpitu. Pola-listy przyjmują kilka wartości naraz (prośba Head of
+ * Recruitment 27.10.2026): w obrębie jednego filtra wystarczy dowolna
+ * z zaznaczonych, między filtrami muszą zgadzać się wszystkie. Pusta lista =
+ * filtr wyłączony.
+ */
 export interface BoardFilters {
   q: string
-  client: string
-  /** Id Delivery Leada albo `none` (request bez Delivery Leada). */
-  lead: string
-  due: DueFilter
-  sent: SentFilter
-  /** „Rekruter” — id osoby, która PRACUJE nad requestem (propozycja to za mało). */
-  who: string
-  cat: string
-  prio: PriorityFilter
+  client: string[]
+  /** Id Delivery Leadów; `none` = request bez Delivery Leada. */
+  lead: string[]
+  due: DueFilter[]
+  sent: SentFilter[]
+  /**
+   * Własny przedział „Wysłani” — liczby całkowite jako tekst z pola, pusty =
+   * bez tej granicy. Liczy się razem z zaznaczonymi pozycjami (dowolna
+   * z nich wystarczy) i jak one pomija requesty z championem.
+   */
+  sentFrom: string
+  sentTo: string
+  /** „Rekruter” — id osób, które PRACUJĄ nad requestem (propozycja to za mało). */
+  who: string[]
+  cat: string[]
+  prio: PriorityLevel[]
   /** „Bez rekrutera”: `1` = tylko requesty, przy których nikt nie pracuje. */
   nobody: "" | "1"
 }
 
 export const EMPTY_FILTERS: BoardFilters = {
   q: "",
-  client: "",
-  lead: "",
-  due: "",
-  sent: "",
-  who: "",
-  cat: "",
-  prio: "",
+  client: [],
+  lead: [],
+  due: [],
+  sent: [],
+  sentFrom: "",
+  sentTo: "",
+  who: [],
+  cat: [],
+  prio: [],
   nobody: "",
 }
 
 export const DUE_OPTIONS: { value: DueFilter; label: string }[] = [
-  { value: "", label: "Każdy termin" },
   { value: "late", label: "Po terminie" },
   { value: "week", label: "Do 7 dni" },
   { value: "two", label: "Do 14 dni" },
@@ -66,7 +79,6 @@ export const DUE_OPTIONS: { value: DueFilter; label: string }[] = [
 ]
 
 export const SENT_OPTIONS: { value: SentFilter; label: string }[] = [
-  { value: "", label: "Dowolnie" },
   { value: "0", label: "Nikt nie wysłany" },
   { value: "12", label: "1–2 wysłane" },
   { value: "3", label: "3 i więcej" },
@@ -80,27 +92,40 @@ const URL_KEYS: Record<keyof BoardFilters, string> = {
   lead: "rb_lead",
   due: "rb_due",
   sent: "rb_sent",
+  sentFrom: "rb_sent_from",
+  sentTo: "rb_sent_to",
   who: "rb_who",
   cat: "rb_cat",
   prio: "rb_prio",
   nobody: "rb_nobody",
 }
 
+/** Granica przedziału z pola albo adresu: liczba całkowita ≥ 0, inaczej pusto. */
+export function sentBound(raw: string): string {
+  const text = raw.trim()
+  return /^\d{1,4}$/.test(text) ? String(Number(text)) : ""
+}
+
 export function filtersFromParams(params: URLSearchParams): BoardFilters {
-  const read = (key: keyof BoardFilters) => params.get(URL_KEYS[key]) ?? ""
-  const due = read("due") as DueFilter
-  const sent = read("sent") as SentFilter
-  const prio = read("prio")
+  // Kilka wartości = powtórzony klucz (`rb_cat=1&rb_cat=2`), nie przecinek:
+  // nazwa klienta może go zawierać. Stary link z jedną wartością czyta się tak samo.
+  const list = (key: keyof BoardFilters) => [
+    ...new Set(params.getAll(URL_KEYS[key]).filter(Boolean)),
+  ]
+  const known = <T extends string>(key: keyof BoardFilters, allowed: (v: string) => boolean) =>
+    list(key).filter(allowed) as T[]
   return {
-    q: read("q"),
-    client: read("client"),
-    lead: read("lead"),
-    due: DUE_OPTIONS.some((o) => o.value === due) ? due : "",
-    sent: SENT_OPTIONS.some((o) => o.value === sent) ? sent : "",
-    who: read("who"),
-    cat: read("cat"),
-    prio: isPriorityLevel(prio) ? prio : "",
-    nobody: read("nobody") === "1" ? "1" : "",
+    q: params.get(URL_KEYS.q) ?? "",
+    client: list("client"),
+    lead: list("lead"),
+    due: known<DueFilter>("due", (v) => DUE_OPTIONS.some((o) => o.value === v)),
+    sent: known<SentFilter>("sent", (v) => SENT_OPTIONS.some((o) => o.value === v)),
+    sentFrom: sentBound(params.get(URL_KEYS.sentFrom) ?? ""),
+    sentTo: sentBound(params.get(URL_KEYS.sentTo) ?? ""),
+    who: list("who"),
+    cat: list("cat"),
+    prio: known<PriorityLevel>("prio", isPriorityLevel),
+    nobody: params.get(URL_KEYS.nobody) === "1" ? "1" : "",
   }
 }
 
@@ -110,25 +135,65 @@ export function filtersToParams(
 ): URLSearchParams {
   const next = new URLSearchParams(base)
   for (const key of Object.keys(URL_KEYS) as (keyof BoardFilters)[]) {
+    next.delete(URL_KEYS[key])
     const value = filters[key]
-    if (value) next.set(URL_KEYS[key], value)
-    else next.delete(URL_KEYS[key])
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item) next.append(URL_KEYS[key], item)
+    }
   }
   return next
 }
 
+/** Filtry tak, jak widzi je osoba: „Wysłani” to jedno pole z przedziałem. */
+function activeFields(filters: BoardFilters): boolean[] {
+  return [
+    Boolean(filters.q),
+    filters.client.length > 0,
+    filters.lead.length > 0,
+    filters.due.length > 0,
+    isSentActive(filters),
+    filters.who.length > 0,
+    filters.cat.length > 0,
+    filters.prio.length > 0,
+    Boolean(filters.nobody),
+  ]
+}
+
+export function isSentActive(filters: Pick<BoardFilters, "sent" | "sentFrom" | "sentTo">): boolean {
+  return filters.sent.length > 0 || Boolean(filters.sentFrom) || Boolean(filters.sentTo)
+}
+
 export function hasActiveFilters(filters: BoardFilters): boolean {
-  return Object.values(filters).some(Boolean)
+  return activeFields(filters).some(Boolean)
 }
 
 /** Ile filtrów ma wartość inną niż domyślna (pusta) — licznik przy „Pokazuję”. */
 export function activeFilterCount(filters: BoardFilters): number {
-  return Object.values(filters).filter(Boolean).length
+  return activeFields(filters).filter(Boolean).length
 }
 
 /** Czy adres niesie własne filtry pulpitu — wtedy wygrywają z zakresem kafelka. */
 export function hasUrlFilters(params: URLSearchParams): boolean {
   return Object.values(URL_KEYS).some((key) => Boolean(params.get(key)))
+}
+
+/** Przedział słowami: „3–5”, „od 3”, „do 5”; pusto bez granic. */
+export function sentRangeLabel(filters: Pick<BoardFilters, "sentFrom" | "sentTo">): string {
+  const [from, to] = sentRange(filters)
+  if (from !== null && to !== null) return from === to ? `${from}` : `${from}–${to}`
+  if (from !== null) return `od ${from}`
+  if (to !== null) return `do ${to}`
+  return ""
+}
+
+/** Granice przedziału jako liczby; odwrócone („od 5 do 2”) czytamy jako 2–5. */
+function sentRange(
+  filters: Pick<BoardFilters, "sentFrom" | "sentTo">,
+): [number | null, number | null] {
+  const from = filters.sentFrom ? Number(filters.sentFrom) : null
+  const to = filters.sentTo ? Number(filters.sentTo) : null
+  if (from !== null && to !== null && from > to) return [to, from]
+  return [from, to]
 }
 
 type BoardViewer = RequestBoard["viewer"]
@@ -147,9 +212,9 @@ export function scopeFilters(
   if (scope === "my_category") {
     return viewer.primary_category_id == null
       ? {}
-      : { cat: String(viewer.primary_category_id) }
+      : { cat: [String(viewer.primary_category_id)] }
   }
-  if (scope === "my_lead") return { lead: String(viewer.user_id) }
+  if (scope === "my_lead") return { lead: [String(viewer.user_id)] }
   return {}
 }
 
@@ -276,6 +341,34 @@ export function pendingProposalCount(board: Pick<RequestBoard, "requests">): num
   )
 }
 
+function matchesDue(due: DueFilter, days: number | null): boolean {
+  if (due === "none") return days === null
+  if (days === null) return false
+  if (due === "late") return days < 0
+  return days >= 0 && days <= (due === "week" ? 7 : 14)
+}
+
+/** Pozycje 0 / 1–2 / 3+ i własny przedział pomijają requesty z championem. */
+function matchesSent(sent: SentFilter, request: BoardRequest): boolean {
+  if (sent === "champ") return request.champion
+  if (request.champion) return false
+  if (sent === "0") return request.sent === 0
+  if (sent === "12") return request.sent >= 1 && request.sent <= 2
+  return request.sent >= 3
+}
+
+function matchesSentFilter(request: BoardRequest, filters: BoardFilters): boolean {
+  if (!isSentActive(filters)) return true
+  if (filters.sent.some((sent) => matchesSent(sent, request))) return true
+  const [from, to] = sentRange(filters)
+  if (from === null && to === null) return false
+  return (
+    !request.champion &&
+    (from === null || request.sent >= from) &&
+    (to === null || request.sent <= to)
+  )
+}
+
 export function matchesFilters(
   request: BoardRequest,
   filters: BoardFilters,
@@ -287,35 +380,30 @@ export function matchesFilters(
     !fold(`${request.title} ${request.client_reference ?? ""}`).includes(fold(filters.q.trim()))
   )
     return false
-  if (filters.client && request.client_name !== filters.client) return false
-  if (filters.cat) {
-    const cat = filters.cat === "none" ? null : Number(filters.cat)
-    if ((request.category_id ?? null) !== cat) return false
-  }
-  if (filters.lead) {
-    const lead = filters.lead === "none" ? null : Number(filters.lead)
-    if ((request.delivery_lead?.id ?? null) !== lead) return false
-  }
-  if (filters.prio && priorityLevelOf(request) !== filters.prio) return false
+  if (filters.client.length > 0 && !filters.client.includes(request.client_name ?? ""))
+    return false
+  if (filters.cat.length > 0 && !filters.cat.includes(String(request.category_id ?? "none")))
+    return false
+  if (
+    filters.lead.length > 0 &&
+    !filters.lead.includes(String(request.delivery_lead?.id ?? "none"))
+  )
+    return false
+  if (filters.prio.length > 0 && !filters.prio.includes(priorityLevelOf(request)))
+    return false
   // „Rekruter” znaczy to samo co na liście rekrutacji: osoba pracuje nad
   // requestem. Propozycja automatu przed akceptacją nikogo nie przypisuje.
   if (
-    filters.who &&
-    !workingRecruiters(request.people).some((p) => String(p.user_id) === filters.who)
+    filters.who.length > 0 &&
+    !workingRecruiters(request.people).some((p) => filters.who.includes(String(p.user_id)))
   )
     return false
   if (filters.nobody && !needsRecruiter(request)) return false
-  const days = daysToDeadline(request.deadline, today)
-  if (filters.due === "late" && !(days !== null && days < 0)) return false
-  if (filters.due === "week" && !(days !== null && days >= 0 && days <= 7)) return false
-  if (filters.due === "two" && !(days !== null && days >= 0 && days <= 14)) return false
-  if (filters.due === "none" && days !== null) return false
-  if (filters.sent === "0" && !(request.sent === 0 && !request.champion)) return false
-  if (filters.sent === "12" && !(request.sent >= 1 && request.sent <= 2 && !request.champion))
-    return false
-  if (filters.sent === "3" && !(request.sent >= 3 && !request.champion)) return false
-  if (filters.sent === "champ" && !request.champion) return false
-  return true
+  if (filters.due.length > 0) {
+    const days = daysToDeadline(request.deadline, today)
+    if (!filters.due.some((due) => matchesDue(due, days))) return false
+  }
+  return matchesSentFilter(request, filters)
 }
 
 /**
