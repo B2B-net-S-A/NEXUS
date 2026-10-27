@@ -1,6 +1,6 @@
 /**
  * Numer telefonu do wyświetlenia: polska komórka w trójkach cyfr
- * („531898451” → „531 898 451”, „+48531898451” → „+48 531 898 451”) — prośba
+ * („600100200” → „600 100 200”, „+48600100200” → „+48 600 100 200”) — prośba
  * rekruterek z 27.10.2026, bo ciąg dziewięciu cyfr źle się czyta przy
  * dyktowaniu i przepisywaniu.
  *
