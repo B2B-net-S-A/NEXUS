@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -47,9 +47,12 @@ from app.services.order_mail_planner import (
     ACTION_FUTURE,
     ACTION_NEW,
     ACTION_NEW_DRAFT,
+    ACTION_OVERLAP,
     ACTION_REACTIVATE,
     ACTION_UNCHANGED,
     AUTO_ACTIONS,
+    OVERLAP_START_AFTER,
+    OVERLAP_TRIM_PREVIOUS,
     renewal_gap_phrase,
 )
 from app.services.order_pdf_parser import (
@@ -360,6 +363,127 @@ async def _renewal_of_completed_order(
     return details, inherited
 
 
+def _overlap_fields(rp: dict) -> dict:
+    return {
+        "row_index": rp.get("row_index", 0),
+        "action": rp.get("action"),
+        "overlap_options": rp.get("overlap_options") or [],
+    }
+
+
+def _settled_overlap_rows(
+    rows, overlap_choices: Optional[Mapping[int, str]]
+) -> set[int]:
+    """Wiersze ``overlap``, dla których człowiek wybrał jedną z możliwości planu."""
+    choices = overlap_choices or {}
+    return {
+        r.row_index
+        for r in rows
+        if r.action == ACTION_OVERLAP
+        and choices.get(r.row_index) in (r.overlap_options or [])
+    }
+
+
+def _pl_day(value: date) -> str:
+    return value.strftime("%d.%m.%Y")
+
+
+async def _settle_overlap(
+    db, doc, rp: dict, contract, *, choice: str, start, end, actor_user_id
+) -> date:
+    """Wykonaj wybór człowieka dla nakładających się okresów; zwróć start nowego.
+
+    ``trim_previous`` kończy nachodzące zamówienie dzień przed nowym (ślad
+    w Activity ``order_mail_trim_previous`` z datą sprzed zmiany),
+    ``start_after`` przesuwa początek nowego na dzień po nim. Zamówienie,
+    które od odczytu dokumentu zmieniło okres albo status, wymaga „Przelicz
+    plan”; zamówienie z fakturą za skracany miesiąc skraca człowiek w oknie
+    zamówienia — automat nie zabiera okresu, za który klient już zapłacił.
+    """
+    from app.api.client_orders import _assert_no_overlapping_periodic_order
+    from app.models.client_sales_invoice import ClientSalesInvoiceLink
+    from app.services.periodic_order_lifecycle import refresh_periodic_order_status
+
+    name = rp.get("row_name") or "wiersz"
+    target_id = rp.get("target_order_id")
+    previous = await db.scalar(
+        select(ClientOrder)
+        .where(ClientOrder.id == target_id, ClientOrder.contract_id == contract.id)
+        .with_for_update()
+        # Stan PO blokadzie, nie z mapy tożsamości (FIN-MAIL-08).
+        .execution_options(populate_existing=True)
+    )
+    if (
+        previous is None
+        or start is None
+        or previous.order_group_id is not None
+        or previous.status not in (ClientOrderStatus.active, ClientOrderStatus.paused)
+        or previous.start_date is None
+        or previous.end_date is None
+        or previous.end_date.isoformat() != rp.get("previous_end_date")
+    ):
+        raise ValueError(
+            f"„{name}”: zamówienie #{target_id} zmieniło się od odczytu "
+            "dokumentu — kliknij „Przelicz plan”"
+        )
+    if choice == OVERLAP_START_AFTER:
+        new_start = previous.end_date + timedelta(days=1)
+        if end is not None and new_start > end:
+            raise ValueError(
+                f"„{name}”: po zamówieniu #{previous.id} nie zostaje nic z okresu "
+                "dokumentu — skróć je albo zapisz zamówienie w oknie zamówienia"
+            )
+        await _assert_no_overlapping_periodic_order(db, contract.id, new_start, end)
+        return new_start
+    if choice != OVERLAP_TRIM_PREVIOUS:
+        raise ValueError(f"„{name}”: nieznany wybór dla nakładającego się okresu")
+    cut = start - timedelta(days=1)
+    if cut < previous.start_date:
+        raise ValueError(
+            f"„{name}”: zamówienie #{previous.id} zaczyna się {_pl_day(previous.start_date)} "
+            "— nie da się go skrócić przed nowym okresem"
+        )
+    invoiced = await db.scalar(
+        select(func.count())
+        .select_from(ClientSalesInvoiceLink)
+        .where(
+            ClientSalesInvoiceLink.order_id == previous.id,
+            ClientSalesInvoiceLink.period_year * 12
+            + ClientSalesInvoiceLink.period_month
+            >= start.year * 12 + start.month,
+        )
+    )
+    if invoiced:
+        raise ValueError(
+            f"„{name}”: zamówienie #{previous.id} ma już fakturę za {start:%m.%Y} "
+            "albo późniejszy miesiąc — skróć je ręcznie w oknie zamówienia"
+        )
+    db.add(
+        Activity(
+            entity_type="client_order",
+            entity_id=previous.id,
+            action="order_mail_trim_previous",
+            user_id=actor_user_id,
+            details={
+                "document_id": doc.id,
+                "before": {
+                    "end_date": previous.end_date.isoformat(),
+                    "status": previous.status.value,
+                },
+                "end_date": cut.isoformat(),
+                "next_order_title": rp.get("title"),
+            },
+        )
+    )
+    previous.end_date = cut
+    refresh_periodic_order_status(previous)
+    await db.flush()
+    # Ta sama bramka co PATCH i „Dodaj przedłużenie”: po skróceniu żadne
+    # inne zamówienie tej osoby nie może nachodzić na nowy okres.
+    await _assert_no_overlapping_periodic_order(db, contract.id, start, end)
+    return start
+
+
 async def apply_document(
     db: AsyncSession,
     doc: OrderMailDocument,
@@ -367,8 +491,14 @@ async def apply_document(
     actor_user_id: Optional[int],
     only_actions: frozenset[str] = AUTO_ACTIONS,
     confirmed_by_human: Optional[bool] = None,
+    overlap_choices: Optional[Mapping[int, str]] = None,
 ) -> ApplyResult:
     """Wykonaj plan z ``doc.proposal``. Nie rzuca; wynik w ``ApplyResult``.
+
+    ``overlap_choices`` (``row_index`` → ``OVERLAP_*``) to wybór człowieka
+    z panelu dla wiersza ``overlap`` (27.10.2026): skrócić nachodzące
+    zamówienie albo zacząć nowe po nim. Tylko „Zastosuj” go podaje — automat
+    i „Przelicz plan” nigdy, więc taki dokument zawsze przechodzi przez kolejkę.
 
     ``actor_user_id`` to ATRYBUCJA (kto uruchomił zapis: Activity, autor
     zamówienia i pliku, ``applied_by``), a ``confirmed_by_human`` — czy ten
@@ -429,14 +559,21 @@ async def apply_document(
             # kwota zlecenia nie trafia na żadną osobę, więc zostałyby szkice,
             # których nie da się aktywować (audyt 24.09, S3).
             return ApplyResult(error=COST_SHARED_BUDGET_REFUSAL)
-        if proposal.blocking or not proposal.auto_eligible_actions:
+        settled = _settled_overlap_rows(proposal.rows, overlap_choices)
+        if proposal.blocking or not (
+            proposal.rows
+            and all(
+                r.action in AUTO_ACTIONS or r.row_index in settled
+                for r in proposal.rows
+            )
+        ):
             return ApplyResult(
                 error="; ".join(
                     proposal.blocking
                     + [
                         f"{r.row_name}: {'; '.join(r.reasons)}"
                         for r in proposal.rows
-                        if r.action not in only_actions
+                        if r.action not in only_actions and r.row_index not in settled
                     ]
                 )
             )
@@ -470,6 +607,7 @@ async def apply_document(
             confirmed_by_human=confirmed_by_human,
             pdf_bytes=pdf_bytes,
             invoice_payload=invoice_payload,
+            overlap_choices=overlap_choices,
         )
         if not result.ok:
             await transaction.rollback()
@@ -529,6 +667,7 @@ async def _write_document(
     confirmed_by_human=None,
     pdf_bytes: Optional[bytes] = None,
     invoice_payload: Optional[dict] = None,
+    overlap_choices: Optional[Mapping[int, str]] = None,
 ):
     from app.api.client_orders import (
         _activate_complete_draft,
@@ -588,7 +727,13 @@ async def _write_document(
         if applied.row_index in previously_applied:
             applied.order_id = previously_applied[applied.row_index]
             continue
-        if applied.action not in only_actions:
+        settled_overlap = applied.action == ACTION_OVERLAP and (
+            applied.row_index
+            in _settled_overlap_rows(
+                [SimpleNamespace(**_overlap_fields(rp))], overlap_choices
+            )
+        )
+        if applied.action not in only_actions and not settled_overlap:
             applied.error = f"Akcja {applied.action!r} poza zakresem writera"
             continue
         contract_id = rp.get("contract_id")
@@ -625,6 +770,17 @@ async def _write_document(
                 continue
             start = _date(rp.get("start_date"))
             end = _date(rp.get("end_date"))
+            if settled_overlap:
+                start = await _settle_overlap(
+                    db,
+                    doc,
+                    rp,
+                    contract,
+                    choice=(overlap_choices or {})[applied.row_index],
+                    start=start,
+                    end=end,
+                    actor_user_id=actor_user_id,
+                )
             effective = effective_rate_fields(contract, start or business_today())
             # Bez jednostki z dokumentu — jednostka, w której zamówienia tej osoby
             # dziedziczą z kontraktu (kontrakt z MD jest dziś w zł/h, a zamówienie

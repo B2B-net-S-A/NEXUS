@@ -770,10 +770,18 @@ async def _close_review_cards(db: AsyncSession, doc_id: int) -> None:
     )
 
 
+class ApplyQueueItemRequest(BaseModel):
+    """Wybór człowieka dla wierszy ``overlap``: ``row_index`` → ``trim_previous``
+    albo ``start_after`` (27.10.2026). Bez ciała — „Zastosuj” jak dotąd."""
+
+    overlap_choices: Dict[int, str] = Field(default_factory=dict)
+
+
 @router.post("/queue/{doc_id}/apply")
 async def apply_queue_item(
     doc_id: int,
     user: ContractsOrdersEditUser,
+    payload: Optional[ApplyQueueItemRequest] = None,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user, for_update=True)
@@ -787,7 +795,12 @@ async def apply_queue_item(
         raise HTTPException(
             status_code=422, detail="Brak planu zapisu — uzupełnij zamówienie ręcznie"
         )
-    result = await apply_document(db, doc, actor_user_id=user.id)
+    result = await apply_document(
+        db,
+        doc,
+        actor_user_id=user.id,
+        overlap_choices=payload.overlap_choices if payload else None,
+    )
     doc.reviewed_by_user_id = user.id
     doc.reviewed_at = datetime.now(timezone.utc)
     if result.ok:

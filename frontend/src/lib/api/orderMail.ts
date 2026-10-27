@@ -68,6 +68,22 @@ export interface OrderMailProposalRow {
    * domyślnej opcji — najpierw pokaż, kogo znaleziono (`reasons`).
    */
   existing_person_ids?: number[];
+  /**
+   * Ostatnie uzgodnione zamówienie tej osoby (27.10.2026) — przy przedłużeniu
+   * odniesienie stawki zamiast rekrutacji. Brak = pierwsze zamówienie kontraktu.
+   */
+  previous_order_id?: number | null;
+  previous_order_title?: string | null;
+  previous_rate_client?: string | null;
+  previous_rate_unit?: string | null;
+  previous_rate_currency?: string | null;
+  /** Przy `overlap`: okres nachodzącego zamówienia (`target_order_id`). */
+  previous_start_date?: string | null;
+  previous_end_date?: string | null;
+  /** Co „Zastosuj” umie zrobić z nakładającym się okresem; pusta = okno zamówienia. */
+  overlap_options?: Array<"trim_previous" | "start_after">;
+  overlap_trim_end?: string | null;
+  overlap_start_after?: string | null;
 }
 
 /** Dokument rozstrzygnięty w oknie zamówienia klienta (osoba nieaktywna/nieznaleziona). */
@@ -243,10 +259,13 @@ export const orderMailApi = {
   listQueue: (params: { outcome?: OrderMailOutcome; client_id?: number; limit?: number; offset?: number } = {}) =>
     api.get<OrderMailQueueResponse>("/api/order-mail/queue", { params }),
   getItem: (id: number) => api.get<OrderMailDocument>(`/api/order-mail/queue/${id}`),
-  apply: (id: number) =>
-    api.post<{ ok: boolean; document: OrderMailDocument }>(`/api/order-mail/queue/${id}/apply`, undefined, {
-      timeout: 120_000,
-    }),
+  /** `overlapChoices`: wybór dla wierszy `overlap` (`row_index` → wybór). */
+  apply: (id: number, overlapChoices?: Record<number, "trim_previous" | "start_after">) =>
+    api.post<{ ok: boolean; document: OrderMailDocument }>(
+      `/api/order-mail/queue/${id}/apply`,
+      overlapChoices ? { overlap_choices: overlapChoices } : undefined,
+      { timeout: 120_000 },
+    ),
   dismiss: (id: number) => api.post<OrderMailDocument>(`/api/order-mail/queue/${id}/dismiss`),
   refreshPlan: (id: number) => api.post<OrderMailDocument>(`/api/order-mail/queue/${id}/refresh-plan`, undefined, { timeout: 120_000 }),
   fileUrl: (id: number) => `/api/order-mail/queue/${id}/file`,

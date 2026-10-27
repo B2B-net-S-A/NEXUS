@@ -542,4 +542,36 @@ describe("Audyt 25.09 — wpisy „Nieudane”", () => {
     fireEvent.click(screen.getByRole("button", { name: /Odrzuć/ }));
     expect(onDismiss).toHaveBeenCalledWith(1);
   });
+
+  it("renewal overlapping the current order: choose what happens to it, apply sends the choice", () => {
+    const onApply = vi.fn();
+    const renewal = doc({
+      gate_reasons: [
+        "„Jan Kowalski”: przy przedłużeniu zmienia się stawka do klienta: 120 zł/h → 138 zł/h (+15%) względem zamówienia #70 — potwierdź, że klient przyjął nową stawkę",
+      ],
+      proposal: {
+        client_id: 1, order_number: "10/2031", is_group_client: false, blocking: [],
+        rows: [{
+          row_index: 0, row_name: "Jan Kowalski", action: "overlap", candidate_id: 1, contract_id: 2,
+          target_order_id: 70, title: "10/2031", start_date: "2031-12-01", end_date: "2032-05-01",
+          rate_client: "138.00", rate_unit: "hour", md_total: null,
+          reasons: ["Nowe zamówienie zaczyna się 01.12.2031, a #70 (9/2031) trwa do 31.12.2031"],
+          previous_order_id: 70, previous_order_title: "9/2031", previous_rate_client: "120.000", previous_rate_unit: "hour",
+          previous_start_date: "2031-07-01", previous_end_date: "2031-12-31",
+          overlap_options: ["trim_previous", "start_after"], overlap_trim_end: "2031-11-30", overlap_start_after: "2032-01-01",
+        }],
+      },
+    });
+    render(<OrderMailQueueView {...base} onApply={onApply} state="ready" items={[renewal]} />);
+    expect(screen.getByTestId("previous-rate")).toHaveTextContent("było 120 zł/h (#70)+15%");
+    expect(screen.getByText("Przedłużenie #70 — wybierz niżej")).toBeInTheDocument();
+    const trim = screen.getByRole("radio", { name: "Skróć #70 do 30.11.2031, 10/2031 od 01.12.2031" });
+    expect(trim).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /Zastosuj: skróć #70 i zapisz 10\/2031/ }));
+    expect(onApply).toHaveBeenLastCalledWith(1, { 0: "trim_previous" });
+
+    fireEvent.click(screen.getByRole("radio", { name: "#70 bez zmian do 31.12.2031, 10/2031 od 01.01.2032" }));
+    fireEvent.click(screen.getByRole("button", { name: /Zastosuj: zapisz 10\/2031 od 01.01.2032/ }));
+    expect(onApply).toHaveBeenLastCalledWith(1, { 0: "start_after" });
+  });
 });

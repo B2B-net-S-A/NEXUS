@@ -40,6 +40,14 @@ import {
 } from "@/lib/order-mail-sync";
 import { formatDateTimePl, formatIsoDatePl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
+import {
+  applyButtonLabel,
+  effectiveOverlapChoices,
+  overlapOptionLabel,
+  overlapRows,
+  previousRateNote,
+  type OverlapChoices,
+} from "@/lib/order-mail-overlap";
 
 /**
  * Kolejka zamówień z maila.
@@ -415,7 +423,8 @@ export interface OrderMailQueueViewProps {
   total: number;
   selectedId: number | null;
   onSelect: (id: number) => void;
-  onApply: (id: number) => void;
+  /** `overlapChoices` — tylko gdy dokument ma wiersz `overlap` z wyborem. */
+  onApply: (id: number, overlapChoices?: OverlapChoices) => void;
   onDismiss: (id: number) => void;
   onRefreshPlan?: (id: number) => void;
   onRetry: () => void;
@@ -595,7 +604,7 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
                 <Detail
                   key={selected.id}
                   doc={selected}
-                  onApply={() => p.onApply(selected.id)}
+                  onApply={(choices) => (choices ? p.onApply(selected.id, choices) : p.onApply(selected.id))}
                   onDismiss={() => p.onDismiss(selected.id)}
                   onRefreshPlan={p.onRefreshPlan ? () => p.onRefreshPlan!(selected.id) : undefined}
                   busy={p.busy}
@@ -662,7 +671,7 @@ export function OrderMailQueue({ modeTabs }: { modeTabs?: ReactNode } = {}) {
     queryFn: async () => (await orderMailApi.recheckRuns()).data,
   });
   const apply = useMutation({
-    mutationFn: (id: number) => orderMailApi.apply(id),
+    mutationFn: ({ id, choices }: { id: number; choices?: OverlapChoices }) => orderMailApi.apply(id, choices),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["order-mail"] }),
   });
   const dismiss = useMutation({
@@ -746,7 +755,7 @@ export function OrderMailQueue({ modeTabs }: { modeTabs?: ReactNode } = {}) {
       total={list.data?.total ?? 0}
       selectedId={selectedId}
       onSelect={setSelectedId}
-      onApply={(id) => apply.mutate(id)}
+      onApply={(id, choices) => apply.mutate({ id, choices })}
       onDismiss={(id) => dismiss.mutate(id)}
       onRefreshPlan={(id) => refreshPlan.mutate(id)}
       onRetry={() => list.refetch()}
@@ -804,7 +813,7 @@ function Detail({
   preview,
 }: {
   doc: OrderMailDocument;
-  onApply: () => void;
+  onApply: (overlapChoices?: OverlapChoices) => void;
   onDismiss: () => void;
   onRefreshPlan?: () => void;
   busy: boolean;
@@ -818,6 +827,12 @@ function Detail({
   const personDecision = needsPersonDecision(doc);
   const windowHref = orderWindowHref(doc);
   const [fileError, setFileError] = useState<string | null>(null);
+  // Wybór dla nakładającego się okresu (27.10.2026): domyślnie pierwsza
+  // możliwość planu; po „Przelicz plan” wybór spoza nowego planu odpada.
+  const [pickedOverlap, setPickedOverlap] = useState<OverlapChoices>({});
+  const planRows = doc.proposal?.rows ?? [];
+  const pendingOverlap = doc.outcome === "needs_review" ? overlapRows(planRows) : [];
+  const overlapChoices = effectiveOverlapChoices(planRows, pickedOverlap);
   return (
     <section className="rounded-lg border border-border bg-card" data-testid="order-mail-detail" data-help="contracts.order_mail.detail">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-border/60 px-4 py-3">
@@ -886,7 +901,9 @@ function Detail({
           </tr>
         </thead>
         <tbody>
-          {(doc.proposal?.rows ?? []).map((r) => (
+          {planRows.map((r) => {
+            const rateNote = previousRateNote(r, ex?.currency);
+            return (
             <tr key={r.row_index} className={cn(CALM_ROW, "align-top last:border-b-0")}>
               <td className="py-2 pr-2 font-medium">{r.row_name}</td>
               <td className="py-2 pr-2 tabular-nums">{period(r.start_date, r.end_date)}</td>
@@ -900,6 +917,15 @@ function Detail({
                       {formatMoney(ex.consultant_rows[r.row_index].rate_client_gross ?? null, ex.currency, r.rate_unit)} brutto ÷ 1,23
                     </div>
                   </>
+                )}
+                {rateNote && (
+                  // Przedłużenie: stawka poprzedniego zamówienia, nie rekrutacji (27.10.2026).
+                  <div className="mt-0.5 text-xs text-muted-foreground" data-testid="previous-rate">
+                    {rateNote.text}
+                    {rateNote.change && (
+                      <span className="ml-1 rounded bg-info-muted px-1 font-medium text-info-muted-foreground">{rateNote.change}</span>
+                    )}
+                  </div>
                 )}
               </td>
               <td className="py-2">
@@ -920,13 +946,24 @@ function Detail({
                   </div>
                 ) : (
                   <>
-                    <div>{ORDER_MAIL_ACTION_LABEL[r.action]}</div>
-                    {r.reasons.map((x) => <div key={x} className="text-xs text-muted-foreground">{x}</div>)}
+                    <div>
+                      {(r.overlap_options?.length ?? 0) > 0
+                        ? `Przedłużenie #${r.target_order_id} — wybierz niżej`
+                        : ORDER_MAIL_ACTION_LABEL[r.action]}
+                    </div>
+                    {(r.overlap_options?.length ?? 0) > 0 ? (
+                      <div className="text-xs text-muted-foreground">
+                        #{r.target_order_id}: {period(r.previous_start_date ?? null, r.previous_end_date ?? null)}
+                      </div>
+                    ) : (
+                      r.reasons.map((x) => <div key={x} className="text-xs text-muted-foreground">{x}</div>)
+                    )}
                   </>
                 )}
               </td>
             </tr>
-          ))}
+            );
+          })}
           {(doc.proposal?.rows ?? []).length === 0 && (ex?.consultant_rows ?? []).map((r, i) => (
             <tr key={i} className={cn(CALM_ROW, "last:border-b-0")}>
               <td className="py-2 pr-2 font-medium">{r.consultant_name}</td>
@@ -940,6 +977,33 @@ function Detail({
       </div>
       </div>
 
+      {pendingOverlap.map((row) => (
+        <fieldset key={row.row_index} className="space-y-1.5" data-testid="overlap-choice">
+          <legend className={cn(SECTION_LABEL, "mb-1.5")}>
+            {pendingOverlap.length > 1 ? `${row.row_name}: ` : ""}okres nachodzi na #{row.target_order_id} — co zrobić?
+          </legend>
+          {(row.overlap_options ?? []).map((option) => (
+            <label
+              key={option}
+              className={cn(
+                "flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm",
+                overlapChoices[row.row_index] === option ? "border-primary bg-primary/5" : "border-border",
+              )}
+            >
+              <input
+                type="radio"
+                name={`overlap-${doc.id}-${row.row_index}`}
+                value={option}
+                checked={overlapChoices[row.row_index] === option}
+                onChange={() => setPickedOverlap((prev) => ({ ...prev, [row.row_index]: option }))}
+                disabled={!doc.can_apply || busy}
+                className="mt-0.5 accent-primary"
+              />
+              <span>{overlapOptionLabel(row, option)}</span>
+            </label>
+          ))}
+        </fieldset>
+      ))}
       {doc.gate_reasons.length > 0 && (
         <div className="rounded-md border border-warning/25 bg-warning-muted p-3 text-sm text-warning-muted-foreground" data-testid="gate-reasons">
           <div className="font-medium">Dlaczego do weryfikacji</div>
@@ -990,7 +1054,7 @@ function Detail({
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 bg-muted/30 px-4 py-2.5">
           <Button
             size="sm"
-            onClick={onApply}
+            onClick={() => onApply(pendingOverlap.length > 0 ? overlapChoices : undefined)}
             disabled={!doc.can_apply || busy || !(doc.proposal?.rows?.length) || personDecision}
             title={
               !doc.can_apply
@@ -1000,7 +1064,7 @@ function Detail({
                   : undefined
             }
           >
-            <Check className="h-3.5 w-3.5" /> Zastosuj
+            <Check className="h-3.5 w-3.5" /> {applyButtonLabel(planRows, overlapChoices)}
           </Button>
           {onRefreshPlan && doc.can_apply && doc.has_file && (
             <Button size="sm" variant="outline" onClick={onRefreshPlan} disabled={busy} title="Sprawdź stawki z PDF i dopasuj osoby do aktualnej listy konsultantów klienta">
