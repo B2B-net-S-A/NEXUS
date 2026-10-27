@@ -149,6 +149,9 @@ _KNOWN_CONTRACT_FKS = {
     # przy scaleniu duplikatu idą za kontraktem, który zostaje.
     ("b2b_contract_documents", "contract_id"),
     ("b2b_generated_contracts", "contract_id"),
+    # „Replacement za kogo” (0524): umowa wskazująca przegranego wskazuje po
+    # scaleniu na zachowanego (_reparent_fks), jak „Powrót po przerwie”.
+    ("b2b_generated_contracts", "replaced_contract_id"),
     ("calls", "contract_id"),
     # Odbiorcy komunikatu do konsultantów (etap 3) — ślad wysyłki, unikat
     # (komunikat, kandydat) nie zależy od kontraktu.
@@ -200,6 +203,7 @@ _KNOWN_CONTRACT_FKS = {
     # Powiązanie „Powrót po przerwie” (0368): kontrakt, który wskazywał na
     # przegranego, wskazuje po scaleniu na zachowanego (_reparent_fks).
     ("contracts", "returned_from_contract_id"),
+    ("contracts", "replaced_contract_id"),
     ("document_signatures", "contract_id"),
     # Sprzęt (0464): wydania i protokoły to dowody, wiersze importu — ślad
     # partii; zadania recepcji z kluczem ``contract:{id}:start|end``
@@ -258,6 +262,8 @@ _MERGEABLE_FIELDS = (
     "agreement_termination_signed_on",
     "agreement_last_day",
     "notice_period_months",
+    # Wymiar etatu z umowy (0524) — puste ← wypełnione, różnica to decyzja.
+    "fte",
     "target_rate_min",
     "target_rate_max",
     "project_code",
@@ -308,7 +314,13 @@ _CONTRACT_DERIVED_FIELDS = {"client_order_start_date", "client_order_end_date"}
 _CONTRACT_AUDIT_FIELDS = {"created_at", "updated_at"}
 # Powiązanie z poprzednim kontraktem („Powrót po przerwie”, 0368) należy do
 # wiersza, nie do współpracy — zostaje na kontrakcie zachowanym.
-_CONTRACT_LINEAGE_FIELDS = {"returned_from_contract_id"}
+# Replacement (0524) tak samo: para „czy zastępstwo” + „za kogo” ma CHECK
+# spójności, więc nie składamy jej z dwóch wierszy — zostaje zachowanego.
+_CONTRACT_LINEAGE_FIELDS = {
+    "returned_from_contract_id",
+    "is_replacement",
+    "replaced_contract_id",
+}
 # „Usuń szkic" (0357): stan PREZENTACJI karty w zakładce Zamówienia. Ocalały
 # kontrakt zachowuje własny — schowana karta przegranego nie chowa karty osoby,
 # która po scaleniu ma zamówienia.

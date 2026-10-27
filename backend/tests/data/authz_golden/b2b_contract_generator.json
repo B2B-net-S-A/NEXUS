@@ -41,6 +41,7 @@
   "GET /api/b2b-generator/generated/{generated_id}/status-history": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/next-number": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/prefill": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/b2b-generator/replacement-options": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/roles": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/b2b-generator/roles/{role_id}": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
   "PATCH /api/b2b-generator/generated/{generated_id}": "PPPBPPDDPPPPPPPPPPPDDPPPPD",

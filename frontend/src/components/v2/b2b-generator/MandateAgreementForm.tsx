@@ -18,6 +18,13 @@ import { Label } from "@/components/ui/label";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
+import { AgreementAdminDetailsCard } from "@/components/v2/b2b-generator/AgreementAdminDetailsCard";
+import {
+  adminPayload,
+  EMPTY_ADMIN_VALUE,
+  isAdminComplete,
+  type AgreementAdminValue,
+} from "@/lib/agreement-admin-details";
 import { b2bGeneratorApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { b2bDocumentsApi } from "@/lib/api/b2bDocuments";
@@ -207,6 +214,9 @@ export function MandateAgreementForm() {
   const [person, setPerson] = useState<Person>(NO_PERSON);
   const [instrumentalEdited, setInstrumentalEdited] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
+  // „Szczegóły administracyjne” (0524) — jak w umowie B2B.
+  const [admin, setAdmin] = useState<AgreementAdminValue>(EMPTY_ADMIN_VALUE);
+  const [showAdminErrors, setShowAdminErrors] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
   // „Dodaj czynność” przenosi kursor do nowego pola — bez tego pisanie dalej
   // dopisywało tekst do poprzedniej czynności.
@@ -267,8 +277,23 @@ export function MandateAgreementForm() {
     return true;
   };
 
+  // Replacement i FTE są obowiązkowe przy umowie z rekrutacją (serwer: 422).
+  const adminReady = () => {
+    const linked = form.candidateId !== null && form.jobId !== null;
+    if (!linked || isAdminComplete(admin)) return true;
+    setShowAdminErrors(true);
+    toast.showError(
+      "Uzupełnij „Szczegóły administracyjne”: replacement i wymiar FTE.",
+    );
+    return false;
+  };
+
   const previewMut = useMutation({
-    mutationFn: () => b2bGeneratorApi.renderMandateHtml(mandatePayload(form)),
+    mutationFn: () =>
+      b2bGeneratorApi.renderMandateHtml({
+        ...mandatePayload(form),
+        ...adminPayload(admin),
+      }),
     onSuccess: (d) => setPreviewHtml(d.html),
     onError: (e) =>
       toast.showError(apiErrorMessage(e, "Nie udało się przygotować podglądu.")),
@@ -276,7 +301,10 @@ export function MandateAgreementForm() {
 
   const docxMut = useMutation({
     mutationFn: async () => {
-      const res = await b2bGeneratorApi.renderMandateDocx(mandatePayload(form));
+      const res = await b2bGeneratorApi.renderMandateDocx({
+        ...mandatePayload(form),
+        ...adminPayload(admin),
+      });
       const filename = parseDispositionFilename(
         res.headers["content-disposition"] || "",
         "Umowa zlecenia.docx",
@@ -314,6 +342,14 @@ export function MandateAgreementForm() {
           <PersonPicker person={person} onChange={onPerson} />
         </CardContent>
       </Card>
+
+      <AgreementAdminDetailsCard
+        candidateId={form.jobId !== null ? form.candidateId : null}
+        jobId={form.candidateId !== null ? form.jobId : null}
+        value={admin}
+        onChange={setAdmin}
+        showErrors={showAdminErrors}
+      />
 
       <Card>
         <CardHeader>
@@ -566,7 +602,7 @@ export function MandateAgreementForm() {
             <Button
               type="button"
               disabled={busy}
-              onClick={() => ready() && docxMut.mutate()}
+              onClick={() => ready() && adminReady() && docxMut.mutate()}
             >
               <Download className="mr-2 h-4 w-4" />
               Pobierz DOCX i zapisz w rejestrze

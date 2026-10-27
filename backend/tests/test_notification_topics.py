@@ -102,6 +102,7 @@ def test_contract_signing_events_have_the_contracts_icon():
         _T.signature_rejected,
         _T.signature_failed,
         _T.b2b_signature_requested,
+        _T.b2b_agreement_ready,
     ):
         assert topic_for(t) is NotificationTopic.contracts, t
         assert t in TOAST_TYPES, t

@@ -12,6 +12,7 @@ niezależnym od numeru — dlatego constraint NIE jest na (year, contract_number
 """
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
@@ -23,6 +24,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     text,
@@ -365,6 +367,16 @@ class B2BGeneratedContract(Base, TimestampMixin):
         nullable=True,
         index=True,
     )
+    # Szczegóły administracyjne (0524): replacement za kontrakt osoby
+    # zastąpionej i wymiar FTE (1/0,75/0,5/0,25). Wpisuje Generator, podpis
+    # kopiuje je do kontraktu. Rekruter i DL nie są tu kolumnami — to odbiorcy
+    # premii z reguły `services/hr/placement_bonuses`; `recruiter_user_id`
+    # wyżej trzyma osobę prowadzącą z chwili wygenerowania (adresat przypomnień).
+    is_replacement: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    replaced_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True
+    )
+    fte: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2), nullable=True)
 
     def __repr__(self) -> str:
         return f"<B2BGeneratedContract id={self.id} number={self.contract_number!r}>"

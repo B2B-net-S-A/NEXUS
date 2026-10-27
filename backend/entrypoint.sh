@@ -777,6 +777,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
     # 0523: nowa rekrutacja u klienta Delivery Leada (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_job_opened'",
+    # 0524: umowę za prowadzącego wygenerował ktoś inny (dzwonek do prowadzącego).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_agreement_ready'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
@@ -5255,6 +5257,18 @@ END $$""",
     "signed_document_id INTEGER REFERENCES contract_documents(id) ON DELETE SET NULL",
     # 0514: prawdziwy dzień podpisu umowy (pole w „Oznacz jako podpisaną”).
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS signed_on DATE",
+    # 0524: szczegóły administracyjne umowy — replacement i wymiar FTE
+    # (CHECK-i w _CONSTRAINT_STATEMENTS).
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS is_replacement BOOLEAN",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS replaced_contract_id "
+    "INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS fte NUMERIC(3, 2)",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS is_replacement BOOLEAN",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS replaced_contract_id "
+    "INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS fte NUMERIC(3, 2)",
+    "CREATE INDEX IF NOT EXISTS ix_contracts_replaced_contract_id "
+    "ON contracts (replaced_contract_id)",
     # 0499: wnioski o podpis umowy B2B w NEXUSIE (kontraktor → firma).
     """CREATE TABLE IF NOT EXISTS b2b_signing_requests (
            id SERIAL PRIMARY KEY,
@@ -8950,6 +8964,30 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT ck_contracts_notice_period_months
             CHECK (notice_period_months IS NULL OR notice_period_months BETWEEN 1 AND 24)
             NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0524: szczegóły administracyjne umowy (Generator → kontrakt).
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_fte
+            CHECK (fte IS NULL OR fte IN (1, 0.75, 0.5, 0.25));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_replacement
+            CHECK (replaced_contract_id IS NULL OR is_replacement IS TRUE);
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE contracts
+            ADD CONSTRAINT ck_contracts_fte
+            CHECK (fte IS NULL OR fte IN (1, 0.75, 0.5, 0.25));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE contracts
+            ADD CONSTRAINT ck_contracts_replacement
+            CHECK (
+                (replaced_contract_id IS NULL OR is_replacement IS TRUE)
+                AND (replaced_contract_id IS NULL OR replaced_contract_id <> id)
+            );
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """DO $$ BEGIN
         ALTER TABLE b2b_generated_contracts
