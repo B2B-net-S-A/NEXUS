@@ -127,6 +127,9 @@ def consent_name(text: Optional[str]) -> Optional[str]:
     if not match:
         return None
     name = re.sub(r"[*_„”\"]", "", match.group(1)).strip(" ,")
+    # „Ja, niżej podpisana/y, wyrażam zgodę” — zgoda bez nazwiska, nie inna osoba.
+    if "podpisan" in fold(name):
+        return None
     return name or None
 
 
@@ -269,7 +272,11 @@ def assess(
     if subject.last_name:
         _person_checks(reading, subject, who, problems, passed)
     _document_checks(reading, subject, problems, passed, today)
-    return _result("mismatch" if problems else "ok", problems, passed, reading)
+    out = _result("mismatch" if problems else "ok", problems, passed, reading)
+    # Bez znanego kandydata „ok” znaczy tylko „dokument pasuje” — QC pokaże
+    # wtedy „obejrzyj zrzut”, a nie „zgoda pasuje do kandydata”.
+    out["person_checked"] = bool(subject.last_name)
+    return out
 
 
 def _person_checks(reading, subject: Subject, who: str, problems, passed) -> None:
@@ -442,6 +449,11 @@ def _call_model(image: bytes, mime: str, client: str) -> str:
         fallback_models=list(fallbacks_for(AIFeatureKey.consent_screenshot_check)),
         max_tokens=1200,
         temperature=0,
+        # Przeglądarka czeka na upload 60 s; zawieszony dostawca = `unavailable`,
+        # a nie upadły upload (wynik AI to dodatek, przegląd 27.10).
+        timeout=20,
+        max_retries=1,
+        total_timeout=30,
         thinking={"type": "disabled"},
         messages=[
             {

@@ -1991,6 +1991,10 @@ def _consent_matches_check(data: QcInput) -> dict:
     if data.consent != "ok" or not isinstance(record, dict):
         return _check("consent_matches", "skip", "Zrzut bez sprawdzenia AI")
     status = record.get("status")
+    if status == "ok" and record.get("person_checked") is False:
+        return _check(
+            "consent_matches", "manual", "AI nie znało kandydata — obejrzyj zrzut"
+        )
     if status == "ok":
         return _check("consent_matches", "pass", "OK")
     if status != "mismatch":

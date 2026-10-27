@@ -294,3 +294,33 @@ def test_cases_found_by_the_measurement_on_121_screenshots():
     # Sama treść zgody bez nagłówka maila.
     bare = reading(is_email=False, sender_name=None, sender_email=None, recipients=[])
     assert codes(cc.assess(bare, SUBJECT)) == ["no_sender"]
+
+
+def test_ok_without_a_person_check_is_not_presented_as_a_full_match():
+    """Przegląd 27.10: bez znanego kandydata „ok” nie może dać w QC „OK”."""
+    subject = cc.Subject(**{**SUBJECT.__dict__, "first_name": "", "last_name": ""})
+    result = cc.assess(reading(), subject)
+    assert result["status"] == "ok"
+    assert result["person_checked"] is False
+    assert qc._consent_matches_check(_qc_data("ok", result))["status"] == "manual"
+    assert cc.assess(reading(), SUBJECT)["person_checked"] is True
+
+
+def test_signed_without_a_name_is_not_another_person():
+    unnamed = CONSENT.replace("Mirosław Kowalczyk", "niżej podpisana")
+    assert cc.assess(reading(consent_text=unnamed), SUBJECT)["status"] == "ok"
+
+
+def test_model_call_has_a_deadline(monkeypatch):
+    seen = {}
+
+    def fake_call(**kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(content=[])
+
+    monkeypatch.setattr("app.services.claude_client.call_claude", fake_call)
+    monkeypatch.setattr("app.services.claude_client.text_of", lambda _m: "{}")
+    cc._call_model(b"img", "image/png", "PKO BP")
+    # Przeglądarka czeka 60 s — model nie może trzymać uploadu dłużej.
+    assert seen["total_timeout"] <= 30
+    assert seen["max_retries"] <= 1

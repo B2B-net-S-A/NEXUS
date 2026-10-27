@@ -2023,6 +2023,8 @@ async def upload_consent_screenshot(
             binding_job = (
                 await db.get(Job, binding_stage.job_id) if binding_stage else None
             )
+            if binding_stage is not None:
+                check_candidate_id = binding_stage.candidate_id
             if not binding_job or binding_job.client_id != client_id:
                 raise HTTPException(422, "Zgoda dotyczy innej rekrutacji lub klienta.")
         if binding_job is not None:
