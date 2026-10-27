@@ -22,6 +22,8 @@ Reguły, które łatwo cofnąć „przy okazji”:
 * Bez powodu w ``autofill_feedback`` — to nie decyzja człowieka, raport jakości
   liczy tylko odrzucenia zespołu.
 * Uruchamia ``scripts/autofill_withdraw_over_budget.py`` (domyślnie podgląd).
+* Próg czyta z ``BUDGET_HARD_OVER``: 27.10.2026 zdjęto 197 kart ponad 25%,
+  a po obniżce progu do 15% ten sam skrypt zdejmuje karty 15–25%.
 """
 
 from __future__ import annotations

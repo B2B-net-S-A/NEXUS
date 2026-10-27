@@ -24,6 +24,7 @@
 
 import Link from "next/link";
 import { useId, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Ban,
@@ -44,7 +45,9 @@ import {
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
+import { ConsentScreenshotThumb } from "@/components/v2/cv/ConsentScreenshotThumb";
 import type {
   QcCheck,
   QcConfirmBody,
@@ -59,6 +62,7 @@ import type {
   QcResult,
   QcSearch,
 } from "@/lib/api/cvQc";
+import { cvQcQueryKey } from "@/lib/api/cvQc";
 import {
   CV_NOT_EDITABLE_MESSAGE,
   QC_DISMISS_NOTE_MAX,
@@ -83,6 +87,7 @@ import {
   type IssueTarget,
   type QcTask,
 } from "@/lib/cv-qc";
+import { consentTarget } from "@/lib/cv-editor-issues";
 import { cn, formatDate } from "@/lib/utils";
 
 export const SECTION_TITLE = "text-xs font-semibold uppercase tracking-wider text-muted-foreground";
@@ -275,6 +280,13 @@ export function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) 
       return (
         <span className="flex flex-wrap gap-2">
           <AskCandidateButtons item={item} ctx={ctx} />
+        </span>
+      );
+    case "replace_consent":
+      return (
+        <span className="flex flex-wrap items-center gap-2">
+          <ConsentScreenshotThumb stageId={ctx.data.stage_id} />
+          <ConsentReplaceAction ctx={ctx} />
         </span>
       );
     case "upload_consent":
@@ -602,12 +614,31 @@ function QcDismissForm({
   );
 }
 
+/**
+ * Zrzut zgody, którego AI nie potwierdziło (F37): wymiana wprost z okna QC,
+ * bez generatora. Delivery Lead przyjmuje zrzut przez „To OK” obok.
+ */
+function ConsentReplaceAction({ ctx }: { ctx: ActionContext }) {
+  const queryClient = useQueryClient();
+  const target = consentTarget(ctx.data);
+  if (!target || !ctx.editable) return null;
+  return (
+    <ConsentAttachButton
+      compact
+      hasConsent
+      {...target}
+      onAttached={() => void queryClient.invalidateQueries({ queryKey: cvQcQueryKey(ctx.data.stage_id) })}
+    />
+  );
+}
+
 /** Czy `ItemAction` coś rysuje dla tej pozycji (poprawki całego sprawdzenia stoją niżej). */
 function itemHasAction(item: QcItem): boolean {
   if (item.fix === "remove_term") return Boolean((item.term ?? item.requirement ?? "").trim());
   return (
     item.fix === "ask_candidate" ||
     item.fix === "upload_consent" ||
+    item.fix === "replace_consent" ||
     item.fix === "generate_cv" ||
     item.fix === "role_order"
   );

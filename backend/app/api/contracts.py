@@ -14,6 +14,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -2929,8 +2930,8 @@ async def contract_order_sync_report(
     filename = (
         f"zgodnosc-zamowienie-kontrakt_{value.get('business_day', 'raport')}.xlsx"
     )
-    return StreamingResponse(
-        BytesIO(content),
+    return Response(
+        content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -3021,8 +3022,8 @@ async def contract_candidate_contact_report(
     )
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"braki-kontaktu-konsultantow_{ts}.xlsx"
-    return StreamingResponse(
-        BytesIO(content),
+    return Response(
+        content,
         media_type=(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),
@@ -3056,8 +3057,8 @@ async def contract_missing_orders_report(
         generated_at=generated_at,
     )
     filename = f"kontrakty-bez-zamowienia_{generated_at:%Y%m%d_%H%M%S}.xlsx"
-    return StreamingResponse(
-        BytesIO(content),
+    return Response(
+        content,
         media_type=(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),

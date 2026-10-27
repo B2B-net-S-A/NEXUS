@@ -48,6 +48,7 @@ from app.schemas.recruitment_activity import (
     RecruitmentActivityMetric,
     RecruitmentActivityState,
     RecruitmentActivitySummaryResponse,
+    RecruitmentActivityTeamTotalsResponse,
     RecruitmentActivityWindow,
 )
 from app.services.dashboard_v2 import (
@@ -66,6 +67,7 @@ from app.services.recruitment_operations import (
 from app.services.recruitment_activity import (
     build_recruitment_activity_summary,
     list_recruitment_activity_details,
+    team_period_totals,
 )
 from app.services.kpi_engine import WARSAW
 
@@ -352,6 +354,31 @@ async def recruitment_activity_details(
         date_from=date_from,
         date_to=date_to,
         state=state,
+    )
+
+
+@router.get(
+    "/recruitment-activity/team-totals",
+    response_model=RecruitmentActivityTeamTotalsResponse,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
+async def recruitment_activity_team_totals(
+    current_user: RecruitmentOperationsUser,
+    db: Database,
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    metric: list[RecruitmentActivityMetric] = Query(...),
+) -> RecruitmentActivityTeamTotalsResponse:
+    """Liczby zespołu za dni `date_from`–`date_to` dla kilku etapów naraz —
+    każda równa `period_total` z `/recruitment-activity/details` (`scope=team`,
+    `window=range`). Kafel „Wyniki zespołu” pyta raz zamiast raz na etap."""
+
+    return await team_period_totals(
+        db,
+        current_user,
+        metrics=tuple(dict.fromkeys(metric)),
+        date_from=date_from,
+        date_to=date_to,
     )
 
 

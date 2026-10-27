@@ -76,6 +76,8 @@ export interface JobAdWindowProps {
   openSkip?: boolean;
   /** Z maila: pytanie „Przypomnieć rekruterowi?” od razu. */
   askRemind?: boolean;
+  /** Z maila: mail do opiekuna Pracuj.pl od razu (`&wyslij=opiekun`). */
+  openSend?: boolean;
 }
 
 const LANG_OPTIONS: ReadonlyArray<{ value: AdLang; label: string }> = [
@@ -107,6 +109,7 @@ export function JobAdWindow({
   focusChannel = null,
   openSkip = false,
   askRemind = false,
+  openSend = false,
 }: JobAdWindowProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -404,6 +407,11 @@ export function JobAdWindow({
                           Dostaniesz ją w dwóch formatach: pola formularza Pracuj.pl i opis
                           JustJoin.IT.
                         </p>
+                        {openSend ? (
+                          <p role="status" className="text-sm text-foreground">
+                            Mail do opiekuna Pracuj.pl otworzy się, gdy treść będzie gotowa.
+                          </p>
+                        ) : null}
                         <div className="flex flex-wrap items-center gap-3">
                           <SegmentedRadio
                             label="Język ogłoszenia"
@@ -509,6 +517,7 @@ export function JobAdWindow({
                       focusChannel={focusChannel}
                       openSkip={openSkip}
                       askRemind={askRemind}
+                      openSend={openSend}
                     />
                   ) : null}
                 </>

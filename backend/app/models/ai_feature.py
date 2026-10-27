@@ -180,6 +180,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0522 (26.10.2026): formularz CV klienta (np. ze SWZ Centrum e-Zdrowia)
     # wypełniany z CV, screeningu i notatek — każda wartość z cytatem ze źródła.
     client_form_fill = "client_form_fill"
+    # 0529 (27.10.2026): zrzut zgody RODO pod CV (PKO BP) — model odczytuje
+    # nadawcę, datę, numer ZOB i nazwisko, a kod porównuje je z rekrutacją.
+    consent_screenshot_check = "consent_screenshot_check"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -221,6 +224,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.debrief_from_text: "Po rozmowie u klienta — pytania i oferta z notatki z telefonu",
     AIFeatureKey.autofill_quality_report: "Jakość podpowiedzi systemu — propozycje poprawek w raporcie poniedziałkowym",
     AIFeatureKey.client_form_fill: "Formularz CV klienta — wypełnienie z CV, screeningu i notatek",
+    AIFeatureKey.consent_screenshot_check: "Zrzut zgody RODO pod CV — odczyt nadawcy, daty i numeru ZOB",
 }
 
 
@@ -393,6 +397,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Pola formularza CV klienta (etykiety ze wzoru w Plikach rekrutacji)",
         "Tekst CV kandydata, odpowiedzi ze screeningu i notatki tej rekrutacji",
         "(bez stawek, dostępności i danych kontaktowych)",
+    ],
+    AIFeatureKey.consent_screenshot_check: [
+        "Zrzut maila ze zgodą kandydata wgrany przez rekrutera",
+        "Nazwa klienta, której zgoda dotyczy",
+        "(bez danych kandydata z bazy — porównanie z rekrutacją robi kod)",
     ],
 }
 

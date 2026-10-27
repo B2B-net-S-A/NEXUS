@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 23.10.2026
+> **Zgodność z systemem sprawdzona:** 27.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -245,8 +245,9 @@ linii nie ma wcale.
 
 **Po renegocjacji stawki z klientem popraw stawkę do klienta w rekrutacji**
 (profil kandydata → zakładka „Rekrutacje” albo panel osoby na Tablicy). Tylko
-wtedy notka znika, a zamówienia z maila z nową stawką przestają czekać
-w weryfikacji z powodu różnicy.
+wtedy notka znika. Zamówienia z maila porównują stawkę z rekrutacją **tylko
+przy pierwszym zamówieniu osoby** u klienta — przedłużenie porównują
+z poprzednim zamówieniem tej osoby, więc rekrutacji sprzed lat nie poprawiasz.
 
 > **Jednostka stawki jest domyślnie „Miesięczna".** Ustaw ją **zanim** wpiszesz
 > kwoty — przełączenie jednostki przelicza obie stawki, a stawka godzinowa
@@ -1052,9 +1053,29 @@ stawki do klienta z rekrutacji „[tytuł]” (165 zł/h) — sprawdź, czy klie
 przyjął inną stawkę…”. To **sprawdzenie, nie blokada**: jeśli stawka
 z zamówienia jest właściwa (klient przyjął inną po negocjacji), kliknij
 **„Zastosuj”**, a potem popraw stawkę do klienta w rekrutacji, żeby kolejne
-zamówienia tej osoby zapisywały się same. Porównanie pomija osoby spoza listy
-konsultantów klienta, zamówienia kosztowe, wiersze bez stawki oraz stawki
-nieporównywalne (inna waluta, stawka miesięczna wobec godzinowej). Role bez
+zamówienia tej osoby zapisywały się same. Rekrutacja jest odniesieniem tylko
+dla **pierwszego** zamówienia osoby. **Przedłużenie** (osoba ma już zamówienie
+ze stawką — trwające, wstrzymane albo zakończone) porównujemy z **poprzednim
+zamówieniem**: ta sama stawka zapisuje się sama, inna czeka z powodem
+„„[osoba]”: przy przedłużeniu zmienia się stawka do klienta: 120 zł/h →
+138 zł/h (+15%) względem zamówienia #70 — potwierdź, że klient przyjął nową
+stawkę”, a pod stawką w planie widzisz „było 120 zł/h (#70)”. Porównanie pomija
+osoby spoza listy konsultantów klienta, zamówienia kosztowe, wiersze bez stawki
+oraz stawki nieporównywalne (inna waluta, stawka miesięczna wobec godzinowej).
+**Przedłużenie, które zaczyna się przed końcem obecnego zamówienia** (np. nowe
+od 01.12, obecne do 31.12), czeka w kolejce z planem „Przedłużenie #70 —
+wybierz niżej”. Pod planem wybierasz, co zrobić z nakładającymi się dniami:
+**„Skróć #70 do 30.11, [numer] od 01.12”** (klient płaci nową stawkę od
+początku nowego zamówienia — wybór domyślny) albo **„#70 bez zmian do 31.12,
+[numer] od 01.01”**. „Zastosuj” wykonuje wybór: skraca obecne zamówienie
+(zostaje ślad w jego historii z datą sprzed zmiany) albo przesuwa początek
+nowego. Zamówienia, które ma już fakturę za skracany miesiąc, „Zastosuj” nie
+skróci — zrób to w oknie zamówienia. Nie skróci go też, gdy nowe zamówienie
+nie może się aktywować (np. wypowiedziana umowa) — wtedy przedłużenie
+zapisujesz w oknie zamówienia. Gdy plan zmienił się, zanim kliknąłeś (ktoś
+zmienił obecne zamówienie), „Zastosuj” odmówi i poprosi o ponowny wybór. Gdy nowy okres mieści się w obecnym,
+obecne jest bezterminowe albo nachodzą dwa zamówienia, wyboru nie ma
+i rozstrzygasz w oknie zamówienia. Role bez
 podglądu kwot widzą ten powód z kwotami zastąpionymi „…”. „Zastosuj” odmawia też
 wiersza, który ma stawkę, ale **bez jednostki** (np. inna kwota niż w nagłówku
 dokumentu bez „zł/MD” czy „zł/h”) — jednostkę uzupełniasz w oknie zamówienia,

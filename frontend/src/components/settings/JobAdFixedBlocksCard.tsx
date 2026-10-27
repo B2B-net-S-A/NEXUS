@@ -5,6 +5,9 @@
  * Recruitment). „Co oferujemy”, etapy procesu, zdanie o firmie i dopisek do
  * tytułu wpisuje się raz — trafiają do każdego ogłoszenia na portale w tym
  * samym brzmieniu, rekruter ich nie przepisuje.
+ *
+ * Od 27.10.2026 tu stoi też opiekun konta Pracuj.pl — adresat maila „Wyślij do
+ * Pracuj.pl” z okna „Ogłoszenie” (`ogloszenie-pracuj-mailem-do-opiekuna.md`).
  */
 
 import { useEffect, useState } from "react";
@@ -14,6 +17,7 @@ import { Loader2 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -30,7 +34,11 @@ interface Draft {
   title_suffix: TitleSuffix;
   pl: { offer: string; process: string; about: string };
   en: { offer: string; process: string; about: string };
+  caretaker: { name: string; email: string };
 }
+
+/** Skrzynka ogłoszeń Pracuj.pl — gdy serwer jeszcze nie zna opiekuna. */
+const DEFAULT_CARETAKER_EMAIL = "ogloszenia@pracuj.pl";
 
 const SUFFIX_OPTIONS: ReadonlyArray<{ value: TitleSuffix; label: string }> = [
   { value: "kmx", label: "(k/m/x) · (f/m/x)" },
@@ -53,7 +61,15 @@ function toDraft(blocks: FixedBlocks): Draft {
     process: blocks[lang].process.join("\n"),
     about: blocks[lang].about,
   });
-  return { title_suffix: blocks.title_suffix, pl: part("pl"), en: part("en") };
+  return {
+    title_suffix: blocks.title_suffix,
+    pl: part("pl"),
+    en: part("en"),
+    caretaker: {
+      name: blocks.pracuj_caretaker?.name ?? "",
+      email: blocks.pracuj_caretaker?.email ?? DEFAULT_CARETAKER_EMAIL,
+    },
+  };
 }
 
 function fromDraft(draft: Draft): FixedBlocks {
@@ -62,7 +78,15 @@ function fromDraft(draft: Draft): FixedBlocks {
     process: linesToItems(draft[lang].process),
     about: draft[lang].about.replace(/\s+/g, " ").trim(),
   });
-  return { title_suffix: draft.title_suffix, pl: part("pl"), en: part("en") };
+  return {
+    title_suffix: draft.title_suffix,
+    pl: part("pl"),
+    en: part("en"),
+    pracuj_caretaker: {
+      name: draft.caretaker.name.replace(/\s+/g, " ").trim(),
+      email: draft.caretaker.email.trim(),
+    },
+  };
 }
 
 export default function JobAdFixedBlocksCard() {
@@ -93,6 +117,10 @@ export default function JobAdFixedBlocksCard() {
 
   const dirty =
     !!draft && !!query.data && JSON.stringify(fromDraft(draft)) !== JSON.stringify(query.data);
+  const setCaretaker = (key: "name" | "email", value: string) =>
+    setDraft((prev) =>
+      prev ? { ...prev, caretaker: { ...prev.caretaker, [key]: value } } : prev,
+    );
   const setPart = (key: "offer" | "process" | "about", value: string) =>
     setDraft((prev) => (prev ? { ...prev, [lang]: { ...prev[lang], [key]: value } } : prev));
   const preview = draft ? fromDraft(draft) : null;
@@ -142,6 +170,39 @@ export default function JobAdFixedBlocksCard() {
                 dopisek, zostaje bez zmian.
               </p>
             </div>
+
+            <fieldset className="flex flex-col gap-2" data-testid="pracuj-caretaker">
+              <legend className="text-sm font-semibold text-foreground">
+                Opiekun konta Pracuj.pl
+              </legend>
+              <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+                <label className="flex min-w-0 flex-col gap-1" htmlFor="pracuj-caretaker-name">
+                  <span className="text-xs text-muted-foreground">Imię (do powitania)</span>
+                  <Input
+                    id="pracuj-caretaker-name"
+                    value={draft.caretaker.name}
+                    maxLength={60}
+                    className="h-8 text-[13px]"
+                    onChange={(e) => setCaretaker("name", e.target.value)}
+                  />
+                </label>
+                <label className="flex min-w-0 flex-col gap-1" htmlFor="pracuj-caretaker-email">
+                  <span className="text-xs text-muted-foreground">Adres e-mail</span>
+                  <Input
+                    id="pracuj-caretaker-email"
+                    type="email"
+                    value={draft.caretaker.email}
+                    maxLength={254}
+                    className="h-8 text-[13px]"
+                    onChange={(e) => setCaretaker("email", e.target.value)}
+                  />
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Pracuj.pl nie ma u nas połączenia — Delivery Lead wysyła ogłoszenie na ten adres
+                przyciskiem „Wyślij do Pracuj.pl”, ze swojej skrzynki.
+              </p>
+            </fieldset>
 
             <SegmentedRadio
               label="Język stałych części"

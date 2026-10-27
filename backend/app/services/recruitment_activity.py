@@ -28,11 +28,12 @@ from app.schemas.recruitment_activity import (
     RecruitmentActivityProgress,
     RecruitmentActivityState,
     RecruitmentActivitySummaryResponse,
+    RecruitmentActivityTeamTotalsResponse,
     RecruitmentActivityWindow,
 )
 from app.services.insights_person_scope import outside_scope_user_ids
 from app.services.kpi_engine import WARSAW
-from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.kpi_targets import resolve_kpi_target
 
 
@@ -68,7 +69,7 @@ _OVERVIEW_CACHE_TTL_SECONDS = 120
 # filtra osób wynik jest wspólny dla wszystkich oglądających, więc trzymamy go
 # w cache (jeden wykonawca) i zawężamy do osoby w Pythonie.
 _OVERVIEW_SQL = text(
-    VERIFIER_ANCHORED_CTE
+    CREDITED_FROM_SNAPSHOT_CTE
     + """
     SELECT credit_user, stage,
            count(*) FILTER (
@@ -220,7 +221,7 @@ def _detail_summary_sql(person_filter: str):
     )
     return _with_user_ids(
         text(
-            VERIFIER_ANCHORED_CTE
+            CREDITED_FROM_SNAPSHOT_CTE
             + _DESCRIBED_CTE.format(person_filter=person_filter)
             + f"""
     SELECT count(*) AS total,
@@ -244,7 +245,7 @@ def _detail_summary_sql(person_filter: str):
 def _detail_sql(person_filter: str):
     return _with_user_ids(
         text(
-            VERIFIER_ANCHORED_CTE
+            CREDITED_FROM_SNAPSHOT_CTE
             + _DESCRIBED_CTE.format(person_filter=person_filter)
             + """
     SELECT described.candidate_id,
@@ -468,7 +469,11 @@ async def _overview_rows(
         cached = await cache_get(key)
         if cached is not None:
             return cached
-        result = (await db.execute(_OVERVIEW_SQL, params)).mappings().all()
+        result = (
+            (await db.execute(_OVERVIEW_SQL, {**params, **await credited_bind(db)}))
+            .mappings()
+            .all()
+        )
         rows = [
             {
                 "credit_user": int(row["credit_user"]),
@@ -714,6 +719,12 @@ async def list_recruitment_activity_details(
     }
     if subject is not None:
         params["user_ids"] = [subject.id]
+    # `period_rows` czyta z `credited` tylko ten etap i ten okres.
+    params.update(
+        await credited_bind(
+            db, stage=params["stage"], since=period_start, until=period_end
+        )
+    )
 
     summary = (await db.execute(_DETAIL_SUMMARY_SQL[scope], params)).mappings().one()
     listed_total = int(summary["total"] or 0)
@@ -765,6 +776,56 @@ async def list_recruitment_activity_details(
         state_filter=state,
         period_total=period_total,
         history_total=history_total,
+    )
+
+
+async def team_period_totals(
+    db: AsyncSession,
+    current_user: User,
+    *,
+    metrics: tuple[RecruitmentActivityMetric, ...],
+    date_from: date,
+    date_to: date,
+) -> RecruitmentActivityTeamTotalsResponse:
+    """Liczby zespołu za dni od–do dla kilku etapów w jednym żądaniu.
+
+    Kafel „Wyniki zespołu” pytał listę „Kto się liczy” cztery razy (po jednym
+    etapie), a każde pytanie to były dwa pełne `VERIFIER_ANCHORED_CTE`
+    (27.10.2026). Liczba etapu to TEN SAM licznik co ``period_total`` listy
+    zespołu — to samo zapytanie podsumowania, na jednej migawce `credited`.
+    """
+    await _activity_audience(db, current_user, None, team_scope=True, any_subject=True)
+    start_date, end_date = _detail_window(
+        "range",
+        selected_day=date_from,
+        selected_month=date_from.replace(day=1),
+        date_from=date_from,
+        date_to=date_to,
+    )
+    period_start, period_end = _warsaw_bounds(start_date, end_date)
+    totals: dict[RecruitmentActivityMetric, int] = {}
+    history: dict[RecruitmentActivityMetric, int] = {}
+    for metric in metrics:
+        stage = _METRIC_STAGE[metric]
+        params: dict = {
+            "stage": stage,
+            "period_start": period_start,
+            "period_end": period_end,
+            **await credited_bind(
+                db, stage=stage, since=period_start, until=period_end
+            ),
+        }
+        summary = (
+            (await db.execute(_DETAIL_SUMMARY_SQL["team"], params)).mappings().one()
+        )
+        history[metric] = int(summary["history_total"] or 0)
+        totals[metric] = int(summary["total"] or 0) + history[metric]
+    return RecruitmentActivityTeamTotalsResponse(
+        generated_at=datetime.now(timezone.utc),
+        period_start=start_date,
+        period_end=end_date - timedelta(days=1),
+        totals=totals,
+        history=history,
     )
 
 

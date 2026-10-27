@@ -16,6 +16,8 @@ export type QcFixKind =
   | "bold_all"
   | "generate_cv"
   | "upload_consent"
+  /** Zrzut zgody nie pasuje do rekrutacji (F37, 27.10.2026) — „Wymień zrzut”. */
+  | "replace_consent"
   | "ask_candidate"
   | "remove_term"
   | "ai"
@@ -262,6 +264,21 @@ export function useCvQc(stageId: number | null, enabled = true) {
     // liczy QC od nowa.
     staleTime: 0,
     refetchOnMount: "always",
+  });
+}
+
+/**
+ * Zrzut zgody RODO przy CV z QC (miniatura przy `consent_matches`, 27.10.2026).
+ * Klucz pod `cvQcQueryKey`: „Wymień zrzut” odświeża QC, a z nim obraz.
+ */
+export function useQcConsentScreenshot(stageId: number) {
+  return useQuery<Blob>({
+    queryKey: [...cvQcQueryKey(stageId), "consent-screenshot"],
+    queryFn: () =>
+      api
+        .get<Blob>(`/api/pipeline/stages/${stageId}/qc/consent-screenshot`, { responseType: "blob" })
+        .then((r) => r.data),
+    retry: false,
   });
 }
 

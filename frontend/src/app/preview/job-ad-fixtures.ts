@@ -336,6 +336,7 @@ export function stateOf(
     publications: patch.publications ?? [],
     career: patch.career ?? NO_CAREER_PAGE,
     reminders: null,
+    pracuj_request: null,
   };
 }
 
@@ -351,6 +352,7 @@ function initial(state: HarnessState): JobAdState {
       publications: [],
       career: NO_CAREER_PAGE,
       reminders: null,
+      pracuj_request: null,
     };
   }
   if (state === "published") {

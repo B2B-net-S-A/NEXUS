@@ -67,6 +67,24 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
     firmę” / „nie chce do Nordei”;
   * nie przywraca osoby usuniętej z rekrutacji (archiwum
     `candidate_stage_removals` tej rekrutacji).
+- **E. Reguły z odrzuceń, runda 2 (decyzje Artura 27.10.2026).** Analiza 133
+  odrzuceń z powodem (12 osób, 27 rekrutacji) i 2 537 osób od systemu: wynik
+  dopasowania nie odróżnia dobrych od złych (65–70 pkt: 45% idzie dalej,
+  70–75: 22%), działają reguły na danych, które system zna. Od tej zmiany:
+  * `BUDGET_HARD_OVER` = **15%** (było 25%): osoby 15–25% nad budżetem szły
+    dalej w 12% (2 z 17), ponad 25% w 15%, a 0–15% w 40% — tyle co w budżecie
+    (41%);
+  * **biuro i miasto = za resztą, nie odpada** (`office_cautions`, te same
+    funkcje co bramka wyszukiwania: `office_days_exceeded`,
+    `remote_only_refuses_office`, `office_city_mismatch`; zgoda na więcej
+    dni w biurze znosi ostrzeżenie o dniach): przy znanym „mniej dni w biurze”
+    dalej szło 18% (7 z 39), przy zgodnych 36%. Poziom w `_by_rules` = poziom
+    budżetu + 1 przy ostrzeżeniu o biurze;
+  * migawka `entry_meta.cautions` (budżet z procentem, `office_days`,
+    `remote_only`, `office_city`) → `autofill_badge.cautions` z napisem
+    i dymkiem (liczy serwer) → plakietki na karcie w „Nowych”/„Screeningu”
+    i lista „Na co uważać” w `DockAutofillReason`. Karty sprzed tej zmiany
+    nie mają ostrzeżeń.
   Jednorazowo `scripts/autofill_withdraw_over_budget.py` (podgląd, `--apply`)
   zdejmuje nietknięte karty od systemu ponad 25% nad budżetem
   (`services/autofill_withdraw.py`: jeden wiersz etapu bez osoby, bez

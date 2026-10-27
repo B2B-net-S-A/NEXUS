@@ -3,7 +3,7 @@
 Audyt wydajności 13.09 (F06/F12) i reaudyt 14.09 wymagają pomiaru, zanim ktoś
 zmieni rozmiar puli albo doda proces: `http_outcome` mówi, ile trwało żądanie,
 ale nie mówi, czy czekało na zajętą pętlę zdarzeń (pełny przegląd bazy, CPU
-w pętlach tła), czy na wolne połączenie z puli (20 + 40 na proces). Ta pętla
+w pętlach tła), czy na wolne połączenie z puli (40 + 20 na proces). Ta pętla
 co ``INTERVAL_SECONDS`` loguje ``runtime_metrics`` (Alloy → Loki):
 
 * ``loop_lag_ms_p99`` / ``loop_lag_ms_max`` — spóźnienie budzika co 0,5 s;

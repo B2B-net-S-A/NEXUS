@@ -53,6 +53,7 @@ import {
   type DocumentFindResult,
   type DocumentTextAvailability,
 } from "./DocumentSearchBar";
+import { preloadPdfJs } from "@/lib/pdfjs-loader";
 import { SearchablePdfPreview, useDebouncedValue } from "./SearchablePdfPreview";
 
 /**
@@ -292,6 +293,7 @@ export function FilePreviewContent({
       setStatus("ready");
       return;
     }
+    if (kind === "pdf") preloadPdfJs();
 
     (async () => {
       // Stream contentu z proxy backendu (→ Hetzner Object Storage) bywa

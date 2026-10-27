@@ -57,7 +57,7 @@ async def test_plan_takes_only_untouched_system_cards_far_above_budget(monkeypat
     await _rates(
         job_id,
         100,
-        {far: 140, slight: 120, moved: 200, noted: 200, called: 200, fits: 90},
+        {far: 140, slight: 115, moved: 200, noted: 200, called: 200, fits: 90},
     )
     async with AsyncSessionLocal() as db:
         db.add(

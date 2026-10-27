@@ -280,6 +280,7 @@ async def test_recruiter_cannot_request_named_team_drilldown() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_activity_summary_uses_one_snapshot_for_counts_and_comparisons() -> None:
     # Przegląd jest w cache procesu (runda 7, R7-N9-3) — liczymy od zera.
     from app.core import cache as cache_module

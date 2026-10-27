@@ -20,7 +20,7 @@ born from a signed B2B agreement, never from the client's purchase order.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 import re
 from typing import Optional
@@ -58,6 +58,12 @@ ACTION_SKIP = "skip"
 #: „Nowe zamówienie" i „Uzupełnij zamówienie"), do którego kolejka prowadzi
 #: z tym PDF-em.
 ACTION_DECIDE_PERSON = "decide_person"
+#: Wybory człowieka dla wiersza ``ACTION_OVERLAP`` (decyzja Artura 27.10.2026):
+#: nowe zamówienie tej osoby zaczyna się przed końcem obecnego.
+#: Albo obecne kończy się dzień przed nowym, albo nowe zaczyna się dzień po
+#: obecnym. Automat nie wybiera — „Zastosuj” wykonuje wybór z panelu.
+OVERLAP_TRIM_PREVIOUS = "trim_previous"
+OVERLAP_START_AFTER = "start_after"
 #: Wartości ``RowProposal.decision_kind`` — patrz opis pola.
 DECISION_NEW = "new"
 DECISION_NEW_AMBIGUOUS = "new_ambiguous"
@@ -128,6 +134,8 @@ class ExistingOrder:
     #: Zamówienie zapisane już z dokumentu mailowego (Activity ``order_mail_*``).
     #: Jego szkic niesie TAMTO zamówienie, a nie pusty szkic z zatrudnienia.
     from_order_mail: bool = False
+    order_type: Optional[str] = None
+    rate_client_currency: Optional[str] = None
 
 
 @dataclass
@@ -169,6 +177,23 @@ class RowProposal:
     #: Godzinowa ponowna weryfikacja czyta to pole, więc nie da się go zgadnąć
     #: z tekstu powodu.
     decision_kind: Optional[str] = None
+    #: Ostatnia UZGODNIONA stawka tej osoby u klienta: poprzednie samodzielne
+    #: zamówienie (aktywne, wstrzymane albo zakończone) zaczęte przed okresem
+    #: dokumentu. Przy przedłużeniu to ono, a nie rekrutacja, jest punktem
+    #: odniesienia bramki (decyzja Artura 27.10.2026). ``None`` = pierwsze
+    #: zamówienie kontraktu — wtedy odniesieniem zostaje stawka z rekrutacji.
+    previous_order_id: Optional[int] = None
+    previous_order_title: Optional[str] = None
+    previous_rate_client: Optional[str] = None
+    previous_rate_unit: Optional[str] = None
+    previous_rate_currency: Optional[str] = None
+    #: Przy ``ACTION_OVERLAP``: okres nachodzącego zamówienia i wybory, które
+    #: „Zastosuj” umie wykonać (``OVERLAP_*``). Pusta lista = rozstrzyga okno
+    #: zamówienia (okres wewnątrz obecnego, bezterminowe, kilka zamówień).
+    previous_start_date: Optional[str] = None
+    overlap_options: list[str] = field(default_factory=list)
+    overlap_trim_end: Optional[str] = None
+    overlap_start_after: Optional[str] = None
 
 
 @dataclass
@@ -200,6 +225,60 @@ def renewal_gap_phrase(days: int) -> str:
 
 def _iso(d: Optional[date]) -> Optional[str]:
     return d.isoformat() if d else None
+
+
+def _pl_day(d: date) -> str:
+    return d.strftime("%d.%m.%Y")
+
+
+_ORDER_UNIT_TO_ROW_UNIT = {"hourly": "hour", "daily": "day", "monthly": "month"}
+
+
+def _agreed_previous_order(
+    existing: list[ExistingOrder], new_start: date
+) -> Optional[ExistingOrder]:
+    """Ostatnie samodzielne zamówienie ze stawką, zaczęte przed nowym okresem.
+
+    Szkic i anulowane nie są uzgodnioną stawką; linia grupy MD i zamówienie
+    kosztowe mają kwotę zlecenia albo budżet, nie stawkę osoby.
+    """
+    agreed = [
+        o
+        for o in existing
+        if o.order_group_id is None
+        and o.status in ("active", "paused", "completed")
+        and o.rate_client is not None
+        and o.order_type not in ("cost", "md")
+        and o.start_date is not None
+        and o.start_date < new_start
+    ]
+    return max(agreed, key=lambda o: (o.start_date, o.id), default=None)
+
+
+def _overlap_options(
+    order: ExistingOrder, new_start: date, end: Optional[str]
+) -> list[str]:
+    """Co „Zastosuj” może zrobić z jednym nachodzącym zamówieniem okresowym.
+
+    Tylko przedłużenie: obecne zamówienie zaczęło się wcześniej, ma datę końca,
+    a nowe sięga co najmniej do niej. Okres wewnątrz obecnego albo zamówienie
+    bezterminowe to inna sytuacja — rozstrzyga okno zamówienia.
+    """
+    if (
+        order.status not in ("active", "paused")
+        or order.order_group_id is not None
+        or order.start_date is None
+        or order.end_date is None
+        or order.start_date >= new_start
+    ):
+        return []
+    new_end = date.fromisoformat(end) if end else None
+    if new_end is not None and new_end < order.end_date:
+        return []
+    options = [OVERLAP_TRIM_PREVIOUS]
+    if new_end is None or new_end > order.end_date:
+        options.append(OVERLAP_START_AFTER)
+    return options
 
 
 _PFRON_PREFIX = re.compile(r"^zlecenie\s+nr\.?\s+", re.I)
@@ -477,6 +556,15 @@ def plan_document(
 
         existing = existing_orders_by_contract.get(res.contract_id, [])
         new_start = date.fromisoformat(start)
+        previous = _agreed_previous_order(existing, new_start)
+        if previous is not None:
+            rp.previous_order_id = previous.id
+            rp.previous_order_title = previous.title
+            rp.previous_rate_client = str(previous.rate_client)
+            rp.previous_rate_unit = _ORDER_UNIT_TO_ROW_UNIT.get(
+                previous.rate_unit or "", previous.rate_unit
+            )
+            rp.previous_rate_currency = previous.rate_client_currency
         # Punkt odniesienia powrotu to wyłącznie samodzielne zamówienie
         # (okresowe/kosztowe). Linia grupy MD ma własny cykl życia (budżet,
         # zamiana kontraktora, decyzja o MD po offboardingu) i nie jest
@@ -592,12 +680,27 @@ def plan_document(
         open_orders = open_live + mail_drafts
         overlapping = [o for o in open_orders if _overlaps(o, new_start, end)]
         if overlapping:
+            target = overlapping[0]
             rp.action = ACTION_OVERLAP
-            rp.target_order_id = overlapping[0].id
-            rp.reasons.append(
-                f"Okres nachodzi na otwarte zamówienie #{overlapping[0].id} "
-                f"({overlapping[0].title}, do {_iso(overlapping[0].end_date) or 'bezterminowo'})"
-            )
+            rp.target_order_id = target.id
+            rp.previous_start_date = _iso(target.start_date)
+            rp.previous_end_date = _iso(target.end_date)
+            if len(overlapping) == 1:
+                rp.overlap_options = _overlap_options(target, new_start, end)
+            if rp.overlap_options:
+                rp.overlap_trim_end = _iso(new_start - timedelta(days=1))
+                if OVERLAP_START_AFTER in rp.overlap_options:
+                    rp.overlap_start_after = _iso(target.end_date + timedelta(days=1))
+                rp.reasons.append(
+                    f"Nowe zamówienie zaczyna się {_pl_day(new_start)}, a #{target.id} "
+                    f"({target.title}) trwa do {_pl_day(target.end_date)} — wybierz, "
+                    f"czy skrócić #{target.id}, czy zacząć nowe po nim"
+                )
+            else:
+                rp.reasons.append(
+                    f"Okres nachodzi na otwarte zamówienie #{target.id} "
+                    f"({target.title}, do {_iso(target.end_date) or 'bezterminowo'})"
+                )
             proposal.rows.append(rp)
             continue
         rp.action = ACTION_FUTURE if open_orders else ACTION_NEW

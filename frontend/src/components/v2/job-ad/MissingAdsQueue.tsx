@@ -49,6 +49,11 @@ export function channelText(view: AdChannelView): string {
     return view.since ? `Wisi od ${formatDate(view.since)}` : "Wisi";
   }
   if (view.state === "skipped") return `Nie publikujemy: ${view.skip_reason ?? ""}`;
+  if (view.state === "requested") {
+    return view.since
+      ? `Wysłane do opiekuna ${formatDate(view.since)}`
+      : "Wysłane do opiekuna";
+  }
   if (view.mine) return "Brak · robisz Ty";
   const owners = ownersText(view);
   return owners ? `Brak · robi ${owners}` : "Brak";
@@ -58,6 +63,7 @@ const CHIP: Record<AdChannelView["state"], string> = {
   live: "bg-success-muted text-success-muted-foreground",
   missing: "bg-warning-muted text-warning-muted-foreground",
   skipped: "bg-muted text-muted-foreground",
+  requested: "bg-primary/10 text-primary",
 };
 
 const SHORT: Record<AdChannel, string> = {

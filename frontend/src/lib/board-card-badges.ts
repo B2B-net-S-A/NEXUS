@@ -518,6 +518,20 @@ export function autofillDecisionBadge(meta: KanbanItem["entry_autofill"]): CardB
   };
 }
 
+/**
+ * Ostrzeżenia osoby od systemu (27.10.2026): „+18% budżetu”, „Biuro: 1 z 3 dni”,
+ * „Tylko zdalnie”, „Inne miasto: Kraków” — system to wiedział i dał ją za
+ * resztą. Napis i dymek liczy serwer.
+ */
+export function autofillCautionBadges(meta: KanbanItem["entry_autofill"]): CardBadge[] {
+  return (meta?.cautions ?? []).map((c) => ({
+    key: `autofill_caution_${c.key}`,
+    label: c.label,
+    tone: "wait",
+    title: c.title,
+  }));
+}
+
 function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
   switch (item.entry_source) {
     case "system":
@@ -665,6 +679,7 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       const due = autofillDecisionBadge(item.entry_autofill);
       if (due) out.push(due);
     }
+    out.push(...autofillCautionBadges(item.entry_autofill));
   }
   // Przegląd DL (Rekrutacja v5): osoby w „QC CV" poza Nordeą — Delivery Lead
   // sprawdza CV, wpisuje stawkę do klienta i wysyła.

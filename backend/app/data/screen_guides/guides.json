@@ -131,7 +131,7 @@
       }
     ],
     "pitfalls": [
-      "Wynik „nie policzono” to brak danych, nie słabe dopasowanie. W „Wymaganiach” ✓ i ? dotyczą słów sprawdzonych w CV; „Zapytaj w rozmowie” to rzeczy, których CV nie potwierdzi (zdania, branża, język) — sprawdź je w rozmowie.",
+      "Wynik „nie policzono” to brak danych, nie słabe dopasowanie. W „Wymaganiach” ✓ i ? dotyczą słów sprawdzonych w CV; ? z rokiem (np. „angular · 2020”) znaczy, że osoba ostatnio używała tej technologii ponad 3 lata temu — zapytaj, czy ją jeszcze zna; „Zapytaj w rozmowie” to rzeczy, których CV nie potwierdzi (zdania, branża, język) — sprawdź je w rozmowie.",
       "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie. Ramka „Pracuje u nas” w panelu osoby mówi, u którego klienta osoba ma trwającą umowę i kto jest jej Delivery Leadem — to informacja, nie blokada.",
     "Budżet i dni w biurze nikogo nie ukrywają — to plakietki: „oczekuje +X% ponad budżet”, „mniej dni w biurze”, „poniżej minimum — zgoda na telefon”, „preferuje pracę zdalną” (przy hybrydzie; przy pracy w biurze od 4 dni taka osoba jest ukryta).",
     "Plakietka „Szuka części etatu” albo „Tylko pełny etat” znaczy, że wymiar pracy z rozmowy nie pasuje do rekrutacji. Osoba zostaje na liście — sprawdź to z nią przed dodaniem."
@@ -608,7 +608,7 @@
       "„Zastosuj” ignoruje wyłącznik automatu — zapisujesz świadomie jako człowiek.",
       "Stawka w walucie innej niż PLN zawsze wymaga ręcznej weryfikacji.",
       "Wiersz z datą od późniejszą niż data do czeka jako „Do weryfikacji – błędny okres” — „Zastosuj” go nie zapisze; okres wpisz w oknie zamówienia klienta.",
-      "Stawka z zamówienia inna niż stawka do klienta, za którą Delivery Lead wysłał osobę w rekrutacji, czeka w „Do weryfikacji”. To sprawdzenie, nie blokada: gdy klient przyjął inną stawkę, kliknij „Zastosuj” i popraw stawkę do klienta w rekrutacji."
+      "Inna stawka czeka w „Do weryfikacji”: pierwsze zamówienie porównujemy ze stawką z rekrutacji, przedłużenie z poprzednim zamówieniem. Przedłużenie nachodzące na obecne zamówienie czeka na wybór pod planem (skrócić obecne albo zacząć nowe po nim) — „Zastosuj” go wykonuje."
     ],
     "anchors": [
       {

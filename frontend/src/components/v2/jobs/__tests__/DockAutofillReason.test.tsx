@@ -25,6 +25,31 @@ describe("DockAutofillReason", () => {
     expect(block).toHaveTextContent("Zdecyduj");
   });
 
+  it("„Na co uważać” wymienia ostrzeżenia, a bez nich sekcji nie ma", () => {
+    const { rerender } = render(
+      <DockAutofillReason
+        item={{
+          entry_source: "system",
+          entry_autofill: {
+            ...meta,
+            cautions: [
+              {
+                key: "office_days",
+                label: "Biuro: 1 z 3 dni",
+                title: "Według profilu przyjmie 1 dzień w biurze w tygodniu, klient chce 3 dni.",
+              },
+            ],
+          },
+        }}
+      />,
+    );
+    const cautions = screen.getByTestId("dock-autofill-cautions");
+    expect(cautions).toHaveTextContent("Na co uważać");
+    expect(cautions).toHaveTextContent("przyjmie 1 dzień w biurze w tygodniu, klient chce 3 dni");
+    rerender(<DockAutofillReason item={{ entry_source: "system", entry_autofill: meta }} />);
+    expect(screen.queryByTestId("dock-autofill-cautions")).toBeNull();
+  });
+
   it("po decyzji nie prosi o nią, a osoby od ludzi nie dotyczy", () => {
     const { rerender, container } = render(
       <DockAutofillReason

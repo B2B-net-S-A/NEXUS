@@ -124,6 +124,8 @@ def test_badge_carries_only_known_fields():
         "decided": False,
         "waiting_days": 2,
         "decision_due": True,
+        # Karta sprzed ostrzeżeń (27.10.2026) — pusta lista.
+        "cautions": [],
     }
     assert (
         autofill_badge({"kind": "auto_match", "score": 70}, waiting_days=None) is None

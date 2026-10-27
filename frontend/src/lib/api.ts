@@ -3,6 +3,7 @@ import type { PipelineMovePayload, PipelineMoveResult } from "@/lib/pipeline-mov
 import { reviewBeforeFinalize, type CvReviewState } from "./cv-approval-request";
 import axios, { AxiosError } from "axios";
 import { messageFromApiResponse } from "./api-error";
+import type { ConsentUploadResult } from "./consent-check";
 import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-capability";
 
 import { FILE_UPLOAD_TIMEOUT_MS, isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
@@ -7007,24 +7008,29 @@ export interface CvGeneratePayload {
 export const cvGeneratorApi = {
   listGenerated: (params: CvGeneratedListParams) =>
     api.get<GeneratedCvItem[]>("/api/cv-generator/generated", { params }),
-  /** Zrzut zgody dla JUŻ wygenerowanego CV — podpis przypisania do wiersza. */
-  uploadConsentForGenerated: (generatedId: number, file: File) => {
+  /**
+   * Zrzut zgody dla JUŻ wygenerowanego CV — podpis przypisania do wiersza.
+   * `overrideReason`: zapis zrzutu, który AI uznało za niepasujący (27.10.2026).
+   */
+  uploadConsentForGenerated: (generatedId: number, file: File, overrideReason?: string) => {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("generated_id", String(generatedId));
-    return api.post<{ consent_token: string; filename: string }>(
+    if (overrideReason) fd.append("override_reason", overrideReason);
+    return api.post<ConsentUploadResult>(
       "/api/cv-generator/consent-screenshot",
       fd,
       { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
     );
   },
   /** Zrzut zgody dla CV etapu bez dokumentu generatora — przypisanie do etapu. */
-  uploadConsentForStage: (candidateId: number, stageId: number, file: File) => {
+  uploadConsentForStage: (candidateId: number, stageId: number, file: File, overrideReason?: string) => {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("candidate_id", String(candidateId));
     fd.append("stage_id", String(stageId));
-    return api.post<{ consent_token: string; filename: string }>(
+    if (overrideReason) fd.append("override_reason", overrideReason);
+    return api.post<ConsentUploadResult>(
       "/api/cv-generator/consent-screenshot",
       fd,
       { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },

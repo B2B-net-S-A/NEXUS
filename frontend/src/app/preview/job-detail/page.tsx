@@ -342,6 +342,15 @@ function autofillCards(): KanbanItem[] {
         decided: false,
         waiting_days: 0,
         decision_due: false,
+        // 27.10.2026: ostrzeżenia — osoba za resztą, karta mówi dlaczego.
+        cautions: [
+          { key: "budget", label: "+12% budżetu", title: "„Stawka od” 106 zł/h, budżet 95 zł/h." },
+          {
+            key: "office_days",
+            label: "Biuro: 1 z 2 dni",
+            title: "Według profilu przyjmie 1 dzień w biurze w tygodniu, klient chce 2 dni.",
+          },
+        ],
       },
     }),
   ];

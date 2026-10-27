@@ -108,6 +108,8 @@ class TestFeatureKeyEnum:
             "autofill_quality_report",
             # 0522: formularz CV klienta wypełniany z CV i screeningu.
             "client_form_fill",
+            # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB.
+            "consent_screenshot_check",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):
