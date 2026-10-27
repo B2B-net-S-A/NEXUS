@@ -568,6 +568,7 @@ async def relink_esign(
         request_id=request_id,
         actor_id=current_user.id,
         days=body.days,
+        signer_ids=current.company_signer_ids,
         now=_now(),
     )
     await db.commit()
@@ -961,6 +962,10 @@ async def _public_view(db: AsyncSession, request: B2BSigningRequest) -> PublicSi
     row = await db.get(B2BGeneratedContract, request.generated_contract_id)
     now = _now()
     status = _public_status(request, now)
+    if status == "expired" and not await service.renewable(db, request, now):
+        # Umowę anulowano, poprawiono albo wysłano od nowa — stary link nie
+        # obiecuje, że podpisany plik przejdzie.
+        status = "closed"
     copy_until = service.signed_copy_until(request)
     return PublicSignView(
         contract_number=row.contract_number if row else "",

@@ -38,7 +38,11 @@ from app.models.notification import NotificationType
 from app.models.user import User
 from app.services import loop_heartbeat
 from app.services.b2b_esign import mail as esign_mail
-from app.services.b2b_esign.service import EXPIRED_LINK_DAYS, SIGNED_COPY_DAYS
+from app.services.b2b_esign.service import (
+    EXPIRED_LINK_DAYS,
+    SIGNED_COPY_DAYS,
+    link_sent_at,
+)
 from app.services.notification_triggers import emit as emit_notification
 
 logger = logging.getLogger(__name__)
@@ -185,8 +189,10 @@ async def _handle(request_id: int, now: datetime) -> str | None:
             return "reminded"
 
         # Wysłana, kontraktor milczy — jedno przypomnienie na termin.
+        # Od linku, który kontraktor ma teraz (po „Wyślij nowy link” — od niego).
+        link_at = link_sent_at(request)
         if request.last_reminder_at is not None or now < contractor_reminder_at(
-            request.sent_at, request.expires_at
+            link_at, request.expires_at
         ):
             return None
         request.last_reminder_at = now
@@ -194,7 +200,7 @@ async def _handle(request_id: int, now: datetime) -> str | None:
         contractor_email = request.contractor_email
         contractor_name = request.contractor_name
         candidate_id = row.candidate_id if row else None
-        sent_at, expires_at = request.sent_at, request.expires_at
+        sent_at, expires_at = link_at, request.expires_at
         deadline = expires_at.astimezone(_WARSAW).strftime("%d.%m.%Y")
         await _notify(
             db,

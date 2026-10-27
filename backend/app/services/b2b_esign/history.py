@@ -121,6 +121,8 @@ def _event_entry(
         "renewal_requested": "Kontraktor poprosił o nowy link",
         "extended": f"Termin przedłużony do {until}",
         "relinked": f"Nowy link do kontraktora, ten sam PDF, ważny do {until}",
+        "signer_changed": "Za B2B Network podpisze inna osoba z listy "
+        "(poprzedniej nie ma już w ustawieniach)",
     }
     label = labels.get(str(kind))
     if label is None:
