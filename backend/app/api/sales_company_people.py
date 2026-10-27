@@ -40,7 +40,8 @@ router = APIRouter()
 class GroupCompanyPeople(BaseModel):
     company: CompanyRef
     relation: Literal["parent", "child"]
-    counts: dict[str, int]
+    #: ``None`` = tej spółki nie udało się policzyć (limit czasu skanu).
+    counts: Optional[dict[str, int]]
 
 
 class CompanyPeopleOut(BaseModel):
@@ -50,7 +51,6 @@ class CompanyPeopleOut(BaseModel):
     counts: dict[str, int]
     truncated: bool
     people: list[MatchedPerson]
-    group: list[GroupCompanyPeople]
     #: Stan uzupełniania dat osób z tej firmy (D3): ``status``, ``total``, ``updated``.
     dates_backfill: Optional[dict[str, Any]]
 
@@ -77,9 +77,8 @@ async def _people_for(
 
 
 @router.get("/{company_id}/people", response_model=CompanyPeopleOut)
-# Każde żądanie to do 22 skanów kandydatów (firma, matka, do 20 spółek
-# zależnych) — bramka uprawnienia nie ogranicza przepustowości, jak przy
-# trasie OAuth `/companies/people` (60/min).
+# Skan kandydatów po JSONB — bramka uprawnienia nie ogranicza przepustowości,
+# jak przy trasie OAuth `/companies/people` (60/min).
 @limiter.limit("30/minute")
 async def company_people(
     request: Request,  # wymagane przez slowapi
@@ -92,7 +91,34 @@ async def company_people(
     if company is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
     result = await _people_for(db, company, limit=limit)
+    return CompanyPeopleOut(
+        matched_client=(
+            CompanyRef(id=result.matched_client.id, name=result.matched_client.name)
+            if result.matched_client
+            else None
+        ),
+        counts=result.counts,
+        truncated=result.truncated,
+        people=result.people,
+        dates_backfill=company_dates.visible_state(
+            company.dates_backfill, now=datetime.now(timezone.utc)
+        ),
+    )
 
+
+@router.get("/{company_id}/people/group", response_model=list[GroupCompanyPeople])
+# Do 21 skanów (matka + do 20 spółek zależnych) — osobne zapytanie, żeby panel
+# firmy nie czekał na grupę i nie padał przez jedną wolną spółkę.
+@limiter.limit("10/minute")
+async def company_group_people(
+    request: Request,  # wymagane przez slowapi
+    company_id: int,
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+) -> list[GroupCompanyPeople]:
+    company = await db.get(SalesCompany, company_id)
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
     related: list[tuple[SalesCompany, Literal["parent", "child"]]] = []
     if company.parent_company_id is not None:
         parent = await db.get(SalesCompany, company.parent_company_id)
@@ -112,29 +138,28 @@ async def company_people(
     related.extend((child, "child") for child in children)
     group = []
     for other, relation in related:
-        # Liczby wystarczą — szczegóły to karta tamtej firmy.
-        counted = await _people_for(db, other, limit=1)
+        try:
+            # Liczby wystarczą — szczegóły to karta tamtej firmy.
+            counts: Optional[dict[str, int]] = (
+                await _people_for(db, other, limit=1)
+            ).counts
+        except HTTPException as exc:
+            # Limit czasu (503) albo zbyt krótka nazwa (422) jednej spółki — reszta
+            # grupy zostaje, ta pokazuje „nie policzyliśmy”.
+            if exc.status_code not in (
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+            ):
+                raise
+            counts = None
         group.append(
             GroupCompanyPeople(
                 company=CompanyRef(id=other.id, name=other.name),
                 relation=relation,
-                counts=counted.counts,
+                counts=counts,
             )
         )
-    return CompanyPeopleOut(
-        matched_client=(
-            CompanyRef(id=result.matched_client.id, name=result.matched_client.name)
-            if result.matched_client
-            else None
-        ),
-        counts=result.counts,
-        truncated=result.truncated,
-        people=result.people,
-        group=group,
-        dates_backfill=company_dates.visible_state(
-            company.dates_backfill, now=datetime.now(timezone.utc)
-        ),
-    )
+    return group
 
 
 @router.post("/{company_id}/people/dates", response_model=dict[str, Any])

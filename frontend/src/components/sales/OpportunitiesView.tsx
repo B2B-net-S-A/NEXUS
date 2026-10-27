@@ -38,6 +38,7 @@ import { useAuthStore } from "@/store/auth";
 
 import { daysLabel, daysSince, formatDealAmount, formatDealNumber } from "./format";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
+import { SalesSelect } from "./SalesSelect";
 
 /** Szansa bez kontaktu dłużej niż tyle dni dostaje ostrzeżenie (Atlas: 14). */
 export const STALE_AFTER_DAYS = 14;
@@ -115,7 +116,13 @@ export function OpportunitiesView() {
   const [creating, setCreating] = useState(false);
 
   const pipelines = usePipelines();
-  const pipeline = pipelines.data?.find((p) => p.is_default) ?? pipelines.data?.[0];
+  // Lejek z adresu (`?lejek=`) — szanse z innych lejków Atlasa (przetargi,
+  // fabryki IT) nie mogą być widoczne tylko z karty firmy.
+  const pipelineParam = Number(searchParams?.get("lejek") ?? "");
+  const pipeline =
+    pipelines.data?.find((p) => p.id === pipelineParam) ??
+    pipelines.data?.find((p) => p.is_default) ??
+    pipelines.data?.[0];
   const opportunities = useOpportunities(
     {
       pipeline_id: pipeline?.id ?? null,
@@ -157,6 +164,18 @@ export function OpportunitiesView() {
         }}
         filters={
           <div className="flex flex-wrap items-center gap-2">
+            {(pipelines.data?.length ?? 0) > 1 && pipeline && (
+              <SalesSelect
+                ariaLabel="Lejek"
+                className="w-44"
+                value={String(pipeline.id)}
+                onValueChange={(value) => {
+                  const chosen = pipelines.data?.find((p) => String(p.id) === value);
+                  writeParam("lejek", chosen && !chosen.is_default ? value : null);
+                }}
+                options={(pipelines.data ?? []).map((p) => ({ value: String(p.id), label: p.name }))}
+              />
+            )}
             <SegmentedRadio
               size="sm"
               label="Czyje szanse"
@@ -187,6 +206,12 @@ export function OpportunitiesView() {
           ) : null
         }
       />
+      {state === "ready" && (opportunities.data?.total ?? 0) > items.length && (
+        <p role="status" className="text-xs text-warning">
+          Pokazujemy {items.length} z {opportunities.data?.total} szans — zawęź wyszukiwanie albo
+          przejdź do „Moje”, żeby liczby lejka były pełne.
+        </p>
+      )}
       {state === "ready" && (
         <InlineStats
           stats={[

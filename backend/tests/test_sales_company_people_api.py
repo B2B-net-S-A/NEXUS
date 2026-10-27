@@ -68,7 +68,13 @@ async def test_panel_shows_people_with_contact_details_and_group_counts(
     # D4: handlowiec widzi pełny profil (kontakt), nie tylko imię i inicjał.
     assert by_id[former_id]["email"] == f"byly{tag}@example.com"
     assert leasing_id not in by_id
-    assert body["group"] == [
+    assert "group" not in body  # grupa to osobne zapytanie (panel nie czeka)
+    group = (
+        await app_client.get(
+            f"{URL}/{parent_id}/people/group", headers=_headers(viewer)
+        )
+    ).json()
+    assert group == [
         {
             "company": {"id": child_id, "name": child_name},
             "relation": "child",
@@ -76,10 +82,65 @@ async def test_panel_shows_people_with_contact_details_and_group_counts(
         }
     ]
 
-    child_view = (
-        await app_client.get(f"{URL}/{child_id}/people", headers=_headers(viewer))
+    child_group = (
+        await app_client.get(f"{URL}/{child_id}/people/group", headers=_headers(viewer))
     ).json()
-    assert [g["relation"] for g in child_view["group"]] == ["parent"]
+    assert [g["relation"] for g in child_group] == ["parent"]
+
+
+@pytest.mark.asyncio
+async def test_slow_subsidiary_does_not_break_the_group(
+    app_client, monkeypatch
+) -> None:
+    """Limit czasu skanu jednej spółki → jej liczby „brak”, reszta grupy zostaje."""
+    from fastapi import HTTPException
+
+    from app.api import sales_company_people
+
+    viewer = await _user("sales_view")
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        parent = SalesCompany(name=f"Grupa {tag}", normalized_name=f"grupa {tag}")
+        db.add(parent)
+        await db.flush()
+        db.add_all(
+            [
+                SalesCompany(
+                    name=f"Szybka {tag}",
+                    normalized_name=f"szybka {tag}",
+                    parent_company_id=parent.id,
+                ),
+                SalesCompany(
+                    name=f"Wolna {tag}",
+                    normalized_name=f"wolna {tag}",
+                    parent_company_id=parent.id,
+                ),
+            ]
+        )
+        await db.commit()
+        parent_id = parent.id
+
+    real = sales_company_people._people_for
+
+    async def flaky(db, company, *, limit):
+        if company.name.startswith("Wolna"):
+            raise HTTPException(503, detail={"error": "lookup_timeout"})
+        return await real(db, company, limit=limit)
+
+    monkeypatch.setattr(sales_company_people, "_people_for", flaky)
+    group = (
+        await app_client.get(
+            f"{URL}/{parent_id}/people/group", headers=_headers(viewer)
+        )
+    ).json()
+    by_name = {g["company"]["name"]: g["counts"] for g in group}
+    assert by_name[f"Wolna {tag}"] is None
+    assert by_name[f"Szybka {tag}"] == {
+        "via_us": 0,
+        "current": 0,
+        "past": 0,
+        "unknown": 0,
+    }
 
 
 @pytest.mark.asyncio

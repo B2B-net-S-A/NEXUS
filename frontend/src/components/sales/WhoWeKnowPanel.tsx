@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   RELATIONSHIP_LABELS,
+  useCompanyGroupPeople,
   useCompanyPeople,
   useFillCompanyDates,
   type CompanyPeople,
@@ -91,6 +92,7 @@ interface WhoWeKnowPanelProps {
  */
 export function WhoWeKnowPanel({ companyId, companyName }: WhoWeKnowPanelProps) {
   const people = useCompanyPeople(companyId);
+  const group = useCompanyGroupPeople(companyId);
   const fill = useFillCompanyDates(companyId);
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");
@@ -199,11 +201,19 @@ export function WhoWeKnowPanel({ companyId, companyName }: WhoWeKnowPanelProps) 
               Lista pokazuje pierwsze {data.people.length} osób; liczby wyżej są pełne.
             </p>
           )}
-          {data.group.length > 0 && (
+          {group.isError && (
+            <p className="text-xs text-muted-foreground">
+              Nie udało się policzyć grupy kapitałowej.{" "}
+              <button type="button" className="text-primary hover:underline" onClick={() => void group.refetch()}>
+                Spróbuj ponownie
+              </button>
+            </p>
+          )}
+          {group.isSuccess && group.data.length > 0 && (
             <div className="border-t border-border pt-3">
               <h3 className="text-sm font-medium text-foreground">Grupa kapitałowa</h3>
               <ul className="mt-1 space-y-1 text-sm">
-                {data.group.map((item) => (
+                {group.data.map((item) => (
                   <li key={item.company.id} className="flex flex-wrap justify-between gap-2">
                     <Link href={`/sales/companies/${item.company.id}`} className="text-primary hover:underline">
                       {item.company.name}
@@ -212,8 +222,9 @@ export function WhoWeKnowPanel({ companyId, companyName }: WhoWeKnowPanelProps) 
                       </span>
                     </Link>
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      przez nas {item.counts.via_us} · teraz {item.counts.current} · kiedyś{" "}
-                      {item.counts.past} · bez dat {item.counts.unknown}
+                      {item.counts
+                        ? `przez nas ${item.counts.via_us} · teraz ${item.counts.current} · kiedyś ${item.counts.past} · bez dat ${item.counts.unknown}`
+                        : "nie policzyliśmy (spróbuj później)"}
                     </span>
                   </li>
                 ))}

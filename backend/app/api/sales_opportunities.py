@@ -398,7 +398,8 @@ async def list_opportunities(
     opportunity_status: Optional[StatusValue] = Query(default=None, alias="status"),
     q: Optional[str] = Query(default=None, max_length=200),
     archived: bool = False,
-    limit: int = Query(default=200, ge=1, le=500),
+    # Atlas ma ~1,5 tys. szans — tablica wczytuje cały lejek naraz.
+    limit: int = Query(default=200, ge=1, le=2000),
     offset: int = Query(default=0, ge=0),
 ) -> OpportunityList:
     query = _base_query().where(

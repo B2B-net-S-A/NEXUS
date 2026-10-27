@@ -342,7 +342,6 @@ export interface CompanyPeople {
   counts: Record<PeopleRelationship, number>;
   truncated: boolean;
   people: MatchedPerson[];
-  group: { company: Ref; relation: "parent" | "child"; counts: Record<PeopleRelationship, number> }[];
   dates_backfill: {
     status?: "running" | "done" | "partial" | "failed";
     total?: number;
@@ -416,6 +415,23 @@ export function useCompanyDuplicates(name: string, nip: string, excludeId?: numb
   });
 }
 
+export interface GroupCompanyPeople {
+  company: Ref;
+  relation: "parent" | "child";
+  /** `null` — tej spółki nie udało się policzyć (limit czasu skanu). */
+  counts: Record<PeopleRelationship, number> | null;
+}
+
+export function useCompanyGroupPeople(id: number, enabled = true) {
+  return useQuery({
+    queryKey: [...salesKeys.companyPeople(id), "group"] as const,
+    queryFn: async () =>
+      (await api.get<GroupCompanyPeople[]>(`/api/sales/companies/${id}/people/group`)).data,
+    enabled: enabled && Number.isFinite(id) && id > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useCompanyPeople(id: number, enabled = true) {
   return useQuery({
     queryKey: salesKeys.companyPeople(id),
@@ -483,13 +499,16 @@ export function usePipelines(enabled = true) {
   });
 }
 
+/** Tyle szans wczytuje tablica i lista; więcej = komunikat „pokazujemy N z M”. */
+export const OPPORTUNITIES_PAGE = 2000;
+
 export function useOpportunities(filters: OpportunityFilters, enabled = true) {
   return useQuery({
     queryKey: salesKeys.opportunities(filters),
     queryFn: async () =>
       (
         await api.get<OpportunityList>("/api/sales/opportunities", {
-          params: clean({ ...filters, limit: 500 }),
+          params: clean({ ...filters, limit: OPPORTUNITIES_PAGE }),
         })
       ).data,
     enabled,
