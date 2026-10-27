@@ -57,17 +57,18 @@ def test_a_day_before_the_contract_was_generated_is_refused():
 
 
 def test_generation_just_after_midnight_in_warsaw_counts_as_that_day():
-    """22:45 UTC to już następny dzień w Warszawie (UTC+1 zimą, UTC+2 latem)
+    """23:30 UTC to już następny dzień w Warszawie (UTC+1 zimą, UTC+2 latem)
     — dzień UTC byłby o jeden za wcześnie i przepuścił podpis z dnia przed
-    wygenerowaniem."""
+    wygenerowaniem. Do 27.10.2026 stało tu 22:45 UTC: następny dzień tylko
+    latem, więc po zmianie czasu 25.10 test padał codziennie."""
     today = business_today()
     two_days_ago = today - timedelta(days=2)
     generated = datetime(
         two_days_ago.year,
         two_days_ago.month,
         two_days_ago.day,
-        22,
-        45,
+        23,
+        30,
         tzinfo=timezone.utc,
     )
     row = _row(generated)
