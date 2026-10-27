@@ -106,6 +106,15 @@ def test_connect_args_name_the_application_only_for_asyncpg() -> None:
     from app.core.database import _connect_args
 
     assert _connect_args("postgresql+asyncpg://u:p@h/db") == {
-        "server_settings": {"application_name": "nexus-backend"}
+        "server_settings": {"application_name": "nexus-backend", "jit": "off"}
     }
     assert _connect_args("sqlite+aiosqlite:///:memory:") == {}
+
+
+def test_engine_keeps_forty_warm_connections() -> None:
+    # Przy puli 20 + 40 produkcja otwierała ~95 połączeń na minutę (27.10.2026):
+    # połączenia ponad `pool_size` są zamykane zaraz po oddaniu.
+    from app.core.database import engine
+
+    assert engine.pool.size() == 40
+    assert engine.pool._max_overflow == 20

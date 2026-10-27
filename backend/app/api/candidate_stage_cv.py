@@ -56,7 +56,6 @@ import logging
 import mimetypes
 import secrets
 from datetime import datetime, timedelta, timezone
-from io import BytesIO
 from typing import Literal, Optional
 
 from fastapi import (
@@ -71,7 +70,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 from app.core.printable_html import printable_document
 from app.models.cv_document_version import CvDocumentVersion
@@ -408,8 +407,8 @@ async def download_original_cv(
     if not media_type:
         media_type = "application/octet-stream"
 
-    return StreamingResponse(
-        BytesIO(content),
+    return Response(
+        content,
         media_type=media_type,
         headers={
             "Content-Disposition": content_disposition_attachment(filename),
