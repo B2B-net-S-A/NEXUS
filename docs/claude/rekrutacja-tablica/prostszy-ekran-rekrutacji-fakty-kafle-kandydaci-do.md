@@ -257,3 +257,25 @@ stały na końcu, choć po przeliczeniu bywały wyżej.
   z przełącznika — `compareProposals` dalej układa listę wejściową.
 - W trybie „Dopasowanie” okno zgłasza do liczenia od razu do 100 osób bez wyniku
   (`MATCH_SORT_PRESCORE_MAX`, paczki po 20), nie dopiero po przewinięciu.
+
+## Procent w oknie = tylko ocena NEXUSA, nie wynik scrapera (27.10.2026)
+
+Zgłoszenie Delivery Leada (tester na Fullstacka z 77%, rekrutacja 758736):
+okno brało największą z kilku liczb osoby, w tym punktację scrapera portalu
+(`job_board`, Pracuj.pl / JJIT, na stagingu 52–78) — inny algorytm w tym
+samym fioletowym kolorze, więc jedna osoba miała różne procenty w różnych
+miejscach. Rekomendacja 4 z analizy (https://claude.ai/artifact/LCJMGvUagzYvtWapzdw5WL),
+zrzuty przed/po: https://claude.ai/artifact/4CADHRfmwXo6UVDPxHRJ7z.
+
+- **Serwer** (`job_proposals.list_for_job`, `GET …/proposal-inbox`): `score` =
+  największy wynik źródeł spoza `NON_CANONICAL_SCORE_SOURCES` (dziś tylko
+  `job_board`); scraper osobno jako `board_score`. Kolejność stron liczy się
+  dalej z największego wyniku dowolnego źródła (`rank_score`), żeby zmiana nie
+  przestawiła, kto trafia na stronę.
+- **Okno:** osoba bez kanonicznego wyniku (sama `job_board`) idzie przez
+  `useVisibleMatchScores` (`POST /api/search/candidates/scores`) jak podobne
+  rekrutacje; ten procent wiersz niesie też do kolejności „Dopasowanie”
+  i do przekreślonego procentu przy „Inna rola”. Wynik scrapera stoi wyłącznie
+  w dymku procentu („portal ogłoszeń ocenił na N% (inny algorytm, nie
+  porównuj)”), nigdy jako liczba w wierszu. Nowe źródło z własną skalą =
+  dopisek do `NON_CANONICAL_SCORE_SOURCES`, nie do `scores` w `proposals-merge`.

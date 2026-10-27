@@ -6,7 +6,8 @@
  *  - wynik dopasowania NIGDY nie jest zmyślany: nieznany = `null`. Kolumna
  *    „Dop." niesie WYŁĄCZNIE kanoniczne dopasowanie (żywy przegląd bazy
  *    i skrzynka propozycji); punktacja „z podobnych projektów"
- *    (`historical_score`) ani `total_score` rekomendacji do niej nie trafiają;
+ *    (`historical_score`), `total_score` rekomendacji ani wynik scrapera
+ *    portalu (`board_score`) do niej nie trafiają;
  *  - osoba już w pipeline'ie znika z listy niezależnie od źródła;
  *  - kolejność jest stabilna (dopasowanie ↓, nowe, nazwisko, id), żeby
  *    odświeżenie w tle nie przetasowywało tabeli pod kursorem.
@@ -206,6 +207,7 @@ interface Draft {
   sources: Set<ProposalSource>;
   origins: Set<ProposalOrigin>;
   scores: number[];
+  boardScore: number | null;
   /** Powody w kolejności bogactwa: przegląd → podobny projekt → rekomendacja → inbox. */
   reasons: Partial<Record<ProposalOrigin, string>>;
   isNew: boolean;
@@ -337,6 +339,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         sources: new Set(),
         origins: new Set(),
         scores: [],
+        boardScore: null,
         reasons: {},
         isNew: false,
         previouslyDismissed: false,
@@ -363,6 +366,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     d.origins.add("inbox");
     for (const s of item.sources) if (KNOWN_SOURCES.has(s)) d.sources.add(s as ProposalSource);
     addScore(d, item.score);
+    d.boardScore ??= normalizeFitScore(item.board_score);
     d.isNew ||= item.is_new;
     d.previouslyDismissed ||= item.evidence?.previously_dismissed === true;
     d.detail.title ??= c.title;
@@ -534,6 +538,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         ...(detail.employment ? { employment: detail.employment } : {}),
         ...(handoverNote ? { handoverNote } : {}),
         ...(d.historyPoints > 0 ? { historyPoints: d.historyPoints } : {}),
+        ...(d.boardScore !== null ? { boardScore: d.boardScore } : {}),
       },
       detail,
     });
