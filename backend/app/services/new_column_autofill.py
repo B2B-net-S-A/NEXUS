@@ -23,10 +23,17 @@ Reguły, które łatwo cofnąć „przy okazji”:
   osób od systemu): znana „Stawka od” ponad ``BUDGET_HARD_OVER`` nad budżetem
   rekrutacji = nie dodaje (16 z 34 odrzuceń to „za droga” przy stawce, którą
   system znał; wśród osób wysłanych przez zespół takich jest 1,5%), do 25% nad
-  budżetem = za osobami w budżecie i z nieznaną stawką. Osoba, która według
+  budżetem = za osobami w budżecie i z nieznaną stawką (27.10.2026: próg
+  25% → 15%, bo 15–25% szło dalej tak rzadko jak ponad 25%). Osoba, która według
   CV albo LinkedIna pracuje teraz u klienta tej rekrutacji, nie wchodzi —
   także przy wpisie CV bez dat (``client_off_limits.find_hit``
   z ``undated_counts``).
+* Biuro i miasto (decyzja Artura 27.10.2026, analiza 133 odrzuceń): osoba,
+  która według profilu przyjmie mniej dni w biurze, niż chce klient, chce
+  wyłącznie zdalnie albo mieszka w innym mieście przy pracy z biurem, szła
+  dalej o połowę rzadziej (18% wobec 36%) — wchodzi za resztą, nie odpada
+  (7 z 39 takich osób poszło dalej). Co system wiedział (budżet, biuro,
+  miasto), zapisuje ``entry_meta.cautions``; karta i panel to pokazują.
 * Wejście ``entry_source = "system"``, ``moved_by`` puste (dodał nie
   człowiek), ``entry_meta`` = migawka tego, co system wiedział: wynik,
   wymagania, „Stawka od”, dostępność. Z niej raport odróżnia błąd
@@ -79,8 +86,10 @@ _PICK_HEADROOM = 3
 # ma pula nocnego przeglądu, żeby osoba w budżecie z dalszego miejsca mogła
 # wyprzedzić droższą (w top 20 wyniki różnią się średnio o 3,5 pkt).
 _RULES_WINDOW = 150
-# Stawka ponad tyle nad budżetem = system nie dodaje (25.10.2026).
-BUDGET_HARD_OVER = Decimal("0.25")
+# Stawka ponad tyle nad budżetem = system nie dodaje (25.10.2026: 25%;
+# 27.10.2026: 15% — osoby 15–25% nad budżetem szły dalej w 12%, ponad 25%
+# w 15%, a 0–15% w 40%, tyle co w budżecie).
+BUDGET_HARD_OVER = Decimal("0.15")
 # „Stawka od” poniżej tej kwoty to błąd odczytu (na produkcji 0,6 zł/h), nie
 # stawka — liczy się jak nieznana.
 _MIN_PLAUSIBLE_RATE = Decimal("20")
@@ -144,6 +153,9 @@ class Pick:
     run_id: Optional[str]
     matched_must: tuple[str, ...]
     missing_must: tuple[str, ...]
+    # Co przemawia przeciw, a system to wiedział (``_by_rules``) — migawka
+    # ``entry_meta.cautions``.
+    cautions: tuple[dict, ...] = ()
 
 
 def _names(evidence: Optional[dict], key: str) -> tuple[str, ...]:
@@ -242,11 +254,73 @@ def _rate_tier(
     return 1
 
 
+def budget_caution(rate, currency, *, budget_hourly: Optional[float]) -> Optional[dict]:
+    """Znana stawka PLN ponad budżetem (w granicach ``BUDGET_HARD_OVER``)."""
+    if budget_hourly is None or rate is None:
+        return None
+    if str(currency or "").strip().upper() != "PLN":
+        return None
+    rate = Decimal(str(rate))
+    budget = Decimal(str(budget_hourly))
+    if rate < _MIN_PLAUSIBLE_RATE or rate <= budget or budget <= 0:
+        return None
+    return {
+        "key": "budget",
+        "over_pct": int(((rate / budget - 1) * 100).quantize(Decimal("1"))),
+        "rate": float(rate),
+        "budget": float(budget),
+    }
+
+
+def office_cautions(
+    person,
+    *,
+    office_days: Optional[int],
+    office_tokens: frozenset[str],
+    office_label: Optional[str],
+) -> list[dict]:
+    """Biuro i miasto wg profilu — tymi samymi regułami co bramka wyszukiwania
+    (``dealbreaker_filters``); nieznane przechodzi bez ostrzeżenia."""
+    from app.services.dealbreaker_filters import (
+        candidate_consents_more_office_days,
+        office_city_mismatch,
+        office_days_exceeded,
+        remote_only_refuses_office,
+    )
+
+    if not office_days or office_days <= 0:
+        return []
+    out: list[dict] = []
+    if not candidate_consents_more_office_days(person):
+        if office_days_exceeded(person, office_days):
+            out.append(
+                {
+                    "key": "office_days",
+                    "candidate_days": person.max_onsite_days_per_week,
+                    "required_days": office_days,
+                }
+            )
+        elif remote_only_refuses_office(person):
+            out.append({"key": "remote_only", "required_days": office_days})
+    if office_city_mismatch(person, office_tokens, required_days=office_days):
+        out.append(
+            {
+                "key": "office_city",
+                "city": (person.city or person.location or "").strip()[:60] or None,
+                "office": (office_label or "").strip()[:60] or None,
+                "required_days": office_days,
+            }
+        )
+    return out
+
+
 async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
     """Reguły z odrzuceń: bez osób daleko ponad budżetem i pracujących teraz
     u klienta; osoby trochę ponad budżetem za resztą (kolejność wyniku
-    w obrębie poziomu zostaje). Czyta tylko potrzebne kolumny — okno ma do
-    ``_RULES_WINDOW`` osób, a pełny wiersz kandydata niesie tekst CV."""
+    w obrębie poziomu zostaje), tak samo osoby z ostrzeżeniem o biurze albo
+    mieście. Czyta tylko potrzebne kolumny — okno ma do ``_RULES_WINDOW``
+    osób, a pełny wiersz kandydata niesie tekst CV."""
+    from dataclasses import replace
     from types import SimpleNamespace
 
     from app.services import client_off_limits
@@ -254,7 +328,10 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
         effective_currency_sql,
         effective_rate_sql,
     )
-    from app.services.dealbreaker_filters import resolve_job_budget_hourly
+    from app.services.dealbreaker_filters import (
+        dealbreaker_inputs_for_job,
+        resolve_job_budget_hourly,
+    )
 
     if not picks:
         return []
@@ -268,9 +345,19 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
         Candidate.experience,
         Candidate.name,
         Candidate.lastname,
+        Candidate.max_onsite_days_per_week,
+        Candidate.accepts_more_office_days,
+        Candidate.preferences,
+        Candidate.location,
+        Candidate.city,
+        Candidate.cv_extracted_data["_notes_insights"].label("notes_insights"),
     )
     people = {
-        row.id: SimpleNamespace(**row._mapping)
+        row.id: SimpleNamespace(
+            **row._mapping,
+            # `remote_only_refuses_office` czyta notatki z `cv_extracted_data`.
+            cv_extracted_data={"_notes_insights": row.notes_insights},
+        )
         for row in (
             await db.execute(
                 select(*columns).where(
@@ -280,6 +367,8 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
         ).all()
     }
     budget = resolve_job_budget_hourly(job)
+    inputs = dealbreaker_inputs_for_job(job)
+    office_label = getattr(job, "office_location", None) or job.location
     labels = (
         await client_off_limits.client_labels(db, job.client_id)
         if job.client_id
@@ -300,7 +389,25 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
             continue
         if client_off_limits.find_hit(person, labels, undated_counts=True):
             continue
-        tiered.append((tier, pick))
+        cautions = [
+            c
+            for c in (
+                budget_caution(person.rate, person.currency, budget_hourly=budget)
+                if tier
+                else None,
+            )
+            if c
+        ]
+        office = office_cautions(
+            person,
+            office_days=inputs.onsite_days_per_week,
+            office_tokens=inputs.office_tokens,
+            office_label=office_label,
+        )
+        cautions.extend(office)
+        tiered.append(
+            (tier + (1 if office else 0), replace(pick, cautions=tuple(cautions)))
+        )
     # Sortowanie stabilne: w obrębie poziomu zostaje kolejność wyniku.
     tiered.sort(key=lambda item: item[0])
     return [pick for _, pick in tiered]
@@ -360,6 +467,7 @@ def entry_meta(pick: Pick, candidate: Candidate) -> dict:
         "rate_currency": currency if rate is not None else None,
         "availability_date": availability.isoformat() if availability else None,
         "availability_status": getattr(status, "value", status),
+        "cautions": [dict(c) for c in pick.cautions],
     }
 
 

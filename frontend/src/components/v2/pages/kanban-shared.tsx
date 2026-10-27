@@ -222,6 +222,11 @@ export interface KanbanItem {
   decided: boolean;
   waiting_days: number | null;
   decision_due: boolean;
+  /**
+   * 27.10.2026: co przemawia przeciw, a system to wiedział (budżet, biuro,
+   * miasto) — napis i dymek liczy serwer (`process_entry_meta._caution`).
+   */
+  cautions?: { key: string; label: string; title: string }[];
  } | null;
  /**
   * 0399: wynik automatu przy wejściu — plakietka „Auto-match 67/100 · JJIT”

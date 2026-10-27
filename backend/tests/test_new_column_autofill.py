@@ -380,9 +380,9 @@ async def _rates(job_id: int, budget: float | None, rates: dict[int, float]) -> 
 
 
 async def test_budget_skips_far_above_and_puts_slightly_above_last(monkeypatch):
-    """Ponad 25% nad budżetem = nie dodaje; 0–25% nad budżetem = za osobami
-    w budżecie i z nieznaną stawką. Stawka poniżej 20 zł/h to błąd odczytu,
-    nie stawka — liczy się jak nieznana."""
+    """Ponad 15% nad budżetem = nie dodaje (do 27.10.2026: 25%); 0–15% nad
+    budżetem = za osobami w budżecie i z nieznaną stawką. Stawka poniżej
+    20 zł/h to błąd odczytu, nie stawka — liczy się jak nieznana."""
     monkeypatch.setattr(autofill, "TARGET", 5)
     world = await _world(6)
     far, slight, fits, unknown, garbage, consents = world["ids"]
@@ -393,7 +393,7 @@ async def test_budget_skips_far_above_and_puts_slightly_above_last(monkeypatch):
     await _rates(
         world["job_id"],
         100,
-        {far: 126, slight: 125, fits: 100, garbage: 0.6, consents: 200},
+        {far: 116, slight: 115, fits: 100, garbage: 0.6, consents: 200},
     )
     async with AsyncSessionLocal() as db:
         # Zgoda z rozmowy na ofertę poniżej minimum — stawka nie przeszkadza.
@@ -401,6 +401,47 @@ async def test_budget_skips_far_above_and_puts_slightly_above_last(monkeypatch):
         await db.commit()
 
     assert await _fill(world["job_id"]) == [consents, fits, unknown, garbage, slight]
+    processes = await _processes(world["job_id"])
+    assert processes[slight].entry_meta["cautions"] == [
+        {"key": "budget", "over_pct": 15, "rate": 115.0, "budget": 100.0}
+    ]
+    assert processes[fits].entry_meta["cautions"] == []
+
+
+async def test_office_and_city_cautions_go_last_with_a_note(monkeypatch):
+    """Mniej dni w biurze, niż chce klient, „tylko zdalnie” albo inne miasto
+    przy pracy z biurem = za resztą, z ostrzeżeniem w migawce (27.10.2026).
+    Zgoda na więcej dni w biurze znosi ostrzeżenie o dniach."""
+    monkeypatch.setattr(autofill, "TARGET", 5)
+    world = await _world(5)
+    fewer, remote, krakow, consents, ok = world["ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.onsite_days_per_week = 3
+        job.location = "Gdynia"
+        (await db.get(Candidate, fewer)).max_onsite_days_per_week = 1
+        (await db.get(Candidate, remote)).preferences = {"remote_modes": ["remote"]}
+        (await db.get(Candidate, krakow)).city = "Kraków"
+        person = await db.get(Candidate, consents)
+        person.max_onsite_days_per_week = 1
+        person.accepts_more_office_days = True
+        await db.commit()
+    await _pool(
+        world["job_id"], {fewer: 95, remote: 90, krakow: 85, consents: 80, ok: 50}
+    )
+
+    assert await _fill(world["job_id"]) == [consents, ok, fewer, remote, krakow]
+    processes = await _processes(world["job_id"])
+    assert processes[fewer].entry_meta["cautions"] == [
+        {"key": "office_days", "candidate_days": 1, "required_days": 3}
+    ]
+    assert processes[remote].entry_meta["cautions"] == [
+        {"key": "remote_only", "required_days": 3}
+    ]
+    assert processes[krakow].entry_meta["cautions"] == [
+        {"key": "office_city", "city": "Kraków", "office": "Gdynia", "required_days": 3}
+    ]
+    assert processes[consents].entry_meta["cautions"] == []
 
 
 async def test_budget_rules_need_a_budget(monkeypatch):
