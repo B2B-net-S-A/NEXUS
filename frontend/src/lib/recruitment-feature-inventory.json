@@ -1697,6 +1697,14 @@
    "v3_home": "Profil Championa → Brief → „Edytuj” przy „Czego szukamy” (szuflada)"
   },
   {
+   "id": "champ.talk-search-word",
+   "area": "zlecenie",
+   "opis": "„To słowo do szukania?” pod listą „Rekruter sprawdza w rozmowie”: pozycja, którą serwer czyta jako technologię albo słowo do szukania, a której nie ma w wierszach wymagań, dostaje liczbę osób w bazie i „Dodaj do słów do szukania” (pozycja z poziomem albo komentarzem zostaje na liście) albo „Przenieś do słów do szukania” (27.10.2026)",
+   "file": "components/champion/TalkSearchWordHints.tsx",
+   "marker": "To słowo do szukania?",
+   "v3_home": "Profil Championa → Brief → „Edytuj” przy „Czego szukamy” (szuflada) → 4 · Rekruter sprawdza w rozmowie"
+  },
+  {
    "id": "team.category-change",
    "area": "naglowek",
    "opis": "„Zmień” kategorię rekrutacji — uczestnicy idą za kategorią",

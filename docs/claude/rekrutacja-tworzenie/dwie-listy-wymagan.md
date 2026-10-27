@@ -108,5 +108,16 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   - `requirement_cleanup.load_fixes_safely` przy awarii oddaje `None`, nie
     pustą listę — awaria nie może wyglądać jak „nic do poprawy”.
   - `critical_not_searchable` — patrz decyzja B w `umiejetnosci-krytyczne-i-bramka-v9.md`.
+- **27.10.2026 — „To słowo do szukania?” pod listą do rozmowy.** Pomiar na 129 profilach:
+  technologia wpisana tylko w `experience.skills` to rzadkość, ale wtedy wyszukiwanie gubi
+  prawdziwe wymaganie (663525: „Alteryx (good/advanced)”, w wierszach „Data handling”,
+  „Reporting”). Edytor Championa czyta pozycje listy tym samym odczytem co wiersze
+  (`critical-suggestion` → `readings`, każda pozycja i jej nazwa bez komentarza — „ — poziom”,
+  „(poziom)” — jako osobny wiersz) i przy `technology` / `keyword`, którego żadne słowo nie
+  stoi w wierszach (ani każdy człon: „Python + SQL” przy wierszach Python i SQL), pokazuje
+  liczbę osób w bazie i przycisk. Pozycja z poziomem, komentarzem, notatką albo latami zostaje
+  na liście („Dodaj do słów do szukania”), sama nazwa się przenosi („Przenieś…”). Nowy wiersz
+  ma poziom pozycji („Mile” → mile widziane). Nic nie zapisuje się bez „Zapisz”.
+  `components/champion/TalkSearchWordHints.tsx`, inwentarz `champ.talk-search-word`.
 - Harness `/preview/new-job?state=readings`, karta propozycji `/preview/recruitment-v3`,
   „Szukaj w bazie” `/preview/job-detail?sources=search`, lista `/preview/custom-dashboard`.

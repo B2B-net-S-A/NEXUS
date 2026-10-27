@@ -11,6 +11,7 @@ import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-que
 import {
   requiredRows,
   rowCriticalInfo,
+  type PhraseReading,
   type RequirementRowForm,
   type RowCriticalResponse,
   type RowCriticalState,
@@ -60,6 +61,43 @@ export function useRowCriticalInfo(
     isError: current && query.isError,
     retry: () => void query.refetch(),
   };
+}
+
+/** Najwięcej wierszy w jednym żądaniu `critical-suggestion` (limit serwera). */
+const READ_ROWS_MAX = 30;
+
+/**
+ * Jak serwer czyta pozycje listy „Rekruter sprawdza w rozmowie” — ten sam
+ * odczyt co słowa wierszy (`readings`), każdy tekst jako jednowyrazowy wiersz.
+ * `null` = jeszcze nie wiadomo (albo zapytanie padło) — wtedy bez podpowiedzi.
+ */
+export function useTalkItemReadings(
+  texts: readonly string[],
+  { enabled = true, debounceMs = 400 }: { enabled?: boolean; debounceMs?: number } = {},
+): Record<string, PhraseReading> | null {
+  const key = JSON.stringify(texts.slice(0, READ_ROWS_MAX));
+  const settled = useDebouncedValue(key, debounceMs);
+  const settledTexts = JSON.parse(settled) as string[];
+  const query = useQuery({
+    queryKey: ["talk-item-readings", settledTexts],
+    enabled: enabled && settledTexts.length > 0,
+    staleTime: 5 * 60_000,
+    queryFn: ({ signal }) =>
+      api
+        .post<RowCriticalResponse>(
+          "/api/job-intake/critical-suggestion",
+          { rows: settledTexts.map((text) => [text]) },
+          { signal },
+        )
+        .then((r) => r.data),
+  });
+  if (settled !== key || !query.data) return null;
+  const out: Record<string, PhraseReading> = {};
+  settledTexts.forEach((text, index) => {
+    const reading = query.data.readings?.[index]?.[0];
+    if (reading) out[text] = reading;
+  });
+  return out;
 }
 
 /** Ile osób (aktywni i pasywni) ma słowo z KAŻDEGO z wierszy — jak „Szukaj ręcznie”. */
