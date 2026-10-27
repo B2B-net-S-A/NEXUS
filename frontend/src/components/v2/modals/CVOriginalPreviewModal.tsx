@@ -28,6 +28,7 @@ import {
 } from "@/lib/authenticated-files";
 import { keepDialogOpenOnDocumentSearchEscape } from "@/components/v2/files/DocumentSearchBar";
 import { SearchablePdfPreview } from "@/components/v2/files/SearchablePdfPreview";
+import { preloadPdfJs } from "@/lib/pdfjs-loader";
 import { candidateStageCvApi, type CVOriginalSnapshot } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -100,6 +101,7 @@ export function CVOriginalPreviewModal({
     let cancelled = false;
     setPdfBlob(null);
     setPdfError(false);
+    preloadPdfJs();
 
     (async () => {
       try {

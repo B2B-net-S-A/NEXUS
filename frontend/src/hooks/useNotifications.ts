@@ -12,7 +12,15 @@ import {
   setWsSender,
 } from "@/lib/wsBus";
 import { MY_PEOPLE_MATCH_EVENT, type MyPeopleMatchEventDetail } from "@/lib/my-people-summary";
-import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
+import {
+  BOARD_TASKS_QUERY_KEY,
+  CPRO_QUEUE_QUERY_KEY,
+  CV_TOPIC_QUERY_KEY,
+  DL_SEND_QUEUE_QUERY_KEY,
+  type CvTopicResponse,
+  type DlSendQueueResponse,
+} from "@/lib/api/boardTasks";
+import { pipelineCvRefresh } from "@/lib/pipeline-changed-refresh";
 import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import { interviewCycleQueryKey } from "@/lib/api/interviewCycle";
@@ -22,6 +30,7 @@ import {
 } from "@/lib/interview-notifications";
 import {
   MY_PEOPLE_MATCH_FRAME,
+  invalidateNotificationLists,
   isNoteNotificationType,
   type NotificationTopic,
 } from "@/lib/notification-topics";
@@ -112,8 +121,11 @@ export function useNotifications({
   onNotification,
   interviewsInWindow = false,
 }: UseNotificationsOptions = {}) {
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
   const queryClient = useQueryClient();
+  // Konto czytane z refa z tego samego powodu co opcje niżej.
+  const userRef = useRef(user);
+  userRef.current = user;
   // Czytane z refa: zmiana opcji nie może przebudować `connect` i rozłączyć gniazda.
   const interviewsInWindowRef = useRef(interviewsInWindow);
   interviewsInWindowRef.current = interviewsInWindow;
@@ -140,7 +152,7 @@ export function useNotifications({
         chatRefreshTimerRef.current = null;
         const keys = Array.from(chatRefreshKeysRef.current);
         chatRefreshKeysRef.current.clear();
-        queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        invalidateNotificationLists(queryClient, "messages");
         for (const key of keys) {
           queryClient.invalidateQueries({ queryKey: [key] });
         }
@@ -149,18 +161,24 @@ export function useNotifications({
     [queryClient],
   );
 
-  // Timery debounce `pipeline_changed` — jeden na rekrutację.
+  // Timery debounce `pipeline_changed` — jeden na rekrutację — i Delivery
+  // Leadzi z ramek sklejonych w to odświeżenie (`undefined` = ramka bez pola).
   const pipelineTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const pipelineLeadsRef = useRef<Map<number, Set<number | null | undefined>>>(new Map());
 
   const schedulePipelineRefresh = useCallback(
-    (jobId: number) => {
+    (jobId: number, deliveryLeadId: number | null | undefined) => {
       const timers = pipelineTimersRef.current;
       const pending = timers.get(jobId);
       if (pending) clearTimeout(pending);
+      const leads = pipelineLeadsRef.current.get(jobId) ?? new Set();
+      leads.add(deliveryLeadId);
+      pipelineLeadsRef.current.set(jobId, leads);
       timers.set(
         jobId,
         setTimeout(() => {
           timers.delete(jobId);
+          pipelineLeadsRef.current.delete(jobId);
           if (!mountedRef.current) return;
           // Tablica żyje pod dwoma kluczami (`String(id)` ze strony i `id`
           // z tablicy), a wyniki dopasowania w dwóch formach — stąd prefiks.
@@ -170,7 +188,22 @@ export function useNotifications({
           queryClient.invalidateQueries({ queryKey: ["pipeline-scores", jobId] });
           queryClient.invalidateQueries({ queryKey: ["my-next-steps"] });
           // Kolejka „Czeka na Ciebie" (DZ, Cpro) liczy się z ruchów na tablicach.
-          queryClient.invalidateQueries({ queryKey: ["board-tasks"] });
+          // Sam klucz pulpitu i okna Cpro (pobierają się, tylko gdy są na
+          // ekranie); ikona „CV” i `dl-send` z paska — tylko gdy ruch ich
+          // dotyczy (27.10.2026, `lib/pipeline-changed-refresh.ts`).
+          queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY, exact: true });
+          queryClient.invalidateQueries({ queryKey: CPRO_QUEUE_QUERY_KEY });
+          const refresh = pipelineCvRefresh(
+            jobId,
+            leads,
+            userRef.current,
+            queryClient.getQueryData<CvTopicResponse>(CV_TOPIC_QUERY_KEY),
+            queryClient.getQueryData<DlSendQueueResponse>(DL_SEND_QUEUE_QUERY_KEY),
+          );
+          if (refresh.cv) queryClient.invalidateQueries({ queryKey: CV_TOPIC_QUERY_KEY });
+          if (refresh.dlSend) {
+            queryClient.invalidateQueries({ queryKey: DL_SEND_QUEUE_QUERY_KEY });
+          }
           // „Moi ludzie": lista i zakładka rekrutacji zależą od ruchów na
           // tablicy (kto jest w procesie, kto już w tej rekrutacji). Podsumowania
           // awatara NIE ruszamy — liczy całą listę, a ruchy go nie zmieniają.
@@ -183,23 +216,39 @@ export function useNotifications({
   );
 
   // Poll fallback when WS is unavailable
+  const visibleAgainRef = useRef<(() => void) | null>(null);
   const startPolling = useCallback(() => {
     if (pollingIntervalRef.current) return;
     pollingIntervalRef.current = setInterval(async () => {
       // Ukryta karta nie potrzebuje świeżych powiadomień — ręczny interwał
       // nie podlega `refetchIntervalInBackground`, więc pilnujemy tego sami.
-      // Po powrocie do karty react-query odświeża przy focusie.
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
     }, NOTIFICATIONS_FALLBACK_POLL_MS);
+    // Bez gniazda jedyną świeżością jest odpytywanie, a odświeżania przy
+    // powrocie do karty nie ma od 27.10.2026 (`QueryProvider`) — powrót
+    // odświeża listy sam, zamiast czekać do minuty na kolejny takt.
+    if (typeof document !== "undefined") {
+      const onVisible = () => {
+        if (document.visibilityState === "visible") {
+          queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        }
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      visibleAgainRef.current = onVisible;
+    }
   }, [queryClient]);
 
   const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
+    }
+    if (visibleAgainRef.current) {
+      document.removeEventListener("visibilitychange", visibleAgainRef.current);
+      visibleAgainRef.current = null;
     }
   }, []);
 
@@ -293,8 +342,9 @@ export function useNotifications({
         const msg = JSON.parse(event.data);
         if (msg.type === "notification" && msg.data) {
           const notif: WsNotification = msg.data;
-          // Update react-query cache
-          queryClient.invalidateQueries({ queryKey: ["notifications"] });
+          // Tylko lista tematu ramki (i listy spoza okienek) — nie cztery
+          // okienka paska naraz (27.10.2026).
+          invalidateNotificationLists(queryClient, notif.topic);
           if (notif.notification_type === "my_people_match") {
             announceMyPeopleMatch(notif.title, notif.link ?? null);
           }
@@ -368,7 +418,11 @@ export function useNotifications({
         } else if (msg.type === "pipeline_changed" && msg.data) {
           const jobId = Number(msg.data.job_id);
           if (Number.isSafeInteger(jobId) && jobId > 0) {
-            schedulePipelineRefresh(jobId);
+            const lead = msg.data.delivery_lead_id;
+            schedulePipelineRefresh(
+              jobId,
+              lead === undefined ? undefined : Number.isSafeInteger(lead) ? lead : null,
+            );
           }
         } else if (msg.type === "champion_profile_changed" && msg.data) {
           // Re-broadcast to any mounted CP editor. The editor decides
@@ -386,7 +440,7 @@ export function useNotifications({
           // KPI Coach: update cached KPI snapshot + bell counter, then
           // broadcast to the KpiNudgeToaster for the in-app toast.
           queryClient.invalidateQueries({ queryKey: ["kpis", "me", "today"] });
-          queryClient.invalidateQueries({ queryKey: ["notifications"] });
+          invalidateNotificationLists(queryClient, "other");
           setUnreadCount((c) => c + 1);
           if (typeof window !== "undefined") {
             window.dispatchEvent(
@@ -536,11 +590,13 @@ export function useNotifications({
     mountedRef.current = true;
     connect();
     const pipelineTimers = pipelineTimersRef.current;
+    const pipelineLeads = pipelineLeadsRef.current;
 
     return () => {
       mountedRef.current = false;
       for (const timer of pipelineTimers.values()) clearTimeout(timer);
       pipelineTimers.clear();
+      pipelineLeads.clear();
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }

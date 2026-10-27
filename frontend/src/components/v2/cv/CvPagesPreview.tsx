@@ -14,6 +14,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
 import { SearchablePdfPreview } from "@/components/v2/files/SearchablePdfPreview";
+import { preloadPdfJs } from "@/lib/pdfjs-loader";
 import { CvEditorWordPreview } from "@/components/v2/cv-editor/CvEditorWordPreview";
 
 export interface CvPagesPreviewProps {
@@ -43,6 +44,7 @@ export function CvPagesPreview({
 
   useEffect(() => {
     let cancelled = false;
+    preloadPdfJs();
     loadPdf().then(
       (blob) => {
         if (!cancelled) setState({ kind: "pdf", blob });

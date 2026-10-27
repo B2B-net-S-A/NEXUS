@@ -3,8 +3,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/store/auth", () => ({
-  useAuthStore: () => ({ token: "test-token" }),
+const authState = vi.hoisted(() => ({
+  token: "test-token",
+  user: null as null | { id: number; role: string; roles: string[] },
+}));
+
+vi.mock("@/store/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/store/auth")>()),
+  useAuthStore: () => authState,
 }));
 
 import {
@@ -254,13 +260,19 @@ describe("useNotifications — pipeline_changed (live kanban)", () => {
       JSON.stringify(["pipeline-scores", "42"]),
       JSON.stringify(["pipeline-scores", 42]),
       JSON.stringify(["my-next-steps"]),
-      // Kolejka „Czeka na Ciebie" (DZ, Cpro) na pulpicie.
+      // Kolejka „Czeka na Ciebie" (DZ, Cpro) na pulpicie i okno Cpro.
       JSON.stringify(["board-tasks"]),
+      JSON.stringify(["board-tasks", "cpro", "queue"]),
+      // Bez konta w pamięci — ikona „CV” i `dl-send` jak dawniej.
+      JSON.stringify(["board-tasks", "cv"]),
+      JSON.stringify(["board-tasks", "dl-send"]),
       // „Moi ludzie": lista i zakładka rekrutacji (bez podsumowania awatara).
       JSON.stringify(["my-people", "list"]),
       JSON.stringify(["my-people", "for-job"]),
     ]);
-    expect(invalidate).toHaveBeenCalledTimes(8);
+    expect(invalidate).toHaveBeenCalledTimes(11);
+    // Pulpit tylko pod swoim kluczem, nie cały prefiks `["board-tasks"]`.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["board-tasks"], exact: true });
     hook.unmount();
   });
 
@@ -542,6 +554,162 @@ describe("useNotifications — ikony paska zamiast dzwonka (16.10.2026)", () => 
     ]);
     // Bez wiersza nie ma czego liczyć ani pokazywać jako powiadomienia.
     expect(onNotification).not.toHaveBeenCalled();
+    hook.unmount();
+  });
+});
+
+// 27.10.2026: mniej żądań z przeglądarek — ramka odświeża listę swojego
+// tematu, ruch karty odświeża „CV” i `dl-send` tylko tam, gdzie dotyczy.
+describe("useNotifications — odświeżenia tylko tam, gdzie zdarzenie dotyczy", () => {
+  const LISTS = {
+    chats: ["notifications", "u1", "chats"],
+    interviews: ["notifications", "u1", "interviews"],
+    jobs: ["notifications", "u1", "jobs"],
+    contracts: ["notifications", "u1", "contracts"],
+    dashboard: ["notifications", "u1", 20],
+  } as const;
+
+  function setupReal() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    for (const key of Object.values(LISTS)) client.setQueryData([...key], { seeded: true });
+    client.setQueryData(["board-tasks"], { seeded: true });
+    client.setQueryData(["board-tasks", "cv"], {
+      badge: 1,
+      recruiter: {
+        to_check: [],
+        to_fix: [],
+        with_dl: [{ job_id: 42, stage_id: 1, candidate_id: 1 }],
+        sent: [],
+      },
+      dl: null,
+    });
+    client.setQueryData(["board-tasks", "dl-send"], { ready: [], ready_total: 0 });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const hook = renderHook(() => useNotifications(), { wrapper });
+    const ws = FakeWebSocket.instances[0];
+    act(() => ws.onopen?.());
+    const stale = () =>
+      Object.entries(LISTS)
+        .filter(([, key]) => client.getQueryState([...key])?.isInvalidated)
+        .map(([name]) => name);
+    const invalidated = (key: unknown[]) => Boolean(client.getQueryState(key)?.isInvalidated);
+    const send = (payload: unknown) =>
+      act(() => ws.onmessage?.({ data: JSON.stringify(payload) }));
+    return { hook, stale, invalidated, send };
+  }
+
+  function frame(topic?: string) {
+    return {
+      type: "notification",
+      data: {
+        id: 1,
+        title: "t",
+        message: "m",
+        created_at: "2026-10-27T08:00:00Z",
+        notification_type: "stage_changed",
+        ...(topic ? { topic } : {}),
+      },
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+  });
+
+  afterEach(() => {
+    authState.user = null;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+  });
+
+  it("ramka tematu „Rekrutacje” odświeża jego okienko i pulpit, nie pozostałe trzy", () => {
+    const { hook, stale, send } = setupReal();
+    send(frame("jobs"));
+    expect(stale()).toEqual(["jobs", "dashboard"]);
+    hook.unmount();
+  });
+
+  it("temat bez okienka (`cv`, `other`) nie odświeża żadnego okienka paska", () => {
+    const { hook, stale, send } = setupReal();
+    send(frame("other"));
+    expect(stale()).toEqual(["dashboard"]);
+    hook.unmount();
+  });
+
+  it("ramka bez tematu (stary backend) odświeża wszystko, jak dawniej", () => {
+    const { hook, stale, send } = setupReal();
+    send(frame());
+    expect(stale()).toEqual(["chats", "interviews", "jobs", "contracts", "dashboard"]);
+    hook.unmount();
+  });
+
+  it("wiadomość czatu odświeża „Wiadomości”, nie „Rekrutacje”, „Rozmowy” i „Umowy”", () => {
+    const { hook, stale, send } = setupReal();
+    send({ type: "chat:message:new", data: { id: 1, job_id: 7 } });
+    act(() => {
+      vi.advanceTimersByTime(CHAT_REFRESH_COALESCE_MS + 10);
+    });
+    expect(stale()).toEqual(["chats", "dashboard"]);
+    hook.unmount();
+  });
+
+  it("ruch karty u rekrutera: „CV” tylko z wierszem tej rekrutacji, `dl-send` wcale", () => {
+    authState.user = { id: 5, role: "recruiter", roles: ["recruiter"] };
+    const { hook, invalidated, send } = setupReal();
+    send({ type: "pipeline_changed", data: { job_id: 99, delivery_lead_id: 8 } });
+    act(() => {
+      vi.advanceTimersByTime(PIPELINE_CHANGED_DEBOUNCE_MS);
+    });
+    expect(invalidated(["board-tasks", "cv"])).toBe(false);
+    expect(invalidated(["board-tasks", "dl-send"])).toBe(false);
+    // Pulpit „Czeka na Ciebie” dalej świeży.
+    expect(invalidated(["board-tasks"])).toBe(true);
+
+    send({ type: "pipeline_changed", data: { job_id: 42, delivery_lead_id: 8 } });
+    act(() => {
+      vi.advanceTimersByTime(PIPELINE_CHANGED_DEBOUNCE_MS);
+    });
+    expect(invalidated(["board-tasks", "cv"])).toBe(true);
+    expect(invalidated(["board-tasks", "dl-send"])).toBe(false);
+    hook.unmount();
+  });
+
+  it("ruch karty u Delivery Leada tej rekrutacji odświeża „CV” i `dl-send`", () => {
+    authState.user = { id: 8, role: "delivery_lead", roles: ["delivery_lead"] };
+    const { hook, invalidated, send } = setupReal();
+    send({ type: "pipeline_changed", data: { job_id: 99, delivery_lead_id: 8 } });
+    act(() => {
+      vi.advanceTimersByTime(PIPELINE_CHANGED_DEBOUNCE_MS);
+    });
+    expect(invalidated(["board-tasks", "cv"])).toBe(true);
+    expect(invalidated(["board-tasks", "dl-send"])).toBe(true);
+    hook.unmount();
+  });
+
+  it("bez gniazda powrót do karty odświeża listy od razu, nie po takcie odpytywania", () => {
+    const { hook, stale } = setupReal();
+    const ws = FakeWebSocket.instances[0];
+    vi.stubGlobal(
+      "WebSocket",
+      class {
+        constructor() {
+          throw new Error("offline");
+        }
+      },
+    );
+    act(() => ws.onclose?.());
+    expect(stale()).toEqual([]);
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(stale()).toEqual(["chats", "interviews", "jobs", "contracts", "dashboard"]);
     hook.unmount();
   });
 });

@@ -42,8 +42,9 @@ const verifiedItem = {
   added_to_job_at: "2026-07-29T09:52:15Z",
 };
 
-function renderLine(item = verifiedItem) {
+function renderLine(item = verifiedItem, seed?: (client: QueryClient) => void) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  seed?.(client);
   return render(
     <QueryClientProvider client={client}>
       <PairOwnerLine item={item} jobId={324353} />
@@ -136,5 +137,25 @@ describe("PairOwnerLine w panelu osoby", () => {
       }),
     );
     expect(toastSuccess).toHaveBeenCalledWith("Prowadzi teraz Maria Przykładowa.");
+  });
+
+  it("Delivery Leada rekrutacji czyta z zapytania strony — bez drugiego GET /api/jobs/{id}", async () => {
+    useAuthStore.setState({
+      user: { id: 2, role: "head_of_recruitment", roles: ["head_of_recruitment"] },
+    } as never);
+    // Strona `/jobs/[id]` trzyma rekrutację pod `["job", <id z adresu>]`.
+    renderLine(verifiedItem, (client) =>
+      client.setQueryData(["job", "324353"], {
+        delivery_lead_user: { id: 101, name: "Maria Przykładowa" },
+      }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Przypisz" }));
+    const select = await screen.findByLabelText("Osoba prowadząca");
+    await waitFor(() => expect(select).not.toBeDisabled());
+    await userEvent.selectOptions(select, "101");
+    expect(await screen.findByTestId("pair-owner-bonus-preview")).toHaveTextContent(
+      "dostanie obie premie",
+    );
+    expect(get).not.toHaveBeenCalledWith("/api/jobs/324353");
   });
 });
