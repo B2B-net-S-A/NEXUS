@@ -227,7 +227,9 @@ class PracujRequestRead(BaseModel):
     waiting: bool = False
 
 
-RateValue = Annotated[int, Field(ge=1, le=5000)]
+# Szeroko: granice stawki sprawdza `pracuj_mail.rate_text` i odpowiada
+# komunikatem przy polu (podgląd), nie błędem całego zapytania.
+RateValue = Annotated[int, Field(ge=0, le=99_999)]
 
 
 class PracujMailPreviewRequest(BaseModel):
