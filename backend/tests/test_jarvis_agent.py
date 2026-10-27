@@ -173,7 +173,7 @@ async def _pool_members(pool_id: int) -> list[int]:
             (
                 await db.execute(
                     select(TalentPoolMembership.candidate_id).where(
-                        TalentPoolMembership.pool_id == pool_id
+                        TalentPoolMembership.talent_pool_id == pool_id
                     )
                 )
             ).scalars()
