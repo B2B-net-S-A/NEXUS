@@ -291,6 +291,19 @@ export interface ProposalFacts {
    * prawdziwej daty (import) — wtedy plakietki „CV z RRRR” nie ma.
    */
   cv_uploaded_on?: string | null;
+  /**
+   * Osoba z innej roli niż rekrutacja (tester przy programiście, 27.10.2026,
+   * `services/role_family.py`). Okno oznacza ją i stawia na końcu listy.
+   */
+  role_mismatch?: ProposalRoleMismatch | null;
+}
+
+export interface ProposalRoleMismatch {
+  family: string;
+  /** „tester”, „analityk”… — rola osoby. */
+  label: string;
+  /** Skąd to wiemy: „obecnie Senior QA Automation Engineer”. */
+  detail: string;
 }
 
 /** Sufit jednego zapytania o fakty (`MAX_FACT_CANDIDATES`). */

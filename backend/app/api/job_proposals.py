@@ -574,6 +574,10 @@ async def job_proposal_facts(
     employment_markers = await load_employment_markers(
         db, list(by_id), today=business_today(), job_client_id=job.client_id
     )
+    from app.services.role_family import mismatches_for_job  # noqa: PLC0415
+
+    # Tester przy programiście (27.10.2026) — okno oznacza i stawia na końcu.
+    role_mismatches = await mismatches_for_job(db, job, list(by_id.values()))
     return {
         "job_id": job_id,
         "items": [
@@ -583,6 +587,9 @@ async def job_proposal_facts(
                 "cv_uploaded_on": cv_dates.get(cid),
                 "rate_this_job_hourly": (
                     float(this_job[cid]["amount"]) if cid in this_job else None
+                ),
+                "role_mismatch": (
+                    role_mismatches[cid].as_dict() if cid in role_mismatches else None
                 ),
             }
             for cid in ids

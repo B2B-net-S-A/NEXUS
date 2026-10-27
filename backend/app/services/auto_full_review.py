@@ -671,7 +671,8 @@ async def publish_run_proposals(
     # kolejność listy; o tym, KTO trafia do propozycji, dalej decyduje próg.
     from app.services.known_people_signal import known_people_for_job
 
-    known = await known_people_for_job(db, await db.get(Job, run.job_id))
+    job = await db.get(Job, run.job_id)
+    known = await known_people_for_job(db, job)
     published = 0
     offset = 0
     while True:
@@ -724,6 +725,14 @@ async def publish_run_proposals(
                     )
                 ).all()
             }
+            # Tester przy programiście (27.10.2026): inna rola nie jest
+            # propozycją, chyba że spełnia większość „musi mieć”.
+            off_role = await _off_role_ids(
+                db,
+                job,
+                [(row.candidate_id, requirements) for row, _, requirements in picked],
+                candidates,
+            )
             payload = [
                 {
                     "candidate_id": row.candidate_id,
@@ -742,7 +751,7 @@ async def publish_run_proposals(
                     },
                 }
                 for row, rec, requirements in picked
-                if row.candidate_id in candidates
+                if row.candidate_id in candidates and row.candidate_id not in off_role
             ]
             published += await upsert_proposals(
                 db,
@@ -755,6 +764,22 @@ async def publish_run_proposals(
         if len(rows) < _PUBLISH_PAGE:
             break
     return published
+
+
+async def _off_role_ids(
+    db, job: Optional[Job], pairs: list[tuple[int, list]], candidates: dict
+) -> set[int]:
+    """Osoby z innej roli niż rekrutacja bez `KEEP_MUST_SHARE` „musi mieć”."""
+    from app.services.role_family import keeps_despite_role, mismatches_for_job
+
+    if job is None:
+        return set()
+    mismatched = await mismatches_for_job(db, job, list(candidates.values()))
+    return {
+        candidate_id
+        for candidate_id, requirements in pairs
+        if candidate_id in mismatched and not keeps_despite_role(requirements)
+    }
 
 
 # Pula dopełniania „Nowych” (0513, decyzja Artura 23.10.2026): najlepsi
@@ -806,10 +831,16 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
             )
         ).all()
     }
+    off_role = await _off_role_ids(
+        db,
+        await db.get(Job, run.job_id),
+        [(cid, (ev or {}).get("requirements") or []) for cid, _score, ev in rows],
+        candidates,
+    )
     payload = []
     for candidate_id, score, evidence in rows:
         candidate = candidates.get(candidate_id)
-        if candidate is None:
+        if candidate is None or candidate_id in off_role:
             continue
         requirements = (evidence or {}).get("requirements") or []
         payload.append(

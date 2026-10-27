@@ -243,6 +243,13 @@ function proposalRow(
 /** Ile osób bez zapisanego wyniku liczymy od razu przy „Dopasowaniu” (paczki po 20). */
 const MATCH_SORT_PRESCORE_MAX = 100;
 
+/** „musi mieć X/Y” z wymagań propozycji (27.10.2026). */
+function mustCoverage(entry: ProposalEntry): PickRow["mustCoverage"] {
+  const must = entry.detail.requirements.filter((r) => r.level === "must");
+  if (must.length === 0) return null;
+  return { met: must.filter((r) => r.status === "met").length, total: must.length };
+}
+
 const TAB_LABEL: Record<CandidateWindowTab, string> = {
   similar: "Podobne rekrutacje",
   postings: "Nowi z ogłoszeń",
@@ -468,6 +475,8 @@ function AddCandidatesPanelOpen({
       const id = e.row.candidateId;
       return {
         ...proposalRow(e, factsById.get(id) ?? null, budgetHourly, askLabels),
+        roleMismatch: factsById.get(id)?.role_mismatch ?? null,
+        mustCoverage: mustCoverage(e),
         addState: undoing.has(id)
           ? "undoing"
           : addedIds.has(id)
@@ -539,12 +548,17 @@ function AddCandidatesPanelOpen({
     }
   }, [sortMode, listTab, unscoredNow, reportScoreRow]);
   const listRows = useMemo(() => {
-    if (sortMode === "client_first") return sortByClientHistory(unsortedRows, factsById);
-    return sortByShownScore(unsortedRows, (row) => {
-      if (row.fitScore != null) return row.fitScore;
-      const score = matchScores.scores[String(row.candidateId)];
-      return typeof score === "number" ? score : null;
-    });
+    const sorted =
+      sortMode === "client_first"
+        ? sortByClientHistory(unsortedRows, factsById)
+        : sortByShownScore(unsortedRows, (row) => {
+            if (row.fitScore != null) return row.fitScore;
+            const score = matchScores.scores[String(row.candidateId)];
+            return typeof score === "number" ? score : null;
+          });
+    // Inna rola (tester przy programiście, 27.10.2026) zawsze pod osobami
+    // z roli rekrutacji, niezależnie od procentu.
+    return [...sorted.filter((r) => !r.roleMismatch), ...sorted.filter((r) => r.roleMismatch)];
   }, [sortMode, unsortedRows, factsById, matchScores.scores]);
   const renderProposalScore = (row: PickRow): ReactNode => {
     if (row.fitScore != null) return <ScoreBadge score={row.fitScore} />;
