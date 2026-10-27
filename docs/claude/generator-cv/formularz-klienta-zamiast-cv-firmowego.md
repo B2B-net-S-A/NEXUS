@@ -107,3 +107,40 @@ Reguły, które łatwo cofnąć:
   cytat z kilku punktów i kod odrzucał opisy projektów. Cytat może być listą
   fragmentów — każdy musi stać w źródle osobno. Miejsce zamieszkania wpisuje
   kod z profilu (`candidates.city`), jak imię i nazwisko.
+
+## Tabela punktowa (Excel) obok formularza (0525, 27.10.2026)
+
+Decyzja Artura 27.10.2026: CEZ do formularza CV dokłada Excel z punktacją według
+„Szczegółowego opisu oceny” (zał. 5 SWZ) — **jeden na osobę**, wypełniany przez
+NEXUS jak formularz.
+
+- **Rodzaj wzoru wynika z pliku:** Word = `form`, Excel = `score`
+  (`job_files.client_form_kind`). Najwyżej jeden wzór KAŻDEGO rodzaju na
+  rekrutację (`ux_job_files_client_form_kind`); indeks „jeden wzór na
+  rekrutację” z 0521 jest zastąpiony i NIE stoi w entrypoincie
+  (`SUPERSEDED_DDL`) — przy starcie wywróciłby się na Wordzie i Excelu naraz.
+  Wypełniony dokument pary też ma rodzaj (`candidate_client_forms.kind`,
+  unikalność `(candidate_id, job_id, kind)`). Trasy `client-form` biorą
+  `?kind=score`; bez parametru — formularz, jak dotąd.
+- **Odczyt Excela bez AI** (`services/client_score_structure.py`, ten sam
+  kształt pól co Word): komórka za etykietą z dwukropkiem, tabele pod nagłówkiem
+  z „Lp.”, wiersz z jednym tekstem = sekcja. „Tak/Nie” w wierszu to metoda oceny
+  — odpowiedź idzie do pustej kolumny obok („Wynik (Tak/Nie)”). Liczba
+  w kolumnie „punkty” = `max_points` wiersza. Wiersze „Razem” i formuły zostają —
+  Excel liczy sumy sam. Zapis (`client_form_render.render_score`) wpisuje punkty
+  liczbą, żeby formuły sum działały. openpyxl gubi obrazki z arkusza.
+- **Punkty liczy model według zasad oceny z Plików** (`job_files.scoring_rules_text`:
+  PDF/Word z „ocen”/„kryter”/„punkt” w nazwie, np. zał. 5b). Kod przyjmuje tylko
+  liczbę całkowitą od 0 do `max_points` z cytatem ze źródła; bez pliku z zasadami
+  pola punktów zostają do wpisania ręcznie. „Firma:” to wykonawca — wpisuje kod
+  („B2B.net S.A.”).
+- **Model oddaje liczby liczbami** (2, nie "2") — `_short` przyjmuje też liczby;
+  na stagingu 27.10.2026 kod odrzucał przez to wszystkie punkty.
+- **Ekrany:** w Plikach plakietka „Tabela punktowa” i „Ustaw jako tabelę
+  punktową klienta”; w sekcji CV osoby druga karta (tylko gdy jest wzór Excela)
+  z „Punkty: X z Y” i „Pobierz Excel”. Lista wymagań i plakietka na Tablicy
+  mówią tylko o formularzu.
+- **Prawdziwego Excela CEZ w NEXUSIE nie było** (27.10.2026: 0 plików xlsx w
+  rekrutacjach i profilach osób CEZ) — odczyt sprawdzony na arkuszu zbudowanym
+  według treści zał. 5b (14 pól, maks. 33 pkt jak „Razem” w PDF). Inny układ =
+  „nie rozpoznano” przy oznaczeniu, plik zostaje zwykłym plikiem.

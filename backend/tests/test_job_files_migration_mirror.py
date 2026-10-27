@@ -48,8 +48,10 @@ def test_model_columns_match_the_ddl() -> None:
     from app.services import client_form_schema
 
     table = job_file_schema.TABLE_DDL
-    # 0521 dokłada kolumny wzoru formularza osobnym ALTER TABLE.
-    ddl = " ".join((table, *client_form_schema.JOB_FILE_DDL))
+    # 0521 i 0525 dokładają kolumny wzoru osobnymi ALTER TABLE.
+    ddl = " ".join(
+        (table, *client_form_schema.JOB_FILE_DDL, *client_form_schema.SCORE_DDL)
+    )
     for column in JobFile.__table__.columns.keys():
         assert re.search(rf"\b{column}\b", ddl), column
     # Rekrutacja zabiera swoje pliki; formularz i autor tylko się odpinają.

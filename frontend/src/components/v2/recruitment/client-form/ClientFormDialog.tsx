@@ -27,12 +27,15 @@ import {
   type ClientFormField,
   type ClientFormView,
 } from "@/lib/api/clientForms";
+import type { ClientFormKind } from "@/lib/api/jobFiles";
 import { cn } from "@/lib/utils";
 
 export interface ClientFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   view: ClientFormView;
+  /** 0525: tabela punktowa (Excel) — inny tytuł i „Pobierz Excel”. */
+  kind?: ClientFormKind;
   candidateName: string;
   readOnly?: boolean;
   saving?: boolean;
@@ -140,6 +143,7 @@ export function ClientFormDialog({
   open,
   onOpenChange,
   view,
+  kind = "form",
   candidateName,
   readOnly = false,
   saving = false,
@@ -171,7 +175,9 @@ export function ClientFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="xl" data-testid="client-form-dialog">
         <DialogHeader>
-          <DialogTitle>Formularz CV klienta · {candidateName}</DialogTitle>
+          <DialogTitle>
+            {kind === "score" ? "Tabela punktowa" : "Formularz CV klienta"} · {candidateName}
+          </DialogTitle>
           <DialogDescription>
             {view.template?.filename ?? "Wzór z Plików rekrutacji"} · układ pliku klienta
             zostaje bez zmian.
@@ -246,7 +252,7 @@ export function ClientFormDialog({
             ) : (
               <Download className="h-4 w-4" aria-hidden />
             )}
-            Pobierz Word
+            {kind === "score" ? "Pobierz Excel" : "Pobierz Word"}
           </Button>
           {readOnly ? null : (
             <Button

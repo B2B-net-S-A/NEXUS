@@ -142,3 +142,40 @@ def render(
     buffer = io.BytesIO()
     document.save(buffer)
     return buffer.getvalue()
+
+
+# ── 0525: tabela punktowa klienta (Excel) ───────────────────────────────────
+
+
+def render_score(
+    template: bytes, structure: dict[str, Any], fields: dict[str, Any]
+) -> bytes:
+    """Wzór Excela z wpisanymi wartościami; odmowa wzoru = ``FormRejected``.
+
+    Wartość trafia tylko w komórkę odczytaną przez ``client_score_structure``.
+    Punkty idą jako liczby, żeby formuły sum we wzorze („Razem”) policzyły się
+    same po otwarciu; formuł, formatów i walidacji („Tak/Nie”) kod nie rusza.
+    """
+    from app.services import client_score_structure  # noqa: PLC0415
+
+    workbook = client_score_structure.open_workbook(template)
+    sheets = workbook.worksheets
+    for item in structure.get("fields") or []:
+        value = (fields.get(item["id"]) or {}).get("value")
+        match = _SCORE_ID.match(item["id"])
+        if not value or match is None:
+            continue
+        s_index, row, column = (int(part) for part in match.groups())
+        if s_index >= len(sheets):
+            continue
+        cell = sheets[s_index].cell(row=row, column=column)
+        if item.get("max_points") is not None and str(value).isdigit():
+            cell.value = int(value)
+        else:
+            cell.value = value
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+_SCORE_ID = re.compile(r"^s(\d+)\.r(\d+)\.c(\d+)$")
