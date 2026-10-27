@@ -5319,3 +5319,91 @@ def test_abbreviation_at_sentence_end_does_not_glue_the_rate_sentence() -> None:
         "<p>Java 17. Stawka min. 140 zł/h. Spring.</p>", None, None
     )
     assert "140" not in out and "Java 17." in out and "Spring." in out
+
+
+# Miniatura zrzutu zgody przy uwadze `consent_matches` (27.10.2026).
+_CONSENT_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+@pytest.mark.asyncio
+async def test_consent_screenshot_is_served_to_qc_readers_only(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    trainee_id, trainee_creds = await _seed_user(UserRole.trainee)
+    hor = await _login(api_client, hor_creds)
+    dl = await _login(api_client, dl_creds)
+    trainee = await _login(api_client, trainee_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    url = f"/api/pipeline/stages/{stage_id}/qc/consent-screenshot"
+    try:
+        empty = await api_client.get(url, headers=dl)
+        assert empty.status_code == 404, empty.text
+
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == stage_id
+                )
+            )
+            csv.branded_consent_content = _CONSENT_PNG
+            await db.commit()
+
+        shown = await api_client.get(url, headers=dl)
+        assert shown.status_code == 200, shown.text
+        assert shown.content == _CONSENT_PNG
+        assert shown.headers["content-type"] == "image/png"
+        assert shown.headers["cache-control"] == "private, no-store"
+        assert shown.headers["x-content-type-options"] == "nosniff"
+
+        refused = await api_client.get(url, headers=trainee)
+        assert refused.status_code == 403, refused.text
+
+        # Token OAuth (scraper, n8n) ma rolę operacyjną — obraz z adresem
+        # e-mail kandydata i tak nie jest dla niego.
+        monkeypatch.setattr("app.api.cv_qc.is_integration_request", lambda _r: True)
+        integration = await api_client.get(url, headers=dl)
+        assert integration.status_code == 403, integration.text
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id, dl_id, trainee_id])
+
+
+@pytest.mark.asyncio
+async def test_consent_screenshot_that_is_not_an_image_is_not_served(
+    api_client: AsyncClient,
+) -> None:
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    try:
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == stage_id
+                )
+            )
+            csv.branded_consent_content = b"<svg onload=alert(1)>"
+            await db.commit()
+        resp = await api_client.get(
+            f"/api/pipeline/stages/{stage_id}/qc/consent-screenshot", headers=hor
+        )
+        assert resp.status_code == 404, resp.text
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
+def test_public_cv_link_never_carries_the_consent_screenshot() -> None:
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    public = build_public_payload(
+        {
+            "full_name": "Anna P.",
+            "consent_screenshot": {"storage_key": "cv/zgoda.png", "_bytes": b"x"},
+        }
+    )
+    assert "consent" not in json.dumps(public, default=str)

@@ -39,6 +39,14 @@ QC sprawdzało tylko, czy obraz jest (`zrzut-zgody-rodo-na-koncu-cv-wymog-pko-bp
   z treścią problemów i powodem rekrutera, `manual` przy `unavailable`,
   `skip` dla zrzutów sprzed 27.10. Uwagę można pominąć („To OK” z powodem) —
   tak Delivery Lead przyjmuje zrzut; nie dopisuj jej do `NOT_DISMISSABLE`.
+- **Miniatura zrzutu przy uwadze** (27.10.2026): Delivery Lead ogląda obraz
+  w oknie QC i w edytorze CV, bez pobierania CV.
+  `GET /api/pipeline/stages/{id}/qc/consent-screenshot` (`cv_qc.consent_image`)
+  bierze obraz tak jak `_consent_state`: kopia etapu ma własny
+  (`branded_consent_content`), CV z generatora — `consent_content` albo klucz
+  w magazynie. Bramka jak odczyt QC, ale bez integracji (token OAuth dostaje
+  tylko „zgoda jest”), `no-store`, typ z sygnatury bajtów; obraz niesie adres
+  e-mail kandydata, więc nie dokładaj go do publicznego linku CV.
 - **Pomiar przed zmianą promptu albo modelu.** 27.10 na 121 zrzutach ze
   stagingu: 10 z 11 złych oznaczonych (11. to stare CV bez powiązanego
   kandydata), dodatkowo duplikat i 2 zrzuty bez nagłówka; żaden dobry zrzut

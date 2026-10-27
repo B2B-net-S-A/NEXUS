@@ -19,6 +19,7 @@ import { Ban, Copy, Loader2, LocateFixed, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { ConsentScreenshotThumb } from "@/components/v2/cv/ConsentScreenshotThumb";
 import {
   DismissForm,
   ItemAction,
@@ -801,6 +802,19 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
     action = proposal.action;
   } else if (item.fix === "ask_candidate") {
     action = <CopyQuestion item={item} qc={qc} />;
+  } else if (item.fix === "replace_consent") {
+    // Zrzut, którego AI nie potwierdziło (F37): obraz i wymiana w wierszu uwagi (27.10.2026).
+    const consent = consentTarget(qc.data);
+    title = "Zrzut zgody nie pasuje";
+    sub = item.detail ?? check.label;
+    action = (
+      <>
+        <ConsentScreenshotThumb stageId={qc.data.stage_id} />
+        {consent && qc.editable ? (
+          <ConsentAttachButton compact hasConsent {...consent} onAttached={ctx.refreshQc} />
+        ) : null}
+      </>
+    );
   } else if (quick?.action === "years") {
     // Liczba z dat historii — ta sama reguła co uwaga QC (PR 2, 17.10.2026).
     const preview = yearsPreview(item);
@@ -855,6 +869,8 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
       title={title}
       sub={sub}
       actions={action}
+      // Miniatura zrzutu obok tytułu ściska treść uwagi do wąskiej kolumny.
+      actionsBelow={item.fix === "replace_consent"}
       details={
         <>
           {item.fix === "ai" && item.detail ? <p className="text-muted-foreground">{item.detail}</p> : null}

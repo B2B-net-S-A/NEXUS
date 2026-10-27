@@ -1508,4 +1508,65 @@ describe("CvQcDialog — QC CV", () => {
       await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Kolejność zostaje — QC przeliczone."));
     });
   });
+
+  // F37 (27.10.2026): Delivery Lead ogląda zrzut, którego AI nie potwierdziło,
+  // bez pobierania CV.
+  describe("„Zrzut zgody RODO pasuje do kandydata i rekrutacji”", () => {
+    const SHOT_URL = `${QC_URL}/consent-screenshot`;
+    const DETAIL = "AI: Nadawca to nie kandydat. Rekruter zapisał go mimo to — powód: „Kandydat pisał z prywatnej skrzynki”.";
+    const mismatched = (): QcResult => {
+      const base = result();
+      const check: QcCheck = {
+        key: "consent_matches",
+        label: "Zrzut zgody RODO pasuje do kandydata i rekrutacji",
+        severity: "warning",
+        status: "fail",
+        summary: "Zrzut nie pasuje — obejrzyj go",
+        items: [{ key: "consent_matches||cv", detail: DETAIL, fix: "replace_consent" }],
+      };
+      return { ...base, checks: [...base.checks, check] };
+    };
+    const serveShot = (shot: () => Promise<unknown>) => {
+      const data = mismatched();
+      get.mockImplementation((url: string) =>
+        url === QC_URL ? Promise.resolve({ data }) : url === SHOT_URL ? shot() : Promise.reject(new Error(url)),
+      );
+    };
+
+    beforeEach(() => {
+      URL.createObjectURL = vi.fn(() => "blob:zrzut-zgody");
+      URL.revokeObjectURL = vi.fn();
+    });
+
+    async function openConsent() {
+      const dialog = await screen.findByRole("dialog");
+      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      await userEvent.click(within(notes).getByRole("button", { name: /Zrzut zgody RODO pasuje/ }));
+      return notes;
+    }
+
+    it("miniatura zrzutu stoi przy powodzie rekrutera, a klik ją powiększa", async () => {
+      serveShot(() => Promise.resolve({ data: new Blob(["png"], { type: "image/png" }) }));
+      renderDialog();
+      const notes = await openConsent();
+      expect(within(notes).getByText(DETAIL)).toBeTruthy();
+      const thumb = await within(notes).findByRole("button", { name: "Pokaż zrzut zgody" });
+      expect(get).toHaveBeenCalledWith(SHOT_URL, { responseType: "blob" });
+      expect(thumb.querySelector("img")?.getAttribute("src")).toBe("blob:zrzut-zgody");
+      await userEvent.click(thumb);
+      const large = await screen.findByRole("dialog", { name: "Zrzut zgody RODO" });
+      expect(within(large).getByRole("img", { name: "Zrzut zgody RODO kandydata" })).toHaveAttribute(
+        "src",
+        "blob:zrzut-zgody",
+      );
+    });
+
+    it("awaria pobrania zrzutu mówi to wprost, zamiast pustej miniatury", async () => {
+      serveShot(() => Promise.reject(new Error("503")));
+      renderDialog();
+      const notes = await openConsent();
+      expect(await within(notes).findByText(/Nie udało się wczytać zrzutu/)).toBeTruthy();
+      expect(within(notes).queryByRole("button", { name: "Pokaż zrzut zgody" })).toBeNull();
+    });
+  });
 });
