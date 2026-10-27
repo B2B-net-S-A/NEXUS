@@ -24,6 +24,9 @@ interface Props {
   candidateName: string;
   candidateEmail: string;
   requestId?: number;
+  /** Szkic z Jarvisa — wpisany w okno, do poprawienia przed wysłaniem. */
+  defaultSubject?: string;
+  defaultBody?: string;
 }
 
 /** Ten sam klucz co karta „Outlook i kalendarz” w Ustawieniach. */
@@ -58,6 +61,8 @@ export function SendEmailV2({
   candidateName,
   candidateEmail,
   requestId,
+  defaultSubject,
+  defaultBody,
 }: Props) {
   const connection = useM365Connection(open);
   if (!open) return null;
@@ -77,6 +82,8 @@ export function SendEmailV2({
       candidateId={candidateId}
       candidateName={candidateName}
       defaultTo={candidateEmail}
+      defaultSubject={defaultSubject}
+      defaultBody={defaultBody}
       requestId={requestId}
       onClose={() => onOpenChange(false)}
     />

@@ -510,6 +510,18 @@ def _conversation_items(
                                 )[:200],
                             }
                         )
+                if name == "draft_email" and str(block.get("id") or "") not in failed:
+                    tool_input = block.get("input") or {}
+                    items.append(
+                        {
+                            "kind": "mail_draft",
+                            "draft": {
+                                "candidate_id": tool_input.get("candidate_id"),
+                                "subject": str(tool_input.get("subject") or "")[:150],
+                                "body": str(tool_input.get("body") or "")[:3000],
+                            },
+                        }
+                    )
                 gap = gap_by_tool_use.get(str(block.get("id") or ""))
                 if name == "report_gap" and gap is not None:
                     items.append({"kind": "gap", "gap": _serialize_gap(gap)})
