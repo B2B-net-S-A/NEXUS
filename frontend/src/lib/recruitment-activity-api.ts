@@ -179,3 +179,29 @@ export async function getRecruitmentActivityDetails(
   )
   return response.data
 }
+
+export interface RecruitmentActivityTeamTotalsResponse {
+  generated_at: string
+  period_start: string
+  period_end: string
+  /** Liczba zespołu na etap — ta sama co `period_total` listy z `scope: "team"`. */
+  totals: Partial<Record<RecruitmentActivityMetric, number>>
+  /** Ile z liczby to wpisy DynaReportera (bez osób na liście). */
+  history: Partial<Record<RecruitmentActivityMetric, number>>
+}
+
+/** Liczby zespołu za dni od–do (włącznie) dla kilku etapów jednym zapytaniem. */
+export async function getRecruitmentActivityTeamTotals(filters: {
+  dateFrom: string
+  dateTo: string
+  metrics: readonly RecruitmentActivityMetric[]
+}): Promise<RecruitmentActivityTeamTotalsResponse> {
+  const response = await api.get<RecruitmentActivityTeamTotalsResponse>(
+    "/api/dashboard/v2/recruitment-activity/team-totals",
+    {
+      params: { date_from: filters.dateFrom, date_to: filters.dateTo, metric: [...filters.metrics] },
+      paramsSerializer: { indexes: null },
+    },
+  )
+  return response.data
+}

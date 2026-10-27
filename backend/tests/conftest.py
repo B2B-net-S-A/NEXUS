@@ -232,6 +232,19 @@ def _dashboard_metric_credit_snapshot_uncached(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _credited_snapshot_uncached(monkeypatch):
+    """Migawka `credited` całej firmy żyje 60 s w procesie (27.10.2026).
+
+    Testy na wspólnej bazie dosiewają etapy i liczą KPI ponownie — z cache'em
+    dostawałyby wiersze poprzedniego testu. Zachowanie cache'u sprawdza
+    `test_credited_snapshot.py`.
+    """
+    from app.services import credited_snapshot
+
+    monkeypatch.setattr(credited_snapshot, "_SNAPSHOT_TTL_SECONDS", -1)
+
+
+@pytest.fixture(autouse=True)
 def _open_the_order_mail_recheck_window(monkeypatch):
     """Automatyczny recheck ma w testach chodzić niezależnie od pory dnia.
 

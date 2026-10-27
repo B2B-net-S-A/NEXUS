@@ -66,6 +66,18 @@ def _clean_cache():
     cache_module._cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _empty_credited_snapshot(monkeypatch):
+    """`db` jest tu atrapą z kolejką odpowiedzi — migawka `credited`
+    (`credited_snapshot`, 27.10.2026) nie może zjadać z niej wyników."""
+    from app.services import credited_snapshot
+
+    async def _rows(_db):
+        return ()
+
+    monkeypatch.setattr(credited_snapshot, "credited_rows", _rows)
+
+
 @pytest.mark.asyncio
 async def test_team_total_keeps_inactive_and_non_kpi_credit() -> None:
     head = _user(UserRole.head_of_recruitment, 1)

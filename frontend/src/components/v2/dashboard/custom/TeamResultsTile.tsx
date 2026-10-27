@@ -2,12 +2,14 @@
 
 // Kafelek „Wyniki zespołu” (prośba Head of Recruitment, 23.10.2026): okres
 // wybierany na kafelku, cztery liczby zespołu i lista osób pod klikniętą
-// liczbą. Liczby i wiersze z tej samej trasy co lista „Kto się liczy”
-// w Insights (`/api/dashboard/v2/recruitment-activity/details`, zakres zespołu),
-// więc kafelek i Insights pokazują to samo.
+// liczbą. Wiersze z tej samej trasy co lista „Kto się liczy” w Insights
+// (`/api/dashboard/v2/recruitment-activity/details`, zakres zespołu), a cztery
+// liczby jednym zapytaniem z `/team-totals` — to ten sam licznik co
+// `period_total` listy (27.10.2026: wcześniej cztery zapytania, każde po dwa
+// pełne przeliczenia zasługi), więc kafelek i Insights pokazują to samo.
 
 import { useEffect, useMemo, useState } from "react"
-import { useQueries } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 
 import { Input } from "@/components/ui/input"
 import { WhoCountsList } from "@/components/v2/kpi/WhoCountsList"
@@ -21,7 +23,7 @@ import {
   type DayRange,
   type WhoCountsMetric,
 } from "@/lib/kpi-who-counts"
-import { getRecruitmentActivityDetails } from "@/lib/recruitment-activity-api"
+import { getRecruitmentActivityTeamTotals } from "@/lib/recruitment-activity-api"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 
@@ -141,13 +143,12 @@ export function TeamResultsTile({ tileId }: { tileId: string }) {
     teamScope: true,
   }
 
-  const counts = useQueries({
-    queries: METRICS.map((metric) => ({
-      queryKey: ["team-results-tile", cacheKey, metric, range.start, range.end],
-      queryFn: () => getRecruitmentActivityDetails({ ...query, metric, page: 1, pageSize: 1 }),
-      enabled: validRange,
-      staleTime: 30_000,
-    })),
+  const counts = useQuery({
+    queryKey: ["team-results-tile", cacheKey, range.start, range.end],
+    queryFn: () =>
+      getRecruitmentActivityTeamTotals({ dateFrom: range.start, dateTo: range.end, metrics: METRICS }),
+    enabled: validRange,
+    staleTime: 30_000,
   })
 
   return (
@@ -200,11 +201,9 @@ export function TeamResultsTile({ tileId }: { tileId: string }) {
         <p className="text-sm text-warning-muted-foreground">Data „od” jest po dacie „do”.</p>
       ) : (
         <div className="grid grid-cols-2 gap-2 @lg:grid-cols-4">
-          {METRICS.map((metric, index) => {
-            const result = counts[index]
+          {METRICS.map((metric) => {
             const counted = countedSince(metric, range)
-            const value =
-              counted === "none" ? undefined : (result.data?.period_total ?? result.data?.total)
+            const value = counted === "none" ? undefined : counts.data?.totals[metric]
             const active = open === metric
             return (
               <button
@@ -227,7 +226,7 @@ export function TeamResultsTile({ tileId }: { tileId: string }) {
                 <span className="text-2xl font-bold tabular-nums text-foreground">
                   {counted === "none"
                     ? "—"
-                    : result.isError
+                    : counts.isError
                       ? "błąd"
                       : value === undefined
                         ? "…"
