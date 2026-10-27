@@ -43,6 +43,8 @@ name: Coolify Ops
 #                                   (read-only; liczniki i ID, zero kwot i nazwisk).
 #  15. action=startup-timing      → czasy faz startu backendu z logów kontenera
 #                                   (read-only; wyłącznie linie `[startup-timing]`).
+#  16. action=atlas-import        → import CRM Atlasa do Sprzedaży (job `atlas`
+#                                   niżej; tryb z `atlas_import_mode`, raport = liczby).
 #
 # The list output contains only build metadata (UUIDs, SHAs, statuses,
 # timestamps) — no env values or secrets.
@@ -53,7 +55,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [teams-prep-session-audit, teams-prep-config-audit, teams-prep-meeting-probe, app-mail-send-probe, app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-ab-query-adapter, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing]
+        options: [teams-prep-session-audit, teams-prep-config-audit, teams-prep-meeting-probe, app-mail-send-probe, app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-ab-query-adapter, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing, atlas-import]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -93,6 +95,13 @@ on:
         description: "JEDEN człon nazwy klienta, bez spacji (action=client-lookup), np. agricole"
         required: false
         default: ""
+      atlas_import_mode:
+        # Wybór z listy, nie tekst: tryb przekłada się na flagi skryptu
+        # zaszyte w jobie `atlas`, więc operator nie wnosi nic do komendy.
+        description: "Import Atlasa (action=atlas-import): najpierw dry-run, potem apply; pliki po danych"
+        type: choice
+        options: [dry-run, apply, files-dry-run, files-apply]
+        default: dry-run
       receipt_key:
         # Ta sama zasada co przy `client_like`: allowlista znaków, zero
         # metaznaków powłoki i zero spacji. Sam skrypt dodatkowo odrzuca klucz,
@@ -963,6 +972,129 @@ jobs:
             curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid/executions" \
               | jq -r 'if type=="array" then (.[] | "[" + (.status // "?") + "] wyjście: " + ((.message // "") | length | tostring) + " znaków") else "brak wykonan" end' 2>/dev/null || true
           fi
+          curl -sS -o /dev/null -X DELETE "${auth[@]}" \
+            "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || true
+          echo "zadanie $TASK_NAME skasowane"
+
+  # ── atlas-import ─────────────────────────────────────────────────────────
+  #
+  # Po co: import CRM Atlasa do Sprzedaży (decyzja Artura 27.10.2026 — import
+  # workflowem, nie ręcznie po SSH). Logika w `backend/scripts/import_atlas_sales.py`
+  # i `app/services/sales/atlas_import.py`; drugi bieg aktualizuje, nie dubluje.
+  #
+  # Warunek wstępny: `ATLAS_DATABASE_URL` (Atlas tylko do odczytu) w env aplikacji —
+  # sekret repo + „Coolify set env” z `value_from_secret` i redeployem w oknie
+  # wdrożeń. Dla plików także `ATLAS_SUPABASE_URL` i `ATLAS_SUPABASE_SERVICE_KEY`.
+  # Wartości nie przechodzą przez ten workflow: komenda zadania jest widoczna
+  # w panelu Coolify, a log Actions jest publiczny.
+  #
+  # Ten sam mechanizm co eval (zadanie co minutę + katalog-blokada `--lock`):
+  # pierwsze odpalenie importuje, każde kolejne kończy się kodem 3 bez importu.
+  # Wyjście: same liczby; przy błędzie tylko typ wyjątku (traceback w
+  # `<lock>/error.log` w kontenerze). Tryb `dry-run` liczy w transakcji
+  # i ją wycofuje — zawsze najpierw on, potem `apply`.
+  atlas:
+    name: Atlas import (prod)
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && inputs.action == 'atlas-import' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    concurrency:
+      group: coolify-atlas-import
+      cancel-in-progress: false
+    env:
+      CO_URL: ${{ secrets.COOLIFY_URL }}
+      CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+      TASK_NAME: nexus-atlas-import-oneshot
+      SENTINEL: ===NEXUS-ATLAS-IMPORT-END===
+      MODE: ${{ inputs.atlas_import_mode }}
+    steps:
+      - name: Import
+        id: atlas
+        run: |
+          set -euo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+
+          case "$MODE" in
+            dry-run) FLAGS="";;
+            apply) FLAGS="--apply";;
+            files-dry-run) FLAGS="--files";;
+            files-apply) FLAGS="--files --apply";;
+            *) echo "::error::nieznany atlas_import_mode"; exit 1;;
+          esac
+          LOCK="/tmp/nexus-atlas-import-${GITHUB_RUN_ID}"
+          CMD="cd /app && python -m scripts.import_atlas_sales ${FLAGS} --lock ${LOCK} 2>&1 ; echo ${SENTINEL}"
+          case "$CMD" in
+            *"'"*|*'$'*|*'`'*) echo "::error::komenda zawiera znak zalezny od opakowania"; exit 1;;
+          esac
+          if [ "${#CMD}" -gt 255 ]; then
+            echo "::error::komenda ma ${#CMD} znaków — Coolify trzyma ją w VARCHAR(255)"
+            exit 1
+          fi
+          echo "=== komenda (bez sekretow) ==="
+          echo "$CMD"
+
+          tasks=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks")
+          existing=$(echo "$tasks" | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end')
+          if [ -n "$existing" ]; then
+            echo "sprzatam pozostalosc po poprzednim biegu (uuid=$existing)"
+            curl -sS -o /dev/null -X DELETE "${auth[@]}" \
+              "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$existing" || true
+          fi
+
+          payload=$(jq -n --arg n "$TASK_NAME" --arg c "$CMD" --arg ct backend \
+            '{name:$n, command:$c, frequency:"* * * * *", container:$ct, enabled:true, timeout:3600}')
+          code=$(curl -sS -o /tmp/create.json -w "%{http_code}" -X POST "${auth[@]}" \
+            -H "Content-Type: application/json" -d "$payload" \
+            "$base/api/v1/applications/$APP_UUID/scheduled-tasks" || echo 000)
+          echo "create HTTP $code"
+          if [ "$code" -ge 400 ] 2>/dev/null || [ "$code" = "000" ]; then
+            jq -r '.message // .error // "request failed"' /tmp/create.json 2>/dev/null || true
+            exit 1
+          fi
+          uuid=$(jq -r '(.uuid // .task.uuid // .data.uuid // "")' /tmp/create.json 2>/dev/null || echo "")
+          if [ -z "$uuid" ]; then
+            uuid=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks" \
+              | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end')
+          fi
+          [ -n "$uuid" ] || { echo "::error::utworzono zadanie, ale nie znam jego uuid — skasuj recznie ($TASK_NAME)"; exit 1; }
+          echo "TASK_UUID=$uuid" >> "$GITHUB_ENV"
+
+          deadline=$(( $(date -u +%s) + 65 * 60 ))
+          msg=""
+          while [ "$(date -u +%s)" -lt "$deadline" ]; do
+            sleep 30
+            execs=$(curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid/executions" || echo '[]')
+            msg=$(echo "$execs" | jq -r --arg s "$SENTINEL" \
+              'if type=="array" then (map(select(((.message // "") | contains($s)) and (((.message // "") | contains("already ran")) | not))) | .[0].message // "") else "" end' 2>/dev/null || echo "")
+            [ -n "$msg" ] && break
+            echo "$(date -u +%H:%M:%S) czekam… wykonan: $(echo "$execs" | jq -r 'if type=="array" then length else "?" end' 2>/dev/null || echo '?')"
+          done
+          if [ -z "$msg" ]; then
+            echo "::error::brak wyniku importu w 65 minut — proces w kontenerze moze dalej biec; NIE odpalaj apply ponownie, dopoki nie sprawdzisz panelu Coolify"
+            exit 1
+          fi
+          echo ""
+          echo "$msg"
+          case "$msg" in
+            *'"error"'*) echo "::error::import zakonczyl sie bledem (typ wyzej; traceback w ${LOCK}/error.log w kontenerze)"; exit 1;;
+          esac
+
+      # Kasacja przy KAŻDYM wyniku — zostawiony cron chodziłby co minutę.
+      - name: Skasuj zadanie jednorazowe
+        if: ${{ always() && inputs.action == 'atlas-import' }}
+        run: |
+          set -uo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+          uuid="${TASK_UUID:-}"
+          if [ -z "$uuid" ]; then
+            uuid=$(curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks" \
+              | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end' 2>/dev/null || echo "")
+          fi
+          [ -n "$uuid" ] || { echo "brak zadania $TASK_NAME — nie ma czego kasowac"; exit 0; }
           curl -sS -o /dev/null -X DELETE "${auth[@]}" \
             "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || true
           echo "zadanie $TASK_NAME skasowane"

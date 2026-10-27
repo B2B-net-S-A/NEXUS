@@ -12,7 +12,14 @@ Uruchomienie na stagingu (backend gałęzi, baza ``nexus_sales``)::
         nexus-staging-backend-sales python -m scripts.import_atlas_sales [--apply]
 
 Raport to same liczby (bez nazw i adresów) — można go wkleić do paragonu
-migracji. Pliki z Supabase Storage: drugi bieg z ``--files`` (wymaga
+migracji.
+
+Na produkcji: workflow ``Coolify Ops`` → ``action=atlas-import`` (jednorazowe
+zadanie Coolify z ``--lock``; ``ATLAS_DATABASE_URL`` w env aplikacji przez
+„Coolify set env” z sekretu repo). Cron zadania odpala się co minutę, więc
+``--lock`` zakłada katalog i każde kolejne odpalenie kończy się kodem 3 bez
+importu. Log Actions jest publiczny: przy ``--lock`` błąd wypisuje tylko typ
+wyjątku, pełny traceback ląduje w ``<lock>/error.log`` w kontenerze. Pliki z Supabase Storage: drugi bieg z ``--files`` (wymaga
 ``ATLAS_SUPABASE_URL`` i ``ATLAS_SUPABASE_SERVICE_KEY``; na stagingu host
 Supabase musi być w ``STAGING_EXTRA_ALLOWED_HOSTS``).
 """
@@ -23,8 +30,11 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
-from typing import Any
+import traceback
+from pathlib import Path
+from typing import Any, Sequence
 
 import asyncpg
 
@@ -203,7 +213,15 @@ async def _main(apply: bool, files: bool) -> int:
     return 0
 
 
-def main() -> int:
+def _lock_path(value: str) -> Path:
+    if not re.fullmatch(r"/tmp/nexus-atlas-import-\d+", value):
+        raise argparse.ArgumentTypeError(
+            "lock musi mieć postać /tmp/nexus-atlas-import-<liczba>"
+        )
+    return Path(value)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--apply", action="store_true", help="zatwierdź (domyślnie na sucho)"
@@ -213,8 +231,25 @@ def main() -> int:
         action="store_true",
         help="przenieś pliki z Supabase Storage (po imporcie danych)",
     )
-    args = parser.parse_args()
-    return asyncio.run(_main(args.apply, args.files))
+    parser.add_argument(
+        "--lock",
+        type=_lock_path,
+        help="katalog-blokada biegu z coolify-ops: /tmp/nexus-atlas-import-<run id>",
+    )
+    args = parser.parse_args(argv)
+    if args.lock is None:
+        return asyncio.run(_main(args.apply, args.files))
+    try:
+        args.lock.mkdir(parents=False)
+    except FileExistsError:
+        print(f"lock {args.lock} exists — import already ran", file=sys.stderr)
+        return 3
+    try:
+        return asyncio.run(_main(args.apply, args.files))
+    except Exception as exc:  # noqa: BLE001 — log Actions jest publiczny
+        (args.lock / "error.log").write_text(traceback.format_exc())
+        print(json.dumps({"applied": False, "error": type(exc).__name__}))
+        return 1
 
 
 if __name__ == "__main__":

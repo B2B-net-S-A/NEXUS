@@ -79,6 +79,18 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
 - Firmy-nazwiska bez odwołań odpadają, z odwołaniami dostają tag
   „atlas: do przejrzenia”. Raport to same liczby (repo i Actions są publiczne).
 - Pliki z Supabase Storage przenosi osobny krok (wymaga klucza storage Atlasa).
+- **Produkcja: workflow, nie SSH** (decyzja Artura 27.10.2026). Kolejność:
+  1. sekret repo `ATLAS_DATABASE_URL` (Atlas tylko do odczytu; dla plików
+     także `ATLAS_SUPABASE_URL` i `ATLAS_SUPABASE_SERVICE_KEY`) — wpisuje Artur;
+  2. „Coolify set env” z `value_from_secret` (dla każdej zmiennej), na końcu
+     Deploy — w oknie wdrożeń;
+  3. „Coolify Ops” → `action=atlas-import`, `atlas_import_mode=dry-run`,
+     przegląd liczb, potem `apply`; pliki: `files-dry-run`, potem `files-apply`.
+  Zadanie Coolify odpala się co minutę, więc skrypt dostaje `--lock` i drugie
+  odpalenie nic nie robi. Przy błędzie log pokazuje tylko typ wyjątku
+  (traceback w `<lock>/error.log` w kontenerze). Gdy bieg nie skończy się
+  w 65 minut, **nie odpalaj `apply` drugi raz**, zanim nie sprawdzisz panelu
+  Coolify — proces w kontenerze może dalej biec.
 
 ## Poza zakresem (świadomie)
 
