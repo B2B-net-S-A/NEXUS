@@ -1587,11 +1587,15 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  setAddingIds((prev) => new Set([...prev, ...candidateIds]));
  try {
  // U3: zaznaczenie przeżywa zmianę strony — paczki po 100.
- const result = await proposalsBulkApi.addInChunks(embedJobId, {
+ const body = {
  candidate_ids: candidateIds,
  initial_stage_legacy: "new",
- source: "manual_search",
- }, chunkSize);
+ source: "manual_search" as const,
+ };
+ // `chunkSize` tylko z „Oceń z AI” (po jednej osobie); zwykłe dodanie bez zmian.
+ const result = chunkSize
+ ? await proposalsBulkApi.addInChunks(embedJobId, body, chunkSize)
+ : await proposalsBulkApi.addInChunks(embedJobId, body);
  const summary = summarizeBulkResult(result);
  const parts = [
  result.total_added > 0
