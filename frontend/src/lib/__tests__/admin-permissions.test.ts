@@ -281,6 +281,7 @@ describe("dodatkowe uprawnienia osoby", () => {
       "people_admin",
       "payroll",
       "equipment",
+      "timesheets",
       "sales_view",
       "sales_edit",
     ]);
@@ -303,7 +304,7 @@ describe("dodatkowe uprawnienia osoby", () => {
       "sales_edit",
     ]);
     // Delivery Lead dostaje z roli prawie wszystko z Delivery i pieniędzy —
-    // zostają dwie pozycje plus cztery z grupy „Ludzie”.
+    // zostają dwie pozycje plus pięć z grupy „Ludzie”.
     expect(
       extraPermissionRows(
         snapshot,
@@ -317,6 +318,7 @@ describe("dodatkowe uprawnienia osoby", () => {
       "payroll",
       "equipment",
       "cases",
+      "timesheets",
       "sales_view",
       "sales_edit",
     ]);
@@ -453,7 +455,7 @@ describe("dodatkowe uprawnienia osoby", () => {
     });
   });
 
-  it("zna wszystkie piętnaście uprawnień (dziewięć + cztery „Ludzie” + dwa „Sprzedaż”)", () => {
-    expect(PERMISSION_KEYS).toHaveLength(15);
+  it("zna wszystkie szesnaście uprawnień (dziewięć + pięć „Ludzie” + dwa „Sprzedaż”)", () => {
+    expect(PERMISSION_KEYS).toHaveLength(16);
   });
 });

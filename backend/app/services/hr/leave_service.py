@@ -130,6 +130,22 @@ from app.services.hr.recipients import (
 )
 
 CONFLICT_NOTE_MAX = 1000
+
+
+async def is_leave_approver(db: AsyncSession, user: User) -> bool:
+    """Kto widzi kolejkę nieobecności: Kadry, admin, przełożony, zastępca
+    przełożonego, który jest dziś na urlopie, albo head pionu z osobami bez
+    żywego przełożonego. Ta sama reguła stoi w bramce tras i w ``/api/hr/config``."""
+
+    if actor_of(user).sees_everyone:
+        return True
+    if await people.direct_report_ids(db, user.id):
+        return True
+    if await leave_substitute.covered_reports(db, user.id, business_today()):
+        return True
+    return bool(await division_charges(db, user.id))
+
+
 REPORT_NOT_DECIDED = (
     "Na B2B i zleceniu nieobecność jest zgłoszeniem — nikt jej nie zatwierdza ani "
     "nie odrzuca. Jeśli termin koliduje z pracą, zgłoś kolizję."

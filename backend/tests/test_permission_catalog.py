@@ -1,4 +1,4 @@
-"""Katalog uprawnień (dziewięć + cztery „Ludzie” + dwa „Sprzedaż”): nazwy, zależności, zasiew i lustra."""
+"""Katalog uprawnień (dziewięć + pięć „Ludzie” + dwa „Sprzedaż”): nazwy, zależności, zasiew i lustra."""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ PRODUCTION_SECTIONS: dict[str, dict[str, str]] = {
 }
 
 
-def test_screen_shows_fifteen_permissions_in_five_groups() -> None:
+def test_screen_shows_sixteen_permissions_in_five_groups() -> None:
     assert [permission.label for permission in catalog.PERMISSIONS] == [
         "Klienci, kontrakty i zamówienia: podgląd",
         "Klienci: dodawanie i edycja",
@@ -85,17 +85,18 @@ def test_screen_shows_fifteen_permissions_in_five_groups() -> None:
         "Sprawy: skrzynka administracja@",
         "Sprzedaż: podgląd firm, szans i kontaktów",
         "Sprzedaż: prowadzenie szans i kartoteki firm",
+        "Raporty godzin: akceptacja całej firmy",
     ]
     assert [(group.label, len(group.permissions)) for group in catalog.GROUPS] == [
         ("Klienci i kontrakty", 5),
         ("Rekrutacje", 1),
         ("Pieniądze", 3),
-        ("Ludzie", 4),
+        ("Ludzie", 5),
         ("Sprzedaż", 2),
     ]
-    assert sum(len(group.permissions) for group in catalog.GROUPS) == 15
+    assert sum(len(group.permissions) for group in catalog.GROUPS) == 16
     # Siatka przy starcie sprawdza ostatni zasiewany klucz — nowe na końcu.
-    assert catalog.SEEDED_KEYS[-1] == catalog.SALES_EDIT
+    assert catalog.SEEDED_KEYS[-1] == catalog.TIMESHEETS
 
 
 def test_catalog_roles_are_exactly_the_application_roles() -> None:

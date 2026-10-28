@@ -54,6 +54,10 @@ export interface HrConfig {
     payroll: boolean;
     equipment: boolean;
     cases: boolean;
+    /** „Raporty godzin”: akceptuje timesheety całej firmy (28.10.2026). */
+    timesheets?: boolean;
+    /** Widzi kolejkę nieobecności (ta sama reguła co bramka tras urlopów). */
+    leave_approver?: boolean;
     /** Przypisany do sprawy administracja@ (bez uprawnienia widzi tylko swoje). */
     has_assigned_cases?: boolean;
     /** Head back office — edytuje ścieżkę wejścia „Konsultant u klienta” (O4). */
@@ -534,7 +538,8 @@ export function casesInCare(
 export function hrNavState(config: HrConfig | undefined, careRole = false): HrNavState {
   if (!config?.program) return { myTime: false, people: false, equipment: false, care: false };
   const { me, open_modules: open } = config;
-  const anyHrRight = me.people_admin || me.payroll || me.equipment || me.cases;
+  const anyHrRight =
+    me.people_admin || me.payroll || me.equipment || me.cases || me.timesheets === true;
   return {
     myTime: me.has_profile && (open.leave || open.time || open.people),
     people: open.people && (me.has_profile || anyHrRight || me.is_admin),

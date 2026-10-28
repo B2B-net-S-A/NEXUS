@@ -491,6 +491,7 @@ function TimesheetSummary({ config, period }: { config: HrConfig; period: YearMo
   const canApprove =
     config.me.is_admin ||
     config.me.people_admin ||
+    config.me.timesheets === true ||
     config.me.is_manager ||
     (config.me.covering?.length ?? 0) > 0;
   const queue = useTeamQueue(period.year, period.month, config.open_modules.time && canApprove);
@@ -1072,8 +1073,8 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
           stats={[
             {
               id: "scope",
-              label: viewerIsHr ? "zakres" : "mój zespół",
-              value: viewerIsHr
+              label: viewerIsHr || config.me.timesheets ? "zakres" : "mój zespół",
+              value: viewerIsHr || config.me.timesheets
                 ? "wszyscy"
                 : countPl(config.me.direct_reports, "osoba", "osoby", "osób"),
             },

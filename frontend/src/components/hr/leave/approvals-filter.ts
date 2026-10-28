@@ -78,10 +78,12 @@ export function approvalsAccess(config: HrConfig): ApprovalsAccess {
     config.me.is_manager ||
     (config.me.covering?.length ?? 0) > 0 ||
     config.me.people_admin ||
+    config.me.timesheets === true ||
     config.me.payroll ||
     config.me.is_admin;
   return {
-    leave: config.open_modules.leave,
+    // Same „Raporty godzin” nie dają nieobecności — bez chipów i bloku 403.
+    leave: config.open_modules.leave && config.me.leave_approver !== false,
     time: config.open_modules.time && timesheetViewer,
     consents: config.open_modules.approvals,
   };

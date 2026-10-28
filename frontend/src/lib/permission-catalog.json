@@ -34,7 +34,8 @@
         "people_admin",
         "payroll",
         "equipment",
-        "cases"
+        "cases",
+        "timesheets"
       ]
     },
     {
@@ -194,6 +195,13 @@
       "requires": [
         "sales_view"
       ],
+      "default_roles": []
+    },
+    {
+      "key": "timesheets",
+      "label": "Raporty godzin: akceptacja całej firmy",
+      "group": "people",
+      "requires": [],
       "default_roles": []
     }
   ]

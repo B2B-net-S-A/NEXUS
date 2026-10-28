@@ -5,8 +5,8 @@ rekrutacyjną). O dostępie decydują:
 
 * **kartoteka** — osoba zatrudniona w firmie (``employee_profiles``, status
   inny niż ``exited``) widzi swój czas i katalog ludzi,
-* **uprawnienia z grupy „Ludzie”** — Kadry, Płace, Sprzęt, Sprawy (ekran
-  Osoby i role); admin ma wszystkie,
+* **uprawnienia z grupy „Ludzie”** — Kadry, Płace, Sprzęt, Sprawy, Raporty
+  godzin (ekran Osoby i role); admin ma wszystkie,
 * **przełącznik modułu** (``app_settings['hr_modules']``) — wyłączony moduł
   odpowiada 404 każdemu poza adminem.
 
@@ -42,6 +42,7 @@ _DIRECTORY_PERMISSIONS = (
     ProductAction.payroll,
     ProductAction.equipment,
     ProductAction.cases,
+    ProductAction.timesheets,
 )
 
 

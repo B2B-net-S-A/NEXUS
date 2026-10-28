@@ -34,7 +34,13 @@ from app.models.user import UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
-from app.services.hr import account_profiles, leave_substitute, people, person_history
+from app.services.hr import (
+    account_profiles,
+    leave_service,
+    leave_substitute,
+    people,
+    person_history,
+)
 from app.services.hr.absence import absences_on
 from app.services.hr.leave_balance import balance_payload
 from app.services.hr.leave_policy import actor_of, can_see_type
@@ -70,6 +76,8 @@ async def hr_config(
                 "payroll": False,
                 "equipment": False,
                 "cases": False,
+                "timesheets": False,
+                "leave_approver": False,
                 "has_assigned_cases": False,
                 "back_office_head": False,
             },
@@ -98,6 +106,10 @@ async def hr_config(
             "payroll": has_permission(current_user, ProductAction.payroll),
             "equipment": has_permission(current_user, ProductAction.equipment),
             "cases": has_permission(current_user, ProductAction.cases),
+            "timesheets": has_permission(current_user, ProductAction.timesheets),
+            # Kolejka nieobecności (bramka tras urlopów) — „Akceptacje” chowają
+            # nieobecności osobie, która akceptuje same raporty godzin.
+            "leave_approver": await leave_service.is_leave_approver(db, current_user),
             # Przypisany do sprawy bez uprawnienia widzi zakładkę „Sprawy”
             # (tylko swoje sprawy — pilnuje tego `/api/cases`).
             "has_assigned_cases": await admin_cases_service.has_assigned_cases(
