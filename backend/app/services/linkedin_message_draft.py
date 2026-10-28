@@ -9,6 +9,7 @@ podpowiedzią: gdy nie odpowie, wtyczka dostaje szablon złożony z rekrutacji
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 from fastapi.concurrency import run_in_threadpool
@@ -82,7 +83,7 @@ def _job_block(job: dict) -> str:
         lines.append(f"Miejsce: {job['location']}")
     if job.get("remote"):
         lines.append(f"Tryb pracy: {job['remote']}")
-    return fence("job", "\n".join(lines))
+    return fence("client_recruitment", "\n".join(lines))
 
 
 def _profile_block(profile: ProfileRead) -> str:
@@ -99,7 +100,7 @@ def _profile_block(profile: ProfileRead) -> str:
             lines.append(f"Wcześniej: {line}")
     if profile.skills:
         lines.append("Umiejętności: " + ", ".join(profile.skills[:15]))
-    return fence("profile", "\n".join(lines) or "(pusty profil)")
+    return fence("candidate_profile", "\n".join(lines) or "(pusty profil)")
 
 
 def _signature(user: User) -> str:
@@ -156,6 +157,8 @@ async def draft_message(
     if not api_key_configured(chain[0]):
         return fallback_text(profile, job, user, kind), False
     first, _ = split_full_name(profile.full_name)
+    # Imię stoi poza ogrodzeniem danych — tylko litery i łącznik.
+    first = re.sub(r"[^\w\-]", "", first)[:40]
     prompt = LINKEDIN_MESSAGE_DRAFT.render(
         kind_label=KIND_LABELS[kind],
         limit=limit,

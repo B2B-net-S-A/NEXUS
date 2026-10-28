@@ -3,7 +3,7 @@ osoby, szkic wiadomości. Dane fikcyjne."""
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -47,30 +47,13 @@ def test_allowed_extension_ids_empty_means_nobody(monkeypatch) -> None:
     assert auth.allowed_extension_ids() == frozenset({"abc", "def"})
 
 
-# ── Limit dzienny ────────────────────────────────────────────────────────────
+# ── Limit dzienny (liczony atomowo w bazie — testy w test_linkedin_extension_api.py)
 
 
 def _connection(**kw):
     base = dict(usage_day=None, reads_today=0, adds_today=0, last_used_at=None)
     base.update(kw)
     return SimpleNamespace(**base)
-
-
-def test_daily_limit_counts_pages_and_stops_at_limit(monkeypatch) -> None:
-    monkeypatch.setattr(auth.settings, "LINKEDIN_EXTENSION_DAILY_READ_LIMIT", 2)
-    conn = _connection()
-    auth.count_page_read(conn)
-    auth.count_page_read(conn)
-    with pytest.raises(auth.DailyLimitReached):
-        auth.count_page_read(conn)
-    assert conn.reads_today == 2
-
-
-def test_daily_counters_reset_on_new_business_day(monkeypatch) -> None:
-    monkeypatch.setattr(auth.settings, "LINKEDIN_EXTENSION_DAILY_READ_LIMIT", 5)
-    conn = _connection(usage_day=date(2020, 1, 1), reads_today=5, adds_today=3)
-    auth.count_page_read(conn)
-    assert (conn.reads_today, conn.adds_today) == (1, 0)
 
 
 def test_last_used_is_throttled() -> None:
@@ -147,6 +130,21 @@ def test_resolve_name_needs_matching_company() -> None:
     unsure = lookup._resolve(None, ("Anna", "Przykładowa"), "Trzecia Firma", {}, by_name)
     assert unsure.status == "ambiguous"
     assert {c.id for c in unsure.ambiguous} == {2, 3}
+
+
+def test_resolve_unknown_link_and_name_without_company_is_new_person() -> None:
+    namesake = _cand(7, company=None)
+    by_name = {("anna", "przykładowa"): [namesake]}
+    with_link = lookup._resolve(
+        "https://linkedin.com/in/anna-przykladowa-123",
+        ("Anna", "Przykładowa"),
+        "Firma Testowa",
+        {},
+        by_name,
+    )
+    assert with_link.status == "not_found"
+    recruiter = lookup._resolve(None, ("Anna", "Przykładowa"), "Firma Testowa", {}, by_name)
+    assert recruiter.status == "ambiguous"
 
 
 def test_resolve_same_name_with_other_link_is_someone_else() -> None:

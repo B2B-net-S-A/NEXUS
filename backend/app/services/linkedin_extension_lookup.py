@@ -199,6 +199,12 @@ def _resolve(
     ]
     if len(with_company) == 1:
         return PersonMatch("found", "name_company", with_company[0], [])
+    # Profil z linkiem, którego nie znamy: samo nazwisko bez zgodnej firmy to
+    # zwykle ktoś inny (staging 28.10: „Jan Testowy” bez firmy dawał „może to
+    # ta osoba” przy każdym nowym profilu). Bez linku (Recruiter) pokazujemy
+    # kandydatów do wyboru, bo nie mamy czym ich odróżnić.
+    if link and not with_company:
+        return PersonMatch("not_found", None, None, [])
     return PersonMatch("ambiguous", None, None, (with_company or same_name)[:5])
 
 
@@ -244,10 +250,16 @@ async def load_processes(
                 CandidateStage.candidate_id == candidate_id,
                 job_read_scope_clause(user, CandidateStage.job_id),
             )
-            .order_by(CandidateStage.moved_at.desc())
-            .limit(_PROCESS_LIMIT)
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(_PROCESS_LIMIT * 8)
         )
     ).all()
+    # ``candidate_stages`` ma wiersz na każdy ruch karty — liczy się najnowszy
+    # wiersz każdej rekrutacji.
+    latest: dict[int, tuple] = {}
+    for row in rows:
+        latest.setdefault(row[0], row)
+    rows = list(latest.values())[:_PROCESS_LIMIT]
     out: list[ProcessOut] = []
     open_pairs: list[tuple[int, int]] = []
     for job_id, title, client_name, stage, moved_at, recruiter, reason, is_open in rows:
@@ -276,10 +288,24 @@ async def load_processes(
     return out, open_pairs
 
 
-async def load_contacts(db: AsyncSession, candidate_id: int) -> list[ContactOut]:
+async def load_contacts(db: AsyncSession, user: User, candidate_id: int) -> list[ContactOut]:
+    """Ostatnie kontakty zespołu. Treść notatki przechodzi przez te same
+    bramki co ``/api/notes``: notatka ze stawką do klienta (``dl_rate``,
+    notatka z wysyłki) jest dla roli bez tej stawki zakryta."""
+    from app.api.candidate_access import hidden_send_note_ids, note_content_hidden
+
     note_rows = (
         await db.execute(
-            select(Note.created_at, User.name, Note.note_type, Note.source_ref, Note.content)
+            select(
+                Note.created_at,
+                User.name,
+                Note.note_type,
+                Note.source_ref,
+                Note.content,
+                Note.id,
+                Note.kind,
+                Note.author_id,
+            )
             .outerjoin(User, User.id == Note.author_id)
             .where(
                 Note.candidate_id == candidate_id,
@@ -301,8 +327,13 @@ async def load_contacts(db: AsyncSession, candidate_id: int) -> list[ContactOut]
             .limit(_CONTACT_LIMIT)
         )
     ).all()
+    hidden_send = await hidden_send_note_ids(db, user, [r[5] for r in note_rows])
     items: list[ContactOut] = []
-    for at, author, note_type, source_ref, content in note_rows:
+    for at, author, note_type, source_ref, content, note_id, kind, author_id in note_rows:
+        if note_content_hidden(
+            user, kind=kind, author_id=author_id, send_note=note_id in hidden_send
+        ):
+            content = None
         if source_ref and source_ref.startswith(CONTACT_SOURCE_PREFIX):
             label = CHANNEL_LABELS.get(source_ref[len(CONTACT_SOURCE_PREFIX):], "kontakt")
         else:
@@ -617,7 +648,7 @@ async def lookup(db: AsyncSession, user: User, profile: ProfileRead) -> LookupRe
         )
 
     processes, open_pairs = await load_processes(db, user, candidate.id)
-    contacts = await load_contacts(db, candidate.id)
+    contacts = await load_contacts(db, user, candidate.id)
     created = candidate.created_at
     return LookupResult(
         status="found",
@@ -670,6 +701,7 @@ async def batch_lookup(
             await db.execute(
                 select(
                     CandidateStage.candidate_id,
+                    CandidateStage.job_id,
                     CandidateStage.stage,
                     func.coalesce(Client.display_name, Client.name),
                     User.name,
@@ -679,14 +711,21 @@ async def batch_lookup(
                 .outerjoin(User, User.id == Job.recruiter_id)
                 .where(
                     CandidateStage.candidate_id.in_(found_ids),
-                    CandidateStage.stage.notin_(list(_TERMINAL_STAGES)),
                     Job.is_open.is_(True),
                     job_read_scope_clause(user, CandidateStage.job_id),
                 )
-                .order_by(CandidateStage.moved_at.desc())
+                .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
             )
         ).all()
-        for cid, stage, client_name, recruiter in rows:
+        # Najnowszy wiersz każdej pary — starszy „Nowi” odrzuconej osoby
+        # nie jest aktywnym procesem.
+        seen: set[tuple[int, int]] = set()
+        for cid, job_id, stage, client_name, recruiter in rows:
+            if (cid, job_id) in seen:
+                continue
+            seen.add((cid, job_id))
+            if stage in _TERMINAL_STAGES:
+                continue
             active.setdefault(cid, (STAGE_LABELS.get(stage, str(stage)), client_name, recruiter))
 
     from app.services.employment_marker import load_employment_markers

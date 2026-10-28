@@ -18,7 +18,7 @@ import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -90,6 +90,16 @@ async def issue_connection(
     jedna osoba = jedna aktywna wtyczka, więc „Odłącz” w Ustawieniach zawsze
     odcina tę, z której ktoś faktycznie korzysta."""
     now = datetime.now(timezone.utc)
+    # Licznik dnia jest osoby, nie połączenia: ponowne połączenie nie może
+    # zerować limitu (przegląd bezpieczeństwa 28.10.2026).
+    previous = await db.scalar(
+        select(LinkedinExtensionConnection)
+        .where(LinkedinExtensionConnection.user_id == user_id)
+        .order_by(LinkedinExtensionConnection.created_at.desc())
+        .limit(1)
+    )
+    today = business_today()
+    carried = previous is not None and previous.usage_day == today
     await db.execute(
         update(LinkedinExtensionConnection)
         .where(
@@ -106,8 +116,9 @@ async def issue_connection(
         authorization_version=authorization_version,
         extension_version=(extension_version or "")[:32] or None,
         expires_at=now + timedelta(days=max(1, settings.LINKEDIN_EXTENSION_TTL_DAYS)),
-        reads_today=0,
-        adds_today=0,
+        usage_day=today if carried else None,
+        reads_today=previous.reads_today if carried else 0,
+        adds_today=previous.adds_today if carried else 0,
     )
     db.add(connection)
     await db.flush()
@@ -141,29 +152,84 @@ async def authenticate_extension_key(
     # wcześniej przestaje działać, tak jak wylogowuje się sesja w przeglądarce.
     if connection.authorization_version != user.authorization_version:
         raise ExtensionKeyError("authorization_changed")
+    # Zmiana albo reset hasła stawia podłogę sesji (``tokens_valid_after``)
+    # i nie podbija wersji uprawnień — połączenie sprzed podłogi jest martwe,
+    # tak jak JWT sprzed niej (``token_is_revoked``).
+    floor = user.tokens_valid_after
+    if floor is not None and _as_aware(connection.created_at) <= _as_aware(floor):
+        raise ExtensionKeyError("password_changed")
     return connection
 
 
-def roll_day(connection: LinkedinExtensionConnection) -> None:
-    today = business_today()
-    if connection.usage_day != today:
-        connection.usage_day = today
-        connection.reads_today = 0
-        connection.adds_today = 0
-
-
-def count_page_read(connection: LinkedinExtensionConnection) -> None:
+async def count_page_read(db: AsyncSession, connection: LinkedinExtensionConnection) -> None:
     """Jeden odczyt strony LinkedIna (profil albo strona wyników).
-    Rzuca ``DailyLimitReached`` przed zliczeniem odczytu ponad limit."""
-    roll_day(connection)
-    if connection.reads_today >= max(0, settings.LINKEDIN_EXTENSION_DAILY_READ_LIMIT):
+
+    Jeden atomowy UPDATE z warunkiem limitu: równoległe żądania nie przeskoczą
+    limitu, a nowy dzień zaczyna licznik od 1. Brak wiersza w RETURNING =
+    limit wyczerpany → ``DailyLimitReached``.
+    """
+    today = business_today()
+    limit = max(0, settings.LINKEDIN_EXTENSION_DAILY_READ_LIMIT)
+    if limit == 0:
         raise DailyLimitReached()
-    connection.reads_today += 1
+    same_day = LinkedinExtensionConnection.usage_day == today
+    row = (
+        await db.execute(
+            update(LinkedinExtensionConnection)
+            .where(
+                LinkedinExtensionConnection.key_id == connection.key_id,
+                LinkedinExtensionConnection.usage_day.is_(None)
+                | (LinkedinExtensionConnection.usage_day != today)
+                | (LinkedinExtensionConnection.reads_today < limit),
+            )
+            .values(
+                reads_today=case((same_day, LinkedinExtensionConnection.reads_today + 1), else_=1),
+                adds_today=case((same_day, LinkedinExtensionConnection.adds_today), else_=0),
+                usage_day=today,
+            )
+            .returning(
+                LinkedinExtensionConnection.reads_today,
+                LinkedinExtensionConnection.adds_today,
+            )
+            .execution_options(synchronize_session=False)
+        )
+    ).first()
+    if row is None:
+        raise DailyLimitReached()
+    _sync_counters(connection, today, row[0], row[1])
 
 
-def count_add(connection: LinkedinExtensionConnection) -> None:
-    roll_day(connection)
-    connection.adds_today += 1
+async def count_add(db: AsyncSession, connection: LinkedinExtensionConnection) -> None:
+    today = business_today()
+    same_day = LinkedinExtensionConnection.usage_day == today
+    row = (
+        await db.execute(
+            update(LinkedinExtensionConnection)
+            .where(LinkedinExtensionConnection.key_id == connection.key_id)
+            .values(
+                adds_today=case((same_day, LinkedinExtensionConnection.adds_today + 1), else_=1),
+                reads_today=case((same_day, LinkedinExtensionConnection.reads_today), else_=0),
+                usage_day=today,
+            )
+            .returning(
+                LinkedinExtensionConnection.reads_today,
+                LinkedinExtensionConnection.adds_today,
+            )
+            .execution_options(synchronize_session=False)
+        )
+    ).first()
+    if row is not None:
+        _sync_counters(connection, today, row[0], row[1])
+
+
+def _sync_counters(connection: LinkedinExtensionConnection, day, reads: int, adds: int) -> None:
+    """Wartości z bazy do obiektu bez oznaczania go jako zmienionego — flush
+    nie może nadpisać licznika starszą wartością z pamięci."""
+    from sqlalchemy.orm.attributes import set_committed_value
+
+    set_committed_value(connection, "usage_day", day)
+    set_committed_value(connection, "reads_today", reads)
+    set_committed_value(connection, "adds_today", adds)
 
 
 def stamp_last_used(connection: LinkedinExtensionConnection) -> None:

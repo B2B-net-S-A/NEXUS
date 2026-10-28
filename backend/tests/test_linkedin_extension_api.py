@@ -316,3 +316,69 @@ async def test_draft_message_falls_back_without_ai(
     assert resp.json()["ai"] is False
     assert resp.json()["text"].startswith("Cześć Jan,")
     assert len(resp.json()["text"]) <= 300
+
+
+@pytest.mark.asyncio
+async def test_reconnect_does_not_reset_daily_limit(app_client, app_auth_headers, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "LINKEDIN_EXTENSION_DAILY_READ_LIMIT", 1)
+    first = await _connect(app_client, app_auth_headers)
+    slug = f"jan-testowy-reconnect-{time.time_ns()}"
+    assert (await app_client.post("/api/extension/lookup", headers=first, json=_profile(slug))).status_code == 200
+    second = await _connect(app_client, app_auth_headers)
+    again = await app_client.post("/api/extension/lookup", headers=second, json=_profile(slug))
+    assert again.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_password_change_disconnects_extension(app_client, app_auth_headers) -> None:
+    key = await _connect(app_client, app_auth_headers)
+    assert (await app_client.get("/api/extension/me", headers=key)).status_code == 200
+    current = app_client.headers.get("X-Test-Admin-Password")
+    changed = await app_client.post(
+        "/api/auth/change-password",
+        headers=app_auth_headers,
+        json={"current_password": current, "new_password": current + "Nowe1!"},
+    )
+    assert changed.status_code == 200, changed.text
+    after = await app_client.get("/api/extension/me", headers=key)
+    assert after.status_code == 401
+    assert after.json()["detail"] == "extension_key_invalid"
+
+
+@pytest.mark.asyncio
+async def test_contacts_hide_client_rate_notes_from_recruiter(app_auth_headers) -> None:  # noqa: ARG001
+    from app.models.user import User, UserRole
+    from app.services.linkedin_extension_lookup import load_contacts
+
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(name="Jan", lastname=f"Testowy{time.time_ns()}")
+        db.add(candidate)
+        await db.flush()
+        db.add(
+            Note(
+                content="Wyślijmy za 161 zł/h",
+                candidate_id=candidate.id,
+                note_type="call",
+                kind="dl_rate",
+                author_id=None,
+            )
+        )
+        await db.commit()
+        recruiter = User(
+            id=10_000_000 + time.time_ns() % 1_000_000,
+            email="rekruter-testowy@example.com",
+            name="Rekruter Testowy",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        admin = User(
+            id=10_000_000 + time.time_ns() % 1_000_000 + 1,
+            email="admin-testowy@example.com",
+            name="Admin Testowy",
+            role=UserRole.admin,
+            is_active=True,
+        )
+        hidden = await load_contacts(db, recruiter, candidate.id)
+        shown = await load_contacts(db, admin, candidate.id)
+    assert hidden and hidden[0].note is None
+    assert shown and shown[0].note == "Wyślijmy za 161 zł/h"

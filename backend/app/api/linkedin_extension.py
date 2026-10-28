@@ -77,7 +77,6 @@ from app.services.linkedin_extension_auth import (
     count_add,
     count_page_read,
     issue_connection,
-    roll_day,
 )
 from app.services.linkedin_message_draft import draft_message
 
@@ -232,7 +231,6 @@ async def extension_me(
     principal: ExtensionAuth,
     db: AsyncSession = Depends(get_db),
 ) -> MeResponse:
-    roll_day(principal.connection)
     await db.commit()
     return MeResponse(
         user=user_brief(principal.user),
@@ -268,9 +266,9 @@ async def extension_jobs(
     )
 
 
-def _count_read(principal) -> None:
+async def _count_read(db: AsyncSession, principal) -> None:
     try:
-        count_page_read(principal.connection)
+        await count_page_read(db, principal.connection)
     except DailyLimitReached as exc:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -292,7 +290,7 @@ async def extension_lookup(
     db: AsyncSession = Depends(get_db),
 ) -> LookupResponse:
     """Co NEXUS wie o osobie z otwartej strony (makiety 1–3). Liczy 1 odczyt."""
-    _count_read(principal)
+    await _count_read(db, principal)
     result = await lookup_service.lookup(db, principal.user, profile)
     usage = usage_out(principal.connection)
     await db.commit()
@@ -306,7 +304,7 @@ async def extension_lookup_batch(
     db: AsyncSession = Depends(get_db),
 ) -> BatchResponse:
     """Statusy osób z widocznej strony wyników (makieta 5). Liczy 1 odczyt."""
-    _count_read(principal)
+    await _count_read(db, principal)
     items = await lookup_service.batch_lookup(db, principal.user, data.people)
     usage = usage_out(principal.connection)
     await db.commit()
@@ -336,7 +334,7 @@ async def extension_add_candidate(
         db, principal.user, candidate.id, data.job_ids, data.off_limits_how
     )
     if created:
-        count_add(principal.connection)
+        await count_add(db, principal.connection)
     await db.commit()
     if created:
         try:
