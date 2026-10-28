@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 27.10.2026
+> **Zgodność z systemem sprawdzona:** 28.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -55,10 +55,11 @@ strony, więc odświeżenie i link z powiadomienia pokazują ten sam wiersz.
 
 Nad listą masz:
 
-* filtry z licznikami: **Wszystkie**, **Aktywne**, **Bez kontynuacji 30 dni**,
-  **Zakończeni**, **Wyczerpane**, **Anulowane**, **Draft** (szkice do uzupełnienia)
-  oraz — tylko gdy coś czeka — czerwony **Wymaga decyzji** (zamówienia MD
-  i kosztowe z osobą, o której trzeba zdecydować po zakończeniu współpracy).
+* filtry z licznikami: **Aktywne**, **Bez kontynuacji 30 dni**,
+  **Zakończeni**, **Wyczerpane**, **Anulowane**, **Draft** (szkice do uzupełnienia),
+  czerwony **Wymaga decyzji**, gdy coś czeka (zamówienia MD i kosztowe z osobą,
+  o której trzeba zdecydować po zakończeniu współpracy), i na końcu **Wszystkie**. Zakładka otwiera się na **Aktywnych**; zakończone,
+  anulowane i szkice zobaczysz w ich filtrach albo we **Wszystkich**.
   Obok stoi lista **Typ zamówienia** (wszystkie / MD / Kosztowe / Okresowe);
   eksport do Excela bierze pod uwagę także ten wybór.
   **O tym, kto jest w „Zakończonych", decyduje wyłącznie umowa z modułu

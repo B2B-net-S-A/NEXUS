@@ -69,6 +69,8 @@ describe("Harness /preview/client-orders", () => {
       }),
     ).toBeInTheDocument();
 
+    // Szkic kontraktora nie jest „Aktywny” — ekran otwiera się na „Aktywne”.
+    await user.click(screen.getByRole("button", { name: /^Wszystkie \(/ }));
     await user.click(document.getElementById("contractor-row-813")!);
     expect(screen.getByTestId("contractor-order-panel")).toHaveTextContent("Leon Szkicowy");
 
