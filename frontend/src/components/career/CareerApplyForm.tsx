@@ -135,7 +135,41 @@ export interface CareerApplyFormProps {
     values?: Partial<Record<Exclude<CareerField, "cv" | "consent">, string>>;
     disableSubmit?: boolean;
   };
+  /** `plain` — zwykłe zdania zamiast komentarzy terminala (szablony B2B, 28.10.2026). */
+  tone?: "terminal" | "plain";
 }
+
+/** Napisy formularza zależne od tonu strony; logika i pola są wspólne. */
+const COPY = {
+  terminal: {
+    errPrefix: "// ",
+    alertTag: "[err]",
+    required: "// pola z * są wymagane",
+    fileTypes: "· pdf/doc/docx · 10\u00a0MB",
+    optToggle: "// opcjonalnie",
+    optJob: "// opcjonalnie — przyspieszy rozmowę",
+    optGeneral: "// opcjonalnie",
+    sending: "wysyłanie…",
+    resend: "wyślij ponownie",
+    sendJob: "wyślij aplikację",
+    sendGeneral: "dołącz do bazy",
+    kept: "// wpisane dane i plik zostają — nie musisz zaczynać od nowa",
+  },
+  plain: {
+    errPrefix: "",
+    alertTag: null,
+    required: "Pola oznaczone * są wymagane.",
+    fileTypes: "· PDF, DOC, DOCX do 10\u00a0MB",
+    optToggle: "Opcjonalnie",
+    optJob: "Opcjonalnie — przyspieszy rozmowę",
+    optGeneral: "Opcjonalnie",
+    sending: "Wysyłanie…",
+    resend: "Wyślij ponownie",
+    sendJob: "Wyślij zgłoszenie",
+    sendGeneral: "Dołącz do bazy",
+    kept: "Wpisane dane i plik zostają — nie musisz zaczynać od nowa.",
+  },
+} as const;
 
 type Status = "idle" | "submitting";
 
@@ -146,7 +180,12 @@ export function CareerApplyForm({
   secondaryLink,
   onSuccess,
   preview,
+  tone = "terminal",
 }: CareerApplyFormProps) {
+  const copy = COPY[tone];
+  // Ton `plain` pisze zdaniami — komunikaty walidacji z wielkiej litery.
+  const say = (text: string) =>
+    tone === "plain" && text ? text.charAt(0).toLocaleUpperCase("pl-PL") + text.slice(1) : text;
   const gateSubmit = useCareerSubmitted();
   const uid = useId();
   const id = (name: string) => `${uid}-${name}`;
@@ -302,8 +341,8 @@ export function CareerApplyForm({
   const fieldError = (field: CareerField) =>
     errors[field] ? (
       <span className="kr-err" id={id(`${field}-err`)}>
-        {"// "}
-        {errors[field]}
+        {copy.errPrefix}
+        {say(errors[field] ?? "")}
       </span>
     ) : null;
 
@@ -331,7 +370,13 @@ export function CareerApplyForm({
   );
 
   return (
-    <form onSubmit={onSubmit} noValidate className="kr-form" aria-label="Formularz aplikacji">
+    <form
+      onSubmit={onSubmit}
+      noValidate
+      className="kr-form"
+      data-kr-tone={tone}
+      aria-label="Formularz aplikacji"
+    >
       {hasProblem ? (
         <div
           ref={summaryRef}
@@ -341,10 +386,14 @@ export function CareerApplyForm({
           data-testid="career-form-summary"
         >
           <span>
-            <span className="kr-r">[err]</span>{" "}
+            {copy.alertTag ? (
+              <>
+                <span className="kr-r">{copy.alertTag}</span>{" "}
+              </>
+            ) : null}
             {invalid.length > 0
-              ? `nie udało się wysłać — popraw ${invalid.length} ${fieldsWord(invalid.length)}:`
-              : `nie udało się wysłać — ${formError}`}
+              ? say(`nie udało się wysłać — popraw ${invalid.length} ${fieldsWord(invalid.length)}:`)
+              : say(`nie udało się wysłać — ${formError}`)}
           </span>
           {invalid.length > 0 ? (
             <span className="kr-g">
@@ -355,8 +404,8 @@ export function CareerApplyForm({
           {invalid.length > 0 && formError ? <span className="kr-g">{formError}</span> : null}
         </div>
       ) : (
-        <span className="kr-c" style={{ fontSize: 13 }}>
-          {"// pola z * są wymagane"}
+        <span className="kr-c kr-required-note" style={tone === "terminal" ? { fontSize: 13 } : undefined}>
+          {copy.required}
         </span>
       )}
 
@@ -392,10 +441,10 @@ export function CareerApplyForm({
           ) : (
             <>
               <span className="kr-file-hint-desktop">
-                wybierz plik lub przeciągnij{" "}
-                <span className="kr-g">· pdf/doc/docx · 10{"\u00a0"}MB</span>
+                {say("wybierz plik lub przeciągnij")}{" "}
+                <span className="kr-g">{copy.fileTypes}</span>
               </span>
-              <span className="kr-file-hint-mobile">dodaj plik z telefonu</span>
+              <span className="kr-file-hint-mobile">{say("dodaj plik z telefonu")}</span>
             </>
           )}
           <input
@@ -428,10 +477,10 @@ export function CareerApplyForm({
         onClick={() => setOptionalOpen((o) => !o)}
       >
         {optionalOpen ? "▾ " : "▸ "}
-        {"// opcjonalnie"}
+        {copy.optToggle}
       </button>
       <span className="kr-c kr-opt-label">
-        {variant === "job" ? "// opcjonalnie — przyspieszy rozmowę" : "// opcjonalnie"}
+        {variant === "job" ? copy.optJob : copy.optGeneral}
       </span>
       <div
         id={id("optional")}
@@ -544,20 +593,25 @@ export function CareerApplyForm({
 
       <button type="submit" className="kr-submit" disabled={busy}>
         {/* Plakietka klawisza nie ma sensu na telefonie — chowamy poniżej `sm`. */}
-        <span className="kr-kbd hidden sm:inline-block" aria-hidden="true">
-          ENTER
-        </span>
+        {tone === "terminal" ? (
+          <span className="kr-kbd hidden sm:inline-block" aria-hidden="true">
+            ENTER
+          </span>
+        ) : null}
         {busy
-          ? "wysyłanie…"
+          ? copy.sending
           : attempted && hasProblem
-            ? "wyślij ponownie"
+            ? copy.resend
             : variant === "job"
-              ? "wyślij aplikację"
-              : "dołącz do bazy"}
+              ? copy.sendJob
+              : copy.sendGeneral}
       </button>
       {attempted && hasProblem ? (
-        <span className="kr-c" style={{ fontSize: 12, textAlign: "center" }}>
-          {"// wpisane dane i plik zostają — nie musisz zaczynać od nowa"}
+        <span
+          className="kr-c kr-kept-note"
+          style={tone === "terminal" ? { fontSize: 12, textAlign: "center" } : undefined}
+        >
+          {copy.kept}
         </span>
       ) : null}
       {secondaryLink ? (

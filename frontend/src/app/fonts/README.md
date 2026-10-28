@@ -78,6 +78,10 @@ Fredoka miała `300..700`, ale najniższa waga i tak nie była używana.
 - `ofl/montserrat/Montserrat[wght].ttf` + `ofl/montserrat/OFL.txt` → `Montserrat-OFL.txt`
   (14.10.2026: `Montserrat-Variable.woff2` oraz stałe grubości `Montserrat-200/500/600.woff2`
   wycięte instancerem; latin + latin-ext, ten sam przepis co niżej)
+- Source Sans 3 (`SourceSans3-latin.woff2`, `SourceSans3-latin-ext.woff2`, oś `wght` 200–900)
+  → `SourceSans3-OFL.txt` (28.10.2026: krój tekstu z brand booka B2B Network dla szablonów
+  ogłoszeń na stronie kariery; podzbiory Google Fonts latin i latin-ext, deklarowane
+  zwykłym `@font-face` z `unicode-range` w `components/career/layouts/brandFonts.css`)
 
 Wszystkie (także Montserrat, niżej): **SIL Open Font License 1.1** (potwierdzone w `METADATA.pb`:
 `license: "OFL"` oraz w nagłówkach dołączonych plików `*-OFL.txt`). OFL 1.1
