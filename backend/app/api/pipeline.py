@@ -2307,7 +2307,21 @@ async def apply_move(
             rate_hourly=data.autofill_rate_hourly,
             note=data.notes,
             actor_id=policy.actor_id,
+            whole_client=data.autofill_whole_client,
         )
+        if (
+            data.autofill_whole_client
+            and data.autofill_reason in autofill_feedback.CLIENT_WIDE_REASONS
+            and job.client_id is not None
+        ):
+            from app.services import autofill_withdraw
+
+            await autofill_withdraw.withdraw_at_client(
+                db,
+                candidate_id=data.candidate_id,
+                client_id=job.client_id,
+                except_job_id=job.id,
+            )
         # „Ile chce?” z rozmowy — ta sama droga do „Stawki od” co stawka
         # z okna „Zweryfikowany”.
         if data.autofill_rate_hourly is not None:

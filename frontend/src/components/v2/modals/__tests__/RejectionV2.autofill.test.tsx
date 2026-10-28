@@ -77,6 +77,42 @@ describe("RejectionV2 — osoba od systemu", () => {
     expect(args[9]).toEqual({ reason: "missing_skill", learnedFrom: "call", rateHourly: null });
   });
 
+  it("„Nie chce do tego klienta” domyślnie na cały klient; odznaczone idzie jako jedna rekrutacja", () => {
+    const onConfirm = renderWith({ rateKnown: false, several: false });
+    fireEvent.click(screen.getByText("Nie chce do tego klienta"));
+    fireEvent.click(screen.getByText("Z rozmowy z osobą"));
+    const box = screen.getByRole("checkbox", { name: /Dotyczy wszystkich rekrutacji tego klienta/ });
+    expect(box).toBeChecked();
+    expect(screen.getByText(/„Sprawa osoby”/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][0]).toBe("9");
+    expect(onConfirm.mock.calls[0][9]).toEqual({
+      reason: "client_refused",
+      learnedFrom: "call",
+      rateHourly: null,
+      wholeClient: true,
+    });
+    expect(autofillMoveFields(onConfirm.mock.calls[0][9])).toMatchObject({ autofill_whole_client: true });
+  });
+
+  it("„Pracuje u tego klienta” można zawęzić do tej rekrutacji; przy innych powodach pola nie ma", () => {
+    const onConfirm = renderWith({ rateKnown: false, several: false });
+    fireEvent.click(screen.getByText("Brak kluczowej umiejętności"));
+    expect(screen.queryByTestId("autofill-whole-client")).toBeNull();
+    fireEvent.click(screen.getByText("Pracuje u tego klienta (też przez inną firmę)"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Dotyczy wszystkich rekrutacji tego klienta/ }));
+    fireEvent.click(screen.getByText("Z CV i profilu, bez kontaktu"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    const choice = onConfirm.mock.calls[0][9];
+    expect(choice).toEqual({
+      reason: "client_employed",
+      learnedFrom: "profile",
+      rateHourly: null,
+      wholeClient: false,
+    });
+    expect(autofillMoveFields(choice).autofill_whole_client).toBeUndefined();
+  });
+
   it("„Lokalizacja lub tryb pracy” liczy się jako tryb pracy i pyta o dni w biurze", () => {
     const onConfirm = renderWith({ rateKnown: false, several: false });
     fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));

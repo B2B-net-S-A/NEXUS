@@ -36,8 +36,12 @@ REQUIRED_CODE = "AUTOFILL_REASON_REQUIRED"
 _SEARCH = frozenset(
     {"missing_skill", "too_junior", "other_level_or_role", "location_mode", "language"}
 )
-_DATA = frozenset({"outdated_cv", "profile_mismatch"})
-_PERSON = frozenset({"not_looking", "no_answer", "in_other_process"})
+# „Pracuje u klienta” (często przez inną firmę, bez śladu w CV) = system nie
+# miał danych; „Nie chce do klienta” = sprawa osoby (27.10.2026).
+_DATA = frozenset({"outdated_cv", "profile_mismatch", "client_employed"})
+_PERSON = frozenset({"not_looking", "no_answer", "in_other_process", "client_refused"})
+# Powody, które mogą dotyczyć osoby u całego klienta (`whole_client`).
+CLIENT_WIDE_REASONS = frozenset({"client_employed", "client_refused"})
 # Kolumny, w których decyzja o osobie od systemu jeszcze trwa.
 DECISION_COLUMNS = candidate_claim.CLAIM_COLUMNS
 
@@ -53,6 +57,8 @@ REASON_LABELS: dict[str, str] = {
     "not_looking": "Nie szuka pracy",
     "no_answer": "Nie odbiera (3 próby)",
     "in_other_process": "Już u nas w innym procesie",
+    "client_employed": "Pracuje u tego klienta (też przez inną firmę)",
+    "client_refused": "Nie chce do tego klienta",
     "other": "Inne",
 }
 assert set(REASON_LABELS) == set(REASONS)
@@ -146,6 +152,7 @@ async def record(
     rate_hourly: Optional[Decimal],
     note: Optional[str],
     actor_id: Optional[int],
+    whole_client: bool = False,
 ) -> AutofillFeedback:
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
@@ -162,6 +169,7 @@ async def record(
         rate_hourly=rate_hourly,
         note=(note or "").strip()[:500] or None,
         snapshot=snapshot,
+        whole_client=bool(whole_client) and reason in CLIENT_WIDE_REASONS,
         created_by=actor_id,
     )
     db.add(row)

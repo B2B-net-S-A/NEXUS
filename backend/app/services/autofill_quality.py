@@ -272,6 +272,8 @@ _RULE_FIX = {
     "not_looking": "Pomijać osoby odrzucone z „Nie szuka pracy” przez 90 dni w każdej rekrutacji.",
     "no_answer": "Nie dokładać ponownie osób, które trzy razy nie odebrały, przez 30 dni.",
     "in_other_process": "Pomijać w dopełnianiu osoby w toku w innej rekrutacji od „Zweryfikowanego”.",
+    "client_employed": "Prosić rekruterów o zaznaczanie „cały klient” i dopisywać pośredników klienta do aliasów, żeby bramka off-limits łapała pracę przez inną firmę.",
+    "client_refused": "Zaznaczać „cały klient” przy odmowie — system nie podsunie tej osoby żadnej rekrutacji tego klienta.",
 }
 
 

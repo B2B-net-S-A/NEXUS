@@ -43,6 +43,7 @@ import {
  parseRateInput,
 } from "@/components/v2/modals/AutofillFeedbackField";
 import {
+ CLIENT_WIDE_REASONS,
  autofillReasonLabel,
  templateReasonFor,
  type AutofillFeedbackChoice,
@@ -253,6 +254,9 @@ export function RejectionV2({
  const [autofillLearnedFrom, setAutofillLearnedFrom] = useState<AutofillLearnedFrom | null>(null);
  const [autofillReason, setAutofillReason] = useState<AutofillReason | null>(null);
  const [autofillRate, setAutofillRate] = useState("");
+ // 27.10.2026: „Pracuje u tego klienta” / „Nie chce do tego klienta” —
+ // domyślnie na cały klient.
+ const [autofillWholeClient, setAutofillWholeClient] = useState(true);
 
  // Reset defaults when modal re-opens (e.g. user bails, opens again).
  useEffect(() => {
@@ -272,6 +276,7 @@ export function RejectionV2({
  setAutofillLearnedFrom(null);
  setAutofillReason(null);
  setAutofillRate("");
+ setAutofillWholeClient(true);
  }
  }, [open, initialEndedBy]);
  const endedByValue: EndedBy = terminalType === "withdrawn" ? "candidate" : endedBy;
@@ -319,6 +324,9 @@ export function RejectionV2({
  autofillReason === "too_expensive" && !autofill?.several && !rateReason
  ? parseRateInput(autofillRate)
  : null,
+ ...(CLIENT_WIDE_REASONS.has(autofillReason) && !autofill?.several
+ ? { wholeClient: autofillWholeClient }
+ : {}),
  }
  : null;
  const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
@@ -448,6 +456,8 @@ export function RejectionV2({
  rateKnown={autofill.rateKnown}
  several={autofill.several}
  askRate={!rateReason}
+ wholeClient={autofillWholeClient}
+ onWholeClientChange={setAutofillWholeClient}
  >
  {workModeReason ? (
  <RejectionWorkModeField

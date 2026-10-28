@@ -4,7 +4,17 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    false,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +43,10 @@ class AutofillFeedback(Base):
     rate_hourly: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
     note: Mapped[Optional[str]] = mapped_column(String(500))
     snapshot: Mapped[Optional[dict]] = mapped_column(JSONB)
+    # 0606: powód „klient” dotyczy wszystkich rekrutacji tego klienta.
+    whole_client: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
