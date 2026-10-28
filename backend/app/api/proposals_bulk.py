@@ -332,8 +332,9 @@ def _is_entry_column(stage_def: PipelineStageDef) -> bool:
     ruchu — QC CV, stawkę DL, osobę od Cpro, debrief — które sprawdza wyłącznie
     ``POST /api/pipeline/move``. Bulk-add na taki etap omijał je wszystkie
     (przegląd PR #1836, bliźniak poprawki „para bez wierszy liczy od Nowi”).
-    Reguła żyje w ``board_stage_badges.is_entry_column`` — czyta ją też
-    wtyczka LinkedIn (``/api/candidates/from-linkedin``).
+    Reguła żyje w ``board_stage_badges.is_entry_column``. Wtyczka LinkedIn
+    (``/api/extension/candidates``) wybiera stałe wejście „Nowi” i nie
+    przyjmuje etapu od klienta.
     """
     from app.services.board_stage_badges import is_entry_column
 

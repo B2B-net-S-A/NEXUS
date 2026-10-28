@@ -326,7 +326,7 @@ async def ensure_job_membership(
         )
         # `priority_compliant_at_open IS TRUE` jest tu OBOWIĄZKOWE: samo
         # ownership otwartego procesu jest SAMONADAWALNE. Ingresy, które proces
-        # otwierają (np. POST /api/candidates/from-linkedin), tej bramki nie
+        # otwierają (np. POST /api/extension/candidates), tej bramki nie
         # wołają, a w trybie shadow polityka wpuszcza otwarcie bez assignmentu
         # (allowed=True), ustawia wołającego właścicielem i zapisuje naruszenie
         # jako `priority_compliant_at_open=False`. Bez tego warunku jedno takie
