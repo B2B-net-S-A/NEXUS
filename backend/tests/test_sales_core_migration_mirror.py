@@ -14,6 +14,7 @@ from pathlib import Path
 from app.models.sales import (
     SalesActivity,
     SalesCompany,
+    SalesCompanyContact,
     SalesContact,
     SalesFile,
     SalesLead,
@@ -36,11 +37,23 @@ MODELS = {
     "sales_activities": SalesActivity,
     "sales_files": SalesFile,
     "sales_leads": SalesLead,
+    "sales_company_contacts": SalesCompanyContact,
 }
 
 
+def _added_columns(table: str) -> set[str]:
+    """Kolumny dołożone przez ``ALTER TABLE … ADD COLUMN`` (0611)."""
+    return {
+        match.group(1)
+        for statement in schema.GAPS_DDL
+        for match in re.finditer(
+            rf"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS (\w+)", statement
+        )
+    }
+
+
 def _ddl_for(table: str) -> str:
-    for ddl in (*schema.TABLE_DDL, *schema.LEAD_TABLE_DDL):
+    for ddl in (*schema.TABLE_DDL, *schema.LEAD_TABLE_DDL, *schema.GAPS_DDL):
         if f"CREATE TABLE IF NOT EXISTS {table} (" in ddl:
             return ddl
     raise AssertionError(table)
@@ -52,8 +65,11 @@ def test_migration_reads_the_shared_module() -> None:
     assert "for stmt in schema.ALL_DDL:" in source
     leads = (ROOT / "alembic/versions/0602_sales_leads.py").read_text(encoding="utf-8")
     assert "for stmt in schema.LEADS_DDL:" in leads
+    gaps = (ROOT / "alembic/versions/0611_sales_atlas_gaps.py").read_text(encoding="utf-8")
+    assert "for stmt in schema.GAPS_DDL:" in gaps
     entry = (ROOT / "entrypoint.sh").read_text(encoding="utf-8")
     assert "*_sales_schema.LEADS_DDL," in entry
+    assert "*_sales_schema.GAPS_DDL," in entry
 
 
 def test_entrypoint_splices_tables_before_data() -> None:
@@ -67,13 +83,14 @@ def test_entrypoint_splices_tables_before_data() -> None:
 
 
 def test_models_match_migration_columns_and_constraints() -> None:
-    assert set(MODELS) == {*schema.TABLES, "sales_leads"}
+    assert set(MODELS) == {*schema.TABLES, "sales_leads", "sales_company_contacts"}
     for table, model in MODELS.items():
         ddl = _ddl_for(table)
         declared = {
             match.group(1)
             for match in re.finditer(r"^\s+([a-z_0-9]+) [A-Z]", ddl, re.MULTILINE)
         }
+        declared |= _added_columns(table)
         assert set(model.__table__.columns.keys()) == declared, table
         named = {
             constraint.name
@@ -82,7 +99,8 @@ def test_models_match_migration_columns_and_constraints() -> None:
         }
         in_ddl = set(re.findall(r"CONSTRAINT (\w+)", ddl))
         assert in_ddl <= named, (table, in_ddl - named)
-    for statement in (*schema.INDEX_DDL, *schema.LEAD_INDEX_DDL):
+    gap_indexes = tuple(s for s in schema.GAPS_DDL if s.startswith("CREATE INDEX"))
+    for statement in (*schema.INDEX_DDL, *schema.LEAD_INDEX_DDL, *gap_indexes):
         name = re.search(r"IF NOT EXISTS (\w+)", statement).group(1)
         assert any(
             index.name == name

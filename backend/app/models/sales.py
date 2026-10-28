@@ -113,6 +113,11 @@ class SalesCompany(Base, TimestampMixin):
         Index("ix_sales_companies_parent", "parent_company_id"),
         Index("ix_sales_companies_owner", "owner_user_id"),
         Index(
+            "ix_sales_companies_owner_label",
+            "owner_label",
+            postgresql_where=text("owner_label IS NOT NULL"),
+        ),
+        Index(
             "ux_sales_companies_client",
             "client_id",
             unique=True,
@@ -425,14 +430,17 @@ class SalesCompanyContact(Base):
 
     __tablename__ = "sales_company_contacts"
     __table_args__ = (
+        PrimaryKeyConstraint(
+            "company_id", "contact_id", name="pk_sales_company_contacts"
+        ),
         Index("ix_sales_company_contacts_contact", "contact_id"),
     )
 
     company_id: Mapped[int] = mapped_column(
-        ForeignKey("sales_companies.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("sales_companies.id", ondelete="CASCADE")
     )
     contact_id: Mapped[int] = mapped_column(
-        ForeignKey("sales_contacts.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("sales_contacts.id", ondelete="CASCADE")
     )
     role: Mapped[Optional[str]] = mapped_column(String(60))
     title: Mapped[Optional[str]] = mapped_column(String(255))
