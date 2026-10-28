@@ -30,7 +30,9 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional
 
 from sqlalchemy import ColumnElement, func, select, text, tuple_
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import NoInspectionAvailable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
@@ -74,11 +76,47 @@ from app.services.recommendation_card_rules import (  # noqa: F401 — jedno wej
 )
 
 
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def _loaded(process: object, name: str) -> Any:
+    """Atrybut procesu bez dociągania z bazy (świeży obiekt go jeszcze nie ma)."""
+    try:
+        state = sa_inspect(process)
+    except NoInspectionAvailable:
+        return getattr(process, name, None)
+    if name in state.unloaded:
+        return None
+    return getattr(process, name, None)
+
+
 def attempt_started(process: object) -> Optional[datetime]:
-    """Początek bieżącej próby procesu — tylko gdy osoba wróciła do rekrutacji."""
+    """Początek bieżącej próby procesu — tylko gdy osoba wróciła do rekrutacji.
+
+    Powrót nie później niż 30 dni po zamknięciu poprzedniej próby
+    (``SCREENING_REOPEN_GRACE``, to samo okno co arkusz w ``screening_window``)
+    to ta sama rozmowa: liczy się od początku poprzedniej próby (28.10.2026,
+    zgłoszenie z rekrutacji 789148 — karta po ponownym dodaniu szła do klienta
+    pusta, choć odpowiedzi przeszły).
+    """
+    from app.services.recruitment_process_commands import (  # noqa: PLC0415 — cykl importów
+        SCREENING_REOPEN_GRACE,
+    )
+
     if process is None or (getattr(process, "attempt_no", None) or 1) <= 1:
         return None
-    return getattr(process, "opened_at", None) or getattr(process, "created_at", None)
+    started = getattr(process, "opened_at", None) or getattr(
+        process, "created_at", None
+    )
+    previous_closed = _loaded(process, "previous_closed_at")
+    if (
+        started is not None
+        and previous_closed is not None
+        and _aware(started) - _aware(previous_closed) <= SCREENING_REOPEN_GRACE
+    ):
+        return _loaded(process, "previous_opened_at")
+    return started
 
 
 STAGE_RATE_MARK = {"raw": "stawka z etapu"}

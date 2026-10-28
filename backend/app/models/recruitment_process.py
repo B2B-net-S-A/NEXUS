@@ -37,10 +37,12 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    case,
+    select,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
@@ -217,3 +219,25 @@ class RecruitmentProcess(Base, TimestampMixin):
             f"<RecruitmentProcess cand={self.candidate_id} job={self.job_id} "
             f"attempt={self.attempt_no} status={self.status.value}>"
         )
+
+
+# Poprzednia próba pary, wczytywana razem z procesem (28.10.2026). Powrót
+# osoby nie później niż 30 dni po zamknięciu poprzedniej próby to ta sama
+# rozmowa — pola karty z tamtej próby liczą się dalej
+# (``recommendation_cards.attempt_started``). Bez osobnej kolumny: decyduje
+# ``previous_process_id``, więc reguła działa też dla par sprzed zmiany.
+_processes = RecruitmentProcess.__table__
+_previous = _processes.alias("previous_process")
+RecruitmentProcess.previous_closed_at = column_property(
+    select(_previous.c.closed_at)
+    .where(_previous.c.id == _processes.c.previous_process_id)
+    .correlate_except(_previous)
+    .scalar_subquery()
+)
+# Początek poprzedniej próby, gdy sama była powrotem; ``None`` = próba 1.
+RecruitmentProcess.previous_opened_at = column_property(
+    select(case((_previous.c.attempt_no > 1, _previous.c.opened_at), else_=None))
+    .where(_previous.c.id == _processes.c.previous_process_id)
+    .correlate_except(_previous)
+    .scalar_subquery()
+)
