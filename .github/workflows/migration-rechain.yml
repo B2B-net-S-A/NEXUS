@@ -57,13 +57,24 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      # Niepusty sekret to za mało: 22.10.2026 PAT wygasł, API odpowiadało
+      # 401 Bad credentials, a checkout padał na „could not read Username”
+      # — 20 czerwonych biegów bez słowa o tokenie. Pytamy więc API.
       - name: Sprawdź token
         id: token
         env:
-          QUEUE_BOT_TOKEN: ${{ secrets.QUEUE_BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.QUEUE_BOT_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ -z "$QUEUE_BOT_TOKEN" ]; then
-            echo "::warning::Brak sekretu QUEUE_BOT_TOKEN — migracje PR-ów nie zostaną przepięte. Przepnij ręcznie: python3 backend/scripts/rechain_migration.py"
+          manual="Przepnij ręcznie: python3 backend/scripts/rechain_migration.py"
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Brak sekretu QUEUE_BOT_TOKEN — migracje PR-ów nie zostaną przepięte. $manual"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          elif ! push=$(gh api "repos/$REPO" --jq '.permissions.push' 2>&1); then
+            echo "::warning::QUEUE_BOT_TOKEN odrzucony przez GitHub ($push) — PAT wygasł albo został cofnięty; nowy: Settings → Secrets and variables → Actions → QUEUE_BOT_TOKEN. $manual"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          elif [ "$push" != "true" ]; then
+            echo "::warning::QUEUE_BOT_TOKEN nie ma prawa zapisu do $REPO (Contents: Read and write) — migracje PR-ów nie zostaną przepięte. $manual"
             echo "ok=false" >> "$GITHUB_OUTPUT"
           else
             echo "ok=true" >> "$GITHUB_OUTPUT"

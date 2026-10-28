@@ -934,3 +934,21 @@ def test_coolify_deploy_webhook_is_called_with_post() -> None:
         assert calls, name
         for call in calls:
             assert "-X POST" in call and "-X GET" not in call, (name, call)
+
+
+def test_migration_rechain_probes_the_token_before_checkout() -> None:
+    """22–28.10.2026: `QUEUE_BOT_TOKEN` wygasł (API: 401 Bad credentials), krok
+    „Sprawdź token” patrzył tylko, czy sekret jest niepusty, a checkout z tym
+    tokenem padał na `could not read Username` — 20 czerwonych biegów bez
+    słowa o tokenie, #2724 i #2741 przepinane ręcznie."""
+    steps = _load("migration-rechain.yml")["jobs"]["rechain"]["steps"]
+    token = _step(steps, "Sprawdź token")
+    run = token["run"]
+    assert token["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
+    assert 'gh api "repos/$REPO"' in run, "Token trzeba sprawdzić w API, nie tylko -z."
+    assert ".permissions.push" in run, "PAT bez Contents: write i tak nie wypchnie."
+    assert "ok=false" in run and "::warning::" in run
+    assert "exit 1" not in run, "Zły token = ostrzeżenie, nie czerwony bieg."
+    assert steps.index(token) == 0
+    for step in steps[1:]:
+        assert step.get("if") == "steps.token.outputs.ok == 'true'", step.get("name")
