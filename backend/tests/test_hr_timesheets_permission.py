@@ -1,4 +1,4 @@
-"""Uprawnienie „Raporty godzin” (0611, 28.10.2026): akceptacja timesheetów
+"""Uprawnienie „Raporty godzin” (0612, 28.10.2026): akceptacja timesheetów
 całej firmy bez reszty „Kadr” — katalog, migracja, CHECK i reguły akceptującego."""
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from app.services import permission_schema
 from app.services.hr.time_access import Actor
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "alembic/versions/0611_timesheets_permission.py"
+MIGRATION = ROOT / "alembic/versions/0612_timesheets_permission.py"
 
 ME = 7
 MY_REPORT = 8

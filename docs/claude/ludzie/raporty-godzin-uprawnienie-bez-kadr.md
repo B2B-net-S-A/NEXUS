@@ -13,7 +13,7 @@ Makiety i zrzuty: https://claude.ai/artifact/VkHnhBQM4RGSYGYJ4zro4p.
 
 - **Katalog:** `timesheets`, „Raporty godzin: akceptacja całej firmy”, w grupie
   „Ludzie”, ale na końcu `PERMISSIONS` (siatka przy starcie sprawdza ostatni
-  zasiewany klucz). Domyślnie ma je tylko admin. Migracja `0611`, CHECK akcji
+  zasiewany klucz). Domyślnie ma je tylko admin. Migracja `0612`, CHECK akcji
   w `entrypoint.sh`.
 - **Co daje** (`time_access.Actor.timesheets`): `approves_everyone`, czyli
   kolejka, podgląd, akceptacja, zwrot, cofnięcie, poprawka wpisu i
