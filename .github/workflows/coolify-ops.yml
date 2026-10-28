@@ -98,9 +98,9 @@ on:
       atlas_import_mode:
         # Wybór z listy, nie tekst: tryb przekłada się na flagi skryptu
         # zaszyte w jobie `atlas`, więc operator nie wnosi nic do komendy.
-        description: "Import Atlasa (action=atlas-import): najpierw dry-run, potem apply; pliki po danych"
+        description: "Import Atlasa (action=atlas-import): dry-run, apply, potem pliki; verify = tylko liczniki NEXUSA"
         type: choice
-        options: [dry-run, apply, files-dry-run, files-apply]
+        options: [dry-run, apply, files-dry-run, files-apply, verify]
         default: dry-run
       receipt_key:
         # Ta sama zasada co przy `client_like`: allowlista znaków, zero
@@ -1010,6 +1010,9 @@ jobs:
       SENTINEL: ===NEXUS-ATLAS-IMPORT-END===
       MODE: ${{ inputs.atlas_import_mode }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
       - name: Import
         id: atlas
         run: |
@@ -1022,6 +1025,7 @@ jobs:
             apply) FLAGS="--apply";;
             files-dry-run) FLAGS="--files";;
             files-apply) FLAGS="--files --apply";;
+            verify) FLAGS="--counts-only";;
             *) echo "::error::nieznany atlas_import_mode"; exit 1;;
           esac
           LOCK="/tmp/nexus-atlas-import-${GITHUB_RUN_ID}"
@@ -1076,11 +1080,10 @@ jobs:
             echo "::error::brak wyniku importu w 65 minut — proces w kontenerze moze dalej biec; NIE odpalaj apply ponownie, dopoki nie sprawdzisz panelu Coolify"
             exit 1
           fi
-          echo ""
-          echo "$msg"
-          case "$msg" in
-            *'"error"'*) echo "::error::import zakonczyl sie bledem (typ wyzej; traceback w ${LOCK}/error.log w kontenerze)"; exit 1;;
-          esac
+          # Sam sentinel nie oznacza sukcesu: CLI mogło zakończyć się kodem 2
+          # albo SystemExit. Drukujemy tylko poprawny JSON z licznikami lub typ
+          # wyjątku, nigdy surową treść wykonania z Coolify.
+          printf '%s' "$msg" | python3 .github/scripts/atlas_import_report.py
 
       # Kasacja przy KAŻDYM wyniku — zostawiony cron chodziłby co minutę.
       - name: Skasuj zadanie jednorazowe
