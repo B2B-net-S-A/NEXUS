@@ -7,6 +7,8 @@
 * Import Finansów nie nadpisuje ręcznego wpisu za ten sam miesiąc (decyzja
   Artura 21.10.2026) — wiersz arkusza dostaje ``manual_kept``.
 * Każda liczba zakładki jest kwotą: bez dostępu do finansów 403.
+* „Brak zejścia” tylko za miesiąc, w którym osoba pracowała — nie dla osoby
+  dopisanej od listopada przy imporcie za wrzesień (ticket 28.10.2026).
 
 Nazwiska, numery i kwoty są zmyślone (repo jest publiczne).
 """
@@ -49,6 +51,39 @@ def test_format_pln_is_polish():
     assert format_pln(Decimal("1540.000")) == "1 540,00 zł"
     assert format_pln(36310) == "36 310,00 zł"
     assert format_pln("0") == "0,00 zł"
+
+
+def test_worked_in_month_needs_a_day_of_work_in_that_month():
+    from datetime import date
+    from types import SimpleNamespace
+
+    from app.api.client_order_groups import _line_worked_in_month
+    from app.models.client_order import ClientOrderStatus
+
+    group = SimpleNamespace(start_date=date(2026, 7, 22), end_date=None)
+
+    def line(start=None, end=None, status=ClientOrderStatus.active):
+        return SimpleNamespace(start_date=start, end_date=end, status=status)
+
+    # Zgłoszenie: dopisany od 02.11, ostatni import za wrzesień.
+    assert not _line_worked_in_month(line(date(2026, 11, 2)), group, "2026-09")
+    assert _line_worked_in_month(line(date(2026, 11, 2)), group, "2026-11")
+    # Skończył 31.08 — za wrzesień nie ma czego zejść.
+    assert not _line_worked_in_month(
+        line(date(2026, 6, 1), date(2026, 8, 31)), group, "2026-09"
+    )
+    # Jeden dzień miesiąca wystarczy z obu stron.
+    assert _line_worked_in_month(line(date(2026, 9, 30)), group, "2026-09")
+    assert _line_worked_in_month(
+        line(date(2026, 6, 1), date(2026, 9, 1)), group, "2026-09"
+    )
+    # Bez własnych dat liczą się daty zamówienia.
+    assert _line_worked_in_month(line(), group, "2026-09")
+    assert not _line_worked_in_month(line(), group, "2026-06")
+    for status in (ClientOrderStatus.draft, ClientOrderStatus.cancelled):
+        assert not _line_worked_in_month(
+            line(date(2026, 1, 1), status=status), group, "2026-09"
+        )
 
 
 # ── Testy z bazą ────────────────────────────────────────────────────────────
@@ -158,6 +193,43 @@ async def test_manual_entry_takes_from_the_shared_budget_and_clears_missing_mont
     )
     assert history.status_code == 200, history.text
     assert "23 500,00 zł" in history.text
+
+
+@pytest.mark.asyncio
+async def test_person_starting_after_the_imported_month_has_no_missing_month(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from datetime import timedelta
+
+    from app.core.scheduling import business_today
+
+    client_id, contracts, _names = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    number = _number()
+    next_month = (business_today().replace(day=1) + timedelta(days=32)).replace(day=2)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [
+            _cost_line(contracts[0]),
+            _cost_line(contracts[1], start_date=next_month.isoformat()),
+        ],
+        order_number=number,
+        is_cost_based=True,
+        budget_amount=60000,
+    )
+    by_contract = {line["contract_id"]: line["id"] for line in group["lines"]}
+    finance = await _finance_headers(app_client)
+    await _import_sheet(
+        app_client, finance, _sheet([("Osoba Spoza Zamowienia", 0, "450-inne", 900)])
+    )
+
+    row = await _group_row(app_client, app_auth_headers, client_id, group["id"])
+    flags = {line["id"]: line["missing_consumption_month"] for line in row["lines"]}
+    assert flags[by_contract[contracts[0]]] == _period()
+    assert flags[by_contract[contracts[1]]] is None
 
 
 @pytest.mark.asyncio

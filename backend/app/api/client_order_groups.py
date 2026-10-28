@@ -1286,8 +1286,13 @@ async def _group_to_read(
                 )
             )
             with_month = {oid for (oid,) in settled_rows}
+            # Osoba, która w tym miesiącu jeszcze nie pracowała (start 02.11
+            # przy imporcie za wrzesień) albo już skończyła, nie ma czego
+            # zejść — komunikat domagał się od niej faktury (ticket 28.10.2026).
             for line in lines:
-                if line.id not in with_month:
+                if line.id not in with_month and _line_worked_in_month(
+                    line, group, latest_import_month
+                ):
                     missing_month[line.id] = latest_import_month
 
     # Kwoty grupy i sumy zafakturowane są po TEJ SAMEJ stronie linii co stawki
@@ -1524,6 +1529,22 @@ def _previous_month(today: date) -> str:
     return f"{first.year:04d}-{first.month:02d}"
 
 
+def _line_worked_in_month(
+    line: ClientOrder, group: ClientOrderGroup, period_month: str
+) -> bool:
+    """Czy osoba była na zamówieniu choć jeden dzień miesiąca ``RRRR-MM``.
+
+    Jedna definicja dla „Brak zejścia za {miesiąc}” (kosztowe) i ostrzeżenia
+    przycisku „Zużycie MD” — brak zejścia ma sens tylko za miesiąc pracy.
+    """
+    if line.status in (ClientOrderStatus.draft, ClientOrderStatus.cancelled):
+        return False
+    month_start, month_end = month_bounds(period_month)
+    start = line.start_date or group.start_date
+    end = line.end_date or group.end_date
+    return (start is None or start <= month_end) and (end is None or end >= month_start)
+
+
 async def _apply_consumption_signals(
     db: AsyncSession,
     group: ClientOrderGroup,
@@ -1543,7 +1564,6 @@ async def _apply_consumption_signals(
         return
     today = business_today()
     previous = _previous_month(today)
-    prev_start, prev_end = month_bounds(previous)
     previous_imported = (
         await db.scalar(
             select(MdConsumptionImport.id)
@@ -1596,17 +1616,9 @@ async def _apply_consumption_signals(
         flags: list[str] = []
         if line.md_remaining is not None and Decimal(str(line.md_remaining)) < 0:
             flags.append("negative_balance")
-        start = line.start_date or group.start_date
-        end = line.end_date or group.end_date
-        worked_previous = (
-            line.status != ClientOrderStatus.draft
-            and line.status != ClientOrderStatus.cancelled
-            and (start is None or start <= prev_end)
-            and (end is None or end >= prev_start)
-        )
         if (
             previous_imported
-            and worked_previous
+            and _line_worked_in_month(line, group, previous)
             and not any(c.period_month == previous for c in consumptions)
         ):
             flags.append("missing_previous_month")
