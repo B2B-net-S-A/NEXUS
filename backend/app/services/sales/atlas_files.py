@@ -91,11 +91,16 @@ async def copy_attachments(
         if owner_id is None:
             report.add("files_skipped_owner_not_imported")
             continue
+        storage_path = str(row["storage_path"])
+        if storage_path.startswith("pipedrive://files/"):
+            # Historyczny import Atlasa zachował tu odwołanie, bez bajtów pliku.
+            report.add("files_external_reference")
+            continue
         if dry_run:
             # Na sucho: bez pobierania i bez zapisu na dysk — same liczby.
             report.add("files_would_copy")
             continue
-        data = await fetch(bucket, str(row["storage_path"]))
+        data = await fetch(bucket, storage_path)
         if data is None:
             report.add("files_missing_in_storage")
             continue

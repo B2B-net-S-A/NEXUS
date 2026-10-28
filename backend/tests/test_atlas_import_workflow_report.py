@@ -185,6 +185,30 @@ class AtlasImportWorkflowReportTests(unittest.TestCase):
             ):
                 self.validate(payload, mode)
 
+    def test_external_file_references_are_valid_only_in_both_file_modes(self):
+        for mode, applied in (("files-dry-run", False), ("files-apply", True)):
+            payload = {"applied": applied, "files_external_reference": 5909}
+            with self.subTest(mode=mode):
+                self.assertEqual(self.validate(payload, mode), payload)
+        for mode, applied in (("dry-run", False), ("apply", True)):
+            with (
+                self.subTest(mode=mode),
+                self.assertRaises(reporter.ReportValidationError),
+            ):
+                self.validate(
+                    {"applied": applied, **DATA, "files_external_reference": 5909},
+                    mode,
+                )
+        with self.assertRaises(reporter.ReportValidationError):
+            self.validate(
+                {
+                    "applied": False,
+                    "mode": "counts-only",
+                    "counts": {**COUNTS, "files_external_reference": 5909},
+                },
+                "verify",
+            )
+
     def test_verify_requires_exact_six_tables_and_counts_only_mode(self):
         base = {"applied": False, "mode": "counts-only", "counts": COUNTS}
         for missing in COUNTS:

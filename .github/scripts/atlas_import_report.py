@@ -46,6 +46,7 @@ IMPORT_COUNTS = IMPORT_COUNTS_REQUIRED | {
 }
 FILE_COUNTS_COMMON = {
     "files_already_copied",
+    "files_external_reference",
     "files_skipped_owner_not_imported",
 }
 FILE_COUNTS_BY_MODE = {

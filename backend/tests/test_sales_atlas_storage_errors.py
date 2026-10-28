@@ -248,6 +248,70 @@ class AtlasAttachmentCopyTests(unittest.IsolatedAsyncioTestCase):
         self.db.add.assert_not_called()
         self.db.commit.assert_not_awaited()
 
+    async def test_legacy_external_reference_is_counted_without_download_or_fake_file(
+        self,
+    ):
+        self.row["storage_path"] = "pipedrive://files/synthetic-legacy-id"
+        fetch = AsyncMock(
+            side_effect=AssertionError("external reference must not download")
+        )
+        for dry_run in (True, False):
+            for owner in ("company", "deal"):
+                with self.subTest(dry_run=dry_run, owner=owner):
+                    row = {**self.row, "deal_id": "synthetic-deal"}
+                    report = await self.service.copy_attachments(
+                        self.db,
+                        company_attachments=[row] if owner == "company" else [],
+                        deal_attachments=[row] if owner == "deal" else [],
+                        fetch=fetch,
+                        users_by_email={},
+                        dry_run=dry_run,
+                    )
+                    self.assertEqual(report.as_dict(), {"files_external_reference": 1})
+        fetch.assert_not_awaited()
+        self.storage.save_sales_file.assert_not_called()
+        self.db.add.assert_not_called()
+        self.db.flush.assert_not_awaited()
+        self.db.commit.assert_not_awaited()
+
+    async def test_external_reference_without_imported_owner_keeps_owner_skip_precedence(
+        self,
+    ):
+        self.row["storage_path"] = "pipedrive://files/synthetic-legacy-id"
+        self.service._ids = AsyncMock(return_value={})
+        fetch = AsyncMock(side_effect=AssertionError("orphan must not download"))
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run):
+                report = await self.copy(fetch, dry_run=dry_run)
+                self.assertEqual(
+                    report.as_dict(), {"files_skipped_owner_not_imported": 1}
+                )
+        fetch.assert_not_awaited()
+        self.storage.save_sales_file.assert_not_called()
+        self.db.add.assert_not_called()
+        self.db.flush.assert_not_awaited()
+        self.db.commit.assert_not_awaited()
+
+    async def test_already_imported_external_reference_is_counted_once_as_already_copied(
+        self,
+    ):
+        self.row["storage_path"] = "pipedrive://files/synthetic-legacy-id"
+        self.db.execute = AsyncMock(
+            return_value=SimpleNamespace(
+                scalars=lambda: ["atlas:company_attachments:synthetic-attachment"]
+            )
+        )
+        fetch = AsyncMock(side_effect=AssertionError("existing file must not download"))
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run):
+                report = await self.copy(fetch, dry_run=dry_run)
+                self.assertEqual(report.as_dict(), {"files_already_copied": 1})
+        fetch.assert_not_awaited()
+        self.storage.save_sales_file.assert_not_called()
+        self.db.add.assert_not_called()
+        self.db.flush.assert_not_awaited()
+        self.db.commit.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()
