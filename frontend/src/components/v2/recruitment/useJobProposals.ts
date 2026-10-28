@@ -108,6 +108,16 @@ interface AddGroup {
   runId: string | null;
 }
 
+/** Po jednej osobie w kolejności wołającego („Oceń z AI”, 28.10.2026). */
+function oneByOneInOrder(groups: readonly AddGroup[], candidateIds: readonly number[]): AddGroup[] {
+  const groupOf = new Map<number, AddGroup>();
+  for (const group of groups) for (const id of group.ids) groupOf.set(id, group);
+  return candidateIds.flatMap((id) => {
+    const group = groupOf.get(id);
+    return group ? [{ ...group, ids: [id] }] : [];
+  });
+}
+
 /**
  * Telemetria dopasowań: `source` i `run_id` wynikają z POCHODZENIA wiersza,
  * nigdy z domysłu. Pierwszeństwo: żywy przegląd użytkownika → skrzynka
@@ -401,20 +411,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     mutationFn: async ({ candidateIds, opts }: { candidateIds: number[]; opts: AddToJobOptions }) => {
       if (readOnly) throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
       const picked = candidateIds.flatMap((id) => entryById.get(id) ?? []);
-      const unlistedSource = opts.unlistedSource ?? null;
-      const unlistedGroup = (ids: number[]): AddGroup => ({ ids, source: unlistedSource, runId: null });
-      let groups: AddGroup[];
-      if (opts.oneByOne) {
-        groups = candidateIds.flatMap((id) => {
-          const entry = entryById.get(id);
-          if (entry) return groupAddsByOrigin([entry], autoRunId);
-          return unlistedSource ? [unlistedGroup([id])] : [];
-        });
-      } else {
-        const unlisted = unlistedSource ? candidateIds.filter((id) => !entryById.has(id)) : [];
-        groups = groupAddsByOrigin(picked, autoRunId);
-        if (unlisted.length > 0) groups.push(unlistedGroup(unlisted));
-      }
+      const unlisted = opts.unlistedSource ? candidateIds.filter((id) => !entryById.has(id)) : [];
+      const groups = groupAddsByOrigin(picked, autoRunId);
+      if (unlisted.length > 0) groups.push({ ids: unlisted, source: opts.unlistedSource ?? null, runId: null });
+      if (opts.oneByOne) groups.splice(0, groups.length, ...oneByOneInOrder(groups, candidateIds));
       const parts: BulkProposalsResponse[] = [];
       for (const group of groups) {
         const body: BulkProposalsRequest = { candidate_ids: group.ids };
