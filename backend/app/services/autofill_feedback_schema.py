@@ -31,7 +31,7 @@ REASONS: tuple[str, ...] = (
     # w Nordei przez inną firmę” albo „nie chce do Nordei”.
     "client_employed",
     "client_refused",
-    # Runda 3 (0615, 28.10.2026): 6 z 10 „Inne” to te trzy sprawy.
+    # Runda 3 (0616, 28.10.2026): 6 z 10 „Inne” to te trzy sprawy.
     "overqualified",
     "wrong_phone",
     "client_other_vendor",
@@ -47,7 +47,7 @@ def _in(values: tuple[str, ...]) -> str:
 
 # Więz powodów ma JEDNĄ definicję — tu; entrypoint wykonuje cały
 # ``TABLE_DDL`` przy każdym starcie, więc DROP + ADD zawsze kończy się pełną
-# listą (0606, 0615).
+# listą (0606, 0616).
 REASON_CHECK_DDL: list[str] = [
     "ALTER TABLE autofill_feedback DROP CONSTRAINT IF EXISTS ck_autofill_feedback_reason",
     f"ALTER TABLE autofill_feedback ADD CONSTRAINT ck_autofill_feedback_reason "

@@ -466,7 +466,7 @@ async def test_move_with_whole_client_withdraws_the_other_card(api_client, monke
     assert second_id not in await _open_system_jobs(world["system"])
 
 
-# ── Runda 3 (28.10.2026, 0615): nowe powody i „Nie szuka pracy” z datą ──────
+# ── Runda 3 (28.10.2026, 0616): nowe powody i „Nie szuka pracy” z datą ──────
 # Analiza 44 odrzuceń: 9 to „Nie szuka pracy”, a żadna z 12 takich osób nie
 # miała tego w profilu i 5 z nich czekało w 9 „Nowych” innych rekrutacji;
 # 6 z 10 „Inne” to overqualified, błędny numer, zgłoszenie przez inną firmę.
